@@ -51,13 +51,25 @@ defmodule Ryker.MigrationCase do
   @spec in_scratch_schema(String.t(), (module(), String.t() -> result)) :: result
         when result: term()
   def in_scratch_schema(name, fun) when is_binary(name) and is_function(fun, 2) do
+    prefix = "#{name}_#{System.unique_integer([:positive])}"
+
+    # A deployment migrates the schema its connections search. The scratch
+    # repo searches the scratch schema first the same way, so a migration's
+    # unqualified SQL changes the scratch tables, not the shared ones in
+    # `public` it changed before (2026-10-07).
+    search_path = prefix <> ", public"
+
     config =
       Ryker.Repo.config()
       |> Keyword.put(:pool, DBConnection.ConnectionPool)
       |> Keyword.put(:pool_size, 2)
+      |> Keyword.update(
+        :parameters,
+        [search_path: search_path],
+        &Keyword.put(&1, :search_path, search_path)
+      )
 
     start_supervised!({ScratchRepo, config})
-    prefix = "#{name}_#{System.unique_integer([:positive])}"
     SQL.query!(ScratchRepo, "CREATE SCHEMA #{prefix}", [])
 
     try do

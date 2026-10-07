@@ -5,10 +5,11 @@ defmodule Ryker.QueryWork do
   `statements/1` records the statements a function sends from the calling
   process. `rows_read/2` and `most_rows_read/2` run them again under
   `EXPLAIN ANALYZE` and count the rows their scans of one table produced or
-  filtered away, over every loop. Sequential scans are off while they do, so
-  the plan is the one the table gets once it holds more than a test's few
-  rows. A test holds a page to the rows it shows this way, which a timing
-  could not do on a loaded machine.
+  filtered away, over every loop. Sequential scans are off while they do, and
+  every table the statement names reads as newly created, so the plan is the
+  one the table gets once it holds more than a test's few rows. A test holds a
+  page to the rows it shows this way, which a timing could not do on a loaded
+  machine.
   """
 
   alias Ryker.Repo
@@ -111,6 +112,7 @@ defmodule Ryker.QueryWork do
     {:error, {:plan, plan}} =
       Repo.transact(fn ->
         Repo.query!("SET LOCAL enable_seqscan = off")
+        forget_statistics(sql)
 
         %{rows: [[[%{"Plan" => plan}]]]} =
           Repo.query!("EXPLAIN (ANALYZE, FORMAT JSON) " <> sql, params)
@@ -119,6 +121,43 @@ defmodule Ryker.QueryWork do
       end)
 
     plan |> scanned(table) |> round()
+  end
+
+  # The planner sizes a table by its statistics, and a test database's mislead
+  # it. Tests roll back what they write, so autovacuum finds a busy table
+  # empty and records it so; the planner then expects no rows and scans the
+  # whole table again for each row it joins, where a lookup by key reads one.
+  # On 2026-10-07 that failed the usage page's test in the gate, then the
+  # schedule page's, though neither query had changed. Inside the transaction
+  # around the plan, which rolls back, each table the statement names goes
+  # back to the statistics of a new table, as on a fresh database.
+  defp forget_statistics(sql) do
+    tables =
+      ~r/(?:FROM|JOIN) "([a-z0-9_]+)"/
+      |> Regex.scan(sql, capture: :all_but_first)
+      |> List.flatten()
+      |> Enum.uniq()
+
+    Repo.query!(
+      """
+      SELECT pg_clear_relation_stats('public', relname)
+      FROM pg_class
+      WHERE relnamespace = 'public'::regnamespace AND relkind = 'r' AND relname = ANY($1)
+      """,
+      [tables]
+    )
+
+    Repo.query!(
+      """
+      SELECT pg_clear_attribute_stats('public', class.relname, attribute.attname, false)
+      FROM pg_class AS class
+      JOIN pg_attribute AS attribute
+        ON attribute.attrelid = class.oid AND attribute.attnum > 0 AND NOT attribute.attisdropped
+      WHERE class.relnamespace = 'public'::regnamespace AND class.relkind = 'r'
+        AND class.relname = ANY($1)
+      """,
+      [tables]
+    )
   end
 
   defp scanned(plan, table) do
