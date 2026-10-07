@@ -94,7 +94,10 @@ defmodule Ryker.Admission.WorkerTest do
     _state = :sys.get_state(worker)
     entry = record_input!("Ev-worker-woken")
 
-    assert eventually(fn -> decided?(entry) end, 500)
+    # Routed long before the minute-long timer: only the announcement could
+    # have woken it. A 500 ms budget measured the machine instead, and failed
+    # two gates on 2026-10-07 under host load above 30.
+    assert eventually(fn -> decided?(entry) end, 10_000)
   end
 
   # Only the clock makes a deferred message claimable again, and nothing
