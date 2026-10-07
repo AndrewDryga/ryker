@@ -9,12 +9,11 @@ defmodule Ryker.Continuity.Scope do
   transport stay inside their own conversation.
   """
 
-  import Ecto.Query
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity.ConversationSummary
   alias Ryker.Episodes.Scope, as: WorkspaceScope
   alias Ryker.Repo
-  alias Ryker.Slack.ChannelMembership
+  alias Ryker.Slack.ChannelMembershipQuery
 
   @doc """
   The continuity scope of an episode's destination: its transport, conversation,
@@ -91,14 +90,10 @@ defmodule Ryker.Continuity.Scope do
   def public_source_visible?(%ConversationSummary{} = summary) do
     case slack_channel(summary) do
       {workspace_ref, channel_ref} ->
-        Repo.exists?(
-          from(membership in ChannelMembership,
-            where:
-              membership.workspace_ref == ^workspace_ref and
-                membership.channel_ref == ^channel_ref and membership.status == :joined and
-                membership.private == false and membership.external_shared == false
-          )
-        )
+        workspace_ref
+        |> ChannelMembershipQuery.by_channel(channel_ref)
+        |> ChannelMembershipQuery.joined_public()
+        |> Repo.exists?()
 
       nil ->
         false
@@ -108,36 +103,20 @@ defmodule Ryker.Continuity.Scope do
   def public_source_visible?(_non_slack), do: false
 
   @doc """
-  The conversations of a Slack workspace (`slack:<workspace>`) that share what
-  was learned in them with its other public channels: those the host has
-  joined that are neither private nor externally shared, as a query of their
-  conversation refs.
-  """
-  @spec public_conversations(String.t()) :: Ecto.Query.t()
-  def public_conversations("slack:" <> workspace) do
-    from(member in ChannelMembership,
-      where:
-        member.workspace_ref == ^workspace and member.status == :joined and
-          member.private == false and member.external_shared == false,
-      select: fragment("'slack:' || ? || ':' || ?", member.workspace_ref, member.channel_ref)
-    )
-  end
-
-  @doc """
   The visibility of a Slack channel: `:public` for a joined internal channel,
   `:private` for a joined private or externally shared one, and `:conversation`
   when the host has not joined it.
   """
   @spec slack_visibility(String.t(), String.t()) :: :public | :private | :conversation
   def slack_visibility(workspace_ref, channel_ref) do
-    case Repo.one(
-           from(membership in ChannelMembership,
-             where:
-               membership.workspace_ref == ^workspace_ref and
-                 membership.channel_ref == ^channel_ref and membership.status == :joined,
-             select: {membership.private, membership.external_shared}
-           )
-         ) do
+    privacy =
+      workspace_ref
+      |> ChannelMembershipQuery.by_channel(channel_ref)
+      |> ChannelMembershipQuery.joined()
+      |> ChannelMembershipQuery.select_privacy()
+      |> Repo.one()
+
+    case privacy do
       {false, false} ->
         :public
 

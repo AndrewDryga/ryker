@@ -5,61 +5,46 @@ defmodule Ryker.Knowledge do
   A topic learned, revised, forgotten or pruned is announced after the
   outermost commit (`subscribe_knowledge/0`).
   """
-  import Ecto.Query
   alias Ryker.{CanonicalJSON, Repo}
   alias Ryker.Config
   alias Ryker.Crypto
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Knowledge.ConversationKnowledge
+  alias Ryker.Knowledge.ConversationKnowledgeQuery
   alias Ryker.Knowledge.KnowledgeAnchors
   alias Ryker.Knowledge.KnowledgeRevision
+  alias Ryker.Knowledge.KnowledgeRevisionQuery
   alias Ryker.Knowledge.KnowledgeSource
+  alias Ryker.Knowledge.KnowledgeSourceQuery
   alias Ryker.Knowledge.KnowledgeUpdate
   alias Ryker.Learning.ConversationObservation
+  alias Ryker.Learning.ConversationObservationQuery
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
+  alias Ryker.Learning.VisibilityQuery
   alias Ryker.Memories.MemorySearchPage
   alias Ryker.Memories.MemorySourceLink
-  alias Ryker.Slack.ChannelMembership
+  alias Ryker.Memories.SearchPageQuery
 
   @stale {:error, {:admission_rejected, :context_stale}}
 
   @doc false
   def availability_query(scope, ids) do
+    # The conversation's topics, whatever repository each was learned with
+    # (`scope_key/1`).
     base =
-      valid_query()
-      |> where([item], item.id in ^ids)
-      # The conversation's topics, whatever repository each was learned with
-      # (`scope_key/1`).
-      |> where(
-        [item],
-        item.transport == ^scope.transport and item.conversation_ref == ^scope.conversation_ref
-      )
-      |> select([item], item.id)
+      retention_seconds()
+      |> ConversationKnowledgeQuery.valid()
+      |> ConversationKnowledgeQuery.by_ids(ids)
+      |> ConversationKnowledgeQuery.in_conversation(scope.transport, scope.conversation_ref)
+      |> ConversationKnowledgeQuery.select_ids()
 
     local = LearningSources.eligible(base, %{scope | visibility: :conversation})
 
     case slack_channel(scope) do
       {:channel, workspace, channel} ->
-        membership =
-          from(m in ChannelMembership,
-            where: m.workspace_ref == ^workspace and m.channel_ref == ^channel,
-            select: 1
-          )
-
-        deleted = where(membership, [m], m.status == :deleted)
-
-        public =
-          where(membership, [m], m.status == :joined and not m.private and not m.external_shared)
-
-        local = where(local, not exists(subquery(deleted)))
-
-        inherited =
-          base
-          |> LearningSources.eligible(%{scope | visibility: :public})
-          |> where(exists(subquery(public)))
-
-        union(local, ^inherited)
+        inherited = LearningSources.eligible(base, %{scope | visibility: :public})
+        ConversationKnowledgeQuery.available_in_channel(local, inherited, workspace, channel)
 
       :local ->
         local
@@ -111,20 +96,15 @@ defmodule Ryker.Knowledge do
   end
 
   defp search_page_locked(scope, page) do
+    fields = ConversationKnowledgeQuery.search_fields()
+
     query =
       visible_query(scope)
       |> within_scope(scope, page.scope)
-      |> MemorySearchPage.related_sources(page)
+      |> SearchPageQuery.related_sources(page)
+      |> ConversationKnowledgeQuery.lock_for_share()
 
-    query = from(k in query, lock: "FOR SHARE")
-
-    case MemorySearchPage.one(
-           query,
-           page,
-           dynamic([k], k.state),
-           dynamic([k], k.updated_at),
-           dynamic([k], k.latest_source_at)
-         ) do
+    case MemorySearchPage.one(query, page, fields.text, fields.changed, fields.source) do
       {:ok, item, position} ->
         case documents(Observations.authorized_notes([item], scope), scope) do
           [document] -> {:ok, document, position}
@@ -159,13 +139,12 @@ defmodule Ryker.Knowledge do
       # Take the bounded set in one order; upgrading shared locks can deadlock
       # with another transaction's selected topic.
       items =
-        Repo.all(
-          from(k in visible_query(scope),
-            where: k.id in ^ids,
-            order_by: [asc: k.id],
-            lock: "FOR UPDATE"
-          )
-        )
+        scope
+        |> visible_query()
+        |> ConversationKnowledgeQuery.by_ids(ids)
+        |> ConversationKnowledgeQuery.ordered_by_id()
+        |> ConversationKnowledgeQuery.lock_for_update()
+        |> Repo.all()
 
       current = documents(Observations.authorized_notes(items, scope), scope)
       MapSet.new(current) == MapSet.new(frozen)
@@ -243,8 +222,7 @@ defmodule Ryker.Knowledge do
     lock_scope(key)
 
     with {:ok, ^id} <- Ecto.UUID.cast(id),
-         %ConversationKnowledge{} = head <-
-           Repo.one(from(k in ConversationKnowledge, where: k.id == ^id, lock: "FOR UPDATE")),
+         %ConversationKnowledge{} = head <- locked_topic(id),
          true <-
            is_nil(head.forgotten_at) and head.scope_key == key and head.version == version and
              head.source_generation == generation,
@@ -264,6 +242,13 @@ defmodule Ryker.Knowledge do
   end
 
   defp plan_rebuild(_, _, _, _), do: {:error, :knowledge_rebuild_conflict}
+
+  defp locked_topic(id) do
+    id
+    |> ConversationKnowledgeQuery.by_id()
+    |> ConversationKnowledgeQuery.lock_for_update()
+    |> Repo.one()
+  end
 
   defp source_update(entries, proposal, offered, %{
          result_ref: result_ref,
@@ -329,18 +314,15 @@ defmodule Ryker.Knowledge do
       |> then(&KnowledgeAnchors.keys(scope_key(scope), &1))
 
     known =
-      Repo.all(
-        from(k in ConversationKnowledge,
-          where:
-            k.scope_key == ^scope_key(scope) and
-              (k.topic_key in ^topic_keys or fragment("? && ?::text[]", k.anchor_keys, ^anchors)),
-          where: ^kept(),
-          order_by: [asc: k.id],
-          limit: 9,
-          select: k.id,
-          lock: "FOR SHARE"
-        )
-      )
+      scope
+      |> scope_key()
+      |> ConversationKnowledgeQuery.matching_topics_or_anchors(topic_keys, anchors)
+      |> ConversationKnowledgeQuery.kept()
+      |> ConversationKnowledgeQuery.ordered_by_id()
+      |> ConversationKnowledgeQuery.limit_to(9)
+      |> ConversationKnowledgeQuery.select_ids()
+      |> ConversationKnowledgeQuery.lock_for_share()
+      |> Repo.all()
 
     cond do
       length(known) > 8 ->
@@ -351,7 +333,11 @@ defmodule Ryker.Knowledge do
 
       true ->
         available =
-          Repo.all(from(k in visible_query(scope), where: k.id in ^known)) |> documents(scope)
+          scope
+          |> visible_query()
+          |> ConversationKnowledgeQuery.by_ids(known)
+          |> Repo.all()
+          |> documents(scope)
 
         if length(available) == length(known),
           do: :ok,
@@ -450,116 +436,28 @@ defmodule Ryker.Knowledge do
         []
 
       id ->
-        Repo.all(
-          from(r in KnowledgeRevision, where: r.knowledge_id == ^id, order_by: [asc: r.version])
-        )
+        id
+        |> KnowledgeRevisionQuery.by_knowledge_id()
+        |> KnowledgeRevisionQuery.in_version_order()
+        |> Repo.all()
     end
   end
 
   @doc false
   def current_source_ids_query(scope) do
-    eligible =
-      valid_query()
-      |> LearningSources.eligible(scope)
-      |> select([k], %{id: k.id, source_generation: k.source_generation})
-
-    # Flattening this join made PostgreSQL validate one topic's 128 roots once
-    # per source row. Evaluate eligibility once, in this same statement snapshot.
-    from(s in KnowledgeSource,
-      join: k in "eligible_conversation_knowledge",
-      on: k.id == s.knowledge_id and k.source_generation == s.generation,
-      where: not is_nil(s.direct_support_version),
-      select: s.observation_id
-    )
-    |> with_cte("eligible_conversation_knowledge", as: ^eligible, materialized: true)
+    valid_query()
+    |> LearningSources.eligible(scope)
+    |> ConversationKnowledgeQuery.select_id_generations()
+    |> KnowledgeSourceQuery.direct_observation_ids()
   end
 
   @doc false
-  def valid_query do
-    changed_source = changed_source()
-    changed_scope = changed_scope()
-
-    # The full gate's stale statistics turned the inverse validity join into
-    # 50 million pair comparisons for 10,000 roots. Keep every observation read
-    # parameterized by its receipt; OFFSET 0 prevents flattening that lookup.
-    observation =
-      from(o in ConversationObservation,
-        where: o.id == parent_as(:knowledge_membership).observation_id,
-        offset: 0
-      )
-
-    invalid =
-      from(s in KnowledgeSource,
-        as: :knowledge_membership,
-        left_lateral_join: o in subquery(observation),
-        on: true,
-        where:
-          s.knowledge_id == parent_as(:knowledge).id and
-            s.generation == parent_as(:knowledge).source_generation,
-        where:
-          ^dynamic(
-            [s, o],
-            ^changed_source or (not is_nil(s.direct_support_version) and ^changed_scope)
-          ),
-        select: 1
-      )
-
-    invalid = expire_memberships(invalid, retention_seconds())
-
-    any =
-      from(s in KnowledgeSource,
-        where:
-          s.knowledge_id == parent_as(:knowledge).id and
-            s.generation == parent_as(:knowledge).source_generation,
-        select: 1
-      )
-
-    from(k in ConversationKnowledge,
-      as: :knowledge,
-      where: is_nil(k.forgotten_at),
-      where: exists(subquery(any)) and not exists(subquery(invalid)),
-      where: fragment(~s(?::jsonb <> '{"retention":"pruned"}'::jsonb), k.state)
-    )
-  end
-
-  defp expire_memberships(invalid, seconds) do
-    case seconds do
-      nil ->
-        invalid
-
-      seconds ->
-        or_where(
-          invalid,
-          [s, o],
-          s.knowledge_id == parent_as(:knowledge).id and
-            s.generation == parent_as(:knowledge).source_generation and
-            (s.retained_at <= ago(^seconds, "second") or o.updated_at <= ago(^seconds, "second"))
-        )
-    end
-  end
-
-  defp changed_source do
-    dynamic(
-      [s, o],
-      is_nil(o.id) or o.revision != s.source_revision or
-        o.source_fingerprint != s.source_fingerprint
-    )
-  end
-
-  # A source moved to another conversation no longer supports the topic. Its
-  # repository may differ: a topic is its conversation's (`scope_key/1`).
-  defp changed_scope do
-    dynamic(
-      [_s, o],
-      o.conversation_ref != parent_as(:knowledge).conversation_ref or
-        o.workspace_ref != parent_as(:knowledge).workspace_ref
-    )
-  end
+  def valid_query, do: ConversationKnowledgeQuery.valid(retention_seconds())
 
   defp visible_query(scope) do
-    allowed = Observations.visible_conversations(scope)
-
-    from(k in valid_query(), where: k.workspace_ref == ^scope.workspace_ref, where: ^allowed)
+    valid_query()
+    |> ConversationKnowledgeQuery.in_workspace(scope.workspace_ref)
+    |> VisibilityQuery.visible_from(scope)
     |> LearningSources.eligible(scope)
   end
 
@@ -590,15 +488,13 @@ defmodule Ryker.Knowledge do
   defp select_items(query, scope, {:anchors, anchors}, limit) do
     keys = KnowledgeAnchors.keys(scope_key(scope), Enum.take(anchors, 64))
 
-    Repo.all(
-      from(k in query,
-        where:
-          k.scope_key == ^scope_key(scope) and fragment("? && ?::text[]", k.anchor_keys, ^keys),
-        order_by: [desc: k.latest_source_at, asc: k.id],
-        limit: ^limit,
-        lock: "FOR SHARE"
-      )
-    )
+    query
+    |> ConversationKnowledgeQuery.by_scope_key(scope_key(scope))
+    |> ConversationKnowledgeQuery.with_anchor_keys(keys)
+    |> ConversationKnowledgeQuery.latest_source_first()
+    |> ConversationKnowledgeQuery.limit_to(limit)
+    |> ConversationKnowledgeQuery.lock_for_share()
+    |> Repo.all()
   end
 
   defp select_items(query, scope, {:topic_keys, keys}, limit) when is_list(keys) do
@@ -606,14 +502,13 @@ defmodule Ryker.Knowledge do
     # attempt can offer that head only inside the same authorized update scope.
     keys = keys |> Enum.filter(&is_binary/1) |> Enum.take(16)
 
-    Repo.all(
-      from(k in query,
-        where: k.topic_key in ^keys and k.scope_key == ^scope_key(scope),
-        order_by: [asc: k.id],
-        limit: ^limit,
-        lock: "FOR SHARE"
-      )
-    )
+    query
+    |> ConversationKnowledgeQuery.by_topic_keys(keys)
+    |> ConversationKnowledgeQuery.by_scope_key(scope_key(scope))
+    |> ConversationKnowledgeQuery.ordered_by_id()
+    |> ConversationKnowledgeQuery.limit_to(limit)
+    |> ConversationKnowledgeQuery.lock_for_share()
+    |> Repo.all()
   end
 
   defp select_items(query, scope, {:threads, references}, limit) do
@@ -636,56 +531,37 @@ defmodule Ryker.Knowledge do
   defp select_items(query, scope, {:references, references}, limit) do
     ids = references |> Enum.map(&id/1) |> Enum.reject(&is_nil/1) |> Enum.take(8)
 
-    Repo.all(
-      from(k in query,
-        where: k.id in ^ids and k.scope_key == ^scope_key(scope),
-        order_by: [asc: k.id],
-        limit: ^limit,
-        lock: "FOR SHARE"
-      )
-    )
+    query
+    |> ConversationKnowledgeQuery.by_ids(ids)
+    |> ConversationKnowledgeQuery.by_scope_key(scope_key(scope))
+    |> ConversationKnowledgeQuery.ordered_by_id()
+    |> ConversationKnowledgeQuery.limit_to(limit)
+    |> ConversationKnowledgeQuery.lock_for_share()
+    |> Repo.all()
   end
 
   defp select_items(query, scope, _, limit) do
-    Repo.all(
-      from(k in query,
-        order_by: [
-          desc: k.conversation_ref == ^scope.conversation_ref,
-          desc: k.latest_source_at,
-          asc: k.id
-        ],
-        limit: ^limit,
-        lock: "FOR SHARE"
-      )
-    )
+    query
+    |> ConversationKnowledgeQuery.conversation_first(scope.conversation_ref)
+    |> ConversationKnowledgeQuery.limit_to(limit)
+    |> ConversationKnowledgeQuery.lock_for_share()
+    |> Repo.all()
   end
 
   defp thread_items(query, scope, reference, limit) do
-    direct_source =
-      from(s in KnowledgeSource,
-        join: o in ConversationObservation,
-        on: o.id == s.observation_id,
-        where:
-          s.knowledge_id == parent_as(:knowledge).id and
-            s.generation == parent_as(:knowledge).source_generation,
-        where: not is_nil(s.direct_support_version),
-        where: o.conversation_ref == ^scope.conversation_ref,
-        where: fragment("COALESCE(?, ?) = ?", o.thread_ref, o.source_message_ref, ^reference),
-        select: 1
-      )
-
     # A cached empty-heap plan kept scanning the grown observation table once
     # per receipt and exhausted learning's 15-second transaction. Replan this
     # cardinality-sensitive recall; keep the same authorization and source locks.
-    Repo.all(
-      from(k in query,
-        where: k.scope_key == ^scope_key(scope) and exists(subquery(direct_source)),
-        order_by: [desc: k.latest_source_at, asc: k.id],
-        limit: ^limit,
-        lock: "FOR SHARE"
-      ),
-      prepare: :unnamed
+    query
+    |> ConversationKnowledgeQuery.supported_in_thread(
+      scope_key(scope),
+      scope.conversation_ref,
+      reference
     )
+    |> ConversationKnowledgeQuery.latest_source_first()
+    |> ConversationKnowledgeQuery.limit_to(limit)
+    |> ConversationKnowledgeQuery.lock_for_share()
+    |> Repo.all(prepare: :unnamed)
   end
 
   defp related_items(query, scope, text, limit) do
@@ -703,25 +579,11 @@ defmodule Ryker.Knowledge do
     if terms == "" do
       []
     else
-      query =
-        from(k in query,
-          where: fragment("to_tsvector('simple', ?) @@ to_tsquery('simple', ?)", k.state, ^terms),
-          order_by: [
-            desc:
-              fragment(
-                "ts_rank_cd(to_tsvector('simple', ?), to_tsquery('simple', ?))",
-                k.state,
-                ^terms
-              ),
-            desc: k.conversation_ref == ^scope.conversation_ref,
-            desc: k.latest_source_at,
-            asc: k.id
-          ],
-          limit: ^limit,
-          lock: "FOR SHARE"
-        )
-
-      Repo.all(query)
+      query
+      |> ConversationKnowledgeQuery.related_to(terms, scope.conversation_ref)
+      |> ConversationKnowledgeQuery.limit_to(limit)
+      |> ConversationKnowledgeQuery.lock_for_share()
+      |> Repo.all()
     end
   end
 
@@ -729,9 +591,10 @@ defmodule Ryker.Knowledge do
     identity = Observations.source_identity(entry)
 
     source =
-      Repo.one(
-        from(o in ConversationObservation, where: o.identity_key == ^identity, lock: "FOR SHARE")
-      )
+      identity
+      |> ConversationObservationQuery.by_identity()
+      |> ConversationObservationQuery.lock_for_share()
+      |> Repo.one()
 
     cond do
       source && source.revision > entry.revision ->
@@ -766,17 +629,19 @@ defmodule Ryker.Knowledge do
     lock_scope(scope_key)
 
     existing =
-      Repo.one(
-        from(k in ConversationKnowledge,
-          where: k.scope_key == ^scope_key and k.topic_key == ^proposal["topic_key"],
-          lock: "FOR UPDATE"
-        )
-      )
+      scope_key
+      |> ConversationKnowledgeQuery.by_scope_key()
+      |> ConversationKnowledgeQuery.by_topic_key(proposal["topic_key"])
+      |> ConversationKnowledgeQuery.lock_for_update()
+      |> Repo.one()
       |> release_if_gone(proposal)
 
     cond do
       existing && is_nil(proposal["target_ref"]) &&
-          not Repo.exists?(from(k in visible_query(scope), where: k.id == ^existing.id)) ->
+          not (scope
+               |> visible_query()
+               |> ConversationKnowledgeQuery.by_id(existing.id)
+               |> Repo.exists?()) ->
         {:error, :knowledge_target_unavailable}
 
       allowed_update?(existing, proposal, offered, omissions, scope) ->
@@ -792,18 +657,10 @@ defmodule Ryker.Knowledge do
   # the same subject and refused it as unavailable, so a recurring subject
   # stopped being learned once its first topic expired (2026-10-04 review).
   # The old row stays for its history under a key nothing proposes.
-  defp kept do
-    dynamic(
-      [k],
-      is_nil(k.forgotten_at) and
-        fragment(~s(?::jsonb <> '{"retention":"pruned"}'::jsonb), k.state)
-    )
-  end
-
   defp release_if_gone(%ConversationKnowledge{} = head, %{"target_ref" => nil}) do
     if head.forgotten_at || head.state == %{"retention" => "pruned"} do
       {1, _released} =
-        Repo.update_all(from(k in ConversationKnowledge, where: k.id == ^head.id),
+        Repo.update_all(ConversationKnowledgeQuery.by_id(head.id),
           set: [topic_key: "retired:" <> head.id, anchor_keys: []]
         )
 
@@ -948,7 +805,7 @@ defmodule Ryker.Knowledge do
     persist_memberships(item, roots, source.direct_sources, version)
     broadcast_knowledge_updated(item.id)
 
-    if Repo.exists?(from(k in valid_query(), where: k.id == ^item.id)) do
+    if Repo.exists?(ConversationKnowledgeQuery.by_id(valid_query(), item.id)) do
       Repo.insert!(%KnowledgeRevision{
         knowledge_id: item.id,
         version: version,
@@ -969,15 +826,10 @@ defmodule Ryker.Knowledge do
 
   defp persist_memberships(item, roots, direct_sources, version) do
     existing =
-      Repo.all(
-        from(s in KnowledgeSource,
-          where: s.knowledge_id == ^item.id and s.generation == ^item.source_generation,
-          select: %{
-            receipt_fingerprint: s.receipt_fingerprint,
-            direct_support_version: s.direct_support_version
-          }
-        )
-      )
+      item.id
+      |> KnowledgeSourceQuery.of_generation(item.source_generation)
+      |> KnowledgeSourceQuery.select_support()
+      |> Repo.all()
       |> Map.new(&{&1.receipt_fingerprint, &1})
 
     direct = Map.new(direct_sources, &{&1.id, &1})
@@ -1005,10 +857,9 @@ defmodule Ryker.Knowledge do
 
     if promotions != [] do
       Repo.update_all(
-        from(s in KnowledgeSource,
-          where: s.knowledge_id == ^item.id and s.generation == ^item.source_generation,
-          where: s.receipt_fingerprint in ^promotions and is_nil(s.direct_support_version)
-        ),
+        item.id
+        |> KnowledgeSourceQuery.of_generation(item.source_generation)
+        |> KnowledgeSourceQuery.indirect(promotions),
         set: [direct_support_version: version]
       )
     end
@@ -1039,34 +890,21 @@ defmodule Ryker.Knowledge do
     # Lock source rows too: under REPEATABLE READ a source edited after the
     # frozen snapshot must reject the read instead of submitting its old facts.
     sources =
-      Repo.all(
-        from(s in KnowledgeSource,
-          join: k in ConversationKnowledge,
-          on: k.id == s.knowledge_id and k.source_generation == s.generation,
-          join: o in ConversationObservation,
-          on: o.id == s.observation_id,
-          where: s.knowledge_id in ^ids and not is_nil(s.direct_support_version),
-          order_by: [asc: o.id],
-          lock: "FOR SHARE",
-          select: %{
-            knowledge_id: s.knowledge_id,
-            id: o.id,
-            retained_at: s.retained_at,
-            occurred_at: o.occurred_at,
-            transport: o.transport,
-            conversation_ref: o.conversation_ref,
-            thread_ref: o.thread_ref,
-            source_message_ref: o.source_message_ref
-          }
-        )
-      )
+      ids
+      |> KnowledgeSourceQuery.direct_support()
+      |> KnowledgeSourceQuery.lock_for_share()
+      |> Repo.all()
       |> Enum.uniq_by(&{&1.knowledge_id, &1.id})
       |> Enum.group_by(& &1.knowledge_id)
 
     # READ COMMITTED can observe an edit while waiting for the source locks.
     # Recheck after acquiring them; a pre-lock eligibility test is not a receipt.
     valid_ids =
-      Repo.all(from(k in valid_query(), where: k.id in ^ids, select: k.id)) |> MapSet.new()
+      valid_query()
+      |> ConversationKnowledgeQuery.by_ids(ids)
+      |> ConversationKnowledgeQuery.select_ids()
+      |> Repo.all()
+      |> MapSet.new()
 
     items =
       Enum.flat_map(items, fn item ->
@@ -1126,25 +964,10 @@ defmodule Ryker.Knowledge do
     end)
   end
 
-  defp within_scope(query, _, "workspace"), do: query
+  defp within_scope(query, scope, search_scope),
+    do: ConversationKnowledgeQuery.within_scope(query, scope_key(scope), scope, search_scope)
 
-  defp within_scope(query, scope, "writable"),
-    do: from(k in query, where: k.scope_key == ^scope_key(scope))
-
-  defp within_scope(query, scope, "current_channel"),
-    do: from(k in query, where: k.conversation_ref == ^scope.conversation_ref)
-
-  defp within_scope(query, %{repository_ref: ref}, "repository") when is_binary(ref),
-    do: from(k in query, where: k.repository_ref == ^ref)
-
-  defp within_scope(query, _, _), do: from(k in query, where: false)
-
-  defp matching(query, search) when is_binary(search) do
-    search = String.slice(String.trim(search), 0, 200)
-    from(k in query, where: fragment("position(lower(?) in lower(?)) > 0", ^search, k.state))
-  end
-
-  defp matching(query, _), do: query
+  defp matching(query, search), do: ConversationKnowledgeQuery.matching(query, search)
   defp id("knowledge:" <> id), do: if(Ecto.UUID.cast(id) == {:ok, id}, do: id)
   defp id(_), do: nil
 

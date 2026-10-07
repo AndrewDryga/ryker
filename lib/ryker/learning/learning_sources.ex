@@ -1,17 +1,13 @@
 defmodule Ryker.Learning.LearningSources do
   @moduledoc "Bounded, host-owned source receipts carried across derived conversation memory."
-  import Ecto.Query
   alias Ryker.{CanonicalJSON, Repo}
   alias Ryker.Config
-  alias Ryker.Continuity.ConversationRollup
-  alias Ryker.Continuity.ConversationSummary
-  alias Ryker.Episodes.Event
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Knowledge.ConversationKnowledge
-  alias Ryker.Knowledge.KnowledgeRevision
-  alias Ryker.Learning.ConversationObservation
-  alias Ryker.Learning.Observations
-  alias Ryker.Publication.LifecycleEvent
+  alias Ryker.Continuity.{ConversationRollupQuery, ConversationSummaryQuery}
+  alias Ryker.Episodes.{Event, EventQuery}
+  alias Ryker.Ingress.Inbox.{Entry, EntryQuery}
+  alias Ryker.Knowledge.KnowledgeRevisionQuery
+  alias Ryker.Learning.{ConversationObservationQuery, Observations, SourceDependencyQuery}
+  alias Ryker.Publication.{LifecycleEvent, LifecycleEventQuery}
 
   @maximum_sources 10_000
   @maximum_bytes 8 * 1_024 * 1_024
@@ -160,138 +156,17 @@ defmodule Ryker.Learning.LearningSources do
   def sourced?(_), do: false
 
   @doc "Exclude receiptless derived prose before bounded recall and compaction selection."
-  def sourced(query) do
-    from(item in query,
-      where:
-        fragment(
-          "jsonb_typeof(?::jsonb) = 'array' AND ?::jsonb <> '[]'::jsonb",
-          item.source_dependencies,
-          item.source_dependencies
-        )
-    )
-  end
+  def sourced(query), do: SourceDependencyQuery.sourced(query)
 
   @doc "Filter inherited source eligibility before recall limits; locked validation still follows."
-  def eligible(query, scope) do
-    seconds = retention_seconds()
-
-    # Keep source lookups parameterized per receipt. With stale low row estimates,
-    # a flattened outer join materialized the whole source table once per root
-    # (100M comparisons for 10k roots). The lateral OFFSET 0 preserves the PK lookup.
-    # Pin compact revisions too: joining all historical revisions to their head
-    # before matching one descriptor caused 128 head probes for one topic.
-    from(item in query,
-      where: not is_nil(item.source_dependencies),
-      where:
-        fragment(
-          """
-          NOT EXISTS (
-            SELECT 1 FROM jsonb_array_elements(CASE
-              WHEN pg_input_is_valid(?, 'jsonb') THEN CASE WHEN jsonb_typeof(?::jsonb) = 'array'
-                THEN ?::jsonb ELSE '[null]'::jsonb END ELSE '[null]'::jsonb END) d
-            LEFT JOIN LATERAL (
-              SELECT v.knowledge_id, v.source_generation, v.state
-              FROM conversation_knowledge_revisions v
-              WHERE v.knowledge_id = CASE WHEN pg_input_is_valid(d->>'knowledge_id', 'uuid')
-                  THEN (d->>'knowledge_id')::uuid ELSE NULL END
-                AND v.source_generation = CASE WHEN pg_input_is_valid(d->>'generation', 'bigint')
-                  THEN (d->>'generation')::bigint ELSE NULL END
-                AND v.version = CASE WHEN pg_input_is_valid(d->>'through_version', 'bigint')
-                  THEN (d->>'through_version')::bigint ELSE NULL END
-              OFFSET 0
-            ) v ON true
-            LEFT JOIN conversation_knowledge head
-              ON head.id = v.knowledge_id AND head.source_generation = v.source_generation
-            WHERE jsonb_exists(d, 'knowledge_id') AND
-              (head.id IS NULL OR v.knowledge_id IS NULL OR v.state::jsonb = '{"retention":"pruned"}'::jsonb)
-          )
-          """,
-          item.source_dependencies,
-          item.source_dependencies,
-          item.source_dependencies
-        ),
-      where:
-        fragment(
-          """
-          NOT EXISTS (
-            SELECT 1 FROM ryker_learning_roots(?) r
-            LEFT JOIN LATERAL (
-              SELECT o.* FROM conversation_observations o
-              WHERE o.id = CASE WHEN pg_input_is_valid(r->>'observation_id', 'uuid')
-                THEN (r->>'observation_id')::uuid ELSE NULL END
-              OFFSET 0
-            ) o ON true
-            WHERE o.id IS NULL OR o.forgotten_at IS NOT NULL
-              OR o.source_input_id::text IS DISTINCT FROM r->>'source_input_id'
-              OR o.revision::text IS DISTINCT FROM r->>'revision'
-              OR o.source_fingerprint IS DISTINCT FROM r->>'fingerprint'
-              OR o.workspace_ref IS DISTINCT FROM ?
-              OR o.workspace_ref IS DISTINCT FROM r->>'workspace_ref'
-              OR o.transport IS DISTINCT FROM r->>'transport'
-              OR o.conversation_ref IS DISTINCT FROM r->>'conversation_ref'
-              OR o.repository_ref IS DISTINCT FROM r->>'repository_ref'
-              OR (?::bigint IS NOT NULL AND o.updated_at <= clock_timestamp() - (? * interval '1 second'))
-              OR CASE WHEN r->>'retained_at' ~ ?
-                AND pg_input_is_valid(replace(r->>'retained_at', ',', '.'), 'timestamptz') THEN
-                (?::bigint IS NOT NULL AND replace(r->>'retained_at', ',', '.')::timestamptz <= clock_timestamp() - (? * interval '1 second'))
-                ELSE true END
-              OR NOT (
-                o.conversation_ref = ? OR (? AND o.visibility = 'public' AND EXISTS (
-                  SELECT 1 FROM slack_channel_memberships m
-                  WHERE 'slack:' || m.workspace_ref || ':' || m.channel_ref = o.conversation_ref
-                    AND m.status = 'joined' AND NOT m.private AND NOT m.external_shared
-                ))
-              )
-          )
-          """,
-          item.source_dependencies,
-          ^scope.workspace_ref,
-          ^seconds,
-          ^seconds,
-          ^@utc_timestamp_pattern,
-          ^seconds,
-          ^seconds,
-          ^scope.conversation_ref,
-          ^(scope.visibility == :public and scope.transport == "slack")
-        )
-    )
-    |> without_future_inputs(scope)
-  end
-
-  # A background topic can be newer than the Work input boundary. Both queued
-  # inputs already in the snapshot and arrivals after that snapshot are barred,
-  # including through an inherited topic/summary root. Query the host event
-  # ledger, never model-provided timing or a truncated source excerpt.
-  defp without_future_inputs(query, %{input_boundary: {episode_id, sequence, queued}}) do
-    from(item in query,
-      where:
-        fragment(
-          """
-          NOT EXISTS (
-            SELECT 1 FROM ryker_learning_roots(?) root
-            JOIN ingress_inbox_entries i ON i.id = CASE
-              WHEN pg_input_is_valid(root->>'source_input_id', 'uuid')
-              THEN (root->>'source_input_id')::uuid ELSE NULL END
-            JOIN episode_kernel_events e ON e.episode_id = i.episode_id AND e.kind = 'input_admitted'
-              AND coalesce(e.payload::jsonb #>> '{payload,native_input_id}',
-                e.payload::jsonb ->> 'native_input_id') = i.native_input_id
-              AND e.payload::jsonb ->> 'revision' = i.revision::text
-            WHERE i.episode_id = ?::uuid AND (e.sequence >= ? OR e.dedupe_key = ANY(?::text[]))
-          )
-          """,
-          item.source_dependencies,
-          ^Ecto.UUID.dump!(episode_id),
-          ^sequence,
-          ^queued
-        )
-    )
-  end
-
-  defp without_future_inputs(query, _scope), do: query
+  def eligible(query, scope),
+    do: SourceDependencyQuery.eligible(query, scope, retention_seconds(), @utc_timestamp_pattern)
 
   defp future_inputs_absent?(roots, %{input_boundary: _} = scope) do
-    from(item in fragment("SELECT ?::text AS source_dependencies", ^CanonicalJSON.encode!(roots)))
-    |> without_future_inputs(scope)
+    roots
+    |> CanonicalJSON.encode!()
+    |> SourceDependencyQuery.roots()
+    |> SourceDependencyQuery.without_future_inputs(scope)
     |> Repo.exists?()
   end
 
@@ -327,7 +202,7 @@ defmodule Ryker.Learning.LearningSources do
 
   def for_entry(entry) do
     identity = Observations.source_identity(entry)
-    source = Repo.one(from(o in ConversationObservation, where: o.identity_key == ^identity))
+    source = Repo.one(ConversationObservationQuery.by_identity(identity))
 
     case source do
       %{source_result_ref: "source-conflict:" <> _} ->
@@ -347,8 +222,7 @@ defmodule Ryker.Learning.LearningSources do
   end
 
   def for_source(source) do
-    existing =
-      Repo.one(from(o in ConversationObservation, where: o.identity_key == ^source.identity_key))
+    existing = Repo.one(ConversationObservationQuery.by_identity(source.identity_key))
 
     source = if existing, do: %{source | id: existing.id}, else: source
 
@@ -448,8 +322,7 @@ defmodule Ryker.Learning.LearningSources do
         "native_input_id" => native
       })
 
-    with %{} = source <-
-           Repo.one(from(o in ConversationObservation, where: o.identity_key == ^identity)),
+    with %{} = source <- Repo.one(ConversationObservationQuery.by_identity(identity)),
          true <- source.revision == revision,
          true <- source_payload_matches?(source, document, content) do
       [receipt(source)]
@@ -465,7 +338,7 @@ defmodule Ryker.Learning.LearningSources do
          document,
          _content
        ) do
-    case get_uuid(LifecycleEvent, id) do
+    case get_uuid(&LifecycleEventQuery.by_id/1, id) do
       %LifecycleEvent{kind: :review_feedback, observation: observation} ->
         fields = ~w(source native_input_id revision event_kind content)
         Map.take(observation, fields) == Map.take(document, fields)
@@ -482,7 +355,7 @@ defmodule Ryker.Learning.LearningSources do
     do: false
 
   defp source_payload_matches?(source, document, content) do
-    case Repo.get(Entry, source.source_input_id) do
+    case Repo.one(EntryQuery.by_id(source.source_input_id)) do
       %Entry{content: ^content, event_kind: kind} ->
         Atom.to_string(kind) == document["event_kind"]
 
@@ -603,7 +476,7 @@ defmodule Ryker.Learning.LearningSources do
   defp work_document_sources(
          %{"source_event_id" => id, "source_dependencies" => _sources} = document
        ) do
-    case get_uuid(Event, id) do
+    case get_uuid(&EventQuery.by_id/1, id) do
       %Event{kind: :input_admitted} = event ->
         exact_work_sources(document, event, for_work_input(event.payload["payload"]))
 
@@ -632,7 +505,7 @@ defmodule Ryker.Learning.LearningSources do
       do: nil
 
   def document_sources(%{"source_ref" => "observation:" <> id} = document) do
-    case get_uuid(ConversationObservation, id) do
+    case get_uuid(&ConversationObservationQuery.by_id/1, id) do
       %{note: note, source_dependencies: sources} = source when is_map(note) ->
         # Navigation is a host projection, not the original's custody receipt.
         # Keep exact content/identity checks across reader availability changes.
@@ -647,26 +520,35 @@ defmodule Ryker.Learning.LearningSources do
   end
 
   def document_sources(%{"source_ref" => "knowledge:" <> id, "version" => version}) do
-    case if(Ecto.UUID.cast(id) == {:ok, id} and is_integer(version),
-           do: Repo.get_by(KnowledgeRevision, knowledge_id: id, version: version)
-         ) do
-      %{source_dependencies: sources} -> sources
+    with true <- is_integer(version),
+         {:ok, ^id} <- Ecto.UUID.cast(id),
+         %{source_dependencies: sources} <- Repo.one(knowledge_revision(id, version)) do
+      sources
+    else
       _ -> nil
     end
   end
 
   def document_sources(%{"source_ref" => "continuity:" <> id} = document),
-    do: summary_sources(get_uuid(ConversationSummary, id), document)
+    do: summary_sources(get_uuid(&ConversationSummaryQuery.by_id/1, id), document)
 
-  def document_sources(%{"source_ref" => "continuity-rollup:" <> _} = document),
-    do: summary_sources(Repo.get_by(ConversationRollup, ref: document["source_ref"]), document)
+  def document_sources(%{"source_ref" => "continuity-rollup:" <> _} = document) do
+    summary_sources(Repo.one(ConversationRollupQuery.by_ref(document["source_ref"])), document)
+  end
 
   # A new source-backed document must implement custody before it can be shown.
   # Confirmed facts/guidance use their own refs and are not raw-source receipts.
   def document_sources(%{"source_ref" => _}), do: nil
   def document_sources(_), do: []
 
-  defp get_uuid(schema, id), do: if(Ecto.UUID.cast(id) == {:ok, id}, do: Repo.get(schema, id))
+  defp knowledge_revision(id, version) do
+    id
+    |> KnowledgeRevisionQuery.by_knowledge_id()
+    |> KnowledgeRevisionQuery.by_version(version)
+  end
+
+  # The row `by_id` finds for `id`, or nil when there is none or `id` is no UUID.
+  defp get_uuid(by_id, id), do: if(Ecto.UUID.cast(id) == {:ok, id}, do: Repo.one(by_id.(id)))
 
   defp summary_sources(%{state: state, source_dependencies: [_ | _] = sources}, %{
          "state" => state
@@ -685,13 +567,11 @@ defmodule Ryker.Learning.LearningSources do
       ids = roots |> Enum.map(& &1["observation_id"]) |> Enum.uniq()
 
       notes =
-        Repo.all(
-          from(o in ConversationObservation,
-            where: o.id in ^ids,
-            order_by: [asc: o.id],
-            lock: "FOR SHARE"
-          )
-        )
+        ids
+        |> ConversationObservationQuery.by_ids()
+        |> ConversationObservationQuery.ordered_by_id()
+        |> ConversationObservationQuery.lock_for_share()
+        |> Repo.all()
 
       notes = notes |> Observations.authorized_notes(scope) |> Map.new(&{&1.id, &1})
       cutoff = horizon_cutoff()
@@ -710,17 +590,12 @@ defmodule Ryker.Learning.LearningSources do
     sources
     |> Enum.filter(&reference?/1)
     |> Enum.all?(fn reference ->
-      Repo.exists?(
-        from(v in KnowledgeRevision,
-          join: head in ConversationKnowledge,
-          on: head.id == v.knowledge_id and head.source_generation == v.source_generation,
-          where:
-            v.knowledge_id == ^reference["knowledge_id"] and
-              v.source_generation == ^reference["generation"] and
-              v.version == ^reference["through_version"],
-          where: fragment(~s(?::jsonb <> '{"retention":"pruned"}'::jsonb), v.state)
-        )
+      reference["knowledge_id"]
+      |> KnowledgeRevisionQuery.current_reference(
+        reference["generation"],
+        reference["through_version"]
       )
+      |> Repo.exists?()
     end)
   end
 

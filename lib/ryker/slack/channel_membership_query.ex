@@ -13,6 +13,42 @@ defmodule Ryker.Slack.ChannelMembershipQuery do
     )
   end
 
+  @doc """
+  The conversations of Slack workspace `slack:<workspace>` that share what
+  was learned in them with its other public channels: joined, neither
+  private nor shared with another organisation, as their conversation refs.
+  """
+  def public_conversation_refs("slack:" <> workspace) do
+    from(m in all(),
+      where:
+        m.workspace_ref == ^workspace and m.status == :joined and m.private == false and
+          m.external_shared == false,
+      select: fragment("'slack:' || ? || ':' || ?", m.workspace_ref, m.channel_ref)
+    )
+  end
+
+  @doc """
+  The memberships of the Slack conversations `conversation_refs` names, as
+  `{conversation_ref, {status, private, external_shared}}`, in key order.
+  """
+  def by_conversation_refs(conversation_refs) do
+    from(m in all(),
+      where:
+        fragment("'slack:' || ? || ':' || ?", m.workspace_ref, m.channel_ref) in ^conversation_refs,
+      order_by: [asc: m.workspace_ref, asc: m.channel_ref],
+      select:
+        {fragment("'slack:' || ? || ':' || ?", m.workspace_ref, m.channel_ref),
+         {m.status, m.private, m.external_shared}}
+    )
+  end
+
+  def joined(queryable), do: where(queryable, [slack_channel_memberships: m], m.status == :joined)
+
+  def select_privacy(queryable),
+    do: select(queryable, [slack_channel_memberships: m], {m.private, m.external_shared})
+
+  def lock_for_share(queryable), do: lock(queryable, "FOR SHARE")
+
   @doc "Each deleted channel in `workspace_refs`, as `{workspace, channel}`."
   def deleted_in_workspaces(workspace_refs) do
     all()

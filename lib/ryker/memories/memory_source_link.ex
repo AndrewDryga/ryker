@@ -1,8 +1,7 @@
 defmodule Ryker.Memories.MemorySourceLink do
   @moduledoc false
-  import Ecto.Query
   alias Ryker.{CanonicalJSON, Repo}
-  alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.Episodes.EventQuery
   alias Ryker.Slack.SourceRef
 
   # Return a usable existing reader invocation, not an invented original quote.
@@ -73,31 +72,7 @@ defmodule Ryker.Memories.MemorySourceLink do
   defp lab_anchor(conversation, message) do
     # Observation receipts name the native source item; the Lab reader names
     # the admitted event. Resolve that durable relation, never invent a locator.
-    Repo.one(
-      from(event in Event,
-        join: episode in Episode,
-        on: episode.id == event.episode_id,
-        where:
-          episode.destination_transport == "control_plane" and
-            episode.destination_conversation_ref == ^conversation and
-            episode.destination_thread_ref == ^conversation and event.kind == :input_admitted,
-        where:
-          fragment(
-            "?::jsonb #>> '{payload,source_item_ref}' = ? OR ?::jsonb ->> 'native_input_id' = ?",
-            event.payload,
-            ^message,
-            event.payload,
-            ^message
-          ),
-        order_by: [
-          desc: fragment("(?::jsonb ->> 'revision')::bigint", event.payload),
-          desc: event.occurred_at,
-          desc: event.id
-        ],
-        limit: 1,
-        select: event.dedupe_key
-      )
-    )
+    Repo.one(EventQuery.lab_admission_key(conversation, message))
   end
 
   def context_targets(%{"conversation_ref" => conversation} = document)

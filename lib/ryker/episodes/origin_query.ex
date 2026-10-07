@@ -8,6 +8,36 @@ defmodule Ryker.Episodes.OriginQuery do
   def by_episode_id(queryable \\ all(), episode_id),
     do: where(queryable, [episode_input_origins: o], o.episode_id == ^episode_id)
 
+  def by_native_input_id(queryable \\ all(), native_input_id),
+    do: where(queryable, [episode_input_origins: o], o.native_input_id == ^native_input_id)
+
+  def in_conversation(queryable \\ all(), transport, conversation_ref) do
+    where(
+      queryable,
+      [episode_input_origins: o],
+      o.transport == ^transport and o.conversation_ref == ^conversation_ref
+    )
+  end
+
+  @doc "The conversations episode `episode_id`'s inputs came from, each once, in order."
+  def conversation_refs(episode_id) do
+    from(o in by_episode_id(episode_id),
+      where: not is_nil(o.conversation_ref),
+      distinct: true,
+      order_by: [asc: o.conversation_ref],
+      select: o.conversation_ref
+    )
+  end
+
+  def select_episode_ids(queryable),
+    do: select(queryable, [episode_input_origins: o], o.episode_id)
+
+  def select_native_input_ids(queryable),
+    do: select(queryable, [episode_input_origins: o], o.native_input_id)
+
+  def select_source_item_refs(queryable),
+    do: select(queryable, [episode_input_origins: o], o.source_item_ref)
+
   @doc "Inputs a person sent: a Slack or Chat user, not an app, a bot or the scheduler."
   def from_people(queryable),
     do: where(queryable, [episode_input_origins: o], like(o.actor_ref, "%:user:%"))

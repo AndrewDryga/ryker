@@ -5,6 +5,9 @@ defmodule Ryker.Publication.PublicationQuery do
 
   def all, do: from(publications in Publication, as: :episode_publications)
 
+  def by_id(queryable \\ all(), id),
+    do: where(queryable, [episode_publications: p], p.id == ^id)
+
   def by_episode_id(queryable \\ all(), episode_id),
     do: where(queryable, [episode_publications: p], p.episode_id == ^episode_id)
 

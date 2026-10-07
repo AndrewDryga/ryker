@@ -8,14 +8,9 @@
 # that moves a context's queries removes its paths; the list only shrinks.
 query_modules_pending = [
   "lib/ryker/admission/",
-  "lib/ryker/continuity/",
   "lib/ryker/control_plane/",
   "lib/ryker/coop_fleet/",
   "lib/ryker/improvement/",
-  "lib/ryker/knowledge.ex",
-  "lib/ryker/knowledge/",
-  "lib/ryker/learning/",
-  "lib/ryker/memories/",
   "lib/ryker/observability/",
   "lib/ryker/operator/",
   "lib/ryker/publication/",

@@ -13,6 +13,9 @@ defmodule Ryker.Behaviors.BehaviorQuery do
   def by_ref(queryable \\ all(), ref),
     do: where(queryable, [operator_behaviors: b], b.ref == ^ref)
 
+  def by_refs(queryable \\ all(), refs),
+    do: where(queryable, [operator_behaviors: b], b.ref in ^refs)
+
   def by_offer_record_id(queryable \\ all(), record_id),
     do: where(queryable, [operator_behaviors: b], b.offer_record_id == ^record_id)
 
@@ -126,6 +129,21 @@ defmodule Ryker.Behaviors.BehaviorQuery do
     where(queryable, ^condition)
   end
 
+  @doc """
+  The behaviors of `workspace_ref` that only conversation `conversation_ref`
+  could see: scoped to it, or learned there and visible only there.
+  """
+  def bound_to_conversation(workspace_ref, conversation_ref) do
+    where(
+      all(),
+      [operator_behaviors: b],
+      b.workspace_ref == ^workspace_ref and
+        ((b.scope_kind == :conversation and b.scope_ref == ^conversation_ref) or
+           (b.source_conversation_ref == ^conversation_ref and
+              fragment("?::jsonb->>'visibility' = 'conversation'", b.payload)))
+    )
+  end
+
   def unexpired_at(queryable, now),
     do: where(queryable, [operator_behaviors: b], is_nil(b.expires_at) or b.expires_at > ^now)
 
@@ -159,6 +177,17 @@ defmodule Ryker.Behaviors.BehaviorQuery do
 
   def recently_updated_first(queryable),
     do: order_by(queryable, [operator_behaviors: b], desc: b.updated_at, desc: b.id)
+
+  def least_recently_updated_first(queryable),
+    do: order_by(queryable, [operator_behaviors: b], asc: b.updated_at, asc: b.id)
+
+  def ordered_by_ref(queryable), do: order_by(queryable, [operator_behaviors: b], asc: b.ref)
+
+  def select_distinct_workspace_refs(queryable) do
+    queryable
+    |> distinct(true)
+    |> select([operator_behaviors: b], b.workspace_ref)
+  end
 
   # The narrowest scope first: a person's own, then the channel's, the
   # repository's and the workspace's.

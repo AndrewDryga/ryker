@@ -68,6 +68,8 @@ defmodule Ryker.Ingress.Inbox.EntryQuery do
   def oldest_occurred_first(queryable),
     do: order_by(queryable, [ingress_inbox_entries: e], asc: e.occurred_at, asc: e.id)
 
+  def ordered_by_id(queryable), do: order_by(queryable, [ingress_inbox_entries: e], asc: e.id)
+
   def oldest_received_first(queryable),
     do: order_by(queryable, [ingress_inbox_entries: e], asc: e.inserted_at, asc: e.id)
 

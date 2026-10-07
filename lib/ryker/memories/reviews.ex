@@ -10,17 +10,19 @@ defmodule Ryker.Memories.Reviews do
   that a concurrent confirmation, forget, or revocation is replacing.
   """
 
-  import Ecto.Query
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Behavior
   alias Ryker.Behaviors.BehaviorChangeset
+  alias Ryker.Behaviors.BehaviorQuery
   alias Ryker.CanonicalJSON
   alias Ryker.Memories
   alias Ryker.Memories.Forgetting
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Memories.MemoryEntryChangeset
+  alias Ryker.Memories.MemoryEntryQuery
   alias Ryker.Memories.MemoryReviewItem
   alias Ryker.Memories.MemoryReviewItemChangeset
+  alias Ryker.Memories.MemoryReviewItemQuery
   alias Ryker.Repo
 
   @maximum_reviews 100
@@ -51,22 +53,18 @@ defmodule Ryker.Memories.Reviews do
     if Repo.in_transaction?() do
       lock_review_maintenance!()
 
-      workspaces =
-        (Repo.all(
-           from(entry in MemoryEntry,
-             where: entry.status == :active,
-             distinct: true,
-             select: entry.workspace_ref
-           )
-         ) ++
-           Repo.all(
-             from(behavior in Behavior,
-               where: behavior.kind == :guidance and behavior.status == :active,
-               distinct: true,
-               select: behavior.workspace_ref
-             )
-           ))
-        |> Enum.uniq()
+      memory_workspaces =
+        MemoryEntryQuery.active()
+        |> MemoryEntryQuery.select_distinct_workspace_refs()
+        |> Repo.all()
+
+      guidance_workspaces =
+        BehaviorQuery.of_kind(:guidance)
+        |> BehaviorQuery.with_status(:active)
+        |> BehaviorQuery.select_distinct_workspace_refs()
+        |> Repo.all()
+
+      workspaces = Enum.uniq(memory_workspaces ++ guidance_workspaces)
 
       created =
         Enum.reduce(workspaces, 0, fn workspace_ref, total ->
@@ -122,16 +120,9 @@ defmodule Ryker.Memories.Reviews do
 
       items =
         query
-        |> where(
-          [review],
-          fragment(
-            "jsonb_array_length(?::jsonb) <= ?",
-            review.entry_refs,
-            ^@maximum_home_review_entries
-          )
-        )
-        |> order_by([review], asc: review.inserted_at, asc: review.id)
-        |> limit(^limit)
+        |> MemoryReviewItemQuery.with_at_most_entries(@maximum_home_review_entries)
+        |> MemoryReviewItemQuery.oldest_first()
+        |> MemoryReviewItemQuery.limit_to(limit)
         |> Repo.all()
         |> Enum.map(&review_document/1)
 
@@ -145,13 +136,10 @@ defmodule Ryker.Memories.Reviews do
   def pending_reviews(limit \\ 20)
 
   def pending_reviews(limit) when is_integer(limit) and limit in 1..@maximum_reviews do
-    Repo.all(
-      from(review in MemoryReviewItem,
-        where: review.status == :pending,
-        order_by: [asc: review.inserted_at, asc: review.id],
-        limit: ^limit
-      )
-    )
+    MemoryReviewItemQuery.pending()
+    |> MemoryReviewItemQuery.oldest_first()
+    |> MemoryReviewItemQuery.limit_to(limit)
+    |> Repo.all()
     |> Enum.map(&review_document/1)
   end
 
@@ -160,16 +148,14 @@ defmodule Ryker.Memories.Reviews do
   @doc "How many reviews are pending."
   @spec pending_review_count() :: non_neg_integer()
   def pending_review_count,
-    do: Repo.aggregate(from(review in MemoryReviewItem, where: review.status == :pending), :count)
+    do: Repo.aggregate(MemoryReviewItemQuery.pending(), :count)
 
   @doc "One pending review, by reference, or nil."
   @spec pending_review(String.t()) :: map() | nil
   def pending_review(review_ref) when is_binary(review_ref) do
-    case Repo.one(
-           from(review in MemoryReviewItem,
-             where: review.ref == ^review_ref and review.status == :pending
-           )
-         ) do
+    pending = review_ref |> MemoryReviewItemQuery.by_ref() |> MemoryReviewItemQuery.pending()
+
+    case Repo.one(pending) do
       nil -> nil
       review -> review_document(review)
     end
@@ -182,16 +168,18 @@ defmodule Ryker.Memories.Reviews do
     with :ok <- Memories.reference(review_ref, :review_ref),
          :ok <- Memories.reference(workspace_ref, :workspace_ref),
          :ok <- Memories.reference(actor_ref, :actor_ref),
-         %MemoryReviewItem{} = review <-
-           Repo.one(
-             from(review in home_review_query(workspace_ref, actor_ref, :pending),
-               where: review.ref == ^review_ref
-             )
-           ) do
+         %MemoryReviewItem{} = review <- pending_home_review(review_ref, workspace_ref, actor_ref) do
       {:ok, review_document(review)}
     else
       _unavailable -> {:error, :memory_review_not_found}
     end
+  end
+
+  defp pending_home_review(review_ref, workspace_ref, actor_ref) do
+    workspace_ref
+    |> home_review_query(actor_ref, :pending)
+    |> MemoryReviewItemQuery.by_ref(review_ref)
+    |> Repo.one()
   end
 
   @spec resolve_review(String.t(), atom(), String.t(), String.t(), map() | nil) ::
@@ -249,18 +237,11 @@ defmodule Ryker.Memories.Reviews do
       # One already ended keeps its ending but loses its words too; only live
       # rows were redacted, so a rule replaced or deleted before the channel
       # went kept its text past it (2026-10-04 review).
-      Repo.all(
-        from(behavior in Behavior,
-          where:
-            behavior.workspace_ref == ^scoped_workspace_ref and
-              ((behavior.scope_kind == :conversation and
-                  behavior.scope_ref == ^conversation_ref) or
-                 (behavior.source_conversation_ref == ^conversation_ref and
-                    fragment("?::jsonb->>'visibility' = 'conversation'", behavior.payload))),
-          order_by: [asc: behavior.ref],
-          lock: "FOR UPDATE"
-        )
-      )
+      scoped_workspace_ref
+      |> BehaviorQuery.bound_to_conversation(conversation_ref)
+      |> BehaviorQuery.ordered_by_ref()
+      |> BehaviorQuery.lock_for_update()
+      |> Repo.all()
       |> Enum.reject(&Behaviors.redacted?(&1.payload))
       |> Enum.each(&redact_channel_behavior!/1)
 
@@ -275,24 +256,12 @@ defmodule Ryker.Memories.Reviews do
   def delete_slack_channel_in_transaction(_workspace_ref, _channel_ref),
     do: {:error, {:invalid_memory_review, :conversation}}
 
-  # Facts the deleted channel alone could see (conversation-scoped, and
-  # repository-scoped with conversation visibility), and the global facts
-  # answered from a message in it. Workspace-visible facts outlive the channel
-  # they were confirmed in.
   defp delete_channel_facts(workspace_ref, conversation_ref) do
-    Repo.all(
-      from(entry in MemoryEntry,
-        where:
-          entry.status == :active and
-            ((entry.workspace_ref == ^workspace_ref and entry.scope_kind == :conversation and
-                entry.scope_ref == ^conversation_ref) or
-               (entry.workspace_ref == ^workspace_ref and entry.visibility == :conversation and
-                  entry.source_conversation_ref == ^conversation_ref) or
-               (entry.scope_kind == :global and entry.source_conversation_ref == ^conversation_ref)),
-        order_by: [asc: entry.ref],
-        lock: "FOR UPDATE"
-      )
-    )
+    workspace_ref
+    |> MemoryEntryQuery.bound_to_conversation(conversation_ref)
+    |> MemoryEntryQuery.ordered_by_ref()
+    |> MemoryEntryQuery.lock_for_update()
+    |> Repo.all()
     |> Enum.each(&Memories.redact!(&1, :deleted, "channel_deleted_payload_sha256"))
   end
 
@@ -301,27 +270,23 @@ defmodule Ryker.Memories.Reviews do
     stale_before = DateTime.add(now, -stale_seconds, :second)
 
     memory_entries =
-      Repo.all(
-        from(entry in MemoryEntry,
-          where:
-            entry.workspace_ref == ^workspace_ref and entry.status == :active and
-              (is_nil(entry.expires_at) or entry.expires_at > ^now),
-          order_by: [asc: entry.updated_at, asc: entry.id],
-          limit: 1_000
-        )
-      )
+      workspace_ref
+      |> MemoryEntryQuery.by_workspace()
+      |> MemoryEntryQuery.active()
+      |> MemoryEntryQuery.unexpired_at(now)
+      |> MemoryEntryQuery.least_recently_updated_first()
+      |> MemoryEntryQuery.limit_to(1_000)
+      |> Repo.all()
 
     guidance =
-      Repo.all(
-        from(behavior in Behavior,
-          where:
-            behavior.workspace_ref == ^workspace_ref and behavior.kind == :guidance and
-              behavior.status == :active and
-              (is_nil(behavior.expires_at) or behavior.expires_at > ^now),
-          order_by: [asc: behavior.updated_at, asc: behavior.id],
-          limit: 500
-        )
-      )
+      workspace_ref
+      |> BehaviorQuery.by_workspace()
+      |> BehaviorQuery.of_kind(:guidance)
+      |> BehaviorQuery.with_status(:active)
+      |> BehaviorQuery.unexpired_at(now)
+      |> BehaviorQuery.least_recently_updated_first()
+      |> BehaviorQuery.limit_to(500)
+      |> Repo.all()
 
     sources =
       Enum.map(memory_entries, &review_source_record(:memory, &1)) ++
@@ -356,7 +321,7 @@ defmodule Ryker.Memories.Reviews do
         "kind" => Atom.to_string(kind)
       })
 
-    if Repo.exists?(from(review in MemoryReviewItem, where: review.source_digest == ^digest)) do
+    if Repo.exists?(MemoryReviewItemQuery.by_source_digest(digest)) do
       false
     else
       id = Ecto.UUID.generate()
@@ -402,61 +367,18 @@ defmodule Ryker.Memories.Reviews do
   end
 
   defp review_query(workspace_ref, status, limit) do
-    query =
-      from(review in MemoryReviewItem,
-        where: review.workspace_ref == ^workspace_ref,
-        order_by: [asc: review.inserted_at, asc: review.id],
-        limit: ^limit
-      )
-
-    if status, do: from(review in query, where: review.status == ^status), else: query
+    workspace_ref
+    |> MemoryReviewItemQuery.by_workspace()
+    |> MemoryReviewItemQuery.with_status(status)
+    |> MemoryReviewItemQuery.oldest_first()
+    |> MemoryReviewItemQuery.limit_to(limit)
   end
 
   defp home_review_query(workspace_ref, actor_ref, status) do
-    query =
-      from(review in MemoryReviewItem,
-        where: review.workspace_ref == ^workspace_ref,
-        where: ^home_review_authorization_filter(workspace_ref, actor_ref)
-      )
-
-    if status, do: from(review in query, where: review.status == ^status), else: query
-  end
-
-  defp home_review_authorization_filter(workspace_ref, actor_ref) do
-    dynamic(
-      [review],
-      fragment(
-        """
-        jsonb_array_length(?::jsonb) > 0 AND NOT EXISTS (
-          SELECT 1
-          FROM jsonb_array_elements_text(?::jsonb) AS source(ref)
-          WHERE NOT (
-            EXISTS (
-              SELECT 1 FROM operational_memory_entries AS memory
-              WHERE memory.ref = source.ref
-                AND memory.workspace_ref = ?
-                AND memory.visibility = 'workspace'
-                AND memory.scope_kind IN ('repository', 'workspace')
-            ) OR EXISTS (
-              SELECT 1 FROM operator_behaviors AS behavior
-              WHERE behavior.ref = source.ref
-                AND behavior.workspace_ref = ?
-                AND (
-                  (behavior.scope_kind = 'operator' AND behavior.scope_ref = ?) OR
-                  (behavior.scope_kind IN ('repository', 'workspace') AND
-                    behavior.payload::jsonb->>'visibility' = 'workspace')
-                )
-            )
-          )
-        )
-        """,
-        review.entry_refs,
-        review.entry_refs,
-        ^workspace_ref,
-        ^workspace_ref,
-        ^actor_ref
-      )
-    )
+    workspace_ref
+    |> MemoryReviewItemQuery.by_workspace()
+    |> MemoryReviewItemQuery.home_visible(workspace_ref, actor_ref)
+    |> MemoryReviewItemQuery.with_status(status)
   end
 
   defp resolve_review_locked(
@@ -467,9 +389,10 @@ defmodule Ryker.Memories.Reviews do
          replacement,
          authorization
        ) do
-    case Repo.one(
-           from(review in MemoryReviewItem, where: review.ref == ^review_ref, lock: "FOR UPDATE")
-         ) do
+    locked =
+      review_ref |> MemoryReviewItemQuery.by_ref() |> MemoryReviewItemQuery.lock_for_update()
+
+    case Repo.one(locked) do
       nil ->
         Repo.rollback(:memory_review_not_found)
 
@@ -525,33 +448,29 @@ defmodule Ryker.Memories.Reviews do
     memories = lock_review_memories(entry_refs, workspace_ref)
 
     guidance =
-      Repo.all(
-        from(behavior in Behavior,
-          where:
-            behavior.ref in ^entry_refs and behavior.workspace_ref == ^workspace_ref and
-              behavior.kind == :guidance and behavior.status == :active and
-              (is_nil(behavior.expires_at) or
-                 behavior.expires_at > fragment("clock_timestamp()")),
-          order_by: [asc: behavior.ref],
-          lock: "FOR UPDATE"
-        )
-      )
+      entry_refs
+      |> BehaviorQuery.by_refs()
+      |> BehaviorQuery.by_workspace(workspace_ref)
+      |> BehaviorQuery.of_kind(:guidance)
+      |> BehaviorQuery.with_status(:active)
+      |> BehaviorQuery.unexpired()
+      |> BehaviorQuery.ordered_by_ref()
+      |> BehaviorQuery.lock_for_update()
+      |> Repo.all()
       |> Enum.map(&review_source_record(:guidance, &1))
 
     Enum.sort_by(memories ++ guidance, &review_entry_ref/1)
   end
 
   defp lock_review_memories(entry_refs, workspace_ref) do
-    Repo.all(
-      from(entry in MemoryEntry,
-        where:
-          entry.ref in ^entry_refs and entry.workspace_ref == ^workspace_ref and
-            entry.status == :active and
-            (is_nil(entry.expires_at) or entry.expires_at > fragment("clock_timestamp()")),
-        order_by: [asc: entry.ref],
-        lock: "FOR UPDATE"
-      )
-    )
+    entry_refs
+    |> MemoryEntryQuery.by_refs()
+    |> MemoryEntryQuery.by_workspace(workspace_ref)
+    |> MemoryEntryQuery.active()
+    |> MemoryEntryQuery.unexpired()
+    |> MemoryEntryQuery.ordered_by_ref()
+    |> MemoryEntryQuery.lock_for_update()
+    |> Repo.all()
     |> Enum.map(&review_source_record(:memory, &1))
   end
 
@@ -620,11 +539,11 @@ defmodule Ryker.Memories.Reviews do
   def dismiss_orphan_reviews(actor_ref, workspace_ref \\ nil) do
     now = Repo.now!()
 
-    query = from(review in MemoryReviewItem, where: review.status == :pending, lock: "FOR UPDATE")
+    query = MemoryReviewItemQuery.lock_for_update(MemoryReviewItemQuery.pending())
 
     query =
       if workspace_ref,
-        do: from(review in query, where: review.workspace_ref == ^workspace_ref),
+        do: MemoryReviewItemQuery.by_workspace(query, workspace_ref),
         else: query
 
     Repo.all(query)
@@ -655,12 +574,10 @@ defmodule Ryker.Memories.Reviews do
     refs = MapSet.new(entries, &review_entry_ref/1)
     now = Repo.now!()
 
-    Repo.all(
-      from(item in MemoryReviewItem,
-        where: item.status == :pending and item.id != ^review.id,
-        lock: "FOR UPDATE"
-      )
-    )
+    MemoryReviewItemQuery.pending()
+    |> MemoryReviewItemQuery.excluding_id(review.id)
+    |> MemoryReviewItemQuery.lock_for_update()
+    |> Repo.all()
     |> Enum.filter(fn item ->
       item.entry_refs |> MapSet.new() |> MapSet.disjoint?(refs) |> Kernel.not()
     end)
@@ -706,21 +623,17 @@ defmodule Ryker.Memories.Reviews do
 
   defp review_documents(entry_refs) do
     memories =
-      Repo.all(
-        from(entry in MemoryEntry,
-          where: entry.ref in ^entry_refs,
-          order_by: [asc: entry.ref]
-        )
-      )
+      entry_refs
+      |> MemoryEntryQuery.by_refs()
+      |> MemoryEntryQuery.ordered_by_ref()
+      |> Repo.all()
       |> Enum.map(&review_source_record(:memory, &1))
 
     guidance =
-      Repo.all(
-        from(behavior in Behavior,
-          where: behavior.ref in ^entry_refs,
-          order_by: [asc: behavior.ref]
-        )
-      )
+      entry_refs
+      |> BehaviorQuery.by_refs()
+      |> BehaviorQuery.ordered_by_ref()
+      |> Repo.all()
       |> Enum.map(&review_source_record(:guidance, &1))
 
     (memories ++ guidance)
@@ -780,18 +693,18 @@ defmodule Ryker.Memories.Reviews do
 
   defp review_sources(entry_refs, workspace_ref) do
     memory_query =
-      from(entry in MemoryEntry,
-        where: entry.ref in ^entry_refs and entry.workspace_ref == ^workspace_ref,
-        order_by: [asc: entry.ref],
-        lock: "FOR UPDATE"
-      )
+      entry_refs
+      |> MemoryEntryQuery.by_refs()
+      |> MemoryEntryQuery.by_workspace(workspace_ref)
+      |> MemoryEntryQuery.ordered_by_ref()
+      |> MemoryEntryQuery.lock_for_update()
 
     guidance_query =
-      from(behavior in Behavior,
-        where: behavior.ref in ^entry_refs and behavior.workspace_ref == ^workspace_ref,
-        order_by: [asc: behavior.ref],
-        lock: "FOR UPDATE"
-      )
+      entry_refs
+      |> BehaviorQuery.by_refs()
+      |> BehaviorQuery.by_workspace(workspace_ref)
+      |> BehaviorQuery.ordered_by_ref()
+      |> BehaviorQuery.lock_for_update()
 
     (Enum.map(Repo.all(memory_query), &review_source_record(:memory, &1)) ++
        Enum.map(Repo.all(guidance_query), &review_source_record(:guidance, &1)))

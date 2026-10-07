@@ -8,13 +8,14 @@ defmodule Ryker.Memories.Recall do
   edited while the read waited is neither disclosed nor counted.
   """
 
-  import Ecto.Query
   alias Ryker.Episodes.Episode
   alias Ryker.Episodes.Scope
   alias Ryker.Memories
   alias Ryker.Memories.MemoryEntry
+  alias Ryker.Memories.MemoryEntryQuery
   alias Ryker.Memories.MemorySearchPage
   alias Ryker.Memories.MemorySourceLink
+  alias Ryker.Memories.SearchPageQuery
   alias Ryker.Reference
   alias Ryker.Repo
 
@@ -71,52 +72,20 @@ defmodule Ryker.Memories.Recall do
   end
 
   defp search_visible_page(context, page) do
-    scoped = search_scope(context, page.scope)
+    fields = MemoryEntryQuery.search_fields()
 
-    query =
-      from(e in MemoryEntry,
-        where:
-          (e.workspace_ref == ^context.workspace_ref or e.scope_kind == :global) and
-            e.status == :active and
-            (is_nil(e.expires_at) or e.expires_at > fragment("clock_timestamp()")),
-        where: ^scoped,
-        where:
-          e.visibility in [:workspace, :global] or
-            (e.visibility == :conversation and
-               e.source_conversation_ref == ^context.conversation_ref)
-      )
-
-    changed =
-      dynamic(
-        [e],
-        type(fragment("COALESCE(?, ?)", e.edited_at, e.confirmed_at), :utc_datetime_usec)
-      )
-
-    text = dynamic([e], fragment("? || ' ' || ?", e.subject, e.payload))
-
-    query
-    |> MemorySearchPage.related_originals(
+    context
+    |> MemoryEntryQuery.searchable()
+    |> MemoryEntryQuery.in_search_scope(context, page.scope)
+    |> SearchPageQuery.related_originals(
       page,
-      dynamic([e], e.source_conversation_ref),
-      dynamic([e], e.source_thread_ref),
-      dynamic([e], e.source_message_ref)
+      fields.conversation,
+      fields.thread,
+      fields.message
     )
-    |> MemorySearchPage.one(page, text, changed, dynamic([e], e.confirmed_at))
+    |> MemorySearchPage.one(page, fields.text, fields.changed, fields.source)
     |> account_search_result(context)
   end
-
-  defp search_scope(context, "current_channel"),
-    do: dynamic([e], e.scope_kind == :conversation and e.scope_ref == ^context.conversation_ref)
-
-  defp search_scope(%{repository: repository}, "repository") when is_binary(repository),
-    do: dynamic([e], e.scope_kind == :repository and e.scope_ref == ^repository)
-
-  defp search_scope(context, "workspace"),
-    do: dynamic([e], e.scope_kind == :workspace and e.scope_ref == ^context.workspace_ref)
-
-  defp search_scope(_context, "global"), do: dynamic([e], e.scope_kind == :global)
-
-  defp search_scope(_context, _scope), do: dynamic([e], false)
 
   defp account_search_result({:ok, entry, position}, context) do
     case account_memory([entry], context) do
@@ -132,79 +101,26 @@ defmodule Ryker.Memories.Recall do
   # workspace whose other conversations held a thousand newer private entries
   # pushed an older shared fact out of the window before it was ever weighed.
   defp visible_entries(context) do
-    now = Repo.now!()
-
-    Repo.all(
-      from(entry in MemoryEntry,
-        where: ^visible(context),
-        where: entry.status == :active and (is_nil(entry.expires_at) or entry.expires_at > ^now),
-        order_by: [
-          desc:
-            fragment("COALESCE(?, ?, ?)", entry.edited_at, entry.confirmed_at, entry.inserted_at),
-          desc: entry.id
-        ],
-        limit: 1_000
-      )
-    )
-  end
-
-  defp visible(context) do
-    scoped = scoped(context)
-
-    dynamic(
-      [entry],
-      (entry.visibility == :conversation and
-         entry.source_conversation_ref == ^context.conversation_ref and ^scoped) or
-        (entry.visibility == :workspace and ^scoped) or
-        (entry.visibility == :global and entry.scope_kind == :global)
-    )
-  end
-
-  # An entry is in scope when it belongs to this workspace and its scope names
-  # this conversation, this workspace, or the repository this session runs in.
-  defp scoped(context) do
-    kinds =
-      dynamic(
-        [entry],
-        (entry.scope_kind == :conversation and entry.scope_ref == ^context.conversation_ref) or
-          (entry.scope_kind == :workspace and entry.scope_ref == ^context.workspace_ref)
-      )
-
-    kinds =
-      if is_binary(context.repository) do
-        dynamic(
-          [entry],
-          ^kinds or (entry.scope_kind == :repository and entry.scope_ref == ^context.repository)
-        )
-      else
-        kinds
-      end
-
-    dynamic([entry], entry.workspace_ref == ^context.workspace_ref and ^kinds)
+    MemoryEntryQuery.all()
+    |> MemoryEntryQuery.visible_to(context)
+    |> MemoryEntryQuery.active()
+    |> MemoryEntryQuery.unexpired_at(Repo.now!())
+    |> MemoryEntryQuery.newest_content_first()
+    |> MemoryEntryQuery.limit_to(1_000)
+    |> Repo.all()
   end
 
   defp account_memory([], _context), do: []
 
   defp account_memory(entries, context) do
-    unchanged =
-      Enum.reduce(entries, dynamic(false), fn entry, condition ->
-        dynamic(
-          [current],
-          ^condition or
-            (current.id == ^entry.id and current.payload_fingerprint == ^entry.payload_fingerprint)
-        )
-      end)
-
     # The operator may revoke or edit a row while this UPDATE waits on its lock.
     # Charge and disclose only the exact still-active content we selected.
     current =
-      from(entry in MemoryEntry,
-        where: ^unchanged,
-        where:
-          entry.status == :active and
-            (is_nil(entry.expires_at) or entry.expires_at > fragment("clock_timestamp()")),
-        select: entry.id
-      )
+      entries
+      |> MemoryEntryQuery.unchanged()
+      |> MemoryEntryQuery.active()
+      |> MemoryEntryQuery.unexpired()
+      |> MemoryEntryQuery.select_ids()
 
     ids = charge(current, context)
     retained = MapSet.new(ids)

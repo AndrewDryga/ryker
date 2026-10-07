@@ -26,6 +26,7 @@ defmodule Ryker.Behaviors do
   alias Ryker.Memories.MemorySearchPage
   alias Ryker.Memories.MemorySourceLink
   alias Ryker.Memories.Reviews
+  alias Ryker.Memories.SearchPageQuery
   alias Ryker.Operator.Actions
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
@@ -435,7 +436,7 @@ defmodule Ryker.Behaviors do
     |> BehaviorQuery.unexpired()
     |> BehaviorQuery.in_search_scope(context, page.scope)
     |> BehaviorQuery.visible_to(:guidance, context)
-    |> MemorySearchPage.related_originals(
+    |> SearchPageQuery.related_originals(
       page,
       fields.conversation,
       fields.thread,

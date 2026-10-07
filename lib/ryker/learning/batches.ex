@@ -9,17 +9,13 @@ defmodule Ryker.Learning.Batches do
   Every batch or pass this module writes is announced after the outermost
   commit (`Ryker.Learning.subscribe_learning/0`), except a lease renewal.
   """
-  import Ecto.Query
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress.Inbox.EntryQuery
   alias Ryker.Learning
-  alias Ryker.Learning.{Batch, InputMembership, Rebuilds, Runtime}
-  alias Ryker.Learning.ConversationObservation
-  alias Ryker.Learning.LearningRun
-  alias Ryker.Learning.LearningSources
-  alias Ryker.Learning.Observations
+  alias Ryker.Learning.{Batch, BatchQuery, InputMembership, InputMembershipQuery}
+  alias Ryker.Learning.{LearningInputQuery, LearningRunQuery, LearningSources}
+  alias Ryker.Learning.{Observations, Rebuilds, Runtime}
   alias Ryker.Repo
   alias Ryker.UTCDateTime
-  alias Ryker.Work.Custody
 
   def claim(worker, settings) do
     Repo.transaction(fn ->
@@ -43,77 +39,9 @@ defmodule Ryker.Learning.Batches do
   """
   @spec next_due_at(DateTime.t(), map()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since, settings) do
-    batches =
-      Repo.one(
-        from(b in Batch,
-          where: b.status in [:queued, :running, :deferred],
-          select: [
-            filter(
-              min(b.next_attempt_at),
-              b.status in [:queued, :deferred] and b.next_attempt_at > ^since
-            ),
-            filter(min(b.lease_expires_at), b.status == :running and b.lease_expires_at > ^since)
-          ]
-        )
-      )
-
-    scopes =
-      Repo.one(
-        from(scope in subquery(scope_due_times(since, settings)),
-          where: scope.due_at > ^since,
-          select: min(scope.due_at)
-        )
-      )
-
+    batches = Repo.one(BatchQuery.next_due_after(since))
+    scopes = Repo.one(LearningInputQuery.next_scope_due_after(since, settings))
     UTCDateTime.earliest([scopes | batches])
-  end
-
-  # When each conversation's unlearned messages become a batch by the clock:
-  # the `coalesced_scopes/3` condition, solved for the time. Only messages
-  # ready within the longest wait can make a conversation fall due after
-  # `since`; one that also holds messages ready earlier fell due already, so
-  # leaving those out can add a wake but never delays one, and the read stays
-  # small however long the history.
-  defp scope_due_times(since, settings) do
-    recent = DateTime.add(since, -settings.maximum_delay_seconds, :second)
-
-    from(input in subquery(ready_inputs(pending_query())),
-      where: input.ready_at > ^recent,
-      group_by: [
-        input.transport,
-        input.conversation_ref,
-        input.repository_ref,
-        input.execution_mode
-      ],
-      select: %{
-        due_at:
-          fragment(
-            "LEAST(?, ?)",
-            datetime_add(max(input.ready_at), ^settings.quiet_seconds, "second"),
-            datetime_add(min(input.ready_at), ^settings.maximum_delay_seconds, "second")
-          )
-      }
-    )
-  end
-
-  # Each message learning may take, with when it became ready: when routing
-  # decided it or, for one whose Work came to rest after that, when it did.
-  # Counted from the question, the quiet time ran out while Work was still
-  # answering it.
-  defp ready_inputs(pending) do
-    from(e in pending,
-      left_join: work in subquery(Custody.work_rest_query()),
-      on: work.episode_id == e.episode_id,
-      select: %{
-        id: e.id,
-        transport: e.destination_transport,
-        conversation_ref: e.destination_conversation_ref,
-        repository_ref: e.repository_ref,
-        execution_mode: e.execution_mode,
-        inserted_at: e.inserted_at,
-        ready_at: fragment("GREATEST(?, ?)", e.updated_at, work.rested_at)
-      }
-    )
   end
 
   def renew(claim, seconds) do
@@ -132,10 +60,10 @@ defmodule Ryker.Learning.Batches do
     Repo.transaction(fn ->
       batch = owned!(claim)
 
-      if Repo.exists?(
-           from(r in outstanding_scope_query(batch.scope_key), where: r.id != ^run_id)
-         ),
-         do: Repo.rollback(:learning_remote_outstanding)
+      other_outstanding =
+        batch.scope_key |> outstanding_scope_query() |> LearningRunQuery.excluding_id(run_id)
+
+      if Repo.exists?(other_outstanding), do: Repo.rollback(:learning_remote_outstanding)
 
       {:ok, run} = authorize_run!(run_id, claim)
       ids = inputs(batch.id) |> Enum.map(& &1.id) |> Enum.sort()
@@ -168,10 +96,7 @@ defmodule Ryker.Learning.Batches do
       code = release_code(batch, reason)
 
       if terminal do
-        Repo.update_all(
-          from(m in InputMembership,
-            where: m.batch_id == ^batch.id and is_nil(m.terminal_reason)
-          ),
+        Repo.update_all(unfinished_members(batch.id),
           set: [terminal_reason: code, updated_at: Repo.now!()]
         )
       end
@@ -214,8 +139,7 @@ defmodule Ryker.Learning.Batches do
     Repo.transaction(fn ->
       batch = owned!(claim)
 
-      Repo.update_all(
-        from(m in InputMembership, where: m.batch_id == ^batch.id and is_nil(m.terminal_reason)),
+      Repo.update_all(unfinished_members(batch.id),
         set: [terminal_reason: reason || Atom.to_string(status), updated_at: Repo.now!()]
       )
 
@@ -254,10 +178,10 @@ defmodule Ryker.Learning.Batches do
         {:ok, %{claim | batch: batch}}
       else
         # An attempt prepared under the old policy never started; it never will.
-        Repo.update_all(
-          from(r in LearningRun,
-            where: r.batch_id == ^batch.id and r.status == :prepared and is_nil(r.started_at)
-          ),
+        batch.id
+        |> LearningRunQuery.by_batch_id()
+        |> LearningRunQuery.unstarted()
+        |> Repo.update_all(
           set: [status: :stale, error_code: "learning_policy_changed", updated_at: Repo.now!()]
         )
 
@@ -272,13 +196,10 @@ defmodule Ryker.Learning.Batches do
   every further session of it would be refused the same way.
   """
   def policy_refused?(%{policy: policy, policy_digest: digest}) do
-    Repo.exists?(
-      from(r in LearningRun,
-        where:
-          r.policy == ^policy and r.policy_digest == ^digest and
-            r.error_code == "learning_session_not_isolated"
-      )
-    )
+    policy
+    |> LearningRunQuery.by_policy(digest)
+    |> LearningRunQuery.with_error_code("learning_session_not_isolated")
+    |> Repo.exists?()
   end
 
   @doc "Prepare under the same absolute batch budget, including audited extra starts."
@@ -314,19 +235,15 @@ defmodule Ryker.Learning.Batches do
       # Keep batch -> run -> source lock order. A never-started preparation has
       # disclosed nothing; its bytes remain immutable when its members change.
       unstarted =
-        Repo.one(
-          from(r in LearningRun,
-            where: r.batch_id == ^batch.id and r.status == :prepared and is_nil(r.started_at),
-            order_by: [desc: r.inserted_at, desc: r.id],
-            limit: 1,
-            lock: "FOR UPDATE"
-          )
-        )
+        batch.id
+        |> LearningRunQuery.by_batch_id()
+        |> LearningRunQuery.unstarted()
+        |> LearningRunQuery.newest_first()
+        |> LearningRunQuery.limit_to(1)
+        |> LearningRunQuery.lock_for_update()
+        |> Repo.one()
 
-      members =
-        from(m in InputMembership, where: m.batch_id == ^batch.id and is_nil(m.terminal_reason))
-
-      valid_ids = current_members!(batch, members)
+      valid_ids = current_members!(batch, unfinished_members(batch.id))
       retire_unstarted_manifest!(unstarted, valid_ids)
       Learning.broadcast_learning_updated(batch.id)
       {:ok, %{claim | batch: batch, inputs: inputs(batch.id)}}
@@ -357,10 +274,10 @@ defmodule Ryker.Learning.Batches do
   defp retire_too_large(nil, _batch), do: :ok
 
   defp retire_too_large(largest, batch) do
-    Repo.update_all(
-      from(m in InputMembership,
-        where: m.batch_id == ^batch.id and m.input_id == ^largest.id and is_nil(m.terminal_reason)
-      ),
+    batch.id
+    |> unfinished_members()
+    |> InputMembershipQuery.by_input_id(largest.id)
+    |> Repo.update_all(
       set: [terminal_reason: "learning_input_too_large", updated_at: Repo.now!()]
     )
   end
@@ -402,7 +319,7 @@ defmodule Ryker.Learning.Batches do
     unless Repo.in_transaction?(), do: raise(ArgumentError, "operator audit transaction required")
     Batch.lock_queue!()
 
-    case Repo.get(Batch, id) do
+    case Repo.one(BatchQuery.by_id(id)) do
       %Batch{rebuild_target_id: target} = batch when not is_nil(target) ->
         target = %{
           version: batch.rebuild_target_version,
@@ -434,9 +351,9 @@ defmodule Ryker.Learning.Batches do
     # allows one more start, not a new batch or an invisible reset of the lifetime
     # bill. Unused starts from a failed grant do not accumulate. The independent
     # version prevents stale-form ABA when this ceiling gets smaller.
-    Repo.update_all(from(m in members, where: m.input_id in ^valid_ids),
-      set: [terminal_reason: nil, updated_at: Repo.now!()]
-    )
+    members
+    |> InputMembershipQuery.by_input_ids(valid_ids)
+    |> Repo.update_all(set: [terminal_reason: nil, updated_at: Repo.now!()])
 
     changed =
       save(batch,
@@ -454,7 +371,7 @@ defmodule Ryker.Learning.Batches do
   end
 
   defp retryable_batch!(id, expected_version) do
-    batch = Repo.one(from(b in Batch, where: b.id == ^id, lock: "FOR UPDATE"))
+    batch = locked_batch(id)
 
     unless batch && batch.status == :deferred && batch.budget_version == expected_version,
       do: Repo.rollback(:learning_retry_conflict)
@@ -466,41 +383,36 @@ defmodule Ryker.Learning.Batches do
     if Repo.exists?(outstanding_scope_query(batch.scope_key)),
       do: Repo.rollback(:learning_remote_outstanding)
 
-    if Repo.exists?(
-         from(b in Batch,
-           where:
-             b.scope_key == ^batch.scope_key and
-               b.id != ^batch.id and b.status in [:queued, :running]
-         )
-       ),
-       do: Repo.rollback(:learning_scope_busy)
+    other_active =
+      batch.scope_key
+      |> BatchQuery.by_scope_key()
+      |> BatchQuery.excluding_id(batch.id)
+      |> BatchQuery.active()
+
+    if Repo.exists?(other_active), do: Repo.rollback(:learning_scope_busy)
   end
 
   defp retry_members(id) do
-    from(m in InputMembership,
-      where:
-        m.batch_id == ^id and
-          (is_nil(m.terminal_reason) or m.terminal_reason != "source_unavailable")
-    )
+    id
+    |> InputMembershipQuery.by_batch_id()
+    |> InputMembershipQuery.not_retired_for("source_unavailable")
   end
 
   defp retire_unavailable_members!(batch, members) do
-    ids = Repo.all(from(m in members, select: m.input_id))
+    ids = members |> InputMembershipQuery.select_input_ids() |> Repo.all()
 
     entries =
-      Repo.all(
-        from(e in Entry,
-          where: e.id in ^ids,
-          order_by: [asc: e.id],
-          lock: "FOR SHARE"
-        )
-      )
+      ids
+      |> EntryQuery.by_ids()
+      |> EntryQuery.ordered_by_id()
+      |> EntryQuery.lock_for_share()
+      |> Repo.all()
 
     valid_ids = entries |> Enum.filter(&learnable_entry?(&1, batch)) |> Enum.map(& &1.id)
 
-    Repo.update_all(from(m in members, where: m.input_id not in ^valid_ids),
-      set: [terminal_reason: "source_unavailable", updated_at: Repo.now!()]
-    )
+    members
+    |> InputMembershipQuery.excluding_input_ids(valid_ids)
+    |> Repo.update_all(set: [terminal_reason: "source_unavailable", updated_at: Repo.now!()])
 
     valid_ids
   end
@@ -547,7 +459,7 @@ defmodule Ryker.Learning.Batches do
   def drop_in_transaction(id, expected_version) do
     unless Repo.in_transaction?(), do: raise(ArgumentError, "operator audit transaction required")
     Batch.lock_queue!()
-    batch = Repo.one(from(b in Batch, where: b.id == ^id, lock: "FOR UPDATE"))
+    batch = locked_batch(id)
 
     unless batch && batch.status == :deferred && batch.budget_version == expected_version,
       do: Repo.rollback(:learning_batch_changed)
@@ -586,49 +498,27 @@ defmodule Ryker.Learning.Batches do
   end
 
   def outstanding(batch_id) do
-    Repo.one(
-      from(r in LearningRun,
-        where:
-          r.batch_id == ^batch_id and not is_nil(r.started_at) and is_nil(r.remote_stopped_at),
-        order_by: [asc: r.inserted_at, asc: r.id],
-        limit: 1
-      )
-    )
+    batch_id
+    |> LearningRunQuery.by_batch_id()
+    |> LearningRunQuery.unstopped()
+    |> LearningRunQuery.oldest_first()
+    |> LearningRunQuery.limit_to(1)
+    |> Repo.one()
   end
 
-  defp outstanding_scope_query(scope_key) do
-    from(r in LearningRun,
-      join: b in Batch,
-      on: b.id == r.batch_id,
-      where:
-        b.scope_key == ^scope_key and not is_nil(r.started_at) and is_nil(r.remote_stopped_at)
-    )
-  end
+  defp outstanding_scope_query(scope_key),
+    do: scope_key |> LearningRunQuery.in_scope() |> LearningRunQuery.unstopped()
 
-  def latest(batch_id) do
-    Repo.one(
-      from(r in LearningRun,
-        join: b in Batch,
-        on: b.id == r.batch_id,
-        where:
-          r.batch_id == ^batch_id and
-            r.policy == b.policy and r.policy_digest == b.policy_digest and
-            (is_nil(b.rebuild_target_id) or r.batch_budget_version == b.budget_version),
-        order_by: [desc: r.inserted_at, desc: r.id],
-        limit: 1
-      )
-    )
-  end
+  def latest(batch_id), do: Repo.one(LearningRunQuery.latest_current(batch_id))
 
   def reconciliation_failed(claim, run_id) do
     with_lease(claim, fn ->
       run =
-        Repo.one(
-          from(r in LearningRun,
-            where: r.id == ^run_id and r.batch_id == ^claim.batch.id,
-            lock: "FOR UPDATE"
-          )
-        )
+        run_id
+        |> LearningRunQuery.by_id()
+        |> LearningRunQuery.by_batch_id(claim.batch.id)
+        |> LearningRunQuery.lock_for_update()
+        |> Repo.one()
 
       if is_nil(run), do: Repo.rollback(:learning_batch_mismatch)
       {:ok, save(run, reconcile_attempt_count: run.reconcile_attempt_count + 1)}
@@ -642,36 +532,12 @@ defmodule Ryker.Learning.Batches do
     end
   end
 
-  defp next_batch(now) do
-    Repo.one(
-      from(b in Batch,
-        as: :batch,
-        where:
-          (b.status == :queued and (is_nil(b.next_attempt_at) or b.next_attempt_at <= ^now)) or
-            (b.status == :running and b.lease_expires_at <= ^now) or
-            (b.status == :deferred and b.next_attempt_at <= ^now and
-               exists(subquery(outstanding_parent_batch()))),
-        order_by: [asc: b.inserted_at, asc: b.id],
-        limit: 1,
-        lock: "FOR UPDATE SKIP LOCKED"
-      )
-    )
-  end
-
-  defp outstanding_parent_batch do
-    from(r in LearningRun,
-      where:
-        r.batch_id == parent_as(:batch).id and not is_nil(r.started_at) and
-          is_nil(r.remote_stopped_at)
-    )
-  end
+  defp next_batch(now), do: Repo.one(BatchQuery.next_claimable(now))
 
   defp create_batch(settings, now) do
-    pending = pending_query()
-    current = processable_query(pending, now)
-
-    unavailable =
-      from(e in pending, where: e.id not in subquery(from(c in current, select: c.id)))
+    pending = LearningInputQuery.pending()
+    current = processable(pending, now)
+    unavailable = LearningInputQuery.unavailable(pending, current)
 
     # Expired imports are acknowledged in bounded batches, but must not delay
     # learning from current messages or contaminate their input set.
@@ -679,86 +545,20 @@ defmodule Ryker.Learning.Batches do
   end
 
   defp create_batch(settings, now, pending) do
-    scopes = coalesced_scopes(pending, settings, now)
-    # The exclusion is in SQL before the bounded scope selection; one paused
-    # conversation cannot hide healthy scopes behind a recent-candidate cap.
-    available =
-      from(e in subquery(scopes),
-        as: :scope,
-        where: not exists(subquery(blocking_scope_batches(now))),
-        limit: 1
-      )
-
-    case Repo.one(available) do
+    case Repo.one(LearningInputQuery.next_due_scope(pending, settings, now)) do
       nil -> nil
       scope -> assign_scope(scope, pending, settings, now)
     end
   end
 
-  defp coalesced_scopes(pending, settings, now) do
-    from(input in subquery(ready_inputs(pending)),
-      group_by: [
-        input.transport,
-        input.conversation_ref,
-        input.repository_ref,
-        input.execution_mode
-      ],
-      having:
-        max(input.ready_at) <= ^DateTime.add(now, -settings.quiet_seconds) or
-          min(input.ready_at) <= ^DateTime.add(now, -settings.maximum_delay_seconds) or
-          count(input.id) >= ^settings.batch_size,
-      order_by: [asc: min(input.inserted_at), asc: input.conversation_ref],
-      select: %{
-        transport: input.transport,
-        conversation_ref: input.conversation_ref,
-        repository_ref: input.repository_ref,
-        execution_mode: input.execution_mode
-      }
-    )
-  end
-
-  defp blocking_scope_batches(now) do
-    from(b in matching_scope_batches(),
-      where:
-        b.status in [:queued, :running] or
-          (b.status == :deferred and b.next_attempt_at > ^now) or
-          exists(subquery(outstanding_parent_scope_batch()))
-    )
-  end
-
-  defp matching_scope_batches do
-    from(b in Batch,
-      as: :scope_batch,
-      where:
-        b.transport == parent_as(:scope).transport and
-          b.conversation_ref == parent_as(:scope).conversation_ref and
-          fragment("? IS NOT DISTINCT FROM ?", b.repository_ref, parent_as(:scope).repository_ref) and
-          b.execution_mode == parent_as(:scope).execution_mode
-    )
-  end
-
-  defp outstanding_parent_scope_batch do
-    from(r in LearningRun,
-      where:
-        r.batch_id == parent_as(:scope_batch).id and
-          not is_nil(r.started_at) and is_nil(r.remote_stopped_at)
-    )
-  end
-
   defp assign_scope(scope, pending, settings, now) do
     entries =
-      Repo.all(
-        from(e in pending,
-          where:
-            e.destination_transport == ^scope.transport and
-              e.destination_conversation_ref == ^scope.conversation_ref and
-              fragment("? IS NOT DISTINCT FROM ?", e.repository_ref, ^scope.repository_ref) and
-              e.execution_mode == ^scope.execution_mode,
-          order_by: [asc: e.inserted_at, asc: e.id],
-          limit: ^settings.batch_size,
-          lock: "FOR UPDATE"
-        )
-      )
+      pending
+      |> LearningInputQuery.in_scope(scope)
+      |> EntryQuery.oldest_received_first()
+      |> EntryQuery.limit_to(settings.batch_size)
+      |> EntryQuery.lock_for_update()
+      |> Repo.all()
 
     batch =
       Repo.insert!(
@@ -777,9 +577,10 @@ defmodule Ryker.Learning.Batches do
     ids = Enum.map(entries, & &1.id)
 
     current =
-      from(e in Entry, as: :input, where: e.id in ^ids)
-      |> processable_query(now)
-      |> select([e], e.id)
+      ids
+      |> EntryQuery.by_ids()
+      |> processable(now)
+      |> EntryQuery.select_ids()
       |> Repo.all()
       |> MapSet.new()
 
@@ -802,63 +603,23 @@ defmodule Ryker.Learning.Batches do
     batch
   end
 
-  # Routed messages no batch holds yet, except one whose Work is still running:
-  # learned then, a request is learned from before Ryker has answered it.
-  defp pending_query do
-    from(e in Entry,
-      as: :input,
-      where: e.status in [:decided, :superseded],
-      where: not exists(from(m in InputMembership, where: m.input_id == parent_as(:input).id)),
-      where:
-        not exists(
-          from(work in subquery(Custody.work_rest_query()),
-            where: work.episode_id == parent_as(:input).episode_id and work.running
-          )
-        )
-    )
-  end
-
-  defp processable_query(query, now) do
-    seconds = LearningSources.retention_seconds()
-    cutoff = DateTime.add(now, -(seconds || 0))
-
-    from(e in query,
-      where:
-        e.status == :decided and e.event_kind != :delete and
-          is_nil(e.operational_pruned_at) and not is_nil(e.content),
-      where: exists(current_observation(seconds, cutoff))
-    )
-  end
-
-  # The input's own observation, unexpired, and never one a person forgot.
-  defp current_observation(seconds, cutoff) do
-    from(o in ConversationObservation,
-      where:
-        o.source_input_id == parent_as(:input).id and
-          o.revision == parent_as(:input).revision and
-          o.source_fingerprint == parent_as(:input).event_fingerprint,
-      where: is_nil(o.forgotten_at),
-      where: ^is_nil(seconds) or o.updated_at > ^cutoff
-    )
-  end
+  defp processable(query, now),
+    do: LearningInputQuery.processable(query, now, LearningSources.retention_seconds())
 
   defp inputs(batch_id) do
-    case Repo.get!(Batch, batch_id) do
+    case Repo.one!(BatchQuery.by_id(batch_id)) do
       %{rebuild_target_id: nil} -> assigned_inputs(batch_id)
       batch -> Rebuilds.inputs(batch)
     end
   end
 
-  defp assigned_inputs(batch_id) do
-    Repo.all(
-      from(e in Entry,
-        join: m in InputMembership,
-        on: m.input_id == e.id,
-        where: m.batch_id == ^batch_id and is_nil(m.terminal_reason),
-        order_by: [asc: e.inserted_at, asc: e.id]
-      )
-    )
-  end
+  defp assigned_inputs(batch_id), do: Repo.all(LearningInputQuery.held_by(batch_id))
+
+  defp unfinished_members(batch_id),
+    do: batch_id |> InputMembershipQuery.by_batch_id() |> InputMembershipQuery.unfinished()
+
+  defp locked_batch(id),
+    do: id |> BatchQuery.by_id() |> BatchQuery.lock_for_update() |> Repo.one()
 
   defp current_request?(%{rebuild_target_id: nil}, _run), do: true
 
@@ -871,12 +632,10 @@ defmodule Ryker.Learning.Batches do
       # This claim is reconciliation of the same unresolved batch. Restore its
       # original membership for the remaining approved budget after stop proof;
       # later arrivals must not replace those inputs or inherit that budget.
-      Repo.update_all(
-        from(m in InputMembership,
-          where: m.batch_id == ^batch.id and m.terminal_reason != "source_unavailable"
-        ),
-        set: [terminal_reason: nil, updated_at: now]
-      )
+      batch.id
+      |> InputMembershipQuery.by_batch_id()
+      |> InputMembershipQuery.retired_except("source_unavailable")
+      |> Repo.update_all(set: [terminal_reason: nil, updated_at: now])
     end
 
     batch =
@@ -892,7 +651,7 @@ defmodule Ryker.Learning.Batches do
   end
 
   defp owned!(claim) do
-    batch = Repo.one(from(b in Batch, where: b.id == ^claim.batch.id, lock: "FOR UPDATE"))
+    batch = locked_batch(claim.batch.id)
 
     unless batch && batch.status == :running && batch.lease_ref == claim.lease_ref &&
              DateTime.compare(batch.lease_expires_at, Repo.now!()) == :gt,

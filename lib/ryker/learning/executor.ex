@@ -3,8 +3,8 @@ defmodule Ryker.Learning.Executor do
   alias Ryker.Coop.API
   alias Ryker.CoopFleet.JobAuthority
   alias Ryker.{Learning, Repo}
-  alias Ryker.Learning.{Batches, FleetSession}
-  alias Ryker.Work.Session
+  alias Ryker.Learning.{Batches, FleetSession, LearningRunQuery}
+  alias Ryker.Work.{Session, SessionQuery}
 
   @terminal ~w(completed failed cancelled interrupted budget_exhausted)
   @pending ~w(reserved running)
@@ -62,7 +62,7 @@ defmodule Ryker.Learning.Executor do
   # Binding needs only the session's exact identity, so a session this run owns
   # is bound even when its authority is unusable and cleanup can close it.
   defp remote_session(claim, run, settings, mode) do
-    local = Repo.get_by!(Session, learning_run_id: run.id)
+    local = Repo.one!(SessionQuery.for_learning_run(run.id))
 
     if mode == :fence and is_nil(local.worker_job_document) and is_nil(local.worker_job_digest) and
          is_nil(local.coop_session_id) and is_nil(run.submit_revision) and
@@ -185,7 +185,7 @@ defmodule Ryker.Learning.Executor do
     do: call(claim, settings, :get_session, [id])
 
   defp remote_turn(claim, run, session, settings, mode) do
-    run = Repo.get!(Ryker.Learning.LearningRun, run.id)
+    run = Repo.one!(LearningRunQuery.by_id(run.id))
 
     result =
       if run.coop_turn_id do
@@ -205,7 +205,7 @@ defmodule Ryker.Learning.Executor do
   # under its input lock.
   defp observe(claim, run, session, turn) do
     Batches.with_lease(claim, fn ->
-      local = Repo.get_by!(Session, execution_kind: :learning, learning_run_id: run.id)
+      local = Repo.one!(SessionQuery.for_learning_run(run.id))
 
       Ryker.Accounting.observe_learning_in_transaction(
         claim.batch,
@@ -320,7 +320,7 @@ defmodule Ryker.Learning.Executor do
            ] ->
         # The retained candidate and exact alternatives survive this generation.
         # Semantic retries get a fresh briefing, never an in-turn prose patch.
-        case stop(claim, Repo.get!(Ryker.Learning.LearningRun, run.id), reason, settings) do
+        case stop(claim, Repo.one!(LearningRunQuery.by_id(run.id)), reason, settings) do
           {:ok, :stopped} -> error
           other -> other
         end

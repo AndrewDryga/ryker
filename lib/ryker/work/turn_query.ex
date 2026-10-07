@@ -11,6 +11,18 @@ defmodule Ryker.Work.TurnQuery do
   def by_episode_id(queryable \\ all(), episode_id),
     do: where(queryable, [episode_work_turns: t], t.episode_id == ^episode_id)
 
+  def by_session_id(queryable \\ all(), session_id),
+    do: where(queryable, [episode_work_turns: t], t.session_id == ^session_id)
+
+  @doc "Turns that reached Coop or produced anything: a candidate or a result."
+  def begun(queryable) do
+    where(
+      queryable,
+      [episode_work_turns: t],
+      not is_nil(t.coop_turn_id) or not is_nil(t.candidate) or not is_nil(t.result_ref)
+    )
+  end
+
   def by_turn_ref(queryable, turn_ref),
     do: where(queryable, [episode_work_turns: t], t.turn_ref == ^turn_ref)
 
@@ -72,6 +84,29 @@ defmodule Ryker.Work.TurnQuery do
       where: t.episode_id == ^episode_id and t.status == :settled and not is_nil(t.result_ref),
       order_by: [desc: t.accepted_at, desc: t.inserted_at, desc: t.id],
       limit: 1
+    )
+  end
+
+  @doc "The message of an episode's latest accepted answer, delivered or being delivered."
+  def latest_answer_message(episode_id) do
+    from(t in all(),
+      where:
+        t.episode_id == ^episode_id and t.status in [:settled, :delivery_pending] and
+          not is_nil(t.result_ref),
+      order_by: [desc: t.accepted_at, desc: t.inserted_at],
+      limit: 1,
+      select: fragment("?::jsonb ->> 'message'", t.delivery_document)
+    )
+  end
+
+  @doc "The repository of an episode's latest turn whose session had one."
+  def latest_repository_ref(episode_id) do
+    from(t in all(),
+      join: s in assoc(t, :session),
+      where: t.episode_id == ^episode_id and not is_nil(s.repository_ref),
+      order_by: [desc: t.inserted_at],
+      limit: 1,
+      select: s.repository_ref
     )
   end
 

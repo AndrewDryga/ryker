@@ -30,6 +30,15 @@ defmodule Ryker.Records.RecordQuery do
   def by_refs(queryable \\ all(), refs),
     do: where(queryable, [episode_state_records: r], r.ref in ^refs)
 
+  @doc "Records made by the Work turns of session `session_id`."
+  def of_session(session_id) do
+    from(r in all(),
+      join: t in Turn,
+      on: t.id == r.turn_id,
+      where: t.session_id == ^session_id
+    )
+  end
+
   def by_turn_id(queryable \\ all(), turn_id),
     do: where(queryable, [episode_state_records: r], r.turn_id == ^turn_id)
 
@@ -70,6 +79,12 @@ defmodule Ryker.Records.RecordQuery do
 
   def latest_sequence_first(queryable),
     do: order_by(queryable, [episode_state_records: r], desc: r.sequence)
+
+  @doc "The ref of the Work turn that made each record."
+  def select_turn_refs(queryable),
+    do: from(r in queryable, join: t in Turn, on: t.id == r.turn_id, select: t.turn_ref)
+
+  def select_payloads(queryable), do: select(queryable, [episode_state_records: r], r.payload)
 
   def select_kinds_and_payloads(queryable),
     do: select(queryable, [episode_state_records: r], %{kind: r.kind, payload: r.payload})

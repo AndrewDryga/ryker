@@ -23,16 +23,15 @@ defmodule Ryker.Memories.Cases do
   (`withdraw_conversation_in_transaction/2`).
   """
 
-  import Ecto.Query
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity.Scope, as: ContinuityScope
-  alias Ryker.Episodes.{CorrelationClaim, Episode, Origin, RoutingDigest, RoutingDigests}
+  alias Ryker.Episodes.{CorrelationClaimQuery, Episode, EpisodeQuery, OriginQuery}
+  alias Ryker.Episodes.{RoutingDigest, RoutingDigestQuery, RoutingDigests}
   alias Ryker.Episodes.Scope, as: WorkspaceScope
-  alias Ryker.Memories.CaseRecord
-  alias Ryker.Memories.MemorySearchPage
-  alias Ryker.Records.Record
+  alias Ryker.Memories.{CaseRecord, CaseRecordQuery, MemorySearchPage}
+  alias Ryker.Records.RecordQuery
   alias Ryker.Repo
-  alias Ryker.Work.Turn
+  alias Ryker.Work.TurnQuery
 
   @problem_bytes 4_096
   @cause_bytes 4_096
@@ -74,7 +73,7 @@ defmodule Ryker.Memories.Cases do
   @doc "Captures one finished episode; unfinished work has no case yet."
   @spec capture(Ecto.UUID.t()) :: {:ok, CaseRecord.t()} | {:error, term()}
   def capture(episode_id) do
-    case Repo.get(Episode, episode_id) do
+    case Repo.one(EpisodeQuery.by_id(episode_id)) do
       %Episode{state: state} = episode when state in @terminal_states -> persist(episode)
       %Episode{} -> {:error, :case_episode_active}
       nil -> {:error, :case_episode_not_found}
@@ -93,31 +92,12 @@ defmodule Ryker.Memories.Cases do
 
     with false <- terms == "",
          {:ok, scope} <- ContinuityScope.destination_context(episode, nil) do
-      Repo.all(
-        from(record in CaseRecord,
-          where:
-            record.status == :active and record.workspace_ref == ^scope.workspace_ref and
-              record.execution_mode == ^episode.execution_mode and
-              record.episode_id != ^episode.id,
-          where: ^visible(scope),
-          where:
-            fragment(
-              "to_tsvector('english', ?) @@ to_tsquery('english', ?)",
-              record.search_text,
-              ^terms
-            ),
-          order_by: [
-            desc:
-              fragment(
-                "ts_rank_cd(to_tsvector('english', ?), to_tsquery('english', ?), 32)",
-                record.search_text,
-                ^terms
-              ),
-            desc: record.closed_at
-          ],
-          limit: ^limit
-        )
-      )
+      scope
+      |> CaseRecordQuery.recallable(episode.execution_mode)
+      |> CaseRecordQuery.excluding_episode(episode.id)
+      |> CaseRecordQuery.matching_terms(terms)
+      |> CaseRecordQuery.limit_to(limit)
+      |> Repo.all()
       |> Enum.map(&document/1)
     else
       _nothing_to_recall -> []
@@ -129,21 +109,12 @@ defmodule Ryker.Memories.Cases do
   def search_page(%Episode{} = episode, repository_ref, page) do
     case ContinuityScope.destination_context(episode, repository_ref) do
       {:ok, scope} ->
-        # A dynamic filter must be its own `where`: inside the boolean above
-        # it, Ecto refused the query and every memory search failed.
-        from(record in CaseRecord,
-          where:
-            record.status == :active and record.workspace_ref == ^scope.workspace_ref and
-              record.execution_mode == ^episode.execution_mode,
-          where: ^visible(scope),
-          where: ^scope_filter(scope, page.scope)
-        )
-        |> MemorySearchPage.one(
-          page,
-          dynamic([record], record.search_text),
-          dynamic([record], record.updated_at),
-          dynamic([record], record.closed_at)
-        )
+        fields = CaseRecordQuery.search_fields()
+
+        scope
+        |> CaseRecordQuery.recallable(episode.execution_mode)
+        |> CaseRecordQuery.within_scope(scope, page.scope)
+        |> MemorySearchPage.one(page, fields.text, fields.changed, fields.source)
         |> case do
           {:ok, record, position} -> {:ok, document(record), position}
           :done -> :done
@@ -153,22 +124,6 @@ defmodule Ryker.Memories.Cases do
         :done
     end
   end
-
-  # A case is seen where its work happened, and passes from one public channel
-  # to another public channel of its workspace, as notes and topics do. Matching
-  # by workspace alone took work in a DM or a private channel into every public
-  # and Slack Connect channel (2026-10-04 review).
-  defp visible(%{transport: "slack", visibility: :public} = scope) do
-    public = ContinuityScope.public_conversations(scope.workspace_ref)
-
-    dynamic(
-      [record],
-      record.conversation_ref == ^scope.conversation_ref or
-        record.conversation_ref in subquery(public)
-    )
-  end
-
-  defp visible(scope), do: dynamic([record], record.conversation_ref == ^scope.conversation_ref)
 
   @doc """
   Explicitly removes one retained case.
@@ -202,16 +157,8 @@ defmodule Ryker.Memories.Cases do
   @spec withdraw_message_in_transaction(String.t()) :: :ok
   def withdraw_message_in_transaction(native_input_id) when is_binary(native_input_id) do
     withdraw(
-      dynamic(
-        [episode],
-        episode.id in subquery(
-          from(origin in Origin,
-            where: origin.native_input_id == ^native_input_id,
-            select: origin.episode_id
-          )
-        )
-      ),
-      dynamic([record], ^native_input_id in record.source_refs)
+      EpisodeQuery.joined_by_message(native_input_id),
+      CaseRecordQuery.citing_message(native_input_id)
     )
   end
 
@@ -226,23 +173,8 @@ defmodule Ryker.Memories.Cases do
   def withdraw_conversation_in_transaction(transport, conversation_ref)
       when is_binary(transport) and is_binary(conversation_ref) do
     withdraw(
-      dynamic(
-        [episode],
-        (episode.destination_transport == ^transport and
-           episode.destination_conversation_ref == ^conversation_ref) or
-          episode.id in subquery(
-            from(origin in Origin,
-              where:
-                origin.transport == ^transport and origin.conversation_ref == ^conversation_ref,
-              select: origin.episode_id
-            )
-          )
-      ),
-      dynamic(
-        [record],
-        (record.transport == ^transport and record.conversation_ref == ^conversation_ref) or
-          fragment("? @> ARRAY[?]::text[]", record.conversation_refs, ^conversation_ref)
-      )
+      EpisodeQuery.touching_conversation(transport, conversation_ref),
+      CaseRecordQuery.from_conversation(transport, conversation_ref)
     )
   end
 
@@ -251,17 +183,16 @@ defmodule Ryker.Memories.Cases do
   # written the case the second look finds. Both go in episode order, the
   # order capture keeps cases in, so the two never wait on each other.
   defp withdraw(work, kept) do
-    Repo.all(from(episode in Episode, where: ^work, order_by: [asc: episode.id]))
+    work
+    |> EpisodeQuery.ordered_by_id()
+    |> Repo.all()
     |> Enum.each(&withdraw_work!/1)
 
-    Repo.all(
-      from(record in CaseRecord,
-        where: record.status == :active,
-        where: ^kept,
-        order_by: [asc: record.case_ref],
-        lock: "FOR UPDATE"
-      )
-    )
+    kept
+    |> CaseRecordQuery.active()
+    |> CaseRecordQuery.ordered_by_case_ref()
+    |> CaseRecordQuery.lock_for_update()
+    |> Repo.all()
     |> Enum.each(&redact!/1)
   end
 
@@ -306,7 +237,7 @@ defmodule Ryker.Memories.Cases do
   end
 
   defp locked(case_ref) do
-    Repo.one(from(record in CaseRecord, where: record.case_ref == ^case_ref, lock: "FOR UPDATE"))
+    case_ref |> CaseRecordQuery.by_case_ref() |> CaseRecordQuery.lock_for_update() |> Repo.one()
   end
 
   # The identity and the lifecycle stay; the text is erased.
@@ -333,7 +264,7 @@ defmodule Ryker.Memories.Cases do
     attributes = attributes(episode)
     now = Repo.now!()
 
-    case Repo.get_by(CaseRecord, case_ref: attributes.case_ref) do
+    case Repo.one(CaseRecordQuery.by_case_ref(attributes.case_ref)) do
       %CaseRecord{content_fingerprint: same} = record
       when same == :erlang.map_get(:content_fingerprint, attributes) ->
         {:ok, record}
@@ -367,7 +298,7 @@ defmodule Ryker.Memories.Cases do
   defp announce_case(_not_written), do: :ok
 
   defp attributes(%Episode{} = episode) do
-    digest = Repo.get_by(RoutingDigest, episode_id: episode.id)
+    digest = Repo.one(RoutingDigestQuery.by_episode_id(episode.id))
     problem = bounded(digest_problem(digest, episode), @problem_bytes)
     checked = Enum.flat_map(records(episode.id, "evidence"), &checked/1)
 
@@ -409,7 +340,7 @@ defmodule Ryker.Memories.Cases do
   defp digest_problem(_digest, %Episode{key: key}), do: "Work #{key}"
 
   defp digest_text(%Episode{} = episode) do
-    case Repo.get_by(RoutingDigest, episode_id: episode.id) do
+    case Repo.one(RoutingDigestQuery.by_episode_id(episode.id)) do
       %RoutingDigest{} = digest -> "#{digest.objective} #{digest.latest_development}"
       nil -> ""
     end
@@ -430,32 +361,19 @@ defmodule Ryker.Memories.Cases do
     |> Enum.join("\n")
   end
 
-  defp outcome(episode_id) do
-    Repo.one(
-      from(turn in Turn,
-        where:
-          turn.episode_id == ^episode_id and turn.status in [:settled, :delivery_pending] and
-            not is_nil(turn.result_ref),
-        order_by: [desc: turn.accepted_at, desc: turn.inserted_at],
-        limit: 1,
-        select: fragment("?::jsonb ->> 'message'", turn.delivery_document)
-      )
-    )
-  end
+  defp outcome(episode_id), do: Repo.one(TurnQuery.latest_answer_message(episode_id))
 
   # What the work still stands by: a replaced record, and a finding a person
   # forgot or marked explained (`Ryker.Records.Findings`), are left out.
   defp records(episode_id, kind) do
-    Repo.all(
-      from(record in Record,
-        where:
-          record.episode_id == ^episode_id and record.kind == ^kind and
-            record.status in [:open, :confirmed],
-        order_by: [asc: record.inserted_at],
-        limit: 32,
-        select: record.payload
-      )
-    )
+    episode_id
+    |> RecordQuery.by_episode_id()
+    |> RecordQuery.of_kind(kind)
+    |> RecordQuery.in_use()
+    |> RecordQuery.oldest_first()
+    |> RecordQuery.limit_to(32)
+    |> RecordQuery.select_payloads()
+    |> Repo.all()
   end
 
   # The cause is what the work found and explained; an unexplained, expected
@@ -492,69 +410,44 @@ defmodule Ryker.Memories.Cases do
 
   # The newest claims, as later work recurs on them.
   defp occurrence_refs(episode_id) do
-    Repo.all(
-      from(claim in CorrelationClaim,
-        where: claim.episode_id == ^episode_id,
-        order_by: [desc: claim.inserted_at, desc: claim.id],
-        limit: @maximum_occurrences,
-        select: claim.occurrence_ref
-      )
-    )
+    episode_id
+    |> CorrelationClaimQuery.by_episode_id()
+    |> CorrelationClaimQuery.newest_first()
+    |> CorrelationClaimQuery.limit_to(@maximum_occurrences)
+    |> CorrelationClaimQuery.select_occurrence_refs()
+    |> Repo.all()
     |> Enum.sort()
   end
 
   defp links(episode_id) do
-    Repo.all(
-      from(origin in Origin,
-        where: origin.episode_id == ^episode_id,
-        order_by: [asc: origin.occurred_at],
-        select: origin.source_item_ref
-      )
-    )
+    episode_id
+    |> OriginQuery.by_episode_id()
+    |> OriginQuery.in_occurrence_order()
+    |> OriginQuery.select_source_item_refs()
+    |> Repo.all()
     |> Enum.reject(&is_nil/1)
     |> Enum.uniq()
   end
 
   # Every conversation the work's messages came from, so that deleting any of
   # them finds the case (`withdraw_conversation_in_transaction/2`).
-  defp conversation_refs(episode_id) do
-    Repo.all(
-      from(origin in Origin,
-        where: origin.episode_id == ^episode_id and not is_nil(origin.conversation_ref),
-        distinct: true,
-        order_by: [asc: origin.conversation_ref],
-        select: origin.conversation_ref
-      )
-    )
-    |> Enum.take(64)
-  end
+  defp conversation_refs(episode_id),
+    do: episode_id |> OriginQuery.conversation_refs() |> Repo.all() |> Enum.take(64)
 
   # Lineage is kept by the source identity the adapter issued, not by this
   # episode's event key, so an explicit withdrawal of that exact message can
   # still find every record derived from it after the transcript is gone.
   defp source_refs(episode_id) do
-    Repo.all(
-      from(origin in Origin,
-        where: origin.episode_id == ^episode_id,
-        order_by: [asc: origin.occurred_at],
-        select: origin.native_input_id
-      )
-    )
+    episode_id
+    |> OriginQuery.by_episode_id()
+    |> OriginQuery.in_occurrence_order()
+    |> OriginQuery.select_native_input_ids()
+    |> Repo.all()
     |> Enum.uniq()
     |> Enum.take(64)
   end
 
-  defp repository_ref(episode_id) do
-    Repo.one(
-      from(turn in Turn,
-        join: session in assoc(turn, :session),
-        where: turn.episode_id == ^episode_id and not is_nil(session.repository_ref),
-        order_by: [desc: turn.inserted_at],
-        limit: 1,
-        select: session.repository_ref
-      )
-    )
-  end
+  defp repository_ref(episode_id), do: Repo.one(TurnQuery.latest_repository_ref(episode_id))
 
   defp document(%CaseRecord{} = record) do
     %{
@@ -571,17 +464,6 @@ defmodule Ryker.Memories.Cases do
       "repository_ref" => record.repository_ref
     }
   end
-
-  defp scope_filter(context, "current_channel"),
-    do: dynamic([record], record.conversation_ref == ^context.conversation_ref)
-
-  defp scope_filter(%{repository_ref: repository}, "repository") when is_binary(repository),
-    do: dynamic([record], record.repository_ref == ^repository)
-
-  defp scope_filter(_context, scope) when scope in ["workspace", "global"],
-    do: dynamic([_record], true)
-
-  defp scope_filter(_context, _scope), do: dynamic([_record], false)
 
   defp bounded(nil, _limit), do: nil
   defp bounded(text, limit), do: String.byte_slice(text, 0, limit)

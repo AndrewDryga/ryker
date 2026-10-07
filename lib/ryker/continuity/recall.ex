@@ -8,17 +8,18 @@ defmodule Ryker.Continuity.Recall do
   is only ever a hint about sources the reader may still see.
   """
 
-  import Ecto.Query
   alias Ryker.Continuity
-  alias Ryker.Continuity.ConversationRollup
-  alias Ryker.Continuity.ConversationSummary
+  alias Ryker.Continuity.{ConversationRollup, ConversationRollupQuery}
+  alias Ryker.Continuity.{ConversationSummary, ConversationSummaryQuery}
   alias Ryker.Continuity.{Relevance, Scope}
   alias Ryker.Episodes.Episode
   alias Ryker.Knowledge
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
+  alias Ryker.Learning.SourceDependencyQuery
   alias Ryker.Memories.MemorySearchPage
   alias Ryker.Memories.MemorySourceLink
+  alias Ryker.Memories.SearchPageQuery
   alias Ryker.Repo
 
   @maximum_related 8
@@ -88,31 +89,21 @@ defmodule Ryker.Continuity.Recall do
     # No row lock on the hit: two searches holding one summary FOR SHARE each
     # blocked the other's recall count and PostgreSQL aborted one of them. The
     # count is best effort, and the visibility recheck locks the observations.
+    # A search dates a summary or a rollup by the latest message it learned
+    # from, not by when maintenance last rewrote it.
+    source = SourceDependencyQuery.latest_source_at()
+
+    fields =
+      if kind == :summary,
+        do: ConversationSummaryQuery.search_fields(source),
+        else: ConversationRollupQuery.search_fields(source)
+
     query
     |> LearningSources.sourced()
     |> LearningSources.eligible(context)
-    |> MemorySearchPage.related_sources(page)
-    |> MemorySearchPage.one(
-      page,
-      dynamic([item], item.state),
-      dynamic([item], item.updated_at),
-      search_source_clock()
-    )
+    |> SearchPageQuery.related_sources(page)
+    |> MemorySearchPage.one(page, fields.text, fields.changed, fields.source)
     |> account_search_result(kind, context, counted?)
-  end
-
-  defp search_source_clock do
-    # This clock is the latest backing message, not the maintenance job time.
-    dynamic(
-      [item],
-      type(
-        fragment(
-          "(SELECT max(o.occurred_at) FROM ryker_learning_roots(?) r JOIN conversation_observations o ON o.id = CASE WHEN pg_input_is_valid(r->>'observation_id', 'uuid') THEN (r->>'observation_id')::uuid ELSE NULL END)",
-          item.source_dependencies
-        ),
-        :utc_datetime_usec
-      )
-    )
   end
 
   defp account_search_result({:ok, item, position}, kind, context, counted?) do
@@ -133,9 +124,9 @@ defmodule Ryker.Continuity.Recall do
 
   defp recall_locked(context, request, counted?) do
     current =
-      Repo.one(
-        from(summary in ConversationSummary, where: summary.identity_key == ^context.identity_key)
-      )
+      context.identity_key
+      |> ConversationSummaryQuery.by_identity_key()
+      |> Repo.one()
       |> learning_visible(context)
 
     related = related_summaries(context, request)
@@ -155,88 +146,16 @@ defmodule Ryker.Continuity.Recall do
   end
 
   defp searchable_summaries_query(context, scope) do
-    from(summary in ConversationSummary,
-      where: summary.workspace_ref == ^context.workspace_ref,
-      where: ^Observations.visible_conversations(context),
-      where: summary.conversation_ref == ^context.conversation_ref or summary.transport == "slack"
-    )
-    |> summaries_within_scope(context, scope)
+    context
+    |> ConversationSummaryQuery.searchable()
+    |> ConversationSummaryQuery.within_scope(context, scope)
   end
-
-  defp summaries_within_scope(query, context, "current_channel"),
-    do: from(summary in query, where: summary.conversation_ref == ^context.conversation_ref)
-
-  defp summaries_within_scope(query, %{repository_ref: repository_ref}, "repository")
-       when is_binary(repository_ref),
-       do: from(summary in query, where: summary.repository_ref == ^repository_ref)
-
-  defp summaries_within_scope(query, _context, "workspace"), do: query
-  defp summaries_within_scope(query, _context, _scope), do: from(summary in query, where: false)
 
   defp searchable_rollups_query(context, scope) do
     context
-    |> rollups_for_context_query()
-    |> rollups_visible_query(context)
-    |> rollups_within_scope(context, scope)
-  end
-
-  defp rollups_within_scope(query, context, "current_channel") do
-    from(rollup in query,
-      where: rollup.scope_kind == :conversation and rollup.scope_ref == ^context.conversation_ref
-    )
-  end
-
-  defp rollups_within_scope(query, %{repository_ref: repository_ref}, "repository")
-       when is_binary(repository_ref),
-       do: from(rollup in query, where: rollup.repository_ref == ^repository_ref)
-
-  defp rollups_within_scope(query, _context, "workspace"), do: query
-  defp rollups_within_scope(query, _context, _scope), do: from(rollup in query, where: false)
-
-  defp rollups_visible_query(
-         query,
-         %{visibility: :public, repository_ref: repository_ref} = context
-       )
-       when is_binary(repository_ref) do
-    public_sources = public_rollup_sources_query()
-
-    visible =
-      dynamic(
-        [rollup],
-        (rollup.scope_kind == :conversation and rollup.scope_ref == ^context.conversation_ref) or
-          (rollup.scope_kind == :repository and rollup.repository_ref == ^repository_ref and
-             rollup.visibility == :public and ^public_sources)
-      )
-
-    from(rollup in query, where: ^visible)
-  end
-
-  defp rollups_visible_query(query, context) do
-    from(rollup in query,
-      where: rollup.scope_kind == :conversation and rollup.scope_ref == ^context.conversation_ref
-    )
-  end
-
-  defp public_rollup_sources_query do
-    dynamic(
-      [rollup],
-      fragment(
-        """
-        NOT EXISTS (
-          SELECT 1 FROM jsonb_array_elements(COALESCE(?::jsonb, '[]'::jsonb)) source_scope
-          LEFT JOIN slack_channel_memberships membership
-            ON membership.workspace_ref = source_scope->>'workspace_ref'
-           AND membership.channel_ref = source_scope->>'channel_ref'
-          WHERE source_scope->>'transport' IS DISTINCT FROM 'slack'
-             OR membership.workspace_ref IS NULL
-             OR membership.status IS DISTINCT FROM 'joined'
-             OR membership.private IS DISTINCT FROM false
-             OR membership.external_shared IS DISTINCT FROM false
-        )
-        """,
-        rollup.source_scopes
-      )
-    )
+    |> ConversationRollupQuery.for_context()
+    |> ConversationRollupQuery.visible_to(context)
+    |> ConversationRollupQuery.within_scope(context, scope)
   end
 
   defp continuity_search_candidate_visible?({:summary, summary}, context),
@@ -257,21 +176,19 @@ defmodule Ryker.Continuity.Recall do
     query =
       context
       |> searchable_summaries_query("workspace")
-      |> where([summary], summary.identity_key != ^context.identity_key)
-      |> order_by([summary], desc: summary.updated_at, desc: summary.id)
-      |> limit(@maximum_candidates)
+      |> ConversationSummaryQuery.excluding_identity_key(context.identity_key)
+      |> ConversationSummaryQuery.recently_updated_first()
+      |> ConversationSummaryQuery.limit_to(@maximum_candidates)
       |> LearningSources.sourced()
       |> LearningSources.eligible(context)
 
     # Rank small descriptors first. Loading 64 full 8 MiB dependency lists
     # makes a bounded result count a very unbounded application-memory cost.
-    Repo.all(
-      from(summary in query,
-        select: map(summary, [:id, :conversation_ref, :repository_ref, :updated_at, :ref, :state])
-      )
-    )
+    query
+    |> ConversationSummaryQuery.select_descriptors()
+    |> Repo.all()
     |> Enum.sort_by(&summary_rank(&1, context, request))
-    |> Stream.map(fn item -> Repo.one(from(summary in query, where: summary.id == ^item.id)) end)
+    |> Stream.map(&Repo.one(ConversationSummaryQuery.by_id(query, &1.id)))
     |> Stream.reject(&is_nil/1)
     |> Stream.filter(&summary_visible?(&1, context))
     |> Enum.take(@maximum_related)
@@ -280,13 +197,17 @@ defmodule Ryker.Continuity.Recall do
   defp related_rollups(context) do
     query =
       context
-      |> related_rollups_query()
-      |> rollups_visible_query(context)
+      |> ConversationRollupQuery.for_context()
+      |> ConversationRollupQuery.latest_period_first()
+      |> ConversationRollupQuery.limit_to(@maximum_candidates)
+      |> ConversationRollupQuery.visible_to(context)
       |> LearningSources.sourced()
       |> LearningSources.eligible(context)
 
-    Repo.all(from(rollup in query, select: rollup.id))
-    |> Stream.map(fn id -> Repo.one(from(rollup in query, where: rollup.id == ^id)) end)
+    query
+    |> ConversationRollupQuery.select_ids()
+    |> Repo.all()
+    |> Stream.map(&Repo.one(ConversationRollupQuery.by_id(query, &1)))
     |> Stream.reject(&is_nil/1)
     |> Stream.filter(&(rollup_visible?(&1, context) and derived_sources_valid?(&1, context)))
     |> Enum.take(@maximum_rollups)
@@ -297,35 +218,6 @@ defmodule Ryker.Continuity.Recall do
        (context.visibility == :public and summary.visibility == :public and
           Scope.public_source_visible?(summary))) and
       derived_sources_valid?(summary, context)
-  end
-
-  defp related_rollups_query(context) do
-    context
-    |> rollups_for_context_query()
-    |> order_by([rollup], desc: rollup.period_end, desc: rollup.id)
-    |> limit(@maximum_candidates)
-  end
-
-  defp rollups_for_context_query(%{repository_ref: repository_ref} = context)
-       when is_binary(repository_ref) do
-    from(rollup in ConversationRollup,
-      where:
-        rollup.workspace_ref == ^context.workspace_ref and
-          rollup.expires_at > fragment("clock_timestamp()") and
-          ((rollup.scope_kind == :conversation and
-              rollup.scope_ref == ^context.conversation_ref) or
-             (rollup.scope_kind == :repository and rollup.repository_ref == ^repository_ref))
-    )
-  end
-
-  defp rollups_for_context_query(context) do
-    from(rollup in ConversationRollup,
-      where:
-        rollup.workspace_ref == ^context.workspace_ref and
-          rollup.expires_at > fragment("clock_timestamp()") and
-          rollup.scope_kind == :conversation and
-          rollup.scope_ref == ^context.conversation_ref
-    )
   end
 
   defp learning_visible(nil, _context), do: nil
@@ -424,7 +316,7 @@ defmodule Ryker.Continuity.Recall do
   defp mark_summaries_recalled(summaries, now) do
     ids = Enum.map(summaries, & &1.id)
 
-    Repo.update_all(from(summary in ConversationSummary, where: summary.id in ^ids),
+    Repo.update_all(ConversationSummaryQuery.by_ids(ids),
       inc: [recall_count: 1],
       set: [last_recalled_at: now]
     )
@@ -437,7 +329,7 @@ defmodule Ryker.Continuity.Recall do
   defp mark_rollups_recalled(rollups, now) do
     ids = Enum.map(rollups, & &1.id)
 
-    Repo.update_all(from(rollup in ConversationRollup, where: rollup.id in ^ids),
+    Repo.update_all(ConversationRollupQuery.by_ids(ids),
       inc: [recall_count: 1],
       set: [last_recalled_at: now]
     )

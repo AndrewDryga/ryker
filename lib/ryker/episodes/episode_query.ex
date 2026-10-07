@@ -1,7 +1,7 @@
 defmodule Ryker.Episodes.EpisodeQuery do
   @moduledoc "Requests (episodes), for every read of `episode_kernel_episodes`."
   import Ecto.Query
-  alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.Episodes.{Episode, Event, OriginQuery}
   alias Ryker.Work.Turn
 
   def all, do: from(episodes in Episode, as: :episode_kernel_episodes)
@@ -41,6 +41,30 @@ defmodule Ryker.Episodes.EpisodeQuery do
     do: where(queryable, [episode_kernel_episodes: e], e.execution_mode == ^execution_mode)
 
   def ordered_by_id(queryable), do: order_by(queryable, [episode_kernel_episodes: e], asc: e.id)
+
+  @doc "Episodes that message `native_input_id` started or joined."
+  def joined_by_message(native_input_id) do
+    origins =
+      native_input_id |> OriginQuery.by_native_input_id() |> OriginQuery.select_episode_ids()
+
+    where(all(), [episode_kernel_episodes: e], e.id in subquery(origins))
+  end
+
+  @doc "Episodes that answer in a conversation, or that one of its messages joined."
+  def touching_conversation(transport, conversation_ref) do
+    origins =
+      transport
+      |> OriginQuery.in_conversation(conversation_ref)
+      |> OriginQuery.select_episode_ids()
+
+    where(
+      all(),
+      [episode_kernel_episodes: e],
+      (e.destination_transport == ^transport and
+         e.destination_conversation_ref == ^conversation_ref) or
+        e.id in subquery(origins)
+    )
+  end
 
   def by_key(queryable \\ all(), key),
     do: where(queryable, [episode_kernel_episodes: e], e.key == ^key)

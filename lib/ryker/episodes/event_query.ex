@@ -1,7 +1,7 @@
 defmodule Ryker.Episodes.EventQuery do
   @moduledoc "What happened in each request, for every read of `episode_kernel_events`."
   import Ecto.Query
-  alias Ryker.Episodes.Event
+  alias Ryker.Episodes.{Episode, Event}
 
   def all, do: from(events in Event, as: :episode_kernel_events)
 
@@ -77,6 +77,44 @@ defmodule Ryker.Episodes.EventQuery do
   end
 
   def select_payloads(queryable), do: select(queryable, [episode_kernel_events: e], e.payload)
+
+  def select_actor_refs(queryable) do
+    select(
+      queryable,
+      [episode_kernel_events: e],
+      fragment("?::jsonb ->> 'actor_ref'", e.payload)
+    )
+  end
+
+  @doc """
+  The dedupe key of the latest admission of message `message` in Lab
+  conversation `conversation`, by the source item or native input it names.
+  """
+  def lab_admission_key(conversation, message) do
+    from(e in all(),
+      join: episode in Episode,
+      on: episode.id == e.episode_id,
+      where:
+        episode.destination_transport == "control_plane" and
+          episode.destination_conversation_ref == ^conversation and
+          episode.destination_thread_ref == ^conversation and e.kind == :input_admitted,
+      where:
+        fragment(
+          "?::jsonb #>> '{payload,source_item_ref}' = ? OR ?::jsonb ->> 'native_input_id' = ?",
+          e.payload,
+          ^message,
+          e.payload,
+          ^message
+        ),
+      order_by: [
+        desc: fragment("(?::jsonb ->> 'revision')::bigint", e.payload),
+        desc: e.occurred_at,
+        desc: e.id
+      ],
+      limit: 1,
+      select: e.dedupe_key
+    )
+  end
 
   def by_id(queryable \\ all(), id), do: where(queryable, [episode_kernel_events: e], e.id == ^id)
 

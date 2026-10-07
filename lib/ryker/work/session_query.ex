@@ -91,6 +91,7 @@ defmodule Ryker.Work.SessionQuery do
   end
 
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
+  def lock_for_share_skip_locked(queryable), do: lock(queryable, "FOR SHARE SKIP LOCKED")
 
   def by_id(queryable \\ all(), id), do: where(queryable, [episode_work_sessions: s], s.id == ^id)
 

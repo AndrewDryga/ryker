@@ -1,31 +1,25 @@
 defmodule Ryker.Learning.Rebuilds do
   @moduledoc "Explicit, source-only repair of an unavailable topic under the existing learning budget."
-  import Ecto.Query
   alias Ryker.Continuity
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress.Inbox.EntryQuery
   alias Ryker.Knowledge
-  alias Ryker.Knowledge.ConversationKnowledge
-  alias Ryker.Knowledge.KnowledgeSource
+  alias Ryker.Knowledge.{ConversationKnowledgeQuery, KnowledgeSourceQuery}
   alias Ryker.Learning
-  alias Ryker.Learning.{Batch, Runtime}
-  alias Ryker.Learning.ConversationObservation
-  alias Ryker.Learning.LearningRun
-  alias Ryker.Learning.LearningSources
-  alias Ryker.Learning.Observations
+  alias Ryker.Learning.{Batch, BatchQuery, LearningSources, Observations}
+  alias Ryker.Learning.{RebuildSourceQuery, Runtime}
   alias Ryker.Repo
-  alias Ryker.Slack.ChannelMembership
 
   @page_size 20
   @terminal [:no_change, :deferred, :superseded, :dropped]
 
   def preview(id, options) do
     with {:ok, ^id} <- Ecto.UUID.cast(id),
-         %ConversationKnowledge{} = topic <- Repo.get(ConversationKnowledge, id),
+         {:ok, topic} <- Repo.fetch(ConversationKnowledgeQuery.by_id(id)),
          {:ok, scope} <- scope(topic) do
       query = source_query(topic)
       any_sources = Repo.exists?(query)
       search = options |> Map.get(:q, "") |> String.slice(0, 200)
-      selected = matching(query, search)
+      selected = RebuildSourceQuery.mentioning(query, search)
       total = Repo.aggregate(selected, :count)
       pages = max(1, div(total + @page_size - 1, @page_size))
       page = min(max(Map.get(options, :page, 1), 1), pages)
@@ -34,14 +28,11 @@ defmodule Ryker.Learning.Rebuilds do
       reason = preview_reason(topic, batch, available, any_sources)
 
       entries =
-        Repo.all(
-          from([o, e] in selected,
-            order_by: [desc: o.occurred_at, desc: e.id],
-            offset: ^((page - 1) * @page_size),
-            limit: @page_size,
-            select: {o, e}
-          )
-        )
+        selected
+        |> RebuildSourceQuery.latest_said_first()
+        |> RebuildSourceQuery.page(page, @page_size)
+        |> RebuildSourceQuery.select_observations_and_entries()
+        |> Repo.all()
         |> Enum.map(fn {observation, entry} -> entry_view(topic, observation, entry) end)
 
       {:ok,
@@ -111,93 +102,11 @@ defmodule Ryker.Learning.Rebuilds do
     }
   end
 
-  defp suggested?(topic, observation) do
-    thread =
-      if observation.thread_ref,
-        do: dynamic([_s, previous], previous.thread_ref == ^observation.thread_ref),
-        else: dynamic(false)
+  defp suggested?(topic, observation),
+    do: Repo.exists?(KnowledgeSourceQuery.direct_near(topic.id, observation))
 
-    connected = dynamic([_s, previous], previous.id == ^observation.id or ^thread)
-
-    Repo.exists?(
-      from(s in KnowledgeSource,
-        join: previous in ConversationObservation,
-        on: previous.id == s.observation_id,
-        where: s.knowledge_id == ^topic.id and not is_nil(s.direct_support_version),
-        where: ^connected
-      )
-    )
-  end
-
-  # Current originals have no inherited prose to authorize. Match the exact
-  # observation revision before pagination; a deleted/edited source cannot
-  # consume a selectable row merely because its old inbox entry remains.
-  defp source_query(topic) do
-    topic
-    |> scoped_originals()
-    |> current_originals()
-    |> unexpired_originals(LearningSources.retention_seconds())
-    |> undeleted_destination(topic)
-  end
-
-  defp scoped_originals(topic) do
-    from(o in ConversationObservation,
-      join: e in Entry,
-      on: e.id == o.source_input_id,
-      # The conversation's messages, whatever repository each one's work used:
-      # a topic is its conversation's (`Ryker.Knowledge`).
-      where:
-        o.transport == ^topic.transport and o.workspace_ref == ^topic.workspace_ref and
-          o.conversation_ref == ^topic.conversation_ref,
-      where:
-        e.destination_transport == o.transport and
-          e.destination_conversation_ref == o.conversation_ref and
-          fragment("? IS NOT DISTINCT FROM ?", e.repository_ref, o.repository_ref)
-    )
-  end
-
-  defp current_originals(query) do
-    from([o, e] in query,
-      where:
-        e.status == :decided and e.event_kind != :delete and is_nil(e.operational_pruned_at) and
-          not is_nil(e.content),
-      where: e.revision == o.revision and e.event_fingerprint == o.source_fingerprint,
-      where: is_nil(o.source_result_ref) or not like(o.source_result_ref, "source-conflict:%"),
-      where: is_nil(o.forgotten_at)
-    )
-  end
-
-  defp unexpired_originals(query, nil), do: query
-
-  defp unexpired_originals(query, seconds) do
-    where(
-      query,
-      [o],
-      o.updated_at > fragment("clock_timestamp() - (? * interval '1 second')", ^seconds)
-    )
-  end
-
-  defp undeleted_destination(query, %{transport: "slack"} = topic) do
-    deleted =
-      from(m in ChannelMembership,
-        where:
-          m.status == :deleted and
-            fragment("'slack:' || ? || ':' || ?", m.workspace_ref, m.channel_ref) ==
-              ^topic.conversation_ref,
-        where: not like(m.channel_ref, "D%"),
-        select: 1
-      )
-
-    where(query, not exists(subquery(deleted)))
-  end
-
-  defp undeleted_destination(query, _topic), do: query
-
-  defp matching(query, ""), do: query
-
-  defp matching(query, search) do
-    where(query, [_o, e], fragment("strpos(lower(?::text), lower(?)) > 0", e.content, ^search))
-  end
+  defp source_query(topic),
+    do: RebuildSourceQuery.of_topic(topic, LearningSources.retention_seconds())
 
   def selections(value) when is_list(value) and length(value) in 1..16 do
     if Enum.all?(value, &selection?/1) and
@@ -263,7 +172,7 @@ defmodule Ryker.Learning.Rebuilds do
   @doc false
   def reselect_in_transaction(id, expected_budget_version, expected_target, selected) do
     Batch.lock_queue!()
-    batch = Repo.one(from(b in Batch, where: b.id == ^id, lock: "FOR UPDATE"))
+    batch = id |> BatchQuery.by_id() |> BatchQuery.lock_for_update() |> Repo.one()
 
     unless batch && batch.rebuild_target_id && batch.status in @terminal &&
              batch.budget_version == expected_budget_version,
@@ -305,13 +214,18 @@ defmodule Ryker.Learning.Rebuilds do
   end
 
   defp target!(id, version, generation) do
-    topic = Repo.get(ConversationKnowledge, id) || Repo.rollback(:knowledge_not_found)
+    topic = Repo.one(ConversationKnowledgeQuery.by_id(id)) || Repo.rollback(:knowledge_not_found)
     destination = destination(topic)
 
     unless Knowledge.lock_scope_in_transaction(destination, topic.repository_ref) == :ok,
       do: Repo.rollback(:learning_source_stale)
 
-    topic = Repo.one!(from(k in ConversationKnowledge, where: k.id == ^id, lock: "FOR UPDATE"))
+    topic =
+      id
+      |> ConversationKnowledgeQuery.by_id()
+      |> ConversationKnowledgeQuery.lock_for_update()
+      |> Repo.one!()
+
     {:ok, scope} = scope(topic)
 
     # Forgetting leaves version and generation alone, so a rebuild queued
@@ -326,8 +240,20 @@ defmodule Ryker.Learning.Rebuilds do
 
   defp selected!(topic, selected) do
     ids = Enum.map(selected, & &1["source_input_id"])
-    entries = Repo.all(from(e in Entry, where: e.id in ^ids, order_by: e.id, lock: "FOR SHARE"))
-    current = Repo.all(from([_o, e] in source_query(topic), where: e.id in ^ids, select: e.id))
+
+    entries =
+      ids
+      |> EntryQuery.by_ids()
+      |> EntryQuery.ordered_by_id()
+      |> EntryQuery.lock_for_share()
+      |> Repo.all()
+
+    current =
+      topic
+      |> source_query()
+      |> RebuildSourceQuery.by_entry_ids(ids)
+      |> RebuildSourceQuery.select_entry_ids()
+      |> Repo.all()
 
     unless Enum.sort(current) == Enum.sort(ids) and length(entries) == length(ids),
       do: Repo.rollback(:learning_source_stale)
@@ -358,19 +284,18 @@ defmodule Ryker.Learning.Rebuilds do
   def inputs(%Batch{} = batch) do
     ids = Enum.map(batch.rebuild_selection, & &1["source_input_id"])
 
-    case Repo.get(ConversationKnowledge, batch.rebuild_target_id) do
+    case Repo.one(ConversationKnowledgeQuery.by_id(batch.rebuild_target_id)) do
       nil ->
         []
 
       topic ->
         entries =
-          Repo.all(
-            from([_o, e] in source_query(topic),
-              where: e.id in ^ids,
-              order_by: [asc: e.inserted_at, asc: e.id],
-              select: e
-            )
-          )
+          topic
+          |> source_query()
+          |> RebuildSourceQuery.by_entry_ids(ids)
+          |> RebuildSourceQuery.oldest_received_first()
+          |> RebuildSourceQuery.select_entries()
+          |> Repo.all()
 
         if length(entries) == length(ids) and Enum.all?(entries, &selected_revision?(&1, batch)),
           do: entries,
@@ -422,7 +347,7 @@ defmodule Ryker.Learning.Rebuilds do
   def authorize_run(%{rebuild: nil}), do: :ok
 
   def authorize_run(run) do
-    batch = Repo.get(Batch, run.batch_id)
+    batch = Repo.one(BatchQuery.by_id(run.batch_id))
 
     if batch && contract(batch) == run.rebuild && batch.budget_version == run.batch_budget_version do
       _topic =
@@ -443,40 +368,23 @@ defmodule Ryker.Learning.Rebuilds do
     if busy?(topic, except, execution_mode), do: Repo.rollback(:learning_scope_busy)
   end
 
-  defp outstanding?(topic, mode \\ nil) do
-    query = matching_batches(topic, mode)
-
-    Repo.exists?(
-      from(b in query,
-        join: r in LearningRun,
-        on: r.batch_id == b.id,
-        where: not is_nil(r.started_at) and is_nil(r.remote_stopped_at)
-      )
-    )
-  end
+  defp outstanding?(topic, mode \\ nil),
+    do: topic |> matching_batches(mode) |> BatchQuery.with_unstopped_run() |> Repo.exists?()
 
   defp busy?(topic, except, mode \\ nil) do
     query = matching_batches(topic, mode)
-    query = if except, do: where(query, [b], b.id != ^except), else: query
-    Repo.exists?(where(query, [b], b.status in [:queued, :running]))
+    query = if except, do: BatchQuery.excluding_id(query, except), else: query
+    Repo.exists?(BatchQuery.active(query))
   end
 
   defp matching_batches(topic, mode) do
-    query =
-      from(b in Batch,
-        where: b.transport == ^topic.transport and b.conversation_ref == ^topic.conversation_ref
-      )
-
-    if mode, do: where(query, [b], b.execution_mode == ^mode), else: query
+    query = BatchQuery.in_conversation(topic.transport, topic.conversation_ref)
+    if mode, do: BatchQuery.with_execution_mode(query, mode), else: query
   end
 
   defp existing(id, generation, lock \\ nil) do
-    query =
-      from(b in Batch,
-        where: b.rebuild_target_id == ^id and b.rebuild_target_generation == ^generation
-      )
-
-    query = if lock, do: from(b in query, lock: "FOR UPDATE"), else: query
+    query = BatchQuery.rebuilding(id, generation)
+    query = if lock, do: BatchQuery.lock_for_update(query), else: query
     Repo.one(query)
   end
 

@@ -8,21 +8,21 @@ defmodule Ryker.Continuity.Handover do
   becomes recallable in the same transaction that accepts that result.
   """
 
-  import Ecto.Query
   alias Ecto.Changeset
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity
   alias Ryker.Continuity.ConversationSummary
   alias Ryker.Continuity.ConversationSummaryDraft
+  alias Ryker.Continuity.ConversationSummaryDraftQuery
   alias Ryker.Continuity.ConversationSummaryState
   alias Ryker.Continuity.Scope
   alias Ryker.Episodes
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes.{Episode, EpisodeQuery}
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Learning.LearningSources
   alias Ryker.Repo
   alias Ryker.Slack.ChannelFence
-  alias Ryker.Work.{Session, Turn}
+  alias Ryker.Work.{Session, Turn, TurnQuery}
 
   @doc """
   Stage a typed summary for the Work turn a state token names. Restaging the
@@ -65,11 +65,10 @@ defmodule Ryker.Continuity.Handover do
           accept_staged_locked(episode, session, turn, result_ref)
 
         {:error, :slack_channel_deleted} ->
-          Repo.delete_all(
-            from(draft in ConversationSummaryDraft,
-              where: draft.turn_id == ^turn.id and draft.episode_id == ^episode.id
-            )
-          )
+          turn.id
+          |> ConversationSummaryDraftQuery.by_turn_id()
+          |> ConversationSummaryDraftQuery.by_episode_id(episode.id)
+          |> Repo.delete_all()
 
           :ok
 
@@ -85,12 +84,14 @@ defmodule Ryker.Continuity.Handover do
     do: {:error, :conversation_summary_invalid_acceptance}
 
   defp accept_staged_locked(episode, session, turn, result_ref) do
-    case Repo.one(
-           from(draft in ConversationSummaryDraft,
-             where: draft.turn_id == ^turn.id and draft.episode_id == ^episode.id,
-             lock: "FOR UPDATE"
-           )
-         ) do
+    draft =
+      turn.id
+      |> ConversationSummaryDraftQuery.by_turn_id()
+      |> ConversationSummaryDraftQuery.by_episode_id(episode.id)
+      |> ConversationSummaryDraftQuery.lock_for_update()
+      |> Repo.one()
+
+    case draft do
       nil ->
         :ok
 
@@ -110,9 +111,7 @@ defmodule Ryker.Continuity.Handover do
           {:error, {:conversation_summary_unavailable, reason}} ->
             # Optional memory maintenance must not roll back an accepted reply.
             # Retain a visible failure on the exact turn, not unsourced prose.
-            Repo.update_all(from(t in Turn, where: t.id == ^turn.id),
-              set: [summary_error_code: reason]
-            )
+            Repo.update_all(TurnQuery.by_id(turn.id), set: [summary_error_code: reason])
 
             Episodes.broadcast_episode_updated(turn.episode_id)
 
@@ -182,14 +181,15 @@ defmodule Ryker.Continuity.Handover do
     end
   end
 
+  defp locked_episode(id),
+    do: id |> EpisodeQuery.by_id() |> EpisodeQuery.lock_for_update() |> Repo.one()
+
+  defp locked_turn(id), do: id |> TurnQuery.by_id() |> TurnQuery.lock_for_update() |> Repo.one()
+
   defp stage_locked(turn_id, state) do
-    with %Turn{} = identity <- Repo.get(Turn, turn_id),
-         %Episode{} = episode <-
-           Repo.one(
-             from(item in Episode, where: item.id == ^identity.episode_id, lock: "FOR UPDATE")
-           ),
-         %Turn{} = turn <-
-           Repo.one(from(item in Turn, where: item.id == ^turn_id, lock: "FOR UPDATE")),
+    with %Turn{} = identity <- Repo.one(TurnQuery.by_id(turn_id)),
+         %Episode{} = episode <- locked_episode(identity.episode_id),
+         %Turn{} = turn <- locked_turn(turn_id),
          :ok <-
            ChannelFence.authorize_in_transaction(
              episode.destination_transport,
@@ -198,12 +198,13 @@ defmodule Ryker.Continuity.Handover do
          :ok <- stage_authorized(episode, turn) do
       fingerprint = CanonicalJSON.digest(state)
 
-      case Repo.one(
-             from(draft in ConversationSummaryDraft,
-               where: draft.turn_id == ^turn.id,
-               lock: "FOR UPDATE"
-             )
-           ) do
+      existing =
+        turn.id
+        |> ConversationSummaryDraftQuery.by_turn_id()
+        |> ConversationSummaryDraftQuery.lock_for_update()
+        |> Repo.one()
+
+      case existing do
         nil ->
           insert_draft(episode, turn, state, fingerprint)
 
@@ -302,12 +303,11 @@ defmodule Ryker.Continuity.Handover do
   end
 
   defp locked_draft(turn) do
-    Repo.one(
-      from(draft in ConversationSummaryDraft,
-        where: draft.turn_id == ^turn.id and draft.episode_id == ^turn.episode_id,
-        lock: "FOR UPDATE"
-      )
-    )
+    turn.id
+    |> ConversationSummaryDraftQuery.by_turn_id()
+    |> ConversationSummaryDraftQuery.by_episode_id(turn.episode_id)
+    |> ConversationSummaryDraftQuery.lock_for_update()
+    |> Repo.one()
   end
 
   defp bind_draft(draft, candidate_sha256, candidate_attempt) do
