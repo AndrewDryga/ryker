@@ -32,7 +32,7 @@ defmodule Ryker.Feedback do
 
   alias Ryker.Episodes
   alias Ryker.Episodes.EpisodeQuery
-  alias Ryker.Feedback.{Signal, SignalQuery}
+  alias Ryker.Feedback.{Signal, SignalChangeset, SignalQuery}
   alias Ryker.Improvement
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.EntryQuery
@@ -229,7 +229,7 @@ defmodule Ryker.Feedback do
     ])
     |> Map.merge(request_ids)
     |> Map.merge(%{id: Ecto.UUID.generate(), category: category_of(kind, value)})
-    |> Signal.changeset()
+    |> SignalChangeset.insert()
     |> Ecto.Changeset.apply_action(:insert)
     |> case do
       {:ok, signal} -> {:ok, signal}

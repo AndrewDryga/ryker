@@ -5,7 +5,7 @@ defmodule Ryker.Learning.Rebuilds do
   alias Ryker.Knowledge
   alias Ryker.Knowledge.{ConversationKnowledgeQuery, KnowledgeSourceQuery}
   alias Ryker.Learning
-  alias Ryker.Learning.{Batch, BatchQuery, LearningSources, Observations}
+  alias Ryker.Learning.{Batch, Batches, BatchQuery, LearningSources, Observations}
   alias Ryker.Learning.{RebuildSourceQuery, Runtime}
   alias Ryker.Repo
 
@@ -130,7 +130,7 @@ defmodule Ryker.Learning.Rebuilds do
 
   @doc false
   def request_in_transaction(id, version, generation, selected) do
-    Batch.lock_queue!()
+    Batches.lock_queue!()
     batch = existing(id, generation, "FOR UPDATE")
     topic = target!(id, version, generation)
 
@@ -149,7 +149,7 @@ defmodule Ryker.Learning.Rebuilds do
           struct!(
             Batch,
             Map.merge(scope, %{
-              scope_key: Batch.scope_key(scope),
+              scope_key: Batches.scope_key(scope),
               policy: settings.policy,
               policy_digest: settings.policy_digest,
               status: :queued,
@@ -171,7 +171,7 @@ defmodule Ryker.Learning.Rebuilds do
 
   @doc false
   def reselect_in_transaction(id, expected_budget_version, expected_target, selected) do
-    Batch.lock_queue!()
+    Batches.lock_queue!()
     batch = id |> BatchQuery.by_id() |> BatchQuery.lock_for_update() |> Repo.one()
 
     unless batch && batch.rebuild_target_id && batch.status in @terminal &&
@@ -197,7 +197,7 @@ defmodule Ryker.Learning.Rebuilds do
         rebuild_selection: selected,
         rebuild_target_version: topic.version,
         execution_mode: execution_mode,
-        scope_key: Batch.scope_key(scope),
+        scope_key: Batches.scope_key(scope),
         input_count: length(entries),
         status: :queued,
         start_limit: batch.start_count + 1,

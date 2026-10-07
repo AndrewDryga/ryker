@@ -9,6 +9,7 @@ defmodule Ryker.Learning.Batches do
   Every batch or pass this module writes is announced after the outermost
   commit (`Ryker.Learning.subscribe_learning/0`), except a lease renewal.
   """
+  alias Ryker.{AdvisoryLock, CanonicalJSON}
   alias Ryker.Ingress.Inbox.EntryQuery
   alias Ryker.Learning
   alias Ryker.Learning.{Batch, BatchQuery, InputMembership, InputMembershipQuery}
@@ -17,10 +18,31 @@ defmodule Ryker.Learning.Batches do
   alias Ryker.Repo
   alias Ryker.UTCDateTime
 
+  @doc "The one key a conversation scope owns a queued or running batch under."
+  @spec scope_key(map()) :: String.t()
+  def scope_key(scope) do
+    scope
+    |> Map.update!(:execution_mode, &Atom.to_string/1)
+    |> Map.new(fn {k, v} -> {Atom.to_string(k), v} end)
+    |> CanonicalJSON.digest()
+  end
+
+  @doc """
+  Serializes queue assignment, never model execution, so exclusive
+  membership and the single active scope stay one decision.
+  """
+  @spec lock_queue!() :: :ok
+  def lock_queue! do
+    unless Repo.in_transaction?(),
+      do: raise(ArgumentError, "the learning queue lock requires a transaction")
+
+    AdvisoryLock.hold!("learning-queue")
+  end
+
   def claim(worker, settings) do
     Repo.transaction(fn ->
       now = Repo.now!()
-      Batch.lock_queue!()
+      lock_queue!()
       batch = next_batch(now) || create_batch(settings, now)
       if batch, do: lease(batch, worker, settings.lease_seconds, now), else: :idle
     end)
@@ -317,7 +339,7 @@ defmodule Ryker.Learning.Batches do
   @doc false
   def retry_in_transaction(id, expected_version) do
     unless Repo.in_transaction?(), do: raise(ArgumentError, "operator audit transaction required")
-    Batch.lock_queue!()
+    lock_queue!()
 
     case Repo.one(BatchQuery.by_id(id)) do
       %Batch{rebuild_target_id: target} = batch when not is_nil(target) ->
@@ -458,7 +480,7 @@ defmodule Ryker.Learning.Batches do
   """
   def drop_in_transaction(id, expected_version) do
     unless Repo.in_transaction?(), do: raise(ArgumentError, "operator audit transaction required")
-    Batch.lock_queue!()
+    lock_queue!()
     batch = locked_batch(id)
 
     unless batch && batch.status == :deferred && batch.budget_version == expected_version,
@@ -565,7 +587,7 @@ defmodule Ryker.Learning.Batches do
         struct!(
           Batch,
           Map.merge(scope, %{
-            scope_key: Batch.scope_key(scope),
+            scope_key: scope_key(scope),
             status: :queued,
             input_count: length(entries),
             policy: settings.policy,
