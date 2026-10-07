@@ -14,13 +14,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Query do
 
   @doc "The messages of `episode_id`, each once, as they read now (`CurrentInput.Query.for_episode/1`)."
   def messages(episode_id),
-    do: from(entry in subquery(CurrentInput.Query.for_episode(episode_id)))
+    do: from(entry in subquery(CurrentInput.Query.for_episode(episode_id)), as: :messages)
 
   def ordered_by_occurred_at(queryable),
-    do: order_by(queryable, [entry], asc: entry.occurred_at, asc: entry.id)
+    do: order_by(queryable, [messages: e], asc: e.occurred_at, asc: e.id)
 
   def ordered_by_occurred_at_desc(queryable),
-    do: order_by(queryable, [entry], desc: entry.occurred_at, desc: entry.id)
+    do: order_by(queryable, [messages: e], desc: e.occurred_at, desc: e.id)
 
   def limit_to(queryable, count), do: limit(queryable, ^count)
 

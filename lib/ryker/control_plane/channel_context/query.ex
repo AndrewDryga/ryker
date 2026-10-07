@@ -36,12 +36,12 @@ defmodule Ryker.ControlPlane.ChannelContext.Query do
   repository or workspace scope.
   """
   def effective_behaviors(kind, scope) do
-    from(behavior in Behavior,
+    from([operator_behaviors: behavior] in Behavior.Query.all(),
       where:
         behavior.kind == ^kind and behavior.status == :active and
           behavior.workspace_ref == ^scope.canonical_workspace_ref and
           (is_nil(behavior.expires_at) or behavior.expires_at > fragment("clock_timestamp()")),
-      where: ^scoped(scope)
+      where: ^scoped(scope, :operator_behaviors)
     )
   end
 
@@ -53,10 +53,10 @@ defmodule Ryker.ControlPlane.ChannelContext.Query do
     :guidance
     |> effective_behaviors(scope)
     |> where(
-      [behavior],
-      fragment("(?::jsonb)->>'visibility'", behavior.payload) == "workspace" or
-        (fragment("(?::jsonb)->>'visibility' IN ('conversation', 'private')", behavior.payload) and
-           behavior.source_conversation_ref == ^scope.conversation_ref)
+      [operator_behaviors: b],
+      fragment("(?::jsonb)->>'visibility'", b.payload) == "workspace" or
+        (fragment("(?::jsonb)->>'visibility' IN ('conversation', 'private')", b.payload) and
+           b.source_conversation_ref == ^scope.conversation_ref)
     )
   end
 
@@ -66,7 +66,7 @@ defmodule Ryker.ControlPlane.ChannelContext.Query do
   conversation confirmed.
   """
   def memory(scope) do
-    from(entry in MemoryEntry,
+    from([operational_memory_entries: entry] in MemoryEntry.Query.all(),
       where:
         entry.status == :active and
           (is_nil(entry.expires_at) or entry.expires_at > fragment("clock_timestamp()")),
@@ -80,38 +80,44 @@ defmodule Ryker.ControlPlane.ChannelContext.Query do
 
   defp memory_scope(scope) do
     dynamic(
-      [entry],
-      entry.scope_kind == :global or
-        (entry.workspace_ref == ^scope.canonical_workspace_ref and ^scoped(scope))
+      [operational_memory_entries: m],
+      m.scope_kind == :global or
+        (m.workspace_ref == ^scope.canonical_workspace_ref and
+           ^scoped(scope, :operational_memory_entries))
     )
   end
 
   # Exact conversation, the repository the channel's environment changes
   # when there is one, or the workspace. Operator scope needs an actor
-  # context the page does not have.
-  defp scoped(%ChannelScope{repository_ref: repository} = scope) when is_binary(repository) do
+  # context the page does not have. Behaviors and memory entries share these
+  # scope columns, so the caller names the binding the rows are read through.
+  defp scoped(%ChannelScope{repository_ref: repository} = scope, binding)
+       when is_binary(repository) do
     dynamic(
-      [row],
+      [{^binding, row}],
       (row.scope_kind == :conversation and row.scope_ref == ^scope.conversation_ref) or
         (row.scope_kind == :repository and row.scope_ref == ^repository) or
         (row.scope_kind == :workspace and row.scope_ref == ^scope.canonical_workspace_ref)
     )
   end
 
-  defp scoped(scope) do
+  defp scoped(scope, binding) do
     dynamic(
-      [row],
+      [{^binding, row}],
       (row.scope_kind == :conversation and row.scope_ref == ^scope.conversation_ref) or
         (row.scope_kind == :workspace and row.scope_ref == ^scope.canonical_workspace_ref)
     )
   end
 
-  @doc "Most specific scope first, as the runtime resolves precedence; then newest."
-  def inherited_order do
+  @doc """
+  Most specific scope first, as the runtime resolves precedence; then newest.
+  `binding` names the rows: `:operator_behaviors` or `:operational_memory_entries`.
+  """
+  def inherited_order(binding) do
     [
       asc:
         dynamic(
-          [row],
+          [{^binding, row}],
           fragment(
             "CASE ? WHEN 'conversation' THEN 0 WHEN 'repository' THEN 1 WHEN 'workspace' THEN 2 ELSE 3 END",
             row.scope_kind

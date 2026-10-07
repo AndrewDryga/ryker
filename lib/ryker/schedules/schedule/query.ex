@@ -8,6 +8,12 @@ defmodule Ryker.Schedules.Schedule.Query do
   def by_id(queryable \\ all(), id), do: where(queryable, [episode_schedules: s], s.id == ^id)
   def by_ref(queryable \\ all(), ref), do: where(queryable, [episode_schedules: s], s.ref == ^ref)
 
+  def by_status(queryable \\ all(), status),
+    do: where(queryable, [episode_schedules: s], s.status == ^status)
+
+  def by_statuses(queryable \\ all(), statuses),
+    do: where(queryable, [episode_schedules: s], s.status in ^statuses)
+
   def by_offer_record_id(queryable \\ all(), record_id),
     do: where(queryable, [episode_schedules: s], s.offer_record_id == ^record_id)
 

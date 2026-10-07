@@ -32,13 +32,14 @@ defmodule Ryker.Knowledge.ConversationKnowledge.Query do
       from(s in KnowledgeSource,
         as: :knowledge_membership,
         left_lateral_join: o in subquery(observation),
+        as: :knowledge_observation,
         on: true,
         where:
           s.knowledge_id == parent_as(:conversation_knowledge).id and
             s.generation == parent_as(:conversation_knowledge).source_generation,
         where:
           ^dynamic(
-            [s, o],
+            [knowledge_membership: s],
             ^changed_source() or (not is_nil(s.direct_support_version) and ^changed_scope())
           ),
         select: 1
@@ -66,7 +67,7 @@ defmodule Ryker.Knowledge.ConversationKnowledge.Query do
   defp expire_memberships(invalid, seconds) do
     or_where(
       invalid,
-      [s, o],
+      [knowledge_membership: s, knowledge_observation: o],
       s.knowledge_id == parent_as(:conversation_knowledge).id and
         s.generation == parent_as(:conversation_knowledge).source_generation and
         (s.retained_at <= ago(^seconds, "second") or o.updated_at <= ago(^seconds, "second"))
@@ -75,7 +76,7 @@ defmodule Ryker.Knowledge.ConversationKnowledge.Query do
 
   defp changed_source do
     dynamic(
-      [s, o],
+      [knowledge_membership: s, knowledge_observation: o],
       is_nil(o.id) or o.revision != s.source_revision or
         o.source_fingerprint != s.source_fingerprint
     )
@@ -85,7 +86,7 @@ defmodule Ryker.Knowledge.ConversationKnowledge.Query do
   # repository may differ: a topic is its conversation's.
   defp changed_scope do
     dynamic(
-      [_s, o],
+      [knowledge_observation: o],
       o.conversation_ref != parent_as(:conversation_knowledge).conversation_ref or
         o.workspace_ref != parent_as(:conversation_knowledge).workspace_ref
     )
@@ -275,15 +276,19 @@ defmodule Ryker.Knowledge.ConversationKnowledge.Query do
   """
   def available_in_channel(local, inherited, workspace, channel) do
     membership =
-      from(m in ChannelMembership,
+      from([slack_channel_memberships: m] in ChannelMembership.Query.all(),
         where: m.workspace_ref == ^workspace and m.channel_ref == ^channel,
         select: 1
       )
 
-    deleted = where(membership, [m], m.status == :deleted)
+    deleted = where(membership, [slack_channel_memberships: m], m.status == :deleted)
 
     public =
-      where(membership, [m], m.status == :joined and not m.private and not m.external_shared)
+      where(
+        membership,
+        [slack_channel_memberships: m],
+        m.status == :joined and not m.private and not m.external_shared
+      )
 
     local = where(local, not exists(subquery(deleted)))
     inherited = where(inherited, exists(subquery(public)))

@@ -28,6 +28,9 @@ defmodule Ryker.Behaviors.Behavior.Query do
   def of_kind(queryable \\ all(), kind),
     do: where(queryable, [operator_behaviors: b], b.kind == ^kind)
 
+  def by_kinds(queryable \\ all(), kinds),
+    do: where(queryable, [operator_behaviors: b], b.kind in ^kinds)
+
   def by_status(queryable \\ all(), status)
 
   def by_status(queryable, statuses) when is_list(statuses),

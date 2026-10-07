@@ -13,7 +13,7 @@ defmodule Ryker.ControlPlane.Feedback.Query do
   alias Ryker.Ingress.Inbox.Entry
 
   @doc """
-  The signals of `query` whose note or emoji, or the name of the request they
+  The signals of `queryable` whose note or emoji, or the name of the request they
   are about (the title Ryker gave it, or the message routing answered by
   itself), contains `pattern`.
   """
@@ -30,7 +30,7 @@ defmodule Ryker.ControlPlane.Feedback.Query do
     )
   end
 
-  @doc "The `count` newest signals of `query` in each category, newest first."
+  @doc "The `count` newest signals of `queryable` in each category, newest first."
   def newest_per_category(queryable, count) do
     ranked =
       from([answer_feedback: signal] in queryable,
@@ -52,7 +52,7 @@ defmodule Ryker.ControlPlane.Feedback.Query do
     )
   end
 
-  @doc "How many signals of `query` came in each UTC day in each category, as `{day, category, count}`."
+  @doc "How many signals of `queryable` came in each UTC day in each category, as `{day, category, count}`."
   def counts_by_day(queryable) do
     from([answer_feedback: signal] in queryable,
       group_by: [fragment("date(?)", signal.occurred_at), signal.category],

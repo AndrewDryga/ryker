@@ -96,17 +96,20 @@ defmodule Ryker.ControlPlane.Usage.Query do
           )
       }
     )
-    |> subquery()
+    |> then(&from(e in subquery(&1), as: :usage))
   end
 
   @doc "The executions whose dimension `field` is `value`; an empty value means unset."
-  def by_dimension(queryable, field, ""), do: where(queryable, [e], is_nil(field(e, ^field)))
-  def by_dimension(queryable, field, value), do: where(queryable, [e], field(e, ^field) == ^value)
+  def by_dimension(queryable, field, ""),
+    do: where(queryable, [usage: e], is_nil(field(e, ^field)))
+
+  def by_dimension(queryable, field, value),
+    do: where(queryable, [usage: e], field(e, ^field) == ^value)
 
   @doc "No executions: a filter that names no valid value matches nothing."
   def none(queryable), do: where(queryable, false)
 
-  def in_slack(queryable), do: where(queryable, [e], e.transport == "slack")
+  def in_slack(queryable), do: where(queryable, [usage: e], e.transport == "slack")
 
   @doc """
   The executions a person asked for. Someone in Chat is a person once
@@ -118,7 +121,7 @@ defmodule Ryker.ControlPlane.Usage.Query do
   def people(queryable) do
     where(
       queryable,
-      [e],
+      [usage: e],
       e.actor_kind == "user" and not is_nil(e.actor) and e.actor != "" and
         (e.source != "control_plane" or like(e.actor, "tailscale:%") or
            like(e.actor, "cloudflare:%"))
@@ -131,11 +134,11 @@ defmodule Ryker.ControlPlane.Usage.Query do
   """
   def grouped(queryable, fields) do
     queryable
-    |> group_by([e], ^fields)
+    |> group_by([usage: e], ^fields)
     |> aggregate()
     |> correction_counts(fields)
-    |> select_merge([e], map(e, ^fields))
-    |> order_by([e],
+    |> select_merge(^Map.new(fields, &{&1, dynamic([usage: e], field(e, ^&1))}))
+    |> order_by([usage: e],
       desc:
         fragment(
           "COALESCE(SUM(?), 0) + COALESCE(SUM(?), 0) + COALESCE(SUM(?), 0)",
@@ -149,7 +152,7 @@ defmodule Ryker.ControlPlane.Usage.Query do
   end
 
   defp correction_counts(queryable, [:work_kind, :provider, :model, :effort]) do
-    select_merge(queryable, [e], %{
+    select_merge(queryable, [usage: e], %{
       corrections: type(fragment("COALESCE(SUM(?), 0)::bigint", e.corrections), :integer)
     })
   end
@@ -159,10 +162,10 @@ defmodule Ryker.ControlPlane.Usage.Query do
   @doc "The executions grouped by UTC day, the latest year at most."
   def by_day(queryable) do
     queryable
-    |> group_by([e], fragment("date(?)", e.recorded_at))
+    |> group_by([usage: e], fragment("date(?)", e.recorded_at))
     |> aggregate()
-    |> select_merge([e], %{date: type(fragment("date(?)", e.recorded_at), :date)})
-    |> order_by([e], desc: fragment("date(?)", e.recorded_at))
+    |> select_merge([usage: e], %{date: type(fragment("date(?)", e.recorded_at), :date)})
+    |> order_by([usage: e], desc: fragment("date(?)", e.recorded_at))
     |> limit(366)
   end
 
@@ -170,7 +173,14 @@ defmodule Ryker.ControlPlane.Usage.Query do
   def filter_options(queryable, limit) do
     from(e in queryable,
       distinct: true,
-      select: map(e, [:source, :workspace, :actor, :actor_kind, :transport, :conversation_ref]),
+      select: %{
+        source: e.source,
+        workspace: e.workspace,
+        actor: e.actor,
+        actor_kind: e.actor_kind,
+        transport: e.transport,
+        conversation_ref: e.conversation_ref
+      },
       order_by: [e.source, e.workspace, e.actor, e.conversation_ref],
       limit: ^limit
     )

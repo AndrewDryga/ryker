@@ -11,7 +11,7 @@ defmodule Ryker.ControlPlane.Findings.Query do
 
   @doc "Every finding with its request's id, as `{record, episode_id}`."
   def findings do
-    from(record in Record,
+    from([episode_state_records: record] in Record.Query.all(),
       join: episode in Episode,
       on: episode.id == record.episode_id,
       where: record.kind == "finding",
@@ -21,7 +21,7 @@ defmodule Ryker.ControlPlane.Findings.Query do
 
   @doc "Record `id` with its request's id, as `{record, episode_id}`."
   def by_id_with_request(id) do
-    from(record in Record,
+    from([episode_state_records: record] in Record.Query.all(),
       join: episode in Episode,
       on: episode.id == record.episode_id,
       where: record.id == ^id,
@@ -30,46 +30,47 @@ defmodule Ryker.ControlPlane.Findings.Query do
   end
 
   @doc """
-  The findings of `query` in one view. Settled comes first: a finding a person
+  The findings of `queryable` in one view. Settled comes first: a finding a person
   forgot is forgotten, one they marked explained is explained; an open one is
   what Ryker classified it.
   """
-  def in_view(queryable, "forgotten"), do: where(queryable, [record], record.status == :dismissed)
+  def in_view(queryable, "forgotten"),
+    do: where(queryable, [episode_state_records: r], r.status == :dismissed)
 
   def in_view(queryable, "explained") do
     where(
       queryable,
-      [record],
-      record.status == :answered or
-        (record.status == :open and fragment("?::jsonb->>'status' = 'explained'", record.payload))
+      [episode_state_records: r],
+      r.status == :answered or
+        (r.status == :open and fragment("?::jsonb->>'status' = 'explained'", r.payload))
     )
   end
 
   def in_view(queryable, classification) do
     where(
       queryable,
-      [record],
-      record.status == :open and
-        fragment("?::jsonb->>'status' = ?", record.payload, ^classification)
+      [episode_state_records: r],
+      r.status == :open and
+        fragment("?::jsonb->>'status' = ?", r.payload, ^classification)
     )
   end
 
-  @doc "How many findings of `query` each status and classification holds."
+  @doc "How many findings of `queryable` each status and classification holds."
   def counts(queryable) do
-    from([record, _episode] in exclude(queryable, :select),
-      group_by: [record.status, fragment("?::jsonb->>'status'", record.payload)],
-      select: {record.status, fragment("?::jsonb->>'status'", record.payload), count()}
+    from([episode_state_records: r] in exclude(queryable, :select),
+      group_by: [r.status, fragment("?::jsonb->>'status'", r.payload)],
+      select: {r.status, fragment("?::jsonb->>'status'", r.payload), count()}
     )
   end
 
-  @doc "The findings of `query` whose conclusion, reason or scope contains `pattern`."
+  @doc "The findings of `queryable` whose conclusion, reason or scope contains `pattern`."
   def matching(queryable, pattern) do
     where(
       queryable,
-      [record],
-      fragment("?::jsonb->>'what' ILIKE ?", record.payload, ^pattern) or
-        fragment("?::jsonb->>'reason' ILIKE ?", record.payload, ^pattern) or
-        fragment("?::jsonb->>'scope' ILIKE ?", record.payload, ^pattern)
+      [episode_state_records: r],
+      fragment("?::jsonb->>'what' ILIKE ?", r.payload, ^pattern) or
+        fragment("?::jsonb->>'reason' ILIKE ?", r.payload, ^pattern) or
+        fragment("?::jsonb->>'scope' ILIKE ?", r.payload, ^pattern)
     )
   end
 

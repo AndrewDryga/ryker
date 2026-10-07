@@ -72,7 +72,7 @@ defmodule Ryker.ControlPlane.Activity.Query do
   end
 
   @doc """
-  The rows of `query` whose request one of `executions`, a usage ledger
+  The rows of `queryable` whose request one of `executions`, a usage ledger
   query, served: an episode's, or a routed message's that became none.
   """
   def of_executions(queryable, executions) do

@@ -15,6 +15,7 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
   alias Ryker.ControlPlane.{ScheduleDirectory, Search}
   alias Ryker.Operator.FailureDetail
   alias Ryker.Repo
+  alias Ryker.Schedules.Schedule
   alias Ryker.Work.FailureCause
 
   @list_limit 100
@@ -106,11 +107,11 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
 
   defp schedule_view(query, nil), do: query
 
-  defp schedule_view(query, statuses), do: ScheduleDirectory.Query.in_statuses(query, statuses)
+  defp schedule_view(query, statuses), do: Schedule.Query.by_statuses(query, statuses)
 
   defp schedule_status(query, nil), do: query
 
-  defp schedule_status(query, status), do: ScheduleDirectory.Query.by_status(query, status)
+  defp schedule_status(query, status), do: Schedule.Query.by_status(query, status)
 
   defp schedule_search(query, nil), do: query
 

@@ -53,7 +53,11 @@ defmodule Ryker.ControlPlane.ChannelContext do
     relation =
       :preference
       |> ChannelContext.Query.effective_behaviors(scope)
-      |> read("preference_page", ChannelContext.Query.inherited_order(), params)
+      |> read(
+        "preference_page",
+        ChannelContext.Query.inherited_order(:operator_behaviors),
+        params
+      )
 
     items =
       Enum.map(relation.items, fn behavior ->
@@ -83,7 +87,7 @@ defmodule Ryker.ControlPlane.ChannelContext do
     relation =
       scope
       |> ChannelContext.Query.recalled_guidance()
-      |> read("guidance_page", ChannelContext.Query.inherited_order(), params)
+      |> read("guidance_page", ChannelContext.Query.inherited_order(:operator_behaviors), params)
 
     items =
       Enum.map(relation.items, fn behavior ->
@@ -113,7 +117,11 @@ defmodule Ryker.ControlPlane.ChannelContext do
     relation =
       scope
       |> ChannelContext.Query.memory()
-      |> read("memory_page", ChannelContext.Query.inherited_order(), params)
+      |> read(
+        "memory_page",
+        ChannelContext.Query.inherited_order(:operational_memory_entries),
+        params
+      )
 
     items =
       Enum.map(relation.items, fn entry ->

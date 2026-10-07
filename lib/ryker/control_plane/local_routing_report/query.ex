@@ -55,14 +55,22 @@ defmodule Ryker.ControlPlane.LocalRoutingReport.Query do
   end
 
   defp in_period(queryable, nil), do: queryable
-  defp in_period(queryable, since), do: where(queryable, [c], c.inserted_at >= ^since)
+
+  defp in_period(queryable, since),
+    do: where(queryable, [local_routing_comparisons: c], c.inserted_at >= ^since)
 
   defp in_scope(queryable, "all"), do: queryable
-  defp in_scope(queryable, "shadow"), do: where(queryable, [c], c.execution_mode == :shadow)
-  defp in_scope(queryable, _live), do: where(queryable, [c], c.execution_mode == :live)
+
+  defp in_scope(queryable, "shadow"),
+    do: where(queryable, [local_routing_comparisons: c], c.execution_mode == :shadow)
+
+  defp in_scope(queryable, _live),
+    do: where(queryable, [local_routing_comparisons: c], c.execution_mode == :live)
 
   defp of_model(queryable, nil), do: queryable
-  defp of_model(queryable, model), do: where(queryable, [c], c.local_model == ^model)
+
+  defp of_model(queryable, model),
+    do: where(queryable, [local_routing_comparisons: c], c.local_model == ^model)
 
   @doc "The figures of `comparisons`: counts, median times and what the provider spent."
   def figures(comparisons) do

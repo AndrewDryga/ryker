@@ -33,7 +33,7 @@ defmodule Ryker.ControlPlane.ScheduleDirectory.Query do
   paused, then the rest; soonest due first; newest), as its rows.
   """
   def directory(limit) do
-    from(schedule in Schedule,
+    from([episode_schedules: schedule] in Schedule.Query.all(),
       order_by: [
         asc:
           fragment(
@@ -74,19 +74,13 @@ defmodule Ryker.ControlPlane.ScheduleDirectory.Query do
     )
   end
 
-  def in_statuses(queryable, statuses),
-    do: where(queryable, [schedule], schedule.status in ^statuses)
-
-  def by_status(queryable, status), do: where(queryable, [schedule], schedule.status == ^status)
-
   @doc "The schedules whose ref, title, task, repository or conversation contains `pattern`."
   def matching(queryable, pattern) do
     where(
       queryable,
-      [schedule],
-      ilike(schedule.ref, ^pattern) or ilike(schedule.title, ^pattern) or
-        ilike(schedule.task, ^pattern) or ilike(schedule.repository, ^pattern) or
-        ilike(schedule.destination_conversation_ref, ^pattern)
+      [episode_schedules: s],
+      ilike(s.ref, ^pattern) or ilike(s.title, ^pattern) or ilike(s.task, ^pattern) or
+        ilike(s.repository, ^pattern) or ilike(s.destination_conversation_ref, ^pattern)
     )
   end
 

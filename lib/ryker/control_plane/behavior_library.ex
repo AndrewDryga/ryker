@@ -6,6 +6,7 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
   /instructions, under "Saved from conversations". Both lists show Current
   (on or paused) or Past (expired, deleted or replaced) entries.
   """
+  alias Ryker.Behaviors.Behavior
   alias Ryker.ControlPlane.{BehaviorLibrary, PagedRelation, RepositoryNames, Search}
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
@@ -22,7 +23,7 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
   def return_path(kind) when kind in [:preference, :guidance], do: "/instructions#saved"
 
   def fetch(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    item = instruction_query() |> BehaviorLibrary.Query.by_ref(ref) |> Repo.one()
+    item = instruction_query() |> Behavior.Query.by_ref(ref) |> Repo.one()
     if item, do: {:ok, item |> sanitize() |> List.wrap() |> named() |> hd()}, else: :not_found
   end
 
@@ -44,7 +45,7 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
   def list(kinds, params) when is_list(kinds) do
     show = show(kinds, params["show"])
     shown = if show == "all", do: kinds, else: [@shown[show]]
-    base = BehaviorLibrary.Query.of_kinds(instruction_query(), shown)
+    base = Behavior.Query.by_kinds(instruction_query(), shown)
     counts = base |> BehaviorLibrary.Query.status_counts() |> Repo.all() |> Map.new()
 
     view = if params["view"] == "past", do: "past", else: "current"

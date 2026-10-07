@@ -78,7 +78,7 @@ defmodule Ryker.ControlPlane.IncidentReport.Query do
   source_ref, text}`.
   """
   def messages(episode_id) do
-    from(entry in Entry,
+    from([ingress_inbox_entries: entry] in Entry.Query.all(),
       where: entry.episode_id == ^episode_id and entry.event_kind == :message,
       select: %{
         actor_kind: entry.actor_kind,
@@ -99,10 +99,10 @@ defmodule Ryker.ControlPlane.IncidentReport.Query do
   end
 
   def ordered_by_occurred_at(queryable),
-    do: order_by(queryable, [entry], asc: entry.occurred_at, asc: entry.id)
+    do: order_by(queryable, [ingress_inbox_entries: e], asc: e.occurred_at, asc: e.id)
 
   def ordered_by_occurred_at_desc(queryable),
-    do: order_by(queryable, [entry], desc: entry.occurred_at, desc: entry.id)
+    do: order_by(queryable, [ingress_inbox_entries: e], desc: e.occurred_at, desc: e.id)
 
   def limit_to(queryable, count), do: limit(queryable, ^count)
 

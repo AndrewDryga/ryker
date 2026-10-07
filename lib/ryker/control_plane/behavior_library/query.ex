@@ -15,7 +15,7 @@ defmodule Ryker.ControlPlane.BehaviorLibrary.Query do
   effective even before a maintenance pass updates the stored status.
   """
   def entries(now) do
-    from(b in Behavior,
+    from([operator_behaviors: b] in Behavior.Query.all(),
       select: %{
         id: b.id,
         ref: b.ref,
@@ -43,27 +43,25 @@ defmodule Ryker.ControlPlane.BehaviorLibrary.Query do
     )
   end
 
-  def by_ref(queryable, ref), do: where(queryable, [b], b.ref == ^ref)
-  def of_kinds(queryable, kinds), do: where(queryable, [b], b.kind in ^kinds)
-
   @doc "How many `entries` are in each status, as `{status, count}`."
   def status_counts(entries),
     do: from(b in subquery(entries), group_by: b.status, select: {b.status, count(b.id)})
 
   @doc "The `entries` a list pages through, by the status a reader sees."
-  def listed(entries), do: from(b in subquery(entries))
+  def listed(entries), do: from(b in subquery(entries), as: :library_entries)
 
   @doc "Listed entries in the past view (expired, deleted, superseded) or the current one."
   def in_view(listed, "past"),
-    do: where(listed, [b], b.status in ["expired", "deleted", "superseded"])
+    do: where(listed, [library_entries: b], b.status in ["expired", "deleted", "superseded"])
 
-  def in_view(listed, _current), do: where(listed, [b], b.status in ["active", "disabled"])
+  def in_view(listed, _current),
+    do: where(listed, [library_entries: b], b.status in ["active", "disabled"])
 
   @doc "Listed entries whose stored text or scope contains `pattern`."
   def matching(listed, pattern) do
     where(
       listed,
-      [b],
+      [library_entries: b],
       Search.json_text_matches(b.payload, ^pattern) or ilike(b.scope_ref, ^pattern)
     )
   end

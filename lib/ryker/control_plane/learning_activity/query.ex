@@ -34,7 +34,7 @@ defmodule Ryker.ControlPlane.LearningActivity.Query do
     )
   end
 
-  @doc "The messages of `query` sent to `conversation_ref` on `transport`."
+  @doc "The messages of `queryable` sent to `conversation_ref` on `transport`."
   def sent_to(queryable, transport, conversation_ref) do
     where(
       queryable,
@@ -44,7 +44,7 @@ defmodule Ryker.ControlPlane.LearningActivity.Query do
     )
   end
 
-  @doc "How many messages `query` holds and when the oldest last changed, as `{count, oldest}`."
+  @doc "How many messages `queryable` holds and when the oldest last changed, as `{count, oldest}`."
   def select_count_and_oldest(queryable),
     do: select(queryable, [input: e], {count(e.id), min(e.updated_at)})
 
