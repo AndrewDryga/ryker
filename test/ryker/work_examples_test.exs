@@ -23,8 +23,12 @@ defmodule Ryker.WorkExamplesTest do
   @moduletag isolation: "REPEATABLE READ"
 
   alias Ryker.Admission.Executor
+  alias Ryker.Episodes
+  alias Ryker.Episodes.Episode
   alias Ryker.Feedback
   alias Ryker.Feedback.Signal
+  alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox
   alias Ryker.Learning.Observations
   alias Ryker.Retention.Data
@@ -217,6 +221,22 @@ defmodule Ryker.WorkExamplesTest do
       assert_erased(later.turn_id)
     end
 
+    # A task confirmed from a card starts a request of its own that no message
+    # asked, so its example traced no message: forgetting the one the task was
+    # offered in erased the request's example and left the task's, which
+    # carried what that message said (2026-10-04 review; 32 of 47 live examples
+    # of confirmed tasks named no message on 2026-10-07).
+    test "deleting the message a task was offered in erases the confirmed task's example" do
+      keep_work_examples!()
+      source = work!("Ev-task-source", "@ryker the staging password is hunter2, check db-1")
+      task = confirmed_task!(source.episode_id)
+      assert {:ok, %{copied: 2}} = WorkExamples.capture(@options)
+
+      delete_message!("Ev-task-source-gone", 1)
+      assert_erased(source.turn_id)
+      assert_erased(task.turn_id)
+    end
+
     test "deleting a Slack channel erases the work examples from it" do
       keep_work_examples!()
       first = work!("Ev-work-channel", "@ryker why is the staging api down?")
@@ -399,6 +419,49 @@ defmodule Ryker.WorkExamplesTest do
     if Keyword.get(options, :deliver, true), do: deliver!(accepted)
 
     %{entry: entry, episode_id: episode_id, turn_id: turn.id, accepted: accepted}
+  end
+
+  # A task confirmed from a card in the source request, as
+  # `Ryker.Records.TaskOffers` starts one: a request of its own in the same
+  # thread, linked to the request it was offered in, admitted without a
+  # message, then worked and answered.
+  defp confirmed_task!(source_episode_id) do
+    source = Repo.one!(Episode.Query.by_id(source_episode_id))
+    episode_id = Ecto.UUID.generate()
+
+    assert {:ok, _transition} =
+             Episodes.apply(
+               EpisodeFixtures.admit_input(%{
+                 actor_ref: "slack:user:U123",
+                 destination: %{
+                   conversation_ref: source.destination_conversation_ref,
+                   thread_ref: source.destination_thread_ref,
+                   transport: source.destination_transport
+                 },
+                 episode_id: episode_id,
+                 episode_key: "task-offer:#{episode_id}",
+                 linked_episode_id: source.id,
+                 native_input_id: "task-confirmation:#{episode_id}",
+                 occurred_at: DateTime.add(@now, 30, :second),
+                 payload: %{"confirmed_by" => "slack:user:U123", "task" => %{"title" => "db-1"}},
+                 turn_ref: "turn:task:#{episode_id}"
+               })
+             )
+
+    assert {:ok, _session} =
+             WorkSessions.pin_episode(
+               episode_id,
+               "conversation-read-only",
+               String.duplicate("a", 64)
+             )
+
+    assert {:ok, %{episode: %{id: ^episode_id}} = claim} =
+             Custody.claim_next("work:task:#{episode_id}", 120, :work)
+
+    {session, turn} = brief!(claim, @prompt)
+    activity!(session, turn)
+    claim |> answer!(turn, []) |> deliver!()
+    %{episode_id: episode_id, turn_id: turn.id}
   end
 
   defp brief!(%{episode: episode, lease_ref: lease, turn: turn} = claim, prompt) do

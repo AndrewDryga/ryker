@@ -33,7 +33,8 @@ defmodule Ryker.WorkExamples do
   was forgotten before its turn to be copied is checked at the copy.
 
   What forgetting can trace is what the request's messages quoted when they
-  were routed (`Ryker.RoutingExamples.quoted_keys/1`). A briefing can also
+  were routed (`Ryker.RoutingExamples.quoted_keys/1`); a task confirmed from a
+  card has no message of its own and traces the request it was offered in. A briefing can also
   carry what Work looked up on its own, such as related requests' outcomes,
   and a trajectory what a tool read; a forgotten message only those quote
   stays in the copy until its window ends or keeping work examples is turned
@@ -59,6 +60,9 @@ defmodule Ryker.WorkExamples do
   # provider liveness says nothing about the work. An elided event marks
   # where the recorder dropped events, so a gap reads as one.
   @trajectory_kinds ~w(tool.completed model.thought model.progress activity.elided)
+
+  # How far up the chain of confirmed tasks an example traces its messages.
+  @maximum_links 8
 
   @type capture_result :: %{copied: non_neg_integer(), forgotten: non_neg_integer()}
 
@@ -233,8 +237,32 @@ defmodule Ryker.WorkExamples do
 
   # The messages the request was asked in, up to this turn: every message
   # admitted to it, the earliest first.
-  defp inputs(episode, turn),
-    do: episode.id |> Entry.Query.admitted_to(turn.inserted_at) |> Repo.all()
+  # The messages a turn was asked in. A confirmed task's request was started by
+  # a card, not a message, and what it was told came from the request it was
+  # offered in, so that request's messages are its too, up the chain of
+  # requests each was confirmed from: forgetting one of them reached none of
+  # its examples (2026-10-04 review).
+  defp inputs(episode, turn) do
+    admitted(episode.id, turn.inserted_at) ++
+      linked_inputs(episode.linked_episode_id, episode.inserted_at, @maximum_links)
+  end
+
+  defp linked_inputs(nil, _until, _left), do: []
+  defp linked_inputs(_episode_id, _until, 0), do: []
+
+  defp linked_inputs(episode_id, until, left) do
+    case Repo.one(Episode.Query.by_id(episode_id)) do
+      %Episode{} = source ->
+        admitted(source.id, until) ++
+          linked_inputs(source.linked_episode_id, source.inserted_at, left - 1)
+
+      nil ->
+        []
+    end
+  end
+
+  defp admitted(episode_id, until),
+    do: episode_id |> Entry.Query.admitted_to(until) |> Repo.all()
 
   defp sorted(values), do: values |> Enum.reject(&is_nil/1) |> Enum.uniq() |> Enum.sort()
 
