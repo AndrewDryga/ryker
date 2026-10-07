@@ -15,6 +15,7 @@ defmodule Ryker.Emisar.Review do
   """
 
   alias Ryker.CanonicalJSON
+  alias Ryker.Reference
 
   @statuses ~w(pending approved denied expired cancelled)
   @decisions ~w(approve deny)
@@ -266,10 +267,6 @@ defmodule Ryker.Emisar.Review do
   defp optional_text(nil, _maximum), do: :ok
   defp optional_text(value, maximum), do: reference(value, maximum)
 
-  defp reference(value, maximum) do
-    if is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and
-         :binary.match(value, <<0>>) == :nomatch and String.trim(value) != "",
-       do: :ok,
-       else: {:error, :reference}
-  end
+  defp reference(value, maximum),
+    do: if(Reference.valid?(value, maximum), do: :ok, else: {:error, :reference})
 end

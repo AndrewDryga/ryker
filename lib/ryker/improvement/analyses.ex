@@ -22,6 +22,7 @@ defmodule Ryker.Improvement.Analyses do
   alias Ryker.Improvement
   alias Ryker.Improvement.{AnalysisRun, Candidate}
   alias Ryker.Improvement.{Evidence, FleetSession, Prompt}
+  alias Ryker.Lease
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.RoutingExamples
@@ -792,8 +793,8 @@ defmodule Ryker.Improvement.Analyses do
       |> Candidate.Query.lock_for_update()
       |> Repo.one()
 
-    unless candidate && candidate.analysis == :running && candidate.lease_ref == claim.lease_ref &&
-             DateTime.compare(candidate.lease_expires_at, Repo.now!()) == :gt,
+    unless candidate && candidate.analysis == :running &&
+             Lease.held?(candidate, claim.lease_ref, Repo.now!()),
            do: Repo.rollback(:improvement_lease_lost)
 
     candidate

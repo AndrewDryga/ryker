@@ -7,6 +7,8 @@ defmodule Ryker.Slack.Command do
   their deterministic host transition finishes.
   """
 
+  alias Ryker.Reference
+
   @fields [:actor_ref, :channel_ref, :event_ref, :occurred_at, :text, :workspace_ref]
   @enforce_keys @fields
   defstruct @fields
@@ -61,10 +63,7 @@ defmodule Ryker.Slack.Command do
       :binary.match(value, <<0>>) == :nomatch
   end
 
-  defp reference?(value) do
-    is_binary(value) and String.valid?(value) and byte_size(value) in 1..1_024 and
-      String.trim(value) != "" and :binary.match(value, <<0>>) == :nomatch
-  end
+  defp reference?(value), do: Reference.valid?(value)
 
   defp utc?(%DateTime{} = value),
     do: value.time_zone == "Etc/UTC" and value.utc_offset == 0 and value.std_offset == 0

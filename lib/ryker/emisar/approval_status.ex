@@ -13,6 +13,7 @@ defmodule Ryker.Emisar.ApprovalStatus do
 
   alias Ryker.CanonicalJSON
   alias Ryker.Emisar.{Approval, Review, RunState}
+  alias Ryker.Reference
 
   @fields ~w(action_id approval_url expires_at operation_id pack_ref remote_error request_id review run_id run_url runner_ref status)
   # One receipt carries the rationale, the command, and up to twenty recorded
@@ -147,10 +148,6 @@ defmodule Ryker.Emisar.ApprovalStatus do
   defp optional_text(nil, _maximum), do: :ok
   defp optional_text(value, maximum), do: reference(value, maximum)
 
-  defp reference(value, maximum) do
-    if is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and
-         :binary.match(value, <<0>>) == :nomatch and String.trim(value) != "",
-       do: :ok,
-       else: {:error, :reference}
-  end
+  defp reference(value, maximum),
+    do: if(Reference.valid?(value, maximum), do: :ok, else: {:error, :reference})
 end

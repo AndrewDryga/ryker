@@ -10,6 +10,7 @@ defmodule Ryker.Emisar.Client do
 
   alias Ryker.Crypto
   alias Ryker.Emisar.{Review, RunState}
+  alias Ryker.Reference
   alias Ryker.Text
 
   @fields [:http, :requester, :rpc_path, :rpc_origin]
@@ -232,12 +233,8 @@ defmodule Ryker.Emisar.Client do
        else: {:error, {:invalid_emisar_client, :rpc_path}}
   end
 
-  defp reference(value, maximum, field) do
-    if is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and
-         :binary.match(value, <<0>>) == :nomatch and String.trim(value) != "",
-       do: :ok,
-       else: {:error, {:emisar_protocol_error, field}}
-  end
+  defp reference(value, maximum, field),
+    do: Reference.check(value, field, :emisar_protocol_error, maximum)
 
   defp effective_port(nil), do: 443
   defp effective_port(port), do: port

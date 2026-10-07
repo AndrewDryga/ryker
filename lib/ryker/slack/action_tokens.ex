@@ -10,6 +10,7 @@ defmodule Ryker.Slack.ActionTokens do
 
   use GenServer
   alias Ryker.Options
+  alias Ryker.Reference
 
   @default_ttl_ms 15 * 60 * 1_000
   @maximum_calls 3
@@ -125,12 +126,8 @@ defmodule Ryker.Slack.ActionTokens do
     end
   end
 
-  defp reference(value) do
-    if is_binary(value) and byte_size(value) in 1..1_024 and String.valid?(value) and
-         :binary.match(value, <<0>>) == :nomatch and String.trim(value) != "",
-       do: :ok,
-       else: {:error, :invalid_slack_action_token}
-  end
+  defp reference(value),
+    do: if(Reference.valid?(value), do: :ok, else: {:error, :invalid_slack_action_token})
 
   defp token(value) do
     if is_binary(value) and byte_size(value) in 1..4_096 and String.valid?(value) and

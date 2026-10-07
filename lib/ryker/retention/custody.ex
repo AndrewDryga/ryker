@@ -22,6 +22,7 @@ defmodule Ryker.Retention.Custody do
   alias Ryker.Improvement.AnalysisRun
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.LearningRun
+  alias Ryker.Lease
   alias Ryker.Publication.Publication
   alias Ryker.Reference
   alias Ryker.Repo
@@ -779,9 +780,7 @@ defmodule Ryker.Retention.Custody do
     now = Repo.now!()
 
     if owner_finished?(owner, session) and session.cleanup_status in statuses and
-         session.cleanup_lease_ref == lease_ref and
-         match?(%DateTime{}, session.cleanup_lease_expires_at) and
-         DateTime.compare(session.cleanup_lease_expires_at, now) == :gt do
+         Lease.held?(session.cleanup_lease_ref, session.cleanup_lease_expires_at, lease_ref, now) do
       {session, now}
     else
       Repo.rollback(:retention_lease_lost)
@@ -846,20 +845,10 @@ defmodule Ryker.Retention.Custody do
 
   defp exclusions(_exclude), do: {:error, {:invalid_retention_custody, :exclude}}
 
-  defp reference(value, _field) when is_binary(value) do
-    if Reference.valid?(value), do: :ok, else: {:error, {:invalid_retention_custody, :reference}}
-  end
+  defp reference(value, field), do: Reference.check(value, field, :invalid_retention_custody)
 
-  defp reference(_value, field), do: {:error, {:invalid_retention_custody, field}}
-
-  defp bounded_text(value, maximum, _field) when is_binary(value) do
-    if String.valid?(value) and byte_size(value) in 1..maximum,
-      do: :ok,
-      else: {:error, {:invalid_retention_custody, :text}}
-  end
-
-  defp bounded_text(_value, _maximum, field),
-    do: {:error, {:invalid_retention_custody, field}}
+  defp bounded_text(value, maximum, field),
+    do: Reference.check(value, field, :invalid_retention_custody, maximum)
 
   defp positive_integer(value, _field) when is_integer(value) and value > 0, do: :ok
   defp positive_integer(_value, field), do: {:error, {:invalid_retention_custody, field}}

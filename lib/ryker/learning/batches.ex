@@ -15,6 +15,7 @@ defmodule Ryker.Learning.Batches do
   alias Ryker.Learning.{Batch, InputMembership}
   alias Ryker.Learning.{LearningInput, LearningRun, LearningSources}
   alias Ryker.Learning.{Observations, Rebuilds, Runtime}
+  alias Ryker.Lease
   alias Ryker.Repo
   alias Ryker.UTCDateTime
 
@@ -679,9 +680,8 @@ defmodule Ryker.Learning.Batches do
   defp owned!(claim) do
     batch = locked_batch(claim.batch.id)
 
-    unless batch && batch.status == :running && batch.lease_ref == claim.lease_ref &&
-             DateTime.compare(batch.lease_expires_at, Repo.now!()) == :gt,
-           do: Repo.rollback(:learning_lease_lost)
+    unless batch && batch.status == :running && Lease.held?(batch, claim.lease_ref, Repo.now!()),
+      do: Repo.rollback(:learning_lease_lost)
 
     batch
   end

@@ -7,6 +7,8 @@ defmodule Ryker.Slack.ReactionEvent do
   authored by this exact configured bot identity is accepted.
   """
 
+  alias Ryker.Reference
+
   @identity_fields [:bot_ref, :bot_user_ref, :workspace_ref]
   @emoji_name ~r/\A[a-z0-9_+\-]{1,100}\z/
 
@@ -113,10 +115,6 @@ defmodule Ryker.Slack.ReactionEvent do
 
   defp emoji(_value), do: {:error, {:invalid_slack_reaction_event, :emoji_name}}
 
-  defp reference(value, field) do
-    if is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
-         String.trim(value) != "" and byte_size(value) <= 1_024,
-       do: :ok,
-       else: {:error, {:invalid_slack_reaction_event, field}}
-  end
+  defp reference(value, field),
+    do: Reference.check(value, field, :invalid_slack_reaction_event)
 end

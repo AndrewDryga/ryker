@@ -21,6 +21,7 @@ defmodule Ryker.Slack.IncidentRooms do
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
   alias Ryker.Records.TaskOffers
+  alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Slack.{ChannelConfiguration, IncidentRoom}
   alias Ryker.Slack.IncidentRoomLifecycleEvent
@@ -1612,19 +1613,11 @@ defmodule Ryker.Slack.IncidentRooms do
   defp optional_reference(nil, _field), do: :ok
   defp optional_reference(value, field), do: reference(value, field)
 
-  defp reference(value, field) do
-    if is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
-         String.trim(value) != "" and byte_size(value) <= 1_024,
-       do: :ok,
-       else: {:error, {:invalid_incident_room_request, field}}
-  end
+  defp reference(value, field),
+    do: Reference.check(value, field, :invalid_incident_room_request)
 
-  defp bounded_text(value, maximum, field) do
-    if is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
-         String.trim(value) != "" and byte_size(value) <= maximum,
-       do: :ok,
-       else: {:error, {:invalid_incident_room_request, field}}
-  end
+  defp bounded_text(value, maximum, field),
+    do: Reference.check(value, field, :invalid_incident_room_request, maximum)
 
   defp uuid(value, field) do
     case Ecto.UUID.cast(value) do

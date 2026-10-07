@@ -5,6 +5,7 @@ defmodule Ryker.Admission.Attempts do
   alias Ryker.Admission.Attempt
   alias Ryker.CanonicalJSON
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Lease
   alias Ryker.Repo
   alias Ryker.Work.Measurement
 
@@ -143,10 +144,9 @@ defmodule Ryker.Admission.Attempts do
     Repo.transaction(fn ->
       current = entry.id |> Entry.Query.by_id() |> Entry.Query.lock_for_update() |> Repo.one()
 
-      if is_nil(current) or current.status != :pending or current.lease_ref != settings.lease_ref or
-           current.execution_generation != entry.execution_generation or
-           is_nil(current.lease_expires_at) or
-           DateTime.compare(current.lease_expires_at, settings.now.()) != :gt do
+      if is_nil(current) or current.status != :pending or
+           not Lease.held?(current, settings.lease_ref, settings.now.()) or
+           current.execution_generation != entry.execution_generation do
         Repo.rollback(:admission_attempt_lease_lost)
       end
 

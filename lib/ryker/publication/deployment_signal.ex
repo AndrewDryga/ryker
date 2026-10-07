@@ -7,6 +7,8 @@ defmodule Ryker.Publication.DeploymentSignal do
   interpreted as deployment evidence.
   """
 
+  alias Ryker.Reference
+
   @event_type "responder.publication_lifecycle.v1"
   @payload_fields ~w(environment kind references repository run_ref state target)
   @kinds ~w(deployment terraform)
@@ -94,14 +96,6 @@ defmodule Ryker.Publication.DeploymentSignal do
       else: {:error, {:invalid_publication_deployment_signal, field}}
   end
 
-  defp reference(value, field, maximum)
-       when is_binary(value) and byte_size(value) >= 1 and byte_size(value) <= maximum do
-    if String.valid?(value) and String.trim(value) != "" and
-         :binary.match(value, <<0>>) == :nomatch,
-       do: :ok,
-       else: {:error, {:invalid_publication_deployment_signal, field}}
-  end
-
-  defp reference(_value, field, _maximum),
-    do: {:error, {:invalid_publication_deployment_signal, field}}
+  defp reference(value, field, maximum),
+    do: Reference.check(value, field, :invalid_publication_deployment_signal, maximum)
 end

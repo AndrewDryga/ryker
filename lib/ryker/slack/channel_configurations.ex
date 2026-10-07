@@ -20,6 +20,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
   alias Ryker.Memories
   alias Ryker.Memories.Cases
   alias Ryker.People
+  alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.RoutingExamples
   alias Ryker.Settings.Environment
@@ -1553,12 +1554,8 @@ defmodule Ryker.Slack.ChannelConfigurations do
   defp optional_reference(nil, _field), do: :ok
   defp optional_reference(value, field), do: reference(value, field)
 
-  defp reference(value, field, maximum \\ 1_024) do
-    if is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and
-         String.trim(value) != "" and :binary.match(value, <<0>>) == :nomatch,
-       do: :ok,
-       else: {:error, {:invalid_channel_configuration, field}}
-  end
+  defp reference(value, field, maximum \\ 1_024),
+    do: Reference.check(value, field, :invalid_channel_configuration, maximum)
 
   defp utc(%DateTime{} = value, _field) do
     if value.time_zone == "Etc/UTC" and value.utc_offset == 0 and value.std_offset == 0,

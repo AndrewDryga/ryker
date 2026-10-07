@@ -8,6 +8,7 @@ defmodule Ryker.Learning.LearningSources do
   alias Ryker.Knowledge.KnowledgeRevision
   alias Ryker.Learning.{ConversationObservation, Observations, SourceDependency}
   alias Ryker.Publication.LifecycleEvent
+  alias Ryker.Reference
 
   @maximum_sources 10_000
   @maximum_bytes 8 * 1_024 * 1_024
@@ -192,8 +193,7 @@ defmodule Ryker.Learning.LearningSources do
       receipt["visibility"] in ~w(public private direct conversation)
   end
 
-  defp text?(value, limit),
-    do: is_binary(value) and String.valid?(value) and byte_size(value) in 1..limit
+  defp text?(value, limit), do: Reference.valid?(value, limit)
 
   defp timestamp?(value) when is_binary(value),
     do: match?({:ok, _, 0}, DateTime.from_iso8601(value))

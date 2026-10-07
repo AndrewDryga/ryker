@@ -2,6 +2,7 @@ defmodule Ryker.Publication.FollowupDispatcher do
   @moduledoc false
 
   alias Ryker.Publication.{FollowupExecutor, Followups}
+  alias Ryker.Reference
 
   def run_once(options) do
     with {:ok, settings} <- settings(options),
@@ -148,8 +149,5 @@ defmodule Ryker.Publication.FollowupDispatcher do
 
   defp positive?(value), do: is_integer(value) and value > 0
 
-  defp reference?(value) do
-    is_binary(value) and String.valid?(value) and byte_size(value) in 1..1_024 and
-      :binary.match(value, <<0>>) == :nomatch and String.trim(value) != ""
-  end
+  defp reference?(value), do: Reference.valid?(value)
 end

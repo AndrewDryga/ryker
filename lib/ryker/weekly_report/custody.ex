@@ -17,6 +17,8 @@ defmodule Ryker.WeeklyReport.Custody do
   """
 
   alias Ryker.Delivery.Request
+  alias Ryker.Lease
+  alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.UTCDateTime
   alias Ryker.WeeklyReport.Report
@@ -137,8 +139,7 @@ defmodule Ryker.WeeklyReport.Custody do
          {:ok, lease_ref} <- uuid(lease_ref),
          :ok <- positive(lease_seconds, :lease_seconds) do
       mutate_claim(delivery_ref, lease_ref, fn report, now ->
-        requested = DateTime.add(now, lease_seconds, :second)
-        expiry = later(report.lease_expires_at, requested)
+        expiry = Lease.renewed(report.lease_expires_at, now, lease_seconds)
         report |> Report.Changeset.renew(expiry) |> write!(:renew)
       end)
     end
@@ -306,11 +307,7 @@ defmodule Ryker.WeeklyReport.Custody do
   end
 
   defp current_lease(report, lease_ref, now) do
-    if report.lease_ref == lease_ref and is_binary(report.lease_owner) and
-         match?(%DateTime{}, report.lease_expires_at) and
-         DateTime.compare(report.lease_expires_at, now) == :gt,
-       do: :ok,
-       else: {:error, :weekly_report_lease_lost}
+    if Lease.held?(report, lease_ref, now), do: :ok, else: {:error, :weekly_report_lease_lost}
   end
 
   # The receipt names the new message the report became, in the channel it
@@ -339,11 +336,6 @@ defmodule Ryker.WeeklyReport.Custody do
     end
   end
 
-  defp later(nil, requested), do: requested
-
-  defp later(current, requested),
-    do: if(DateTime.compare(current, requested) == :lt, do: requested, else: current)
-
   defp uuid(value) do
     case Ecto.UUID.cast(value) do
       {:ok, uuid} -> {:ok, uuid}
@@ -353,12 +345,8 @@ defmodule Ryker.WeeklyReport.Custody do
 
   defp reference(value, field), do: bounded(value, 1_024, field)
 
-  defp bounded(value, maximum, field) do
-    if is_binary(value) and String.valid?(value) and String.trim(value) != "" and
-         byte_size(value) <= maximum and :binary.match(value, <<0>>) == :nomatch,
-       do: :ok,
-       else: {:error, {:invalid_weekly_report, field}}
-  end
+  defp bounded(value, maximum, field),
+    do: Reference.check(value, field, :invalid_weekly_report, maximum)
 
   defp positive(value, _field) when is_integer(value) and value > 0, do: :ok
   defp positive(_value, field), do: {:error, {:invalid_weekly_report, field}}

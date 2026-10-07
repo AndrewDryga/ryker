@@ -16,6 +16,8 @@ defmodule Ryker.Work.Custody.Locks do
 
   alias Ryker.Crypto
   alias Ryker.Episodes.Episode
+  alias Ryker.Lease
+  alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Work.{Custody, Session, Turn}
 
@@ -158,13 +160,7 @@ defmodule Ryker.Work.Custody.Locks do
 
   @doc false
   def current_turn_lease(turn, lease_ref, now) do
-    if current_lease?(turn, lease_ref, now), do: :ok, else: {:error, :work_lease_lost}
-  end
-
-  @doc false
-  def current_lease?(turn, lease_ref, now) do
-    turn.lease_ref == lease_ref and match?(%DateTime{}, turn.lease_expires_at) and
-      DateTime.compare(turn.lease_expires_at, now) == :gt
+    if Lease.held?(turn, lease_ref, now), do: :ok, else: {:error, :work_lease_lost}
   end
 
   @doc false
@@ -209,12 +205,7 @@ defmodule Ryker.Work.Custody.Locks do
   defp announce(_record, _kind), do: :ok
 
   @doc false
-  def reference(value, field) do
-    if is_binary(value) and String.valid?(value) and byte_size(value) in 1..1_024 and
-         :binary.match(value, <<0>>) == :nomatch,
-       do: :ok,
-       else: {:error, {:invalid_work_custody, field}}
-  end
+  def reference(value, field), do: Reference.check(value, field, :invalid_work_custody)
 
   @doc false
   def optional_reference(nil, _field), do: :ok
@@ -232,27 +223,16 @@ defmodule Ryker.Work.Custody.Locks do
 
   # A reply carries at most five images, and each is uploaded once.
   defp references(refs, field) when is_list(refs) and length(refs) <= 5 do
-    if Enum.uniq(refs) == refs and Enum.all?(refs, &valid_reference?/1),
+    if Enum.uniq(refs) == refs and Enum.all?(refs, &Reference.valid?(&1, 256)),
       do: :ok,
       else: {:error, {:invalid_work_custody, field}}
   end
 
   defp references(_refs, field), do: {:error, {:invalid_work_custody, field}}
 
-  defp valid_reference?(value) when is_binary(value) do
-    byte_size(value) in 1..256 and String.valid?(value) and
-      :binary.match(value, <<0>>) == :nomatch
-  end
-
-  defp valid_reference?(_value), do: false
-
   @doc false
-  def bounded_text(value, maximum, field) do
-    if is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and
-         :binary.match(value, <<0>>) == :nomatch and String.trim(value) != "",
-       do: :ok,
-       else: {:error, {:invalid_work_custody, field}}
-  end
+  def bounded_text(value, maximum, field),
+    do: Reference.check(value, field, :invalid_work_custody, maximum)
 
   @doc false
   def candidate(value) do

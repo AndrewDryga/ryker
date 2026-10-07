@@ -8,6 +8,7 @@ defmodule Ryker.Slack.SourceAudits do
   """
 
   alias Ryker.CanonicalJSON
+  alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Slack.SourceAudit
 
@@ -106,10 +107,7 @@ defmodule Ryker.Slack.SourceAudits do
 
   defp uuid?(value), do: match?({:ok, _uuid}, Ecto.UUID.cast(value))
 
-  defp reference?(value, maximum) do
-    is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and
-      :binary.match(value, <<0>>) == :nomatch
-  end
+  defp reference?(value, maximum), do: Reference.valid?(value, maximum)
 
   defp optional_reference?(nil, _maximum), do: true
   defp optional_reference?(value, maximum), do: reference?(value, maximum)

@@ -19,6 +19,7 @@ defmodule Ryker.Episodes.Reactions do
   alias Ryker.Episodes.{Command, Event}
   alias Ryker.Feedback
   alias Ryker.Feedback.Answers
+  alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Work.Turn
 
@@ -333,10 +334,6 @@ defmodule Ryker.Episodes.Reactions do
   defp source_matches_transport(_source, _transport),
     do: {:error, {:invalid_conversation_reaction, :transport}}
 
-  defp reference(value, field) do
-    if is_binary(value) and String.valid?(value) and String.trim(value) != "" and
-         :binary.match(value, <<0>>) == :nomatch and byte_size(value) <= 1_024,
-       do: :ok,
-       else: {:error, {:invalid_conversation_reaction, field}}
-  end
+  defp reference(value, field),
+    do: Reference.check(value, field, :invalid_conversation_reaction)
 end

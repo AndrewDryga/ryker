@@ -15,6 +15,7 @@ defmodule Ryker.Work.Custody.Claims do
 
   import Ryker.Work.Custody.Locks
   require Logger
+  alias Ryker.Lease
   alias Ryker.Publication.Publication
   alias Ryker.Repo
   alias Ryker.UTCDateTime
@@ -235,9 +236,7 @@ defmodule Ryker.Work.Custody.Claims do
   def renew_locked(episode_id, turn_ref, lease_ref, lease_seconds) do
     case turn_for_lease(episode_id, turn_ref, lease_ref) do
       {:ok, _session, turn} ->
-        now = Repo.now!()
-        requested_expiry = DateTime.add(now, lease_seconds, :second)
-        lease_expires_at = later_datetime(turn.lease_expires_at, requested_expiry)
+        lease_expires_at = Lease.renewed(turn.lease_expires_at, Repo.now!(), lease_seconds)
 
         turn
         |> Turn.Changeset.renew(lease_expires_at)
@@ -305,12 +304,6 @@ defmodule Ryker.Work.Custody.Claims do
     do: {:cancel_attempt_count, count}
 
   defp progress_attempt(%Turn{}), do: nil
-
-  defp later_datetime(nil, requested), do: requested
-
-  defp later_datetime(current, requested) do
-    if DateTime.compare(current, requested) == :lt, do: requested, else: current
-  end
 
   defp claim_phase(phase) when phase in [:any, :work, :delivery], do: :ok
   defp claim_phase(_phase), do: {:error, {:invalid_work_custody, :phase}}

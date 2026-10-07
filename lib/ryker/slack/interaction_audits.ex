@@ -16,6 +16,7 @@ defmodule Ryker.Slack.InteractionAudits do
   alias Ryker.ErrorDetail
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Records.Record
+  alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Slack.{Interaction, InteractionAudit}
   alias Ryker.UTCDateTime
@@ -358,12 +359,8 @@ defmodule Ryker.Slack.InteractionAudits do
       else: output
   end
 
-  defp reference(value, field, maximum) do
-    if is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
-         String.trim(value) != "" and byte_size(value) <= maximum,
-       do: :ok,
-       else: {:error, {:invalid_slack_interaction_audit, field}}
-  end
+  defp reference(value, field, maximum),
+    do: Reference.check(value, field, :invalid_slack_interaction_audit, maximum)
 
   defp integer(value, range, field) do
     if is_integer(value) and value in range,

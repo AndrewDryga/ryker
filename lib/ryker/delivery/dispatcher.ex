@@ -14,6 +14,7 @@ defmodule Ryker.Delivery.Dispatcher do
   alias Ryker.Episodes
   alias Ryker.ErrorDetail
   alias Ryker.LeasedCall
+  alias Ryker.Reference
   alias Ryker.Slack.ReplyRecords
   alias Ryker.WeeklyReport.Custody, as: ReportCustody
   alias Ryker.Work.Custody
@@ -390,10 +391,7 @@ defmodule Ryker.Delivery.Dispatcher do
 
   defp positive?(value), do: is_integer(value) and value > 0
 
-  defp reference?(value) do
-    is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
-      String.trim(value) != "" and byte_size(value) <= 1_024
-  end
+  defp reference?(value), do: Reference.valid?(value)
 
   defp setting(true, _field), do: :ok
   defp setting(false, field), do: {:error, {:invalid_delivery_dispatcher, field}}

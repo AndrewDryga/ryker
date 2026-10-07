@@ -7,6 +7,7 @@ defmodule Ryker.Slack.Event do
   Ryker's own messages before they can enter durable admission.
   """
 
+  alias Ryker.Reference
   alias Ryker.Slack.{Input, PostGrant}
 
   @supported_message_subtypes [nil, "bot_message", "file_share", "thread_broadcast"]
@@ -267,10 +268,5 @@ defmodule Ryker.Slack.Event do
   defp optional_reference(nil, _field), do: :ok
   defp optional_reference(value, field), do: reference(value, field)
 
-  defp reference(value, field) do
-    if is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
-         String.trim(value) != "" and byte_size(value) <= 1_024,
-       do: :ok,
-       else: {:error, {:invalid_slack_event, field}}
-  end
+  defp reference(value, field), do: Reference.check(value, field, :invalid_slack_event)
 end

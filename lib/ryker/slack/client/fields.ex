@@ -9,6 +9,7 @@ defmodule Ryker.Slack.Client.Fields do
   """
 
   alias Ryker.CanonicalJSON
+  alias Ryker.Reference
 
   @maximum_conversation_name_bytes 80
   @maximum_result_bytes 768 * 1_024
@@ -26,12 +27,8 @@ defmodule Ryker.Slack.Client.Fields do
   def optional_text(value), do: text(value)
 
   @spec bounded_text(term(), pos_integer()) :: :ok | {:error, {:invalid_slack_api_request, :text}}
-  def bounded_text(value, maximum) do
-    if is_binary(value) and String.valid?(value) and String.trim(value) != "" and
-         byte_size(value) <= maximum,
-       do: :ok,
-       else: {:error, {:invalid_slack_api_request, :text}}
-  end
+  def bounded_text(value, maximum),
+    do: Reference.check(value, :text, :invalid_slack_api_request, maximum)
 
   @spec slack_id(term()) :: :ok | {:error, {:invalid_slack_api_request, :id}}
   def slack_id(value) do
@@ -131,10 +128,7 @@ defmodule Ryker.Slack.Client.Fields do
   end
 
   @spec bounded_string?(term(), pos_integer()) :: boolean()
-  def bounded_string?(value, maximum) do
-    is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and
-      :binary.match(value, <<0>>) == :nomatch and String.trim(value) != ""
-  end
+  def bounded_string?(value, maximum), do: Reference.valid?(value, maximum)
 
   @spec optional_bounded_string?(term(), pos_integer()) :: boolean()
   def optional_bounded_string?(nil, _maximum), do: true

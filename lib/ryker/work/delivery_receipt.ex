@@ -9,6 +9,7 @@ defmodule Ryker.Work.DeliveryReceipt do
   """
 
   alias Ryker.CanonicalJSON
+  alias Ryker.Reference
 
   @fields ~w(conversation_ref delivery_ref message_ref thread_ref transport)
   @maximum_reference_bytes 1_024
@@ -56,12 +57,8 @@ defmodule Ryker.Work.DeliveryReceipt do
     reference(value, :transport)
   end
 
-  defp reference(value, field) do
-    if is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
-         String.trim(value) != "" and byte_size(value) <= @maximum_reference_bytes,
-       do: :ok,
-       else: {:error, {:invalid_work_delivery_receipt, field}}
-  end
+  defp reference(value, field),
+    do: Reference.check(value, field, :invalid_work_delivery_receipt, @maximum_reference_bytes)
 
   defp optional_reference(nil, _field), do: :ok
   defp optional_reference(value, field), do: reference(value, field)

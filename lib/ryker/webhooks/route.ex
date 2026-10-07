@@ -8,6 +8,7 @@ defmodule Ryker.Webhooks.Route do
 
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Publication.DeploymentSignal
+  alias Ryker.Reference
   alias Ryker.Secret
 
   # A Grafana group of five hundred alerts, the most one delivery may carry.
@@ -271,8 +272,5 @@ defmodule Ryker.Webhooks.Route do
   defp positive_bound?(value, minimum, maximum),
     do: is_integer(value) and value >= minimum and value <= maximum
 
-  defp reference?(value, maximum) do
-    is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
-      String.trim(value) != "" and byte_size(value) <= maximum
-  end
+  defp reference?(value, maximum), do: Reference.valid?(value, maximum)
 end

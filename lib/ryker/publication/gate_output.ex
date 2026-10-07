@@ -20,6 +20,7 @@ defmodule Ryker.Publication.GateOutput do
 
   alias Ryker.Artifacts
   alias Ryker.Publication.Publication
+  alias Ryker.Reference
 
   # The file a fix turn is handed keeps the end of a longer output, leaving
   # room under Coop's per-turn input limit for anything a person attaches.
@@ -193,8 +194,5 @@ defmodule Ryker.Publication.GateOutput do
   defp raw_tail(bytes, maximum) when byte_size(bytes) <= maximum, do: bytes
   defp raw_tail(bytes, maximum), do: binary_part(bytes, byte_size(bytes) - maximum, maximum)
 
-  defp text?(value, maximum) do
-    is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and
-      :binary.match(value, <<0>>) == :nomatch and String.trim(value) != ""
-  end
+  defp text?(value, maximum), do: Reference.valid?(value, maximum)
 end

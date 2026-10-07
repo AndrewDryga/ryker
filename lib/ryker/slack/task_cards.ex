@@ -15,6 +15,7 @@ defmodule Ryker.Slack.TaskCards do
   alias Ryker.Episodes.Episode
   alias Ryker.ErrorDetail
   alias Ryker.Records.Record
+  alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Slack.TaskCard
   alias Ryker.Work.{DeliveryReceipt, Turn}
@@ -437,12 +438,8 @@ defmodule Ryker.Slack.TaskCards do
       else: {:error, {:invalid_task_card_request, field}}
   end
 
-  defp reference(value, field) do
-    if is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
-         String.trim(value) != "" and byte_size(value) <= 1_024,
-       do: :ok,
-       else: {:error, {:invalid_task_card_request, field}}
-  end
+  defp reference(value, field),
+    do: Reference.check(value, field, :invalid_task_card_request)
 
   defp uuid(value, field) do
     case Ecto.UUID.cast(value) do

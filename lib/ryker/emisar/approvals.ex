@@ -20,6 +20,7 @@ defmodule Ryker.Emisar.Approvals do
   alias Ryker.Ingress.Input
   alias Ryker.Records
   alias Ryker.Records.Record
+  alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.UTCDateTime
   alias Ryker.Work.Turn
@@ -707,12 +708,8 @@ defmodule Ryker.Emisar.Approvals do
 
   defp utc_datetime(_value), do: {:error, {:invalid_emisar_approval, :expires_at}}
 
-  defp reference(value, maximum, field) do
-    if is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and
-         :binary.match(value, <<0>>) == :nomatch and String.trim(value) != "",
-       do: :ok,
-       else: {:error, {:invalid_emisar_approval, field}}
-  end
+  defp reference(value, maximum, field),
+    do: Reference.check(value, field, :invalid_emisar_approval, maximum)
 
   defp positive(value, _field) when is_integer(value) and value > 0, do: :ok
   defp positive(_value, field), do: {:error, {:invalid_emisar_approval, field}}

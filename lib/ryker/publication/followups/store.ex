@@ -14,6 +14,7 @@ defmodule Ryker.Publication.Followups.Store do
   alias Ryker.Crypto
   alias Ryker.Publication.Custody
   alias Ryker.Publication.{Followup, LifecycleEvent}
+  alias Ryker.Reference
   alias Ryker.Repo
 
   # --- entries --------------------------------------------------------------
@@ -28,12 +29,8 @@ defmodule Ryker.Publication.Followups.Store do
   end
 
   @spec reference(term(), atom()) :: :ok | {:error, {:invalid_publication_followup, atom()}}
-  def reference(value, field) do
-    if is_binary(value) and String.valid?(value) and byte_size(value) in 1..1_024 and
-         :binary.match(value, <<0>>) == :nomatch and String.trim(value) != "",
-       do: :ok,
-       else: {:error, {:invalid_publication_followup, field}}
-  end
+  def reference(value, field),
+    do: Reference.check(value, field, :invalid_publication_followup)
 
   @spec positive(term(), atom()) :: :ok | {:error, {:invalid_publication_followup, atom()}}
   def positive(value, _field) when is_integer(value) and value > 0, do: :ok

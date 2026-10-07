@@ -12,6 +12,7 @@ defmodule Ryker.Slack.ChannelSettings do
   """
 
   alias Ryker.CanonicalJSON
+  alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Settings
   alias Ryker.Settings.Slack
@@ -267,10 +268,6 @@ defmodule Ryker.Slack.ChannelSettings do
 
   defp utc(_value), do: {:error, {:invalid_channel_setting, :occurred_at}}
 
-  defp reference(value, field, maximum \\ 1_024) do
-    if is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and
-         String.trim(value) != "" and :binary.match(value, <<0>>) == :nomatch,
-       do: :ok,
-       else: {:error, {:invalid_channel_setting, field}}
-  end
+  defp reference(value, field, maximum \\ 1_024),
+    do: Reference.check(value, field, :invalid_channel_setting, maximum)
 end

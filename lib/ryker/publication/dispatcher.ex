@@ -11,6 +11,7 @@ defmodule Ryker.Publication.Dispatcher do
 
   alias Ryker.ErrorDetail
   alias Ryker.Publication.{Custody, Executor}
+  alias Ryker.Reference
 
   @spec run_once(keyword()) ::
           {:ok,
@@ -132,8 +133,5 @@ defmodule Ryker.Publication.Dispatcher do
 
   defp positive?(value), do: is_integer(value) and value > 0
 
-  defp reference?(value) do
-    is_binary(value) and String.valid?(value) and byte_size(value) in 1..1_024 and
-      :binary.match(value, <<0>>) == :nomatch and String.trim(value) != ""
-  end
+  defp reference?(value), do: Reference.valid?(value)
 end

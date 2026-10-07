@@ -27,6 +27,7 @@ defmodule Ryker.Ingress.WorkProfile do
   carries none of those keys.
   """
 
+  alias Ryker.Reference
   alias Ryker.Work.RepositoryContext
 
   @work_classes [:conversational, :standard, :deep]
@@ -604,10 +605,6 @@ defmodule Ryker.Ingress.WorkProfile do
   defp maybe_put(document, _key, nil), do: document
   defp maybe_put(document, key, value), do: Map.put(document, key, value)
 
-  defp reference(value, field, maximum) do
-    if is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and
-         String.trim(value) != "" and :binary.match(value, <<0>>) == :nomatch,
-       do: :ok,
-       else: {:error, {:invalid_work_profile, field}}
-  end
+  defp reference(value, field, maximum),
+    do: Reference.check(value, field, :invalid_work_profile, maximum)
 end

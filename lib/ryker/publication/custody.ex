@@ -14,10 +14,12 @@ defmodule Ryker.Publication.Custody do
   alias Ryker.CoopFleet.WorkspaceCheckpointTransfer
   alias Ryker.Delivery.Request
   alias Ryker.Episodes.Episode
+  alias Ryker.Lease
   alias Ryker.Publication.{Card, ConflictReceipt, FixLoop, Followup, Followups}
   alias Ryker.Publication.{GateOutput, Publication, Receipt, Review}
   alias Ryker.Records
   alias Ryker.Records.{CardDelivery, Record}
+  alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.UTCDateTime
   alias Ryker.Work.{DeliveryReceipt, OperationKeys, Session, Turn}
@@ -1372,11 +1374,9 @@ defmodule Ryker.Publication.Custody do
   end
 
   defp live_lease(publication, lease_ref, now) do
-    if publication.status in @claimable and publication.lease_ref == lease_ref and
-         is_struct(publication.lease_expires_at, DateTime) and
-         DateTime.compare(publication.lease_expires_at, now) == :gt,
-       do: :ok,
-       else: {:error, :publication_lease_lost}
+    if publication.status in @claimable and Lease.held?(publication, lease_ref, now),
+      do: :ok,
+      else: {:error, :publication_lease_lost}
   end
 
   defp exact_delivery_receipt(publication, receipt) do
@@ -1492,12 +1492,7 @@ defmodule Ryker.Publication.Custody do
   defp optional_reference(nil, _field), do: :ok
   defp optional_reference(value, field), do: reference(value, field)
 
-  defp reference(value, field) do
-    if is_binary(value) and String.valid?(value) and byte_size(value) in 1..1_024 and
-         :binary.match(value, <<0>>) == :nomatch and String.trim(value) != "",
-       do: :ok,
-       else: {:error, {:invalid_publication, field}}
-  end
+  defp reference(value, field), do: Reference.check(value, field, :invalid_publication)
 
   defp bounded_error(value, field) do
     if is_binary(value) and String.valid?(value) and byte_size(value) in 1..4_096,

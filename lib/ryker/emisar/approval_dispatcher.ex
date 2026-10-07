@@ -8,6 +8,7 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
   """
 
   alias Ryker.Emisar.Approvals
+  alias Ryker.Reference
 
   @fields [
     :api,
@@ -203,12 +204,7 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
 
   defp settings(_options), do: {:error, {:invalid_emisar_approval_dispatcher, :fields}}
 
-  defp reference(value) do
-    if is_binary(value) and String.valid?(value) and byte_size(value) in 1..1_024 and
-         :binary.match(value, <<0>>) == :nomatch and String.trim(value) != "",
-       do: :ok,
-       else: {:error, :reference}
-  end
+  defp reference(value), do: if(Reference.valid?(value), do: :ok, else: {:error, :reference})
 
   defp positive(value) when is_integer(value) and value > 0, do: :ok
   defp positive(_value), do: {:error, :positive_integer}

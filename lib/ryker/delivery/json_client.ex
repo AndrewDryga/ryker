@@ -8,6 +8,7 @@ defmodule Ryker.Delivery.JSONClient do
 
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery.HTTPClient
+  alias Ryker.Reference
 
   @fields [:base_url, :finch, :receive_timeout, :token_provider]
   @maximum_body_bytes 2 * 1_024 * 1_024
@@ -160,8 +161,5 @@ defmodule Ryker.Delivery.JSONClient do
 
   defp header?(_header), do: false
 
-  defp text?(value, maximum) do
-    is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
-      String.trim(value) != "" and byte_size(value) <= maximum
-  end
+  defp text?(value, maximum), do: Reference.valid?(value, maximum)
 end

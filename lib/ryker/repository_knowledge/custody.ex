@@ -21,6 +21,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   require Logger
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
+  alias Ryker.Lease
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.RepositoryKnowledge
@@ -954,9 +955,8 @@ defmodule Ryker.RepositoryKnowledge.Custody do
       |> Entry.Query.lock_for_update()
       |> Repo.one()
 
-    unless entry && entry.lease_ref == claim.lease_ref &&
-             DateTime.compare(entry.lease_expires_at, Repo.now!()) == :gt,
-           do: Repo.rollback(:repository_knowledge_lease_lost)
+    unless entry && Lease.held?(entry, claim.lease_ref, Repo.now!()),
+      do: Repo.rollback(:repository_knowledge_lease_lost)
 
     entry
   end

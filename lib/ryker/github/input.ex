@@ -11,6 +11,7 @@ defmodule Ryker.GitHub.Input do
   alias Ryker.CanonicalJSON
   alias Ryker.GitHub.{Binding, Payload}
   alias Ryker.Ingress.Input
+  alias Ryker.Reference
 
   @event_fields [:delivery_ref, :event_name, :event_ref, :payload]
   # The input's content holds 48 KiB; the delivery reference, up to 1 KiB, and
@@ -520,8 +521,5 @@ defmodule Ryker.GitHub.Input do
   defp positive_id?(value),
     do: is_integer(value) and value > 0 and value <= 9_223_372_036_854_775_807
 
-  defp reference?(value) do
-    is_binary(value) and String.valid?(value) and String.trim(value) != "" and
-      :binary.match(value, <<0>>) == :nomatch and byte_size(value) <= 1_024
-  end
+  defp reference?(value), do: Reference.valid?(value)
 end

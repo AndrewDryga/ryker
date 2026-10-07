@@ -16,6 +16,7 @@ defmodule Ryker.IntegrationSetup do
   alias Ryker.Delivery.JSONClient
   alias Ryker.Emisar.Approvals
   alias Ryker.GitHub.AppJWT
+  alias Ryker.Reference
   alias Ryker.Settings
   alias Ryker.Settings.Environment
   alias Ryker.Slack.Names
@@ -291,7 +292,7 @@ defmodule Ryker.IntegrationSetup do
          ref <- emisar_connection_ref(requested_ref, identity.account_ref),
          display_name <- optional_text(params, "display_name", identity.account_label),
          :ok <- connection_ref(ref),
-         :ok <- bounded_text(display_name, 1, 120, :display_name),
+         :ok <- bounded_text(display_name, 120, :display_name),
          {:ok, snapshot} <-
            store_emisar(
              token,
@@ -1377,12 +1378,8 @@ defmodule Ryker.IntegrationSetup do
 
   defp emisar_connection_ref(ref, _account_ref), do: ref
 
-  defp bounded_text(value, minimum, maximum, field) do
-    if is_binary(value) and String.valid?(value) and byte_size(value) in minimum..maximum and
-         String.trim(value) != "",
-       do: :ok,
-       else: {:error, {:invalid_credential, field}}
-  end
+  defp bounded_text(value, maximum, field),
+    do: Reference.check(value, field, :invalid_credential, maximum)
 
   defp text(params, key, default \\ nil) do
     case Map.get(params, key, default) do

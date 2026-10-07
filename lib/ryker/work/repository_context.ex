@@ -2,6 +2,7 @@ defmodule Ryker.Work.RepositoryContext do
   @moduledoc false
 
   alias Ryker.CanonicalJSON
+  alias Ryker.Reference
 
   @fields [:context_ref, :parallel_goal_limit, :primary_repository, :read_only_repositories]
   @document_fields Enum.map(@fields, &Atom.to_string/1)
@@ -104,8 +105,5 @@ defmodule Ryker.Work.RepositoryContext do
       Enum.all?(repositories, &reference?(&1, 1_024))
   end
 
-  defp reference?(value, maximum) do
-    is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and
-      String.trim(value) != "" and :binary.match(value, <<0>>) == :nomatch
-  end
+  defp reference?(value, maximum), do: Reference.valid?(value, maximum)
 end

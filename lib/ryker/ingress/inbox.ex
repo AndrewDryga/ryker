@@ -29,9 +29,11 @@ defmodule Ryker.Ingress.Inbox do
   alias Ryker.Ingress.WorkProfile
   alias Ryker.InspectionRedactor
   alias Ryker.Learning.Observations
+  alias Ryker.Lease
   alias Ryker.Memories
   alias Ryker.Memories.Cases
   alias Ryker.People
+  alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.RoutingExamples
   alias Ryker.Transcription
@@ -450,9 +452,7 @@ defmodule Ryker.Ingress.Inbox do
         Repo.rollback({:ingress_renew_failed, :input_not_found})
 
       %Entry{status: :pending, lease_ref: ^lease_ref} = entry ->
-        requested_expiry = DateTime.add(now, lease_seconds, :second)
-        lease_expires_at = later_datetime(entry.lease_expires_at, requested_expiry)
-
+        lease_expires_at = Lease.renewed(entry.lease_expires_at, now, lease_seconds)
         changeset = Entry.Changeset.renew(entry, lease_expires_at)
 
         case Repo.update(changeset) do
@@ -466,12 +466,6 @@ defmodule Ryker.Ingress.Inbox do
       %Entry{} ->
         Repo.rollback({:ingress_renew_failed, :lease_lost})
     end
-  end
-
-  defp later_datetime(nil, requested), do: requested
-
-  defp later_datetime(current, requested) do
-    if DateTime.compare(current, requested) == :lt, do: requested, else: current
   end
 
   defp defer_locked(id, lease_ref, now, delay_ms, error_code, error_detail, generation) do
@@ -993,12 +987,8 @@ defmodule Ryker.Ingress.Inbox do
 
   defp bounded_reference(value, field), do: bounded_text(value, 1_024, field)
 
-  defp bounded_text(value, maximum, field) do
-    if is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
-         String.trim(value) != "" and byte_size(value) <= maximum,
-       do: :ok,
-       else: {:error, {:invalid_ingress_execution, field}}
-  end
+  defp bounded_text(value, maximum, field),
+    do: Reference.check(value, field, :invalid_ingress_execution, maximum)
 
   defp positive_integer(value, _field) when is_integer(value) and value > 0, do: :ok
 

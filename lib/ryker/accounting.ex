@@ -7,6 +7,7 @@ defmodule Ryker.Accounting do
   """
   alias Ecto.Changeset
   alias Ryker.Accounting.Execution
+  alias Ryker.Lease
   alias Ryker.Repo
   alias Ryker.Work.{Measurement, Session, Turn}
 
@@ -36,12 +37,10 @@ defmodule Ryker.Accounting do
         |> Session.Query.select_generation()
         |> Repo.one()
 
-      if is_nil(current) or current.lease_ref != claim.lease_ref or
+      if is_nil(current) or not Lease.held?(current, claim.lease_ref, now) or
            current.session_id != claim.session.id or
            session_generation != claim.session.generation or
-           current.submit_generation != claim.turn.submit_generation or
-           is_nil(current.lease_expires_at) or
-           DateTime.compare(current.lease_expires_at, now) != :gt do
+           current.submit_generation != claim.turn.submit_generation do
         Repo.rollback(:accounting_lease_lost)
       end
 

@@ -12,6 +12,7 @@ defmodule Ryker.Work.Dispatcher do
 
   require Logger
   alias Ryker.ErrorDetail
+  alias Ryker.Reference
   alias Ryker.Work.{Custody, Executor}
 
   @type result ::
@@ -312,10 +313,7 @@ defmodule Ryker.Work.Dispatcher do
   defp keyword?(value), do: is_list(value) and Keyword.keyword?(value)
   defp positive?(value), do: is_integer(value) and value > 0
 
-  defp reference?(value) do
-    is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
-      String.trim(value) != "" and byte_size(value) <= 1_024
-  end
+  defp reference?(value), do: Reference.valid?(value)
 
   defp setting(true, _field), do: :ok
   defp setting(false, field), do: {:error, {:invalid_work_dispatcher, field}}

@@ -16,6 +16,7 @@ defmodule Ryker.Slack.AttachmentIngestor do
   alias Ryker.Artifacts
   alias Ryker.Delivery.Retry
   alias Ryker.Ingress.Input
+  alias Ryker.Reference
   alias Ryker.Transcription
 
   # The kernel activates at most two input events at once and Coop accepts five
@@ -144,7 +145,7 @@ defmodule Ryker.Slack.AttachmentIngestor do
   end
 
   defp source_ref(%Input{source: %{ref: workspace_ref}}, %{"id" => file_ref}) do
-    if bounded(workspace_ref, 256) and bounded(file_ref, 256),
+    if Reference.valid?(workspace_ref, 256) and Reference.valid?(file_ref, 256),
       do: {:ok, workspace_ref <> ":" <> file_ref},
       else: {:error, {:slack_file_rejected, :metadata}}
   end
@@ -303,7 +304,4 @@ defmodule Ryker.Slack.AttachmentIngestor do
     is_atom(module) and Code.ensure_loaded?(module) and
       Enum.all?(functions, fn {name, arity} -> function_exported?(module, name, arity) end)
   end
-
-  defp bounded(value, maximum),
-    do: is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum
 end

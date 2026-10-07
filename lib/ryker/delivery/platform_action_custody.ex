@@ -20,7 +20,9 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery.{PlatformAction, Request}
   alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.Lease
   alias Ryker.Records.Record
+  alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.UTCDateTime
   alias Ryker.Work.{DeliveryReceipt, Turn}
@@ -195,8 +197,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
          {:ok, lease_ref} <- uuid(lease_ref, :lease_ref),
          :ok <- positive(lease_seconds, :lease_seconds) do
       mutate_claim(action_ref, lease_ref, fn action, now ->
-        requested = DateTime.add(now, lease_seconds, :second)
-        expiry = later_datetime(action.lease_expires_at, requested)
+        expiry = Lease.renewed(action.lease_expires_at, now, lease_seconds)
         action |> PlatformAction.Changeset.renew(expiry) |> write!(:renew)
       end)
     end
@@ -550,11 +551,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   end
 
   defp current_lease(action, lease_ref, now) do
-    if action.lease_ref == lease_ref and is_binary(action.lease_owner) and
-         match?(%DateTime{}, action.lease_expires_at) and
-         DateTime.compare(action.lease_expires_at, now) == :gt,
-       do: :ok,
-       else: {:error, :platform_action_lease_lost}
+    if Lease.held?(action, lease_ref, now), do: :ok, else: {:error, :platform_action_lease_lost}
   end
 
   defp exact_receipt(action, receipt) do
@@ -583,11 +580,9 @@ defmodule Ryker.Delivery.PlatformActionCustody do
          binding,
          now
        ) do
-    if turn.lease_ref == binding.turn.lease_ref and is_binary(turn.lease_ref) and
-         match?(%DateTime{}, turn.lease_expires_at) and
-         DateTime.compare(turn.lease_expires_at, now) == :gt,
-       do: :ok,
-       else: {:error, :platform_action_not_authorized}
+    if Lease.held?(turn, binding.turn.lease_ref, now),
+      do: :ok,
+      else: {:error, :platform_action_not_authorized}
   end
 
   defp live_binding(_episode, _turn, _binding, _now),
@@ -646,12 +641,6 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   defp write!(changeset, operation),
     do: changeset |> Repo.update() |> unwrap_or_rollback(operation)
 
-  defp later_datetime(nil, requested), do: requested
-
-  defp later_datetime(current, requested) do
-    if DateTime.compare(current, requested) == :lt, do: requested, else: current
-  end
-
   # A renewal only moves the lease's expiry, which no page shows.
   defp unwrap_or_rollback({:ok, value}, :renew), do: value
 
@@ -672,12 +661,8 @@ defmodule Ryker.Delivery.PlatformActionCustody do
 
   defp reference(value, field), do: bounded(value, 1_024, field)
 
-  defp bounded(value, maximum, field) do
-    if is_binary(value) and String.valid?(value) and String.trim(value) != "" and
-         byte_size(value) <= maximum and :binary.match(value, <<0>>) == :nomatch,
-       do: :ok,
-       else: {:error, {:invalid_platform_action, field}}
-  end
+  defp bounded(value, maximum, field),
+    do: Reference.check(value, field, :invalid_platform_action, maximum)
 
   defp positive(value, _field) when is_integer(value) and value > 0, do: :ok
   defp positive(_value, field), do: {:error, {:invalid_platform_action, field}}

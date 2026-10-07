@@ -8,6 +8,7 @@ defmodule Ryker.Webhooks.Input do
 
   alias Ryker.CanonicalJSON
   alias Ryker.Ingress.Input
+  alias Ryker.Reference
   alias Ryker.Webhooks.Route
 
   @behaviour Ryker.Ingress.Adapter
@@ -108,10 +109,7 @@ defmodule Ryker.Webhooks.Input do
     }
   end
 
-  defp reference?(value, maximum) do
-    is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
-      String.trim(value) != "" and byte_size(value) <= maximum
-  end
+  defp reference?(value, maximum), do: Reference.valid?(value, maximum)
 
   defp utc_datetime?(%DateTime{} = value) do
     value.time_zone == "Etc/UTC" and value.utc_offset == 0 and value.std_offset == 0

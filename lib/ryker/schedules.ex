@@ -15,6 +15,7 @@ defmodule Ryker.Schedules do
   alias Ryker.Episodes.Command
   alias Ryker.ErrorDetail
   alias Ryker.Ingress.Input
+  alias Ryker.Lease
   alias Ryker.Operator.Actions
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
@@ -649,9 +650,8 @@ defmodule Ryker.Schedules do
       nil ->
         {:error, :schedule_not_found}
 
-      %Schedule{status: :active, lease_ref: ^lease_ref, lease_expires_at: %DateTime{} = expires} =
-          schedule ->
-        if DateTime.compare(expires, now) == :gt,
+      %Schedule{status: :active} = schedule ->
+        if Lease.held?(schedule, lease_ref, now),
           do: {:ok, schedule},
           else: {:error, :schedule_lease_lost}
 

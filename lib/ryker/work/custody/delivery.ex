@@ -13,6 +13,7 @@ defmodule Ryker.Work.Custody.Delivery do
   import Ryker.Work.Custody.Locks
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode, Origin}
+  alias Ryker.Lease
   alias Ryker.Repo
   alias Ryker.Slack.Mentions
   alias Ryker.Waits.EventSubscriptions
@@ -128,7 +129,7 @@ defmodule Ryker.Work.Custody.Delivery do
   # and one blocked there is refused, for a person to see.
   defp redirect_owed_reply(episode, turn, gone_conversation_ref, target, now) do
     cond do
-      current_lease?(turn, turn.lease_ref, now) ->
+      Lease.held?(turn, turn.lease_ref, now) ->
         %{episode: episode, status: :pending, turn: turn}
 
       delivery_target(episode, turn)["conversation_ref"] == gone_conversation_ref ->
@@ -332,7 +333,7 @@ defmodule Ryker.Work.Custody.Delivery do
   end
 
   defp pause_pending_delivery(episode, turn, intent, now) do
-    if current_lease?(turn, turn.lease_ref, now),
+    if Lease.held?(turn, turn.lease_ref, now),
       do: %{episode: episode, status: :pending, turn: turn},
       else: block_destination_delivery(episode, turn, intent)
   end

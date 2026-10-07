@@ -1,6 +1,8 @@
 defmodule Ryker.Publication.LifecycleStatus do
   @moduledoc false
 
+  alias Ryker.Reference
+
   @fields ~w(base_ref checks_failed checks_passed checks_state checks_total checks_url draft head_ref head_sha merge_sha merged merged_at number state url)
   @git_identity ~r/\A[a-f0-9]{40}([a-f0-9]{24})?\z/
 
@@ -63,8 +65,5 @@ defmodule Ryker.Publication.LifecycleStatus do
   defp git_identity(value), do: is_binary(value) and Regex.match?(@git_identity, value)
   defp positive(value), do: is_integer(value) and value > 0
 
-  defp reference(value, maximum) do
-    is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and
-      :binary.match(value, <<0>>) == :nomatch and String.trim(value) != ""
-  end
+  defp reference(value, maximum), do: Reference.valid?(value, maximum)
 end

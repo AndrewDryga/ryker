@@ -19,6 +19,8 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
   alias Ryker.Delivery.{Request, RoutingResponse}
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Lease
+  alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.UTCDateTime
   alias Ryker.Work.DeliveryReceipt
@@ -129,8 +131,7 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
          :ok <- reference(lease_ref, :lease_ref),
          :ok <- positive_integer(lease_seconds, :lease_seconds) do
       mutate_claim(delivery_ref, lease_ref, fn response, now ->
-        requested_expiry = DateTime.add(now, lease_seconds, :second)
-        lease_expires_at = later_datetime(response.lease_expires_at, requested_expiry)
+        lease_expires_at = Lease.renewed(response.lease_expires_at, now, lease_seconds)
 
         response
         |> RoutingResponse.Changeset.renew(lease_expires_at)
@@ -330,11 +331,9 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
   end
 
   defp current_lease(response, lease_ref, now) do
-    if response.lease_ref == lease_ref and is_binary(response.lease_owner) and
-         match?(%DateTime{}, response.lease_expires_at) and
-         DateTime.compare(response.lease_expires_at, now) == :gt,
-       do: :ok,
-       else: {:error, :routing_response_lease_lost}
+    if Lease.held?(response, lease_ref, now),
+      do: :ok,
+      else: {:error, :routing_response_lease_lost}
   end
 
   # A reaction's receipt names the message it landed on; a quick reply's
@@ -354,12 +353,6 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
 
   defp receipt_message?(%RoutingResponse{kind: :message}, message_ref),
     do: is_binary(message_ref) and message_ref != ""
-
-  defp later_datetime(nil, requested), do: requested
-
-  defp later_datetime(current, requested) do
-    if DateTime.compare(current, requested) == :lt, do: requested, else: current
-  end
 
   defp persistence_result({:ok, value}, _operation) do
     broadcast_routing_response_updated(value)
@@ -388,12 +381,8 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
 
   defp reference(value, field), do: bounded_text(value, 1_024, field)
 
-  defp bounded_text(value, maximum, field) do
-    if is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
-         String.trim(value) != "" and byte_size(value) <= maximum,
-       do: :ok,
-       else: {:error, {:invalid_routing_response, field}}
-  end
+  defp bounded_text(value, maximum, field),
+    do: Reference.check(value, field, :invalid_routing_response, maximum)
 
   defp positive_integer(value, _field) when is_integer(value) and value > 0, do: :ok
   defp positive_integer(_value, field), do: {:error, {:invalid_routing_response, field}}

@@ -1,6 +1,8 @@
 defmodule Ryker.Slack.HomeEvent do
   @moduledoc false
 
+  alias Ryker.Reference
+
   @enforce_keys [:actor_ref, :event_ref, :workspace_ref]
   defstruct @enforce_keys
 
@@ -41,8 +43,5 @@ defmodule Ryker.Slack.HomeEvent do
 
   def from_socket(_envelope, _identity), do: :ignore
 
-  defp reference?(value) do
-    is_binary(value) and String.valid?(value) and String.trim(value) != "" and
-      byte_size(value) <= 256
-  end
+  defp reference?(value), do: Reference.valid?(value, 256)
 end

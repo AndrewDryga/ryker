@@ -38,6 +38,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
   alias Ryker.Episodes.Reactions
   alias Ryker.Ingress.{Inbox, Input, WorkProfile}
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Settings.Environment
   alias Ryker.Transcription
@@ -549,12 +550,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
        else: {:error, {:invalid_conversation_lab, :reaction_emoji}}
   end
 
-  defp reference(value, field) do
-    if is_binary(value) and String.valid?(value) and String.trim(value) != "" and
-         :binary.match(value, <<0>>) == :nomatch and byte_size(value) <= 1_024,
-       do: :ok,
-       else: {:error, {:invalid_conversation_lab, field}}
-  end
+  defp reference(value, field), do: Reference.check(value, field, :invalid_conversation_lab)
 
   defp attachments?(attachments)
        when is_list(attachments) and

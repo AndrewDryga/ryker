@@ -81,7 +81,7 @@ defmodule Ryker.Retention.CustodyTest do
     assert reclaimed.session.id == mine.id
 
     assert Custody.release_worker_leases(<<0>>) ==
-             {:error, {:invalid_retention_custody, :reference}}
+             {:error, {:invalid_retention_custody, :worker_ref}}
   end
 
   test "close and discard phases freeze exact revisions and survive lease turnover" do
@@ -218,7 +218,7 @@ defmodule Ryker.Retention.CustodyTest do
   end
 
   test "invalid cleanup identities never enter a lease transaction" do
-    assert {:error, {:invalid_retention_custody, :reference}} = Custody.claim_next("", 60)
+    assert {:error, {:invalid_retention_custody, :worker_ref}} = Custody.claim_next("", 60)
 
     assert {:error, {:invalid_retention_custody, :lease_seconds}} =
              Custody.claim_next("worker", 0)

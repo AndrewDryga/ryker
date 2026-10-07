@@ -15,6 +15,7 @@ defmodule Ryker.Work.Executor.Remote do
   alias Ryker.Artifacts
   alias Ryker.CoopFleet.JobAuthority
   alias Ryker.Knowledge.KnowledgeSnapshot
+  alias Ryker.Reference
   alias Ryker.Work.{Custody, Session, StateBinding}
 
   @git_commit_regex ~r/\A(?:[0-9a-f]{40}|[0-9a-f]{64})\z/
@@ -421,10 +422,7 @@ defmodule Ryker.Work.Executor.Remote do
   end
 
   @doc false
-  def reference?(value) do
-    is_binary(value) and String.valid?(value) and byte_size(value) in 1..1_024 and
-      :binary.match(value, <<0>>) == :nomatch and String.trim(value) != ""
-  end
+  def reference?(value), do: Reference.valid?(value)
 
   @doc false
   def git_commit?(value),

@@ -8,6 +8,7 @@ defmodule Ryker.Slack.Shortcut do
 
   alias Ryker.CanonicalJSON
   alias Ryker.Ingress.Input
+  alias Ryker.Reference
 
   @callback_id "ryker_investigate_message"
   @timestamp ~r/\A[0-9]{10,}\.[0-9]{1,6}\z/
@@ -117,12 +118,7 @@ defmodule Ryker.Slack.Shortcut do
       else: {:error, {:invalid_slack_shortcut, field}}
   end
 
-  defp reference(value, field) do
-    if is_binary(value) and String.valid?(value) and byte_size(value) in 1..980 and
-         :binary.match(value, <<0>>) == :nomatch and String.trim(value) != "",
-       do: :ok,
-       else: {:error, {:invalid_slack_shortcut, field}}
-  end
+  defp reference(value, field), do: Reference.check(value, field, :invalid_slack_shortcut, 980)
 
   defp list_or_empty(nil), do: []
   defp list_or_empty(value), do: value

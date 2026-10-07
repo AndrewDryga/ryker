@@ -13,6 +13,7 @@ defmodule Ryker.Slack.ThreadStatuses do
 
   alias Ryker.AdvisoryLock
   alias Ryker.ErrorDetail
+  alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Slack.ThreadStatus
   alias Ryker.UTCDateTime
@@ -429,12 +430,8 @@ defmodule Ryker.Slack.ThreadStatuses do
       else: {:halt, output}
   end
 
-  defp reference(value, field) do
-    if is_binary(value) and String.valid?(value) and byte_size(value) in 1..1_024 and
-         String.trim(value) != "" and :binary.match(value, <<0>>) == :nomatch,
-       do: :ok,
-       else: {:error, {:invalid_slack_thread_status, field}}
-  end
+  defp reference(value, field),
+    do: Reference.check(value, field, :invalid_slack_thread_status)
 
   defp milliseconds(value, field) do
     if is_integer(value) and value in 1..3_600_000,

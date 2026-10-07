@@ -10,6 +10,7 @@ defmodule Ryker.Ingress.Input do
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Command
   alias Ryker.Publication.DeploymentSignal
+  alias Ryker.Reference
   alias Ryker.Transcription
 
   @content_limit 49_152
@@ -436,10 +437,7 @@ defmodule Ryker.Ingress.Input do
   defp optional_reference?(nil), do: true
   defp optional_reference?(value), do: reference?(value)
 
-  defp reference?(value) do
-    is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
-      String.trim(value) != "" and byte_size(value) <= 1_024
-  end
+  defp reference?(value), do: Reference.valid?(value)
 
   defp utc_datetime?(%DateTime{} = value) do
     value.time_zone == "Etc/UTC" and value.utc_offset == 0 and value.std_offset == 0

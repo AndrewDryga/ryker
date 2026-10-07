@@ -111,6 +111,11 @@ names, and `Ryker.DataCase` fails an async test that saves settings.
   `Repo.lock_timeout!/1`. The database clock is `Repo.now!/0`.
 - Delivery rows with a lease share their transitions through
   `Ryker.Delivery.Lease.Changeset`.
+- Whether a worker still holds a row's lease is `Ryker.Lease.held?/3`, and a
+  renewal's expiry is `Ryker.Lease.renewed/3`; no custody keeps its own copy.
+- A reference string is checked by `Ryker.Reference`: a boundary keeps its
+  own error tag (`Reference.check(value, field, boundary, maximum)`), never
+  its own copy of the rule.
 
 ## Not adopted
 
