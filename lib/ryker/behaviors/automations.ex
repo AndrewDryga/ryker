@@ -16,6 +16,7 @@ defmodule Ryker.Behaviors.Automations do
   alias Ryker.Operator.FailureDetail
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
+  alias Ryker.Records.OfferConfirmation
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Schedules
@@ -26,8 +27,6 @@ defmodule Ryker.Behaviors.Automations do
   alias Ryker.UTCDateTime
 
   @actions ~w(update pause resume delete)
-  @confirmation_fields [:actor_ref, :confirmation_ref, :occurred_at, :record_ref, :target]
-  @target_fields [:conversation_ref, :message_ref, :thread_ref, :transport]
   # An automation lives in the conversation that made it, so its channels are
   # not part of a change: a patch naming them is refused, not silently kept.
   @time_patch_fields ~w(expires_at prompt repository title trigger)
@@ -97,15 +96,9 @@ defmodule Ryker.Behaviors.Automations do
 
   @spec confirm(keyword() | map()) :: {:ok, map()} | {:error, term()}
   def confirm(attributes) do
-    with {:ok, attributes} <- confirmation_attributes(attributes),
-         :ok <- reference(attributes.actor_ref, :actor_ref),
-         :ok <- reference(attributes.confirmation_ref, :confirmation_ref),
-         :ok <- reference(attributes.record_ref, :record_ref),
-         {:ok, occurred_at} <- utc_datetime(attributes.occurred_at, :occurred_at),
-         {:ok, target} <- target(attributes.target) do
-      Repo.transaction(fn ->
-        confirm_locked(%{attributes | occurred_at: occurred_at, target: target})
-      end)
+    with {:ok, confirmation} <-
+           OfferConfirmation.new(attributes, :invalid_automation_confirmation) do
+      Repo.transaction(fn -> confirm_locked(confirmation) end)
     end
   end
 
@@ -246,6 +239,8 @@ defmodule Ryker.Behaviors.Automations do
         {:ok, Behaviors.redact!(behavior, :deleted, "deleted_payload_sha256")}
 
       {:ok, attributes} ->
+        :ok = Behaviors.supersede_namesakes_in_transaction(struct(behavior, attributes))
+
         behavior
         |> Behavior.Changeset.update(Map.put(attributes, :revision, behavior.revision + 1))
         |> Repo.update()
@@ -349,7 +344,11 @@ defmodule Ryker.Behaviors.Automations do
       }
 
       {:ok,
-       %{expires_at: expires_at, identity_key: source_event_identity(payload), payload: payload}}
+       %{
+         expires_at: expires_at,
+         identity_key: Behaviors.source_event_identity(payload),
+         payload: payload
+       }}
     end
   end
 
@@ -613,10 +612,6 @@ defmodule Ryker.Behaviors.Automations do
       else: {:error, :automation_not_future}
   end
 
-  defp source_event_identity(payload) do
-    "source-event:" <> Ryker.CanonicalJSON.digest([payload["title"]])
-  end
-
   defp run_document(run) do
     Map.new(run, fn
       {key, %DateTime{} = value} -> {key, DateTime.to_iso8601(value)}
@@ -644,53 +639,14 @@ defmodule Ryker.Behaviors.Automations do
   defp exact_revision(%{revision: revision}, _submitted),
     do: {:error, {:automation_revision_conflict, revision}}
 
-  defp confirmation_attributes(attributes) when is_list(attributes) do
-    if Keyword.keyword?(attributes) and
-         Enum.uniq(Keyword.keys(attributes)) == Keyword.keys(attributes),
-       do: attributes |> Map.new() |> confirmation_attributes(),
-       else: {:error, {:invalid_automation_confirmation, :fields}}
-  end
+  defp optional_datetime(nil), do: {:ok, nil}
 
-  defp confirmation_attributes(%{} = attributes) do
-    if Map.keys(attributes) |> Enum.sort() == Enum.sort(@confirmation_fields),
-      do: {:ok, attributes},
-      else: {:error, {:invalid_automation_confirmation, :fields}}
-  end
-
-  defp confirmation_attributes(_attributes),
-    do: {:error, {:invalid_automation_confirmation, :fields}}
-
-  defp target(%{} = target) do
-    if Map.keys(target) |> Enum.sort() == Enum.sort(@target_fields) do
-      with :ok <- reference(target.transport, :transport),
-           :ok <- reference(target.conversation_ref, :conversation_ref),
-           :ok <- optional_reference(target.thread_ref),
-           :ok <- reference(target.message_ref, :message_ref) do
-        {:ok, target}
-      end
-    else
-      {:error, {:invalid_automation_confirmation, :target}}
-    end
-  end
-
-  defp target(_target), do: {:error, {:invalid_automation_confirmation, :target}}
-
-  defp utc_datetime(%DateTime{} = value, _field) do
-    case UTCDateTime.exact(value) do
-      {:ok, exact} -> {:ok, exact}
-      :error -> {:error, {:invalid_automation_confirmation, :datetime}}
-    end
-  end
-
-  defp utc_datetime(value, field) do
+  defp optional_datetime(value) do
     case UTCDateTime.parse(value) do
       {:ok, datetime} -> {:ok, datetime}
-      :error -> {:error, {:invalid_automation_confirmation, field}}
+      :error -> {:error, {:invalid_automation_confirmation, :expires_at}}
     end
   end
-
-  defp optional_datetime(nil), do: {:ok, nil}
-  defp optional_datetime(value), do: utc_datetime(value, :expires_at)
 
   defp optional_reference(nil), do: :ok
   defp optional_reference(value), do: reference(value, :reference)

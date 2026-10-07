@@ -16,6 +16,7 @@ defmodule Ryker.Continuity.ContinuityTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
+  alias Ryker.Fixtures.MemoryPages
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Knowledge
@@ -2196,7 +2197,7 @@ defmodule Ryker.Continuity.ContinuityTest do
 
     {:ok, found} =
       Repo.transaction(fn ->
-        MemorySearchPage.read(page, limit, &Recall.search_page(kind, episode, repository_ref, &1))
+        MemoryPages.read(page, limit, &Recall.search_page(kind, episode, repository_ref, &1))
       end)
 
     found

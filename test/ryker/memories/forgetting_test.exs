@@ -7,6 +7,7 @@ defmodule Ryker.Memories.ForgettingTest do
   import Ecto.Query
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
+  alias Ryker.Inspectors
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeRevision
@@ -221,7 +222,7 @@ defmodule Ryker.Memories.ForgettingTest do
 
     assert [review] =
              fact.workspace_ref
-             |> Reviews.list_reviews(limit: 5)
+             |> Inspectors.memory_reviews()
              |> Enum.filter(&(get_in(&1, ["entries", Access.at(0), "memory_ref"]) == fact.ref))
 
     assert {:ok, _resolved} =

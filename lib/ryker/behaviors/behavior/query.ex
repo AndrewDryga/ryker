@@ -162,13 +162,28 @@ defmodule Ryker.Behaviors.Behavior.Query do
     )
   end
 
-  @doc "The fields a memory search reads from a behavior (`Ryker.Memories.MemorySearchPage`)."
+  @doc """
+  The fields a memory search reads from guidance (`Ryker.Memories.SearchPage.Query`).
+  Its text is what the guidance says: its subject, summary, text and
+  repository. Search read the whole payload as text, so "workspace" or "30d"
+  matched all guidance kept that wide or that long (2026-10-04 review).
+  """
   def search_fields do
     %{
       conversation: dynamic([operator_behaviors: b], b.source_conversation_ref),
       thread: dynamic([operator_behaviors: b], b.source_thread_ref),
       message: dynamic([operator_behaviors: b], b.source_message_ref),
-      text: dynamic([operator_behaviors: b], b.payload),
+      text:
+        dynamic(
+          [operator_behaviors: b],
+          fragment(
+            "concat_ws(' ', (?::jsonb)->>'subject', (?::jsonb)->>'summary', (?::jsonb)->>'text', (?::jsonb)->>'repository')",
+            b.payload,
+            b.payload,
+            b.payload,
+            b.payload
+          )
+        ),
       changed:
         dynamic(
           [operator_behaviors: b],
@@ -180,9 +195,6 @@ defmodule Ryker.Behaviors.Behavior.Query do
 
   def ordered_by_oldest(queryable),
     do: order_by(queryable, [operator_behaviors: b], asc: b.inserted_at, asc: b.id)
-
-  def ordered_by_recently_updated(queryable),
-    do: order_by(queryable, [operator_behaviors: b], desc: b.updated_at, desc: b.id)
 
   def ordered_by_least_recently_updated(queryable),
     do: order_by(queryable, [operator_behaviors: b], asc: b.updated_at, asc: b.id)

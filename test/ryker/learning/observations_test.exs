@@ -9,6 +9,7 @@ defmodule Ryker.Learning.ObservationsTest do
   alias Ryker.ControlPlane.{Components, ConversationMemory, LearnedPage}
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.DatabaseClock
+  alias Ryker.Fixtures.MemoryPages
   alias Ryker.Ingress.Inbox
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningSources
@@ -217,7 +218,7 @@ defmodule Ryker.Learning.ObservationsTest do
 
     assert {:ok, [%{"topics" => [], "summary" => @message}]} =
              Repo.transaction(fn ->
-               MemorySearchPage.read(
+               MemoryPages.read(
                  page,
                  10,
                  &Observations.search_page(destination, "tenant-infra", &1)

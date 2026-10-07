@@ -76,6 +76,12 @@ defmodule Ryker.Memories.MemoryReviewItem.Query do
     )
   end
 
+  def select_distinct_workspace_refs(queryable) do
+    queryable
+    |> distinct(true)
+    |> select([memory_review_items: r], r.workspace_ref)
+  end
+
   def ordered_by_oldest(queryable),
     do: order_by(queryable, [memory_review_items: r], asc: r.inserted_at, asc: r.id)
 

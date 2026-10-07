@@ -547,6 +547,32 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     assert guidance["behavior_ref"] == relevant.behavior.ref
   end
 
+  # A turn using three pieces of guidance sent three announcements, for the
+  # one redraw each page makes (2026-10-04 review).
+  test "using several pieces of guidance announces the change once" do
+    fixture = delivered_offers!("guidance-announce")
+
+    insert_unrelated_guidance!(fixture.guidance, 3,
+      scope_kind: :conversation,
+      scope_ref: "slack:T123:C456"
+    )
+
+    # Kept to the channel they were said in, which is this one.
+    Repo.update_all(Behavior, set: [source_conversation_ref: "slack:T123:C456"])
+    :ok = Behaviors.subscribe_behaviors()
+
+    context = %{
+      conversation_ref: "slack:T123:C456",
+      operator_ref: "slack:user:U123",
+      repository: nil,
+      workspace_ref: "slack:T123"
+    }
+
+    assert [_, _, _] = Behaviors.guidance(context)
+    assert_received {:behavior_updated, _id}
+    refute_received {:behavior_updated, _id}
+  end
+
   test "workspace guidance cannot crowd higher-precedence channel guidance out of the limit" do
     fixture = delivered_offers!("precedence-before-limit")
 
@@ -1060,6 +1086,21 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     assert assignment["task"] =~ "exact posted Terraform plan"
   end
 
+  # Every behavior write checked every pending review in every workspace, two
+  # locking reads each, though only guidance is ever reviewed (2026-10-04
+  # review).
+  test "switching a preference off never reads the review queue" do
+    fixture = delivered_offers!("preference-reviews")
+
+    assert {:ok, preference} =
+             Behaviors.confirm(
+               confirmation(fixture, fixture.workspace_preference, "preference-reviews")
+             )
+
+    assert {{:ok, %Behavior{status: :disabled}}, 0} =
+             review_queries(fn -> Behaviors.set_status(preference.behavior.ref, :disabled) end)
+  end
+
   test "behavior retrieval and lifecycle controls stay bounded to trusted context" do
     fixture = delivered_offers!("bounded-retrieval")
 
@@ -1071,14 +1112,12 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     assert {:ok, assignment} =
              Behaviors.confirm(confirmation(fixture, fixture.assignment, "bounded-assignment"))
 
-    assert Enum.map(Behaviors.list("slack:T123"), & &1.ref) |> Enum.sort() ==
+    assert "slack:T123"
+           |> Behavior.Query.by_workspace()
+           |> Repo.all()
+           |> Enum.map(& &1.ref)
+           |> Enum.sort() ==
              Enum.sort([preference.behavior.ref, assignment.behavior.ref])
-
-    assert [active_assignment] = Behaviors.list("slack:T123", status: :active, limit: 1)
-    assert active_assignment.ref in [preference.behavior.ref, assignment.behavior.ref]
-    assert Behaviors.list("", status: :active) == []
-    assert Behaviors.list("slack:T123", status: :unknown) == []
-    assert Behaviors.list("slack:T123", limit: 0) == []
 
     assert {:ok, disabled} = Behaviors.set_status(assignment.behavior.ref, :disabled)
     assert disabled.status == :disabled
@@ -1692,5 +1731,36 @@ defmodule Ryker.Behaviors.BehaviorsTest do
       })
 
     input
+  end
+
+  # What `fun` answers, and how many statements it sent about memory reviews.
+  defp review_queries(fun) do
+    reference = make_ref()
+    owner = self()
+
+    :ok =
+      :telemetry.attach(
+        reference,
+        [:ryker, :repo, :query],
+        fn _event, _measurements, %{query: query}, _config ->
+          if self() == owner and String.contains?(query, "memory_review_items"),
+            do: send(owner, reference)
+        end,
+        nil
+      )
+
+    try do
+      {fun.(), drain(reference, 0)}
+    after
+      :telemetry.detach(reference)
+    end
+  end
+
+  defp drain(reference, count) do
+    receive do
+      ^reference -> drain(reference, count + 1)
+    after
+      0 -> count
+    end
   end
 end

@@ -25,35 +25,23 @@ defmodule Ryker.Behaviors do
   alias Ryker.Operator.Actions
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
+  alias Ryker.Records.OfferConfirmation
   alias Ryker.Records.Record
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Slack.ChannelFence
-  alias Ryker.UTCDateTime
   alias Ryker.Waits.SourceEventMatcher
   alias Ryker.Work.Turn
 
-  @confirmation_fields [:actor_ref, :confirmation_ref, :occurred_at, :record_ref, :target]
-  @target_fields [:conversation_ref, :message_ref, :thread_ref, :transport]
   @offer_kinds ~w(preference_offer guidance_offer standing_assignment_offer)
   @maximum_total 500
   @maximum_per_scope 100
   @runtime_candidate_limit 100
-  @statuses [:active, :disabled, :superseded, :deleted, :expired]
 
   @spec confirm(keyword() | map()) :: {:ok, map()} | {:error, term()}
   def confirm(attributes) do
-    with {:ok, attributes} <- confirmation_attributes(attributes),
-         :ok <- reference(attributes.actor_ref, :actor_ref),
-         :ok <- reference(attributes.confirmation_ref, :confirmation_ref),
-         :ok <- reference(attributes.record_ref, :record_ref),
-         {:ok, occurred_at} <- utc_datetime(attributes.occurred_at, :occurred_at),
-         {:ok, target} <- target(attributes.target) do
-      Repo.transaction(
-        reviewed(fn ->
-          confirm_locked(%{attributes | occurred_at: occurred_at, target: target})
-        end)
-      )
+    with {:ok, confirmation} <- OfferConfirmation.new(attributes, :invalid_behavior_confirmation) do
+      Repo.transaction(reviewed(fn -> confirm_locked(confirmation) end))
     end
   end
 
@@ -114,19 +102,25 @@ defmodule Ryker.Behaviors do
       do: {:error, {:invalid_behavior, :status}}
 
   # Guidance is reviewed beside facts (`Ryker.Memories.Reviews`), so every
-  # write here takes the review lock first, as Memories does, and closes the
-  # reviews a change left with nothing to decide. Deleted guidance left App
-  # Home offering a review whose every button failed as stale, and two
-  # confirmations of the same guidance raced into its unique index instead of
-  # one replacing the other (2026-10-04 review).
+  # write here takes the review lock first, as Memories does, and a change to
+  # guidance closes the reviews of its workspace it left with nothing to
+  # decide (`dismiss_moot_reviews/1`). Deleted guidance left App Home offering
+  # a review whose every button failed as stale, and two confirmations of the
+  # same guidance raced into its unique index instead of one replacing the
+  # other (2026-10-04 review).
   defp reviewed(change) do
     fn ->
       Reviews.lock_review_maintenance!()
-      result = change.()
-      Reviews.dismiss_orphan_reviews("system:behavior-change")
-      result
+      change.()
     end
   end
+
+  # Every behavior write checked every pending review in every workspace,
+  # though only guidance is ever reviewed (2026-10-04 review).
+  defp dismiss_moot_reviews(%{kind: :guidance, workspace_ref: workspace_ref}),
+    do: Reviews.dismiss_orphan_reviews("system:behavior-change", workspace_ref)
+
+  defp dismiss_moot_reviews(_behavior), do: :ok
 
   @doc """
   Changes a rule from a control in the conversation `conversation_ref`: one
@@ -378,7 +372,9 @@ defmodule Ryker.Behaviors do
     {_count, ids} =
       Repo.update_all(current, inc: [use_count: 1], set: [last_used_at: Repo.now!()])
 
-    Enum.each(ids, &broadcast_behavior_updated/1)
+    # One announcement for the guidance a turn uses, which a page redraws for
+    # once: it sent one per row (2026-10-04 review).
+    with [id | _rest] <- ids, do: broadcast_behavior_updated(id)
     ids
   end
 
@@ -684,25 +680,6 @@ defmodule Ryker.Behaviors do
       ),
       do: {:error, {:invalid_behavior_run, :decision}}
 
-  @spec list(String.t(), keyword()) :: [Behavior.t()]
-  def list(workspace_ref, options \\ []) do
-    status = Keyword.get(options, :status)
-    limit = Keyword.get(options, :limit, 100)
-
-    if Reference.valid?(workspace_ref) and (is_nil(status) or status in @statuses) and
-         is_integer(limit) and limit in 1..100 do
-      query = Behavior.Query.by_workspace(workspace_ref)
-      query = if status, do: Behavior.Query.by_status(query, status), else: query
-
-      query
-      |> Behavior.Query.ordered_by_recently_updated()
-      |> Behavior.Query.limit_to(limit)
-      |> Repo.all()
-    else
-      []
-    end
-  end
-
   defp confirm_locked(attributes) do
     with {:ok, record, episode, turn} <- lock_offer(attributes.record_ref),
          :ok <-
@@ -793,6 +770,7 @@ defmodule Ryker.Behaviors do
          :ok <- supersede_existing(prepared),
          {:ok, behavior} <- insert_behavior(record, episode, attributes, prepared),
          {:ok, _confirmed} <- Records.confirm_offer(record, attributes) do
+      dismiss_moot_reviews(behavior)
       %{behavior: behavior, status: :confirmed}
     else
       {:error, reason} -> Repo.rollback(reason)
@@ -842,7 +820,7 @@ defmodule Ryker.Behaviors do
 
     {:ok,
      %{
-       expires_at: expires_at(attributes.occurred_at, payload["expires_in"]),
+       expires_at: OfferConfirmation.expires_at(attributes.occurred_at, payload["expires_in"]),
        identity_key: identity_key,
        kind: kind,
        payload: payload,
@@ -893,8 +871,21 @@ defmodule Ryker.Behaviors do
     |> Behavior.Query.ordered_by_id()
     |> Behavior.Query.lock_for_update()
     |> Repo.all()
+    |> Enum.reject(&(&1.id == Map.get(prepared, :id)))
     |> Enum.each(&redact!(&1, :superseded, "replaced_payload_sha256"))
   end
+
+  @doc """
+  Ends every other active behavior with `behavior`'s identity, as confirming
+  one or switching one on does, before a change leaves `behavior` active under
+  it. Resuming or renaming a rule through an automation change ran into the
+  active-identity index instead (2026-10-04 review).
+  """
+  @spec supersede_namesakes_in_transaction(Behavior.t()) :: :ok
+  def supersede_namesakes_in_transaction(%Behavior{status: :active} = behavior),
+    do: behavior |> Map.from_struct() |> supersede_existing()
+
+  def supersede_namesakes_in_transaction(%Behavior{}), do: :ok
 
   defp insert_behavior(record, episode, attributes, prepared) do
     id = Ecto.UUID.generate()
@@ -947,15 +938,21 @@ defmodule Ryker.Behaviors do
         Repo.rollback(:behavior_terminal)
 
       %Behavior{} = behavior when status == :deleted ->
-        redact!(behavior, :deleted, "deleted_payload_sha256")
+        deleted = redact!(behavior, :deleted, "deleted_payload_sha256")
+        dismiss_moot_reviews(deleted)
+        deleted
 
       %Behavior{} = behavior ->
         if status == :active, do: supersede_existing(Map.from_struct(behavior))
         broadcast_behavior_updated(behavior.id)
 
-        behavior
-        |> Behavior.Changeset.update(%{revision: behavior.revision + 1, status: status})
-        |> Repo.update!()
+        updated =
+          behavior
+          |> Behavior.Changeset.update(%{revision: behavior.revision + 1, status: status})
+          |> Repo.update!()
+
+        dismiss_moot_reviews(updated)
+        updated
     end
   end
 
@@ -1225,11 +1222,6 @@ defmodule Ryker.Behaviors do
     end
   end
 
-  defp expires_at(confirmed_at, "7d"), do: DateTime.add(confirmed_at, 7, :day)
-  defp expires_at(confirmed_at, "30d"), do: DateTime.add(confirmed_at, 30, :day)
-  defp expires_at(confirmed_at, "90d"), do: DateTime.add(confirmed_at, 90, :day)
-  defp expires_at(confirmed_at, "365d"), do: DateTime.add(confirmed_at, 365, :day)
-
   defp source_event_expiry(nil, _confirmed_at), do: {:ok, nil}
 
   defp source_event_expiry(value, confirmed_at) when is_binary(value) do
@@ -1246,52 +1238,14 @@ defmodule Ryker.Behaviors do
 
   defp source_event_expiry(_value, _confirmed_at), do: {:error, :behavior_expiry_invalid}
 
-  defp source_event_identity(payload) do
-    "source-event:" <> CanonicalJSON.digest([payload["title"]])
-  end
-
-  defp confirmation_attributes(attributes) when is_list(attributes) do
-    if Keyword.keyword?(attributes) and
-         Enum.uniq(Keyword.keys(attributes)) == Keyword.keys(attributes),
-       do: attributes |> Map.new() |> confirmation_attributes(),
-       else: {:error, {:invalid_behavior_confirmation, :fields}}
-  end
-
-  defp confirmation_attributes(%{} = attributes) do
-    if Map.keys(attributes) |> Enum.sort() == Enum.sort(@confirmation_fields),
-      do: {:ok, attributes},
-      else: {:error, {:invalid_behavior_confirmation, :fields}}
-  end
-
-  defp confirmation_attributes(_attributes),
-    do: {:error, {:invalid_behavior_confirmation, :fields}}
-
-  defp target(%{} = target) do
-    if Map.keys(target) |> Enum.sort() == Enum.sort(@target_fields) do
-      with :ok <- reference(target.transport, :transport),
-           :ok <- reference(target.conversation_ref, :conversation_ref),
-           :ok <- optional_reference(target.thread_ref, :thread_ref),
-           :ok <- reference(target.message_ref, :message_ref) do
-        {:ok, target}
-      end
-    else
-      {:error, {:invalid_behavior_confirmation, :target}}
-    end
-  end
-
-  defp target(_target), do: {:error, {:invalid_behavior_confirmation, :target}}
-
-  defp utc_datetime(%DateTime{} = value, _field) do
-    case UTCDateTime.exact(value) do
-      {:ok, exact} -> {:ok, exact}
-      :error -> {:error, {:invalid_behavior_confirmation, :datetime}}
-    end
-  end
-
-  defp utc_datetime(_value, field), do: {:error, {:invalid_behavior_confirmation, field}}
-
-  defp optional_reference(nil, _field), do: :ok
-  defp optional_reference(value, field), do: reference(value, field)
+  @doc """
+  The identity of a source-event rule: a conversation keeps one active rule
+  per title, and a rule confirmed or resumed under a title replaces the one
+  that had it.
+  """
+  @spec source_event_identity(map()) :: String.t()
+  def source_event_identity(payload),
+    do: "source-event:" <> CanonicalJSON.digest([payload["title"]])
 
   defp reference(value, field) do
     if Reference.valid?(value), do: :ok, else: {:error, {:invalid_behavior_confirmation, field}}
@@ -1303,7 +1257,8 @@ defmodule Ryker.Behaviors do
   Subscribes the caller to behavior changes: `{:behavior_updated,
   behavior_id}` once a rule, preference or piece of guidance is confirmed,
   switched on or off, superseded, deleted, used, or a standing rule runs, and
-  that change has committed.
+  that change has committed. A turn's use of several pieces of guidance names
+  one of them.
   """
   def subscribe_behaviors, do: Ryker.PubSub.subscribe(behaviors_topic())
 

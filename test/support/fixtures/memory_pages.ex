@@ -14,17 +14,37 @@ defmodule Ryker.Fixtures.MemoryPages do
   alias Ryker.Repo
 
   def guidance(context, query, scope, limit \\ 20),
-    do: read(&Behaviors.search_page(context, &1), query, scope, limit)
+    do: search(&Behaviors.search_page(context, &1), query, scope, limit)
 
   def facts(context, query, scope, limit \\ 20),
-    do: read(&Recall.search_page(context, &1), query, scope, limit)
+    do: search(&Recall.search_page(context, &1), query, scope, limit)
 
-  defp read(fetch, query, scope, limit) do
+  @doc """
+  Up to `count` documents `fetch` returns from `page` on, following its
+  cursor, with the 64 skipped rows a search visits at most.
+  """
+  def read(page, count, fetch), do: collect(page, count, fetch, [], 0)
+
+  defp search(fetch, query, scope, limit) do
     {:ok, documents} =
-      Repo.transaction(fn ->
-        MemorySearchPage.read(MemorySearchPage.first(query, scope), limit, fetch)
-      end)
+      Repo.transaction(fn -> read(MemorySearchPage.first(query, scope), limit, fetch) end)
 
     documents
+  end
+
+  defp collect(_page, 0, _fetch, entries, _skips), do: Enum.reverse(entries)
+  defp collect(_page, _count, _fetch, entries, 64), do: Enum.reverse(entries)
+
+  defp collect(page, count, fetch, entries, skips) do
+    case fetch.(page) do
+      {:ok, document, position} ->
+        collect(%{page | position: position}, count - 1, fetch, [document | entries], skips)
+
+      {:skip, position} ->
+        collect(%{page | position: position}, count, fetch, entries, skips + 1)
+
+      :done ->
+        Enum.reverse(entries)
+    end
   end
 end

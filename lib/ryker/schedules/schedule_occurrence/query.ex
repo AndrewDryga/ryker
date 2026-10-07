@@ -36,10 +36,10 @@ defmodule Ryker.Schedules.ScheduleOccurrence.Query do
       as: :episode_kernel_episodes
     )
     |> join(
-      :left,
+      :left_lateral,
       [episode_schedule_occurrences: o],
-      t in subquery(Turn.Query.latest_per_episode()),
-      on: t.episode_id == o.child_episode_id,
+      t in subquery(Turn.Query.latest_of_occurrence()),
+      on: true,
       as: :latest_turns
     )
     |> order_by([episode_schedule_occurrences: o], desc: o.scheduled_for, desc: o.id)

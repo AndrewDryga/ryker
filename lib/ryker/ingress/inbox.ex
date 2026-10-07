@@ -85,14 +85,15 @@ defmodule Ryker.Ingress.Inbox do
   # Written after the custody transaction commits, deliberately outside it.
   # This is evidence about a decision that has already been made: a failed
   # insert inside the transaction would abort the whole batch, which would turn
-  # "we could not write down why" into "the message was never accepted".
+  # "we could not write down why" into "the message was never accepted". A
+  # duplicate delivery's inventory was written the first time; every
+  # redelivery read the workspace's rules again (2026-10-04 review).
   defp record_rule_inventories({:ok, receipts} = result, inputs) do
-    Enum.zip(inputs, receipts)
-    |> Enum.each(fn {input, receipt} ->
-      _evidence = Projections.observe_rules(input, ref(receipt.entry))
+    for {input, %{status: :recorded, entry: entry}} <- Enum.zip(inputs, receipts) do
+      _evidence = Projections.observe_rules(input, ref(entry))
       # The Standing rules card of the message's page reads it.
-      broadcast_input_updated(receipt.entry)
-    end)
+      broadcast_input_updated(entry)
+    end
 
     result
   end

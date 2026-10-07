@@ -73,7 +73,7 @@ defmodule Ryker.Retention.Data do
   # goes on: chained, one failing phase stopped every later one on every pass,
   # deleting the examples a person turned off included. The pass still
   # reports which phases failed.
-  @phases ~w(expiring operational closed_work history audit examples)a
+  @phases ~w(expiring reviews operational closed_work history audit examples)a
 
   defp prune_in_transactions(settings) do
     {result, failed} =
@@ -93,7 +93,7 @@ defmodule Ryker.Retention.Data do
   end
 
   defp run_phase(phase, result, settings) do
-    case Repo.transaction(fn -> prune_phase(phase, result, settings) end) do
+    case in_transactions(phase, fn -> prune_phase(phase, result, settings) end) do
       {:ok, result} -> {:ok, result}
       {:error, reason} -> phase_failed(phase, inspect(reason))
     end
@@ -101,12 +101,25 @@ defmodule Ryker.Retention.Data do
     error -> phase_failed(phase, Exception.format_banner(:error, error))
   end
 
+  # Reviews open one workspace per transaction (`Reviews.refresh_all_reviews/1`),
+  # so a pass holds the review lock no longer than one workspace takes.
+  defp in_transactions(:reviews, phase), do: phase.()
+  defp in_transactions(_phase, phase), do: Repo.transaction(phase)
+
   defp phase_failed(phase, reason) do
     Logger.error("retention phase #{phase} failed: #{reason}")
     :error
   end
 
   defp prune_phase(:expiring, result, settings), do: prune_expiring_resources(result, settings)
+
+  # After pruning, so no review opens on a fact the pass just removed, and the
+  # ones naming it are dismissed.
+  defp prune_phase(:reviews, result, settings) do
+    seconds = min(settings.conversation_memory_seconds, @memory_review_seconds)
+    with {:ok, _created} <- Reviews.refresh_all_reviews(seconds), do: {:ok, result}
+  end
+
   defp prune_phase(:operational, result, settings), do: prune_operational(result, settings)
   defp prune_phase(:closed_work, result, settings), do: prune_closed_work(result, settings)
   defp prune_phase(:history, result, settings), do: prune_history(result, settings)
@@ -193,9 +206,6 @@ defmodule Ryker.Retention.Data do
   defp prune_expiring_resources(result, settings) do
     memory_seconds = settings.conversation_memory_seconds
 
-    {:ok, _reviews_created} =
-      Reviews.refresh_all_reviews_in_transaction(min(memory_seconds, @memory_review_seconds))
-
     {:ok, compacted} =
       Compaction.compact_in_transaction(
         min(memory_seconds, @summary_compaction_seconds),
@@ -207,7 +217,6 @@ defmodule Ryker.Retention.Data do
     _drafts = prune_aged(@settled_summary_drafts, settings)
     _behaviors = prune_expired("operator_behaviors")
     _ended_behaviors = prune_aged(@ended_behaviors, settings)
-    :ok = Reviews.dismiss_invalid_reviews_in_transaction()
     _schedules = prune_aged(@finished_schedules, settings)
     observations = execute_count(@clear_observation_notes, [memory_seconds])
     knowledge = KnowledgeRetention.prune_in_transaction(memory_seconds)

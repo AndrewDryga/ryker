@@ -3,6 +3,7 @@ defmodule Ryker.Memories.CasesTest do
   import Ecto.Query
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode, Event, Origin}
+  alias Ryker.Fixtures.MemoryPages
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Memories.CaseRecord
@@ -493,7 +494,7 @@ defmodule Ryker.Memories.CasesTest do
   defp found(episode, scope) do
     {:ok, documents} =
       Repo.transaction(fn ->
-        MemorySearchPage.read(
+        MemoryPages.read(
           MemorySearchPage.first("pgsql-prod-01", scope),
           5,
           &Cases.search_page(episode, nil, &1)

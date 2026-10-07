@@ -2,10 +2,13 @@ defmodule Ryker.Retention.DataConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Artifacts
+  alias Ryker.CanonicalJSON
   alias Ryker.Episodes
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.{Inbox, Input}
+  alias Ryker.Memories
+  alias Ryker.Memories.MemoryEntry
   alias Ryker.Repo
   alias Ryker.Retention.Data
 
@@ -175,6 +178,96 @@ defmodule Ryker.Retention.DataConcurrencyTest do
         Repo.delete_all(from(row in Episode, where: row.id == ^episode.id))
       end
     end)
+  end
+
+  # Retention refreshed memory reviews inside its pruning transaction, so the
+  # review lock every memory write takes stayed held through compaction and
+  # pruning: a person forgetting a fact waited out the whole phase, and saving
+  # an answer, which waits one second for its locks, failed (2026-10-04
+  # review).
+  test "forgetting a fact never waits for retention to finish pruning" do
+    Sandbox.unboxed_run(Repo, fn ->
+      fact = answer_fact!()
+      parent = self()
+
+      # Pruning expired rollups deletes from this table, so the pass waits
+      # here, in the middle of its first phase.
+      blocker =
+        unboxed_task(fn ->
+          Repo.transaction(fn ->
+            Repo.query!("LOCK TABLE conversation_rollups IN SHARE MODE")
+            send(parent, {:rollups_locked, backend_pid()})
+
+            receive do
+              :release -> :ok
+            end
+          end)
+        end)
+
+      pruner =
+        unboxed_task(fn ->
+          receive do
+            :prune -> :ok
+          end
+
+          send(parent, {:pruner_started, backend_pid()})
+          Data.prune(settings())
+        end)
+
+      try do
+        assert_receive {:rollups_locked, blocker_backend}, 5_000
+        send(pruner.pid, :prune)
+        assert_receive {:pruner_started, pruner_backend}, 5_000
+        await_blocked_by(pruner_backend, blocker_backend)
+
+        forget =
+          unboxed_task(fn ->
+            send(parent, {:forget_started, backend_pid()})
+            Memories.forget(fact.ref)
+          end)
+
+        assert_receive {:forget_started, forget_backend}, 5_000
+        assert await_finished_or_blocked(forget, forget_backend, pruner_backend) == :finished
+        assert {:ok, %MemoryEntry{status: :deleted}} = Task.await(forget, 5_000)
+
+        send(blocker.pid, :release)
+        assert {:ok, :ok} = Task.await(blocker, 5_000)
+        assert {:ok, %{}} = Task.await(pruner, 15_000)
+      after
+        send(blocker.pid, :release)
+        stop_tasks([blocker, pruner])
+        Repo.delete_all(from(entry in MemoryEntry, where: entry.id == ^fact.id))
+      end
+    end)
+  end
+
+  # A fact saved from an answer, the one kind with no offer to fixture.
+  defp answer_fact! do
+    id = Ecto.UUID.generate()
+    payload = %{"applicability" => "staging", "value" => "acme-staging"}
+
+    %{
+      answer_provenance: %{"source_revision" => 1},
+      confirmation_ref: "answer:retention-#{id}",
+      confirmed_at: DateTime.utc_now(),
+      confirmed_by_actor_ref: "slack:user:U-retention",
+      id: id,
+      kind: :entity_relationship,
+      payload: payload,
+      payload_fingerprint: CanonicalJSON.digest(payload),
+      ref: "memory:#{id}",
+      scope_kind: :global,
+      scope_ref: "installation:#{CanonicalJSON.digest(id)}",
+      source_conversation_ref: "slack:T1:C-retention",
+      source_message_ref: "retention-answer:#{id}",
+      source_transport: "slack",
+      status: :active,
+      subject: "staging account #{id}",
+      visibility: :global,
+      workspace_ref: "installation"
+    }
+    |> MemoryEntry.Changeset.insert()
+    |> Repo.insert!()
   end
 
   defp completed_episode!(suffix) do

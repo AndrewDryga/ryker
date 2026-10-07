@@ -183,6 +183,38 @@ defmodule Ryker.Behaviors.AutomationsTest do
     assert Repo.get!(Behavior, behavior.id).revision == 5
   end
 
+  # Switching a rule on from App Home replaced the active rule with its title;
+  # resuming one through an automation change ran into the active-title index
+  # instead (2026-10-04 review).
+  test "resuming a paused rule replaces the active rule with its title" do
+    first =
+      delivered_record!(
+        "namesake-first",
+        "standing_assignment_offer",
+        standing_assignment_offer()
+      )
+
+    assert {:ok, %{behavior: paused}} = Behaviors.confirm(confirmation(first, "namesake-first"))
+    assert {:ok, _paused} = change!(first.episode, "namesake-pause", paused.ref, 1, "pause", %{})
+
+    second =
+      delivered_record!(
+        "namesake-second",
+        "standing_assignment_offer",
+        standing_assignment_offer()
+      )
+
+    assert {:ok, %{behavior: namesake}} =
+             Behaviors.confirm(confirmation(second, "namesake-second"))
+
+    assert {:ok, resumed} =
+             change!(first.episode, "namesake-resume", paused.ref, 2, "resume", %{})
+
+    assert resumed.automation["status"] == "active"
+    assert Repo.get!(Behavior, paused.id).status == :active
+    assert Repo.get!(Behavior, namesake.id).status == :superseded
+  end
+
   test "a live schedule lease prevents an operator change until dispatch custody is released" do
     source = delivered_record!("busy-source", "schedule_offer", schedule_offer())
     assert {:ok, created} = Schedules.confirm(confirmation(source, "create-busy"))

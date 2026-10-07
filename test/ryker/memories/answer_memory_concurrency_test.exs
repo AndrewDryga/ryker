@@ -72,6 +72,51 @@ defmodule Ryker.Memories.AnswerMemoryConcurrencyTest do
     end
   end
 
+  # Every edit or deletion that took a message's words back took the review
+  # lock, so it waited behind any memory write and, while retention refreshed
+  # reviews, behind its whole pruning phase (2026-10-04 review). Only a
+  # message an answer was saved from needs that lock.
+  test "an edit of a message no answer was saved from never waits for memory writes" do
+    Sandbox.unboxed_run(Repo, fn ->
+      answer = AnswerMemory.answered!("portal-old", DateTime.utc_now())
+      parent = self()
+
+      writer =
+        unboxed_task(fn ->
+          Repo.transaction(fn ->
+            Memories.lock_reviews_in_transaction()
+            send(parent, {:writer_held, backend_pid()})
+
+            receive do
+              :release -> :ok
+            end
+          end)
+        end)
+
+      edit =
+        unboxed_task(fn ->
+          receive do
+            :edit -> :ok
+          end
+
+          send(parent, {:edit_started, backend_pid()})
+          perform(:revision, answer)
+        end)
+
+      try do
+        assert_receive {:writer_held, writer_backend}, 5_000
+        send(edit.pid, :edit)
+        assert_receive {:edit_started, edit_backend}, 5_000
+        assert await_finished_or_blocked(edit, edit_backend, writer_backend) == :finished
+        assert {:ok, %{status: :recorded}} = Task.await(edit, 5_000)
+      after
+        send(writer.pid, :release)
+        stop_tasks([writer, edit])
+        cleanup!(answer)
+      end
+    end)
+  end
+
   defp assert_contender(:save, result),
     do: assert(result == {:error, :answer_memory_revised})
 

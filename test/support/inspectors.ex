@@ -13,6 +13,8 @@ defmodule Ryker.Inspectors do
   alias Ryker.Episodes.{CorrelationClaim, RoutingDigest}
   alias Ryker.Improvement.Candidate
   alias Ryker.Knowledge.KnowledgeRevision
+  alias Ryker.Memories
+  alias Ryker.Memories.MemoryReviewItem
   alias Ryker.Repo
   alias Ryker.RepositoryKnowledge.Entry
   alias Ryker.Slack.{ChannelConfiguration, ChannelMembership}
@@ -61,5 +63,15 @@ defmodule Ryker.Inspectors do
     |> CorrelationClaim.Query.by_occurrence(namespace, occurrence_ref)
     |> CorrelationClaim.Query.active()
     |> Repo.one()
+  end
+
+  @doc "A workspace's pending memory reviews, oldest first, each as the console reads it."
+  def memory_reviews(workspace_ref) do
+    workspace_ref
+    |> MemoryReviewItem.Query.by_workspace()
+    |> MemoryReviewItem.Query.pending()
+    |> MemoryReviewItem.Query.ordered_by_oldest()
+    |> Repo.all()
+    |> Enum.map(&Memories.pending_review(&1.ref))
   end
 end

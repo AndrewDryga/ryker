@@ -386,11 +386,18 @@ defmodule Ryker.Work.Turn.Query do
 
   def select_statuses(queryable), do: select(queryable, [episode_work_turns: t], t.status)
 
-  @doc "Each episode's latest Work turn, as an automation's runs show it."
-  def latest_per_episode do
-    from(t in all(),
-      distinct: t.episode_id,
-      order_by: [asc: t.episode_id, desc: t.inserted_at, desc: t.id],
+  @doc """
+  The latest turn of the episode a schedule occurrence started, as an
+  automation's runs show it, for a lateral join from
+  `Ryker.Schedules.ScheduleOccurrence.Query`: one index read per run. Each
+  run's turn came from a DISTINCT ON over every turn in the database, on every
+  `get_automation` a model made (2026-10-04 review).
+  """
+  def latest_of_occurrence(queryable \\ all()) do
+    from([episode_work_turns: t] in queryable,
+      where: t.episode_id == parent_as(:episode_schedule_occurrences).child_episode_id,
+      order_by: [desc: t.inserted_at, desc: t.id],
+      limit: 1,
       select: %{
         accepted_at: t.accepted_at,
         delivered_at: t.delivered_at,

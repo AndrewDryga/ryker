@@ -7,6 +7,7 @@ defmodule Ryker.Continuity.ContinuityRecallRegressionTest do
   alias Ryker.Continuity.Recall
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Learning, as: LearningFixtures
+  alias Ryker.Fixtures.MemoryPages
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
@@ -553,7 +554,7 @@ defmodule Ryker.Continuity.ContinuityRecallRegressionTest do
 
     {:ok, found} =
       Repo.transaction(fn ->
-        MemorySearchPage.read(page, limit, &Recall.search_page(kind, episode, repository_ref, &1))
+        MemoryPages.read(page, limit, &Recall.search_page(kind, episode, repository_ref, &1))
       end)
 
     found

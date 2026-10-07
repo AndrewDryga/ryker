@@ -134,7 +134,9 @@ defmodule Ryker.Memories.Recall do
     {_count, ids} =
       Repo.update_all(current, inc: [recall_count: 1], set: [last_recalled_at: Repo.now!()])
 
-    Enum.each(ids, &Ryker.Memories.broadcast_memory_updated/1)
+    # One announcement for the facts a turn recalls, which a page redraws for
+    # once: it sent one per fact (2026-10-04 review).
+    with [id | _rest] <- ids, do: Ryker.Memories.broadcast_memory_updated(id)
     ids
   end
 

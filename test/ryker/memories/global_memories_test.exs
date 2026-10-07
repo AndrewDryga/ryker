@@ -10,6 +10,7 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Inspectors
   alias Ryker.Memories
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Memories.Recall
@@ -96,7 +97,7 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
     assert Repo.get(MemoryEntry, entry.id),
            "global facts must not expire with conversation history"
 
-    assert [review] = Reviews.list_reviews("installation")
+    assert [review] = Inspectors.memory_reviews("installation")
     assert review["kind"] == "stale"
   end
 
@@ -182,7 +183,7 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
     old = DateTime.add(DateTime.utc_now(), -120, :second)
     Repo.update_all(MemoryEntry, set: [updated_at: old, confirmed_at: old])
     assert {:ok, %{created: 1}} = Reviews.refresh_reviews("installation", 60)
-    assert [review] = Reviews.list_reviews("installation")
+    assert [review] = Inspectors.memory_reviews("installation")
 
     assert {:ok, _} =
              Memories.resolve_review(
@@ -324,7 +325,7 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
     assert {:ok, %{memory: memory}} = remember(original, "portal-original")
     Repo.update_all(MemoryEntry, set: [updated_at: now])
     assert {:ok, %{created: 1}} = Reviews.refresh_reviews("installation", 60)
-    assert [review] = Reviews.list_reviews("installation")
+    assert [review] = Inspectors.memory_reviews("installation")
 
     assert {:ok, _} =
              Memories.resolve_review(
@@ -393,7 +394,7 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
           )
 
           assert {:ok, %{created: 1}} = Reviews.refresh_reviews("installation", 60)
-          assert [review] = Reviews.list_reviews("installation")
+          assert [review] = Inspectors.memory_reviews("installation")
 
           assert {:ok, _} =
                    Memories.resolve_review(

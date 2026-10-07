@@ -8,7 +8,7 @@ defmodule Ryker.Memories do
   digest and lifecycle identity.
 
   This module owns the entry lifecycle: confirming an offer or a reusable
-  answer, forgetting, revoking on source edits, and listing. Reading memory
+  answer, forgetting, and revoking on source edits. Reading memory
   for a model context lives in `Ryker.Memories.Recall`; the stale and
   duplicate review queue lives in `Ryker.Memories.Reviews`. The
   delegates below are the memories context API for callers outside the state
@@ -21,6 +21,7 @@ defmodule Ryker.Memories do
   after the outermost commit (`subscribe_memories/0`).
   """
 
+  alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Episode
   alias Ryker.Episodes.Scope
@@ -32,6 +33,7 @@ defmodule Ryker.Memories do
   alias Ryker.Memories.Reviews
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
+  alias Ryker.Records.OfferConfirmation
   alias Ryker.Records.Record
   alias Ryker.Records.Response
   alias Ryker.Reference
@@ -39,26 +41,18 @@ defmodule Ryker.Memories do
   alias Ryker.RoutingExamples
   alias Ryker.Slack.ChannelFence
   alias Ryker.StateTools.Binding
-  alias Ryker.UTCDateTime
 
-  @confirmation_fields [:actor_ref, :confirmation_ref, :occurred_at, :record_ref, :target]
-  @target_fields [:conversation_ref, :message_ref, :thread_ref, :transport]
   @maximum_total 1_000
   @maximum_per_scope 100
 
   @spec confirm(keyword() | map()) :: {:ok, map()} | {:error, term()}
   def confirm(attributes) do
-    with {:ok, attributes} <- confirmation_attributes(attributes),
-         :ok <- reference(attributes.actor_ref, :actor_ref),
-         :ok <- reference(attributes.confirmation_ref, :confirmation_ref),
-         :ok <- reference(attributes.record_ref, :record_ref),
-         {:ok, occurred_at} <- utc_datetime(attributes.occurred_at),
-         {:ok, target} <- target(attributes.target) do
+    with {:ok, confirmation} <- OfferConfirmation.new(attributes, :invalid_memory_confirmation) do
       Repo.transaction(fn ->
         # Taken before the offer and channel locks, the order ingress uses;
         # superseding the previous fact closes the reviews that named it.
         Reviews.lock_review_maintenance!()
-        confirm_locked(%{attributes | occurred_at: occurred_at, target: target})
+        confirm_locked(confirmation)
       end)
     end
   end
@@ -82,8 +76,9 @@ defmodule Ryker.Memories do
   defp confirm_answer_locked(binding, record_ref, value, authorize) do
     with {:ok, current} <- Binding.lock_current(binding),
          :ok <- live(current.episode),
-         :ok <- Reviews.lock_review_maintenance!(),
          {:ok, record, response, entry} <- answer_confirmation(current, record_ref),
+         :ok <- lock_answer_source!(entry),
+         :ok <- Reviews.lock_review_maintenance!(),
          :ok <- answerer(authorize, entry),
          {:ok, intent} <- remember_intent(record),
          :ok <- unrevised(entry),
@@ -144,27 +139,33 @@ defmodule Ryker.Memories do
     |> Enum.any?(&RoutingExamples.takes_back_words?/1)
   end
 
-  @doc "Explicit source changes revoke answer-confirmed facts; ordinary transcript TTL does not."
+  @doc """
+  Explicit source changes revoke answer-confirmed facts; ordinary transcript
+  TTL does not. Ingress calls this before it takes observation and channel
+  locks.
+
+  Only a message a fact was saved from takes the review lock. Every edit and
+  deletion took it, and so waited behind every memory write and, while
+  retention refreshed reviews, behind its whole pruning phase (2026-10-04
+  review). The message's own lock (`lock_answer_source!/1`), which saving an
+  answer takes too, keeps the check from missing a save still in flight.
+  """
   def revoke_answer_source_in_transaction(
         %Entry{event_kind: kind, source_item_ref: source_ref} = entry
       )
       when kind in [:edit, :delete] and is_binary(source_ref) do
     if Repo.in_transaction?() do
-      # Ingress takes this before observation/channel locks; saving an answer uses
-      # the same review lock before checking its original revision and inserting.
-      Reviews.lock_review_maintenance!()
+      lock_answer_source!(entry)
 
-      entry.destination_transport
-      |> MemoryEntry.Query.answered_before_revision(
-        entry.destination_conversation_ref,
-        source_ref,
-        entry.revision
-      )
-      |> MemoryEntry.Query.lock_for_update()
-      |> Repo.all()
-      |> Enum.each(&redact!(&1, :deleted, "answer_revised_payload_sha256"))
+      answered =
+        MemoryEntry.Query.answered_before_revision(
+          entry.destination_transport,
+          entry.destination_conversation_ref,
+          source_ref,
+          entry.revision
+        )
 
-      Reviews.dismiss_orphan_reviews("system:answer-revision", "installation")
+      if Repo.exists?(answered), do: revoke_answers!(answered)
       :ok
     else
       {:error, :memory_review_transaction_required}
@@ -172,6 +173,32 @@ defmodule Ryker.Memories do
   end
 
   def revoke_answer_source_in_transaction(_entry), do: :ok
+
+  defp revoke_answers!(answered) do
+    Reviews.lock_review_maintenance!()
+
+    answered
+    |> MemoryEntry.Query.lock_for_update()
+    |> Repo.all()
+    |> Enum.each(&redact!(&1, :deleted, "answer_revised_payload_sha256"))
+
+    Reviews.dismiss_orphan_reviews("system:answer-revision", "installation")
+  end
+
+  # One answer's message. Saving an answer from it and recording its revision
+  # each take this before the review lock, so a save waits for a revision
+  # still in flight and sees it, and a revision waits for a save and revokes
+  # it.
+  defp lock_answer_source!(%Entry{} = entry) do
+    AdvisoryLock.hold!(
+      "memory-answer-source:" <>
+        CanonicalJSON.digest([
+          entry.destination_transport,
+          entry.destination_conversation_ref,
+          entry.source_item_ref
+        ])
+    )
+  end
 
   defp save_answer(record, response, entry, intent, value) do
     confirmation_ref = "answer:#{response.id}"
@@ -252,30 +279,19 @@ defmodule Ryker.Memories do
     if newer, do: {:error, :answer_memory_conflict}, else: :ok
   end
 
+  @doc "Forgets a fact from the console, which may forget any."
   @spec forget(String.t()) :: {:ok, MemoryEntry.t()} | {:error, term()}
   def forget(ref) do
     with :ok <- reference(ref, :memory_ref) do
       Repo.transaction(fn ->
         Reviews.lock_review_maintenance!()
-        entry = forget_locked(ref, nil)
-        Reviews.dismiss_orphan_reviews("system:memory-forget")
-        entry
+        ref |> lock_memory() |> forget_found()
       end)
     end
   end
 
-  @spec forget(String.t(), String.t()) :: {:ok, MemoryEntry.t()} | {:error, term()}
-  def forget(ref, workspace_ref) do
-    with :ok <- reference(ref, :memory_ref),
-         :ok <- reference(workspace_ref, :workspace_ref) do
-      Repo.transaction(fn ->
-        Reviews.lock_review_maintenance!()
-        entry = forget_locked(ref, workspace_ref)
-        Reviews.dismiss_orphan_reviews("system:memory-forget", workspace_ref)
-        entry
-      end)
-    end
-  end
+  defp forget_found(nil), do: Repo.rollback(:memory_not_found)
+  defp forget_found(%MemoryEntry{} = entry), do: forget_locked(entry)
 
   @doc "Forgets shared App Home memory without granting access to channel-only entries."
   @spec forget_home(String.t(), String.t(), String.t()) ::
@@ -321,27 +337,15 @@ defmodule Ryker.Memories do
         Repo.rollback(:memory_workspace_mismatch)
 
       %MemoryEntry{} = entry ->
-        forget_home_visible(entry, actor_ref, workspace_ref, conversation_ref)
+        forget_home_visible(entry, actor_ref, conversation_ref)
     end
   end
 
-  defp forget_home_visible(entry, actor_ref, workspace_ref, conversation_ref) do
+  defp forget_home_visible(entry, actor_ref, conversation_ref) do
     if Reviews.home_source_visible?(Reviews.review_source_record(:memory, entry), actor_ref) or
-         (entry.scope_kind == :conversation and entry.scope_ref == conversation_ref) do
-      forgotten = forget_locked(entry.ref, workspace_ref)
-      Reviews.dismiss_orphan_reviews("system:memory-forget", workspace_ref)
-      forgotten
-    else
-      Repo.rollback(:memory_unauthorized)
-    end
-  end
-
-  @spec list(String.t(), keyword()) :: [MemoryEntry.t()]
-  def list(workspace_ref, options \\ []) do
-    case list_options(workspace_ref, options) do
-      {:ok, status} -> list_entries(workspace_ref, status)
-      :error -> []
-    end
+         (entry.scope_kind == :conversation and entry.scope_ref == conversation_ref),
+       do: forget_locked(entry),
+       else: Repo.rollback(:memory_unauthorized)
   end
 
   # The memories context API for callers outside the state layer. Each
@@ -380,10 +384,10 @@ defmodule Ryker.Memories do
 
   @doc """
   Holds the memory review lock until the transaction ends. Every memory write
-  takes it before a channel's lock, recording a message's edit or deletion
-  among them; deleting a channel, which erases what memory kept of it
-  (`delete_slack_channel_in_transaction/2`), takes it before the channel's
-  lock too.
+  takes it before a channel's lock, recording an edit or deletion of a
+  message an answer was saved from among them; deleting a channel, which
+  erases what memory kept of it (`delete_slack_channel_in_transaction/2`),
+  takes it before the channel's lock too.
   """
   @spec lock_reviews_in_transaction() :: :ok
   defdelegate lock_reviews_in_transaction, to: Reviews, as: :lock_review_maintenance!
@@ -450,7 +454,7 @@ defmodule Ryker.Memories do
       end
 
     %{
-      expires_at: expires_at(attributes.occurred_at, payload["expires_in"]),
+      expires_at: OfferConfirmation.expires_at(attributes.occurred_at, payload["expires_in"]),
       kind: String.to_existing_atom(payload["kind"]),
       payload: payload,
       payload_fingerprint: CanonicalJSON.digest(payload),
@@ -496,30 +500,6 @@ defmodule Ryker.Memories do
     |> MemoryEntry.Query.active()
     |> MemoryEntry.Query.unexpired_at(now)
     |> Repo.aggregate(:count)
-  end
-
-  defp list_options(workspace_ref, options) do
-    if Keyword.keyword?(options) do
-      status = Keyword.get(options, :status)
-
-      if Reference.valid?(workspace_ref) and
-           (is_nil(status) or status in [:active, :superseded, :deleted, :expired]) and
-           Keyword.keys(options) -- [:status] == [],
-         do: {:ok, status},
-         else: :error
-    else
-      :error
-    end
-  end
-
-  defp list_entries(workspace_ref, status) do
-    query = MemoryEntry.Query.by_workspace(workspace_ref)
-    query = if status, do: MemoryEntry.Query.by_status(query, status), else: query
-
-    query
-    |> MemoryEntry.Query.ordered_by_recently_updated()
-    |> MemoryEntry.Query.limit_to(1_000)
-    |> Repo.all()
   end
 
   # Callers hold the review maintenance lock: a superseded entry leaves any
@@ -573,29 +553,19 @@ defmodule Ryker.Memories do
     end
   end
 
-  defp forget_locked(ref, workspace_ref) do
-    case lock_memory(ref) do
-      nil ->
-        Repo.rollback(:memory_not_found)
+  defp forget_locked(%MemoryEntry{status: :deleted} = entry), do: entry
 
-      %MemoryEntry{workspace_ref: actual}
-      when not is_nil(workspace_ref) and actual != workspace_ref ->
-        Repo.rollback(:memory_workspace_mismatch)
+  defp forget_locked(%MemoryEntry{status: status}) when status in [:expired, :superseded],
+    do: Repo.rollback(:memory_terminal)
 
-      %MemoryEntry{status: :deleted} = entry ->
-        entry
-
-      %MemoryEntry{status: status} when status in [:expired, :superseded] ->
-        Repo.rollback(:memory_terminal)
-
-      # What learning took from the message the fact came from goes with it:
-      # Learned kept the same knowledge after the fact was forgotten (QA
-      # re-test, 2026-09-26).
-      %MemoryEntry{} = entry ->
-        forgotten = redact!(entry, :deleted, "forgotten_payload_sha256")
-        _learning = Forgetting.forget_fact_in_transaction(entry)
-        forgotten
-    end
+  # What learning took from the message the fact came from goes with it:
+  # Learned kept the same knowledge after the fact was forgotten (QA re-test,
+  # 2026-09-26).
+  defp forget_locked(%MemoryEntry{} = entry) do
+    forgotten = redact!(entry, :deleted, "forgotten_payload_sha256")
+    _learning = Forgetting.forget_fact_in_transaction(entry)
+    Reviews.dismiss_orphan_reviews("system:memory-forget", entry.workspace_ref)
+    forgotten
   end
 
   defp lock_offer(record_ref) do
@@ -612,52 +582,6 @@ defmodule Ryker.Memories do
       {:error, :not_delivered} -> {:error, :memory_offer_not_delivered}
     end
   end
-
-  defp expires_at(confirmed_at, "7d"), do: DateTime.add(confirmed_at, 7, :day)
-  defp expires_at(confirmed_at, "30d"), do: DateTime.add(confirmed_at, 30, :day)
-  defp expires_at(confirmed_at, "90d"), do: DateTime.add(confirmed_at, 90, :day)
-  defp expires_at(confirmed_at, "365d"), do: DateTime.add(confirmed_at, 365, :day)
-
-  defp confirmation_attributes(attributes) when is_list(attributes) do
-    if Keyword.keyword?(attributes) and
-         Enum.uniq(Keyword.keys(attributes)) == Keyword.keys(attributes),
-       do: attributes |> Map.new() |> confirmation_attributes(),
-       else: {:error, {:invalid_memory_confirmation, :fields}}
-  end
-
-  defp confirmation_attributes(%{} = attributes) do
-    if Map.keys(attributes) |> Enum.sort() == Enum.sort(@confirmation_fields),
-      do: {:ok, attributes},
-      else: {:error, {:invalid_memory_confirmation, :fields}}
-  end
-
-  defp confirmation_attributes(_attributes),
-    do: {:error, {:invalid_memory_confirmation, :fields}}
-
-  defp target(%{} = target) do
-    if Map.keys(target) |> Enum.sort() == Enum.sort(@target_fields) do
-      with :ok <- reference(target.transport, :transport),
-           :ok <- reference(target.conversation_ref, :conversation_ref),
-           :ok <- optional_reference(target.thread_ref, :thread_ref),
-           :ok <- reference(target.message_ref, :message_ref) do
-        {:ok, target}
-      end
-    else
-      {:error, {:invalid_memory_confirmation, :target}}
-    end
-  end
-
-  defp target(_target), do: {:error, {:invalid_memory_confirmation, :target}}
-
-  defp utc_datetime(value) do
-    case UTCDateTime.exact(value) do
-      {:ok, exact} -> {:ok, exact}
-      :error -> {:error, {:invalid_memory_confirmation, :occurred_at}}
-    end
-  end
-
-  defp optional_reference(nil, _field), do: :ok
-  defp optional_reference(value, field), do: reference(value, field)
 
   # Value rules shared with Memories.Recall and Memories.Reviews. They live
   # here once; the error tuples are the memories confirmation vocabulary.
@@ -687,7 +611,8 @@ defmodule Ryker.Memories do
   @doc """
   Subscribes the caller to memory changes: `{:memory_updated, id}` once a
   fact, a review item or a remembered case changes, and that change has
-  committed. `id` is the changed row's.
+  committed. `id` is the changed row's; a turn's recall of several facts
+  names one of them.
   """
   def subscribe_memories, do: Ryker.PubSub.subscribe(memories_topic())
 

@@ -206,6 +206,19 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
     assert Repo.aggregate(StandingRuleInventory, :count) == 1
   end
 
+  # Every redelivery read the workspace's rules again and wrote an inventory
+  # the first delivery had already written (2026-10-04 review).
+  test "a redelivered message does not take its rule inventory again" do
+    offers = offer_source!("redelivered")
+    _rule = rule!(offers, "fires")
+
+    assert {:ok, %{entry: entry}} = Inbox.record(terraform_input(:app))
+    assert %StandingRuleInventory{} = Inspectors.rule_inventory("ingress-input:#{entry.id}")
+
+    assert {{:ok, %{status: :duplicate}}, 0} =
+             inventory_queries(fn -> Inbox.record(terraform_input(:app)) end)
+  end
+
   test "a workspace with no rules records an empty inventory, which is not an absent one" do
     input = terraform_input(:app)
     assert {:ok, inventory} = Behaviors.record_rule_inventory(input, "input:empty")
@@ -324,5 +337,36 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
       |> Repo.insert()
 
     %Behavior{} = behavior
+  end
+
+  # What `fun` answers, and how many statements it sent about rule inventories.
+  defp inventory_queries(fun) do
+    reference = make_ref()
+    owner = self()
+
+    :ok =
+      :telemetry.attach(
+        reference,
+        [:ryker, :repo, :query],
+        fn _event, _measurements, %{query: query}, _config ->
+          if self() == owner and String.contains?(query, "standing_rule_inventories"),
+            do: send(owner, reference)
+        end,
+        nil
+      )
+
+    try do
+      {fun.(), drain(reference, 0)}
+    after
+      :telemetry.detach(reference)
+    end
+  end
+
+  defp drain(reference, count) do
+    receive do
+      ^reference -> drain(reference, count + 1)
+    after
+      0 -> count
+    end
   end
 end

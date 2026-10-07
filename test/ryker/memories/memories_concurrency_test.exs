@@ -10,6 +10,7 @@ defmodule Ryker.Memories.MemoriesConcurrencyTest do
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkSessions
+  alias Ryker.Inspectors
   alias Ryker.Memories
   alias Ryker.Memories.{CaseRecord, MemoryEntry}
   alias Ryker.Memories.MemoryReviewItem
@@ -554,7 +555,7 @@ defmodule Ryker.Memories.MemoriesConcurrencyTest do
     )
 
     assert {:ok, %{created: 2}} = Reviews.refresh_reviews(workspace_ref, 60)
-    review_refs = Enum.map(Reviews.list_reviews(workspace_ref), & &1["review_ref"])
+    review_refs = Enum.map(Inspectors.memory_reviews(workspace_ref), & &1["review_ref"])
 
     %{
       episode_id: transition.episode.id,

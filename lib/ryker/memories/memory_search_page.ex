@@ -40,21 +40,4 @@ defmodule Ryker.Memories.MemorySearchPage do
       %{item: item, time: time} -> {:ok, item, [DateTime.to_iso8601(time), item.id]}
     end
   end
-
-  def read(page, count, fetch), do: collect(page, count, fetch, [], 0)
-  defp collect(_page, 0, _fetch, entries, _skips), do: Enum.reverse(entries)
-  defp collect(_page, _count, _fetch, entries, 64), do: Enum.reverse(entries)
-
-  defp collect(page, count, fetch, entries, skips) do
-    case fetch.(page) do
-      {:ok, document, position} ->
-        collect(%{page | position: position}, count - 1, fetch, [document | entries], skips)
-
-      {:skip, position} ->
-        collect(%{page | position: position}, count, fetch, entries, skips + 1)
-
-      :done ->
-        Enum.reverse(entries)
-    end
-  end
 end

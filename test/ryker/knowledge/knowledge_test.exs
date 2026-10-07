@@ -8,6 +8,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
   alias Ryker.ControlPlane.{ConversationMemory, LearnedPage}
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.DatabaseClock
+  alias Ryker.Fixtures.MemoryPages
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.RecallText
   alias Ryker.Inspectors
@@ -202,7 +203,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
 
     assert {:ok, [after_update]} ==
              Repo.transaction(fn ->
-               MemorySearchPage.read(
+               MemoryPages.read(
                  page,
                  10,
                  &Knowledge.search_page(destination, "tenant-infra", &1)
@@ -213,7 +214,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     # consolidation; automatic briefing still avoids repeating covered excerpts.
     assert {:ok, originals} =
              Repo.transaction(fn ->
-               MemorySearchPage.read(
+               MemoryPages.read(
                  page,
                  10,
                  &Observations.search_page(destination, "tenant-infra", &1)

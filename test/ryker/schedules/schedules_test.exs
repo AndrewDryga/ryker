@@ -175,6 +175,34 @@ defmodule Ryker.Schedules.SchedulesTest do
   # A schedule keeps running where it was set up: each run pins the
   # environment of the conversation that created it, and with it that
   # environment's Emisar account, as the work that offered it did.
+  # get_automation, which a model calls, sorted every Work turn in the
+  # database to find each run's latest (2026-10-04 review).
+  test "an automation's recent runs read only those runs' own turns" do
+    fixture = delivered_offer!("recent-runs")
+    assert {:ok, %{schedule: schedule}} = Schedules.confirm(confirmation(fixture, "recent-runs"))
+    make_due!(schedule, DateTime.add(Repo.now!(), -60, :second))
+    assert {:ok, claim} = Schedules.claim_due("schedule-worker:recent-runs", 60)
+
+    assert {:ok, %{episode: run}} =
+             Schedules.dispatch(claim.schedule.ref, claim.lease_ref, &policy/1, 900)
+
+    assert {:ok, %{episode: %{id: claimed}}} = Custody.claim_next("recent-runs", 60, :work)
+    assert claimed == run.id
+    assert Repo.aggregate(Ryker.Work.Turn, :count) > 1
+
+    {sql, params} = Repo.to_sql(:all, ScheduleOccurrence.Query.recent_runs(schedule.id, 10))
+
+    %{rows: [[[%{"Plan" => plan}]]]} =
+      Repo.query!("EXPLAIN (ANALYZE, FORMAT JSON) " <> sql, params)
+
+    assert rows_read(plan, "episode_work_turns") == 1
+
+    assert [%{"episode_id" => episode_id}] =
+             Repo.all(ScheduleOccurrence.Query.recent_runs(schedule.id, 10))
+
+    assert episode_id == run.id
+  end
+
   test "a schedule runs in the environment of the conversation that created it" do
     {:ok, settings} = Ryker.Settings.initialize("control-plane:local")
 
@@ -975,4 +1003,14 @@ defmodule Ryker.Schedules.SchedulesTest do
   end
 
   defp policy(_schedule), do: {:ok, @policy}
+
+  # The rows a query plan's nodes read from `table`, over every loop.
+  defp rows_read(%{} = node, table) do
+    own =
+      if node["Relation Name"] == table,
+        do: node["Actual Rows"] * node["Actual Loops"],
+        else: 0
+
+    own + (node |> Map.get("Plans", []) |> Enum.map(&rows_read(&1, table)) |> Enum.sum())
+  end
 end
