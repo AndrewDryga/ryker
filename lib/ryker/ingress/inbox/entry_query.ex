@@ -7,6 +7,70 @@ defmodule Ryker.Ingress.Inbox.EntryQuery do
 
   def by_id(queryable \\ all(), id), do: where(queryable, [ingress_inbox_entries: e], e.id == ^id)
 
+  def by_ids(queryable \\ all(), ids),
+    do: where(queryable, [ingress_inbox_entries: e], e.id in ^ids)
+
+  def in_conversation(queryable \\ all(), conversation_ref) do
+    where(
+      queryable,
+      [ingress_inbox_entries: e],
+      e.destination_conversation_ref == ^conversation_ref
+    )
+  end
+
+  @doc """
+  The messages of `entry`'s conversation before `before`, other than
+  `excluded_ids`, the newest first: the thread a learning pass may read.
+  """
+  def earlier_in_conversation(entry, excluded_ids, before) do
+    from(e in all(),
+      where:
+        e.destination_transport == ^entry.destination_transport and
+          e.destination_conversation_ref == ^entry.destination_conversation_ref and
+          e.id not in ^excluded_ids and e.occurred_at < ^before,
+      order_by: [desc: e.occurred_at, desc: e.id]
+    )
+  end
+
+  @doc "The messages that opened the threads `thread_refs` names."
+  def thread_openings(queryable, thread_refs),
+    do: where(queryable, [ingress_inbox_entries: e], e.source_item_ref in ^thread_refs)
+
+  @doc "Replies in the threads `thread_refs` names, not their openings."
+  def thread_replies(queryable, thread_refs) do
+    where(
+      queryable,
+      [ingress_inbox_entries: e],
+      e.destination_thread_ref in ^thread_refs and
+        (is_nil(e.source_item_ref) or e.source_item_ref not in ^thread_refs)
+    )
+  end
+
+  @doc """
+  The messages each `{conversation, message}` names: by its platform item,
+  or by its native id when it has none.
+  """
+  def by_messages(messages) do
+    matching =
+      Enum.reduce(messages, dynamic(false), fn {conversation, message}, matching ->
+        dynamic(
+          [ingress_inbox_entries: e],
+          ^matching or
+            (e.destination_conversation_ref == ^conversation and
+               (e.source_item_ref == ^message or
+                  (is_nil(e.source_item_ref) and e.native_input_id == ^message)))
+        )
+      end)
+
+    where(all(), ^matching)
+  end
+
+  def oldest_occurred_first(queryable),
+    do: order_by(queryable, [ingress_inbox_entries: e], asc: e.occurred_at, asc: e.id)
+
+  def oldest_received_first(queryable),
+    do: order_by(queryable, [ingress_inbox_entries: e], asc: e.inserted_at, asc: e.id)
+
   def by_source_event(queryable \\ all(), source_kind, event_ref) do
     where(
       queryable,

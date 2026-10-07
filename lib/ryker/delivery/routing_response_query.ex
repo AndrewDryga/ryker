@@ -5,6 +5,63 @@ defmodule Ryker.Delivery.RoutingResponseQuery do
 
   def all, do: from(responses in RoutingResponse, as: :delivery_routing_responses)
 
+  def by_delivery_ref(queryable \\ all(), delivery_ref),
+    do: where(queryable, [delivery_routing_responses: r], r.delivery_ref == ^delivery_ref)
+
+  def pending(queryable \\ all()),
+    do: where(queryable, [delivery_routing_responses: r], r.status == :pending)
+
+  @doc """
+  The responses a worker may send now: those whose every earlier response
+  for the same input is delivered. The claim and the queue gauges read this
+  one rule, so a response waiting its turn is never counted as stalled work.
+  """
+  def in_order(queryable \\ all()) do
+    where(
+      queryable,
+      [delivery_routing_responses: r],
+      not exists(
+        from(earlier in RoutingResponse,
+          where:
+            earlier.input_id == parent_as(:delivery_routing_responses).input_id and
+              earlier.position < parent_as(:delivery_routing_responses).position and
+              earlier.status != :delivered,
+          select: 1
+        )
+      )
+    )
+  end
+
+  @doc "Pending and due at `now`: no retry backoff and no live claim left."
+  def claimable_at(queryable, now) do
+    queryable
+    |> pending()
+    |> where(
+      [delivery_routing_responses: r],
+      (is_nil(r.next_attempt_at) or r.next_attempt_at <= ^now) and
+        (is_nil(r.lease_ref) or r.lease_expires_at <= ^now)
+    )
+  end
+
+  @doc "The next retry and the next lease expiry after `since` among pending responses."
+  def next_due_after(since) do
+    select(pending(), [delivery_routing_responses: r], [
+      filter(min(r.next_attempt_at), r.next_attempt_at > ^since),
+      filter(min(r.lease_expires_at), not is_nil(r.lease_ref) and r.lease_expires_at > ^since)
+    ])
+  end
+
+  def oldest_first(queryable) do
+    order_by(queryable, [delivery_routing_responses: r],
+      asc: r.inserted_at,
+      asc: r.position,
+      asc: r.id
+    )
+  end
+
+  def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
+  def lock_next_free(queryable), do: lock(queryable, "FOR UPDATE SKIP LOCKED")
+
   def by_input_id(queryable \\ all(), input_id),
     do: where(queryable, [delivery_routing_responses: r], r.input_id == ^input_id)
 

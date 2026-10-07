@@ -15,9 +15,8 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
   topics too (`Ryker.Ingress.Inbox`).
   """
 
-  import Ecto.Query
   alias Ryker.CanonicalJSON
-  alias Ryker.Delivery.{Request, RoutingResponse, RoutingResponseChangeset}
+  alias Ryker.Delivery.{Request, RoutingResponse, RoutingResponseChangeset, RoutingResponseQuery}
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
@@ -82,29 +81,6 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
   defp reaction(emoji_name), do: {:reaction, %{"emoji_name" => emoji_name}}
 
   @doc """
-  The responses a worker may send now: pending ones whose every earlier
-  response for the same input is delivered. The claim and the queue gauges
-  read this one query, so a response waiting its turn is never counted as
-  stalled work.
-  """
-  @spec in_order(Ecto.Queryable.t()) :: Ecto.Query.t()
-  def in_order(query) do
-    from(response in query,
-      as: :response,
-      where:
-        not exists(
-          from(earlier in RoutingResponse,
-            where:
-              earlier.input_id == parent_as(:response).input_id and
-                earlier.position < parent_as(:response).position and
-                earlier.status != :delivered,
-            select: 1
-          )
-        )
-    )
-  end
-
-  @doc """
   The earliest moment after `since` at which a pending response becomes
   claimable by the clock alone: its retry's backoff ends, or the lease of a
   claim nobody renewed runs out. Nil when no pending response waits on the
@@ -112,16 +88,8 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
   """
   @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since) do
-    from(response in RoutingResponse,
-      where: response.status == :pending,
-      select: [
-        filter(min(response.next_attempt_at), response.next_attempt_at > ^since),
-        filter(
-          min(response.lease_expires_at),
-          not is_nil(response.lease_ref) and response.lease_expires_at > ^since
-        )
-      ]
-    )
+    since
+    |> RoutingResponseQuery.next_due_after()
     |> Repo.one()
     |> UTCDateTime.earliest()
   end
@@ -247,17 +215,15 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
   defp claim_locked(worker_ref, lease_seconds) do
     now = Repo.now!()
 
-    case Repo.one(
-           from(response in in_order(RoutingResponse),
-             where:
-               response.status == :pending and
-                 (is_nil(response.next_attempt_at) or response.next_attempt_at <= ^now) and
-                 (is_nil(response.lease_ref) or response.lease_expires_at <= ^now),
-             order_by: [asc: response.inserted_at, asc: response.position, asc: response.id],
-             limit: 1,
-             lock: "FOR UPDATE SKIP LOCKED"
-           )
-         ) do
+    next =
+      RoutingResponseQuery.in_order()
+      |> RoutingResponseQuery.claimable_at(now)
+      |> RoutingResponseQuery.oldest_first()
+      |> RoutingResponseQuery.limit_to(1)
+      |> RoutingResponseQuery.lock_next_free()
+      |> Repo.one()
+
+    case next do
       nil ->
         nil
 
@@ -357,12 +323,10 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
   end
 
   defp lock_response(delivery_ref) do
-    Repo.one(
-      from(response in RoutingResponse,
-        where: response.delivery_ref == ^delivery_ref,
-        lock: "FOR UPDATE"
-      )
-    )
+    delivery_ref
+    |> RoutingResponseQuery.by_delivery_ref()
+    |> RoutingResponseQuery.lock_for_update()
+    |> Repo.one()
   end
 
   defp current_lease(response, lease_ref, now) do

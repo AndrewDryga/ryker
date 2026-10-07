@@ -1,7 +1,7 @@
 defmodule Ryker.Work.TurnQuery do
   @moduledoc "Work turns, for every read of `episode_work_turns`."
   import Ecto.Query
-  alias Ryker.Work.Turn
+  alias Ryker.Work.{Session, Turn}
 
   def all, do: from(turns in Turn, as: :episode_work_turns)
 
@@ -23,6 +23,16 @@ defmodule Ryker.Work.TurnQuery do
   end
 
   def select_ids(queryable), do: select(queryable, [episode_work_turns: t], t.id)
+
+  @doc "The Emisar account the session of turn `turn_id` of `episode_id` ran with."
+  def session_emisar_authority(turn_id, episode_id) do
+    from(t in all(),
+      join: s in Session,
+      on: s.id == t.session_id and s.episode_id == t.episode_id,
+      where: t.id == ^turn_id and t.episode_id == ^episode_id,
+      select: {s.emisar_connection_ref, s.emisar_account_ref, s.emisar_rpc_url}
+    )
+  end
 
   def select_episode_ids(queryable),
     do: select(queryable, [episode_work_turns: t], t.episode_id)

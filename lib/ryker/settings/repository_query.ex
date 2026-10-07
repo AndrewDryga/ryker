@@ -8,6 +8,8 @@ defmodule Ryker.Settings.RepositoryQuery do
   def by_refs(queryable \\ all(), refs),
     do: where(queryable, [repository_settings: r], r.ref in ^refs)
 
+  def ordered_by_ref(queryable), do: order_by(queryable, [repository_settings: r], r.ref)
+
   def select_descriptions(queryable),
     do: select(queryable, [repository_settings: r], {r.ref, r.description, r.display_name})
 end

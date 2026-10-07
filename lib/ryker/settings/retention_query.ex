@@ -5,6 +5,8 @@ defmodule Ryker.Settings.RetentionQuery do
 
   def all, do: from(retention in Retention, as: :retention_settings)
 
+  def by_id(queryable \\ all(), id), do: where(queryable, [retention_settings: r], r.id == ^id)
+
   def select_routing_examples_enabled(queryable \\ all()),
     do: select(queryable, [retention_settings: r], r.routing_examples_enabled)
 

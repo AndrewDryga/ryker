@@ -1,19 +1,18 @@
 defmodule Ryker.Delivery.ChatCard do
   @moduledoc false
 
-  import Ecto.Query
-  alias Ryker.Behaviors.Behavior
+  alias Ryker.Behaviors.{Behavior, BehaviorQuery}
   alias Ryker.ControlPlane.Paths
   alias Ryker.Delivery.OfferWords
   alias Ryker.InspectionRedactor
-  alias Ryker.Memories.MemoryEntry
+  alias Ryker.Memories.{MemoryEntry, MemoryEntryQuery}
   alias Ryker.Publication.Card, as: PublicationCard
   alias Ryker.Publication.{Publication, Review}
   alias Ryker.Records.Record
   alias Ryker.Records.RecordPayload
-  alias Ryker.Records.Response
+  alias Ryker.Records.ResponseQuery
   alias Ryker.Repo
-  alias Ryker.Schedules.Schedule
+  alias Ryker.Schedules.{Schedule, ScheduleQuery}
   alias Ryker.Schedules.ScheduleCadence
   alias Ryker.Slack.TaskCardProjection
 
@@ -624,14 +623,14 @@ defmodule Ryker.Delivery.ChatCard do
   end
 
   defp confirmed_outcome(%Record{kind: "schedule_offer", id: id}) do
-    case Repo.get_by(Schedule, offer_record_id: id) do
+    case Repo.one(ScheduleQuery.by_offer_record_id(id)) do
       %Schedule{} = schedule -> schedule_outcome(schedule)
       nil -> nil
     end
   end
 
   defp confirmed_outcome(%Record{kind: "memory_offer", id: id}) do
-    case Repo.get_by(MemoryEntry, offer_record_id: id) do
+    case Repo.one(MemoryEntryQuery.by_offer_record_id(id)) do
       %MemoryEntry{} = memory -> memory_outcome(memory)
       nil -> nil
     end
@@ -639,7 +638,7 @@ defmodule Ryker.Delivery.ChatCard do
 
   defp confirmed_outcome(%Record{kind: kind, id: id})
        when kind in ~w(preference_offer guidance_offer standing_assignment_offer) do
-    case Repo.get_by(Behavior, offer_record_id: id) do
+    case Repo.one(BehaviorQuery.by_offer_record_id(id)) do
       %Behavior{} = behavior -> behavior_outcome(behavior)
       nil -> nil
     end
@@ -727,12 +726,8 @@ defmodule Ryker.Delivery.ChatCard do
   # reply that matched no option chose none.
   defp chosen(%Record{status: :answered, id: id}, choices)
        when is_binary(id) and is_list(choices) do
-    from(response in Response,
-      where: response.record_id == ^id,
-      order_by: [desc: response.inserted_at],
-      limit: 1,
-      select: {response.choice_index, response.choice}
-    )
+    id
+    |> ResponseQuery.latest_choice()
     |> Repo.one()
     |> case do
       {index, _choice} when is_integer(index) -> index

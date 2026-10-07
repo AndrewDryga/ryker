@@ -6,22 +6,21 @@ defmodule Ryker.Learning do
   batches, notes and relearning around it, are announced after the outermost
   commit (`subscribe_learning/0`).
   """
-  import Ecto.Query
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress.Inbox.{Entry, EntryQuery}
   alias Ryker.Ingress.RecallText
   alias Ryker.Knowledge
   alias Ryker.Knowledge.KnowledgeAnchors
   alias Ryker.Knowledge.KnowledgeUpdate
   alias Ryker.Learning.{Batches, Rebuilds}
-  alias Ryker.Learning.LearningRun
+  alias Ryker.Learning.{LearningRun, LearningRunQuery}
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
   alias Ryker.People
   alias Ryker.Reference
   alias Ryker.Repo
-  alias Ryker.Work.Session
+  alias Ryker.Work.SessionQuery
 
   @max_inputs 16
   @max_prompt 65_536
@@ -178,14 +177,12 @@ defmodule Ryker.Learning do
       lock_batch(key)
 
       existing =
-        Repo.one(
-          from(r in LearningRun,
-            where: r.batch_key == ^key,
-            order_by: [desc: r.generation],
-            limit: 1,
-            lock: "FOR UPDATE"
-          )
-        )
+        key
+        |> LearningRunQuery.by_batch_key()
+        |> LearningRunQuery.latest_generation_first()
+        |> LearningRunQuery.limit_to(1)
+        |> LearningRunQuery.lock_for_update()
+        |> Repo.one()
 
       prepare_attempt(existing, entries, manifest, key, settings)
     end)
@@ -420,7 +417,7 @@ defmodule Ryker.Learning do
       when phase in [:create, :submit] do
     owned_transaction(id, claim, fn run ->
       method = if phase == :create, do: "CreateRemoteSession", else: "SubmitTurn"
-      session = Repo.get_by(Session, learning_run_id: id)
+      session = Repo.one(SessionQuery.for_learning_run(id))
 
       unless session && is_nil(run.coop_turn_id) && valid_remote_ref?(operation_id) &&
                key == operation_key(run, phase) && operation["method"] == method &&
@@ -454,7 +451,7 @@ defmodule Ryker.Learning do
   """
   def record_uncreated_stop(id, claim) do
     owned_transaction(id, claim, fn run ->
-      session = Repo.get_by(Session, execution_kind: :learning, learning_run_id: id)
+      session = Repo.one(SessionQuery.for_learning_run(id))
 
       unless run.status in [:stale, :rejected] and is_nil(run.submit_revision) and
                is_nil(run.coop_turn_id) and is_nil(session && session.coop_session_id),
@@ -486,7 +483,7 @@ defmodule Ryker.Learning do
                is_nil(run.coop_turn_id),
              do: Repo.rollback(:learning_absence_unconfirmed)
 
-      session = Repo.get_by(Session, execution_kind: :learning, learning_run_id: id)
+      session = Repo.one(SessionQuery.for_learning_run(id))
 
       store_stop(run, %{
         "kind" => "never_submitted",
@@ -511,7 +508,7 @@ defmodule Ryker.Learning do
                DateTime.diff(Repo.now!(), run.started_at) >= closed_after_seconds,
              do: Repo.rollback(:learning_remote_unresolved)
 
-      session = Repo.get_by(Session, execution_kind: :learning, learning_run_id: id)
+      session = Repo.one(SessionQuery.for_learning_run(id))
 
       store_stop(run, %{
         "kind" => "attempt_expired",
@@ -568,13 +565,10 @@ defmodule Ryker.Learning do
 
   defp owned_remote_session?(run, remote_id) do
     valid_remote_ref?(remote_id) and
-      Repo.exists?(
-        from(s in Session,
-          where:
-            s.execution_kind == :learning and s.learning_run_id == ^run.id and
-              s.coop_session_id == ^remote_id
-        )
-      )
+      run.id
+      |> SessionQuery.for_learning_run()
+      |> SessionQuery.by_coop_session_id(remote_id)
+      |> Repo.exists?()
   end
 
   defp valid_remote_ref?(value), do: Reference.valid?(value)
@@ -745,16 +739,13 @@ defmodule Ryker.Learning do
     # Reselection changes the frozen request key, not the lifetime learning job.
     # Carry only a static error code across that boundary, never old model prose,
     # matching candidates, or source-derived topic keys.
-    Repo.one(
-      from(r in LearningRun,
-        where:
-          r.batch_id == ^id and
-            (not is_nil(r.started_at) or r.status in [:responded, :applied, :rejected]),
-        order_by: [desc: r.inserted_at, desc: r.id],
-        limit: 1,
-        select: %{error_code: r.error_code}
-      )
-    )
+    id
+    |> LearningRunQuery.by_batch_id()
+    |> LearningRunQuery.attempted()
+    |> LearningRunQuery.newest_first()
+    |> LearningRunQuery.limit_to(1)
+    |> LearningRunQuery.select_error_codes()
+    |> Repo.one()
   end
 
   defp previous_batch_error(_settings), do: nil
@@ -772,14 +763,10 @@ defmodule Ryker.Learning do
 
   defp new_attempt(entries, manifest, key, generation, settings) do
     failures =
-      Repo.aggregate(
-        from(r in LearningRun,
-          where:
-            r.batch_key == ^key and
-              (r.status == :rejected or not is_nil(r.started_at))
-        ),
-        :count
-      )
+      key
+      |> LearningRunQuery.by_batch_key()
+      |> LearningRunQuery.failed_or_started()
+      |> Repo.aggregate(:count)
 
     # The batch lock is already held. Pruning retains status/error_code, so a
     # process restart or expired diagnostic body cannot reset this retry budget.
@@ -973,31 +960,24 @@ defmodule Ryker.Learning do
       before = entries |> Enum.map(& &1.occurred_at) |> Enum.min(DateTime)
 
       earlier =
-        from(e in Entry,
-          where:
-            e.destination_transport == ^first.destination_transport and
-              e.destination_conversation_ref == ^first.destination_conversation_ref and
-              e.id not in ^ids and e.occurred_at < ^before,
-          order_by: [desc: e.occurred_at, desc: e.id],
-          lock: "FOR SHARE"
-        )
+        first
+        |> EntryQuery.earlier_in_conversation(ids, before)
+        |> EntryQuery.lock_for_share()
 
       # The opening message is read on its own: taking the latest messages
       # alone lost it once a thread had more than five earlier replies
       # (2026-10-04 review).
       opening =
-        from(e in earlier, where: e.source_item_ref in ^threads)
+        earlier
+        |> EntryQuery.thread_openings(threads)
         |> Repo.all()
         |> usable_context(first)
         |> Enum.take(1)
 
       replies =
-        from(e in earlier,
-          where:
-            e.destination_thread_ref in ^threads and
-              (is_nil(e.source_item_ref) or e.source_item_ref not in ^threads),
-          limit: ^(@thread_context * 3)
-        )
+        earlier
+        |> EntryQuery.thread_replies(threads)
+        |> EntryQuery.limit_to(@thread_context * 3)
         |> Repo.all()
         |> usable_context(first)
         |> Enum.take(room - length(opening))
@@ -1034,13 +1014,11 @@ defmodule Ryker.Learning do
     ids = Enum.map(manifests, & &1["source_input_id"])
 
     entries =
-      Repo.all(
-        from(e in Entry,
-          where: e.id in ^ids,
-          order_by: [asc: e.occurred_at, asc: e.id],
-          lock: "FOR SHARE"
-        )
-      )
+      ids
+      |> EntryQuery.by_ids()
+      |> EntryQuery.oldest_occurred_first()
+      |> EntryQuery.lock_for_share()
+      |> Repo.all()
 
     if Enum.map(entries, &manifest/1) == manifests and
          Enum.all?(entries, &LearningSources.current_entry?/1) and
@@ -1056,13 +1034,11 @@ defmodule Ryker.Learning do
       do: Repo.rollback(:invalid_learning_inputs)
 
     entries =
-      Repo.all(
-        from(e in Entry,
-          where: e.id in ^ids,
-          order_by: [asc: e.inserted_at, asc: e.id],
-          lock: "FOR SHARE"
-        )
-      )
+      ids
+      |> EntryQuery.by_ids()
+      |> EntryQuery.oldest_received_first()
+      |> EntryQuery.lock_for_share()
+      |> Repo.all()
 
     unless length(entries) == length(ids) and valid_entries?(entries),
       do: Repo.rollback(:learning_source_stale)
@@ -1217,7 +1193,7 @@ defmodule Ryker.Learning do
   end
 
   defp checked_updates(run) do
-    first = Repo.get(Entry, hd(run.inputs)["source_input_id"])
+    first = Repo.one(EntryQuery.by_id(hd(run.inputs)["source_input_id"]))
     unless first && is_binary(run.result), do: Repo.rollback(:learning_source_stale)
 
     with :ok <- lock_scope(first),
@@ -1396,7 +1372,8 @@ defmodule Ryker.Learning do
     status = failure_status(reason)
 
     owned_transaction(id, claim, fn _run ->
-      Repo.update_all(from(r in LearningRun, where: r.id == ^id and r.status == :responded),
+      Repo.update_all(
+        id |> LearningRunQuery.by_id() |> LearningRunQuery.with_status(:responded),
         set: [
           status: status,
           error_code: code,
@@ -1434,11 +1411,11 @@ defmodule Ryker.Learning do
 
   defp fetch_run!(id) do
     with {:ok, ^id} <- Ecto.UUID.cast(id),
-         %LearningRun{} = run <- Repo.get(LearningRun, id) do
+         %LearningRun{} = run <- Repo.one(LearningRunQuery.by_id(id)) do
       # Prepare and acceptance share batch -> row lock order. Taking the row
       # first deadlocks with a concurrent retry preparing the same batch.
       lock_batch(run.batch_key)
-      Repo.one!(from(r in LearningRun, where: r.id == ^id, lock: "FOR UPDATE"))
+      id |> LearningRunQuery.by_id() |> LearningRunQuery.lock_for_update() |> Repo.one!()
     else
       _ -> Repo.rollback(:learning_run_not_found)
     end
@@ -1504,27 +1481,19 @@ defmodule Ryker.Learning do
   def forget_messages_in_transaction([]), do: :ok
 
   def forget_messages_in_transaction(messages) do
-    matching =
-      Enum.reduce(messages, dynamic(false), fn {conversation, message}, matching ->
-        dynamic(
-          [entry],
-          ^matching or
-            (entry.destination_conversation_ref == ^conversation and
-               (entry.source_item_ref == ^message or
-                  (is_nil(entry.source_item_ref) and entry.native_input_id == ^message)))
-        )
-      end)
-
-    from(entry in Entry, where: ^matching, select: entry.id) |> Repo.all() |> erase_runs_reading()
+    messages
+    |> EntryQuery.by_messages()
+    |> EntryQuery.select_ids()
+    |> Repo.all()
+    |> erase_runs_reading()
   end
 
   @doc "Erases what learning runs keep of a deleted conversation, inside its transaction."
   @spec forget_conversation_in_transaction(String.t()) :: :ok
   def forget_conversation_in_transaction(conversation_ref) when is_binary(conversation_ref) do
-    from(entry in Entry,
-      where: entry.destination_conversation_ref == ^conversation_ref,
-      select: entry.id
-    )
+    conversation_ref
+    |> EntryQuery.in_conversation()
+    |> EntryQuery.select_ids()
     |> Repo.all()
     |> erase_runs_reading()
   end

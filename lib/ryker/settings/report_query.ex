@@ -4,5 +4,7 @@ defmodule Ryker.Settings.ReportQuery do
   alias Ryker.Settings.Report
 
   def all, do: from(settings in Report, as: :report_settings)
+
+  def by_id(queryable \\ all(), id), do: where(queryable, [report_settings: r], r.id == ^id)
   def select_timezone(queryable \\ all()), do: select(queryable, [report_settings: r], r.timezone)
 end

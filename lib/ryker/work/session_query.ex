@@ -25,6 +25,15 @@ defmodule Ryker.Work.SessionQuery do
     )
   end
 
+  @doc "The session of learning pass `run_id`."
+  def for_learning_run(queryable \\ all(), run_id) do
+    where(
+      queryable,
+      [episode_work_sessions: s],
+      s.execution_kind == :learning and s.learning_run_id == ^run_id
+    )
+  end
+
   def by_coop_session_id(queryable, coop_session_id),
     do: where(queryable, [episode_work_sessions: s], s.coop_session_id == ^coop_session_id)
 

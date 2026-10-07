@@ -16,7 +16,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   alias Ryker.ControlPlane.{AdmissionProgress, ConversationLab, ConversationTranscript}
   alias Ryker.ControlPlane.{CurrentInputs, ShortTime, TranscriptCursor}
   alias Ryker.Delivery.PlatformAction
-  alias Ryker.Delivery.{RoutingResponse, RoutingResponseCustody}
+  alias Ryker.Delivery.{RoutingResponse, RoutingResponseQuery}
   alias Ryker.Episodes.{Episode, Event, RoutingDigest}
   alias Ryker.Feedback
   alias Ryker.Ingress.Inbox.Entry
@@ -799,7 +799,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
     # being sent: the stopped one says so, and the conversation is not live.
     responses =
       Repo.one(
-        from(response in RoutingResponseCustody.in_order(RoutingResponse),
+        from(response in RoutingResponseQuery.in_order(),
           where:
             response.transport == "control_plane" and response.conversation_ref == ^ref and
               response.thread_ref == ^ref,

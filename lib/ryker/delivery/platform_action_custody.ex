@@ -17,14 +17,13 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   turn is delivered, so they arrive in the order the model asked for them.
   """
 
-  import Ecto.Query
   alias Ryker.CanonicalJSON
-  alias Ryker.Delivery.{PlatformAction, Request}
-  alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.Delivery.{PlatformAction, PlatformActionQuery, Request}
+  alias Ryker.Episodes.{Episode, EpisodeQuery, Event, EventQuery}
   alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.UTCDateTime
-  alias Ryker.Work.{DeliveryReceipt, Turn}
+  alias Ryker.Work.{DeliveryReceipt, Turn, TurnQuery}
 
   @fields [
     :conversation_ref,
@@ -131,13 +130,8 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   """
   @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since) do
-    from(action in PlatformAction,
-      where: action.status == :pending,
-      select: [
-        filter(min(action.next_attempt_at), action.next_attempt_at > ^since),
-        filter(min(action.lease_expires_at), action.lease_expires_at > ^since)
-      ]
-    )
+    since
+    |> PlatformActionQuery.next_due_after()
     |> Repo.one()
     |> UTCDateTime.earliest()
   end
@@ -178,19 +172,12 @@ defmodule Ryker.Delivery.PlatformActionCustody do
           String.t()
         ) :: boolean()
   def delivered_reaction_added?(episode_id, conversation_ref, source_item_ref, emoji_name) do
-    Repo.one(
-      from(action in PlatformAction,
-        where:
-          action.episode_id == ^episode_id and action.tool == :set_slack_reaction and
-            action.kind == :reaction and action.status == :delivered and
-            action.conversation_ref == ^conversation_ref and
-            action.source_item_ref == ^source_item_ref and
-            fragment("(?::jsonb) ->> 'emoji_name' = ?", action.document, ^emoji_name),
-        order_by: [desc: action.delivered_at, desc: action.inserted_at],
-        limit: 1,
-        select: fragment("(?::jsonb) ->> 'action'", action.document)
-      )
-    ) == "add"
+    latest =
+      episode_id
+      |> PlatformActionQuery.latest_reaction_action(conversation_ref, source_item_ref, emoji_name)
+      |> Repo.one()
+
+    latest == "add"
   end
 
   @spec renew(String.t(), Ecto.UUID.t(), pos_integer()) ::
@@ -306,12 +293,9 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   @spec validation_records(Ecto.UUID.t(), Ecto.UUID.t() | nil) :: map()
   def validation_records(episode_id, turn_id \\ nil) do
     query =
-      from(action in PlatformAction,
-        where: action.episode_id == ^episode_id,
-        order_by: [asc: action.inserted_at, asc: action.id]
-      )
+      episode_id |> PlatformActionQuery.by_episode_id() |> PlatformActionQuery.oldest_first()
 
-    query = if turn_id, do: from(action in query, where: action.turn_id == ^turn_id), else: query
+    query = if turn_id, do: PlatformActionQuery.by_turn_id(query, turn_id), else: query
 
     actions = Repo.all(query)
     current_human_inputs = current_human_inputs(episode_id)
@@ -338,7 +322,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   defp platform_action_operation(%PlatformAction{}), do: nil
 
   defp current_human_inputs(episode_id) do
-    case Repo.get(Episode, episode_id) do
+    case Repo.one(EpisodeQuery.by_id(episode_id)) do
       %Episode{active_input_refs: active_input_refs} ->
         episode_id
         |> active_input_events(active_input_refs)
@@ -358,14 +342,11 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   defp active_input_events(_episode_id, []), do: []
 
   defp active_input_events(episode_id, active_input_refs) do
-    Repo.all(
-      from(event in Event,
-        where:
-          event.episode_id == ^episode_id and event.kind == :input_admitted and
-            event.dedupe_key in ^Enum.uniq(active_input_refs),
-        order_by: [asc: event.sequence]
-      )
-    )
+    episode_id
+    |> EventQuery.by_episode_id()
+    |> EventQuery.admitted_inputs(Enum.uniq(active_input_refs))
+    |> EventQuery.oldest_first()
+    |> Repo.all()
   end
 
   defp human_input?(%Event{payload: %{"actor_ref" => actor_ref}}) when is_binary(actor_ref),
@@ -409,12 +390,11 @@ defmodule Ryker.Delivery.PlatformActionCustody do
 
   defp next_in_turn(episode, turn, attributes) do
     earlier =
-      Repo.all(
-        from(action in PlatformAction,
-          where: action.turn_id == ^turn.id and action.tool == ^attributes.tool,
-          order_by: [asc: action.host_slot]
-        )
-      )
+      turn.id
+      |> PlatformActionQuery.by_turn_id()
+      |> PlatformActionQuery.by_tool(attributes.tool)
+      |> PlatformActionQuery.in_slot_order()
+      |> Repo.all()
 
     case repeated(earlier, attributes) do
       %PlatformAction{} = same ->
@@ -454,20 +434,14 @@ defmodule Ryker.Delivery.PlatformActionCustody do
 
   defp lock_binding(binding) do
     episode =
-      Repo.one(
-        from(episode in Episode,
-          where: episode.id == ^binding.episode.id,
-          lock: "FOR UPDATE"
-        )
-      )
+      binding.episode.id |> EpisodeQuery.by_id() |> EpisodeQuery.lock_for_update() |> Repo.one()
 
     turn =
-      Repo.one(
-        from(turn in Turn,
-          where: turn.id == ^binding.turn.id and turn.episode_id == ^binding.episode.id,
-          lock: "FOR UPDATE"
-        )
-      )
+      binding.turn.id
+      |> TurnQuery.by_id()
+      |> TurnQuery.by_episode_id(binding.episode.id)
+      |> TurnQuery.lock_for_update()
+      |> Repo.one()
 
     {episode, turn}
   end
@@ -475,7 +449,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   defp enqueue_for_ids(episode_id, turn_id, attributes, request) do
     fingerprint = CanonicalJSON.digest(request)
 
-    case Repo.get_by(PlatformAction, turn_id: turn_id, host_slot: attributes.host_slot) do
+    case Repo.one(PlatformActionQuery.by_turn_slot(turn_id, attributes.host_slot)) do
       %PlatformAction{intent_fingerprint: ^fingerprint} = action ->
         %{action: action, status: :duplicate}
 
@@ -520,7 +494,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   defp claim_locked(worker_ref, lease_seconds) do
     now = Repo.now!()
 
-    case Repo.one(claimable(now)) do
+    case Repo.one(PlatformActionQuery.next_claimable(now, @numbered_tools)) do
       nil ->
         nil
 
@@ -544,34 +518,6 @@ defmodule Ryker.Delivery.PlatformActionCustody do
 
         %{action: action, lease_ref: lease_ref}
     end
-  end
-
-  # The oldest action a worker may send now. A reaction or an update waits
-  # until every earlier one of its kind in its turn is delivered, so they
-  # arrive in the order the model asked for them.
-  defp claimable(now) do
-    from(action in PlatformAction,
-      as: :action,
-      where:
-        action.status == :pending and
-          (is_nil(action.next_attempt_at) or action.next_attempt_at <= ^now) and
-          (is_nil(action.lease_expires_at) or action.lease_expires_at <= ^now),
-      where: action.tool not in ^@numbered_tools or not exists(earlier_undelivered()),
-      order_by: [asc: action.inserted_at, asc: action.id],
-      limit: 1,
-      lock: "FOR UPDATE SKIP LOCKED"
-    )
-  end
-
-  defp earlier_undelivered do
-    from(earlier in PlatformAction,
-      where:
-        earlier.turn_id == parent_as(:action).turn_id and
-          earlier.tool == parent_as(:action).tool and
-          earlier.host_slot < parent_as(:action).host_slot and
-          earlier.status != :delivered,
-      select: 1
-    )
   end
 
   defp mutate_claim(action_ref, lease_ref, callback) do
@@ -640,12 +586,10 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   end
 
   defp lock_action(action_ref) do
-    Repo.one(
-      from(action in PlatformAction,
-        where: action.action_ref == ^action_ref,
-        lock: "FOR UPDATE"
-      )
-    )
+    action_ref
+    |> PlatformActionQuery.by_action_ref()
+    |> PlatformActionQuery.lock_for_update()
+    |> Repo.one()
   end
 
   defp current_lease(action, lease_ref, now) do

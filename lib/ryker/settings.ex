@@ -10,16 +10,19 @@ defmodule Ryker.Settings do
   absent setting: only a missing installation row means "not initialized".
   """
 
-  import Ecto.Query
   alias Ryker.Accounting.Pricing
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
   alias Ryker.Emisar.ApprovalQuery
   alias Ryker.Repo
-  alias Ryker.Settings.{Edit, EmisarConnection, Environment, EnvironmentRepository, GitHub}
-  alias Ryker.Settings.{EnvironmentQuery, Work}
-  alias Ryker.Settings.{GitHubBinding, Installation, Learning, PricingRate, Publication, Report}
-  alias Ryker.Settings.{Repository, Retention, RetentionImpact, Slack, Validation, WebhookSource}
+  alias Ryker.Settings.{Edit, EmisarConnection, EmisarConnectionQuery, Environment}
+  alias Ryker.Settings.{EnvironmentQuery, EnvironmentRepository, EnvironmentRepositoryQuery}
+  alias Ryker.Settings.{GitHub, GitHubBinding, GitHubBindingQuery, GitHubQuery, Installation}
+  alias Ryker.Settings.{InstallationQuery, Learning, LearningQuery, PricingRate, PricingRateQuery}
+  alias Ryker.Settings.{Publication, PublicationQuery, Report, ReportQuery, Repository}
+  alias Ryker.Settings.{RepositoryQuery, Retention, RetentionImpact, RetentionQuery, Slack}
+  alias Ryker.Settings.{SlackQuery, Validation, WebhookSource, WebhookSourceQuery, Work}
+  alias Ryker.Settings.WorkQuery
   alias Ryker.Slack.Operators
   alias Ryker.Work.SessionQuery
 
@@ -102,14 +105,14 @@ defmodule Ryker.Settings do
   end
 
   defp read do
-    case Repo.one(Installation) do
+    case Repo.one(InstallationQuery.all()) do
       nil -> {:error, :settings_not_initialized}
       %Installation{} = installation -> {:ok, load(installation)}
     end
   end
 
   defp moved?(%Installation{revision: revision}),
-    do: Repo.one(from(installation in Installation, select: installation.revision)) != revision
+    do: Repo.one(InstallationQuery.select_revision()) != revision
 
   defp read_locked do
     {:ok, fetched} =
@@ -135,7 +138,7 @@ defmodule Ryker.Settings do
   needs rather than the whole settings snapshot.
   """
   @spec slack_workspace_url() :: String.t() | nil
-  def slack_workspace_url, do: Repo.one(from(slack in Slack, select: slack.workspace_url))
+  def slack_workspace_url, do: Repo.one(SlackQuery.select_workspace_url())
 
   @doc """
   The enrolled worker workspace Work runs in, or nil when none is selected.
@@ -145,7 +148,7 @@ defmodule Ryker.Settings do
   queries a row for it.
   """
   @spec worker_workspace_ref() :: String.t() | nil
-  def worker_workspace_ref, do: Repo.one(from(work in Work, select: work.workspace_ref))
+  def worker_workspace_ref, do: Repo.one(WorkQuery.select_workspace_ref())
 
   @doc "Creates the single installation identity and typed defaults exactly once."
   def initialize(actor_ref) do
@@ -158,7 +161,7 @@ defmodule Ryker.Settings do
     # The lock fences simultaneous first saves so they agree on one identity.
     lock!()
 
-    case Repo.one(Installation) do
+    case Repo.one(InstallationQuery.all()) do
       %Installation{} = installation -> load(installation)
       nil -> insert_installation!(generate_host_ref(), actor_ref)
     end
@@ -207,7 +210,7 @@ defmodule Ryker.Settings do
   defp record_application_locked(revision, failure_code) do
     lock!()
 
-    case Repo.one(Installation) do
+    case Repo.one(InstallationQuery.all()) do
       nil ->
         Repo.rollback(:settings_not_initialized)
 
@@ -543,10 +546,7 @@ defmodule Ryker.Settings do
         # The partial unique index allows one default, so the previous one
         # yields before this row claims it.
         if Ecto.Changeset.get_change(changeset, :is_default) == true do
-          Repo.update_all(
-            from(environment in Environment,
-              where: environment.is_default and environment.ref != ^ref
-            ),
+          Repo.update_all(EnvironmentQuery.other_defaults(ref),
             set: [is_default: false, updated_at: now]
           )
         end
@@ -576,7 +576,7 @@ defmodule Ryker.Settings do
 
     case Ecto.Changeset.fetch_change(changeset, :repository_rows) do
       {:ok, rows} ->
-        Repo.delete_all(from(row in EnvironmentRepository, where: row.environment_ref == ^ref))
+        Repo.delete_all(EnvironmentRepositoryQuery.by_environment(ref))
 
         Repo.insert_all(
           EnvironmentRepository,
@@ -693,7 +693,7 @@ defmodule Ryker.Settings do
   defp current!(:current) do
     lock!()
 
-    case Repo.one(Installation) do
+    case Repo.one(InstallationQuery.all()) do
       nil -> Repo.rollback(:settings_not_initialized)
       %Installation{} = installation -> load(installation)
     end
@@ -702,7 +702,7 @@ defmodule Ryker.Settings do
   defp current!(expected_revision) do
     lock!()
 
-    case Repo.one(Installation) do
+    case Repo.one(InstallationQuery.all()) do
       nil ->
         Repo.rollback(:settings_not_initialized)
 
@@ -788,20 +788,24 @@ defmodule Ryker.Settings do
   defp load(%Installation{host_ref: host_ref} = installation) do
     %{
       installation: installation,
-      retention: Repo.get!(Retention, host_ref),
-      slack: Repo.get!(Slack, host_ref),
-      github: Repo.get!(GitHub, host_ref),
-      publication: Repo.get!(Publication, host_ref),
-      emisar_connections: Repo.all(from(c in EmisarConnection, order_by: c.ref)),
-      report: Repo.get!(Report, host_ref),
-      learning: Repo.get!(Learning, host_ref),
-      work: Repo.get!(Work, host_ref),
-      repositories: Repo.all(from(r in Repository, order_by: r.ref)),
-      environments: Repo.all(from(e in Environment, order_by: e.ref, preload: :repositories)),
-      github_bindings: Repo.all(from(b in GitHubBinding, order_by: b.name)),
-      webhook_sources: Repo.all(from(w in WebhookSource, order_by: w.name)),
-      pricing_rates:
-        Repo.all(from(p in PricingRate, order_by: [p.execution_target, p.effective_from]))
+      retention: Repo.one!(RetentionQuery.by_id(host_ref)),
+      slack: Repo.one!(SlackQuery.by_id(host_ref)),
+      github: Repo.one!(GitHubQuery.by_id(host_ref)),
+      publication: Repo.one!(PublicationQuery.by_id(host_ref)),
+      emisar_connections:
+        Repo.all(EmisarConnectionQuery.ordered_by_ref(EmisarConnectionQuery.all())),
+      report: Repo.one!(ReportQuery.by_id(host_ref)),
+      learning: Repo.one!(LearningQuery.by_id(host_ref)),
+      work: Repo.one!(WorkQuery.by_id(host_ref)),
+      repositories: Repo.all(RepositoryQuery.ordered_by_ref(RepositoryQuery.all())),
+      environments:
+        EnvironmentQuery.all()
+        |> EnvironmentQuery.ordered_by_ref()
+        |> EnvironmentQuery.with_repositories()
+        |> Repo.all(),
+      github_bindings: Repo.all(GitHubBindingQuery.ordered_by_name(GitHubBindingQuery.all())),
+      webhook_sources: Repo.all(WebhookSourceQuery.ordered_by_name(WebhookSourceQuery.all())),
+      pricing_rates: Repo.all(PricingRateQuery.ordered_by_target(PricingRateQuery.all()))
     }
   end
 
@@ -865,7 +869,7 @@ defmodule Ryker.Settings do
   defp broadcast_settings_saved, do: Repo.after_commit(&broadcast_saved_revision/0)
 
   defp broadcast_saved_revision do
-    case Repo.one(from(installation in Installation, select: installation.revision)) do
+    case Repo.one(InstallationQuery.select_revision()) do
       revision when is_integer(revision) ->
         Ryker.PubSub.broadcast(saves_topic(), {:settings_saved, revision})
 
@@ -892,16 +896,7 @@ defmodule Ryker.Settings do
   defp authorize("github:onboarding"), do: :ok
 
   defp authorize("slack:user:" <> user_ref) when byte_size(user_ref) in 1..255 do
-    saved =
-      Repo.one(
-        from(slack in Slack,
-          select: %{
-            chosen: slack.operators,
-            workspace_admins: slack.workspace_admins_manage,
-            workspace_ref: slack.workspace_ref
-          }
-        )
-      )
+    saved = Repo.one(SlackQuery.select_operators())
 
     with %{chosen: chosen} when is_list(chosen) <- saved,
          operators = Operators.new(Map.to_list(saved)),

@@ -9,7 +9,7 @@ defmodule Ryker.Observability.Queues do
   """
 
   import Ecto.Query
-  alias Ryker.Delivery.{RoutingResponse, RoutingResponseCustody}
+  alias Ryker.Delivery.RoutingResponseQuery
   alias Ryker.Emisar.Approval
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox
@@ -39,7 +39,9 @@ defmodule Ryker.Observability.Queues do
       fn -> status_queue(Turn, :work, [:pending], :inserted_at, now) end,
       fn -> status_queue(Turn, :cancellation, [:cancel_pending], :updated_at, now) end,
       fn -> status_queue(Turn, :delivery, [:delivery_pending], :accepted_at, now) end,
-      fn -> status_queue(RoutingResponse, :routing_delivery, [:pending], :inserted_at, now) end,
+      fn ->
+        status_queue(RoutingResponseQuery.all(), :routing_delivery, [:pending], :inserted_at, now)
+      end,
       fn ->
         status_queue(
           Publication,
@@ -203,7 +205,7 @@ defmodule Ryker.Observability.Queues do
 
   # A routing response waits for every earlier one of its message to be
   # delivered; only the next in line is claimable.
-  defp runnable(query, :routing_delivery, _now), do: RoutingResponseCustody.in_order(query)
+  defp runnable(query, :routing_delivery, _now), do: RoutingResponseQuery.in_order(query)
 
   defp runnable(query, :publication, now) do
     publications =
