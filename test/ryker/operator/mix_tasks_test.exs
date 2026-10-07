@@ -3,6 +3,7 @@ defmodule Ryker.Operator.MixTasksTest do
   import ExUnit.CaptureIO
   alias Mix.Tasks.Ryker.{Doctor, OperatorSupport, Replay, Retry, Status}
   alias Mix.Tasks.Ryker.Failures, as: FailuresTask
+  alias Ryker.Config
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Runtime.Assembly
@@ -270,13 +271,13 @@ defmodule Ryker.Operator.MixTasksTest do
           saved
       end
 
-    previous =
-      Map.new(Assembly.managed_keys(), &{&1, Application.fetch_env(:ryker, &1)})
+    # The task publishes what it applies; the applied snapshot goes back as it was.
+    previous = Map.new(Assembly.managed_keys(), &{&1, Config.fetch_env(&1)})
 
     on_exit(fn ->
       Enum.each(previous, fn
-        {key, {:ok, value}} -> Application.put_env(:ryker, key, value, persistent: true)
-        {key, :error} -> Application.delete_env(:ryker, key, persistent: true)
+        {key, {:ok, value}} -> Config.publish(key, value)
+        {key, :error} -> Config.withdraw(key)
       end)
     end)
 

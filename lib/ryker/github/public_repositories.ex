@@ -10,6 +10,7 @@ defmodule Ryker.GitHub.PublicRepositories do
   token may read a public repository.
   """
 
+  alias Ryker.Config
   alias Ryker.CoopFleet.JobSpec
   alias Ryker.Delivery.JSONClient
 
@@ -57,5 +58,5 @@ defmodule Ryker.GitHub.PublicRepositories do
   defp public(status, _body), do: {:error, {:github_api_error, status}}
 
   # GitHub itself; in tests, the replies each test records.
-  defp requester, do: Application.get_env(:ryker, :github_public_requester, JSONClient)
+  defp requester, do: Config.get_env(:github_public_requester, JSONClient)
 end

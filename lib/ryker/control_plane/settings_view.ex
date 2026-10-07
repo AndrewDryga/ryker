@@ -13,6 +13,7 @@ defmodule Ryker.ControlPlane.SettingsView do
   """
 
   import Ecto.Query
+  alias Ryker.Config
   alias Ryker.ControlPlane.{ChannelDirectory, Environments, Integrations, PageRead}
   alias Ryker.ControlPlane.ProductReadiness
   alias Ryker.CoopFleet.ControlPlane.Workers
@@ -160,9 +161,9 @@ defmodule Ryker.ControlPlane.SettingsView do
       # reaches the open page on its next refresh.
       slack_managers:
         Enum.map(snapshot.slack.operators, &Names.person(snapshot.slack.workspace_ref, &1)),
-      github_callback_url: Application.fetch_env!(:ryker, :github_public_url),
+      github_callback_url: Config.fetch_env!(:github_public_url),
       github_events: github_events(),
-      webhook_base_url: Application.fetch_env!(:ryker, :webhook_public_url),
+      webhook_base_url: Config.fetch_env!(:webhook_public_url),
       webhook_secret_names: registered_secret_names(credentials),
       worker_installs: worker_installs(),
       # Channels choose an environment in the Slack tables, so how many use

@@ -29,6 +29,14 @@ rollback does not release transaction-scoped advisory locks until the test ends,
 must not reuse shared fixture identities. Do not increase production lock timeouts to hide fixture
 collisions.
 
+A test that needs different configuration calls `Ryker.Config.put_override/2`. The override holds
+for the test's process and for the tasks, LiveViews and supervised children it starts, which find
+it through `$callers` and `$ancestors`, and it goes when the test ends, so there is nothing to
+restore. Code reads configuration through `Ryker.Config`, never `Application`, or the override
+never reaches it. Credo refuses `Application.put_env` in lib, evals and test: the application
+environment is one table for the whole VM, and a write races every async test reading it. Only
+the runtime's own `Ryker.Config.publish/2` writes it, when settings are applied.
+
 ## Deterministic repository gates
 
 Before committing, run:

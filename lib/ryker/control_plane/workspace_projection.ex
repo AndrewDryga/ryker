@@ -11,6 +11,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   """
 
   import Ecto.Query
+  alias Ryker.Config
   alias Ryker.ControlPlane.{Activity, PagedRelation, RepositoryNames}
   alias Ryker.CoopFleet.Worker, as: FleetWorker
   alias Ryker.Episodes.Episode
@@ -119,7 +120,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   def storage do
     now = Repo.now!()
     {next, due} = RetentionCustody.eligible_copies(now, @preview_limit)
-    settings = Application.get_env(:ryker, :retention, %{})
+    settings = Config.get_env(:retention, %{})
     names = RepositoryNames.all()
 
     %{

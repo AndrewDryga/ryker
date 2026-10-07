@@ -1,6 +1,7 @@
 defmodule Ryker.ControlPlane.ConversationMemoryReadOnlyTest do
   use Ryker.ConcurrencyCase, async: false
   alias Ecto.Adapters.SQL.Sandbox
+  alias Ryker.Config
   alias Ryker.Continuity
   alias Ryker.ControlPlane.ConversationMemory
   alias Ryker.Episodes.Episode
@@ -142,43 +143,36 @@ defmodule Ryker.ControlPlane.ConversationMemoryReadOnlyTest do
 
   test "an expired inherited receipt disables recall without erasing its readable history" do
     with_topics(fn fixture ->
-      previous = Application.get_env(:ryker, :retention)
-      Application.put_env(:ryker, :retention, %{conversation_memory_seconds: 3600})
+      Config.put_override(:retention, %{conversation_memory_seconds: 3600})
 
-      try do
-        copied = Repo.get!(ConversationKnowledge, fixture.inherited)
-        expired = DateTime.add(DateTime.utc_now(), -3601) |> DateTime.to_iso8601()
+      copied = Repo.get!(ConversationKnowledge, fixture.inherited)
+      expired = DateTime.add(DateTime.utc_now(), -3601) |> DateTime.to_iso8601()
 
-        # Inject age into the normalized inherited receipt, not its owner pointer.
-        for source <-
-              Repo.all(
-                from(s in Ryker.Knowledge.KnowledgeSource,
-                  where: s.knowledge_id == ^copied.id
-                )
-              ),
-            source.receipt["conversation_ref"] == fixture.source.destination_conversation_ref do
-          receipt = Map.put(source.receipt, "retained_at", expired)
+      # Inject age into the normalized inherited receipt, not its owner pointer.
+      for source <-
+            Repo.all(
+              from(s in Ryker.Knowledge.KnowledgeSource,
+                where: s.knowledge_id == ^copied.id
+              )
+            ),
+          source.receipt["conversation_ref"] == fixture.source.destination_conversation_ref do
+        receipt = Map.put(source.receipt, "retained_at", expired)
 
-          Repo.update!(
-            Ecto.Changeset.change(source,
-              receipt: receipt,
-              receipt_fingerprint: Ryker.CanonicalJSON.digest(receipt),
-              retained_at: DateTime.from_iso8601(expired) |> elem(1)
-            )
+        Repo.update!(
+          Ecto.Changeset.change(source,
+            receipt: receipt,
+            receipt_fingerprint: Ryker.CanonicalJSON.digest(receipt),
+            retained_at: DateTime.from_iso8601(expired) |> elem(1)
           )
-        end
-
-        view = ConversationMemory.project(%{"kind" => "knowledge", "item" => copied.id})
-        assert [%{available: false, text: text, expires_at: expires_at}] = view.items
-        assert text =~ "draft-ai-suggestions"
-        assert expires_at != nil
-        assert [%{version: 1}] = view.history
-        assert available?(fixture.local)
-      after
-        if previous,
-          do: Application.put_env(:ryker, :retention, previous),
-          else: Application.delete_env(:ryker, :retention)
+        )
       end
+
+      view = ConversationMemory.project(%{"kind" => "knowledge", "item" => copied.id})
+      assert [%{available: false, text: text, expires_at: expires_at}] = view.items
+      assert text =~ "draft-ai-suggestions"
+      assert expires_at != nil
+      assert [%{version: 1}] = view.history
+      assert available?(fixture.local)
     end)
   end
 

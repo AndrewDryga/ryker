@@ -4,9 +4,9 @@ defmodule Ryker.GitHub.RepositoryFilesTokenTest do
   repository and open pull requests, to read content anyone who can push there
   writes (2026-10-04 review). A read asks for a token that can only read.
   """
-  # Token minting is a named process and the file requester is application
-  # configuration, so this test runs alone.
+  # Token minting is a named process, so this test runs alone.
   use Ryker.DataCase, async: false
+  alias Ryker.Config
   alias Ryker.GitHub.{InstallationTokens, RepositoryFiles}
   alias Ryker.Settings
 
@@ -36,9 +36,7 @@ defmodule Ryker.GitHub.RepositoryFilesTokenTest do
 
   setup do
     {:ok, _snapshot} = Settings.initialize("control-plane:local")
-    previous = Application.fetch_env!(:ryker, :github_files_requester)
-    Application.put_env(:ryker, :github_files_requester, Files)
-    on_exit(fn -> Application.put_env(:ryker, :github_files_requester, previous) end)
+    Config.put_override(:github_files_requester, Files)
 
     start_supervised!(
       {InstallationTokens,

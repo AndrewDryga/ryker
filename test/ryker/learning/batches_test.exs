@@ -2,6 +2,7 @@ defmodule Ryker.Learning.BatchesTest do
   use Ryker.DataCase, async: false
   import Ecto.Query
   import Ryker.TestHelpers, only: [digest: 1]
+  alias Ryker.Config
   alias Ryker.Defaults
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Learning, as: Fixtures
@@ -446,15 +447,7 @@ defmodule Ryker.Learning.BatchesTest do
 
   test "expired replay inputs cannot occupy a current learning batch" do
     [expired, current] = inputs!()
-    previous = Application.get_env(:ryker, :retention)
-
-    on_exit(fn ->
-      if previous,
-        do: Application.put_env(:ryker, :retention, previous),
-        else: Application.delete_env(:ryker, :retention)
-    end)
-
-    Application.put_env(:ryker, :retention, %{conversation_memory_seconds: 3600})
+    Config.put_override(:retention, %{conversation_memory_seconds: 3600})
 
     Repo.update_all(
       from(o in ConversationObservation, where: o.source_input_id == ^expired.id),

@@ -1,6 +1,6 @@
 defmodule Ryker.Runtime.AssemblyIntegrationsTest do
   use Ryker.DataCase, async: false
-  alias Ryker.{Bootstrap, Credentials, Settings}
+  alias Ryker.{Bootstrap, Config, Credentials, Settings}
   alias Ryker.Emisar.ApprovalRuntime
   alias Ryker.Runtime.Assembly
 
@@ -16,9 +16,7 @@ defmodule Ryker.Runtime.AssemblyIntegrationsTest do
       System.delete_env("RYKER_STATE_TOOLS_TOKEN")
     end)
 
-    execution = Application.get_env(:ryker, :execution)
-    Application.put_env(:ryker, :execution, :fleet)
-    on_exit(fn -> Application.put_env(:ryker, :execution, execution) end)
+    Config.put_override(:execution, :fleet)
 
     :ok
   end

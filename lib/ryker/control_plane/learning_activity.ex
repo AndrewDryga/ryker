@@ -6,6 +6,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
   frozen attempts, each linked to its learning card on the Timeline. Read-only.
   """
   import Ecto.Query
+  alias Ryker.Config
   alias Ryker.ControlPlane.{Activity, ConversationMemory, ConversationProjection}
   alias Ryker.ControlPlane.{LearningRequests, PagedRelation, Paths, RepositoryNames}
   alias Ryker.Episodes.Episode
@@ -42,7 +43,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
   def project(params) do
     {waiting_count, waiting_at} = waiting_inputs()
     secrets = InspectionRedactor.configured_secrets()
-    enabled = not is_nil(Application.get_env(:ryker, :learning))
+    enabled = not is_nil(Config.get_env(:learning))
     worker_running = not is_nil(Process.whereis(Runtime))
     outcome = if List.keymember?(@outcomes, params["outcome"], 0), do: params["outcome"], else: ""
     selected = selected_batch(params, secrets)

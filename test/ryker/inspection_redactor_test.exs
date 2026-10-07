@@ -1,5 +1,6 @@
 defmodule Ryker.InspectionRedactorTest do
   use ExUnit.Case, async: true
+  alias Ryker.Config
   alias Ryker.ControlPlane.SlackMarkdown
   alias Ryker.InspectionRedactor
 
@@ -8,10 +9,9 @@ defmodule Ryker.InspectionRedactorTest do
   # read works them out once; the next read works them out again.
   test "a page read works out the configured secrets once" do
     secret = "memo-" <> Base.encode16(:crypto.strong_rand_bytes(12))
-    on_exit(fn -> Application.delete_env(:ryker, :memo_test_token) end)
 
     InspectionRedactor.with_configured_secrets(fn ->
-      Application.put_env(:ryker, :memo_test_token, secret)
+      Config.put_override(:memo_test_token, secret)
       refute secret in InspectionRedactor.configured_secrets()
     end)
 

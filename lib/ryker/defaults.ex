@@ -9,6 +9,8 @@ defmodule Ryker.Defaults do
   independently settable into an inconsistent combination.
   """
 
+  alias Ryker.Config
+
   @coop %{receive_timeout_ms: 30_000}
   @admission %{concurrency: 4, decision_timeout_ms: 30_000, poll_interval_ms: 250}
   @work %{capability_names: ["controller-tools"], concurrency: 4, poll_interval_ms: 250}
@@ -175,7 +177,7 @@ defmodule Ryker.Defaults do
   broken build and raises rather than quietly turning into a topology.
   """
   @spec execution() :: :fleet | :isolated
-  def execution, do: Application.fetch_env!(:ryker, :execution)
+  def execution, do: Config.fetch_env!(:execution)
 
   @doc "Raises when two defaults that must agree have drifted apart."
   @spec validate!() :: :ok

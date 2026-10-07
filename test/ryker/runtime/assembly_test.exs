@@ -4,7 +4,7 @@ defmodule Ryker.Runtime.AssemblyTest do
   # turn on, what they may never turn on, and what a refusal has to name.
   use Ryker.DataCase, async: false
   import Ecto.Query
-  alias Ryker.{Bootstrap, Credentials, IntegrationSetup, Secret, Settings}
+  alias Ryker.{Bootstrap, Config, Credentials, IntegrationSetup, Secret, Settings}
   alias Ryker.ControlPlane.CapabilityTools, as: ControlPlaneCapabilityTools
   alias Ryker.CoopFleet.JobTemplates
   alias Ryker.Ingress.WorkProfile
@@ -42,9 +42,7 @@ defmodule Ryker.Runtime.AssemblyTest do
 
     Enum.each(deployment, fn {name, value} -> put_variable(name, value) end)
 
-    execution = Application.get_env(:ryker, :execution)
-    Application.put_env(:ryker, :execution, :fleet)
-    on_exit(fn -> Application.put_env(:ryker, :execution, execution) end)
+    Config.put_override(:execution, :fleet)
 
     :ok
   end
@@ -374,12 +372,13 @@ defmodule Ryker.Runtime.AssemblyTest do
   test "publishing a configuration deletes the keys the new one does not carry" do
     # Leaving a key behind runs a previous deployment's binding under the new
     # configuration's name, which is invisible in every readiness check.
-    previous = Map.new(Assembly.managed_keys(), &{&1, Application.fetch_env(:ryker, &1)})
+    # Publishing is the one process-wide write; the applied snapshot goes back as it was.
+    previous = Map.new(Assembly.managed_keys(), &{&1, Config.fetch_env(&1)})
 
     on_exit(fn ->
       Enum.each(previous, fn
-        {key, {:ok, value}} -> Application.put_env(:ryker, key, value, persistent: true)
-        {key, :error} -> Application.delete_env(:ryker, key, persistent: true)
+        {key, {:ok, value}} -> Config.publish(key, value)
+        {key, :error} -> Config.withdraw(key)
       end)
     end)
 
@@ -387,8 +386,8 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert {:ok, configuration} = Assembly.build(bootstrap(), settings)
     Assembly.publish(configuration)
 
-    assert Application.get_env(:ryker, :slack).identity.workspace_ref == @workspace
-    assert Application.get_env(:ryker, :emisar)
+    assert Config.get_env(:slack).identity.workspace_ref == @workspace
+    assert Config.get_env(:emisar)
 
     {:ok, settings} =
       Settings.save_slack(%{enabled: false}, settings.installation.revision, @actor)
@@ -403,9 +402,9 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert {:ok, reduced} = Assembly.build(bootstrap(), disconnect_webhooks(settings))
     Assembly.publish(reduced)
 
-    assert Application.get_env(:ryker, :slack) == nil
-    assert Application.get_env(:ryker, :emisar) == nil
-    assert Application.get_env(:ryker, :work)
+    assert Config.get_env(:slack) == nil
+    assert Config.get_env(:emisar) == nil
+    assert Config.get_env(:work)
   end
 
   test "a clarification answer is authorized by the saved operator list, not by who asks" do

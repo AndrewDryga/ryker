@@ -2,6 +2,7 @@ defmodule Ryker.ControlPlane.KnowledgeRebuildTest do
   use Ryker.DataCase, async: false
   alias Phoenix.HTML.Safe
   alias Plug.Conn.Query
+  alias Ryker.Config
   alias Ryker.ControlPlane.{ConversationMemory, CSRF, LearnedPage, RelearnPanel, Router}
   alias Ryker.ControlPlane.{SlackMarkdown, SourceText}
   alias Ryker.Episodes.Episode
@@ -392,21 +393,13 @@ defmodule Ryker.ControlPlane.KnowledgeRebuildTest do
   end
 
   defp unavailable_with_current_original! do
-    previous = Application.get_env(:ryker, :learning)
-
-    Application.put_env(:ryker, :learning, %{
+    Config.put_override(:learning, %{
       api: __MODULE__,
       client: %{},
       worker_ref: "relearn-ui",
       policy: @settings.policy,
       policy_digest: @settings.policy_digest
     })
-
-    on_exit(fn ->
-      if previous,
-        do: Application.put_env(:ryker, :learning, previous),
-        else: Application.delete_env(:ryker, :learning)
-    end)
 
     raw =
       "testdata/learning/retained-draft-keep-thread.json"

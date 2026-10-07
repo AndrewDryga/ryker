@@ -1,6 +1,6 @@
 defmodule Ryker.Continuity.ContinuityRecallRegressionTest do
   use Ryker.DataCase, async: false
-  alias Ryker.{CanonicalJSON, Repo}
+  alias Ryker.{CanonicalJSON, Config, Repo}
   alias Ryker.Continuity
   alias Ryker.Continuity.ConversationRollup
   alias Ryker.Continuity.ConversationSummary
@@ -190,15 +190,7 @@ defmodule Ryker.Continuity.ContinuityRecallRegressionTest do
   end
 
   defp retention!(seconds) do
-    previous = Application.get_env(:ryker, :retention)
-
-    on_exit(fn ->
-      if previous,
-        do: Application.put_env(:ryker, :retention, previous),
-        else: Application.delete_env(:ryker, :retention)
-    end)
-
-    Application.put_env(:ryker, :retention, %{conversation_memory_seconds: seconds})
+    Config.put_override(:retention, %{conversation_memory_seconds: seconds})
   end
 
   defp invalid_clock(:nonzero_offset, at), do: String.replace(at, "Z", "+00:30")
@@ -341,15 +333,7 @@ defmodule Ryker.Continuity.ContinuityRecallRegressionTest do
   end
 
   test "expired newer continuity sources cannot consume search capacity ahead of an older match" do
-    previous = Application.get_env(:ryker, :retention)
-
-    on_exit(fn ->
-      if previous,
-        do: Application.put_env(:ryker, :retention, previous),
-        else: Application.delete_env(:ryker, :retention)
-    end)
-
-    Application.put_env(:ryker, :retention, %{conversation_memory_seconds: 3600})
+    Config.put_override(:retention, %{conversation_memory_seconds: 3600})
     joined!("C1")
     matching = summary!("expired-match", "slack:T123:C1", :public, @captured_situation)
     make_older!(matching)

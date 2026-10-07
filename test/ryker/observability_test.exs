@@ -4,6 +4,7 @@ defmodule Ryker.ObservabilityTest do
   import Plug.Test
   alias Ryker.Admission
   alias Ryker.Admission.Decision
+  alias Ryker.Config
   alias Ryker.ControlPlane.Router
   alias Ryker.CoopFleet.{Client, ControlPlane, Worker}
   alias Ryker.Delivery.RoutingResponseCustody
@@ -39,16 +40,11 @@ defmodule Ryker.ObservabilityTest do
   # (atom keys iterate by atom index, not by name), so the expectation iterates
   # maps with the same keys instead of assuming an alphabetical order.
   test "the probes answer the same bytes for the same installation" do
-    previous =
-      Map.new([:work, :slack], &{&1, Application.get_env(:ryker, &1, :missing)})
-
-    on_exit(fn -> Enum.each(previous, fn {key, value} -> restore_env(key, value) end) end)
-
     assert {:ok, client} =
              Client.new(capability_names: ["controller-tools"], workspace_ref: "workspace-probes")
 
-    Application.put_env(:ryker, :work, %{api: Client, client: client})
-    Application.delete_env(:ryker, :slack)
+    Config.put_override(:work, %{api: Client, client: client})
+    Config.put_override(:slack, nil)
 
     now = Repo.now!()
     ingress_at = DateTime.add(now, -7_200, :second)
@@ -494,14 +490,7 @@ defmodule Ryker.ObservabilityTest do
     assert Progress.record(:unknown_lane, :cycle) ==
              {:error, {:invalid_runtime_progress, :fields}}
 
-    previous = Application.get_env(:ryker, :work, :missing)
-    Application.put_env(:ryker, :work, %{enabled: true})
-
-    on_exit(fn ->
-      if previous == :missing,
-        do: Application.delete_env(:ryker, :work),
-        else: Application.put_env(:ryker, :work, previous)
-    end)
+    Config.put_override(:work, %{enabled: true})
 
     assert :ok = Progress.record(:work, :cycle)
     old = DateTime.add(DateTime.utc_now(), -3_600, :second)
@@ -559,7 +548,6 @@ defmodule Ryker.ObservabilityTest do
 
   test "fleet execution requires fresh compatible worker capacity" do
     workspace_ref = "workspace-observability"
-    previous_work = Application.get_env(:ryker, :work, :missing)
 
     assert {:ok, client} =
              Client.new(
@@ -567,11 +555,7 @@ defmodule Ryker.ObservabilityTest do
                workspace_ref: workspace_ref
              )
 
-    Application.put_env(:ryker, :work, %{api: Client, client: client})
-
-    on_exit(fn ->
-      restore_env(:work, previous_work)
-    end)
+    Config.put_override(:work, %{api: Client, client: client})
 
     assert {:error, unavailable} =
              Observability.ready(
@@ -696,9 +680,7 @@ defmodule Ryker.ObservabilityTest do
     # Readiness that only looks at what assembled would call a failed apply
     # healthy, which is exactly how an operator ends up debugging the wrong
     # code: the settings say one thing and the process is running another.
-    previous_learning = Application.get_env(:ryker, :learning, :missing)
-    on_exit(fn -> restore_env(:learning, previous_learning) end)
-    Application.put_env(:ryker, :learning, %{configured: true})
+    Config.put_override(:learning, %{configured: true})
 
     {:ok, saved} = Settings.initialize("control-plane:local")
     assert {:ok, _ready} = Observability.ready(check_progress: false, check_runtimes: false)
@@ -721,9 +703,7 @@ defmodule Ryker.ObservabilityTest do
   end
 
   test "an integration this installation turned on but never started is named" do
-    previous_slack = Application.get_env(:ryker, :slack, :missing)
-    on_exit(fn -> restore_env(:slack, previous_slack) end)
-    Application.delete_env(:ryker, :slack)
+    Config.put_override(:slack, nil)
 
     {:ok, saved} = Settings.initialize("control-plane:local")
 
@@ -780,17 +760,8 @@ defmodule Ryker.ObservabilityTest do
       :work
     ]
 
-    previous = Map.new(keys, &{&1, Application.get_env(:ryker, &1, :missing)})
-
-    on_exit(fn ->
-      Enum.each(previous, fn
-        {key, :missing} -> Application.delete_env(:ryker, key)
-        {key, value} -> Application.put_env(:ryker, key, value)
-      end)
-    end)
-
-    Enum.each(keys, &Application.put_env(:ryker, &1, %{enabled: true}))
-    Application.put_env(:ryker, :schedules, false)
+    Enum.each(keys, &Config.put_override(&1, %{enabled: true}))
+    Config.put_override(:schedules, false)
 
     assert {:error, readiness} =
              Observability.ready(check_runtimes: true, stall_after_seconds: 86_400)
@@ -829,17 +800,8 @@ defmodule Ryker.ObservabilityTest do
       :work
     ]
 
-    previous = Map.new(keys, &{&1, Application.get_env(:ryker, &1, :missing)})
-
-    on_exit(fn ->
-      Enum.each(previous, fn
-        {key, :missing} -> Application.delete_env(:ryker, key)
-        {key, value} -> Application.put_env(:ryker, key, value)
-      end)
-    end)
-
-    Enum.each(keys, &Application.put_env(:ryker, &1, false))
-    Application.put_env(:ryker, :admission, %{enabled: true})
+    Enum.each(keys, &Config.put_override(&1, false))
+    Config.put_override(:admission, %{enabled: true})
 
     assert {:ok, _runtime} =
              Agent.start_link(fn -> :healthy end, name: Ryker.Admission.Runtime)
@@ -861,17 +823,8 @@ defmodule Ryker.ObservabilityTest do
     keys = ~w(admission coop_worker_gateway control_plane delivery emisar event_waits github
               learning publication retention schedules slack webhooks work)a
 
-    previous = Enum.map(keys, &{&1, Application.get_env(:ryker, &1, :missing)})
-
-    on_exit(fn ->
-      Enum.each(previous, fn
-        {key, :missing} -> Application.delete_env(:ryker, key)
-        {key, value} -> Application.put_env(:ryker, key, value)
-      end)
-    end)
-
-    Enum.each(keys, &Application.put_env(:ryker, &1, false))
-    Application.put_env(:ryker, :control_plane, %{enabled: true})
+    Enum.each(keys, &Config.put_override(&1, false))
+    Config.put_override(:control_plane, %{enabled: true})
 
     # The owner starts its children in the shared dynamic supervisor, so this
     # test cleans up both: a console left listening collides with every other
@@ -911,17 +864,8 @@ defmodule Ryker.ObservabilityTest do
     keys = ~w(admission coop_worker_gateway control_plane delivery emisar event_waits github
               learning publication retention schedules slack webhooks work)a
 
-    previous = Enum.map(keys, &{&1, Application.get_env(:ryker, &1, :missing)})
-
-    on_exit(fn ->
-      Enum.each(previous, fn
-        {key, :missing} -> Application.delete_env(:ryker, key)
-        {key, value} -> Application.put_env(:ryker, key, value)
-      end)
-    end)
-
-    Enum.each(keys, &Application.put_env(:ryker, &1, false))
-    Application.put_env(:ryker, :webhooks, %{enabled: true})
+    Enum.each(keys, &Config.put_override(&1, false))
+    Config.put_override(:webhooks, %{enabled: true})
 
     supervisor = Process.whereis(Ryker.Runtime.Supervisor)
 
@@ -955,17 +899,8 @@ defmodule Ryker.ObservabilityTest do
     keys = ~w(admission coop_worker_gateway control_plane delivery emisar event_waits github
               learning publication retention schedules slack webhooks work)a
 
-    previous = Enum.map(keys, &{&1, Application.get_env(:ryker, &1, :missing)})
-
-    on_exit(fn ->
-      Enum.each(previous, fn
-        {key, :missing} -> Application.delete_env(:ryker, key)
-        {key, value} -> Application.put_env(:ryker, key, value)
-      end)
-    end)
-
-    Enum.each(keys, &Application.put_env(:ryker, &1, false))
-    Application.put_env(:ryker, :webhooks, %{enabled: true})
+    Enum.each(keys, &Config.put_override(&1, false))
+    Config.put_override(:webhooks, %{enabled: true})
 
     supervisor = Process.whereis(Ryker.Runtime.Supervisor)
 
@@ -1141,19 +1076,13 @@ defmodule Ryker.ObservabilityTest do
   # still advertised free session slots — so readiness said "ready" and nothing
   # alerted. A fleet that cannot allocate a workspace cannot start any work.
   test "a fleet whose every worker refuses storage is not ready" do
-    previous_work = Application.get_env(:ryker, :work, :missing)
-
     assert {:ok, client} =
              Client.new(
                capability_names: ["controller-tools"],
                workspace_ref: "workspace-refused"
              )
 
-    Application.put_env(:ryker, :work, %{api: Client, client: client})
-
-    on_exit(fn ->
-      restore_env(:work, previous_work)
-    end)
+    Config.put_override(:work, %{api: Client, client: client})
 
     assert {:ok, _worker} =
              ControlPlane.authorize_worker(
@@ -1413,9 +1342,6 @@ defmodule Ryker.ObservabilityTest do
     |> Map.put(:remote_ip, {127, 0, 0, 1})
     |> Router.call(Router.init(options))
   end
-
-  defp restore_env(key, :missing), do: Application.delete_env(:ryker, key)
-  defp restore_env(key, value), do: Application.put_env(:ryker, key, value)
 
   # A real listener needs a real port; the owner starts the console before any
   # settings exist, which is exactly the state this test drives.

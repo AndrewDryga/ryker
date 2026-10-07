@@ -7,6 +7,7 @@ defmodule Ryker.Credentials do
   """
 
   import Ecto.Query
+  alias Ryker.Config
   alias Ryker.Credential
   alias Ryker.Credential.Event
   alias Ryker.Crypto
@@ -308,7 +309,7 @@ defmodule Ryker.Credentials do
   defp validate_actor(_actor_ref), do: {:error, :credential_actor_invalid}
 
   defp root_key do
-    case Application.fetch_env(:ryker, :credential_key) do
+    case Config.fetch_env(:credential_key) do
       {:ok, key} when is_binary(key) and byte_size(key) == 32 -> key
       _missing_or_invalid -> raise "RYKER_CREDENTIAL_KEY is missing or invalid"
     end

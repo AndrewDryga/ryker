@@ -42,6 +42,7 @@ defmodule Ryker.WeeklyReport do
   """
 
   import Ecto.Query
+  alias Ryker.Config
   alias Ryker.Repo
   alias Ryker.Settings.{Report, Slack}
   alias Ryker.WeeklyReport.{Custody, Digest, Facts, Schedule}
@@ -218,7 +219,7 @@ defmodule Ryker.WeeklyReport do
 
   @doc "The console's address the report's links start with."
   @spec base_url() :: String.t()
-  def base_url, do: Application.get_env(:ryker, :control_public_url, "http://127.0.0.1:4321")
+  def base_url, do: Config.get_env(:control_public_url, "http://127.0.0.1:4321")
 
   defp database(options),
     do: Keyword.get_lazy(options, :time_zone_database, &Calendar.get_time_zone_database/0)

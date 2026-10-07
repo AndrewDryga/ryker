@@ -10,6 +10,7 @@ defmodule Ryker.Evals.LearningRunner do
   import Ecto.Query
   alias Ryker.Admission.Decision
   alias Ryker.CanonicalJSON
+  alias Ryker.Config
   alias Ryker.Crypto
   alias Ryker.Evals.{Job, LearningProbe}
   alias Ryker.Ingress.Inbox.{Entry, EntryChangeset}
@@ -184,7 +185,7 @@ defmodule Ryker.Evals.LearningRunner do
       not Regex.match?(~r/\Aryker_(?:learning_eval|test)_[a-z0-9_]+\z/, database) ->
         {:error, :learning_eval_requires_disposable_database}
 
-      Enum.any?(@runtime_keys, &Application.get_env(:ryker, &1)) ->
+      Enum.any?(@runtime_keys, &Config.get_env(&1)) ->
         {:error, :learning_eval_background_runtime_configured}
 
       problem = option_problem(options) ->

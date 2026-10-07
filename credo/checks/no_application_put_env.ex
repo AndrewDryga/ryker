@@ -4,26 +4,29 @@ defmodule Ryker.Checks.NoApplicationPutEnv do
     category: :warning,
     explanations: [
       check: """
-      No `Application.put_env` / `delete_env` / `put_all_env` in lib or test.
-      Mutating global application env at runtime is process-global, so it races
-      under `async: true` and forces the tests that touch it serial.
+      No `Application.put_env` / `delete_env` / `put_all_env` in lib, evals or
+      test. The application environment is one table for the whole VM, so a
+      test that writes it races every `async: true` test reading the same key,
+      and a restore in `on_exit` runs after the next test may already have read
+      the wrong value.
 
-      Config a test (or dev) must override flows through the `Ryker.Config`
-      seam: read with `Ryker.Config.get_env/3` / `fetch_env!/2`, override with
-      `Ryker.Config.put_override/3` (test-only, scoped to the calling process
-      and resolved across `$callers` / the sandbox `user-agent`). A third-party
-      library that reads its own app env (e.g. a Swoosh adapter) gets a
-      process-driven test double, not a global swap.
+      Configuration goes through `Ryker.Config`. Code reads with
+      `Ryker.Config.get_env/2` / `fetch_env!/1`; a test overrides with
+      `Ryker.Config.put_override/2`, which holds for the calling test and the
+      processes it reaches through `$callers` and `$ancestors`, and goes with
+      the test. `Ryker.Config.publish/2` and `withdraw/1` are the one writer, for
+      the settings `Ryker.Runtime.Assembly` applies. A library that reads its
+      own application environment gets a test double, not a global swap.
       """
     ]
 
   @forbidden [:put_env, :delete_env, :put_all_env]
+  @scopes ["/lib/", "/evals/", "/test/"]
 
   @doc false
   @impl true
   def run(%SourceFile{} = source_file, params) do
-    if String.contains?("/" <> source_file.filename, "/lib/") or
-         String.contains?("/" <> source_file.filename, "/test/") do
+    if String.contains?("/" <> source_file.filename, @scopes) do
       ctx = Context.build(source_file, params, __MODULE__)
       result = Credo.Code.prewalk(source_file, &walk/2, ctx)
       result.issues
@@ -43,9 +46,9 @@ defmodule Ryker.Checks.NoApplicationPutEnv do
     format_issue(
       ctx,
       message:
-        "Application.#{fun} mutates process-global app env (races under async) — " <>
-          "override config with Ryker.Config.put_override/3 (test-scoped) and read " <>
-          "through Ryker.Config.get_env/fetch_env!.",
+        "Application.#{fun} changes configuration for every process at once. " <>
+          "Override it for one test with Ryker.Config.put_override/2 and read " <>
+          "it through Ryker.Config.get_env/2 or fetch_env!/1.",
       trigger: "Application.#{fun}",
       line_no: meta[:line],
       column: meta[:column]

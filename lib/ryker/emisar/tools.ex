@@ -22,6 +22,7 @@ defmodule Ryker.Emisar.Tools do
   """
 
   import Bitwise
+  alias Ryker.Config
   alias Ryker.{Credentials, Rescued}
   alias Ryker.Crypto
   alias Ryker.Delivery.JSONClient
@@ -246,7 +247,7 @@ defmodule Ryker.Emisar.Tools do
   defp never_sent?({:invalid_delivery_json_request, _field}), do: true
   defp never_sent?(_reason), do: false
 
-  defp requester, do: Application.get_env(:ryker, :emisar_requester, JSONClient)
+  defp requester, do: Config.get_env(:emisar_requester, JSONClient)
 
   defp key(ref) do
     case Credentials.fetch(:emisar, ref) do

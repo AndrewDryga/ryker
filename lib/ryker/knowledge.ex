@@ -7,6 +7,7 @@ defmodule Ryker.Knowledge do
   """
   import Ecto.Query
   alias Ryker.{CanonicalJSON, Repo}
+  alias Ryker.Config
   alias Ryker.Crypto
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Knowledge.ConversationKnowledge
@@ -1148,7 +1149,7 @@ defmodule Ryker.Knowledge do
   defp id(_), do: nil
 
   defp retention_seconds do
-    settings = Application.get_env(:ryker, :retention) || %{}
+    settings = Config.get_env(:retention) || %{}
 
     value =
       if is_list(settings),

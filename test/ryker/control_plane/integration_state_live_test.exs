@@ -15,6 +15,7 @@ defmodule Ryker.ControlPlane.IntegrationStateLiveTest do
   use Ryker.DataCase, async: false
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
+  alias Ryker.Config
   alias Ryker.ControlPlane.{Actions, ChannelsPage, Endpoint, Integrations, Projection}
   alias Ryker.ControlPlane.{SettingsPage, SettingsView}
   alias Ryker.Credentials
@@ -291,17 +292,8 @@ defmodule Ryker.ControlPlane.IntegrationStateLiveTest do
   # What the runtime published when it applied the saved settings, put back
   # the way it was after the test.
   defp published_left_out!(left_out) do
-    previous = Application.fetch_env(:ryker, :integrations_left_out)
-
-    on_exit(fn ->
-      case previous do
-        {:ok, value} -> Application.put_env(:ryker, :integrations_left_out, value)
-        :error -> Application.delete_env(:ryker, :integrations_left_out)
-      end
-    end)
-
     :ok = Settings.record_application(Settings.fetch!().installation.revision, :ok)
-    Application.put_env(:ryker, :integrations_left_out, left_out)
+    Config.put_override(:integrations_left_out, left_out)
   end
 
   # A verified GitHub App, switched on, as adding its first repository leaves it.

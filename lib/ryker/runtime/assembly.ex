@@ -16,6 +16,7 @@ defmodule Ryker.Runtime.Assembly do
 
   require Logger
   alias Ryker.Bootstrap
+  alias Ryker.Config
   alias Ryker.ControlPlane.Actor, as: ControlPlaneActor
   alias Ryker.ControlPlane.CapabilityTools, as: ControlPlaneCapabilityTools
   alias Ryker.ControlPlane.ConversationLab
@@ -107,8 +108,8 @@ defmodule Ryker.Runtime.Assembly do
   def publish(configuration) do
     Enum.each(@managed_keys, fn key ->
       case Map.fetch(configuration, key) do
-        {:ok, value} -> Application.put_env(:ryker, key, value, persistent: true)
-        :error -> Application.delete_env(:ryker, key, persistent: true)
+        {:ok, value} -> Config.publish(key, value)
+        :error -> Config.withdraw(key)
       end
     end)
   end

@@ -3,6 +3,7 @@ defmodule Ryker.Learning.LearningFailureTest do
   import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query
   alias Ryker.CanonicalJSON
+  alias Ryker.Config
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Ingress.Inbox.Entry
@@ -496,9 +497,7 @@ defmodule Ryker.Learning.LearningFailureTest do
     do: Repo.update!(Ecto.Changeset.change(entry, repository_ref: "other-repository"))
 
   defp change_source!(entry, :expiry) do
-    prior = Application.get_env(:ryker, :retention)
-    Application.put_env(:ryker, :retention, %{conversation_memory_seconds: 3600})
-    on_exit(fn -> Application.put_env(:ryker, :retention, prior) end)
+    Config.put_override(:retention, %{conversation_memory_seconds: 3600})
     observation = Repo.get!(ConversationObservation, entry.id)
 
     Repo.update!(

@@ -3,6 +3,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
   import Ecto.Query
   import Ryker.TestHelpers, only: [digest: 1, eventually: 2]
   import ExUnit.CaptureLog
+  alias Ryker.Config
   alias Ryker.ControlPlane.{FailureExplanation, FailureProjection, InstructionSettings}
   alias Ryker.Delivery.{Adapters, Dispatcher, JSONClient}
   alias Ryker.Episodes
@@ -2413,15 +2414,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
   # Host notes go through the delivery adapters every reply uses: here
   # Slack's own publisher, over this test's Slack.
   defp publish_through_slack!(agent) do
-    previous = Application.fetch_env(:ryker, :delivery)
-    Application.put_env(:ryker, :delivery, %{adapters: slack_registrations(agent)})
-
-    on_exit(fn ->
-      case previous do
-        {:ok, value} -> Application.put_env(:ryker, :delivery, value)
-        :error -> Application.delete_env(:ryker, :delivery)
-      end
-    end)
+    Config.put_override(:delivery, %{adapters: slack_registrations(agent)})
   end
 
   defp slack_registrations(agent) do

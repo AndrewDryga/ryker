@@ -4,6 +4,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
   import Ecto.Query
   require Phoenix.LiveViewTest
   alias Ryker.CanonicalJSON
+  alias Ryker.Config
   alias Ryker.ControlPlane.{Activity, BehaviorLibrary, ChannelDetail, ChannelDirectory}
   alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, FailureProjection, FindingsProjection}
   alias Ryker.ControlPlane.{IncidentProjection, MemoryProjection, OverviewProjection}
@@ -1007,14 +1008,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
     episode = Repo.get!(Ryker.Episodes.Episode, turn.episode_id)
     secret = "trace-password-that-must-not-render"
-    previous = Application.get_env(:ryker, :episode_trace_test)
-    Application.put_env(:ryker, :episode_trace_test, %{token: secret})
-
-    on_exit(fn ->
-      if is_nil(previous),
-        do: Application.delete_env(:ryker, :episode_trace_test),
-        else: Application.put_env(:ryker, :episode_trace_test, previous)
-    end)
+    Config.put_override(:episode_trace_test, %{token: secret})
 
     document = %{
       "delivery" => "reply",
@@ -1124,22 +1118,11 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
     episode = Repo.get!(Ryker.Episodes.Episode, turn.episode_id)
     key = :episode_trace_struct_regression
-    previous = Application.get_env(:ryker, key, :missing)
 
-    Application.put_env(
-      :ryker,
-      key,
-      %{
-        :client => %Ryker.Slack.Client{http: :opaque, requester: Ryker.Slack.Client},
-        {"read_only", nil} => []
-      }
-    )
-
-    on_exit(fn ->
-      if previous == :missing,
-        do: Application.delete_env(:ryker, key),
-        else: Application.put_env(:ryker, key, previous)
-    end)
+    Config.put_override(key, %{
+      :client => %Ryker.Slack.Client{http: :opaque, requester: Ryker.Slack.Client},
+      {"read_only", nil} => []
+    })
 
     Repo.update_all(
       from(saved in Ryker.Work.Turn, where: saved.id == ^turn.id),
@@ -1683,14 +1666,9 @@ defmodule Ryker.ControlPlane.ProjectionTest do
   end
 
   test "operator workbench joins incidents schedules channels and repository freshness without payload leaks" do
-    configuration_keys = [:control_plane, :schedules]
-
-    previous_configuration =
-      Map.new(configuration_keys, &{&1, Application.get_env(:ryker, &1, :missing)})
-
     # The running configuration keys task policies by environment and then by
     # the repository a task changes.
-    Application.put_env(:ryker, :control_plane, %{
+    Config.put_override(:control_plane, %{
       task_policies: %{
         "production" => %{
           "ryker" => %{name: "ryker-contributor", digest: String.duplicate("c", 64)}
@@ -1698,16 +1676,9 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       }
     })
 
-    Application.put_env(:ryker, :schedules, %{
+    Config.put_override(:schedules, %{
       repositories: %{"ryker" => %{"name" => "ryker-scheduled"}}
     })
-
-    on_exit(fn ->
-      Enum.each(previous_configuration, fn
-        {key, :missing} -> Application.delete_env(:ryker, key)
-        {key, value} -> Application.put_env(:ryker, key, value)
-      end)
-    end)
 
     source = start_episode!("operator-workbench")
 
@@ -2407,15 +2378,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
   # the same payload straight off the row, so a credential someone asked Ryker
   # to remember rendered in full on one page and as `[redacted]` on the next.
   test "operational memory is redacted like every other retained text" do
-    previous = Application.get_env(:ryker, :memory_redaction_probe, :missing)
-
-    Application.put_env(:ryker, :memory_redaction_probe, %{api_token: "remembered-credential-9f3"})
-
-    on_exit(fn ->
-      if previous == :missing,
-        do: Application.delete_env(:ryker, :memory_redaction_probe),
-        else: Application.put_env(:ryker, :memory_redaction_probe, previous)
-    end)
+    Config.put_override(:memory_redaction_probe, %{api_token: "remembered-credential-9f3"})
 
     id = Ecto.UUID.generate()
 

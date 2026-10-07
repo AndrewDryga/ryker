@@ -17,6 +17,7 @@ defmodule Ryker.Slack.Runtime do
   alias Ryker.Artifacts
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Automations
+  alias Ryker.Config
   alias Ryker.Delivery.{BinaryClient, JSONClient}
   alias Ryker.Episodes.Reactions
   alias Ryker.Episodes.Scope, as: WorkspaceScope
@@ -115,7 +116,7 @@ defmodule Ryker.Slack.Runtime do
   """
   @spec redraw_welcome(String.t(), String.t(), pid()) :: :ok | {:error, :slack_not_running}
   def redraw_welcome(workspace_ref, channel_ref, reply_to) do
-    with %{} = configuration <- Application.get_env(:ryker, :slack),
+    with %{} = configuration <- Config.get_env(:slack),
          tasks when is_pid(tasks) <- Process.whereis(@tasks) do
       setup = options!(configuration).handler_settings.setup_options
 
@@ -139,7 +140,7 @@ defmodule Ryker.Slack.Runtime do
   """
   @spec leave_channel(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def leave_channel(workspace_ref, channel_ref) do
-    with %{} = configuration <- Application.get_env(:ryker, :slack),
+    with %{} = configuration <- Config.get_env(:slack),
          tasks when is_pid(tasks) <- Process.whereis(@tasks) do
       setup = options!(configuration).handler_settings.setup_options
       ChannelSetup.leave(workspace_ref, channel_ref, setup)

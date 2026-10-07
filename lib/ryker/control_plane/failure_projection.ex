@@ -7,6 +7,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   """
 
   import Ecto.Query
+  alias Ryker.Config
   alias Ryker.ControlPlane.{Activity, LearningActivity, ProductReadiness, RepositoryNames}
   alias Ryker.CoopFleet.{JobAuthority, Placement, Worker}
   alias Ryker.Credentials
@@ -1287,7 +1288,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   # was replaced after monitoring stopped, and when the approval expires.
   defp emisar_state(items) do
     monitored =
-      case Application.get_env(:ryker, :emisar) do
+      case Config.get_env(:emisar) do
         %{connections: connections} -> MapSet.new(connections, & &1.connection_ref)
         _none -> MapSet.new()
       end
@@ -1308,7 +1309,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
 
   # The repositories the running configuration can publish to right now.
   defp publishing_repositories do
-    case Application.get_env(:ryker, :publication) do
+    case Config.get_env(:publication) do
       %{repositories: repositories} when is_map(repositories) ->
         MapSet.new(Map.keys(repositories))
 

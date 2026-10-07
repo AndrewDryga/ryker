@@ -24,6 +24,8 @@ defmodule Ryker.Transcription do
   waits for that, for `wait_seconds/0` at most (`Ryker.Ingress.Inbox`).
   """
 
+  alias Ryker.Config
+
   @maximum_bytes 8 * 1_024 * 1_024
   @maximum_seconds 300
   # Five minutes of fast speech is about 5 KB of text.
@@ -47,7 +49,7 @@ defmodule Ryker.Transcription do
   names, so no test runs a model.
   """
   @spec transcriber() :: module()
-  def transcriber, do: Application.get_env(:ryker, :transcriber, Ryker.Transcription.Service)
+  def transcriber, do: Config.get_env(:transcriber, Ryker.Transcription.Service)
 
   @spec maximum_bytes() :: pos_integer()
   def maximum_bytes, do: @maximum_bytes

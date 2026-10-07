@@ -2,7 +2,7 @@ defmodule Ryker.Runtime.OwnerTest do
   use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [eventually: 1, eventually: 2]
   alias Ecto.Adapters.SQL.Sandbox
-  alias Ryker.{Bootstrap, Credentials, Repo, Settings}
+  alias Ryker.{Bootstrap, Config, Credentials, Repo, Settings}
   alias Ryker.ControlPlane.Endpoint
   alias Ryker.Runtime.{Assembly, Owner}
   alias Ryker.Slack.Names
@@ -25,9 +25,7 @@ defmodule Ryker.Runtime.OwnerTest do
 
     # The product topology places Work on the enrolled fleet; the isolated test
     # topology has no Work lane to assemble at all.
-    execution = Application.get_env(:ryker, :execution)
-    Application.put_env(:ryker, :execution, :fleet)
-    on_exit(fn -> Application.put_env(:ryker, :execution, execution) end)
+    Config.put_override(:execution, :fleet)
 
     # The applied configuration is global process state; each case starts from
     # nothing so "published" means this owner published it.
@@ -47,8 +45,8 @@ defmodule Ryker.Runtime.OwnerTest do
     assert Owner.reconcile(owner) == {:ok, :not_initialized}
     assert Owner.applied_revision(owner) == nil
     assert console_running?(supervisor)
-    assert Application.get_env(:ryker, :work) == nil
-    assert Application.get_env(:ryker, :slack) == nil
+    assert Config.get_env(:work) == nil
+    assert Config.get_env(:slack) == nil
   end
 
   # mac-server, 2026-10-01: a setup page reached at the address Compose published, not the
@@ -85,7 +83,7 @@ defmodule Ryker.Runtime.OwnerTest do
       )
 
     assert applied(owner, added)
-    assert Map.has_key?(Application.get_env(:ryker, :control_plane).environments, "staging")
+    assert Map.has_key?(Config.get_env(:control_plane).environments, "staging")
     assert console_pids(supervisor) == console
   end
 
@@ -132,7 +130,7 @@ defmodule Ryker.Runtime.OwnerTest do
     assert applied(owner, edited)
     assert {:ok, reapplied} = Settings.fetch()
     assert Settings.application_status(reapplied) == :applied
-    assert Application.get_env(:ryker, :retention).audit_data_seconds == 60 * 86_400
+    assert Config.get_env(:retention).audit_data_seconds == 60 * 86_400
   end
 
   # Nothing told the owner about a save. It reconciled once at boot and again
@@ -160,7 +158,7 @@ defmodule Ryker.Runtime.OwnerTest do
     assert eventually(fn -> Owner.applied_revision(owner) == edited.installation.revision end)
     assert {:ok, applied} = Settings.fetch()
     assert Settings.application_status(applied) == :applied
-    assert Application.get_env(:ryker, :retention).audit_data_seconds == 60 * 86_400
+    assert Config.get_env(:retention).audit_data_seconds == 60 * 86_400
   end
 
   # A console port held by another process made the owner log one warning,
@@ -267,12 +265,12 @@ defmodule Ryker.Runtime.OwnerTest do
     assert Settings.application_status(failed) == {:failed, :assembly_failed}
     assert failed.installation.applied_revision == saved.installation.revision
     assert Owner.applied_revision(owner) == saved.installation.revision
-    assert Application.get_env(:ryker, :event_waits)
+    assert Config.get_env(:event_waits)
   end
 
   # Production ran for weeks with every Slack user, channel and workspace in the
   # control plane rendering as a kind — "Slack user", "Slack channel" — because
-  # the name cache reads `Application.get_env(:ryker, :slack)` in `init` and
+  # the name cache reads `Config.get_env(:slack)` in `init` and
   # the children were started one line before that configuration was published.
   # It declined with `:ignore`, which is permanent: nothing restarts a runtime
   # whose own configuration never changed again.
@@ -299,7 +297,7 @@ defmodule Ryker.Runtime.OwnerTest do
       )
 
     assert applied(owner, connected)
-    assert is_map(Application.get_env(:ryker, :slack))
+    assert is_map(Config.get_env(:slack))
     assert is_pid(Process.whereis(Names))
   end
 
@@ -323,7 +321,7 @@ defmodule Ryker.Runtime.OwnerTest do
       )
 
     assert applied(owner, verified)
-    refute Application.get_env(:ryker, :slack)
+    refute Config.get_env(:slack)
     assert :ok = Names.remember([{"T0123456789", "U1111111111", "Andrew"}])
     assert Names.name("T0123456789", "U1111111111") == "@Andrew"
 
@@ -335,7 +333,7 @@ defmodule Ryker.Runtime.OwnerTest do
       )
 
     assert applied(owner, chosen)
-    assert is_map(Application.get_env(:ryker, :slack))
+    assert is_map(Config.get_env(:slack))
     assert Names.name("T0123456789", "U1111111111") == "@Andrew"
 
     {:ok, rechosen} =
@@ -363,12 +361,7 @@ defmodule Ryker.Runtime.OwnerTest do
     owner
   end
 
-  defp clear_published do
-    Enum.each(
-      Assembly.managed_keys(),
-      &Application.delete_env(:ryker, &1, persistent: true)
-    )
-  end
+  defp clear_published, do: Enum.each(Assembly.managed_keys(), &Config.withdraw/1)
 
   # The owner applies a save it hears about on its own; an explicit reconcile
   # after that answers :unchanged. Either way the revision must end up running.

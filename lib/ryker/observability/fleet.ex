@@ -10,6 +10,7 @@ defmodule Ryker.Observability.Fleet do
   """
 
   import Ecto.Query
+  alias Ryker.Config
   alias Ryker.CoopFleet.{Command, Placement, Worker, WorkspaceCheckpointTransfer}
   alias Ryker.Defaults
   alias Ryker.Observability.Reads
@@ -176,7 +177,7 @@ defmodule Ryker.Observability.Fleet do
   defp parse_measured_at(_value), do: nil
 
   defp settings do
-    case Application.get_env(:ryker, :work) do
+    case Config.get_env(:work) do
       %{
         api: Ryker.CoopFleet.Client,
         client: %Ryker.CoopFleet.Client{bridge_options: options}

@@ -11,6 +11,7 @@ defmodule Ryker.ControlPlane.ProductReadiness do
   identities, policy names, credentials, or queue data.
   """
 
+  alias Ryker.Config
   alias Ryker.Observability
   alias Ryker.Settings
   alias Ryker.Slack.Gateway
@@ -40,14 +41,14 @@ defmodule Ryker.ControlPlane.ProductReadiness do
 
   @spec current(Settings.snapshot()) :: t()
   def current(snapshot) do
-    control_plane = Application.get_env(:ryker, :control_plane)
-    slack = Application.get_env(:ryker, :slack)
+    control_plane = Config.get_env(:control_plane)
+    slack = Config.get_env(:slack)
 
     runtime = %{
       chat_profile: if(is_map(control_plane), do: chat_profile(control_plane)),
       slack_configured: is_map(slack),
       slack_connected: Gateway.connected?(),
-      integrations_left_out: Application.get_env(:ryker, :integrations_left_out, %{})
+      integrations_left_out: Config.get_env(:integrations_left_out, %{})
     }
 
     from(snapshot, Observability.fleet(), runtime)
@@ -149,7 +150,7 @@ defmodule Ryker.ControlPlane.ProductReadiness do
     %{
       chat: chat,
       slack: %{state: :unknown},
-      left_out: Application.get_env(:ryker, :integrations_left_out, %{})
+      left_out: Config.get_env(:integrations_left_out, %{})
     }
   end
 end

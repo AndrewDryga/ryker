@@ -1,6 +1,7 @@
 defmodule Ryker.CredentialsTest do
   use Ryker.DataCase, async: false
   import Ecto.Query
+  alias Ryker.Config
   alias Ryker.Credential
   alias Ryker.Credential.Event
   alias Ryker.Credentials
@@ -9,9 +10,7 @@ defmodule Ryker.CredentialsTest do
   @secret "xoxb-super-secret-value-that-must-never-render"
 
   setup do
-    previous = Application.fetch_env!(:ryker, :credential_key)
-    Application.put_env(:ryker, :credential_key, :binary.copy(<<21>>, 32))
-    on_exit(fn -> Application.put_env(:ryker, :credential_key, previous) end)
+    Config.put_override(:credential_key, :binary.copy(<<21>>, 32))
   end
 
   test "credentials round trip, replace and delete without exposing plaintext" do
@@ -44,9 +43,9 @@ defmodule Ryker.CredentialsTest do
   test "wrong keys, ciphertext tampering and record relocation fail closed" do
     assert {:ok, _metadata} = Credentials.put(:emisar, "primary", @secret, @actor)
 
-    Application.put_env(:ryker, :credential_key, :binary.copy(<<22>>, 32))
+    Config.put_override(:credential_key, :binary.copy(<<22>>, 32))
     assert {:error, :credential_decryption_failed} = Credentials.fetch(:emisar, "primary")
-    Application.put_env(:ryker, :credential_key, :binary.copy(<<21>>, 32))
+    Config.put_override(:credential_key, :binary.copy(<<21>>, 32))
 
     from(credential in Credential,
       where: credential.kind == :emisar and credential.name == "primary"

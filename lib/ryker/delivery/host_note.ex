@@ -9,6 +9,7 @@ defmodule Ryker.Delivery.HostNote do
   second one.
   """
 
+  alias Ryker.Config
   alias Ryker.Delivery.{Adapters, Request}
 
   @enforce_keys [:conversation_ref, :execution_mode, :message, :ref, :thread_ref, :transport]
@@ -72,7 +73,7 @@ defmodule Ryker.Delivery.HostNote do
   # The registry the running delivery lanes were started with; readers resolve
   # the applied configuration at the moment they need it.
   defp applied_adapters do
-    with %{adapters: registrations} <- Application.get_env(:ryker, :delivery),
+    with %{adapters: registrations} <- Config.get_env(:delivery),
          {:ok, adapters} <- Adapters.new(registrations) do
       adapters
     else

@@ -1,6 +1,7 @@
 defmodule Ryker.Learning.LearningRetentionTest do
   use Ryker.DataCase, async: false
   alias Ryker.CanonicalJSON
+  alias Ryker.Config
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Learning
@@ -16,14 +17,7 @@ defmodule Ryker.Learning.LearningRetentionTest do
     [first, _second] = Fixtures.inputs!()
     assert {:ok, run} = Learning.prepare([first.id], @policy)
 
-    previous = Application.get_env(:ryker, :retention)
-    Application.put_env(:ryker, :retention, %{conversation_memory_seconds: @retention_seconds})
-
-    on_exit(fn ->
-      if previous,
-        do: Application.put_env(:ryker, :retention, previous),
-        else: Application.delete_env(:ryker, :retention)
-    end)
+    Config.put_override(:retention, %{conversation_memory_seconds: @retention_seconds})
 
     # Structural fixture: the database clock runs two hours ahead of the host's.
     Repo.query!("CREATE SCHEMA ahead_clock")

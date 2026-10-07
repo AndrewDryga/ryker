@@ -1,6 +1,7 @@
 defmodule Ryker.Knowledge.KnowledgeSnapshot do
   @moduledoc "Reauthorize the sources of an exact retained knowledge revision used by Work."
   import Ecto.Query
+  alias Ryker.Config
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeExposure
   alias Ryker.Knowledge.KnowledgeRevision
@@ -613,7 +614,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
   end
 
   defp unexpired?(at) do
-    settings = Application.get_env(:ryker, :retention) || %{}
+    settings = Config.get_env(:retention) || %{}
 
     seconds =
       if is_list(settings),

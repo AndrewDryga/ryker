@@ -6,6 +6,7 @@ defmodule Ryker.ControlPlane.LearningSwitchTest do
   use Ryker.DataCase, async: false
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
+  alias Ryker.Config
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
   alias Ryker.Learning.Batch
   alias Ryker.Settings
@@ -13,14 +14,7 @@ defmodule Ryker.ControlPlane.LearningSwitchTest do
   @endpoint Endpoint
 
   setup do
-    previous = Application.get_env(:ryker, :learning)
-    Application.put_env(:ryker, :learning, %{policy: "learning-switch-test"})
-
-    on_exit(fn ->
-      if previous,
-        do: Application.put_env(:ryker, :learning, previous),
-        else: Application.delete_env(:ryker, :learning)
-    end)
+    Config.put_override(:learning, %{policy: "learning-switch-test"})
 
     start_supervised!(
       {Endpoint,

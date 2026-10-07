@@ -1,5 +1,6 @@
 defmodule Ryker.Operator.LearningTest do
   use Ryker.DataCase, async: false
+  alias Ryker.Config
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Learning
   alias Ryker.Learning.{Batch, Batches, InputMembership}
@@ -17,14 +18,7 @@ defmodule Ryker.Operator.LearningTest do
   }
 
   setup do
-    previous = Application.get_env(:ryker, :learning)
     configure_policy(@settings)
-
-    on_exit(fn ->
-      if previous,
-        do: Application.put_env(:ryker, :learning, previous),
-        else: Application.delete_env(:ryker, :learning)
-    end)
 
     :ok
   end
@@ -105,7 +99,7 @@ defmodule Ryker.Operator.LearningTest do
       assert {:ok, claim} = Batches.claim("operator-test", @settings)
       assert {:ok, before} = Batches.finish(claim, :deferred, "learning_capacity_exceeded")
       members = Repo.all(InputMembership)
-      Application.put_env(:ryker, :learning, unquote(Macro.escape(configuration)))
+      Config.put_override(:learning, unquote(Macro.escape(configuration)))
 
       assert {:error, unquote(error)} =
                LearningOperator.retry(before.id, 0, "operator:andrew", "retry:unconfigured")
@@ -296,7 +290,7 @@ defmodule Ryker.Operator.LearningTest do
   end
 
   defp configure_policy(settings) do
-    Application.put_env(:ryker, :learning, %{
+    Config.put_override(:learning, %{
       api: __MODULE__,
       client: %{},
       worker_ref: "operator-test",

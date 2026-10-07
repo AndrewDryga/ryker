@@ -3,6 +3,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
 
   import Ecto.Query
   alias Ryker.CanonicalJSON
+  alias Ryker.Config
   alias Ryker.CoopFleet.{Command, JobCheck, JobSpec, JobTemplates, ManagedSources, Placement}
   alias Ryker.GitHub.RepositoryFiles
   alias Ryker.{Repo, Settings}
@@ -66,7 +67,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
          do: refresh_check(session, reader)
   end
 
-  defp check_reader, do: Application.get_env(:ryker, :job_check_reader, RepositoryFiles)
+  defp check_reader, do: Config.get_env(:job_check_reader, RepositoryFiles)
 
   # A working copy's review runs the repository's gate as of the job's base
   # commit: Coop's job-setup:2 runs no other check. A read-only job reviews

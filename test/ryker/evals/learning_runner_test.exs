@@ -1,6 +1,7 @@
 defmodule Ryker.Evals.LearningRunnerTest do
   use Ryker.DataCase, async: false
   alias Mix.Tasks.Ryker.LearningEval
+  alias Ryker.Config
   alias Ryker.Evals.{Job, LearningRunner}
   alias Ryker.Ingress.RecallText
   alias Ryker.TestSupport.FakeCoopAPI, as: Fake
@@ -648,19 +649,12 @@ defmodule Ryker.Evals.LearningRunnerTest do
   end
 
   test "a configured background runtime is refused before imports", %{options: options} do
-    previous = Application.get_env(:ryker, :delivery)
-    Application.put_env(:ryker, :delivery, %{worker_ref: "must-not-start"})
+    Config.put_override(:delivery, %{worker_ref: "must-not-start"})
 
-    try do
-      assert {:error, :learning_eval_background_runtime_configured} =
-               LearningRunner.preflight(options)
+    assert {:error, :learning_eval_background_runtime_configured} =
+             LearningRunner.preflight(options)
 
-      assert Fake.state(options.client).create_keys == []
-    after
-      if previous,
-        do: Application.put_env(:ryker, :delivery, previous),
-        else: Application.delete_env(:ryker, :delivery)
-    end
+    assert Fake.state(options.client).create_keys == []
   end
 
   test "the command rejects repeated authority flags and unknown scenarios before any start" do

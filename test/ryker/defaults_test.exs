@@ -1,5 +1,6 @@
 defmodule Ryker.DefaultsTest do
   use ExUnit.Case, async: true
+  alias Ryker.Config
   alias Ryker.Defaults
 
   test "every owner keeps the exact operational value its YAML loader validated" do
@@ -72,6 +73,6 @@ defmodule Ryker.DefaultsTest do
     # was once `:direct`, named after a local Coop client that is now eval-only
     # and gone from the release, so the name no longer said what it selects.
     assert Defaults.execution() == :isolated
-    assert Application.get_env(:ryker, :execution) == :isolated
+    assert Config.get_env(:execution) == :isolated
   end
 end

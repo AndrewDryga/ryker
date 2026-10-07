@@ -2,6 +2,7 @@ defmodule Ryker.Learning.LearningSources do
   @moduledoc "Bounded, host-owned source receipts carried across derived conversation memory."
   import Ecto.Query
   alias Ryker.{CanonicalJSON, Repo}
+  alias Ryker.Config
   alias Ryker.Continuity.ConversationRollup
   alias Ryker.Continuity.ConversationSummary
   alias Ryker.Episodes.Event
@@ -763,7 +764,7 @@ defmodule Ryker.Learning.LearningSources do
 
   @doc false
   def retention_seconds do
-    settings = Application.get_env(:ryker, :retention) || %{}
+    settings = Config.get_env(:retention) || %{}
 
     value =
       if is_list(settings),

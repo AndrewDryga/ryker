@@ -16,6 +16,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
   import Ryker.TestHelpers, only: [eventually: 1, eventually: 2]
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
+  alias Ryker.Config
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
   alias Ryker.Fixtures.ChannelEnvironments
   alias Ryker.Slack.{ChannelConfigurations, ChannelSettings, ChannelSetup, MembershipTransition}
@@ -268,7 +269,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
   } do
     # The runtime answers at once when Slack has not started: there is no
     # runtime or task supervisor to redraw anything with.
-    assert Application.get_env(:ryker, :slack) == nil
+    assert Config.get_env(:slack) == nil
 
     assert SlackRuntime.redraw_welcome(@workspace, "C456", self()) ==
              {:error, :slack_not_running}

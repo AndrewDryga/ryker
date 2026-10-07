@@ -10,6 +10,7 @@ defmodule Ryker.Observability.Readiness do
   or runtime name, so `/readyz` can say why without printing anything it read.
   """
 
+  alias Ryker.Config
   alias Ryker.Defaults
   alias Ryker.Observability.Fleet
   alias Ryker.Runtime.Owner
@@ -119,7 +120,7 @@ defmodule Ryker.Observability.Readiness do
       work: Defaults.execution() == :fleet and is_binary(snapshot.work.workspace_ref)
     ]
     |> Enum.filter(fn {name, desired} ->
-      desired and is_nil(Application.get_env(:ryker, name))
+      desired and is_nil(Config.get_env(name))
     end)
     |> Enum.map(&elem(&1, 0))
   end
@@ -157,7 +158,7 @@ defmodule Ryker.Observability.Readiness do
       work: {:named, Ryker.Work.Runtime}
     ]
     |> Enum.flat_map(fn {key, owner} ->
-      case Application.get_env(:ryker, key) do
+      case Config.get_env(key) do
         nil -> []
         false -> []
         _configured -> [{key, key in running or runtime_alive?(owner)}]
@@ -180,7 +181,7 @@ defmodule Ryker.Observability.Readiness do
       work: [:work]
     ]
     |> Enum.flat_map(fn {configuration_key, lanes} ->
-      case Application.get_env(:ryker, configuration_key) do
+      case Config.get_env(configuration_key) do
         nil -> []
         false -> []
         _configured -> lanes

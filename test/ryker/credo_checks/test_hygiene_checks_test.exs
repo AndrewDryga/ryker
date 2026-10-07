@@ -122,10 +122,10 @@ defmodule Ryker.CredoChecks.TestHygieneChecksTest do
       assert issue.check == put_env()
       assert issue.trigger == "Application.put_env"
       assert issue.line_no == 2
-      assert issue.message =~ "Ryker.Config.put_override/3"
+      assert issue.message =~ "Ryker.Config.put_override/2"
     end
 
-    test "flags delete_env and put_all_env, in lib and in test" do
+    test "flags delete_env and put_all_env, in lib, evals and test" do
       source = """
       defmodule Ryker.Sprockets do
         def disable, do: Application.delete_env(:ryker, :feature)
@@ -135,6 +135,7 @@ defmodule Ryker.CredoChecks.TestHygieneChecksTest do
 
       expected = ["Application.delete_env", "Application.put_all_env"]
       assert triggers(put_env(), source, "lib/ryker/sprockets.ex") == expected
+      assert triggers(put_env(), source, "evals/ryker/evals/sprockets.ex") == expected
       assert triggers(put_env(), source, @test_file) == expected
     end
 

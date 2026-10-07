@@ -4,6 +4,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
   import Ecto.Query
   import Phoenix.LiveViewTest, only: [render_component: 2]
   alias Ryker.CanonicalJSON
+  alias Ryker.Config
   alias Ryker.ControlPlane.{Actions, ConversationMemory, CSRF, EpisodePage, EpisodeProjection}
   alias Ryker.ControlPlane.{FailureProjection, LearningActivity, LearningPage, ModelRequests}
   alias Ryker.ControlPlane.{Projection, Router}
@@ -28,9 +29,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
   }
 
   setup do
-    previous = Application.get_env(:ryker, :learning)
-
-    Application.put_env(:ryker, :learning, %{
+    Config.put_override(:learning, %{
       api: __MODULE__,
       client: %{},
       worker_ref: "inspection-test",
@@ -38,17 +37,11 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
       policy_digest: @settings.policy_digest
     })
 
-    on_exit(fn ->
-      if previous,
-        do: Application.put_env(:ryker, :learning, previous),
-        else: Application.delete_env(:ryker, :learning)
-    end)
-
     :ok
   end
 
   test "disabled learning is explicit and retained waiting messages are visible without claiming knowledge" do
-    Application.delete_env(:ryker, :learning)
+    Config.put_override(:learning, nil)
     inputs!()
     view = LearningActivity.project(%{})
     refute view.enabled
@@ -68,7 +61,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     # The saved choice and the runtime disagree when learning has no worker or
     # model yet; "Learning is off" beside a switch that reads "on" misleads.
     # Until the runtime has applied the choice it is starting, not broken.
-    Application.delete_env(:ryker, :learning)
+    Config.put_override(:learning, nil)
 
     assert {:ok, %{learning: %{enabled: true}, installation: installation}} =
              Ryker.Settings.initialize("control-plane:local")
@@ -80,7 +73,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     assert LearningActivity.project(%{}).state == :cannot_start
     assert render(%{}) =~ "Learning can&#39;t start"
 
-    Application.put_env(:ryker, :learning, %{policy: @settings.policy})
+    Config.put_override(:learning, %{policy: @settings.policy})
     assert LearningActivity.project(%{}).state == :not_running
     assert render(%{}) =~ "Learning is not running here"
   end
@@ -200,8 +193,8 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     inputs!()
     assert {:ok, claim} = Batches.claim("inspection-test", @settings)
     assert {:ok, _} = Batches.finish(claim, :deferred, "learning_retry_exhausted")
-    configuration = Application.fetch_env!(:ryker, :learning)
-    Application.put_env(:ryker, :learning, %{configuration | policy: "available-account"})
+    configuration = Config.fetch_env!(:learning)
+    Config.put_override(:learning, %{configuration | policy: "available-account"})
     params = %{"batch" => claim.batch.id}
 
     html = render(params)
@@ -212,11 +205,11 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     assert html =~ "using the learning settings in place now"
     refute html =~ "available-account"
 
-    Application.delete_env(:ryker, :learning)
+    Config.put_override(:learning, nil)
     selected = LearningActivity.project(params).selected
     refute selected.retry_available
     assert selected.retry_blocked =~ "Learning is off"
-    Application.put_env(:ryker, :learning, %{})
+    Config.put_override(:learning, %{})
     selected = LearningActivity.project(params).selected
     refute selected.retry_available
     assert selected.retry_blocked =~ "settings aren't valid"
@@ -781,9 +774,9 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     refute html =~ "project_env: false and project_mcp: false"
 
     # A different configured policy is a new digest: nothing holds it.
-    configuration = Application.fetch_env!(:ryker, :learning)
+    configuration = Config.fetch_env!(:learning)
 
-    Application.put_env(:ryker, :learning, %{
+    Config.put_override(:learning, %{
       configuration
       | policy_digest: String.duplicate("c", 64)
     })

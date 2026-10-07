@@ -1,6 +1,7 @@
 defmodule Ryker.Learning.Runtime do
   @moduledoc "A small supervised learning pool, configured by the host rather than incoming messages."
   use Supervisor
+  alias Ryker.Config
   alias Ryker.Learning.Worker
   alias Ryker.{Options, Reference}
 
@@ -9,7 +10,7 @@ defmodule Ryker.Learning.Runtime do
 
   @doc "The current host configuration, used only when explicitly requesting new learning work."
   def configured_options do
-    case Application.get_env(:ryker, :learning) do
+    case Config.get_env(:learning) do
       nil -> {:error, :learning_disabled}
       configuration -> {:ok, options!(configuration)}
     end

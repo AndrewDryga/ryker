@@ -2,7 +2,7 @@ defmodule Ryker.Learning.ObservationsTest do
   use Ryker.DataCase, async: false
   @moduletag isolation: "REPEATABLE READ"
   import Ecto.Query
-  alias Ryker.{Admission, CanonicalJSON, Repo}
+  alias Ryker.{Admission, CanonicalJSON, Config, Repo}
   alias Ryker.Admission.{Context, Decision, Executor, Prompt}
   alias Ryker.Continuity
   alias Ryker.Continuity.ConversationSummary
@@ -95,21 +95,13 @@ defmodule Ryker.Learning.ObservationsTest do
   end
 
   test "memory expiry is the configured retention horizon, not the original message date" do
-    previous = Application.get_env(:ryker, :retention)
-
-    on_exit(fn ->
-      if previous,
-        do: Application.put_env(:ryker, :retention, previous),
-        else: Application.delete_env(:ryker, :retention)
-    end)
-
-    Application.put_env(:ryker, :retention, %{conversation_memory_seconds: 7_776_000})
+    Config.put_override(:retention, %{conversation_memory_seconds: 7_776_000})
     entry = observe!("expiry", "C1", @note)
     saved = Repo.get!(ConversationObservation, entry.id)
     [item] = ConversationMemory.present([saved])
     assert item.expires_at == DateTime.add(saved.updated_at, 7_776_000)
     assert Components.timestamp(item.expires_at)
-    Application.delete_env(:ryker, :retention)
+    Config.put_override(:retention, nil)
     [item] = ConversationMemory.present([saved])
     assert item.expires_at == nil
   end

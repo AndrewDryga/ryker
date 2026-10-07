@@ -9,6 +9,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
   @behaviour Ryker.GitHub.Onboarding
   @behaviour Ryker.RepositoryKnowledge.Remote
 
+  alias Ryker.Config
   alias Ryker.Delivery.JSONClient
   alias Ryker.GitHub.Client.Transport
   alias Ryker.GitHub.InstallationTokens
@@ -211,7 +212,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
   defp get(client, path), do: requester().request(client, :get, path, nil, @headers)
 
   # GitHub itself; in tests, the replies each test records (config/test.exs).
-  defp requester, do: Application.get_env(:ryker, :github_files_requester, JSONClient)
+  defp requester, do: Config.get_env(:github_files_requester, JSONClient)
 
   defp encode_ref(ref), do: URI.encode(ref, &URI.char_unreserved?/1)
 end

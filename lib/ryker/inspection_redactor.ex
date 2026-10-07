@@ -1,6 +1,7 @@
 defmodule Ryker.InspectionRedactor do
   @moduledoc "Sanitized inspection artifacts. Original bytes never cross the browser boundary."
   alias Ryker.CanonicalJSON
+  alias Ryker.Config
   alias Ryker.Crypto
 
   @marker "[redacted]"
@@ -131,7 +132,7 @@ defmodule Ryker.InspectionRedactor do
   # The configuration's own secrets and the value of every saved credential,
   # which the configuration no longer carries, as the runtime last read them.
   defp collect_configured_secrets do
-    (secret_values(Application.get_all_env(:ryker)) ++
+    (secret_values(Config.get_all_env()) ++
        Ryker.Credentials.remembered_redaction_values())
     |> Enum.filter(&(byte_size(&1) >= 8))
     |> Enum.uniq()

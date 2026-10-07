@@ -11,6 +11,7 @@ defmodule Ryker.CredentialsConcurrencyTest do
   """
   use Ryker.ConcurrencyCase, async: false
   alias Ecto.Adapters.SQL.Sandbox
+  alias Ryker.Config
   alias Ryker.Credential
   alias Ryker.Credential.Event
   alias Ryker.Credentials
@@ -19,9 +20,7 @@ defmodule Ryker.CredentialsConcurrencyTest do
   @actor "control-plane:test"
 
   setup do
-    previous = Application.fetch_env!(:ryker, :credential_key)
-    Application.put_env(:ryker, :credential_key, :binary.copy(<<23>>, 32))
-    on_exit(fn -> Application.put_env(:ryker, :credential_key, previous) end)
+    Config.put_override(:credential_key, :binary.copy(<<23>>, 32))
   end
 
   test "two first saves of one credential both succeed and the later one is kept" do

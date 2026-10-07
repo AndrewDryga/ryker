@@ -10,6 +10,7 @@ defmodule Ryker.ControlPlane.ChannelContext do
 
   import Ecto.Query
   alias Ryker.Behaviors.Behavior
+  alias Ryker.Config
   alias Ryker.Continuity.ConversationSummary
   alias Ryker.Continuity.ConversationSummaryDraft
   alias Ryker.ControlPlane.{BehaviorLibrary, BehaviorPage, ChannelScope, ConversationMemory}
@@ -376,7 +377,7 @@ defmodule Ryker.ControlPlane.ChannelContext do
       )
 
     %{
-      enabled: not is_nil(Application.get_env(:ryker, :learning)),
+      enabled: not is_nil(Config.get_env(:learning)),
       needs_attention: needs_attention,
       waiting: waiting_inputs(scope)
     }

@@ -2,7 +2,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
   use Ryker.DataCase, async: false
   @moduletag isolation: "REPEATABLE READ"
   import Ecto.Query
-  alias Ryker.{Admission, Repo}
+  alias Ryker.{Admission, Config, Repo}
   alias Ryker.Admission.{Context, Decision, Prompt}
   alias Ryker.Continuity
   alias Ryker.ControlPlane.{ConversationMemory, LearnedPage}
@@ -306,15 +306,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
   end
 
   test "expired or removed supporting sources cannot be recalled through a newer aggregate" do
-    previous = Application.get_env(:ryker, :retention)
-
-    on_exit(fn ->
-      if previous,
-        do: Application.put_env(:ryker, :retention, previous),
-        else: Application.delete_env(:ryker, :retention)
-    end)
-
-    Application.put_env(:ryker, :retention, %{conversation_memory_seconds: 3600})
+    Config.put_override(:retention, %{conversation_memory_seconds: 3600})
     first = input!(1, @firing)
     learn!(first, @firing)
     [item] = Knowledge.context(first, "tenant-infra")
@@ -325,7 +317,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     )
 
     assert Knowledge.context(first, "tenant-infra") == []
-    Application.delete_env(:ryker, :retention)
+    Config.put_override(:retention, nil)
     assert [_] = Knowledge.context(first, "tenant-infra")
     Repo.delete_all(ConversationObservation)
     assert Knowledge.context(first, "tenant-infra") == []
@@ -947,15 +939,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
                "copied-topic-result"
              )
 
-    previous = Application.get_env(:ryker, :retention)
-
-    on_exit(fn ->
-      if previous,
-        do: Application.put_env(:ryker, :retention, previous),
-        else: Application.delete_env(:ryker, :retention)
-    end)
-
-    Application.put_env(:ryker, :retention, %{conversation_memory_seconds: 3600})
+    Config.put_override(:retention, %{conversation_memory_seconds: 3600})
     expected_expiry = old |> DateTime.add(3600) |> DateTime.to_iso8601()
 
     copied =

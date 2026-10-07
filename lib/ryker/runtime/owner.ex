@@ -26,6 +26,7 @@ defmodule Ryker.Runtime.Owner do
   use GenServer
   require Logger
   alias Ryker.{Bootstrap, Credentials, Settings}
+  alias Ryker.Config
   alias Ryker.Crypto
   alias Ryker.Runtime.{Assembly, Child}
   alias Ryker.Slack.Client.Users, as: SlackUsers
@@ -440,7 +441,7 @@ defmodule Ryker.Runtime.Owner do
   end
 
   defp bootstrap do
-    case Application.get_env(:ryker, :bootstrap) do
+    case Config.get_env(:bootstrap) do
       %Bootstrap{} = bootstrap -> bootstrap
       _unset -> Bootstrap.load!()
     end

@@ -1,4 +1,5 @@
 defmodule Ryker.Work.ActivityTest do
+  alias Ryker.Config
   alias Ryker.ControlPlane.{EpisodeProjection, ToolCard}
   use Ryker.DataCase, async: false
   import Phoenix.LiveViewTest
@@ -82,15 +83,7 @@ defmodule Ryker.Work.ActivityTest do
              &(inspect(&1.payload) =~ secret)
            )
 
-    previous = Application.get_env(:ryker, :activity_path_test_secret)
-
-    on_exit(fn ->
-      if previous,
-        do: Application.put_env(:ryker, :activity_path_test_secret, previous),
-        else: Application.delete_env(:ryker, :activity_path_test_secret)
-    end)
-
-    Application.put_env(:ryker, :activity_path_test_secret, secret)
+    Config.put_override(:activity_path_test_secret, secret)
 
     {:ok, detail} = EpisodeProjection.fetch(started.episode.key)
     steps = Enum.filter(detail.trace.steps, &String.starts_with?(&1.id, "activity-"))
@@ -165,11 +158,10 @@ defmodule Ryker.Work.ActivityTest do
     assert {:ok, %{inserted: 0}} = Activity.ingest(session.id, events)
 
     # Secret rotation must not change replay identity or restore an already-redacted body.
-    Application.put_env(:ryker, :activity_test_secret, "opaque-private-value")
-    on_exit(fn -> Application.delete_env(:ryker, :activity_test_secret) end)
+    Config.put_override(:activity_test_secret, "opaque-private-value")
     secret_event = event(session, 5, "model.progress", %{"text" => "opaque-private-value"})
     assert {:ok, %{inserted: 1}} = Activity.ingest(session.id, [secret_event])
-    Application.put_env(:ryker, :activity_test_secret, "rotated-private-value")
+    Config.put_override(:activity_test_secret, "rotated-private-value")
     assert {:ok, %{inserted: 0}} = Activity.ingest(session.id, [secret_event])
     refute inspect(Activity.list_for_episode(started.episode.id)) =~ "opaque-private-value"
     changed = put_in(secret_event, ["payload", "text"], "different text")
@@ -178,7 +170,7 @@ defmodule Ryker.Work.ActivityTest do
 
     # Keep a complete public message through redaction, including secrets that
     # straddled Coop's former 4 KiB event boundary. Only then bound display text.
-    Application.put_env(:ryker, :activity_test_secret, "opaque-configured-secret")
+    Config.put_override(:activity_test_secret, "opaque-configured-secret")
 
     long_text =
       String.duplicate("🙂", 1_023) <> "opaque-configured-secret" <> String.duplicate("x", 13_000)

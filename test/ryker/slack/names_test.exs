@@ -1,4 +1,5 @@
 defmodule Ryker.Slack.NamesTest do
+  alias Ryker.Config
   alias Ryker.ControlPlane.RequestContextHTML
   alias Ryker.ControlPlane.SlackMarkdown
   use ExUnit.Case, async: false
@@ -242,11 +243,9 @@ defmodule Ryker.Slack.NamesTest do
   test "resolved names cannot reintroduce credentials into sanitized request inspection" do
     # Directory names are inserted after the retained request is sanitized.
     # A credential in a profile must not bypass the inspection redaction policy.
-    Application.put_env(:ryker, :directory_redaction_test, %{
+    Config.put_override(:directory_redaction_test, %{
       token: "configured-private-value"
     })
-
-    on_exit(fn -> Application.delete_env(:ryker, :directory_redaction_test) end)
 
     start_supervised!(
       {Names,

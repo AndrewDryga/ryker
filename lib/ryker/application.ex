@@ -9,6 +9,7 @@ defmodule Ryker.Application do
   """
 
   use Application
+  alias Ryker.Config
   alias Ryker.ControlPlane.PageCost
 
   @impl Application
@@ -31,7 +32,7 @@ defmodule Ryker.Application do
   # Tests and development drive the owner explicitly instead of applying
   # whatever happens to be in the local database at boot.
   defp runtime_owner do
-    if Application.get_env(:ryker, :runtime_owner, true),
+    if Config.get_env(:runtime_owner, true),
       do: [Ryker.Runtime.Owner],
       else: []
   end

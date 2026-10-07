@@ -7,6 +7,7 @@ defmodule Ryker.Operator.Preflight do
   cross this boundary.
   """
 
+  alias Ryker.Config
   alias Ryker.ErrorDetail
   alias Ryker.Observability
   alias Ryker.Repo
@@ -90,8 +91,7 @@ defmodule Ryker.Operator.Preflight do
 
   defp configuration_check(nil) do
     configured =
-      :ryker
-      |> Application.get_all_env()
+      Config.get_all_env()
       |> Keyword.keys()
       |> Enum.sort()
 

@@ -10,6 +10,7 @@ defmodule Ryker.IntegrationSetup do
 
   require Logger
   alias Ryker.{Bootstrap, Credentials}
+  alias Ryker.Config
   alias Ryker.CoopFleet.ManagedSources
   alias Ryker.Crypto
   alias Ryker.Delivery.JSONClient
@@ -923,7 +924,7 @@ defmodule Ryker.IntegrationSetup do
       Keyword.put_new(
         options,
         :requester,
-        Application.get_env(:ryker, :emisar_requester, JSONClient)
+        Config.get_env(:emisar_requester, JSONClient)
       )
 
     with {:ok, origin, path} <- rpc_endpoint(rpc_url),

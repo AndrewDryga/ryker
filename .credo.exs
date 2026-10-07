@@ -26,6 +26,7 @@
           {Ryker.Checks.MatchOnMapFieldValue, []},
           {Ryker.Checks.MultilineAliasGroup, []},
           {Ryker.Checks.MultilineDoColon, []},
+          {Ryker.Checks.NoApplicationPutEnv, []},
           {Ryker.Checks.NoBlankBetweenDirectives, []},
           {Ryker.Checks.NoIfOnArgField, []},
           {Ryker.Checks.NoHashPrefixSlice, []},

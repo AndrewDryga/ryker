@@ -1,6 +1,7 @@
 defmodule Ryker.Learning.RebuildsTest do
   use Ryker.DataCase, async: false
   alias Ryker.CanonicalJSON
+  alias Ryker.Config
   alias Ryker.Fixtures.DatabaseClock
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: Fixtures
@@ -26,21 +27,13 @@ defmodule Ryker.Learning.RebuildsTest do
   }
 
   setup do
-    previous = Application.get_env(:ryker, :learning)
-
-    Application.put_env(:ryker, :learning, %{
+    Config.put_override(:learning, %{
       api: __MODULE__,
       client: %{},
       worker_ref: "rebuild-test",
       policy: @settings.policy,
       policy_digest: @settings.policy_digest
     })
-
-    on_exit(fn ->
-      if previous,
-        do: Application.put_env(:ryker, :learning, previous),
-        else: Application.delete_env(:ryker, :learning)
-    end)
 
     :ok
   end
@@ -218,7 +211,7 @@ defmodule Ryker.Learning.RebuildsTest do
     assert {:ok, _} = Batches.finish(claim, :no_change)
     previous = Repo.get!(LearningRun, first.id)
 
-    configuration = Application.fetch_env!(:ryker, :learning)
+    configuration = Config.fetch_env!(:learning)
 
     configuration = %{
       configuration
@@ -226,7 +219,7 @@ defmodule Ryker.Learning.RebuildsTest do
         policy_digest: String.duplicate("b", 64)
     }
 
-    Application.put_env(:ryker, :learning, configuration)
+    Config.put_override(:learning, configuration)
 
     assert {:ok, receipt} =
              LearningOperator.reselect(

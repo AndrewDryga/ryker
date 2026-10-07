@@ -1,6 +1,7 @@
 defmodule Ryker.ControlPlane.MemorySummaryStatusTest do
   use Ryker.DataCase, async: false
   alias Ryker.CanonicalJSON
+  alias Ryker.Config
   alias Ryker.Continuity.ConversationSummary
   alias Ryker.ControlPlane.{ConversationMemory, LearnedPage}
   alias Ryker.Fixtures.Learning, as: LearningFixtures
@@ -8,15 +9,7 @@ defmodule Ryker.ControlPlane.MemorySummaryStatusTest do
   alias Ryker.Repo
 
   setup do
-    retention = Application.fetch_env(:ryker, :retention)
-    Application.put_env(:ryker, :retention, %{conversation_memory_seconds: 3_600})
-
-    on_exit(fn ->
-      case retention do
-        {:ok, value} -> Application.put_env(:ryker, :retention, value)
-        :error -> Application.delete_env(:ryker, :retention)
-      end
-    end)
+    Config.put_override(:retention, %{conversation_memory_seconds: 3_600})
   end
 
   test "the summaries list opens with its search and views, not with help, on a phone" do

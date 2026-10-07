@@ -95,17 +95,9 @@ defmodule Mix.Tasks.Ryker.LearningEval do
     unless Process.whereis(Repo) == nil,
       do: Mix.raise("Repo must not already be running")
 
-    configuration = Application.fetch_env!(:ryker, Repo)
-
-    Application.put_env(
-      :ryker,
-      Repo,
-      Keyword.put(configuration, :pool, DBConnection.ConnectionPool)
-    )
-
     {:ok, _} = Application.ensure_all_started(:ecto_sql)
     {:ok, _} = Application.ensure_all_started(:finch)
-    {:ok, _} = Repo.start_link()
+    {:ok, _} = Repo.start_link(pool: DBConnection.ConnectionPool)
     {:ok, _} = Finch.start_link(name: Ryker.LearningEvalFinch)
     {:ok, job} = Job.new(:learning, options[:target])
 
