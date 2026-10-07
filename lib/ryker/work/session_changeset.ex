@@ -5,6 +5,18 @@ defmodule Ryker.Work.SessionChangeset do
   alias Ryker.CoopFleet.JobSpec
   alias Ryker.Work.{RepositoryContext, RepositorySource, Session}
 
+  @admission_fields [
+    :cleanup_status,
+    :create_generation,
+    :execution_kind,
+    :admission_input_id,
+    :external_ref,
+    :generation,
+    :id,
+    :policy,
+    :policy_digest
+  ]
+
   @spec advance_activity_cursor(Session.t(), non_neg_integer()) :: Ecto.Changeset.t()
   def advance_activity_cursor(%Session{} = session, cursor),
     do: change(session, activity_cursor: cursor)
@@ -234,6 +246,97 @@ defmodule Ryker.Work.SessionChangeset do
     |> cast(%{create_generation: create_generation}, [:create_generation])
     |> validate_required([:create_generation])
     |> check_constraint(:create_generation, name: :episode_work_session_identity_valid)
+  end
+
+  @doc "The session routing opens at `at` to decide a message at its generation of admission."
+  @spec insert_admission(map(), DateTime.t()) :: Ecto.Changeset.t()
+  def insert_admission(attributes, at) do
+    %Session{}
+    |> cast(attributes, @admission_fields)
+    |> validate_required(@admission_fields -- [:admission_input_id])
+    |> put_change(:inserted_at, at)
+    |> put_change(:updated_at, at)
+    |> unique_constraint(:external_ref, name: :episode_work_sessions_admission_external_ref_index)
+    |> check_constraint(:execution_kind, name: :episode_work_session_owner_valid)
+    |> check_constraint(:policy, name: :episode_work_session_identity_valid)
+  end
+
+  @doc "Its work is over at `at`, and cleanup plans what to keep."
+  @spec close(Session.t(), DateTime.t()) :: Ecto.Changeset.t()
+  def close(%Session{} = session, at),
+    do: change(session, cleanup_status: :plan_pending, closed_at: at)
+
+  @doc "A session the ready pool starts ahead of any message (`Ryker.Admission.ReadySessions`)."
+  @spec reserve(map()) :: Ecto.Changeset.t()
+  def reserve(attributes) do
+    %Session{}
+    |> change(attributes)
+    |> check_constraint(:ready_state, name: :episode_work_session_ready_state_valid)
+  end
+
+  @doc "The reserved session's Coop session is open at `at`; a message may claim it."
+  @spec mark_ready(Session.t(), String.t(), DateTime.t()) :: Ecto.Changeset.t()
+  def mark_ready(%Session{} = session, coop_session_id, at) do
+    session
+    |> change(coop_session_id: coop_session_id, ready_state: :ready, updated_at: at)
+    |> ready_constraints()
+  end
+
+  @doc "Coop keeps the ready session's agent running until `warm_until`."
+  @spec warm(Session.t(), DateTime.t(), DateTime.t()) :: Ecto.Changeset.t()
+  def warm(%Session{} = session, warm_until, at) do
+    session
+    |> change(warm_until: warm_until, updated_at: at)
+    |> ready_constraints()
+  end
+
+  @doc "A message takes the ready session at `at`, for its generation of admission."
+  @spec claim_ready(Session.t(), Ecto.UUID.t(), pos_integer(), DateTime.t()) ::
+          Ecto.Changeset.t()
+  def claim_ready(%Session{} = session, input_id, generation, at) do
+    session
+    |> change(
+      admission_input_id: input_id,
+      generation: generation,
+      ready_state: :claimed,
+      updated_at: at
+    )
+    |> unique_constraint([:admission_input_id, :generation],
+      name: :episode_work_sessions_admission_generation_index
+    )
+  end
+
+  @doc """
+  No message claimed the session. Cleanup closes `coop_session_id` on its
+  worker when the session became one.
+  """
+  @spec retire_ready(Session.t(), String.t() | nil, DateTime.t()) :: Ecto.Changeset.t()
+  def retire_ready(%Session{} = session, coop_session_id, at) do
+    session
+    |> change(coop_session_id: coop_session_id, ready_state: :retired, updated_at: at)
+    |> ready_constraints()
+  end
+
+  @doc """
+  A step of the session's cleanup custody (`Ryker.Retention.Custody`). It
+  is one function because every step changes cleanup fields under the same
+  five checks; the custody function calling it names the step.
+  """
+  @spec cleanup(Session.t(), map()) :: Ecto.Changeset.t()
+  def cleanup(%Session{} = session, attributes) do
+    session
+    |> change(attributes)
+    |> check_constraint(:cleanup_status, name: :episode_work_session_cleanup_state_valid)
+    |> check_constraint(:cleanup_lease_ref, name: :episode_work_session_cleanup_lease_valid)
+    |> check_constraint(:discard_plan, name: :episode_work_session_discard_plan_valid)
+    |> check_constraint(:cleanup_receipt, name: :episode_work_session_cleanup_receipt_valid)
+    |> check_constraint(:cleanup_blocked_from, name: :episode_work_session_cleanup_blocked_valid)
+  end
+
+  defp ready_constraints(changeset) do
+    changeset
+    |> unique_constraint(:coop_session_id, name: :episode_work_sessions_coop_session_id_index)
+    |> check_constraint(:ready_state, name: :episode_work_session_ready_state_valid)
   end
 
   defp validate_workspace_task(changeset) do

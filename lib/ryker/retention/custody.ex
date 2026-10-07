@@ -28,7 +28,7 @@ defmodule Ryker.Retention.Custody do
   alias Ryker.RepositoryKnowledge.Run, as: KnowledgeRun
   alias Ryker.Retention.{CleanupQuery, Plan}
   alias Ryker.Work.Custody, as: WorkCustody
-  alias Ryker.Work.{Session, SessionQuery, TurnQuery}
+  alias Ryker.Work.{Session, SessionChangeset, SessionQuery, TurnQuery}
 
   @pending_statuses [:close_pending, :plan_pending, :discard_pending]
   @terminal_episode_states [:complete, :cancelled]
@@ -792,22 +792,7 @@ defmodule Ryker.Retention.Custody do
   @spec persist(Session.t(), map()) :: Session.t()
   def persist(session, attributes) do
     session
-    |> Ecto.Changeset.change(Map.put_new(attributes, :updated_at, Repo.now!()))
-    |> Ecto.Changeset.check_constraint(:cleanup_status,
-      name: :episode_work_session_cleanup_state_valid
-    )
-    |> Ecto.Changeset.check_constraint(:cleanup_lease_ref,
-      name: :episode_work_session_cleanup_lease_valid
-    )
-    |> Ecto.Changeset.check_constraint(:discard_plan,
-      name: :episode_work_session_discard_plan_valid
-    )
-    |> Ecto.Changeset.check_constraint(:cleanup_receipt,
-      name: :episode_work_session_cleanup_receipt_valid
-    )
-    |> Ecto.Changeset.check_constraint(:cleanup_blocked_from,
-      name: :episode_work_session_cleanup_blocked_valid
-    )
+    |> SessionChangeset.cleanup(Map.put_new(attributes, :updated_at, Repo.now!()))
     |> Repo.update()
     |> case do
       {:ok, stored} -> tap(stored, &WorkCustody.broadcast_session_updated/1)

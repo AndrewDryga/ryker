@@ -30,7 +30,7 @@ defmodule Ryker.Admission.ReadySessions do
   alias Ryker.CoopFleet.JobTemplates
   alias Ryker.Ingress.Inbox.{Entry, EntryQuery}
   alias Ryker.Repo
-  alias Ryker.Work.{Custody, Session, SessionQuery}
+  alias Ryker.Work.{Custody, Session, SessionChangeset, SessionQuery}
 
   @external_ref_prefix "ryker-admission-ready:"
 
@@ -121,15 +121,7 @@ defmodule Ryker.Admission.ReadySessions do
 
       %Session{} = session ->
         session
-        |> Ecto.Changeset.change(%{
-          admission_input_id: entry.id,
-          generation: entry.execution_generation,
-          ready_state: :claimed,
-          updated_at: Repo.now!()
-        })
-        |> Ecto.Changeset.unique_constraint([:admission_input_id, :generation],
-          name: :episode_work_sessions_admission_generation_index
-        )
+        |> SessionChangeset.claim_ready(entry.id, entry.execution_generation, Repo.now!())
         |> Repo.update()
         |> case do
           {:ok, claimed} ->
@@ -171,8 +163,7 @@ defmodule Ryker.Admission.ReadySessions do
       now = Repo.now!()
 
       {:ok,
-       %Session{}
-       |> Ecto.Changeset.change(%{
+       %{
          cleanup_status: :active,
          create_generation: 1,
          execution_kind: :admission,
@@ -184,10 +175,8 @@ defmodule Ryker.Admission.ReadySessions do
          policy_digest: digest,
          ready_state: :starting,
          updated_at: now
-       })
-       |> Ecto.Changeset.check_constraint(:ready_state,
-         name: :episode_work_session_ready_state_valid
-       )
+       }
+       |> SessionChangeset.reserve()
        |> Repo.insert!()
        |> tap(&Custody.broadcast_session_updated/1)}
     end
@@ -209,11 +198,7 @@ defmodule Ryker.Admission.ReadySessions do
     transition(id, fn
       %Session{ready_state: :starting, coop_session_id: bound} = session
       when bound in [nil, coop_session_id] ->
-        Ecto.Changeset.change(session, %{
-          coop_session_id: coop_session_id,
-          ready_state: :ready,
-          updated_at: Repo.now!()
-        })
+        SessionChangeset.mark_ready(session, coop_session_id, Repo.now!())
 
       _other ->
         Repo.rollback(:ready_routing_session_conflict)
@@ -259,7 +244,7 @@ defmodule Ryker.Admission.ReadySessions do
   defp record_warm(%Session{id: id, coop_session_id: coop_session_id}, warm_until) do
     transition(id, fn
       %Session{ready_state: :ready, coop_session_id: ^coop_session_id, warm_until: nil} = session ->
-        Ecto.Changeset.change(session, %{warm_until: warm_until, updated_at: Repo.now!()})
+        SessionChangeset.warm(session, warm_until, Repo.now!())
 
       _other ->
         Repo.rollback(:ready_routing_session_conflict)
@@ -276,44 +261,35 @@ defmodule Ryker.Admission.ReadySessions do
       %Session{ready_state: state, coop_session_id: bound} = session
       when state in [:starting, :ready] and
              (is_nil(coop_session_id) or bound in [nil, coop_session_id]) ->
-        Ecto.Changeset.change(session, %{
-          coop_session_id: bound || coop_session_id,
-          ready_state: :retired,
-          updated_at: Repo.now!()
-        })
+        SessionChangeset.retire_ready(session, bound || coop_session_id, Repo.now!())
 
-      %Session{ready_state: :retired} = session ->
-        Ecto.Changeset.change(session)
+      %Session{ready_state: :retired} ->
+        :unchanged
 
       _other ->
         Repo.rollback(:ready_routing_session_conflict)
     end)
   end
 
+  # `change` answers the session's changeset, or `:unchanged` for a session
+  # already where the transition would leave it, which is saved as it is.
   defp transition(id, change) do
     Repo.transaction(fn ->
-      id
-      |> SessionQuery.by_id()
-      |> SessionQuery.lock_for_update()
-      |> Repo.one()
-      |> change.()
-      |> Ecto.Changeset.unique_constraint(:coop_session_id,
-        name: :episode_work_sessions_coop_session_id_index
-      )
-      |> Ecto.Changeset.check_constraint(:ready_state,
-        name: :episode_work_session_ready_state_valid
-      )
-      |> Repo.update()
-      |> case do
-        {:ok, session} ->
-          Custody.broadcast_session_updated(session)
-          session
+      session = id |> SessionQuery.by_id() |> SessionQuery.lock_for_update() |> Repo.one()
 
-        {:error, _changeset} ->
-          Repo.rollback(:ready_routing_session_conflict)
+      case change.(session) do
+        :unchanged -> session
+        changeset -> changeset |> Repo.update() |> transitioned()
       end
     end)
   end
+
+  defp transitioned({:ok, session}) do
+    Custody.broadcast_session_updated(session)
+    session
+  end
+
+  defp transitioned({:error, _changeset}), do: Repo.rollback(:ready_routing_session_conflict)
 
   @doc """
   The open sessions kept ready that can no longer serve a message under this

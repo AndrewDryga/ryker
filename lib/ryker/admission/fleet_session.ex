@@ -15,7 +15,7 @@ defmodule Ryker.Admission.FleetSession do
 
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
-  alias Ryker.Work.{Custody, Session, SessionQuery}
+  alias Ryker.Work.{Custody, Session, SessionChangeset, SessionQuery}
 
   @spec ensure(Entry.t(), %{name: String.t(), digest: String.t()}) ::
           {:ok, Session.t()} | {:error, term()}
@@ -55,50 +55,18 @@ defmodule Ryker.Admission.FleetSession do
   defp insert_or_reload_session!(entry, policy, digest, external_ref) do
     now = Repo.now!()
 
-    %Session{}
-    |> Ecto.Changeset.cast(
-      %{
-        cleanup_status: :active,
-        create_generation: 1,
-        execution_kind: :admission,
-        admission_input_id: entry.id,
-        external_ref: external_ref,
-        generation: entry.execution_generation,
-        id: Ecto.UUID.generate(),
-        policy: policy,
-        policy_digest: digest
-      },
-      [
-        :cleanup_status,
-        :create_generation,
-        :execution_kind,
-        :admission_input_id,
-        :external_ref,
-        :generation,
-        :id,
-        :policy,
-        :policy_digest
-      ]
-    )
-    |> Ecto.Changeset.validate_required([
-      :cleanup_status,
-      :create_generation,
-      :execution_kind,
-      :external_ref,
-      :generation,
-      :id,
-      :policy,
-      :policy_digest
-    ])
-    |> Ecto.Changeset.put_change(:inserted_at, now)
-    |> Ecto.Changeset.put_change(:updated_at, now)
-    |> Ecto.Changeset.unique_constraint(:external_ref,
-      name: :episode_work_sessions_admission_external_ref_index
-    )
-    |> Ecto.Changeset.check_constraint(:execution_kind,
-      name: :episode_work_session_owner_valid
-    )
-    |> Ecto.Changeset.check_constraint(:policy, name: :episode_work_session_identity_valid)
+    %{
+      cleanup_status: :active,
+      create_generation: 1,
+      execution_kind: :admission,
+      admission_input_id: entry.id,
+      external_ref: external_ref,
+      generation: entry.execution_generation,
+      id: Ecto.UUID.generate(),
+      policy: policy,
+      policy_digest: digest
+    }
+    |> SessionChangeset.insert_admission(now)
     |> Repo.insert!(on_conflict: :nothing)
 
     entry
@@ -127,8 +95,7 @@ defmodule Ryker.Admission.FleetSession do
     case lock_session(entry) do
       %Session{execution_kind: :admission, coop_session_id: nil} = session ->
         session
-        |> Ecto.Changeset.change(%{coop_session_id: coop_session_id})
-        |> Ecto.Changeset.unique_constraint(:coop_session_id)
+        |> SessionChangeset.bind(coop_session_id)
         |> Repo.update!()
         |> tap(&Custody.broadcast_session_updated/1)
 
@@ -158,10 +125,7 @@ defmodule Ryker.Admission.FleetSession do
         now = Repo.now!()
 
         session
-        |> Ecto.Changeset.change(%{
-          cleanup_status: :plan_pending,
-          closed_at: now
-        })
+        |> SessionChangeset.close(now)
         |> Repo.update!()
         |> tap(&Custody.broadcast_session_updated/1)
 
