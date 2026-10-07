@@ -116,13 +116,16 @@ defmodule Ryker.Slack.Event do
     end
   end
 
+  # Slack's copy of the deleted message names it and its author; its words
+  # are not kept: a deletion stored them in the message's revisions and its
+  # request's events, past the moment the person took them back (2026-10-04
+  # review).
   defp event_details(%{"subtype" => "message_deleted", "type" => "message"} = event) do
     previous = if is_map(event["previous_message"]), do: event["previous_message"], else: %{}
 
     details = %{
       "channel" => event["channel"],
       "event_ts" => event["event_ts"],
-      "text" => previous["text"],
       "thread_ts" => previous["thread_ts"],
       "ts" => event["deleted_ts"] || previous["ts"],
       "user" => previous["user"]

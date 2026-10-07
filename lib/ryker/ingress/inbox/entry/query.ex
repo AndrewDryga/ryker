@@ -340,17 +340,25 @@ defmodule Ryker.Ingress.Inbox.Entry.Query do
     )
   end
 
-  @doc "Each message deleted in one of `conversation_refs`, as `{conversation, message}`."
-  def deletions_in(conversation_refs) do
-    all()
-    |> where(
+  @doc """
+  The deletions of any of `messages`, each `{conversation_ref, message_ref}`:
+  a message is named by its source item, or by its native id without one.
+  """
+  def deletions_of(messages) do
+    {conversation_refs, message_refs} = Enum.unzip(messages)
+
+    where(
+      all(),
       [ingress_inbox_entries: e],
-      e.event_kind == :delete and e.destination_conversation_ref in ^conversation_refs
-    )
-    |> select(
-      [ingress_inbox_entries: e],
-      {e.destination_conversation_ref,
-       fragment("COALESCE(?, ?)", e.source_item_ref, e.native_input_id)}
+      e.event_kind == :delete and
+        fragment(
+          "(?, COALESCE(?, ?)) IN (SELECT * FROM unnest(?::text[], ?::text[]))",
+          e.destination_conversation_ref,
+          e.source_item_ref,
+          e.native_input_id,
+          ^conversation_refs,
+          ^message_refs
+        )
     )
   end
 

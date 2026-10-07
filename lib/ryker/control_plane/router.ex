@@ -161,6 +161,9 @@ defmodule Ryker.ControlPlane.Router do
       {:ok, %Plug.Conn{state: :chunked} = conn} ->
         halt(conn)
 
+      :not_kept ->
+        text(conn, 404, "#{label} are not kept\n")
+
       # Nothing is kept: the file is empty.
       {:ok, conn} ->
         conn |> examples_file(name) |> send_resp(200, "") |> halt()
@@ -640,6 +643,7 @@ defmodule Ryker.ControlPlane.Router do
 
     case Map.fetch!(options.projection, kind).(conn, &send_example(&1, &2, name)) do
       {:ok, conn} -> {:ok, conn}
+      {:error, :examples_not_kept} -> :not_kept
       {:error, _reason} -> raise "the #{kind} export failed"
     end
   rescue

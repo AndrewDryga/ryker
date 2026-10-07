@@ -91,15 +91,66 @@ defmodule Ryker.Improvement do
   (`Ryker.Feedback.record_in_transaction/1`), which already holds the
   request. The first negative signal creates it; each later one adds its
   kind, counts it and moves `last_signal_at`, so a burst of feedback is
-  analyzed once, after it. Anything else changes nothing.
+  analyzed once, after it. Taking back a negative reaction closes a candidate
+  that reactions alone made and none still stands for, before Ryker started
+  on it. Anything else changes nothing.
   """
   @spec note_in_transaction(Signal.t()) :: :ok
+  def note_in_transaction(%Signal{kind: :reaction_removed, value: emoji} = signal)
+      when emoji in @negative_reactions,
+      do: withdraw(signal)
+
   def note_in_transaction(%Signal{} = signal) do
     case reason(signal) do
       nil -> :ok
       reason -> signal |> request_row(reason) |> upsert()
     end
   end
+
+  # A person taking back the 👎 that alone made the request a candidate, before
+  # Ryker started on it, closes the candidate: it was analyzed after the quiet
+  # time all the same, a paid model call about feedback nobody stood by
+  # (2026-10-04 review). Any other negative feedback, or a 👎 still standing,
+  # keeps it.
+  defp withdraw(signal) do
+    locked = signal |> request_candidate() |> Candidate.Query.lock_for_update()
+
+    with %Candidate{analysis: :pending, start_count: 0, status: :open, reasons: ["reaction"]} =
+           candidate <- Repo.one(locked),
+         false <- negative_reaction_standing?(signal) do
+      Repo.delete!(candidate)
+      broadcast_improvement_updated(candidate.id)
+    end
+
+    :ok
+  end
+
+  defp request_candidate(%Signal{episode_id: id}) when is_binary(id),
+    do: Candidate.Query.by_episode_id(id)
+
+  defp request_candidate(%Signal{input_id: id}), do: Candidate.Query.by_input_id(id)
+
+  defp negative_reaction_standing?(signal) do
+    signal
+    |> request_signals()
+    |> Signal.Query.reactions()
+    |> Signal.Query.ordered_by_occurred_at()
+    |> Signal.Query.select_reactions()
+    |> Repo.all()
+    |> Enum.reduce(MapSet.new(), fn
+      {message, :reaction_added, actor, emoji, _at}, standing ->
+        MapSet.put(standing, {message, actor, emoji})
+
+      {message, :reaction_removed, actor, emoji, _at}, standing ->
+        MapSet.delete(standing, {message, actor, emoji})
+    end)
+    |> Enum.any?(fn {_message, _actor, emoji} -> emoji in @negative_reactions end)
+  end
+
+  defp request_signals(%Signal{episode_id: id}) when is_binary(id),
+    do: Signal.Query.by_episode_id(id)
+
+  defp request_signals(%Signal{input_id: id}), do: Signal.Query.by_input_id(id)
 
   defp request_row(%Signal{episode_id: id} = signal, reason) when is_binary(id) do
     episode = id |> Episode.Query.by_id() |> Episode.Query.select_request_fields() |> Repo.one!()

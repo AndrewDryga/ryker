@@ -31,6 +31,8 @@ defmodule Ryker.WorkExamples.Export do
   on as it is encoded, so an export never holds the whole set in memory.
   """
 
+  alias Ryker.Repo
+  alias Ryker.Settings.Retention
   alias Ryker.TrainingExamples
   alias Ryker.WorkExamples.{Example, Feedback}
 
@@ -45,10 +47,11 @@ defmodule Ryker.WorkExamples.Export do
           {:ok, acc} | {:error, term()}
         when acc: term()
   def reduce(acc, fun) when is_function(fun, 2) do
-    Example.Query.kept()
-    |> Example.Query.ordered_by_settled_at()
-    |> TrainingExamples.reduce(@batch, feedback_order(), &line/1, acc, fun)
+    examples = Example.Query.ordered_by_settled_at(Example.Query.kept())
+    TrainingExamples.reduce(&kept?/0, examples, @batch, feedback_order(), &line/1, acc, fun)
   end
+
+  defp kept?, do: Repo.one(Retention.Query.select_work_examples_enabled()) == true
 
   # One example as one line of JSON, newline included.
   defp line(%Example{forgotten_at: nil} = example),

@@ -75,7 +75,11 @@ defmodule Ryker.WorkExamples do
     :usage
   ]
 
-  @type capture_result :: %{copied: non_neg_integer(), forgotten: non_neg_integer()}
+  @type capture_result :: %{
+          copied: non_neg_integer(),
+          forgotten: non_neg_integer(),
+          failed: [Ecto.UUID.t()]
+        }
 
   # -- Copying -------------------------------------------------------------------
 
@@ -91,15 +95,15 @@ defmodule Ryker.WorkExamples do
   is off.
   """
   @spec capture(map()) :: {:ok, capture_result()}
-  def capture(%{batch_size: batch_size, window_seconds: window_seconds})
+  def capture(%{batch_size: batch_size, window_seconds: window_seconds} = options)
       when is_integer(batch_size) and batch_size > 0 and is_integer(window_seconds) and
              window_seconds > 0 do
     secrets = InspectionRedactor.current_secrets()
 
     results =
       batch_size
-      |> settled_turns(window_seconds)
-      |> Enum.map(&copy(&1, secrets))
+      |> settled_turns(window_seconds, Map.get(options, :skip, []))
+      |> Enum.map(&{&1, copy(&1, secrets)})
 
     {:ok, _copied} = copy_feedback()
     {:ok, TrainingExamples.counts(results)}
@@ -108,8 +112,9 @@ defmodule Ryker.WorkExamples do
   @doc """
   Copies each feedback signal about a kept example's request beside the
   example once (`Ryker.WorkExamples.Feedback`), and returns how many it
-  copied. As for routing examples, only the kind, value, category and time
-  are copied, under the lock a copy holds.
+  copied; a reaction only beside the turn that sent the message it is on. As
+  for routing examples, only the kind, value, category and time are copied,
+  under the lock a copy holds.
   """
   @spec copy_feedback() :: {:ok, non_neg_integer()}
   def copy_feedback,
@@ -117,8 +122,8 @@ defmodule Ryker.WorkExamples do
 
   # A settled turn whose bodies are still kept, with no example yet, whose
   # request has nothing still running. Taken oldest first.
-  defp settled_turns(limit, window_seconds),
-    do: limit |> Example.Query.settled_turns(window_seconds) |> Repo.all()
+  defp settled_turns(limit, window_seconds, skip),
+    do: limit |> Example.Query.settled_turns(window_seconds, skip) |> Repo.all()
 
   defp copy(turn_id, secrets) do
     TrainingExamples.copy("work example", "turn=#{turn_id}", fn ->

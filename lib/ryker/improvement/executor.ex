@@ -335,6 +335,11 @@ defmodule Ryker.Improvement.Executor do
       {:error, :invalid_improvement_result} ->
         stop(claim, run, session, :invalid_improvement_result, settings)
 
+      # A person forgot what the prompt quotes while the answer was read, after
+      # this step's own check (`forgotten/2`): the answer is not kept.
+      {:error, :improvement_forgotten} ->
+        stop(claim, run, session, :improvement_forgotten, settings)
+
       {:error, _reason} = error ->
         error
     end

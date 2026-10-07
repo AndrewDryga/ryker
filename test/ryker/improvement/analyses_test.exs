@@ -27,8 +27,21 @@ defmodule Ryker.Improvement.AnalysesTest do
 
     defdelegate prepare_create_session(client, key, policy, ref, source), to: Fake
     defdelegate create_session(client, key, policy, ref, source), to: Fake
-    defdelegate get_turn(client, session_id, turn_id), to: Fake
     defdelegate cancel_turn(client, session_id, turn_id, key, revision), to: Fake
+
+    # Runs a test's `:on_answer` once, the first time the turn is read with an
+    # answer waiting, before the answer is handed back.
+    def get_turn(client, session_id, turn_id) do
+      turn = Fake.get_turn(client, session_id, turn_id)
+
+      with {:ok, %{"state" => "awaiting_validation"}} <- turn,
+           on_answer when is_function(on_answer, 0) <-
+             Agent.get_and_update(client, &Map.pop(&1, :on_answer)) do
+        on_answer.()
+      end
+
+      turn
+    end
 
     # What the fleet says of every session while a test sets `:session_answer`.
     def get_session(client, id) do
@@ -298,6 +311,23 @@ defmodule Ryker.Improvement.AnalysesTest do
     assert run.stop_receipt["kind"] == "never_submitted"
     assert Analyses.policy_refused?(settings(coop))
     assert candidate.analysis == :pending
+  end
+
+  # Under a policy whose sessions are refused, each waiting candidate was
+  # claimed and handed back every five minutes, forever, to learn again what
+  # the refusal already said (2026-10-04 review).
+  test "a candidate waits unclaimed while its policy's sessions are refused" do
+    refused = unhappy_request!("1790100650.000100")
+    coop = coop!([Jason.encode!(@diagnosis)], repository_read_only: false)
+    drain(settings(coop))
+    assert Analyses.policy_refused?(settings(coop))
+    assert %Candidate{analysis: :pending} = Inspectors.improvement_candidate(refused)
+
+    waiting = unhappy_request!("1790100660.000100")
+    assert %Candidate{analysis: :pending} = Inspectors.improvement_candidate(waiting)
+
+    assert Analyses.claim("improvement-test", settings(coop)) == {:ok, :idle}
+    assert Analyses.next_due_at(DateTime.add(Repo.now!(), -3_600, :second), settings(coop)) == nil
   end
 
   # The worker can close a session before the turn meant for it is sent; a
@@ -576,6 +606,50 @@ defmodule Ryker.Improvement.AnalysesTest do
     forgotten = Inspectors.improvement_candidate(request)
     assert forgotten.analysis == :failed
     assert forgotten.error_code == "improvement_forgotten"
+    assert Dispatcher.run_once(settings(coop)) == {:ok, :idle}
+  end
+
+  # Forgetting checked only at the start of a step, and saving the answer
+  # checked nothing: a message deleted while the answer was being read left
+  # the diagnosis on an erased run, which retention no longer prunes
+  # (2026-10-04 review).
+  test "an answer read after a person forgot what it quotes is never saved" do
+    ts = "1790100800.000100"
+    request = unhappy_request!(ts)
+    coop = coop!([Jason.encode!(@diagnosis)])
+
+    Agent.update(
+      coop,
+      &Map.put(&1, :on_answer, fn ->
+        Answers.slack_message!(
+          workspace: @workspace,
+          channel: "CSTAGING",
+          actor: "UBOB",
+          text: "",
+          ts: ts,
+          kind: :delete,
+          revision: 2,
+          at: DateTime.add(@now, 900, :second)
+        )
+      end)
+    )
+
+    drain(settings(coop))
+
+    candidate = Inspectors.improvement_candidate(request)
+    assert %DateTime{} = candidate.forgotten_at
+
+    assert [
+             %AnalysisRun{
+               result: nil,
+               prompt: nil,
+               error_code: "improvement_forgotten",
+               remote_stopped_at: %DateTime{}
+             }
+           ] = runs(candidate)
+
+    assert {candidate.analysis, candidate.error_code} == {:failed, "improvement_forgotten"}
+    assert candidate.what_went_wrong == nil
     assert Dispatcher.run_once(settings(coop)) == {:ok, :idle}
   end
 

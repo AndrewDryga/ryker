@@ -59,7 +59,9 @@ defmodule Ryker.Improvement.Dispatcher do
         Analyses.yield(claim, 0)
 
       # Every session this policy creates is refused before anything is sent,
-      # so a start would only prove that again. Hold until the policy changes.
+      # so a start would only prove that again. The claim leaves such
+      # candidates waiting (`Analyses.claim/2`); this holds one claimed just
+      # before the refusal was recorded.
       Analyses.policy_refused?(settings) ->
         Analyses.yield(claim, @refused_policy_hold_seconds)
 

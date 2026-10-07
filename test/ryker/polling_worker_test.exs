@@ -49,6 +49,18 @@ defmodule Ryker.PollingWorkerTest do
     def poll(state), do: state.interval_ms
   end
 
+  defmodule CountingWorker do
+    use Ryker.PollingWorker, lane: :counting_test, interval: :interval_ms
+
+    def start_link(options), do: GenServer.start_link(__MODULE__, Map.new(options))
+
+    @impl Ryker.PollingWorker
+    def poll(state) do
+      send(state.parent, {:polled, state.passes})
+      {0, %{state | passes: state.passes + 1}}
+    end
+  end
+
   defmodule WokenWorker do
     use Ryker.PollingWorker, lane: :woken_test, interval: :interval_ms
 
@@ -147,6 +159,17 @@ defmodule Ryker.PollingWorkerTest do
              :invalid_polling_operation
 
     refute_receive :poll
+  end
+
+  # A copy worker had to remember which rows kept failing to pass over them;
+  # a poll could only return its delay, so a cycle learned nothing for the next
+  # (2026-10-04 review).
+  test "the state a poll returns is the state the next poll starts from" do
+    start_supervised!({CountingWorker, parent: self(), passes: 0, interval_ms: 60_000})
+
+    assert_receive {:polled, 0}, 1_000
+    assert_receive {:polled, 1}, 1_000
+    assert_receive {:polled, 2}, 1_000
   end
 
   # On 2026-09-27 an idle install committed about 125 transactions a second:

@@ -27,13 +27,16 @@ defmodule Ryker.RoutingExamples.Export do
   is null when routing answered by itself. `feedback` is every signal about
   that request, or about routing's own answer, oldest first, copied beside
   the example as it arrived, so it outlives the feedback table's shorter
-  window (`Ryker.RoutingExamples.copy_feedback/0`).
+  window (`Ryker.RoutingExamples.copy_feedback/0`); a reaction is there only
+  when it is on a message this decision sent.
 
   The rows are read in batches inside one transaction and each line is handed
   on as it is encoded, so an export never holds the whole set in memory.
   """
 
+  alias Ryker.Repo
   alias Ryker.RoutingExamples.{Example, Feedback}
+  alias Ryker.Settings.Retention
   alias Ryker.TrainingExamples
 
   @batch 100
@@ -46,10 +49,11 @@ defmodule Ryker.RoutingExamples.Export do
           {:ok, acc} | {:error, term()}
         when acc: term()
   def reduce(acc, fun) when is_function(fun, 2) do
-    Example.Query.kept()
-    |> Example.Query.ordered_by_decided_at()
-    |> TrainingExamples.reduce(@batch, feedback_order(), &line/1, acc, fun)
+    examples = Example.Query.ordered_by_decided_at(Example.Query.kept())
+    TrainingExamples.reduce(&kept?/0, examples, @batch, feedback_order(), &line/1, acc, fun)
   end
+
+  defp kept?, do: Repo.one(Retention.Query.select_routing_examples_enabled()) == true
 
   # One example as one line of JSON, newline included.
   defp line(%Example{forgotten_at: nil} = example),

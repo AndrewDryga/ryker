@@ -52,12 +52,18 @@ defmodule Ryker.Improvement.Analyses do
     Repo.transaction(fn ->
       now = Repo.now!()
 
-      case next_candidate(now, settings.quiet_seconds, settings.enabled) do
+      case next_candidate(now, settings.quiet_seconds, starts?(settings)) do
         nil -> :idle
         candidate -> lease(candidate, worker, settings.lease_seconds, now)
       end
     end)
   end
+
+  # Whether a new analysis may start: learning is on, and its policy's
+  # sessions are not known to be refused. Under a refused policy only what is
+  # out at Coop is claimed, as with learning off; every waiting candidate was
+  # claimed and handed back every five minutes, forever (2026-10-04 review).
+  defp starts?(settings), do: settings.enabled and not policy_refused?(settings)
 
   defp next_candidate(now, quiet_seconds, enabled?) do
     quiet = DateTime.add(now, -quiet_seconds, :second)
@@ -67,14 +73,15 @@ defmodule Ryker.Improvement.Analyses do
   @doc """
   The earliest moment after `since` at which a candidate becomes claimable
   by the clock alone: its quiet time ends, its retry or hold ends, or the
-  lease of a worker that stopped renewing it runs out. With learning off only
-  what is out at Coop counts. Nil when nothing waits on the clock;
+  lease of a worker that stopped renewing it runs out. With learning off, or
+  its policy's sessions refused, only what is out at Coop counts. Nil when
+  nothing waits on the clock;
   everything else that makes one claimable is announced.
   """
   @spec next_due_at(DateTime.t(), map()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since, settings) do
     since
-    |> Candidate.Query.select_next_due_after(settings.quiet_seconds, settings.enabled)
+    |> Candidate.Query.select_next_due_after(settings.quiet_seconds, starts?(settings))
     |> Repo.one()
     |> UTCDateTime.earliest()
   end
@@ -417,6 +424,13 @@ defmodule Ryker.Improvement.Analyses do
 
   def record_candidate(_claim, _run_id, _turn, _producer),
     do: {:error, :invalid_improvement_result}
+
+  # A person forgot something the run's prompt quotes after this step checked:
+  # erasing emptied the run, and an answer saved after it stayed for good,
+  # since retention clears only runs it has not erased yet (2026-10-04
+  # review).
+  defp save_candidate(%AnalysisRun{pruned_at: %DateTime{}}, _turn_id, _session_id, _answer),
+    do: Repo.rollback(:improvement_forgotten)
 
   defp save_candidate(run, turn_id, session_id, answer) do
     unless run.coop_turn_id == turn_id and owned_session?(run, session_id),

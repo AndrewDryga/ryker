@@ -39,10 +39,11 @@ defmodule Ryker.WorkExamples.Example.Query do
   settled within the last `window_seconds` with their bodies still kept, no
   example yet, and nothing their request started still running.
   """
-  def settled_turns(limit, window_seconds) do
+  def settled_turns(limit, window_seconds, skip) do
     from(turn in Turn,
       as: :episode_work_turns,
       where: turn.status == :settled and is_nil(turn.operational_pruned_at),
+      where: turn.id not in ^skip,
       where: not is_nil(turn.submission) and not is_nil(turn.candidate),
       where:
         fragment(

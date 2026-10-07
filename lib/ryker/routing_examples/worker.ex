@@ -13,7 +13,7 @@ defmodule Ryker.RoutingExamples.Worker do
   its safety-net interval.
   """
   use Ryker.PollingWorker, lane: :routing_examples, interval: :poll_interval_ms
-  alias Ryker.{Episodes, Feedback, Options, PollingWorker, RoutingExamples}
+  alias Ryker.{Episodes, Feedback, Options, PollingWorker, RoutingExamples, TrainingExamples}
   alias Ryker.Ingress.Inbox
 
   @fields [:batch_size, :poll_interval_ms, :window_seconds]
@@ -28,7 +28,7 @@ defmodule Ryker.RoutingExamples.Worker do
     do: GenServer.start_link(__MODULE__, configuration, name: __MODULE__)
 
   @impl PollingWorker
-  def setup(configuration), do: {:ok, options!(configuration)}
+  def setup(configuration), do: {:ok, Map.put(options!(configuration), :failures, %{})}
 
   @impl PollingWorker
   def wake_on(_options),
@@ -39,15 +39,16 @@ defmodule Ryker.RoutingExamples.Worker do
     ]
 
   @impl PollingWorker
+  # A copy that keeps failing is passed over after a few passes, so it cannot
+  # hold back the copies after it (`Ryker.TrainingExamples.failures/2`).
   def poll(options) do
-    case RoutingExamples.capture(options) do
-      {:ok, %{copied: copied, forgotten: forgotten}}
-      when copied + forgotten >= options.batch_size ->
-        0
+    skip = TrainingExamples.passed_over(options.failures)
+    {:ok, pass} = RoutingExamples.capture(Map.put(options, :skip, skip))
+    failures = TrainingExamples.failures(options.failures, pass.failed)
 
-      {:ok, _pass} ->
-        PollingWorker.idle_interval_ms()
-    end
+    if pass.copied + pass.forgotten >= options.batch_size,
+      do: {0, %{options | failures: failures}},
+      else: {PollingWorker.idle_interval_ms(), %{options | failures: failures}}
   end
 
   @doc false

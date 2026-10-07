@@ -203,6 +203,38 @@ defmodule Ryker.WorkExamplesTest do
     end
   end
 
+  describe "reactions" do
+    # A reaction on one turn's reply was copied onto every example of its
+    # request, so a thumbs down on the third turn labelled the first two as
+    # well (2026-10-04 review). A reaction is about the message it is on.
+    test "a reaction is kept with the turn that sent the message it is on" do
+      keep_work_examples!()
+      work = work!("Ev-work-reaction", "@ryker why is the staging api down?")
+      assert {:ok, %{copied: 1}} = WorkExamples.capture(@options)
+
+      react!(work, "reaction:Ev-work-reply", "-1", "1788629000.000100")
+      react!(work, "reaction:Ev-work-other", "+1", "1788629999.000100")
+
+      assert {:ok, %{status: :recorded}} =
+               Feedback.record(%{
+                 kind: :sentiment,
+                 value: "frustrated",
+                 note: nil,
+                 actor_ref: "U0FEEDBACK1",
+                 source: "slack",
+                 source_ref: "sentiment:Ev-work-reaction",
+                 occurred_at: DateTime.add(@now, 180, :second),
+                 request: {:episode, work.episode_id}
+               })
+
+      assert {:ok, 2} = WorkExamples.copy_feedback()
+      assert [line] = lines()
+
+      assert [%{"value" => "-1"}, %{"value" => "frustrated"}] =
+               Jason.decode!(line)["labels"]["feedback"]
+    end
+  end
+
   describe "a person forgetting wins" do
     # A work example carries what a person asked; deleting that message must
     # take it back from the copy as it does from routing's.
@@ -311,6 +343,24 @@ defmodule Ryker.WorkExamplesTest do
   end
 
   describe "the export" do
+    # Turning keeping off hid only the Settings link: the file still came from
+    # its address and from the mix task until retention deleted the examples
+    # (2026-10-04 review).
+    test "nothing is exported once keeping work examples is off" do
+      keep_work_examples!()
+      work!("Ev-work-export-off", "@ryker why is the staging api down?")
+      assert {:ok, %{copied: 1}} = WorkExamples.capture(@options)
+      revision = Settings.fetch!().installation.revision
+      off = %{work_examples_enabled: false}
+      assert {:ok, preview} = Settings.preview_retention(off, revision)
+      assert {:ok, _saved} = Settings.save_retention(off, revision, @actor, preview.confirmation)
+
+      assert Repo.exists?(Example)
+
+      assert Export.reduce([], fn line, read -> {:cont, [line | read]} end) ==
+               {:error, :examples_not_kept}
+    end
+
     test "each example is one chat line with what the worker did beside it" do
       keep_work_examples!()
       work = work!("Ev-work-export", "@ryker why is the staging api down?")
@@ -698,6 +748,21 @@ defmodule Ryker.WorkExamplesTest do
   end
 
   defp message_ref(number), do: "1787832001.00010#{number}"
+
+  defp react!(work, source_ref, emoji, message_ref) do
+    assert {:ok, %{status: :recorded}} =
+             Feedback.record(%{
+               kind: :reaction_added,
+               value: emoji,
+               note: nil,
+               actor_ref: "U0FEEDBACK1",
+               source: "slack",
+               source_ref: source_ref,
+               occurred_at: DateTime.add(@now, 120, :second),
+               message_ref: message_ref,
+               request: {:episode, work.episode_id}
+             })
+  end
 
   defp delete_message!(event_ref, number) do
     assert {:ok, input} =

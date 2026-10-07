@@ -128,11 +128,20 @@ defmodule Ryker.Learning.ConversationObservation.Query do
   def not_forgotten(queryable),
     do: where(queryable, [conversation_observations: o], is_nil(o.forgotten_at))
 
-  def select_messages(queryable) do
-    select(
+  @doc "Notes about any of `messages`, each `{conversation_ref, source_message_ref}`."
+  def by_messages(queryable \\ all(), messages) do
+    {conversation_refs, message_refs} = Enum.unzip(messages)
+
+    where(
       queryable,
       [conversation_observations: o],
-      {o.conversation_ref, o.source_message_ref}
+      fragment(
+        "(?, ?) IN (SELECT * FROM unnest(?::text[], ?::text[]))",
+        o.conversation_ref,
+        o.source_message_ref,
+        ^conversation_refs,
+        ^message_refs
+      )
     )
   end
 end

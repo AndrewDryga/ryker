@@ -51,6 +51,24 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert request(:get, "/settings/retention/other-examples.jsonl").status == 404
   end
 
+  # With keeping turned off the file still downloaded from its address until
+  # retention deleted the examples (2026-10-04 review).
+  test "routing examples that are no longer kept answer 404" do
+    not_kept = fn _acc, _fun -> {:error, :examples_not_kept} end
+
+    response =
+      request_with_options(
+        :get,
+        "/settings/retention/routing-examples.jsonl",
+        nil,
+        routing_examples(not_kept)
+      )
+
+    assert response.status == 404
+    assert response.resp_body == "Routing examples are not kept\n"
+    assert get_resp_header(response, "content-disposition") == []
+  end
+
   # The download sent its 200 before it read a row. A database that could not
   # answer handed the browser an empty file, as if no example were kept, and
   # one that failed part-way could end the file cleanly after the lines it

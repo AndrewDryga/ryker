@@ -760,6 +760,50 @@ defmodule Ryker.RoutingExamplesTest do
     end
   end
 
+  describe "reactions" do
+    # A reaction on any of a request's messages was copied onto every routing
+    # decision of the request (2026-10-04 review). A reaction is about the
+    # message it is on, so routing keeps the ones on its own replies.
+    test "a reaction is kept with the decision that sent the message it is on" do
+      keep_examples!()
+      entry = route!("Ev-examples-reaction", "hi, reply with one word", @quick_reply)
+      deliver_routing_responses!()
+      assert {:ok, %{copied: 1}} = RoutingExamples.capture(@options)
+
+      feedback!(entry, :reaction_added, "+1", "reaction:Ev-routing-reply",
+        message_ref: "1788629000.000200"
+      )
+
+      feedback!(entry, :reaction_added, "-1", "reaction:Ev-routing-other",
+        message_ref: "1788629999.000200"
+      )
+
+      assert {:ok, 1} = RoutingExamples.copy_feedback()
+      assert [line] = lines()
+      assert [%{"value" => "+1"}] = Jason.decode!(line)["labels"]["feedback"]
+    end
+  end
+
+  describe "taking back" do
+    # Each check read every deletion of each quoted conversation, on every
+    # copy and every prompt the local routing model was sent (2026-10-04
+    # review).
+    test "whether a prompt quotes a deleted message costs the same however much else was deleted" do
+      keep_examples!()
+      entry = route!("Ev-examples-quote-cost", "hello there", @ignore)
+      delete_message!("Ev-examples-quote-cost-2", 2)
+      one = rows_read(fn -> RoutingExamples.quotes_forgotten?(entry) end)
+
+      for number <- 3..12, do: delete_message!("Ev-examples-quote-cost-#{number}", number)
+
+      assert rows_read(fn -> RoutingExamples.quotes_forgotten?(entry) end) == one
+      refute RoutingExamples.quotes_forgotten?(entry)
+
+      delete_message!("Ev-examples-quote-cost-1", 1)
+      assert RoutingExamples.quotes_forgotten?(entry)
+    end
+  end
+
   describe "the export" do
     test "the export writes one fine-tuning line per kept example and none for a forgotten one" do
       keep_examples!()
@@ -803,6 +847,24 @@ defmodule Ryker.RoutingExamplesTest do
       assert labels["decided_at"] == DateTime.to_iso8601(example.decided_at)
     end
 
+    # Turning keeping off hid only the Settings link: the file still came from
+    # its address and from the mix task until retention deleted the examples
+    # (2026-10-04 review).
+    test "nothing is exported once keeping routing examples is off" do
+      keep_examples!()
+      route!("Ev-examples-off", "hello there", @ignore)
+      assert {:ok, %{copied: 1}} = RoutingExamples.capture(@options)
+      revision = Settings.fetch!().installation.revision
+      off = %{routing_examples_enabled: false}
+      assert {:ok, preview} = Settings.preview_retention(off, revision)
+      assert {:ok, _saved} = Settings.save_retention(off, revision, @actor, preview.confirmation)
+
+      assert Repo.exists?(Example)
+
+      assert RoutingExamples.Export.reduce([], fn line, read -> {:cont, [line | read]} end) ==
+               {:error, :examples_not_kept}
+    end
+
     test "the export goes oldest decision first and stops when its reader does" do
       keep_examples!()
       older = route!("Ev-examples-order", "hello there", @ignore)
@@ -825,6 +887,41 @@ defmodule Ryker.RoutingExamplesTest do
   end
 
   describe "the worker" do
+    # Copies were taken oldest first and a failed one was simply tried again,
+    # so a batch of decisions whose copy failed every time held back every
+    # decision settled after them for the whole window, a year by default
+    # (2026-10-04 review).
+    test "a decision whose copy fails every time stops holding back the ones after it" do
+      keep_examples!()
+      failing = route!("Ev-examples-failing", "hello there", @ignore)
+      later = route!("Ev-examples-after-failing", "good morning", @ignore, message: 2)
+
+      Repo.update_all(from(e in Entry, where: e.id == ^later.id),
+        set: [updated_at: DateTime.add(Repo.now!(), 1, :second)]
+      )
+
+      # An answer that is no text: building the example raises every time.
+      Repo.query!(
+        "UPDATE admission_attempts SET response = jsonb_set(response::jsonb, '{assistant_message}', '42')::text WHERE input_id = $1",
+        [Ecto.UUID.dump!(failing.id)]
+      )
+
+      {:ok, state} =
+        RoutingExamples.Worker.setup(batch_size: 1, poll_interval_ms: 60_000, window_seconds: 60)
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        Enum.reduce(1..4, state, fn _pass, state ->
+          case RoutingExamples.Worker.poll(state) do
+            {_delay, next} -> next
+            _delay -> state
+          end
+        end)
+      end)
+
+      refute Repo.get_by(Example, input_id: failing.id)
+      assert Repo.get_by(Example, input_id: later.id)
+    end
+
     # Nothing settles by the clock, so an idle worker sleeps ten seconds; a
     # routed message has to wake it.
     test "a decision that settles while the worker is idle is copied at once" do
@@ -924,6 +1021,39 @@ defmodule Ryker.RoutingExamplesTest do
 
   defp message_ref(number), do: "1787832001.00010#{number}"
 
+  # How many rows the statements `fun` sent the database answered with.
+  defp rows_read(fun) do
+    reference = make_ref()
+    owner = self()
+
+    :ok =
+      :telemetry.attach(
+        reference,
+        [:ryker, :repo, :query],
+        fn _event, _measurements, metadata, _config ->
+          with true <- self() == owner,
+               {:ok, %{num_rows: rows}} <- metadata.result,
+               do: send(owner, {reference, rows})
+        end,
+        nil
+      )
+
+    try do
+      fun.()
+      count_rows(reference, 0)
+    after
+      :telemetry.detach(reference)
+    end
+  end
+
+  defp count_rows(reference, total) do
+    receive do
+      {^reference, rows} -> count_rows(reference, total + rows)
+    after
+      0 -> total
+    end
+  end
+
   defp delete_message!(event_ref, number) do
     assert {:ok, input} =
              SlackInput.new(%{
@@ -1022,6 +1152,7 @@ defmodule Ryker.RoutingExamplesTest do
                source: "slack",
                source_ref: source_ref,
                occurred_at: Keyword.get(options, :at, DateTime.add(@now, 120, :second)),
+               message_ref: Keyword.get(options, :message_ref),
                request: {:input, entry.id}
              })
   end

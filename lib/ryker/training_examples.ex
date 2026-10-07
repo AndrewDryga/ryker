@@ -15,11 +15,16 @@ defmodule Ryker.TrainingExamples do
 
   @token_kinds ~w(input_tokens cached_input_tokens output_tokens reasoning_tokens)
 
+  # A copy that failed this many times is passed over, and at most this many
+  # failures are remembered.
+  @failure_attempts 3
+  @remembered_failures 1_000
+
   @doc """
   Runs one copy. One that raises is logged by kind only, since the exception
-  can carry what it copied, and left for the next pass; it never stops the
-  copies after it. Only losing the database stops a pass, for the worker's
-  backoff.
+  can carry what it copied, and answers `{:error, :copy_failed}`; it never
+  stops the copies after it. Only losing the database stops a pass, for the
+  worker's backoff.
   """
   @spec copy(String.t(), String.t(), (-> {:ok, term()} | {:error, term()})) ::
           {:ok, term()} | {:error, term()}
@@ -31,7 +36,7 @@ defmodule Ryker.TrainingExamples do
 
     error ->
       Logger.error("#{kind} copy failed #{id} category=#{inspect(error.__struct__)}")
-      {:ok, :skipped}
+      {:error, :copy_failed}
   end
 
   @doc """
@@ -44,17 +49,43 @@ defmodule Ryker.TrainingExamples do
     if is_nil(example.forgotten_at), do: :copied, else: :forgotten
   end
 
-  @doc "How many of a pass's copies kept an example whole, and how many its identity only."
-  @spec counts([{:ok, term()} | {:error, term()}]) :: %{
+  @doc """
+  What a pass's copies, each `{id, result}`, came to: how many kept an
+  example whole, how many its identity only, and the ids whose copy failed.
+  """
+  @spec counts([{Ecto.UUID.t(), {:ok, term()} | {:error, term()}}]) :: %{
           copied: non_neg_integer(),
-          forgotten: non_neg_integer()
+          forgotten: non_neg_integer(),
+          failed: [Ecto.UUID.t()]
         }
   def counts(results) do
     %{
-      copied: Enum.count(results, &(&1 == {:ok, :copied})),
-      forgotten: Enum.count(results, &(&1 == {:ok, :forgotten}))
+      copied: Enum.count(results, &match?({_id, {:ok, :copied}}, &1)),
+      forgotten: Enum.count(results, &match?({_id, {:ok, :forgotten}}, &1)),
+      failed: for({id, {:error, :copy_failed}} <- results, do: id)
     }
   end
+
+  @doc """
+  A worker's memory of failed copies, `%{id => attempts}`, with a pass's
+  `failed` counted in. Copies are taken oldest first, so a batch of rows
+  failing every time held back everything settled after them for the whole
+  window, a year by default (2026-10-04 review).
+  """
+  @spec failures(%{optional(Ecto.UUID.t()) => pos_integer()}, [Ecto.UUID.t()]) ::
+          %{optional(Ecto.UUID.t()) => pos_integer()}
+  def failures(remembered, failed) do
+    Enum.reduce(failed, remembered, fn id, remembered ->
+      if Map.has_key?(remembered, id) or map_size(remembered) < @remembered_failures,
+        do: Map.update(remembered, id, 1, &(&1 + 1)),
+        else: remembered
+    end)
+  end
+
+  @doc "The ids a worker passes over: copies that failed #{@failure_attempts} times."
+  @spec passed_over(%{optional(Ecto.UUID.t()) => pos_integer()}) :: [Ecto.UUID.t()]
+  def passed_over(remembered),
+    do: for({id, attempts} <- remembered, attempts >= @failure_attempts, do: id)
 
   @doc """
   Copies each new signal of `signals` into `feedback` once, while `enabled?`
@@ -116,9 +147,14 @@ defmodule Ryker.TrainingExamples do
   @doc """
   Reduces the line `line` makes of each example of `examples` through `fun`,
   as `Enum.reduce_while/3` does, `batch` rows at a time with their feedback in
-  `feedback_order`. It reads in one transaction, so a file is one snapshot.
+  `feedback_order`. It reads in one transaction, so a file is one snapshot,
+  and refuses with `:examples_not_kept` once `kept?` says keeping them is off:
+  turning it off hid only the Settings link, and the file still came from
+  its address and the mix tasks until retention deleted the examples
+  (2026-10-04 review).
   """
   @spec reduce(
+          (-> boolean()),
           Ecto.Queryable.t(),
           pos_integer(),
           Ecto.Queryable.t(),
@@ -127,9 +163,11 @@ defmodule Ryker.TrainingExamples do
           (iodata(), acc -> {:cont, acc} | {:halt, acc})
         ) :: {:ok, acc} | {:error, term()}
         when acc: term()
-  def reduce(examples, batch, feedback_order, line, acc, fun) do
+  def reduce(kept?, examples, batch, feedback_order, line, acc, fun) do
     Repo.transaction(
       fn ->
+        unless kept?.(), do: Repo.rollback(:examples_not_kept)
+
         examples
         |> Repo.stream(max_rows: batch)
         |> Stream.chunk_every(batch)

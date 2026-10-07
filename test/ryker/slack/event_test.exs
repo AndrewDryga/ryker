@@ -147,6 +147,12 @@ defmodule Ryker.Slack.EventTest do
     assert second.content["text"] == "second"
     assert third.event_kind == :delete
     assert third.source_capabilities == %{}
+
+    # A deletion kept the deleted words, from Slack's copy of the message,
+    # until the operational horizon in the message's revisions and the
+    # history horizon in its request's events (2026-10-04 review).
+    assert third.content["text"] == ""
+    refute inspect(third) =~ "second"
   end
 
   test "only an exact affirmative post instruction creates a destination grant" do

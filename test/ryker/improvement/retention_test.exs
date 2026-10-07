@@ -81,6 +81,29 @@ defmodule Ryker.Improvement.RetentionTest do
     assert %DateTime{} = run.pruned_at
   end
 
+  # A run's words went only once its turn stopped, and only the analysis lane
+  # records that, so an analysis out at Coop when the lane stopped being
+  # assembled (no learning policy, Work off) kept people's words for good
+  # (2026-10-04 review). Past the longest an attempt can run they go at the
+  # horizon on that local proof; a run that may still be working keeps them.
+  test "an analysis no lane will ever stop loses its words once no attempt could still be running" do
+    abandoned = candidate!("1790400450.000100")
+
+    abandoned_run =
+      out_at_coop!(abandoned, DateTime.add(DateTime.utc_now(), -25 * 3_600, :second))
+
+    recent = candidate!("1790400460.000100")
+    recent_run = out_at_coop!(recent, DateTime.add(DateTime.utc_now(), -3_600, :second))
+
+    assert {:ok, _result} = Data.prune(settings(true))
+
+    assert %AnalysisRun{prompt: nil, result: nil, pruned_at: %DateTime{}} =
+             Repo.get!(AnalysisRun, abandoned_run.id)
+
+    assert %AnalysisRun{pruned_at: nil} = kept = Repo.get!(AnalysisRun, recent_run.id)
+    assert is_binary(kept.prompt)
+  end
+
   # "A person forgetting wins": deleting the message a case quotes erases the
   # case's words, the diagnosis and every analysis prompt in the same
   # transaction that records the deletion.
@@ -220,6 +243,29 @@ defmodule Ryker.Improvement.RetentionTest do
       inserted_at: at,
       updated_at: at
     })
+  end
+
+  # A run Coop is still working on, as far as Ryker knows: started at
+  # `started_at`, answered, and never stopped.
+  defp out_at_coop!(candidate, started_at) do
+    run = run!(candidate, started_at)
+
+    Repo.update_all(from(r in AnalysisRun, where: r.id == ^run.id),
+      set: [status: :responded, stop_receipt: nil, remote_stopped_at: nil]
+    )
+
+    # Its lane held it last, and no lane is left to renew the lease.
+    Repo.update_all(from(c in Candidate, where: c.id == ^candidate.id),
+      set: [
+        analysis: :running,
+        start_count: 1,
+        lease_ref: Ecto.UUID.generate(),
+        lease_owner: "improvement-gone",
+        lease_expires_at: started_at
+      ]
+    )
+
+    run
   end
 
   defp table?(name) do

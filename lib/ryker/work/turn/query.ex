@@ -412,6 +412,10 @@ defmodule Ryker.Work.Turn.Query do
     )
   end
 
+  @doc "Turns whose bodies (briefing, answer, activity) retention already removed."
+  def without_bodies(queryable \\ all()),
+    do: where(queryable, [episode_work_turns: t], not is_nil(t.operational_pruned_at))
+
   @doc "Settled, with the briefing and the accepted result still kept."
   def settled_with_bodies(queryable) do
     where(

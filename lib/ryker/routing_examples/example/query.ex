@@ -48,12 +48,13 @@ defmodule Ryker.RoutingExamples.Example.Query do
   and committed with its bodies still kept, no example yet, and nothing
   they started still running.
   """
-  def settled_decisions(limit, window_seconds) do
+  def settled_decisions(limit, window_seconds, skip) do
     from(input in Entry,
       as: :ingress_inbox_entries,
       join: attempt in Attempt,
       on: attempt.input_id == input.id and attempt.generation == input.execution_generation,
       where: input.status == :decided and is_nil(input.operational_pruned_at),
+      where: input.id not in ^skip,
       where:
         fragment(
           "? > clock_timestamp() - (? * interval '1 second')",

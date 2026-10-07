@@ -11,8 +11,10 @@ defmodule Ryker.PollingWorker do
 
   The worker keeps its own `start_link/1`, so its name and supervision stay its
   own, and implements `c:poll/1`: one cycle, returning the milliseconds until
-  the next. `c:setup/1` turns the start argument into the process state or
-  refuses to start; a worker without one keeps the argument as its state.
+  the next, or those and the state the next cycle starts from, when a cycle
+  learns something the next must know. `c:setup/1` turns the start argument
+  into the process state or refuses to start; a worker without one keeps the
+  argument as its state.
   `:lane` names the worker in the backoff warning, and `:interval` is the state
   key holding the configured interval, which a backoff never undercuts.
 
@@ -56,7 +58,7 @@ defmodule Ryker.PollingWorker do
   @due_retry_ms 250
 
   @callback setup(argument :: term()) :: {:ok, state :: map()} | {:stop, reason :: term()}
-  @callback poll(state :: map()) :: non_neg_integer()
+  @callback poll(state :: map()) :: non_neg_integer() | {non_neg_integer(), map()}
 
   @doc """
   The announcements that wake this worker: functions that each subscribe the
@@ -182,7 +184,13 @@ defmodule Ryker.PollingWorker do
     # A wake that arrives from here on may name a row this cycle's reads miss,
     # so it asks for the poll after this one.
     Process.delete(@woken)
-    delay = run(lane, Map.fetch!(state, interval), fn -> module.poll(state) end)
+
+    {delay, state} =
+      case run(lane, Map.fetch!(state, interval), fn -> module.poll(state) end) do
+        {delay, %{} = next} -> {delay, next}
+        delay -> {delay, state}
+      end
+
     schedule_poll(delay)
     {:noreply, state}
   end
@@ -253,9 +261,11 @@ defmodule Ryker.PollingWorker do
   end
 
   @doc """
-  Runs one cycle and returns its delay, or the backoff when the database refused it.
+  Runs one cycle and returns what it returned, or the backoff when the
+  database refused it.
   """
-  @spec run(atom(), pos_integer(), (-> non_neg_integer())) :: non_neg_integer()
+  @spec run(atom(), pos_integer(), (-> delay)) :: delay
+        when delay: non_neg_integer() | {non_neg_integer(), map()}
   def run(lane, interval_ms, cycle) do
     cycle.()
   rescue

@@ -110,6 +110,41 @@ defmodule Ryker.Improvement.CandidatesTest do
     assert candidate.last_signal_at == DateTime.add(@now, 120, :second)
   end
 
+  # Taking back a 👎 changed nothing: the request was still analyzed after
+  # the quiet time, a paid model call about feedback nobody stood by
+  # (2026-10-04 review).
+  test "taking back the only thumbs down before the analysis closes its candidate" do
+    request = work_request!("1790002200.000100")
+    record!(request, :reaction_added, "-1", nil, "taken-back-add")
+    assert %Candidate{} = Inspectors.improvement_candidate(request)
+
+    record!(request, :reaction_removed, "-1", nil, "taken-back-remove")
+    assert Inspectors.improvement_candidate(request) == nil
+  end
+
+  test "a thumbs down taken back keeps the candidate other feedback stands behind" do
+    standing = work_request!("1790002300.000100")
+    record!(standing, :reaction_added, "-1", nil, "standing-alice")
+    record!(standing, :reaction_added, "-1", nil, "standing-bob", @now, "UBOB")
+    record!(standing, :reaction_removed, "-1", nil, "standing-alice-back")
+    assert %Candidate{reasons: ["reaction"]} = Inspectors.improvement_candidate(standing)
+
+    asked = work_request!("1790002400.000100")
+    record!(asked, :reaction_added, "-1", nil, "asked-add")
+    record!(asked, :asked_again, nil, nil, "asked-again")
+    record!(asked, :reaction_removed, "-1", nil, "asked-back")
+
+    assert %Candidate{reasons: ["asked_again", "reaction"]} =
+             Inspectors.improvement_candidate(asked)
+
+    started = work_request!("1790002500.000100")
+    record!(started, :reaction_added, "-1", nil, "started-add")
+    %Candidate{id: id} = Inspectors.improvement_candidate(started)
+    Repo.update_all(from(c in Candidate, where: c.id == ^id), set: [start_count: 1])
+    record!(started, :reaction_removed, "-1", nil, "started-back")
+    assert %Candidate{id: ^id} = Inspectors.improvement_candidate(started)
+  end
+
   test "a quick reply routing sent by itself is a request of its own" do
     question =
       Answers.slack_message!(
@@ -178,13 +213,13 @@ defmodule Ryker.Improvement.CandidatesTest do
     {:episode, reply.episode.id}
   end
 
-  defp record!(request, kind, value, note, event, at \\ @now) do
+  defp record!(request, kind, value, note, event, at \\ @now, actor \\ "UALICE") do
     assert {:ok, _recorded} =
              Feedback.record(%{
                kind: kind,
                value: value,
                note: note,
-               actor_ref: "UALICE",
+               actor_ref: actor,
                source: "slack",
                source_ref: "slack-event:#{event}",
                occurred_at: at,

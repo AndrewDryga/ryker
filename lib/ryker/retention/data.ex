@@ -396,14 +396,24 @@ defmodule Ryker.Retention.Data do
 
   # The exact prompt and answer of an analysis turn quote people's messages:
   # their words go at the operational horizon once the turn has stopped (or
-  # never started), and the run keeps only its receipts.
+  # never started), and the run keeps only its receipts. Only the analysis
+  # lane records a stop, and it exists only while there is a learning policy
+  # and Work, so a run out at Coop when the lane went kept its words for good
+  # (2026-10-04 review): past the longest an attempt can run, Coop's longest
+  # turn and the longest execution timeout, its words go at the horizon on
+  # that local proof. A lane that comes back reads the empty prompt and stops
+  # the run (`Ryker.Improvement.Executor`).
+  @longest_analysis_seconds 24 * 3_600 + 1_800
   @prune_improvement_runs """
   WITH candidates AS (
     SELECT run.id
     FROM improvement_analysis_runs AS run
     WHERE run.pruned_at IS NULL
-      AND (run.remote_stopped_at IS NOT NULL OR run.started_at IS NULL)
-      AND run.updated_at < clock_timestamp() - ($1 * interval '1 second')
+      AND (
+        ((run.remote_stopped_at IS NOT NULL OR run.started_at IS NULL)
+          AND run.updated_at < clock_timestamp() - ($1 * interval '1 second'))
+        OR run.started_at < clock_timestamp() - (greatest($1, $2) * interval '1 second')
+      )
     ORDER BY run.updated_at, run.id
     LIMIT 100
     FOR UPDATE OF run SKIP LOCKED
@@ -692,7 +702,10 @@ defmodule Ryker.Retention.Data do
     routing_responses = prune_aged(@delivered_routing_responses, settings)
     _weekly_reports = prune_aged(@finished_weekly_reports, settings)
     feedback = prune_aged(@recorded_feedback, settings)
-    _improvement_runs = execute_count(@prune_improvement_runs, [cutoff])
+
+    _improvement_runs =
+      execute_count(@prune_improvement_runs, [cutoff, @longest_analysis_seconds])
+
     _knowledge_runs = execute_count(@prune_knowledge_runs, [cutoff])
 
     improvement =

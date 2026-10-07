@@ -13,6 +13,7 @@ defmodule Ryker.WorkExamples.ExportTaskTest do
       adapter: Ecto.Adapters.Postgres
   end
 
+  @settings "export-task-test"
   @at ~N[2026-10-02 12:00:00.000000]
 
   test "the export command writes each kept work example as one line, without starting Ryker" do
@@ -23,6 +24,7 @@ defmodule Ryker.WorkExamples.ExportTaskTest do
       Path.join(System.tmp_dir!(), "work-examples-#{System.unique_integer([:positive])}.jsonl")
 
     try do
+      keep_examples!(repo)
       example!(repo, id)
 
       script = """
@@ -63,8 +65,34 @@ defmodule Ryker.WorkExamples.ExportTaskTest do
       assert document["labels"]["turn_id"] == id
     after
       SQL.query!(repo, "DELETE FROM work_examples WHERE id = $1", [Ecto.UUID.dump!(id)])
+      SQL.query!(repo, "DELETE FROM retention_settings WHERE id = $1", [@settings])
+      SQL.query!(repo, "DELETE FROM installation_settings WHERE host_ref = $1", [@settings])
       File.rm(path)
     end
+  end
+
+  # An export refuses while keeping examples is off, and nothing else in
+  # this test database has committed the setting.
+  defp keep_examples!(repo) do
+    SQL.query!(
+      repo,
+      """
+      INSERT INTO installation_settings (host_ref, revision, saved_by, saved_at, inserted_at)
+      VALUES ($1, 1, 'export-task-test', now(), now())
+      """,
+      [@settings]
+    )
+
+    SQL.query!(
+      repo,
+      """
+      INSERT INTO retention_settings
+        (id, operational_data_seconds, conversation_memory_seconds, closed_work_seconds,
+         episode_history_seconds, audit_data_seconds, work_examples_enabled)
+      VALUES ($1, 2592000, 2592000, 2592000, 7776000, 31536000, true)
+      """,
+      [@settings]
+    )
   end
 
   defp example!(repo, id) do

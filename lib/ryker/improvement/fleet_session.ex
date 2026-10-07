@@ -29,30 +29,38 @@ defmodule Ryker.Improvement.FleetSession do
 
   def placeable?(_settings), do: true
 
-  @doc "The run's session, created once with the run's exact policy."
+  @doc """
+  The run's session, created once with the run's exact policy, and announced
+  when it is: every step asks for it, and each one announced it, so every
+  page listing sessions redrew every two seconds while a run was out
+  (2026-10-04 review).
+  """
   @spec ensure(AnalysisRun.t()) :: {:ok, Session.t()} | {:error, term()}
   def ensure(%AnalysisRun{} = run) do
     Repo.transaction(fn ->
-      Repo.insert!(
-        %Session{
-          id: Ecto.UUID.generate(),
-          execution_kind: :improvement,
-          improvement_run_id: run.id,
-          policy: run.policy,
-          policy_digest: run.policy_digest,
-          external_ref: external_ref(run)
-        },
-        on_conflict: :nothing
-      )
-
-      session = locked(run)
+      session = existing(run) || create!(run)
 
       unless session.policy == run.policy and session.policy_digest == run.policy_digest,
         do: Repo.rollback(:improvement_session_authority_conflict)
 
-      Custody.broadcast_session_updated(session)
       session
     end)
+  end
+
+  defp create!(run) do
+    Repo.insert!(
+      %Session{
+        id: Ecto.UUID.generate(),
+        execution_kind: :improvement,
+        improvement_run_id: run.id,
+        policy: run.policy,
+        policy_digest: run.policy_digest,
+        external_ref: external_ref(run)
+      },
+      on_conflict: :nothing
+    )
+
+    run |> locked() |> tap(&Custody.broadcast_session_updated/1)
   end
 
   @doc "Binds the run's session to the Coop session created for it, once."
@@ -93,10 +101,9 @@ defmodule Ryker.Improvement.FleetSession do
     |> Repo.one()
   end
 
-  defp locked(run) do
-    run.id
-    |> Session.Query.by_improvement_run_id()
-    |> Session.Query.lock_for_update()
-    |> Repo.one!()
-  end
+  defp existing(run), do: run |> run_session() |> Repo.one()
+  defp locked(run), do: run |> run_session() |> Repo.one!()
+
+  defp run_session(run),
+    do: run.id |> Session.Query.by_improvement_run_id() |> Session.Query.lock_for_update()
 end

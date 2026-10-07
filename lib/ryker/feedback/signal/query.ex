@@ -81,6 +81,10 @@ defmodule Ryker.Feedback.Signal.Query do
     )
   end
 
+  @doc "Reactions added or taken back."
+  def reactions(queryable \\ all()),
+    do: where(queryable, [answer_feedback: s], s.kind in [:reaction_added, :reaction_removed])
+
   def ordered_by_occurred_at(queryable) do
     order_by(queryable, [answer_feedback: s],
       asc: s.occurred_at,

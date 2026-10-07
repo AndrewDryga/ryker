@@ -153,7 +153,8 @@ defmodule Ryker.Improvement.Evidence do
         routing: routing,
         work: work,
         feedback: Enum.map(feedback, &Map.delete(&1, :key)),
-        omitted: omitted(messages, routing, entries),
+        omitted:
+          omitted(messages, routing, entries) ++ expired_answers(request, entries, answers),
         message_keys: keys,
         conversation_refs: conversations
       },
@@ -337,21 +338,28 @@ defmodule Ryker.Improvement.Evidence do
 
   # -- Ryker's answers --------------------------------------------------------------
 
+  # A task's answers include Ryker's in the conversation that offered it,
+  # whose messages are the request's too (`entries/1`); the person's side of
+  # that conversation was read without Ryker's (2026-10-04 review).
   defp answers({:episode, id}, _entries, secrets) do
+    ids = [id | offering_episodes(id)]
+
     replies =
-      id
-      |> Turn.Query.by_episode_id()
+      ids
+      |> Turn.Query.by_episode_ids()
       |> Turn.Query.delivered()
       |> Turn.Query.select_deliveries()
       |> Repo.all()
       |> Enum.map(fn {at, document} -> answer(at, "work_reply", document, secrets) end)
 
     posts =
-      id
-      |> PlatformAction.Query.by_episode_id()
-      |> PlatformAction.Query.delivered_messages()
-      |> PlatformAction.Query.select_deliveries()
-      |> Repo.all()
+      Enum.flat_map(ids, fn id ->
+        id
+        |> PlatformAction.Query.by_episode_id()
+        |> PlatformAction.Query.delivered_messages()
+        |> PlatformAction.Query.select_deliveries()
+        |> Repo.all()
+      end)
       |> Enum.map(fn {at, document} -> answer(at, "posted_update", document, secrets) end)
 
     replies ++ posts
@@ -586,6 +594,25 @@ defmodule Ryker.Improvement.Evidence do
   defp feedback_keys(feedback), do: for(%{key: key} when is_binary(key) <- feedback, do: key)
 
   # -- Gaps -------------------------------------------------------------------------
+
+  # Ryker's own words past the operational horizon, which conversation and
+  # work show only as missing: a Work turn's answer and the tools it called,
+  # and a quick reply routing sent by itself (2026-10-04 review).
+  defp expired_answers({:episode, id}, _entries, _answers) do
+    expired = id |> Turn.Query.by_episode_id() |> Turn.Query.without_bodies() |> Repo.exists?()
+
+    if expired,
+      do: ["Ryker's answers and the tools it called in Work turns older than Ryker keeps them."],
+      else: []
+  end
+
+  defp expired_answers({:input, _id}, entries, answers) do
+    answered? = Enum.any?(entries, &(&1.decision_action in [:quick_reply, :react]))
+
+    if answered? and answers == [],
+      do: ["Ryker's quick reply, older than Ryker keeps it."],
+      else: []
+  end
 
   defp omitted(messages, routing, entries) do
     [

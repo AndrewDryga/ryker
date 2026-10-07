@@ -67,7 +67,11 @@ defmodule Ryker.RoutingExamples do
   # What forgetting empties; the example keeps its identity.
   @bodies [:prompt, :output_schema, :answer, :rejected_answers, :decision, :outcome, :usage]
 
-  @type capture_result :: %{copied: non_neg_integer(), forgotten: non_neg_integer()}
+  @type capture_result :: %{
+          copied: non_neg_integer(),
+          forgotten: non_neg_integer(),
+          failed: [Ecto.UUID.t()]
+        }
 
   # -- Copying -------------------------------------------------------------------
 
@@ -82,15 +86,15 @@ defmodule Ryker.RoutingExamples do
   while keeping routing examples is off.
   """
   @spec capture(map()) :: {:ok, capture_result()}
-  def capture(%{batch_size: batch_size, window_seconds: window_seconds})
+  def capture(%{batch_size: batch_size, window_seconds: window_seconds} = options)
       when is_integer(batch_size) and batch_size > 0 and is_integer(window_seconds) and
              window_seconds > 0 do
     secrets = InspectionRedactor.current_secrets()
 
     results =
       batch_size
-      |> settled_inputs(window_seconds)
-      |> Enum.map(&copy(&1, secrets))
+      |> settled_inputs(window_seconds, Map.get(options, :skip, []))
+      |> Enum.map(&{&1, copy(&1, secrets)})
 
     {:ok, _copied} = copy_feedback()
     {:ok, TrainingExamples.counts(results)}
@@ -99,7 +103,9 @@ defmodule Ryker.RoutingExamples do
   @doc """
   Copies each feedback signal about a kept example's request, or about the
   message routing answered by itself, beside the example once
-  (`Ryker.RoutingExamples.Feedback`), and returns how many it copied.
+  (`Ryker.RoutingExamples.Feedback`), and returns how many it copied. A
+  reaction is about the one message it is on, so it is copied only beside
+  the decision that sent that message.
 
   Feedback arrives before and after an example is copied (a reaction the
   next day, a rating when the request ends), and expires at the operational
@@ -116,8 +122,8 @@ defmodule Ryker.RoutingExamples do
   # A decided message whose routing turn completed and was committed, whose
   # bodies are still kept, with no example yet, and with nothing it started
   # still running. Taken oldest first.
-  defp settled_inputs(limit, window_seconds),
-    do: limit |> Example.Query.settled_decisions(window_seconds) |> Repo.all()
+  defp settled_inputs(limit, window_seconds, skip),
+    do: limit |> Example.Query.settled_decisions(window_seconds, skip) |> Repo.all()
 
   defp copy(input_id, secrets) do
     TrainingExamples.copy("routing example", "input=#{input_id}", fn ->
@@ -330,14 +336,12 @@ defmodule Ryker.RoutingExamples do
   # or one it quotes forgotten, deleted or its words edited, a topic
   # forgotten, or a Slack channel it came from deleted.
   defp forgotten?(example, quoted) do
-    keys = MapSet.new(example.message_keys)
-
     example.source_identity
     |> ConversationObservation.Query.by_identity()
     |> ConversationObservation.Query.forgotten()
     |> Repo.exists?() or
-      forgotten_messages(quoted.conversations) |> Enum.any?(&MapSet.member?(keys, &1)) or
-      deleted_messages(quoted.conversations) |> Enum.any?(&MapSet.member?(keys, &1)) or
+      forgotten_message?(quoted.messages) or
+      deleted_message?(quoted.messages) or
       edited_messages(quoted.messages) != [] or
       forgotten_topic?(quoted.topics) or
       deleted_channel?(quoted.conversations)
@@ -353,21 +357,21 @@ defmodule Ryker.RoutingExamples do
       |> Repo.exists?()
   end
 
-  defp forgotten_messages(conversations) do
-    conversations
-    |> ConversationObservation.Query.by_conversation_refs()
+  # Whether a quoted message was forgotten or deleted, asked of those messages
+  # alone: each check read every forgotten note and every deletion of each
+  # quoted conversation, on every copy and every prompt sent to the local
+  # model (2026-10-04 review).
+  defp forgotten_message?([]), do: false
+
+  defp forgotten_message?(messages) do
+    messages
+    |> ConversationObservation.Query.by_messages()
     |> ConversationObservation.Query.forgotten()
-    |> ConversationObservation.Query.select_messages()
-    |> Repo.all()
-    |> Enum.map(fn {c, m} -> message_key(c, m) end)
+    |> Repo.exists?()
   end
 
-  defp deleted_messages(conversations) do
-    conversations
-    |> Entry.Query.deletions_in()
-    |> Repo.all()
-    |> Enum.map(fn {c, m} -> message_key(c, m) end)
-  end
+  defp deleted_message?([]), do: false
+  defp deleted_message?(messages), do: messages |> Entry.Query.deletions_of() |> Repo.exists?()
 
   # The messages among these whose words a person replaced by editing them.
   # A routing prompt quotes the revision it read, and a later prompt quotes

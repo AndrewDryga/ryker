@@ -4,6 +4,7 @@ defmodule Ryker.Improvement.EvidenceTest do
   alias Ryker.Admission.Attempt
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{Actor, ConversationLab}
+  alias Ryker.Delivery.RoutingResponse
   alias Ryker.Feedback
   alias Ryker.Fixtures.Answers
   alias Ryker.Improvement
@@ -12,7 +13,9 @@ defmodule Ryker.Improvement.EvidenceTest do
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Inspectors
+  alias Ryker.Records.Record
   alias Ryker.RoutingExamples
+  alias Ryker.Work.Turn
 
   @workspace "TIMPROVEEVIDENCE"
   @channel "CEVIDENCE"
@@ -245,6 +248,104 @@ defmodule Ryker.Improvement.EvidenceTest do
 
     assert "Follow-up 65" in said
     refute "Is the staging database healthy?" in said
+  end
+
+  # A Work turn past the operational horizon keeps neither its answer nor the
+  # tools it called, and a quick reply goes at the horizon: the analysis read
+  # an empty answer and no tools as if Ryker had said and done nothing
+  # (2026-10-04 review).
+  test "Ryker's answers older than Ryker keeps them are named as missing" do
+    question = message!("1790500700.000100", "Is the staging database healthy?")
+    reply = Answers.work_reply!(question, "Production is healthy.", "1790500700.000200", @now)
+    unhappy!({:episode, reply.episode.id}, "expired-work")
+
+    Repo.update_all(from(t in Turn, where: t.id == ^reply.turn.id),
+      set: [operational_pruned_at: @now, delivery_document: %{"retention" => "pruned"}]
+    )
+
+    evidence = Evidence.gather(Inspectors.improvement_candidate({:episode, reply.episode.id}))
+
+    assert "Ryker's answers and the tools it called in Work turns older than Ryker keeps them." in evidence.omitted
+
+    quick = message!("1790500800.000100", "Count to three")
+    Answers.quick_reply!(quick, "1, 2, 3", "1790500800.000200", @now)
+    unhappy!({:input, quick.id}, "expired-quick")
+    Repo.delete_all(from(r in RoutingResponse, where: r.input_id == ^quick.id))
+
+    evidence = Evidence.gather(Inspectors.improvement_candidate({:input, quick.id}))
+    assert "Ryker's quick reply, older than Ryker keeps it." in evidence.omitted
+  end
+
+  # A confirmed task reads the person's messages in the conversation that
+  # offered it, and read none of Ryker's replies there, the offer included
+  # (2026-10-04 review).
+  test "a task's evidence holds Ryker's replies in the conversation that offered it" do
+    question = message!("1790500900.000100", "Can you fix the deploy script?")
+
+    offer =
+      Answers.work_reply!(
+        question,
+        "I can open a pull request for that.",
+        "1790500900.000200",
+        @now
+      )
+
+    go = message!("1790501000.000100", "Go ahead")
+    task = Answers.work_reply!(go, "Opened the pull request.", "1790501000.000200", @now)
+    offered!(offer, task.episode.id)
+    unhappy!({:episode, task.episode.id}, "task-offer")
+
+    evidence = Evidence.gather(Inspectors.improvement_candidate({:episode, task.episode.id}))
+    said = for %{"from" => "ryker", "text" => text} <- evidence.conversation, do: text
+
+    assert "I can open a pull request for that." in said
+    assert "Opened the pull request." in said
+  end
+
+  defp message!(ts, text) do
+    Answers.slack_message!(
+      workspace: @workspace,
+      channel: @channel,
+      actor: "UALICE",
+      text: text,
+      ts: ts
+    )
+  end
+
+  defp unhappy!(request, event) do
+    assert {:ok, _recorded} =
+             Feedback.record(%{
+               kind: :reaction_added,
+               value: "-1",
+               actor_ref: "UALICE",
+               source: "slack",
+               source_ref: "slack-event:evidence-#{event}",
+               occurred_at: DateTime.add(@now, 60, :second),
+               request: request
+             })
+  end
+
+  # The task `task_episode_id` confirmed from the offer in `offer`'s reply.
+  defp offered!(%{episode: episode, turn: turn}, task_episode_id) do
+    Repo.insert!(%Record{
+      id: Ecto.UUID.generate(),
+      episode_id: episode.id,
+      turn_id: turn.id,
+      ref: "record:task_offer:#{Ecto.UUID.generate()}",
+      operation_id: "offer-task",
+      kind: "task_offer",
+      status: :confirmed,
+      payload: %{
+        "kind" => "engineering",
+        "title" => "Fix the deploy script",
+        "repository" => "test"
+      },
+      payload_fingerprint: String.duplicate("a", 64),
+      confirmed_episode_id: task_episode_id,
+      confirmation_ref: "interaction:confirm-task",
+      confirmed_by_actor_ref: "slack:user:UALICE",
+      confirmed_at: @now
+    })
   end
 
   # Alice asks in the thread Bob started, Ryker answers wrongly, and she
