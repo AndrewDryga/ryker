@@ -14,6 +14,9 @@ defmodule Ryker.Work.CandidateResponseQuery do
     )
   end
 
+  @doc "The result of `turn`'s current attempt."
+  def current_attempt(turn), do: by_attempt(turn.id, turn.candidate_attempt)
+
   @doc "A turn's results that keep their bodies, in the order the turn returned them."
   def kept_for_turn(turn_id) do
     all()

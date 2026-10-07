@@ -9,11 +9,7 @@
 query_modules_pending = [
   "lib/ryker/control_plane/",
   "lib/ryker/coop_fleet/",
-  "lib/ryker/observability/",
-  "lib/ryker/publication/",
-  "lib/ryker/retention/",
-  "lib/ryker/slack/",
-  "lib/ryker/work/"
+  "lib/ryker/slack/"
 ]
 
 %{

@@ -3,7 +3,7 @@ defmodule Ryker.Improvement.CandidateQuery do
   import Ecto.Query
   alias Ryker.Delivery.RoutingResponse
   alias Ryker.Improvement.{AnalysisRunQuery, Candidate}
-  alias Ryker.Work.Custody
+  alias Ryker.Work.OwningTurnQuery
 
   def all, do: from(candidates in Candidate, as: :improvement_candidates)
 
@@ -94,7 +94,7 @@ defmodule Ryker.Improvement.CandidateQuery do
   # quick replies routing chose for the message were delivered or given up.
   defp at_rest do
     running_work =
-      from(work in subquery(Custody.work_rest_query()),
+      from(work in subquery(OwningTurnQuery.work_rest()),
         where: work.episode_id == parent_as(:improvement_candidates).episode_id and work.running
       )
 

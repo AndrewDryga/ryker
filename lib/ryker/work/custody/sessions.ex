@@ -8,17 +8,16 @@ defmodule Ryker.Work.Custody.Sessions do
   generation copies the pinned authority verbatim rather than resolving it again.
   """
 
-  import Ecto.Query
   import Ryker.Work.Custody.Locks
   alias Ryker.CoopFleet.JobAuthority
   alias Ryker.CoopFleet.JobSpec
   alias Ryker.Emisar.Connections, as: EmisarConnections
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes.{Episode, EpisodeQuery}
   alias Ryker.Repo
   alias Ryker.Work.Custody
   alias Ryker.Work.Custody.Turns
   alias Ryker.Work.{OperationKeys, RepositoryContext, RepositorySource, Session, SessionChangeset}
-  alias Ryker.Work.{Turn, TurnChangeset}
+  alias Ryker.Work.{SessionQuery, Turn, TurnChangeset, TurnQuery}
 
   @doc false
   @spec pin_episode(Ecto.UUID.t(), String.t(), String.t()) ::
@@ -525,12 +524,9 @@ defmodule Ryker.Work.Custody.Sessions do
   end
 
   defp pin_episode_locked(episode_id, authority) do
-    case Repo.one(
-           from(episode in Episode,
-             where: episode.id == ^episode_id,
-             lock: "FOR UPDATE"
-           )
-         ) do
+    locked = episode_id |> EpisodeQuery.by_id() |> EpisodeQuery.lock_for_update()
+
+    case Repo.one(locked) do
       nil -> Repo.rollback(:episode_not_found)
       %Episode{} = episode -> pin_session_locked(episode, authority)
     end
@@ -618,14 +614,12 @@ defmodule Ryker.Work.Custody.Sessions do
   end
 
   defp latest_session(episode_id) do
-    Repo.one(
-      from(session in Session,
-        where: session.episode_id == ^episode_id,
-        order_by: [desc: session.generation],
-        limit: 1,
-        lock: "FOR UPDATE"
-      )
-    )
+    episode_id
+    |> SessionQuery.by_episode_id()
+    |> SessionQuery.latest_generation_first()
+    |> SessionQuery.limit_to(1)
+    |> SessionQuery.lock_for_update()
+    |> Repo.one()
   end
 
   defp reusable_grace?(%Session{
@@ -672,11 +666,10 @@ defmodule Ryker.Work.Custody.Sessions do
   end
 
   def ensure_session_and_turn(%Episode{owner_kind: :delivery} = episode) do
-    case Repo.one(
-           from(turn in Turn,
-             where: turn.episode_id == ^episode.id and turn.delivery_ref == ^episode.owner_ref
-           )
-         ) do
+    delivery =
+      episode.id |> TurnQuery.by_episode_id() |> TurnQuery.by_delivery_ref(episode.owner_ref)
+
+    case Repo.one(delivery) do
       nil ->
         {:error, :work_delivery_turn_not_found}
 
@@ -698,15 +691,10 @@ defmodule Ryker.Work.Custody.Sessions do
 
   defp isolate_transferred_owner(episode, session) do
     stale_turns =
-      Repo.all(
-        from(turn in Turn,
-          where:
-            turn.episode_id == ^episode.id and turn.session_id == ^session.id and
-              turn.turn_ref != ^episode.owner_ref and turn.status in [:pending, :blocked],
-          order_by: [asc: turn.inserted_at, asc: turn.id],
-          lock: "FOR UPDATE"
-        )
-      )
+      episode
+      |> TurnQuery.left_by_transfer(session.id)
+      |> TurnQuery.lock_for_update()
+      |> Repo.all()
 
     case stale_turns do
       [] ->

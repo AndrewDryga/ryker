@@ -10,11 +10,11 @@ defmodule Ryker.Publication.Followups.Store do
   is announced as a change to its publication (`Ryker.Publication.Custody`).
   """
 
-  import Ecto.Query
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
   alias Ryker.Publication.Custody
-  alias Ryker.Publication.{Followup, FollowupChangeset, LifecycleEvent, LifecycleEventChangeset}
+  alias Ryker.Publication.{Followup, FollowupChangeset, FollowupQuery, LifecycleEvent}
+  alias Ryker.Publication.{LifecycleEventChangeset, LifecycleEventQuery}
   alias Ryker.Repo
 
   # --- entries --------------------------------------------------------------
@@ -45,12 +45,10 @@ defmodule Ryker.Publication.Followups.Store do
   @doc "Locks the follow-up of a publication that must have one."
   @spec lock_followup(Ecto.UUID.t()) :: Followup.t()
   def lock_followup(publication_id) do
-    Repo.one!(
-      from(followup in Followup,
-        where: followup.publication_id == ^publication_id,
-        lock: "FOR UPDATE"
-      )
-    )
+    publication_id
+    |> FollowupQuery.by_publication_id()
+    |> FollowupQuery.lock_for_update()
+    |> Repo.one!()
   end
 
   @spec update_followup!(Followup.t(), map(), DateTime.t()) :: Followup.t()
@@ -65,7 +63,10 @@ defmodule Ryker.Publication.Followups.Store do
 
   @spec lock_lifecycle_event(String.t()) :: LifecycleEvent.t() | nil
   def lock_lifecycle_event(event_ref) do
-    Repo.one(from(event in LifecycleEvent, where: event.ref == ^event_ref, lock: "FOR UPDATE"))
+    event_ref
+    |> LifecycleEventQuery.by_ref()
+    |> LifecycleEventQuery.lock_for_update()
+    |> Repo.one()
   end
 
   @spec update_event!(LifecycleEvent.t(), map(), DateTime.t()) :: LifecycleEvent.t()
@@ -136,7 +137,7 @@ defmodule Ryker.Publication.Followups.Store do
           on_conflict: :nothing
         )
 
-      event = Repo.one!(from(event in LifecycleEvent, where: event.ref == ^attributes.ref))
+      event = Repo.one!(LifecycleEventQuery.by_ref(attributes.ref))
 
       if count == 1 do
         Custody.broadcast_publication_updated(event.publication_id)

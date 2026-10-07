@@ -9,13 +9,12 @@ defmodule Ryker.Observability.Fleet do
   is a stale measurement, and neither is folded into the live totals as zero.
   """
 
-  import Ecto.Query
   alias Ryker.Config
-  alias Ryker.CoopFleet.{Command, Placement, Worker, WorkspaceCheckpointTransfer}
+  alias Ryker.CoopFleet.{CommandQuery, PlacementQuery, Worker, WorkerQuery}
+  alias Ryker.CoopFleet.WorkspaceCheckpointTransferQuery
   alias Ryker.Defaults
   alias Ryker.Observability.Reads
 
-  @current_placement_states [:assigning, :active, :draining, :revoking]
   @slot_kinds ~w(session turn workspace)a
 
   @event_cursor_lag """
@@ -46,31 +45,22 @@ defmodule Ryker.Observability.Fleet do
     settings = settings()
     cutoff = DateTime.add(now, -Worker.heartbeat_seconds(), :second)
 
-    current_placements =
-      from(placement in Placement, where: placement.state in ^@current_placement_states)
+    current_placements = PlacementQuery.current()
+    expired_placements = PlacementQuery.lease_expired_at(current_placements, now)
+    transfers = WorkspaceCheckpointTransferQuery.all()
 
-    expired_placements =
-      from(placement in current_placements, where: placement.lease_expires_at <= ^now)
-
-    with {:ok, workers} <- Reads.all(Worker),
+    with {:ok, workers} <- Reads.all(WorkerQuery.all()),
          {:ok, oldest_queued_command} <-
-           Reads.one(
-             from(command in Command,
-               where: command.status == :queued,
-               select: min(command.inserted_at)
-             )
-           ),
+           Reads.one(CommandQuery.select_oldest_insert(CommandQuery.queued())),
          {:ok, latest_checkpoint} <-
-           Reads.one(
-             from(checkpoint in WorkspaceCheckpointTransfer, select: max(checkpoint.inserted_at))
-           ),
-         {:ok, checkpoints} <- Reads.count(WorkspaceCheckpointTransfer),
-         {:ok, commands} <- Reads.counts(Command, :status),
+           Reads.one(WorkspaceCheckpointTransferQuery.select_latest_insert(transfers)),
+         {:ok, checkpoints} <- Reads.count(transfers),
+         {:ok, commands} <- Reads.counts(CommandQuery.all(), :status),
          {:ok, current} <- Reads.count(current_placements),
          {:ok, event_cursor_lag} <- event_cursor_lag(),
          {:ok, expired} <- Reads.count(expired_placements),
-         {:ok, placements} <- Reads.counts(Placement, :state),
-         {:ok, worker_states} <- Reads.counts(Worker, :state) do
+         {:ok, placements} <- Reads.counts(PlacementQuery.all(), :state),
+         {:ok, worker_states} <- Reads.counts(WorkerQuery.all(), :state) do
       fresh = Enum.filter(workers, &fresh?(&1, cutoff))
       eligible = Enum.filter(fresh, &eligible?(&1, settings.workspace_ref, settings.capabilities))
 

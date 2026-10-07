@@ -21,8 +21,7 @@ defmodule Ryker.Publication.Followups.Polls do
   so a webhook or check request that came during the wait is not lost.
   """
 
-  import Ecto.Query
-  alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.Episodes.{Episode, EpisodeQuery, EventQuery}
   alias Ryker.ErrorDetail
   alias Ryker.Publication.Changeset, as: PublicationChangeset
   alias Ryker.Publication.Custody
@@ -337,7 +336,7 @@ defmodule Ryker.Publication.Followups.Polls do
   end
 
   defp still_working?(followup, now) do
-    case Repo.get(Episode, followup.episode_id) do
+    case Repo.one(EpisodeQuery.by_id(followup.episode_id)) do
       %Episode{state: :working, owner_kind: :turn, owner_ref: owner} ->
         owner == followup.verification_turn_ref and within_wait?(followup, now) and
           WorkCustody.turn_in_progress?(followup.episode_id, owner)
@@ -350,31 +349,21 @@ defmodule Ryker.Publication.Followups.Polls do
   # Counted from when the wakeup was admitted into the task.
   defp within_wait?(followup, now) do
     admitted_at =
-      Repo.one(
-        from(event in Event,
-          where:
-            event.episode_id == ^followup.episode_id and
-              event.sequence == ^followup.verification_sequence,
-          select: event.inserted_at
-        )
-      )
+      followup.episode_id
+      |> EventQuery.by_episode_id()
+      |> EventQuery.at_sequence(followup.verification_sequence)
+      |> EventQuery.select_inserted_at()
+      |> Repo.one()
 
     is_struct(admitted_at, DateTime) and DateTime.diff(now, admitted_at) < @task_wait_seconds
   end
 
   defp verification_recorded?(followup) do
-    Repo.exists?(
-      from(event in Event,
-        where:
-          event.episode_id == ^followup.episode_id and
-            event.sequence > ^followup.verification_sequence and event.kind == :result_accepted and
-            fragment(
-              "(?::jsonb ->> 'expected_turn_ref') = ?",
-              event.payload,
-              ^followup.verification_turn_ref
-            )
-      )
-    )
+    followup.episode_id
+    |> EventQuery.by_episode_id()
+    |> EventQuery.after_sequence(followup.verification_sequence)
+    |> EventQuery.accepted_for_turn(followup.verification_turn_ref)
+    |> Repo.exists?()
   end
 
   defp wait_attributes(_followup, :working, now, interval_seconds),

@@ -1,7 +1,7 @@
 defmodule Ryker.WorkExamples.ExampleQuery do
   @moduledoc "Settled Work turns kept as examples, for every read of `work_examples`."
   import Ecto.Query
-  alias Ryker.Work.{Custody, Turn}
+  alias Ryker.Work.{OwningTurnQuery, Turn}
   alias Ryker.WorkExamples.Example
 
   def all, do: from(examples in Example, as: :work_examples)
@@ -56,7 +56,7 @@ defmodule Ryker.WorkExamples.ExampleQuery do
         ),
       where:
         not exists(
-          from(work in subquery(Custody.work_rest_query()),
+          from(work in subquery(OwningTurnQuery.work_rest()),
             where: work.episode_id == parent_as(:episode_work_turns).episode_id and work.running
           )
         ),

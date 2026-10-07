@@ -14,77 +14,26 @@ defmodule Ryker.Retention.Custody do
   leases provide the fleet fence; remote calls never run in these transactions.
   """
 
-  import Ecto.Query
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.ControlPlane, as: FleetControlPlane
-  alias Ryker.CoopFleet.Placement
+  alias Ryker.CoopFleet.PlacementQuery
   alias Ryker.CoopFleet.Worker, as: FleetWorker
   alias Ryker.Episodes.Episode
   alias Ryker.Improvement.AnalysisRun
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.LearningRun
-  alias Ryker.Publication.Publication
+  alias Ryker.Publication.PublicationQuery
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.RepositoryKnowledge.Run, as: KnowledgeRun
-  alias Ryker.Retention.Plan
+  alias Ryker.Retention.{CleanupQuery, Plan}
   alias Ryker.Work.Custody, as: WorkCustody
-  alias Ryker.Work.{Session, Turn}
+  alias Ryker.Work.{Session, SessionQuery, TurnQuery}
 
   @pending_statuses [:close_pending, :plan_pending, :discard_pending]
   @terminal_episode_states [:complete, :cancelled]
-  @unfinished_turn_statuses [:pending, :cancel_pending, :delivery_pending]
   # How many busy candidates one claim passes over before it answers nothing.
   @passed_over_limit 25
-
-  # The durable moment a session became claimable for cleanup, by phase. Ageing
-  # from insertion counted conversation time and the intentional grace period as
-  # stall; ageing from the last claim would hide a real backlog instead. A
-  # pending phase is claimable no earlier than its retry time: a failed step
-  # that came due, or one an operator resumed, aged from the phase's first
-  # eligibility and read as a stall the moment it could run again. A retained
-  # workspace is eligible again at its scheduled recheck, or when its
-  # publication became durable.
-  defmacrop eligible_at(session, episode, learning, improvement, knowledge, admission) do
-    quote do
-      fragment(
-        """
-        CASE
-          WHEN ? IN ('active', 'close_pending') THEN GREATEST(COALESCE(?, ?, ?, ?, ?, ?), ?)
-          WHEN ? = 'grace' THEN COALESCE(?, ?)
-          WHEN ? IN ('plan_pending', 'discard_pending') THEN GREATEST(COALESCE(?, ?), ?)
-          WHEN ? = 'retained' THEN COALESCE(
-            ?,
-            (SELECT max(published.published_at) FROM episode_publications AS published
-              WHERE published.session_id = ? AND published.status = 'published'),
-            ?
-          )
-          ELSE ?
-        END
-        """,
-        unquote(session).cleanup_status,
-        unquote(learning).remote_stopped_at,
-        unquote(improvement).remote_stopped_at,
-        unquote(knowledge).remote_stopped_at,
-        unquote(admission).updated_at,
-        unquote(episode).updated_at,
-        unquote(session).updated_at,
-        unquote(session).cleanup_next_attempt_at,
-        unquote(session).cleanup_status,
-        unquote(session).discard_after,
-        unquote(session).updated_at,
-        unquote(session).cleanup_status,
-        unquote(session).discard_after,
-        unquote(session).updated_at,
-        unquote(session).cleanup_next_attempt_at,
-        unquote(session).cleanup_status,
-        unquote(session).cleanup_next_attempt_at,
-        unquote(session).id,
-        unquote(session).updated_at,
-        unquote(session).updated_at
-      )
-    end
-  end
 
   @type claim :: %{
           owner:
@@ -110,99 +59,14 @@ defmodule Ryker.Retention.Custody do
   end
 
   @doc """
-  Every session cleanup custody may claim, before the lease split.
-
-  Operator and readiness projections share this query so a Work, learning, or
-  admission backlog can never be invisible to the surface that reports it.
-  """
-  @spec eligible_query(DateTime.t()) :: Ecto.Query.t()
-  def eligible_query(%DateTime{} = now) do
-    unfinished_session_ids = unfinished_session_ids()
-    unpublished_session_ids = unpublished_session_ids()
-
-    from(session in Session,
-      as: :session,
-      left_join: episode in Episode,
-      as: :episode,
-      on: episode.id == session.episode_id,
-      left_join: learning in LearningRun,
-      as: :learning,
-      on: learning.id == session.learning_run_id,
-      left_join: improvement in AnalysisRun,
-      as: :improvement,
-      on: improvement.id == session.improvement_run_id,
-      left_join: knowledge in KnowledgeRun,
-      as: :knowledge,
-      on: knowledge.id == session.knowledge_run_id,
-      left_join: admission in Entry,
-      as: :admission,
-      on: admission.id == session.admission_input_id,
-      where: ^owner_finished_filter(),
-      where: session.id not in subquery(unfinished_session_ids),
-      where: session.id not in subquery(unpublished_session_ids),
-      where: ^cleanup_status_filter(now)
-    )
-  end
-
-  @doc "Eligible sessions no other worker currently holds a live cleanup lease on."
-  @spec claimable_query(DateTime.t()) :: Ecto.Query.t()
-  def claimable_query(%DateTime{} = now) do
-    from([session: session] in eligible_query(now),
-      where: is_nil(session.cleanup_lease_ref) or session.cleanup_lease_expires_at <= ^now
-    )
-  end
-
-  @doc "The oldest eligibility time in an `eligible_query/1` derived query, or nil."
-  @spec oldest_eligible_at(Ecto.Query.t()) :: DateTime.t() | NaiveDateTime.t() | nil
-  def oldest_eligible_at(query) do
-    Repo.one(
-      from(
-        [
-          session: session,
-          episode: episode,
-          learning: learning,
-          improvement: improvement,
-          knowledge: knowledge,
-          admission: admission
-        ] in query,
-        select: min(eligible_at(session, episode, learning, improvement, knowledge, admission))
-      )
-    )
-  end
-
-  @doc """
   The working copies cleanup claims next, oldest due first, each with when it
   fell due: at most `limit` of them, and how many are due. Read-only.
   """
   @spec eligible_copies(DateTime.t(), pos_integer()) ::
           {[{Session.t(), DateTime.t()}], non_neg_integer()}
   def eligible_copies(%DateTime{} = now, limit) when is_integer(limit) and limit > 0 do
-    copies =
-      from([session: session] in claimable_query(now),
-        where: session.execution_kind == :work and not is_nil(session.repository_ref)
-      )
-
-    next =
-      Repo.all(
-        from(
-          [
-            session: session,
-            episode: episode,
-            learning: learning,
-            improvement: improvement,
-            knowledge: knowledge,
-            admission: admission
-          ] in copies,
-          select:
-            {session, eligible_at(session, episode, learning, improvement, knowledge, admission)},
-          order_by: [
-            asc: eligible_at(session, episode, learning, improvement, knowledge, admission),
-            asc: session.id
-          ],
-          limit: ^limit
-        )
-      )
-
+    copies = CleanupQuery.working_copies(now)
+    next = copies |> CleanupQuery.oldest_due_first(limit) |> Repo.all()
     {next, Repo.aggregate(copies, :count)}
   end
 
@@ -455,13 +319,9 @@ defmodule Ryker.Retention.Custody do
   def release_worker_leases(worker_ref) do
     with :ok <- reference(worker_ref, :worker_ref) do
       {released, nil} =
-        Repo.update_all(
-          from(session in Session,
-            where:
-              session.cleanup_lease_owner == ^worker_ref and
-                not is_nil(session.cleanup_lease_ref) and
-                session.cleanup_status in ^@pending_statuses
-          ),
+        worker_ref
+        |> CleanupQuery.leases_of()
+        |> Repo.update_all(
           set: [cleanup_lease_expires_at: nil, cleanup_lease_owner: nil, cleanup_lease_ref: nil]
         )
 
@@ -483,27 +343,10 @@ defmodule Ryker.Retention.Custody do
     if Enum.all?(error_codes, &(bounded_text(&1, 128, :error_code) == :ok)) do
       cutoff = DateTime.add(Repo.now!(), -stale_seconds, :second)
 
-      reconnected =
-        from(placement in Placement,
-          join: worker in FleetWorker,
-          on: worker.id == placement.worker_id,
-          where: placement.session_id == parent_as(:session).id,
-          where: worker.last_seen_at > parent_as(:session).updated_at,
-          where: worker.last_seen_at >= ^cutoff,
-          select: 1
-        )
-
       {reconsidered, nil} =
-        Repo.update_all(
-          from(session in Session,
-            as: :session,
-            where: session.cleanup_status in ^@pending_statuses,
-            where: not is_nil(session.cleanup_next_attempt_at),
-            where: session.cleanup_last_error_code in ^error_codes,
-            where: exists(subquery(reconnected))
-          ),
-          set: [cleanup_next_attempt_at: nil]
-        )
+        error_codes
+        |> CleanupQuery.deferred_for_reconnected_workers(cutoff)
+        |> Repo.update_all(set: [cleanup_next_attempt_at: nil])
 
       {:ok, reconsidered}
     else
@@ -516,16 +359,10 @@ defmodule Ryker.Retention.Custody do
 
   @spec published?(Session.t()) :: boolean()
   def published?(%Session{} = session) do
-    Repo.exists?(
-      from(publication in Publication,
-        where: publication.session_id == ^session.id and publication.status == :published
-      )
-    ) and
-      not Repo.exists?(
-        from(publication in Publication,
-          where: publication.session_id == ^session.id and publication.status != :published
-        )
-      )
+    publications = PublicationQuery.by_session_id(session.id)
+
+    Repo.exists?(PublicationQuery.published(publications)) and
+      not Repo.exists?(PublicationQuery.unpublished(publications))
   end
 
   # A candidate whose owner another transaction holds, or that stopped being
@@ -575,199 +412,10 @@ defmodule Ryker.Retention.Custody do
     end
   end
 
-  defp candidate(now, exclude) do
-    now
-    |> candidate_query(exclude)
-    |> Repo.one()
-  end
+  defp candidate(now, exclude), do: Repo.one(CleanupQuery.next_candidate(now, exclude))
 
-  defp candidate_query(now, exclude) do
-    from(
-      [
-        session: session,
-        episode: episode,
-        learning: learning,
-        improvement: improvement,
-        knowledge: knowledge,
-        admission: admission,
-        placement: placement
-      ] in placed_query(now),
-      where: session.id not in ^exclude.session_ids,
-      where: is_nil(placement.worker_id) or placement.worker_id not in ^exclude.worker_ids,
-      order_by: [
-        asc: eligible_at(session, episode, learning, improvement, knowledge, admission),
-        asc: session.id
-      ],
-      select:
-        {session.execution_kind,
-         type(
-           fragment(
-             "COALESCE(?, ?, ?, ?, ?)",
-             session.episode_id,
-             session.learning_run_id,
-             session.improvement_run_id,
-             session.knowledge_run_id,
-             session.admission_input_id
-           ),
-           :binary_id
-         ), session.id, placement.worker_id},
-      limit: 1
-    )
-  end
-
-  # Cleanup runs on the worker that still owns the fork, so fair draining needs
-  # that identity before the claim, not after the call has already failed. The
-  # lookup is lateral and indexed: a fleet-wide placement scan on every claim
-  # would make the hot path grow with fleet history.
-  defp placed_query(now) do
-    current =
-      from(placement in Placement,
-        where: placement.session_id == parent_as(:session).id,
-        order_by: [desc: placement.generation],
-        limit: 1,
-        select: %{worker_id: placement.worker_id}
-      )
-
-    from([session: session] in claimable_query(now),
-      left_lateral_join: placement in subquery(current),
-      as: :placement,
-      on: true
-    )
-  end
-
-  defp unfinished_session_ids do
-    from(turn in Turn,
-      where: turn.status in ^@unfinished_turn_statuses,
-      select: turn.session_id
-    )
-  end
-
-  defp unpublished_session_ids do
-    from(publication in Publication,
-      where: publication.status != :published,
-      select: publication.session_id
-    )
-  end
-
-  defp owner_finished_filter do
-    dynamic(
-      ^work_finished() or ^learning_finished() or ^improvement_finished() or
-        ^knowledge_finished() or ^admission_finished() or ^ready_retired()
-    )
-  end
-
-  # A Work session is finished when its episode is, or once a newer generation
-  # replaced it. A replaced session stayed open on its worker, holding its
-  # workspace, until the episode ended, however long the episode then waited
-  # (2026-10-04 review).
-  defp work_finished do
-    dynamic(
-      [session: session, episode: episode],
-      session.execution_kind == :work and
-        (episode.state in ^@terminal_episode_states or
-           exists(
-             from(newer in Session,
-               where:
-                 newer.episode_id == parent_as(:session).episode_id and
-                   newer.execution_kind == :work and
-                   newer.generation > parent_as(:session).generation,
-               select: 1
-             )
-           ))
-    )
-  end
-
-  defp learning_finished do
-    dynamic(
-      [session: session, learning: learning],
-      session.execution_kind == :learning and not is_nil(learning.remote_stopped_at)
-    )
-  end
-
-  defp improvement_finished do
-    dynamic(
-      [session: session, improvement: improvement],
-      session.execution_kind == :improvement and not is_nil(improvement.remote_stopped_at)
-    )
-  end
-
-  defp knowledge_finished do
-    dynamic(
-      [session: session, knowledge: knowledge],
-      session.execution_kind == :knowledge and not is_nil(knowledge.remote_stopped_at)
-    )
-  end
-
-  defp admission_finished do
-    dynamic(
-      [session: session, admission: admission],
-      session.execution_kind == :admission and
-        (admission.status in [:decided, :superseded] or
-           admission.execution_generation > session.generation)
-    )
-  end
-
-  # A routing session started ahead of time that no message claimed is
-  # finished once the pool retires it (`Ryker.Admission.ReadySessions`).
-  defp ready_retired do
-    dynamic(
-      [session: session],
-      session.execution_kind == :admission and is_nil(session.admission_input_id) and
-        session.ready_state == :retired
-    )
-  end
-
-  defp cleanup_status_filter(now) do
-    pending = pending_status_filter(now)
-    retained = retained_status_filter(now)
-
-    dynamic(
-      [session: session],
-      session.cleanup_status == :active or ^pending or
-        (session.cleanup_status == :grace and session.discard_after <= ^now) or ^retained
-    )
-  end
-
-  defp pending_status_filter(now) do
-    dynamic(
-      [session: session],
-      session.cleanup_status in ^@pending_statuses and
-        (is_nil(session.cleanup_next_attempt_at) or session.cleanup_next_attempt_at <= ^now)
-    )
-  end
-
-  # Retained work is reconsidered from fresh evidence, never from a manual edit:
-  # an unmerged workspace once its publication is durable, and a dirty workspace
-  # when its scheduled recheck falls due.
-  defp retained_status_filter(now) do
-    published_session_ids =
-      from(publication in Publication,
-        where: publication.status == :published,
-        select: publication.session_id
-      )
-
-    dynamic(
-      [session: session],
-      session.cleanup_status == :retained and
-        ((session.retained_reason == "unpublished_unmerged" and
-            session.id in subquery(published_session_ids)) or
-           (session.retained_reason == "dirty" and
-              not is_nil(session.cleanup_next_attempt_at) and
-              session.cleanup_next_attempt_at <= ^now))
-    )
-  end
-
-  defp lock_owner(:work, episode_id, lock),
-    do: lock_owner_query(from(e in Episode, where: e.id == ^episode_id), lock)
-
-  defp lock_owner(:learning, run_id, lock),
-    do: lock_owner_query(from(run in LearningRun, where: run.id == ^run_id), lock)
-
-  defp lock_owner(:improvement, run_id, lock),
-    do: lock_owner_query(from(run in AnalysisRun, where: run.id == ^run_id), lock)
-
-  defp lock_owner(:knowledge, run_id, lock),
-    do: lock_owner_query(from(run in KnowledgeRun, where: run.id == ^run_id), lock)
+  defp lock_owner(kind, id, lock) when kind in [:work, :learning, :improvement, :knowledge],
+    do: kind |> CleanupQuery.owner(id) |> CleanupQuery.lock_owner(lock) |> Repo.one()
 
   # A routing session started ahead of time has no message until one claims
   # it. Until then the pool owns it, and the session's own state says whether
@@ -775,7 +423,7 @@ defmodule Ryker.Retention.Custody do
   defp lock_owner(:admission, nil, _lock), do: :ready_pool
 
   defp lock_owner(:admission, input_id, lock),
-    do: lock_owner_query(from(entry in Entry, where: entry.id == ^input_id), lock)
+    do: :admission |> CleanupQuery.owner(input_id) |> CleanupQuery.lock_owner(lock) |> Repo.one()
 
   defp lock_owner(_, _, _), do: nil
 
@@ -783,14 +431,8 @@ defmodule Ryker.Retention.Custody do
   defp lock_identity_owner({:admission, nil}), do: lock_owner(:admission, nil, :wait)
   defp lock_identity_owner(_identity), do: nil
 
-  defp lock_owner_query(query, :skip_locked),
-    do: Repo.one(from(q in query, lock: "FOR UPDATE SKIP LOCKED"))
-
-  defp lock_owner_query(query, :wait), do: Repo.one(from(q in query, lock: "FOR UPDATE"))
-
-  defp lock_session(session_id) do
-    Repo.one(from(session in Session, where: session.id == ^session_id, lock: "FOR UPDATE"))
-  end
+  defp lock_session(session_id),
+    do: session_id |> SessionQuery.by_id() |> SessionQuery.lock_for_update() |> Repo.one()
 
   defp claimable?(owner, session, now) do
     owner_finished?(owner, session) and
@@ -819,15 +461,8 @@ defmodule Ryker.Retention.Custody do
 
   defp owner_finished?(_owner, _session), do: false
 
-  defp replaced_work_session?(%Session{execution_kind: :work} = session) do
-    Repo.exists?(
-      from(newer in Session,
-        where:
-          newer.episode_id == ^session.episode_id and newer.execution_kind == :work and
-            newer.generation > ^session.generation
-      )
-    )
-  end
+  defp replaced_work_session?(%Session{execution_kind: :work} = session),
+    do: Repo.exists?(SessionQuery.newer_work_sessions(session))
 
   defp replaced_work_session?(_session), do: false
 
@@ -888,20 +523,14 @@ defmodule Ryker.Retention.Custody do
 
   defp prepare_phase(%Session{} = session), do: session
 
-  defp unfinished_turn?(session_id) do
-    Repo.exists?(
-      from(turn in Turn,
-        where: turn.session_id == ^session_id and turn.status in ^@unfinished_turn_statuses
-      )
-    )
-  end
+  defp unfinished_turn?(session_id),
+    do: session_id |> TurnQuery.by_session_id() |> TurnQuery.unfinished() |> Repo.exists?()
 
   defp unpublished_publication?(session_id) do
-    Repo.exists?(
-      from(publication in Publication,
-        where: publication.session_id == ^session_id and publication.status != :published
-      )
-    )
+    session_id
+    |> PublicationQuery.by_session_id()
+    |> PublicationQuery.unpublished()
+    |> Repo.exists?()
   end
 
   defp store_plan_locked(session, plan, now, retained_recheck_seconds) do
@@ -1099,16 +728,13 @@ defmodule Ryker.Retention.Custody do
   # Cleanup runs only on the worker a session was last placed on: a bound
   # session is never placed anywhere else.
   defp holding_worker(session_id) do
-    Repo.one(
-      from(placement in Placement,
-        join: worker in FleetWorker,
-        on: worker.id == placement.worker_id,
-        where: placement.session_id == ^session_id,
-        order_by: [desc: placement.generation],
-        limit: 1,
-        select: worker
-      )
-    )
+    session_id
+    |> PlacementQuery.by_session_id()
+    |> PlacementQuery.with_worker()
+    |> PlacementQuery.latest_generation_first()
+    |> PlacementQuery.limit_to(1)
+    |> PlacementQuery.select_workers()
+    |> Repo.one()
   end
 
   defp advance_generation(session_id, lease_ref, status, field, generation, reset) do
@@ -1138,32 +764,12 @@ defmodule Ryker.Retention.Custody do
   end
 
   defp leased!(session_id, lease_ref, statuses) do
-    identity =
-      Repo.one(
-        from(session in Session,
-          where: session.id == ^session_id,
-          select:
-            {session.execution_kind,
-             type(
-               fragment(
-                 "COALESCE(?, ?, ?, ?, ?)",
-                 session.episode_id,
-                 session.learning_run_id,
-                 session.improvement_run_id,
-                 session.knowledge_run_id,
-                 session.admission_input_id
-               ),
-               :binary_id
-             )}
-        )
-      )
+    identity = Repo.one(CleanupQuery.owner_identity(session_id))
 
     owner = lock_identity_owner(identity)
     if is_nil(owner), do: Repo.rollback(:retention_session_not_found)
 
-    session =
-      Repo.one!(from(session in Session, where: session.id == ^session_id, lock: "FOR UPDATE"))
-
+    session = session_id |> SessionQuery.by_id() |> SessionQuery.lock_for_update() |> Repo.one!()
     now = Repo.now!()
 
     if owner_finished?(owner, session) and session.cleanup_status in statuses and

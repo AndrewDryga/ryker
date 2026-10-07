@@ -1,8 +1,7 @@
 defmodule Ryker.Work.StateBinding do
   @moduledoc false
 
-  import Ecto.Query
-  alias Ryker.CoopFleet.Placement
+  alias Ryker.CoopFleet.{Placement, PlacementQuery}
   alias Ryker.Crypto
   alias Ryker.{Repo, Secret}
   alias Ryker.Work.{Session, Turn}
@@ -50,12 +49,11 @@ defmodule Ryker.Work.StateBinding do
   @spec current_scope(Session.t()) :: {:ok, String.t()} | {:error, term()}
   def current_scope(%Session{id: session_id}) when is_binary(session_id) do
     placement =
-      Repo.one(
-        from(value in Placement,
-          where: value.session_id == ^session_id and value.state in ^Placement.current_states(),
-          limit: 1
-        )
-      )
+      session_id
+      |> PlacementQuery.by_session_id()
+      |> PlacementQuery.current()
+      |> PlacementQuery.limit_to(1)
+      |> Repo.one()
 
     case placement do
       %Placement{state: :active} = current ->
@@ -67,7 +65,7 @@ defmodule Ryker.Work.StateBinding do
         {:error, {:work_state_tools_placement_not_current, session_id}}
 
       nil ->
-        if Repo.exists?(from(value in Placement, where: value.session_id == ^session_id)) do
+        if Repo.exists?(PlacementQuery.by_session_id(session_id)) do
           {:error, {:work_state_tools_placement_not_current, session_id}}
         else
           {:ok, local_scope(session_id)}

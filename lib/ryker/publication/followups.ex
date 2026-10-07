@@ -49,9 +49,6 @@ defmodule Ryker.Publication.Followups do
 
   # --- what runs it ---------------------------------------------------------
 
-  @doc "The follow-ups a poll can claim: those whose publication is still published."
-  defdelegate pollable_query(), to: Leases
-
   @doc "Claims the next published pull request due for a poll, under a lease."
   defdelegate claim_poll(worker_ref, lease_seconds), to: Leases
 

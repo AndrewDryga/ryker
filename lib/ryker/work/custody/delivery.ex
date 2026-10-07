@@ -10,17 +10,16 @@ defmodule Ryker.Work.Custody.Delivery do
   with its content and delivery reference, where the host says people still read.
   """
 
-  import Ecto.Query
   import Ryker.Work.Custody.Locks
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, Episode, Origin}
+  alias Ryker.Episodes.{Command, Episode, OriginQuery}
   alias Ryker.Repo
   alias Ryker.Slack.Mentions
   alias Ryker.Waits.EventSubscriptions
   alias Ryker.Work.Cancellation, as: WorkCancellation
   alias Ryker.Work.Custody
   alias Ryker.Work.Custody.{Cancellation, Sessions}
-  alias Ryker.Work.{DeliveryReceipt, Turn, TurnChangeset}
+  alias Ryker.Work.{DeliveryReceipt, Turn, TurnChangeset, TurnQuery}
 
   @doc false
   @spec confirm_delivery(
@@ -482,12 +481,13 @@ defmodule Ryker.Work.Custody.Delivery do
   end
 
   defp lock_delivery_turn(episode_id, delivery_ref) do
-    case Repo.one(
-           from(turn in Turn,
-             where: turn.episode_id == ^episode_id and turn.delivery_ref == ^delivery_ref,
-             lock: "FOR UPDATE"
-           )
-         ) do
+    locked =
+      episode_id
+      |> TurnQuery.by_episode_id()
+      |> TurnQuery.by_delivery_ref(delivery_ref)
+      |> TurnQuery.lock_for_update()
+
+    case Repo.one(locked) do
       nil -> {:error, :work_delivery_turn_not_found}
       %Turn{} = turn -> {:ok, turn}
     end
@@ -687,13 +687,12 @@ defmodule Ryker.Work.Custody.Delivery do
   # reply answers is the newest by occurrence, not by this episode's own
   # event sequence.
   defp newest_origin(%Episode{} = episode, refs) do
-    Repo.one(
-      from(origin in Origin,
-        where: origin.episode_id == ^episode.id and origin.input_ref in ^refs,
-        order_by: [desc: origin.occurred_at, desc: origin.sequence],
-        limit: 1
-      )
-    )
+    episode.id
+    |> OriginQuery.by_episode_id()
+    |> OriginQuery.by_input_refs(refs)
+    |> OriginQuery.latest_first()
+    |> OriginQuery.limit_to(1)
+    |> Repo.one()
   end
 
   defp delivery_already_settled?(turn, receipt, fingerprint) do

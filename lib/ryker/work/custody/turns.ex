@@ -16,14 +16,14 @@ defmodule Ryker.Work.Custody.Turns do
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, Episode, RoutingDigests}
+  alias Ryker.Episodes.{Command, Episode, EpisodeQuery, RoutingDigests}
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Repo
   alias Ryker.Waits.EventSubscriptions
-  alias Ryker.Work.{CandidateResponse, FinalPreflight, Measurement, OperationKeys, Result}
+  alias Ryker.Work.{CandidateResponse, CandidateResponseQuery, FinalPreflight, Measurement}
   alias Ryker.Work.Custody.{Claims, Delivery}
-  alias Ryker.Work.{Submission, Turn, TurnChangeset, ValidationIntent}
+  alias Ryker.Work.{OperationKeys, Result, Submission, Turn, TurnChangeset, ValidationIntent}
 
   @spec freeze_submission(Ecto.UUID.t(), String.t(), String.t(), Submission.t(), keyword()) ::
           {:ok, Turn.t()} | {:error, term()}
@@ -137,7 +137,7 @@ defmodule Ryker.Work.Custody.Turns do
          artifact_refs
        ) do
     {_, turn} = leased!(episode_id, turn_ref, lease_ref)
-    episode = Repo.get!(Episode, episode_id)
+    episode = Repo.one!(EpisodeQuery.by_id(episode_id))
 
     ledger_sha256 =
       FinalPreflight.ledger_sha256(
@@ -814,10 +814,9 @@ defmodule Ryker.Work.Custody.Turns do
   defp record_candidate_response!(turn) do
     # The lease check holds the owning turn lock, also used by operational
     # pruning. Record only these supplied bytes, never backfill an older cursor.
-    identity = [turn_id: turn.id, candidate_attempt: turn.candidate_attempt]
     bytes = byte_size(turn.candidate)
 
-    case Repo.get_by(CandidateResponse, identity) do
+    case Repo.one(CandidateResponseQuery.current_attempt(turn)) do
       nil ->
         Repo.insert!(%CandidateResponse{
           turn_id: turn.id,

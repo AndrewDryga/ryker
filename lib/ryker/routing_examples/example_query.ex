@@ -5,7 +5,7 @@ defmodule Ryker.RoutingExamples.ExampleQuery do
   alias Ryker.Delivery.RoutingResponse
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.RoutingExamples.Example
-  alias Ryker.Work.Custody
+  alias Ryker.Work.OwningTurnQuery
 
   def all, do: from(examples in Example, as: :routing_examples)
 
@@ -73,7 +73,7 @@ defmodule Ryker.RoutingExamples.ExampleQuery do
         ),
       where:
         not exists(
-          from(work in subquery(Custody.work_rest_query()),
+          from(work in subquery(OwningTurnQuery.work_rest()),
             where:
               work.episode_id == parent_as(:ingress_inbox_entries).episode_id and work.running
           )

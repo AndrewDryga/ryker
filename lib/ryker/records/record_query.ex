@@ -4,7 +4,7 @@ defmodule Ryker.Records.RecordQuery do
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Records.{Record, Response}
-  alias Ryker.Work.Turn
+  alias Ryker.Work.{Session, Turn}
 
   def all, do: from(records in Record, as: :episode_state_records)
 
@@ -198,6 +198,62 @@ defmodule Ryker.Records.RecordQuery do
         r.id == ^record_id and r.episode_id == ^episode_id and r.kind == "emisar_approval" and
           r.status == :open and e.state == :waiting_for_event and e.owner_kind == :event and
           e.owner_ref == r.ref
+    )
+  end
+
+  @doc """
+  The open readiness offer of `episode_id`'s turn `turn_id` that confirmed
+  task `task_ref` asked for, with the task and the settled turn that offered
+  the task, as `{offer, task, source_turn}`.
+  """
+  def task_readiness(episode_id, turn_id, task_ref) do
+    from(offer in all(),
+      join: task in Record,
+      on: task.ref == ^task_ref and task.confirmed_episode_id == ^episode_id,
+      join: source_turn in Turn,
+      on: source_turn.id == task.turn_id and source_turn.episode_id == task.episode_id,
+      where:
+        offer.episode_id == ^episode_id and offer.turn_id == ^turn_id and
+          offer.kind == "publication_offer" and offer.status == :open and
+          offer.operation_id == "host:publication:ready",
+      where: task.kind == "task_offer" and task.status == :confirmed,
+      where: source_turn.status == :settled,
+      select: {offer, task, source_turn}
+    )
+  end
+
+  @doc """
+  The open publication offer `record_ref` with its episode, the turn that
+  made it and that turn's session, as `{record, episode, turn, session}`.
+  """
+  def publication_offer(record_ref) do
+    from(record in all(),
+      join: episode in Episode,
+      on: episode.id == record.episode_id,
+      join: turn in Turn,
+      on: turn.id == record.turn_id and turn.episode_id == record.episode_id,
+      join: session in Session,
+      on: session.id == turn.session_id and session.episode_id == record.episode_id,
+      where:
+        record.ref == ^record_ref and record.kind == "publication_offer" and
+          record.status == :open,
+      select: {record, episode, turn, session}
+    )
+  end
+
+  @doc """
+  Who confirmed the task episode `episode_id` runs, for `repository`: the
+  first confirmed task offer naming it.
+  """
+  def task_grant(episode_id, repository) do
+    from(task in all(),
+      where:
+        task.kind == "task_offer" and task.status == :confirmed and
+          task.confirmed_episode_id == ^episode_id and
+          fragment("(?::jsonb) ->> 'repository' = ?", task.payload, ^repository),
+      order_by: [asc: task.sequence],
+      limit: 1,
+      select: task.confirmed_by_actor_ref
     )
   end
 

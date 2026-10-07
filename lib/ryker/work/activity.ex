@@ -8,17 +8,18 @@ defmodule Ryker.Work.Activity do
   turn settlement, allowing the executor to treat narration as best effort.
   """
 
-  import Ecto.Query
   alias Ryker.Admission.FleetSession
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes.EpisodeQuery
   alias Ryker.Ingress.Inbox
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
-  alias Ryker.Work.{ActivityEvent, ActivityEventChangeset, ActivityPaths, ActivityRetention}
+  alias Ryker.Work.{ActivityEvent, ActivityEventChangeset, ActivityEventQuery, ActivityPaths}
+  alias Ryker.Work.ActivityRetention
   alias Ryker.Work.Session
   alias Ryker.Work.SessionChangeset
+  alias Ryker.Work.SessionQuery
 
   @activity_kinds ~w(
     tool.started
@@ -60,13 +61,9 @@ defmodule Ryker.Work.Activity do
 
   @doc false
   def close_admission(entry, remote_id) do
-    if Repo.exists?(
-         from(s in Session,
-           where:
-             s.execution_kind == :admission and s.admission_input_id == ^entry.id and
-               s.generation == ^entry.execution_generation
-         )
-       ), do: FleetSession.settle(entry, remote_id), else: :ok
+    if Repo.exists?(SessionQuery.for_admission(entry.id, entry.execution_generation)),
+      do: FleetSession.settle(entry, remote_id),
+      else: :ok
   end
 
   @spec sync(Session.t(), module(), term()) ::
@@ -104,11 +101,13 @@ defmodule Ryker.Work.Activity do
   def ingest(_session_id, _events), do: {:error, {:invalid_coop_activity, :page}}
 
   defp lock_ingest_session(session_id) do
-    identity = Repo.get(Session, session_id) || Repo.rollback(:work_session_not_found)
+    identity =
+      Repo.one(SessionQuery.by_id(session_id)) || Repo.rollback(:work_session_not_found)
+
     lock_activity_episode(identity.episode_id)
 
     session =
-      Repo.one(from(session in Session, where: session.id == ^session_id, lock: "FOR UPDATE")) ||
+      session_id |> SessionQuery.by_id() |> SessionQuery.lock_for_update() |> Repo.one() ||
         Repo.rollback(:work_session_not_found)
 
     if session.episode_id != identity.episode_id, do: Repo.rollback(:work_session_not_found)
@@ -120,12 +119,8 @@ defmodule Ryker.Work.Activity do
   defp lock_activity_episode(episode_id) do
     # The activity insert needs this FK lock anyway. Take it before Session so
     # narration cannot deadlock Work's Episode -> Session ownership/preflight.
-    Repo.one(
-      from(episode in Episode,
-        where: episode.id == ^episode_id,
-        lock: "FOR KEY SHARE"
-      )
-    ) || Repo.rollback(:work_session_not_found)
+    episode_id |> EpisodeQuery.by_id() |> EpisodeQuery.lock_for_key_share() |> Repo.one() ||
+      Repo.rollback(:work_session_not_found)
   end
 
   @doc false
@@ -135,7 +130,8 @@ defmodule Ryker.Work.Activity do
       when is_binary(session_id) and is_binary(remote_id) and is_integer(cursor) and cursor >= 0 and
              is_list(events) and length(events) <= @maximum_page do
     Repo.transaction(fn ->
-      session = Repo.get(Session, session_id) || Repo.rollback(:work_session_not_found)
+      session =
+        Repo.one(SessionQuery.by_id(session_id)) || Repo.rollback(:work_session_not_found)
 
       if session.coop_session_id != remote_id,
         do: Repo.rollback({:coop_activity_session_conflict, remote_id})
@@ -156,14 +152,12 @@ defmodule Ryker.Work.Activity do
   @spec retry_once(module(), term()) :: {:ok, :idle | {:synced, Ecto.UUID.t()}} | {:error, term()}
   def retry_once(api, client) when is_atom(api) do
     if function_exported?(api, :list_events, 4) do
-      case Repo.one(
-             from(session in Session,
-               where:
-                 session.activity_sync_pending == true and not is_nil(session.coop_session_id),
-               order_by: [asc: session.updated_at, asc: session.id],
-               limit: 1
-             )
-           ) do
+      pending =
+        SessionQuery.awaiting_activity_sync()
+        |> SessionQuery.least_recently_updated_first()
+        |> SessionQuery.limit_to(1)
+
+      case Repo.one(pending) do
         nil -> {:ok, :idle}
         session -> retry_sync(session, api, client)
       end
@@ -191,32 +185,14 @@ defmodule Ryker.Work.Activity do
   def page_for_episode(episode_id, pages \\ 1)
 
   def page_for_episode(episode_id, pages) when is_binary(episode_id) do
-    inputs =
-      from(i in Ryker.Ingress.Inbox.Entry, where: i.episode_id == ^episode_id, select: i.id)
-
-    query =
-      from(event in ActivityEvent,
-        where: event.episode_id == ^episode_id or event.admission_input_id in subquery(inputs)
-      )
-      |> ActivityRetention.visible()
-
-    totals =
-      Repo.one!(
-        from(event in query,
-          select: %{
-            tool_calls: filter(count(event.id), event.kind == "tool.started"),
-            total: count(event.id)
-          }
-        )
-      )
+    query = episode_id |> ActivityEventQuery.of_episode() |> ActivityEventQuery.visible()
+    totals = query |> ActivityEventQuery.select_totals() |> Repo.one!()
 
     events =
-      Repo.all(
-        from(event in query,
-          order_by: [desc: event.occurred_at, desc: event.session_id, desc: event.sequence],
-          limit: ^(@projection_limit * min(max(pages, 1), @maximum_pages))
-        )
-      )
+      query
+      |> ActivityEventQuery.latest_first()
+      |> ActivityEventQuery.limit_to(@projection_limit * min(max(pages, 1), @maximum_pages))
+      |> Repo.all()
       |> Enum.reverse()
 
     Map.merge(totals, %{
@@ -372,12 +348,7 @@ defmodule Ryker.Work.Activity do
   defp verify_replayed_activity(session_id, event) do
     stored =
       Repo.one(
-        from(stored in ActivityEvent,
-          where:
-            stored.session_id == ^session_id and
-              stored.remote_session_id == ^event.remote_session_id and
-              stored.sequence == ^event.sequence
-        )
+        ActivityEventQuery.by_sequence(session_id, event.remote_session_id, event.sequence)
       )
 
     if match?(%ActivityEvent{}, stored) and replayed_activity?(stored, event),
@@ -485,21 +456,13 @@ defmodule Ryker.Work.Activity do
   defp timestamp(_value), do: {:error, {:invalid_coop_activity, :occurred_at}}
 
   defp persist_sync_obligation(session_id, {:ok, _receipt}) do
-    _ =
-      Repo.update_all(
-        from(session in Session, where: session.id == ^session_id),
-        set: [activity_sync_pending: false]
-      )
+    _ = Repo.update_all(SessionQuery.by_id(session_id), set: [activity_sync_pending: false])
 
     :ok
   end
 
   defp persist_sync_obligation(session_id, {:error, _reason}) do
-    _ =
-      Repo.update_all(
-        from(session in Session, where: session.id == ^session_id),
-        set: [activity_sync_pending: true]
-      )
+    _ = Repo.update_all(SessionQuery.by_id(session_id), set: [activity_sync_pending: true])
 
     :ok
   end

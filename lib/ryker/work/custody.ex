@@ -20,10 +20,9 @@ defmodule Ryker.Work.Custody do
   their request's (`Ryker.Episodes.subscribe_episode/1`).
   """
 
-  import Ecto.Query, only: [from: 2]
   alias Ryker.Episodes.Episode
   alias Ryker.Work.Custody.{Cancellation, Claims, Delivery, Sessions, Turns}
-  alias Ryker.Work.{Result, Session, Submission, Turn}
+  alias Ryker.Work.{Result, Session, Submission, Turn, TurnQuery}
 
   @type claim :: %{
           episode: Episode.t(),
@@ -703,12 +702,11 @@ defmodule Ryker.Work.Custody do
   @spec turn_in_progress?(Ecto.UUID.t(), String.t()) :: boolean()
   def turn_in_progress?(episode_id, turn_ref) do
     status =
-      Ryker.Repo.one(
-        from(turn in Turn,
-          where: turn.episode_id == ^episode_id and turn.turn_ref == ^turn_ref,
-          select: turn.status
-        )
-      )
+      episode_id
+      |> TurnQuery.by_episode_id()
+      |> TurnQuery.by_turn_ref(turn_ref)
+      |> TurnQuery.select_statuses()
+      |> Ryker.Repo.one()
 
     status in [nil, :pending]
   end
@@ -828,12 +826,6 @@ defmodule Ryker.Work.Custody do
           {:ok, Turn.t()} | {:error, term()}
   defdelegate yield_progress(episode_id, turn_ref, lease_ref, retry_seconds), to: Claims
 
-  @doc false
-  defdelegate claimable_episode_ids_query(now, phase), to: Claims
-
-  @doc false
-  defdelegate work_rest_query(), to: Claims
-
   @doc "Read-only recovery eligibility; retry rechecks this under custody locks."
   defdelegate completed_workspace_recoverable(turn), to: Cancellation
 
@@ -907,7 +899,9 @@ defmodule Ryker.Work.Custody do
 
   def broadcast_turn_updated(turn_id) when is_binary(turn_id) do
     Ryker.Repo.after_commit(fn ->
-      from(turn in Turn, where: turn.id == ^turn_id, select: turn.episode_id)
+      turn_id
+      |> TurnQuery.by_id()
+      |> TurnQuery.select_episode_ids()
       |> Ryker.Repo.one()
       |> Ryker.Episodes.broadcast_episode_updated()
     end)

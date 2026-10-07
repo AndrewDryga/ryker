@@ -11,9 +11,9 @@ defmodule Ryker.Publication.Followups.Start do
   publication recorded, and never for a head other than the one it recorded.
   """
 
-  import Ecto.Query
-  alias Ryker.Publication.{Custody, Followup, FollowupChangeset, Publication}
+  alias Ryker.Publication.{Custody, Followup, FollowupChangeset, FollowupQuery, Publication}
   alias Ryker.Publication.Followups.Store
+  alias Ryker.Publication.PublicationQuery
   alias Ryker.Repo
 
   @default_deadline_seconds 30 * 24 * 60 * 60
@@ -28,7 +28,7 @@ defmodule Ryker.Publication.Followups.Start do
       publication_id: publication.id
     }
 
-    case Repo.one(from(followup in Followup, where: followup.publication_id == ^publication.id)) do
+    case Repo.one(FollowupQuery.by_publication_id(publication.id)) do
       # Each generation publishes a new head, often to the same pull request,
       # and its checks are its own. The follow-up kept the previous head's
       # check state, so a new head failing the way the old one did woke
@@ -52,12 +52,7 @@ defmodule Ryker.Publication.Followups.Start do
     do: Repo.rollback(:publication_not_delivered)
 
   def rearm_stale_in_transaction(%Publication{} = publication, now) do
-    case Repo.one(
-           from(followup in Followup,
-             where: followup.publication_id == ^publication.id,
-             lock: "FOR UPDATE"
-           )
-         ) do
+    case Repo.one(locked_followup(publication)) do
       %Followup{pr_state: :stale} = followup ->
         _followup = reset_followup!(followup, publication, now)
         :ok
@@ -70,13 +65,14 @@ defmodule Ryker.Publication.Followups.Start do
     end
   end
 
+  defp locked_followup(publication) do
+    publication.id
+    |> FollowupQuery.by_publication_id()
+    |> FollowupQuery.lock_for_update()
+  end
+
   def rearm_conflict_in_transaction(%Publication{} = publication, now) do
-    case Repo.one(
-           from(followup in Followup,
-             where: followup.publication_id == ^publication.id,
-             lock: "FOR UPDATE"
-           )
-         ) do
+    case Repo.one(locked_followup(publication)) do
       %Followup{} = followup ->
         _followup = reset_followup!(followup, publication, now)
         :ok
@@ -150,21 +146,16 @@ defmodule Ryker.Publication.Followups.Start do
     now = Repo.now!()
 
     query =
-      from(followup in Followup,
-        join: publication in Publication,
-        on: publication.id == followup.publication_id,
-        where:
-          publication.status == :published and publication.github_repository == ^repository and
-            publication.pull_request_number == ^number and followup.pr_state in ^states,
-        lock: "FOR UPDATE"
-      )
+      repository
+      |> FollowupQuery.for_pull_request(number, states)
+      |> FollowupQuery.lock_for_update()
 
     case Repo.one(query) do
       nil ->
         :ignored
 
       followup ->
-        publication = Repo.get!(Publication, followup.publication_id)
+        publication = Repo.one!(PublicationQuery.by_id(followup.publication_id))
 
         if is_nil(head_sha) or head_sha == publication.commit_sha do
           Store.update_followup!(followup, %{next_poll_at: now}, now)

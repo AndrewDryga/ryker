@@ -5,7 +5,7 @@ defmodule Ryker.RoutingExamples do
   While a person keeps "Keep routing examples for training" on (Settings ›
   Data retention), each routing decision is copied once it has settled:
   routing committed it and nothing it started is still running. The Work it
-  started or joined has come to rest (`Ryker.Work.Custody.work_rest_query/0`,
+  started or joined has come to rest (`Ryker.Work.OwningTurnQuery.work_rest/0`,
   the rest Learning waits for), and each quick reply or reaction it chose was
   delivered or gave up. Its outcome is known then, and its bodies are still
   there: they are pruned only after that Work's sessions are discarded.

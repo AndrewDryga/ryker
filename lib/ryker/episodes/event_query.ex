@@ -127,6 +127,34 @@ defmodule Ryker.Episodes.EventQuery do
   def excluding_dedupe_key(queryable, dedupe_key),
     do: where(queryable, [episode_kernel_events: e], e.dedupe_key != ^dedupe_key)
 
+  def by_dedupe_keys(queryable, dedupe_keys),
+    do: where(queryable, [episode_kernel_events: e], e.dedupe_key in ^dedupe_keys)
+
+  def excluding_dedupe_keys(queryable, dedupe_keys),
+    do: where(queryable, [episode_kernel_events: e], e.dedupe_key not in ^dedupe_keys)
+
+  def at_sequence(queryable, sequence),
+    do: where(queryable, [episode_kernel_events: e], e.sequence == ^sequence)
+
+  def after_sequence(queryable, sequence),
+    do: where(queryable, [episode_kernel_events: e], e.sequence > ^sequence)
+
+  @doc "Accepted results that answered the turn `turn_ref` a wakeup expected."
+  def accepted_for_turn(queryable, turn_ref) do
+    where(
+      queryable,
+      [episode_kernel_events: e],
+      e.kind == :result_accepted and
+        fragment("(?::jsonb ->> 'expected_turn_ref') = ?", e.payload, ^turn_ref)
+    )
+  end
+
+  def select_inserted_at(queryable),
+    do: select(queryable, [episode_kernel_events: e], e.inserted_at)
+
+  def inserted_by(queryable, at),
+    do: where(queryable, [episode_kernel_events: e], e.inserted_at <= ^at)
+
   @doc "The latest `limit` reactions of `episode_id` before `next_sequence`, in order."
   def reactions_before(episode_id, next_sequence, limit) do
     latest =

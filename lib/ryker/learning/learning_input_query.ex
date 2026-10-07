@@ -7,7 +7,7 @@ defmodule Ryker.Learning.LearningInputQuery do
   import Ecto.Query
   alias Ryker.Ingress.Inbox.EntryQuery
   alias Ryker.Learning.{BatchQuery, ConversationObservation, InputMembership}
-  alias Ryker.Work.Custody
+  alias Ryker.Work.OwningTurnQuery
 
   @doc """
   Routed messages no batch holds yet, except one whose Work is still running:
@@ -24,7 +24,7 @@ defmodule Ryker.Learning.LearningInputQuery do
         ),
       where:
         not exists(
-          from(work in subquery(Custody.work_rest_query()),
+          from(work in subquery(OwningTurnQuery.work_rest()),
             where:
               work.episode_id == parent_as(:ingress_inbox_entries).episode_id and work.running
           )
@@ -167,7 +167,7 @@ defmodule Ryker.Learning.LearningInputQuery do
   # answering it.
   defp ready(pending) do
     from(e in pending,
-      left_join: work in subquery(Custody.work_rest_query()),
+      left_join: work in subquery(OwningTurnQuery.work_rest()),
       on: work.episode_id == e.episode_id,
       select: %{
         id: e.id,

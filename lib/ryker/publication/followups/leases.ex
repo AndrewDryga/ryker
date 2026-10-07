@@ -9,10 +9,10 @@ defmodule Ryker.Publication.Followups.Leases do
   caller's and still live, so a worker that lost its lease changes nothing.
   """
 
-  import Ecto.Query
   alias Ryker.ErrorDetail
-  alias Ryker.Publication.{Followup, LifecycleEvent, Publication}
+  alias Ryker.Publication.{Followup, FollowupQuery, LifecycleEvent, LifecycleEventQuery}
   alias Ryker.Publication.Followups.Store
+  alias Ryker.Publication.Publication
   alias Ryker.Repo
   alias Ryker.UTCDateTime
 
@@ -30,42 +30,9 @@ defmodule Ryker.Publication.Followups.Leases do
     end
   end
 
-  # A follow-up polls only while its publication is published. A task whose
-  # newer change is back in review, or blocked there, leaves its pull request's
-  # poll due and waiting on purpose; readiness counts by this same query.
-  def pollable_query do
-    from(followup in Followup,
-      as: :followup,
-      join: publication in Publication,
-      as: :publication,
-      on:
-        publication.id == followup.publication_id and
-          publication.episode_id == followup.episode_id,
-      where: publication.status == :published
-    )
-  end
-
   def next_due_at(%DateTime{} = since) do
-    polls =
-      Repo.one(
-        from(followup in pollable_query(),
-          select: [
-            filter(min(followup.next_poll_at), followup.next_poll_at > ^since),
-            filter(min(followup.lease_expires_at), followup.lease_expires_at > ^since)
-          ]
-        )
-      )
-
-    deliveries =
-      Repo.one(
-        from(event in LifecycleEvent,
-          where: event.delivery_state == :pending,
-          select: [
-            filter(min(event.next_attempt_at), event.next_attempt_at > ^since),
-            filter(min(event.lease_expires_at), event.lease_expires_at > ^since)
-          ]
-        )
-      )
+    polls = Repo.one(FollowupQuery.next_due_after(since))
+    deliveries = Repo.one(LifecycleEventQuery.next_due_after(since))
 
     UTCDateTime.earliest(polls ++ deliveries)
   end
@@ -108,13 +75,9 @@ defmodule Ryker.Publication.Followups.Leases do
     now = Repo.now!()
 
     query =
-      from(followup in Followup,
-        join: publication in Publication,
-        on: publication.id == followup.publication_id,
-        where: publication.ref == ^publication_ref,
-        select: {followup, publication},
-        lock: "FOR UPDATE"
-      )
+      publication_ref
+      |> FollowupQuery.for_publication_ref()
+      |> FollowupQuery.lock_for_update()
 
     case Repo.one(query) do
       nil ->
@@ -145,15 +108,12 @@ defmodule Ryker.Publication.Followups.Leases do
     now = Repo.now!()
 
     query =
-      from([followup: followup, publication: publication] in pollable_query(),
-        where:
-          followup.next_poll_at <= ^now and
-            (is_nil(followup.lease_expires_at) or followup.lease_expires_at <= ^now),
-        order_by: [asc: followup.next_poll_at, asc: followup.id],
-        limit: 1,
-        select: {followup, publication},
-        lock: "FOR UPDATE SKIP LOCKED"
-      )
+      FollowupQuery.pollable()
+      |> FollowupQuery.due_unleased_at(now)
+      |> FollowupQuery.oldest_due_first()
+      |> FollowupQuery.limit_to(1)
+      |> FollowupQuery.select_with_publications()
+      |> FollowupQuery.lock_next_free()
 
     case Repo.one(query) do
       nil ->
@@ -181,15 +141,11 @@ defmodule Ryker.Publication.Followups.Leases do
     now = Repo.now!()
 
     query =
-      from(event in LifecycleEvent,
-        where:
-          event.delivery_state == :pending and
-            (is_nil(event.next_attempt_at) or event.next_attempt_at <= ^now) and
-            (is_nil(event.lease_expires_at) or event.lease_expires_at <= ^now),
-        order_by: [asc: event.inserted_at, asc: event.id],
-        limit: 1,
-        lock: "FOR UPDATE SKIP LOCKED"
-      )
+      LifecycleEventQuery.pending()
+      |> LifecycleEventQuery.due_unleased_at(now)
+      |> LifecycleEventQuery.oldest_first()
+      |> LifecycleEventQuery.limit_to(1)
+      |> LifecycleEventQuery.lock_next_free()
 
     case Repo.one(query) do
       nil ->

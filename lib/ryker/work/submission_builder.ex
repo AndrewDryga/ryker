@@ -7,14 +7,14 @@ defmodule Ryker.Work.SubmissionBuilder do
   after code or configuration changes.
   """
 
-  import Ecto.Query
   alias Ryker.Artifacts
   alias Ryker.Behaviors
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity
-  alias Ryker.Episodes.{CorrelationClaims, Episode, Event, Origins, Reactions, RoutingDigests}
+  alias Ryker.Episodes.{CorrelationClaims, Episode, Event, EventQuery, Origins, Reactions}
+  alias Ryker.Episodes.RoutingDigests
   alias Ryker.GitHub.SourceRef, as: GitHubSourceRef
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress.Inbox.EntryQuery
   alias Ryker.Ingress.RecallText
   alias Ryker.Learning.LearningSources
   alias Ryker.Memories
@@ -29,7 +29,7 @@ defmodule Ryker.Work.SubmissionBuilder do
   alias Ryker.StateTools.Capabilities
   alias Ryker.StateTools.FixedTools
   alias Ryker.StateTools.ToolVisibility
-  alias Ryker.Work.{Contract, PlatformTools, Prompt, Session, Submission, Turn}
+  alias Ryker.Work.{Contract, PlatformTools, Prompt, Session, Submission, Turn, TurnQuery}
 
   @maximum_inputs 40
   @retained_cases 3
@@ -506,33 +506,26 @@ defmodule Ryker.Work.SubmissionBuilder do
 
   defp input_snapshot(episode) do
     base =
-      from(event in Event,
-        where:
-          event.episode_id == ^episode.id and event.kind == :input_admitted and
-            event.sequence < ^episode.next_sequence
-      )
+      episode.id
+      |> EventQuery.by_episode_id()
+      |> EventQuery.of_kind(:input_admitted)
+      |> EventQuery.before_sequence(episode.next_sequence)
 
     active_refs = Enum.uniq(episode.active_input_refs)
     queued_refs = Enum.uniq(episode.queued_input_refs)
     historical_slots = @maximum_inputs - length(active_refs)
 
     visible =
-      if queued_refs == [] do
-        base
-      else
-        from(event in base, where: event.dedupe_key not in ^queued_refs)
-      end
+      if queued_refs == [], do: base, else: EventQuery.excluding_dedupe_keys(base, queued_refs)
 
     active =
       if active_refs == [] do
         []
       else
-        Repo.all(
-          from(event in visible,
-            where: event.dedupe_key in ^active_refs,
-            order_by: [asc: event.sequence]
-          )
-        )
+        visible
+        |> EventQuery.by_dedupe_keys(active_refs)
+        |> EventQuery.oldest_first()
+        |> Repo.all()
       end
 
     historical =
@@ -540,37 +533,33 @@ defmodule Ryker.Work.SubmissionBuilder do
         []
       else
         query =
-          if active_refs == [] do
-            visible
-          else
-            from(event in visible, where: event.dedupe_key not in ^active_refs)
-          end
+          if active_refs == [],
+            do: visible,
+            else: EventQuery.excluding_dedupe_keys(visible, active_refs)
 
         query
-        |> order_by([event], desc: event.sequence)
-        |> limit(^historical_slots)
+        |> EventQuery.newest_first()
+        |> EventQuery.limit_to(historical_slots)
         |> Repo.all()
         |> Enum.reverse()
       end
 
     %{
       active: active,
-      first: Repo.one(from(event in visible, order_by: [asc: event.sequence], limit: 1)),
+      first: visible |> EventQuery.oldest_first() |> EventQuery.limit_to(1) |> Repo.one(),
       historical: historical,
       total_count: Repo.aggregate(visible, :count)
     }
   end
 
   defp previous_turn(episode_id, turn_id) do
-    Repo.one(
-      from(turn in Turn,
-        where:
-          turn.episode_id == ^episode_id and turn.id != ^turn_id and
-            not is_nil(turn.result_ref),
-        order_by: [desc: turn.inserted_at, desc: turn.id],
-        limit: 1
-      )
-    )
+    episode_id
+    |> TurnQuery.by_episode_id()
+    |> TurnQuery.excluding_ids([turn_id])
+    |> TurnQuery.with_result()
+    |> TurnQuery.newest_first()
+    |> TurnQuery.limit_to(1)
+    |> Repo.one()
   end
 
   defp active_ref_count_fits(active_refs) do
@@ -633,10 +622,10 @@ defmodule Ryker.Work.SubmissionBuilder do
   # see it; it is a first look that checked nothing, and the prompt says so.
   # An admitted input and its routing entry share the source and event ids.
   defp routing_notes(%Episode{id: episode_id}) do
-    from(entry in Entry,
-      where: entry.episode_id == ^episode_id and not is_nil(entry.decision_document),
-      select: {entry.source_kind, entry.source_ref, entry.event_ref, entry.decision_document}
-    )
+    episode_id
+    |> EntryQuery.by_episode_id()
+    |> EntryQuery.with_decision_document()
+    |> EntryQuery.select_decisions()
     |> Repo.all()
     |> Enum.flat_map(fn {kind, ref, event_ref, decision} ->
       case routing_note(decision) do
@@ -719,21 +708,20 @@ defmodule Ryker.Work.SubmissionBuilder do
   end
 
   defp own_backdrop(episode) do
-    Repo.one(
-      from(entry in Entry,
-        where: entry.episode_id == ^episode.id and not is_nil(entry.admission_context),
-        order_by: [asc: entry.occurred_at, asc: entry.id],
-        limit: 1,
-        select: entry.admission_context
-      )
-    )
+    episode.id
+    |> EntryQuery.by_episode_id()
+    |> EntryQuery.with_admission_context()
+    |> EntryQuery.oldest_occurred_first()
+    |> EntryQuery.limit_to(1)
+    |> EntryQuery.select_admission_contexts()
+    |> Repo.one()
     |> backdrop()
   end
 
   # Routing starts an episode under the id of the message it admitted. A task starts when a
   # person confirms an offer, and nothing routed it.
   defp routed_start?(%Episode{id: id}),
-    do: Repo.exists?(from(entry in Entry, where: entry.id == ^id))
+    do: Repo.exists?(EntryQuery.by_id(id))
 
   # A task's backdrop is the conversation it was offered in, as frozen when the latest message
   # that conversation had admitted before the task started arrived (Andrew, 2026-10-01: a task
@@ -742,12 +730,11 @@ defmodule Ryker.Work.SubmissionBuilder do
   defp linked_backdrop(%Episode{linked_episode_id: linked, inserted_at: started})
        when is_binary(linked) and not is_nil(started) do
     entry_ids =
-      from(event in Event,
-        where:
-          event.episode_id == ^linked and event.kind == :input_admitted and
-            event.inserted_at <= ^started,
-        select: event.payload
-      )
+      linked
+      |> EventQuery.by_episode_id()
+      |> EventQuery.of_kind(:input_admitted)
+      |> EventQuery.inserted_by(started)
+      |> EventQuery.select_payloads()
       |> Repo.all()
       |> Enum.flat_map(fn payload ->
         with %{"turn_ref" => "ingress-turn:" <> id} <- payload,
@@ -758,14 +745,13 @@ defmodule Ryker.Work.SubmissionBuilder do
         end
       end)
 
-    Repo.one(
-      from(entry in Entry,
-        where: entry.id in ^entry_ids and not is_nil(entry.admission_context),
-        order_by: [desc: entry.occurred_at, desc: entry.id],
-        limit: 1,
-        select: entry.admission_context
-      )
-    )
+    entry_ids
+    |> EntryQuery.by_ids()
+    |> EntryQuery.with_admission_context()
+    |> EntryQuery.latest_occurred_first()
+    |> EntryQuery.limit_to(1)
+    |> EntryQuery.select_admission_contexts()
+    |> Repo.one()
     |> backdrop()
   end
 

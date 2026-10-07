@@ -65,6 +65,27 @@ defmodule Ryker.Ingress.Inbox.EntryQuery do
     where(all(), ^matching)
   end
 
+  def latest_occurred_first(queryable),
+    do: order_by(queryable, [ingress_inbox_entries: e], desc: e.occurred_at, desc: e.id)
+
+  def with_admission_context(queryable),
+    do: where(queryable, [ingress_inbox_entries: e], not is_nil(e.admission_context))
+
+  def with_decision_document(queryable),
+    do: where(queryable, [ingress_inbox_entries: e], not is_nil(e.decision_document))
+
+  def select_admission_contexts(queryable),
+    do: select(queryable, [ingress_inbox_entries: e], e.admission_context)
+
+  @doc "Each routing decision as `{source_kind, source_ref, event_ref, decision_document}`."
+  def select_decisions(queryable) do
+    select(
+      queryable,
+      [ingress_inbox_entries: e],
+      {e.source_kind, e.source_ref, e.event_ref, e.decision_document}
+    )
+  end
+
   def oldest_occurred_first(queryable),
     do: order_by(queryable, [ingress_inbox_entries: e], asc: e.occurred_at, asc: e.id)
 
@@ -210,6 +231,9 @@ defmodule Ryker.Ingress.Inbox.EntryQuery do
       desc: e.inserted_at
     )
   end
+
+  def by_episode_id(queryable \\ all(), episode_id),
+    do: where(queryable, [ingress_inbox_entries: e], e.episode_id == ^episode_id)
 
   def by_episode_ids(queryable \\ all(), episode_ids),
     do: where(queryable, [ingress_inbox_entries: e], e.episode_id in ^episode_ids)
@@ -377,7 +401,19 @@ defmodule Ryker.Ingress.Inbox.EntryQuery do
   def in_thread(queryable, thread_ref),
     do: where(queryable, [ingress_inbox_entries: e], e.destination_thread_ref == ^thread_ref)
 
+  @doc "Messages waiting for routing whose routing lease is held at `now`."
+  def leased_at(now) do
+    where(
+      all(),
+      [ingress_inbox_entries: e],
+      e.status == :pending and not is_nil(e.lease_ref) and e.lease_expires_at > ^now
+    )
+  end
+
   def select_ids(queryable), do: select(queryable, [ingress_inbox_entries: e], e.id)
+
+  def select_pruned_at(queryable),
+    do: select(queryable, [ingress_inbox_entries: e], e.operational_pruned_at)
 
   def select_destinations(queryable) do
     select(

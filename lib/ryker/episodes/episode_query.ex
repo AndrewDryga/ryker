@@ -42,6 +42,25 @@ defmodule Ryker.Episodes.EpisodeQuery do
 
   def ordered_by_id(queryable), do: order_by(queryable, [episode_kernel_episodes: e], asc: e.id)
 
+  @doc "Episodes Work is running a turn of."
+  def working_on_turns(queryable \\ all()) do
+    where(
+      queryable,
+      [episode_kernel_episodes: e],
+      e.state == :working and e.owner_kind == :turn
+    )
+  end
+
+  @doc "Episode `id` while it is working and owned by `owner_kind` `owner_ref`."
+  def working_for(id, owner_kind, owner_ref) do
+    where(
+      all(),
+      [episode_kernel_episodes: e],
+      e.id == ^id and e.state == :working and e.owner_kind == ^owner_kind and
+        e.owner_ref == ^owner_ref
+    )
+  end
+
   @doc "Episodes that message `native_input_id` started or joined."
   def joined_by_message(native_input_id) do
     origins =

@@ -133,6 +133,61 @@ defmodule Ryker.Work.SessionQuery do
   def by_ids(queryable \\ all(), ids),
     do: where(queryable, [episode_work_sessions: s], s.id in ^ids)
 
+  @doc "Work session `session_id` of episode `episode_id`."
+  def of_episode(episode_id, session_id) do
+    where(
+      all(),
+      [episode_work_sessions: s],
+      s.episode_id == ^episode_id and s.id == ^session_id
+    )
+  end
+
+  @doc "Sessions whose Coop activity still has to be fetched."
+  def awaiting_activity_sync(queryable \\ all()) do
+    where(
+      queryable,
+      [episode_work_sessions: s],
+      s.activity_sync_pending == true and not is_nil(s.coop_session_id)
+    )
+  end
+
+  def least_recently_updated_first(queryable),
+    do: order_by(queryable, [episode_work_sessions: s], asc: s.updated_at, asc: s.id)
+
+  @doc "The Work sessions of `session`'s episode of a later generation: what replaced it."
+  def newer_work_sessions(session) do
+    where(
+      all(),
+      [episode_work_sessions: s],
+      s.episode_id == ^session.episode_id and s.execution_kind == :work and
+        s.generation > ^session.generation
+    )
+  end
+
+  def with_cleanup_status(queryable \\ all(), status),
+    do: where(queryable, [episode_work_sessions: s], s.cleanup_status == ^status)
+
+  @doc "Sessions whose cleanup failed and waits to retry after `now`."
+  def cleanup_retrying_after(now) do
+    where(
+      all(),
+      [episode_work_sessions: s],
+      s.cleanup_status in [:close_pending, :plan_pending, :discard_pending] and
+        not is_nil(s.cleanup_next_attempt_at) and s.cleanup_next_attempt_at > ^now
+    )
+  end
+
+  @doc "Retained sessions counted by why each is kept, as `{retained_reason, count}`."
+  def retained_by_reason do
+    all()
+    |> with_cleanup_status(:retained)
+    |> group_by([episode_work_sessions: s], s.retained_reason)
+    |> select([episode_work_sessions: s], {s.retained_reason, count(s.id)})
+  end
+
+  def select_last_discarded(queryable \\ all()),
+    do: select(queryable, [episode_work_sessions: s], max(s.discarded_at))
+
   def latest_generation_first(queryable),
     do: order_by(queryable, [episode_work_sessions: s], desc: s.generation)
 

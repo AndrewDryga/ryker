@@ -42,6 +42,14 @@ defmodule Ryker.Episodes.OriginQuery do
   def from_people(queryable),
     do: where(queryable, [episode_input_origins: o], like(o.actor_ref, "%:user:%"))
 
+  def by_input_refs(queryable, input_refs),
+    do: where(queryable, [episode_input_origins: o], o.input_ref in ^input_refs)
+
+  def latest_first(queryable),
+    do: order_by(queryable, [episode_input_origins: o], desc: o.occurred_at, desc: o.sequence)
+
+  def limit_to(queryable, count), do: limit(queryable, ^count)
+
   def in_occurrence_order(queryable),
     do: order_by(queryable, [episode_input_origins: o], asc: o.occurred_at, asc: o.sequence)
 

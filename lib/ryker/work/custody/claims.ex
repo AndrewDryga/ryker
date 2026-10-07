@@ -13,16 +13,14 @@ defmodule Ryker.Work.Custody.Claims do
   claim goes on to the next episode, so one broken episode never stops all Work.
   """
 
-  import Ecto.Query
   import Ryker.Work.Custody.Locks
   require Logger
-  alias Ryker.Episodes.Episode
-  alias Ryker.Publication.Publication
+  alias Ryker.Publication.PublicationQuery
   alias Ryker.Repo
   alias Ryker.UTCDateTime
   alias Ryker.Work.Custody
   alias Ryker.Work.Custody.Sessions
-  alias Ryker.Work.{Session, Turn, TurnChangeset}
+  alias Ryker.Work.{OwningTurnQuery, Turn, TurnChangeset, TurnQuery}
 
   # How many episodes one claim tries past ones that could not be claimed.
   @claim_candidates 8
@@ -67,13 +65,7 @@ defmodule Ryker.Work.Custody.Claims do
 
     now = Repo.now!()
 
-    Repo.update_all(
-      from(turn in Turn,
-        join: episode in Episode,
-        on: episode.id == turn.episode_id and turn.turn_ref == episode.owner_ref,
-        where:
-          turn.episode_id == ^episode_id and turn.status == :pending and is_nil(turn.lease_ref)
-      ),
+    Repo.update_all(TurnQuery.waiting_owner(episode_id),
       set: [
         next_attempt_at: DateTime.add(now, @claim_failure_retry_seconds, :second),
         last_error_code: claim_failure_code(reason),
@@ -148,33 +140,12 @@ defmodule Ryker.Work.Custody.Claims do
   def next_due_at(%DateTime{} = since, phase) when phase in [:work, :delivery] do
     statuses = if phase == :work, do: [:pending, :cancel_pending], else: [:delivery_pending]
 
-    turns =
-      Repo.one(
-        from(turn in Turn,
-          where: turn.status in ^statuses,
-          select: [
-            filter(min(turn.next_attempt_at), turn.next_attempt_at > ^since),
-            filter(
-              min(turn.lease_expires_at),
-              not is_nil(turn.lease_ref) and turn.lease_expires_at > ^since
-            )
-          ]
-        )
-      )
+    turns = Repo.one(TurnQuery.next_due_after(since, statuses))
 
     UTCDateTime.earliest(turns ++ reviews_due(since, phase))
   end
 
-  defp reviews_due(since, :work) do
-    [
-      Repo.one(
-        from(publication in Publication,
-          where: publication.status == :review_pending and publication.lease_expires_at > ^since,
-          select: min(publication.lease_expires_at)
-        )
-      )
-    ]
-  end
+  defp reviews_due(since, :work), do: [Repo.one(PublicationQuery.next_review_expiry_after(since))]
 
   defp reviews_due(_since, :delivery), do: []
 
@@ -202,121 +173,20 @@ defmodule Ryker.Work.Custody.Claims do
     end
   end
 
-  defp eligible_episode(now, phase, skipped) do
-    Repo.one(
-      from(episode in Episode,
-        where: episode.id in subquery(claimable_episode_ids_query(now, phase)),
-        where: episode.id not in ^skipped,
-        order_by: [asc: episode.updated_at, asc: episode.id],
-        limit: 1,
-        lock: "FOR UPDATE SKIP LOCKED"
-      )
-    )
-  end
-
-  @doc false
-  def claimable_episode_ids_query(now, phase) do
-    pinned_episode_ids = from(session in Session, select: session.episode_id)
-
-    reviewing_episode_ids =
-      from(publication in Publication,
-        where: publication.status == :review_pending and publication.lease_expires_at > ^now,
-        select: publication.episode_id
-      )
-
-    phase_filter = claim_phase_filter(phase, now)
-
-    from([episode, turn] in owning_turns(),
-      where: episode.state == :working and episode.owner_kind in [:turn, :delivery],
-      where: episode.id in subquery(pinned_episode_ids),
-      where: ^phase_filter,
-      where: episode.owner_kind == :delivery or episode.id not in subquery(reviewing_episode_ids),
-      select: episode.id
-    )
-  end
-
-  @doc false
-  # Every episode Work was pinned to, with whether that Work is still running
-  # and when it last changed. Running is every state the pool claims from
-  # (`claimable_episode_ids_query/2`), whatever the clock says: a turn about
-  # to start, running, waiting to retry or stopping, or an accepted answer not
-  # yet delivered. Anything else is at rest, with nothing left for Work to do
-  # until something new arrives or a person acts: answered, waiting for a
-  # person or an event, blocked, cancelled or closed. For Work at rest the last
-  # change is when it came to rest, on the episode, or on the turn blocked
-  # under it. Learning waits for this (`Ryker.Learning.Batches`).
-  def work_rest_query do
-    from([episode, turn] in owning_turns(),
-      where:
-        exists(from(session in Session, where: session.episode_id == parent_as(:episode).id)),
-      select: %{
-        episode_id: episode.id,
-        running:
-          episode.state == :working and
-            ((episode.owner_kind == :turn and
-                (is_nil(turn.id) or turn.status in [:pending, :cancel_pending])) or
-               (episode.owner_kind == :delivery and turn.status == :delivery_pending)),
-        rested_at: fragment("GREATEST(?, ?)", episode.updated_at, turn.updated_at)
-      }
-    )
-  end
-
-  # Each episode with the turn that owns it: the one Work runs, or the one
-  # whose accepted answer is being delivered.
-  defp owning_turns do
-    from(episode in Episode,
-      as: :episode,
-      left_join: turn in Turn,
-      on:
-        turn.episode_id == episode.id and
-          ((episode.owner_kind == :turn and turn.turn_ref == episode.owner_ref) or
-             (episode.owner_kind == :delivery and turn.delivery_ref == episode.owner_ref))
-    )
-  end
+  defp eligible_episode(now, phase, skipped),
+    do: Repo.one(OwningTurnQuery.next_claimable_episode(now, phase, skipped))
 
   defp active_publication_review?(session, %Turn{status: status})
        when status in [:pending, :cancel_pending] do
     # Both claimers lock the session. Recheck after that lock as the selection
     # query may have started before the other claimant committed its lease.
-    now = Repo.now!()
+    reviewing =
+      session.id |> PublicationQuery.by_session_id() |> PublicationQuery.reviewing_at(Repo.now!())
 
-    Repo.exists?(
-      from(publication in Publication,
-        where:
-          publication.session_id == ^session.id and publication.status == :review_pending and
-            publication.lease_expires_at > ^now
-      )
-    )
+    Repo.exists?(reviewing)
   end
 
   defp active_publication_review?(_session, _turn), do: false
-
-  defp claim_phase_filter(:work, now) do
-    dynamic(
-      [episode, turn],
-      episode.owner_kind == :turn and
-        (is_nil(turn.id) or
-           (turn.status in [:pending, :cancel_pending] and
-              (is_nil(turn.next_attempt_at) or turn.next_attempt_at <= ^now) and
-              (is_nil(turn.lease_ref) or turn.lease_expires_at <= ^now)))
-    )
-  end
-
-  defp claim_phase_filter(:delivery, now) do
-    dynamic(
-      [episode, turn],
-      episode.owner_kind == :delivery and not is_nil(turn.id) and
-        turn.status == :delivery_pending and
-        (is_nil(turn.next_attempt_at) or turn.next_attempt_at <= ^now) and
-        (is_nil(turn.lease_ref) or turn.lease_expires_at <= ^now)
-    )
-  end
-
-  defp claim_phase_filter(:any, now) do
-    work = claim_phase_filter(:work, now)
-    delivery = claim_phase_filter(:delivery, now)
-    dynamic([episode, turn], ^work or ^delivery)
-  end
 
   defp claim_turn(%Turn{status: status} = turn, worker_ref, now, lease_seconds)
        when status in [:pending, :cancel_pending, :delivery_pending] do

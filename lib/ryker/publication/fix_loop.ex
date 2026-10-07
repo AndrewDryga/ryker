@@ -29,11 +29,11 @@ defmodule Ryker.Publication.FixLoop do
   """
 
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, ConversationLock, Episode}
+  alias Ryker.Episodes.{Command, ConversationLock, Episode, EpisodeQuery}
   alias Ryker.Ingress.Input
-  alias Ryker.Publication.{GateOutput, Publication, Review}
+  alias Ryker.Publication.{GateOutput, Publication, PublicationQuery, Review}
   alias Ryker.Repo
-  alias Ryker.Work.Session
+  alias Ryker.Work.{Session, SessionQuery}
 
   @rounds 3
   # A working copy still in use is usually free again within a minute.
@@ -159,8 +159,8 @@ defmodule Ryker.Publication.FixLoop do
   @spec lock_task_in_transaction(String.t()) :: :ok | {:error, term()}
   def lock_task_in_transaction(publication_ref) do
     with %Publication{status: :review_ready, episode_id: episode_id} <-
-           Repo.get_by(Publication, ref: publication_ref),
-         %Episode{} = episode <- Repo.get(Episode, episode_id),
+           Repo.one(PublicationQuery.by_ref(publication_ref)),
+         %Episode{} = episode <- Repo.one(EpisodeQuery.by_id(episode_id)),
          :ok <- ConversationLock.lock_many(Repo, [destination(episode)]),
          {:ok, _episode} <- Episodes.lock_current_in_transaction(episode.key) do
       :ok
@@ -177,7 +177,7 @@ defmodule Ryker.Publication.FixLoop do
   """
   @spec admit_in_transaction(Publication.t(), DateTime.t()) :: :ok | {:error, term()}
   def admit_in_transaction(%Publication{} = publication, now) do
-    episode = Repo.get!(Episode, publication.episode_id)
+    episode = Repo.one!(EpisodeQuery.by_id(publication.episode_id))
     identity = "#{@source}:#{publication.id}:g#{publication.review_generation}"
 
     with {:ok, input} <-
@@ -320,11 +320,12 @@ defmodule Ryker.Publication.FixLoop do
   # Only a confirmed task's session re-arms its publication when a turn finishes
   # (`Custody.ensure_task_review_in_transaction/3`); without that the fix would
   # never be reviewed.
-  defp task_session?(publication),
-    do: match?(%Session{workspace_task: %{}}, Repo.get(Session, publication.session_id))
+  defp task_session?(publication) do
+    match?(%Session{workspace_task: %{}}, Repo.one(SessionQuery.by_id(publication.session_id)))
+  end
 
   defp at_rest?(publication),
-    do: match?(%Episode{state: :complete}, Repo.get(Episode, publication.episode_id))
+    do: match?(%Episode{state: :complete}, Repo.one(EpisodeQuery.by_id(publication.episode_id)))
 
   defp destination(episode),
     do: %{

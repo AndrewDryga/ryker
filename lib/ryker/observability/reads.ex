@@ -11,7 +11,7 @@ defmodule Ryker.Observability.Reads do
   projection never mixes the VM's clock with PostgreSQL's.
   """
 
-  import Ecto.Query
+  alias Ryker.Observability.ProjectionQuery
   alias Ryker.Repo
 
   @type failure ::
@@ -38,18 +38,11 @@ defmodule Ryker.Observability.Reads do
   @spec count(Ecto.Queryable.t()) :: {:ok, non_neg_integer()} | {:error, failure()}
   def count(query), do: read(fn -> Repo.aggregate(query, :count, :id) end)
 
-  @doc "Rows of `schema` counted by the value of one field."
-  @spec counts(module(), atom()) ::
+  @doc "Rows of `queryable` counted by the value of one field."
+  @spec counts(Ecto.Queryable.t(), atom()) ::
           {:ok, %{optional(term()) => pos_integer()}} | {:error, failure()}
-  def counts(schema, field) do
-    query =
-      from(row in schema,
-        group_by: field(row, ^field),
-        order_by: field(row, ^field),
-        select: {field(row, ^field), count(row.id)}
-      )
-
-    with {:ok, rows} <- all(query), do: {:ok, Map.new(rows)}
+  def counts(queryable, field) do
+    with {:ok, rows} <- all(ProjectionQuery.counts_by(queryable, field)), do: {:ok, Map.new(rows)}
   end
 
   @doc """

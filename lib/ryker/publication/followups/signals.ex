@@ -11,13 +11,13 @@ defmodule Ryker.Publication.Followups.Signals do
   same delivery recorded twice is one event.
   """
 
-  import Ecto.Query
   alias Ryker.CanonicalJSON
   alias Ryker.Ingress.Input
   alias Ryker.Learning.Observations
   alias Ryker.Memories.Cases
-  alias Ryker.Publication.{DeploymentSignal, Followup, LifecycleEvent, Publication}
+  alias Ryker.Publication.{DeploymentSignal, FollowupQuery, LifecycleEventQuery}
   alias Ryker.Publication.Followups.Store
+  alias Ryker.Publication.{Publication, PublicationQuery}
   alias Ryker.Repo
 
   def observe_input(
@@ -72,31 +72,9 @@ defmodule Ryker.Publication.Followups.Signals do
   end
 
   defp matching_lifecycle_followups(repository, references, branch_references, now) do
-    reference_match = lifecycle_reference_match(references, branch_references)
-
-    Repo.all(
-      from(followup in Followup,
-        join: publication in Publication,
-        on: publication.id == followup.publication_id,
-        where:
-          publication.status == :published and publication.repository == ^repository and
-            followup.pr_state == :merged and followup.deadline_at > ^now and
-            not is_nil(followup.merge_sha),
-        where: ^reference_match,
-        order_by: [asc: publication.id],
-        select: {followup, publication}
-      )
-    )
-  end
-
-  defp lifecycle_reference_match(references, branch_references) do
-    dynamic(
-      [followup, publication],
-      publication.pull_request_url in ^references or
-        publication.branch_ref in ^references or
-        publication.branch_ref in ^branch_references or
-        publication.commit_sha in ^references or followup.merge_sha in ^references
-    )
+    repository
+    |> FollowupQuery.merged_matching(references, branch_references, now)
+    |> Repo.all()
   end
 
   defp observe_publication_input(
@@ -245,23 +223,10 @@ defmodule Ryker.Publication.Followups.Signals do
   # change is in review or publishing still reaches the task (Andrew, 2026-09-30: a comment on
   # PR #2 was filed as noise while its update was pending). Polling alone waits for the update.
   defp github_feedback_publications(repository, pull_request_number) do
-    Repo.all(
-      from(publication in Publication,
-        join: followup in Followup,
-        on:
-          followup.publication_id == publication.id and
-            followup.episode_id == publication.episode_id,
-        where:
-          publication.status != :discarded and
-            publication.github_repository == ^repository and
-            publication.pull_request_number == ^pull_request_number and
-            followup.pr_state == :open,
-        order_by: [asc: publication.id],
-        limit: 2,
-        select: publication,
-        lock: "FOR UPDATE"
-      )
-    )
+    repository
+    |> PublicationQuery.with_open_pull_request(pull_request_number)
+    |> PublicationQuery.lock_for_update()
+    |> Repo.all()
   end
 
   defp record_github_feedback(input, publication) do
@@ -273,14 +238,9 @@ defmodule Ryker.Publication.Followups.Signals do
     document = input |> Input.document() |> feedback_document()
 
     existing =
-      Repo.all(
-        from(event in LifecycleEvent,
-          where:
-            event.publication_id == ^publication.id and event.kind == :review_feedback and
-              event.occurred_at == ^input.occurred_at,
-          order_by: [asc: event.inserted_at, asc: event.id]
-        )
-      )
+      publication.id
+      |> LifecycleEventQuery.review_feedback(input.occurred_at)
+      |> Repo.all()
       |> Enum.find(&(not is_nil(document) and feedback_document(&1.observation) == document))
 
     case existing do

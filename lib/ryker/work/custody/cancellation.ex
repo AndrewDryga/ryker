@@ -11,11 +11,10 @@ defmodule Ryker.Work.Custody.Cancellation do
   the same transfer path once an operator confirms the exact stopped turn.
   """
 
-  import Ecto.Query
   import Ryker.Work.Custody.Locks
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.ControlPlane, as: FleetControlPlane
-  alias Ryker.CoopFleet.{Placement, Worker}
+  alias Ryker.CoopFleet.{PlacementQuery, WorkspaceCheckpointTransferQuery}
   alias Ryker.Defaults
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
@@ -24,7 +23,7 @@ defmodule Ryker.Work.Custody.Cancellation do
   alias Ryker.Work.Cancellation, as: WorkCancellation
   alias Ryker.Work.Custody
   alias Ryker.Work.Custody.{CurrentAuthority, Sessions, Turns}
-  alias Ryker.Work.{OperationKeys, Session, Turn, TurnChangeset}
+  alias Ryker.Work.{OperationKeys, Session, SessionQuery, Turn, TurnChangeset, TurnQuery}
 
   @doc false
   @spec request_cancel(Ecto.UUID.t(), String.t(), String.t(), String.t(), String.t()) ::
@@ -359,20 +358,9 @@ defmodule Ryker.Work.Custody.Cancellation do
           turn
       )
       when state in ["closed", "discarded"] do
-    session = Repo.get!(Session, turn.session_id)
-
+    session = Repo.one!(SessionQuery.by_id(turn.session_id))
     key = OperationKeys.checkpoint(turn)
-
-    saved =
-      Repo.exists?(
-        from(t in Ryker.CoopFleet.WorkspaceCheckpointTransfer,
-          join: c in Ryker.CoopFleet.Command,
-          on: c.id == t.command_id,
-          where:
-            c.session_id == ^session.id and c.idempotency_key == ^key and c.status == :succeeded and
-              fragment("(?::jsonb -> 'status') BETWEEN '200'::jsonb AND '299'::jsonb", c.result)
-        )
-      )
+    saved = Repo.exists?(WorkspaceCheckpointTransferQuery.saved_by(session.id, key))
 
     if is_map(session.workspace_task) and not saved,
       do: {:error, :work_completed_workspace_recovery_required},
@@ -389,7 +377,7 @@ defmodule Ryker.Work.Custody.Cancellation do
 
   def portable_workspace(%Turn{status: :blocked, session_id: session_id}, options)
       when is_binary(session_id) do
-    with %Session{} = session <- Repo.get(Session, session_id),
+    with %Session{} = session <- Repo.one(SessionQuery.by_id(session_id)),
          workspace_ref when is_binary(workspace_ref) <- Settings.worker_workspace_ref() do
       storage_root = Keyword.get_lazy(options, :storage_root, &Ryker.Bootstrap.storage_root!/0)
 
@@ -524,16 +512,16 @@ defmodule Ryker.Work.Custody.Cancellation do
       new_turn_ref == turn.turn_ref ->
         {:error, :work_transfer_target_conflict}
 
-      Repo.exists?(
-        from(existing in Turn,
-          where: existing.episode_id == ^episode.id and existing.turn_ref == ^new_turn_ref
-        )
-      ) ->
+      turn_exists?(episode.id, new_turn_ref) ->
         {:error, :work_transfer_target_conflict}
 
       true ->
         :ok
     end
+  end
+
+  defp turn_exists?(episode_id, turn_ref) do
+    episode_id |> TurnQuery.by_episode_id() |> TurnQuery.by_turn_ref(turn_ref) |> Repo.exists?()
   end
 
   defp operator_supersedes_pending_block?(
@@ -781,16 +769,13 @@ defmodule Ryker.Work.Custody.Cancellation do
   """
   @spec removed_worker(Ecto.UUID.t()) :: {:ok, String.t()} | :none
   def removed_worker(session_id) do
-    Repo.one(
-      from(placement in Placement,
-        join: worker in Worker,
-        on: worker.id == placement.worker_id,
-        where: placement.session_id == ^session_id,
-        order_by: [desc: placement.generation],
-        limit: 1,
-        select: {worker.id, worker.state, worker.revoked_at}
-      )
-    )
+    session_id
+    |> PlacementQuery.by_session_id()
+    |> PlacementQuery.with_worker()
+    |> PlacementQuery.latest_generation_first()
+    |> PlacementQuery.limit_to(1)
+    |> PlacementQuery.select_worker_standing()
+    |> Repo.one()
     |> case do
       {worker_id, :revoked, _revoked_at} -> {:ok, worker_id}
       {worker_id, _state, %DateTime{}} -> {:ok, worker_id}

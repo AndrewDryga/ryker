@@ -6,9 +6,9 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
   alias Ryker.GitHub.Onboarding
   alias Ryker.{IntegrationSetup, RepositoryKnowledge, Settings}
   alias Ryker.RepositoryKnowledge.{Dispatcher, Entry, Prompt, Run}
-  alias Ryker.Retention.Custody, as: RetentionCustody
+  alias Ryker.Retention.CleanupQuery
   alias Ryker.TestSupport.{FakeCoopAPI, FakeGitHubRepository}
-  alias Ryker.Work.Session
+  alias Ryker.Work.{Session, SessionQuery}
 
   @actor "control-plane:local"
   @fixtures "test/ryker/repository_knowledge/fixtures"
@@ -209,9 +209,9 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     assert session.repository_source == %{"kind" => "commit", "sha" => @head}
 
     assert Repo.exists?(
-             from([session: eligible] in RetentionCustody.eligible_query(DateTime.utc_now()),
-               where: eligible.id == ^session.id
-             )
+             DateTime.utc_now()
+             |> CleanupQuery.eligible()
+             |> SessionQuery.by_id(session.id)
            )
 
     assert Repo.exists?(

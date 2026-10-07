@@ -22,7 +22,7 @@ defmodule Ryker.Slack.ReplyRecords do
   alias Ryker.Settings
   alias Ryker.Slack.{IncidentRoom, Permalink, SavedEntity}
   alias Ryker.Waits.EventWaitTiming
-  alias Ryker.Work.{ActivityEvent, ActivityRetention}
+  alias Ryker.Work.ActivityEventQuery
 
   @saved_offer_kinds ~w(guidance_offer memory_offer preference_offer schedule_offer standing_assignment_offer)
 
@@ -293,19 +293,8 @@ defmodule Ryker.Slack.ReplyRecords do
   defp run_receipts(episode_id, references) do
     # Select only receipt identities, not stdout. Retired or foreign-episode evidence cannot
     # reappear as a clickable source during delivery or an interaction repaint.
-    from(a in ActivityEvent,
-      where: a.episode_id == ^episode_id and a.kind == "tool.completed",
-      where: fragment("?::jsonb #>> '{input,server}' = 'emisar'", a.payload),
-      where: fragment("?::jsonb #>> '{input,tool}' = 'run_action'", a.payload),
-      where: fragment("?::jsonb #>> '{status}' = 'completed'", a.payload),
-      select:
-        fragment(
-          "(SELECT coalesce(jsonb_agg(jsonb_build_object('run_id', r->>'run_id', 'run_url', r->>'run_url')), '[]'::jsonb) FROM jsonb_path_query(?::jsonb, '$.output.result.structuredContent.runs[*]') AS r WHERE r->>'run_id' = ANY(?))",
-          a.payload,
-          type(^references, {:array, :string})
-        )
-    )
-    |> ActivityRetention.visible()
+    episode_id
+    |> ActivityEventQuery.emisar_run_receipts(references)
     |> Repo.all()
     |> Enum.flat_map(fn runs -> if is_list(runs), do: runs, else: [] end)
   end
@@ -318,20 +307,8 @@ defmodule Ryker.Slack.ReplyRecords do
     # only when the call returned it. Our own state server is excluded because it
     # hands back the saved records themselves, so reading them would certify every
     # source_id the model had just written.
-    from(a in ActivityEvent,
-      where: a.episode_id == ^episode_id and a.kind == "tool.completed",
-      where: fragment("?::jsonb #>> '{status}' = 'completed'", a.payload),
-      where:
-        fragment("?::jsonb #>> '{input,server}' IS DISTINCT FROM 'responder-state'", a.payload) and
-          fragment("?::jsonb #>> '{input,server}' IS DISTINCT FROM 'controller-tools'", a.payload),
-      select:
-        fragment(
-          "(SELECT coalesce(jsonb_agg(DISTINCT returned), '[]'::jsonb) FROM jsonb_path_query(?::jsonb #> '{output}', '$.**') AS returned WHERE jsonb_typeof(returned) = 'string' AND (returned #>> '{}') = ANY(?))",
-          a.payload,
-          type(^urls, {:array, :string})
-        )
-    )
-    |> ActivityRetention.visible()
+    episode_id
+    |> ActivityEventQuery.returned_urls(urls)
     |> Repo.all()
     |> Enum.flat_map(fn returned ->
       if is_list(returned), do: Enum.map(returned, &%{"url" => &1}), else: []

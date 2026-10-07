@@ -8,40 +8,22 @@ defmodule Ryker.Observability.Retention do
   reported.
   """
 
-  import Ecto.Query
   alias Ryker.Observability.Reads
-  alias Ryker.Retention.Custody, as: RetentionCustody
-  alias Ryker.Work.Session
+  alias Ryker.Retention.CleanupQuery
+  alias Ryker.Work.SessionQuery
 
   @doc "Cleanup at the database clock reading `now`."
   @spec snapshot(DateTime.t()) :: {:ok, map()} | {:error, Reads.failure()}
   def snapshot(now) do
-    eligible = RetentionCustody.eligible_query(now)
+    eligible = CleanupQuery.eligible(now)
 
-    retrying =
-      from(session in Session,
-        where: session.cleanup_status in [:close_pending, :plan_pending, :discard_pending],
-        where: not is_nil(session.cleanup_next_attempt_at),
-        where: session.cleanup_next_attempt_at > ^now
-      )
-
-    retained =
-      from(session in Session,
-        where: session.cleanup_status == :retained,
-        group_by: session.retained_reason,
-        select: {session.retained_reason, count(session.id)}
-      )
-
-    with {:ok, last_reclaimed} <-
-           Reads.one(from(session in Session, select: max(session.discarded_at))),
-         {:ok, blocked} <-
-           Reads.count(from(session in Session, where: session.cleanup_status == :blocked)),
+    with {:ok, last_reclaimed} <- Reads.one(SessionQuery.select_last_discarded()),
+         {:ok, blocked} <- Reads.count(SessionQuery.with_cleanup_status(:blocked)),
          {:ok, eligible_count} <- Reads.count(eligible),
-         {:ok, oldest_eligible} <-
-           Reads.read(fn -> RetentionCustody.oldest_eligible_at(eligible) end),
-         {:ok, retained} <- Reads.all(retained),
-         {:ok, retrying} <- Reads.count(retrying),
-         {:ok, sessions} <- Reads.counts(Session, :cleanup_status) do
+         {:ok, oldest_eligible} <- Reads.one(CleanupQuery.select_oldest_eligible_at(eligible)),
+         {:ok, retained} <- Reads.all(SessionQuery.retained_by_reason()),
+         {:ok, retrying} <- Reads.count(SessionQuery.cleanup_retrying_after(now)),
+         {:ok, sessions} <- Reads.counts(SessionQuery.all(), :cleanup_status) do
       {:ok,
        %{
          blocked: blocked,

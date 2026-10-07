@@ -16,13 +16,19 @@ defmodule Ryker.Schedules.ScheduleQuery do
   unrenewed lease left.
   """
   def due_at(now) do
+    now
+    |> occurrence_due_at()
+    |> where([episode_schedules: s], is_nil(s.lease_ref) or s.lease_expires_at <= ^now)
+  end
+
+  @doc "Active schedules whose occurrence and retry are due at `now`, leased or not."
+  def occurrence_due_at(now) do
     all()
     |> where(
       [episode_schedules: s],
       s.status == :active and s.next_occurrence_at <= ^now
     )
     |> where([episode_schedules: s], is_nil(s.next_attempt_at) or s.next_attempt_at <= ^now)
-    |> where([episode_schedules: s], is_nil(s.lease_ref) or s.lease_expires_at <= ^now)
   end
 
   @doc """

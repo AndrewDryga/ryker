@@ -89,9 +89,11 @@ defmodule Ryker.Emisar.ApprovalQuery do
   end
 
   @doc "An account's watches a task is waiting for right now."
-  def waited_for(connection_ref) do
-    connection_ref
-    |> watches()
+  def waited_for(connection_ref), do: connection_ref |> watches() |> awaited()
+
+  @doc "Of watches `with_origin/1`, the ones a task is waiting for right now."
+  def awaited(queryable) do
+    queryable
     |> where(
       [episode_state_records: r],
       r.kind == "emisar_approval" and r.status == :open

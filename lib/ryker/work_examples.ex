@@ -5,7 +5,7 @@ defmodule Ryker.WorkExamples do
 
   While a person keeps "Keep work examples for training" on (Settings › Data
   retention), each Work turn is copied once it has settled and the Work it
-  belongs to has come to rest (`Ryker.Work.Custody.work_rest_query/0`): its
+  belongs to has come to rest (`Ryker.Work.OwningTurnQuery.work_rest/0`): its
   result was accepted and delivered, and nothing in its request is still
   running. Its outcome is known then, and its bodies are still there: they
   are pruned only after that Work's sessions are discarded.

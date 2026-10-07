@@ -38,6 +38,43 @@ defmodule Ryker.Work.TurnQuery do
   def recently_updated_first(queryable),
     do: order_by(queryable, [episode_work_turns: t], desc: t.updated_at, desc: t.id)
 
+  @doc "Episode `episode_id`'s owning turn while it waits, unleased, to start."
+  def waiting_owner(episode_id) do
+    from(t in all(),
+      join: e in Episode,
+      on: e.id == t.episode_id and t.turn_ref == e.owner_ref,
+      where: t.episode_id == ^episode_id and t.status == :pending and is_nil(t.lease_ref)
+    )
+  end
+
+  @doc """
+  When the turns in `statuses` fall due after `since`, as
+  `[next_attempt_at, lease_expires_at]`: the earliest retry, and the earliest
+  lease that runs out.
+  """
+  def next_due_after(since, statuses) do
+    from(t in all(),
+      where: t.status in ^statuses,
+      select: [
+        filter(min(t.next_attempt_at), t.next_attempt_at > ^since),
+        filter(min(t.lease_expires_at), not is_nil(t.lease_ref) and t.lease_expires_at > ^since)
+      ]
+    )
+  end
+
+  @doc """
+  The turns of `episode`'s session `session_id` that a transfer left behind:
+  pending or blocked under an owner the episode no longer has, oldest first.
+  """
+  def left_by_transfer(episode, session_id) do
+    from(t in all(),
+      where:
+        t.episode_id == ^episode.id and t.session_id == ^session_id and
+          t.turn_ref != ^episode.owner_ref and t.status in [:pending, :blocked],
+      order_by: [asc: t.inserted_at, asc: t.id]
+    )
+  end
+
   def by_turn_ref(queryable, turn_ref),
     do: where(queryable, [episode_work_turns: t], t.turn_ref == ^turn_ref)
 
@@ -50,7 +87,23 @@ defmodule Ryker.Work.TurnQuery do
     )
   end
 
+  @doc "Turns still to start, run, stop or deliver."
+  def unfinished(queryable) do
+    where(
+      queryable,
+      [episode_work_turns: t],
+      t.status in [:pending, :cancel_pending, :delivery_pending]
+    )
+  end
+
+  def with_result(queryable),
+    do: where(queryable, [episode_work_turns: t], not is_nil(t.result_ref))
+
   def select_ids(queryable), do: select(queryable, [episode_work_turns: t], t.id)
+
+  @doc "Each turn's Coop turn and when it was pruned, as `{coop_turn_id, operational_pruned_at}`."
+  def select_pruning(queryable),
+    do: select(queryable, [episode_work_turns: t], {t.coop_turn_id, t.operational_pruned_at})
 
   @doc "The Emisar account the session of turn `turn_id` of `episode_id` ran with."
   def session_emisar_authority(turn_id, episode_id) do
@@ -212,5 +265,15 @@ defmodule Ryker.Work.TurnQuery do
   end
 
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
+
+  @doc "Each turn with whether its lease is still current by the database clock."
+  def select_with_lease_current(queryable) do
+    select(
+      queryable,
+      [episode_work_turns: t],
+      {t, t.lease_expires_at > fragment("clock_timestamp()")}
+    )
+  end
+
   def lock_for_share(queryable), do: lock(queryable, "FOR SHARE")
 end
