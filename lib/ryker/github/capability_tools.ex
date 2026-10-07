@@ -4,22 +4,14 @@ defmodule Ryker.GitHub.CapabilityTools do
 
   The model receives only opaque host-issued source references. Credentials,
   repository bindings, discussion routing, and delivery retries remain host-owned.
+  What a tool's arguments may be is `Ryker.GitHub.CapabilityTools.Arguments`;
+  what a call may touch is `Ryker.GitHub.CapabilityTools.Authority`.
   """
 
   alias Ryker.Delivery.PlatformActionCustody
-  alias Ryker.Episodes.{Episode, Event}
-  alias Ryker.GitHub.{InertText, SourceRef}
-  alias Ryker.{Options, Repo, Rescued}
+  alias Ryker.GitHub.CapabilityTools.{Arguments, Authority}
+  alias Ryker.{Options, Rescued}
 
-  @emoji_names ~w(+1 -1 confused eyes heart hooray laugh rocket)
-  @fields ~w(emoji item_ref)
-  @context_fields ~w(cursor limit section)
-  @repository_context_fields ~w(cursor limit number review_root_id section)
-  @search_fields ~w(cursor kind limit query state)
-  @ci_fields ~w(attempt run_id)
-  @review_fields ~w(body comments event head_sha number)
-  @context_sections ~w(subject issue_comments reviews review_comments review_thread files)
-  @page_size 20
   # Every repository-bound tool may name another repository of the session's
   # environment to read; the session's own repository is the default.
   @repository_description "A repository of this session's environment, by its configured ref: work.repository_ref or a work.workspace.companions[].name. Companion repositories are read-only: review and CI write tools cannot target them. Omit it, or send null, for the session's own repository."
@@ -37,9 +29,9 @@ defmodule Ryker.GitHub.CapabilityTools do
           "properties" => %{
             "cursor" => nullable(%{"maxLength" => 32, "minLength" => 1, "type" => "string"}),
             "limit" => %{"maximum" => 20, "minimum" => 1, "type" => "integer"},
-            "section" => %{"enum" => @context_sections, "type" => "string"}
+            "section" => %{"enum" => Arguments.context_sections(), "type" => "string"}
           },
-          "required" => @context_fields,
+          "required" => Arguments.required(:context),
           "type" => "object"
         },
         "name" => "read_github_conversation"
@@ -57,7 +49,7 @@ defmodule Ryker.GitHub.CapabilityTools do
             "repository" => repository_property(),
             "state" => %{"enum" => ~w(open closed all), "type" => "string"}
           },
-          "required" => @search_fields,
+          "required" => Arguments.required(:search),
           "type" => "object"
         },
         "name" => "search_github"
@@ -73,9 +65,9 @@ defmodule Ryker.GitHub.CapabilityTools do
             "number" => %{"minimum" => 1, "type" => "integer"},
             "repository" => repository_property(),
             "review_root_id" => nullable(%{"minimum" => 1, "type" => "integer"}),
-            "section" => %{"enum" => @context_sections, "type" => "string"}
+            "section" => %{"enum" => Arguments.context_sections(), "type" => "string"}
           },
-          "required" => @repository_context_fields,
+          "required" => Arguments.required(:repository_context),
           "type" => "object"
         },
         "name" => "read_github_pull_request"
@@ -125,7 +117,7 @@ defmodule Ryker.GitHub.CapabilityTools do
             "number" => %{"minimum" => 1, "type" => "integer"},
             "repository" => repository_property()
           },
-          "required" => @review_fields,
+          "required" => Arguments.required(:review),
           "type" => "object"
         },
         "name" => "submit_github_review"
@@ -136,7 +128,7 @@ defmodule Ryker.GitHub.CapabilityTools do
         "inputSchema" => %{
           "additionalProperties" => false,
           "properties" => %{
-            "emoji" => %{"enum" => @emoji_names, "type" => "string"},
+            "emoji" => %{"enum" => Arguments.emoji_names(), "type" => "string"},
             "item_ref" => %{"maxLength" => 256, "minLength" => 1, "type" => "string"}
           },
           "required" => ["item_ref", "emoji"],
@@ -150,9 +142,9 @@ defmodule Ryker.GitHub.CapabilityTools do
   def call("read_github_conversation", arguments, binding, options) do
     options = options!(options)
 
-    with {:ok, arguments} <- context_document(arguments),
-         {:ok, target, configured} <- bound_target(binding, options),
-         :ok <- section_authorized(arguments.section, target),
+    with {:ok, arguments} <- Arguments.context_document(arguments),
+         {:ok, target, configured} <- Authority.bound_target(binding, options),
+         :ok <- Authority.section_authorized(arguments.section, target),
          true <- context_api?(configured.api, :read_context),
          {:ok, result} <-
            configured.api.read_context(
@@ -172,9 +164,10 @@ defmodule Ryker.GitHub.CapabilityTools do
   def call("search_github", arguments, binding, options) do
     options = options!(options)
 
-    with {:ok, arguments} <- search_document(arguments),
-         {:ok, target, configured} <- repository_target(binding, options, arguments.repository),
-         :ok <- grant(configured, "read"),
+    with {:ok, arguments} <- Arguments.search_document(arguments),
+         {:ok, target, configured} <-
+           Authority.repository_target(binding, options, arguments.repository),
+         :ok <- Authority.grant(configured, "read"),
          true <- context_api?(configured.api, :search),
          {:ok, result} <-
            configured.api.search(configured.client, search_request(configured, arguments)),
@@ -191,16 +184,17 @@ defmodule Ryker.GitHub.CapabilityTools do
   def call("read_github_pull_request", arguments, binding, options) do
     options = options!(options)
 
-    with {:ok, arguments} <- repository_context_document(arguments),
-         {:ok, current, configured} <- repository_target(binding, options, arguments.repository),
-         :ok <- grant(configured, "read"),
-         :ok <- number_authorized(binding, current, arguments.number),
+    with {:ok, arguments} <- Arguments.repository_context_document(arguments),
+         {:ok, current, configured} <-
+           Authority.repository_target(binding, options, arguments.repository),
+         :ok <- Authority.grant(configured, "read"),
+         :ok <- Authority.number_authorized(binding, current, arguments.number),
          target <- %{
            number: arguments.number,
            review_root_id: arguments.review_root_id,
            subject_kind: "pull"
          },
-         :ok <- section_authorized(arguments.section, target),
+         :ok <- Authority.section_authorized(arguments.section, target),
          true <- context_api?(configured.api, :read_context),
          {:ok, result} <-
            configured.api.read_context(
@@ -229,11 +223,11 @@ defmodule Ryker.GitHub.CapabilityTools do
   def call("submit_github_review", arguments, binding, options) do
     options = options!(options)
 
-    with {:ok, arguments} <- review_document(arguments),
+    with {:ok, arguments} <- Arguments.review_document(arguments),
          {:ok, current, configured} <-
-           mutation_repository_target(binding, options, arguments.repository),
-         :ok <- number_authorized(binding, current, arguments.number),
-         :ok <- review_grant(configured, arguments.event),
+           Authority.mutation_repository_target(binding, options, arguments.repository),
+         :ok <- Authority.number_authorized(binding, current, arguments.number),
+         :ok <- Authority.review_grant(configured, arguments.event),
          true <- context_api?(configured.api, :submit_review, 7),
          {:ok, result} <-
            configured.api.submit_review(
@@ -259,7 +253,7 @@ defmodule Ryker.GitHub.CapabilityTools do
   def call("set_github_reaction", arguments, binding, options) do
     options = options!(options)
 
-    with {:ok, source, emoji_name} <- document(arguments),
+    with {:ok, source, emoji_name} <- Arguments.reaction_document(arguments),
          true <- MapSet.member?(options.bindings, source.binding),
          {:ok, input} <- options.current_input.(binding, source),
          {:ok, %{action: frozen}} <-
@@ -288,7 +282,7 @@ defmodule Ryker.GitHub.CapabilityTools do
 
     {bindings, derived_clients} = prepare_bindings(options.bindings)
     clients = options |> Map.get(:clients, derived_clients) |> normalize_clients(bindings)
-    current_input = Map.get(options, :current_input, &current_github_input/2)
+    current_input = Map.get(options, :current_input, &Authority.current_input/2)
     enqueue_action = Map.get(options, :enqueue_action, &PlatformActionCustody.enqueue/2)
 
     unless valid_clients?(clients, bindings) and is_function(current_input, 2) and
@@ -302,121 +296,6 @@ defmodule Ryker.GitHub.CapabilityTools do
       enqueue_action: enqueue_action
     }
   end
-
-  defp document(%{} = arguments) do
-    with true <- Map.keys(arguments) |> Enum.sort() == @fields,
-         {:ok, source} <- SourceRef.parse(arguments["item_ref"]),
-         emoji_name when emoji_name in @emoji_names <- arguments["emoji"] do
-      {:ok, source, emoji_name}
-    else
-      {:error, :invalid_github_source_ref} -> {:error, :unauthorized}
-      _invalid -> {:error, :invalid_arguments}
-    end
-  end
-
-  defp document(_arguments), do: {:error, :invalid_arguments}
-
-  # A page size grants nothing: more than one page reads one full page, with the cursor for the
-  # rest. On emisar#87 (2026-09-30) the model asked for 50, was refused, and asked again for 20.
-  defp page_size(limit) when is_integer(limit) and limit >= 1, do: {:ok, min(limit, @page_size)}
-  defp page_size(_limit), do: {:error, :invalid_arguments}
-
-  defp context_document(%{} = arguments) do
-    with true <- Enum.sort(Map.keys(arguments)) == Enum.sort(@context_fields),
-         {:ok, page} <- cursor(arguments["cursor"]),
-         {:ok, limit} <- page_size(arguments["limit"]),
-         section when section in @context_sections <- arguments["section"] do
-      {:ok, %{limit: limit, page: page, section: section}}
-    else
-      _invalid -> {:error, :invalid_arguments}
-    end
-  end
-
-  defp context_document(_arguments), do: {:error, :invalid_arguments}
-
-  defp repository_context_document(%{} = arguments) do
-    with true <- exact_keys?(arguments, @repository_context_fields),
-         {:ok, repository} <- repository_argument(arguments["repository"]),
-         {:ok, page} <- cursor(arguments["cursor"]),
-         {:ok, limit} <- page_size(arguments["limit"]),
-         number when is_integer(number) and number > 0 <- arguments["number"],
-         root when is_nil(root) or (is_integer(root) and root > 0) <- arguments["review_root_id"],
-         section when section in @context_sections <- arguments["section"],
-         true <- section != "review_thread" or is_integer(root) do
-      {:ok,
-       %{
-         limit: limit,
-         number: number,
-         page: page,
-         repository: repository,
-         review_root_id: root,
-         section: section
-       }}
-    else
-      _invalid -> {:error, :invalid_arguments}
-    end
-  end
-
-  defp repository_context_document(_arguments), do: {:error, :invalid_arguments}
-
-  defp ci_document(%{} = arguments) do
-    with true <- exact_keys?(arguments, @ci_fields),
-         {:ok, repository} <- repository_argument(arguments["repository"]),
-         attempt when is_integer(attempt) and attempt > 0 <- arguments["attempt"],
-         run_id when is_integer(run_id) and run_id > 0 <- arguments["run_id"] do
-      {:ok, %{attempt: attempt, repository: repository, run_id: run_id}}
-    else
-      _invalid -> {:error, :invalid_arguments}
-    end
-  end
-
-  defp ci_document(_arguments), do: {:error, :invalid_arguments}
-
-  defp review_document(%{} = arguments) do
-    with true <- exact_keys?(arguments, @review_fields),
-         {:ok, repository} <- repository_argument(arguments["repository"]),
-         body when is_binary(body) and byte_size(body) in 1..12_000 <- arguments["body"],
-         comments when is_list(comments) and length(comments) <= 20 <- arguments["comments"],
-         true <- Enum.all?(comments, &review_comment?/1),
-         event when event in ~w(comment request_changes approve) <- arguments["event"],
-         sha when is_binary(sha) and byte_size(sha) == 40 <- arguments["head_sha"],
-         true <- Regex.match?(~r/\A[a-f0-9]{40}\z/, sha),
-         number when is_integer(number) and number > 0 <- arguments["number"] do
-      # The review is the model's own words, so it mentions nobody and links
-      # no issue (`InertText`); it went to GitHub as written.
-      {:ok,
-       %{
-         body: InertText.inert(body),
-         comments:
-           Enum.map(comments, &Map.update!(&1, "body", fn text -> InertText.inert(text) end)),
-         event: event,
-         head_sha: sha,
-         number: number,
-         repository: repository
-       }}
-    else
-      _invalid -> {:error, :invalid_arguments}
-    end
-  end
-
-  defp review_document(_arguments), do: {:error, :invalid_arguments}
-
-  # Every repository-bound tool takes an optional repository of the session's
-  # environment; the exact key set is otherwise unchanged.
-  defp exact_keys?(arguments, fields) do
-    keys = Enum.sort(Map.keys(arguments))
-    keys == Enum.sort(fields) or keys == Enum.sort(["repository" | fields])
-  end
-
-  defp repository_argument(nil), do: {:ok, nil}
-
-  defp repository_argument(value) when is_binary(value) and byte_size(value) in 1..256 do
-    if String.valid?(value) and String.trim(value) != "",
-      do: {:ok, value},
-      else: {:error, :invalid_arguments}
-  end
-
-  defp repository_argument(_value), do: {:error, :invalid_arguments}
 
   defp subject_context(result, _target, _configured, %{section: section})
        when section in ["subject", "files"], do: {:ok, result}
@@ -486,207 +365,6 @@ defmodule Ryker.GitHub.CapabilityTools do
 
   defp current_subject?(_item, nil), do: false
 
-  defp search_document(%{} = arguments) do
-    with true <- exact_keys?(arguments, @search_fields),
-         {:ok, repository} <- repository_argument(arguments["repository"]),
-         {:ok, page} <- cursor(arguments["cursor"]),
-         kind when kind in ~w(issues pull_requests all) <- arguments["kind"],
-         {:ok, limit} <- page_size(arguments["limit"]),
-         query when is_binary(query) and byte_size(query) in 1..1_000 <- arguments["query"],
-         true <- String.valid?(query) and String.trim(query) != "",
-         state when state in ~w(open closed all) <- arguments["state"] do
-      {:ok,
-       %{
-         kind: kind,
-         limit: limit,
-         page: page,
-         query: query,
-         repository: repository,
-         state: state
-       }}
-    else
-      _invalid -> {:error, :invalid_arguments}
-    end
-  end
-
-  defp search_document(_arguments), do: {:error, :invalid_arguments}
-
-  defp cursor(nil), do: {:ok, 1}
-
-  defp cursor("page:" <> value) do
-    case Integer.parse(value) do
-      {page, ""} when page in 2..10 -> {:ok, page}
-      _invalid -> {:error, :invalid_arguments}
-    end
-  end
-
-  defp cursor(_value), do: {:error, :invalid_arguments}
-
-  defp bound_target(%{episode: %Episode{} = episode}, options) do
-    with {:ok, binding, repository_id} <- conversation(episode.destination_conversation_ref),
-         true <- episode.destination_transport == "github",
-         true <- MapSet.member?(options.bindings, binding),
-         {:ok, configured} <- Map.fetch(options.clients, binding),
-         true <- configured.repository_id == repository_id,
-         {:ok, thread} <- thread(episode.destination_thread_ref, binding) do
-      {:ok, thread, configured}
-    else
-      :error -> {:error, :not_configured}
-      false -> {:error, :unauthorized}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp bound_target(_binding, _options), do: {:error, :unauthorized}
-
-  defp repository_target(
-         %{episode: %Episode{destination_transport: "github"}} = binding,
-         options
-       ),
-       do: bound_target(binding, options)
-
-  defp repository_target(
-         %{
-           episode: %Episode{destination_transport: transport},
-           session: %{repository_ref: repository_ref}
-         },
-         options
-       )
-       when transport in ["slack", "control_plane"] and is_binary(repository_ref) do
-    case Enum.find(options.clients, fn {_name, configured} ->
-           configured.repository_ref == repository_ref
-         end) do
-      {_name, configured} -> {:ok, nil, configured}
-      nil -> {:error, :not_configured}
-    end
-  end
-
-  defp repository_target(_binding, _options), do: {:error, :unauthorized}
-
-  # A session reads the repository it changes unless it names another
-  # repository of its environment, one mounted read-only beside its own. A
-  # repository outside the environment is not readable from it, however well
-  # Ryker knows it.
-  defp repository_target(binding, options, nil), do: repository_target(binding, options)
-
-  defp repository_target(binding, options, requested) do
-    cond do
-      requested == session_repository(binding) -> repository_target(binding, options)
-      requested in companion_repositories(binding) -> companion_target(requested, options)
-      true -> {:error, :unauthorized}
-    end
-  end
-
-  defp session_repository(%{session: %{repository_ref: repository_ref}}), do: repository_ref
-  defp session_repository(_binding), do: nil
-
-  defp companion_repositories(%{
-         session: %{repository_context: %{"read_only_repositories" => repositories}}
-       })
-       when is_list(repositories),
-       do: repositories
-
-  defp companion_repositories(_binding), do: []
-
-  # A companion repository has no current subject; its pull requests are read
-  # by number.
-  defp companion_target(repository_ref, options) do
-    case Enum.find(options.clients, fn {_name, configured} ->
-           configured.repository_ref == repository_ref
-         end) do
-      {_name, configured} -> {:ok, nil, configured}
-      nil -> {:error, :not_configured}
-    end
-  end
-
-  defp mutation_repository_target(binding, options, requested) do
-    case repository_target(binding, options, requested) do
-      {:ok, _thread, %{repository_ref: repository_ref}} = target ->
-        if repository_ref in companion_repositories(binding),
-          do: {:error, :unauthorized},
-          else: target
-
-      other ->
-        other
-    end
-  end
-
-  defp number_authorized(
-         %{episode: %Episode{destination_transport: "github"}},
-         %{number: number},
-         number
-       ),
-       do: :ok
-
-  defp number_authorized(%{episode: %Episode{destination_transport: "github"}}, nil, _number),
-    do: :ok
-
-  defp number_authorized(
-         %{episode: %Episode{destination_transport: "github"}},
-         _current,
-         _number
-       ),
-       do: {:error, :unauthorized}
-
-  defp number_authorized(_binding, _current, _number), do: :ok
-
-  defp conversation(value) when is_binary(value) do
-    case String.split(value, ":") do
-      ["github", binding, "repository", id] ->
-        case Integer.parse(id) do
-          {repository_id, ""} when repository_id > 0 -> {:ok, binding, repository_id}
-          _invalid -> {:error, :unauthorized}
-        end
-
-      _invalid ->
-        {:error, :unauthorized}
-    end
-  end
-
-  defp conversation(_value), do: {:error, :unauthorized}
-
-  defp thread(value, binding) when is_binary(value) do
-    case String.split(value, ":") do
-      ["github", ^binding, kind, number] when kind in ["issue", "pull"] ->
-        thread_number(kind, number, nil)
-
-      ["github", ^binding, "pull", number, "review-thread", root] ->
-        with {:ok, target} <- thread_number("pull", number, root),
-             {root_id, ""} when root_id > 0 <- Integer.parse(root) do
-          {:ok, %{target | review_root_id: root_id}}
-        else
-          _invalid -> {:error, :unauthorized}
-        end
-
-      _invalid ->
-        {:error, :unauthorized}
-    end
-  end
-
-  defp thread(_value, _binding), do: {:error, :unauthorized}
-
-  defp thread_number(kind, value, _root) do
-    case Integer.parse(value) do
-      {number, ""} when number > 0 ->
-        {:ok, %{number: number, review_root_id: nil, subject_kind: kind}}
-
-      _invalid ->
-        {:error, :unauthorized}
-    end
-  end
-
-  defp section_authorized(section, %{subject_kind: "issue"})
-       when section in ~w(subject issue_comments),
-       do: :ok
-
-  defp section_authorized("review_thread", %{review_root_id: root}) when is_integer(root), do: :ok
-
-  defp section_authorized(section, %{subject_kind: "pull"})
-       when section in @context_sections and section != "review_thread",
-       do: :ok
-
-  defp section_authorized(_section, _target), do: {:error, :invalid_arguments}
-
   defp context_request(target, configured, arguments) do
     Map.merge(target, %{
       limit: arguments.limit,
@@ -709,10 +387,10 @@ defmodule Ryker.GitHub.CapabilityTools do
   defp call_ci(action, arguments, binding, options) do
     options = options!(options)
 
-    with {:ok, arguments} <- ci_document(arguments),
+    with {:ok, arguments} <- Arguments.ci_document(arguments),
          {:ok, _current, configured} <-
            ci_repository_target(action, binding, options, arguments.repository),
-         :ok <- ci_grant(configured, action),
+         :ok <- Authority.ci_grant(configured, action),
          {:ok, result} <- invoke_ci(configured, action, arguments) do
       {:ok, result}
     else
@@ -723,10 +401,10 @@ defmodule Ryker.GitHub.CapabilityTools do
   end
 
   defp ci_repository_target(:read, binding, options, requested),
-    do: repository_target(binding, options, requested)
+    do: Authority.repository_target(binding, options, requested)
 
   defp ci_repository_target(_mutation, binding, options, requested),
-    do: mutation_repository_target(binding, options, requested)
+    do: Authority.mutation_repository_target(binding, options, requested)
 
   defp raised(tool, error, stacktrace),
     do: Rescued.tool("GitHub tool #{tool}", error, stacktrace)
@@ -770,33 +448,9 @@ defmodule Ryker.GitHub.CapabilityTools do
     end
   end
 
-  defp ci_grant(configured, :read), do: grant(configured, "read")
-  defp ci_grant(configured, :rerun), do: grant(configured, "rerun_ci")
-  defp ci_grant(configured, :cancel), do: grant(configured, "cancel_ci")
-
-  defp review_grant(configured, "approve") do
-    with :ok <- grant(configured, "review"), do: grant(configured, "approve")
-  end
-
-  defp review_grant(configured, _event), do: grant(configured, "review")
-
   defp review_event("comment"), do: "COMMENT"
   defp review_event("request_changes"), do: "REQUEST_CHANGES"
   defp review_event("approve"), do: "APPROVE"
-
-  defp grant(%{grants: grants}, grant) do
-    if MapSet.member?(grants, grant), do: :ok, else: {:error, :unauthorized}
-  end
-
-  defp review_comment?(
-         %{"body" => body, "line" => line, "path" => path, "side" => side} = comment
-       ) do
-    Enum.sort(Map.keys(comment)) == ~w(body line path side) and is_binary(body) and
-      byte_size(body) in 1..12_000 and is_integer(line) and line > 0 and is_binary(path) and
-      byte_size(path) in 1..1_024 and side in ["LEFT", "RIGHT"]
-  end
-
-  defp review_comment?(_comment), do: false
 
   defp action_attributes(input, source, emoji_name) do
     %{
@@ -809,49 +463,6 @@ defmodule Ryker.GitHub.CapabilityTools do
       tool: :set_github_reaction,
       transport: "github"
     }
-  end
-
-  defp current_github_input(%{episode: %Episode{} = episode}, source) do
-    source_item_ref = "github:#{source.item_kind}:#{source.item_id}"
-
-    episode
-    |> active_input_events()
-    |> Enum.find_value({:error, :unauthorized}, fn event ->
-      case event.payload do
-        %{
-          "payload" =>
-            %{
-              "actor" => %{"kind" => actor_kind},
-              "destination" => %{"transport" => "github"},
-              "source" => %{"kind" => "github", "ref" => binding},
-              "source_capabilities" => %{"react" => %{"emoji_names" => emoji_names}},
-              "source_item_ref" => ^source_item_ref
-            } = input
-        }
-        when actor_kind in ["user", "bot"] and binding == source.binding and
-               is_list(emoji_names) ->
-          {:ok, input}
-
-        _other ->
-          nil
-      end
-    end)
-  end
-
-  defp current_github_input(_binding, _source), do: {:error, :unauthorized}
-
-  defp active_input_events(%Episode{id: episode_id, active_input_refs: refs}) do
-    refs = Enum.uniq(refs)
-
-    if refs == [] do
-      []
-    else
-      episode_id
-      |> Event.Query.by_episode_id()
-      |> Event.Query.admitted_inputs(refs)
-      |> Event.Query.ordered_by_sequence_desc()
-      |> Repo.all()
-    end
   end
 
   defp prepare_bindings(%MapSet{} = bindings) do
@@ -951,7 +562,7 @@ defmodule Ryker.GitHub.CapabilityTools do
         "repository" => repository_property(),
         "run_id" => %{"minimum" => 1, "type" => "integer"}
       },
-      "required" => @ci_fields,
+      "required" => Arguments.required(:ci),
       "type" => "object"
     }
   end
