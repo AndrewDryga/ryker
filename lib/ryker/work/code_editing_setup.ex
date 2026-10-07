@@ -1,6 +1,5 @@
 defmodule Ryker.Work.CodeEditingSetup do
   @moduledoc "Read-only setup facts; connection support is not proof of worker readiness."
-
   alias Ryker.Config
 
   def checkpoint_supported? do

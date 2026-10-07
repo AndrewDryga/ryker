@@ -1,6 +1,6 @@
 defmodule Ryker.Work.ActivityEvent.Query do
   @moduledoc "What a Work worker reported doing, for every read of `episode_work_activity`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Work.{ActivityEvent, Session, Turn}
 

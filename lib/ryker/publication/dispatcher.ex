@@ -8,7 +8,6 @@ defmodule Ryker.Publication.Dispatcher do
   The one answer no retry can change, a review session that closed for good,
   ends the publication with that reason instead.
   """
-
   alias Ryker.ErrorDetail
   alias Ryker.Publication.{Custody, Executor}
   alias Ryker.Reference

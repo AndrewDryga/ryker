@@ -19,7 +19,6 @@ defmodule Ryker.ControlPlane.WorkerEvidence do
     * a snapshot is not a history -- the task card is as of its capture, and a
       later capture never rewrites an earlier one
   """
-
   alias Ryker.ControlPlane.Evidence
   alias Ryker.CoopFleet.{SessionEvidence, SessionEvidences}
 

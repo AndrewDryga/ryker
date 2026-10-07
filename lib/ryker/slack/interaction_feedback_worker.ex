@@ -6,14 +6,13 @@ defmodule Ryker.Slack.InteractionFeedbackWorker do
   once. Otherwise it sleeps until a retry or an unrenewed lease falls due, or
   for its safety-net interval.
   """
-
   use Ryker.PollingWorker, lane: :slack_interactions, interval: :interval_ms
-  require Logger
   alias Ryker.Delivery.Retry
   alias Ryker.Observability.Progress
   alias Ryker.Options
   alias Ryker.PollingWorker
   alias Ryker.Slack.{InteractionAudits, InteractionRepaint}
+  require Logger
 
   @default_interval_ms 1_000
 

@@ -17,7 +17,6 @@ defmodule Ryker.Memories.Forgetting do
   learned by background learning from the same message, and a learned topic
   had no way to be forgotten at all.
   """
-
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge

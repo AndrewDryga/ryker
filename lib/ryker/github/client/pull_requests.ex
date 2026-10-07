@@ -8,7 +8,6 @@ defmodule Ryker.GitHub.Client.PullRequests do
   exact refs and head SHA, a github.com pull URL, and a merge SHA and time
   exactly when it merged.
   """
-
   alias Ryker.GitHub.Client.{Checks, Fields, Transport}
   alias Ryker.GitObject
 

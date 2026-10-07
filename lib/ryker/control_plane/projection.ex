@@ -8,7 +8,6 @@ defmodule Ryker.ControlPlane.Projection do
   a request's model calls, and as the routing examples someone chose to keep
   for training, downloaded from Data retention.
   """
-
   alias Ryker.ControlPlane.{Activity, BehaviorLibrary, CasesProjection, ChannelDetail}
   alias Ryker.ControlPlane.ChannelDirectory
   alias Ryker.ControlPlane.{ConversationMemory, ConversationProjection, EpisodeProjection}

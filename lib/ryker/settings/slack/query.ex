@@ -1,6 +1,6 @@
 defmodule Ryker.Settings.Slack.Query do
   @moduledoc "The installation's Slack connection, for every read of `slack_settings`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Settings.Slack
 
   def all, do: from(settings in Slack, as: :slack_settings)

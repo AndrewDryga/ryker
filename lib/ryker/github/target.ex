@@ -1,6 +1,5 @@
 defmodule Ryker.GitHub.Target do
   @moduledoc false
-
   alias Ryker.Delivery.Request
 
   @spec parse(Request.t()) :: {:ok, map()} | {:error, term()}

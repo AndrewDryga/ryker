@@ -1,6 +1,5 @@
 defmodule Ryker.Knowledge.KnowledgeTest do
   use Ryker.DataCase, async: false
-  @moduletag isolation: "REPEATABLE READ"
   import Ecto.Query
   alias Ryker.{Admission, Config, Repo}
   alias Ryker.Admission.{Context, Decision, Prompt}
@@ -24,6 +23,8 @@ defmodule Ryker.Knowledge.KnowledgeTest do
   alias Ryker.Memories.MemorySearchPage
   alias Ryker.Retention.Data
   alias Ryker.Slack.{ChannelMembership, Input}
+
+  @moduletag isolation: "REPEATABLE READ"
 
   # The replay made 931 notes from 1,034 messages. These two actual observations
   # (bec3eb2b... and 62a54f69...) described one alert as two unrelated memories.

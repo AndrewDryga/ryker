@@ -11,9 +11,7 @@ defmodule Ryker.RoutingExamples.Feedback do
   it and the words of a note are left out: a training label needs neither,
   and a note can quote a message the example's forgetting cannot trace.
   """
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
+  use Ryker, :schema
 
   schema "routing_example_feedback" do
     field(:example_id, :binary_id)

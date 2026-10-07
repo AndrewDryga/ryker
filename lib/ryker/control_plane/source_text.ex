@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.SourceText do
   @moduledoc "Plain source-message content shared by the timeline and request inspector."
-
   alias Ryker.GitHub.Input, as: GitHubInput
 
   # An answer given with a question card's button carries the chosen option, not text

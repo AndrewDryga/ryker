@@ -20,11 +20,9 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
   (`FormDraft`), still saved against the revision it began from. The
   LiveView returns to the list once a save lands.
   """
-
   use Phoenix.LiveComponent
   alias Ryker.ControlPlane.{Components, Environments, FormDraft, SettingsView}
   alias Ryker.Settings
-  alias Ryker.Settings.Environment
 
   @impl true
   def update(assigns, socket) do
@@ -68,7 +66,7 @@ defmodule Ryker.ControlPlane.EnvironmentEditor do
         nil
 
       environment ->
-        refs = Environment.repository_refs(environment)
+        refs = Settings.environment_repositories(environment)
 
         %{
           access: Map.new(environment.repositories, &{&1.repository_ref, &1.access}),

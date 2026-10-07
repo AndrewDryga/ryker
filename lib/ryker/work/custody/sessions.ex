@@ -7,7 +7,6 @@ defmodule Ryker.Work.Custody.Sessions do
   when that remote session is exhausted, lost, or cleaned up, the next
   generation copies the pinned authority verbatim rather than resolving it again.
   """
-
   import Ryker.Work.Custody.Locks
   alias Ryker.CoopFleet.JobAuthority
   alias Ryker.CoopFleet.JobSpec
@@ -233,7 +232,7 @@ defmodule Ryker.Work.Custody.Sessions do
   defp pin_session_locked(episode, authority) do
     case latest_session(episode.id) do
       nil ->
-        session_id = Ecto.UUID.generate()
+        session_id = Repo.generate_id()
         emisar = emisar_pin(authority.environment_ref)
 
         session_id
@@ -379,7 +378,7 @@ defmodule Ryker.Work.Custody.Sessions do
 
   @doc false
   def insert_turn(episode, session) do
-    Ecto.UUID.generate()
+    Repo.generate_id()
     |> Turn.Changeset.insert(episode.id, session.id, episode.owner_ref)
     |> Repo.insert()
     |> persistence_result(:work_turn)
@@ -457,7 +456,7 @@ defmodule Ryker.Work.Custody.Sessions do
 
   @doc false
   def insert_session(episode_id, generation, authority) do
-    session_id = Ecto.UUID.generate()
+    session_id = Repo.generate_id()
     external_ref = session_external_ref(episode_id, generation)
 
     # A replacement gets a new request identity, not newly resolved authority,

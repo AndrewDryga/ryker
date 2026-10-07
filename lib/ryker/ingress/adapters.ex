@@ -5,7 +5,6 @@ defmodule Ryker.Ingress.Adapters do
   Source identifiers stay bounded strings. No event-controlled value is ever
   converted to an atom or used to resolve a module dynamically.
   """
-
   alias Ryker.Ingress.Input
 
   @default %{

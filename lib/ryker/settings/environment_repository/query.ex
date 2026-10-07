@@ -1,6 +1,6 @@
 defmodule Ryker.Settings.EnvironmentRepository.Query do
   @moduledoc "The repositories of each environment, for every read of `environment_repository_settings`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Settings.EnvironmentRepository
 
   def all, do: from(rows in EnvironmentRepository, as: :environment_repository_settings)

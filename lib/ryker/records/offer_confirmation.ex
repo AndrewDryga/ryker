@@ -7,7 +7,6 @@ defmodule Ryker.Records.OfferConfirmation do
   own copy of these checks (2026-10-04 review); each still names a refusal in
   its own words, `{tag, field}`.
   """
-
   alias Ryker.Reference
   alias Ryker.UTCDateTime
 

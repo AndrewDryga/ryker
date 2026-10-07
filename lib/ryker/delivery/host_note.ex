@@ -8,7 +8,6 @@ defmodule Ryker.Delivery.HostNote do
   the occasion: a retry finds the note it already posted instead of posting a
   second one.
   """
-
   alias Ryker.Config
   alias Ryker.Delivery.{Adapters, Request}
 

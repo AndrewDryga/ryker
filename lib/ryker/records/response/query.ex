@@ -1,6 +1,6 @@
 defmodule Ryker.Records.Response.Query do
   @moduledoc "Answers to questions Ryker asked, for every read of `episode_state_record_responses`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Records.Response
 
   def all, do: from(responses in Response, as: :episode_state_record_responses)

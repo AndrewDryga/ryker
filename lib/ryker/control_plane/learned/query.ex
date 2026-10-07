@@ -5,13 +5,13 @@ defmodule Ryker.ControlPlane.Learned.Query do
   sources each topic keeps, a topic's update history with the message each
   update came from, and when a summary's sources were said.
   """
-  import Ecto.Query
-  require Ryker.ControlPlane.Search
+  use Ryker, :query
   alias Ryker.Continuity.ConversationSummary
   alias Ryker.ControlPlane.Search
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Knowledge.{ConversationKnowledge, KnowledgeRevision, KnowledgeSource}
   alias Ryker.Learning.ConversationObservation
+  require Ryker.ControlPlane.Search
 
   @doc "Every row the page lists as `kind`, knowledge or context."
   def items("knowledge"), do: from(item in ConversationKnowledge)

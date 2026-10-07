@@ -25,7 +25,10 @@ defmodule Ryker.Checks.IL01NoInlineEctoDsl do
   def run(%SourceFile{} = source_file, params) do
     filename = "/" <> source_file.filename
 
-    if String.contains?(filename, "/lib/") and not String.ends_with?(filename, "/query.ex") do
+    # `lib/ryker.ex` defines `use Ryker, :query`, the one import every Query
+    # module takes.
+    if String.contains?(filename, "/lib/") and not String.ends_with?(filename, "/query.ex") and
+         not String.ends_with?(filename, "/lib/ryker.ex") do
       ctx = Context.build(source_file, params, __MODULE__)
       result = Credo.Code.prewalk(source_file, &walk/2, ctx)
       result.issues

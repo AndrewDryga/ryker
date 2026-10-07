@@ -7,11 +7,9 @@ defmodule Ryker.GitHub.Publisher do
   bound issue, pull request, or review thread before creating content.
   Reactions use GitHub's idempotent create semantics directly.
   """
-
   @behaviour Ryker.Delivery.Platform
   @behaviour Ryker.Delivery.MessagePublisher
   @behaviour Ryker.Delivery.ReactionPublisher
-
   alias Ryker.Crypto
   alias Ryker.Delivery.Request
   alias Ryker.GitHub.{InertText, Renderer, Target}

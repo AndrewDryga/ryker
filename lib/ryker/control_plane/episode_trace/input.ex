@@ -4,7 +4,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   caused them, how evidence was gathered across conversations, and the link to
   the source message.
   """
-
   import Ryker.ControlPlane.EpisodeTrace.Step
   alias Ryker.ControlPlane.ConsolePeople
   alias Ryker.Episodes.{Episode, Origins}

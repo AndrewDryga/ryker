@@ -8,8 +8,6 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
   commands a placement ended before they ever left Ryker. A command's caller
   hears once it settles (`subscribe_settled/1`).
   """
-
-  require Logger
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.{Bodies, Command}
@@ -18,6 +16,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
   alias Ryker.Repo
   alias Ryker.StateTools.Binding
   alias Ryker.Work.{Session, StateBinding, Turn}
+  require Logger
 
   @purposes ~w(
     api_request
@@ -166,7 +165,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
     }
 
     command = %Command{
-      id: Ecto.UUID.generate(),
+      id: Repo.generate_id(),
       session_id: session.id,
       kind: kind,
       payload: intent,
@@ -250,7 +249,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
 
         %{
           command_version: Protocol.version(),
-          id: Ecto.UUID.generate(),
+          id: Repo.generate_id(),
           idempotency_key: idempotency_key,
           kind: kind,
           payload: payload,

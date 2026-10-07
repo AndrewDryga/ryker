@@ -11,13 +11,11 @@ defmodule Ryker.Coop.Client do
   authority and an explicitly selected model target; a world scenario's job may
   also read its own staged checkout (`Ryker.Evals.WorldSource`), read-only.
   """
-
   @behaviour Ryker.Coop.API
-
-  alias Ryker.CanonicalJSON
-  alias Ryker.Crypto
   import Ecto.Query
+  alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.JobAuthority
+  alias Ryker.Crypto
   alias Ryker.Evals.Job
   alias Ryker.Repo
   alias Ryker.Work.{OperationKeys, RepositorySource, Session, ValidationIntent}

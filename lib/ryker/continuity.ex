@@ -22,7 +22,6 @@ defmodule Ryker.Continuity do
   A summary published, recalled, compacted or removed is announced after the
   outermost commit (`subscribe_continuity/0`).
   """
-
   alias Ryker.Continuity.Compaction
   alias Ryker.Continuity.Handover
   alias Ryker.Continuity.Recall

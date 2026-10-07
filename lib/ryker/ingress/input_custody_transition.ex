@@ -1,10 +1,6 @@
 defmodule Ryker.Ingress.InputCustodyTransition do
   @moduledoc false
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "input_custody_transitions" do
     belongs_to(:input, Ryker.Ingress.Inbox.Entry)
@@ -34,7 +30,7 @@ defmodule Ryker.Ingress.InputCustodyTransition do
     field(:eligible_at, :utc_datetime_usec)
     field(:error_code, :string)
     field(:detail, :string)
-    timestamps(type: :utc_datetime_usec, updated_at: false)
+    timestamps(updated_at: false)
   end
 
   @type t :: %__MODULE__{}

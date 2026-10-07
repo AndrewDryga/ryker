@@ -1,16 +1,15 @@
 defmodule Ryker.Webhooks.RouterTest do
   use Ryker.DataCase, async: true
-
-  # A suite-owned workspace keeps conversation locks out of other async fixtures.
-
-  @moduletag isolation: "REPEATABLE READ"
-
   import Plug.Conn
   import Plug.Test
   alias Ryker.Admission
   alias Ryker.Admission.Decision
   alias Ryker.Ingress.Inbox
   alias Ryker.Webhooks.{Route, Router}
+
+  # A suite-owned workspace keeps conversation locks out of other async fixtures.
+
+  @moduletag isolation: "REPEATABLE READ"
 
   @now ~U[2026-08-27 12:00:00.000000Z]
   @secret "a-secret-token-long-enough"

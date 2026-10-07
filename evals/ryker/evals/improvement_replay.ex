@@ -12,7 +12,6 @@ defmodule Ryker.Evals.ImprovementReplay do
   change to the instructions moves. Whether a move is better is for a person to read, with the
   request's own page open.
   """
-
   alias Ryker.Evals.{CoopRunner, ImprovementReplayCase, JsonLines}
 
   @doc "The cases in an export file, oldest first, and the lines that could not be read with why."

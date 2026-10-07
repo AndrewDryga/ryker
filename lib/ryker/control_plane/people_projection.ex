@@ -4,7 +4,6 @@ defmodule Ryker.ControlPlane.PeopleProjection do
   something about from what they said about themselves (`Ryker.People`),
   and, for one person, what it learned and where they said it.
   """
-
   alias Ryker.ControlPlane.{ConsolePeople, Paths}
   alias Ryker.People
   alias Ryker.Slack.Names

@@ -1,10 +1,5 @@
 defmodule Ryker.Admission.CommitTest do
   use Ryker.DataCase, async: true
-
-  # A suite-owned workspace keeps conversation locks out of other async fixtures.
-
-  @moduletag isolation: "REPEATABLE READ"
-
   import Ecto.Query
   alias Ryker.Admission
   alias Ryker.Admission.Decision
@@ -18,6 +13,10 @@ defmodule Ryker.Admission.CommitTest do
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Waits.EventSubscriptions
   alias Ryker.Work.{Cancellation, Custody, OperationKeys, Session, Submission}
+
+  # A suite-owned workspace keeps conversation locks out of other async fixtures.
+
+  @moduletag isolation: "REPEATABLE READ"
 
   @now ~U[2026-08-27 12:00:00.000000Z]
 

@@ -7,7 +7,6 @@ defmodule Ryker.Slack.Renderer.Records do
   Interactive controls come only from validated records, so model output can
   never invent an action id, a button value or a confirmation flow.
   """
-
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
   alias Ryker.Delivery.OfferWords

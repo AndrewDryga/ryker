@@ -1,6 +1,5 @@
 defmodule Ryker.CoopFleet.JobTemplates do
   @moduledoc "Controller-owned execution settings, independent of worker advertisements."
-
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.JobCheck
   alias Ryker.Settings.{Environment, Work}

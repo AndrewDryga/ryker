@@ -10,7 +10,6 @@ defmodule Ryker.Feedback.Answers do
   extra post the Work model sent belongs to its episode. Only a delivered
   message, found by the receipt its platform returned, is one Ryker sent.
   """
-
   alias Ryker.Delivery.{PlatformAction, RoutingResponse}
   alias Ryker.Repo
 

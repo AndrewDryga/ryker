@@ -1,6 +1,5 @@
 defmodule Ryker.StateTools.EvidenceTools do
   @moduledoc false
-
   alias Ryker.StateTools.RecordWriter
 
   @spec cite_source(map(), map()) :: {:ok, map()} | {:error, term()}

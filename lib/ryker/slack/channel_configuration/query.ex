@@ -1,6 +1,6 @@
 defmodule Ryker.Slack.ChannelConfiguration.Query do
   @moduledoc "How each Slack channel is set up for Ryker, for every read of `slack_channel_configurations`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Slack.ChannelConfiguration
 
   def all, do: from(configurations in ChannelConfiguration, as: :slack_channel_configurations)

@@ -6,7 +6,6 @@ defmodule Ryker.Operator.Publication do
   one PostgreSQL transaction. Reusing an action ref returns the stored receipt;
   reusing it for a different request fails closed.
   """
-
   alias Ryker.Operator.Actions
   alias Ryker.Publication.{Custody, Publication}
   alias Ryker.Reference

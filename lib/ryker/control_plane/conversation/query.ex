@@ -11,9 +11,7 @@ defmodule Ryker.ControlPlane.Conversation.Query do
   publications and quick replies, `{:inputs, native_input_ids,
   source_item_refs}`, `{:replies, turn_ids, delivery_refs}`, or `:none`.
   """
-  import Ecto.Query
-  require Ryker.ControlPlane.CurrentInput.Query
-  require Ryker.ControlPlane.PublicationPosition.Query
+  use Ryker, :query
   alias Ryker.Admission.Attempt
   alias Ryker.Artifacts.OutputArtifact
   alias Ryker.ControlPlane.{CurrentInput, PublicationPosition}
@@ -24,6 +22,8 @@ defmodule Ryker.ControlPlane.Conversation.Query do
   alias Ryker.Publication.Publication
   alias Ryker.Records.Record
   alias Ryker.Work.Turn
+  require Ryker.ControlPlane.CurrentInput.Query
+  require Ryker.ControlPlane.PublicationPosition.Query
 
   @doc """
   Every loopback conversation whose ref starts with `prefix`, newest first, as

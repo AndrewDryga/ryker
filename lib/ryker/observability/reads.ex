@@ -10,7 +10,6 @@ defmodule Ryker.Observability.Reads do
   Ages are whole seconds from a timestamp to one database clock reading, so a
   projection never mixes the VM's clock with PostgreSQL's.
   """
-
   alias Ryker.Observability.Projection
   alias Ryker.Repo
 

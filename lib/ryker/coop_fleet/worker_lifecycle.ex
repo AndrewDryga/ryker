@@ -7,7 +7,6 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
   client certificate, and every unused enrollment token. The first operator
   decision remains the durable audit identity on exact retries.
   """
-
   alias Ryker.CoopFleet.{Certificate, EnrollmentToken, Placement, Protocol}
   alias Ryker.CoopFleet.Worker
   alias Ryker.Repo

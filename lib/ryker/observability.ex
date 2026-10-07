@@ -12,7 +12,6 @@ defmodule Ryker.Observability do
   renders it. Every read answers a database failure as an error where it
   happens, so a probe reports it instead of crashing.
   """
-
   alias Ryker.Delivery.RoutingResponse
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Observability.{Fleet, Metrics, Progress, Queues, Readiness, Reads, Retention}

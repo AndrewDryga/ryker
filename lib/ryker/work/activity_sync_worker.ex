@@ -5,10 +5,9 @@ defmodule Ryker.Work.ActivitySyncWorker do
   The answer remains deliverable; PostgreSQL's pending bit makes the missing
   narration resumable across an ordinary Ryker restart.
   """
-
   use Ryker.PollingWorker, lane: :activity_sync, interval: :poll_interval_ms
-  require Logger
   alias Ryker.Work.Activity
+  require Logger
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(options), do: GenServer.start_link(__MODULE__, options)

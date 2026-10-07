@@ -5,7 +5,7 @@ defmodule Ryker.Slack.Collection.Query do
   page at a time by the database clock `now`. `conversation_refs` are the
   channel's Slack conversation refs.
   """
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Behaviors.Behavior
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Schedules.Schedule

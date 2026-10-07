@@ -9,7 +9,6 @@ defmodule Ryker.ControlPlane.LabControls do
   strings cannot drift apart: a control the page renders is, by construction,
   one the router will accept, and nothing else is.
   """
-
   alias Ryker.ControlPlane.{Actor, ConversationProjection, CSRF, PathRef, Paths}
 
   @send_action "conversation_lab:send"

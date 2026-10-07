@@ -13,9 +13,7 @@ defmodule Ryker.Work.Custody.Claims do
   logged, its turn when it has one waits a minute with the error on it, and the
   claim goes on to the next episode, so one broken episode never stops all Work.
   """
-
   import Ryker.Work.Custody.Locks
-  require Logger
   alias Ryker.Lease
   alias Ryker.Publication.Publication
   alias Ryker.Repo
@@ -23,6 +21,7 @@ defmodule Ryker.Work.Custody.Claims do
   alias Ryker.Work.Custody
   alias Ryker.Work.Custody.Sessions
   alias Ryker.Work.{OwningTurn, Turn}
+  require Logger
 
   # How many episodes one claim tries past ones that could not be claimed.
   @claim_candidates 8

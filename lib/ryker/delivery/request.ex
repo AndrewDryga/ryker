@@ -16,7 +16,6 @@ defmodule Ryker.Delivery.Request do
   `{:delivery_share_pending, upload_refs}` for an upload of its own that it has
   not seen shared yet, so the custody keeps them for the next attempt.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
 

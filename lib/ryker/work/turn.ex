@@ -1,10 +1,6 @@
 defmodule Ryker.Work.Turn do
   @moduledoc false
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "episode_work_turns" do
     belongs_to(:episode, Ryker.Episodes.Episode)
@@ -87,7 +83,7 @@ defmodule Ryker.Work.Turn do
     field(:delivered_at, :utc_datetime_usec)
     field(:operational_pruned_at, :utc_datetime_usec)
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{

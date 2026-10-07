@@ -7,7 +7,6 @@ defmodule Ryker.Records.InputRequests do
   actor, and destination before creating the ingress input. Platform-specific
   envelopes stop here; the resulting inbox entry follows ordinary admission.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.{Inbox, Input}
@@ -263,7 +262,7 @@ defmodule Ryker.Records.InputRequests do
       actor_ref: attributes.actor_ref,
       choice: choice,
       choice_index: attributes.choice_index,
-      id: Ecto.UUID.generate(),
+      id: Repo.generate_id(),
       inbox_entry_id: entry.id,
       occurred_at: attributes.occurred_at,
       record_id: record.id,

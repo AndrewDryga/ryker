@@ -8,11 +8,8 @@ defmodule Ryker.WeeklyReport.Report do
   being sent; it is never written twice. A `preview` a person sent from
   Settings is a row too, and never the week's report.
   """
-
-  use Ecto.Schema
+  use Ryker, :schema
   alias Ryker.CanonicalJSON.Type, as: CanonicalJSONType
-
-  @primary_key {:id, :binary_id, autogenerate: false}
 
   schema "weekly_reports" do
     field(:week, :date)
@@ -36,7 +33,7 @@ defmodule Ryker.WeeklyReport.Report do
     field(:external_receipt, CanonicalJSONType)
     field(:external_receipt_fingerprint, :string)
     field(:delivered_at, :utc_datetime_usec)
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

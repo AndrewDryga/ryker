@@ -1,6 +1,6 @@
 defmodule Ryker.CoopFleet.Certificate.Changeset do
   @moduledoc "How a worker certificate is recorded (`Ryker.CoopFleet.Certificate`)."
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.CoopFleet.Certificate
 
   @fields [

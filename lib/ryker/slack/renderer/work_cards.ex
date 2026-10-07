@@ -3,7 +3,6 @@ defmodule Ryker.Slack.Renderer.WorkCards do
   The incident-room and task cards: one pinned or threaded status anchor per
   piece of work, with the exact controls the host authorized for it.
   """
-
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
   alias Ryker.Records.InvestigationPayload

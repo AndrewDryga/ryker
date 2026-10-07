@@ -18,7 +18,6 @@ defmodule Ryker.Evals.RoutingReplayTest do
   defmodule LocalModel do
     @moduledoc false
     @behaviour Plug
-
     import Plug.Conn
 
     @impl true

@@ -22,6 +22,7 @@ defmodule Ryker.ControlPlane.Paths do
   "fuckin ugly, make the code more clean and idiomatic". The console had built
   its links in forty places, five different ways.
   """
+  use Phoenix.VerifiedRoutes, router: Ryker.ControlPlane.WebRouter, endpoint: __MODULE__.Root
 
   defmodule Root do
     @moduledoc false
@@ -31,8 +32,6 @@ defmodule Ryker.ControlPlane.Paths do
     # weekly report.
     def path(path), do: path
   end
-
-  use Phoenix.VerifiedRoutes, router: Ryker.ControlPlane.WebRouter, endpoint: Root
 
   # -- Pages ------------------------------------------------------------------
 

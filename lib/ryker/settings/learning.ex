@@ -1,6 +1,6 @@
 defmodule Ryker.Settings.Learning do
   @moduledoc "Model-based background learning choice, separate from deterministic compaction."
-  use Ecto.Schema
+  use Ryker, :schema
 
   @primary_key {:id, :string, autogenerate: false}
 

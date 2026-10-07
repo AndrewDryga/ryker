@@ -7,7 +7,6 @@ defmodule Ryker.Episodes.CorrelationClaims do
   reporting source. Fuzzy resource or symptom fingerprints never become
   claims, because two genuine incidents can share them.
   """
-
   alias Ryker.Episodes.CorrelationClaim
   alias Ryker.Repo
 
@@ -41,7 +40,7 @@ defmodule Ryker.Episodes.CorrelationClaims do
         ~w(episode_id input_ref scope_ref namespace occurrence_ref lifecycle_state established_at)a
       )
       |> Map.put_new(:lifecycle_state, :active)
-      |> Map.merge(%{id: Ecto.UUID.generate(), inserted_at: now, updated_at: now})
+      |> Map.merge(%{id: Repo.generate_id(), inserted_at: now, updated_at: now})
 
     case Repo.insert_all(CorrelationClaim, [row],
            on_conflict: :nothing,

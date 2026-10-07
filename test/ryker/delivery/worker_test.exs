@@ -2,9 +2,6 @@ defmodule Ryker.Delivery.WorkerTest do
   use Ryker.DataCase, async: false
   import ExUnit.CaptureLog
   import Ryker.TestHelpers, only: [beats: 1, eventually: 1, settled: 1]
-
-  @moduletag isolation: "REPEATABLE READ"
-
   alias Ryker.Admission
   alias Ryker.Admission.Decision
   alias Ryker.Delivery.{Adapters, PlatformAction, PlatformActionCustody, RoutingResponse}
@@ -15,6 +12,8 @@ defmodule Ryker.Delivery.WorkerTest do
   alias Ryker.Ingress.Inbox
   alias Ryker.Slack.Input
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission, Turn}
+
+  @moduletag isolation: "REPEATABLE READ"
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 

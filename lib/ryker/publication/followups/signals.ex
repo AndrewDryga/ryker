@@ -10,7 +10,6 @@ defmodule Ryker.Publication.Followups.Signals do
   publication; other GitHub conversation stays with ordinary admission. The
   same delivery recorded twice is one event.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Ingress.Input
   alias Ryker.Learning.Observations

@@ -9,7 +9,6 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   `ConversationProjection` decides which rows are on a page; this module says
   what each row shows, with the sort key and cursor that place it.
   """
-
   alias Ryker.Artifacts.OutputArtifact
   alias Ryker.ControlPlane.{ConsolePeople, ConversationTranscript, Paths}
   alias Ryker.ControlPlane.{PublicationPosition, TranscriptCursor}

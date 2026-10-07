@@ -28,7 +28,6 @@ defmodule Ryker.Evals.KnowledgeJudge do
   captured a repository is staged (`Ryker.Evals.WorldSource`), and nothing
   stages the knowledge cases.
   """
-
   alias Ryker.Crypto
   alias Ryker.RepositoryKnowledge.{Document, Prompt}
 

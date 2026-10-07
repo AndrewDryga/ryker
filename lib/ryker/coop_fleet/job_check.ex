@@ -10,9 +10,8 @@ defmodule Ryker.CoopFleet.JobCheck do
   check's own environment stays empty. A repository without a readable gate
   gets no check, and its review is not publishable, as before.
   """
-
-  require Logger
   alias Ryker.GitHub.RepositoryFiles
+  require Logger
 
   @project_file ".agent/project.yaml"
 

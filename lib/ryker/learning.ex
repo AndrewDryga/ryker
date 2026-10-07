@@ -808,7 +808,6 @@ defmodule Ryker.Learning do
     unless LearningSources.valid?(dependencies, scope), do: Repo.rollback(:learning_source_stale)
 
     Repo.insert!(%LearningRun{
-      id: Ecto.UUID.generate(),
       batch_id: if(settings[:batch_claim], do: settings.batch_claim.batch.id),
       batch_budget_version: settings.batch_budget_version,
       rebuild: settings.rebuild,

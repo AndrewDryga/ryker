@@ -9,7 +9,6 @@ defmodule Ryker.CoopFleet.JobSpec do
   argv and its extra environment), and per-container resource caps. A worker
   applies nothing from the repository's own settings.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.{JobCheck, JobTemplates, Protocol}
   alias Ryker.Work.RepositorySource

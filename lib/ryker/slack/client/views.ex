@@ -7,7 +7,6 @@ defmodule Ryker.Slack.Client.Views do
   number of blocks and a bounded size before it is sent, and a reply that
   does not describe a view of the same kind is a protocol error.
   """
-
   alias Ryker.Slack.Client.{Fields, Transport}
 
   def publish_home(client, user_ref, view) do

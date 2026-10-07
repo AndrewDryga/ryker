@@ -3,7 +3,6 @@ defmodule Ryker.Slack.Renderer.EmisarReview do
   The governed-review card: one Emisar approval message that is posted from
   the durable record and repainted from the authoritative poll.
   """
-
   import Ryker.Slack.Renderer.Blocks
   alias Ryker.Emisar.ApprovalStatus
 

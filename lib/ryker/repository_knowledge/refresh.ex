@@ -15,7 +15,6 @@ defmodule Ryker.RepositoryKnowledge.Refresh do
   model could finish, is written at once. The rules read only what Ryker
   wrote: a RYKER.md the repository holds is one more file the model may read.
   """
-
   alias Ryker.RepositoryKnowledge.Document
 
   @stale_after_seconds 7 * 86_400

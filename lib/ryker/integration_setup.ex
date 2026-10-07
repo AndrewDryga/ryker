@@ -7,8 +7,6 @@ defmodule Ryker.IntegrationSetup do
   Every change is recorded as the `actor_ref` the caller names: a console
   person (`Ryker.ControlPlane.Actor.of/1`) or GitHub's own `github:webhook`.
   """
-
-  require Logger
   alias Ryker.{Bootstrap, Credentials}
   alias Ryker.Config
   alias Ryker.CoopFleet.ManagedSources
@@ -20,6 +18,7 @@ defmodule Ryker.IntegrationSetup do
   alias Ryker.Settings
   alias Ryker.Settings.Environment
   alias Ryker.Slack.Names
+  require Logger
 
   @minimum_signing_secret_bytes 32
   # 200 people a page: room for a workspace of ten thousand.

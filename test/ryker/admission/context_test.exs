@@ -1,25 +1,25 @@
 defmodule Ryker.Admission.ContextTest do
   use Ryker.DataCase, async: false
-
-  @moduletag isolation: "REPEATABLE READ"
-
   import Ecto.Query
   alias Ryker.Admission
   alias Ryker.Admission.{Context, Decision}
+  alias Ryker.Admission.Prompt
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
   alias Ryker.Ingress.{Inbox, Input}
+  alias Ryker.Instructions
   alias Ryker.People
   alias Ryker.Repo
+  alias Ryker.Settings
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Work.Session
+
+  @moduletag isolation: "REPEATABLE READ"
 
   @now ~U[2026-08-27 12:00:00.000000Z]
   @current_thread "1787832000.000100"
 
   test "new admission snapshots replace instructions while restored requests keep their saved layers" do
-    alias Ryker.Instructions
-
     scope = {:channel, "TA6E21ABA08AF", "C456"}
     assert {:ok, _} = Instructions.save(:global, "Use plain language.", 0, "operator:test")
     assert {:ok, _} = Instructions.save(scope, "Keep this channel concise.", 0, "operator:test")
@@ -782,9 +782,6 @@ defmodule Ryker.Admission.ContextTest do
   # changes. Before, the router never saw the repositories at all, and every
   # episode in the environment changed its first one.
   test "the router sees each repository of a shared environment with its description, frozen with the context" do
-    alias Ryker.Admission.Prompt
-    alias Ryker.Settings
-
     {:ok, initialized} = Settings.initialize("control-plane:local")
 
     {:ok, with_billing} =

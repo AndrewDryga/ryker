@@ -11,7 +11,6 @@ defmodule Ryker.Improvement.Prompt do
   routing prompts give way first, then long texts are shortened, and each cut
   is named in `omitted`.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Improvement.Candidate
 

@@ -1,6 +1,6 @@
 defmodule Ryker.Settings.Repository.Query do
   @moduledoc "Repositories set up for work, for every read of `repository_settings`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Settings.Repository
 
   def all, do: from(repositories in Repository, as: :repository_settings)

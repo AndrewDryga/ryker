@@ -1,6 +1,5 @@
 defmodule Ryker.ControlPlane.Actions do
   @moduledoc false
-
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Automations
   alias Ryker.CanonicalJSON
@@ -236,7 +235,7 @@ defmodule Ryker.ControlPlane.Actions do
       cancel_ref: resolve_action_ref(),
       episode_key: episode.key,
       expected_owner: %{kind: owner_kind, ref: owner_ref},
-      occurred_at: now(),
+      occurred_at: DateTime.utc_now(),
       reason: reason
     }
     |> Episodes.apply()
@@ -521,7 +520,7 @@ defmodule Ryker.ControlPlane.Actions do
         TaskOffers.confirm(%{
           actor_ref: Actor.of(request.viewer),
           confirmation_ref: request.ref,
-          occurred_at: now(),
+          occurred_at: DateTime.utc_now(),
           policy:
             %{name: name, digest: digest}
             |> maybe_put(:environment_ref, Map.get(policy, :environment_ref))
@@ -550,7 +549,7 @@ defmodule Ryker.ControlPlane.Actions do
         TaskOffers.confirm(%{
           actor_ref: Actor.of(request.viewer),
           confirmation_ref: request.ref,
-          occurred_at: now(),
+          occurred_at: DateTime.utc_now(),
           policy:
             policy
             |> Map.take([:digest, :name, :repository_ref])
@@ -621,7 +620,7 @@ defmodule Ryker.ControlPlane.Actions do
     SlackPostOffers.confirm(%{
       actor_ref: Actor.person_ref(Actor.chat_ref(request.viewer)),
       confirmation_ref: request.ref,
-      occurred_at: now(),
+      occurred_at: DateTime.utc_now(),
       record_ref: record.ref,
       target: target
     })
@@ -636,7 +635,7 @@ defmodule Ryker.ControlPlane.Actions do
        ) do
     PublicationCustody.request_review(%{
       actor_ref: Actor.of(request.viewer),
-      occurred_at: now(),
+      occurred_at: DateTime.utc_now(),
       record_ref: record.ref,
       request_ref: request.ref,
       target: target
@@ -653,7 +652,7 @@ defmodule Ryker.ControlPlane.Actions do
     InputRequests.answer(%{
       actor_ref: Actor.chat_ref(request.viewer),
       choice_index: choice_index,
-      occurred_at: now(),
+      occurred_at: DateTime.utc_now(),
       record_ref: record.ref,
       response_ref: request.ref,
       target: target
@@ -727,7 +726,7 @@ defmodule Ryker.ControlPlane.Actions do
       PublicationCustody.approve(%{
         actor_ref: Actor.of(request.viewer),
         approval_ref: request.ref,
-        occurred_at: now(),
+        occurred_at: DateTime.utc_now(),
         publication_ref: publication.ref,
         target: review_target
       })
@@ -747,7 +746,7 @@ defmodule Ryker.ControlPlane.Actions do
       PublicationCustody.approve(%{
         actor_ref: Actor.of(request.viewer),
         approval_ref: request.ref,
-        occurred_at: now(),
+        occurred_at: DateTime.utc_now(),
         publication_ref: publication.ref,
         target: review_target
       })
@@ -780,7 +779,7 @@ defmodule Ryker.ControlPlane.Actions do
     module.confirm(%{
       actor_ref: Actor.of(request.viewer),
       confirmation_ref: request.ref,
-      occurred_at: now(),
+      occurred_at: DateTime.utc_now(),
       record_ref: record.ref,
       target: target
     })
@@ -803,7 +802,7 @@ defmodule Ryker.ControlPlane.Actions do
     Behaviors.confirm(%{
       actor_ref: actor_ref,
       confirmation_ref: request.ref,
-      occurred_at: now(),
+      occurred_at: DateTime.utc_now(),
       record_ref: record.ref,
       target: target
     })
@@ -853,7 +852,7 @@ defmodule Ryker.ControlPlane.Actions do
       cancel_ref: request.ref,
       episode_key: episode.key,
       expected_owner: %{kind: owner_kind, ref: owner_ref},
-      occurred_at: now(),
+      occurred_at: DateTime.utc_now(),
       reason: close_task_reason(request.viewer)
     }
 
@@ -987,11 +986,6 @@ defmodule Ryker.ControlPlane.Actions do
     do: %{"publication_ref" => publication_ref}
 
   defp canonical_lab_action_context(other), do: other
-
-  defp now do
-    DateTime.utc_now()
-    |> DateTime.truncate(:microsecond)
-  end
 
   # Each message runs on the profile the conversation's environment resolves
   # to at that moment: the environment's while it can run work, else the one

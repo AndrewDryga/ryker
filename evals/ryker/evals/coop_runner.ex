@@ -11,7 +11,6 @@ defmodule Ryker.Evals.CoopRunner do
   rejected for repair in the same turn, and the accepted answer is scored by
   the case, never on explanatory prose.
   """
-
   alias Ryker.Crypto
   alias Ryker.Evals.{ImprovementReplayCase, Job, RoutingReplayCase, WorldJudgeCase}
   alias Ryker.Reference

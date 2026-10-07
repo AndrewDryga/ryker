@@ -10,13 +10,12 @@ defmodule Ryker.LocalRouting.Worker do
   at once. With nothing due it sleeps until the next retry falls due, or for
   the safety-net interval.
   """
-
   use Ryker.PollingWorker, lane: :local_routing, interval: :poll_interval_ms
-  require Logger
   alias Ryker.LocalRouting
   alias Ryker.LocalRouting.Endpoint
   alias Ryker.PollingWorker
   alias Ryker.Settings.Work
+  require Logger
 
   @fields [
     :endpoint,

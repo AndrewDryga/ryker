@@ -1,6 +1,5 @@
 defmodule Ryker.CoopFleet.Bodies do
   @moduledoc false
-
   alias Ryker.{CanonicalJSON, Defaults, Repo}
   alias Ryker.CoopFleet.{BodyCrypto, Command, ControlPlane, Protocol}
   alias Ryker.Crypto

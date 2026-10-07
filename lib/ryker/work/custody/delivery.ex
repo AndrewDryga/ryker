@@ -9,7 +9,6 @@ defmodule Ryker.Work.Custody.Delivery do
   A destination deleted for good is the one thing that moves a reply: it goes,
   with its content and delivery reference, where the host says people still read.
   """
-
   import Ryker.Work.Custody.Locks
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode, Origin}

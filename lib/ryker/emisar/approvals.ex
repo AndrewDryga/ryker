@@ -11,7 +11,6 @@ defmodule Ryker.Emisar.Approvals do
   after the outermost commit (`subscribe_approvals/0`), on its request's
   topics too.
   """
-
   alias Ryker.Crypto
   alias Ryker.Emisar.{Approval, Review, RunState}
   alias Ryker.Episodes
@@ -343,7 +342,7 @@ defmodule Ryker.Emisar.Approvals do
         connection_ref: payload["connection_ref"],
         episode_id: record.episode_id,
         expires_at: expires_at,
-        id: Ecto.UUID.generate(),
+        id: Repo.generate_id(),
         operation_id: payload["operation_id"],
         pack_ref: payload["pack_ref"],
         record_id: record.id,

@@ -15,13 +15,12 @@ defmodule Ryker.Operator.EpisodeReviews do
   announced after the outermost commit (`subscribe_reviews/0`), on the
   request's topics too.
   """
-
-  require Logger
   alias Ryker.Episodes.Episode
   alias Ryker.Feedback
   alias Ryker.Operator.EpisodeReview
   alias Ryker.Reference
   alias Ryker.Repo
+  require Logger
 
   @ratings [:good, :needs_work]
 
@@ -55,7 +54,7 @@ defmodule Ryker.Operator.EpisodeReviews do
         attributes = %{
           actor_ref: actor_ref,
           episode_id: episode.id,
-          id: Ecto.UUID.generate(),
+          id: Repo.generate_id(),
           note: note,
           rating: rating,
           reviewed_at: Repo.now!(),

@@ -17,7 +17,6 @@ defmodule Ryker.CoopFleet.SessionEvidenceDocument do
       says so, which is a different fact from a refusal that saw no name
     * a bound task carries its immutable identity even when its folder is gone
   """
-
   alias Ryker.CoopFleet.Protocol
 
   @version 1

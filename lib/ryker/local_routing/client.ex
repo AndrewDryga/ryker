@@ -19,7 +19,6 @@ defmodule Ryker.LocalRouting.Client do
   plain words with at most a short excerpt of what the server said; the
   prompt is never part of it.
   """
-
   alias Ryker.Delivery.HTTPClient
   alias Ryker.LocalRouting.{Endpoint, Schema}
 

@@ -13,7 +13,6 @@ defmodule Ryker.Learning.EmptyChat do
   answers, so it can settle a question worth keeping. Thanks in a thread
   still is.
   """
-
   alias Ryker.Ingress.Inbox.Entry
 
   # Every word of an empty-chat message is one of these; one other word, such

@@ -14,10 +14,9 @@ defmodule Ryker.WeeklyReport.Worker do
   Posting is not its job: it queues the week's report, and the delivery pool
   posts it (`Ryker.WeeklyReport.Custody`).
   """
-
   use Ryker.PollingWorker, lane: :weekly_report, interval: :retry_ms
-  require Logger
   alias Ryker.{Options, PollingWorker, Settings, WeeklyReport}
+  require Logger
 
   @fields [:longest_sleep_ms, :retry_ms]
   @longest_sleep_ms 600_000

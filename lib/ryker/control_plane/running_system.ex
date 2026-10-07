@@ -12,9 +12,9 @@ defmodule Ryker.ControlPlane.RunningSystem do
   Tasks that change code are always supported on a working installation, so
   that card shows only when they are not, with what to check.
   """
-
   use Phoenix.Component
   alias Ryker.ControlPlane.{Kit, ShortTime, Units}
+  alias Ryker.CoopFleet
   alias Ryker.CoopFleet.Worker
 
   @doc """
@@ -73,7 +73,7 @@ defmodule Ryker.ControlPlane.RunningSystem do
   defp state(%Worker{last_seen_at: nil}, _now), do: word(:off, "Never connected")
 
   defp state(%Worker{state: state, last_seen_at: seen}, now) do
-    if DateTime.diff(now, seen) > Worker.heartbeat_seconds() do
+    if DateTime.diff(now, seen) > CoopFleet.worker_heartbeat_seconds() do
       assigns = %{__changed__: nil, seen: seen, now: now}
 
       ~H"""

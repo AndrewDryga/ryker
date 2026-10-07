@@ -1,6 +1,6 @@
 defmodule Ryker.Slack.ThreadStatus.Query do
   @moduledoc "Slack assistant thread statuses, for every read of `slack_thread_statuses`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Slack.ThreadStatus
 
   def all, do: from(statuses in ThreadStatus, as: :slack_thread_statuses)

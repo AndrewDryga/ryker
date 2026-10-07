@@ -36,7 +36,6 @@ defmodule Ryker.Improvement.Export do
   and the actors' `authority` (every person is an operator here). Files are
   not replayed: a world event is a message's text.
   """
-
   alias Ryker.Improvement.Candidate
   alias Ryker.Repo
 
@@ -50,7 +49,10 @@ defmodule Ryker.Improvement.Export do
   @spec case_id(Candidate.t()) :: String.t()
   def case_id(%Candidate{id: id, decided_at: decided_at}) do
     day = decided_at |> DateTime.to_date() |> Date.to_iso8601(:basic)
-    "feedback-#{day}-#{String.slice(id, 0, 8)}"
+    # The id's last eight hex digits, random in every UUID Ryker makes; its
+    # first eight are a UUIDv7's timestamp, the same for every case decided
+    # within the same minute.
+    "feedback-#{day}-#{String.slice(id, -8, 8)}"
   end
 
   @doc "Every file of every accepted case, by its path under the output directory."

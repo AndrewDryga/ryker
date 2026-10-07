@@ -6,7 +6,6 @@ defmodule Ryker.Delivery.BinaryClient do
   is streamed under the caller's byte limit so an authenticated attachment
   cannot exhaust the gateway while being downloaded; see `Ryker.Delivery.HTTPClient`.
   """
-
   alias Ryker.Delivery.HTTPClient
 
   @fields [:finch, :receive_timeout, :token_provider]

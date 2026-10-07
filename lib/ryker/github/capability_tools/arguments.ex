@@ -4,7 +4,6 @@ defmodule Ryker.GitHub.CapabilityTools.Arguments do
   document the host acts on, refusing anything outside the published schema
   before a repository or credential is chosen.
   """
-
   alias Ryker.GitHub.{InertText, SourceRef}
 
   @emoji_names ~w(+1 -1 confused eyes heart hooray laugh rocket)

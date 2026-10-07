@@ -12,6 +12,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
   alias Ryker.Fixtures.TaskOffer
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.GitHub.SourceRef, as: GitHubSourceRef
+  alias Ryker.Instructions
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Memories
   alias Ryker.Memories.Cases
@@ -945,8 +946,6 @@ defmodule Ryker.Work.SubmissionBuilderTest do
   end
 
   test "a continuation in the same Coop session sends a delta instead of the briefing again" do
-    alias Ryker.Instructions
-
     assert {:ok, _} = Instructions.save(:global, "Explain assumptions.", 0, "operator:test")
     initial = String.duplicate("a", 1_500) <> " ORIGINAL_REQUEST_MARKER"
     first = claim_episode!("delta-continuation", initial)

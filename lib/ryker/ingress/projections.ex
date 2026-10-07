@@ -1,6 +1,5 @@
 defmodule Ryker.Ingress.Projections do
   @moduledoc false
-
   alias Ryker.Behaviors.StandingRules
   alias Ryker.Ingress.Input
   alias Ryker.Publication.Followups

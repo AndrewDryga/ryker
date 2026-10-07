@@ -1,5 +1,6 @@
 defmodule Ryker.ControlPlane.ModelRequestsTest do
   use Ryker.DataCase, async: false
+  import Ecto.Query
   import Ryker.TestHelpers, only: [digest: 1]
   import Phoenix.LiveViewTest
   alias Ryker.Admission.Attempt
@@ -720,7 +721,6 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
 
   test "pruned request content is expired rather than silently reconstructed" do
     {episode, turn, _prompt} = frozen_turn!()
-    import Ecto.Query
 
     Repo.update_all(from(t in Turn, where: t.id == ^turn.id),
       set: [submission: %{"retention" => "pruned"}, operational_pruned_at: DateTime.utc_now()]

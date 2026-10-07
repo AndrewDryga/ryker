@@ -1,6 +1,5 @@
 defmodule Ryker.Webhooks.Auth do
   @moduledoc false
-
   alias Plug.Conn
   alias Ryker.Crypto
   alias Ryker.Secret

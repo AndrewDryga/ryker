@@ -9,7 +9,6 @@ defmodule Ryker.ErrorDetail do
   `last_error_detail` and logged raw, and nine lanes each had their own copy of
   the bound (2026-10-04 review).
   """
-
   alias Ryker.InspectionRedactor
 
   @maximum_bytes 4_096

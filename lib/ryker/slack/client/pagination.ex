@@ -8,7 +8,6 @@ defmodule Ryker.Slack.Client.Pagination do
   bounded, and running out of pages before an answer is a reconciliation the
   caller must not mistake for "not there".
   """
-
   alias Ryker.Slack.Client
   alias Ryker.Slack.Client.Transport
 

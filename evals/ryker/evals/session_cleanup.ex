@@ -6,7 +6,6 @@ defmodule Ryker.Evals.SessionCleanup do
   The world eval, the learning eval and its probe each had a copy of this loop,
   and an idle pass meant something different in each (2026-10-04 review).
   """
-
   import Ecto.Query
   alias Ryker.Repo
   alias Ryker.Retention.Dispatcher

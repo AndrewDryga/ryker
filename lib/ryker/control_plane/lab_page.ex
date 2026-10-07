@@ -16,8 +16,6 @@ defmodule Ryker.ControlPlane.LabPage do
   alias Ryker.ControlPlane.{HTML, Kit, Paths, ShortTime}
   alias Ryker.CoopFleet.ControlPlane.Workers
   alias Ryker.{Episodes, Settings}
-  alias Ryker.Episodes.Words
-  alias Ryker.Settings.Environment
 
   @doc """
   The topics an open conversation listens to, as the context functions that
@@ -391,7 +389,7 @@ defmodule Ryker.ControlPlane.LabPage do
         default: environment.is_default,
         repositories:
           environment
-          |> Environment.repository_refs()
+          |> Settings.environment_repositories()
           |> Enum.map(&Environments.repository_name(snapshot, &1)),
         emisar: is_binary(environment.emisar_connection_ref)
       }
@@ -594,7 +592,7 @@ defmodule Ryker.ControlPlane.LabPage do
   defp message_state(%{actor: :integration}), do: nil
   defp message_state(%{status: :delivery_pending}), do: "Sending"
   defp message_state(%{status: status}) when status in [:settled, :delivered], do: nil
-  defp message_state(%{status: status}), do: Words.label(status)
+  defp message_state(%{status: status}), do: Episodes.label(status)
 
   # Model work that stopped is a material failure of this message: it reads
   # beside the message with the same retry /failures offers, not nowhere. The

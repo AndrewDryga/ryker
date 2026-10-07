@@ -1,6 +1,6 @@
 defmodule Ryker.Episodes.CorrelationClaim.Query do
   @moduledoc "Which request owns each recurring occurrence, for every read of `episode_correlation_claims`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Episodes.CorrelationClaim
 
   def all, do: from(claims in CorrelationClaim, as: :episode_correlation_claims)

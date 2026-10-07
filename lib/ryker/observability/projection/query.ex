@@ -8,7 +8,7 @@ defmodule Ryker.Observability.Projection.Query do
   (`next_attempt_at`), a lease (`lease_ref`, `lease_expires_at`) and
   `updated_at`.
   """
-  import Ecto.Query
+  use Ryker, :query
 
   @doc "Rows in `statuses` whose retry, if any, is due at `now`."
   def due_in_statuses(queryable, statuses, now) do

@@ -4,7 +4,7 @@ defmodule Ryker.Slack.ThreadActivity.Query do
   `Ryker.Slack.ThreadStatusProjection` reads it: recent messages and episodes,
   the turns that own working episodes, and what each running turn last said.
   """
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Work.{ActivityEvent, Turn}

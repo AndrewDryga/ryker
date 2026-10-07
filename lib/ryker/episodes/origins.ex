@@ -8,7 +8,6 @@ defmodule Ryker.Episodes.Origins do
   supply. A Slack root binds its own timestamp as thread, so root and reply
   are told apart from the retained identities alone.
   """
-
   alias Ryker.Episodes.{Episode, Event, Origin}
   alias Ryker.Repo
 

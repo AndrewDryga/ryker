@@ -9,7 +9,6 @@ defmodule Ryker.Work.Executor.Workspace do
   receipts against what the session persisted. The result is the workspace
   document the submission builder receives.
   """
-
   alias Ryker.GitObject
   alias Ryker.Work.Executor.Remote
   alias Ryker.Work.RepositorySource

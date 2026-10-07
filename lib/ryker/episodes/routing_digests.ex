@@ -15,7 +15,6 @@ defmodule Ryker.Episodes.RoutingDigests do
   own name for the work, so routing reads it beside the source text, never as
   evidence for it.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.{Episode, Event, Origins, RoutingDigest}
   alias Ryker.Ingress.RecallText

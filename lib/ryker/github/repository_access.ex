@@ -1,6 +1,5 @@
 defmodule Ryker.GitHub.RepositoryAccess do
   @moduledoc "Checks the webhook sender's effective access to the bound repository."
-
   alias Ryker.Delivery.JSONClient
   alias Ryker.GitHub.Binding
 

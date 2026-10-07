@@ -19,7 +19,6 @@ defmodule Ryker.Work.Custody do
   commit: sessions on this module's topic (`subscribe_sessions/0`), turns on
   their request's (`Ryker.Episodes.subscribe_episode/1`).
   """
-
   alias Ryker.Episodes.Episode
   alias Ryker.Work.Custody.{Cancellation, Claims, Delivery, Sessions, Turns}
   alias Ryker.Work.{Result, Session, Submission, Turn}

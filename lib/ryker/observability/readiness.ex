@@ -9,7 +9,6 @@ defmodule Ryker.Observability.Readiness do
   turned on but never started. Every reason is a fixed code or a lane, queue
   or runtime name, so `/readyz` can say why without printing anything it read.
   """
-
   alias Ryker.Config
   alias Ryker.Defaults
   alias Ryker.Observability.Fleet

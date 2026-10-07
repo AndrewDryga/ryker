@@ -6,7 +6,6 @@ defmodule Ryker.Artifacts.Outputs do
   endpoint. This module requires both views to agree before durable delivery
   can reference the artifact.
   """
-
   alias Ryker.Artifacts.OutputArtifact
   alias Ryker.Crypto
   alias Ryker.Repo
@@ -141,7 +140,7 @@ defmodule Ryker.Artifacts.Outputs do
        %{
          byte_size: metadata["bytes"],
          data: data,
-         id: Ecto.UUID.generate(),
+         id: Repo.generate_id(),
          media_type: metadata["media_type"],
          name: metadata["name"],
          ref: metadata["id"],

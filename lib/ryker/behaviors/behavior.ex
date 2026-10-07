@@ -1,10 +1,6 @@
 defmodule Ryker.Behaviors.Behavior do
   @moduledoc false
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "operator_behaviors" do
     belongs_to(:offer_record, Ryker.Records.Record)
@@ -31,7 +27,7 @@ defmodule Ryker.Behaviors.Behavior do
     field(:edited_by_actor_ref, :string)
     field(:edit_review_ref, :string)
     field(:revision, :integer, default: 1)
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

@@ -8,9 +8,7 @@ defmodule Ryker.Slack.ThreadStatusWorker do
   also catches a status that changes with the clock alone, such as a step
   that has gone quiet.
   """
-
   use Ryker.PollingWorker, lane: :slack_status, interval: :interval_ms
-  require Logger
   alias Ryker.Delivery.Retry
   alias Ryker.Episodes
   alias Ryker.Ingress.Inbox
@@ -18,6 +16,7 @@ defmodule Ryker.Slack.ThreadStatusWorker do
   alias Ryker.Options
   alias Ryker.PollingWorker
   alias Ryker.Slack.{ThreadStatuses, ThreadStatusReceipts}
+  require Logger
 
   @default_interval_ms 1_000
   @default_maximum_writes 10

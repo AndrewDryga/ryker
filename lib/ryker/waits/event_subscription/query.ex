@@ -1,6 +1,6 @@
 defmodule Ryker.Waits.EventSubscription.Query do
   @moduledoc "When each open wait is next looked at, for every read of `episode_event_subscriptions`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Episodes.Episode
   alias Ryker.Records.Record
   alias Ryker.Waits.EventSubscription

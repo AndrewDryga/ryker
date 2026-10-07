@@ -16,7 +16,6 @@ defmodule Ryker.ControlPlane.LearningRequests do
   open the same card instead of a copy of their own (Andrew, 2026-09-26: the
   Timeline should make the Learning page's own receipt obsolete; it is gone).
   """
-
   import Ryker.ControlPlane.BackgroundCards,
     only: [
       artifact_options: 2,

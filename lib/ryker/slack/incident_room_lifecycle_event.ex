@@ -1,10 +1,6 @@
 defmodule Ryker.Slack.IncidentRoomLifecycleEvent do
   @moduledoc false
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "slack_incident_room_lifecycle_events" do
     belongs_to(:room, Ryker.Slack.IncidentRoom)
@@ -27,7 +23,7 @@ defmodule Ryker.Slack.IncidentRoomLifecycleEvent do
     )
 
     field(:occurred_at, :utc_datetime_usec)
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

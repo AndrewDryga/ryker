@@ -1,10 +1,5 @@
 defmodule Ryker.Slack.EndToEndTest do
   use Ryker.DataCase, async: true
-
-  # A suite-owned workspace keeps conversation locks out of other async fixtures.
-
-  @moduletag isolation: "REPEATABLE READ"
-
   import Ecto.Query
   alias Ryker.Admission.Dispatcher, as: AdmissionDispatcher
   alias Ryker.Delivery.{Adapters, Dispatcher, RoutingResponse}
@@ -15,6 +10,10 @@ defmodule Ryker.Slack.EndToEndTest do
   alias Ryker.Slack.{InteractionRepaint, Publisher}
   alias Ryker.TestSupport.{FakeCoopAPI, FakeSlackAPI, FakeWorkCoopAPI}
   alias Ryker.Work.{Final, Session, Turn}
+
+  # A suite-owned workspace keeps conversation locks out of other async fixtures.
+
+  @moduletag isolation: "REPEATABLE READ"
 
   @now ~U[2026-08-27 12:00:01.000200Z]
   @policy_digest String.duplicate("a", 64)

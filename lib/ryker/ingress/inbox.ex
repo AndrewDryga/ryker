@@ -16,7 +16,6 @@ defmodule Ryker.Ingress.Inbox do
   its commit on the topics this module owns (`subscribe_inputs/0`,
   `subscribe_input/1`).
   """
-
   alias Ryker.AdvisoryLock
   alias Ryker.Artifacts.References, as: ArtifactReferences
   alias Ryker.CanonicalJSON
@@ -836,7 +835,7 @@ defmodule Ryker.Ingress.Inbox do
 
     input
     |> Entry.Changeset.insert(
-      Ecto.UUID.generate(),
+      Repo.generate_id(),
       settings.execution_mode,
       settings.work_profile,
       settings.slack_addressing,

@@ -16,13 +16,12 @@ defmodule Ryker.Transcription.Worker do
   Recording a message announces it, which wakes the worker at once; otherwise
   it sleeps for the safety-net interval.
   """
-
   use Ryker.PollingWorker, lane: :transcription, interval: :poll_interval_ms
-  require Logger
   alias Ryker.Artifacts
   alias Ryker.Ingress.Inbox
   alias Ryker.PollingWorker
   alias Ryker.Transcription
+  require Logger
 
   @failures [:too_large, :too_long, :no_speech, :timeout, :unavailable, :failed]
 

@@ -1,6 +1,5 @@
 defmodule Ryker.Publication.FollowupExecutor do
   @moduledoc false
-
   alias Ryker.Delivery.Adapters
   alias Ryker.LeasedCall
   alias Ryker.Publication.Followups

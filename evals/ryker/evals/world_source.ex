@@ -15,7 +15,6 @@ defmodule Ryker.Evals.WorldSource do
   for `request_task` and rightly asked for one, so the scenario that proves engineering task
   offers could never pass.
   """
-
   alias Ryker.Crypto
 
   @github_owner "ryker-eval"

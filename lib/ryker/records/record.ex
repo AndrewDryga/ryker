@@ -6,11 +6,7 @@ defmodule Ryker.Records.Record do
   external authority by itself. Platform cards and confirmations remain
   host-owned transitions over this exact durable payload.
   """
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "episode_state_records" do
     belongs_to(:episode, Ryker.Episodes.Episode)
@@ -30,7 +26,7 @@ defmodule Ryker.Records.Record do
     field(:confirmed_by_actor_ref, :string)
     field(:confirmed_at, :utc_datetime_usec)
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{

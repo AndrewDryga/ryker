@@ -7,7 +7,6 @@ defmodule Ryker.Slack.CapabilityTools.Authority do
   an additional post and the event whose action token search checks out; and
   Slack's own conversation record decides whether a channel is visible.
   """
-
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Repo
   alias Ryker.Slack.CapabilityTools.Arguments

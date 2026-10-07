@@ -5,7 +5,6 @@ defmodule Ryker.TestHelpers do
   from half a second to two. By 2026-10-04 nine digests and three pollers had
   been copied again.
   """
-
   import ExUnit.Assertions, only: [flunk: 1]
   alias Ryker.Crypto
   alias Ryker.Evals.Job

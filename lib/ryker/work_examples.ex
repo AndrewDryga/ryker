@@ -40,7 +40,6 @@ defmodule Ryker.WorkExamples do
   stays in the copy until its window ends or keeping work examples is turned
   off.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
@@ -170,7 +169,7 @@ defmodule Ryker.WorkExamples do
     context = if is_map(submission["context"]), do: submission["context"], else: %{}
 
     identity = %Example{
-      id: Ecto.UUID.generate(),
+      id: Repo.generate_id(),
       turn_id: turn.id,
       episode_id: episode.id,
       episode_ref: episode.key,

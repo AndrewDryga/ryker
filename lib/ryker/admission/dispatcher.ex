@@ -6,7 +6,6 @@ defmodule Ryker.Admission.Dispatcher do
   transport retries reconcile the same session and turn instead of spending a
   second model call.
   """
-
   alias Ryker.Admission.{Executor, LeaseRenewer, UnavailableNote}
   alias Ryker.Delivery.HostNote
   alias Ryker.ErrorDetail

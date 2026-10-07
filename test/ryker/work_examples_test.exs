@@ -18,10 +18,6 @@ defmodule Ryker.WorkExamplesTest do
   use Ryker.DataCase, async: false
   import Ecto.Query
   import Ryker.TestHelpers, only: [digest: 1, eventually: 1]
-
-  # The executor reads routing's context under the isolation it runs with.
-  @moduletag isolation: "REPEATABLE READ"
-
   alias Ryker.Admission.Executor
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
@@ -40,6 +36,9 @@ defmodule Ryker.WorkExamplesTest do
   alias Ryker.WorkExamples
   alias Ryker.WorkExamples.{Example, Export}
   alias Ryker.WorkExamples.Feedback, as: KeptFeedback
+
+  # The executor reads routing's context under the isolation it runs with.
+  @moduletag isolation: "REPEATABLE READ"
 
   @actor "control-plane:local"
   @day 86_400

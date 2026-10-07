@@ -1,6 +1,5 @@
 defmodule Ryker.TestSupport.WorldHostReplay do
   @moduledoc false
-
   alias Ryker.Evals.{WorldCase, WorldCassette}
   alias Ryker.Records
   alias Ryker.StateTools.Tools

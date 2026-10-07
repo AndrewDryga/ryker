@@ -10,7 +10,6 @@ defmodule Ryker.Slack.ChannelSettings do
   authorization stay at the command or control boundary, except the
   installation default, whose write is authorized by saved operator membership.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Reference
   alias Ryker.Repo
@@ -172,7 +171,7 @@ defmodule Ryker.Slack.ChannelSettings do
         "value" => Atom.to_string(attributes.value)
       },
       event_ref: attributes.event_ref,
-      id: Ecto.UUID.generate(),
+      id: Repo.generate_id(),
       occurred_at: attributes.occurred_at,
       outcome: :updated,
       request_fingerprint: fingerprint,

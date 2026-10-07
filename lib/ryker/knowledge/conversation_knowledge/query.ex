@@ -1,6 +1,6 @@
 defmodule Ryker.Knowledge.ConversationKnowledge.Query do
   @moduledoc "Topics learned in conversations, for every read of `conversation_knowledge`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Knowledge.{ConversationKnowledge, KnowledgeSource}
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Slack.ChannelMembership

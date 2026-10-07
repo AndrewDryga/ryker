@@ -1,6 +1,5 @@
 defmodule Ryker.Fixtures.Learning do
   @moduledoc false
-
   import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query
   alias Ryker.Admission.Decision

@@ -1,7 +1,6 @@
 defmodule Ryker.Slack.ChannelConfiguration.Changeset do
   @moduledoc false
-
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.Slack.{ChannelConfiguration, ChannelMembership, ChannelMembershipEvent}
   alias Ryker.Slack.{ConfigurationAction, ConfigurationSession}
 

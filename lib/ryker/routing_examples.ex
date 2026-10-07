@@ -42,7 +42,6 @@ defmodule Ryker.RoutingExamples do
   (`Ryker.Admission.Candidate.previewed_messages/1`). A decision routed before
   those were recorded (2026-09-28) names none, so its previews stay untraced.
   """
-
   alias Ryker.Admission.{Attempt, Prompt}
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
@@ -175,7 +174,7 @@ defmodule Ryker.RoutingExamples do
     episode = entry.episode_id && Repo.one(Episode.Query.by_id(entry.episode_id))
 
     identity = %Example{
-      id: Ecto.UUID.generate(),
+      id: Repo.generate_id(),
       input_id: entry.id,
       episode_id: entry.episode_id,
       episode_ref: episode && episode.key,

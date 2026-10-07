@@ -10,7 +10,7 @@ defmodule Ryker.ControlPlane.ToolCard do
   alias Ryker.ControlPlane.EpisodeTrace.ToolActivity
   alias Ryker.ControlPlane.SlackMarkdown
   alias Ryker.ControlPlane.Units
-  alias Ryker.Work.ActivityPaths
+  alias Ryker.Work
 
   @tools %{
     "cite_source" =>
@@ -540,7 +540,7 @@ defmodule Ryker.ControlPlane.ToolCard do
   end
 
   defp display_paths(context, file) do
-    case ActivityPaths.sanitize(context) do
+    case Work.activity_paths(context) do
       %{"paths" => paths} = context ->
         files = for %{"scope" => "project", "path" => path} <- paths, do: path
         {Enum.uniq(files), path_warnings(context)}

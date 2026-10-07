@@ -6,6 +6,7 @@ defmodule Ryker.Settings.Section.Changeset do
   the save started from, since one setting can depend on another, as an
   environment does on the repositories it names.
   """
+  use Ryker, :changeset
 
   @doc "The fields a save may name; a save that names any other is refused."
   @callback fields() :: [atom()]

@@ -11,10 +11,7 @@ defmodule Ryker.Behaviors.StandingRuleInventory do
   The row is written once per input and never updated, so a later rule change
   cannot reach back into it.
   """
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
+  use Ryker, :schema
 
   schema "standing_rule_inventories" do
     field(:source_input_ref, :string)

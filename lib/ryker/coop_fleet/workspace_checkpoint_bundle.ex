@@ -1,6 +1,5 @@
 defmodule Ryker.CoopFleet.WorkspaceCheckpointBundle do
   @moduledoc false
-
   alias Ryker.CoopFleet.{CheckpointSecretScan, WorkspaceCheckpoint}
 
   def validate_stream(checkpoint, chunks, secrets \\ Ryker.Secret.new([])) do

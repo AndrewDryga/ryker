@@ -1,6 +1,4 @@
 defmodule Ryker.RedactionAuditTest do
-  use ExUnit.Case, async: true
-
   @moduledoc """
   This repository is public, and the harvested corpora in `testdata/` and
   `test/**/fixtures/` are real Slack history. They were published for weeks
@@ -27,6 +25,7 @@ defmodule Ryker.RedactionAuditTest do
   path, not a proof of absence. It also cannot see ignored paths such as
   `.agent/tasks/`, where a local extractor's output is never committed.
   """
+  use ExUnit.Case, async: true
 
   # The invented tenant. `docs/memory-evaluation.md` records the substitution
   # these replaced and why the behaviour the fixtures hold shut is unchanged.

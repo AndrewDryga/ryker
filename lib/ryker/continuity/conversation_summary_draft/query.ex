@@ -1,6 +1,6 @@
 defmodule Ryker.Continuity.ConversationSummaryDraft.Query do
   @moduledoc "Summaries a Work turn staged before its answer is accepted, for every read of `conversation_summary_drafts`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Continuity.ConversationSummaryDraft
   alias Ryker.Episodes.Episode
 

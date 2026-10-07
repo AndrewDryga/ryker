@@ -7,7 +7,6 @@ defmodule Ryker.GitHub.Client.Checks do
   until GitHub's own total is reached; a short page before that total, or a
   page GitHub cannot describe, is an error rather than a smaller count.
   """
-
   alias Ryker.GitHub.Client
   alias Ryker.GitHub.Client.Transport
 

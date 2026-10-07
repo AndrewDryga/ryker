@@ -12,7 +12,6 @@ defmodule Ryker.Work.FailureCause do
   A detail that names nothing returns `nil`: each surface keeps its own generic
   explanation for that, rather than inventing a cause the host does not have.
   """
-
   alias Ryker.InspectionRedactor
 
   # The saved error keeps a Coop refusal as the third element of an inspected

@@ -1,6 +1,5 @@
 defmodule Ryker.Work.FinalPreflight do
   @moduledoc false
-
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery.PlatformActionCustody
   alias Ryker.Records

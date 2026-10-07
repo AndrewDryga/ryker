@@ -1,6 +1,6 @@
 defmodule Ryker.CoopFleet.EnrollmentToken.Query do
   @moduledoc "One-use worker enrollment tokens, for every read of `coop_worker_enrollment_tokens`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.CoopFleet.EnrollmentToken
 
   def all, do: from(tokens in EnrollmentToken, as: :coop_worker_enrollment_tokens)

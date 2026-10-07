@@ -1,15 +1,13 @@
 defmodule Ryker.CoopFleet.Router do
   @moduledoc false
-
   @behaviour Plug
-
   import Plug.Conn
-  require Logger
   alias Ryker.CoopFleet.{Bodies, ControlPlane, Enrollment, Protocol, PublicationGrants}
   alias Ryker.CoopFleet.SourceGrants
   alias Ryker.HTTPConnection
   alias Ryker.StateTools.Binding
   alias Ryker.StateTools.Router, as: StateToolsRouter
+  require Logger
 
   @maximum_document_bytes 1_048_576
 

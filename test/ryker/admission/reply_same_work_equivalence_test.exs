@@ -4,9 +4,6 @@ defmodule Ryker.Admission.ReplySameWorkEquivalenceTest do
   # two fixtures concurrently deadlocked their channel and conversation locks.
   # Keep the source unmodified and run this equivalence assertion serially.
   use Ryker.DataCase, async: false
-
-  @moduletag isolation: "REPEATABLE READ"
-
   alias Ryker.Admission
   alias Ryker.Admission.{Candidate, Context, Decision}
   alias Ryker.Episodes
@@ -17,6 +14,8 @@ defmodule Ryker.Admission.ReplySameWorkEquivalenceTest do
   alias Ryker.Repo
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Work.Session
+
+  @moduletag isolation: "REPEATABLE READ"
 
   @fixture_path "test/ryker/admission/fixtures/human_thread_reply_reopens_episode.json"
 

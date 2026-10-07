@@ -7,10 +7,9 @@ defmodule Ryker.ControlPlane.WebhookPreview do
   not be mapped. The button says so, because an operator about to paste a
   production alert deserves to know whether it will do something.
   """
-
   use Phoenix.LiveComponent
   alias Ryker.ControlPlane.{Components, Kit, SettingsSections}
-  alias Ryker.Webhooks.Presets
+  alias Ryker.Webhooks
 
   @impl true
   def update(assigns, socket) do
@@ -34,7 +33,7 @@ defmodule Ryker.ControlPlane.WebhookPreview do
   end
 
   def handle_event("load-sample", _params, socket) do
-    {:noreply, assign(socket, :sample, Presets.sample(adapter_kind(socket)))}
+    {:noreply, assign(socket, :sample, Webhooks.preset_sample(adapter_kind(socket)))}
   end
 
   def handle_event("check", params, socket) do

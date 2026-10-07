@@ -1,6 +1,6 @@
 defmodule Ryker.Admission.Attempt.Query do
   @moduledoc "Routing attempts, for every read of `admission_attempts`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Admission.Attempt
 
   def all, do: from(attempts in Attempt, as: :admission_attempts)

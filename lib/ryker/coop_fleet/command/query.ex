@@ -1,6 +1,6 @@
 defmodule Ryker.CoopFleet.Command.Query do
   @moduledoc "Commands Ryker queued for its workers, for every read of `coop_worker_commands`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.CoopFleet.{Command, Placement}
 
   def all, do: from(commands in Command, as: :coop_worker_commands)

@@ -4,7 +4,6 @@ defmodule Ryker.Slack.Renderer.Offers do
   memory, preference, guidance or additional Slack post would do, and the one
   button that lets a person authorize exactly that.
   """
-
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
   alias Ryker.Delivery.OfferWords

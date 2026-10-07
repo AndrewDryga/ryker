@@ -1,7 +1,6 @@
 defmodule Ryker.CoopFleet.Certificate do
   @moduledoc false
-
-  use Ecto.Schema
+  use Ryker, :schema
 
   @primary_key {:sha256, :string, autogenerate: false}
 
@@ -16,6 +15,6 @@ defmodule Ryker.CoopFleet.Certificate do
     field(:revoked_at, :utc_datetime_usec)
     field(:revoked_by, :string)
 
-    timestamps(type: :utc_datetime_usec, updated_at: false)
+    timestamps(updated_at: false)
   end
 end

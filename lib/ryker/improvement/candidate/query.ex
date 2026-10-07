@@ -1,6 +1,6 @@
 defmodule Ryker.Improvement.Candidate.Query do
   @moduledoc "Requests feedback flagged for review, for every read of `improvement_candidates`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Delivery.RoutingResponse
   alias Ryker.Improvement.{AnalysisRun, Candidate}
   alias Ryker.Work.OwningTurn

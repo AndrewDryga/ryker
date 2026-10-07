@@ -1,6 +1,6 @@
 defmodule Ryker.Feedback.Signal.Changeset do
   @moduledoc "The one write of a feedback signal (`Ryker.Feedback.Signal`)."
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.Feedback.Signal
 
   @fields [

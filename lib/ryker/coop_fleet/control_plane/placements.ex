@@ -8,7 +8,6 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   placement leases on each poll; and answers whether the fleet could take a
   session at all without taking a slot to find out.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.{Bodies, JobAuthority, Placement}
   alias Ryker.CoopFleet.ControlPlane.{Commands, Shared}
@@ -299,7 +298,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
 
   defp insert_placement_on_worker(session, worker, requirements, lease_seconds, now) do
     generation = next_placement_generation(session.id)
-    id = Ecto.UUID.generate()
+    id = Repo.generate_id()
     frozen_requirements = placement_requirements(session, worker, requirements)
 
     %{

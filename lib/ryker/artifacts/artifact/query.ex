@@ -1,6 +1,6 @@
 defmodule Ryker.Artifacts.Artifact.Query do
   @moduledoc "Input artifacts, for every read in `Ryker.Artifacts`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Artifacts.Artifact
 
   def all, do: from(artifacts in Artifact, as: :input_artifacts)

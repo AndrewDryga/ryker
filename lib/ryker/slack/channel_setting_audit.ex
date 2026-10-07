@@ -1,9 +1,6 @@
 defmodule Ryker.Slack.ChannelSettingAudit do
   @moduledoc false
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
+  use Ryker, :schema
 
   schema "slack_channel_setting_audit" do
     field(:event_ref, :string)
@@ -14,6 +11,6 @@ defmodule Ryker.Slack.ChannelSettingAudit do
     field(:outcome, Ecto.Enum, values: [:updated])
     field(:detail, Ryker.CanonicalJSON.Type)
     field(:occurred_at, :utc_datetime_usec)
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 end

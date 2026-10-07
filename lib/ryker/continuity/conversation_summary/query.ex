@@ -1,6 +1,6 @@
 defmodule Ryker.Continuity.ConversationSummary.Query do
   @moduledoc "Summaries of earlier conversation, for every read of `conversation_summaries`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Continuity.{ConversationRollup, ConversationSummary}
   alias Ryker.Learning.{SourceDependency, Visibility}
   alias Ryker.Slack.ChannelMembership

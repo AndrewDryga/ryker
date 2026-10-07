@@ -1,6 +1,6 @@
 defmodule Ryker.CoopFleet.EnrollmentToken.Changeset do
   @moduledoc "How a worker enrollment token is minted and used (`Ryker.CoopFleet.EnrollmentToken`)."
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.CoopFleet.EnrollmentToken
 
   @fields [:expires_at, :operator_ref, :token_sha256, :worker_id, :workspace_ref]

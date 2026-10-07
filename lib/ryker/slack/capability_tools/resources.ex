@@ -3,7 +3,6 @@ defmodule Ryker.Slack.CapabilityTools.Resources do
   Bookmarks, canvases and files as the model may see them: bounded, typed and
   addressed by server-issued source refs.
   """
-
   alias Ryker.Slack.CapabilityTools.Arguments
   alias Ryker.Slack.SourceRef
 

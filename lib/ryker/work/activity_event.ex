@@ -1,10 +1,6 @@
 defmodule Ryker.Work.ActivityEvent do
   @moduledoc false
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "episode_work_activity" do
     belongs_to(:episode, Ryker.Episodes.Episode)
@@ -22,7 +18,7 @@ defmodule Ryker.Work.ActivityEvent do
     field(:remote_payload_fingerprint, :string)
     field(:operational_pruned_at, :utc_datetime_usec)
 
-    timestamps(type: :utc_datetime_usec, updated_at: false)
+    timestamps(updated_at: false)
   end
 
   @type t :: %__MODULE__{

@@ -1,6 +1,6 @@
 defmodule Ryker.GitHub.DeliveryCursor.Query do
   @moduledoc "Where the GitHub delivery poller stopped, for every read of `github_delivery_cursors`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.GitHub.DeliveryCursor
 
   def all, do: from(cursors in DeliveryCursor, as: :github_delivery_cursors)

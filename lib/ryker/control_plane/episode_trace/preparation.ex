@@ -5,7 +5,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   Work turn, how its message joined the request, the environment the work ran
   in and what it gave the work, and the session it actually ran on.
   """
-
   import Ryker.ControlPlane.EpisodeTrace.Step
   alias Ryker.Behaviors
   alias Ryker.ControlPlane.{Activity, EpisodeTrace, Paths, RepositoryNames}

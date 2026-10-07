@@ -1,6 +1,5 @@
 defmodule Ryker.Work.Measurement do
   @moduledoc false
-
   alias Ryker.Work.ExecutionTarget
 
   @maximum_target_bytes 512

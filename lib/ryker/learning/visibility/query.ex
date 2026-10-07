@@ -5,7 +5,7 @@ defmodule Ryker.Learning.Visibility.Query do
   workspace's other public channels. Observations, topics and summaries all
   compose this, by the first binding of the query they are given.
   """
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Slack.ChannelMembership
 
   @doc "Rows readable from `scope`'s conversation."

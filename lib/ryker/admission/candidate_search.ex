@@ -12,7 +12,6 @@ defmodule Ryker.Admission.CandidateSearch do
   why the cutoff fell where it did. The routing search benchmark
   (test/ryker/admission/search_benchmark_test.exs) measures all of it.
   """
-
   alias Ryker.Admission.{CandidateSearch, CorrelationScope, Ranking}
   alias Ryker.Episodes.{CorrelationClaims, Episode, Origins, RoutingDigest}
   alias Ryker.Episodes.RoutingDigests

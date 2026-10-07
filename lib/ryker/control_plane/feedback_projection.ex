@@ -15,7 +15,6 @@ defmodule Ryker.ControlPlane.FeedbackProjection do
   by the request it is about. Each row names its request as Activity names
   it and opens its Timeline.
   """
-
   alias Ryker.ControlPlane.{Activity, ConsolePeople, Feedback, FeedbackChart}
   alias Ryker.ControlPlane.{ImprovementProjection, PagedRelation, Paths, Search, SlackMarkdown}
   alias Ryker.Episodes.Episode

@@ -5,7 +5,6 @@ defmodule Ryker.Slack.AppHomeEditor do
   The modal carries only the pending review reference. Submission re-reads the
   same review and applies the edit through memory's transactional review fence.
   """
-
   alias Ryker.Memories
 
   @callback_id "ryker_home_edit_memory_review"

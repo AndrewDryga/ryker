@@ -1,6 +1,6 @@
 defmodule Ryker.Publication.Publication.Query do
   @moduledoc "Changes Work published, for every read of `episode_publications`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Episodes.Episode
   alias Ryker.Publication.{Followup, Publication}
   alias Ryker.Records.Record

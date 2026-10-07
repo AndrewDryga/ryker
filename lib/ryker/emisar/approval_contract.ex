@@ -7,7 +7,6 @@ defmodule Ryker.Emisar.ApprovalContract do
   Emisar RPC URL and rejects foreign, expired, incomplete, or mutable links
   before a durable record can be created.
   """
-
   alias Ryker.CanonicalJSON
 
   @fields ~w(action_id approval_url expires_at operation_id pack_ref request_id run_id runner_ref status)

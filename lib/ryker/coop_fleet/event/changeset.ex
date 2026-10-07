@@ -1,6 +1,6 @@
 defmodule Ryker.CoopFleet.Event.Changeset do
   @moduledoc "How an event a worker reported is recorded (`Ryker.CoopFleet.Event`)."
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.CoopFleet.Event
 
   @fields [

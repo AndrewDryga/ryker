@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.HomeEvent do
   @moduledoc false
-
   alias Ryker.Reference
 
   @enforce_keys [:actor_ref, :event_ref, :workspace_ref]

@@ -4,7 +4,7 @@ defmodule Ryker.Settings.Report do
   of the week at which local time in which zone (`Ryker.WeeklyReport`). Off
   until a person turns it on.
   """
-  use Ecto.Schema
+  use Ryker, :schema
 
   @primary_key {:id, :string, autogenerate: false}
 

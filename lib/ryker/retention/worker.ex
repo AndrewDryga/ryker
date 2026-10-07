@@ -1,12 +1,11 @@
 defmodule Ryker.Retention.Worker do
   @moduledoc "A small polling process for ownership cleanup and data pruning."
-
   use Ryker.PollingWorker, lane: :retention, interval: :poll_interval_ms
-  require Logger
   alias Ryker.CoopFleet.{Bodies, ControlPlane}
   alias Ryker.Observability.Progress
   alias Ryker.Repo
   alias Ryker.Retention.{Custody, Data, Dispatcher}
+  require Logger
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(options) do

@@ -18,7 +18,6 @@ defmodule Ryker.Improvement.Evidence do
   `message_keys` and `conversation_refs` name every message, topic and
   conversation it quotes, as routing examples name them, for forgetting.
   """
-
   alias Ryker.Admission.Attempt
   alias Ryker.Delivery.{PlatformAction, RoutingResponse}
   alias Ryker.Episodes.Episode

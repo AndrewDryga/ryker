@@ -1,6 +1,6 @@
 defmodule Ryker.CoopFleet.Certificate.Query do
   @moduledoc "Worker client certificates, for every read of `coop_worker_certificates`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.CoopFleet.{Certificate, Worker}
 
   def all, do: from(certificates in Certificate, as: :coop_worker_certificates)

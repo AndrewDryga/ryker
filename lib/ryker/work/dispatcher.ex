@@ -9,11 +9,10 @@ defmodule Ryker.Work.Dispatcher do
   an exception raised by the executor, named by its module, and a turn whose
   claims already used up its attempts.
   """
-
-  require Logger
   alias Ryker.ErrorDetail
   alias Ryker.Reference
   alias Ryker.Work.{Custody, Executor}
+  require Logger
 
   @type result ::
           {:ok,

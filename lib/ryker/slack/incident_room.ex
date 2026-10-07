@@ -5,11 +5,7 @@ defmodule Ryker.Slack.IncidentRoom do
   The room owns only provisioning and presentation receipts. The linked episode
   remains the authority for investigation, waits, results, and delivery.
   """
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "slack_incident_rooms" do
     field(:ref, :string)
@@ -73,7 +69,7 @@ defmodule Ryker.Slack.IncidentRoom do
     # (`Ryker.Slack.IncidentRooms.request_close/2`).
     field(:close_requested_at, :utc_datetime_usec)
     field(:close_requested_by, :string)
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

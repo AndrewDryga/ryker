@@ -38,7 +38,6 @@ defmodule Ryker.LocalRoutingConcurrencyTest do
   defmodule LocalModel do
     @moduledoc false
     @behaviour Plug
-
     import Plug.Conn
     alias Ryker.Fixtures.LocalRouting, as: Harvested
 

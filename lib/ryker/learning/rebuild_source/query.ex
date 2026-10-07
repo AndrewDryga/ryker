@@ -5,7 +5,7 @@ defmodule Ryker.Learning.RebuildSource.Query do
   Every query starts from `Ryker.Learning.ConversationObservation.Query.all/0`
   and joins the entry as `:ingress_inbox_entries`.
   """
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Slack.ChannelMembership

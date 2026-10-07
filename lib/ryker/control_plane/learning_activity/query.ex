@@ -4,7 +4,7 @@ defmodule Ryker.ControlPlane.LearningActivity.Query do
   the messages learning has not read yet, the handovers Work could not save,
   the topics an attempt wrote, and the attempts that stopped on a topic.
   """
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Knowledge.{ConversationKnowledge, KnowledgeRevision}

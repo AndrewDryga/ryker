@@ -10,12 +10,11 @@ defmodule Ryker.Delivery.Worker do
   nothing to send it sleeps until the next retry or unrenewed lease falls due,
   or for its safety-net interval.
   """
-
   use Ryker.PollingWorker, lane: :delivery, interval: :poll_interval_ms
-  require Logger
   alias Ryker.Delivery.Dispatcher
   alias Ryker.Observability.Progress
   alias Ryker.PollingWorker
+  require Logger
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(options) do

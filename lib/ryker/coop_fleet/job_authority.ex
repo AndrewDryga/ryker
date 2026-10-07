@@ -1,6 +1,5 @@
 defmodule Ryker.CoopFleet.JobAuthority do
   @moduledoc "Freezes controller settings and exact sources before a session can be placed."
-
   alias Ryker.CanonicalJSON
   alias Ryker.Config
   alias Ryker.CoopFleet.{Command, JobCheck, JobSpec, JobTemplates, ManagedSources}

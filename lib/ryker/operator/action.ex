@@ -1,10 +1,7 @@
 defmodule Ryker.Operator.Action do
   @moduledoc false
-
-  use Ecto.Schema
+  use Ryker, :schema
   alias Ryker.CanonicalJSON.Type, as: CanonicalJSONType
-
-  @primary_key {:id, :binary_id, autogenerate: true}
 
   schema "ryker_operator_actions" do
     field(:action_ref, :string)
@@ -17,7 +14,7 @@ defmodule Ryker.Operator.Action do
     field(:outcome, CanonicalJSONType)
     field(:occurred_at, :utc_datetime_usec)
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

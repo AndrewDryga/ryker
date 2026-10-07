@@ -1,8 +1,4 @@
 defmodule Ryker.ControlPlane.PromptDocument do
-  alias Ryker.ControlPlane.Components
-  alias Ryker.ControlPlane.RequestContextHTML
-  alias Ryker.Crypto
-
   @moduledoc """
   The retained prompt, formatted and read one briefing section at a time.
 
@@ -11,6 +7,10 @@ defmodule Ryker.ControlPlane.PromptDocument do
   section's fragments on request, because highlighting every section at once
   made each one impossible to find.
   """
+  alias Ryker.ControlPlane.Components
+  alias Ryker.ControlPlane.RequestContextHTML
+  alias Ryker.Crypto
+
   @tokens ~r/\s+|"(?:\\.|[^"\\])*"|[{}\[\],:]|[^\s{}\[\],:]+/u
   # Private-use characters mark where each part starts and ends during the walk;
   # the layout then turns them into one block per part.

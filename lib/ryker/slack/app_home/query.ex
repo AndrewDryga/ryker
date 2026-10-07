@@ -5,7 +5,7 @@ defmodule Ryker.Slack.AppHome.Query do
   and schedules. `destination_refs` are the Slack conversations the person
   may see, `channel_refs` their channel ids.
   """
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Behaviors.Behavior
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Memories.MemoryEntry

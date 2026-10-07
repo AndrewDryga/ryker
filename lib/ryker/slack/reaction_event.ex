@@ -6,7 +6,6 @@ defmodule Ryker.Slack.ReactionEvent do
   wake a model turn, or grant authority. Only a user reaction on a message
   authored by this exact configured bot identity is accepted.
   """
-
   alias Ryker.Reference
 
   @identity_fields [:bot_ref, :bot_user_ref, :workspace_ref]

@@ -6,7 +6,6 @@ defmodule Ryker.Evals.WorldEvidence do
   recorded source and state calls, and finally the judge's verdict or the
   execution error that stopped the run.
   """
-
   import Ecto.Query
   alias Ryker.Crypto
   alias Ryker.Evals.{Evidence, WorldCase, WorldCassette, WorldInputs}

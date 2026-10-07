@@ -1,6 +1,6 @@
 defmodule Ryker.Knowledge.KnowledgeRevision.Query do
   @moduledoc "Every version of each topic, for every read of `conversation_knowledge_revisions`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Knowledge.{ConversationKnowledge, KnowledgeRevision}
 
   def all, do: from(revisions in KnowledgeRevision, as: :conversation_knowledge_revisions)

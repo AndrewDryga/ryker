@@ -1,6 +1,6 @@
 defmodule Ryker.Settings.Environment.Query do
   @moduledoc "Work environments, for every read of `environment_settings` and of who selects one."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Settings.Environment
 
   def all, do: from(environments in Environment, as: :environment_settings)

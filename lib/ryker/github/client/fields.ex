@@ -10,7 +10,6 @@ defmodule Ryker.GitHub.Client.Fields do
   request with something Ryker will not pass on. Predicates return a boolean
   and leave the error to their caller.
   """
-
   alias Ryker.GitObject
 
   @repository ~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/

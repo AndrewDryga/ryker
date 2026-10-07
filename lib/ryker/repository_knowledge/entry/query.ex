@@ -1,6 +1,6 @@
 defmodule Ryker.RepositoryKnowledge.Entry.Query do
   @moduledoc "What Ryker knows about each repository, for every read of `repository_knowledge`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.RepositoryKnowledge.{Entry, Run}
 
   def all, do: from(entries in Entry, as: :repository_knowledge)

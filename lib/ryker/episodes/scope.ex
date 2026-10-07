@@ -5,7 +5,6 @@ defmodule Ryker.Episodes.Scope do
   Memory, guidance and automations are scoped to a Slack workspace or a GitHub
   binding; every other transport's conversation is its own workspace.
   """
-
   alias Ryker.Episodes.Episode
 
   @spec workspace_ref(Episode.t()) :: String.t()

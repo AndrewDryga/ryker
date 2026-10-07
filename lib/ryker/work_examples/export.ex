@@ -30,7 +30,6 @@ defmodule Ryker.WorkExamples.Export do
   The rows are read in batches inside one transaction and each line is handed
   on as it is encoded, so an export never holds the whole set in memory.
   """
-
   alias Ryker.Repo
   alias Ryker.Settings.Retention
   alias Ryker.TrainingExamples

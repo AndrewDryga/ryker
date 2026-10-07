@@ -6,7 +6,6 @@ defmodule Ryker.Slack.InteractionRepaint do
   incident, setup, Work, and record state is reloaded before `chat.update`;
   action values are never interpreted as authority here.
   """
-
   alias Ryker.Episodes.Episode
   alias Ryker.Records.DerivedContext
   alias Ryker.Repo

@@ -1,6 +1,6 @@
 defmodule Ryker.CoopFleet.Placement.Query do
   @moduledoc "Where each Coop session runs, for every read of `coop_session_placements`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.CoopFleet.{Command, Placement, Worker}
   alias Ryker.Work.Session
 

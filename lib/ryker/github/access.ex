@@ -1,6 +1,5 @@
 defmodule Ryker.GitHub.Access do
   @moduledoc "Applies authenticated GitHub App installation and repository access changes."
-
   alias Ryker.GitHub.Binding
   alias Ryker.{IntegrationSetup, Settings}
 

@@ -8,7 +8,6 @@ defmodule Ryker.Ingress.AdaptersTest do
 
   defmodule WrongSourceAdapter do
     @behaviour Ryker.Ingress.Adapter
-
     alias Ryker.Ingress.AdaptersTest
     alias Ryker.Slack.Input
 

@@ -1,6 +1,5 @@
 defmodule Ryker.GitHub.Engagement do
   @moduledoc "Host-owned quiet-default eligibility for authenticated GitHub inputs."
-
   alias Ryker.Behaviors
   alias Ryker.Episodes.Episode
   alias Ryker.GitHub.Binding

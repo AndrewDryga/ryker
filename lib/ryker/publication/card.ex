@@ -1,6 +1,5 @@
 defmodule Ryker.Publication.Card do
   @moduledoc false
-
   alias Ryker.GitObject
   alias Ryker.Publication.{Publication, Review}
 

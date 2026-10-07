@@ -1,6 +1,6 @@
 defmodule Ryker.CoopFleet.SessionEvidence.Query do
   @moduledoc "What each Coop session showed of its sandbox, for every read of `coop_session_evidence`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.CoopFleet.SessionEvidence
 
   def all, do: from(evidence in SessionEvidence, as: :coop_session_evidence)

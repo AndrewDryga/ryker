@@ -13,7 +13,6 @@ defmodule Ryker.ControlPlane.FormDraft do
   revision it began from otherwise, so its save meets the conflict instead of
   writing over the change.
   """
-
   alias Plug.Conn.{InvalidQueryError, Query}
 
   @doc "A digest of the saved values a draft is compared with."

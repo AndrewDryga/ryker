@@ -23,7 +23,6 @@ defmodule Ryker.Transcription do
   until `Ryker.Transcription.Worker` settles it (`settle/2`), and routing
   waits for that, for `wait_seconds/0` at most (`Ryker.Ingress.Inbox`).
   """
-
   alias Ryker.Config
 
   @maximum_bytes 8 * 1_024 * 1_024

@@ -1,6 +1,5 @@
 defmodule Ryker.CoopFleet.Requests do
   @moduledoc false
-
   # Command kinds are private Work bookkeeping. The worker receives only ordinary
   # Coop HTTP requests, so adding an API endpoint never changes its wire protocol.
   alias Ryker.{Artifacts, CanonicalJSON, Repo}

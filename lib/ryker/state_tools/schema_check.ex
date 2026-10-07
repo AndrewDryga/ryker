@@ -1,13 +1,12 @@
 defmodule Ryker.StateTools.SchemaCheck do
   @moduledoc false
+  alias Ryker.Schedules.ScheduleRecurrence
+  alias Ryker.StateTools.Catalog
 
   # Validates tool arguments against the exact JSON-schema subset the catalog
   # emits (anyOf, oneOf, const, enum, object, array, string, integer, boolean,
   # null). The catalog is the one the caller advertised, so a tool it withheld
   # is not configured here either.
-
-  alias Ryker.Schedules.ScheduleRecurrence
-  alias Ryker.StateTools.Catalog
 
   @spec exact_schema(String.t(), map(), [map()]) :: :ok | {:error, atom()}
   def exact_schema(name, arguments, catalog) do

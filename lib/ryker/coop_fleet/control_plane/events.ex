@@ -8,8 +8,6 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
   the placement's authority, or the proven pre-binding exception to it,
   allows.
   """
-
-  require Logger
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.Command
   alias Ryker.CoopFleet.ControlPlane.{Placements, Shared}
@@ -17,6 +15,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
   alias Ryker.CoopFleet.Placement
   alias Ryker.Repo
   alias Ryker.Work.{Activity, Session}
+  require Logger
 
   # Each batch in a transaction of its own, which locks the worker first, as
   # each command result does. A refused batch is left unacknowledged, so the

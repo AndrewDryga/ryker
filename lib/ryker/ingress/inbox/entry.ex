@@ -8,13 +8,9 @@ defmodule Ryker.Ingress.Inbox.Entry do
   (`Ryker.Transcription`). Admission fills the decision columns and optional
   episode link exactly once in a later transaction.
   """
-
-  use Ecto.Schema
+  use Ryker, :schema
   alias Ryker.CanonicalJSON.Type, as: CanonicalJSONType
   alias Ryker.Episodes.Episode
-
-  @primary_key {:id, :binary_id, autogenerate: false}
-  @foreign_key_type :binary_id
 
   schema "ingress_inbox_entries" do
     field(:dedupe_key, :string)
@@ -73,7 +69,7 @@ defmodule Ryker.Ingress.Inbox.Entry do
     field(:operational_pruned_at, :utc_datetime_usec)
     belongs_to(:episode, Episode)
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

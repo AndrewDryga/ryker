@@ -13,7 +13,6 @@ defmodule Ryker.Work.Custody.Locks do
   outermost commit (`Ryker.Work.Custody.subscribe_sessions/0`, and the request's
   own topics for a turn).
   """
-
   alias Ryker.Crypto
   alias Ryker.Episodes.Episode
   alias Ryker.Lease

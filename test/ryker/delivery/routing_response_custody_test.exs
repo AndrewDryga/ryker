@@ -1,19 +1,18 @@
 defmodule Ryker.Delivery.RoutingResponseCustodyTest do
   use Ryker.DataCase, async: true
   import Ecto.Query
-
-  # Six async suites once shared T123:C456: sandbox transactions held the
-  # conversation lock until test exit and cascaded into 15-second timeouts.
-  # Keep this fixture's workspace distinct; production locks remain unchanged.
-
-  @moduletag isolation: "REPEATABLE READ"
-
   alias Ryker.Admission
   alias Ryker.Admission.Decision
   alias Ryker.Delivery.{RoutingResponse, RoutingResponseCustody}
   alias Ryker.Ingress.Inbox
   alias Ryker.Slack.Input
   alias Ryker.Work.DeliveryReceipt
+
+  # Six async suites once shared T123:C456: sandbox transactions held the
+  # conversation lock until test exit and cascaded into 15-second timeouts.
+  # Keep this fixture's workspace distinct; production locks remain unchanged.
+
+  @moduletag isolation: "REPEATABLE READ"
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 

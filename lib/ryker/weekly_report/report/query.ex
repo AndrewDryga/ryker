@@ -1,6 +1,6 @@
 defmodule Ryker.WeeklyReport.Report.Query do
   @moduledoc "Each week's report, for every read of `weekly_reports`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.WeeklyReport.Report
 
   def all, do: from(reports in Report, as: :weekly_reports)

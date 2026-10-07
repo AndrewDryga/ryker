@@ -4,7 +4,7 @@ defmodule Ryker.ControlPlane.ScheduleDirectory.Query do
   the directory in its order, view, status filter and search, one schedule
   with its times in its own zone, and its runs beside each run's latest turn.
   """
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Episodes.Episode
   alias Ryker.Schedules.{Schedule, ScheduleOccurrence}
   alias Ryker.Work.Turn

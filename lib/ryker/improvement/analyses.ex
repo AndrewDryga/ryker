@@ -16,7 +16,6 @@ defmodule Ryker.Improvement.Analyses do
   Every change a page shows is announced after the outermost commit
   (`Ryker.Improvement.subscribe_improvement/0`); a lease renewal is not.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
   alias Ryker.Improvement
@@ -265,7 +264,6 @@ defmodule Ryker.Improvement.Analyses do
       )
 
       Repo.insert!(%AnalysisRun{
-        id: Ecto.UUID.generate(),
         candidate_id: candidate.id,
         generation: next_generation(candidate.id),
         status: :prepared,

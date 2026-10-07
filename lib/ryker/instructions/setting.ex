@@ -1,6 +1,6 @@
 defmodule Ryker.Instructions.Setting do
   @moduledoc false
-  use Ecto.Schema
+  use Ryker, :schema
 
   @primary_key {:scope_ref, :string, autogenerate: false}
 

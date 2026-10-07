@@ -15,7 +15,6 @@ defmodule Ryker.Slack.CapabilityTools do
   shape bookmarks, canvases and files, and `Actions` freeze a reaction, a Work
   update or an offered post into durable custody.
   """
-
   alias Ryker.Delivery.{PlatformActionCustody, Retry}
   alias Ryker.{Options, Rescued}
   alias Ryker.Slack.CapabilityTools.{Actions, Arguments, Authority, ChannelListing, Search}

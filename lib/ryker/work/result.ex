@@ -6,7 +6,6 @@ defmodule Ryker.Work.Result do
   episode kernel whether those bytes produce a visible reply or a deliberate
   no-delivery result.
   """
-
   alias Ryker.CanonicalJSON
 
   @enforce_keys [:continuation, :delivery]

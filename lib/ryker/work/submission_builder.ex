@@ -6,7 +6,6 @@ defmodule Ryker.Work.SubmissionBuilder do
   its exact prompt and schema bytes from PostgreSQL rather than rebuilding them
   after code or configuration changes.
   """
-
   alias Ryker.Artifacts
   alias Ryker.Behaviors
   alias Ryker.CanonicalJSON

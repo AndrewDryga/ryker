@@ -1,7 +1,6 @@
 defmodule Ryker.Slack.TaskCard.Changeset do
   @moduledoc false
-
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.Slack.TaskCard
 
   @fields [

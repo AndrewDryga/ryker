@@ -16,7 +16,6 @@ defmodule Ryker.ControlPlane.EpisodeCausality do
   Where the selection was never recorded, this module says so rather than
   guessing from proximity.
   """
-
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Work.{ActivityEvent, Turn}
 

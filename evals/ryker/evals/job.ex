@@ -10,7 +10,6 @@ defmodule Ryker.Evals.Job do
   checkout, staged for the eval Coop by `Ryker.Evals.WorldSource` and always
   read-only (`with_source/2`).
   """
-
   alias Ryker.CoopFleet.{JobSpec, JobTemplates}
 
   @variables %{

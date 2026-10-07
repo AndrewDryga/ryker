@@ -5,10 +5,6 @@ defmodule Ryker.Transcription.WorkerTest do
   waits for them.
   """
   use Ryker.DataCase, async: true
-
-  # Admission builds its context in a repeatable-read snapshot.
-  @moduletag isolation: "REPEATABLE READ"
-
   alias Ryker.Admission
   alias Ryker.Admission.{Decision, Prompt}
   alias Ryker.CanonicalJSON
@@ -17,6 +13,9 @@ defmodule Ryker.Transcription.WorkerTest do
   alias Ryker.Slack.{AttachmentIngestor, Event}
   alias Ryker.TestTranscriber
   alias Ryker.Transcription.Worker
+
+  # Admission builds its context in a repeatable-read snapshot.
+  @moduletag isolation: "REPEATABLE READ"
 
   # A workspace of this suite's own, so its conversation locks and kept
   # recordings never meet another async suite's.

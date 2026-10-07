@@ -4,7 +4,7 @@ defmodule Ryker.Learning.LearningInput.Query do
   each became ready, and the conversations whose messages fall due as a
   batch. Each query starts from `Ryker.Ingress.Inbox.Entry.Query.all/0`.
   """
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.{Batch, ConversationObservation, InputMembership}
   alias Ryker.Work.OwningTurn

@@ -11,7 +11,6 @@ defmodule Ryker.ControlPlane.SettingsView do
   A page that shows this view redraws when anything it reads changes
   (`subscriptions/0`).
   """
-
   alias Ryker.Config
   alias Ryker.ControlPlane.{ChannelDirectory, Environments, Integrations, PageRead}
   alias Ryker.ControlPlane.ProductReadiness

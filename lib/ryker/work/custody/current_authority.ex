@@ -16,7 +16,6 @@ defmodule Ryker.Work.Custody.CurrentAuthority do
   now. A session whose policy or working repository settings no longer have
   keeps what it had, and its retry says why.
   """
-
   alias Ryker.CoopFleet.{JobAuthority, JobTemplates}
   alias Ryker.Emisar.Connections, as: EmisarConnections
   alias Ryker.Repo

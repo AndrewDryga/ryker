@@ -1,10 +1,5 @@
 defmodule Ryker.Admission.DispatcherTest do
   use Ryker.DataCase, async: true
-
-  # A suite-owned workspace keeps conversation locks out of other async fixtures.
-
-  @moduletag isolation: "REPEATABLE READ"
-
   alias Ryker.Admission
   alias Ryker.Admission.{Decision, Dispatcher, Executor}
   alias Ryker.Admission.DispatcherTest.ExecutorStub
@@ -14,6 +9,10 @@ defmodule Ryker.Admission.DispatcherTest do
   alias Ryker.Ingress.Inbox
   alias Ryker.Slack.Input
   alias Ryker.TestSupport.FakeCoopAPI, as: FakeAPI
+
+  # A suite-owned workspace keeps conversation locks out of other async fixtures.
+
+  @moduletag isolation: "REPEATABLE READ"
 
   @now ~U[2026-08-27 12:00:00.000000Z]
   @mentioned [slack_audience: :mention, slack_bot_user_ref: "UBOT"]

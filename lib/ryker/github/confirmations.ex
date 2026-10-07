@@ -8,8 +8,6 @@ defmodule Ryker.GitHub.Confirmations do
   delivery target, and delegates the durable transition to the same state
   services used by Slack and Chat.
   """
-
-  require Logger
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Automations
   alias Ryker.Episodes.Episode
@@ -21,6 +19,7 @@ defmodule Ryker.GitHub.Confirmations do
   alias Ryker.Repo
   alias Ryker.Schedules
   alias Ryker.Work.Turn
+  require Logger
 
   @command_prefix "/ryker confirm"
   @command ~r/\A\/ryker confirm ([A-Za-z0-9_.:-]{1,256})\z/

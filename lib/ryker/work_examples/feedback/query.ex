@@ -1,6 +1,6 @@
 defmodule Ryker.WorkExamples.Feedback.Query do
   @moduledoc "Feedback kept with Work examples, for every read of `work_example_feedback`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Feedback.Signal
   alias Ryker.Work.Turn

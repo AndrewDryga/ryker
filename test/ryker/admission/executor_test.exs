@@ -2,9 +2,6 @@ defmodule Ryker.Admission.ExecutorTest do
   use Ryker.DataCase, async: true
   import Ecto.Query
   import Phoenix.LiveViewTest
-
-  @moduletag isolation: "REPEATABLE READ"
-
   alias Ryker.Admission.{Executor, FleetSession, Runtime}
   alias Ryker.ControlPlane.{EpisodePage, ModelRequests}
   alias Ryker.FakeRetentionCoopAPI, as: RetentionAPI
@@ -15,6 +12,8 @@ defmodule Ryker.Admission.ExecutorTest do
   alias Ryker.TestSupport.FakeCoopAPI, as: FakeAPI
   alias Ryker.Webhooks.{Input, Route}
   alias Ryker.Work.Session
+
+  @moduletag isolation: "REPEATABLE READ"
 
   @now ~U[2026-08-27 12:00:00.000000Z]
 

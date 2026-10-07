@@ -1,4 +1,5 @@
 defmodule Mix.Tasks.Ryker.Replay do
+  @shortdoc "Queues or inspects a private no-delivery Slack replay"
   @moduledoc """
   Queues or inspects a private Slack replay.
 
@@ -10,12 +11,9 @@ defmodule Mix.Tasks.Ryker.Replay do
   The replay enters normal admission and Work as shadow execution; all visible
   Slack and other platform effects are forbidden by that shared host boundary.
   """
-
   use Mix.Task
   alias Mix.Tasks.Ryker.OperatorSupport, as: Support
   alias Ryker.Operator.SlackReplay
-
-  @shortdoc "Queues or inspects a private no-delivery Slack replay"
 
   @impl Mix.Task
   def run(arguments) do

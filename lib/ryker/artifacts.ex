@@ -7,7 +7,6 @@ defmodule Ryker.Artifacts do
   exact bytes against Coop's public input-artifact contract, and Work later
   loads them by opaque artifact reference.
   """
-
   import Bitwise
   alias Ryker.Artifacts.Artifact
   alias Ryker.CanonicalJSON
@@ -183,7 +182,7 @@ defmodule Ryker.Artifacts do
          %{
            byte_size: byte_size(attributes.data),
            data: attributes.data,
-           id: Ecto.UUID.generate(),
+           id: Repo.generate_id(),
            media_type: attributes.media_type,
            name: attributes.name,
            ref: artifact_ref(attributes.source_kind, attributes.source_ref, sha256),

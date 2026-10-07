@@ -1,15 +1,14 @@
 defmodule Ryker.Slack.EngagementTest do
   use Ryker.DataCase, async: true
-
-  # Admission reads its context at REPEATABLE READ.
-  @moduletag isolation: "REPEATABLE READ"
-
   alias Ryker.Admission
   alias Ryker.Admission.Decision
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
   alias Ryker.Slack.{Engagement, Event, Input}
+
+  # Admission reads its context at REPEATABLE READ.
+  @moduletag isolation: "REPEATABLE READ"
 
   test "an ambient reply in an existing Slack thread remains engaged without a channel watch" do
     {:ok, _transition} =

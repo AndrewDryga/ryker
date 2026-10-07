@@ -21,8 +21,7 @@ defmodule Ryker.Feedback.Signal do
     as its platform names it: a quick reply can be several messages, and a
     request holds its updates beside its replies.
   """
-
-  use Ecto.Schema
+  use Ryker, :schema
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
 
@@ -36,9 +35,6 @@ defmodule Ryker.Feedback.Signal do
     :reviewed
   ]
   @categories [:frustrated, :asked_again, :edited, :neutral, :satisfied]
-
-  @primary_key {:id, :binary_id, autogenerate: false}
-  @foreign_key_type :binary_id
 
   schema "answer_feedback" do
     field(:kind, Ecto.Enum, values: @kinds)

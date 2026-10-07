@@ -7,6 +7,7 @@ defmodule Ryker.Improvement.EvalCasesTaskTest do
   use ExUnit.Case, async: false
   alias Ecto.Adapters.SQL
   alias Ryker.Evals.WorldCase
+  alias Ryker.Improvement.{Candidate, Export}
 
   defmodule CommittedRepo do
     use Ecto.Repo,
@@ -51,7 +52,9 @@ defmodule Ryker.Improvement.EvalCasesTaskTest do
       assert status == 0, log
       assert log =~ "Wrote 1 eval cases to #{output}"
 
-      case_id = "feedback-20260927-#{String.slice(id, 0, 8)}"
+      case_id =
+        Export.case_id(%Candidate{id: id, decided_at: DateTime.from_naive!(@at, "Etc/UTC")})
+
       File.mkdir_p!(Path.join(output, "va1-health-review-repairs-and-finishes"))
 
       File.cp!(

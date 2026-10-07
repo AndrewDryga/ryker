@@ -9,7 +9,6 @@ defmodule Ryker.Admission.Occurrences do
   a service name, alert rule, URL or old incident id inside app text is a clue
   for ranking, never an exclusive claim — so this returns nothing for them.
   """
-
   alias Ryker.Ingress.Input
   alias Ryker.Publication.DeploymentSignal
 

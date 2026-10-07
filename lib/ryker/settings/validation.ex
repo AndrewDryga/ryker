@@ -1,6 +1,5 @@
 defmodule Ryker.Settings.Validation do
   @moduledoc "Shared typed validation for settings writes; errors name fields, never values."
-
   import Ecto.Changeset
 
   @ten_years 10 * 365 * 86_400

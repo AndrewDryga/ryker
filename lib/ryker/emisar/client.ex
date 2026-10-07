@@ -5,9 +5,7 @@ defmodule Ryker.Emisar.Client do
   Credentials and the exact RPC endpoint come from trusted runtime
   configuration. Run URLs are accepted only from that same HTTPS origin.
   """
-
   @behaviour Ryker.Emisar.API
-
   alias Ryker.Crypto
   alias Ryker.Emisar.{Review, RunState}
   alias Ryker.Reference

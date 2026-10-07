@@ -1,10 +1,6 @@
 defmodule Ryker.CoopFleet.EnrollmentToken do
   @moduledoc false
-
-  use Ecto.Schema
-
-  @primary_key {:id, Ecto.UUID, autogenerate: true}
-  @foreign_key_type Ecto.UUID
+  use Ryker, :schema
 
   schema "coop_worker_enrollment_tokens" do
     field(:worker_id, :string)
@@ -15,6 +11,6 @@ defmodule Ryker.CoopFleet.EnrollmentToken do
     field(:consumed_at, :utc_datetime_usec)
     field(:certificate_sha256, :string)
 
-    timestamps(type: :utc_datetime_usec, updated_at: false)
+    timestamps(updated_at: false)
   end
 end

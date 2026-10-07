@@ -6,7 +6,6 @@ defmodule Ryker.Records.TaskOffers do
   into work, after the platform adapter has authenticated the actor and supplied
   the exact message that carried the control.
   """
-
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode}
   alias Ryker.Records
@@ -77,7 +76,7 @@ defmodule Ryker.Records.TaskOffers do
   end
 
   defp create_episode(record, source_episode, attributes) do
-    episode_id = Ecto.UUID.generate()
+    episode_id = Repo.generate_id()
     turn_ref = "turn:task:#{Ecto.UUID.generate()}"
 
     command = %Command.AdmitInput{

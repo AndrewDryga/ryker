@@ -1,6 +1,6 @@
 defmodule Ryker.People.PersonFact.Query do
   @moduledoc "What people said about themselves, for every read of `person_facts`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.People.PersonFact
 
   def all, do: from(facts in PersonFact, as: :person_facts)

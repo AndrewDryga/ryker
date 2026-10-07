@@ -1,11 +1,6 @@
 defmodule Ryker.ControlPlane.FailureProjectionTest do
   use Ryker.DataCase, async: true
   import Ryker.TestHelpers, only: [digest: 1]
-
-  # Admission context reads under REPEATABLE READ; the fixture keeps its own
-  # workspace so the conversation lock never waits on another suite.
-  @moduletag isolation: "REPEATABLE READ"
-
   import Ecto.Query, only: [from: 2]
   alias Ryker.Admission
   alias Ryker.Admission.{Decision, ReadySessions}
@@ -30,6 +25,10 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Slack.{Interaction, InteractionAudits}
   alias Ryker.Work.{Cancellation, Custody, Session, Submission, Turn}
+
+  # Admission context reads under REPEATABLE READ; the fixture keeps its own
+  # workspace so the conversation lock never waits on another suite.
+  @moduletag isolation: "REPEATABLE READ"
 
   @now ~U[2026-08-28 12:00:00.000000Z]
   @sandbox String.duplicate("d", 64)

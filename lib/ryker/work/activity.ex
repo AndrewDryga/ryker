@@ -7,7 +7,6 @@ defmodule Ryker.Work.Activity do
   the cursor so they cannot be fetched forever. Recording is independent from
   turn settlement, allowing the executor to treat narration as best effort.
   """
-
   alias Ryker.Admission.FleetSession
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes

@@ -2,7 +2,6 @@ defmodule Ryker.BundledCoop.Reconciler do
   @moduledoc """
   Keeps the bundled Compose worker able to replace an expired client identity.
   """
-
   use GenServer
   require Logger
 

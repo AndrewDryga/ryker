@@ -17,7 +17,6 @@ defmodule Ryker.ControlPlane.CloudflareAccess do
   next key before signing with it, so a token naming a key Ryker has not seen
   reads them again, at most once a minute.
   """
-
   alias Ryker.ControlPlane.Viewer
   alias Ryker.Delivery.HTTPClient
 

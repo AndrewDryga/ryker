@@ -1,6 +1,7 @@
 defmodule Ryker.Knowledge.KnowledgeExposure do
   @moduledoc false
-  use Ecto.Schema
+  use Ryker, :schema
+
   @primary_key false
 
   schema "episode_work_knowledge_exposures" do

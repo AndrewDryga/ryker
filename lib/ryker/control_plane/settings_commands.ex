@@ -8,7 +8,6 @@ defmodule Ryker.ControlPlane.SettingsCommands do
   the expected revision, whole-changeset validation and the edit receipt.
   Nothing here writes a row or decides what is allowed.
   """
-
   alias Ryker.ControlPlane.SettingsSections
   alias Ryker.Credentials
   alias Ryker.Settings

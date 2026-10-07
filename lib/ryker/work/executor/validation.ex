@@ -9,7 +9,6 @@ defmodule Ryker.Work.Executor.Validation do
   cleanup-failed responses against the remote turn. The validation context
   builders live here as well.
   """
-
   alias Ryker.Artifacts.Outputs
   alias Ryker.Delivery.{PlatformActionCustody, Presentation}
   alias Ryker.Records

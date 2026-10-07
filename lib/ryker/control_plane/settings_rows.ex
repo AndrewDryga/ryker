@@ -4,7 +4,6 @@ defmodule Ryker.ControlPlane.SettingsRows do
   it does and one line of facts in the list, and on its own page the address
   a sender posts to, when it has one.
   """
-
   alias Ryker.ControlPlane.{Integrations, SettingsSections, ShortTime}
   alias Ryker.Slack.Names
   alias Ryker.Work.ExecutionTarget

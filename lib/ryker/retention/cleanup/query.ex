@@ -10,7 +10,7 @@ defmodule Ryker.Retention.Cleanup.Query do
   Operator and readiness projections share these, so a Work, learning or
   admission backlog can never be invisible to the surface that reports it.
   """
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.CoopFleet.{Placement, Worker}
   alias Ryker.Episodes.Episode
   alias Ryker.Improvement.AnalysisRun

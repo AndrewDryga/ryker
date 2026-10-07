@@ -8,7 +8,6 @@ defmodule Ryker.Publication.Followups.Leases do
   Every step that writes after a claim first proves the lease is still the
   caller's and still live, so a worker that lost its lease changes nothing.
   """
-
   alias Ryker.ErrorDetail
   alias Ryker.Lease
   alias Ryker.Publication.{Followup, LifecycleEvent}

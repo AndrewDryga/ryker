@@ -1,6 +1,5 @@
 defmodule Ryker.Records.RecordPayload do
   @moduledoc false
-
   alias Ryker.CanonicalJSON
   alias Ryker.Emisar.ApprovalContract
   alias Ryker.Records.InvestigationPayload

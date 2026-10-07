@@ -17,6 +17,17 @@ defmodule Ryker.ControlPlane.ConversationLab do
   environment, once stored or changed, is announced on the conversation's
   topics (`Ryker.Episodes.subscribe_conversations/1`).
   """
+  alias Ryker.AdvisoryLock
+  alias Ryker.Artifacts
+  alias Ryker.ControlPlane.{Actor, Conversation}
+  alias Ryker.Episodes
+  alias Ryker.Episodes.Reactions
+  alias Ryker.Ingress.{Inbox, Input, WorkProfile}
+  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Reference
+  alias Ryker.Repo
+  alias Ryker.Settings.Environment
+  alias Ryker.Transcription
 
   # Direct-conversation input enters the inbox directly; the Slack engagement
   # gate never runs for it, and the receipt says that instead of inventing
@@ -30,18 +41,6 @@ defmodule Ryker.ControlPlane.ConversationLab do
     "settings" => nil,
     "execution_mode" => "live"
   }
-
-  alias Ryker.AdvisoryLock
-  alias Ryker.Artifacts
-  alias Ryker.ControlPlane.{Actor, Conversation}
-  alias Ryker.Episodes
-  alias Ryker.Episodes.Reactions
-  alias Ryker.Ingress.{Inbox, Input, WorkProfile}
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Reference
-  alias Ryker.Repo
-  alias Ryker.Settings.Environment
-  alias Ryker.Transcription
 
   @maximum_message_bytes 20_000
   @maximum_attachments 2

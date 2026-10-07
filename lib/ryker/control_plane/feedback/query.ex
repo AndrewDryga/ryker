@@ -5,12 +5,12 @@ defmodule Ryker.ControlPlane.Feedback.Query do
   signal is about, the newest signals of each category, and the requests and
   messages the signals name.
   """
-  import Ecto.Query
-  require Ryker.ControlPlane.CurrentInput.Query
+  use Ryker, :query
   alias Ryker.ControlPlane.CurrentInput
   alias Ryker.Episodes.RoutingDigest
   alias Ryker.Feedback.Signal
   alias Ryker.Ingress.Inbox.Entry
+  require Ryker.ControlPlane.CurrentInput.Query
 
   @doc """
   The signals of `queryable` whose note or emoji, or the name of the request they

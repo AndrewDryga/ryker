@@ -1,6 +1,6 @@
 defmodule Ryker.CoopFleet.SessionEvidence.Changeset do
   @moduledoc "The one write of session evidence: a new snapshot of a session's state."
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.CoopFleet.SessionEvidence
 
   @fields ~w(id session_id episode_id coop_session_id worker_id placement_generation

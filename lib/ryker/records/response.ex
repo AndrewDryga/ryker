@@ -1,10 +1,6 @@
 defmodule Ryker.Records.Response do
   @moduledoc false
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "episode_state_record_responses" do
     belongs_to(:record, Ryker.Records.Record)
@@ -15,6 +11,6 @@ defmodule Ryker.Records.Response do
     field(:choice, :string)
     field(:occurred_at, :utc_datetime_usec)
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 end

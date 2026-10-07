@@ -1,6 +1,6 @@
 defmodule Ryker.Settings.Slack do
   @moduledoc "Slack connection: verified identity, desired enabled state and access lists."
-  use Ecto.Schema
+  use Ryker, :schema
 
   @primary_key {:id, :string, autogenerate: false}
 

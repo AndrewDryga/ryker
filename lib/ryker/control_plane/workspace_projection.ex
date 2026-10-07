@@ -9,7 +9,6 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   on the Learning page (`learning_sessions/0`). Both share one cleanup
   custody, so one confirmed action serves both pages.
   """
-
   alias Ryker.Config
   alias Ryker.ControlPlane.{Activity, PagedRelation, RepositoryNames, WorkingCopy}
   alias Ryker.CoopFleet.Worker, as: FleetWorker

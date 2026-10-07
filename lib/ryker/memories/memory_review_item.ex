@@ -1,9 +1,6 @@
 defmodule Ryker.Memories.MemoryReviewItem do
   @moduledoc false
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
+  use Ryker, :schema
 
   schema "memory_review_items" do
     field(:ref, :string)
@@ -17,7 +14,7 @@ defmodule Ryker.Memories.MemoryReviewItem do
     field(:reviewed_by_actor_ref, :string)
     field(:reviewed_at, :utc_datetime_usec)
     field(:replacement, Ryker.CanonicalJSON.Type)
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

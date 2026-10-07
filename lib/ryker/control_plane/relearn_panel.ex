@@ -15,7 +15,7 @@ defmodule Ryker.ControlPlane.RelearnPanel do
   alias Ryker.ControlPlane.{ConversationMemory, CSRF, Kit, LearningActivity, Paths, SlackMarkdown}
   alias Ryker.ControlPlane.SourceText
   alias Ryker.InspectionRedactor
-  alias Ryker.Slack.Names
+  alias Ryker.Slack
 
   def render(assigns) do
     assigns =
@@ -224,7 +224,7 @@ defmodule Ryker.ControlPlane.RelearnPanel do
 
   defp sources(preview) do
     secrets = InspectionRedactor.configured_secrets()
-    workspace = Names.workspace_from_destination(Map.get(preview, :conversation_ref))
+    workspace = Slack.destination_workspace(Map.get(preview, :conversation_ref))
 
     Enum.map(preview.entries, fn entry ->
       artifact = InspectionRedactor.artifact(entry.content, secrets: secrets, max_bytes: 65_536)
@@ -248,7 +248,7 @@ defmodule Ryker.ControlPlane.RelearnPanel do
         # A Slack person reads as every person does; the name cache redacts
         # their name as it keeps it.
         person:
-          if(Names.person_ref?(entry.actor_ref), do: Names.person(workspace, entry.actor_ref)),
+          if(Slack.person_ref?(entry.actor_ref), do: Slack.person(workspace, entry.actor_ref)),
         actor:
           InspectionRedactor.artifact(actor(workspace, entry.actor_ref), secrets: secrets).text,
         mode: mode(Map.get(entry, :execution_mode)),
@@ -262,7 +262,7 @@ defmodule Ryker.ControlPlane.RelearnPanel do
 
   defp actor(workspace, ref) when is_binary(workspace) and is_binary(ref) do
     ref = ref |> String.replace_prefix("slack:user:", "") |> String.replace_prefix("bot:", "")
-    Names.name(workspace, ref)
+    Slack.name(workspace, ref)
   end
 
   defp actor(_workspace, ref), do: ref

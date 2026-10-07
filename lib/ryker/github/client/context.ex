@@ -10,7 +10,6 @@ defmodule Ryker.GitHub.Client.Context do
   request, so a thread never silently loses its context. Coverage says whether
   the provider page was complete.
   """
-
   alias Ryker.GitHub.Client.{Fields, Transport}
   alias Ryker.GitObject
 

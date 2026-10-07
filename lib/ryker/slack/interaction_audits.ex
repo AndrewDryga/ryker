@@ -10,7 +10,6 @@ defmodule Ryker.Slack.InteractionAudits do
   Each control recorded, repainted, deferred, blocked or rearmed is announced
   after the outermost commit (`subscribe_interactions/0`).
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
   alias Ryker.ErrorDetail
@@ -306,7 +305,7 @@ defmodule Ryker.Slack.InteractionAudits do
       attempt_count: 0,
       channel_ref: interaction.channel_ref,
       event_ref: interaction.event_ref,
-      id: Ecto.UUID.generate(),
+      id: Repo.generate_id(),
       message_ref: interaction.message_ref,
       occurred_at: interaction.occurred_at,
       outcome: outcome,

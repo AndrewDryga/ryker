@@ -1,6 +1,5 @@
 defmodule Ryker.Publication.LifecycleStatus do
   @moduledoc false
-
   alias Ryker.GitObject
   alias Ryker.Reference
 

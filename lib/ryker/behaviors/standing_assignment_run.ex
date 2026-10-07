@@ -1,10 +1,6 @@
 defmodule Ryker.Behaviors.StandingAssignmentRun do
   @moduledoc false
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "standing_assignment_runs" do
     belongs_to(:assignment, Ryker.Behaviors.Behavior)
@@ -21,6 +17,6 @@ defmodule Ryker.Behaviors.StandingAssignmentRun do
     )
 
     field(:decision_ref, :string)
-    timestamps(type: :utc_datetime_usec, updated_at: false)
+    timestamps(updated_at: false)
   end
 end

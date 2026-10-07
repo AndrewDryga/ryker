@@ -1,4 +1,5 @@
 defmodule Mix.Tasks.Ryker.LearningEval do
+  @shortdoc "Runs isolated longitudinal learning; never publishes messages"
   @moduledoc """
   Runs a harvested conversation through production learning in an empty DB.
 
@@ -22,8 +23,6 @@ defmodule Mix.Tasks.Ryker.LearningEval do
   alias Ryker.Evals.{Job, LearningRunner}
   alias Ryker.Evals.Runtime, as: EvalRuntime
   alias Ryker.Repo
-
-  @shortdoc "Runs isolated longitudinal learning; never publishes messages"
 
   @impl Mix.Task
   def run(arguments) do

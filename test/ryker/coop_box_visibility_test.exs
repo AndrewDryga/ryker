@@ -1,6 +1,4 @@
 defmodule Ryker.CoopBoxVisibilityTest do
-  use ExUnit.Case, async: true
-
   @moduledoc """
   Agents work on this repository inside Coop boxes, and a box shows an empty
   decoy in place of every path whose name is on Coop's built-in secret list.
@@ -8,6 +6,7 @@ defmodule Ryker.CoopBoxVisibilityTest do
   compile in any box, and a box agent spent its evening unable to run a single
   test. A tracked path with such a name breaks every box, so it fails here first.
   """
+  use ExUnit.Case, async: true
 
   # Coop's built-in names, matched case-insensitively against each path segment
   # (SecretGlobs, AllowGlobs and the template rule in Coop's

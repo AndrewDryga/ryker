@@ -5,7 +5,6 @@ defmodule Ryker.Operator.Delivery do
   It exposes only routing identifiers, retry state, and bounded error detail;
   frozen model output and platform credentials never cross this boundary.
   """
-
   alias Ryker.Delivery.{PlatformAction, PlatformActionCustody}
   alias Ryker.Delivery.{RoutingResponse, RoutingResponseCustody}
   alias Ryker.{Reference, Repo}

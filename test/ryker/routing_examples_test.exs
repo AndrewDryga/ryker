@@ -19,10 +19,6 @@ defmodule Ryker.RoutingExamplesTest do
   import Ecto.Query
   import ExUnit.CaptureLog
   import Ryker.TestHelpers, only: [digest: 1, eventually: 1]
-
-  # The executor reads routing's context under the isolation it runs with.
-  @moduletag isolation: "REPEATABLE READ"
-
   alias Ryker.Admission.{Attempt, Executor}
   alias Ryker.Delivery.{RoutingResponse, RoutingResponseCustody}
   alias Ryker.Feedback
@@ -42,6 +38,9 @@ defmodule Ryker.RoutingExamplesTest do
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.TestSupport.FakeCoopAPI, as: FakeAPI
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission}
+
+  # The executor reads routing's context under the isolation it runs with.
+  @moduletag isolation: "REPEATABLE READ"
 
   @actor "control-plane:local"
   @day 86_400

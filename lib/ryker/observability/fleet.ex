@@ -8,7 +8,6 @@ defmodule Ryker.Observability.Fleet do
   measurement: a worker that reported nothing is unknown and a stale heartbeat
   is a stale measurement, and neither is folded into the live totals as zero.
   """
-
   alias Ryker.Config
   alias Ryker.CoopFleet.{Command, Placement, Worker}
   alias Ryker.CoopFleet.WorkspaceCheckpointTransfer

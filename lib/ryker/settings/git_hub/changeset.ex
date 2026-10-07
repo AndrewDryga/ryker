@@ -1,8 +1,7 @@
 defmodule Ryker.Settings.GitHub.Changeset do
   @moduledoc "Changes to the GitHub App connection (`Ryker.Settings.GitHub`)."
   @behaviour Ryker.Settings.Section.Changeset
-
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.Settings.GitHub
 
   @fields ~w(enabled app_id app_slug api_url auto_add_repositories bot_actor_id bot_login)a

@@ -1,6 +1,6 @@
 defmodule Ryker.Memories.CaseRecord.Query do
   @moduledoc "Cases kept from finished work, for every read of `episode_case_records`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Memories.CaseRecord
   alias Ryker.Slack.ChannelMembership
 

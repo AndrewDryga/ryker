@@ -7,7 +7,6 @@ defmodule Ryker.ControlPlane.PagedRelation do
   a normalized page and the page count, so a reader can always tell "nothing
   here" from "not on this page".
   """
-
   alias Ryker.ControlPlane.Page
   alias Ryker.Repo
 

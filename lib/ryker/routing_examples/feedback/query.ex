@@ -1,6 +1,6 @@
 defmodule Ryker.RoutingExamples.Feedback.Query do
   @moduledoc "Feedback kept with routing examples, for every read of `routing_example_feedback`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Delivery.RoutingResponse
   alias Ryker.Feedback.Signal
   alias Ryker.RoutingExamples.{Example, Feedback}

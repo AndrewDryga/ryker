@@ -11,7 +11,6 @@ defmodule Ryker.ControlPlane.Pages do
   Each page also declares what it listens to (`subscriptions/2`), so the
   shell redraws an open page when, and only when, something it shows changes.
   """
-
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{BehaviorPage, CasesPage, ChannelDetail, ChannelPage, ChannelsPage}
   alias Ryker.ControlPlane.{ConfigurationGuide, FactsPage, FailureExplanation, FailureProjection}

@@ -6,7 +6,6 @@ defmodule Ryker.Publication.DeploymentSignal do
   normalized content only; arbitrary provider payloads and prose are never
   interpreted as deployment evidence.
   """
-
   alias Ryker.Reference
 
   @event_type "responder.publication_lifecycle.v1"

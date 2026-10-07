@@ -5,7 +5,6 @@ defmodule Ryker.CanonicalJSON.Type do
   PostgreSQL JSONB normalizes some numbers and would make a reloaded immutable
   command differ from the bytes the kernel fingerprinted.
   """
-
   use Ecto.Type
   alias Ryker.CanonicalJSON
 

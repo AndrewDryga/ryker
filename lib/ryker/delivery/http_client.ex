@@ -15,7 +15,6 @@ defmodule Ryker.Delivery.HTTPClient do
   stream stops at the first chunk past the limit, so an endpoint cannot
   exhaust the node while its response is being read.
   """
-
   require Logger
 
   @maximum_token_bytes 4_096

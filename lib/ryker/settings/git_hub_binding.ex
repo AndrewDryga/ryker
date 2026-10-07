@@ -1,6 +1,6 @@
 defmodule Ryker.Settings.GitHubBinding do
   @moduledoc "Exact verified GitHub installation identity for one connected repository."
-  use Ecto.Schema
+  use Ryker, :schema
 
   @primary_key {:name, :string, autogenerate: false}
   # What the App's permissions let Ryker's tools do here, each one a tool
@@ -19,7 +19,7 @@ defmodule Ryker.Settings.GitHubBinding do
 
     field(:granted_permissions, :map, default: %{})
     field(:approvals_allowed, :boolean, default: false)
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

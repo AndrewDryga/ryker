@@ -248,6 +248,44 @@ defmodule Ryker.CredoChecks.StyleChecksTest do
       assert issue.message =~ "contiguous block"
     end
 
+    test "flags a blank line between the moduledoc and the first directive" do
+      source = ~S'''
+      defmodule Ryker.Sprockets do
+        @moduledoc """
+        Sprockets.
+
+        alias in prose is not a directive.
+        """
+
+        alias Ryker.Episodes
+      end
+      '''
+
+      assert [issue] = issues(blank_directives(), source, @context)
+      assert issue.line_no == 7
+      assert issue.message =~ "contiguous block"
+    end
+
+    test "allows a moduledoc directly above the header" do
+      source = ~S'''
+      defmodule Ryker.Sprockets do
+        @moduledoc """
+        Sprockets.
+        """
+        @behaviour Ryker.Coop.API
+        alias Ryker.Episodes
+
+        @doc """
+        Turns.
+        """
+
+        def turn, do: :ok
+      end
+      '''
+
+      assert issues(blank_directives(), source, @context) == []
+    end
+
     test "allows a contiguous header, a why-comment, and the formatter's multi-line blank" do
       source = """
       defmodule Ryker.Sprockets do

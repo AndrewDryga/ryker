@@ -7,7 +7,6 @@ defmodule Ryker.Delivery.Dispatcher do
   routing authority. Any ambiguous provider result releases the exact intent
   for a bounded retry; a typed receipt is the only way to settle custody.
   """
-
   alias Ryker.Artifacts.Outputs
   alias Ryker.Defaults
   alias Ryker.Delivery.{Adapters, PlatformActionCustody, Request, Retry, RoutingResponseCustody}

@@ -1,6 +1,6 @@
 defmodule Ryker.Operator.Action.Query do
   @moduledoc "Audited operator actions, for every read of `ryker_operator_actions`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Operator.Action
 
   def all, do: from(actions in Action, as: :ryker_operator_actions)

@@ -1,6 +1,6 @@
 defmodule Ryker.Slack.ChannelMembership.Query do
   @moduledoc "The Slack channels Ryker is in, for every read of `slack_channel_memberships`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Slack.ChannelMembership
 
   def all, do: from(memberships in ChannelMembership, as: :slack_channel_memberships)

@@ -10,7 +10,6 @@ defmodule Ryker.Publication.Followups.Delivery do
   for a cancelled task, or for an input the task already holds in a newer
   revision, is marked admitted without waking it.
   """
-
   alias Ryker.Delivery.Request
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode}

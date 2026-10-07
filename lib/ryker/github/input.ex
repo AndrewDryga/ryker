@@ -5,9 +5,7 @@ defmodule Ryker.GitHub.Input do
   The trusted binding fixes installation and repository authority. The signed
   event may select only an item and thread inside that repository.
   """
-
   @behaviour Ryker.Ingress.Adapter
-
   alias Ryker.CanonicalJSON
   alias Ryker.GitHub.{Binding, Payload}
   alias Ryker.Ingress.Input

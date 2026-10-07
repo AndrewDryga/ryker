@@ -1,6 +1,6 @@
 defmodule Ryker.Slack.ChannelMembershipEvent.Query do
   @moduledoc "Slack events that changed Ryker's channel memberships, for every read of `slack_channel_membership_events`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Slack.ChannelMembershipEvent
 
   def all, do: from(events in ChannelMembershipEvent, as: :slack_channel_membership_events)

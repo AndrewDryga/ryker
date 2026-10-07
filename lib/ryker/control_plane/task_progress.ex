@@ -11,7 +11,6 @@ defmodule Ryker.ControlPlane.TaskProgress do
   "Conversation span: Not measured", "Received 0", a follow-up status and a
   worker checklist saying "To do" beside "Completed".
   """
-
   alias Ryker.Episodes.Episode
   alias Ryker.Records.Record
   alias Ryker.Repo

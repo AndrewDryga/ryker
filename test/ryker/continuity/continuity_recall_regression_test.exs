@@ -141,7 +141,7 @@ defmodule Ryker.Continuity.ContinuityRecallRegressionTest do
       [input | _] = captured_inputs!()
       memory = captured_memory!(unquote(kind), input, older: true)
       [receipt] = memory.source_dependencies
-      second = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+      second = DateTime.utc_now(:second) |> DateTime.to_iso8601()
       prefix = String.trim_trailing(second, "Z")
       key = if unquote(kind) == :summary, do: "related", else: "rollups"
 

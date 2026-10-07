@@ -26,13 +26,12 @@ defmodule Ryker.GitHub.DeliveryPoller do
   there: kept in memory only, every restart read a day back and warned
   (2026-10-07: each deploy on an App with CI).
   """
-
   use GenServer
-  require Logger
   alias Plug.Adapters.Test.Conn, as: RequestConn
   alias Ryker.Delivery.JSONClient
   alias Ryker.GitHub.{Auth, Events, Router}
   alias Ryker.Secret
+  require Logger
 
   @interval_ms 30_000
   @first_poll_ms 5_000

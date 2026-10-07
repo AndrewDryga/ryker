@@ -6,7 +6,6 @@ defmodule Ryker.Episodes.Replay do
   database, and rejects unknown commands. This is the deterministic regression
   lane; model behavior belongs in a separate eval lane.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Command
   alias Ryker.Episodes.Command.{AcceptResult, AdmitInput, CancelEpisode, ConfirmDelivery}

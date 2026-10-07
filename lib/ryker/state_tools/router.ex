@@ -6,15 +6,13 @@ defmodule Ryker.StateTools.Router do
   resolved the request's bearer, the active turn's capability, to the turn's
   binding, so every call here acts for that one turn.
   """
-
   @behaviour Plug
-
   import Plug.Conn
-  require Logger
   alias Ryker.{CanonicalJSON, Secret}
   alias Ryker.Emisar.Tools, as: EmisarTools
   alias Ryker.HTTPConnection
   alias Ryker.StateTools.{CallLog, Capabilities, LookupContext, Tools, ToolVisibility}
+  require Logger
 
   @maximum_body_bytes 1_048_576
   @protocol_version "2025-11-25"

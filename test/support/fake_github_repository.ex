@@ -9,10 +9,8 @@ defmodule Ryker.TestSupport.FakeGitHubRepository do
   Every call is recorded (`calls/0`), so a test can say what GitHub was never
   asked.
   """
-
   @behaviour Ryker.GitHub.Onboarding
   @behaviour Ryker.RepositoryKnowledge.Remote
-
   use Agent
 
   def start_link(options) do

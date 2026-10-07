@@ -1,6 +1,6 @@
 defmodule Ryker.Schedules.Schedule.Query do
   @moduledoc "Scheduled automations, for every read of `episode_schedules`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Schedules.Schedule
 
   def all, do: from(schedules in Schedule, as: :episode_schedules)

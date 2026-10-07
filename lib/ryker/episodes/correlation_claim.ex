@@ -7,11 +7,7 @@ defmodule Ryker.Episodes.CorrelationClaim do
   comparison never becomes a claim. The unique active owner is the fence that
   keeps two channels from creating duplicate work for one occurrence.
   """
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "episode_correlation_claims" do
     belongs_to(:episode, Ryker.Episodes.Episode)
@@ -22,7 +18,7 @@ defmodule Ryker.Episodes.CorrelationClaim do
     field(:lifecycle_state, Ecto.Enum, values: [:active, :terminal], default: :active)
     field(:status, Ecto.Enum, values: [:active, :retired], default: :active)
     field(:established_at, :utc_datetime_usec)
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

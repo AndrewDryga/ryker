@@ -4,7 +4,7 @@ defmodule Ryker.ControlPlane.RepositoryPage.Query do
   (`Ryker.ControlPlane.RepositoryProjection`): how many rows of a kind each
   repository has, and the receipt of the code its tasks last recorded.
   """
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Work.{Session, Turn}
 
   @doc "How many rows of `queryable` name each of `refs` in `field`, as `{ref, count}`."

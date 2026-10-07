@@ -13,7 +13,6 @@ defmodule Ryker.Evals.RoutingReplay do
   finds what a prompt change moves. Whether each move is better is for a
   person to read, with the request's own page open.
   """
-
   alias Ryker.Evals.{CoopRunner, JsonLines, RoutingReplayCase}
   alias Ryker.LocalRouting.Client
 

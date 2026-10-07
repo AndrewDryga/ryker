@@ -10,7 +10,6 @@ defmodule Ryker.Work.Custody.Cancellation do
   episode cancel or transfer. Blocked work resumes through
   the same transfer path once an operator confirms the exact stopped turn.
   """
-
   import Ryker.Work.Custody.Locks
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.ControlPlane, as: FleetControlPlane

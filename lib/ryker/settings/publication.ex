@@ -1,6 +1,6 @@
 defmodule Ryker.Settings.Publication do
   @moduledoc "Draft publication settings; credentials alone never enable publishing."
-  use Ecto.Schema
+  use Ryker, :schema
 
   @primary_key {:id, :string, autogenerate: false}
 

@@ -1,6 +1,6 @@
 defmodule Ryker.Work.Turn.Query do
   @moduledoc "Work turns, for every read of `episode_work_turns`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Episodes.Episode
   alias Ryker.Work.{Session, Turn}
 

@@ -9,13 +9,13 @@ defmodule Ryker.Learning.Worker do
   (`Ryker.Learning.Batches.next_due_at/2`), or for its safety-net interval.
   """
   use Ryker.PollingWorker, lane: :learning, interval: :poll_interval_ms
-  require Logger
   alias Ryker.Episodes
   alias Ryker.Ingress.Inbox
   alias Ryker.Learning
   alias Ryker.Learning.{Batches, Dispatcher}
   alias Ryker.Observability.Progress
   alias Ryker.PollingWorker
+  require Logger
 
   def start_link(settings), do: GenServer.start_link(__MODULE__, settings)
 

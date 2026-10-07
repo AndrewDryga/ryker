@@ -26,7 +26,6 @@ defmodule Ryker.Ingress.WorkProfile do
   no environment, no repository set and no Emisar account, and its document
   carries none of those keys.
   """
-
   alias Ryker.Reference
   alias Ryker.Work.RepositoryContext
 

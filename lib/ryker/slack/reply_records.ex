@@ -10,7 +10,6 @@ defmodule Ryker.Slack.ReplyRecords do
   record our state server then read back — is not a receipt, and its source is
   omitted rather than linked.
   """
-
   alias Ryker.Behaviors.Behavior
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Memories.MemoryEntry

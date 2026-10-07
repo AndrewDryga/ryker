@@ -1,6 +1,6 @@
 defmodule Ryker.Learning.ConversationObservation.Query do
   @moduledoc "What learning observed in conversations, for every read of `conversation_observations`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Learning.ConversationObservation
 
   def all, do: from(observations in ConversationObservation, as: :conversation_observations)

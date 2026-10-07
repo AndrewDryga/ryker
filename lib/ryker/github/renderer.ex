@@ -7,7 +7,6 @@ defmodule Ryker.GitHub.Renderer do
   command; governed Emisar and publication approvals stay on their existing
   authoritative surfaces.
   """
-
   alias Ryker.Emisar.ApprovalStatus
   alias Ryker.Records.RecordPayload
   alias Ryker.Schedules.ScheduleCadence

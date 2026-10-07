@@ -1,6 +1,5 @@
 defmodule Ryker.Evals.Evidence do
   @moduledoc false
-
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
 

@@ -9,7 +9,6 @@ defmodule Ryker.StateTools.CallLog do
   redacted the way retained activity is, and the error the model read back.
   The records go when their turn's bodies expire.
   """
-
   alias Ryker.Repo
   alias Ryker.StateTools.CallRecord
   alias Ryker.Work.{Activity, Custody}

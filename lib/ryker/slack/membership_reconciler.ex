@@ -6,11 +6,10 @@ defmodule Ryker.Slack.MembershipReconciler do
   A temporary or partial listing failure therefore cannot falsely remove a
   channel or erase its configuration.
   """
-
   use Ryker.PollingWorker, lane: :slack_membership, interval: :interval_ms
-  require Logger
   alias Ryker.Options
   alias Ryker.Slack.Names
+  require Logger
 
   @default_interval_ms 5 * 60 * 1_000
 

@@ -1,6 +1,6 @@
 defmodule Ryker.Feedback.Signal.Query do
   @moduledoc "Feedback people gave on Ryker's answers, for every read of `answer_feedback`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Episodes.Episode
   alias Ryker.Feedback.Signal
   alias Ryker.Ingress.Inbox.Entry

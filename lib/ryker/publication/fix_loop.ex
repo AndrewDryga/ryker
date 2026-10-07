@@ -27,7 +27,6 @@ defmodule Ryker.Publication.FixLoop do
   while a person's own follow-up runs leaves it alone, because that turn's
   commit is reviewed afresh when it finishes.
   """
-
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, ConversationLock, Episode}
   alias Ryker.Ingress.Input

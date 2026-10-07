@@ -5,7 +5,6 @@ defmodule Ryker.Delivery.JSONClient do
   The bearer token comes from the host's provider on every request; see
   `Ryker.Delivery.HTTPClient`.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery.HTTPClient
   alias Ryker.Reference

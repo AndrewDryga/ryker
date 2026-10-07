@@ -8,7 +8,6 @@ defmodule Ryker.Emisar.ToolCache do
   its reader asked; a lookup past that is a miss. Reads never wait on this
   process: it only owns the table, and a table that is not there is a miss.
   """
-
   use GenServer
 
   @table __MODULE__

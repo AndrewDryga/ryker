@@ -18,7 +18,6 @@ defmodule Ryker.Slack.Renderer do
     * `SavedEntityCard` — schedules, rules, preferences, guidance, memories
     * `Records` and `Offers` — the records attached to a reply
   """
-
   import Ryker.Slack.Renderer.Blocks, only: [escape: 1, message_blocks: 1]
   alias Ryker.Slack.Mentions
   alias Ryker.Slack.Renderer.{ChannelCards, ChannelSetup, EmisarReview, Fields, Records}

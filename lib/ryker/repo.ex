@@ -140,6 +140,13 @@ defmodule Ryker.Repo do
   end
 
   @doc """
+  A new row id: a UUIDv7, the kind `use Ryker, :schema` generates, for a row
+  whose id is needed before it is written or that `insert_all/3` writes.
+  """
+  @spec generate_id() :: Ecto.UUID.t()
+  def generate_id, do: Ecto.UUID.generate(version: 7, precision: :monotonic)
+
+  @doc """
   The database's own clock at this instant, microsecond precision.
 
   Custody compares leases, placements and receipts against this rather than

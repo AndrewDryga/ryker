@@ -7,7 +7,6 @@ defmodule Ryker.Emisar.API do
   approval record, at once (`0`) or once it changes, waiting at most the given
   seconds.
   """
-
   alias Ryker.Emisar.RunState
 
   @callback wait_for_run(term(), String.t(), 0..60) ::

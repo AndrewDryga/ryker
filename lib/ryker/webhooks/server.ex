@@ -4,7 +4,6 @@ defmodule Ryker.Webhooks.Server do
 
   No listener starts unless `:ryker, :webhooks` is configured explicitly.
   """
-
   alias Ryker.Options
   alias Ryker.Webhooks.{Route, Router}
 

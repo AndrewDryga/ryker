@@ -1,6 +1,5 @@
 defmodule Ryker.StateTools.MemoryTools do
   @moduledoc false
-
   alias Ryker.Continuity
   alias Ryker.Memories
   alias Ryker.Memories.MemorySearch

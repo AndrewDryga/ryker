@@ -7,8 +7,8 @@ defmodule Ryker.ControlPlane.Components do
   alias Ryker.ControlPlane.Kit
   alias Ryker.ControlPlane.Paths
   alias Ryker.ControlPlane.ShortTime
-  alias Ryker.Episodes.Words
-  alias Ryker.Work.ExecutionTarget
+  alias Ryker.Episodes
+  alias Ryker.Work
 
   @icons %{
     activity: "M3 12h4l3-8 4 16 3-8h4",
@@ -122,7 +122,7 @@ defmodule Ryker.ControlPlane.Components do
 
   @doc "The shared human presentation of a retained co:op execution target."
   def execution_target(assigns) do
-    assigns = assign(assigns, :presentation, ExecutionTarget.present(assigns.target))
+    assigns = assign(assigns, :presentation, Work.present_target(assigns.target))
 
     ~H"""
     <span
@@ -269,7 +269,7 @@ defmodule Ryker.ControlPlane.Components do
 
   attr(:person, :map,
     default: nil,
-    doc: "A Slack person who sent it, from `Ryker.Slack.Names.person/2`, shown in place of sender"
+    doc: "A Slack person who sent it, from `Slack.person/2`, shown in place of sender"
   )
 
   attr(:context, :string, default: nil)
@@ -433,7 +433,7 @@ defmodule Ryker.ControlPlane.Components do
     {label, tone} =
       cond do
         assigns.lifecycle != nil -> lifecycle(assigns.lifecycle)
-        assigns.state != nil -> {Words.label(assigns.state), tone(assigns.state)}
+        assigns.state != nil -> {Episodes.label(assigns.state), tone(assigns.state)}
         true -> {nil, nil}
       end
 
@@ -455,7 +455,7 @@ defmodule Ryker.ControlPlane.Components do
       "paused" -> {"Paused", "quiet"}
       "disabled" -> {"Paused", "quiet"}
       "completed" -> {"Completed", "done"}
-      other -> {Words.label(other), "quiet"}
+      other -> {Episodes.label(other), "quiet"}
     end
   end
 

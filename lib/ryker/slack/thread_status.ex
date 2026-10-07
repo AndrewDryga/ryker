@@ -1,9 +1,6 @@
 defmodule Ryker.Slack.ThreadStatus do
   @moduledoc false
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
+  use Ryker, :schema
 
   schema "slack_thread_statuses" do
     field(:workspace_ref, :string)
@@ -40,7 +37,7 @@ defmodule Ryker.Slack.ThreadStatus do
     field(:last_error_code, :string)
     field(:last_error_detail, :string)
     field(:delivered_at, :utc_datetime_usec)
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

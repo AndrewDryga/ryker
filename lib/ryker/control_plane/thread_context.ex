@@ -8,7 +8,6 @@ defmodule Ryker.ControlPlane.ThreadContext do
   chapter of its own. Andrew, 2026-09-28: "drop this, just add link here to
   show all messages in thread too".
   """
-
   alias Ryker.ControlPlane.Activity
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo

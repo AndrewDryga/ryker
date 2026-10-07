@@ -7,7 +7,6 @@ defmodule Ryker.Application do
   saved settings and supervises exactly what they describe, so a database that
   has never been configured starts a reachable local console and nothing else.
   """
-
   use Application
   alias Ryker.Config
   alias Ryker.ControlPlane.PageCost

@@ -1,11 +1,7 @@
 defmodule Ryker.Delivery.PlatformAction do
   @moduledoc false
-
-  use Ecto.Schema
+  use Ryker, :schema
   alias Ryker.CanonicalJSON.Type, as: CanonicalJSONType
-
-  @primary_key {:id, :binary_id, autogenerate: false}
-  @foreign_key_type :binary_id
 
   schema "platform_actions" do
     belongs_to(:episode, Ryker.Episodes.Episode)
@@ -36,7 +32,7 @@ defmodule Ryker.Delivery.PlatformAction do
     field(:external_receipt, CanonicalJSONType)
     field(:external_receipt_fingerprint, :string)
     field(:delivered_at, :utc_datetime_usec)
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

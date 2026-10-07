@@ -19,7 +19,7 @@ defmodule Ryker.ControlPlane.FindingsPage do
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{FindingsProjection, Kit, MemoryFormat, Paths}
   alias Ryker.Records
-  alias Ryker.Slack.Names
+  alias Ryker.Slack
 
   @path "/memory/findings"
   # A conclusion runs to a few hundred characters; a row shows its start.
@@ -46,7 +46,7 @@ defmodule Ryker.ControlPlane.FindingsPage do
   @spec heading(map()) :: map()
   def heading(finding),
     do: %{
-      title: MemoryFormat.excerpt(finding.what, Names.workspace(), 90),
+      title: MemoryFormat.excerpt(finding.what, Slack.workspace(), 90),
       description: nil,
       back: {"All findings", @path}
     }

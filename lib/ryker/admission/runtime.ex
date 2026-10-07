@@ -6,7 +6,6 @@ defmodule Ryker.Admission.Runtime do
   every slot the outbound fleet client. Incoming events cannot select the Coop
   adapter, policy, worker identity, or execution limits.
   """
-
   use Supervisor
   alias Ryker.Admission.{FleetSession, ReadySessions, Worker}
   alias Ryker.Options

@@ -5,7 +5,6 @@ defmodule Ryker.ControlPlane.FindingsProjection do
   record is still within the timeline's window, and whether a person forgot
   it or marked it explained (`Ryker.Records.Findings`).
   """
-
   alias Ryker.ControlPlane.{Findings, PagedRelation, Paths, Search}
   alias Ryker.InspectionRedactor
   alias Ryker.Records.Record

@@ -14,7 +14,8 @@ defmodule Ryker.ControlPlane.ChannelsPage do
   alias Ryker.ControlPlane.{Components, Integrations, Kit, PagedRelation, Paths, SettingsView}
   alias Ryker.ControlPlane.ShortTime
   alias Ryker.Episodes
-  alias Ryker.Slack.{IncidentRooms, Names}
+  alias Ryker.Slack
+  alias Ryker.Slack.IncidentRooms
 
   @doc """
   The topics an open Channels list listens to, as the context functions that
@@ -40,9 +41,10 @@ defmodule Ryker.ControlPlane.ChannelsPage do
   def channel_name(workspace, channel, room) do
     given = if is_map(room), do: room[:channel_name]
 
-    if is_binary(given) and given != "" and not Names.named?("slack:#{workspace}:#{channel}"),
-      do: "#" <> given,
-      else: Names.name(workspace, channel)
+    if is_binary(given) and given != "" and
+         not Slack.named_destination?("slack:#{workspace}:#{channel}"),
+       do: "#" <> given,
+       else: Slack.name(workspace, channel)
   end
 
   @doc "The search phrase, which channels to show and the page, from the page's query."

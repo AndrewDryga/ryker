@@ -10,7 +10,6 @@ defmodule Ryker.Slack.ChannelFence do
   2026-10-05: the exclusive lock made a busy channel's messages queue for the
   whole of each other's transactions.
   """
-
   alias Ryker.AdvisoryLock
   alias Ryker.Repo
   alias Ryker.Slack.ChannelMembership

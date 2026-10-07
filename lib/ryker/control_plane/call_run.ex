@@ -14,9 +14,9 @@ defmodule Ryker.ControlPlane.CallRun do
   repository's knowledge runs both show it.
   """
   use Phoenix.Component
-  alias Ryker.Accounting.Pricing
+  alias Ryker.Accounting
   alias Ryker.ControlPlane.Units
-  alias Ryker.Work.ExecutionTarget
+  alias Ryker.Work
 
   @type segment :: %{kind: :prepare | :model | :save, label: String.t(), ms: non_neg_integer()}
   @typedoc "An answer Ryker sent back, and the card on the timeline that shows it."
@@ -243,7 +243,7 @@ defmodule Ryker.ControlPlane.CallRun do
   @doc "A model target in words: \"gpt-5.6-sol · medium reasoning\"."
   @spec model_words(String.t()) :: String.t()
   def model_words(target) do
-    case ExecutionTarget.parts(target) do
+    case Work.target_parts(target) do
       %{model: model, effort: effort} when is_binary(effort) -> "#{model} · #{effort} reasoning"
       %{model: model} -> model
       nil -> target
@@ -323,8 +323,8 @@ defmodule Ryker.ControlPlane.CallRun do
          %DateTime{} = started
        )
        when is_integer(input) and is_integer(output) and is_binary(target) do
-    case Pricing.fetch_in_effect(target, DateTime.to_date(started)) do
-      {:ok, price} -> Units.money(Decimal.new(Pricing.estimate(price, usage)), true)
+    case Accounting.fetch_price_in_effect(target, DateTime.to_date(started)) do
+      {:ok, price} -> Units.money(Decimal.new(Accounting.estimate_cost(price, usage)), true)
       {:error, :not_found} -> nil
     end
   end

@@ -18,7 +18,8 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   alias Ryker.ControlPlane.{ChannelsPage, Components, Kit, Paths, ShortTime, SlackMarkdown, Units}
   alias Ryker.ControlPlane.UsageProjection
   alias Ryker.Publication.Custody, as: Publications
-  alias Ryker.Slack.{IncidentRooms, Names}
+  alias Ryker.Slack
+  alias Ryker.Slack.IncidentRooms
 
   @doc """
   The topics an open list of rooms listens to, as the context functions that
@@ -536,8 +537,8 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   # Who asked for the room: the person who chose Create incident room, or, for
   # a room the channel opens for every alert, that setting.
   defp requested_words(%{requested_by: ref} = room) when is_binary(ref) do
-    if Names.person_ref?(ref) do
-      Kit.person(%{__changed__: nil, person: Names.person(room.workspace_ref, ref), class: nil})
+    if Slack.person_ref?(ref) do
+      Kit.person(%{__changed__: nil, person: Slack.person(room.workspace_ref, ref), class: nil})
     else
       "opened for the alert by the channel's setting"
     end
@@ -595,7 +596,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
 
   # Who asked for the room, who it invited, and who wrote in it.
   defp people(room, conversation) do
-    invited = Enum.map(room[:invite_user_refs] || [], &Names.person(room.workspace_ref, &1))
+    invited = Enum.map(room[:invite_user_refs] || [], &Slack.person(room.workspace_ref, &1))
     groups = Enum.map(room[:invite_user_group_refs] || [], &("user group " <> &1))
 
     wrote =
@@ -680,8 +681,8 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
 
   defp source(room) do
     text =
-      if Names.named?("slack:#{room.workspace_ref}:#{room.source_channel_ref}"),
-        do: "The alert thread in " <> Names.name(room.workspace_ref, room.source_channel_ref),
+      if Slack.named_destination?("slack:#{room.workspace_ref}:#{room.source_channel_ref}"),
+        do: "The alert thread in " <> Slack.name(room.workspace_ref, room.source_channel_ref),
         else: "The alert thread"
 
     case room[:source_episode_id] do

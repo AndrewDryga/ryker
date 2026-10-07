@@ -1,6 +1,6 @@
 defmodule Ryker.Slack.TaskCard.Query do
   @moduledoc "The Slack cards that show each task, for every read of `slack_task_cards`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Episodes.Episode
   alias Ryker.Records.Record
   alias Ryker.Slack.TaskCard

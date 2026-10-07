@@ -17,6 +17,8 @@ defmodule Ryker.Retention.DataTest do
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Inspectors
+  alias Ryker.Instructions
+  alias Ryker.Instructions.Edit
   alias Ryker.Learning
   alias Ryker.Learning.Batches
   alias Ryker.Learning.FleetSession, as: LearningFleetSession
@@ -212,8 +214,6 @@ defmodule Ryker.Retention.DataTest do
   end
 
   test "old instruction edit receipts expire without clearing the current value or its revision" do
-    alias Ryker.Instructions
-    alias Ryker.Instructions.Edit
     assert {:ok, _} = Instructions.save(:global, "Original", 0, "operator:test")
     Repo.update_all(Edit, set: [inserted_at: ~U[2000-01-01 00:00:00.000000Z]])
     assert {:ok, _} = Instructions.save(:global, "Current", 1, "operator:test")

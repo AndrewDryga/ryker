@@ -7,7 +7,6 @@ defmodule Ryker.Ingress.Adapter do
   shape, but it must return exactly one canonical ingress input whose source
   kind matches the registered adapter.
   """
-
   alias Ryker.Ingress.Input
 
   @callback source_kind() :: String.t()

@@ -7,7 +7,6 @@ defmodule Ryker.Emisar.Connections do
   work outside any environment, in an environment without an account, or in
   one whose account is closed to new work has no Emisar authority.
   """
-
   alias Ryker.Settings
   alias Ryker.Settings.Environment
 

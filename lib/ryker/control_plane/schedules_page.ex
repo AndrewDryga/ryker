@@ -21,8 +21,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Components, Kit, Paths, ShortTime, Units}
   alias Ryker.{Episodes, Schedules}
-  alias Ryker.Schedules.ScheduleCadence
-  alias Ryker.Slack.Names
+  alias Ryker.Slack
 
   @list_limit 100
   @runs_limit 200
@@ -267,7 +266,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   # rather than on every row.
   defp runs_lede(schedule) do
     "Each run starts its own request. Newest first. Times are " <>
-      ScheduleCadence.zone_name(schedule.timezone) <> "."
+      Schedules.zone_name(schedule.timezone) <> "."
   end
 
   defp detail_facts(schedule) do
@@ -395,14 +394,14 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   # How often, in the schedule's own zone, from the one wording every surface
   # shares; the projection has already converted a single run to local time.
   defp how_often(schedule) do
-    ScheduleCadence.describe(schedule.recurrence, schedule.timezone,
+    Schedules.describe_cadence(schedule.recurrence, schedule.timezone,
       once_local: Map.get(schedule, :once_local),
       now_local: Map.get(schedule, :now_local)
     )
   end
 
   defp destination(%{destination_transport: "slack"} = schedule) do
-    name = Names.destination(schedule.destination_conversation_ref)
+    name = Slack.destination_name(schedule.destination_conversation_ref)
 
     channel =
       case channel_path(schedule.destination_conversation_ref) do
@@ -422,12 +421,12 @@ defmodule Ryker.ControlPlane.SchedulesPage do
     end
   end
 
-  defp destination(schedule), do: Names.destination(schedule.destination_conversation_ref)
+  defp destination(schedule), do: Slack.destination_name(schedule.destination_conversation_ref)
 
   # Where a list row's results go: "in #incidents", "in a thread in
   # #incidents", "in a direct conversation".
   defp place(%{destination_transport: "slack"} = item) do
-    name = Names.destination(item.destination_conversation_ref)
+    name = Slack.destination_name(item.destination_conversation_ref)
     lead = if item.destination_thread_ref, do: "in a thread in ", else: "in "
     labelled(lead, name)
   end
@@ -435,7 +434,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   defp place(%{destination_conversation_ref: "control-plane:lab:" <> _id}),
     do: "in a direct conversation"
 
-  defp place(item), do: "in " <> Names.destination(item.destination_conversation_ref)
+  defp place(item), do: "in " <> Slack.destination_name(item.destination_conversation_ref)
 
   # Only a Slack channel has a page of its own here; a direct message has not.
   defp channel_path("slack:" <> rest) do
@@ -500,7 +499,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   end
 
   defp zone_suffix(nil), do: ""
-  defp zone_suffix(timezone), do: " " <> ScheduleCadence.zone_name(timezone)
+  defp zone_suffix(timezone), do: " " <> Schedules.zone_name(timezone)
 
   defp short(%NaiveDateTime{} = local, %NaiveDateTime{} = now) do
     case Date.diff(NaiveDateTime.to_date(local), NaiveDateTime.to_date(now)) do

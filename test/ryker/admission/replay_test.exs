@@ -4,9 +4,6 @@ defmodule Ryker.Admission.ReplayTest do
   # the separate production transactions. Two full gates hit that artificial
   # conversation/channel lock inversion; retain exact source identities serially.
   use Ryker.DataCase, async: false
-
-  @moduletag isolation: "REPEATABLE READ"
-
   import Ecto.Query
   alias Ryker.Admission
   alias Ryker.Admission.{Candidate, Context, Decision, Executor, Prompt}
@@ -17,6 +14,8 @@ defmodule Ryker.Admission.ReplayTest do
   alias Ryker.Repo
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.TestSupport.FakeCoopAPI, as: FakeAPI
+
+  @moduletag isolation: "REPEATABLE READ"
 
   @fixtures Path.wildcard(Path.expand("fixtures/*.json", __DIR__))
   # A moved fixture directory ran no test here and passed (2026-10-04 review).

@@ -1,8 +1,6 @@
 defmodule Ryker.Credential.Event do
   @moduledoc false
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
+  use Ryker, :schema
 
   schema "integration_credential_events" do
     field(:credential_id, :binary_id)

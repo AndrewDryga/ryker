@@ -1,6 +1,5 @@
 defmodule Ryker.Fixtures.AnswerMemory do
   @moduledoc "Store-contract setup; Slack delivery/admission is covered by QuestionEndToEndTest."
-
   alias Ryker.Admission.Decision
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures

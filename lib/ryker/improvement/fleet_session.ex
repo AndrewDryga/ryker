@@ -5,7 +5,6 @@ defmodule Ryker.Improvement.FleetSession do
   (execution kind `improvement`). Cleanup closes it once the run has stopped
   (`Ryker.Retention.Custody`).
   """
-
   alias Ryker.Improvement.AnalysisRun
   alias Ryker.Repo
   alias Ryker.Work.{Custody, Session}
@@ -50,7 +49,6 @@ defmodule Ryker.Improvement.FleetSession do
   defp create!(run) do
     Repo.insert!(
       %Session{
-        id: Ecto.UUID.generate(),
         execution_kind: :improvement,
         improvement_run_id: run.id,
         policy: run.policy,

@@ -5,13 +5,9 @@ defmodule Ryker.Delivery.RoutingResponse do
   order, then its reactions, each a response of its own at its `position`,
   all frozen with the routing decision that chose them.
   """
-
-  use Ecto.Schema
+  use Ryker, :schema
   alias Ryker.CanonicalJSON.Type, as: CanonicalJSONType
   alias Ryker.Ingress.Inbox.Entry
-
-  @primary_key {:id, :binary_id, autogenerate: false}
-  @foreign_key_type :binary_id
 
   schema "delivery_routing_responses" do
     belongs_to(:input, Entry)
@@ -38,7 +34,7 @@ defmodule Ryker.Delivery.RoutingResponse do
     field(:external_receipt_fingerprint, :string)
     field(:delivered_at, :utc_datetime_usec)
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

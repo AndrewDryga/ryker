@@ -5,10 +5,8 @@ defmodule Ryker.GitHub.RepositoryFiles do
   reads (`Ryker.RepositoryKnowledge.Remote`). It only reads: RYKER.md is
   Ryker's own, and nothing is written to the repository.
   """
-
   @behaviour Ryker.GitHub.Onboarding
   @behaviour Ryker.RepositoryKnowledge.Remote
-
   alias Ryker.Config
   alias Ryker.Delivery.JSONClient
   alias Ryker.GitHub.Client.Transport

@@ -1,4 +1,5 @@
 defmodule Mix.Tasks.Ryker.Delivery do
+  @shortdoc "Lists, inspects, or rearms blocked delivery"
   @moduledoc """
   Inspects or rearms blocked platform messages, routing responses, and model-requested actions.
 
@@ -6,12 +7,9 @@ defmodule Mix.Tasks.Ryker.Delivery do
       mix ryker.delivery show DELIVERY_REF
       mix ryker.delivery rearm DELIVERY_REF
   """
-
   use Mix.Task
   alias Mix.Tasks.Ryker.OperatorSupport, as: Support
   alias Ryker.Operator.Delivery, as: DeliveryOperator
-
-  @shortdoc "Lists, inspects, or rearms blocked delivery"
 
   @impl Mix.Task
   def run(arguments) do

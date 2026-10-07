@@ -28,7 +28,6 @@ defmodule Ryker.ControlPlane.FeedbackPage do
   alias Ryker.ControlPlane.{Emoji, FeedbackChart, FeedbackProjection, ImprovementPage, Kit, Paths}
   alias Ryker.ControlPlane.ShortTime
   alias Ryker.Improvement
-  alias Ryker.Improvement.Candidate
 
   @path "/feedback"
 
@@ -419,7 +418,7 @@ defmodule Ryker.ControlPlane.FeedbackPage do
   end
 
   defp fix_categories(%{categories: categories}) do
-    for category <- Candidate.categories(),
+    for category <- Improvement.candidate_categories(),
         count = Map.get(categories, category, 0),
         count > 0 do
       %{

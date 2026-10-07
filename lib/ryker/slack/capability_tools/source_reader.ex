@@ -6,7 +6,6 @@ defmodule Ryker.Slack.CapabilityTools.SourceReader do
   Page contents are never source identity: the exact original is rechecked on
   every page, and continuation cursors are sealed to the turn that minted them.
   """
-
   alias Ryker.Slack.CapabilityTools.{Arguments, Resources}
   alias Ryker.Slack.{SourceRef, SourceWindow}
 

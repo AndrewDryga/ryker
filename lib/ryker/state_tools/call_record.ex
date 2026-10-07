@@ -1,10 +1,6 @@
 defmodule Ryker.StateTools.CallRecord do
   @moduledoc false
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "episode_work_state_tool_calls" do
     belongs_to(:turn, Ryker.Work.Turn)

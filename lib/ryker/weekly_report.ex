@@ -40,7 +40,6 @@ defmodule Ryker.WeeklyReport do
   custody as the week's report and is not the week's report: the scheduled
   one still posts.
   """
-
   alias Ryker.Config
   alias Ryker.Repo
   alias Ryker.Settings.{Report, Slack}

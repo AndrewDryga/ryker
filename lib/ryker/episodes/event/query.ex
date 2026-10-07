@@ -1,6 +1,6 @@
 defmodule Ryker.Episodes.Event.Query do
   @moduledoc "What happened in each request, for every read of `episode_kernel_events`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Episodes.{Episode, Event}
 
   def all, do: from(events in Event, as: :episode_kernel_events)

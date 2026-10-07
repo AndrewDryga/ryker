@@ -6,7 +6,6 @@ defmodule Ryker.ControlPlane.WorkChanges do
   Diff reading is web-only: Slack links out to the exact retained snapshot and
   never pages a patch itself.
   """
-
   alias Ryker.Crypto
 
   @path_groups ~w(committed staged unstaged untracked conflicts)

@@ -3,9 +3,6 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
   import Ryker.TestHelpers, only: [outline: 2]
   import Phoenix.ConnTest, only: [build_conn: 0, get: 2]
   import Phoenix.LiveViewTest
-
-  @endpoint Ryker.ControlPlane.Endpoint
-
   alias Ryker.ControlPlane.{Actions, Endpoint, EpisodeProjection, FindingsPage}
   alias Ryker.ControlPlane.{FindingsProjection, Pages, Projection, Router}
   alias Ryker.Episodes
@@ -16,6 +13,8 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
   alias Ryker.Repo
   alias Ryker.StateTools.Tools
   alias Ryker.Work.Custody
+
+  @endpoint Ryker.ControlPlane.Endpoint
 
   # Host-contract fixture: the page used to display a payload hash and OPEN
   # instead of the saved conclusion, its classification and supporting evidence.

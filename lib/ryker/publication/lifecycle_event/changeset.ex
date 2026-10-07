@@ -1,7 +1,6 @@
 defmodule Ryker.Publication.LifecycleEvent.Changeset do
   @moduledoc false
-
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.Publication.LifecycleEvent
 
   @fields [

@@ -14,7 +14,6 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCard do
   so a page whose snapshot lost that identity shows no evidence at all -- which
   is why the page-level render is tested, not only the component.
   """
-
   use Phoenix.Component
 
   import Ryker.ControlPlane.Components,

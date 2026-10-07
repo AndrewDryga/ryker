@@ -8,14 +8,13 @@ defmodule Ryker.Waits.EventWaitWorker do
   the next wait falls due (`Ryker.Waits.EventWaits.next_due_at/1`), or for its
   safety-net interval.
   """
-
   use Ryker.PollingWorker, lane: :event_waits, interval: :interval_ms
-  require Logger
   alias Ryker.Episodes
   alias Ryker.Observability.Progress
   alias Ryker.Options
   alias Ryker.PollingWorker
   alias Ryker.Waits.{EventSubscriptions, EventWaits}
+  require Logger
 
   @invalid_interval "event wait poll_interval_ms must be positive"
 

@@ -11,7 +11,6 @@ defmodule Ryker.Work.Executor.Remote do
   step trusts them, and a lost response is reconciled through the operation
   its mutation was keyed with.
   """
-
   alias Ryker.Artifacts
   alias Ryker.CoopFleet.JobAuthority
   alias Ryker.Knowledge.KnowledgeSnapshot

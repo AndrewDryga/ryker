@@ -11,7 +11,6 @@ defmodule Ryker.Slack.Client.Rooms do
   Someone already in the room, or a message already pinned, is the state that
   was asked for.
   """
-
   alias Ryker.Slack.Client.{Fields, Pagination, Transport}
 
   @conversation_page_size 200

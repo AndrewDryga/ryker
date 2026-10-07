@@ -1,6 +1,6 @@
 defmodule Ryker.Operator.EpisodeReview.Query do
   @moduledoc "People's reviews of finished requests, for every read of `episode_operator_reviews`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Operator.EpisodeReview
 
   def all, do: from(reviews in EpisodeReview, as: :episode_operator_reviews)

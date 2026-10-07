@@ -6,7 +6,6 @@ defmodule Ryker.Slack.AppHomeProjection do
   bounded request text from the exact Slack workspace, short operator-authored
   titles, counts, and the next host-owned action.
   """
-
   alias Ryker.Episodes.Episode
   alias Ryker.Memories
   alias Ryker.Publication.{Publication, Review}

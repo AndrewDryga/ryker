@@ -11,9 +11,6 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
   """
   use Ryker.DataCase, async: true
   import Ryker.TestHelpers, only: [clocks_past!: 1, digest: 1]
-
-  @moduletag isolation: "REPEATABLE READ"
-
   import Ecto.Query
   alias Ryker.Admission
   alias Ryker.Admission.Decision
@@ -29,6 +26,8 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, SubmissionBuilder, Turn}
+
+  @moduletag isolation: "REPEATABLE READ"
 
   @conversation_id "018f3ef7-1f62-7ee0-a83c-0c12f21d8a01"
   @other_conversation_id "018f3ef7-1f62-7ee0-a83c-0c12f21d8a02"

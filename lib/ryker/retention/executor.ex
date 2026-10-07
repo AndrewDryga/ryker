@@ -6,7 +6,6 @@ defmodule Ryker.Retention.Executor do
   A lost response therefore retries byte-for-byte, while crossed authority or
   an unsafe discard plan fails closed without touching another workspace.
   """
-
   alias Ryker.CoopFleet.JobAuthority
   alias Ryker.Reference
   alias Ryker.Retention.{Custody, Plan}

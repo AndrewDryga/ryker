@@ -4,7 +4,7 @@ defmodule Ryker.ControlPlane.Usage.Query do
   (`Ryker.ControlPlane.UsageProjection`): each execution with the dimensions
   the page breaks it down by, the breakdowns, the days, and the totals.
   """
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Work.Turn
 

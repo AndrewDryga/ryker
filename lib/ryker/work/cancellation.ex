@@ -7,7 +7,6 @@ defmodule Ryker.Work.Cancellation do
   terminal remote turn proof, or the removal from Ryker of the worker holding
   the run, permits the episode kernel to cancel or transfer ownership.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Command
 

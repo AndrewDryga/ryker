@@ -6,7 +6,6 @@ defmodule Ryker.Evals.WorldSuite do
   model-present release boundary, where one lucky answer is not evidence and a
   changing baseline world would make comparison meaningless.
   """
-
   alias Ryker.Evals.WorldCase
   alias Ryker.Reference
 

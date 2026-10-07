@@ -1,8 +1,7 @@
 defmodule Ryker.Settings.Publication.Changeset do
   @moduledoc "Changes to draft publication (`Ryker.Settings.Publication`)."
   @behaviour Ryker.Settings.Section.Changeset
-
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.Settings.{Publication, Validation}
 
   @fields ~w(enabled branch_prefix)a

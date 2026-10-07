@@ -1,6 +1,6 @@
 defmodule Ryker.RepositoryKnowledge.Run.Query do
   @moduledoc "Each attempt to write a repository's RYKER.md, for every read of `repository_knowledge_runs`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.RepositoryKnowledge.Run
 
   def all, do: from(runs in Run, as: :repository_knowledge_runs)

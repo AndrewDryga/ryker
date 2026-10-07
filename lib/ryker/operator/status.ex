@@ -2,7 +2,6 @@ defmodule Ryker.Operator.Status do
   @moduledoc """
   Shared read-only operator snapshot used by CLI and local control surfaces.
   """
-
   alias Ryker.ControlPlane.{FailureProjection, OverviewProjection}
   alias Ryker.Observability
   alias Ryker.Operator.Preflight

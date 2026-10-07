@@ -2,7 +2,6 @@ defmodule Ryker.Delivery.MessagePublisher do
   @moduledoc """
   Narrow platform port for one durable visible message.
   """
-
   alias Ryker.Delivery.Request
 
   @callback publish_message(Request.t(), term()) :: {:ok, map()} | {:error, term()}

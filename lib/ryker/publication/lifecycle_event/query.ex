@@ -1,6 +1,6 @@
 defmodule Ryker.Publication.LifecycleEvent.Query do
   @moduledoc "What happened to each published change, for every read of `episode_publication_lifecycle_events`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Publication.LifecycleEvent
 
   def all, do: from(events in LifecycleEvent, as: :episode_publication_lifecycle_events)

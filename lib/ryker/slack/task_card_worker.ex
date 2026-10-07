@@ -8,9 +8,7 @@ defmodule Ryker.Slack.TaskCardWorker do
   (`Ryker.Slack.TaskCards.next_due_at/2`), retry or unrenewed lease falls due,
   or for its safety-net interval.
   """
-
   use Ryker.PollingWorker, lane: :slack_task_cards, interval: :interval_ms
-  require Logger
   alias Ryker.Delivery.Retry
   alias Ryker.Episodes
   alias Ryker.ErrorDetail
@@ -19,6 +17,7 @@ defmodule Ryker.Slack.TaskCardWorker do
   alias Ryker.PollingWorker
   alias Ryker.Records
   alias Ryker.Slack.{TaskCardProjection, TaskCards}
+  require Logger
 
   @default_interval_ms 1_000
   @default_max_attempts 8

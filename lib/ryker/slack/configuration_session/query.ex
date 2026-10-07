@@ -1,6 +1,6 @@
 defmodule Ryker.Slack.ConfigurationSession.Query do
   @moduledoc "Conversations that set up a Slack channel, for every read of `slack_configuration_sessions`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Slack.ConfigurationSession
 
   def all, do: from(sessions in ConfigurationSession, as: :slack_configuration_sessions)

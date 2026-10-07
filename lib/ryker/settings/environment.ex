@@ -20,7 +20,7 @@ defmodule Ryker.Settings.Environment do
   default first. A save names them as `Ryker.Settings.Environment.Changeset`
   says.
   """
-  use Ecto.Schema
+  use Ryker, :schema
   alias Ryker.Settings.EnvironmentRepository
 
   @primary_key {:ref, :string, autogenerate: false}
@@ -51,7 +51,7 @@ defmodule Ryker.Settings.Environment do
       preload_order: [asc: :position]
     )
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   def ref_pattern, do: @ref

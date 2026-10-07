@@ -11,7 +11,6 @@ defmodule Ryker.GitHub.Events do
   GitHub's "Redeliver" or `Ryker.GitHub.DeliveryPoller`; every other copy is a
   duplicate.
   """
-
   alias Ecto.Changeset
   alias Ryker.{CanonicalJSON, Repo}
   alias Ryker.GitHub.{Binding, DeliveryCursor, Event}
@@ -23,7 +22,7 @@ defmodule Ryker.GitHub.Events do
     now = Repo.now!()
 
     attributes = %{
-      id: Ecto.UUID.generate(),
+      id: Repo.generate_id(),
       delivery_ref: delivery_ref,
       binding_ref: binding.name,
       repository_id: binding.repository_id,

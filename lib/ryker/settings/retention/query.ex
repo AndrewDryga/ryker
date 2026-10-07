@@ -1,6 +1,6 @@
 defmodule Ryker.Settings.Retention.Query do
   @moduledoc "The installation's retention settings, for every read of `retention_settings`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Settings.Retention
 
   def all, do: from(retention in Retention, as: :retention_settings)

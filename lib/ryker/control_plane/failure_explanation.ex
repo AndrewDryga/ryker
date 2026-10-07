@@ -30,7 +30,6 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   code, and the allowlisted protocol facts (what Slack said, the worker's HTTP
   status) are listed under What happened (`details/1`).
   """
-
   alias Ryker.ControlPlane.FailureProjection
   alias Ryker.ControlPlane.LearningActivity
   alias Ryker.ControlPlane.Paths

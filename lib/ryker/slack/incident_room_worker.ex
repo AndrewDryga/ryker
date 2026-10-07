@@ -12,9 +12,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   health check or a pinned card's check falls due, or for its safety-net
   interval.
   """
-
   use Ryker.PollingWorker, lane: :slack_incidents, interval: :interval_ms
-  require Logger
   alias Ryker.Delivery.HostNote
   alias Ryker.Delivery.Retry
   alias Ryker.Episodes
@@ -26,6 +24,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   alias Ryker.Repo
   alias Ryker.Slack.{ChannelConfigurations, IncidentRoomCard, IncidentRooms}
   alias Ryker.Work.{Custody, Turn}
+  require Logger
 
   @default_interval_ms 1_000
   @refused_offers {__MODULE__, :refused_offers}

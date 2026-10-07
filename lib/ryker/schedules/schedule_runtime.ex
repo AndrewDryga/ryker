@@ -1,6 +1,5 @@
 defmodule Ryker.Schedules.ScheduleRuntime do
   @moduledoc false
-
   alias Ryker.{Options, Reference}
   alias Ryker.Schedules.ScheduleWorker
 

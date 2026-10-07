@@ -11,7 +11,6 @@ defmodule Ryker.Slack.IncidentRooms do
   after the outermost commit (`subscribe_rooms/0`, `subscribe_room/1`), on
   the topics of the request it came from and the one investigating it too.
   """
-
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
@@ -726,7 +725,7 @@ defmodule Ryker.Slack.IncidentRooms do
       channel_ref: transition.channel_ref,
       event_fingerprint: fingerprint,
       event_ref: transition.event_ref,
-      id: Ecto.UUID.generate(),
+      id: Repo.generate_id(),
       kind: transition.kind,
       occurred_at: transition.occurred_at,
       room_id: room.id,
@@ -939,7 +938,7 @@ defmodule Ryker.Slack.IncidentRooms do
   # session's environment, repository and mounted companions, whatever the
   # channel has chosen since. The channel supplies only who to invite.
   defp insert_room!(record, source_episode, source_session, attributes) do
-    room_id = Ecto.UUID.generate()
+    room_id = Repo.generate_id()
     room_ref = "incident-room:#{room_id}"
     source_channel_ref = source_channel_ref!(attributes.target.conversation_ref)
     configuration = configuration(attributes.workspace_ref, source_channel_ref)
@@ -1213,7 +1212,7 @@ defmodule Ryker.Slack.IncidentRooms do
       channel_ref: room.channel_ref,
       event_fingerprint: fingerprint,
       event_ref: event_ref,
-      id: Ecto.UUID.generate(),
+      id: Repo.generate_id(),
       kind: kind,
       occurred_at: occurred_at,
       room_id: room.id,
@@ -1305,7 +1304,7 @@ defmodule Ryker.Slack.IncidentRooms do
   end
 
   defp create_linked_episode!(room) do
-    episode_id = Ecto.UUID.generate()
+    episode_id = Repo.generate_id()
     episode_key = "incident-room:#{room.id}"
 
     command = %Command.AdmitInput{
@@ -1510,7 +1509,10 @@ defmodule Ryker.Slack.IncidentRooms do
         value -> value
       end
 
-    suffix = room_id |> String.replace("-", "") |> String.slice(0, 8)
+    # The id's last eight hex digits, random in every UUID Ryker makes; its
+    # first eight are a UUIDv7's timestamp, the same for every room opened
+    # within the same minute.
+    suffix = room_id |> String.replace("-", "") |> String.slice(-8, 8)
     fixed = "#{prefix}-#{date}-#{suffix}"
     title_bytes = max(80 - byte_size(fixed) - 1, 1)
     slug = byte_slice(slug, title_bytes) |> String.trim("-")

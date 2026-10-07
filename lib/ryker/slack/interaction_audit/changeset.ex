@@ -1,7 +1,6 @@
 defmodule Ryker.Slack.InteractionAudit.Changeset do
   @moduledoc false
-
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.Slack.InteractionAudit
 
   @fields [

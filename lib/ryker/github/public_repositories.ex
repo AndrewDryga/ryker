@@ -9,7 +9,6 @@ defmodule Ryker.GitHub.PublicRepositories do
   with the installation token of the repository that vendors it, since any
   token may read a public repository.
   """
-
   alias Ryker.Config
   alias Ryker.CoopFleet.JobSpec
   alias Ryker.Delivery.JSONClient

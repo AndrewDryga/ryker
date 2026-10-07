@@ -17,7 +17,6 @@ defmodule Ryker.Records.Findings do
   The record's own lifecycle carries it: a forgotten finding is dismissed,
   and one marked explained is answered, as a question a person answered is.
   """
-
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Repo

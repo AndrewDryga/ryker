@@ -8,13 +8,12 @@ defmodule Ryker.Publication.Worker do
   slot at once. With nothing to do it sleeps until a retry or an unrenewed
   lease falls due, or for its safety-net interval.
   """
-
   use Ryker.PollingWorker, lane: :publication, interval: :poll_interval_ms
-  require Logger
   alias Ryker.Episodes
   alias Ryker.Observability.Progress
   alias Ryker.PollingWorker
   alias Ryker.Publication.{Custody, Dispatcher}
+  require Logger
 
   def start_link(options) do
     {name, options} = Keyword.pop(options, :name)

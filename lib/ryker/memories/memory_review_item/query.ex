@@ -1,6 +1,6 @@
 defmodule Ryker.Memories.MemoryReviewItem.Query do
   @moduledoc "Reviews of stale and duplicate memories, for every read of `memory_review_items`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Memories.MemoryReviewItem
 
   def all, do: from(reviews in MemoryReviewItem, as: :memory_review_items)

@@ -1,7 +1,6 @@
 defmodule Ryker.Records.Response.Changeset do
   @moduledoc false
-
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.Records.Response
 
   @fields [

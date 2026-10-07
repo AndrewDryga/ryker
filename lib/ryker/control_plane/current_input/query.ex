@@ -1,6 +1,6 @@
 defmodule Ryker.ControlPlane.CurrentInput.Query do
   @moduledoc "Current source revisions for conversation views; retained model artifacts stay immutable."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Ingress.Inbox.Entry
 
   @doc """

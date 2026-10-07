@@ -7,7 +7,6 @@ defmodule Ryker.ControlPlane.ChannelDetail do
   model, Git, Coop or Emisar, never accounts a recall, and never rewrites a
   stored status: expiry and visibility are applied at read time instead.
   """
-
   alias Ryker.Accounting.Execution
   alias Ryker.ControlPlane.{Activity, ChannelContext, ChannelDetail, ChannelScope}
   alias Ryker.ControlPlane.{Environments, PagedRelation, Paths, RepositoryNames, UsageProjection}

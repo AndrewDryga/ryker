@@ -7,13 +7,12 @@ defmodule Ryker.Schedules.ScheduleWorker do
   occurrence, retry or unrenewed lease falls due, or for its safety-net
   interval.
   """
-
   use Ryker.PollingWorker, lane: :schedule, interval: :poll_interval_ms
-  require Logger
   alias Ryker.Observability.Progress
   alias Ryker.PollingWorker
   alias Ryker.Schedules
   alias Ryker.Schedules.ScheduleDispatcher
+  require Logger
 
   def start_link(options), do: GenServer.start_link(__MODULE__, options, name: __MODULE__)
 

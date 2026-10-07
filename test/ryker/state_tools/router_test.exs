@@ -1,6 +1,5 @@
 defmodule Ryker.StateTools.RouterTest do
   use Ryker.DataCase, async: false
-
   # A sandbox holds fixture inserts until the whole test rolls back. Reusing
   # T123 with channel-configuration tests formed a membership -> conversation
   # -> configuration -> membership deadlock across five unrelated tests.

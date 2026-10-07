@@ -1,6 +1,6 @@
 defmodule Ryker.Operator.RetentionAction.Changeset do
   @moduledoc "How a person's retention action is recorded (`Ryker.Operator.RetentionAction`)."
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.Operator.RetentionAction
 
   @fields [

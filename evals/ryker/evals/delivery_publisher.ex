@@ -5,7 +5,6 @@ defmodule Ryker.Evals.DeliveryPublisher do
   world's inputs arrive on those three transports, so those are the ones it
   delivers to; an "eval" transport of its own was never registered.
   """
-
   alias Ryker.Crypto
   alias Ryker.Work.DeliveryReceipt
 
@@ -68,11 +67,9 @@ end
 
 defmodule Ryker.Evals.SlackDeliveryPublisher do
   @moduledoc false
-
   @behaviour Ryker.Delivery.Platform
   @behaviour Ryker.Delivery.MessagePublisher
   @behaviour Ryker.Delivery.ReactionPublisher
-
   alias Ryker.Evals.DeliveryPublisher
 
   @impl true
@@ -87,11 +84,9 @@ end
 
 defmodule Ryker.Evals.GitHubDeliveryPublisher do
   @moduledoc false
-
   @behaviour Ryker.Delivery.Platform
   @behaviour Ryker.Delivery.MessagePublisher
   @behaviour Ryker.Delivery.ReactionPublisher
-
   alias Ryker.Evals.DeliveryPublisher
 
   @impl true
@@ -106,11 +101,9 @@ end
 
 defmodule Ryker.Evals.LabDeliveryPublisher do
   @moduledoc false
-
   @behaviour Ryker.Delivery.Platform
   @behaviour Ryker.Delivery.MessagePublisher
   @behaviour Ryker.Delivery.ReactionPublisher
-
   alias Ryker.Evals.DeliveryPublisher
 
   @impl true

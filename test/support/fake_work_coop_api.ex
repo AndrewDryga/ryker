@@ -1,9 +1,7 @@
 defmodule Ryker.TestSupport.FakeWorkCoopAPI do
   @moduledoc false
-
-  import Ryker.TestHelpers, only: [digest: 1]
   @behaviour Ryker.Coop.API
-
+  import Ryker.TestHelpers, only: [digest: 1]
   alias Ryker.Crypto
   alias Ryker.Fixtures.WorkerJob
 

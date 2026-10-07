@@ -6,9 +6,7 @@ defmodule Ryker.GitHub.Router do
   authentication and trusted binding checks happen before arbitrary payload
   content can reach the generic admission queue.
   """
-
   @behaviour Plug
-
   alias Ryker.Crypto
   alias Ryker.GitHub.{Access, Auth, Binding, Confirmations, Engagement, Events}
   alias Ryker.HTTPConnection

@@ -1,7 +1,6 @@
 defmodule Ryker.Emisar.Approval.Changeset do
   @moduledoc false
-
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.Emisar.{Approval, RunState}
 
   @fields [

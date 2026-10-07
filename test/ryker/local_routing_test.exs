@@ -17,9 +17,6 @@ defmodule Ryker.LocalRoutingTest do
   use Ryker.DataCase, async: false
   import Ecto.Query
   import Ryker.TestHelpers, only: [eventually: 1]
-
-  @moduletag isolation: "REPEATABLE READ"
-
   alias Ryker.Admission.{Attempt, Executor}
   alias Ryker.ControlPlane.LocalRoutingProjection
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
@@ -34,6 +31,8 @@ defmodule Ryker.LocalRoutingTest do
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.TestSupport.FakeCoopAPI, as: FakeAPI
 
+  @moduletag isolation: "REPEATABLE READ"
+
   @actor "control-plane:local"
   @workspace "TE5D7C8842D32"
   @channel "C456"
@@ -45,7 +44,6 @@ defmodule Ryker.LocalRoutingTest do
   defmodule LocalModel do
     @moduledoc false
     @behaviour Plug
-
     import Plug.Conn
 
     @impl true

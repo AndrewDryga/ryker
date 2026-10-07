@@ -1,8 +1,7 @@
 defmodule Ryker.Settings.Report.Changeset do
   @moduledoc "Changes to the weekly report (`Ryker.Settings.Report`)."
   @behaviour Ryker.Settings.Section.Changeset
-
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.Settings.{Report, Validation}
 
   @fields ~w(weekly_self_report_enabled channel_ref weekday local_time timezone)a

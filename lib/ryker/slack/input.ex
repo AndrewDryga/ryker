@@ -5,11 +5,9 @@ defmodule Ryker.Slack.Input do
   Slack IDs determine identity and routing. Blocks, attachments, text, and app
   metadata remain arbitrary bounded content for the model to interpret.
   """
-
+  @behaviour Ryker.Ingress.Adapter
   alias Ryker.CanonicalJSON
   alias Ryker.Ingress.Input
-
-  @behaviour Ryker.Ingress.Adapter
 
   @fields [
     :actor,

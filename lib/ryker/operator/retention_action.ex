@@ -1,10 +1,6 @@
 defmodule Ryker.Operator.RetentionAction do
   @moduledoc false
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "retention_operator_actions" do
     belongs_to(:session, Ryker.Work.Session)
@@ -17,6 +13,6 @@ defmodule Ryker.Operator.RetentionAction do
     field(:previous_plan_fingerprint, :string)
     field(:occurred_at, :utc_datetime_usec)
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 end

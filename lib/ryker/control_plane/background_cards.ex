@@ -5,7 +5,6 @@ defmodule Ryker.ControlPlane.BackgroundCards do
   a background attempt is read from its own frozen record, so both build
   their sections, identity facts and model the same way.
   """
-
   alias Ryker.Accounting.Execution
   alias Ryker.InspectionRedactor, as: Redactor
 

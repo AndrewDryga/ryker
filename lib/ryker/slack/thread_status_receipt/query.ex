@@ -1,6 +1,6 @@
 defmodule Ryker.Slack.ThreadStatusReceipt.Query do
   @moduledoc "What Slack answered to thread status writes, for every read of `slack_thread_status_receipts`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Slack.ThreadStatusReceipt
 

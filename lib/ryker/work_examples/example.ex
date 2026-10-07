@@ -11,9 +11,7 @@ defmodule Ryker.WorkExamples.Example do
   (`Ryker.WorkExamples.Feedback`). A forgotten example keeps only its
   identity and scope: no bodies and no feedback.
   """
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
+  use Ryker, :schema
 
   schema "work_examples" do
     field(:turn_id, :binary_id)
@@ -48,7 +46,7 @@ defmodule Ryker.WorkExamples.Example do
     field(:settled_at, :utc_datetime_usec)
     field(:forgotten_at, :utc_datetime_usec)
     has_many(:feedback, Ryker.WorkExamples.Feedback, foreign_key: :example_id)
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

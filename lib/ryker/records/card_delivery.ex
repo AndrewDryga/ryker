@@ -10,7 +10,6 @@ defmodule Ryker.Records.CardDelivery do
   press is still the press of the card we delivered. Only the conversation is
   held to the episode, because no card is ever confirmable from another channel.
   """
-
   alias Ryker.Episodes.Episode
   alias Ryker.Work.Turn
 

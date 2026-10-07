@@ -17,7 +17,6 @@ defmodule Ryker.Publication.GateOutput do
   effort, like session evidence: one that fails changes nothing about the
   review it follows.
   """
-
   alias Ryker.Artifacts
   alias Ryker.Publication.Publication
   alias Ryker.Reference

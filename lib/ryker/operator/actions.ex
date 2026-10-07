@@ -10,7 +10,6 @@ defmodule Ryker.Operator.Actions do
   (`subscribe_actions/0`); what the action changed is announced by the
   context that owns it.
   """
-
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
   alias Ryker.Operator.Action

@@ -5,7 +5,7 @@ defmodule Ryker.Learning.SourceDependency.Query do
   where it is read. Topics, observations, summaries and rollups all compose
   these, by the first binding of the query they are given.
   """
-  import Ecto.Query
+  use Ryker, :query
 
   @doc "Exclude receiptless derived prose before bounded recall and compaction selection."
   def sourced(queryable) do

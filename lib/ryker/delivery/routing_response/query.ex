@@ -1,6 +1,6 @@
 defmodule Ryker.Delivery.RoutingResponse.Query do
   @moduledoc "What routing sent by itself, for every read of `delivery_routing_responses`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Delivery.RoutingResponse
 
   def all, do: from(responses in RoutingResponse, as: :delivery_routing_responses)

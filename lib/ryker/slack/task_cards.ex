@@ -9,7 +9,6 @@ defmodule Ryker.Slack.TaskCards do
   Each card created, refreshed, blocked or rearmed is announced after the
   outermost commit (`subscribe_task_cards/0`), on its request's topics too.
   """
-
   alias Ryker.AdvisoryLock
   alias Ryker.Delivery.Request
   alias Ryker.Episodes.Episode
@@ -309,7 +308,7 @@ defmodule Ryker.Slack.TaskCards do
         attempt_count: 0,
         channel_ref: channel_ref,
         episode_id: episode.id,
-        id: Ecto.UUID.generate(),
+        id: Repo.generate_id(),
         message_ref: receipt["message_ref"],
         record_id: record.id,
         ref: "task-card:#{record.id}",

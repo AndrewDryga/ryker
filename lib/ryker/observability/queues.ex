@@ -7,7 +7,6 @@ defmodule Ryker.Observability.Queues do
   its custody owner claims by, so a deliberate wait is never reported as a
   stall, and leases are counted apart so a stuck executor is still visible.
   """
-
   alias Ryker.Delivery.RoutingResponse
   alias Ryker.Emisar.Approval
   alias Ryker.Ingress.Inbox.Entry

@@ -6,7 +6,6 @@ defmodule Ryker.Emisar.ApprovalPresenter do
   and delivery identity. Neither the Emisar response nor model content can
   redirect the update.
   """
-
   alias Ryker.Delivery.{Adapters, Request, Retry}
   alias Ryker.Emisar.{Approval, ApprovalStatus, Review, RunState}
   alias Ryker.Episodes.Episode

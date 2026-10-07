@@ -5,8 +5,7 @@ defmodule Ryker.Settings.PricingRate.Changeset do
   changed one keeps its version.
   """
   @behaviour Ryker.Settings.Section.Changeset
-
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.Settings.PricingRate
 
   @fields ~w(id execution_target input_usd_per_million cached_input_usd_per_million output_usd_per_million reasoning_usd_per_million effective_from provenance)a
@@ -21,11 +20,7 @@ defmodule Ryker.Settings.PricingRate.Changeset do
 
   @impl true
   def insert(attributes, snapshot) do
-    %PricingRate{
-      id: Ecto.UUID.generate(),
-      revision: snapshot.installation.revision + 1,
-      inserted_at: DateTime.utc_now()
-    }
+    %PricingRate{revision: snapshot.installation.revision + 1}
     |> cast(attributes, @writable_fields)
     |> changeset(snapshot)
   end

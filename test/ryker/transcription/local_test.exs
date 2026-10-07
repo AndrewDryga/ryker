@@ -50,6 +50,28 @@ defmodule Ryker.Transcription.LocalTest do
     assert Enum.at(arguments, whitelist + 1) == "file"
   end
 
+  # An ID3 header passes the MP3 check whatever bytes follow it, and ffmpeg
+  # picked its demuxer from those bytes: an AIFF behind it was converted, and
+  # every other demuxer was reachable the same way (2026-10-04 review). Run
+  # with the real ffmpeg on 2026-10-08, the list below converted MP4, M4A,
+  # QuickTime, WebM, Ogg, FLAC, WAV, MP3 and AAC and refused AIFF.
+  test "ffmpeg reads an upload only as one of the containers Ryker admits", %{tmp_dir: dir} do
+    options =
+      options(dir,
+        ffmpeg: converter(dir, 2 * @second),
+        whisper: recognizer(dir, "Words.")
+      )
+
+    assert {:ok, "Words."} = Local.transcribe("ID3 bytes", options)
+
+    arguments = dir |> Path.join("ffmpeg-arguments") |> File.read!() |> String.split("\n")
+    input = Enum.find_index(arguments, &(&1 == "-i"))
+    whitelist = Enum.find_index(arguments, &(&1 == "-format_whitelist"))
+
+    assert whitelist < input
+    assert Enum.at(arguments, whitelist + 1) == "mov,matroska,ogg,flac,wav,mp3,aac"
+  end
+
   # Andrew's voice message of 2026-09-28 switched from Ukrainian to English
   # to Spanish and came back as 160 bytes of Russian: whisper hears a
   # recording's language once, from its first seconds, and the English

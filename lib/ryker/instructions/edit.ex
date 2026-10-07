@@ -1,8 +1,6 @@
 defmodule Ryker.Instructions.Edit do
   @moduledoc false
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
+  use Ryker, :schema
 
   schema "model_instruction_edits" do
     field(:scope_ref, :string)

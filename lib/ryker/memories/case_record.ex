@@ -8,11 +8,7 @@ defmodule Ryker.Memories.CaseRecord do
   and the links back to the sources. It outlives the transcript it came from,
   so a matching incident a year later starts new work with the old fix in hand.
   """
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "episode_case_records" do
     field(:case_ref, :string)
@@ -36,7 +32,7 @@ defmodule Ryker.Memories.CaseRecord do
     field(:status, Ecto.Enum, values: [:active, :deleted], default: :active)
     field(:closed_at, :utc_datetime_usec)
     field(:content_fingerprint, :string)
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

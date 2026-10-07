@@ -1,6 +1,5 @@
 defmodule Ryker.StateTools.Tools do
   @moduledoc false
-
   alias Ryker.CanonicalJSON
   alias Ryker.Emisar.ApprovalContract
   alias Ryker.Records

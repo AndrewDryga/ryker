@@ -1,6 +1,5 @@
 defmodule Ryker.Work.RepositoryContext do
   @moduledoc false
-
   alias Ryker.CanonicalJSON
   alias Ryker.Reference
 

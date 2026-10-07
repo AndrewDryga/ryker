@@ -1,6 +1,5 @@
 defmodule Ryker.Fixtures.WorkspaceCheckpoint do
   @moduledoc false
-
   import Ryker.TestHelpers, only: [digest: 1]
   alias Ryker.CoopFleet.WorkspaceCheckpoint
 

@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.Supervisor do
   @moduledoc false
-
   use Supervisor
   alias Ryker.Slack.{ActionTokens, Gateway, IncidentRoomWorker, InteractionFeedbackWorker}
   alias Ryker.Slack.{MembershipReconciler, Runtime, TaskCardWorker, ThreadStatusWorker}

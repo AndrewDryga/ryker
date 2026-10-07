@@ -1,6 +1,6 @@
 defmodule Ryker.CoopFleet.Command.Changeset do
   @moduledoc "How a command for a Coop worker is queued, delivered and settled (`Ryker.CoopFleet.Command`)."
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.CoopFleet.Command
 
   @fields [

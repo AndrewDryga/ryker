@@ -13,7 +13,6 @@ defmodule Ryker.Emisar.Review do
   A document that does not validate is refused whole. The card then keeps the
   last receipt it could prove instead of showing a decision nobody made.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Reference
 

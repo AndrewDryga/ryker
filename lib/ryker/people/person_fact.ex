@@ -13,10 +13,7 @@ defmodule Ryker.People.PersonFact do
   - A forgotten one has no `fact` and keeps the rest, so the message it came
     from never teaches it again.
   """
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
+  use Ryker, :schema
 
   schema "person_facts" do
     field(:person_ref, :string)

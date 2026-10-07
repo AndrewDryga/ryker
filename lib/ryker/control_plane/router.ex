@@ -9,9 +9,8 @@ defmodule Ryker.ControlPlane.Router do
   Every mutation is a same-origin form post carrying a process-local CSRF
   token bound to the exact action and resource it confirms.
   """
-
+  @behaviour Plug
   import Plug.Conn
-  require Logger
   alias Plug.Conn.Query
   alias Ryker.Artifacts
   alias Ryker.CanonicalJSON
@@ -24,8 +23,8 @@ defmodule Ryker.ControlPlane.Router do
   alias Ryker.Observability
   alias Ryker.Operator.Learning, as: LearningOperator
   alias Ryker.Slack.Names
+  require Logger
 
-  @behaviour Plug
   @maximum_form_bytes 4_096
   @maximum_memory_form_bytes 16 * 1_024
   @maximum_lab_form_bytes 65_536

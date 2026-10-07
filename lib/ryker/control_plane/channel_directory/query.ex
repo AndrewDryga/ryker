@@ -4,7 +4,7 @@ defmodule Ryker.ControlPlane.ChannelDirectory.Query do
   (`Ryker.ControlPlane.ChannelDirectory`): the newest incident room of each
   channel and how many requests each Slack conversation holds.
   """
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Episodes.Episode
   alias Ryker.Slack.IncidentRoom
 

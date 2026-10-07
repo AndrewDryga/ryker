@@ -13,7 +13,6 @@ defmodule Ryker.Retention.Custody do
   their independent retention rules preserve them. PostgreSQL time and opaque
   leases provide the fleet fence; remote calls never run in these transactions.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.ControlPlane, as: FleetControlPlane
   alias Ryker.CoopFleet.Placement

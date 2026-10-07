@@ -11,7 +11,6 @@ defmodule Ryker.QueryWork do
   page to the rows it shows this way, which a timing could not do on a loaded
   machine.
   """
-
   alias Ryker.Repo
 
   @type statement :: %{

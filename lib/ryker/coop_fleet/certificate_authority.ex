@@ -1,8 +1,7 @@
 defmodule Ryker.CoopFleet.CertificateAuthority do
   @moduledoc false
-
-  require Record
   alias Ryker.Crypto
+  require Record
 
   Record.defrecordp(
     :otp_certificate,

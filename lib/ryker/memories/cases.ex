@@ -22,7 +22,6 @@ defmodule Ryker.Memories.Cases do
   case built from its messages the same way
   (`withdraw_conversation_in_transaction/2`).
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity.Scope, as: ContinuityScope
   alias Ryker.Episodes.{CorrelationClaim, Episode, Origin}
@@ -202,7 +201,7 @@ defmodule Ryker.Memories.Cases do
     now = Repo.now!()
 
     withdrawn = %{
-      id: Ecto.UUID.generate(),
+      id: Repo.generate_id(),
       case_ref: "case:#{episode.id}",
       closed_at: episode.updated_at,
       content_fingerprint: CanonicalJSON.digest(%{"problem" => @redacted}),

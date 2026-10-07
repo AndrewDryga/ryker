@@ -1,6 +1,6 @@
 defmodule Ryker.Behaviors.StandingRuleInventory.Query do
   @moduledoc "The standing rules recorded for each input, for every read of `standing_rule_inventories`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Behaviors.StandingRuleInventory
 
   def all, do: from(inventories in StandingRuleInventory, as: :standing_rule_inventories)

@@ -33,8 +33,6 @@ defmodule Ryker.Feedback.Messages do
   message that repeats it. Observing never fails the message it reads: it
   runs in a short transaction of its own, and a failure is logged.
   """
-
-  require Logger
   alias Ryker.Delivery.RoutingResponse
   alias Ryker.Feedback
   alias Ryker.Ingress.Inbox
@@ -42,6 +40,7 @@ defmodule Ryker.Feedback.Messages do
   alias Ryker.Repo
   alias Ryker.RoutingExamples
   alias Ryker.Work.Turn
+  require Logger
 
   @people_sources ["slack", "control_plane"]
   @reask_seconds 10 * 60

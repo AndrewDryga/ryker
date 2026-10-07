@@ -1,7 +1,6 @@
 defmodule Ryker.Settings.EmisarConnection do
   @moduledoc "A verified Emisar account connection; its bearer remains in credential custody."
-
-  use Ecto.Schema
+  use Ryker, :schema
 
   @primary_key {:ref, :string, autogenerate: false}
 
@@ -13,7 +12,7 @@ defmodule Ryker.Settings.EmisarConnection do
     field(:enabled_for_new_work, :boolean, default: true)
     field(:monitoring_enabled, :boolean, default: true)
     field(:verified_at, :utc_datetime_usec)
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

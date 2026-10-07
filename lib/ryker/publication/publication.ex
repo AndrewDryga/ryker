@@ -1,10 +1,6 @@
 defmodule Ryker.Publication.Publication do
   @moduledoc false
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "episode_publications" do
     belongs_to(:episode, Ryker.Episodes.Episode)
@@ -89,7 +85,7 @@ defmodule Ryker.Publication.Publication do
     field(:last_error_code, :string)
     field(:last_error_detail, :string)
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

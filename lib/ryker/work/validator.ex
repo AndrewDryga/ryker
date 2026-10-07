@@ -7,7 +7,6 @@ defmodule Ryker.Work.Validator do
   durable wait that will resume it. It deliberately does not grade arbitrary
   prose, infer cause, or impose alert-specific checklists.
   """
-
   alias Ryker.Slack.Mentions
   alias Ryker.Work.{Final, Result}
 

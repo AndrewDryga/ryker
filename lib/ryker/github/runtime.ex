@@ -6,7 +6,6 @@ defmodule Ryker.GitHub.Runtime do
   The credential provider starts before the listener and before downstream
   delivery/publication workers can request an installation token.
   """
-
   use Supervisor
   alias Ryker.GitHub.{DeliveryPoller, InstallationTokens, OnboardingWorker, Server}
   alias Ryker.Options

@@ -28,7 +28,6 @@ defmodule Ryker.People do
   are kept until forgotten: a birthday is worth remembering for more than
   the ninety days conversation memory keeps.
   """
-
   alias Ryker.AdvisoryLock
   alias Ryker.Crypto
   alias Ryker.Ingress.Inbox.Entry
@@ -172,7 +171,6 @@ defmodule Ryker.People do
 
   defp insert!(person, key, fact, entry) do
     Repo.insert!(%PersonFact{
-      id: Ecto.UUID.generate(),
       person_ref: person,
       key: key,
       fact: fact,

@@ -9,7 +9,6 @@ defmodule Ryker.GitHub.Client.Transport do
   ordinary 403 stays a permanent refusal, and a reply that is not an HTTP
   response at all is a protocol error.
   """
-
   alias Ryker.GitHub.Client
 
   @headers [

@@ -1,7 +1,6 @@
 defmodule Ryker.Artifacts.OutputArtifact.Changeset do
   @moduledoc false
-
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.Artifacts.OutputArtifact
 
   @fields [:byte_size, :data, :id, :media_type, :name, :ref, :sha256, :turn_id]

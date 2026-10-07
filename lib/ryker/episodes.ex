@@ -13,7 +13,6 @@ defmodule Ryker.Episodes do
   publications, records, follow-ups, Slack cards) announces it here, after its
   commit, with `broadcast_episode_updated/1`.
   """
-
   alias Ryker.AdvisoryLock
   alias Ryker.Episodes.{Command, ConversationLock, CorrelationClaims, Episode}
   alias Ryker.Episodes.{Event, Kernel, Origins}
@@ -347,4 +346,10 @@ defmodule Ryker.Episodes do
     Ryker.PubSub.broadcast(conversation_topic(transport, conversation_ref), message)
     Ryker.PubSub.broadcast(conversations_topic(transport), message)
   end
+
+  # -- For the console ---------------------------------------------------------
+
+  @doc "A request's state, decision or stored name in the words every surface uses."
+  @spec label(term()) :: String.t()
+  defdelegate label(value), to: Ryker.Episodes.Words
 end

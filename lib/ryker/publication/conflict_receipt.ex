@@ -6,7 +6,6 @@ defmodule Ryker.Publication.ConflictReceipt do
   Ryker App. Custody then revalidates this bounded receipt before using its
   observed head as the operator update's compare-and-swap fence.
   """
-
   alias Ryker.GitObject
 
   @fields ~w(branch_ref candidate_commit_sha github_repository observed_head_sha pull_request_number pull_request_url repository)

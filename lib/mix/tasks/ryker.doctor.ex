@@ -1,4 +1,5 @@
 defmodule Mix.Tasks.Ryker.Doctor do
+  @shortdoc "Runs read-only configuration and durable-state preflight"
   @moduledoc """
   Runs every read-only operator preflight check.
 
@@ -8,12 +9,9 @@ defmodule Mix.Tasks.Ryker.Doctor do
   durable queue readiness. Live runtime PID and progress checks remain owned by
   the running release's `/readyz` endpoint.
   """
-
   use Mix.Task
   alias Mix.Tasks.Ryker.OperatorSupport, as: Support
   alias Ryker.Operator.Preflight
-
-  @shortdoc "Runs read-only configuration and durable-state preflight"
 
   @impl Mix.Task
   def run(arguments) do

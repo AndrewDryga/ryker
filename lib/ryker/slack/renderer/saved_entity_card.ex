@@ -4,7 +4,6 @@ defmodule Ryker.Slack.Renderer.SavedEntityCard do
   rules, preferences, guidance and memories share it, on their own message and
   on the confirmed offer that created them.
   """
-
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
 

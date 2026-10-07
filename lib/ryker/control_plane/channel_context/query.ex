@@ -6,7 +6,7 @@ defmodule Ryker.ControlPlane.ChannelContext.Query do
   learned topics. Every read keys on the channel's canonical refs
   (`Ryker.ControlPlane.ChannelScope`).
   """
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Behaviors.Behavior
   alias Ryker.Continuity.{ConversationSummary, ConversationSummaryDraft}
   alias Ryker.ControlPlane.ChannelScope

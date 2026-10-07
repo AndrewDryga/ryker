@@ -1,6 +1,6 @@
 defmodule Ryker.Slack.InteractionAudit.Query do
   @moduledoc "Slack button presses Ryker answered, for every read of `slack_interaction_audit`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Slack.InteractionAudit
 
   def all, do: from(audits in InteractionAudit, as: :slack_interaction_audit)

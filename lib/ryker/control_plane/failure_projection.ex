@@ -5,7 +5,6 @@ defmodule Ryker.ControlPlane.FailureProjection do
   Emisar approvals and background learning, plus stops their worker has not
   confirmed, each with the host's own diagnosis and never a raw error body.
   """
-
   alias Ryker.Config
   alias Ryker.ControlPlane.{Activity, Failure, LearningActivity, ProductReadiness}
   alias Ryker.ControlPlane.RepositoryNames

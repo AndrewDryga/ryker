@@ -1,6 +1,5 @@
 defmodule Ryker.Learning.ObservationsTest do
   use Ryker.DataCase, async: false
-  @moduletag isolation: "REPEATABLE READ"
   import Ecto.Query
   alias Ryker.{Admission, CanonicalJSON, Config, Repo}
   alias Ryker.Admission.{Context, Decision, Executor, Prompt}
@@ -18,6 +17,8 @@ defmodule Ryker.Learning.ObservationsTest do
   alias Ryker.Retention.Data
   alias Ryker.Slack.{ChannelMembership, Input}
   alias Ryker.TestSupport.FakeCoopAPI, as: FakeAPI
+
+  @moduletag isolation: "REPEATABLE READ"
 
   @now ~U[2026-09-06 10:00:00.000000Z]
   # Harvested from the Tenant service-retention discussion, not a synthetic policy.

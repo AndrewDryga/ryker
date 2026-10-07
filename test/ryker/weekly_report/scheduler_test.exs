@@ -29,7 +29,6 @@ defmodule Ryker.WeeklyReport.SchedulerTest do
     @behaviour Ryker.Delivery.Platform
     @behaviour Ryker.Delivery.MessagePublisher
     @behaviour Ryker.Delivery.ReactionPublisher
-
     alias Ryker.Work.DeliveryReceipt
 
     @impl true

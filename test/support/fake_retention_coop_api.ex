@@ -1,6 +1,5 @@
 defmodule Ryker.FakeRetentionCoopAPI do
   @moduledoc false
-
   use Agent
 
   @default_workspace %{

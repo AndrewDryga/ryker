@@ -7,7 +7,6 @@ defmodule Ryker.GitHub.CapabilityTools do
   What a tool's arguments may be is `Ryker.GitHub.CapabilityTools.Arguments`;
   what a call may touch is `Ryker.GitHub.CapabilityTools.Authority`.
   """
-
   alias Ryker.Delivery.PlatformActionCustody
   alias Ryker.GitHub.CapabilityTools.{Arguments, Authority}
   alias Ryker.{Options, Rescued}

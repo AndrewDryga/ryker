@@ -9,7 +9,6 @@ defmodule Ryker.ControlPlane.RepositoryNames do
   it had is kept when it is removed (`Ryker.Settings.delete_repository/3`).
   A ref known by neither is its own name.
   """
-
   alias Ryker.ControlPlane.PageRead
   alias Ryker.Repo
   alias Ryker.Settings.Repository

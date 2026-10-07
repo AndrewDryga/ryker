@@ -1,6 +1,6 @@
 defmodule Ryker.Settings.Work.Query do
   @moduledoc "How Work and routing run, for every read of `work_settings`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Settings.Work
 
   def all, do: from(settings in Work, as: :work_settings)

@@ -11,7 +11,6 @@ defmodule Ryker.HTTPConnection do
   client's next request starts on a fresh one. HTTP/2 streams are
   independent and forbid a connection header, so they are left alone.
   """
-
   import Plug.Conn
 
   @spec close_after_refusal(Plug.Conn.t()) :: Plug.Conn.t()

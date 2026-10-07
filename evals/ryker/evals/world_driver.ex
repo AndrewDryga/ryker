@@ -5,7 +5,6 @@ defmodule Ryker.Evals.WorldDriver do
   evaluation adapters. Scheduled wait wakeups resume the exact persisted event
   wait at its own due time instead of fabricating a new input.
   """
-
   alias Ryker.Admission
   alias Ryker.Admission.{Candidate, Context, Decision}
   alias Ryker.Delivery.Dispatcher

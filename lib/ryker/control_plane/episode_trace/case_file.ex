@@ -4,7 +4,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   that came in with their retained bodies and provenance, the replies that
   went out, and the heading the whole page carries.
   """
-
   import Ryker.ControlPlane.EpisodeTrace.Step
   alias Ryker.ControlPlane.{ConsolePeople, EpisodeTrace, Paths, ProviderMessage}
   alias Ryker.ControlPlane.{SlackMarkdown, SourceText}

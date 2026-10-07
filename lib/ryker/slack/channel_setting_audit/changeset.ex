@@ -1,7 +1,6 @@
 defmodule Ryker.Slack.ChannelSettingAudit.Changeset do
   @moduledoc "How a channel setting change is audited (`Ryker.Slack.ChannelSettingAudit`)."
-
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.Slack.ChannelSettingAudit
 
   @audit_fields [

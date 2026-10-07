@@ -1,6 +1,6 @@
 defmodule Ryker.Settings.Installation.Query do
   @moduledoc "The installation's identity and settings revision, for every read of `installation_settings`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Settings.Installation
 
   def all, do: from(rows in Installation, as: :installation_settings)

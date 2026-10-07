@@ -29,7 +29,6 @@ defmodule Ryker.Feedback do
   is operational data: it expires with the operational horizon
   (`Ryker.Retention.Data`), and with its request when that goes first.
   """
-
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
   alias Ryker.Feedback.Signal
@@ -228,7 +227,7 @@ defmodule Ryker.Feedback do
       :message_ref
     ])
     |> Map.merge(request_ids)
-    |> Map.merge(%{id: Ecto.UUID.generate(), category: category_of(kind, value)})
+    |> Map.merge(%{id: Repo.generate_id(), category: category_of(kind, value)})
     |> Signal.Changeset.insert()
     |> Ecto.Changeset.apply_action(:insert)
     |> case do

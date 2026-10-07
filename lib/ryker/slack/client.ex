@@ -16,10 +16,8 @@ defmodule Ryker.Slack.Client do
   `Client.Pagination` and checks its arguments and replies with
   `Client.Fields`.
   """
-
   @behaviour Ryker.Slack.API
   @behaviour Ryker.Slack.MemberDirectory
-
   alias Ryker.Delivery.JSONClient
   alias Ryker.Slack.Client.{Assistant, Conversations, Files, Messages, Reactions, Rooms, Users}
   alias Ryker.Slack.Client.Views

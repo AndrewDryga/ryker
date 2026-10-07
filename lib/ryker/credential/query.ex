@@ -1,6 +1,6 @@
 defmodule Ryker.Credential.Query do
   @moduledoc "Saved integration credentials, for every read of `integration_credentials`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Credential
 
   def all, do: from(credentials in Credential, as: :integration_credentials)

@@ -1,6 +1,4 @@
 defmodule Ryker.RenameAuditTest do
-  use ExUnit.Case, async: true
-
   @moduledoc """
   The product was renamed from Responder to Ryker on 2026-09-13. Every occurrence
   of the old name that remains in the tracked tree is either immutable evidence
@@ -11,6 +9,7 @@ defmodule Ryker.RenameAuditTest do
   this test fails on it so the old name cannot creep back through a new file,
   a pasted snippet or a "temporary" alias.
   """
+  use ExUnit.Case, async: true
 
   # Whole paths that are immutable evidence or renamed elsewhere. A path matched
   # here is not scanned at all.

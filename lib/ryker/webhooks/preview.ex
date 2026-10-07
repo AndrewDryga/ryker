@@ -11,7 +11,6 @@ defmodule Ryker.Webhooks.Preview do
   A failure names the field that could not be mapped, which is the answer an
   operator needs before an incident depends on the mapping.
   """
-
   alias Ryker.Webhooks.{Route, Transforms}
 
   @maximum_bytes 40_000

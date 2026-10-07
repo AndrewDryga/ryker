@@ -1,7 +1,6 @@
 defmodule Ryker.CoopFleet.Placement do
   @moduledoc false
-
-  use Ecto.Schema
+  use Ryker, :schema
 
   # The states in which a placement still addresses its session: one of these
   # is the session's current placement until it is replaced or retired.
@@ -9,9 +8,6 @@ defmodule Ryker.CoopFleet.Placement do
 
   @spec current_states() :: [atom()]
   def current_states, do: @current_states
-
-  @primary_key {:id, :binary_id, autogenerate: false}
-  @foreign_key_type :binary_id
 
   schema "coop_session_placements" do
     belongs_to(:session, Ryker.Work.Session)
@@ -28,7 +24,7 @@ defmodule Ryker.CoopFleet.Placement do
     field(:last_acked_event_sequence, :integer, default: 0)
     field(:last_acked_session_event_sequence, :integer, default: 0)
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

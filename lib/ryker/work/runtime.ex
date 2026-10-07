@@ -7,7 +7,6 @@ defmodule Ryker.Work.Runtime do
   by a worker. Product assembly supplies the durable outbound fleet adapter;
   component tests supply a test double in its place.
   """
-
   use Supervisor
   alias Ryker.Options
   alias Ryker.StateTools.Capabilities

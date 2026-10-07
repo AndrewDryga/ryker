@@ -2,11 +2,7 @@ defmodule Ryker.Episodes.Event do
   @moduledoc """
   One immutable decision made by the episode kernel.
   """
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "episode_kernel_events" do
     field(:sequence, :integer)
@@ -31,7 +27,7 @@ defmodule Ryker.Episodes.Event do
     field(:occurred_at, :utc_datetime_usec)
     belongs_to(:episode, Ryker.Episodes.Episode)
 
-    timestamps(updated_at: false, type: :utc_datetime_usec)
+    timestamps(updated_at: false)
   end
 
   @type t :: %__MODULE__{

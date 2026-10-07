@@ -9,7 +9,6 @@ defmodule Ryker.Instructions do
   A saved change is announced after the outermost commit
   (`subscribe_instructions/0`).
   """
-
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
   alias Ryker.Instructions.{Edit, Setting}
@@ -149,7 +148,6 @@ defmodule Ryker.Instructions do
       |> Repo.insert_or_update!()
 
     Repo.insert!(%Edit{
-      id: Ecto.UUID.generate(),
       scope_ref: saved.scope_ref,
       revision: saved.revision,
       actor_ref: actor_ref,

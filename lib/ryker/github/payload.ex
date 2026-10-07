@@ -10,7 +10,6 @@ defmodule Ryker.GitHub.Payload do
   The API links go first; then the longest text is cut until the payload
   fits. The same payload is always cut the same way.
   """
-
   alias Ryker.{CanonicalJSON, Text}
 
   @api "https://api.github.com/"

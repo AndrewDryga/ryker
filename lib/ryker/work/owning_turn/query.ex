@@ -6,7 +6,7 @@ defmodule Ryker.Work.OwningTurn.Query do
   self-analysis wait for them to come to rest. Queries bind the episode as
   `:episode_kernel_episodes` and the turn as `:episode_work_turns`.
   """
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Episodes.Episode
   alias Ryker.Publication.Publication
   alias Ryker.Work.{Session, Turn}

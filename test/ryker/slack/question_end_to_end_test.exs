@@ -5,11 +5,6 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
   # whichever async test recorded an edit, and on 2026-09-26 timed out a gate
   # behind one. It runs alone (2.4 s); production transactions are short.
   use Ryker.DataCase, async: false
-
-  # A suite-owned workspace keeps conversation locks out of other fixtures.
-
-  @moduletag isolation: "REPEATABLE READ"
-
   import Ecto.Query
   alias Ryker.Admission.Dispatcher, as: AdmissionDispatcher
   alias Ryker.Delivery.{Adapters, Dispatcher}
@@ -31,6 +26,10 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
   alias Ryker.Waits.EventSubscription
   alias Ryker.Waits.EventSubscriptions
   alias Ryker.Work.{Custody, Executor, Session, SubmissionBuilder, Turn}
+
+  # A suite-owned workspace keeps conversation locks out of other fixtures.
+
+  @moduletag isolation: "REPEATABLE READ"
 
   @now ~U[2026-08-31 12:00:01.000200Z]
   @policy_digest String.duplicate("a", 64)

@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.PostGrant do
   @moduledoc false
-
   alias Ryker.Slack.SourceRef
 
   @channel_target ~r/\A<#([A-Z0-9]+)(?:\|[^>\r\n]*)?>\z/u

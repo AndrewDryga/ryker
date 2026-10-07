@@ -1,6 +1,6 @@
 defmodule Ryker.ControlPlane.Page.Query do
   @moduledoc "One page of any relation, for `Ryker.ControlPlane.PagedRelation`."
-  import Ecto.Query
+  use Ryker, :query
 
   @doc "The `size` rows of `queryable` in `order` after the first `offset`."
   def page(queryable, order, size, offset),

@@ -1,6 +1,6 @@
 defmodule Ryker.Slack.ChannelSettingAudit.Query do
   @moduledoc "Channel setting changes made from Slack, for every read of `slack_channel_setting_audit`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Slack.ChannelSettingAudit
 
   def all, do: from(audits in ChannelSettingAudit, as: :slack_channel_setting_audit)

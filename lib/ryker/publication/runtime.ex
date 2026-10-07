@@ -5,7 +5,6 @@ defmodule Ryker.Publication.Runtime do
   The configuration names the Coop adapter explicitly; product assembly hands
   the pool the outbound fleet client.
   """
-
   use Supervisor
   alias Ryker.Delivery.Adapters
   alias Ryker.Options

@@ -6,7 +6,6 @@ defmodule Ryker.Publication.Executor do
   retry reuses the frozen Coop review key/revision or the exact retained commit;
   an operator approval can therefore never drift to a newer workspace tree.
   """
-
   alias Ryker.CoopFleet.JobAuthority
   alias Ryker.Delivery.Adapters
   alias Ryker.LeasedCall

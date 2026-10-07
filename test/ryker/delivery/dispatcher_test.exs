@@ -3,9 +3,6 @@ defmodule Ryker.Delivery.DispatcherTest do
   import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query, only: [from: 2]
   import ExUnit.CaptureIO
-
-  @moduletag isolation: "REPEATABLE READ"
-
   alias Ecto.Adapters.SQL.Sandbox
   alias Mix.Tasks.Ryker.Delivery, as: DeliveryTask
   alias Ryker.Admission
@@ -29,13 +26,14 @@ defmodule Ryker.Delivery.DispatcherTest do
   alias Ryker.TestSupport.FakeSlackAPI
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission, Turn}
 
+  @moduletag isolation: "REPEATABLE READ"
+
   @now ~U[2026-08-28 12:00:00.000000Z]
 
   defmodule Publisher do
     @behaviour Ryker.Delivery.Platform
     @behaviour Ryker.Delivery.MessagePublisher
     @behaviour Ryker.Delivery.ReactionPublisher
-
     alias Ryker.Work.DeliveryReceipt
 
     @impl true
@@ -89,7 +87,6 @@ defmodule Ryker.Delivery.DispatcherTest do
     @behaviour Ryker.Delivery.Platform
     @behaviour Ryker.Delivery.MessagePublisher
     @behaviour Ryker.Delivery.ReactionPublisher
-
     alias Ryker.Work.DeliveryReceipt
 
     @impl true

@@ -7,7 +7,6 @@ defmodule Ryker.Acceptance.Live do
   gateway. The already-running deployment owns Admission, Work, remote Coop execution,
   state tools, and Delivery. This process only observes their durable PostgreSQL custody.
   """
-
   alias Ryker.{Bootstrap, Settings}
   alias Ryker.CoopFleet.Placement
   alias Ryker.Delivery.HTTPClient

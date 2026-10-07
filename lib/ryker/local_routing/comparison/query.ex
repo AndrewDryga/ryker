@@ -1,6 +1,6 @@
 defmodule Ryker.LocalRouting.Comparison.Query do
   @moduledoc "The local routing model's answers beside routing's, for every read of `local_routing_comparisons`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.LocalRouting.Comparison
 
   def all, do: from(comparisons in Comparison, as: :local_routing_comparisons)

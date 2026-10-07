@@ -1,4 +1,5 @@
 defmodule Ryker.ControlPlane.RequestContextHTML do
+  @moduledoc "Readable context derived only from an already sanitized inspection artifact."
   alias Ryker.ControlPlane.Actor
   alias Ryker.ControlPlane.CallRun
   alias Ryker.ControlPlane.Components
@@ -12,7 +13,6 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   alias Ryker.ControlPlane.SlackMarkdown
   alias Ryker.ControlPlane.SourceText
   alias Ryker.Slack.Names
-  @moduledoc "Readable context derived only from an already sanitized inspection artifact."
 
   @sources %{
     "custom_instructions" =>

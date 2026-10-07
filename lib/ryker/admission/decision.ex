@@ -21,7 +21,6 @@ defmodule Ryker.Admission.Decision do
   decision, its stored document and fingerprint leave it out, and the host
   keeps it only as feedback on that answer.
   """
-
   alias Ryker.Admission.Sentiment
   alias Ryker.Work.RepositorySource
 

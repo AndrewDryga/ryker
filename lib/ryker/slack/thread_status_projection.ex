@@ -10,7 +10,6 @@ defmodule Ryker.Slack.ThreadStatusProjection do
   worker narrated for that turn. Each kind of tool has one fixed phrase: the
   channel sees no tool argument, command, path, title or model text.
   """
-
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo

@@ -15,12 +15,11 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
   knowledge the moment it is written; a RYKER.md the repository holds is one
   more file the model may read.
   """
-
-  require Logger
   alias Ryker.CoopFleet.JobTemplates
   alias Ryker.RepositoryKnowledge.{Custody, Document, Executor, FleetSession, Prompt, Refresh}
   alias Ryker.RepositoryKnowledge.Run
   alias Ryker.Settings
+  require Logger
 
   @no_policy_hold_seconds 300
   @worker_hold_seconds 60

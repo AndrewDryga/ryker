@@ -5,7 +5,6 @@ defmodule Ryker.Webhooks.Route do
   The route owns authentication, delivery destination, and resource bounds.
   None of those fields are read from a webhook payload.
   """
-
   alias Ryker.Ingress.WorkProfile
   alias Ryker.Publication.DeploymentSignal
   alias Ryker.Reference

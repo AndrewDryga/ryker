@@ -8,7 +8,6 @@ defmodule Ryker.Slack.Client.Messages do
   HTTP response cannot duplicate a visible reply; the file shares in
   `Client.Files` are found by the same walk.
   """
-
   alias Ryker.Slack.Client
   alias Ryker.Slack.Client.{Fields, Pagination, Transport}
   alias Ryker.Slack.Renderer

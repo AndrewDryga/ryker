@@ -15,7 +15,6 @@ defmodule Ryker.WeeklyReport.Custody do
   Each report queued, claimed, retried, blocked or delivered is announced
   after the outermost commit (`subscribe_reports/0`).
   """
-
   alias Ryker.Delivery.Request
   alias Ryker.Lease
   alias Ryker.Reference
@@ -35,7 +34,7 @@ defmodule Ryker.WeeklyReport.Custody do
   """
   @spec enqueue(map()) :: {:ok, Report.t() | :already_queued} | {:error, term()}
   def enqueue(%{week: %Date{} = week} = attributes) do
-    id = Ecto.UUID.generate()
+    id = Repo.generate_id()
     preview = Map.get(attributes, :preview, false) == true
 
     values = %{

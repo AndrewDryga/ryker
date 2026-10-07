@@ -9,7 +9,6 @@ defmodule Ryker.Admission.Context do
   about it (`Ryker.Admission.Sentiment`); the host keeps what it says as
   feedback on that request.
   """
-
   alias Ryker.Admission.Candidate
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry

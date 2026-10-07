@@ -16,16 +16,14 @@ defmodule Ryker.Slack.Gateway do
   (`subscribe_connection/0`): it is process state, not a row, so no commit
   says it.
   """
-
   use GenServer
-
-  @member_ttl_ms 5 * 60 * 1_000
-
-  require Logger
   alias Ryker.Ingress.Inbox
   alias Ryker.Options
   alias Ryker.Slack.{Command, Event, HomeEvent, HomeInteraction, HomeSubmission, Interaction}
   alias Ryker.Slack.{MembershipTransition, ReactionEvent, Shortcut}
+  require Logger
+
+  @member_ttl_ms 5 * 60 * 1_000
 
   @configuration_fields [
     :handler_settings,

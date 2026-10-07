@@ -1,6 +1,5 @@
 defmodule Ryker.Ingress.InboundHTTP do
   @moduledoc false
-
   import Plug.Conn
 
   @spec json_content_type(Plug.Conn.t()) :: :ok | {:error, :unsupported_media_type}

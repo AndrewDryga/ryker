@@ -4,7 +4,6 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
   projection so the hello, the post-Q&A re-render and settings on request can
   never disagree about what Ryker does in a channel.
   """
-
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
 

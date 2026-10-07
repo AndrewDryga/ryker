@@ -1,9 +1,6 @@
 defmodule Ryker.Evals.WorldRunnerTest do
   use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
-
-  @moduletag isolation: "REPEATABLE READ"
-
   import Ecto.Query
   alias Ryker.Artifacts.Artifact
   alias Ryker.Artifacts.Outputs
@@ -25,6 +22,8 @@ defmodule Ryker.Evals.WorldRunnerTest do
   alias Ryker.Waits.EventWaits
   alias Ryker.Work.{Custody, Submission, Turn}
   alias Ryker.Work.Dispatcher, as: WorkDispatcher
+
+  @moduletag isolation: "REPEATABLE READ"
 
   @policy_digest String.duplicate("a", 64)
 

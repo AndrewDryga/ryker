@@ -7,7 +7,6 @@ defmodule Ryker.Slack.Client.Users do
   deactivated account or someone from another workspace is not. Display names
   are for reading and never take part in authorization.
   """
-
   alias Ryker.Slack.Client
   alias Ryker.Slack.Client.{Conversations, Fields, Transport}
 

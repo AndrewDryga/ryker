@@ -5,7 +5,6 @@ defmodule Ryker.Work.Prompt do
   The output schema is attached separately by Coop. Keeping it out of this
   prompt avoids paying for the same schema twice on every turn.
   """
-
   alias Ryker.CanonicalJSON
 
   @live_contract_instructions """

@@ -8,10 +8,9 @@ defmodule Ryker.TrainingExamples do
   from where, and what its line holds. The two had drifting copies of all of
   this (2026-10-04 review).
   """
-
-  require Logger
   alias Ryker.Accounting.Pricing
   alias Ryker.{Repo, RoutingExamples}
+  require Logger
 
   @token_kinds ~w(input_tokens cached_input_tokens output_tokens reasoning_tokens)
 

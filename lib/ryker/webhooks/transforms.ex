@@ -6,7 +6,6 @@ defmodule Ryker.Webhooks.Transforms do
   cannot choose the destination, Work profile, credentials, or implementation
   module. Those remain part of the validated route.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Webhooks.{Input, Route}
 

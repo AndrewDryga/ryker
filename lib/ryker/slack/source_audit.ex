@@ -1,10 +1,6 @@
 defmodule Ryker.Slack.SourceAudit do
   @moduledoc false
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "slack_source_audits" do
     belongs_to(:episode, Ryker.Episodes.Episode)
@@ -20,6 +16,6 @@ defmodule Ryker.Slack.SourceAudit do
     field(:authorized, :boolean)
     field(:result_count, :integer)
     field(:complete, :boolean)
-    timestamps(updated_at: false, type: :utc_datetime_usec)
+    timestamps(updated_at: false)
   end
 end

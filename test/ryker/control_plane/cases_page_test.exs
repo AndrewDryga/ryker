@@ -2,11 +2,10 @@ defmodule Ryker.ControlPlane.CasesPageTest do
   use Ryker.DataCase, async: false
   import Phoenix.ConnTest, only: [build_conn: 0, get: 2]
   import Phoenix.LiveViewTest
-
-  @endpoint Ryker.ControlPlane.Endpoint
-
   alias Ryker.ControlPlane.{Actions, CasesPage, CasesProjection, Endpoint, Projection, Router}
   alias Ryker.Memories.CaseRecord
+
+  @endpoint Ryker.ControlPlane.Endpoint
 
   @now ~U[2026-10-01 12:00:00.000000Z]
 

@@ -1,6 +1,5 @@
 defmodule Ryker.Emisar.Runtime do
   @moduledoc "Supervises one isolated approval-monitor pool per Emisar connection."
-
   use Supervisor
   alias Ryker.Emisar.ApprovalRuntime
 

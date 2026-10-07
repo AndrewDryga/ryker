@@ -1,6 +1,6 @@
 defmodule Ryker.WorkExamples.Example.Query do
   @moduledoc "Settled Work turns kept as examples, for every read of `work_examples`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Work.{OwningTurn, Turn}
   alias Ryker.WorkExamples.Example
 

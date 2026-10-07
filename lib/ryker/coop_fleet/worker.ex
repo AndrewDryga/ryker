@@ -1,7 +1,6 @@
 defmodule Ryker.CoopFleet.Worker do
   @moduledoc false
-
-  use Ecto.Schema
+  use Ryker, :schema
 
   @primary_key {:id, :string, autogenerate: false}
 
@@ -29,7 +28,7 @@ defmodule Ryker.CoopFleet.Worker do
     field(:revoked_at, :utc_datetime_usec)
     field(:revoked_by, :string)
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

@@ -6,7 +6,6 @@ defmodule Ryker.Slack.AppHomeActions do
   an opaque resource reference back to its exact workspace before invoking the
   existing generation-fenced publication and retention operators.
   """
-
   alias Ryker.Episodes.Episode
   alias Ryker.Operator.Publication, as: PublicationOperator
   alias Ryker.Operator.Retention, as: RetentionOperator

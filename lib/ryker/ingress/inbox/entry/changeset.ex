@@ -1,7 +1,6 @@
 defmodule Ryker.Ingress.Inbox.Entry.Changeset do
   @moduledoc false
-
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.Admission.Decision
   alias Ryker.ErrorDetail
   alias Ryker.Ingress.Inbox.Entry

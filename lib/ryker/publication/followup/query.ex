@@ -1,6 +1,6 @@
 defmodule Ryker.Publication.Followup.Query do
   @moduledoc "How each published pull request is followed up, for every read of `episode_publication_followups`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Episodes.Episode
   alias Ryker.Publication.{Followup, Publication}
 

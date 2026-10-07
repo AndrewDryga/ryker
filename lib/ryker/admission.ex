@@ -8,8 +8,6 @@ defmodule Ryker.Admission do
   Routing a message is announced after each commit (`subscribe_routing/0`):
   every phase its attempt reaches, and the decision.
   """
-
-  require Logger
   alias Ryker.Admission.Attempts
   alias Ryker.Admission.{Candidate, CandidateSearch, Context, ConversationContext}
   alias Ryker.Admission.{ConversationSummaries, CorrelationScope, Decision, Occurrences, Prompt}
@@ -33,6 +31,7 @@ defmodule Ryker.Admission do
   alias Ryker.Repo
   alias Ryker.Settings.Repository
   alias Ryker.Work.{Custody, Turn}
+  require Logger
 
   @active_states [:working, :waiting_for_input, :waiting_for_event]
 
@@ -1436,4 +1435,9 @@ defmodule Ryker.Admission do
   end
 
   defp routing_topic, do: "routing"
+
+  # -- For the console ---------------------------------------------------------
+
+  @doc "The sentiment in a routing result's `sentiment` value, or nil."
+  defdelegate sentiment(value), to: Ryker.Admission.Sentiment, as: :parse
 end

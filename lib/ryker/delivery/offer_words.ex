@@ -8,7 +8,6 @@ defmodule Ryker.Delivery.OfferWords do
   Each returns nil when there is nothing to say, so a card leaves the fact
   out instead of showing a blank or an internal value.
   """
-
   alias Ryker.Schedules.ScheduleCadence
   alias Ryker.Schedules.ScheduleRecurrence
 

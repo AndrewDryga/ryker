@@ -1,14 +1,13 @@
 defmodule Ryker.Admission.OccurrenceClaimTest do
   use Ryker.DataCase, async: true
-
-  @moduletag isolation: "REPEATABLE READ"
-
   alias Ryker.Admission
   alias Ryker.Admission.{Decision, Occurrences}
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, CorrelationClaims}
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Inspectors
+
+  @moduletag isolation: "REPEATABLE READ"
 
   @now ~U[2026-09-11 12:00:00.000000Z]
 

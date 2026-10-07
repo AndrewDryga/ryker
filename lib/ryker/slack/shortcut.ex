@@ -5,7 +5,6 @@ defmodule Ryker.Slack.Shortcut do
   The actor is the member who invoked the shortcut, while the selected message
   remains untrusted content and the exact source item for reply/reaction scope.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Ingress.Input
   alias Ryker.Reference

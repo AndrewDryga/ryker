@@ -1,6 +1,6 @@
 defmodule Ryker.RoutingExamples.Example.Query do
   @moduledoc "Routing decisions kept as examples, for every read of `routing_examples`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Admission.Attempt
   alias Ryker.Delivery.RoutingResponse
   alias Ryker.Ingress.Inbox.Entry

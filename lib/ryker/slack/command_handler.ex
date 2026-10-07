@@ -5,7 +5,6 @@ defmodule Ryker.Slack.CommandHandler do
   This deliberately stays small. Product creation remains conversational and
   confirmation-backed; slash commands can inspect, quiet, shadow, or revoke.
   """
-
   alias Ryker.Slack.{Command, Operators, Renderer}
 
   @sources [:channel, :incident_room, :installation]

@@ -1,6 +1,6 @@
 defmodule Ryker.Continuity.ConversationRollup.Query do
   @moduledoc "Rollups of earlier summaries, for every read of `conversation_rollups`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Continuity.ConversationRollup
 
   def all, do: from(rollups in ConversationRollup, as: :conversation_rollups)

@@ -1,6 +1,5 @@
 defmodule Ryker.StateTools.WorkStateTools do
   @moduledoc false
-
   alias Ryker.Artifacts.Outputs
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery.{PlatformActionCustody, Presentation}

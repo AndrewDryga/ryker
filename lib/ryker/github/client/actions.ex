@@ -7,7 +7,6 @@ defmodule Ryker.GitHub.Client.Actions do
   newer attempt has started or the run is no longer in a state the action
   applies to, so a decision is never carried out against a run nobody saw.
   """
-
   alias Ryker.GitHub.Client.{Fields, Transport}
 
   def read_ci_attempt(client, repository, run_id, attempt) do

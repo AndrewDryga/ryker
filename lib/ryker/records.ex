@@ -13,7 +13,6 @@ defmodule Ryker.Records do
   after the outermost commit (`subscribe_records/0`), on its request's topics
   too, whichever context changed it (`broadcast_record_updated/1`).
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
   alias Ryker.Emisar.Approvals
@@ -562,7 +561,7 @@ defmodule Ryker.Records do
       %{
         continuation: prepared.continuation,
         episode_id: episode.id,
-        id: Ecto.UUID.generate(),
+        id: Repo.generate_id(),
         kind: kind,
         operation_id: operation_id,
         payload: prepared.payload,

@@ -1,7 +1,6 @@
 defmodule Ryker.Accounting.Execution do
   @moduledoc "Compact per-Coop-turn accounting for admission, Work, learning, self-analysis and repository knowledge executions; this is not a claim of per-provider-call visibility."
-  use Ecto.Schema
-  @primary_key {:id, :binary_id, autogenerate: true}
+  use Ryker, :schema
 
   schema "execution_usage" do
     field(:kind, :string)
@@ -38,7 +37,7 @@ defmodule Ryker.Accounting.Execution do
       field(field, :utc_datetime_usec)
     end
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

@@ -1,11 +1,11 @@
 defmodule Ryker.Fixtures.ChannelEnvironments do
   @moduledoc false
+  alias Ryker.Settings
+  alias Ryker.Settings.Environment
+
   # Environments a Slack channel can select, saved the way an operator saves
   # them: through the settings store, so each one is a real row a channel's
   # environment reference can point at, with its repositories in order.
-
-  alias Ryker.Settings
-  alias Ryker.Settings.Environment
 
   @actor "control-plane:local"
 

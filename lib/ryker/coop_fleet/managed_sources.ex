@@ -6,14 +6,13 @@ defmodule Ryker.CoopFleet.ManagedSources do
   worker receives a separate, short-lived read grant only after command custody
   has checked this immutable identity.
   """
-
-  require Logger
   alias Ryker.ChildEnvironment
   alias Ryker.CoopFleet.JobSpec
   alias Ryker.CoopFleet.Protocol
   alias Ryker.GitHub.{InstallationTokens, PublicRepositories}
   alias Ryker.Settings
   alias Ryker.Work.RepositorySource
+  require Logger
 
   @commit ~r/\A[0-9a-f]{40}\z/
 
@@ -722,7 +721,7 @@ defmodule Ryker.CoopFleet.ManagedSources do
       "selected_commit" => selected_commit,
       "base_commit" => base_commit,
       "admitted_tree" => tree,
-      "resolved_at" => DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+      "resolved_at" => DateTime.utc_now(:second) |> DateTime.to_iso8601()
     }
     |> maybe_put_pull_request(requested)
   end

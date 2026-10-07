@@ -10,7 +10,6 @@ defmodule Ryker.Slack.ThreadStatuses do
   receipt Slack gave for one, is announced after the outermost commit
   (`subscribe_thread_statuses/0`).
   """
-
   alias Ryker.AdvisoryLock
   alias Ryker.ErrorDetail
   alias Ryker.Reference
@@ -316,7 +315,7 @@ defmodule Ryker.Slack.ThreadStatuses do
       origin_kind: target[:origin_kind],
       origin_id: target[:origin_id],
       generation: 1,
-      id: Ecto.UUID.generate(),
+      id: Repo.generate_id(),
       phase: target.phase,
       status: :pending,
       thread_ref: target.thread_ref,

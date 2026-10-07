@@ -1,11 +1,10 @@
 defmodule Ryker.CoopFleet.SourceGrants do
   @moduledoc false
-
-  require Logger
   alias Ryker.CoopFleet.{ControlPlane, JobSpec}
   alias Ryker.GitHub.InstallationTokens
   alias Ryker.{Repo, Settings}
   alias Ryker.Work.Session
+  require Logger
 
   @identity ~w(repository_ref github_repository github_repository_id)
 

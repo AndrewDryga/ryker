@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.HomeSubmission do
   @moduledoc false
-
   alias Ryker.Slack.AppHomeEditor
 
   @reference ~r/\A[A-Za-z0-9_.:-]{1,256}\z/

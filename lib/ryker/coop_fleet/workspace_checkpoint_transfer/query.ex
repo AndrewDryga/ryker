@@ -1,6 +1,6 @@
 defmodule Ryker.CoopFleet.WorkspaceCheckpointTransfer.Query do
   @moduledoc "Workspace checkpoints workers saved to Ryker, for every read of `coop_worker_workspace_checkpoints`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.CoopFleet.{Command, WorkspaceCheckpointTransfer}
   alias Ryker.Work.Session
 

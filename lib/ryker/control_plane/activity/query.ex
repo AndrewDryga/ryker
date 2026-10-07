@@ -5,8 +5,7 @@ defmodule Ryker.ControlPlane.Activity.Query do
   with the bucket its view lists it under, and the filters and search the
   list applies to them.
   """
-  import Ecto.Query
-  require Ryker.ControlPlane.CurrentInput.Query
+  use Ryker, :query
   alias Ryker.ControlPlane.CurrentInput
   alias Ryker.Episodes.{Episode, RoutingDigest}
   alias Ryker.Ingress.Inbox.Entry
@@ -14,6 +13,7 @@ defmodule Ryker.ControlPlane.Activity.Query do
   alias Ryker.Records.Record
   alias Ryker.Schedules.{Schedule, ScheduleOccurrence}
   alias Ryker.Work.{Session, Turn}
+  require Ryker.ControlPlane.CurrentInput.Query
 
   @doc "Every row of the list at `now`, unordered."
   def rows(now), do: from(row in subquery(union_all(episode_rows(), ^admission_rows(now))))

@@ -1,6 +1,7 @@
 defmodule Ryker.Learning.SourceExposure do
   @moduledoc false
-  use Ecto.Schema
+  use Ryker, :schema
+
   @primary_key false
   schema "episode_work_source_exposures" do
     field(:session_id, :binary_id, primary_key: true)

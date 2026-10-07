@@ -6,7 +6,6 @@ defmodule Ryker.Fixtures.Answers do
   takes), the quick reply routing sent for it, and an update the Work model
   posted.
   """
-
   import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query
   import ExUnit.Assertions

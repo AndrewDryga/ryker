@@ -15,7 +15,7 @@ defmodule Ryker.ControlPlane.FactsPage do
   alias Ryker.{Behaviors, Memories, Records}
   alias Ryker.ControlPlane.{Kit, MemoryFormat, MemoryProjection, Paths}
   alias Ryker.InspectionRedactor
-  alias Ryker.Slack.Names
+  alias Ryker.Slack
 
   @doc """
   The topics an open Facts page listens to, as the context functions that
@@ -330,7 +330,7 @@ defmodule Ryker.ControlPlane.FactsPage do
     do: MemoryFormat.with_ref("For ", name)
 
   defp where(scope, ref, _name) when scope in [:conversation, "conversation"] and is_binary(ref),
-    do: MemoryFormat.with_ref("In ", Names.destination(ref))
+    do: MemoryFormat.with_ref("In ", Slack.destination_name(ref))
 
   defp where(_scope, _ref, _name), do: nil
 

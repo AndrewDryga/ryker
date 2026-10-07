@@ -1,6 +1,6 @@
 defmodule Ryker.Operator.FailureDismissal do
   @moduledoc "One failure a person left as it is: its identity and how it failed then."
-  use Ecto.Schema
+  use Ryker, :schema
 
   @primary_key false
   schema "failure_dismissals" do

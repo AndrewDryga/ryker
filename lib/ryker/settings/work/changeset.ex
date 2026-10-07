@@ -1,8 +1,7 @@
 defmodule Ryker.Settings.Work.Changeset do
   @moduledoc "Changes to where Work runs and on which models (`Ryker.Settings.Work`)."
   @behaviour Ryker.Settings.Section.Changeset
-
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.LocalRouting.Endpoint
   alias Ryker.Settings.Work
 

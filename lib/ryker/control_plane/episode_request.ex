@@ -1,14 +1,14 @@
 defmodule Ryker.ControlPlane.EpisodeRequest do
   @moduledoc "A readable model call, with the retained evidence available inline."
   use Phoenix.Component
-  alias Ryker.Admission.Sentiment
+  alias Ryker.Admission
   alias Ryker.ControlPlane.CallRun
   alias Ryker.ControlPlane.Components
   alias Ryker.ControlPlane.Paths
   alias Ryker.ControlPlane.RequestContextHTML
   alias Ryker.ControlPlane.RoutingReason
   alias Ryker.ControlPlane.Units
-  alias Ryker.Episodes.Words
+  alias Ryker.Episodes
 
   # Background calls about a request that send no reply: learning from its
   # messages, and the self-analysis of a request a person was unhappy with.
@@ -480,8 +480,8 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
       {key, %{"value" => value}} when is_binary(value) ->
         [
           %{
-            title: Words.label(key),
-            text: Words.label(value)
+            title: Episodes.label(key),
+            text: Episodes.label(value)
           }
         ]
 
@@ -794,7 +794,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   end
 
   defp sentiment_fact(%{} = sentiment) do
-    case Sentiment.parse(sentiment) do
+    case Admission.sentiment(sentiment) do
       %{feeling: feeling, reason: reason} ->
         %{
           label: "Felt about the last answer",

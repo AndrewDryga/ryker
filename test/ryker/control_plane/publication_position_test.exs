@@ -1,8 +1,8 @@
 defmodule Ryker.ControlPlane.PublicationPositionTest do
   use Ryker.DataCase, async: true
   import Ecto.Query
-  require Ryker.ControlPlane.PublicationPosition.Query
   alias Ryker.ControlPlane.PublicationPosition
+  require Ryker.ControlPlane.PublicationPosition.Query
 
   @inserted ~N[2026-10-01 09:00:00.000000]
   @reviewed ~N[2026-10-01 09:05:00.000000]

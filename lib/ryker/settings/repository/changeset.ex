@@ -1,8 +1,7 @@
 defmodule Ryker.Settings.Repository.Changeset do
   @moduledoc "Adding a repository and changing a saved one (`Ryker.Settings.Repository`)."
   @behaviour Ryker.Settings.Section.Changeset
-
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.Settings.{Repository, Validation}
 
   @fields ~w(

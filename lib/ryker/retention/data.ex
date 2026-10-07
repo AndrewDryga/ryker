@@ -10,7 +10,6 @@ defmodule Ryker.Retention.Data do
   A pass that removed or redacted anything is announced once it has committed
   (`subscribe_pruning/0`).
   """
-
   alias Ryker.AdvisoryLock
   alias Ryker.Continuity.Compaction
   alias Ryker.Knowledge.KnowledgeRetention

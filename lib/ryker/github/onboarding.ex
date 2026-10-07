@@ -8,9 +8,8 @@ defmodule Ryker.GitHub.Onboarding do
   phase is saved before the next remote operation, so a restart resumes from
   the pinned source revision.
   """
-
-  require Logger
   alias Ryker.{RepositoryKnowledge, Settings}
+  require Logger
 
   @actor "github:onboarding"
 

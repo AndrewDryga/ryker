@@ -6,7 +6,6 @@ defmodule Ryker.Slack.IncidentRoomCard do
   no authority and contains no model-created controls. Its fingerprint lets a
   worker retry an ambiguous Slack update against the same message.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Episode
   alias Ryker.Records

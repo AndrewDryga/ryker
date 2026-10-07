@@ -1,10 +1,6 @@
 defmodule Ryker.CoopFleet.WorkspaceCheckpointTransfer do
   @moduledoc false
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "coop_worker_workspace_checkpoints" do
     belongs_to(:command, Ryker.CoopFleet.Command)
@@ -19,6 +15,6 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTransfer do
     field(:bundle_byte_size, :integer)
     field(:encryption_key_sha256, :string)
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 end

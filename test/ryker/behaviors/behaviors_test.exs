@@ -2,9 +2,6 @@ defmodule Ryker.Behaviors.BehaviorsTest do
   use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query
-
-  @moduletag isolation: "REPEATABLE READ"
-
   alias Ryker.Admission
   alias Ryker.Admission.Decision
   alias Ryker.Behaviors
@@ -25,6 +22,8 @@ defmodule Ryker.Behaviors.BehaviorsTest do
   alias Ryker.Records.RecordPayload
   alias Ryker.Slack.{AppHomeProjection, ChannelMembership, Event, Renderer, ReplyRecords}
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission, Turn}
+
+  @moduletag isolation: "REPEATABLE READ"
 
   # An hour before this file compiles, which is every test run: in the past, as
   # a confirmation is, but never a fixed date. Records confirmed at a fixed

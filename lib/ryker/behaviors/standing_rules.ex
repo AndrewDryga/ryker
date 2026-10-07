@@ -7,7 +7,6 @@ defmodule Ryker.Behaviors.StandingRules do
 
   `Ryker.Behaviors` is the context's public boundary and forwards here.
   """
-
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Behavior
   alias Ryker.Behaviors.StandingAssignmentRun
@@ -138,7 +137,6 @@ defmodule Ryker.Behaviors.StandingRules do
 
     case Repo.insert(
            %StandingRuleInventory{
-             id: Ecto.UUID.generate(),
              source_input_ref: input_ref,
              source_event_ref: input.event_ref,
              workspace_ref: workspace,
@@ -310,7 +308,7 @@ defmodule Ryker.Behaviors.StandingRules do
         case Repo.insert(
                StandingAssignmentRun.Changeset.insert(%{
                  assignment_id: assignment.id,
-                 id: Ecto.UUID.generate(),
+                 id: Repo.generate_id(),
                  outcome: :pending,
                  ref: "assignment-run:#{digest}",
                  source_event_ref: input.event_ref,

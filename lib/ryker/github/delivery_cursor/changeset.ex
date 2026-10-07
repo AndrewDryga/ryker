@@ -1,6 +1,6 @@
 defmodule Ryker.GitHub.DeliveryCursor.Changeset do
   @moduledoc "Writes where the GitHub delivery poller stopped."
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.GitHub.DeliveryCursor
 
   @fields [:app_id, :through_delivery_id, :updated_at]

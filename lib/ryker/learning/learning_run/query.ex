@@ -1,6 +1,6 @@
 defmodule Ryker.Learning.LearningRun.Query do
   @moduledoc "Each learning pass over a batch of messages, for every read of `conversation_learning_runs`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Learning.{Batch, LearningRun}
 
   def all, do: from(runs in LearningRun, as: :conversation_learning_runs)

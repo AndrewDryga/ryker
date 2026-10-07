@@ -20,7 +20,6 @@ defmodule Ryker.Memories do
   opened or resolved, and a remembered case captured or removed are announced
   after the outermost commit (`subscribe_memories/0`).
   """
-
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Episode
@@ -234,7 +233,7 @@ defmodule Ryker.Memories do
   end
 
   defp insert_answer(record, response, entry, intent, value, confirmation_ref) do
-    id = Ecto.UUID.generate()
+    id = Repo.generate_id()
     now = Repo.now!()
     payload = %{"value" => value, "applicability" => intent["applicability"]}
 
@@ -541,7 +540,7 @@ defmodule Ryker.Memories do
   end
 
   defp insert_entry(record, episode, attributes, prepared) do
-    id = Ecto.UUID.generate()
+    id = Repo.generate_id()
     now = Repo.now!()
 
     prepared

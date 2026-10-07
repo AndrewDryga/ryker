@@ -7,7 +7,6 @@ defmodule Ryker.Evals.WorldCase do
   directory, catalogs are canonical and bounded, and production provenance is
   explicit rather than inferred from prose.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
   alias Ryker.Evals.WorldMatch

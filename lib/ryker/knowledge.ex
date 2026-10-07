@@ -740,7 +740,7 @@ defmodule Ryker.Knowledge do
       dependencies: dependencies
     } = plan
 
-    id = if existing, do: existing.id, else: Ecto.UUID.generate()
+    id = if existing, do: existing.id, else: Repo.generate_id()
     roots = LearningSources.expand(dependencies)
     reference = [LearningSources.knowledge_reference(id, generation, version)]
     now = Repo.now!()

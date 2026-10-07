@@ -9,7 +9,6 @@ defmodule Ryker.Evals.Runtime do
   catalogs were generated against; a mismatch is reported rather than papered
   over.
   """
-
   alias Ryker.{Bootstrap, Defaults}
   alias Ryker.StateTools.Capabilities
 

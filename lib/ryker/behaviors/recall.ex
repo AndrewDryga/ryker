@@ -7,7 +7,6 @@ defmodule Ryker.Behaviors.Recall do
 
   `Ryker.Behaviors` is the context's public boundary and forwards here.
   """
-
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Behavior
   alias Ryker.Behaviors.StandingAssignmentRun

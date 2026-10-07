@@ -13,7 +13,6 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
   The facts are bounded like the other prompts: the current document gives
   way first, then the lists, and each cut is named in `omitted`.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.RepositoryKnowledge.Document
 

@@ -3,7 +3,7 @@ defmodule Ryker.WeeklyReport.Report.Changeset do
   How a weekly report is queued and posted (`Ryker.WeeklyReport.Report`),
   through the lease custody of `Ryker.Delivery.Lease.Changeset`.
   """
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.Delivery.Lease
   alias Ryker.WeeklyReport.Report
 

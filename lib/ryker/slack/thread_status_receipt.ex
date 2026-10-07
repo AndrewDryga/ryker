@@ -1,9 +1,6 @@
 defmodule Ryker.Slack.ThreadStatusReceipt do
   @moduledoc false
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: true}
+  use Ryker, :schema
 
   schema "slack_thread_status_receipts" do
     field(:workspace_ref, :string)
@@ -17,6 +14,6 @@ defmodule Ryker.Slack.ThreadStatusReceipt do
     field(:text, :string)
     field(:error, :string)
     field(:acknowledged_at, :utc_datetime_usec)
-    timestamps(type: :utc_datetime_usec, updated_at: false)
+    timestamps(updated_at: false)
   end
 end

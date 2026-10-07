@@ -7,7 +7,6 @@ defmodule Ryker.Slack.ActionTokens do
   turn that checks it out owns the token and receives at most three searches,
   and the token leaves memory when its life ends, used or not.
   """
-
   use GenServer
   alias Ryker.Options
   alias Ryker.Reference

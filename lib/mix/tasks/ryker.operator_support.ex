@@ -1,6 +1,5 @@
 defmodule Mix.Tasks.Ryker.OperatorSupport do
   @moduledoc false
-
   alias Ryker.{Bootstrap, Repo, Settings}
   alias Ryker.Operator.Actions
   alias Ryker.Runtime.Assembly

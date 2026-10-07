@@ -6,7 +6,6 @@ defmodule Ryker.Evals.WorldCassette do
   arrive in any sensible order, while each rule's own response sequence is
   preserved. Unmatched or exhausted calls fail closed and are always recorded.
   """
-
   use GenServer
   alias Ryker.CanonicalJSON
   alias Ryker.Evals.{Evidence, WorldCase, WorldMatch}

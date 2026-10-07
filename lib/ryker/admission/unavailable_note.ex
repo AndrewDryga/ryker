@@ -10,7 +10,6 @@ defmodule Ryker.Admission.UnavailableNote do
   message not meant for Ryker and any failure a retry may cure are left
   alone.
   """
-
   alias Ryker.Delivery.HostNote
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Work.FailureCause

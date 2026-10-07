@@ -1,10 +1,6 @@
 defmodule Ryker.Continuity.ConversationSummary do
   @moduledoc false
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "conversation_summaries" do
     field(:ref, :string)
@@ -26,6 +22,6 @@ defmodule Ryker.Continuity.ConversationSummary do
     field(:compaction_retry_at, :utc_datetime_usec)
     field(:recall_count, :integer, default: 0)
     field(:last_recalled_at, :utc_datetime_usec)
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 end

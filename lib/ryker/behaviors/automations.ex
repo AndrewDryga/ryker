@@ -6,7 +6,6 @@ defmodule Ryker.Behaviors.Automations do
   offer may mutate the exact automation revision, and every confirmed change
   remains in the immutable episode state-record history.
   """
-
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Behavior
   alias Ryker.Behaviors.StandingAssignmentRun

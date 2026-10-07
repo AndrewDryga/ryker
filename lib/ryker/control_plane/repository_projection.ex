@@ -8,7 +8,6 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
   Channels choose environments, not repositories, so a repository's channels
   are the channels whose environment holds it.
   """
-
   alias Ryker.Accounting.Execution
   alias Ryker.ControlPlane.{CallRun, Environments, RepositoryPage, Search}
   alias Ryker.GitHub.Events

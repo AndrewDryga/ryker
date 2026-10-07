@@ -7,7 +7,7 @@ defmodule Ryker.Admission.ConversationContext.Query do
   only, anything else its whole conversation. Everything is before the
   message's own occurrence and of its execution mode.
   """
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Delivery.{PlatformAction, RoutingResponse}
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry

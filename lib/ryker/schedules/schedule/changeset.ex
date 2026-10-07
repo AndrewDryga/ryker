@@ -1,7 +1,6 @@
 defmodule Ryker.Schedules.Schedule.Changeset do
   @moduledoc false
-
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.Schedules.Schedule
 
   @fields [

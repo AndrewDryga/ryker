@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.WorkTarget do
   @moduledoc false
-
   alias Ryker.Episodes.Episode
   alias Ryker.Repo
   alias Ryker.Slack.{IncidentRoom, TaskCard}

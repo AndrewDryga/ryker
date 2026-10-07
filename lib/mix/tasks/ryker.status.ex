@@ -1,15 +1,13 @@
 defmodule Mix.Tasks.Ryker.Status do
+  @shortdoc "Prints unified durable Ryker status"
   @moduledoc """
   Prints one payload-free durable operator snapshot as JSON.
 
       MIX_ENV=prod mix ryker.status
   """
-
   use Mix.Task
   alias Mix.Tasks.Ryker.OperatorSupport, as: Support
   alias Ryker.Operator.Status
-
-  @shortdoc "Prints unified durable Ryker status"
 
   @impl Mix.Task
   def run(arguments) do

@@ -1,6 +1,5 @@
 defmodule Ryker.Evals.WorldTools do
   @moduledoc false
-
   alias Ryker.CanonicalJSON
   alias Ryker.Evals.{WorldCase, WorldCassette}
   alias Ryker.StateTools.Tools

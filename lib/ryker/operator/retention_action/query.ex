@@ -1,6 +1,6 @@
 defmodule Ryker.Operator.RetentionAction.Query do
   @moduledoc "Audited cleanup actions on working copies, for every read of `retention_operator_actions`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Operator.RetentionAction
 
   def all, do: from(actions in RetentionAction, as: :retention_operator_actions)

@@ -9,7 +9,6 @@ defmodule Ryker.ControlPlane.ContextSelection do
   only when they cut something. A count with nothing left out ("1 of 1
   message sent") said nothing, so the card carries no counter.
   """
-
   alias Ryker.ControlPlane.Units
 
   @listed [

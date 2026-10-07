@@ -1,6 +1,5 @@
 defmodule Ryker.Schedules.ScheduleRecurrence do
   @moduledoc false
-
   alias Ryker.Repo
 
   @weekdays %{

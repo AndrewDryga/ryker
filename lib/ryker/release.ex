@@ -7,7 +7,6 @@ defmodule Ryker.Release do
   There is no rollback: going back is restoring the backup taken before the
   release (`docs/operations.md`, "The schema baseline").
   """
-
   alias Ryker.{Bootstrap, Settings}
   alias Ryker.CoopFleet.{Enrollment, WorkerLifecycle}
   alias Ryker.Operator.{Actions, Preflight, SlackReplay}

@@ -9,7 +9,6 @@ defmodule Ryker.Rescued do
   the five innermost frames. A lost database connection is an outage that
   every database caller reports already, so it is not logged again here.
   """
-
   require Logger
 
   @doc "Logs a raise rescued inside `what`."

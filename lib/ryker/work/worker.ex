@@ -10,14 +10,13 @@ defmodule Ryker.Work.Worker do
   until the next retry, polling window or unrenewed lease falls due, or for
   its safety-net interval.
   """
-
   use Ryker.PollingWorker, lane: :work, interval: :poll_interval_ms
-  require Logger
   alias Ryker.Episodes
   alias Ryker.ErrorDetail
   alias Ryker.Observability.Progress
   alias Ryker.PollingWorker
   alias Ryker.Work.{Custody, Dispatcher}
+  require Logger
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(options) do

@@ -10,7 +10,6 @@ defmodule Ryker.Publication.Custody do
   announced after the outermost commit (`subscribe_publications/0`), on its
   request's topics too.
   """
-
   alias Ryker.CoopFleet.WorkspaceCheckpointTransfer
   alias Ryker.Delivery.Request
   alias Ryker.Episodes.Episode
@@ -982,7 +981,7 @@ defmodule Ryker.Publication.Custody do
   end
 
   defp insert_review_request(record, episode, session, repository, attributes) do
-    id = Ecto.UUID.generate()
+    id = Repo.generate_id()
 
     publication =
       Publication.Changeset.insert(%{

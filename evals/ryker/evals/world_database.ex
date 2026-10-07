@@ -8,7 +8,6 @@ defmodule Ryker.Evals.WorldDatabase do
   Coop sessions were discarded. Failed runs keep their rows: they are the
   fixtures the next fix needs.
   """
-
   import Ecto.Query
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode}

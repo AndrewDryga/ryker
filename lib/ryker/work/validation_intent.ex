@@ -6,7 +6,6 @@ defmodule Ryker.Work.ValidationIntent do
   precise Coop verdict and, for acceptance, the exact host result that may later
   become a delivery intent.
   """
-
   alias Ryker.{CanonicalJSON, Text}
   alias Ryker.Work.Result
 

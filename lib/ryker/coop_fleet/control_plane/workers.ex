@@ -16,7 +16,6 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
   seconds. What a poll reports about a session is announced on the session's
   request (`Ryker.Episodes`).
   """
-
   alias Ryker.CoopFleet.Certificate
   alias Ryker.CoopFleet.ControlPlane.{Commands, Events, Placements, Shared}
   alias Ryker.CoopFleet.{Protocol, Worker}

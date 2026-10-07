@@ -12,7 +12,6 @@ defmodule Ryker.Slack.AttachmentIngestor do
   acknowledgement: nothing is transcribed here, while the Slack gateway holds
   every later event behind this one.
   """
-
   alias Ryker.Artifacts
   alias Ryker.Delivery.Retry
   alias Ryker.Ingress.Input

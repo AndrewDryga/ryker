@@ -9,13 +9,12 @@ defmodule Ryker.Admission.Worker do
   loop at once. With nothing to route it sleeps until the next retry or
   unrenewed lease falls due, or for its safety-net interval.
   """
-
   use Ryker.PollingWorker, lane: :admission, interval: :poll_interval_ms
-  require Logger
   alias Ryker.Admission.Dispatcher
   alias Ryker.Ingress.Inbox
   alias Ryker.Observability.Progress
   alias Ryker.PollingWorker
+  require Logger
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(options) do

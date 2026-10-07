@@ -1,6 +1,6 @@
 defmodule Ryker.Episodes.Episode.Query do
   @moduledoc "Requests (episodes), for every read of `episode_kernel_episodes`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes.{Episode, Event, Origin}
   alias Ryker.Work.Turn

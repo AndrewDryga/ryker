@@ -1,6 +1,6 @@
 defmodule Ryker.CoopFleet.Placement.Changeset do
   @moduledoc "How a session's placement on a Coop worker changes (`Ryker.CoopFleet.Placement`)."
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.CoopFleet.Placement
 
   @fields [

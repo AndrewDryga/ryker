@@ -1,6 +1,5 @@
 defmodule Ryker.StateTools.AutomationTools do
   @moduledoc false
-
   alias Ryker.Behaviors.Automations
   alias Ryker.Repo
   alias Ryker.Schedules.ScheduleRecurrence

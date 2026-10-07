@@ -7,7 +7,6 @@ defmodule Ryker.Records.Outcomes do
   is labelled unverified. Cancelled or reopened work disappears automatically
   because its current kernel state no longer qualifies.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Records.DerivedContext

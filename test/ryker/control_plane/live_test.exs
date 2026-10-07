@@ -13,9 +13,11 @@ defmodule Ryker.ControlPlane.LiveTest do
   alias Ryker.Episodes.Reactions
   alias Ryker.Feedback
   alias Ryker.Fixtures.{Answers, SavedEntities}
+  alias Ryker.Fixtures.ChannelEnvironments
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.WorkProfile
+  alias Ryker.Work.{Custody, DeliveryReceipt, Result, SubmissionBuilder}
 
   # Activity's in-progress count: the number in the count that opens In progress.
   @active_count ".kit-count[href$='?filter=running'] b"
@@ -1122,8 +1124,6 @@ defmodule Ryker.ControlPlane.LiveTest do
   # choice is saved for the conversation and survives a reload and a routine
   # refresh, and "No environment" is a choice too.
   test "a conversation picks its environment under its message box and keeps the choice" do
-    alias Ryker.Fixtures.ChannelEnvironments
-
     ChannelEnvironments.environment!("production", %{
       is_default: true,
       repositories: ["acme-api", "acme-web"]
@@ -2521,7 +2521,6 @@ defmodule Ryker.ControlPlane.LiveTest do
   # An admitted input with its episode claimed and its turn bound to a Coop
   # turn, stopped short of any result: the state a turn is in when work stops.
   defp claimed_turn!(conversation_id, %Ryker.Ingress.Inbox.Entry{} = entry, profile) do
-    alias Ryker.Work.{Custody, SubmissionBuilder}
     conversation_ref = "control-plane:lab:#{conversation_id}"
     episode_id = Ecto.UUID.generate()
     turn_ref = "turn:conversation-lab:#{episode_id}"
@@ -2627,7 +2626,6 @@ defmodule Ryker.ControlPlane.LiveTest do
   end
 
   defp accepted_reply!(conversation_id, %Ryker.Ingress.Inbox.Entry{} = entry, text, profile) do
-    alias Ryker.Work.{Custody, DeliveryReceipt, Result, SubmissionBuilder}
     conversation_ref = "control-plane:lab:#{conversation_id}"
     episode_id = Ecto.UUID.generate()
     turn_ref = "turn:conversation-lab:#{episode_id}"

@@ -7,7 +7,6 @@ defmodule Ryker.Slack.Client.Fields do
   {:invalid_slack_api_request, field}}`; predicates over a response value
   return a boolean, and the caller names the protocol error.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Reference
 

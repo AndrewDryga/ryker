@@ -5,11 +5,7 @@ defmodule Ryker.Artifacts.OutputArtifact do
   The opaque reference is scoped to its Work turn. Raw bytes never come from
   model JSON and cannot select a platform destination.
   """
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "work_output_artifacts" do
     belongs_to(:turn, Ryker.Work.Turn)
@@ -20,7 +16,7 @@ defmodule Ryker.Artifacts.OutputArtifact do
     field(:byte_size, :integer)
     field(:data, :binary)
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

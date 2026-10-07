@@ -32,7 +32,6 @@ defmodule Ryker.PollingWorker do
   one changed, reads each announcement in `c:woken/2` first and makes what it
   names due, so the poll it brings finds it.
   """
-
   require Logger
 
   @minimum_database_retry_ms 1_000

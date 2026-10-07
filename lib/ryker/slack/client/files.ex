@@ -14,7 +14,6 @@ defmodule Ryker.Slack.Client.Files do
   which the caller keeps so that its next attempt waits for that share instead
   of uploading the files again.
   """
-
   alias Ryker.Slack.Client
   alias Ryker.Slack.Client.{Fields, Messages, Transport}
 

@@ -7,7 +7,7 @@ defmodule Ryker.Delivery.Lease.Changeset do
   delivery, defers it to a later attempt, or blocks it until a person retries
   it. Each caller adds its own table's constraints.
   """
-  import Ecto.Changeset
+  use Ryker, :changeset
 
   @released [lease_expires_at: nil, lease_owner: nil, lease_ref: nil]
 

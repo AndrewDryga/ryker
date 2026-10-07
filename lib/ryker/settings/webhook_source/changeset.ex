@@ -1,8 +1,7 @@
 defmodule Ryker.Settings.WebhookSource.Changeset do
   @moduledoc "Adding a webhook source and changing a saved one (`Ryker.Settings.WebhookSource`)."
   @behaviour Ryker.Settings.Section.Changeset
-
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.Publication.DeploymentSignal
   alias Ryker.Settings.{Validation, WebhookSource}
   alias Ryker.Webhooks.Route

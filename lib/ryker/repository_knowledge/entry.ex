@@ -14,8 +14,7 @@ defmodule Ryker.RepositoryKnowledge.Entry do
   (`document_by`: a model, or the outline). Nothing of it is written to the
   repository. `error` says in plain words why the last step failed.
   """
-
-  use Ecto.Schema
+  use Ryker, :schema
 
   @primary_key {:repository_ref, :string, autogenerate: false}
 
@@ -41,7 +40,7 @@ defmodule Ryker.RepositoryKnowledge.Entry do
     field(:dropped_count, :integer)
     field(:error_code, :string)
     field(:error, :string)
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

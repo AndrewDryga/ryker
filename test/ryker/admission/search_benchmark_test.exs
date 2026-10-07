@@ -16,9 +16,6 @@ defmodule Ryker.Admission.SearchBenchmarkTest do
   # minutes ran out first on CI and cancelled a search mid-query.
   use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
-
-  @moduletag timeout: 300_000, ownership_timeout: 300_000
-
   import Ecto.Query
   alias Ryker.Admission.{CandidateSearch, CorrelationScope, Ranking}
   alias Ryker.Episodes
@@ -27,6 +24,8 @@ defmodule Ryker.Admission.SearchBenchmarkTest do
   alias Ryker.Repo
   alias Ryker.Slack.ChannelMembership
   alias Ryker.Slack.Input, as: SlackInput
+
+  @moduletag timeout: 300_000, ownership_timeout: 300_000
 
   @workspace "TBENCH"
   @now ~U[2026-09-30 12:00:00.000000Z]

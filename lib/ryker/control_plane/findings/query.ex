@@ -5,7 +5,7 @@ defmodule Ryker.ControlPlane.Findings.Query do
   settles it into, its search, the evidence it cites, and which records a
   request's timeline still shows.
   """
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Episodes.Episode
   alias Ryker.Records.Record
 

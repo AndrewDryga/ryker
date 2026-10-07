@@ -247,7 +247,6 @@ defmodule Ryker.Work.WorkerTest do
 
   defmodule ConcurrentExecutor do
     @moduledoc false
-
     alias Ryker.Work.Custody
 
     def run(claim, options) do

@@ -7,7 +7,6 @@ defmodule Ryker.Continuity.Compaction do
   absorbed, and their source receipts. It never outlives the retention horizon
   of the sources it summarizes.
   """
-
   alias Ecto.Changeset
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity
@@ -334,7 +333,7 @@ defmodule Ryker.Continuity.Compaction do
   end
 
   defp persist_rollup(nil, attributes) do
-    id = Ecto.UUID.generate()
+    id = Repo.generate_id()
     now = Repo.now!()
 
     attributes

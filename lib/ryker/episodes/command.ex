@@ -12,7 +12,6 @@ defmodule Ryker.Episodes.Command do
   `resolution_ref` is the exact dedupe key returned by the admitted input that
   triggered a wait, so unrelated queued input cannot wake it.
   """
-
   alias Ryker.CanonicalJSON
 
   defmodule AdmitInput do

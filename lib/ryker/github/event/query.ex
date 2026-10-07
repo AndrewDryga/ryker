@@ -1,6 +1,6 @@
 defmodule Ryker.GitHub.Event.Query do
   @moduledoc "GitHub's webhook deliveries, for every read of `github_repository_events`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.GitHub.Event
   alias Ryker.Settings.GitHubBinding
 

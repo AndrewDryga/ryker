@@ -1,6 +1,5 @@
 defmodule Ryker.Work.Contract do
   @moduledoc "The host-selected model contract for one durable Work execution mode."
-
   alias Ryker.Work.Final
 
   @shadow_fixed_tools MapSet.new(~w(

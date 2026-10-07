@@ -1,9 +1,6 @@
 defmodule Ryker.GitHub.Event do
   @moduledoc "Durable receipt and disposition for one authenticated GitHub delivery."
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
+  use Ryker, :schema
 
   schema "github_repository_events" do
     field(:delivery_ref, :string)
@@ -19,6 +16,6 @@ defmodule Ryker.GitHub.Event do
     field(:processed_at, :utc_datetime_usec)
     field(:duplicate_count, :integer, default: 0)
     field(:last_duplicate_at, :utc_datetime_usec)
-    timestamps(type: :utc_datetime_usec, updated_at: false)
+    timestamps(updated_at: false)
   end
 end

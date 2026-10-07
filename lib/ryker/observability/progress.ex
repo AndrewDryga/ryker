@@ -6,7 +6,6 @@ defmodule Ryker.Observability.Progress do
   `beat/2` only after a dispatcher cycle returns; readiness can therefore tell
   a healthy idle loop from one blocked forever inside a call.
   """
-
   alias Ryker.Observability.Reads
   alias Ryker.Repo
 

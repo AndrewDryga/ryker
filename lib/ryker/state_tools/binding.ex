@@ -1,6 +1,5 @@
 defmodule Ryker.StateTools.Binding do
   @moduledoc false
-
   alias Ryker.Crypto
   alias Ryker.Episodes.Episode
   alias Ryker.Records

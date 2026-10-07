@@ -22,15 +22,14 @@ defmodule Ryker.Runtime.Owner do
   An owner that itself restarted stops whatever its predecessor left running
   and starts from the saved revision.
   """
-
   use GenServer
-  require Logger
   alias Ryker.{Bootstrap, Credentials, Settings}
   alias Ryker.Config
   alias Ryker.Crypto
   alias Ryker.Runtime.{Assembly, Child}
   alias Ryker.Slack.Client.Users, as: SlackUsers
   alias Ryker.Slack.Names
+  require Logger
 
   @retry_ms 5_000
   @retry_max_ms 300_000

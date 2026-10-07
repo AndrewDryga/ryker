@@ -5,7 +5,6 @@ defmodule Ryker.RepositoryKnowledge.FleetSession do
   by exactly that run (execution kind `knowledge`). Cleanup closes it once the
   run has stopped (`Ryker.Retention.Custody`).
   """
-
   alias Ryker.Repo
   alias Ryker.RepositoryKnowledge.Run
   alias Ryker.Work.{Custody, Session}
@@ -43,7 +42,6 @@ defmodule Ryker.RepositoryKnowledge.FleetSession do
     Repo.transaction(fn ->
       Repo.insert!(
         %Session{
-          id: Ecto.UUID.generate(),
           execution_kind: :knowledge,
           knowledge_run_id: run.id,
           policy: run.policy,

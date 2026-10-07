@@ -6,7 +6,6 @@ defmodule Ryker.Work.CancellationWorkerTest do
   cases where that word can never come, or where Ryker refused to ask for it,
   to the invariant that a stop finishes or says what would finish it.
   """
-
   use Ryker.DataCase, async: true
   import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query

@@ -1,6 +1,6 @@
 defmodule Ryker.Operator.FailureDismissal.Query do
   @moduledoc "Failures people left as they are, for every read of `failure_dismissals`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Operator.FailureDismissal
 
   def all, do: from(dismissals in FailureDismissal, as: :failure_dismissals)

@@ -12,7 +12,6 @@ defmodule Ryker.ControlPlane.SavedRecords do
   call. A call that failed, stopped, or saved nothing this timeline shows
   keeps its card.
   """
-
   alias Ryker.StateTools.FixedTools
 
   # The calls whose records are told by their own cards.

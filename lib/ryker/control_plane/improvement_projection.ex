@@ -10,7 +10,6 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
   names its request as Activity names it and opens its Timeline; an open one
   can be accepted as an eval case or dismissed.
   """
-
   alias Ryker.ControlPlane.{FeedbackProjection, PagedRelation, PathRef}
   alias Ryker.Improvement
   alias Ryker.Improvement.Candidate

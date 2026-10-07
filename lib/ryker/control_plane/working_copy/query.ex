@@ -5,7 +5,7 @@ defmodule Ryker.ControlPlane.WorkingCopy.Query do
   row names, the request it works for, or the learning run and batch.
   Admission sessions are routing's, and no page lists them.
   """
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Episodes.Episode
   alias Ryker.Learning.{Batch, LearningRun}
   alias Ryker.Work.Session

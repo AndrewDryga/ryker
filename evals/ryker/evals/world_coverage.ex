@@ -6,7 +6,6 @@ defmodule Ryker.Evals.WorldCoverage do
   scenario that the deterministic and model-world runners can load. Empty cells
   stay visible until a real scenario closes them.
   """
-
   alias Ryker.Evals.WorldCase
 
   @root "testdata/scenarios"

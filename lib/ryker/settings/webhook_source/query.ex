@@ -1,6 +1,6 @@
 defmodule Ryker.Settings.WebhookSource.Query do
   @moduledoc "Webhook sources, for every read of `webhook_source_settings`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Settings.WebhookSource
 
   def all, do: from(rows in WebhookSource, as: :webhook_source_settings)

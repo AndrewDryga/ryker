@@ -1,8 +1,5 @@
 defmodule Ryker.Webhooks.EndToEndTest do
   use Ryker.DataCase, async: true
-
-  @moduletag isolation: "REPEATABLE READ"
-
   import Ecto.Query
   import Plug.Conn
   import Plug.Test
@@ -17,6 +14,8 @@ defmodule Ryker.Webhooks.EndToEndTest do
   alias Ryker.TestSupport.{FakeCoopAPI, FakeSlackAPI, FakeWorkCoopAPI}
   alias Ryker.Webhooks.{Route, Router}
   alias Ryker.Work.{Dispatcher, Final, Session, Turn}
+
+  @moduletag isolation: "REPEATABLE READ"
 
   @now ~U[2026-08-27 12:00:00.000000Z]
   @old ~U[2020-01-01 00:00:00.000000Z]

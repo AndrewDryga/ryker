@@ -1,6 +1,6 @@
 defmodule Ryker.Settings.Report.Query do
   @moduledoc "Where and when the weekly report goes, for every read of `report_settings`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Settings.Report
 
   def all, do: from(settings in Report, as: :report_settings)

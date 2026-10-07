@@ -1,6 +1,6 @@
 defmodule Ryker.Records.Record.Query do
   @moduledoc "Episode state records (findings, citations, offers), for every read of `episode_state_records`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Records.{Record, Response}

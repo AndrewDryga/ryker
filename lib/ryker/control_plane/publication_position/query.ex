@@ -6,6 +6,7 @@ defmodule Ryker.ControlPlane.PublicationPosition.Query do
   published time, which then stood at its review on a page and at its update
   in the cursor (2026-10-04 review).
   """
+  use Ryker, :query
 
   @doc "`at/1` as SQL, for a query that imports `Ecto.Query`."
   defmacro sql(publication) do

@@ -5,9 +5,7 @@ defmodule Ryker.Webhooks.Router do
   A successful response means the exact event is durably queued. It does not
   wait for or imply a model decision.
   """
-
   @behaviour Plug
-
   alias Ryker.HTTPConnection
   alias Ryker.Ingress.{Adapters, InboundHTTP, Inbox}
   alias Ryker.Webhooks.{Auth, Headers, Route, Transforms}

@@ -3,7 +3,6 @@ defmodule Ryker.ControlPlane.OverviewProjection do
   The Activity page's summary strip: live counts, fleet health, what needs an
   operator, and how far admission and Slack status delivery are behind.
   """
-
   alias Ryker.ControlPlane.Overview
   alias Ryker.Episodes.Episode
   alias Ryker.Observability

@@ -7,11 +7,9 @@ defmodule Ryker.ControlPlane.Publisher do
   projection reads the same durable turn instead of copying messages into a
   second chat store.
   """
-
   @behaviour Ryker.Delivery.Platform
   @behaviour Ryker.Delivery.MessagePublisher
   @behaviour Ryker.Delivery.ReactionPublisher
-
   alias Ryker.Crypto
   alias Ryker.Work.DeliveryReceipt
 

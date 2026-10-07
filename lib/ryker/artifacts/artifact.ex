@@ -3,10 +3,7 @@ defmodule Ryker.Artifacts.Artifact do
   One immutable, authenticated input attachment stored outside model-visible
   platform metadata.
   """
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
+  use Ryker, :schema
 
   schema "input_artifacts" do
     field(:ref, :string)
@@ -18,7 +15,7 @@ defmodule Ryker.Artifacts.Artifact do
     field(:byte_size, :integer)
     field(:data, :binary)
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{

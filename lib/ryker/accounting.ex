@@ -318,4 +318,14 @@ defmodule Ryker.Accounting do
     Ryker.Episodes.broadcast_conversation_updated(execution.transport, execution.conversation_ref)
     Repo.after_commit(fn -> Ryker.PubSub.broadcast(usage_topic(), {:usage_recorded, id}) end)
   end
+
+  # -- For the console ---------------------------------------------------------
+
+  @doc "The saved price in effect for one call to `target` on `day`, or `{:error, :not_found}`."
+  defdelegate fetch_price_in_effect(target, day),
+    to: Ryker.Accounting.Pricing,
+    as: :fetch_in_effect
+
+  @doc "What one call's tokens cost at a saved price, in US dollars."
+  defdelegate estimate_cost(price, usage), to: Ryker.Accounting.Pricing, as: :estimate
 end

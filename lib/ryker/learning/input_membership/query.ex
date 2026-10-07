@@ -1,6 +1,6 @@
 defmodule Ryker.Learning.InputMembership.Query do
   @moduledoc "Which batch holds each message learning takes, for every read of `conversation_learning_inputs`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Learning.InputMembership
 
   def all, do: from(memberships in InputMembership, as: :conversation_learning_inputs)

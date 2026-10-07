@@ -8,7 +8,6 @@ defmodule Ryker.Webhooks.Headers do
   five event headers are read the same way whether they are being signed or
   turned into metadata: absent is allowed, empty or repeated is not.
   """
-
   alias Plug.Conn
 
   # In the order the HMAC signature covers them.

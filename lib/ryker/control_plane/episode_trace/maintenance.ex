@@ -12,7 +12,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
   copy with its fingerprints, the receipt that proves the outcome, and the
   tries and errors on the way.
   """
-
   import Ryker.ControlPlane.EpisodeTrace.Step
   alias Ryker.ControlPlane.RepositoryNames
   alias Ryker.CoopFleet.Placement

@@ -1,8 +1,7 @@
 defmodule Ryker.Settings.Slack.Changeset do
   @moduledoc "Changes to the Slack connection (`Ryker.Settings.Slack`)."
   @behaviour Ryker.Settings.Section.Changeset
-
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.Settings.{Slack, Validation}
 
   @fields ~w(enabled workspace_ref workspace_url workspace_name bot_ref bot_user_ref bot_name channel_prefix incident_private default_participation operators workspace_admins_manage)a
@@ -27,10 +26,11 @@ defmodule Ryker.Settings.Slack.Changeset do
     # from it without ever trusting a stored URL shape.
     |> validate_format(:workspace_url, ~r/\Ahttps:\/\/[a-z0-9-]{1,64}\.slack\.com\/?\z/)
     |> validate_length(:workspace_url, max: 256)
-    |> validate_length(:workspace_name, min: 1, max: 256)
+    # Both names are varchar(255) columns, which count code points.
+    |> validate_length(:workspace_name, min: 1, max: 255, count: :codepoints)
     |> validate_format(:bot_ref, Validation.slack_id_pattern())
     |> validate_format(:bot_user_ref, Validation.slack_id_pattern())
-    |> validate_length(:bot_name, min: 1, max: 256)
+    |> validate_length(:bot_name, min: 1, max: 255, count: :codepoints)
     |> validate_format(:channel_prefix, ~r/\A[a-z0-9_-]{1,20}\z/)
     |> Validation.validate_slack_ids(:operators)
     |> validate_length(:operators, max: 256)

@@ -1,4 +1,5 @@
 defmodule Mix.Tasks.Ryker.EvalCases do
+  @shortdoc "Writes the accepted eval cases as world scenario directories"
   @moduledoc """
   Writes every request accepted as an eval case on Feedback › What to fix as
   a world scenario directory (`Ryker.Improvement.Export`), the same files the
@@ -9,12 +10,9 @@ defmodule Mix.Tasks.Ryker.EvalCases do
   Move the directories into `testdata/scenarios/`, fill in what each
   `PROVENANCE.md` lists, and run them with `make eval-world`.
   """
-
   use Mix.Task
   alias Mix.Tasks.Ryker.OperatorSupport, as: Support
   alias Ryker.Improvement.Export
-
-  @shortdoc "Writes the accepted eval cases as world scenario directories"
 
   @impl Mix.Task
   def run(arguments) do

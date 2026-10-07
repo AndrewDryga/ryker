@@ -7,13 +7,12 @@ defmodule Ryker.Emisar.ApprovalWorker do
   it sleeps until a watch's next look at Emisar or a retry falls due, or for
   its safety-net interval.
   """
-
   use Ryker.PollingWorker, lane: :emisar_approval, interval: :poll_interval_ms
-  require Logger
   alias Ryker.Emisar.{ApprovalDispatcher, Approvals}
   alias Ryker.Episodes
   alias Ryker.Observability.Progress
   alias Ryker.PollingWorker
+  require Logger
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(options) do

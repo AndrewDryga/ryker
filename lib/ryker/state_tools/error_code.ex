@@ -8,7 +8,6 @@ defmodule Ryker.StateTools.ErrorCode do
   `temporarily_unavailable`, which the model treats as retryable, so a new
   non-retryable reason must get a clause here before it can reach a tool.
   """
-
   alias Ryker.StateTools.Catalog
 
   @spec code(term()) :: String.t()

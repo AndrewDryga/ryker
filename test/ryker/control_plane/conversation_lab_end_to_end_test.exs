@@ -1,9 +1,6 @@
 defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
   use Ryker.DataCase, async: true
   import Ryker.TestHelpers, only: [digest: 1]
-
-  @moduletag isolation: "REPEATABLE READ"
-
   import Ecto.Query
   import Phoenix.LiveViewTest
   alias Ryker.Admission.Dispatcher, as: AdmissionDispatcher
@@ -23,6 +20,8 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
   alias Ryker.StateTools.WorkStateTools
   alias Ryker.TestSupport.{FakeCoopAPI, FakeWorkCoopAPI}
   alias Ryker.Work.{ActivityEvent, Custody, Executor, Result, Session, SubmissionBuilder, Turn}
+
+  @moduletag isolation: "REPEATABLE READ"
 
   @conversation_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2e6"
   @first_event_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc2e7"

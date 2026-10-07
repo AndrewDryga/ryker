@@ -5,7 +5,6 @@ defmodule Ryker.Admission.Prompt do
   The response schema is returned separately so Coop can enforce structured
   output without duplicating the schema inside natural-language instructions.
   """
-
   alias Ryker.Admission.{Candidate, Context, ConversationContext}
   alias Ryker.CanonicalJSON
 

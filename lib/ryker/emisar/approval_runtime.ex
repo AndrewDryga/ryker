@@ -2,7 +2,6 @@ defmodule Ryker.Emisar.ApprovalRuntime do
   @moduledoc """
   Supervises a bounded pool of durable Emisar approval monitors.
   """
-
   use Supervisor
   alias Ryker.Emisar.ApprovalWorker
   alias Ryker.Options

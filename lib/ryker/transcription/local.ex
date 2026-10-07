@@ -16,9 +16,7 @@ defmodule Ryker.Transcription.Local do
   deadline for both programs, after which the running one is killed by its
   exact process id. The working directory is removed however the call ends.
   """
-
   @behaviour Ryker.Transcription
-
   alias Ryker.ChildEnvironment
   alias Ryker.Crypto
   alias Ryker.Transcription
@@ -160,9 +158,13 @@ defmodule Ryker.Transcription.Local do
 
   # ffmpeg reads the recording as whatever format its bytes claim, and some
   # formats (a playlist) name other sources it would then fetch; it may read
-  # the local file and nothing else (2026-10-04 review).
+  # the local file and nothing else (2026-10-04 review). An ID3 header passes
+  # `Ryker.Artifacts`' MP3 check whatever follows it, so ffmpeg may also use
+  # only the demuxers of the containers Artifacts admits: MP4 and QuickTime,
+  # WebM, Ogg, FLAC, WAV, MP3 and ADTS AAC.
   defp convert(recording, wav, settings) do
-    ~w(-nostdin -hide_banner -loglevel error -protocol_whitelist file -i) ++
+    ~w(-nostdin -hide_banner -loglevel error -protocol_whitelist file) ++
+      ~w(-format_whitelist mov,matroska,ogg,flac,wav,mp3,aac -i) ++
       [recording, "-t", Integer.to_string(settings.maximum_seconds + 1)] ++
       ~w(-vn -ac 1 -ar 16000 -c:a pcm_s16le -f wav -y) ++ [wav]
   end

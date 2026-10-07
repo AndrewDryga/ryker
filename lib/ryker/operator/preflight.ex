@@ -6,7 +6,6 @@ defmodule Ryker.Operator.Preflight do
   complete repair surface. Configuration values and payload-bearing state never
   cross this boundary.
   """
-
   alias Ryker.Config
   alias Ryker.ErrorDetail
   alias Ryker.Observability

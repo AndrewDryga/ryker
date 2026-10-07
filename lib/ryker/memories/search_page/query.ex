@@ -7,7 +7,7 @@ defmodule Ryker.Memories.SearchPage.Query do
   The row itself is the query's first binding, the only one a search over
   any kind of memory can name.
   """
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.CanonicalJSON
 
   @doc """

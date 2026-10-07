@@ -22,14 +22,11 @@ defmodule Ryker.Improvement.Candidate do
     conversations its analysis and evidence quote, so forgetting any of them
     erases what it holds (`forgotten_at`).
   """
-
-  use Ecto.Schema
+  use Ryker, :schema
 
   @categories [:host_bug, :prompt_bug, :model_mistake, :not_a_problem, :unclear]
   @steps [:routing, :work, :delivery]
   @confidences [:high, :medium, :low]
-
-  @primary_key {:id, :binary_id, autogenerate: false}
 
   schema "improvement_candidates" do
     field(:episode_id, :binary_id)
@@ -64,7 +61,7 @@ defmodule Ryker.Improvement.Candidate do
     field(:confidence, Ecto.Enum, values: @confidences)
     field(:analysis_target, :string)
     field(:analyzed_at, :utc_datetime_usec)
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

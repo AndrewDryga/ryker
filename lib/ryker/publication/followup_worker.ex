@@ -7,12 +7,11 @@ defmodule Ryker.Publication.FollowupWorker do
   next poll, retry or unrenewed lease falls due, or for its safety-net
   interval.
   """
-
   use Ryker.PollingWorker, lane: :publication_followup, interval: :poll_interval_ms
-  require Logger
   alias Ryker.Observability.Progress
   alias Ryker.PollingWorker
   alias Ryker.Publication.{Custody, FollowupDispatcher}
+  require Logger
 
   def start_link(options), do: GenServer.start_link(__MODULE__, options)
 

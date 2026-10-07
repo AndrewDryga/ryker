@@ -1,8 +1,6 @@
 defmodule Ryker.Admission.Attempt do
   @moduledoc false
-  use Ecto.Schema
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "admission_attempts" do
     belongs_to(:input, Ryker.Ingress.Inbox.Entry)
@@ -23,6 +21,6 @@ defmodule Ryker.Admission.Attempt do
     # `response`, so this is the only place it is kept.
     field(:rejections, Ryker.CanonicalJSON.Type)
     field(:operational_pruned_at, :utc_datetime_usec)
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 end

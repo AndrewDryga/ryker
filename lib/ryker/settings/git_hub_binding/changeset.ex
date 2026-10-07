@@ -4,8 +4,7 @@ defmodule Ryker.Settings.GitHubBinding.Changeset do
   saved binding (`Ryker.Settings.GitHubBinding`).
   """
   @behaviour Ryker.Settings.Section.Changeset
-
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.Settings.{GitHubBinding, Validation}
 
   @fields ~w(name repository_ref installation_id repository_id ryker_actor_id action_grants granted_permissions approvals_allowed)a

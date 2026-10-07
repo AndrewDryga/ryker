@@ -1,13 +1,12 @@
 defmodule Ryker.ControlPlane.EpisodePage do
-  alias Ryker.ControlPlane.SlackMarkdown
-
   @moduledoc "One chronological case file: conversation, model requests, host decisions and delivery."
   use Phoenix.Component
   import Ryker.ControlPlane.Components
   alias Ryker.ControlPlane.{EpisodeRequest, EpisodeTrace, FeedbackPage, Kit, Paths}
   alias Ryker.ControlPlane.{RequestContextHTML, ThreadContext, ToolCard, Units}
-  alias Ryker.Episodes.Words
-  alias Ryker.Slack.{Names, TaskCardDetails}
+  alias Ryker.ControlPlane.SlackMarkdown
+  alias Ryker.Episodes
+  alias Ryker.Slack
 
   @conversation_bands [:ready, :routing, :work, :answer]
 
@@ -155,7 +154,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
           >
             <span class="task-progress-glyph" aria-hidden="true">
               <.icon :if={stage["state"] == "completed"} name={:check} />
-              <span :if={stage["state"] != "completed"}>{TaskCardDetails.glyph(stage["state"])}</span>
+              <span :if={stage["state"] != "completed"}>{Slack.task_state_glyph(stage["state"])}</span>
             </span>
             <span class="task-progress-row">
               <a :if={stage["url"]} href={stage["url"]} target="_blank" rel="noopener noreferrer">{stage_text(
@@ -1271,7 +1270,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
     ~H"""
     <section class="story-stop admission-recovery" aria-labelledby="admission-recovery-heading">
       <h2 id="admission-recovery-heading">Routing needs attention</h2>
-      <p>{Words.label(@recovery.summary)}</p>
+      <p>{Episodes.label(@recovery.summary)}</p>
       <p>The message is safe. Retry the same routing attempt after the problem is resolved.</p>
       <.action_button path={@recovery.href} label="Review recovery" />
     </section>
@@ -1479,7 +1478,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp verdict_label("not_considered"), do: "Not evaluated"
   defp verdict_label("disabled"), do: "Paused"
   defp verdict_label("expired"), do: "Expired"
-  defp verdict_label(other), do: Words.label(other)
+  defp verdict_label(other), do: Episodes.label(other)
 
   defp message(assigns) do
     ~H"""
@@ -1572,7 +1571,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp rule_criteria(%{"source_kind" => source, "filter" => filter}),
     do: "#{source_name(source)} events matching #{Jason.encode!(filter)}"
 
-  defp rule_place("slack:" <> _rest = scope), do: " in " <> Names.destination(scope)
+  defp rule_place("slack:" <> _rest = scope), do: " in " <> Slack.destination_name(scope)
   defp rule_place(_scope), do: ""
 
   defp rule_evidence(_criteria, nil), do: []
@@ -1601,7 +1600,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
 
   defp source_name("github"), do: "GitHub"
   defp source_name("slack"), do: "Slack"
-  defp source_name(source), do: Words.label(source)
+  defp source_name(source), do: Episodes.label(source)
 
   # Extracted metadata is visible as soon as the disclosure opens; the raw
   # envelope, the normalized input and the original message are each their own
@@ -1691,7 +1690,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
           <span
             :if={show_event_state?(@step)}
             class={"event-state tone-#{@step.tone}"}
-          >{Words.label(@step.state)}</span>
+          >{Episodes.label(@step.state)}</span>
           <span :if={@step.duration_ms}>{Units.duration(@step.duration_ms)}</span>
         </:meta>
       </.card_heading>
@@ -1810,7 +1809,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
       step.stage not in ["Preparation", "Execution", "Evidence"] &&
       not String.contains?(
         String.downcase(event_title(step)),
-        String.downcase(Words.label(step.state))
+        String.downcase(Episodes.label(step.state))
       )
   end
 
@@ -2061,7 +2060,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   # A stage row in the Slack card's words: a count or #617 reads on after its
   # name, anything else after a "·".
   defp stage_text(%{"stage" => stage, "detail" => detail}) do
-    label = TaskCardDetails.label(stage)
+    label = Slack.task_phase_label(stage)
 
     cond do
       is_nil(detail) -> label

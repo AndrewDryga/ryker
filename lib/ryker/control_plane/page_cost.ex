@@ -9,7 +9,6 @@ defmodule Ryker.ControlPlane.PageCost do
   slow or runs many queries is logged, so a page that becomes expensive says
   so in the log the day it does.
   """
-
   require Logger
 
   @key {__MODULE__, :cost}

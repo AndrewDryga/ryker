@@ -6,7 +6,6 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
   cross this boundary. An open page redraws when the request, its
   conversation or background learning changes (`subscriptions/1`).
   """
-
   alias Ryker.Accounting.Execution
   alias Ryker.ControlPlane.{Activity, EpisodeTrace, FeedbackProjection}
   alias Ryker.ControlPlane.{ImprovementRequests, ModelRequests, Paths, TaskProgress}

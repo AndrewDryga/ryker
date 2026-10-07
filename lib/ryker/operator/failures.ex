@@ -5,7 +5,6 @@ defmodule Ryker.Operator.Failures do
   Semantic publication review is deliberately absent: a result judged
   non-publishable is a product decision, not failed infrastructure custody.
   """
-
   alias Ryker.ControlPlane.FailureProjection
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry

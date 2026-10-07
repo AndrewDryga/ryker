@@ -1,6 +1,5 @@
 defmodule Ryker.Publication.Review do
   @moduledoc false
-
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
   alias Ryker.GitObject

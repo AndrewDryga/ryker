@@ -10,7 +10,6 @@ defmodule Ryker.ControlPlane.ProductReadiness do
   from the presence of saved credentials. They never expose worker
   identities, policy names, credentials, or queue data.
   """
-
   alias Ryker.Config
   alias Ryker.Observability
   alias Ryker.Settings

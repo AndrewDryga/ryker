@@ -3,7 +3,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTransfer.Changeset do
   How a workspace checkpoint a worker sent is recorded
   (`Ryker.CoopFleet.WorkspaceCheckpointTransfer`).
   """
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.CoopFleet.WorkspaceCheckpointTransfer
 
   @fields [

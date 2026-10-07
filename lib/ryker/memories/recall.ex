@@ -7,7 +7,6 @@ defmodule Ryker.Memories.Recall do
   exact still-active row that was selected, so a fact the operator revoked or
   edited while the read waited is neither disclosed nor counted.
   """
-
   alias Ryker.Episodes.Episode
   alias Ryker.Episodes.Scope
   alias Ryker.Memories

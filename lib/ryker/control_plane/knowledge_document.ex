@@ -11,7 +11,6 @@ defmodule Ryker.ControlPlane.KnowledgeDocument do
   The document's own title, its first line when that is a level-one heading,
   is the title of the row that holds it, so it is not repeated inside.
   """
-
   alias Ryker.ControlPlane.SlackMarkdown
 
   @heading ~r/\A(\#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*\z/u

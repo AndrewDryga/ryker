@@ -15,7 +15,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
   use Phoenix.Component
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Components, Kit, Paths, ShortTime, SlackMarkdown, Units}
-  alias Ryker.Slack.Names
+  alias Ryker.Slack
 
   @doc """
   The topics an open Working copies page listens to, as the context functions
@@ -192,7 +192,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
   # its timeline. Two copies of one repository stay distinguishable by it.
   defp request(%{episode_id: id} = row) when is_binary(id) do
     title =
-      case Names.workspace_from_destination(row[:request_conversation]) do
+      case Slack.destination_workspace(row[:request_conversation]) do
         nil -> row[:request_title] || "Open the request"
         workspace -> SlackMarkdown.plain(row[:request_title] || "Open the request", workspace)
       end

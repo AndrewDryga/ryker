@@ -5,14 +5,13 @@ defmodule Ryker.Credentials do
   Callers address one reviewed credential kind and name. Reads return only that
   credential's plaintext; discovery and inspection return status metadata only.
   """
-
-  require Logger
   alias Ryker.AdvisoryLock
   alias Ryker.Config
   alias Ryker.Credential
   alias Ryker.Credential.Event
   alias Ryker.Crypto
   alias Ryker.Repo
+  require Logger
 
   @key_version 1
   @minimum_bytes 8
@@ -154,7 +153,7 @@ defmodule Ryker.Credentials do
       nil ->
         credential =
           %Credential{
-            id: Ecto.UUID.generate(),
+            id: Repo.generate_id(),
             kind: kind,
             name: name,
             inserted_at: now
@@ -238,7 +237,7 @@ defmodule Ryker.Credentials do
 
   defp event!(credential, action, actor_ref, now) do
     %Event{
-      id: Ecto.UUID.generate(),
+      id: Repo.generate_id(),
       credential_id: credential.id,
       kind: credential.kind,
       name: credential.name,

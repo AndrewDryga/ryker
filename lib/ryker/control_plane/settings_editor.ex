@@ -28,13 +28,12 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   `Kit.confirm_modal/1`. A save or a removal returns to the list and says
   what it did there.
   """
-
   use Phoenix.LiveComponent
   alias Ryker.ControlPlane.{Components, FormDraft, Integrations, Kit, Paths, SettingsRows}
   alias Ryker.ControlPlane.{SettingsSections, SettingsView}
-  alias Ryker.Settings.Work
-  alias Ryker.Slack.Names
-  alias Ryker.Work.ExecutionTarget
+  alias Ryker.Settings
+  alias Ryker.Slack
+  alias Ryker.Work
 
   @impl true
   def update(assigns, socket) do
@@ -904,7 +903,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         efforts: efforts,
         rows: rows,
         count: length(entries),
-        most: Work.most_models()
+        most: Settings.most_work_models()
       )
 
     ~H"""
@@ -1077,7 +1076,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         rows: rows,
         refused: refused,
         count: length(entries),
-        most: Work.most_accounts(),
+        most: Settings.most_work_accounts(),
         placeholder: SettingsSections.account_placeholder()
       )
 
@@ -1465,7 +1464,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     saved =
       if chosen == "" or List.keymember?(channels, chosen, 0),
         do: [],
-        else: [{chosen, Names.destination(chosen)}]
+        else: [{chosen, Slack.destination_name(chosen)}]
 
     Map.merge(field, %{
       kind: :select,
@@ -1630,7 +1629,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
       accounts == [] ->
         provider = entry["model"] |> String.split(":", parts: 2) |> hd()
-        "No #{ExecutionTarget.provider_name(provider)} account yet"
+        "No #{Work.provider_name(provider)} account yet"
 
       true ->
         "Choose an account"

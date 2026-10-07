@@ -1,6 +1,5 @@
 defmodule Ryker.Delivery.ChatCard do
   @moduledoc false
-
   alias Ryker.Behaviors.Behavior
   alias Ryker.ControlPlane.Paths
   alias Ryker.Delivery.OfferWords

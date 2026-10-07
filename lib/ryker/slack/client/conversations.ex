@@ -8,7 +8,6 @@ defmodule Ryker.Slack.Client.Conversations do
   because the request was well-formed and the reply was not. Creating a
   conversation and setting it up is `Client.Rooms`.
   """
-
   alias Ryker.Slack.Client.{Fields, Pagination, Transport}
 
   @conversation_page_size 200

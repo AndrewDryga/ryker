@@ -5,7 +5,6 @@ defmodule Ryker.Evals.WorldAssertions do
   authority, the scenario's scoped hard expectations held, and the required
   tool trajectory was actually called with the expected arguments.
   """
-
   import Ecto.Query
   alias Ryker.Evals.{WorldCase, WorldEvidence, WorldInputs, WorldMatch}
   alias Ryker.Records.Record

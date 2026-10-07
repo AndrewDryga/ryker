@@ -5,7 +5,6 @@ defmodule Ryker.Slack.Client.Reactions do
   A reaction that is already there, or already gone, is the state that was
   asked for; Slack reports it as an error and the delivery treats it as done.
   """
-
   alias Ryker.Slack.Client.{Fields, Transport}
 
   def add_reaction(client, channel, message_ref, emoji_name) do

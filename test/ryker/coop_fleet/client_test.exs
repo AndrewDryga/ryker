@@ -3,6 +3,7 @@ defmodule Ryker.CoopFleet.ClientTest do
   import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query, only: [from: 2]
   alias Ryker.{Artifacts, CanonicalJSON, Instructions}
+  alias Ryker.CoopFleet.Bodies
   alias Ryker.CoopFleet.{Client, Command, ControlPlane, JobSpec, Placement, Worker}
   alias Ryker.CoopFleet.WorkspaceCheckpointTransfer
   alias Ryker.Crypto
@@ -1787,7 +1788,6 @@ defmodule Ryker.CoopFleet.ClientTest do
     client: client,
     session: session
   } do
-    alias Ryker.CoopFleet.Bodies
     key = Ryker.Secret.new(:binary.copy(<<7>>, 32))
     client = %{client | bridge_options: Keyword.put(client.bridge_options, :checkpoint_key, key)}
     session = bind_session!(session, "s-binary")

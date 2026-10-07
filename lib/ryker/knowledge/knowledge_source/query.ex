@@ -1,6 +1,6 @@
 defmodule Ryker.Knowledge.KnowledgeSource.Query do
   @moduledoc "The observations each topic was learned from, for every read of `conversation_knowledge_sources`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Knowledge.{ConversationKnowledge, KnowledgeSource}
   alias Ryker.Learning.ConversationObservation
 

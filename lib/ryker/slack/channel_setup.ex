@@ -13,7 +13,6 @@ defmodule Ryker.Slack.ChannelSetup do
   session offered when it started, and membership plus operator authority are
   rechecked for every action or conversational answer.
   """
-
   alias Ryker.Slack.{ChannelConfiguration, Collections, ConfigurationSession}
   alias Ryker.Slack.Client.Messages
   alias Ryker.Slack.{MembershipTransition, Operators}

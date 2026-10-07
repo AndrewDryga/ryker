@@ -45,9 +45,7 @@ defmodule Ryker.TestSupport.FakeSlackAPI do
     * `:channels` - what `joined_conversations/1` returns; `put_channels/2`
       replaces it mid-test.
   """
-
   @behaviour Ryker.Slack.API
-
   alias Ryker.Slack.Renderer
 
   @options [

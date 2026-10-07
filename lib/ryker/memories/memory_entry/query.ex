@@ -1,6 +1,6 @@
 defmodule Ryker.Memories.MemoryEntry.Query do
   @moduledoc "Facts people confirmed, for every read of `operational_memory_entries`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Memories.MemoryEntry
 
   def all, do: from(entries in MemoryEntry, as: :operational_memory_entries)

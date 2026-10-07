@@ -1,6 +1,6 @@
 defmodule Ryker.Settings.WebhookSource do
   @moduledoc "One inbound webhook source: preset or custom mapping, auth, destination and environment."
-  use Ecto.Schema
+  use Ryker, :schema
 
   @primary_key {:name, :string, autogenerate: false}
 
@@ -16,7 +16,7 @@ defmodule Ryker.Settings.WebhookSource do
     field(:group_by_labels, {:array, :string}, default: [])
     field(:mapping, :map)
     field(:publication_lifecycle, :map)
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

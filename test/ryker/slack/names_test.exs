@@ -1,8 +1,8 @@
 defmodule Ryker.Slack.NamesTest do
+  use ExUnit.Case, async: false
   alias Ryker.Config
   alias Ryker.ControlPlane.RequestContextHTML
   alias Ryker.ControlPlane.SlackMarkdown
-  use ExUnit.Case, async: false
   alias Ryker.InspectionRedactor
   alias Ryker.Slack.{MembershipReconciler, Names}
   alias Ryker.TestSupport.FakeSlackAPI

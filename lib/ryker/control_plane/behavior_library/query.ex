@@ -4,11 +4,11 @@ defmodule Ryker.ControlPlane.BehaviorLibrary.Query do
   each confirmed behavior with the status a reader sees, its counts, view
   and search, and the latest runs of standing rules.
   """
-  import Ecto.Query
-  require Ryker.ControlPlane.Search
+  use Ryker, :query
   alias Ryker.Behaviors.{Behavior, StandingAssignmentRun}
   alias Ryker.ControlPlane.Search
   alias Ryker.Episodes.Episode
+  require Ryker.ControlPlane.Search
 
   @doc """
   Every confirmed behavior as the library shows it at `now`. Expiry is

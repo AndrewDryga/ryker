@@ -1,6 +1,5 @@
 defmodule Ryker.Publication.FollowupDispatcher do
   @moduledoc false
-
   alias Ryker.Publication.{FollowupExecutor, Followups}
   alias Ryker.Reference
 

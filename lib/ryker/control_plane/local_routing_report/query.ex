@@ -5,7 +5,7 @@ defmodule Ryker.ControlPlane.LocalRoutingReport.Query do
   answers compared with what each decided, and the groups the page's three
   tables count with each group's newest row.
   """
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.LocalRouting.Comparison
 

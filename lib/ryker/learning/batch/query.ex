@@ -1,6 +1,6 @@
 defmodule Ryker.Learning.Batch.Query do
   @moduledoc "Batches of messages learned from together, for every read of `conversation_learning_batches`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Learning.{Batch, LearningRun}
 
   def all, do: from(batches in Batch, as: :conversation_learning_batches)

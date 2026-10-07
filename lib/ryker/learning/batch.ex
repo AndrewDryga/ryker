@@ -1,7 +1,7 @@
 defmodule Ryker.Learning.Batch do
   @moduledoc false
-  use Ecto.Schema
-  @primary_key {:id, :binary_id, autogenerate: true}
+  use Ryker, :schema
+
   schema "conversation_learning_batches" do
     field(:scope_key, :string)
     field(:transport, :string)
@@ -30,7 +30,7 @@ defmodule Ryker.Learning.Batch do
     field(:next_attempt_at, :utc_datetime_usec)
     field(:error_code, :string)
     field(:completed_at, :utc_datetime_usec)
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

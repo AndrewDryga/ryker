@@ -4,7 +4,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
   and schedules the episode created, publications it offered, and the current
   follow-through on anything still outstanding.
   """
-
   import Ryker.ControlPlane.EpisodeTrace.Step
   alias Ryker.ControlPlane.Emoji
   alias Ryker.ControlPlane.Paths

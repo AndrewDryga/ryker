@@ -20,8 +20,6 @@ defmodule Ryker.Waits.EventSubscriptions do
   over, then tried again ten minutes on: the earliest wait was taken again on
   every poll, and one that kept failing held up every other.
   """
-
-  require Logger
   alias Ryker.Episodes.Episode
   alias Ryker.Records
   alias Ryker.Records.Record
@@ -29,6 +27,7 @@ defmodule Ryker.Waits.EventSubscriptions do
   alias Ryker.Repo
   alias Ryker.Waits.EventSubscription
   alias Ryker.Waits.EventWaitTiming
+  require Logger
 
   @reconcile_limit 100
 
@@ -252,7 +251,7 @@ defmodule Ryker.Waits.EventSubscriptions do
          {:ok, deadline} <- subscription_deadline(record.payload, trigger),
          {:ok, poll_after} <- wakeup_at(record, trigger, deadline),
          :ok <- ordered(poll_after, deadline) do
-      id = Ecto.UUID.generate()
+      id = Repo.generate_id()
 
       %{
         cursor: Map.get(trigger, "cursor"),

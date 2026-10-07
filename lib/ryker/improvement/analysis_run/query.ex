@@ -1,6 +1,6 @@
 defmodule Ryker.Improvement.AnalysisRun.Query do
   @moduledoc "Each analysis of a flagged request, for every read of `improvement_analysis_runs`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Improvement.{AnalysisRun, Candidate}
 
   def all, do: from(runs in AnalysisRun, as: :improvement_analysis_runs)

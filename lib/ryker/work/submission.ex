@@ -6,7 +6,6 @@ defmodule Ryker.Work.Submission do
   metadata are deliberately absent because they belong to the Coop operation,
   not to the model-visible turn.
   """
-
   alias Ryker.CanonicalJSON
 
   @context_bytes 160 * 1_024

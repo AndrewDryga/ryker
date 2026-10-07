@@ -12,7 +12,6 @@ defmodule Ryker.CoopFleet.SessionEvidences do
   and two concurrent captures of the same state all converge on one row; the
   unique index is the arbiter, not a read-then-write in application code.
   """
-
   alias Ecto.Changeset
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.SessionEvidence
@@ -91,7 +90,7 @@ defmodule Ryker.CoopFleet.SessionEvidences do
     captured_at = captured_at(evidence)
 
     attributes = %{
-      id: Ecto.UUID.generate(),
+      id: Repo.generate_id(),
       session_id: session_id,
       episode_id: session.episode_id,
       coop_session_id: evidence["session_id"],

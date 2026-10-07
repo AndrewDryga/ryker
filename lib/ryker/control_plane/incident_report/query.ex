@@ -5,13 +5,13 @@ defmodule Ryker.ControlPlane.IncidentReport.Query do
   search and status filter, and, for one room's report, the messages people
   said in it, what Ryker answered there and its latest publication.
   """
-  import Ecto.Query
-  require Ryker.ControlPlane.CurrentInput.Query
+  use Ryker, :query
   alias Ryker.ControlPlane.CurrentInput
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Publication.Publication
   alias Ryker.Work.Turn
+  require Ryker.ControlPlane.CurrentInput.Query
 
   @doc """
   Rooms whose ref, title, repository, workspace or either channel contains

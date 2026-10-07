@@ -13,7 +13,6 @@ defmodule Ryker.CredoCheckProbe do
   parses a probe at a path the check cares about, and asserts both what must
   fire and what must not.
   """
-
   alias Credo.SourceFile
 
   @checks_dir Path.expand("../../credo/checks", __DIR__)

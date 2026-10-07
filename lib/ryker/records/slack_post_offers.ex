@@ -7,7 +7,6 @@ defmodule Ryker.Records.SlackPostOffers do
   control on the exact delivered offer; that confirmation enqueues one
   idempotent outbox action.
   """
-
   alias Ryker.Delivery.{PlatformAction, PlatformActionCustody}
   alias Ryker.Records
   alias Ryker.Records.CardDelivery

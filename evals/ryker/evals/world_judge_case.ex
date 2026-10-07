@@ -6,7 +6,6 @@ defmodule Ryker.Evals.WorldJudgeCase do
   The judge can only score the human-language rubric; it cannot override a host
   failure or invent source evidence.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Evals.WorldCase
 

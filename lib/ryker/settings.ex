@@ -9,7 +9,6 @@ defmodule Ryker.Settings do
   receipt with a content fingerprint. A failed database read is never an
   absent setting: only a missing installation row means "not initialized".
   """
-
   alias Ryker.Accounting.Pricing
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
@@ -794,7 +793,6 @@ defmodule Ryker.Settings do
     |> Repo.update!()
 
     Repo.insert!(%Edit{
-      id: Ecto.UUID.generate(),
       domain: domain,
       revision: revision,
       actor_ref: actor_ref,
@@ -828,7 +826,7 @@ defmodule Ryker.Settings do
     prices =
       Enum.map(
         Pricing.settings_defaults(),
-        &Map.merge(&1, %{id: Ecto.UUID.generate(), revision: 1, inserted_at: now})
+        &Map.merge(&1, %{id: Repo.generate_id(), revision: 1, inserted_at: now})
       )
 
     Repo.insert_all(PricingRate, prices,
@@ -837,7 +835,6 @@ defmodule Ryker.Settings do
     )
 
     Repo.insert!(%Edit{
-      id: Ecto.UUID.generate(),
       domain: :installation,
       revision: 1,
       actor_ref: actor_ref,
@@ -988,4 +985,24 @@ defmodule Ryker.Settings do
     do: Atom.to_string(atom)
 
   def stringify(value), do: value
+
+  # -- For the console ---------------------------------------------------------
+
+  @doc "How many model targets one kind of work may save."
+  @spec most_work_models() :: pos_integer()
+  defdelegate most_work_models(), to: Ryker.Settings.Work, as: :most_models
+
+  @doc "How many model accounts Work may save."
+  @spec most_work_accounts() :: pos_integer()
+  defdelegate most_work_accounts(), to: Ryker.Settings.Work, as: :most_accounts
+
+  @doc "An environment's repositories, its writable one first."
+  defdelegate environment_repositories(environment),
+    to: Ryker.Settings.Environment,
+    as: :repository_refs
+
+  @doc "An environment's repositories that Work may only read."
+  defdelegate environment_read_only_repositories(environment),
+    to: Ryker.Settings.Environment,
+    as: :read_only_refs
 end

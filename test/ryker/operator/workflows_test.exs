@@ -1,8 +1,5 @@
 defmodule Ryker.Operator.WorkflowsTest do
   use Ryker.DataCase, async: false
-
-  @moduletag isolation: "REPEATABLE READ"
-
   import Ecto.Query
   alias Ryker.Admission
   alias Ryker.Admission.Decision
@@ -17,6 +14,8 @@ defmodule Ryker.Operator.WorkflowsTest do
   alias Ryker.Settings
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Slack.{Interaction, InteractionAudits}
+
+  @moduletag isolation: "REPEATABLE READ"
 
   @occurred_at ~U[2026-09-04 08:00:00Z]
 

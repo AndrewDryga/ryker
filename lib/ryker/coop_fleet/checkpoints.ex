@@ -1,6 +1,5 @@
 defmodule Ryker.CoopFleet.Checkpoints do
   @moduledoc false
-
   alias Ryker.CoopFleet.{Bodies, Bridge, Command, ControlPlane, Placement}
   alias Ryker.CoopFleet.{WorkspaceCheckpoint, WorkspaceCheckpointBundle}
   alias Ryker.CoopFleet.WorkspaceCheckpointTransfer
@@ -89,7 +88,7 @@ defmodule Ryker.CoopFleet.Checkpoints do
              &WorkspaceCheckpointBundle.validate_stream(checkpoint, &1.(), credential_values())
            ) do
       prepared = %{
-        id: Ecto.UUID.generate(),
+        id: Repo.generate_id(),
         command_id: producer.id,
         body_command_id: command.id,
         worker_id: producer.worker_id,

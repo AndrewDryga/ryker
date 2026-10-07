@@ -6,11 +6,9 @@ defmodule Ryker.Slack.Publisher do
   response loss therefore returns to durable custody and reconciles the
   already-visible message instead of posting a duplicate.
   """
-
   @behaviour Ryker.Delivery.Platform
   @behaviour Ryker.Delivery.MessagePublisher
   @behaviour Ryker.Delivery.ReactionPublisher
-
   alias Ryker.Crypto
   alias Ryker.Delivery.Request
   alias Ryker.Slack.Client.Messages

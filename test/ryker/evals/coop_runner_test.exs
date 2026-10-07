@@ -1,10 +1,9 @@
 defmodule Ryker.Evals.CoopRunnerTest do
   use ExUnit.Case, async: true
-
-  @session_id "remote:ryker-eval:world-judge:run-eval-test:world-judge:va1-health-review-repairs-and-finishes"
-
   alias Ryker.Evals.{CoopRunner, Job, WorldCase, WorldJudgeCase}
   alias Ryker.TestSupport.FakeCoopAPI
+
+  @session_id "remote:ryker-eval:world-judge:run-eval-test:world-judge:va1-health-review-repairs-and-finishes"
 
   defmodule FaultAPI do
     @behaviour Ryker.Coop.API

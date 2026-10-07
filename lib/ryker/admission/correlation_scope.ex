@@ -9,7 +9,6 @@ defmodule Ryker.Admission.CorrelationScope do
   stay inside their own conversation, so bot membership in two restricted
   channels never establishes a common audience.
   """
-
   alias Ryker.Ingress.Input
   alias Ryker.Repo
   alias Ryker.Slack.ChannelMembership

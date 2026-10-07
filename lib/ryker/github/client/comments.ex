@@ -8,7 +8,6 @@ defmodule Ryker.GitHub.Client.Comments do
   reports absence until every bounded page was inspected, so a lost response
   cannot duplicate a visible comment.
   """
-
   alias Ryker.GitHub.Client.{Fields, Transport}
 
   @maximum_pages 100

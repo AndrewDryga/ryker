@@ -9,7 +9,6 @@ defmodule Ryker.ControlPlane.ContextSearch do
   what it found but left out. Searches recorded before 2026-09-24 kept only
   their counts, so their cards show counts without the words.
   """
-
   alias Ryker.Slack.Names
 
   @lanes [

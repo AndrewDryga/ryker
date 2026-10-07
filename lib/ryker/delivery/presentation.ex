@@ -6,7 +6,6 @@ defmodule Ryker.Delivery.Presentation do
   surprises: the model can repair the same logical turn before Ryker owns
   an external side effect.
   """
-
   alias Ryker.Delivery.ChatCard
   alias Ryker.Episodes.Episode
   alias Ryker.GitHub.Renderer, as: GitHubRenderer

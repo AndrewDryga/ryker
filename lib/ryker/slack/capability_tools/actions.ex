@@ -5,7 +5,6 @@ defmodule Ryker.Slack.CapabilityTools.Actions do
   confirmation. None reaches Slack from here; each leaves an exact durable
   intent behind.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Records
   alias Ryker.Slack.SourceRef

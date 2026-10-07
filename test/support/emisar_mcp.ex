@@ -29,7 +29,6 @@ defmodule Ryker.TestSupport.EmisarMCP do
   named limited.example turns every call away with HTTP 429 before Emisar
   sees it.
   """
-
   alias Ryker.Delivery.JSONClient
 
   @tools_list "testdata/emisar/tools_list.json"

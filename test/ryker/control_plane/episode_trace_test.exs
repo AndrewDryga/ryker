@@ -1,23 +1,23 @@
 defmodule Ryker.ControlPlane.EpisodeTraceTest do
-  alias Ryker.ControlPlane.ConsolePeople
-  alias Ryker.ControlPlane.EpisodeTrace
-  alias Ryker.ControlPlane.ModelRequests
-  alias Ryker.Fixtures.WorkSessions
-  alias Ryker.Slack.Names
   # Starts the globally named Slack names cache, so it cannot share the VM
   # with other running suites the way an async module would.
   use Ryker.DataCase, async: false
   import Ecto.Query
   import Phoenix.LiveViewTest
   alias Ryker.CanonicalJSON
+  alias Ryker.ControlPlane.ConsolePeople
   alias Ryker.ControlPlane.EpisodePage
   alias Ryker.ControlPlane.EpisodeProjection
+  alias Ryker.ControlPlane.EpisodeTrace
+  alias Ryker.ControlPlane.ModelRequests
   alias Ryker.Episodes
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Slack.Input
+  alias Ryker.Slack.Names
   alias Ryker.Work.Custody
   alias Ryker.Work.Turn
 

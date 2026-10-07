@@ -26,7 +26,6 @@ defmodule Ryker.RepositoryKnowledge do
   Every change to a repository's entry is announced after it commits
   (`subscribe/0`).
   """
-
   alias Ryker.Repo
   alias Ryker.RepositoryKnowledge.{Custody, Entry}
   alias Ryker.Settings

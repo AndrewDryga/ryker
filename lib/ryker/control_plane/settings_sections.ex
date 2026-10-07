@@ -8,7 +8,6 @@ defmodule Ryker.ControlPlane.SettingsSections do
   settings changeset already validates, and anything the form cannot type
   (a worker identity or a credential value) is not here.
   """
-
   alias Ryker.ControlPlane.Environments
   alias Ryker.Settings
   alias Ryker.Settings.{Learning, PricingRate, Publication, Report, Slack, WebhookSource, Work}

@@ -2,7 +2,6 @@ defmodule Ryker.GitHub.Server do
   @moduledoc """
   Optional Bandit listener for authenticated GitHub App webhooks.
   """
-
   alias Ryker.GitHub.{Binding, Confirmations, Router}
   alias Ryker.Options
   alias Ryker.Secret

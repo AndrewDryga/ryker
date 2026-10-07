@@ -1,6 +1,6 @@
 defmodule Ryker.Slack.IncidentRoomLifecycleEvent.Query do
   @moduledoc "What happened to each incident room's channel, for every read of `slack_incident_room_lifecycle_events`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Slack.IncidentRoomLifecycleEvent
 
   def all,

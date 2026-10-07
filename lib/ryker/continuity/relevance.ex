@@ -10,7 +10,6 @@ defmodule Ryker.Continuity.Relevance do
   knowledge"). Ranking keeps each list's own order among texts that share nothing with the
   request, so nothing changes where the request says nothing to compare.
   """
-
   alias Ryker.Episodes.RoutingDigests
 
   @identifier_weight 3

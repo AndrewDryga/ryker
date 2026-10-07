@@ -33,7 +33,7 @@ defmodule Ryker.WeeklyReportTest do
 
   setup do
     {:ok, _settings} = Settings.initialize(@actor)
-    now = DateTime.utc_now() |> DateTime.truncate(:second) |> Map.put(:microsecond, {0, 6})
+    now = DateTime.utc_now(:second) |> Map.put(:microsecond, {0, 6})
     workspace = "TREPORT#{System.unique_integer([:positive])}"
     %{now: now, workspace: workspace}
   end

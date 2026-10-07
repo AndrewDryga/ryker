@@ -1,6 +1,6 @@
 defmodule Ryker.Settings.Edit do
   @moduledoc false
-  use Ecto.Schema
+  use Ryker, :schema
 
   @domains [
     :installation,
@@ -17,7 +17,6 @@ defmodule Ryker.Settings.Edit do
     :pricing,
     :work
   ]
-  @primary_key {:id, :binary_id, autogenerate: false}
 
   schema "settings_edits" do
     field(:domain, Ecto.Enum, values: @domains)

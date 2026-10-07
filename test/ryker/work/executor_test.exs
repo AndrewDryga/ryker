@@ -347,7 +347,6 @@ defmodule Ryker.Work.ExecutorTest do
   defmodule ProtocolAPI do
     @moduledoc false
     @behaviour Ryker.Coop.API
-
     alias Ryker.TestSupport.FakeWorkCoopAPI, as: FakeAPI
 
     def capabilities(client) do

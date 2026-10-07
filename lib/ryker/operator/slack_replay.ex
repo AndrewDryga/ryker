@@ -5,7 +5,6 @@ defmodule Ryker.Operator.SlackReplay do
   Replays preserve the normalized source input and frozen Work profile, but use
   a fresh idempotent event identity and the host-owned shadow execution mode.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Ingress.{Inbox, Input, WorkProfile}

@@ -23,7 +23,6 @@ defmodule Ryker.Evals.RoutingReplayCase do
   recorded answer did: the same action, the same earlier work and the same
   relation to it. The words of a quick reply and the reason are not compared.
   """
-
   alias Ryker.Admission.{Decision, Prompt}
 
   @compared ~w(action episode_ref relation)

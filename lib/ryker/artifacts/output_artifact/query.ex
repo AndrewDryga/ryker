@@ -1,6 +1,6 @@
 defmodule Ryker.Artifacts.OutputArtifact.Query do
   @moduledoc "The files a Work turn produced, for every read in `Ryker.Artifacts.Outputs`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Artifacts.OutputArtifact
 
   def all, do: from(artifacts in OutputArtifact, as: :work_output_artifacts)

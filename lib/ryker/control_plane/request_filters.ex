@@ -16,9 +16,9 @@ defmodule Ryker.ControlPlane.RequestFilters do
   import Ryker.ControlPlane.Components
   alias Phoenix.LiveView.JS
   alias Ryker.ControlPlane.{ShortTime, UsagePage, UsageProjection}
-  alias Ryker.Episodes.Words
-  alias Ryker.Slack.Names
-  alias Ryker.Work.ExecutionTarget
+  alias Ryker.Episodes
+  alias Ryker.Slack
+  alias Ryker.Work
 
   @efforts ~w(none minimal low medium high xhigh max)
 
@@ -376,12 +376,12 @@ defmodule Ryker.ControlPlane.RequestFilters do
   defp value_label(:conversation, value, _params, values) do
     case Enum.find(values, &(Map.get(&1, :conversation_ref) == value)) do
       %{conversation_label: label} when is_binary(label) -> label
-      _other -> Names.destination(value)
+      _other -> Slack.destination_name(value)
     end
   end
 
   defp value_label(:thread, value, _params, _values), do: thread_label(value)
-  defp value_label(:channel, value, _params, _values), do: Names.destination(value)
+  defp value_label(:channel, value, _params, _values), do: Slack.destination_name(value)
   defp value_label(:user, value, params, values), do: user_label(value, params, values)
   defp value_label(_choices, value, _params, _values), do: choice_label(value)
 
@@ -397,17 +397,17 @@ defmodule Ryker.ControlPlane.RequestFilters do
   end
 
   defp user_label(value, %{"usage_source" => "slack", "usage_workspace" => workspace}, _values),
-    do: Names.name(workspace, value)
+    do: Slack.name(workspace, value)
 
   # A person the loaded choices no longer list is still a person, never their
   # bare Slack ID (Andrew, 2026-09-26); Ryker serves one workspace.
   defp user_label(value, _params, values) do
     case Enum.find(values, &(Map.get(&1, :actor) == value and Map.get(&1, :source) == "slack")) do
       %{workspace: workspace} ->
-        Names.name(workspace, value)
+        Slack.name(workspace, value)
 
       nil ->
-        if Names.person_ref?(value), do: Names.person(Names.workspace(), value).name, else: value
+        if Slack.person_ref?(value), do: Slack.person(Slack.workspace(), value).name, else: value
     end
   end
 
@@ -443,12 +443,12 @@ defmodule Ryker.ControlPlane.RequestFilters do
   defp options(:channel, rows) do
     rows
     |> Enum.filter(&(&1[:transport] == "slack"))
-    |> Enum.map(&{&1.conversation_ref, Names.destination(&1.conversation_ref), nil})
+    |> Enum.map(&{&1.conversation_ref, Slack.destination_name(&1.conversation_ref), nil})
   end
 
   defp options(values, _rows), do: Enum.map(values, &{&1, choice_label(&1), nil})
 
-  defp user_name(%{source: "slack"} = row), do: Names.name(row.workspace, row.actor)
+  defp user_name(%{source: "slack"} = row), do: Slack.name(row.workspace, row.actor)
   defp user_name(row), do: row.actor
 
   # Typed words find a value by its name or where it is, in any case.
@@ -472,7 +472,7 @@ defmodule Ryker.ControlPlane.RequestFilters do
     end
   end
 
-  defp choice_label(value) when value in @efforts, do: ExecutionTarget.effort_name(value)
+  defp choice_label(value) when value in @efforts, do: Work.effort_name(value)
   defp choice_label("control_plane"), do: "Direct conversation"
   defp choice_label("github"), do: "GitHub"
   defp choice_label("24h"), do: "Last 24 hours"
@@ -484,6 +484,6 @@ defmodule Ryker.ControlPlane.RequestFilters do
   defp choice_label(value) do
     if value in UsagePage.work_kinds(),
       do: UsagePage.kind_name(value),
-      else: Words.label(value)
+      else: Episodes.label(value)
   end
 end

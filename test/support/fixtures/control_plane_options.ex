@@ -9,7 +9,6 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
   Actions and the channel projection report what they were called with to
   `parent`, so a test can assert that a refused request never reached them.
   """
-
   alias Ryker.ControlPlane.{EpisodeCausality, FeedbackProjection}
 
   @secret String.duplicate("s", 32)

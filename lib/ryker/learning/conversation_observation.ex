@@ -1,8 +1,7 @@
 defmodule Ryker.Learning.ConversationObservation do
   @moduledoc false
-  use Ecto.Schema
+  use Ryker, :schema
 
-  @primary_key {:id, :binary_id, autogenerate: false}
   schema "conversation_observations" do
     field(:identity_key, :string)
     field(:transport, :string)
@@ -23,7 +22,7 @@ defmodule Ryker.Learning.ConversationObservation do
     field(:note, Ryker.CanonicalJSON.Type)
     field(:source_dependencies, Ryker.CanonicalJSON.Type)
     field(:forgotten_at, :utc_datetime_usec)
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

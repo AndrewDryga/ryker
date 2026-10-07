@@ -1,15 +1,13 @@
 defmodule Mix.Tasks.Ryker.Failures do
+  @shortdoc "Lists typed retryable durable failures"
   @moduledoc """
   Lists bounded retryable failure context as JSON.
 
       MIX_ENV=prod mix ryker.failures
   """
-
   use Mix.Task
   alias Mix.Tasks.Ryker.OperatorSupport, as: Support
   alias Ryker.Operator.Failures
-
-  @shortdoc "Lists typed retryable durable failures"
 
   @impl Mix.Task
   def run(arguments) do

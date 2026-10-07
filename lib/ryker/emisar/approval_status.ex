@@ -10,7 +10,6 @@ defmodule Ryker.Emisar.ApprovalStatus do
   Emisar grows is refused here until this list and Emisar's published example
   move together, which fails one test rather than every governed-review card.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Emisar.{Approval, Review, RunState}
   alias Ryker.Reference

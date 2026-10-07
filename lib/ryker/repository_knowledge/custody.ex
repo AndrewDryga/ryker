@@ -17,8 +17,6 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   Every change a page shows is announced after the outermost commit
   (`Ryker.RepositoryKnowledge.subscribe/0`); a lease renewal is not.
   """
-
-  require Logger
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
   alias Ryker.Lease
@@ -28,6 +26,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   alias Ryker.RepositoryKnowledge.{Entry, FleetSession, Run}
   alias Ryker.UTCDateTime
   alias Ryker.Work.Session
+  require Logger
 
   @terminal ~w(completed failed cancelled interrupted budget_exhausted)
   @day_seconds 86_400
@@ -413,7 +412,6 @@ defmodule Ryker.RepositoryKnowledge.Custody do
 
       {:ok,
        Repo.insert!(%Run{
-         id: Ecto.UUID.generate(),
          repository_ref: entry.repository_ref,
          generation: next_generation(entry.repository_ref),
          status: :prepared,

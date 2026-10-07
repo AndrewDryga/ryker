@@ -5,7 +5,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Query do
   message's current one, the offer a task started from, the incident rooms a
   request belongs to, and the requests linked to it.
   """
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.ControlPlane.CurrentInput
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry

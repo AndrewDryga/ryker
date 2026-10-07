@@ -1,10 +1,8 @@
 defmodule Ryker.Episodes.RoutingDigest do
   @moduledoc false
-
-  use Ecto.Schema
+  use Ryker, :schema
 
   @primary_key false
-  @foreign_key_type :binary_id
 
   schema "episode_routing_digests" do
     belongs_to(:episode, Ryker.Episodes.Episode, primary_key: true)
@@ -28,7 +26,7 @@ defmodule Ryker.Episodes.RoutingDigest do
     # Stemmed and weighted by the database from the title, objective, latest
     # development and messages; never loaded or written by the host.
     field(:search_vector, :string, load_in_query: false)
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

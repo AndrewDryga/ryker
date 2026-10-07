@@ -6,7 +6,6 @@ defmodule Ryker.ControlPlane.CasesProjection do
   where a person reads one and forgets it. Nobody could delete a kept case
   before it (2026-10-04 review).
   """
-
   alias Ryker.ControlPlane.{PagedRelation, Search}
   alias Ryker.Memories.CaseRecord
   alias Ryker.Repo

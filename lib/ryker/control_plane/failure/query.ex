@@ -6,7 +6,7 @@ defmodule Ryker.ControlPlane.Failure.Query do
   person can move, and the facts each row is decorated with. A list reads
   newest first; `limit_to/2` bounds it.
   """
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.CoopFleet.{Placement, Worker}
   alias Ryker.Episodes.Episode
   alias Ryker.Learning.Batch

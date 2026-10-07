@@ -5,7 +5,6 @@ defmodule Ryker.CanonicalJSON do
   Stable encoding lets a retry prove it is the same command without exposing a
   caller-supplied idempotency token.
   """
-
   alias Ryker.Crypto
 
   @spec digest(Jason.Encoder.t()) :: String.t()

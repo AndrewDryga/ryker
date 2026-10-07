@@ -11,7 +11,6 @@ defmodule Ryker.Admission.ConversationSummaries do
   unavailable rather than laundering its text. When none is available the
   manifest says so, and the actual recent messages carry the context.
   """
-
   alias Ryker.Continuity
   alias Ryker.Continuity.ConversationSummary
   alias Ryker.Ingress.Inbox.Entry

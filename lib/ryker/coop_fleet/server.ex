@@ -2,7 +2,6 @@ defmodule Ryker.CoopFleet.Server do
   @moduledoc """
   Mutual-TLS HTTPS listener for outbound Coop worker polls.
   """
-
   alias Ryker.CoopFleet.Router
   alias Ryker.Options
 

@@ -9,7 +9,6 @@ defmodule Ryker.Slack.WorkspaceAdmins do
   running, never lets anyone in. A failure is not kept, so the next check
   asks again.
   """
-
   use GenServer
 
   @table __MODULE__

@@ -1,6 +1,6 @@
 defmodule Ryker.Delivery.PlatformAction.Query do
   @moduledoc "What Work posted or reacted with, for every read of `platform_actions`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Delivery.PlatformAction
 
   def all, do: from(actions in PlatformAction, as: :platform_actions)

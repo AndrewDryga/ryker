@@ -2,7 +2,6 @@ defmodule Ryker.GitHub.Auth do
   @moduledoc """
   GitHub App webhook authentication over the exact raw request body.
   """
-
   import Plug.Conn, only: [get_req_header: 2]
   alias Ryker.Crypto
 

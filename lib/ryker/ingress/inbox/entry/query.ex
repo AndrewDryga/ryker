@@ -1,6 +1,6 @@
 defmodule Ryker.Ingress.Inbox.Entry.Query do
   @moduledoc "Recorded messages and events, for every read of `ingress_inbox_entries`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Ingress.Inbox.Entry
 
   def all, do: from(entries in Entry, as: :ingress_inbox_entries)

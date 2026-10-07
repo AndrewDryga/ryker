@@ -5,6 +5,7 @@ defmodule Ryker.Learning.LearningTest do
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.RecallText
+  alias Ryker.Instructions
   alias Ryker.Knowledge
   alias Ryker.Knowledge.KnowledgeRevision
   alias Ryker.Learning
@@ -21,8 +22,6 @@ defmodule Ryker.Learning.LearningTest do
   @policy %{policy: "recorded-read-only-policy", policy_digest: String.duplicate("a", 64)}
 
   test "learning freezes scoped instructions without restarting a saved batch after an edit" do
-    alias Ryker.Instructions
-
     [first, second] = Fixtures.inputs!()
     ["slack", workspace, channel] = String.split(first.destination_conversation_ref, ":")
     scope = {:channel, workspace, channel}

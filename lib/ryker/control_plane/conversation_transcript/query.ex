@@ -5,7 +5,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript.Query do
   message started, the current revision of each message, and the reactions
   on messages.
   """
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Delivery.{PlatformAction, RoutingResponse}
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry

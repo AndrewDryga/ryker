@@ -1,10 +1,6 @@
 defmodule Ryker.Schedules.Schedule do
   @moduledoc false
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "episode_schedules" do
     belongs_to(:offer_record, Ryker.Records.Record)
@@ -37,7 +33,7 @@ defmodule Ryker.Schedules.Schedule do
     field(:next_attempt_at, :utc_datetime_usec)
     field(:revision, :integer, default: 1)
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

@@ -22,9 +22,7 @@ defmodule Ryker.ControlPlane.Viewer do
 
   A name outside ASCII arrives as RFC 2047 words, the way Serve encodes it.
   """
-
   @behaviour Plug
-
   import Plug.Conn
   alias Ryker.ControlPlane.{Actor, CloudflareAccess, Endpoint}
 

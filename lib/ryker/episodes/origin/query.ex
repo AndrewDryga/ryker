@@ -1,6 +1,6 @@
 defmodule Ryker.Episodes.Origin.Query do
   @moduledoc "Where each request's inputs came from, for every read of `episode_input_origins`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Episodes.{Episode, Origin}
 
   def all, do: from(origins in Origin, as: :episode_input_origins)

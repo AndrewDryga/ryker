@@ -5,11 +5,7 @@ defmodule Ryker.Episodes.Episode do
   The event ledger remains the audit trail. This row exists so ownership can be
   checked and advanced under one database lock.
   """
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "episode_kernel_episodes" do
     field(:key, :string)
@@ -36,7 +32,7 @@ defmodule Ryker.Episodes.Episode do
     field(:queued_input_refs, {:array, :string}, default: [])
     field(:queued_input_order_keys, {:array, :string}, default: [])
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{

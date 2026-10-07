@@ -2,7 +2,6 @@ defmodule Ryker.Episodes.Snapshot do
   @moduledoc """
   Stable data-only projection for episode replay and persistence assertions.
   """
-
   alias Ryker.Episodes.Episode
 
   @spec from_episode(Episode.t()) :: map()

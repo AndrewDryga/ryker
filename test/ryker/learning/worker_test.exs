@@ -1,8 +1,5 @@
 defmodule Ryker.Learning.WorkerTest do
   use Ryker.DataCase, async: false
-
-  @moduletag isolation: "REPEATABLE READ"
-
   import Ecto.Query
   alias Ryker.Admission
   alias Ryker.Admission.Decision
@@ -12,6 +9,8 @@ defmodule Ryker.Learning.WorkerTest do
   alias Ryker.Learning.Worker
   alias Ryker.Slack.Input
   alias Ryker.Work.Custody
+
+  @moduletag isolation: "REPEATABLE READ"
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 

@@ -7,7 +7,6 @@ defmodule Ryker.Slack.Client.Assistant do
   before the token is spent, and a reply is handed on only within the
   retained bound and with a readable cursor.
   """
-
   alias Ryker.Slack.Client.{Fields, Transport}
 
   def set_thread_status(client, channel, thread_ref, status) do

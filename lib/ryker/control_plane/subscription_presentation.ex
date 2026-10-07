@@ -4,7 +4,6 @@ defmodule Ryker.ControlPlane.SubscriptionPresentation do
   request it continues, where, and when. Never predicts a provider's outcome;
   every label comes from the saved matcher or the host's own timestamps.
   """
-
   alias Ryker.ControlPlane.ShortTime
   alias Ryker.InspectionRedactor
   alias Ryker.Slack.Names

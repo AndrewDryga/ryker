@@ -6,7 +6,6 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
   observation, and only an exact terminal identity can create the trusted
   continuation input.
   """
-
   alias Ryker.Emisar.Approvals
   alias Ryker.Reference
 

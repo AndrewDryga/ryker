@@ -12,7 +12,6 @@ defmodule Ryker.Behaviors do
   A behavior confirmed, switched, superseded, used or run is announced after
   its commit (`subscribe_behaviors/0`).
   """
-
   alias Ryker.Behaviors.Behavior
   alias Ryker.Behaviors.Recall
   alias Ryker.Behaviors.StandingRules
@@ -510,7 +509,7 @@ defmodule Ryker.Behaviors do
   def supersede_namesakes_in_transaction(%Behavior{}), do: :ok
 
   defp insert_behavior(record, episode, attributes, prepared) do
-    id = Ecto.UUID.generate()
+    id = Repo.generate_id()
     now = Repo.now!()
 
     prepared

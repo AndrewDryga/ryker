@@ -7,7 +7,6 @@ defmodule Ryker.Slack.Renderer.Blocks do
   module so a correction to a heading, a button or an escape rule lands on
   every card at once.
   """
-
   alias Ryker.Slack.Renderer.Fields
 
   @maximum_section_characters 3_000

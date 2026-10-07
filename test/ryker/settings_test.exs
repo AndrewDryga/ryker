@@ -217,6 +217,30 @@ defmodule Ryker.SettingsTest do
     assert Repo.aggregate(Edit, :count) == 1
   end
 
+  # The workspace and bot names are varchar(255) columns, counted in code
+  # points, and the changeset allowed 256 graphemes: a longer name from
+  # Slack passed validation and raised in the insert, so connecting failed
+  # with an exception instead of naming the field (2026-10-08 review).
+  test "a Slack name longer than its column is refused by name, not raised" do
+    assert {:ok, before} = Settings.initialize(@actor)
+    revision = before.installation.revision
+    accented = String.duplicate("e\u0301", 128)
+
+    for attributes <- [
+          %{workspace_name: String.duplicate("w", 256)},
+          %{bot_name: String.duplicate("b", 256)},
+          %{workspace_name: accented}
+        ] do
+      assert {:error, {:invalid_settings, [{field, _reason}]}} =
+               Settings.save_slack(attributes, revision, @actor)
+
+      assert field in [:workspace_name, :bot_name]
+    end
+
+    assert {:ok, _saved} =
+             Settings.save_slack(%{workspace_name: String.duplicate("w", 255)}, revision, @actor)
+  end
+
   test "shortening retention requires confirmation of the exact proposed values and revision" do
     assert {:ok, _} = Settings.initialize(@actor)
     attributes = %{conversation_memory_seconds: 60 * @day}

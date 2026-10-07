@@ -1,6 +1,6 @@
 defmodule Ryker.Work.Session.Query do
   @moduledoc "Work sessions, for every read of `episode_work_sessions`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.CoopFleet.{Command, Placement}
   alias Ryker.Episodes.Episode
   alias Ryker.Work.{Session, Turn}

@@ -24,7 +24,6 @@ defmodule Ryker.LocalRouting.Verdict do
   reply (`messages`) and the `reason` are prose and are not compared: two
   greetings in other words are the same decision.
   """
-
   alias Ryker.Admission
   alias Ryker.Admission.{Context, Decision}
 

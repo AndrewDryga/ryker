@@ -1,6 +1,6 @@
 defmodule Ryker.CoopFleet.Worker.Query do
   @moduledoc "Enrolled Coop workers, for every read of `coop_workers`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.CoopFleet.{Placement, Worker}
 
   def all, do: from(workers in Worker, as: :coop_workers)

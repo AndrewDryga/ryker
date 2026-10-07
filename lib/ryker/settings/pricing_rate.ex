@@ -1,8 +1,6 @@
 defmodule Ryker.Settings.PricingRate do
   @moduledoc "Optional versioned USD per-million-token estimate rates; reported cost stays authoritative."
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
+  use Ryker, :schema
 
   schema "pricing_rates" do
     field(:execution_target, :string)
@@ -13,7 +11,7 @@ defmodule Ryker.Settings.PricingRate do
     field(:effective_from, :date)
     field(:revision, :integer)
     field(:provenance, :string)
-    field(:inserted_at, :utc_datetime_usec)
+    timestamps(updated_at: false)
   end
 
   @type t :: %__MODULE__{}

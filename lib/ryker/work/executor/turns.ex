@@ -9,7 +9,6 @@ defmodule Ryker.Work.Executor.Turns do
   output artifacts are retained, a writable workspace is checkpointed, and the
   result is accepted.
   """
-
   alias Ryker.Artifacts.Outputs
   alias Ryker.CoopFleet.SessionEvidenceCapture
   alias Ryker.Crypto

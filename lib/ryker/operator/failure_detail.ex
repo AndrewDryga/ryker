@@ -6,7 +6,6 @@ defmodule Ryker.Operator.FailureDetail do
   Operator surfaces expose presence, a stable digest for log correlation, and
   finite allowlisted protocol facts, never the raw diagnostic.
   """
-
   alias Ryker.CanonicalJSON
 
   @coop_codes ~w(invalid_session_state session_cleanup_error revision_conflict session_not_found operation_not_found operation_uncertain idempotency_conflict unauthorized forbidden)

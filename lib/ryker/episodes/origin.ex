@@ -6,11 +6,7 @@ defmodule Ryker.Episodes.Origin do
   destination) and any number of origins. A direct answer to an input returns
   to that input's reply target, never to a place the model chose.
   """
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "episode_input_origins" do
     belongs_to(:episode, Ryker.Episodes.Episode)
@@ -28,7 +24,7 @@ defmodule Ryker.Episodes.Origin do
     field(:origin_kind, Ecto.Enum, values: [:channel_root, :thread_reply, :conversation])
     field(:root_ref, :string)
     field(:occurred_at, :utc_datetime_usec)
-    timestamps(updated_at: false, type: :utc_datetime_usec)
+    timestamps(updated_at: false)
   end
 
   @type t :: %__MODULE__{}

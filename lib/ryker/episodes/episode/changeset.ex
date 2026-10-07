@@ -1,7 +1,6 @@
 defmodule Ryker.Episodes.Episode.Changeset do
   @moduledoc false
-
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.Episodes.Episode
 
   @mutable_fields [

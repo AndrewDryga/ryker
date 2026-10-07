@@ -2,7 +2,6 @@ defmodule Ryker.Episodes.Kernel do
   @moduledoc """
   Applies an unseen command or reconciles a retry of an existing event.
   """
-
   alias Ryker.Episodes.{Command, Event, Reducer, Transition}
 
   @spec apply(struct() | nil, Event.t() | nil, Command.t()) ::

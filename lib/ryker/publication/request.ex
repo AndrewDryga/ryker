@@ -5,7 +5,6 @@ defmodule Ryker.Publication.Request do
   The request identifies the immutable candidate retained by Coop. Code and
   credentials never pass through this value or Ryker's publication database.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.GitHub.InertText
   alias Ryker.GitObject

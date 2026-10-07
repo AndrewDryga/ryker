@@ -7,7 +7,6 @@ defmodule Ryker.ControlPlane.PathRef do
   identifier is what the browser put in the URL and a hostile path cannot
   reach a projection with something the projection would never have produced.
   """
-
   alias Ryker.ControlPlane.Paths
 
   @maximum_encoded_bytes 3_072

@@ -1,6 +1,7 @@
 defmodule Ryker.Knowledge.KnowledgeRevision do
   @moduledoc false
-  use Ecto.Schema
+  use Ryker, :schema
+
   @primary_key false
   schema "conversation_knowledge_revisions" do
     field(:knowledge_id, :binary_id, primary_key: true)

@@ -14,7 +14,6 @@ defmodule Ryker.Slack.ChannelConfigurations do
   A channel joined, left, deleted, set up or changed is announced after the
   outermost commit (`subscribe_channels/0`, `subscribe_channel/2`).
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity
   alias Ryker.Memories
@@ -742,7 +741,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
           # The environment a new channel starts in is the default one, or
           # none when no environment is the default.
           environment_ref: catalog.default_environment,
-          id: Ecto.UUID.generate(),
+          id: Repo.generate_id(),
           invite_user_group_refs: [],
           invite_user_refs: [],
           # No explicit choice yet: the channel inherits the installation default.
@@ -764,7 +763,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
     attributes
     |> Map.take([:channel_ref, :external_shared, :private, :workspace_ref])
     |> Map.merge(timestamps)
-    |> Map.merge(%{generation: generation, id: Ecto.UUID.generate(), status: status})
+    |> Map.merge(%{generation: generation, id: Repo.generate_id(), status: status})
     |> ChannelConfiguration.Changeset.membership()
     |> Repo.insert!()
   end
@@ -828,7 +827,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
       channel_ref: membership.channel_ref,
       draft: catalog |> environment_options() |> empty_draft(),
       expires_at: DateTime.add(now, @session_seconds, :second),
-      id: Ecto.UUID.generate(),
+      id: Repo.generate_id(),
       initiator_ref: initiator_ref,
       membership_generation: membership.generation,
       response_thread_ref: thread_ref,
@@ -849,7 +848,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
     |> Map.take([:actor_ref, :channel_ref, :event_ref, :kind, :occurred_at, :workspace_ref])
     |> Map.merge(%{
       event_fingerprint: fingerprint,
-      id: Ecto.UUID.generate(),
+      id: Repo.generate_id(),
       membership_id: membership.id
     })
     |> ChannelConfiguration.Changeset.membership_event()
@@ -1223,7 +1222,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
         attributes
         |> Map.merge(%{
           channel_ref: session.channel_ref,
-          id: Ecto.UUID.generate(),
+          id: Repo.generate_id(),
           welcome_message_ref: nil,
           workspace_ref: session.workspace_ref
         })
@@ -1303,7 +1302,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
       actor_ref: attributes.actor_ref,
       event_fingerprint: fingerprint,
       event_ref: attributes.event_ref,
-      id: Ecto.UUID.generate(),
+      id: Repo.generate_id(),
       outcome: Atom.to_string(outcome),
       session_id: session.id,
       session_revision: session.revision

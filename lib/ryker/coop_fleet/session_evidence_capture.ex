@@ -9,7 +9,6 @@ defmodule Ryker.CoopFleet.SessionEvidenceCapture do
   absence recorded as an observation is how "we never asked" becomes "there was
   no network".
   """
-
   alias Ryker.CoopFleet.{Placement, SessionEvidences, Worker}
   alias Ryker.Repo
   alias Ryker.Work.Session

@@ -6,7 +6,6 @@ defmodule Ryker.Slack.Event do
   supported message lifecycles from the configured workspace and suppresses
   Ryker's own messages before they can enter durable admission.
   """
-
   alias Ryker.Reference
   alias Ryker.Slack.{Input, PostGrant}
 

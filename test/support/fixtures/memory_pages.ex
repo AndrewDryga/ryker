@@ -7,7 +7,6 @@ defmodule Ryker.Fixtures.MemoryPages do
   search finds for one kind page through the same functions, so the product
   keeps no second search path that only tests call.
   """
-
   alias Ryker.Behaviors.Recall, as: BehaviorRecall
   alias Ryker.Memories.MemorySearchPage
   alias Ryker.Memories.Recall

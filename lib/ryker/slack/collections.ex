@@ -13,7 +13,6 @@ defmodule Ryker.Slack.Collections do
   of channels, so the complete list an operator opens in App Home is the list
   the thread page was cut from rather than a second query with its own rules.
   """
-
   alias Ryker.Behaviors.Behavior
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Repo

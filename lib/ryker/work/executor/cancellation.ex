@@ -10,7 +10,6 @@ defmodule Ryker.Work.Executor.Cancellation do
   holding the run was removed from Ryker, no remote state can ever be proved,
   and the receipt names that removal instead.
   """
-
   alias Ryker.Work.Cancellation, as: WorkCancellation
   alias Ryker.Work.{Custody, OperationKeys, StateBinding}
   alias Ryker.Work.Custody.Cancellation, as: CancellationCustody

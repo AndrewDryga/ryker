@@ -1,10 +1,16 @@
 defmodule Ryker.Work.ActivityTest do
-  alias Ryker.Config
-  alias Ryker.ControlPlane.{EpisodeProjection, ToolCard}
-  alias Ryker.Fixtures.WorkSessions
   use Ryker.DataCase, async: false
   import ExUnit.CaptureLog
   import Phoenix.LiveViewTest
+  alias Ryker.Config
+  alias Ryker.ControlPlane.{EpisodeProjection, ToolCard}
+  alias Ryker.Episodes
+  alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.Learning, as: LearningFixtures
+  alias Ryker.Fixtures.WorkSessions
+  alias Ryker.Learning
+  alias Ryker.Learning.FleetSession
+  alias Ryker.Work.{Activity, ActivitySyncWorker, Custody}
 
   defmodule OversizedAPI do
     def list_events(_client, _session_id, _cursor, _limit),
@@ -26,13 +32,6 @@ defmodule Ryker.Work.ActivityTest do
   defmodule PagedAPI do
     def list_events(pages, _session_id, cursor, _limit), do: {:ok, Map.get(pages, cursor, [])}
   end
-
-  alias Ryker.Episodes
-  alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
-  alias Ryker.Fixtures.Learning, as: LearningFixtures
-  alias Ryker.Learning
-  alias Ryker.Learning.FleetSession
-  alias Ryker.Work.{Activity, ActivitySyncWorker, Custody}
 
   @now ~U[2026-09-04 12:00:00.000000Z]
 

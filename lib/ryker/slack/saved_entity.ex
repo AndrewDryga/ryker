@@ -9,7 +9,6 @@ defmodule Ryker.Slack.SavedEntity do
   status notice, and the exact-resource removal control. Raw identifiers and enum values are translated to labels; nothing
   that the entity does not retain is invented.
   """
-
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Behavior
   alias Ryker.Delivery.OfferWords

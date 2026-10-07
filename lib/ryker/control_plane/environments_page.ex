@@ -11,10 +11,9 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
   first in a modal, and a removal the settings refuse names who still uses
   the environment. The LiveView runs every write; this only renders.
   """
-
   use Phoenix.Component
   alias Ryker.ControlPlane.{Components, EnvironmentEditor, Environments, Integrations, Kit, Paths}
-  alias Ryker.Settings.Environment
+  alias Ryker.Settings
 
   attr(:view, :map, required: true, doc: "The settings view")
   attr(:params, :map, default: %{}, doc: "The page's query: q searches")
@@ -211,7 +210,7 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
 
   # How many of its repositories work only reads, when any.
   defp read_only(environment) do
-    case length(Environment.read_only_refs(environment)) do
+    case length(Settings.environment_read_only_repositories(environment)) do
       0 -> nil
       count -> "#{count} read only"
     end

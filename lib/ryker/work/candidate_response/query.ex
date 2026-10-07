@@ -1,6 +1,6 @@
 defmodule Ryker.Work.CandidateResponse.Query do
   @moduledoc "Each result a Work turn returned, for every read of `work_candidate_responses`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Work.{CandidateResponse, Turn}
 
   def all, do: from(responses in CandidateResponse, as: :work_candidate_responses)

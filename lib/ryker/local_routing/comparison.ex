@@ -20,10 +20,7 @@ defmodule Ryker.LocalRouting.Comparison do
   (`Ryker.RoutingExamples.quoted_keys/1`), so a person forgetting any of it
   erases the comparison.
   """
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: true}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   @type t :: %__MODULE__{}
 
@@ -51,6 +48,6 @@ defmodule Ryker.LocalRouting.Comparison do
     field(:source_identity, :string)
     field(:message_keys, {:array, :string}, default: [])
     field(:conversation_refs, {:array, :string}, default: [])
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 end

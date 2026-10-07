@@ -40,7 +40,6 @@ defmodule Ryker.LocalRouting do
   Every comparison queued, settled or erased is announced after its commit
   (`subscribe_comparisons/0`).
   """
-
   alias Ryker.Accounting.Execution
   alias Ryker.Admission
   alias Ryker.Admission.Attempt
@@ -84,7 +83,7 @@ defmodule Ryker.LocalRouting do
         Comparison,
         [
           %{
-            id: Ecto.UUID.generate(),
+            id: Repo.generate_id(),
             input_id: entry.id,
             generation: entry.execution_generation,
             execution_mode: entry.execution_mode,

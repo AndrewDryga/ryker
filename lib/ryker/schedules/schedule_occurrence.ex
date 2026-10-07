@@ -1,10 +1,6 @@
 defmodule Ryker.Schedules.ScheduleOccurrence do
   @moduledoc false
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "episode_schedule_occurrences" do
     belongs_to(:schedule, Ryker.Schedules.Schedule)
@@ -17,6 +13,6 @@ defmodule Ryker.Schedules.ScheduleOccurrence do
     field(:event_ref, :string)
     field(:missed_reason, :string)
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 end

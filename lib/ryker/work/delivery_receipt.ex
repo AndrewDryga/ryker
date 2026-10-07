@@ -7,7 +7,6 @@ defmodule Ryker.Work.DeliveryReceipt do
   identity is strict enough to prevent one external message from settling two
   delivery intents.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Reference
 

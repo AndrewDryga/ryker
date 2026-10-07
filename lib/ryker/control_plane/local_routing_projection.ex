@@ -9,7 +9,6 @@ defmodule Ryker.ControlPlane.LocalRoutingProjection do
   the local model's answer and the provider's whole decision, and counted them
   in Elixir whenever a comparison settled (2026-10-04 review).
   """
-
   alias Ryker.ControlPlane.LocalRoutingReport
   alias Ryker.LocalRouting
   alias Ryker.Repo

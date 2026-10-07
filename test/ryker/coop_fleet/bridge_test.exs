@@ -2,6 +2,7 @@ defmodule Ryker.CoopFleet.BridgeTest do
   use Ryker.DataCase, async: true
   import Ryker.TestHelpers, only: [digest: 1, eventually: 1]
   alias Ecto.Adapters.SQL.Sandbox
+  alias Ryker.CoopFleet.Bodies
   alias Ryker.CoopFleet.{Bridge, Command, ControlPlane, Placement}
   alias Ryker.Episodes
   alias Ryker.Fixtures.CoopWorkers
@@ -280,7 +281,6 @@ defmodule Ryker.CoopFleet.BridgeTest do
   end
 
   test "stored response bodies resolve as JSON or a binary file without losing their identity" do
-    alias Ryker.CoopFleet.Bodies
     key = Ryker.Secret.new(:binary.copy(<<7>>, 32))
     command = queued_command!()
     root = Path.join(System.tmp_dir!(), "coop-bridge-bodies-#{Ecto.UUID.generate()}")

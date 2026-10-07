@@ -16,7 +16,6 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   `update:3`). Each is sent only after every earlier one of its kind in the
   turn is delivered, so they arrive in the order the model asked for them.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery.{PlatformAction, Request}
   alias Ryker.Episodes.{Episode, Event}
@@ -454,7 +453,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
       document: attributes.document,
       episode_id: episode_id,
       host_slot: attributes.host_slot,
-      id: Ecto.UUID.generate(),
+      id: Repo.generate_id(),
       intent_fingerprint: fingerprint,
       kind: attributes.kind,
       retry_generation: 0,

@@ -1,6 +1,5 @@
 defmodule Ryker.StateTools.ToolVisibility do
   @moduledoc false
-
   alias Ryker.Work.Contract
 
   @tool_transports %{

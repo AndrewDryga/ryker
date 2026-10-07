@@ -10,7 +10,6 @@ defmodule Ryker.Work.Custody.Turns do
   fenced kind, so a lost response is replayed against the same key instead of
   blindly repeated.
   """
-
   import Ryker.Work.Custody.Locks
   alias Ryker.Artifacts.References, as: ArtifactReferences
   alias Ryker.CanonicalJSON

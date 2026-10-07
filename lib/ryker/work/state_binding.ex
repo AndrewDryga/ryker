@@ -1,6 +1,5 @@
 defmodule Ryker.Work.StateBinding do
   @moduledoc false
-
   alias Ryker.CoopFleet.Placement
   alias Ryker.Crypto
   alias Ryker.{Repo, Secret}

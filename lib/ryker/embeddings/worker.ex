@@ -12,14 +12,13 @@ defmodule Ryker.Embeddings.Worker do
   changing wakes it at once; a server that does not answer is asked again a
   minute later, and routing searches by words meanwhile.
   """
-
   use Ryker.PollingWorker, lane: :embeddings, interval: :poll_interval_ms
-  require Logger
   alias Ryker.Embeddings
   alias Ryker.Episodes
   alias Ryker.Episodes.{RoutingDigest, RoutingDigests}
   alias Ryker.PollingWorker
   alias Ryker.Repo
+  require Logger
 
   @fields [:url, :model, :poll_interval_ms]
   @optional [:embed, :idle_interval_ms, :name]

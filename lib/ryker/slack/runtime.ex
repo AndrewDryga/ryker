@@ -12,8 +12,6 @@ defmodule Ryker.Slack.Runtime do
   message, runs in `default_environment`. An incident room keeps the
   environment of the conversation it was opened from.
   """
-
-  require Logger
   alias Ryker.Artifacts
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Automations
@@ -45,6 +43,7 @@ defmodule Ryker.Slack.Runtime do
   alias Ryker.Slack.{ThreadStatusWorker, WorkControls}
   alias Ryker.Transcription
   alias Ryker.Transcription.Worker, as: TranscriptionWorker
+  require Logger
 
   @fields [
     :app_http,

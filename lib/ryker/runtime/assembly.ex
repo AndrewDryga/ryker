@@ -13,8 +13,6 @@ defmodule Ryker.Runtime.Assembly do
   integration is enabled by its saved connection, never by the presence of a
   credential in the environment.
   """
-
-  require Logger
   alias Ryker.Bootstrap
   alias Ryker.Config
   alias Ryker.ControlPlane.Actor, as: ControlPlaneActor
@@ -41,6 +39,7 @@ defmodule Ryker.Runtime.Assembly do
   alias Ryker.Slack.Target, as: SlackTarget
   alias Ryker.Webhooks.Route, as: WebhookRoute
   alias Ryker.Work.RepositoryContext
+  require Logger
 
   # Every runtime the owner starts, in dependency order, with the module that
   # validates its configuration here and runs it there. One list, so a runtime

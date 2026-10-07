@@ -24,15 +24,14 @@ defmodule Ryker.Admission.ReadyPool do
   from the failed starts on record, so a worker that cannot create sessions is
   not asked every second, and a restart does not forget the wait.
   """
-
   use Ryker.PollingWorker, lane: :admission_ready, interval: :poll_interval_ms
-  require Logger
   alias Ryker.Admission.ReadySessions
   alias Ryker.Coop.API
   alias Ryker.CoopFleet.JobAuthority
   alias Ryker.{Options, Repo}
   alias Ryker.Settings.Work
   alias Ryker.Work.Session
+  require Logger
 
   @fields [
     :api,

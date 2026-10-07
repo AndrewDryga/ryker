@@ -1,6 +1,6 @@
 defmodule Ryker.Settings.EmisarConnection.Query do
   @moduledoc "Emisar accounts Ryker is connected to, for every read of `emisar_connection_settings`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Settings.EmisarConnection
 
   def all, do: from(rows in EmisarConnection, as: :emisar_connection_settings)

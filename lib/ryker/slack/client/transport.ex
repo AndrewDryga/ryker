@@ -7,7 +7,6 @@ defmodule Ryker.Slack.Client.Transport do
   as long as asked; every other failure names the status and the error Slack
   returned, and a body that is not a Slack envelope is a protocol error.
   """
-
   alias Ryker.Slack.Client
 
   @spec request(Client.t(), :get | :post, String.t(), map() | nil) ::

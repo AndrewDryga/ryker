@@ -5,7 +5,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
   keep-alive frames, with every payload sanitized, bounded and loaded only
   once its disclosure is opened.
   """
-
   import Ryker.ControlPlane.EpisodeTrace.Step
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.EpisodeCausality

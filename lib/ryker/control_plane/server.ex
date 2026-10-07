@@ -7,7 +7,6 @@ defmodule Ryker.ControlPlane.Server do
   is the operator; Tailscale Serve and Cloudflare Access add a name. Every form
   post carries a CSRF token bound to its action.
   """
-
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
   alias Ryker.Crypto
   alias Ryker.Ingress.WorkProfile

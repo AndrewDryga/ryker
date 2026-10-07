@@ -204,7 +204,7 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
     test "flags changeset logic in a schema module" do
       source = """
       defmodule Ryker.Sprockets.Sprocket do
-        use Ecto.Schema
+        use Ryker, :schema
         import Ecto.Changeset
 
         schema "sprockets" do
@@ -238,7 +238,7 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
     test "allows a schema's own helpers and a changeset module's builders" do
       schema = """
       defmodule Ryker.Sprockets.Sprocket do
-        use Ecto.Schema
+        use Ryker, :schema
 
         schema "sprockets" do
           field(:teeth, :integer)
@@ -442,7 +442,7 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
     test "flags a money-named :float schema field" do
       source = """
       defmodule Ryker.Accounting.Entry do
-        use Ecto.Schema
+        use Ryker, :schema
 
         schema "accounting_entries" do
           field :amount_due, :float
@@ -477,7 +477,7 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
     test "allows :decimal and integer cents" do
       source = """
       defmodule Ryker.Accounting.Entry do
-        use Ecto.Schema
+        use Ryker, :schema
 
         schema "accounting_entries" do
           field :amount_cents, :integer
@@ -782,6 +782,220 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
     end
   end
 
+  describe "Ryker.Checks.WebNoNestedDomainCalls" do
+    # Until 2026-10-08 the console called 30 functions below a context 93
+    # times, three of them channel writes made straight from a LiveView.
+    test "flags a fully qualified nested domain call" do
+      source = """
+      defmodule Ryker.ControlPlane.SprocketsPage do
+        use Phoenix.Component
+
+        def place(ref), do: Ryker.Slack.Names.destination(ref)
+      end
+      """
+
+      assert triggers(web_nested(), source, @console) == ["Slack.Names.destination"]
+    end
+
+    test "flags a nested call through the context alias, a deep alias, as: and a group" do
+      source = """
+      defmodule Ryker.ControlPlane.SprocketsPage do
+        use Phoenix.Component
+        alias Ryker.Settings
+        alias Ryker.Slack.Names
+        alias Ryker.Work.ExecutionTarget, as: Target
+        alias Ryker.Schedules.{ScheduleCadence, Schedule}
+
+        def refs(environment), do: Settings.Environment.repository_refs(environment)
+        def place(ref), do: Names.destination(ref)
+        def model(target), do: Target.present(target)
+        def zone(name), do: ScheduleCadence.zone_name(name)
+      end
+      """
+
+      assert triggers(web_nested(), source, @console) == [
+               "Schedules.ScheduleCadence.zone_name",
+               "Settings.Environment.repository_refs",
+               "Slack.Names.destination",
+               "Work.ExecutionTarget.present"
+             ]
+    end
+
+    test "flags a captured nested function and a runtime t/0, not a t/0 in a type" do
+      source = """
+      defmodule Ryker.ControlPlane.SprocketsPage do
+        use Phoenix.Component
+        alias Ryker.Slack
+
+        @type participation :: Slack.ChannelConfigurations.t()
+
+        def change, do: &Slack.ChannelConfigurations.change_participation/1
+        def rebuild, do: Slack.ChannelConfigurations.t()
+      end
+      """
+
+      assert triggers(web_nested(), source, @console) == [
+               "Slack.ChannelConfigurations.change_participation",
+               "Slack.ChannelConfigurations.t"
+             ]
+    end
+
+    test "flags a nested call written inside a ~H template, on the template's line" do
+      source = """
+      defmodule Ryker.ControlPlane.SprocketsPage do
+        use Phoenix.Component
+        alias Ryker.Episodes
+
+        def render(assigns) do
+          ~H\"""
+          <ul>
+            <li :for={state <- @states}>{Episodes.Words.label(state)}</li>
+          </ul>
+          \"""
+        end
+      end
+      """
+
+      assert [issue] = issues(web_nested(), source, @console)
+      assert issue.trigger == "Episodes.Words.label"
+      assert issue.line_no == 8
+    end
+
+    test "allows top-level contexts, the console's own modules, structs and types" do
+      source = """
+      defmodule Ryker.ControlPlane.SprocketsPage do
+        use Phoenix.Component
+        alias Ryker.ControlPlane.Paths
+        alias Ryker.Episodes
+        alias Ryker.Slack
+        alias Ryker.Work
+
+        @spec place(String.t()) :: String.t()
+        def place(ref), do: Slack.destination_name(ref)
+        def state(state), do: Episodes.label(state)
+        def link(id), do: Paths.request(id)
+        def running?(%Work.Turn{state: :running}), do: true
+        def running?(_turn), do: false
+
+        def render(assigns), do: ~H"<span>{Slack.destination_name(@ref)}</span>"
+      end
+      """
+
+      assert triggers(web_nested(), source, @console) == []
+    end
+
+    test "ignores a module that is not a web module" do
+      source = """
+      defmodule Ryker.ControlPlane.SprocketsProjection do
+        def place(ref), do: Ryker.Slack.Names.destination(ref)
+      end
+      """
+
+      assert issues(web_nested(), source, "lib/ryker/control_plane/sprockets_projection.ex") ==
+               []
+    end
+  end
+
+  describe "Ryker.Checks.UseRykerRole" do
+    # Until 2026-10-08 each of 107 schemas, 140 Query and 59 Changeset modules
+    # spelled out its own Ecto imports and attributes; a schema that forgot
+    # `@foreign_key_type` or a timestamp type differed silently.
+    test "flags a data module that takes its role from Ecto directly" do
+      schema = """
+      defmodule Ryker.Sprockets.Sprocket do
+        use Ecto.Schema
+
+        schema "sprockets" do
+          field(:name, :string)
+        end
+      end
+      """
+
+      query = """
+      defmodule Ryker.Sprockets.Sprocket.Query do
+        import Ecto.Query
+
+        def all, do: from(sprockets in Ryker.Sprockets.Sprocket, as: :sprockets)
+      end
+      """
+
+      changeset = """
+      defmodule Ryker.Sprockets.Sprocket.Changeset do
+        import Ecto.Changeset
+
+        def insert(attributes), do: cast(%Ryker.Sprockets.Sprocket{}, attributes, [:name])
+      end
+      """
+
+      assert triggers(role(), schema, "lib/ryker/sprockets/sprocket.ex") == [
+               "defmodule",
+               "use Ecto.Schema"
+             ]
+
+      assert triggers(role(), query, @query) == ["defmodule", "import Ecto.Query"]
+      assert triggers(role(), changeset, @changeset) == ["defmodule", "import Ecto.Changeset"]
+      assert [issue | _] = issues(role(), query, @query)
+      assert issue.message =~ "use Ryker"
+    end
+
+    test "flags a role in a module that does not play it" do
+      source = """
+      defmodule Ryker.Sprockets do
+        use Ryker, :query
+
+        def recent, do: from(sprockets in Ryker.Sprockets.Sprocket, limit: 5)
+      end
+      """
+
+      assert triggers(role(), source, @context) == ["use Ryker, :query"]
+    end
+
+    test "allows each role in its own module, and an embedded value object on Ecto" do
+      schema = """
+      defmodule Ryker.Sprockets.Sprocket do
+        use Ryker, :schema
+        @primary_key {:ref, :string, autogenerate: false}
+
+        schema "sprockets" do
+          timestamps()
+        end
+      end
+      """
+
+      query = """
+      defmodule Ryker.Sprockets.Sprocket.Query do
+        use Ryker, :query
+
+        def all, do: from(sprockets in Ryker.Sprockets.Sprocket, as: :sprockets)
+      end
+      """
+
+      changeset = """
+      defmodule Ryker.Sprockets.Sprocket.Changeset do
+        use Ryker, :changeset
+
+        def insert(attributes), do: cast(%Ryker.Sprockets.Sprocket{}, attributes, [:ref])
+      end
+      """
+
+      embedded = """
+      defmodule Ryker.Sprockets.Settings do
+        use Ecto.Schema
+        @primary_key false
+
+        embedded_schema do
+          field(:teeth, :integer)
+        end
+      end
+      """
+
+      assert issues(role(), schema, "lib/ryker/sprockets/sprocket.ex") == []
+      assert issues(role(), query, @query) == []
+      assert issues(role(), changeset, @changeset) == []
+      assert issues(role(), embedded, "lib/ryker/sprockets/settings.ex") == []
+    end
+  end
+
   defp map_take_drop, do: check("ContextNoMapTakeDrop")
   defp crypto_boundary, do: check("ContextCryptoBoundary")
   defp il01, do: check("IL01NoInlineEctoDsl")
@@ -798,4 +1012,6 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
   defp enum_over_inclusion, do: check("EnumOverValidateInclusion")
   defp hash_slice, do: check("NoHashPrefixSlice")
   defp subscribe, do: check("SubscribeNeedsConnected")
+  defp role, do: check("UseRykerRole")
+  defp web_nested, do: check("WebNoNestedDomainCalls")
 end

@@ -10,7 +10,6 @@ defmodule Ryker.Runtime.Child do
   later, so one failing runtime never spends the restart budget every other
   runtime shares.
   """
-
   use Supervisor
 
   @doc "The dynamic supervisor's child spec for `key` running `specs`."

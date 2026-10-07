@@ -6,7 +6,6 @@ defmodule Ryker.Slack.Mentions do
   appears in the host-built authority snapshot becomes a native Slack mention or
   channel link.
   """
-
   import Ryker.Slack.Renderer.Blocks, only: [escape: 1]
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Repo

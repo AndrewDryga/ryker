@@ -6,7 +6,6 @@ defmodule Ryker.ControlPlane.EpisodeResponseMetrics do
   A response exists only when a selected message reaches a delivered reply or an
   accepted result whose recorded delivery is intentionally silent.
   """
-
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Work.Turn

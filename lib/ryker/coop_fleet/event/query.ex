@@ -1,6 +1,6 @@
 defmodule Ryker.CoopFleet.Event.Query do
   @moduledoc "What workers reported about their sessions, for every read of `coop_worker_events`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.CoopFleet.Event
 
   def all, do: from(events in Event, as: :coop_worker_events)

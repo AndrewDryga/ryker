@@ -11,13 +11,9 @@ defmodule Ryker.Retention.ThirtyDaySimulationTest do
   per-worker inactive-disposable bound, so a month of forks is proved without
   allocating a month of forks.
   """
-
   use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query
-
-  @moduletag :simulation
-
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.{Placement, Worker}
   alias Ryker.Episodes.Episode
@@ -26,6 +22,8 @@ defmodule Ryker.Retention.ThirtyDaySimulationTest do
   alias Ryker.Publication.Publication
   alias Ryker.Retention.{Custody, Dispatcher}
   alias Ryker.Work.Session
+
+  @moduletag :simulation
 
   @days String.to_integer(System.get_env("RYKER_SIMULATION_DAYS", "30"))
   @bursts_per_day 4

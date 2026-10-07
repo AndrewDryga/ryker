@@ -31,6 +31,20 @@ defmodule Ryker.Improvement.ExportTest do
   # can drop it into testdata/scenarios and run it: the files must load as a
   # world case, with the person's words, the renamed people and the model's
   # expectation, and without the correction that followed the bad answer.
+
+  # A case's directory took its id's first eight hex digits; with UUIDv7 ids
+  # those are a timestamp, so two cases decided within a minute wrote into
+  # one directory and the second overwrote the first (2026-10-08, caught by
+  # the gate before it shipped).
+  test "two cases decided in the same minute export to two directories" do
+    decided_at = ~U[2026-10-08 12:00:00.000000Z]
+    first = %Candidate{id: Repo.generate_id(), decided_at: decided_at}
+    second = %Candidate{id: Repo.generate_id(), decided_at: decided_at}
+
+    assert binary_part(first.id, 0, 8) == binary_part(second.id, 0, 8)
+    refute Export.case_id(first) == Export.case_id(second)
+  end
+
   test "an accepted case exports as a world scenario the eval runner loads" do
     {candidate, first} = harvested_request!()
     assert {:ok, accepted} = Improvement.accept(candidate.id, "control-plane:local")

@@ -8,7 +8,6 @@ defmodule Ryker.Retention.WorkerChangeTest do
   invariant that none of them leaves a cleanup waiting for a person who cannot
   help.
   """
-
   use Ryker.DataCase, async: true
   import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query

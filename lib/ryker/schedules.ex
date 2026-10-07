@@ -10,7 +10,6 @@ defmodule Ryker.Schedules do
   announced after the outermost commit (`subscribe_schedules/0`,
   `subscribe_schedule/1`), on the topics of the request that offered it too.
   """
-
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
   alias Ryker.ErrorDetail
@@ -303,7 +302,7 @@ defmodule Ryker.Schedules do
     payload = record.payload
 
     with {:ok, expires_at} <- optional_datetime(payload["expires_at"]) do
-      id = Ecto.UUID.generate()
+      id = Repo.generate_id()
 
       %{
         authority: payload["authority"],
@@ -471,8 +470,8 @@ defmodule Ryker.Schedules do
   defp scheduled_for(%Schedule{next_occurrence_at: scheduled_for}, _now), do: {:ok, scheduled_for}
 
   defp create_occurrence(schedule, scheduled_for, policy, trigger \\ :scheduled) do
-    occurrence_id = Ecto.UUID.generate()
-    episode_id = Ecto.UUID.generate()
+    occurrence_id = Repo.generate_id()
+    episode_id = Repo.generate_id()
     event_ref = "schedule-occurrence:#{occurrence_id}"
     turn_ref = "turn:schedule:#{occurrence_id}"
 
@@ -560,7 +559,7 @@ defmodule Ryker.Schedules do
   end
 
   defp insert_missed!(schedule, scheduled_for, reason) do
-    id = Ecto.UUID.generate()
+    id = Repo.generate_id()
 
     {:ok, occurrence} =
       insert_occurrence(%{
@@ -976,4 +975,16 @@ defmodule Ryker.Schedules do
     Ryker.PubSub.broadcast(schedule_topic(ref), {:schedule_updated, id})
     Ryker.PubSub.broadcast(schedules_topic(), {:schedule_updated, id})
   end
+
+  # -- For the console ---------------------------------------------------------
+
+  @doc "A time zone's name as the console shows it."
+  @spec zone_name(term()) :: String.t()
+  defdelegate zone_name(name), to: Ryker.Schedules.ScheduleCadence
+
+  @doc "When a schedule runs, in words, in its time zone."
+  @spec describe_cadence(map(), String.t(), keyword()) :: String.t()
+  defdelegate describe_cadence(recurrence, timezone, options \\ []),
+    to: Ryker.Schedules.ScheduleCadence,
+    as: :describe
 end

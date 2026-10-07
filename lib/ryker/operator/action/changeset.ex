@@ -1,6 +1,6 @@
 defmodule Ryker.Operator.Action.Changeset do
   @moduledoc "How an operator action is recorded (`Ryker.Operator.Action`)."
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.Operator.Action
 
   @fields [

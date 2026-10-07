@@ -13,7 +13,7 @@ defmodule Ryker.ControlPlane.CasesPage do
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Kit, MemoryFormat, Paths}
   alias Ryker.Memories
-  alias Ryker.Slack.Names
+  alias Ryker.Slack
 
   @path "/memory/cases"
   # A problem runs to a few hundred characters; a row shows its start.
@@ -37,7 +37,7 @@ defmodule Ryker.ControlPlane.CasesPage do
   @spec heading(map()) :: map()
   def heading(item),
     do: %{
-      title: MemoryFormat.excerpt(item.problem, Names.workspace(), 90),
+      title: MemoryFormat.excerpt(item.problem, Slack.workspace(), 90),
       description: nil,
       back: {"All cases", @path}
     }

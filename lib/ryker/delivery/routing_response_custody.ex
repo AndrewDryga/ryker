@@ -14,7 +14,6 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
   after the outermost commit (`subscribe_routing_responses/0`), on its message's
   topics too (`Ryker.Ingress.Inbox`).
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery.{Request, RoutingResponse}
   alias Ryker.Ingress.Inbox
@@ -49,7 +48,7 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
   defp insert_response(entry, {{kind, document}, position}, {:ok, inserted}) do
     entry
     |> RoutingResponse.Changeset.insert(
-      Ecto.UUID.generate(),
+      Repo.generate_id(),
       position,
       kind,
       document,

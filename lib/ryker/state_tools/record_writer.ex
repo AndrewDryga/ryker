@@ -1,13 +1,12 @@
 defmodule Ryker.StateTools.RecordWriter do
   @moduledoc false
+  alias Ryker.CanonicalJSON
+  alias Ryker.Records
+  alias Ryker.Records.Record
 
   # The one place a state tool turns its arguments into a ledger record: the
   # host-owned operation identity, the per-tool idempotency slot, and the
   # bounded result the model reads back.
-
-  alias Ryker.CanonicalJSON
-  alias Ryker.Records
-  alias Ryker.Records.Record
 
   @contract_version "responder-state:v1"
 

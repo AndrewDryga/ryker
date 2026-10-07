@@ -1,6 +1,5 @@
 defmodule Ryker.StateTools.Catalog do
   @moduledoc false
-
   alias Ryker.Continuity.ConversationSummaryState
   alias Ryker.Ingress.Adapters, as: IngressAdapters
   alias Ryker.Records.InvestigationPayload

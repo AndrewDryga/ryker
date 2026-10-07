@@ -8,9 +8,7 @@ defmodule Ryker.WorkExamples.Feedback do
   kind, value, category and time of the signal and names the signal it copied
   without a foreign key; never who gave it or a note's words.
   """
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
+  use Ryker, :schema
 
   schema "work_example_feedback" do
     field(:example_id, :binary_id)

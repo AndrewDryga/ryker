@@ -9,8 +9,7 @@ defmodule Ryker.Settings.Environment.Changeset do
   before access could be limited.
   """
   @behaviour Ryker.Settings.Section.Changeset
-
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.Settings.{Environment, Validation}
 
   @fields ~w(ref display_name description emisar_connection_ref is_default parallel_goal_limit repositories access)a

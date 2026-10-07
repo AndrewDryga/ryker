@@ -5,13 +5,11 @@ defmodule Ryker.Webhooks.Input do
   The payload is data only. Route configuration supplies identity, capabilities,
   and delivery destination.
   """
-
+  @behaviour Ryker.Ingress.Adapter
   alias Ryker.CanonicalJSON
   alias Ryker.Ingress.Input
   alias Ryker.Reference
   alias Ryker.Webhooks.Route
-
-  @behaviour Ryker.Ingress.Adapter
 
   @maximum_revision 9_223_372_036_854_775_807
   @metadata_fields [

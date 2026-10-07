@@ -1,9 +1,8 @@
 defmodule Ryker.Credential do
   @moduledoc false
-  use Ecto.Schema
+  use Ryker, :schema
 
   @derive {Inspect, except: [:ciphertext, :nonce, :tag]}
-  @primary_key {:id, :binary_id, autogenerate: false}
 
   schema "integration_credentials" do
     field(:kind, Ecto.Enum,

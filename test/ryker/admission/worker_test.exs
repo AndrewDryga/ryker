@@ -1,13 +1,12 @@
 defmodule Ryker.Admission.WorkerTest do
   use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [eventually: 1, eventually: 2]
-
-  @moduletag isolation: "REPEATABLE READ"
-
   alias Ryker.Admission.Worker
   alias Ryker.Ingress.Inbox
   alias Ryker.Slack.Input
   alias Ryker.TestSupport.FakeCoopAPI
+
+  @moduletag isolation: "REPEATABLE READ"
 
   @now ~U[2026-08-27 12:00:00.000000Z]
 

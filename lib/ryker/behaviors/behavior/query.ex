@@ -3,7 +3,7 @@ defmodule Ryker.Behaviors.Behavior.Query do
   Confirmed guidance, preferences and standing assignments, for every read of
   `operator_behaviors`.
   """
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Behaviors.Behavior
 
   def all, do: from(behaviors in Behavior, as: :operator_behaviors)

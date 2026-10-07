@@ -3,11 +3,7 @@ defmodule Ryker.CoopFleet.SessionEvidence do
   One worker-exported snapshot of a Coop session, kept as evidence of what
   the session was doing (`Ryker.CoopFleet.SessionEvidences`).
   """
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "coop_session_evidence" do
     belongs_to(:session, Ryker.Work.Session)

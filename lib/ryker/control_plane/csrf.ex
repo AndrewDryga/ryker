@@ -4,7 +4,6 @@ defmodule Ryker.ControlPlane.CSRF do
   that action and the resource it is for. The action travels with the token,
   so a confirmation of an earlier revision can be told from a forged one.
   """
-
   alias Ryker.Crypto
 
   @spec token(binary(), String.t(), String.t()) :: String.t()

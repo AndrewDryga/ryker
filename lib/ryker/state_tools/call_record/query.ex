@@ -1,6 +1,6 @@
 defmodule Ryker.StateTools.CallRecord.Query do
   @moduledoc "Each state-tool call a Work turn made, for every read of `episode_work_state_tool_calls`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.StateTools.CallRecord
   alias Ryker.Work.Turn
 

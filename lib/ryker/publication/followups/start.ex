@@ -10,7 +10,6 @@ defmodule Ryker.Publication.Followups.Start do
   webhook only makes that one check due now, for an open pull request this
   publication recorded, and never for a head other than the one it recorded.
   """
-
   alias Ryker.Publication.{Custody, Followup, Publication}
   alias Ryker.Publication.Followups.Store
   alias Ryker.Repo
@@ -21,7 +20,7 @@ defmodule Ryker.Publication.Followups.Start do
     attributes = %{
       deadline_at: DateTime.add(now, @default_deadline_seconds, :second),
       episode_id: publication.episode_id,
-      id: Ecto.UUID.generate(),
+      id: Repo.generate_id(),
       last_event_key: "baseline",
       next_poll_at: now,
       publication_id: publication.id

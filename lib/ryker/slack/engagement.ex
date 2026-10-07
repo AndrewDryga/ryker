@@ -7,7 +7,6 @@ defmodule Ryker.Slack.Engagement do
   its channel is not configured for ambient watching. The model still decides
   how that input relates to the existing work.
   """
-
   alias Ryker.Delivery.RoutingResponse
   alias Ryker.Episodes.Episode
   alias Ryker.Repo

@@ -4,7 +4,6 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
   provider document the host will send, refusing anything outside the
   published schema before a credential is touched.
   """
-
   alias Ryker.Slack.SourceRef
 
   @content_types ~w(messages files channels users)

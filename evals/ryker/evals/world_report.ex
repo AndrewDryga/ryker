@@ -1,6 +1,5 @@
 defmodule Ryker.Evals.WorldReport do
   @moduledoc false
-
   alias Ryker.CanonicalJSON
   alias Ryker.Evals.PrivateFile
 

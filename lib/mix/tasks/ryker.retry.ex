@@ -1,4 +1,5 @@
 defmodule Mix.Tasks.Ryker.Retry do
+  @shortdoc "Rearms one exact typed durable failure"
   @moduledoc """
   Rearms one exact typed failure after operator inspection.
 
@@ -11,12 +12,9 @@ defmodule Mix.Tasks.Ryker.Retry do
   Work recovery also requires --expected-recovery SHA256 from the inspected
   failure's work_recovery.fingerprint. A changed turn requires fresh inspection.
   """
-
   use Mix.Task
   alias Mix.Tasks.Ryker.OperatorSupport, as: Support
   alias Ryker.Operator.Failures
-
-  @shortdoc "Rearms one exact typed durable failure"
 
   @impl Mix.Task
   def run(arguments) do

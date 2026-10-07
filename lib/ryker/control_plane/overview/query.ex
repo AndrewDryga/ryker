@@ -4,7 +4,7 @@ defmodule Ryker.ControlPlane.Overview.Query do
   how much work is under way, blocked or waiting, how routing and Slack
   statuses are keeping up, and the latest things that need a person.
   """
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Slack.{IncidentRoom, ThreadStatus}

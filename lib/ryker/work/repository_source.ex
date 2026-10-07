@@ -21,7 +21,6 @@ defmodule Ryker.Work.RepositorySource do
   `source` through create, fence, replay, rotation, and checkpoint, and refuses
   any binding that answers a different request.
   """
-
   alias Ryker.GitObject
 
   @kinds ~w(default branch pull_request commit)

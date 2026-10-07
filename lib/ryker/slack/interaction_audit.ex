@@ -1,9 +1,6 @@
 defmodule Ryker.Slack.InteractionAudit do
   @moduledoc false
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
+  use Ryker, :schema
 
   schema "slack_interaction_audit" do
     field(:event_ref, :string)
@@ -26,7 +23,7 @@ defmodule Ryker.Slack.InteractionAudit do
     field(:last_error_detail, :string)
     field(:occurred_at, :utc_datetime_usec)
     field(:repainted_at, :utc_datetime_usec)
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

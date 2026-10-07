@@ -5,7 +5,7 @@ defmodule Ryker.ControlPlane.LearningRequests.Query do
   attempts that reached them, how each attempt is numbered in its batch,
   the topic revisions each wrote, and the request each message joined.
   """
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Knowledge.KnowledgeRevision

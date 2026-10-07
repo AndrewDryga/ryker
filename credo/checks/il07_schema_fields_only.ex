@@ -29,11 +29,12 @@ defmodule Ryker.Checks.IL07SchemaFieldsOnly do
     end
   end
 
-  # A schema is known by what it uses, not where it lives.
+  # A schema is known by what it uses, not where it lives: `use Ryker, :schema`,
+  # which every table schema takes (`Ryker.Checks.UseRykerRole`).
   defp schema_module?(source_file),
     do: Credo.Code.prewalk(source_file, &find_use_schema/2, false)
 
-  defp find_use_schema({:use, _, [{:__aliases__, _, [:Ecto, :Schema]} | _]} = ast, _found),
+  defp find_use_schema({:use, _, [{:__aliases__, _, [:Ryker]}, :schema]} = ast, _found),
     do: {ast, true}
 
   defp find_use_schema(ast, found), do: {ast, found}

@@ -26,7 +26,6 @@ defmodule Ryker.Admission.ReadySessions do
   worker, or refused by Coop) only when none is, since it still spares the
   create.
   """
-
   alias Ryker.CoopFleet.JobTemplates
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
@@ -159,7 +158,7 @@ defmodule Ryker.Admission.ReadySessions do
     if kept_count(policy, digest) >= target do
       :full
     else
-      id = Ecto.UUID.generate()
+      id = Repo.generate_id()
       now = Repo.now!()
 
       {:ok,

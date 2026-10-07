@@ -11,7 +11,6 @@ defmodule Ryker.Operator.FailureDismissals do
   The choice is audit history, so it is kept to the audit horizon; a failure still failing the
   same way then shows once more.
   """
-
   alias Ryker.Operator.FailureDismissal
   alias Ryker.Repo
 

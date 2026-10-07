@@ -9,7 +9,6 @@ defmodule Ryker.Work.TaskStages do
   model's typed goal membership. Goals retained before typed membership existed
   stay in a separate unassigned row rather than being backfilled into a guess.
   """
-
   alias Ryker.Episodes.Episode
   alias Ryker.Publication.{Followup, Publication, Review}
   alias Ryker.Work.{FailureCause, Session, Turn}

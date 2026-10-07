@@ -3,28 +3,49 @@
 Ryker follows the layers and names of Emisar's portal
 (`../emisar/portal/.agent/kb/rules/elixir-layered-contexts.md`). This note
 says how each layer looks here, which Credo checks hold it, and which Emisar
-rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-07.
+rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-08.
 
 ## Layers
 
 - **Context modules** (`Ryker.Settings`, `Ryker.Work.Custody`, ...) are the
-  public functions. They call `Repo`, build transactions and decide.
-- **Query modules** are `Schema.Query` in `<schema>/query.ex`. `all/0` starts
-  every query with a binding named after the table
-  (`from(sessions in Session, as: :episode_work_sessions)`). Every helper
-  takes `queryable` first and defaults it to `all()`. A Query module never
-  calls `Repo`.
-- **Schema modules** hold fields, associations, `@type t` and helpers about
-  one row (`Environment.writable_refs/1`). No casting or validation.
-- **Changeset modules** are `Schema.Changeset` in `<schema>/changeset.ex`.
-  They are pure, with one function per transition: `insert`, `update`,
-  `claim`, `retire_ready`. Cast field lists live in module attributes.
+  public functions. They call `Repo`, build transactions and decide. What
+  the console asks of a context is a function of its top-level module
+  (`Ryker.Slack.destination_name/1`), named for what the console wants.
+- **Query modules** are `Schema.Query` in `<schema>/query.ex` and start with
+  `use Ryker, :query`. `all/0` starts every query with a binding named after
+  the table (`from(sessions in Session, as: :episode_work_sessions)`). Every
+  helper takes `queryable` first and defaults it to `all()`. A Query module
+  never calls `Repo`.
+- **Schema modules** start with `use Ryker, :schema`, which sets a UUIDv7
+  primary key generated on insert, binary-id foreign keys and microsecond
+  timestamps; a schema states only how it differs (a string `@primary_key`).
+  An id a context needs before the row is written, or for `insert_all/3`,
+  comes from `Repo.generate_id/0`. A schema holds fields, associations,
+  `@type t` and helpers about one row (`Environment.writable_refs/1`). No
+  casting or validation.
+- **Changeset modules** are `Schema.Changeset` in `<schema>/changeset.ex` and
+  start with `use Ryker, :changeset`. They are pure, with one function per
+  transition: `insert`, `update`, `claim`, `retire_ready`. Cast field lists
+  live in module attributes.
 - **Web modules** are any module that uses a Phoenix LiveView,
   LiveComponent, Component, Router or Endpoint. They show what a projection
-  read and never call `Repo` or build changesets.
+  read, never call `Repo` or build changesets, and call only a top-level
+  context or the console's own `Ryker.ControlPlane.*`, never a module below
+  a context (`Slack.Names`, `Settings.Environment`), in code or in a `~H`
+  template.
 - **Page read models** are the control plane's context:
   `Ryker.ControlPlane.*Projection` loads a page, and a read model that spans
   several schemas is a concept Query module (`ControlPlane.Usage.Query`).
+
+## Module layout
+
+- A module starts with `@shortdoc`, `@moduledoc` and `@behaviour`, then
+  `use`, `import`, `alias` and `require`, in that order: one block with no
+  blank line in it, directly under the moduledoc. Aliases in the block are
+  sorted. A directive never sits inside a function or further down the
+  module.
+- `DateTime.utc_now/1` takes the precision it needs instead of a
+  `DateTime.truncate/2` after it.
 
 ## Names
 
@@ -83,19 +104,19 @@ Emisar's write rules (`../emisar/portal/.agent/kb/rules/README.md`) that Ryker f
   `Ryker.Crypto` (`ContextCryptoBoundary`); runtime configuration a test
   changes goes through `Ryker.Config` (`NoApplicationPutEnv`).
 
-Not adopted:
+Not adopted yet (2026-10-08):
 
-- **`Ecto.Multi` with `Repo.commit_multi` for every transaction.** Ryker's
-  custody composes deep transactions that call each other in fixed lock
-  orders (a memory write takes the answer source, then the review lock, then
-  the channel), and each refusal is a `Repo.rollback/1` reason its callers
-  match on. Rewriting them as `Multi`
-  steps would change every custody contract for no change in behaviour.
+- **`Ecto.Multi` with `Repo.commit_multi`, and `Repo.fetch_and_update/3`.**
+  Emisar's lib composes its transactions this way (145 `commit_multi` and 27
+  `fetch_and_update` calls, two plain `Repo.transaction`). Ryker has 264
+  `Repo.transaction` bodies in deep custody that call each other in fixed
+  lock orders (a memory write takes the answer source, then the review lock,
+  then the channel), and each refusal is a `Repo.rollback/1` reason its
+  callers match on, so each moves together with its callers.
 - **`Repo.transact/2` instead of `Repo.transaction/2`.** Ecto 3.14
-  deprecates `transaction/2` in its documentation only, and Emisar still
-  calls it. `transact/2` commits on `{:ok, _}` and rolls back on
-  `{:error, _}`, so moving 264 calls means rewriting each body's contract.
-  Revisit when Ecto warns.
+  deprecates `transaction/2` in its documentation only. `transact/2` commits
+  on `{:ok, _}` and rolls back on `{:error, _}`, so a body moves with its
+  contract.
 
 ## Migrations
 
@@ -147,6 +168,13 @@ Not adopted:
 - `IL08ChangesetPure`: changeset modules never call `Repo`.
 - `IL08ValidationInChangesets`: a module that calls `Repo` leaves `cast`,
   `validate_*`, constraint mappings and `add_error` to changeset modules.
+- `UseRykerRole`: schema, Query and Changeset modules take their role from
+  `use Ryker`, and no other module does.
+- `WebNoNestedDomainCalls`: a web module calls a top-level context, never a
+  module below one, in code or in a `~H` template.
+- `NoBlankBetweenDirectives` with Credo's `StrictModuleLayout`: the module
+  header's order and one block; `UtcNowTruncate` and
+  `WrongTestFileExtension`, which Emisar enables too.
 - `IL12NoFloatMoney`, `WebNoRepoCalls`, `WebNoChangesetConstruction`, and the
   house style checks listed in `.credo.exs`.
 
@@ -172,16 +200,21 @@ names, and `Ryker.DataCase` fails an async test that saves settings.
   authorizer modules: Ryker is one installation. Writes check the actor where
   they happen (`Ryker.Settings` authorizes each save); there is no subject.
 - **Audit context checks**: Ryker has no audit context.
-- **CrossContextDeepAlias and CrossContextDeepCall**: on 2026-10-07 Ryker had
-  1,242 aliases of other contexts' modules and 1,182 calls into other
-  contexts' Query and Changeset modules. Ryker's top-level directories are
-  subsystems that compose each other's queries, so a context function per
-  read would add hundreds of one-line wrappers.
-- **WebNoNestedDomainCalls**: web modules make 93 calls into nested modules,
-  almost all display helpers (`Slack.Names`, `Episodes.Words`).
-- **NoIslandContainers**: the console uses its own CSS classes.
-- **`use Emisar, :schema`, `:query` and `:changeset`**: Ryker uses Ecto
-  directly.
+- **CrossContextDeepAlias and CrossContextDeepCall**, not yet (2026-10-08):
+  1,533 aliases of other contexts' modules in 452 files and 1,227 calls into
+  other contexts' Query and Changeset modules in 167 files (647 targets).
+- **NoIslandContainers**: the console uses its own CSS classes, not
+  Tailwind's, so the class pattern it looks for never appears.
+- **No client-side draft store for an ordinary form**
+  (`elixir-preserve-operator-form-input`). Ryker keeps typed text in the
+  tab: the Chat composer per conversation since 2026-09-05, instruction
+  drafts since 09-10, settings and environment forms since 09-11 ("ask
+  before navigating away from an unsaved section"). They are features
+  Andrew asked for, so they stay; Emisar's reasons are met instead: the
+  store is one module (`priv/static/draft-store.mjs`) with JavaScript tests,
+  drafts are pruned after a day or past the newest fifty, and a draft is
+  taken back only against the revision it began from. Fields are also
+  server-tracked, so a re-render or a reconnect keeps what was typed.
 - **`not_deleted/1`, `none/1`, `cursor_fields/0`, `filters/0` and
   `preloads/0`**: Ryker has no soft deletes, no authorizer and no
   `Repo.list/3`.

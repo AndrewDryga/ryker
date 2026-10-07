@@ -1,6 +1,6 @@
 defmodule Ryker.Instructions.Setting.Query do
   @moduledoc "Saved custom instructions, for every read of `model_instruction_settings`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Instructions.Setting
 
   def all, do: from(settings in Setting, as: :model_instruction_settings)

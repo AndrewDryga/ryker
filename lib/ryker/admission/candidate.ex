@@ -9,7 +9,6 @@ defmodule Ryker.Admission.Candidate do
   and every conversation name outside the incoming source's own scope remain
   host-owned; the snapshot keeps the raw match for inspection.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.MessageText

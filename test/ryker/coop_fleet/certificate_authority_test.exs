@@ -1,8 +1,8 @@
 defmodule Ryker.CoopFleet.CertificateAuthorityTest do
   use ExUnit.Case, async: true
   import Ryker.TestHelpers, only: [digest: 1]
-  require Record
   alias Ryker.CoopFleet.CertificateAuthority
+  require Record
 
   Record.defrecordp(
     :otp_certificate,
@@ -57,7 +57,7 @@ defmodule Ryker.CoopFleet.CertificateAuthorityTest do
       |> :public_key.pem_entry_encode(root.key)
       |> then(&:public_key.pem_encode([&1]))
 
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    now = DateTime.utc_now(:microsecond)
 
     assert {:ok, issued} =
              CertificateAuthority.issue(

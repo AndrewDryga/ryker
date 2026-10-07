@@ -1,6 +1,6 @@
 defmodule Ryker.Settings.Repository do
   @moduledoc "A connected repository: display metadata and the base branch supplied to Coop."
-  use Ecto.Schema
+  use Ryker, :schema
 
   @primary_key {:ref, :string, autogenerate: false}
 
@@ -22,7 +22,7 @@ defmodule Ryker.Settings.Repository do
 
     field(:onboarding_error, :string)
     field(:source_commit, :string)
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

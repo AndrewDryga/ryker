@@ -10,7 +10,6 @@ defmodule Ryker.ControlPlane.MemoryProjection do
   hundred facts used to be all the page showed, with nothing saying more
   existed (2026-10-04 review).
   """
-
   alias Ryker.ControlPlane.{PagedRelation, RepositoryNames}
   alias Ryker.InspectionRedactor
   alias Ryker.Memories

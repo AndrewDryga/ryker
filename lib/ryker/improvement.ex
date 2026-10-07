@@ -43,7 +43,6 @@ defmodule Ryker.Improvement do
   message, or forgetting a topic or a channel it quotes, erases what it holds
   (`forget_in_transaction/1`).
   """
-
   alias Ryker.Episodes.Episode
   alias Ryker.Feedback.Signal
   alias Ryker.Improvement.{AnalysisRun, Candidate, Evidence}
@@ -180,7 +179,7 @@ defmodule Ryker.Improvement do
     now = Repo.now!()
 
     Map.merge(request, %{
-      id: Ecto.UUID.generate(),
+      id: Repo.generate_id(),
       reasons: [reason],
       signal_count: 1,
       first_signal_at: signal.occurred_at,
@@ -474,4 +473,9 @@ defmodule Ryker.Improvement do
   end
 
   defp topic, do: "improvement"
+
+  # -- For the console ---------------------------------------------------------
+
+  @doc "The categories an improvement candidate can be in, in the console's order."
+  defdelegate candidate_categories(), to: Ryker.Improvement.Candidate, as: :categories
 end

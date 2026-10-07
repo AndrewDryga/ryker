@@ -6,7 +6,6 @@ defmodule Ryker.Slack.WorkControls do
   card, episode, Work custody, and destination before any transition or network
   request. Copied and stale controls therefore grant no authority.
   """
-
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
   alias Ryker.Operator.Publication, as: PublicationOperator

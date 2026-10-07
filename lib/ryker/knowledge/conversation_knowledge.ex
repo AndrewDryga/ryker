@@ -1,7 +1,7 @@
 defmodule Ryker.Knowledge.ConversationKnowledge do
   @moduledoc false
-  use Ecto.Schema
-  @primary_key {:id, :binary_id, autogenerate: false}
+  use Ryker, :schema
+
   schema "conversation_knowledge" do
     field(:scope_key, :string)
     field(:topic_key, :string)
@@ -19,6 +19,6 @@ defmodule Ryker.Knowledge.ConversationKnowledge do
     field(:source_episode_id, :binary_id)
     field(:latest_source_at, :utc_datetime_usec)
     field(:forgotten_at, :utc_datetime_usec)
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 end

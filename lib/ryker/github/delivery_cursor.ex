@@ -3,8 +3,7 @@ defmodule Ryker.GitHub.DeliveryCursor do
   Where `Ryker.GitHub.DeliveryPoller` stopped reading an App's deliveries:
   every delivery up to `through_delivery_id` was taken or is not taken again.
   """
-
-  use Ecto.Schema
+  use Ryker, :schema
 
   @primary_key {:app_id, :integer, autogenerate: false}
 

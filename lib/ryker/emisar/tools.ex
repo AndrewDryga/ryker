@@ -20,7 +20,6 @@ defmodule Ryker.Emisar.Tools do
   model is told which operation to look up instead of sending it again, as
   Emisar asks.
   """
-
   import Bitwise
   alias Ryker.Config
   alias Ryker.{Credentials, Rescued}

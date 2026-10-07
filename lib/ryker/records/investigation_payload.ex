@@ -1,6 +1,5 @@
 defmodule Ryker.Records.InvestigationPayload do
   @moduledoc false
-
   alias Ryker.CanonicalJSON
   alias Ryker.Reference
 

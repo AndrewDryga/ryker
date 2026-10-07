@@ -6,7 +6,6 @@ defmodule Ryker.Delivery.Runtime do
   The trusted adapter registry owns platform credentials and bindings. A worker
   receives only that prepared registry plus an opaque lease identity.
   """
-
   use Supervisor
   alias Ryker.Defaults
   alias Ryker.Delivery.{Adapters, Worker}

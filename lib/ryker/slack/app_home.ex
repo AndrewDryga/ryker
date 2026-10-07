@@ -11,7 +11,6 @@ defmodule Ryker.Slack.AppHome do
   page at a time, which is what a channel card means when it says an operator
   can open Home for the complete list.
   """
-
   alias Ryker.Slack.{Collections, ControlValue, HomeEvent, Operators}
 
   @maximum_attention 8

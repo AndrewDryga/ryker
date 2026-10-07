@@ -1,10 +1,6 @@
 defmodule Ryker.Work.Session do
   @moduledoc false
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "episode_work_sessions" do
     belongs_to(:episode, Ryker.Episodes.Episode)
@@ -96,7 +92,7 @@ defmodule Ryker.Work.Session do
     field(:retained_reason, :string)
     field(:discarded_at, :utc_datetime_usec)
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{

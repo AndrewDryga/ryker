@@ -10,7 +10,6 @@ defmodule Ryker.Slack.TaskCardDetails do
   active subtask are bold, and a human handoff is marked beside the item that
   needs the person.
   """
-
   import Ryker.Slack.Renderer.Blocks,
     only: [escape: 1, expanded_section: 1, link_label: 1, sections: 1, sections: 2, truncate: 2]
 

@@ -1,6 +1,6 @@
 defmodule Ryker.CoopFleet.Worker.Changeset do
   @moduledoc "How a Coop worker's row changes (`Ryker.CoopFleet.Worker`)."
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.CoopFleet.Worker
 
   @identity [:certificate_sha256, :id, :workspace_ref, :state]

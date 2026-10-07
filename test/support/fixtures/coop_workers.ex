@@ -7,7 +7,6 @@ defmodule Ryker.Fixtures.CoopWorkers do
   `Ryker.CoopFleet.ControlPlane.handle_poll_certificate/3` with the
   certificate whose SHA-256 it registered.
   """
-
   alias Ryker.CoopFleet.{Certificate, Worker}
   alias Ryker.Repo
 

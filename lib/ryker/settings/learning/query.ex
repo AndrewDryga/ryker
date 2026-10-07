@@ -1,6 +1,6 @@
 defmodule Ryker.Settings.Learning.Query do
   @moduledoc "How Ryker learns from conversations, for every read of `learning_settings`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Settings.Learning
 
   def all, do: from(rows in Learning, as: :learning_settings)

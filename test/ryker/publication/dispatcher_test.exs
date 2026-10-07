@@ -102,7 +102,6 @@ defmodule Ryker.Publication.DispatcherTest do
   defmodule DeliveryPublisher do
     @behaviour Ryker.Delivery.Platform
     @behaviour Ryker.Delivery.MessagePublisher
-
     alias Ryker.Work.DeliveryReceipt
 
     def transport, do: "slack"

@@ -15,7 +15,6 @@ defmodule Ryker.CoopFleet.ControlPlane do
   returns only commands for current leased placements. It records remote events before later runtime projection; a
   network acknowledgement never outruns durable receipt.
   """
-
   alias Ryker.CoopFleet.{Command, Placement}
   alias Ryker.CoopFleet.ControlPlane.{Commands, Placements, Workers}
   alias Ryker.Work.Session

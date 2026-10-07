@@ -11,7 +11,6 @@ defmodule Ryker.ControlPlane.PageRead do
   and a page named each person with a query a row (2026-10-04 review).
   Nothing a page read shows changes these within the read.
   """
-
   alias Ryker.InspectionRedactor
 
   @scope {__MODULE__, :memos}

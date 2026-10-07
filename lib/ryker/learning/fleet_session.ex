@@ -30,7 +30,6 @@ defmodule Ryker.Learning.FleetSession do
 
       Repo.insert!(
         %Session{
-          id: Ecto.UUID.generate(),
           execution_kind: :learning,
           learning_run_id: run.id,
           policy: run.policy,

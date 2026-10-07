@@ -10,7 +10,6 @@ defmodule Ryker.Work.Executor.Sessions do
   It returns the session as the worker last described it, so the checks
   before a turn's submit read it once instead of asking again each.
   """
-
   alias Ryker.Coop.API
   alias Ryker.CoopFleet.JobAuthority
   alias Ryker.Knowledge.KnowledgeSnapshot

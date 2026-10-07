@@ -1,9 +1,6 @@
 defmodule Ryker.Slack.ChannelConfiguration do
   @moduledoc false
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
+  use Ryker, :schema
 
   schema "slack_channel_configurations" do
     field(:workspace_ref, :string)
@@ -20,7 +17,7 @@ defmodule Ryker.Slack.ChannelConfiguration do
     field(:revision, :integer)
     field(:saved_at, :utc_datetime_usec)
     field(:welcome_message_ref, :string)
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

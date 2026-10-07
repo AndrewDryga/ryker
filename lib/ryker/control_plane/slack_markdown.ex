@@ -1,7 +1,7 @@
 defmodule Ryker.ControlPlane.SlackMarkdown do
+  @moduledoc "Small, HTML-inert renderer for the formatting used in Slack messages."
   alias Ryker.ControlPlane.Kit
   alias Ryker.Slack.Names
-  @moduledoc "Small, HTML-inert renderer for the formatting used in Slack messages."
 
   @tokens ~r/(```[\s\S]*?```|`[^`\n]+`|\[[^\]\n]+\]\(https?:\/\/[^\s)]+\)|<!date\^[^>\n]+\|[^>\n]+>|<[@#][UWCGD][A-Z0-9]+(?:\|[^>\n]+)?>|<https?:\/\/[^>\n]+>|\*\*[^*\n]+\*\*|\*[^*\n]+\*|(?<![\p{L}\p{N}_])_[^_\n]+_(?![\p{L}\p{N}_])|~[^~\n]+~)/u
   @mentions ~r/(<[@#][UWCGD][A-Z0-9]+(?:\|[^>\n]+)?>)/u

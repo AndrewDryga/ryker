@@ -6,7 +6,6 @@ defmodule Ryker.Waits.EventWaits do
   the stored matcher and verification request as evidence; it grants no
   external authority and starts exactly one deterministic continuation turn.
   """
-
   alias Ryker.Crypto
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, ConversationLock, Episode}

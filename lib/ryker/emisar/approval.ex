@@ -1,10 +1,6 @@
 defmodule Ryker.Emisar.Approval do
   @moduledoc false
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "episode_emisar_approvals" do
     belongs_to(:record, Ryker.Records.Record)
@@ -38,7 +34,7 @@ defmodule Ryker.Emisar.Approval do
     field(:lease_owner, :string)
     field(:lease_expires_at, :utc_datetime_usec)
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

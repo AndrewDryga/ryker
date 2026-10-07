@@ -15,9 +15,7 @@ defmodule Ryker.GitHub.Client do
   request and reads a failed reply, and `Client.Fields` holds the argument and
   reply checks.
   """
-
   @behaviour Ryker.GitHub.API
-
   alias Ryker.GitHub.Client.{Actions, Comments, Context, PullRequests, Search}
 
   @fields [:http, :requester]

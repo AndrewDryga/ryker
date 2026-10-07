@@ -5,7 +5,6 @@ defmodule Ryker.BundledCoop do
   Jobs carry their own code and settings. The shared directory contains only
   enrollment state and the controller CA, never policies or repository checkouts.
   """
-
   alias Ryker.AdvisoryLock
   alias Ryker.CoopFleet.{Enrollment, EnrollmentToken, Worker}
   alias Ryker.Crypto

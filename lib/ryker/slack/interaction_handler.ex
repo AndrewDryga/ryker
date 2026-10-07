@@ -6,7 +6,6 @@ defmodule Ryker.Slack.InteractionHandler do
   delivered-message identity, and current record state are all re-read after
   the click. The button value alone grants nothing.
   """
-
   alias Ryker.Slack.{ControlValue, Interaction, Operators}
 
   @task_not_here [:slack_task_outside_environment, :slack_task_policy_not_configured]

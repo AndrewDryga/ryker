@@ -4,7 +4,7 @@ defmodule Ryker.Delivery.PlatformAction.Changeset do
   (`Ryker.Delivery.PlatformAction`), through the lease custody of
   `Ryker.Delivery.Lease.Changeset`.
   """
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.Delivery.{Lease, PlatformAction}
 
   @fields [

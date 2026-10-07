@@ -19,7 +19,6 @@ defmodule Ryker.ControlPlane.SettingsPage do
   `Kit.confirm_modal/1` and says, in words, what it will do; the LiveView runs
   it only after that question was asked.
   """
-
   use Phoenix.Component
   alias Ryker.BundledCoop
   alias Ryker.ControlPlane.{Components, Environments, EnvironmentsPage, Integrations, Kit, Paths}
@@ -27,8 +26,8 @@ defmodule Ryker.ControlPlane.SettingsPage do
   alias Ryker.ControlPlane.SetupPage
   alias Ryker.ControlPlane.{SlackMarkdown, WebhookPreview}
   alias Ryker.Settings
-  alias Ryker.Slack.Names
-  alias Ryker.Work.ExecutionTarget
+  alias Ryker.Slack
+  alias Ryker.Work
 
   @weekdays ~w(Monday Tuesday Wednesday Thursday Friday Saturday Sunday)
 
@@ -317,7 +316,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
   defp report_channel(%{snapshot: %{report: %{channel_ref: channel}, slack: slack}})
        when is_binary(channel) do
     if slack.enabled and is_binary(slack.workspace_ref),
-      do: Names.destination("slack:#{slack.workspace_ref}:#{channel}")
+      do: Slack.destination_name("slack:#{slack.workspace_ref}:#{channel}")
   end
 
   defp report_channel(_view), do: nil
@@ -539,7 +538,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
     models =
       lists
       |> Enum.flat_map(fn {_label, models} -> Enum.take(models || [], 1) end)
-      |> Enum.map(&(ExecutionTarget.parts(&1) || %{})[:model])
+      |> Enum.map(&(Work.target_parts(&1) || %{})[:model])
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
 
@@ -561,10 +560,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
     if report.weekly_self_report_enabled do
       "Posts #{Enum.at(@weekdays, report.weekday - 1)}s at " <>
         "#{Calendar.strftime(report.local_time, "%H:%M")} #{report.timezone}" <>
-        if(is_binary(slack.workspace_ref) and is_binary(report.channel_ref),
-          do: " in " <> Names.destination("slack:#{slack.workspace_ref}:#{report.channel_ref}"),
-          else: ""
-        )
+        report_channel(slack, report)
     else
       "Off"
     end
@@ -622,6 +618,13 @@ defmodule Ryker.ControlPlane.SettingsPage do
       do: "Work runs on the bundled worker on this host",
       else: "Work runs on workers you run yourself"
   end
+
+  # Where the weekly report posts, once a channel is chosen.
+  defp report_channel(%{workspace_ref: workspace}, %{channel_ref: channel})
+       when is_binary(workspace) and is_binary(channel),
+       do: " in " <> Slack.destination_name("slack:#{workspace}:#{channel}")
+
+  defp report_channel(_slack, _report), do: ""
 
   defp days(1), do: "1 day"
   defp days(count), do: "#{count} days"

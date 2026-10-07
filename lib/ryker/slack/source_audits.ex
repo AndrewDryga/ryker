@@ -6,7 +6,6 @@ defmodule Ryker.Slack.SourceAudits do
   stored. Digests retain enough evidence to correlate an invocation without
   turning Ryker into a second Slack index.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Reference
   alias Ryker.Repo
@@ -53,7 +52,7 @@ defmodule Ryker.Slack.SourceAudits do
       channel_ref: attributes.channel_ref,
       complete: attributes.complete,
       episode_id: attributes.episode_id,
-      id: Ecto.UUID.generate(),
+      id: Repo.generate_id(),
       range_fingerprint: CanonicalJSON.digest(attributes.range),
       request_fingerprint: CanonicalJSON.digest(attributes.request),
       requester_ref: attributes.requester_ref,

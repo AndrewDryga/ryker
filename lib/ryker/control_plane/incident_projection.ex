@@ -6,7 +6,6 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   projected through `FailureDetail`. A room's page redraws when the room or
   its investigation changes (`subscriptions/1`).
   """
-
   alias Ryker.Accounting.Execution
   alias Ryker.ControlPlane.{ConsolePeople, Environments, IncidentReport, PagedRelation}
   alias Ryker.ControlPlane.{RepositoryNames, Search, UsageProjection}

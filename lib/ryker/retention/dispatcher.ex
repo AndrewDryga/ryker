@@ -7,7 +7,6 @@ defmodule Ryker.Retention.Dispatcher do
   already failed unreachably in the same pass, so one offline worker cannot
   consume the budget that the healthy ones need.
   """
-
   alias Ryker.ErrorDetail
   alias Ryker.Reference
   alias Ryker.Retention.{Custody, Executor}

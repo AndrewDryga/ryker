@@ -1,7 +1,7 @@
 defmodule Ryker.Learning.LearningRun do
   @moduledoc false
-  use Ecto.Schema
-  @primary_key {:id, :binary_id, autogenerate: false}
+  use Ryker, :schema
+
   schema "conversation_learning_runs" do
     field(:batch_key, :string)
     field(:batch_id, :binary_id)
@@ -36,7 +36,7 @@ defmodule Ryker.Learning.LearningRun do
     field(:error_code, :string)
     field(:applied_at, :utc_datetime_usec)
     field(:pruned_at, :utc_datetime_usec)
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

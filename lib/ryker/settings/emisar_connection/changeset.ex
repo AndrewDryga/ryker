@@ -4,8 +4,7 @@ defmodule Ryker.Settings.EmisarConnection.Changeset do
   (`Ryker.Settings.EmisarConnection`).
   """
   @behaviour Ryker.Settings.Section.Changeset
-
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.Settings.{EmisarConnection, Validation}
 
   @fields ~w(ref display_name rpc_url account_ref account_label enabled_for_new_work monitoring_enabled verified_at)a

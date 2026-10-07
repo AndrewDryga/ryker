@@ -1,5 +1,4 @@
 defmodule Ryker.Slack.ThreadStatusWorkerTest do
-  alias Ryker.Slack.ThreadStatusReceipts
   use Ryker.DataCase, async: false
   import ExUnit.CaptureLog
   import Ecto.Query
@@ -9,6 +8,7 @@ defmodule Ryker.Slack.ThreadStatusWorkerTest do
   alias Ryker.Operator.Failures
   alias Ryker.Repo
   alias Ryker.Slack.{ThreadStatus, ThreadStatuses, ThreadStatusProjection, ThreadStatusWorker}
+  alias Ryker.Slack.ThreadStatusReceipts
   alias Ryker.Work.{Activity, Session, Turn}
 
   defmodule FakeAPI do

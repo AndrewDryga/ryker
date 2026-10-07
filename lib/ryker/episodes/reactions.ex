@@ -13,8 +13,6 @@ defmodule Ryker.Episodes.Reactions do
   no Work turn: a reaction on one is kept as feedback on its request alone
   (`Ryker.Feedback.Answers`), and it wakes nothing.
   """
-
-  require Logger
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Event}
   alias Ryker.Feedback
@@ -22,6 +20,7 @@ defmodule Ryker.Episodes.Reactions do
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Work.Turn
+  require Logger
 
   @fields [:action, :actor_ref, :emoji_name, :event_ref, :occurred_at, :source, :target]
   @source_fields [:kind, :ref]

@@ -4,7 +4,7 @@ defmodule Ryker.ControlPlane.FollowUp.Query do
   every event subscription Ryker holds, with the request it serves and what
   it waits for, still waiting first and soonest due first, then the newest.
   """
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Episodes.Episode
   alias Ryker.Records.Record
   alias Ryker.Waits.EventSubscription

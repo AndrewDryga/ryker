@@ -2,7 +2,6 @@ defmodule Ryker.ControlPlane.ProjectionTest do
   use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query
-  require Phoenix.LiveViewTest
   alias Ryker.CanonicalJSON
   alias Ryker.Config
   alias Ryker.ControlPlane.{Activity, BehaviorLibrary, ChannelDetail, ChannelDirectory}
@@ -36,6 +35,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
   alias Ryker.Waits.EventSubscription
   alias Ryker.Work.{ActivityEvent, Cancellation, Custody, DeliveryReceipt, Measurement, Result}
   alias Ryker.Work.{Session, SubmissionBuilder}
+  require Phoenix.LiveViewTest
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
@@ -400,7 +400,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
   end
 
   test "usage keeps measured coverage cost timing and effective targets distinct" do
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    now = DateTime.utc_now(:microsecond)
 
     measured = measured_turn!("measured", "claude:opus/high@work", now)
     unmeasured = measured_turn!("unmeasured", "codex:gpt-5.6-sol/xhigh@work", now, false)
@@ -675,7 +675,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     # 25 of the 33 executions the live usage page showed "without a saved work
     # type" on 2026-09-11 were resumed, continuation, event-wait and task
     # turns: metered, but attributed to nothing an operator could open or act on.
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    now = DateTime.utc_now(:microsecond)
 
     families = %{
       "turn:after:" => "continuation",
@@ -994,7 +994,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
   end
 
   test "episode trace distinguishes a pending reply from confirmed delivery" do
-    accepted_at = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    accepted_at = DateTime.utc_now(:microsecond)
 
     turn =
       measured_turn!(
@@ -1104,7 +1104,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
   test "episode trace tolerates nonliteral runtime config shapes while redacting replies" do
     # A Slack client and then a tuple-keyed runtime map each made every live episode detail return HTTP 500.
-    accepted_at = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    accepted_at = DateTime.utc_now(:microsecond)
 
     turn =
       measured_turn!(
@@ -1736,7 +1736,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       ]
     )
 
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    now = DateTime.utc_now(:microsecond)
 
     assert {:ok, %{action: post_action}} =
              PlatformActionCustody.enqueue(claim, %{
@@ -2293,7 +2293,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
   end
 
   test "usage compares work classes and response corrections without counting transport retries" do
-    now = DateTime.utc_now() |> DateTime.truncate(:microsecond)
+    now = DateTime.utc_now(:microsecond)
     measured = measured_turn!("calibration", "codex:gpt-5.6-sol/medium@work", now)
 
     assert {:ok, input} =

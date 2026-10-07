@@ -5,7 +5,6 @@ defmodule Ryker.GitHub.Binding do
   Signed webhook payloads identify the item inside this binding. They cannot
   move work to another installation or repository.
   """
-
   alias Ryker.Ingress.WorkProfile
 
   # GitHub's own payloads, a pull request's description included, before

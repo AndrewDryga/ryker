@@ -16,7 +16,6 @@ defmodule Ryker.ControlPlane.Actor do
   `Ryker.ControlPlane.ConsolePeople.person/1` names any of them, and `login/1`
   reads the person out of any of them.
   """
-
   alias Ryker.ControlPlane.Viewer
 
   @local "control-plane:local"

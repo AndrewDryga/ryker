@@ -3,7 +3,6 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
   The publication section of a task card: where the draft pull request stands
   and the exact recovery controls the host authorized for this generation.
   """
-
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
 

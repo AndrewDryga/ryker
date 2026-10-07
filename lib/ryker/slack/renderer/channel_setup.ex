@@ -3,7 +3,6 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
   The optional setup Q&A: one message that replaces itself after every step
   and explains each option before asking for a choice.
   """
-
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
   alias Ryker.Slack.Renderer.ChannelCards

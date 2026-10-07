@@ -10,7 +10,6 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
   same zone. `now_local` is the database's present in that zone, so "today"
   and "tomorrow" are the schedule's days, not the server's.
   """
-
   alias Ryker.ControlPlane.{Activity, EpisodeProjection, RepositoryNames}
   alias Ryker.ControlPlane.{ScheduleDirectory, Search}
   alias Ryker.Operator.FailureDetail

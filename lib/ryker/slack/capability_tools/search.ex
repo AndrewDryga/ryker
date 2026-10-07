@@ -4,7 +4,6 @@ defmodule Ryker.Slack.CapabilityTools.Search do
   reduced to what the turn may see, and hits missing their context are read
   again through the exact source reader.
   """
-
   alias Ryker.Delivery.Retry
   alias Ryker.Slack.CapabilityTools.{Arguments, Authority, Resources, SourceReader}
   alias Ryker.Slack.SourceRef

@@ -25,14 +25,12 @@ defmodule Ryker.Transcription.Service do
   recording in the time left, so a voice message is never lost to a stopped
   or changed service; the log says why.
   """
-
   @behaviour Ryker.Transcription
-
-  require Logger
   alias Ryker.Crypto
   alias Ryker.Delivery.HTTPClient
   alias Ryker.Transcription
   alias Ryker.Transcription.{Languages, Local}
+  require Logger
 
   # One request answers in 1.4 to 5.4 s on an M3 Pro; one still going after
   # half a minute is stuck, and Ryker's own model gets the time left.

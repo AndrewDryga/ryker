@@ -1,9 +1,6 @@
 defmodule Ryker.Admission.ReadySessionsTest do
   use Ryker.DataCase, async: true
   import Ecto.Query
-
-  @moduletag isolation: "REPEATABLE READ"
-
   alias Ryker.Admission.{Executor, ReadyPool, ReadySessions, Runtime}
   alias Ryker.FakeRetentionCoopAPI, as: RetentionAPI
   alias Ryker.Ingress.Inbox
@@ -12,6 +9,8 @@ defmodule Ryker.Admission.ReadySessionsTest do
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.TestSupport.FakeCoopAPI, as: FakeAPI
   alias Ryker.Work.Session
+
+  @moduletag isolation: "REPEATABLE READ"
 
   @now ~U[2026-08-27 12:00:00.000000Z]
   @policy "admission-read-only"

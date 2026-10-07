@@ -6,7 +6,6 @@ defmodule Ryker.Slack.Command do
   Commands are acknowledged privately over the authenticated socket only after
   their deterministic host transition finishes.
   """
-
   alias Ryker.Reference
 
   @fields [:actor_ref, :channel_ref, :event_ref, :occurred_at, :text, :workspace_ref]

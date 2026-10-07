@@ -23,7 +23,6 @@ defmodule Ryker.ControlPlane.ImprovementPage do
   alias Ryker.ControlPlane.Kit
   alias Ryker.ControlPlane.Paths
   alias Ryker.Improvement
-  alias Ryker.Improvement.Candidate
 
   @path "/feedback/fix"
   @download "/feedback/fix/eval-cases.zip"
@@ -330,7 +329,7 @@ defmodule Ryker.ControlPlane.ImprovementPage do
 
   # How what the view shows splits by what went wrong, each narrowing to it.
   defp category_counts(view) do
-    for category <- Candidate.categories(),
+    for category <- Improvement.candidate_categories(),
         count = Map.get(view.categories, category, 0),
         count > 0 do
       %{

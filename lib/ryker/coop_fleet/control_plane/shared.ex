@@ -3,7 +3,6 @@ defmodule Ryker.CoopFleet.ControlPlane.Shared do
   Validation, locking, limit and rollback helpers more than one control-plane
   part needs.
   """
-
   alias Ryker.CoopFleet.{Protocol, Worker}
   alias Ryker.Repo
 

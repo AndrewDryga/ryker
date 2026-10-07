@@ -5,7 +5,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   delivery, the state records the model wrote, the worker's own events and the
   Slack status updates that accompanied them.
   """
-
   import Ryker.ControlPlane.EpisodeTrace.Step
   alias Ryker.CoopFleet.Event, as: CoopEvent
   alias Ryker.Delivery.ChatCard

@@ -5,7 +5,6 @@ defmodule Ryker.Episodes.Reducer do
   It performs no IO and obtains no time or identifiers implicitly, making every
   accepted transition byte-for-byte replayable.
   """
-
   alias Ryker.Episodes.Command
   alias Ryker.Episodes.Command.{AcceptResult, AdmitInput, CancelEpisode, ConfirmDelivery}
   alias Ryker.Episodes.Command.{RecordReaction, ResumeWait, StartWait, TransferOwner}

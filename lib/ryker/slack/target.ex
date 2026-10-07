@@ -1,6 +1,5 @@
 defmodule Ryker.Slack.Target do
   @moduledoc false
-
   alias Ryker.Delivery.Request
 
   @id ~r/\A[A-Z0-9]+\z/

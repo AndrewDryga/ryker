@@ -6,7 +6,6 @@ defmodule Ryker.Delivery.Adapters do
   atoms or module names. Only modules supplied by trusted runtime
   configuration can execute a delivery.
   """
-
   alias Ryker.Delivery.Request
 
   @fields [:binding, :message_publisher, :reaction_publisher]

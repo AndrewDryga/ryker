@@ -7,7 +7,6 @@ defmodule Ryker.Continuity.Handover do
   draft is bound to the exact candidate the host validates, and the summary
   becomes recallable in the same transaction that accepts that result.
   """
-
   alias Ecto.Changeset
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity
@@ -235,7 +234,7 @@ defmodule Ryker.Continuity.Handover do
   defp stage_authorized(_episode, _turn), do: {:error, :conversation_summary_unauthorized}
 
   defp insert_draft(episode, turn, state, fingerprint) do
-    id = Ecto.UUID.generate()
+    id = Repo.generate_id()
 
     %ConversationSummaryDraft{}
     |> Changeset.cast(
@@ -390,7 +389,7 @@ defmodule Ryker.Continuity.Handover do
   # earlier one to commit and then replaces its state, and the row keeps its
   # first identity.
   defp persist_summary(attributes) do
-    id = Ecto.UUID.generate()
+    id = Repo.generate_id()
     now = Repo.now!()
 
     attributes

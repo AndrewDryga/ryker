@@ -7,7 +7,6 @@ defmodule Ryker.Continuity.Recall do
   page. Both recheck visibility and source validity on every hit, so a summary
   is only ever a hint about sources the reader may still see.
   """
-
   alias Ryker.Continuity
   alias Ryker.Continuity.ConversationRollup
   alias Ryker.Continuity.ConversationSummary

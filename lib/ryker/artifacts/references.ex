@@ -8,7 +8,6 @@ defmodule Ryker.Artifacts.References do
   references in the same way, so retention never infers live ownership by
   searching serialized JSON.
   """
-
   alias Ryker.Artifacts.{Artifact, IngressReference, WorkReference}
   alias Ryker.Ingress.Input
   alias Ryker.Repo

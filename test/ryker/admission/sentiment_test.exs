@@ -16,9 +16,6 @@ defmodule Ryker.Admission.SentimentTest do
   """
   use Ryker.DataCase, async: true
   import Phoenix.LiveViewTest
-
-  @moduletag isolation: "REPEATABLE READ"
-
   alias Ryker.Admission
   alias Ryker.Admission.{Context, Decision, Executor, Prompt}
   alias Ryker.ControlPlane.{EpisodePage, ModelRequests}
@@ -26,6 +23,8 @@ defmodule Ryker.Admission.SentimentTest do
   alias Ryker.Fixtures.Answers
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.TestSupport.FakeCoopAPI, as: FakeAPI
+
+  @moduletag isolation: "REPEATABLE READ"
 
   @workspace "TSENTIMENT"
   @readme "testdata/admission/sentiment/readme-publication-correction.json"

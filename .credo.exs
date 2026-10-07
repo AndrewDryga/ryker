@@ -47,11 +47,20 @@
           {Ryker.Checks.SubscribeNeedsConnected, []},
           {Ryker.Checks.TestContextPattern, []},
           {Ryker.Checks.TestNoProcessSleep, []},
+          {Ryker.Checks.UseRykerRole, []},
           {Ryker.Checks.VendorViaWrapper, []},
           {Ryker.Checks.WebNoChangesetConstruction, []},
+          {Ryker.Checks.WebNoNestedDomainCalls, []},
           {Ryker.Checks.WebNoRepoCalls, []},
           # IL-14: no String.to_atom on input; the atom table is never collected.
-          {Credo.Check.Warning.UnsafeToAtom, []}
+          {Credo.Check.Warning.UnsafeToAtom, []},
+          # Emisar enables these opt-in checks too: the module layout (shortdoc,
+          # moduledoc, behaviour, use, import, alias, require), a precision
+          # handed to DateTime.utc_now/1 instead of a truncate after it, and
+          # test files that end in .exs.
+          {Credo.Check.Readability.StrictModuleLayout, []},
+          {Credo.Check.Refactor.UtcNowTruncate, []},
+          {Credo.Check.Warning.WrongTestFileExtension, []}
         ]
       }
     }

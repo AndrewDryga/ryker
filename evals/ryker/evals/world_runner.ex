@@ -12,7 +12,6 @@ defmodule Ryker.Evals.WorldRunner do
   the report, `WorldAssertions` checks it, and `WorldDatabase` guards the
   disposable database around the whole run.
   """
-
   alias Ryker.Evals.{WorldAssertions, WorldCase, WorldDatabase, WorldDriver, WorldEvidence}
   alias Ryker.Evals.WorldInputs
   alias Ryker.Reference

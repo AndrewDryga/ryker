@@ -5,7 +5,6 @@ defmodule Ryker.Evals.WorldInputs do
   time rebased onto the live clock, the channel memberships correlation needs,
   and the evaluation-only delivery adapters that settle visible output.
   """
-
   alias Ryker.Artifacts
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery.Adapters

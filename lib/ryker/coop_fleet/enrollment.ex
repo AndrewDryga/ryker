@@ -6,7 +6,6 @@ defmodule Ryker.CoopFleet.Enrollment do
   worker/workspace pair, and consumed in the same transaction that binds the
   issued certificate. Worker private keys never cross the gateway.
   """
-
   alias Ryker.CoopFleet.{Certificate, CertificateAuthority}
   alias Ryker.CoopFleet.EnrollmentToken
   alias Ryker.CoopFleet.{Protocol, Worker}

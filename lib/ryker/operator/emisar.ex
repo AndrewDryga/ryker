@@ -12,7 +12,6 @@ defmodule Ryker.Operator.Emisar do
   waits for any more is not a failure: the monitor closes it
   (`Ryker.Emisar.Approvals.close_ended/1`).
   """
-
   alias Ryker.Credentials
   alias Ryker.Emisar.{Approval, Approvals}
   alias Ryker.Records.Record

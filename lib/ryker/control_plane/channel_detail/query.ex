@@ -6,7 +6,7 @@ defmodule Ryker.ControlPlane.ChannelDetail.Query do
   conversation. Every read keys on the channel's identity
   (`Ryker.ControlPlane.ChannelScope`).
   """
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Episodes.Episode
   alias Ryker.Schedules.Schedule
   alias Ryker.Slack.{ChannelConfiguration, ChannelMembership, IncidentRoom}

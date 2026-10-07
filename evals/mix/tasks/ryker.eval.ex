@@ -1,4 +1,5 @@
 defmodule Mix.Tasks.Ryker.Eval do
+  @shortdoc "Exports or runs the versioned model-world scenarios"
   @moduledoc """
   Exports or executes the versioned model-world scenarios.
 
@@ -44,7 +45,6 @@ defmodule Mix.Tasks.Ryker.Eval do
   and reports how many put the fault in the same place
   (`Ryker.Evals.ImprovementReplay`). Its runs hold what people said too.
   """
-
   use Mix.Task
   alias Ecto.Adapters.Postgres
   alias Ryker.Coop.Client
@@ -55,8 +55,6 @@ defmodule Mix.Tasks.Ryker.Eval do
   alias Ryker.Evals.{WorldCoverage, WorldDatabase, WorldJudgeCase, WorldReport, WorldRunner}
   alias Ryker.Evals.{WorldSource, WorldSuite, WorldTools}
   alias Ryker.Repo
-
-  @shortdoc "Exports or runs the versioned model-world scenarios"
 
   # Routing replay sessions at once, as the world shards run: one at a time,
   # the first replay of 139 decisions (2026-09-30) would have taken 80 minutes.

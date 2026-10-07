@@ -14,7 +14,6 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   timer; a read that failed is retried with backoff until it succeeds.
   """
   use Phoenix.LiveView, layout: false
-  require Logger
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Activity, ActivityPage, Actor, BehaviorPage, ChannelDetail}
   alias Ryker.ControlPlane.{ChannelPage, Components, ConfigurationGuide, ConsolePeople}
@@ -27,7 +26,9 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   alias Ryker.Crypto
   alias Ryker.{IntegrationSetup, RepositoryKnowledge, Settings}
   alias Ryker.Retention.Data, as: RetentionData
-  alias Ryker.Slack.{ChannelConfigurations, Names}
+  alias Ryker.Slack
+  alias Ryker.Slack.Names
+  require Logger
 
   @confirmed_settings_actions ~w(disconnect-slack disconnect-github delete-emisar delete-environment delete-webhook-credential turn-off-learning remove-repository leave-channel)
   @settings_pages %{
@@ -2074,15 +2075,15 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   defp save_channel_setting(workspace, channel, "environment", %{"environment" => ref}, actor_ref)
        when is_binary(ref) do
     choice = if ref == "", do: nil, else: ref
-    ChannelConfigurations.select_environment(workspace, channel, choice, actor_ref)
+    Slack.select_channel_environment(workspace, channel, choice, actor_ref)
   end
 
   defp save_channel_setting(workspace, channel, name, params, actor_ref)
        when name in ["participation", "alert_policy"] do
     change =
       if name == "participation",
-        do: &ChannelConfigurations.change_participation/1,
-        else: &ChannelConfigurations.change_alert_policy/1
+        do: &Slack.change_channel_participation/1,
+        else: &Slack.change_channel_alert_policy/1
 
     with {:ok, value} <- channel_setting_value(name, params[name]),
          {revision, ""} <- Integer.parse(to_string(params["revision"])) do

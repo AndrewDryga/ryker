@@ -1,6 +1,6 @@
 defmodule Ryker.ControlPlane.ConsolePerson.Query do
   @moduledoc "The people console sign-ins named, for every read of `control_plane_people`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.ControlPlane.ConsolePerson
 
   def all, do: from(people in ConsolePerson, as: :control_plane_people)

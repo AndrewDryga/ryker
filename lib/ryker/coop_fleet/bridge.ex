@@ -8,7 +8,6 @@ defmodule Ryker.CoopFleet.Bridge do
   `poll_interval_ms` for an end nothing announces. Network delivery and worker
   retries happen through the outbound poll protocol.
   """
-
   alias Ryker.CoopFleet.{Bodies, Checkpoints, Command, ControlPlane, Placement}
   alias Ryker.CoopFleet.ControlPlane.Commands
   alias Ryker.Repo

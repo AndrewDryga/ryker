@@ -4,9 +4,8 @@ defmodule Ryker.Improvement.Dispatcher do
   next candidate, resume the run it left outstanding or start a new one, and
   give the lease back with what happened.
   """
-
-  require Logger
   alias Ryker.Improvement.{Analyses, Executor, FleetSession}
+  require Logger
 
   @refused_policy_hold_seconds 300
   @worker_hold_seconds 60

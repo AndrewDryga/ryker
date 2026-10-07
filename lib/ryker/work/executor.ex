@@ -14,7 +14,6 @@ defmodule Ryker.Work.Executor do
   `Executor.Cancellation` settles a cancel-pending turn, and `Executor.Remote`
   is the Coop call layer they all share.
   """
-
   alias Ryker.GitObject
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.StateTools.Capabilities

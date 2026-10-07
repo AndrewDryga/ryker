@@ -5,9 +5,7 @@ defmodule Ryker.CoopFleet.Client do
   It preserves the existing Work executor contract while replacing direct
   Unix-socket calls with placed, leased, idempotent worker commands.
   """
-
   @behaviour Ryker.Coop.API
-
   alias Ryker.{Artifacts, CanonicalJSON}
   alias Ryker.CoopFleet.{Bodies, Bridge, Checkpoints, Command, ControlPlane}
   alias Ryker.CoopFleet.ControlPlane.Commands

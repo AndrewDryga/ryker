@@ -1,6 +1,6 @@
 defmodule Ryker.Settings.PricingRate.Query do
   @moduledoc "Saved model prices (Settings › Model prices), for every read of `pricing_rates`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Settings.PricingRate
 
   def all, do: from(rates in PricingRate, as: :pricing_rates)

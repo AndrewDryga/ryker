@@ -6,8 +6,6 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   Slack turn, but every source and effect is fenced to the exact loopback Lab
   conversation. No call in this module owns or receives Slack credentials.
   """
-
-  require Logger
   alias Ryker.Artifacts
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{Conversation, SourcePage}
@@ -19,6 +17,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   alias Ryker.Slack.CapabilityTools.Arguments, as: SlackArguments
   alias Ryker.StateTools.Binding
   alias Ryker.Work.Turn
+  require Logger
 
   @list_fields ~w(configured_only cursor include_archived include_resources kinds limit query)
   @search_fields ~w(after author_ref before content_types conversation_refs cursor limit query)

@@ -21,7 +21,6 @@ defmodule Ryker.WeeklyReport.Facts do
   channel Ryker is in (`public?/1`). Anything from a direct message, a
   private channel, a shared channel, Chat or GitHub is counted, never named.
   """
-
   alias Ryker.Accounting.Execution
   alias Ryker.ControlPlane.{FailureExplanation, FailureProjection, Paths}
   alias Ryker.Episodes.{Episode, RoutingDigests}

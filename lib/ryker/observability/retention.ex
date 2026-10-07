@@ -7,7 +7,6 @@ defmodule Ryker.Observability.Retention do
   stays absent: the report never substitutes zero for something no worker has
   reported.
   """
-
   alias Ryker.Observability.Reads
   alias Ryker.Retention.Cleanup
   alias Ryker.Work.Session

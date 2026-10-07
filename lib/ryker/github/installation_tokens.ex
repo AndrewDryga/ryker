@@ -10,11 +10,10 @@ defmodule Ryker.GitHub.InstallationTokens do
   Each mint runs in its own task, so a slow one holds up only the callers
   waiting for that same token, and they share it.
   """
-
   use GenServer
-  require Logger
   alias Ryker.Options
   alias Ryker.Secret
+  require Logger
 
   @headers [
     {"accept", "application/vnd.github+json"},

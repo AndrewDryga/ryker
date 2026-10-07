@@ -24,7 +24,7 @@ defmodule Ryker.Settings.Work do
   never decides anything. Comparing needs both an endpoint and a model, and
   the endpoint follows `Ryker.LocalRouting.Endpoint`.
   """
-  use Ecto.Schema
+  use Ryker, :schema
 
   @primary_key {:id, :string, autogenerate: false}
   # The providers the bundled worker runs, each of which takes these four

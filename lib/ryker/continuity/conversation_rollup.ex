@@ -1,9 +1,6 @@
 defmodule Ryker.Continuity.ConversationRollup do
   @moduledoc false
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
+  use Ryker, :schema
 
   schema "conversation_rollups" do
     field(:ref, :string)
@@ -23,6 +20,6 @@ defmodule Ryker.Continuity.ConversationRollup do
     field(:expires_at, :utc_datetime_usec)
     field(:recall_count, :integer, default: 0)
     field(:last_recalled_at, :utc_datetime_usec)
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 end

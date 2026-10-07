@@ -17,7 +17,6 @@ defmodule Ryker.Embeddings do
   size of its answer, and every vector comes back normalized to length one,
   so a dot product is the cosine.
   """
-
   alias Ryker.Delivery.HTTPClient
 
   @default_model "bge-m3"

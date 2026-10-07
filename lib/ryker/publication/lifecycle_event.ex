@@ -1,10 +1,6 @@
 defmodule Ryker.Publication.LifecycleEvent do
   @moduledoc false
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "episode_publication_lifecycle_events" do
     belongs_to(:publication, Ryker.Publication.Publication)
@@ -45,7 +41,7 @@ defmodule Ryker.Publication.LifecycleEvent do
     field(:attempt_count, :integer, default: 0)
     field(:last_error, :string)
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

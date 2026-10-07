@@ -1,6 +1,5 @@
 defmodule Ryker.Fixtures.Publication do
   @moduledoc false
-
   import Ryker.TestHelpers, only: [digest: 1]
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures

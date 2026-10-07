@@ -7,7 +7,6 @@ defmodule Ryker.Operator.Retention do
   asks Coop for a fresh plan with unmerged acceptance. Dirty work is never an
   eligible operator discard.
   """
-
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
   alias Ryker.Operator.{Actions, RetentionAction}
@@ -210,7 +209,7 @@ defmodule Ryker.Operator.Retention do
     occurred_at = Repo.now!()
 
     %{
-      id: Ecto.UUID.generate(),
+      id: Repo.generate_id(),
       session_id: session.id,
       action_ref: action_ref,
       request_fingerprint: fingerprint,

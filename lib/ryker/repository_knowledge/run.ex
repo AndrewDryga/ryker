@@ -11,10 +11,7 @@ defmodule Ryker.RepositoryKnowledge.Run do
   is, `applied` once its checked document is written, `rejected` when the
   answer or the turn failed, and `stale` when it never started.
   """
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
+  use Ryker, :schema
 
   schema "repository_knowledge_runs" do
     field(:repository_ref, :string)
@@ -43,7 +40,7 @@ defmodule Ryker.RepositoryKnowledge.Run do
     field(:dropped_count, :integer)
     field(:error_code, :string)
     field(:reconcile_attempt_count, :integer, default: 0)
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

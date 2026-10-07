@@ -1,6 +1,5 @@
 defmodule Ryker.CoopFleet.BodyCrypto do
   @moduledoc false
-
   alias Ryker.{CanonicalJSON, Secret}
 
   @domain "ryker-worker-body-v1"

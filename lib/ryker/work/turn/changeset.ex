@@ -1,7 +1,6 @@
 defmodule Ryker.Work.Turn.Changeset do
   @moduledoc false
-
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.Work.Turn
 
   @maximum_candidate_bytes 256 * 1_024

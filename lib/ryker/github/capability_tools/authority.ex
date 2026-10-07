@@ -8,7 +8,6 @@ defmodule Ryker.GitHub.CapabilityTools.Authority do
   repository's grants decide reviews and CI; and the episode's active inputs
   name the comment a reaction may answer.
   """
-
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.GitHub.CapabilityTools.Arguments
   alias Ryker.Repo

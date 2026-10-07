@@ -5,7 +5,6 @@ defmodule Ryker.Slack.TaskCardProjection do
   TaskCard projections reauthorize their source context before external Slack
   publication. Record projections are retained operator audit views only.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Episode
   alias Ryker.Publication.{FixLoop, Followup, LifecycleEvent, Publication}

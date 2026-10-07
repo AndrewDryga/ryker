@@ -20,7 +20,6 @@ defmodule Ryker.Publication.Followups.Polls do
   or has held the task for an hour. Then the pull request is checked at once,
   so a webhook or check request that came during the wait is not lost.
   """
-
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.ErrorDetail
   alias Ryker.Publication.Custody

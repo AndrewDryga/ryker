@@ -7,7 +7,6 @@ defmodule Ryker.GitHub.Client.Search do
   from elsewhere rather than dropping it quietly. An incomplete provider
   result is a protocol error, not a shorter list.
   """
-
   alias Ryker.GitHub.Client.{Fields, Transport}
 
   @search_fields ~w(kind limit page query repository state)a

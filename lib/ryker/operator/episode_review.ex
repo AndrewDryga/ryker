@@ -1,10 +1,6 @@
 defmodule Ryker.Operator.EpisodeReview do
   @moduledoc false
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "episode_operator_reviews" do
     belongs_to(:episode, Ryker.Episodes.Episode)
@@ -15,7 +11,7 @@ defmodule Ryker.Operator.EpisodeReview do
     field(:rating, Ecto.Enum, values: [:good, :needs_work])
     field(:reviewed_at, :utc_datetime_usec)
 
-    timestamps(type: :utc_datetime_usec, updated_at: false)
+    timestamps(updated_at: false)
   end
 
   @type t :: %__MODULE__{}

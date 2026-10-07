@@ -8,7 +8,6 @@ defmodule Ryker.Settings.RetentionImpact do
   console shows them, without the custody pins pruning also checks, so a count
   can include a row something still holds. Ages use PostgreSQL time.
   """
-
   alias Ryker.Repo
 
   # Each label counts one or more sources: {from, age column, condition}.

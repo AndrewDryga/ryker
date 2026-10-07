@@ -22,7 +22,6 @@ defmodule Ryker.RepositoryKnowledge.Executor do
   one) does local proof alone close it. So a lost answer never buys a second
   model call.
   """
-
   alias Ryker.Coop.API
   alias Ryker.CoopFleet.JobAuthority
   alias Ryker.Repo

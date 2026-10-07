@@ -8,7 +8,6 @@ defmodule Ryker.Continuity.Scope do
   private, externally shared, direct or unknown channel and every other
   transport stay inside their own conversation.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity.ConversationSummary
   alias Ryker.Episodes.Scope, as: WorkspaceScope

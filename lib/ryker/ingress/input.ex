@@ -6,7 +6,6 @@ defmodule Ryker.Ingress.Input do
   Arbitrary source content remains bounded JSON for the model to interpret; it
   cannot choose routing or authority by smuggling fields into that content.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Command
   alias Ryker.Publication.DeploymentSignal

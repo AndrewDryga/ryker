@@ -1,7 +1,7 @@
 defmodule Ryker.Learning.Dispatcher do
   @moduledoc "Dispatches exclusively assigned original inputs; replying is a separate decision."
-  require Logger
   alias Ryker.Learning.{Batches, EmptyChat, Executor, FleetSession}
+  require Logger
 
   @maximum_reconciliations 12
   @refused_policy_hold_seconds 300

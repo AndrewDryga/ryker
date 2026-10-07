@@ -1,6 +1,6 @@
 defmodule Ryker.Ingress.InputCustodyTransition.Query do
   @moduledoc "Each step a message took through custody, for every read of `input_custody_transitions`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Ingress.InputCustodyTransition
 
   def all, do: from(transitions in InputCustodyTransition, as: :input_custody_transitions)

@@ -14,7 +14,6 @@ defmodule Ryker.Admission.ConversationContext do
   retention horizon has already reclaimed; the manifest always says which
   happened, and it never claims coverage it does not have.
   """
-
   alias Ryker.Admission.ConversationContext
   alias Ryker.CanonicalJSON
   alias Ryker.Ingress.Inbox.Entry

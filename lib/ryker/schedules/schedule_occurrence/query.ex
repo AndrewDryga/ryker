@@ -1,6 +1,6 @@
 defmodule Ryker.Schedules.ScheduleOccurrence.Query do
   @moduledoc "Each time a schedule fired or was missed, for every read of `episode_schedule_occurrences`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Episodes.Episode
   alias Ryker.Schedules.ScheduleOccurrence
   alias Ryker.Work.Turn

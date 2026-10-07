@@ -16,10 +16,9 @@ defmodule Ryker.ControlPlane.Integrations do
   Everything is derived from the settings view, and for Slack the running
   connection it carries; nothing here is stored.
   """
-
   use Phoenix.Component
   alias Ryker.ControlPlane.{Environments, Kit}
-  alias Ryker.Slack.Names
+  alias Ryker.Slack
 
   @type key :: :slack | :github | :emisar | :webhooks
   @type status :: :not_set_up | :off | :on | :broken
@@ -748,7 +747,7 @@ defmodule Ryker.ControlPlane.Integrations do
   @doc "A Slack channel as people know it, such as #ops."
   @spec channel_name(map()) :: String.t()
   def channel_name(%{workspace_ref: workspace, channel_ref: channel}),
-    do: Names.name(workspace, channel)
+    do: Slack.name(workspace, channel)
 
   @doc "Whether every credential of these kinds is saved and verified."
   @spec verified?(map(), [atom()]) :: boolean()

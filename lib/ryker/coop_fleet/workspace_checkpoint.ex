@@ -6,7 +6,6 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
   files, and exact Coop task projection. This document deliberately excludes
   worker-local paths, provider state, credentials, and transcript content.
   """
-
   alias Ryker.CoopFleet.Protocol
   alias Ryker.GitObject
 

@@ -5,7 +5,6 @@ defmodule Ryker.ControlPlane.SubscriptionProjection do
   observation reduced to digests so no external payload crosses the page
   boundary.
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{Activity, FollowUp, Search, SubscriptionPresentation}
   alias Ryker.InspectionRedactor

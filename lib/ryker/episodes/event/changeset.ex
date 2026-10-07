@@ -1,7 +1,6 @@
 defmodule Ryker.Episodes.Event.Changeset do
   @moduledoc false
-
-  import Ecto.Changeset
+  use Ryker, :changeset
   alias Ryker.Episodes.Event
 
   @required_fields [

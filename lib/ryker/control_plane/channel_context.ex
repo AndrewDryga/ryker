@@ -7,7 +7,6 @@ defmodule Ryker.ControlPlane.ChannelContext do
   is a bounded `PagedRelation`; expiry is applied at read time; nothing here
   accounts a recall or starts learning.
   """
-
   alias Ryker.Config
   alias Ryker.ControlPlane.{BehaviorLibrary, BehaviorPage, ChannelContext, ChannelScope}
   alias Ryker.ControlPlane.{ConversationMemory, LearningActivity, PagedRelation}

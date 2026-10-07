@@ -7,7 +7,6 @@ defmodule Ryker.Fixtures.SavedEntities do
   same rows, so both are tested against these fixtures rather than against two
   differently shaped hand-written sets.
   """
-
   alias Ryker.Behaviors.Behavior
   alias Ryker.{Episodes, Repo}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures

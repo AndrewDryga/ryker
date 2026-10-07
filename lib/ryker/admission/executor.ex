@@ -1,7 +1,4 @@
 defmodule Ryker.Admission.Executor do
-  alias Ryker.Crypto
-  alias Ryker.Work.Activity
-
   @moduledoc """
   Runs one durable ingress input through Coop's admission model turn.
 
@@ -10,18 +7,19 @@ defmodule Ryker.Admission.Executor do
   semantic rejection goes back to the same Coop turn; a valid decision is
   committed through `Ryker.Admission`.
   """
-
-  require Logger
   alias Ryker.Admission
   alias Ryker.Admission.{Attempts, Context, Decision, FleetSession, Prompt}
   alias Ryker.Coop.API
   alias Ryker.CoopFleet.JobAuthority
+  alias Ryker.Crypto
   alias Ryker.Ingress.{Inbox, Input, WorkProfile}
   alias Ryker.Knowledge
   alias Ryker.Learning.Observations
   alias Ryker.Records.Record
   alias Ryker.Repo
+  alias Ryker.Work.Activity
   alias Ryker.Work.Session
+  require Logger
 
   @retryable_terminal_turn_states ~w(failed)
   @stopped_turn_states ~w(cancelled interrupted budget_exhausted)

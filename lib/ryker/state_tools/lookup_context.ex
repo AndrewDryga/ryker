@@ -1,6 +1,5 @@
 defmodule Ryker.StateTools.LookupContext do
   @moduledoc false
-
   alias Ryker.{CanonicalJSON, Repo}
   alias Ryker.Memories.MemorySearch
   alias Ryker.Slack.SourceRef

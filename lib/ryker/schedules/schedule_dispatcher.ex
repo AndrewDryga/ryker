@@ -1,6 +1,5 @@
 defmodule Ryker.Schedules.ScheduleDispatcher do
   @moduledoc false
-
   alias Ryker.Reference
   alias Ryker.Schedules
 

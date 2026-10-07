@@ -10,7 +10,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   raw ingress, prompts, candidates or provider diagnostics into the control
   plane.
   """
-
   import Ryker.ControlPlane.EpisodeTrace.Step
   alias Ryker.ControlPlane.{EpisodeCausality, EpisodeResponseMetrics, Paths, RepositoryNames}
   alias Ryker.ControlPlane.EpisodeTrace.{CaseFile, Input, Maintenance, Outcome, Preparation}

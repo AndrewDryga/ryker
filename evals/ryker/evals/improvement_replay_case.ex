@@ -12,7 +12,6 @@ defmodule Ryker.Evals.ImprovementReplayCase do
   keep passes when it puts the fault in the same place as the recorded answer: the same category
   and the same step. The words and the confidence are reported, not compared.
   """
-
   alias Ryker.Improvement.Prompt
 
   @compared [:category, :step]

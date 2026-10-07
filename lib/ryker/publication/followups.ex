@@ -25,7 +25,6 @@ defmodule Ryker.Publication.Followups do
 
   `Followups.Store` holds the follow-up and lifecycle-event rows they share.
   """
-
   alias Ryker.Ingress.Input
   alias Ryker.Publication.Followups.{Delivery, Leases, Polls, Signals, Start}
   alias Ryker.Publication.LifecycleEvent

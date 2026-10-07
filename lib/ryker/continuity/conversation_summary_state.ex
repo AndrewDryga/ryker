@@ -1,6 +1,5 @@
 defmodule Ryker.Continuity.ConversationSummaryState do
   @moduledoc false
-
   alias Ryker.CanonicalJSON
   alias Ryker.Reference
 

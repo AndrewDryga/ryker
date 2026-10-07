@@ -10,7 +10,6 @@ defmodule Ryker.Slack.Operators do
   from the others on who that is. Whether someone is an admin is Slack's
   answer about them (`Ryker.Slack.WorkspaceAdmins`), and no answer is no.
   """
-
   alias Ryker.Slack.WorkspaceAdmins
 
   @enforce_keys [:chosen, :workspace_admins, :workspace_ref]

@@ -1,6 +1,6 @@
 defmodule Ryker.Knowledge.KnowledgeExposure.Query do
   @moduledoc "The topic revisions each Work session was shown, for every read of `episode_work_knowledge_exposures`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Knowledge.{KnowledgeExposure, KnowledgeRevision}
 
   def all, do: from(exposures in KnowledgeExposure, as: :episode_work_knowledge_exposures)

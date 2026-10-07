@@ -8,7 +8,6 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   arbitrary external payloads, credentials, and unreleased model output remain
   private.
   """
-
   alias Ryker.Artifacts.OutputArtifact
   alias Ryker.ControlPlane.{AdmissionProgress, Conversation, ConversationLab}
   alias Ryker.ControlPlane.{ConversationTranscript, PublicationPosition, ShortTime}

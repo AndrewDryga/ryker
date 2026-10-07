@@ -5,7 +5,6 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
   conversation count and whether it carries its own instructions. One
   channel's detail is `ChannelDetail`.
   """
-
   alias Ryker.ControlPlane.{ChannelDirectory, ChannelsPage, PagedRelation, Search}
   alias Ryker.Repo
   alias Ryker.Settings.{Environment, Slack}

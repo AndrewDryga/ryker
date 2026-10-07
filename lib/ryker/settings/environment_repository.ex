@@ -12,7 +12,7 @@ defmodule Ryker.Settings.EnvironmentRepository do
   changes as the working copy and each other one read-only under its own ref.
   A read-only repository is only ever mounted that way.
   """
-  use Ecto.Schema
+  use Ryker, :schema
 
   @primary_key false
   @accesses [:read_only, :read_write]

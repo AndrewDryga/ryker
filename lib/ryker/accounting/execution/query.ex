@@ -8,7 +8,7 @@ defmodule Ryker.Accounting.Execution.Query do
   the turn's own usage columns here; those are the turn's snapshot, not the
   ledger.
   """
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Accounting.Execution
   alias Ryker.Settings.PricingRate
 

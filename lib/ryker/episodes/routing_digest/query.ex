@@ -1,6 +1,6 @@
 defmodule Ryker.Episodes.RoutingDigest.Query do
   @moduledoc "Each episode's routing digest, for every read of `episode_routing_digests`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Episodes.RoutingDigest
 
   def all, do: from(digests in RoutingDigest, as: :episode_routing_digests)

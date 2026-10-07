@@ -4,7 +4,7 @@ defmodule Ryker.Admission.CandidateSearch.Query do
   to (`Ryker.Admission.CandidateSearch`), and the counts that weigh its words
   and identifiers. Every lane reads only what `eligible/2` allows.
   """
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Episodes.{Episode, Origin, RoutingDigest}
 
   @active_states [:working, :waiting_for_input, :waiting_for_event]

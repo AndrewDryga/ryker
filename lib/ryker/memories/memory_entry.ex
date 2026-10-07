@@ -5,11 +5,7 @@ defmodule Ryker.Memories.MemoryEntry do
   Entries are hints with explicit scope, visibility, provenance, and expiry.
   They are never evidence, executable configuration, or authority.
   """
-
-  use Ecto.Schema
-
-  @primary_key {:id, :binary_id, autogenerate: false}
-  @foreign_key_type :binary_id
+  use Ryker, :schema
 
   schema "operational_memory_entries" do
     belongs_to(:offer_record, Ryker.Records.Record)
@@ -43,7 +39,7 @@ defmodule Ryker.Memories.MemoryEntry do
     field(:edited_by_actor_ref, :string)
     field(:edit_review_ref, :string)
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 
   @type t :: %__MODULE__{}

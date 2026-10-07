@@ -8,7 +8,6 @@ defmodule Ryker.Defaults do
   inside the total) are checked together by `validate!/0` rather than being
   independently settable into an inconsistent combination.
   """
-
   alias Ryker.Admission.Runtime, as: AdmissionRuntime
   alias Ryker.Config
 

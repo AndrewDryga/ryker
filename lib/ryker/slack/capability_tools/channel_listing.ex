@@ -3,7 +3,6 @@ defmodule Ryker.Slack.CapabilityTools.ChannelListing do
   The channels a turn may list: public joined channels plus the current
   private one, each with its configuration and, when asked, its resources.
   """
-
   alias Ryker.Slack.CapabilityTools.Resources
   alias Ryker.Slack.{ChannelConfiguration, SourceRef}
 

@@ -11,7 +11,6 @@ defmodule Ryker.ControlPlane.Environments do
   from here, so an environment reads the same everywhere. Everything except
   the channel counts is derived from the settings snapshot.
   """
-
   alias Ryker.ControlPlane.Integrations
   alias Ryker.Repo
   alias Ryker.Settings.Environment

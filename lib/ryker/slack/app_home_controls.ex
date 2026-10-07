@@ -6,7 +6,6 @@ defmodule Ryker.Slack.AppHomeControls do
   authority, current lifecycle state, and the refreshed view are all resolved
   again by the host.
   """
-
   alias Ryker.Slack.{Collections, ControlValue, HomeEvent, HomeInteraction, HomeSubmission}
   alias Ryker.Slack.Operators
 

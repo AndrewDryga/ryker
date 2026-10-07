@@ -24,7 +24,6 @@ defmodule Ryker.ControlPlane.SetupPage do
   is titled and timed by what is left, and one only not done yet adds nothing
   to its own title.
   """
-
   use Phoenix.Component
   alias Ryker.ControlPlane.{Components, Integrations, Kit, Paths}
 

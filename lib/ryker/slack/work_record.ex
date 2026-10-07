@@ -6,7 +6,6 @@ defmodule Ryker.Slack.WorkRecord do
   publication custody. They never ask a model to reconstruct history or fill
   missing impact, cause, ownership, or corrective-action facts.
   """
-
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Episodes.Words
   alias Ryker.Publication.{Followup, Publication}

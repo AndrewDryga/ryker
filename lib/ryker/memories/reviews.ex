@@ -16,7 +16,6 @@ defmodule Ryker.Memories.Reviews do
   (`operational_memory_active_identity`), and the review grouped facts by a
   key that contains it.
   """
-
   alias Ryker.AdvisoryLock
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Behavior
@@ -317,7 +316,7 @@ defmodule Ryker.Memories.Reviews do
     if Repo.exists?(MemoryReviewItem.Query.by_source_digest(digest)) do
       false
     else
-      id = Ecto.UUID.generate()
+      id = Repo.generate_id()
 
       changeset =
         %{

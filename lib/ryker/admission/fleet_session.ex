@@ -12,7 +12,6 @@ defmodule Ryker.Admission.FleetSession do
   (`Ryker.Admission.ReadySessions`), which keeps its own name. Both are found
   by the message and generation they serve.
   """
-
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
   alias Ryker.Work.{Custody, Session}
@@ -62,7 +61,7 @@ defmodule Ryker.Admission.FleetSession do
       admission_input_id: entry.id,
       external_ref: external_ref,
       generation: entry.execution_generation,
-      id: Ecto.UUID.generate(),
+      id: Repo.generate_id(),
       policy: policy,
       policy_digest: digest
     }

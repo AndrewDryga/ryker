@@ -1,4 +1,5 @@
 defmodule Mix.Tasks.Ryker.CoopWorker do
+  @shortdoc "Enrolls, drains, resumes, or revokes a Coop worker"
   @moduledoc """
   Manages one Coop worker's enrollment and operator-owned lifecycle.
 
@@ -11,12 +12,9 @@ defmodule Mix.Tasks.Ryker.CoopWorker do
   The plaintext token is printed exactly once. Store it in the worker's private
   `enrollment_token_file`; the worker removes that file after enrollment.
   """
-
   use Mix.Task
   alias Mix.Tasks.Ryker.OperatorSupport, as: Support
   alias Ryker.CoopFleet.{Enrollment, WorkerLifecycle}
-
-  @shortdoc "Enrolls, drains, resumes, or revokes a Coop worker"
 
   @impl Mix.Task
   def run(arguments) do

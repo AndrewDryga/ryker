@@ -1,7 +1,6 @@
 defmodule Ryker.Artifacts.IngressReference do
   @moduledoc false
-
-  use Ecto.Schema
+  use Ryker, :schema
   alias Ryker.Artifacts.Artifact
   alias Ryker.Ingress.Inbox.Entry
 
@@ -10,6 +9,6 @@ defmodule Ryker.Artifacts.IngressReference do
     belongs_to(:input, Entry, type: :binary_id, primary_key: true)
     belongs_to(:artifact, Artifact, type: :binary_id, primary_key: true)
 
-    timestamps(type: :utc_datetime_usec)
+    timestamps()
   end
 end

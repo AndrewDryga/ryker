@@ -1,6 +1,6 @@
 defmodule Ryker.Settings.GitHub do
   @moduledoc "GitHub App connection: verified app identity and desired enabled state."
-  use Ecto.Schema
+  use Ryker, :schema
 
   @primary_key {:id, :string, autogenerate: false}
 

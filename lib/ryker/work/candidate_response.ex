@@ -1,6 +1,6 @@
 defmodule Ryker.Work.CandidateResponse do
   @moduledoc "An exact candidate attempt retained independently of the turn's execution cursor."
-  use Ecto.Schema
+  use Ryker, :schema
 
   @primary_key false
   schema "work_candidate_responses" do

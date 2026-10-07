@@ -5,7 +5,6 @@ defmodule Ryker.Fixtures.WorkSessions do
   a transaction: until 2026-10-07 that was `Ryker.Work.Custody.pin_episode`,
   in six arities nothing else called (2026-10-04 review).
   """
-
   alias Ryker.Repo
   alias Ryker.Work.Custody
 

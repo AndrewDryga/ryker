@@ -6,7 +6,6 @@ defmodule Ryker.Inspectors do
   until 2026-10-07 these were public functions of the contexts that nothing
   else called.
   """
-
   alias Ryker.Behaviors.StandingRuleInventory
   alias Ryker.CoopFleet.SessionEvidence
   alias Ryker.Emisar.Approval

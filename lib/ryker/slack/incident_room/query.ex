@@ -1,6 +1,6 @@
 defmodule Ryker.Slack.IncidentRoom.Query do
   @moduledoc "Slack channels opened for incidents, for every read of `slack_incident_rooms`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Episodes.Episode
   alias Ryker.Records.Record
   alias Ryker.Slack.{ChannelConfiguration, IncidentRoom}

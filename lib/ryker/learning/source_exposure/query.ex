@@ -1,6 +1,6 @@
 defmodule Ryker.Learning.SourceExposure.Query do
   @moduledoc "The message sources each Work session was shown, for every read of `episode_work_source_exposures`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Learning.SourceExposure
 
   def all, do: from(exposures in SourceExposure, as: :episode_work_source_exposures)

@@ -1,6 +1,6 @@
 defmodule Ryker.Behaviors.StandingAssignmentRun.Query do
   @moduledoc "Each input a standing assignment ran for, for every read of `standing_assignment_runs`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Behaviors.{Behavior, StandingAssignmentRun}
   alias Ryker.Episodes.Episode
 

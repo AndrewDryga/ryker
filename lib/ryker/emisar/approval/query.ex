@@ -1,6 +1,6 @@
 defmodule Ryker.Emisar.Approval.Query do
   @moduledoc "Emisar approvals Ryker asked a person for, for every read of `episode_emisar_approvals`."
-  import Ecto.Query
+  use Ryker, :query
   alias Ryker.Emisar.Approval
   alias Ryker.Episodes.Episode
   alias Ryker.Records.Record

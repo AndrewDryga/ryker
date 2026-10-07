@@ -9,7 +9,6 @@ defmodule Ryker.Publication.Followups.Store do
   wrapper here are the ones every stage's entry uses. Every row written here
   is announced as a change to its publication (`Ryker.Publication.Custody`).
   """
-
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
   alias Ryker.Publication.Custody

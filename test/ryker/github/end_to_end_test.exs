@@ -1,8 +1,5 @@
 defmodule Ryker.GitHub.EndToEndTest do
   use Ryker.DataCase, async: true
-
-  @moduletag isolation: "REPEATABLE READ"
-
   import Plug.Conn
   import Plug.Test
   alias Ryker.Admission.Dispatcher, as: AdmissionDispatcher
@@ -17,6 +14,8 @@ defmodule Ryker.GitHub.EndToEndTest do
   alias Ryker.Slack.Publisher, as: SlackPublisher
   alias Ryker.TestSupport.{FakeCoopAPI, FakeSlackAPI, FakeWorkCoopAPI, GitHubRequester}
   alias Ryker.Work.{Custody, Dispatcher, Executor, Final, Session, SubmissionBuilder, Turn}
+
+  @moduletag isolation: "REPEATABLE READ"
 
   @now ~U[2026-08-28 12:00:00.000000Z]
   @secret String.duplicate("s", 32)
