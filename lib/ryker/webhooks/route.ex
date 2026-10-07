@@ -7,6 +7,7 @@ defmodule Ryker.Webhooks.Route do
   """
 
   alias Ryker.Ingress.WorkProfile
+  alias Ryker.Publication.DeploymentSignal
   alias Ryker.Secret
 
   # A Grafana group of five hundred alerts, the most one delivery may carry.
@@ -24,18 +25,20 @@ defmodule Ryker.Webhooks.Route do
     :work_profile
   ]
   @mapping_required [:event_id, :status, :title]
+  # In the order the settings form shows them.
   @mapping_optional [
-    :annotations,
+    :severity,
+    :summary,
+    :source_url,
+    :starts_at,
     :ends_at,
     :incident_id,
     :item_id,
     :labels,
-    :revision,
-    :severity,
-    :source_url,
-    :starts_at,
-    :summary
+    :annotations,
+    :revision
   ]
+  @lifecycle_fields [:environments, :kinds, :repositories, :targets]
 
   @enforce_keys @required_fields ++ @optional_fields
   defstruct @required_fields ++ @optional_fields
@@ -70,6 +73,18 @@ defmodule Ryker.Webhooks.Route do
           publication_lifecycle: publication_lifecycle() | nil,
           work_profile: WorkProfile.t() | nil
         }
+
+  @doc "The fields a custom mapping may fill, the required ones first."
+  @spec mapping_fields() :: [atom()]
+  def mapping_fields, do: @mapping_required ++ @mapping_optional
+
+  @doc "The fields every custom mapping fills."
+  @spec required_mapping_fields() :: [atom()]
+  def required_mapping_fields, do: @mapping_required
+
+  @doc "The lists a publication lifecycle scope gives, every one of them."
+  @spec lifecycle_fields() :: [atom()]
+  def lifecycle_fields, do: @lifecycle_fields
 
   @spec new(keyword() | map()) :: {:ok, t()} | {:error, term()}
   def new(attributes) do
@@ -152,7 +167,7 @@ defmodule Ryker.Webhooks.Route do
   defp prepare_publication_lifecycle(%{} = scope) when map_size(scope) == 4 do
     with {:ok, environments} <- scope_list(scope[:environments]),
          {:ok, kinds} <- scope_list(scope[:kinds]),
-         true <- Enum.all?(kinds, &(&1 in ~w(deployment terraform))),
+         true <- Enum.all?(kinds, &(&1 in DeploymentSignal.kinds())),
          {:ok, repositories} <- scope_list(scope[:repositories]),
          {:ok, targets} <- scope_list(scope[:targets]) do
       {:ok,

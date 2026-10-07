@@ -1396,7 +1396,8 @@ defmodule Ryker.Runtime.Assembly do
     end
   end
 
-  @mapping_fields ~w(annotations ends_at event_id incident_id item_id labels revision severity source_url starts_at status summary title)
+  # A saved mapping's field names, each with the name the route gives it.
+  @mapping_fields Map.new(WebhookRoute.mapping_fields(), &{Atom.to_string(&1), &1})
 
   defp webhook_adapter(%{adapter_kind: :universal}), do: {:ok, %{kind: :universal}}
 
@@ -1404,14 +1405,14 @@ defmodule Ryker.Runtime.Assembly do
     do: {:ok, %{kind: :grafana, group_by_labels: source.group_by_labels}}
 
   defp webhook_adapter(%{adapter_kind: :mapped_json} = source) do
-    if Enum.all?(Map.keys(source.mapping), &(&1 in @mapping_fields)) do
+    if Enum.all?(Map.keys(source.mapping), &Map.has_key?(@mapping_fields, &1)) do
       {:ok,
        %{
          kind: :mapped_json,
          group_by_labels: source.group_by_labels,
          mapping:
            Map.new(source.mapping, fn {field, path} ->
-             {String.to_existing_atom(field), path}
+             {Map.fetch!(@mapping_fields, field), path}
            end)
        }}
     else
@@ -1424,8 +1425,8 @@ defmodule Ryker.Runtime.Assembly do
   defp webhook_lifecycle(%{publication_lifecycle: scope}, repositories) do
     if Enum.all?(scope["repositories"], &Map.has_key?(repositories, &1)) do
       {:ok,
-       Map.new(~w(environments kinds repositories targets), fn field ->
-         {String.to_existing_atom(field), Enum.sort(scope[field])}
+       Map.new(WebhookRoute.lifecycle_fields(), fn field ->
+         {field, Enum.sort(scope[Atom.to_string(field)])}
        end)}
     else
       {:error, :lifecycle_repository_unreviewed}

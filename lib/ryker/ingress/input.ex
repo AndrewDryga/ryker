@@ -9,6 +9,7 @@ defmodule Ryker.Ingress.Input do
 
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Command
+  alias Ryker.Publication.DeploymentSignal
   alias Ryker.Transcription
 
   @content_limit 49_152
@@ -373,7 +374,7 @@ defmodule Ryker.Ingress.Input do
          } = capability
        ) do
     map_size(capability) == 4 and scope_references?(environments) and scope_references?(kinds) and
-      Enum.all?(kinds, &(&1 in ~w(deployment terraform))) and
+      Enum.all?(kinds, &(&1 in DeploymentSignal.kinds())) and
       scope_references?(repositories) and scope_references?(targets)
   end
 

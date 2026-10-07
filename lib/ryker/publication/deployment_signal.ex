@@ -12,6 +12,10 @@ defmodule Ryker.Publication.DeploymentSignal do
   @kinds ~w(deployment terraform)
   @states ~w(pending succeeded failed)
 
+  @doc "What a lifecycle signal can report finishing: a deployment or a Terraform apply."
+  @spec kinds() :: [String.t()]
+  def kinds, do: @kinds
+
   @spec prepare(map()) :: {:ok, map()} | {:error, term()}
   def prepare(%{"event_type" => @event_type, "payload" => payload} = content)
       when map_size(content) == 2 and is_map(payload) do

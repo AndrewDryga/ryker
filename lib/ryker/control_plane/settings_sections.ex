@@ -13,7 +13,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
   alias Ryker.Settings
   alias Ryker.Settings.{Learning, PricingRate, Publication, Report, Slack, WebhookSource, Work}
   alias Ryker.Slack.Names
-  alias Ryker.Webhooks.Presets
+  alias Ryker.Webhooks.{Presets, Route}
   alias Ryker.Work.ExecutionTarget
 
   @day 86_400
@@ -62,8 +62,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
     {"github", "A GitHub issue or pull request"},
     {"control_plane", "A Chat conversation"}
   ]
-  @mapping_fields ~w(event_id status title severity summary source_url starts_at ends_at incident_id item_id labels annotations revision)
-  @lifecycle_fields ~w(environments kinds repositories targets)
+  @mapping_fields Enum.map(Route.mapping_fields(), &Atom.to_string/1)
+  @lifecycle_fields Enum.map(Route.lifecycle_fields(), &Atom.to_string/1)
   # A subfield's label, and for the deployment reports what goes in it.
   @subfield_labels %{
     "event_id" => "Event ID",

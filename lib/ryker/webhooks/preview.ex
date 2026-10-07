@@ -86,8 +86,8 @@ defmodule Ryker.Webhooks.Preview do
   defp lifecycle(nil), do: nil
 
   defp lifecycle(scope) do
-    Map.new(~w(environments kinds repositories targets), fn field ->
-      {String.to_existing_atom(field), Map.get(scope, field, [])}
+    Map.new(Route.lifecycle_fields(), fn field ->
+      {field, Map.get(scope, Atom.to_string(field), [])}
     end)
   end
 
