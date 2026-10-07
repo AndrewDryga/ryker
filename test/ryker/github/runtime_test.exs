@@ -33,6 +33,8 @@ defmodule Ryker.GitHub.RuntimeTest do
     for invalid <- [
           %{},
           Map.delete(configuration(), :server),
+          Map.delete(configuration(), :app_id),
+          Map.put(configuration(), :app_id, 0),
           Map.put(configuration(), :extra, true),
           :invalid
         ] do
@@ -46,6 +48,7 @@ defmodule Ryker.GitHub.RuntimeTest do
 
   defp configuration do
     %{
+      app_id: 7_001,
       server: %{
         bot_login: "ryker-test",
         bindings: %{

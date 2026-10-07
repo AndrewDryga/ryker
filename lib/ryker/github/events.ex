@@ -14,7 +14,7 @@ defmodule Ryker.GitHub.Events do
 
   alias Ecto.Changeset
   alias Ryker.{CanonicalJSON, Repo}
-  alias Ryker.GitHub.{Binding, Event}
+  alias Ryker.GitHub.{Binding, DeliveryCursor, Event}
 
   @dispositions ~w(metadata routed continued duplicate failed)
   @abandoned_seconds 10 * 60
@@ -67,6 +67,33 @@ defmodule Ryker.GitHub.Events do
   end
 
   def complete(:duplicate, _disposition, _reason), do: {:ok, :duplicate}
+
+  @doc """
+  Where `Ryker.GitHub.DeliveryPoller` stopped reading App `app_id`'s
+  deliveries, nil before its first read.
+  """
+  @spec delivery_cursor(pos_integer()) :: non_neg_integer() | nil
+  def delivery_cursor(app_id) do
+    app_id
+    |> DeliveryCursor.Query.by_app_id()
+    |> DeliveryCursor.Query.select_through_delivery_id()
+    |> Repo.one()
+  end
+
+  @doc "Keeps where `Ryker.GitHub.DeliveryPoller` stopped reading App `app_id`'s deliveries."
+  @spec keep_delivery_cursor(pos_integer(), non_neg_integer()) :: :ok | {:error, term()}
+  def keep_delivery_cursor(app_id, through) do
+    %{app_id: app_id, through_delivery_id: through, updated_at: Repo.now!()}
+    |> DeliveryCursor.Changeset.put()
+    |> Repo.insert(
+      on_conflict: {:replace, [:through_delivery_id, :updated_at]},
+      conflict_target: :app_id
+    )
+    |> case do
+      {:ok, _cursor} -> :ok
+      {:error, _changeset} = error -> error
+    end
+  end
 
   @doc """
   The deliveries among `delivery_refs` that were taken and will not be taken

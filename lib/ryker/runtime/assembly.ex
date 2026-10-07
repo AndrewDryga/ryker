@@ -883,6 +883,7 @@ defmodule Ryker.Runtime.Assembly do
       delivery_binding: delivery_binding,
       receive_timeout_ms: defaults.receive_timeout_ms,
       runtime: %{
+        app_id: settings.github.app_id,
         onboarding: %{},
         server: %{
           bindings: Map.new(prepared, fn {name, item} -> {name, item.trusted_binding} end),

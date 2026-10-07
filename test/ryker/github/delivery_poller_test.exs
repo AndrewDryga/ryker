@@ -7,10 +7,12 @@ defmodule Ryker.GitHub.DeliveryPollerTest do
   reached it, once.
   """
   use Ryker.DataCase, async: false
-  alias Ryker.GitHub.{Binding, DeliveryPoller, Event}
+  import ExUnit.CaptureLog
+  alias Ryker.GitHub.{Binding, DeliveryPoller, Event, Events}
   alias Ryker.Ingress.Inbox.Entry
 
   @secret String.duplicate("s", 32)
+  @app_id 7_001
   @now ~U[2026-09-28 21:00:00Z]
 
   defmodule GitHub do
@@ -135,11 +137,36 @@ defmodule Ryker.GitHub.DeliveryPollerTest do
     refute_received {:github, "/app/hook/deliveries?per_page=100&cursor=" <> _cursor}
   end
 
+  # Where a read stopped was kept in memory only, so after every restart the
+  # poller read a day of deliveries back, a thousand at most, and warned that
+  # older ones were skipped (2026-10-07: each deploy on an App with CI).
+  test "a restarted poller reads on from where it stopped, not a day back" do
+    checks =
+      for id <- 3..2//-1,
+          do: delivery(id, "delivery-check-#{id}", "check_run", ~U[2026-09-28 20:55:00Z])
+
+    payloads = Map.new(2..3, &{&1, check_payload(&1)}) |> Map.put(4, comment_payload())
+    DeliveryPoller.poll(paged_state([checks], payloads))
+    assert Events.delivery_cursor(@app_id) == 3
+
+    comment = delivery(4, "delivery-comment", "issue_comment", ~U[2026-09-28 20:58:00Z])
+    earlier = delivery(1, "delivery-earlier", "check_run", ~U[2026-09-28 20:50:00Z])
+    restarted = paged_state([[comment | checks], [earlier]], payloads)
+
+    log = capture_log(fn -> DeliveryPoller.poll(restarted) end)
+
+    assert_received {:github, "/app/hook/deliveries/4"}
+    refute_received {:github, "/app/hook/deliveries?per_page=100&cursor=v1_page1"}
+    refute log =~ "older ones are skipped"
+    assert Events.delivery_cursor(@app_id) == 4
+  end
+
   defp state(deliveries, payloads, access \\ fn _binding, _payload -> :ok end),
     do: paged_state([deliveries], payloads, access)
 
   defp paged_state(pages, payloads, access \\ fn _binding, _payload -> :ok end) do
     DeliveryPoller.state(%{
+      app_id: @app_id,
       app_http: %{pages: pages, payloads: payloads, test: self()},
       requester: GitHub,
       clock: fn -> @now end,

@@ -60,6 +60,11 @@ defmodule Ryker.Retention.Policy do
         "authenticated webhook delivery identity, quiet-routing disposition and connection lag evidence"
     },
     %{
+      table: "github_delivery_cursors",
+      class: :kept,
+      why: "where the delivery poller stopped reading an App's deliveries, one row per App"
+    },
+    %{
       table: "publication_settings",
       class: :kept,
       why: "publication identity and desired state; existing branch namespaces depend on it"

@@ -21,7 +21,10 @@ defmodule Ryker.GitHub.DeliveryPoller do
   A delivery older than a day is not replayed: a Ryker that was off for days
   should not answer week-old comments or act on week-old CI results. One read
   goes back at most ten pages, a thousand deliveries; older ones are skipped
-  with a warning.
+  with a warning. Where a read stopped is kept in PostgreSQL
+  (`Ryker.GitHub.Events.delivery_cursor/1`), so a restart reads on from
+  there: kept in memory only, every restart read a day back and warned
+  (2026-10-07: each deploy on an App with CI).
   """
 
   use GenServer
@@ -57,6 +60,7 @@ defmodule Ryker.GitHub.DeliveryPoller do
     router = Map.fetch!(options, :router)
 
     %{
+      app_id: Map.fetch!(options, :app_id),
       app_http: Map.fetch!(options, :app_http),
       requester: Map.get(options, :requester, JSONClient),
       router: Router.init(router),
@@ -64,8 +68,10 @@ defmodule Ryker.GitHub.DeliveryPoller do
       interval_ms: Map.get(options, :interval_ms, @interval_ms),
       clock: Map.get(options, :clock, &DateTime.utc_now/0),
       seen: MapSet.new(),
-      # Every delivery up to this id was handled; nil until the first read.
+      # Every delivery up to this id was handled; read from PostgreSQL before
+      # the first read, nil while no read ever finished.
       through: nil,
+      loaded?: false,
       failing: nil
     }
   end
@@ -85,6 +91,7 @@ defmodule Ryker.GitHub.DeliveryPoller do
   """
   @spec poll(map()) :: map()
   def poll(state) do
+    state = loaded(state)
     oldest = DateTime.add(state.clock.(), -@oldest_seconds, :second)
 
     case read(state, oldest, @first_page, [], @maximum_pages) do
@@ -159,7 +166,24 @@ defmodule Ryker.GitHub.DeliveryPoller do
       |> Enum.sort_by(& &1["id"])
       |> Enum.reduce({state, []}, &deliver/2)
 
-    %{state | through: through(state.through, deliveries, pending)}
+    keep(state, through(state.through, deliveries, pending))
+  end
+
+  defp loaded(%{loaded?: true} = state), do: state
+
+  defp loaded(state),
+    do: %{state | through: Events.delivery_cursor(state.app_id), loaded?: true}
+
+  defp keep(%{through: through} = state, through), do: state
+  defp keep(state, nil), do: state
+
+  defp keep(state, through) do
+    case Events.keep_delivery_cursor(state.app_id, through) do
+      :ok -> :ok
+      {:error, reason} -> Logger.warning("GitHub delivery cursor not kept: #{inspect(reason)}")
+    end
+
+    %{state | through: through}
   end
 
   # A delivery not taken is read again next time, so the next read reaches

@@ -17,13 +17,23 @@ defmodule Ryker.GitHub.Runtime do
   end
 
   @doc false
-  @spec options!(map() | keyword()) :: %{server: map(), tokens: map(), onboarding: map()}
+  @spec options!(map() | keyword()) :: %{
+          app_id: pos_integer(),
+          server: map(),
+          tokens: map(),
+          onboarding: map()
+        }
   def options!(configuration) do
     configuration = normalize_configuration!(configuration)
     tokens = InstallationTokens.options!(Map.fetch!(configuration, :tokens))
     onboarding = OnboardingWorker.options!(Map.get(configuration, :onboarding, %{}))
     server = Server.options!(Map.fetch!(configuration, :server))
-    %{onboarding: onboarding, server: server, tokens: tokens}
+    app_id = Map.fetch!(configuration, :app_id)
+
+    unless is_integer(app_id) and app_id > 0,
+      do: raise(ArgumentError, "GitHub runtime configuration is invalid")
+
+    %{app_id: app_id, onboarding: onboarding, server: server, tokens: tokens}
   end
 
   @impl Supervisor
@@ -37,6 +47,7 @@ defmodule Ryker.GitHub.Runtime do
         # what GitHub could not deliver, such as to 127.0.0.1.
         {DeliveryPoller,
          %{
+           app_id: options.app_id,
            app_http: options.tokens.app_http,
            requester: options.tokens.requester,
            router: Server.router_options(options.server)
@@ -49,8 +60,8 @@ defmodule Ryker.GitHub.Runtime do
   defp normalize_configuration!(configuration) do
     Options.normalize!(
       configuration,
-      [:onboarding, :server, :tokens],
-      [:server, :tokens],
+      [:app_id, :onboarding, :server, :tokens],
+      [:app_id, :server, :tokens],
       "GitHub runtime configuration is invalid"
     )
   end

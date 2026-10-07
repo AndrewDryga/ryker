@@ -3,6 +3,7 @@ defmodule Ryker.Work.ActivityTest do
   alias Ryker.ControlPlane.{EpisodeProjection, ToolCard}
   alias Ryker.Fixtures.WorkSessions
   use Ryker.DataCase, async: false
+  import ExUnit.CaptureLog
   import Phoenix.LiveViewTest
 
   defmodule OversizedAPI do
@@ -167,7 +168,6 @@ defmodule Ryker.Work.ActivityTest do
     refute inspect(Activity.list_for_episode(started.episode.id)) =~ "opaque-private-value"
     changed = put_in(secret_event, ["payload", "text"], "different text")
     assert {:error, {:coop_activity_replay_conflict, 5}} = Activity.ingest(session.id, [changed])
-    assert {:error, :coop_activity_unavailable} = Activity.sync(session, RaisingAPI, nil)
 
     # Keep a complete public message through redaction, including secrets that
     # straddled Coop's former 4 KiB event boundary. Only then bound display text.
@@ -221,6 +221,36 @@ defmodule Ryker.Work.ActivityTest do
     assert [read] = reads
     assert Map.get(read, :path_context) == paths
     assert read.tool_kind == "read"
+  end
+
+  # A raise while reading a session's activity answered "unavailable" and
+  # logged nothing, so a bug in Ryker read as Coop being down (2026-10-04
+  # review).
+  test "an activity read that raises is logged, and the sync still answers softly" do
+    {:ok, started} = Episodes.apply(EpisodeFixtures.admit_input())
+
+    {:ok, session} =
+      WorkSessions.pin_episode(started.episode.id, "policy:activity", String.duplicate("a", 64))
+
+    {:ok, claim} = Custody.claim_next("activity-raise", 60, :work)
+
+    {:ok, session} =
+      Custody.bind_session(
+        started.episode.id,
+        claim.turn.turn_ref,
+        claim.lease_ref,
+        session.generation,
+        session.create_generation,
+        "remote:activity-raise"
+      )
+
+    log =
+      capture_log(fn ->
+        assert {:error, :coop_activity_unavailable} = Activity.sync(session, RaisingAPI, nil)
+      end)
+
+    assert log =~ "Coop activity read raised"
+    assert log =~ "transport unavailable"
   end
 
   test "a replayed Coop page advances one durable cursor without duplicating activity" do

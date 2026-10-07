@@ -237,11 +237,15 @@ defmodule Ryker.Work.Activity do
   end
 
   # Recording failure leaves retry custody; it must not turn an otherwise valid
-  # admission or work result into an execution failure.
+  # admission or work result into an execution failure. A raise is logged: it
+  # answered "unavailable" with nothing said, so a bug in Ryker read as Coop
+  # being down (2026-10-04 review).
   defp fetch_events(api, client, remote_id, cursor) do
     api.list_events(client, remote_id, cursor, @sync_page_size)
   rescue
-    _ -> {:error, :coop_activity_unavailable}
+    error ->
+      Ryker.Rescued.log("Coop activity read", error, __STACKTRACE__)
+      {:error, :coop_activity_unavailable}
   catch
     :exit, _ -> {:error, :coop_activity_unavailable}
   end

@@ -50,8 +50,8 @@ defmodule Ryker.MixProject do
   defp deps do
     [
       {:bandit, "~> 1.12"},
-      {:phoenix, "1.8.10"},
-      {:phoenix_live_view, "1.2.9"},
+      {:phoenix, "~> 1.8.15"},
+      {:phoenix_live_view, "~> 1.2.12"},
       {:phoenix_html, "~> 4.3"},
       {:ecto_sql, "~> 3.14"},
       {:finch, "~> 0.23"},
