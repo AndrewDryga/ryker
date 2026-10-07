@@ -77,13 +77,17 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
     # The person's name is kept so every page can name them on what they did;
     # every action the page takes is recorded as them (`actor/1`).
-    if connected?(socket), do: ConsolePeople.seen(viewer)
+    if connected?(socket) do
+      ConsolePeople.seen(viewer)
+      reload_when_sign_in_ends(viewer)
+    end
 
     {:ok,
      socket
      |> assign(
        viewer: viewer,
        path: "/",
+       location: "/",
        params: %{},
        body: "",
        running_system: nil,
@@ -168,6 +172,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
      socket
      |> assign(
        path: location.path,
+       location:
+         if(location.query, do: location.path <> "?" <> location.query, else: location.path),
        params: text_params(params),
        filter_menu: nil,
        disclosed: navigation_disclosures(socket, location.path),
@@ -340,6 +346,19 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   defp reload_drained(socket), do: assign(socket, :reload_scheduled?, false)
 
+  # A page opened through Cloudflare Access acts only while the sign-in that
+  # opened it counts. The socket checked it once, when it connected, and an
+  # open page went on taking actions after it ended (IL-15, 2026-10-07). The
+  # page reloads then instead, which signs in again; its components run in
+  # this process and stop with it. Erlang's longest timer is about 49 days,
+  # and a page open that long reloads early.
+  defp reload_when_sign_in_ends(%{via: :cloudflare, until: until}) do
+    left = max(until - System.os_time(:second), 0) * 1000
+    Process.send_after(self(), :sign_in_ended, min(left, 4_294_967_295))
+  end
+
+  defp reload_when_sign_in_ends(_viewer), do: nil
+
   @impl true
   def handle_info(event, socket)
       when is_tuple(event) and tuple_size(event) > 1 and elem(event, 0) in @page_events,
@@ -404,6 +423,9 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
      |> assign(settings: {:ok, view}, setup_failure: nil)
      |> return_with(list, message)}
   end
+
+  def handle_info(:sign_in_ended, socket),
+    do: {:noreply, redirect(socket, to: socket.assigns.location)}
 
   # Anything else, such as a reply to a request this page no longer waits
   # for, changes nothing it shows.

@@ -139,19 +139,42 @@ defmodule Ryker.ControlPlane.CloudflareViewerLiveTest do
     assert {:ok, _socket} = LiveSocket.connect(%{}, socket, at.("localhost", %{}))
   end
 
+  # The socket checks the sign-in when it connects, so a page left open went on
+  # taking actions after the sign-in ended (IL-15, 2026-10-07).
+  test "an open page reloads through Access when its sign-in ends", %{key: key} do
+    {:ok, _snapshot} = Settings.initialize("control-plane:local")
+
+    # Access counts a token a minute past its expiry, so this sign-in ends a
+    # second after the page opens.
+    ending = token(elem(key, 0), elem(key, 1), "dev@tenant.example", System.os_time(:second) - 59)
+
+    {:ok, view, _html} =
+      build_conn()
+      |> Map.put(:host, @published)
+      |> put_req_header("cf-access-jwt-assertion", ending)
+      |> live("/environments")
+
+    assert_redirect(view, "/environments", 3_000)
+
+    # The reload returns to the page and query the person had open.
+    {:ok, view, _html} = key |> signed_in("dev@tenant.example") |> live("/activity?q=deploy")
+    send(view.pid, :sign_in_ended)
+    assert_redirect(view, "/activity?q=deploy")
+  end
+
   defp signed_in({key, team}, email) do
     build_conn()
     |> Map.put(:host, @published)
     |> put_req_header("cf-access-jwt-assertion", token(key, team, email))
   end
 
-  defp token(key, team, email) do
+  defp token(key, team, email, expires \\ System.os_time(:second) + 600) do
     now = System.os_time(:second)
 
     claims = %{
       "aud" => [@audience],
       "email" => email,
-      "exp" => now + 600,
+      "exp" => expires,
       "iat" => now,
       "iss" => "https://" <> team,
       "nbf" => now,

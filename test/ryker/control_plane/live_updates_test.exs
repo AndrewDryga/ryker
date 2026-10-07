@@ -87,7 +87,8 @@ defmodule Ryker.ControlPlane.LiveUpdatesTest do
       |> Regex.scan(source, capture: :all_but_first)
       |> List.flatten()
 
-    assert scheduled == [":reload_page"]
+    # The other timer reads nothing: it ends a page whose Access sign-in ended.
+    assert scheduled == [":reload_page", ":sign_in_ended"]
   end
 
   defp live_paths do
