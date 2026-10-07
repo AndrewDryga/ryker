@@ -5,6 +5,7 @@ defmodule Ryker.Knowledge do
   A topic learned, revised, forgotten or pruned is announced after the
   outermost commit (`subscribe_knowledge/0`).
   """
+  alias Ryker.AdvisoryLock
   alias Ryker.{CanonicalJSON, Repo}
   alias Ryker.Config
   alias Ryker.Crypto
@@ -689,8 +690,7 @@ defmodule Ryker.Knowledge do
   defp lock_scope(key) do
     # Matching is a scope decision, not a title/key decision. Keep the unique
     # key index as the final fence while serializing differently named creates.
-    lock = Crypto.lock_key("knowledge-scope:" <> key)
-    Repo.query!("SELECT pg_advisory_xact_lock($1)", [lock])
+    AdvisoryLock.hold!(Crypto.lock_key("knowledge-scope:" <> key))
   end
 
   defp allowed_update?(nil, %{"target_ref" => nil, "expected_version" => 0}, _, [], _), do: true

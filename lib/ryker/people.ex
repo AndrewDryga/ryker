@@ -29,6 +29,7 @@ defmodule Ryker.People do
   the ninety days conversation memory keeps.
   """
 
+  alias Ryker.AdvisoryLock
   alias Ryker.Crypto
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.People.{PersonFact, PersonFactQuery}
@@ -119,9 +120,7 @@ defmodule Ryker.People do
   # the later crashed on the unique index, and both counted the cap before
   # either wrote (2026-10-04 review).
   defp keep(%{entry: entry, person: person, key: key, fact: fact}, now) do
-    Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-      "person-facts:" <> person
-    ])
+    AdvisoryLock.hold!("person-facts:" <> person)
 
     existing =
       person

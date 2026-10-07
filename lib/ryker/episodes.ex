@@ -14,6 +14,7 @@ defmodule Ryker.Episodes do
   commit, with `broadcast_episode_updated/1`.
   """
 
+  alias Ryker.AdvisoryLock
   alias Ryker.Episodes.{Command, ConversationLock, CorrelationClaims, Episode, EpisodeChangeset}
   alias Ryker.Episodes.{EpisodeQuery, Event, EventChangeset, EventQuery, Kernel, Origins}
   alias Ryker.Episodes.{RoutingDigests, Transition}
@@ -159,8 +160,8 @@ defmodule Ryker.Episodes do
   defp guard_active_work_transition(_repo, _episode, _command, _options), do: :ok
 
   defp lock_source(repo, episode_key) do
-    case repo.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [episode_key]) do
-      {:ok, _result} -> {:ok, :locked}
+    case AdvisoryLock.hold(episode_key, :exclusive, repo) do
+      :ok -> {:ok, :locked}
       {:error, reason} -> {:error, {:store_failed, :source_lock, reason}}
     end
   end

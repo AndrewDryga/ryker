@@ -10,6 +10,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
 
   import Ecto.Changeset
   require Logger
+  alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.{Bodies, Command, CommandQuery, Placement, PlacementQuery, Protocol}
   alias Ryker.CoopFleet.ControlPlane.{Placements, Shared}
@@ -68,9 +69,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
           |> Repo.one() ||
             Shared.rollback({:coop_session_not_found, session_id})
 
-        Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-          "coop-command:" <> key
-        ])
+        AdvisoryLock.hold!("coop-command:" <> key)
 
         callback.(session, Repo.one(CommandQuery.by_idempotency_key(key)))
       end)

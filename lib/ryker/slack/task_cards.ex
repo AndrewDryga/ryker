@@ -10,6 +10,7 @@ defmodule Ryker.Slack.TaskCards do
   outermost commit (`subscribe_task_cards/0`), on its request's topics too.
   """
 
+  alias Ryker.AdvisoryLock
   alias Ryker.Delivery.Request
   alias Ryker.Episodes.Episode
   alias Ryker.ErrorDetail
@@ -284,9 +285,7 @@ defmodule Ryker.Slack.TaskCards do
   end
 
   defp ensure_one_locked(skip) do
-    Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-      "slack-task-card-repair"
-    ])
+    AdvisoryLock.hold!("slack-task-card-repair")
 
     row = Repo.one(TaskCardQuery.next_uncarded_offer(skip))
 

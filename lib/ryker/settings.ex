@@ -11,6 +11,7 @@ defmodule Ryker.Settings do
   """
 
   alias Ryker.Accounting.Pricing
+  alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
   alias Ryker.Emisar.ApprovalQuery
@@ -117,7 +118,7 @@ defmodule Ryker.Settings do
   defp read_locked do
     {:ok, fetched} =
       Repo.transaction(fn ->
-        Repo.query!("SELECT pg_advisory_xact_lock_shared(hashtextextended($1, 0))", [@lock_tag])
+        AdvisoryLock.hold!(@lock_tag, :shared)
         read()
       end)
 
@@ -813,9 +814,7 @@ defmodule Ryker.Settings do
     "installation:" <> Crypto.random_hex(32)
   end
 
-  defp lock! do
-    Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [@lock_tag])
-  end
+  defp lock!, do: AdvisoryLock.hold!(@lock_tag)
 
   # A committed write is announced after the outermost commit, so a subscriber
   # that reads the revision it heard about finds it. A no-op save announces

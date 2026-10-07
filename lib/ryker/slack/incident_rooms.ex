@@ -12,6 +12,7 @@ defmodule Ryker.Slack.IncidentRooms do
   the topics of the request it came from and the one investigating it too.
   """
 
+  alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode}
@@ -1531,11 +1532,8 @@ defmodule Ryker.Slack.IncidentRooms do
 
   defp locked_record(id), do: id |> RecordQuery.by_id() |> RecordQuery.lock_for_update()
 
-  defp lock_workspace!(workspace_ref) do
-    key = "slack-incident-room:#{workspace_ref}"
-    Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [key])
-    :ok
-  end
+  defp lock_workspace!(workspace_ref),
+    do: AdvisoryLock.hold!("slack-incident-room:#{workspace_ref}")
 
   defp describe_error(reason) do
     code =

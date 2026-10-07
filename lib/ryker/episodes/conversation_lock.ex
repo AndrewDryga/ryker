@@ -1,13 +1,11 @@
 defmodule Ryker.Episodes.ConversationLock do
   @moduledoc false
+  alias Ryker.AdvisoryLock
 
   @spec lock(Ecto.Repo.t(), map()) :: :ok | {:error, term()}
   def lock(repo, destination) do
-    case repo.query(
-           "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
-           [key(destination)]
-         ) do
-      {:ok, _result} -> :ok
+    case AdvisoryLock.hold(key(destination), :exclusive, repo) do
+      :ok -> :ok
       {:error, reason} -> {:error, {:store_failed, :conversation_lock, reason}}
     end
   end
@@ -19,8 +17,8 @@ defmodule Ryker.Episodes.ConversationLock do
     |> Enum.uniq()
     |> Enum.sort()
     |> Enum.reduce_while(:ok, fn key, :ok ->
-      case repo.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [key]) do
-        {:ok, _result} -> {:cont, :ok}
+      case AdvisoryLock.hold(key, :exclusive, repo) do
+        :ok -> {:cont, :ok}
         {:error, reason} -> {:halt, {:error, {:store_failed, :conversation_lock, reason}}}
       end
     end)

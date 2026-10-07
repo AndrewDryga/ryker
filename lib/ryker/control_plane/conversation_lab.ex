@@ -31,6 +31,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
     "execution_mode" => "live"
   }
 
+  alias Ryker.AdvisoryLock
   alias Ryker.Artifacts
   alias Ryker.ControlPlane.{Actor, ConversationQuery}
   alias Ryker.Episodes
@@ -356,11 +357,8 @@ defmodule Ryker.ControlPlane.ConversationLab do
   end
 
   defp lock_source_item(source_item_ref) do
-    case Repo.query(
-           "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
-           ["conversation-lab-message:" <> source_item_ref]
-         ) do
-      {:ok, _result} -> :ok
+    case AdvisoryLock.hold("conversation-lab-message:" <> source_item_ref) do
+      :ok -> :ok
       {:error, reason} -> {:error, {:conversation_lab_persistence_failed, :source_lock, reason}}
     end
   end

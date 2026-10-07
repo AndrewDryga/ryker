@@ -51,7 +51,6 @@ defmodule Ryker.Learning.Batch do
     unless Ryker.Repo.in_transaction?(),
       do: raise(ArgumentError, "the learning queue lock requires a transaction")
 
-    Ryker.Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended('learning-queue', 0))")
-    :ok
+    Ryker.AdvisoryLock.hold!("learning-queue")
   end
 end

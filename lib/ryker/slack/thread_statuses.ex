@@ -11,6 +11,7 @@ defmodule Ryker.Slack.ThreadStatuses do
   (`subscribe_thread_statuses/0`).
   """
 
+  alias Ryker.AdvisoryLock
   alias Ryker.ErrorDetail
   alias Ryker.Repo
   alias Ryker.Slack.{ThreadStatus, ThreadStatusChangeset, ThreadStatusQuery}
@@ -38,9 +39,7 @@ defmodule Ryker.Slack.ThreadStatuses do
   end
 
   defp reconcile_locked(workspace_ref, targets, minimum_interval_ms, refresh_interval_ms) do
-    Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-      "slack-thread-status:#{workspace_ref}"
-    ])
+    AdvisoryLock.hold!("slack-thread-status:#{workspace_ref}")
 
     now = Repo.now!()
 

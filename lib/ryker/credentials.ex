@@ -6,6 +6,7 @@ defmodule Ryker.Credentials do
   credential's plaintext; discovery and inspection return status metadata only.
   """
 
+  alias Ryker.AdvisoryLock
   alias Ryker.Config
   alias Ryker.Credential
   alias Ryker.Credential.Event
@@ -223,11 +224,7 @@ defmodule Ryker.Credentials do
 
   # One credential's saves, checks and removals take turns, so two first saves
   # of the same credential cannot both insert it.
-  defp lock!(kind, name) do
-    Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-      "ryker-credential:#{kind}:#{name}"
-    ])
-  end
+  defp lock!(kind, name), do: AdvisoryLock.hold!("ryker-credential:#{kind}:#{name}")
 
   defp event!(credential, action, actor_ref, now) do
     %Event{

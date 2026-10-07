@@ -46,6 +46,7 @@ defmodule Ryker.RoutingExamples do
   require Logger
   alias Ryker.Accounting.Pricing
   alias Ryker.Admission.{Attempt, AttemptQuery, Prompt}
+  alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery.RoutingResponseQuery
   alias Ryker.Episodes.EpisodeQuery
@@ -778,13 +779,5 @@ defmodule Ryker.RoutingExamples do
   @spec copy_lock_in_transaction() :: :ok
   def copy_lock_in_transaction, do: lock(:shared)
 
-  defp lock(:shared) do
-    Repo.query!("SELECT pg_advisory_xact_lock_shared(hashtextextended($1, 0))", [@lock])
-    :ok
-  end
-
-  defp lock(:exclusive) do
-    Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [@lock])
-    :ok
-  end
+  defp lock(mode), do: AdvisoryLock.hold!(@lock, mode)
 end

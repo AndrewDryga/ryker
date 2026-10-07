@@ -17,6 +17,7 @@ defmodule Ryker.Ingress.Inbox do
   `subscribe_input/1`).
   """
 
+  alias Ryker.AdvisoryLock
   alias Ryker.Artifacts.References, as: ArtifactReferences
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
@@ -793,8 +794,8 @@ defmodule Ryker.Ingress.Inbox do
   end
 
   defp lock(dedupe_key) do
-    case Repo.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [dedupe_key]) do
-      {:ok, _result} -> :ok
+    case AdvisoryLock.hold(dedupe_key) do
+      :ok -> :ok
       {:error, reason} -> {:error, {:store_failed, :source_lock, reason}}
     end
   end

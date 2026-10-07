@@ -10,6 +10,7 @@ defmodule Ryker.Instructions do
   (`subscribe_instructions/0`).
   """
 
+  alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
   alias Ryker.Instructions.{Edit, Setting, SettingQuery}
   alias Ryker.Repo
@@ -64,9 +65,7 @@ defmodule Ryker.Instructions do
 
   defp save_locked(ref, text, expected_revision, actor_ref) do
     # The same scope lock fences both concurrent first saves and later edits.
-    Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-      "model-instructions:#{ref}"
-    ])
+    AdvisoryLock.hold!("model-instructions:#{ref}")
 
     current = get_ref(ref)
     if current.revision != expected_revision, do: Repo.rollback({:instructions_conflict, current})

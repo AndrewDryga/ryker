@@ -53,6 +53,24 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
       assert issues(il01(), query, @query) == []
       assert issues(il01(), spec, @context) == []
     end
+
+    # Every read starts at a Query module; one that starts at the schema reads
+    # every row the way no Query module says (Emisar IL-1: every queryable
+    # starts at `Schema.Query.fun()`).
+    test "flags a read that starts at a schema instead of its Query module" do
+      source = """
+      defmodule Ryker.Sprockets do
+        def every, do: Repo.all(Sprocket)
+        def counted, do: Sprocket |> Repo.aggregate(:count)
+        def any?, do: Ryker.Repo.exists?(Sprocket)
+        def through_query, do: Repo.all(SprocketQuery.all())
+        def written(rows), do: Repo.insert_all(Sprocket, rows)
+      end
+      """
+
+      assert triggers(il01(), source, @context) ==
+               ["Repo.all(Schema)", "Repo.exists?(Schema)", "Schema |> Repo.aggregate"]
+    end
   end
 
   describe "Ryker.Checks.IL02NoRepoGet" do

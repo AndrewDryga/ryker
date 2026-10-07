@@ -11,6 +11,7 @@ defmodule Ryker.Operator.Actions do
   context that owns it.
   """
 
+  alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
   alias Ryker.Operator.{Action, ActionQuery}
   alias Ryker.Reference
@@ -59,9 +60,7 @@ defmodule Ryker.Operator.Actions do
   end
 
   defp run_locked(attributes, fingerprint, operation) do
-    Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-      attributes.action_ref
-    ])
+    AdvisoryLock.hold!(attributes.action_ref)
 
     locked =
       attributes.action_ref |> ActionQuery.by_action_ref() |> ActionQuery.lock_for_update()

@@ -10,6 +10,7 @@ defmodule Ryker.Memories.Reviews do
   that a concurrent confirmation, forget, or revocation is replacing.
   """
 
+  alias Ryker.AdvisoryLock
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Behavior
   alias Ryker.Behaviors.BehaviorChangeset
@@ -918,8 +919,5 @@ defmodule Ryker.Memories.Reviews do
   end
 
   @doc false
-  def lock_review_maintenance! do
-    Repo.query!("SELECT pg_advisory_xact_lock($1)", [@review_advisory_lock])
-    :ok
-  end
+  def lock_review_maintenance!, do: AdvisoryLock.hold!(@review_advisory_lock)
 end

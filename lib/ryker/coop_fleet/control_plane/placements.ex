@@ -58,7 +58,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
       {:ok, prepared} ->
         now = Repo.now!()
 
-        Worker
+        WorkerQuery.all()
         |> Repo.all()
         |> Enum.any?(fn worker ->
           worker_current?(worker, prepared.workspace_ref, now) and

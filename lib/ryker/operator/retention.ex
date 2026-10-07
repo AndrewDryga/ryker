@@ -8,6 +8,7 @@ defmodule Ryker.Operator.Retention do
   eligible operator discard.
   """
 
+  alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
   alias Ryker.Operator.{Actions, RetentionAction, RetentionActionQuery}
   alias Ryker.Reference
@@ -77,7 +78,7 @@ defmodule Ryker.Operator.Retention do
          action_ref,
          fingerprint
        ) do
-    Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [action_ref])
+    AdvisoryLock.hold!(action_ref)
 
     locked =
       action_ref |> RetentionActionQuery.by_action_ref() |> RetentionActionQuery.lock_for_update()

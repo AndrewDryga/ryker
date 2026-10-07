@@ -11,6 +11,7 @@ defmodule Ryker.Retention.Data do
   (`subscribe_pruning/0`).
   """
 
+  alias Ryker.AdvisoryLock
   alias Ryker.Continuity.Compaction
   alias Ryker.Knowledge.KnowledgeRetention
   alias Ryker.Learning
@@ -1293,15 +1294,8 @@ defmodule Ryker.Retention.Data do
     end)
   end
 
-  defp advisory_lock? do
-    %{rows: [[locked]]} = Repo.query!("SELECT pg_try_advisory_lock($1)", [@advisory_lock])
-    locked
-  end
-
-  defp release_advisory_lock! do
-    %{rows: [[true]]} = Repo.query!("SELECT pg_advisory_unlock($1)", [@advisory_lock])
-    :ok
-  end
+  defp advisory_lock?, do: AdvisoryLock.try_session(@advisory_lock)
+  defp release_advisory_lock!, do: AdvisoryLock.release_session(@advisory_lock)
 
   defp execute_count(sql, params \\ []) do
     sql

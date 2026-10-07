@@ -6,6 +6,7 @@ defmodule Ryker.BundledCoop do
   enrollment state and the controller CA, never policies or repository checkouts.
   """
 
+  alias Ryker.AdvisoryLock
   alias Ryker.CoopFleet.{Enrollment, EnrollmentTokenQuery, Worker, WorkerQuery}
   alias Ryker.Crypto
   alias Ryker.{Repo, Settings}
@@ -39,9 +40,7 @@ defmodule Ryker.BundledCoop do
     File.chmod!(shared, 0o700)
 
     case Repo.transaction(fn ->
-           Repo.query!("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
-             "bundled-coop-enrollment:#{configured_worker_id()}"
-           ])
+           AdvisoryLock.hold!("bundled-coop-enrollment:#{configured_worker_id()}")
 
            ensure_token!(shared)
          end) do

@@ -11,6 +11,7 @@ defmodule Ryker.Slack.ChannelFence do
   whole of each other's transactions.
   """
 
+  alias Ryker.AdvisoryLock
   alias Ryker.Repo
   alias Ryker.Slack.ChannelMembershipQuery
 
@@ -95,17 +96,15 @@ defmodule Ryker.Slack.ChannelFence do
   @doc "Holds the channel's lock alone until the transaction ends: a change to the channel."
   @spec lock_in_transaction(String.t(), String.t()) :: :ok | {:error, term()}
   def lock_in_transaction(workspace_ref, channel_ref),
-    do: take(workspace_ref, channel_ref, "pg_advisory_xact_lock")
+    do: take(workspace_ref, channel_ref, :exclusive)
 
   defp share_in_transaction(workspace_ref, channel_ref),
-    do: take(workspace_ref, channel_ref, "pg_advisory_xact_lock_shared")
+    do: take(workspace_ref, channel_ref, :shared)
 
-  defp take(workspace_ref, channel_ref, function) do
+  defp take(workspace_ref, channel_ref, mode) do
     if Repo.in_transaction?() do
-      key = "slack-configuration:#{workspace_ref}:#{channel_ref}"
-
-      case Repo.query("SELECT #{function}(hashtextextended($1, 0))", [key]) do
-        {:ok, _result} -> :ok
+      case AdvisoryLock.hold("slack-configuration:#{workspace_ref}:#{channel_ref}", mode) do
+        :ok -> :ok
         {:error, reason} -> {:error, {:store_failed, :configuration_lock, reason}}
       end
     else

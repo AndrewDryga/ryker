@@ -6,6 +6,7 @@ defmodule Ryker.Learning do
   batches, notes and relearning around it, are announced after the outermost
   commit (`subscribe_learning/0`).
   """
+  alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
   alias Ryker.Ingress.Inbox.{Entry, EntryQuery}
@@ -1421,10 +1422,7 @@ defmodule Ryker.Learning do
     end
   end
 
-  defp lock_batch(key) do
-    lock = Crypto.lock_key("learning:" <> key)
-    Repo.query!("SELECT pg_advisory_xact_lock($1)", [lock])
-  end
+  defp lock_batch(key), do: AdvisoryLock.hold!(Crypto.lock_key("learning:" <> key))
 
   defp transaction(fun), do: Repo.transaction(fun)
 

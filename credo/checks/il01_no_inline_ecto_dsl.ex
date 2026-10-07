@@ -11,9 +11,13 @@ defmodule Ryker.Checks.IL01NoInlineEctoDsl do
       what a table's rows mean, such as which turns are still running, and
       every caller composes it instead of writing its own version. So
       `import Ecto.Query` and a qualified `Ecto.Query.from(...)` belong only in
-      a `*_query.ex` module.
+      a `*_query.ex` module, and a read never starts at the schema itself:
+      `Repo.all(Sprocket)` or `Sprocket |> Repo.aggregate(:count)` reads every
+      row the way no Query module says, so it reads `SprocketQuery.all()`.
       """
     ]
+
+  @reads [:all, :one, :one!, :aggregate, :exists?, :stream, :delete_all, :update_all]
 
   @doc false
   @impl true
@@ -37,6 +41,28 @@ defmodule Ryker.Checks.IL01NoInlineEctoDsl do
   defp walk({{:., _, [{:__aliases__, meta, [:Ecto, :Query]}, fun]}, _, args} = ast, ctx)
        when is_atom(fun) and fun != :t and is_list(args) do
     {ast, put_issue(ctx, issue_for(ctx, meta, "Ecto.Query.#{fun}"))}
+  end
+
+  # A read that starts at a schema rather than its Query module.
+  defp walk(
+         {{:., _, [{:__aliases__, meta, repo}, fun]}, _, [{:__aliases__, _, _} | _]} = ast,
+         ctx
+       )
+       when fun in @reads do
+    if List.last(repo) == :Repo,
+      do: {ast, put_issue(ctx, issue_for(ctx, meta, "Repo.#{fun}(Schema)"))},
+      else: {ast, ctx}
+  end
+
+  defp walk(
+         {:|>, _, [{:__aliases__, _, _}, {{:., _, [{:__aliases__, meta, repo}, fun]}, _, _}]} =
+           ast,
+         ctx
+       )
+       when fun in @reads do
+    if List.last(repo) == :Repo,
+      do: {ast, put_issue(ctx, issue_for(ctx, meta, "Schema |> Repo.#{fun}"))},
+      else: {ast, ctx}
   end
 
   defp walk(ast, ctx), do: {ast, ctx}
