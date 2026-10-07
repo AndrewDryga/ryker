@@ -215,10 +215,15 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
     assert has_element?(view, "#{body} a[href='#{@profile}']", "Slack user")
     knows!(directory, @andrew, "Andrew")
 
-    assert eventually(fn ->
-             :ok = GenServer.call(Names, :refresh)
-             has_element?(view, "#{body} a[href='#{@profile}']", "@Andrew")
-           end)
+    # A Timeline renders in a second under gate load (1006 ms on 2026-10-07),
+    # and two seconds missed the redraw once.
+    assert eventually(
+             fn ->
+               :ok = GenServer.call(Names, :refresh)
+               has_element?(view, "#{body} a[href='#{@profile}']", "@Andrew")
+             end,
+             5_000
+           )
   end
 
   # The briefing a request was sent is drawn from the retained request, which
@@ -234,10 +239,14 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
     assert has_element?(view, sender, "Slack user")
     knows!(directory, @andrew, "Andrew")
 
-    assert eventually(fn ->
-             :ok = GenServer.call(Names, :refresh)
-             has_element?(view, sender, "@Andrew")
-           end)
+    # As above: a Timeline's redraw under gate load takes a second.
+    assert eventually(
+             fn ->
+               :ok = GenServer.call(Names, :refresh)
+               has_element?(view, sender, "@Andrew")
+             end,
+             5_000
+           )
   end
 
   # The name cache is handed the workspace, its address and a lookup; here the
