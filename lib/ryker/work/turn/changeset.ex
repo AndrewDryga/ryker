@@ -261,6 +261,7 @@ defmodule Ryker.Work.Turn.Changeset do
   def defer(%Turn{} = turn, attributes) do
     turn
     |> cast(attributes, [
+      :delivery_upload_refs,
       :last_error_code,
       :last_error_detail,
       :lease_expires_at,
@@ -272,6 +273,7 @@ defmodule Ryker.Work.Turn.Changeset do
     |> validate_required([:last_error_code, :last_error_detail, :next_attempt_at, :status])
     |> validate_length(:last_error_code, min: 1, max: 128)
     |> validate_length(:last_error_detail, min: 1, max: 4_096)
+    |> validate_length(:delivery_upload_refs, max: 5)
     |> work_constraints()
   end
 
@@ -322,6 +324,9 @@ defmodule Ryker.Work.Turn.Changeset do
     |> work_constraints()
   end
 
+  # A reply rearmed by a person, or moved to another place, forgets the files
+  # an attempt uploaded: the next attempt still finds a share Slack showed
+  # late, and uploads again only when there is none.
   @spec retry_delivery(Turn.t()) :: Ecto.Changeset.t()
   def retry_delivery(%Turn{} = turn) do
     turn
@@ -329,6 +334,7 @@ defmodule Ryker.Work.Turn.Changeset do
       %{
         delivery_attempt_count: 0,
         delivery_retry_generation: turn.delivery_retry_generation + 1,
+        delivery_upload_refs: [],
         last_error_code: nil,
         last_error_detail: nil,
         lease_expires_at: nil,
@@ -340,6 +346,7 @@ defmodule Ryker.Work.Turn.Changeset do
       [
         :delivery_attempt_count,
         :delivery_retry_generation,
+        :delivery_upload_refs,
         :last_error_code,
         :last_error_detail,
         :lease_expires_at,
@@ -838,6 +845,7 @@ defmodule Ryker.Work.Turn.Changeset do
     |> check_constraint(:validation_intent, name: :episode_work_turn_validation_intent_valid)
     |> check_constraint(:cancellation_intent, name: :episode_work_turn_cancellation_valid)
     |> check_constraint(:delivery_ref, name: :episode_work_turn_delivery_valid)
+    |> check_constraint(:delivery_upload_refs, name: :episode_work_turn_delivery_uploads_valid)
     |> check_constraint(:status, name: :episode_work_turn_custody_valid)
   end
 end

@@ -558,7 +558,9 @@ defmodule Ryker.Work.Custody do
   Releases one failed attempt for a bounded automatic retry.
 
   The retry time is computed by PostgreSQL so process clock skew cannot steal or
-  indefinitely extend custody.
+  indefinitely extend custody. `upload_refs` names the files a delivery attempt
+  uploaded and is still waiting to see shared; the turn keeps them, so the next
+  attempt waits for that share instead of uploading again.
   """
   @spec defer(
           Ecto.UUID.t(),
@@ -566,10 +568,19 @@ defmodule Ryker.Work.Custody do
           String.t(),
           pos_integer(),
           String.t(),
-          String.t()
+          String.t(),
+          [String.t()]
         ) :: {:ok, Turn.t()} | {:error, term()}
-  defdelegate defer(episode_id, turn_ref, lease_ref, retry_seconds, error_code, error_detail),
-    to: Claims
+  defdelegate defer(
+                episode_id,
+                turn_ref,
+                lease_ref,
+                retry_seconds,
+                error_code,
+                error_detail,
+                upload_refs \\ []
+              ),
+              to: Claims
 
   @doc """
   Moves one permanently failing delivery out of automatic retries.

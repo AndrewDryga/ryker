@@ -40,12 +40,17 @@ defmodule Ryker.Slack.IndexSlackReplyLookupsMigrationTest do
     end)
   end
 
-  # `SET LOCAL` holds for the transaction around the plan.
+  # `SET LOCAL` holds for the transaction around the plan. The plan selects the
+  # id alone: what a lookup filters and orders by decides it, and the schema's
+  # whole row names columns later migrations added, which this version of the
+  # scratch schema does not have (2026-10-07).
   defp plan(repo, prefix, query) do
+    query = query |> exclude(:select) |> select([row], row.id) |> put_query_prefix(prefix)
+
     {:ok, plan} =
       repo.transact(fn ->
         SQL.query!(repo, "SET LOCAL enable_seqscan = off", [])
-        SQL.explain(repo, :all, put_query_prefix(query, prefix), wrap_in_transaction: false)
+        SQL.explain(repo, :all, query, wrap_in_transaction: false)
       end)
 
     plan

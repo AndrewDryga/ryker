@@ -93,6 +93,8 @@ defmodule Ryker.Delivery.Dispatcher do
   # The four custodies hold the same lease shape under different names; the
   # dispatcher talks to them through this one, so the retry policy, the lease
   # renewal cadence and the give-up rule exist once rather than four times.
+  # Only a Work reply carries images, so only its custody keeps the files an
+  # attempt uploaded; the others never upload one.
   defp custody(claim, %{kind: :message} = settings) do
     %{episode: episode, turn: turn, lease_ref: lease_ref} = claim
 
@@ -103,8 +105,16 @@ defmodule Ryker.Delivery.Dispatcher do
       renew: fn ->
         Custody.renew(episode.id, turn.turn_ref, lease_ref, settings.lease_seconds)
       end,
-      defer: fn retry_seconds, code, detail ->
-        Custody.defer(episode.id, turn.turn_ref, lease_ref, retry_seconds, code, detail)
+      defer: fn retry_seconds, code, detail, upload_refs ->
+        Custody.defer(
+          episode.id,
+          turn.turn_ref,
+          lease_ref,
+          retry_seconds,
+          code,
+          detail,
+          upload_refs
+        )
       end,
       block: fn code, detail ->
         Custody.block_delivery(episode.id, turn.turn_ref, lease_ref, code, detail)
@@ -120,7 +130,7 @@ defmodule Ryker.Delivery.Dispatcher do
       renew: fn ->
         RoutingResponseCustody.renew(response.delivery_ref, lease_ref, settings.lease_seconds)
       end,
-      defer: fn retry_seconds, code, detail ->
+      defer: fn retry_seconds, code, detail, [] ->
         RoutingResponseCustody.defer(
           response.delivery_ref,
           lease_ref,
@@ -143,7 +153,7 @@ defmodule Ryker.Delivery.Dispatcher do
       renew: fn ->
         PlatformActionCustody.renew(action.action_ref, lease_ref, settings.lease_seconds)
       end,
-      defer: fn retry_seconds, code, detail ->
+      defer: fn retry_seconds, code, detail, [] ->
         PlatformActionCustody.defer(action.action_ref, lease_ref, retry_seconds, code, detail)
       end,
       block: fn code, detail ->
@@ -160,7 +170,7 @@ defmodule Ryker.Delivery.Dispatcher do
       renew: fn ->
         ReportCustody.renew(report.delivery_ref, lease_ref, settings.lease_seconds)
       end,
-      defer: fn retry_seconds, code, detail ->
+      defer: fn retry_seconds, code, detail, [] ->
         ReportCustody.defer(report.delivery_ref, lease_ref, retry_seconds, code, detail)
       end,
       block: fn code, detail ->
@@ -221,7 +231,8 @@ defmodule Ryker.Delivery.Dispatcher do
         ref: claim.turn.delivery_ref,
         source_item_ref: nil,
         thread_ref: target["thread_ref"],
-        transport: target["transport"]
+        transport: target["transport"],
+        upload_refs: claim.turn.delivery_upload_refs
       })
     end
   end
@@ -301,7 +312,7 @@ defmodule Ryker.Delivery.Dispatcher do
     retry_seconds = retry_delay(reason, custody.attempt_count, settings)
     {error_code, error_detail} = describe_error(reason)
 
-    case custody.defer.(retry_seconds, error_code, error_detail) do
+    case custody.defer.(retry_seconds, error_code, error_detail, Retry.uploaded(reason)) do
       {:ok, _deferred} -> {:ok, {:deferred, custody.kind, custody.ref, reason}}
       {:error, defer_reason} -> delivery_error(reason, defer_reason)
     end

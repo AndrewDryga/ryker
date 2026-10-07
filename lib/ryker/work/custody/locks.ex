@@ -225,13 +225,19 @@ defmodule Ryker.Work.Custody.Locks do
   def optional_sha256(value, field), do: sha256(value, field)
 
   @doc false
-  def artifact_refs(refs) when is_list(refs) and length(refs) <= 5 do
+  def artifact_refs(refs), do: references(refs, :artifact_refs)
+
+  @doc false
+  def upload_refs(refs), do: references(refs, :upload_refs)
+
+  # A reply carries at most five images, and each is uploaded once.
+  defp references(refs, field) when is_list(refs) and length(refs) <= 5 do
     if Enum.uniq(refs) == refs and Enum.all?(refs, &valid_reference?/1),
       do: :ok,
-      else: {:error, {:invalid_work_custody, :artifact_refs}}
+      else: {:error, {:invalid_work_custody, field}}
   end
 
-  def artifact_refs(_refs), do: {:error, {:invalid_work_custody, :artifact_refs}}
+  defp references(_refs, field), do: {:error, {:invalid_work_custody, field}}
 
   defp valid_reference?(value) when is_binary(value) do
     byte_size(value) in 1..256 and String.valid?(value) and

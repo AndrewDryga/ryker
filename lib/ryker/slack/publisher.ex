@@ -150,6 +150,10 @@ defmodule Ryker.Slack.Publisher do
   defp find_message(api, client, request, target),
     do: api.find_message(client, target.channel_ref, target.thread_ref, request.ref)
 
+  # Slack shares uploaded files a moment after the upload completes. An
+  # attempt that uploaded them without seeing the share yet left their ids in
+  # the request, so this one waits for that share: a retry that found no share
+  # uploaded the images a second time (2026-10-04 review).
   defp reconcile_file_message(api, client, request, target) do
     files = prepare_files(request)
     filenames = Enum.map(files, & &1.filename)
@@ -159,6 +163,9 @@ defmodule Ryker.Slack.Publisher do
     case api.find_files(client, target.channel_ref, target.thread_ref, filenames, oldest) do
       {:ok, message_ref} ->
         {:ok, message_ref}
+
+      :not_found when request.upload_refs != [] ->
+        {:error, {:delivery_share_pending, request.upload_refs}}
 
       :not_found ->
         upload_files(api, client, request, target, files)
@@ -232,8 +239,13 @@ defmodule Ryker.Slack.Publisher do
   # Slack answering is definite: an API error or a 4xx means nothing was
   # posted, and a request the client refused to send never reached Slack. Only
   # a call Slack did not answer (a lost socket, an unreadable reply, a 5xx) may
-  # have landed, and only the metadata walk on the next attempt can say.
+  # have landed, and only the metadata walk on the next attempt can say. An
+  # upload Slack completed has landed, and the next attempt waits for its share.
   defp settle({:ok, message_ref}), do: {:ok, message_ref}
+
+  defp settle({:error, {:slack_file_share_pending, [_ | _] = upload_refs}}),
+    do: {:error, {:delivery_share_pending, upload_refs}}
+
   defp settle({:error, {:delivery_rate_limited, _delay, _error}} = error), do: error
   defp settle({:error, {:slack_api_error, _error}} = error), do: error
   defp settle({:error, {:invalid_slack_api_request, _field}} = error), do: error

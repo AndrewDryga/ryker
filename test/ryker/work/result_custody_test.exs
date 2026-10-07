@@ -397,6 +397,55 @@ defmodule Ryker.Work.ResultCustodyTest do
     end
   end
 
+  # Slack shares uploaded images a moment after the upload completes, and a
+  # retry that found no share yet uploaded them again (2026-10-04 review). The
+  # turn keeps what an attempt uploaded, an attempt that uploaded nothing keeps
+  # it too, and only a person rearming the reply forgets it, so that a share
+  # Slack never showed can be uploaded once more.
+  test "the files an attempt uploaded stay with the reply until a person rearms it" do
+    work = bound_turn!("uploaded-files")
+    stage_candidate!(work)
+    result = result!(:reply, %{"message" => "The chart is attached."})
+    assert {:ok, accepted} = accept!(work, result)
+
+    defer =
+      &Custody.defer(work.episode.id, work.turn.turn_ref, &1, 1, "delivery_failed", "lost", &2)
+
+    assert {:ok, first} = Custody.claim_next("worker:uploaded-files", 60, :delivery)
+
+    for invalid <- [["F101", "F101"], List.duplicate("F101", 6), [""]] do
+      assert defer.(first.lease_ref, invalid) == {:error, {:invalid_work_custody, :upload_refs}}
+    end
+
+    assert {:ok, %Turn{delivery_upload_refs: ["F101"]}} = defer.(first.lease_ref, ["F101"])
+
+    make_due!(accepted.turn)
+    assert {:ok, second} = Custody.claim_next("worker:uploaded-files", 60, :delivery)
+    assert second.turn.delivery_upload_refs == ["F101"]
+    assert {:ok, %Turn{delivery_upload_refs: ["F101"]}} = defer.(second.lease_ref, [])
+
+    make_due!(accepted.turn)
+    assert {:ok, third} = Custody.claim_next("worker:uploaded-files", 60, :delivery)
+
+    assert {:ok, _blocked} =
+             Custody.block_delivery(
+               work.episode.id,
+               work.turn.turn_ref,
+               third.lease_ref,
+               "delivery_share_pending",
+               ~s({:delivery_share_pending, ["F101"]})
+             )
+
+    assert Repo.get!(Turn, accepted.turn.id).delivery_upload_refs == ["F101"]
+
+    assert {:ok, %Turn{delivery_upload_refs: []}} =
+             Custody.retry_delivery(
+               work.episode.id,
+               work.turn.turn_ref,
+               accepted.turn.delivery_ref
+             )
+  end
+
   test "new input cannot erase an accepted reply and continues in the same episode session" do
     work = bound_turn!("queued-after-result")
     stage_candidate!(work)
@@ -935,6 +984,13 @@ defmodule Ryker.Work.ResultCustodyTest do
   defp result!(delivery, document, reason \\ nil, continuation \\ %{"kind" => "complete"}) do
     assert {:ok, result} = Result.new(delivery, document, reason, continuation)
     result
+  end
+
+  defp make_due!(turn) do
+    Repo.update_all(
+      from(row in Turn, where: row.id == ^turn.id),
+      set: [next_attempt_at: ~U[2020-01-01 00:00:00.000000Z]]
+    )
   end
 
   defp receipt(work, message_ref) do

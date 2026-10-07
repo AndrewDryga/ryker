@@ -18,32 +18,7 @@ defmodule Ryker.Slack.ArtifactEndToEndTest do
   @png <<137, 80, 78, 71, 13, 10, 26, 10, "generated-latency-chart">>
 
   test "a lost Slack artifact response reconciles one verified Coop image exactly once" do
-    claim = claim_episode!()
-    sha256 = digest(@png)
-    artifact_ref = "artifact_#{binary_part(sha256, 0, 24)}"
-
-    metadata = %{
-      "bytes" => byte_size(@png),
-      "id" => artifact_ref,
-      "media_type" => "image/png",
-      "name" => "latency chart.png",
-      "sha256" => sha256
-    }
-
-    remote = Map.put(metadata, "data", @png)
-
-    {:ok, work_api} =
-      FakeWorkCoopAPI.start_link([artifact_reply(artifact_ref)],
-        output_artifact_metadata: [metadata],
-        output_artifacts: %{artifact_ref => remote}
-      )
-
-    assert {:ok, accepted} = Executor.run(claim, executor_options(work_api))
-    assert accepted.turn.status == :delivery_pending
-
-    assert {:ok, [stored]} = Outputs.fetch_many(accepted.turn.id, [artifact_ref])
-    assert stored.data == @png
-    assert stored.sha256 == sha256
+    accepted = accept_artifact_reply!()
 
     {:ok, slack_api} =
       FakeSlackAPI.start_link(
@@ -73,10 +48,7 @@ defmodule Ryker.Slack.ArtifactEndToEndTest do
     assert file.title == "latency chart.png"
     assert file.filename =~ ~r/\Alatency-chart--[0-9a-f]{12}-01\.png\z/
 
-    Repo.update_all(
-      from(turn in Turn, where: turn.id == ^accepted.turn.id),
-      set: [next_attempt_at: @old]
-    )
+    make_due!(accepted.turn)
 
     assert {:ok, {:delivered, :message, ^delivery_ref}} = deliver_once(adapters, "reconcile")
 
@@ -92,6 +64,78 @@ defmodule Ryker.Slack.ArtifactEndToEndTest do
     assert receipt["message_ref"] == "1788265001.000200"
     assert receipt["conversation_ref"] == "slack:T4E78287F015E:C456"
     assert receipt["thread_ref"] == "1788265000.000100"
+  end
+
+  # Slack shares an upload a moment after it completes. An attempt that had
+  # not seen the share yet was retried a second later, found no share, and
+  # uploaded the images again: one reply, two copies in the thread (2026-10-04
+  # review). The turn keeps the uploaded files' ids, and the next attempts wait
+  # for their share.
+  test "an image reply Slack shares late is uploaded once" do
+    accepted = accept_artifact_reply!()
+
+    {:ok, slack_api} =
+      FakeSlackAPI.start_link(
+        observer: self(),
+        message_ref: fn _n -> "1788265001.000200" end,
+        share_delay: 1
+      )
+
+    adapters = adapters!(slack_api)
+
+    assert {:ok, {:deferred, :message, delivery_ref, first}} = deliver_once(adapters, "upload")
+    assert_receive {:slack_uploaded, "C456", "1788265000.000100", _document, ^delivery_ref, _}
+
+    make_due!(accepted.turn)
+    waited = deliver_once(adapters, "wait")
+
+    assert length(FakeSlackAPI.state(slack_api).uploads) == 1
+    refute_receive {:slack_uploaded, _, _, _, _, _}
+    assert first == {:delivery_share_pending, ["F101"]}
+
+    assert {:ok, {:deferred, :message, ^delivery_ref, {:delivery_share_pending, ["F101"]}}} =
+             waited
+
+    make_due!(accepted.turn)
+    assert {:ok, {:delivered, :message, ^delivery_ref}} = deliver_once(adapters, "shared")
+    assert length(FakeSlackAPI.state(slack_api).uploads) == 1
+
+    assert %Turn{status: :settled, external_receipt: receipt} = Repo.get!(Turn, accepted.turn.id)
+    assert receipt["message_ref"] == "1788265001.000200"
+  end
+
+  defp accept_artifact_reply! do
+    claim = claim_episode!()
+    sha256 = digest(@png)
+    artifact_ref = "artifact_#{binary_part(sha256, 0, 24)}"
+
+    metadata = %{
+      "bytes" => byte_size(@png),
+      "id" => artifact_ref,
+      "media_type" => "image/png",
+      "name" => "latency chart.png",
+      "sha256" => sha256
+    }
+
+    remote = Map.put(metadata, "data", @png)
+
+    {:ok, work_api} =
+      FakeWorkCoopAPI.start_link([artifact_reply(artifact_ref)],
+        output_artifact_metadata: [metadata],
+        output_artifacts: %{artifact_ref => remote}
+      )
+
+    assert {:ok, accepted} = Executor.run(claim, executor_options(work_api))
+    assert accepted.turn.status == :delivery_pending
+
+    assert {:ok, [stored]} = Outputs.fetch_many(accepted.turn.id, [artifact_ref])
+    assert stored.data == @png
+    assert stored.sha256 == sha256
+    accepted
+  end
+
+  defp make_due!(turn) do
+    Repo.update_all(from(row in Turn, where: row.id == ^turn.id), set: [next_attempt_at: @old])
   end
 
   defp claim_episode! do

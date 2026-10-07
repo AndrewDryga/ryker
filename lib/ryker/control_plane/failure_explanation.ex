@@ -1340,10 +1340,11 @@ defmodule Ryker.ControlPlane.FailureExplanation do
 
   # --- Delivery --------------------------------------------------------------
 
-  # Delivery retries Slack or network trouble up to eight times (1 s doubling
-  # to 60 s) and stops at once when Slack refuses in a way a retry cannot
-  # change. A retry sends the same saved content; it searches the thread
-  # first, so a reply never appears twice. Nothing expires.
+  # Delivery waits out Slack or network trouble for about three hours (45
+  # attempts, 1 s doubling to five minutes, `Ryker.Defaults`) and stops at once
+  # when Slack refuses in a way a retry cannot change. A retry sends the same
+  # saved content; it searches the thread first, so a reply never appears
+  # twice. Nothing expires.
   defp delivery(%{delivery_kind: kind} = row, now) do
     cause = slack_cause(row, delivery_code_cause(row))
     parts = delivery_parts(kind)
@@ -1357,7 +1358,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       affects: parts.affects ++ held_words(kind, Map.get(row, :held, 0)),
       tried: [
         tried(row, now),
-        "Ryker retries Slack or network trouble up to eight times over about two minutes, and stops at once when Slack refuses in a way a retry cannot change."
+        "Ryker retries Slack or network trouble for about three hours, and stops at once when Slack refuses in a way a retry cannot change."
       ],
       if_left: parts.left,
       cause: cause,
@@ -1485,38 +1486,38 @@ defmodule Ryker.ControlPlane.FailureExplanation do
         "Ryker posts the same saved reply to the same thread. The model does not run again, and Ryker checks the thread first, so the reply never appears twice."
     }
 
+  # What each delivery code says about why a reply stopped: the cause, whether a
+  # retry can pass, and what a retry does.
+  @delivery_causes %{
+    "delivery_rate_limited" =>
+      {"Slack kept asking Ryker to slow down.", :unknown,
+       "It usually works once Slack stops limiting Ryker, within minutes."},
+    "delivery_uncertain" =>
+      {"Slack did not confirm the post.", :unknown,
+       "It should work if Slack is answering normally. Ryker checks the thread first, so it never posts twice."},
+    "delivery_transport_unavailable" =>
+      {"Ryker could not reach Slack.", :unknown, "It works once Ryker can reach Slack again."},
+    "delivery_credentials_unavailable" =>
+      {"Ryker had no Slack sign-in to post with.", :auth, nil},
+    "delivery_share_pending" =>
+      {"Slack took the images but never showed them in the thread.", :unknown,
+       "Posting again looks for them in the thread first and uploads them again only if they are still missing."},
+    "slack_reconciliation_incomplete" =>
+      {"The thread is too long for Ryker to check for an earlier copy, so it did not post, to avoid posting twice.",
+       :stuck,
+       "It will stop the same way: the thread is still too long to check. Answer in the thread yourself if the reply still matters."},
+    "slack_incident_room_inactive" =>
+      {"The incident room it posts to is archived, or Ryker was removed from it.", :fix_first,
+       "It fails until the room is active and Ryker is in it again."},
+    "slack_workspace_not_configured" => {"Slack is not set up for this workspace.", :auth, nil},
+    "delivery_adapter_not_configured" => {"Slack is not set up for this workspace.", :auth, nil}
+  }
+
   defp delivery_code_cause(%{summary: code}) do
-    case code do
-      "delivery_rate_limited" ->
-        {"Slack kept asking Ryker to slow down.", :unknown,
-         "It usually works once Slack stops limiting Ryker, within minutes."}
-
-      "delivery_uncertain" ->
-        {"Slack did not confirm the post.", :unknown,
-         "It should work if Slack is answering normally. Ryker checks the thread first, so it never posts twice."}
-
-      "delivery_transport_unavailable" ->
-        {"Ryker could not reach Slack.", :unknown, "It works once Ryker can reach Slack again."}
-
-      "delivery_credentials_unavailable" ->
-        {"Ryker had no Slack sign-in to post with.", :auth, nil}
-
-      "slack_reconciliation_incomplete" ->
-        {"The thread is too long for Ryker to check for an earlier copy, so it did not post, to avoid posting twice.",
-         :stuck,
-         "It will stop the same way: the thread is still too long to check. Answer in the thread yourself if the reply still matters."}
-
-      "slack_incident_room_inactive" ->
-        {"The incident room it posts to is archived, or Ryker was removed from it.", :fix_first,
-         "It fails until the room is active and Ryker is in it again."}
-
-      code when code in ["slack_workspace_not_configured", "delivery_adapter_not_configured"] ->
-        {"Slack is not set up for this workspace.", :auth, nil}
-
-      other ->
-        {"Slack refused the post, or the saved reply did not pass a check.", :unknown,
-         "Whether it works depends on the cause." <> saved_error(other)}
-    end
+    Map.get_lazy(@delivery_causes, code, fn ->
+      {"Slack refused the post, or the saved reply did not pass a check.", :unknown,
+       "Whether it works depends on the cause." <> saved_error(code)}
+    end)
   end
 
   # --- Slack words shared by replies, message updates and incident rooms -----

@@ -7,6 +7,12 @@ defmodule Ryker.Slack.Client.Files do
   two-step external upload Slack requires and shared as one message. A retry
   recognises that message by its filenames, found by the same history walk
   that finds a posted message.
+
+  Slack shares the files a moment after it completes the upload, so the share
+  may not show yet when the upload returns. The upload then answers
+  `{:slack_file_share_pending, file_refs}` with the ids Slack gave the files,
+  which the caller keeps so that its next attempt waits for that share instead
+  of uploading the files again.
   """
 
   alias Ryker.Slack.Client
@@ -39,11 +45,14 @@ defmodule Ryker.Slack.Client.Files do
            Transport.request(client, :post, "/files.completeUploadExternal", document),
          {:ok, _body} <- Transport.response(response) do
       filenames = Enum.map(files, & &1.filename)
+      pending = {:error, {:slack_file_share_pending, Enum.map(uploaded, & &1["id"])}}
 
+      # The upload is complete whatever the search says, so a search that
+      # failed is the same wait as one that has not seen the share yet.
       case find_files(client, channel, thread, filenames, Messages.oldest(DateTime.utc_now())) do
         {:ok, message_ref} -> {:ok, message_ref}
-        :not_found -> {:error, {:slack_reconciliation_pending, :file_share}}
-        {:error, _reason} = error -> error
+        :not_found -> pending
+        {:error, _reason} -> pending
       end
     end
   end

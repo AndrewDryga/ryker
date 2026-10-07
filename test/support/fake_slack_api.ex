@@ -34,6 +34,11 @@ defmodule Ryker.TestSupport.FakeSlackAPI do
     * `:lose` - the calls, `:post_message` or `:upload_files`, whose first
       answer is lost after Slack took the write: the write is kept, and the
       caller sees `{:error, :socket_closed}` once.
+    * `:share_delay` - how many `find_files/5` searches miss an upload's share
+      before it shows. Above zero, the upload answers
+      `{:error, {:slack_file_share_pending, file_refs}}`, as the real client
+      does when its own search right after the upload misses; the n-th upload's
+      files are `"Fn01"`, `"Fn02"` and so on.
     * `:refuse` - `%{delivery_ref => reason}`: a post with that delivery ref is
       refused with `{:error, reason}` and nothing is kept. `refuse/2` replaces
       it mid-test.
@@ -51,7 +56,8 @@ defmodule Ryker.TestSupport.FakeSlackAPI do
     message_ref: &__MODULE__.default_message_ref/1,
     observer: nil,
     refuse: %{},
-    render: false
+    render: false,
+    share_delay: 0
   ]
 
   def child_spec(options), do: %{id: __MODULE__, start: {__MODULE__, :start_link, [options]}}
@@ -65,6 +71,7 @@ defmodule Ryker.TestSupport.FakeSlackAPI do
       |> Map.merge(%{
         file_finds: 0,
         files: %{},
+        hidden_shares: %{},
         finds: 0,
         left: [],
         messages: %{},
@@ -159,14 +166,18 @@ defmodule Ryker.TestSupport.FakeSlackAPI do
   @impl true
   def find_files(agent, channel, thread, filenames, oldest) do
     Agent.get_and_update(agent, fn state ->
-      result = found(Map.fetch(state.files, {channel, thread, filenames}))
+      key = {channel, thread, filenames}
 
-      {result,
-       %{
-         state
-         | file_finds: state.file_finds + 1,
-           searched_since: state.searched_since ++ [oldest]
-       }}
+      state = %{
+        state
+        | file_finds: state.file_finds + 1,
+          searched_since: state.searched_since ++ [oldest]
+      }
+
+      case Map.get(state.hidden_shares, key, 0) do
+        0 -> {found(Map.fetch(state.files, key)), state}
+        hidden -> {:not_found, put_in(state.hidden_shares[key], hidden - 1)}
+      end
     end)
   end
 
@@ -188,10 +199,13 @@ defmodule Ryker.TestSupport.FakeSlackAPI do
             thread: thread
           }
 
-          state
-          |> Map.update!(:files, &Map.put(&1, {channel, thread, filenames}, message_ref))
-          |> Map.update!(:uploads, &(&1 ++ [upload]))
-          |> answer(:upload_files, {:ok, message_ref})
+          state =
+            state
+            |> Map.update!(:files, &Map.put(&1, {channel, thread, filenames}, message_ref))
+            |> Map.update!(:uploads, &(&1 ++ [upload]))
+            |> hide_share({channel, thread, filenames})
+
+          answer(state, :upload_files, upload_answer(state, message_ref, files))
 
         {:error, _reason} = error ->
           {error, state}
@@ -216,6 +230,23 @@ defmodule Ryker.TestSupport.FakeSlackAPI do
   @impl true
   def leave_conversation(agent, channel) do
     Agent.update(agent, fn state -> %{state | left: state.left ++ [channel]} end)
+  end
+
+  # Slack shows a share a moment after the upload completes: until then the
+  # upload answers with its files' ids, and searches miss the share.
+  defp hide_share(%{share_delay: 0} = state, _key), do: state
+  defp hide_share(state, key), do: put_in(state.hidden_shares[key], state.share_delay)
+
+  defp upload_answer(%{share_delay: 0}, message_ref, _files), do: {:ok, message_ref}
+
+  defp upload_answer(state, _message_ref, files) do
+    upload = length(state.uploads)
+
+    file_refs =
+      for index <- 1..length(files),
+          do: "F#{upload}#{index |> Integer.to_string() |> String.pad_leading(2, "0")}"
+
+    {:error, {:slack_file_share_pending, file_refs}}
   end
 
   defp found({:ok, message_ref}), do: {:ok, message_ref}

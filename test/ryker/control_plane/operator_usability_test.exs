@@ -634,6 +634,37 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
            ]
   end
 
+  # Delivery has waited out Slack or network trouble for about three hours
+  # since the 2026-10-04 review, and the page still said it stopped after eight
+  # tries over about two minutes, so a reply read as abandoned while Ryker was
+  # still trying. The words follow the shipped retry settings.
+  test "a stopped reply says how long Ryker kept trying, as the settings do" do
+    %{max_attempts: attempts, retry_base_seconds: base, retry_max_seconds: ceiling} =
+      Ryker.Defaults.fetch!(:delivery)
+
+    waited =
+      Enum.sum(for attempt <- 1..(attempts - 1), do: min(base * 2 ** (attempt - 1), ceiling))
+
+    assert round(waited / 3_600) == 3
+
+    row = %{
+      kind: "delivery",
+      ref: "delivery:slow",
+      action: :retry,
+      delivery_kind: :message,
+      destination: "slack:T123:C0ALERTS / 1787832000.000100",
+      status: :blocked,
+      summary: "delivery_uncertain",
+      updated_at: ~U[2026-09-24 11:00:00Z]
+    }
+
+    explained = FailureExplanation.explain(row, @now)
+    assert Enum.any?(explained.tried, &(&1 =~ "for about three hours"))
+
+    shared = FailureExplanation.explain(%{row | summary: "delivery_share_pending"}, @now)
+    assert Enum.join(shared.cause, " ") =~ "never showed them in the thread"
+  end
+
   test "an empty Failures page says nothing needs you and what would put something here" do
     document = [] |> FailuresPage.list(@now) |> IO.iodata_to_binary() |> LazyHTML.from_fragment()
 

@@ -9,6 +9,12 @@ defmodule Ryker.Delivery.Request do
   `frozen_at`, when the custody knows it, is when the intent was frozen: no
   copy of it can have been posted before then, so a publisher searching for
   an earlier copy need not look further back.
+
+  `upload_refs` are the platform's ids for the artifacts an earlier attempt
+  uploaded and has not yet seen shared. A publisher waits for that share
+  rather than upload the artifacts again, and answers
+  `{:delivery_share_pending, upload_refs}` for an upload of its own that it has
+  not seen shared yet, so the custody keeps them for the next attempt.
   """
 
   alias Ryker.CanonicalJSON
@@ -23,7 +29,7 @@ defmodule Ryker.Delivery.Request do
     :thread_ref,
     :transport
   ]
-  @optional [artifacts: [], frozen_at: nil]
+  @optional [artifacts: [], frozen_at: nil, upload_refs: []]
   @fields @enforce_keys ++ Keyword.keys(@optional)
   @maximum_document_bytes 512 * 1_024
   @maximum_message_characters 20_000
@@ -41,7 +47,8 @@ defmodule Ryker.Delivery.Request do
           ref: String.t(),
           source_item_ref: String.t() | nil,
           thread_ref: String.t() | nil,
-          transport: String.t()
+          transport: String.t(),
+          upload_refs: [String.t()]
         }
 
   @spec new(map() | keyword()) :: {:ok, t()} | {:error, term()}
@@ -81,6 +88,7 @@ defmodule Ryker.Delivery.Request do
          :ok <- optional_reference(request.thread_ref, :thread_ref),
          :ok <- frozen_at(request.frozen_at),
          :ok <- artifacts(request.artifacts),
+         :ok <- upload_refs(request.upload_refs, request.artifacts),
          :ok <- CanonicalJSON.validate(request.document, max_bytes: @maximum_document_bytes) do
       validate_kind(request)
     else
@@ -206,6 +214,16 @@ defmodule Ryker.Delivery.Request do
   end
 
   defp artifact?(_artifact), do: false
+
+  # One upload at most for each artifact the request carries.
+  defp upload_refs(values, artifacts)
+       when is_list(values) and length(values) <= length(artifacts) do
+    if Enum.uniq(values) == values and Enum.all?(values, &reference?/1),
+      do: :ok,
+      else: {:error, {:invalid_delivery_request, :upload_refs}}
+  end
+
+  defp upload_refs(_values, _artifacts), do: {:error, {:invalid_delivery_request, :upload_refs}}
 
   defp artifact_bytes(%{"bytes" => bytes}) when is_integer(bytes) and bytes > 0, do: bytes
   defp artifact_bytes(_artifact), do: @maximum_artifact_bytes + 1

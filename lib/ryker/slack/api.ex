@@ -38,6 +38,8 @@ defmodule Ryker.Slack.API do
   # `oldest`: a Slack timestamp the share cannot be older than, or nil.
   @callback find_files(term(), String.t(), String.t() | nil, [String.t()], String.t() | nil) ::
               {:ok, String.t()} | :not_found | {:error, term()}
+  # An upload Slack completed but has not shown shared yet answers
+  # `{:error, {:slack_file_share_pending, file_refs}}`.
   @callback upload_files(term(), String.t(), String.t() | nil, map(), String.t(), [map()]) ::
               {:ok, String.t()} | {:error, term()}
   @callback file_info(term(), String.t()) :: {:ok, map()} | {:error, term()}

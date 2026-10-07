@@ -84,14 +84,17 @@ To read voice with a larger model, point `RYKER_WHISPER_URL` at a whisper.cpp se
 ("Voice messages" in [`operations.md`](operations.md)); `RYKER_WHISPER_MODEL` swaps the bundled
 model file only where Ryker runs outside Compose.
 
-When a user explicitly asks for an image or chart, the agent may create up to four PNG, JPEG, WebP,
+When a user explicitly asks for an image or chart, the agent may create up to five PNG, JPEG, WebP,
 or GIF outputs in Coop's per-turn output directory or return typed ACP image content. Coop stores
 the bytes outside the text transcript and exposes content-addressed metadata only after the turn is
 terminal. Ryker accepts only visuals explicitly referenced by that turn's strict response,
 verifies type, size, and SHA-256, requires a title and useful alt text, and uploads each file to the
 same channel and thread as the prose reply. The durable filename includes the delivery ID so a lost
-Slack response can be reconciled without a duplicate upload. Images are presentation artifacts;
-charts do not become evidence unless their underlying observations are separately sourced.
+Slack response can be reconciled without a duplicate upload. Slack shares an upload a moment after it
+completes, so an attempt that has not seen the share yet leaves the uploaded files' IDs with the reply,
+and the next attempt waits for that share instead of uploading the images again. Images are
+presentation artifacts; charts do not become evidence unless their underlying observations are
+separately sourced.
 
 Slack displays only the manifest's static slash-command usage hint; it does not ask the app for
 dynamic subcommand completions. Keep the hint short, and keep it to verbs that exist. The hint names

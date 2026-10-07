@@ -100,23 +100,33 @@ defmodule Ryker.Work.Custody.Claims do
           String.t(),
           pos_integer(),
           String.t(),
-          String.t()
+          String.t(),
+          [String.t()]
         ) :: {:ok, Turn.t()} | {:error, term()}
-  def defer(episode_id, turn_ref, lease_ref, retry_seconds, error_code, error_detail) do
+  def defer(
+        episode_id,
+        turn_ref,
+        lease_ref,
+        retry_seconds,
+        error_code,
+        error_detail,
+        upload_refs \\ []
+      ) do
     with {:ok, episode_id} <- uuid(episode_id, :episode_id),
          :ok <- reference(turn_ref, :turn_ref),
          :ok <- reference(lease_ref, :lease_ref),
          :ok <- positive_integer(retry_seconds, :retry_seconds),
          :ok <- bounded_text(error_code, 128, :error_code),
-         :ok <- bounded_text(error_detail, 4_096, :error_detail) do
+         :ok <- bounded_text(error_detail, 4_096, :error_detail),
+         :ok <- upload_refs(upload_refs) do
       Repo.transaction(fn ->
         defer_locked(
           episode_id,
           turn_ref,
           lease_ref,
           retry_seconds,
-          error_code,
-          error_detail
+          {error_code, error_detail},
+          upload_refs
         )
       end)
     end
@@ -239,19 +249,12 @@ defmodule Ryker.Work.Custody.Claims do
     end
   end
 
-  defp defer_locked(
-         episode_id,
-         turn_ref,
-         lease_ref,
-         retry_seconds,
-         error_code,
-         error_detail
-       ) do
+  defp defer_locked(episode_id, turn_ref, lease_ref, retry_seconds, error, upload_refs) do
     {_session, turn} = leased!(episode_id, turn_ref, lease_ref)
+    {error_code, error_detail} = error
     now = Repo.now!()
 
-    turn
-    |> Turn.Changeset.defer(%{
+    attributes = %{
       last_error_code: error_code,
       last_error_detail: error_detail,
       lease_expires_at: nil,
@@ -259,10 +262,21 @@ defmodule Ryker.Work.Custody.Claims do
       lease_ref: nil,
       next_attempt_at: DateTime.add(now, retry_seconds, :second),
       status: turn.status
-    })
+    }
+
+    turn
+    |> Turn.Changeset.defer(keep_uploads(attributes, upload_refs))
     |> Repo.update()
     |> unwrap_or_rollback(:work_defer)
   end
+
+  # Files an attempt uploaded stay with the turn, and only rearming or moving
+  # the reply forgets them (`Turn.Changeset.retry_delivery/1`); an attempt that
+  # uploaded nothing leaves them be.
+  defp keep_uploads(attributes, []), do: attributes
+
+  defp keep_uploads(attributes, upload_refs),
+    do: Map.put(attributes, :delivery_upload_refs, upload_refs)
 
   defp yield_progress_locked(episode_id, turn_ref, lease_ref, retry_seconds) do
     {_session, turn} = leased!(episode_id, turn_ref, lease_ref)

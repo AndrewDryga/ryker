@@ -149,6 +149,26 @@ defmodule Ryker.Delivery.RequestTest do
            }) == {:error, {:invalid_delivery_request, :emoji_name}}
   end
 
+  # The files an earlier attempt uploaded name at most one upload per image the
+  # reply carries; a request without images has nothing a publisher uploaded.
+  test "an earlier attempt's uploads are one per artifact at most" do
+    artifacts = [artifact(0, "chart.png", "image/png", <<137, 80, 78, 71, 13, 10, 26, 10, 0>>)]
+    attributes = Map.put(message_attributes(), :artifacts, artifacts)
+
+    assert {:ok, %Request{upload_refs: []}} = Request.new(attributes)
+
+    assert {:ok, %Request{upload_refs: ["F101"]}} =
+             Request.new(Map.put(attributes, :upload_refs, ["F101"]))
+
+    for invalid <- [:invalid, [nil], ["bad ref"], ["F101", "F102"]] do
+      assert Request.new(Map.put(attributes, :upload_refs, invalid)) ==
+               {:error, {:invalid_delivery_request, :upload_refs}}
+    end
+
+    assert Request.new(Map.put(message_attributes(), :upload_refs, ["F101"])) ==
+             {:error, {:invalid_delivery_request, :upload_refs}}
+  end
+
   defp artifact(index, name, media_type, data) do
     sha256 = digest(data)
 

@@ -1315,6 +1315,9 @@ defmodule Ryker.Slack.ClientTest do
         slack(%{"file_id" => "F123", "upload_url" => "https://files.slack.com/upload/one"}),
         slack(%{"files" => [%{"id" => "F123"}]}),
         slack(%{"messages" => [], "response_metadata" => %{"next_cursor" => ""}}),
+        slack(%{"file_id" => "F124", "upload_url" => "https://files.slack.com/upload/two"}),
+        slack(%{"files" => [%{"id" => "F124"}]}),
+        slack(%{"messages" => [42], "response_metadata" => %{"next_cursor" => ""}}),
         slack(%{"upload_url" => "https://files.slack.com/upload/missing-id"})
       ])
 
@@ -1342,10 +1345,16 @@ defmodule Ryker.Slack.ClientTest do
       title: "one.png"
     }
 
+    # A completed upload whose share does not show yet names its files, so the
+    # next attempt waits for that share instead of uploading them again; the
+    # upload is complete whatever the search after it says (2026-10-04 review).
     assert Client.upload_files(client, "C123", nil, "Done.", "delivery:files", [file]) ==
-             {:error, {:slack_reconciliation_pending, :file_share}}
+             {:error, {:slack_file_share_pending, ["F123"]}}
 
     assert Client.upload_files(client, "C123", nil, "Done.", "delivery:files:2", [file]) ==
+             {:error, {:slack_file_share_pending, ["F124"]}}
+
+    assert Client.upload_files(client, "C123", nil, "Done.", "delivery:files:3", [file]) ==
              {:error, {:slack_protocol_error, :upload_target}}
   end
 

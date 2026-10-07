@@ -68,6 +68,7 @@ defmodule Ryker.Work.Turn do
     field(:delivery_document, Ryker.CanonicalJSON.Type)
     field(:delivery_target, Ryker.CanonicalJSON.Type)
     field(:delivery_fingerprint, :string)
+    field(:delivery_upload_refs, {:array, :string}, default: [])
     field(:continuation, Ryker.CanonicalJSON.Type)
     field(:external_receipt, Ryker.CanonicalJSON.Type)
     field(:external_receipt_fingerprint, :string)
@@ -154,6 +155,7 @@ defmodule Ryker.Work.Turn do
           delivery_document: map() | nil,
           delivery_target: map() | nil,
           delivery_fingerprint: String.t() | nil,
+          delivery_upload_refs: [String.t()],
           continuation: map() | nil,
           external_receipt: map() | nil,
           external_receipt_fingerprint: String.t() | nil,

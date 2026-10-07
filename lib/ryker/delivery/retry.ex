@@ -1,7 +1,8 @@
 defmodule Ryker.Delivery.Retry do
   @moduledoc """
   Whether a failure from Slack, GitHub or a publisher may pass on a later
-  attempt, and whether the provider asked Ryker to slow down.
+  attempt, whether the provider asked Ryker to slow down, and what an attempt
+  uploaded that the next one must wait for.
 
   Every lane that retries a provider call asks here. Lanes that each kept their
   own list disagreed: one treated a 408 as final, another a network blip
@@ -21,6 +22,7 @@ defmodule Ryker.Delivery.Retry do
       when is_nil(delay) or (is_integer(delay) and delay > 0),
       do: true
 
+  def retryable?({:delivery_share_pending, [_ | _]}), do: true
   def retryable?({:delivery_transport_unavailable, _reason}), do: true
   def retryable?({:delivery_uncertain, _reason}), do: true
   def retryable?({:delivery_reconciliation_failed, reason}), do: retryable?(reason)
@@ -51,6 +53,15 @@ defmodule Ryker.Delivery.Retry do
       do: rate_limited(reason)
 
   def rate_limited(_reason), do: :error
+
+  @doc """
+  The platform's ids for the files a failed attempt uploaded and did not see
+  shared yet. The next attempt waits for that share instead of uploading them
+  again; any other failure uploaded nothing a retry must remember.
+  """
+  @spec uploaded(term()) :: [String.t()]
+  def uploaded({:delivery_share_pending, [_ | _] = upload_refs}), do: upload_refs
+  def uploaded(_reason), do: []
 
   defp retryable_status?(status),
     do: status in [408, 409, 425, 429] or (is_integer(status) and status >= 500)
