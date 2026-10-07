@@ -8,8 +8,9 @@ defmodule Ryker.CoopFleet.Bridge do
   the outbound poll protocol.
   """
 
-  alias Ryker.CoopFleet.{Bodies, Checkpoints, Command, CommandQuery, ControlPlane, PlacementQuery}
+  alias Ryker.CoopFleet.{Bodies, Checkpoints, Command, CommandQuery, ControlPlane, Placement}
   alias Ryker.CoopFleet.ControlPlane.Commands
+  alias Ryker.CoopFleet.PlacementQuery
   alias Ryker.Repo
   alias Ryker.Work.Session
 

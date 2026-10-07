@@ -196,13 +196,7 @@ defmodule Ryker.Records.TaskOffers do
     end
   end
 
-  defp latest_session(episode_id) do
-    episode_id
-    |> SessionQuery.by_episode_id()
-    |> SessionQuery.latest_generation_first()
-    |> SessionQuery.limit_to(1)
-    |> Repo.one()
-  end
+  defp latest_session(episode_id), do: Repo.one(SessionQuery.latest_of_episode(episode_id))
 
   defp confirmed(record, status) do
     with %Episode{} = episode <- Repo.one(EpisodeQuery.by_id(record.confirmed_episode_id)),

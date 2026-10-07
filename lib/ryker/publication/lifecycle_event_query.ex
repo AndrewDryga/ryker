@@ -8,6 +8,17 @@ defmodule Ryker.Publication.LifecycleEventQuery do
   def by_id(queryable \\ all(), id),
     do: where(queryable, [episode_publication_lifecycle_events: e], e.id == ^id)
 
+  def by_publication_id(queryable \\ all(), publication_id) do
+    where(
+      queryable,
+      [episode_publication_lifecycle_events: e],
+      e.publication_id == ^publication_id
+    )
+  end
+
+  def select_latest_occurrence(queryable),
+    do: select(queryable, [episode_publication_lifecycle_events: e], max(e.occurred_at))
+
   def by_ref(queryable \\ all(), ref),
     do: where(queryable, [episode_publication_lifecycle_events: e], e.ref == ^ref)
 

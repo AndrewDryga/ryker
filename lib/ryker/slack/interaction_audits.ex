@@ -11,14 +11,14 @@ defmodule Ryker.Slack.InteractionAudits do
   after the outermost commit (`subscribe_interactions/0`).
   """
 
-  import Ecto.Query
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
   alias Ryker.ErrorDetail
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.Slack.{Interaction, InteractionAudit, InteractionAuditChangeset}
+  alias Ryker.Slack.{Interaction, InteractionAudit}
+  alias Ryker.Slack.{InteractionAuditChangeset, InteractionAuditQuery}
   alias Ryker.UTCDateTime
   alias Ryker.Work.Turn
 
@@ -81,13 +81,8 @@ defmodule Ryker.Slack.InteractionAudits do
   """
   @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since) do
-    from(audit in InteractionAudit,
-      where: audit.repaint_status == :pending,
-      select: [
-        filter(min(audit.next_attempt_at), audit.next_attempt_at > ^since),
-        filter(min(audit.lease_expires_at), audit.lease_expires_at > ^since)
-      ]
-    )
+    since
+    |> InteractionAuditQuery.next_due_after()
     |> Repo.one()
     |> UTCDateTime.earliest()
   end
@@ -179,12 +174,10 @@ defmodule Ryker.Slack.InteractionAudits do
 
   defp record_locked(attributes) do
     existing =
-      Repo.one(
-        from(audit in InteractionAudit,
-          where: audit.event_ref == ^attributes.event_ref,
-          lock: "FOR UPDATE"
-        )
-      )
+      attributes.event_ref
+      |> InteractionAuditQuery.by_event_ref()
+      |> InteractionAuditQuery.lock_for_update()
+      |> Repo.one()
 
     case existing do
       %InteractionAudit{} = audit ->
@@ -209,12 +202,13 @@ defmodule Ryker.Slack.InteractionAudits do
   end
 
   defp rearm_locked(event_ref) do
-    case Repo.one(
-           from(audit in InteractionAudit,
-             where: audit.event_ref == ^event_ref,
-             lock: "FOR UPDATE"
-           )
-         ) do
+    locked =
+      event_ref
+      |> InteractionAuditQuery.by_event_ref()
+      |> InteractionAuditQuery.lock_for_update()
+      |> Repo.one()
+
+    case locked do
       nil ->
         Repo.rollback(:slack_interaction_audit_not_found)
 
@@ -239,18 +233,9 @@ defmodule Ryker.Slack.InteractionAudits do
   defp claim_next_locked(worker_ref, lease_seconds) do
     now = Repo.now!()
 
-    query =
-      from(audit in InteractionAudit,
-        where:
-          audit.repaint_status == :pending and
-            (is_nil(audit.next_attempt_at) or audit.next_attempt_at <= ^now) and
-            (is_nil(audit.lease_expires_at) or audit.lease_expires_at <= ^now),
-        order_by: [asc: audit.occurred_at, asc: audit.id],
-        limit: 1,
-        lock: "FOR UPDATE SKIP LOCKED"
-      )
+    next = now |> InteractionAuditQuery.next_claimable() |> Repo.one()
 
-    case Repo.one(query) do
+    case next do
       nil ->
         nil
 
@@ -276,7 +261,10 @@ defmodule Ryker.Slack.InteractionAudits do
   defp mutate_claim_locked(id, lease_ref, callback) do
     now = Repo.now!()
 
-    case Repo.one(from(audit in InteractionAudit, where: audit.id == ^id, lock: "FOR UPDATE")) do
+    locked =
+      id |> InteractionAuditQuery.by_id() |> InteractionAuditQuery.lock_for_update() |> Repo.one()
+
+    case locked do
       nil ->
         Repo.rollback(:slack_interaction_audit_not_found)
 

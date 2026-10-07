@@ -11,12 +11,13 @@ defmodule Ryker.Slack.ChannelSettings do
   installation default, whose write is authorized by saved operator membership.
   """
 
-  import Ecto.Query
   alias Ryker.CanonicalJSON
   alias Ryker.Repo
   alias Ryker.Settings
-  alias Ryker.Slack.{ChannelConfiguration, ChannelConfigurationChangeset, ChannelConfigurations}
-  alias Ryker.Slack.{ChannelSettingAudit, ChannelSettingChangeset}
+  alias Ryker.Settings.SlackQuery
+  alias Ryker.Slack.{ChannelConfiguration, ChannelConfigurationChangeset}
+  alias Ryker.Slack.{ChannelConfigurationQuery, ChannelConfigurations}
+  alias Ryker.Slack.{ChannelSettingAudit, ChannelSettingAuditQuery, ChannelSettingChangeset}
 
   @fields [
     :actor_ref,
@@ -85,12 +86,13 @@ defmodule Ryker.Slack.ChannelSettings do
   defp change_locked(attributes, default) do
     fingerprint = fingerprint(attributes)
 
-    case Repo.one(
-           from(event in ChannelSettingAudit,
-             where: event.event_ref == ^attributes.event_ref,
-             lock: "FOR UPDATE"
-           )
-         ) do
+    audit =
+      attributes.event_ref
+      |> ChannelSettingAuditQuery.by_event_ref()
+      |> ChannelSettingAuditQuery.lock_for_update()
+      |> Repo.one()
+
+    case audit do
       %ChannelSettingAudit{request_fingerprint: ^fingerprint} ->
         %{effective: effective!(attributes, default), status: :duplicate}
 
@@ -153,14 +155,10 @@ defmodule Ryker.Slack.ChannelSettings do
     do: if(current == setting, do: :mentions, else: current || :mentions)
 
   defp locked_configuration!(attributes) do
-    Repo.one(
-      from(configuration in ChannelConfiguration,
-        where:
-          configuration.workspace_ref == ^attributes.workspace_ref and
-            configuration.channel_ref == ^channel_ref(attributes.conversation_ref),
-        lock: "FOR UPDATE"
-      )
-    )
+    attributes.workspace_ref
+    |> ChannelConfigurationQuery.by_channel(channel_ref(attributes.conversation_ref))
+    |> ChannelConfigurationQuery.lock_for_update()
+    |> Repo.one()
   end
 
   defp insert_audit!(attributes, fingerprint) do
@@ -187,11 +185,7 @@ defmodule Ryker.Slack.ChannelSettings do
     do: effective(attributes.workspace_ref, attributes.conversation_ref, default)
 
   defp default_participation(nil, workspace_ref) do
-    case Repo.one(
-           from(slack in Settings.Slack,
-             select: {slack.workspace_ref, slack.default_participation}
-           )
-         ) do
+    case Repo.one(SlackQuery.select_default_participation()) do
       {^workspace_ref, default} -> {:ok, default}
       _other -> {:error, {:invalid_channel_setting, :workspace_ref}}
     end
@@ -205,7 +199,7 @@ defmodule Ryker.Slack.ChannelSettings do
   end
 
   defp configuration(workspace_ref, channel_ref) do
-    Repo.get_by(ChannelConfiguration, workspace_ref: workspace_ref, channel_ref: channel_ref)
+    workspace_ref |> ChannelConfigurationQuery.by_channel(channel_ref) |> Repo.one()
   end
 
   defp channel_ref(conversation_ref),

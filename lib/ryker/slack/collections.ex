@@ -14,12 +14,11 @@ defmodule Ryker.Slack.Collections do
   the thread page was cut from rather than a second query with its own rules.
   """
 
-  import Ecto.Query
-  alias Ryker.Behaviors.Behavior
-  alias Ryker.Memories.MemoryEntry
+  alias Ryker.Behaviors.{Behavior, BehaviorQuery}
+  alias Ryker.Memories.{MemoryEntry, MemoryEntryQuery}
   alias Ryker.Repo
   alias Ryker.Schedules.Schedule
-  alias Ryker.Slack.SavedEntity
+  alias Ryker.Slack.{CollectionQuery, SavedEntity}
 
   @page_size 5
   @kinds [:schedules, :standing_rules, :knowledge]
@@ -173,115 +172,33 @@ defmodule Ryker.Slack.Collections do
   defp count(:knowledge, workspace_ref, conversation_refs, now) do
     slack_workspace = "slack:#{workspace_ref}"
 
-    Repo.aggregate(knowledge_behaviors(slack_workspace, conversation_refs, now), :count) +
-      Repo.aggregate(knowledge_memories(slack_workspace, conversation_refs, now), :count)
+    behaviors = CollectionQuery.knowledge_behaviors(slack_workspace, conversation_refs, now)
+    memories = CollectionQuery.knowledge_memories(slack_workspace, conversation_refs, now)
+    Repo.aggregate(behaviors, :count) + Repo.aggregate(memories, :count)
   end
 
   defp count(kind, workspace_ref, conversation_refs, now),
-    do: Repo.aggregate(query(kind, workspace_ref, conversation_refs, now), :count)
+    do: Repo.aggregate(CollectionQuery.items(kind, workspace_ref, conversation_refs, now), :count)
 
   defp entries(:knowledge, workspace_ref, conversation_refs, now, offset, limit) do
-    slack_workspace = "slack:#{workspace_ref}"
-
-    memories =
-      from(memory in knowledge_memories(slack_workspace, conversation_refs, now),
-        select: %{kind: "memory", id: memory.id, updated_at: memory.updated_at}
-      )
-
-    newest =
-      from(behavior in knowledge_behaviors(slack_workspace, conversation_refs, now),
-        select: %{kind: "behavior", id: behavior.id, updated_at: behavior.updated_at},
-        union_all: ^memories
-      )
-
     rows =
-      Repo.all(
-        from(item in subquery(newest),
-          order_by: [desc: item.updated_at, desc: item.id],
-          offset: ^offset,
-          limit: ^limit
-        )
-      )
+      "slack:#{workspace_ref}"
+      |> CollectionQuery.knowledge_page(conversation_refs, now, offset, limit)
+      |> Repo.all()
 
-    loaded =
-      Map.new(
-        Repo.all(from(behavior in Behavior, where: behavior.id in ^ids(rows, "behavior"))) ++
-          Repo.all(from(memory in MemoryEntry, where: memory.id in ^ids(rows, "memory"))),
-        &{&1.id, &1}
-      )
-
+    behaviors = rows |> ids("behavior") |> BehaviorQuery.by_ids() |> Repo.all()
+    memories = rows |> ids("memory") |> MemoryEntryQuery.by_ids() |> Repo.all()
+    loaded = Map.new(behaviors ++ memories, &{&1.id, &1})
     Enum.map(rows, &Map.fetch!(loaded, &1.id))
   end
 
-  defp entries(:schedules, workspace_ref, conversation_refs, now, offset, limit) do
-    Repo.all(
-      from(schedule in query(:schedules, workspace_ref, conversation_refs, now),
-        order_by: [asc: schedule.next_occurrence_at, asc: schedule.inserted_at, asc: schedule.id],
-        offset: ^offset,
-        limit: ^limit
-      )
-    )
-  end
-
-  defp entries(:standing_rules, workspace_ref, conversation_refs, now, offset, limit) do
-    Repo.all(
-      from(behavior in query(:standing_rules, workspace_ref, conversation_refs, now),
-        order_by: [desc: behavior.updated_at, desc: behavior.id],
-        offset: ^offset,
-        limit: ^limit
-      )
-    )
+  defp entries(kind, workspace_ref, conversation_refs, now, offset, limit) do
+    kind
+    |> CollectionQuery.page(workspace_ref, conversation_refs, now, offset, limit)
+    |> Repo.all()
   end
 
   defp ids(rows, kind), do: for(%{kind: ^kind, id: id} <- rows, do: id)
-
-  defp query(:schedules, _workspace_ref, conversation_refs, now) do
-    from(schedule in Schedule,
-      where:
-        schedule.destination_transport == "slack" and
-          schedule.destination_conversation_ref in ^conversation_refs and
-          schedule.status in [:active, :paused] and
-          (is_nil(schedule.expires_at) or schedule.expires_at > ^now)
-    )
-  end
-
-  defp query(:standing_rules, workspace_ref, conversation_refs, now) do
-    from(behavior in Behavior,
-      where:
-        behavior.kind == :standing_assignment and
-          behavior.workspace_ref == ^"slack:#{workspace_ref}" and
-          behavior.scope_kind == :conversation and
-          behavior.scope_ref in ^conversation_refs and
-          behavior.status in [:active, :disabled] and
-          (is_nil(behavior.expires_at) or behavior.expires_at > ^now)
-    )
-  end
-
-  # Operator-scoped (private) guidance belongs to one person and is never
-  # listed for a channel; conversation items are listed only in their channel.
-  defp knowledge_behaviors(slack_workspace, conversation_refs, now) do
-    from(behavior in Behavior,
-      where:
-        behavior.kind in [:preference, :guidance] and
-          behavior.workspace_ref == ^slack_workspace and
-          ((behavior.scope_kind == :conversation and
-              behavior.scope_ref in ^conversation_refs) or
-             behavior.scope_kind in [:workspace, :repository]) and
-          behavior.status in [:active, :disabled] and
-          (is_nil(behavior.expires_at) or behavior.expires_at > ^now)
-    )
-  end
-
-  defp knowledge_memories(slack_workspace, conversation_refs, now) do
-    from(memory in MemoryEntry,
-      where:
-        memory.workspace_ref == ^slack_workspace and memory.status == :active and
-          (is_nil(memory.expires_at) or memory.expires_at > ^now) and
-          ((memory.scope_kind == :conversation and memory.scope_ref in ^conversation_refs) or
-             (memory.scope_kind in [:workspace, :repository] and
-                memory.visibility == :workspace))
-    )
-  end
 
   defp empty(:schedules), do: "No active schedules are set up in this channel."
   defp empty(:standing_rules), do: "No standing rules are set up in this channel."

@@ -7,14 +7,13 @@ defmodule Ryker.Slack.IncidentRoomCard do
   worker retry an ambiguous Slack update against the same message.
   """
 
-  import Ecto.Query
   alias Ryker.CanonicalJSON
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes.{Episode, EpisodeQuery}
   alias Ryker.Records
-  alias Ryker.Records.Record
+  alias Ryker.Records.{Record, RecordQuery}
   alias Ryker.Repo
   alias Ryker.Slack.IncidentRoom
-  alias Ryker.Work.{FailureCause, Session, Turn}
+  alias Ryker.Work.{FailureCause, Session, SessionQuery, Turn, TurnQuery}
 
   # 3 since 2026-10-06: the card reads in words, without Ryker's ids and codes.
   @ui_revision 3
@@ -54,14 +53,14 @@ defmodule Ryker.Slack.IncidentRoomCard do
   end
 
   defp projection(%IncidentRoom{} = room) do
-    case Repo.get(Episode, room.episode_id) do
+    case Repo.one(EpisodeQuery.by_id(room.episode_id)) do
       nil ->
         {:error, :incident_room_episode_not_found}
 
       %Episode{} = episode ->
         records = latest_records(episode.id)
-        turn = current_turn(episode)
-        session = latest_session(episode.id)
+        turn = Repo.one(TurnQuery.current(episode))
+        session = Repo.one(SessionQuery.latest_of_episode(episode.id))
 
         {:ok,
          base(room)
@@ -111,43 +110,13 @@ defmodule Ryker.Slack.IncidentRoomCard do
   end
 
   defp latest_records(episode_id) do
-    Repo.all(
-      from(record in Record,
-        where:
-          record.episode_id == ^episode_id and record.kind in ^@record_kinds and
-            record.status in [:open, :confirmed],
-        order_by: [asc: record.sequence]
-      )
-    )
+    episode_id
+    |> RecordQuery.by_episode_id()
+    |> RecordQuery.of_kinds(@record_kinds)
+    |> RecordQuery.in_use()
+    |> RecordQuery.in_sequence()
+    |> Repo.all()
     |> Enum.reduce(%{}, &Map.put(&2, &1.kind, &1))
-  end
-
-  defp current_turn(%Episode{owner_kind: :turn, owner_ref: turn_ref} = episode) do
-    Repo.get_by(Turn, episode_id: episode.id, turn_ref: turn_ref)
-  end
-
-  defp current_turn(%Episode{owner_kind: :delivery, owner_ref: delivery_ref} = episode) do
-    Repo.get_by(Turn, episode_id: episode.id, delivery_ref: delivery_ref)
-  end
-
-  defp current_turn(episode) do
-    Repo.one(
-      from(turn in Turn,
-        where: turn.episode_id == ^episode.id,
-        order_by: [desc: turn.inserted_at, desc: turn.id],
-        limit: 1
-      )
-    )
-  end
-
-  defp latest_session(episode_id) do
-    Repo.one(
-      from(session in Session,
-        where: session.episode_id == ^episode_id,
-        order_by: [desc: session.generation],
-        limit: 1
-      )
-    )
   end
 
   defp status(%IncidentRoom{channel_state: state}, _episode, _turn) when state != :active,

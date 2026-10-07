@@ -10,23 +10,13 @@ defmodule Ryker.Slack.TaskCards do
   outermost commit (`subscribe_task_cards/0`), on its request's topics too.
   """
 
-  import Ecto.Query
   alias Ryker.Delivery.Request
   alias Ryker.Episodes.Episode
   alias Ryker.ErrorDetail
   alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.Slack.{TaskCard, TaskCardChangeset}
+  alias Ryker.Slack.{TaskCard, TaskCardChangeset, TaskCardQuery}
   alias Ryker.Work.{DeliveryReceipt, Turn}
-
-  # A card shows its task. While the task works its progress moves, so the card
-  # is checked every few seconds (`check_interval_seconds`); otherwise only a
-  # person, an event or GitHub moves it, each announced (`check_soon/1`), and
-  # the card is checked every ten minutes for anything that was not. Every
-  # active card was rebuilt every 2 seconds, finished tasks' too: five cards
-  # kept an idle install at about 350 queries a second (2026-10-04); then every
-  # minute, about 140 queries a build, until retention removed it.
-  @quiet_check_seconds 600
 
   @doc """
   Makes the card of `episode_id` due at the next claim: something it shows was
@@ -35,14 +25,7 @@ defmodule Ryker.Slack.TaskCards do
   """
   @spec check_soon(Ecto.UUID.t()) :: :ok
   def check_soon(episode_id) do
-    Repo.update_all(
-      from(card in TaskCard,
-        where:
-          card.episode_id == ^episode_id and card.status == :active and
-            not is_nil(card.card_checked_at)
-      ),
-      set: [card_checked_at: nil]
-    )
+    Repo.update_all(TaskCardQuery.checked_for(episode_id), set: [card_checked_at: nil])
 
     :ok
   end
@@ -69,28 +52,9 @@ defmodule Ryker.Slack.TaskCards do
   @spec next_due_at(DateTime.t(), pos_integer()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since, check_interval_seconds)
       when is_integer(check_interval_seconds) do
-    due =
-      from(card in TaskCard,
-        left_join: episode in Episode,
-        on: episode.id == card.episode_id,
-        where: card.status == :active,
-        select: %{
-          due_at:
-            type(
-              fragment(
-                "GREATEST(CASE WHEN ? = 'working' THEN ? ELSE ? END, ?, ?)",
-                episode.state,
-                datetime_add(card.card_checked_at, ^check_interval_seconds, "second"),
-                datetime_add(card.card_checked_at, ^@quiet_check_seconds, "second"),
-                card.next_attempt_at,
-                card.lease_expires_at
-              ),
-              :utc_datetime_usec
-            )
-        }
-      )
-
-    Repo.one(from(card in subquery(due), where: card.due_at > ^since, select: min(card.due_at)))
+    since
+    |> TaskCardQuery.next_due_after(check_interval_seconds)
+    |> Repo.one()
   end
 
   @doc """
@@ -103,17 +67,7 @@ defmodule Ryker.Slack.TaskCards do
       when is_binary(episode_id) and is_binary(thread_ref) do
     case String.split(conversation, ":") do
       [workspace, channel] ->
-        Repo.one(
-          from(card in TaskCard,
-            where:
-              card.episode_id == ^episode_id and card.workspace_ref == ^workspace and
-                card.channel_ref == ^channel and card.thread_ref == ^thread_ref and
-                not is_nil(card.message_ref),
-            order_by: [desc: card.inserted_at],
-            limit: 1,
-            select: card.message_ref
-          )
-        )
+        Repo.one(TaskCardQuery.message_in_thread(episode_id, workspace, channel, thread_ref))
 
       _other ->
         nil
@@ -168,42 +122,12 @@ defmodule Ryker.Slack.TaskCards do
   defp claim_next_locked(worker_ref, lease_seconds, check_interval_seconds) do
     now = Repo.now!()
 
-    query =
-      from(card in TaskCard,
-        as: :card,
-        where:
-          card.status == :active and
-            (is_nil(card.next_attempt_at) or card.next_attempt_at <= ^now) and
-            (is_nil(card.lease_expires_at) or card.lease_expires_at <= ^now),
-        where: ^checked_due(now, check_interval_seconds),
-        order_by: [asc_nulls_first: card.card_checked_at, asc: card.updated_at, asc: card.id],
-        limit: 1,
-        lock: "FOR UPDATE SKIP LOCKED"
-      )
+    query = TaskCardQuery.next_claimable(now, check_interval_seconds)
 
     case Repo.one(query) do
       nil -> nil
       %TaskCard{} = card -> lease_card(card, worker_ref, lease_seconds, now)
     end
-  end
-
-  # A card never checked (or made due by an announcement), one whose task works
-  # and was checked longer ago than the check interval, or any checked longer
-  # ago than the quiet interval.
-  defp checked_due(now, check_interval_seconds) do
-    due_at = DateTime.add(now, -check_interval_seconds, :second)
-    quiet_due_at = DateTime.add(now, -@quiet_check_seconds, :second)
-
-    working =
-      from(episode in Episode,
-        where: episode.id == parent_as(:card).episode_id and episode.state == :working
-      )
-
-    dynamic(
-      [card: card],
-      is_nil(card.card_checked_at) or card.card_checked_at <= ^quiet_due_at or
-        (card.card_checked_at <= ^due_at and exists(working))
-    )
   end
 
   # A claim only takes the lease, which no page shows. A working task's card is
@@ -298,7 +222,7 @@ defmodule Ryker.Slack.TaskCards do
   defp rearm_locked(ref) do
     now = Repo.now!()
 
-    case Repo.one(from(card in TaskCard, where: card.ref == ^ref, lock: "FOR UPDATE")) do
+    case Repo.one(ref |> TaskCardQuery.by_ref() |> TaskCardQuery.lock_for_update()) do
       nil ->
         Repo.rollback(:task_card_not_found)
 
@@ -364,25 +288,7 @@ defmodule Ryker.Slack.TaskCards do
       "slack-task-card-repair"
     ])
 
-    row =
-      Repo.one(
-        from(record in Record,
-          join: source_turn in Turn,
-          on: source_turn.id == record.turn_id and source_turn.episode_id == record.episode_id,
-          join: episode in Episode,
-          on: episode.id == record.confirmed_episode_id,
-          left_join: card in TaskCard,
-          on: card.record_id == record.id,
-          where:
-            record.kind == "task_offer" and record.status == :confirmed and
-              fragment("(?::jsonb)->>'kind' = 'engineering'", record.payload) and
-              fragment("(?::jsonb)->>'transport' = 'slack'", source_turn.external_receipt) and
-              is_nil(card.id) and record.id not in ^skip,
-          order_by: [asc: record.confirmed_at, asc: record.id],
-          limit: 1,
-          select: {record, source_turn, episode}
-        )
-      )
+    row = Repo.one(TaskCardQuery.next_uncarded_offer(skip))
 
     case row do
       nil ->
@@ -430,7 +336,7 @@ defmodule Ryker.Slack.TaskCards do
   defp mutate_claim(card_id, lease_ref, callback) do
     Repo.transaction(fn ->
       now = Repo.now!()
-      card = Repo.one(from(card in TaskCard, where: card.id == ^card_id, lock: "FOR UPDATE"))
+      card = card_id |> TaskCardQuery.by_id() |> TaskCardQuery.lock_for_update() |> Repo.one()
 
       cond do
         is_nil(card) ->

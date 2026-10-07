@@ -15,7 +15,6 @@ defmodule Ryker.Slack.ChannelConfigurations do
   outermost commit (`subscribe_channels/0`, `subscribe_channel/2`).
   """
 
-  import Ecto.Query
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity
   alias Ryker.Memories
@@ -23,10 +22,12 @@ defmodule Ryker.Slack.ChannelConfigurations do
   alias Ryker.People
   alias Ryker.Repo
   alias Ryker.RoutingExamples
-  alias Ryker.Settings.Environment
-  alias Ryker.Slack.{ChannelConfiguration, ChannelConfigurationChangeset, ChannelFence}
-  alias Ryker.Slack.{ChannelMembership, ChannelMembershipEvent, ChannelSettings}
-  alias Ryker.Slack.{ConfigurationAction, ConfigurationSession}
+  alias Ryker.Settings.{Environment, EnvironmentQuery}
+  alias Ryker.Slack.{ChannelConfiguration, ChannelConfigurationChangeset}
+  alias Ryker.Slack.{ChannelConfigurationQuery, ChannelFence, ChannelMembership}
+  alias Ryker.Slack.{ChannelMembershipEvent, ChannelMembershipEventQuery, ChannelMembershipQuery}
+  alias Ryker.Slack.{ChannelSettings, ConfigurationAction, ConfigurationActionQuery}
+  alias Ryker.Slack.{ConfigurationSession, ConfigurationSessionQuery}
 
   @membership_fields [:actor_ref, :channel_ref, :event_ref, :kind, :occurred_at, :workspace_ref]
   @participation_change_fields [
@@ -144,18 +145,17 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
   defp reconcile_absent_locked(workspace_ref, present_refs, snapshot_started_at) do
     query =
-      from(membership in ChannelMembership,
-        where:
-          membership.workspace_ref == ^workspace_ref and membership.status == :joined and
-            membership.updated_at <= ^snapshot_started_at,
-        order_by: [asc: membership.channel_ref],
-        lock: "FOR UPDATE"
-      )
+      workspace_ref
+      |> ChannelMembershipQuery.by_workspace()
+      |> ChannelMembershipQuery.joined()
+      |> ChannelMembershipQuery.updated_by(snapshot_started_at)
+      |> ChannelMembershipQuery.ordered_by_channel()
+      |> ChannelMembershipQuery.lock_for_update()
 
     query =
       if present_refs == [],
         do: query,
-        else: from(membership in query, where: membership.channel_ref not in ^present_refs)
+        else: ChannelMembershipQuery.excluding_channels(query, present_refs)
 
     memberships = Repo.all(query)
     now = Repo.now!()
@@ -210,7 +210,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
   def fetch_session(session_ref) do
     case Ecto.UUID.cast(session_ref) do
       {:ok, session_ref} ->
-        case Repo.get(ConfigurationSession, session_ref) do
+        case Repo.one(ConfigurationSessionQuery.by_id(session_ref)) do
           %ConfigurationSession{} = session -> {:ok, session}
           nil -> {:error, :configuration_session_not_found}
         end
@@ -222,12 +222,12 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
   @spec configuration(String.t(), String.t()) :: ChannelConfiguration.t() | nil
   def configuration(workspace_ref, channel_ref) do
-    Repo.get_by(ChannelConfiguration, workspace_ref: workspace_ref, channel_ref: channel_ref)
+    Repo.one(ChannelConfigurationQuery.by_channel(workspace_ref, channel_ref))
   end
 
   @spec membership(String.t(), String.t()) :: ChannelMembership.t() | nil
   def membership(workspace_ref, channel_ref) do
-    Repo.get_by(ChannelMembership, workspace_ref: workspace_ref, channel_ref: channel_ref)
+    Repo.one(ChannelMembershipQuery.by_channel(workspace_ref, channel_ref))
   end
 
   @doc """
@@ -290,14 +290,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
     lock_channel!(workspace_ref, channel_ref)
 
     configuration =
-      Repo.one(
-        from(configuration in ChannelConfiguration,
-          where:
-            configuration.workspace_ref == ^workspace_ref and
-              configuration.channel_ref == ^channel_ref,
-          lock: "FOR UPDATE"
-        )
-      )
+      locked_configuration(workspace_ref, channel_ref)
 
     cond do
       is_nil(configuration) ->
@@ -334,7 +327,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
   defp environment_saved?(nil), do: true
 
   defp environment_saved?(ref),
-    do: Repo.exists?(from(environment in Environment, where: environment.ref == ^ref))
+    do: Repo.exists?(EnvironmentQuery.by_ref(ref))
 
   # The environment's foreign key refuses one removed since it was checked or
   # offered; any other invalid write is a host defect and raises.
@@ -473,22 +466,12 @@ defmodule Ryker.Slack.ChannelConfigurations do
     lock_channel!(workspace_ref, channel_ref)
     broadcast_channel_updated(workspace_ref, channel_ref)
 
-    Repo.delete_all(
-      from(configuration in ChannelConfiguration,
-        where:
-          configuration.workspace_ref == ^workspace_ref and
-            configuration.channel_ref == ^channel_ref
-      )
-    )
+    Repo.delete_all(ChannelConfigurationQuery.by_channel(workspace_ref, channel_ref))
 
-    Repo.update_all(
-      from(session in ConfigurationSession,
-        where:
-          session.workspace_ref == ^workspace_ref and session.channel_ref == ^channel_ref and
-            session.status in [:asking, :confirming]
-      ),
-      set: [status: :cancelled, updated_at: Repo.now!()]
-    )
+    workspace_ref
+    |> ConfigurationSessionQuery.in_channel(channel_ref)
+    |> ConfigurationSessionQuery.active()
+    |> Repo.update_all(set: [status: :cancelled, updated_at: Repo.now!()])
 
     :ok
   end
@@ -498,15 +481,13 @@ defmodule Ryker.Slack.ChannelConfigurations do
     now = Repo.now!()
     expire_active_sessions!(workspace_ref, channel_ref, now)
 
-    Repo.one(
-      from(session in ConfigurationSession,
-        where:
-          session.workspace_ref == ^workspace_ref and session.channel_ref == ^channel_ref and
-            session.status in [:asking, :confirming] and session.expires_at > ^now,
-        order_by: [desc: session.inserted_at],
-        limit: 1
-      )
-    )
+    workspace_ref
+    |> ConfigurationSessionQuery.in_channel(channel_ref)
+    |> ConfigurationSessionQuery.active()
+    |> ConfigurationSessionQuery.unexpired_at(now)
+    |> ConfigurationSessionQuery.newest_first()
+    |> ConfigurationSessionQuery.limit_to(1)
+    |> Repo.one()
   end
 
   defp start_reconfiguration_locked(attributes, catalog) do
@@ -514,12 +495,12 @@ defmodule Ryker.Slack.ChannelConfigurations do
     broadcast_channel_updated(attributes.workspace_ref, attributes.channel_ref)
     fingerprint = reconfiguration_fingerprint(attributes)
 
-    case Repo.one(
-           from(session in ConfigurationSession,
-             where: session.start_event_ref == ^attributes.event_ref,
-             lock: "FOR UPDATE"
-           )
-         ) do
+    started =
+      attributes.event_ref
+      |> ConfigurationSessionQuery.by_start_event()
+      |> ConfigurationSessionQuery.lock_for_update()
+
+    case Repo.one(started) do
       %ConfigurationSession{start_fingerprint: ^fingerprint} = session ->
         %{session: session, status: :duplicate}
 
@@ -533,28 +514,17 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
   defp start_new_reconfiguration(attributes, catalog, fingerprint) do
     membership =
-      Repo.one(
-        from(membership in ChannelMembership,
-          where:
-            membership.workspace_ref == ^attributes.workspace_ref and
-              membership.channel_ref == ^attributes.channel_ref,
-          lock: "FOR UPDATE"
-        )
-      )
+      locked_membership(attributes.workspace_ref, attributes.channel_ref)
 
     now = Repo.now!()
     expire_active_sessions!(attributes.workspace_ref, attributes.channel_ref, now)
 
     active =
-      Repo.one(
-        from(session in ConfigurationSession,
-          where:
-            session.workspace_ref == ^attributes.workspace_ref and
-              session.channel_ref == ^attributes.channel_ref and
-              session.status in [:asking, :confirming],
-          lock: "FOR UPDATE"
-        )
-      )
+      attributes.workspace_ref
+      |> ConfigurationSessionQuery.in_channel(attributes.channel_ref)
+      |> ConfigurationSessionQuery.active()
+      |> ConfigurationSessionQuery.lock_for_update()
+      |> Repo.one()
 
     cond do
       not match?(%ChannelMembership{status: :joined}, membership) ->
@@ -589,16 +559,14 @@ defmodule Ryker.Slack.ChannelConfigurations do
     broadcast_channel_updated(attributes.workspace_ref, attributes.channel_ref)
     fingerprint = membership_fingerprint(attributes)
 
-    case Repo.one(
-           from(event in ChannelMembershipEvent,
-             where:
-               event.workspace_ref == ^attributes.workspace_ref and
-                 event.event_ref == ^attributes.event_ref,
-             lock: "FOR UPDATE"
-           )
-         ) do
+    stored =
+      attributes.workspace_ref
+      |> ChannelMembershipEventQuery.by_event(attributes.event_ref)
+      |> ChannelMembershipEventQuery.lock_for_update()
+
+    case Repo.one(stored) do
       %ChannelMembershipEvent{event_fingerprint: ^fingerprint} = event ->
-        membership = Repo.get!(ChannelMembership, event.membership_id)
+        membership = Repo.one!(ChannelMembershipQuery.by_id(event.membership_id))
 
         %{
           configuration: configuration(membership.workspace_ref, membership.channel_ref),
@@ -625,14 +593,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
       lock_channel!(workspace_ref, channel_ref)
 
       membership =
-        Repo.one(
-          from(membership in ChannelMembership,
-            where:
-              membership.workspace_ref == ^workspace_ref and
-                membership.channel_ref == ^channel_ref,
-            lock: "FOR UPDATE"
-          )
-        )
+        locked_membership(workspace_ref, channel_ref)
 
       reconcile_joined_membership(
         membership,
@@ -702,14 +663,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
   defp transition_membership(attributes, catalog, fingerprint) do
     membership =
-      Repo.one(
-        from(membership in ChannelMembership,
-          where:
-            membership.workspace_ref == ^attributes.workspace_ref and
-              membership.channel_ref == ^attributes.channel_ref,
-          lock: "FOR UPDATE"
-        )
-      )
+      locked_membership(attributes.workspace_ref, attributes.channel_ref)
 
     {membership, configuration, status} =
       case {membership, attributes.kind} do
@@ -768,14 +722,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
   end
 
   defp ensure_configuration!(membership, catalog) do
-    case Repo.one(
-           from(configuration in ChannelConfiguration,
-             where:
-               configuration.workspace_ref == ^membership.workspace_ref and
-                 configuration.channel_ref == ^membership.channel_ref,
-             lock: "FOR UPDATE"
-           )
-         ) do
+    case locked_configuration(membership.workspace_ref, membership.channel_ref) do
       %ChannelConfiguration{} = configuration ->
         configuration
 
@@ -902,29 +849,21 @@ defmodule Ryker.Slack.ChannelConfigurations do
   end
 
   defp cancel_active_sessions!(membership, status) do
-    Repo.update_all(
-      from(session in ConfigurationSession,
-        where:
-          session.workspace_ref == ^membership.workspace_ref and
-            session.channel_ref == ^membership.channel_ref and
-            session.status in [:asking, :confirming]
-      ),
-      set: [status: status, updated_at: Repo.now!()]
-    )
+    membership.workspace_ref
+    |> ConfigurationSessionQuery.in_channel(membership.channel_ref)
+    |> ConfigurationSessionQuery.active()
+    |> Repo.update_all(set: [status: status, updated_at: Repo.now!()])
 
     :ok
   end
 
   defp expire_active_sessions!(workspace_ref, channel_ref, now) do
     {expired, _rows} =
-      Repo.update_all(
-        from(session in ConfigurationSession,
-          where:
-            session.workspace_ref == ^workspace_ref and session.channel_ref == ^channel_ref and
-              session.status in [:asking, :confirming] and session.expires_at <= ^now
-        ),
-        set: [status: :expired, updated_at: now]
-      )
+      workspace_ref
+      |> ConfigurationSessionQuery.in_channel(channel_ref)
+      |> ConfigurationSessionQuery.active()
+      |> ConfigurationSessionQuery.expired_by(now)
+      |> Repo.update_all(set: [status: :expired, updated_at: now])
 
     if expired > 0, do: broadcast_channel_updated(workspace_ref, channel_ref), else: :ok
   end
@@ -962,31 +901,18 @@ defmodule Ryker.Slack.ChannelConfigurations do
       )
 
     Repo.delete_all(
-      from(configuration in ChannelConfiguration,
-        where:
-          configuration.workspace_ref == ^membership.workspace_ref and
-            configuration.channel_ref == ^membership.channel_ref
-      )
+      ChannelConfigurationQuery.by_channel(membership.workspace_ref, membership.channel_ref)
     )
 
     Repo.delete_all(
-      from(session in ConfigurationSession,
-        where:
-          session.workspace_ref == ^membership.workspace_ref and
-            session.channel_ref == ^membership.channel_ref
-      )
+      ConfigurationSessionQuery.in_channel(membership.workspace_ref, membership.channel_ref)
     )
 
     :ok
   end
 
   defp bind_prompt_locked(session_ref, revision, message_ref, thread_ref) do
-    case Repo.one(
-           from(session in ConfigurationSession,
-             where: session.id == ^session_ref,
-             lock: "FOR UPDATE"
-           )
-         ) do
+    case locked_session(session_ref) do
       nil ->
         Repo.rollback(:configuration_session_not_found)
 
@@ -1015,14 +941,17 @@ defmodule Ryker.Slack.ChannelConfigurations do
   defp apply_action_locked(attributes) do
     fingerprint = action_fingerprint(attributes)
 
-    case Repo.one(
-           from(action in ConfigurationAction,
-             where: action.event_ref == ^attributes.event_ref,
-             lock: "FOR UPDATE"
-           )
-         ) do
+    stored =
+      attributes.event_ref
+      |> ConfigurationActionQuery.by_event_ref()
+      |> ConfigurationActionQuery.lock_for_update()
+
+    case Repo.one(stored) do
       %ConfigurationAction{event_fingerprint: ^fingerprint} = action ->
-        %{session: Repo.get!(ConfigurationSession, action.session_id), status: :duplicate}
+        %{
+          session: Repo.one!(ConfigurationSessionQuery.by_id(action.session_id)),
+          status: :duplicate
+        }
 
       %ConfigurationAction{} ->
         Repo.rollback(:configuration_action_event_conflict)
@@ -1036,13 +965,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
     lock_channel!(attributes.workspace_ref, attributes.channel_ref)
     broadcast_channel_updated(attributes.workspace_ref, attributes.channel_ref)
 
-    session =
-      Repo.one(
-        from(session in ConfigurationSession,
-          where: session.id == ^attributes.session_ref,
-          lock: "FOR UPDATE"
-        )
-      )
+    session = locked_session(attributes.session_ref)
 
     case action_identity(session, attributes) do
       :ok -> apply_action_for_session(session, attributes, fingerprint)
@@ -1052,14 +975,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
   defp apply_action_for_session(session, attributes, fingerprint) do
     membership =
-      Repo.one(
-        from(membership in ChannelMembership,
-          where:
-            membership.workspace_ref == ^attributes.workspace_ref and
-              membership.channel_ref == ^attributes.channel_ref,
-          lock: "FOR UPDATE"
-        )
-      )
+      locked_membership(attributes.workspace_ref, attributes.channel_ref)
 
     with :ok <- live_membership(membership, session),
          :ok <- action_scope(session, attributes),
@@ -1274,14 +1190,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
     now = Repo.now!()
 
     existing =
-      Repo.one(
-        from(configuration in ChannelConfiguration,
-          where:
-            configuration.workspace_ref == ^session.workspace_ref and
-              configuration.channel_ref == ^session.channel_ref,
-          lock: "FOR UPDATE"
-        )
-      )
+      locked_configuration(session.workspace_ref, session.channel_ref)
 
     attributes = %{
       actor_ref: actor_ref,
@@ -1324,24 +1233,10 @@ defmodule Ryker.Slack.ChannelConfigurations do
     broadcast_channel_updated(attributes.workspace_ref, attributes.channel_ref)
 
     membership =
-      Repo.one(
-        from(membership in ChannelMembership,
-          where:
-            membership.workspace_ref == ^attributes.workspace_ref and
-              membership.channel_ref == ^attributes.channel_ref,
-          lock: "FOR UPDATE"
-        )
-      )
+      locked_membership(attributes.workspace_ref, attributes.channel_ref)
 
     configuration =
-      Repo.one(
-        from(configuration in ChannelConfiguration,
-          where:
-            configuration.workspace_ref == ^attributes.workspace_ref and
-              configuration.channel_ref == ^attributes.channel_ref,
-          lock: "FOR UPDATE"
-        )
-      )
+      locked_configuration(attributes.workspace_ref, attributes.channel_ref)
 
     cond do
       not match?(%ChannelMembership{status: :joined}, membership) ->
@@ -1375,14 +1270,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
   end
 
   defp bind_welcome_locked(workspace_ref, channel_ref, message_ref) do
-    case Repo.one(
-           from(configuration in ChannelConfiguration,
-             where:
-               configuration.workspace_ref == ^workspace_ref and
-                 configuration.channel_ref == ^channel_ref,
-             lock: "FOR UPDATE"
-           )
-         ) do
+    case locked_configuration(workspace_ref, channel_ref) do
       nil ->
         Repo.rollback(:configuration_not_found)
 
@@ -1768,4 +1656,25 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
   defp conversation_ref(workspace_ref, channel_ref),
     do: "slack:#{workspace_ref}:#{channel_ref}"
+
+  defp locked_configuration(workspace_ref, channel_ref) do
+    workspace_ref
+    |> ChannelConfigurationQuery.by_channel(channel_ref)
+    |> ChannelConfigurationQuery.lock_for_update()
+    |> Repo.one()
+  end
+
+  defp locked_membership(workspace_ref, channel_ref) do
+    workspace_ref
+    |> ChannelMembershipQuery.by_channel(channel_ref)
+    |> ChannelMembershipQuery.lock_for_update()
+    |> Repo.one()
+  end
+
+  defp locked_session(id) do
+    id
+    |> ConfigurationSessionQuery.by_id()
+    |> ConfigurationSessionQuery.lock_for_update()
+    |> Repo.one()
+  end
 end

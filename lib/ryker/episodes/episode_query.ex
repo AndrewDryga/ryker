@@ -1,6 +1,7 @@
 defmodule Ryker.Episodes.EpisodeQuery do
   @moduledoc "Requests (episodes), for every read of `episode_kernel_episodes`."
   import Ecto.Query
+  alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes.{Episode, Event, OriginQuery}
   alias Ryker.Work.Turn
 
@@ -120,6 +121,32 @@ defmodule Ryker.Episodes.EpisodeQuery do
     do: where(queryable, [episode_kernel_episodes: e], e.state in ^states)
 
   @doc """
+  The episode whose Work turn made delivery `delivery_ref`, with the inputs
+  that turn answered, as `{episode, selected_input_refs}`.
+  """
+  def answered_by_delivery(delivery_ref) do
+    from(e in all(),
+      join: t in Turn,
+      on: t.episode_id == e.id,
+      where: t.delivery_ref == ^delivery_ref,
+      select: {e, t.selected_input_refs}
+    )
+  end
+
+  @doc """
+  The episode that posted Slack update `action_ref` while its turn worked,
+  with the inputs it still answers, as `{episode, active_input_refs}`.
+  """
+  def updated_by_slack_action(action_ref) do
+    from(e in all(),
+      join: a in PlatformAction,
+      on: a.episode_id == e.id,
+      where: a.action_ref == ^action_ref and a.tool == :post_slack_update,
+      select: {e, e.active_input_refs}
+    )
+  end
+
+  @doc """
   The episode working on turn `turn_id` of session `session_id`, with that
   turn, while the turn is pending under lease `lease_ref`.
   """
@@ -199,6 +226,9 @@ defmodule Ryker.Episodes.EpisodeQuery do
   end
 
   def select_ids(queryable), do: select(queryable, [episode_kernel_episodes: e], e.id)
+
+  def select_execution_modes(queryable),
+    do: select(queryable, [episode_kernel_episodes: e], e.execution_mode)
 
   # Keeps the episode from being deleted until the transaction ends, without
   # blocking anything that only updates it.

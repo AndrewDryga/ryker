@@ -6,6 +6,13 @@ defmodule Ryker.Publication.FollowupQuery do
 
   def all, do: from(followups in Followup, as: :episode_publication_followups)
 
+  def by_publication_ids(queryable \\ all(), publication_ids),
+    do: where(queryable, [episode_publication_followups: f], f.publication_id in ^publication_ids)
+
+  @doc "Each follow-up's pull request state, as `{publication_id, pr_state}`."
+  def select_states(queryable),
+    do: select(queryable, [episode_publication_followups: f], {f.publication_id, f.pr_state})
+
   def by_publication_id(queryable \\ all(), publication_id),
     do: where(queryable, [episode_publication_followups: f], f.publication_id == ^publication_id)
 

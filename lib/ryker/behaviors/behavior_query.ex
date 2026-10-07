@@ -10,6 +10,9 @@ defmodule Ryker.Behaviors.BehaviorQuery do
 
   def by_id(queryable \\ all(), id), do: where(queryable, [operator_behaviors: b], b.id == ^id)
 
+  def by_ids(queryable \\ all(), ids),
+    do: where(queryable, [operator_behaviors: b], b.id in ^ids)
+
   def by_ref(queryable \\ all(), ref),
     do: where(queryable, [operator_behaviors: b], b.ref == ^ref)
 

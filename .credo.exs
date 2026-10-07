@@ -7,8 +7,7 @@
 # Where queries have not moved into Query modules yet (IL-1, IL-2). Each change
 # that moves a context's queries removes its paths; the list only shrinks.
 query_modules_pending = [
-  "lib/ryker/control_plane/",
-  "lib/ryker/slack/"
+  "lib/ryker/control_plane/"
 ]
 
 %{

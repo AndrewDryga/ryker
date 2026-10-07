@@ -97,6 +97,44 @@ defmodule Ryker.Work.TurnQuery do
     )
   end
 
+  @doc """
+  The turn whose delivered reply is Slack message `message_ref` in channel
+  `channel_ref` of `workspace_ref`, in thread `thread_ref` (nil: not in a
+  thread), found by the message's ref (`episode_work_turns_receipt_message`):
+  the lookup read every delivered turn's receipt as JSON on each repaint
+  (2026-10-04 review).
+  """
+  def delivered_slack_message(workspace_ref, channel_ref, message_ref, thread_ref) do
+    conversation_ref = "slack:#{workspace_ref}:#{channel_ref}"
+
+    from(t in all(),
+      where:
+        not is_nil(t.external_receipt) and
+          fragment("(?::jsonb)->>'transport' = 'slack'", t.external_receipt) and
+          fragment("(?::jsonb)->>'conversation_ref' = ?", t.external_receipt, ^conversation_ref) and
+          fragment("(?::jsonb)->>'message_ref' = ?", t.external_receipt, ^message_ref),
+      order_by: [desc: t.delivered_at, desc: t.id],
+      limit: 1
+    )
+    |> in_receipt_thread(thread_ref)
+  end
+
+  defp in_receipt_thread(query, nil) do
+    where(
+      query,
+      [episode_work_turns: t],
+      fragment("(?::jsonb)->>'thread_ref' IS NULL", t.external_receipt)
+    )
+  end
+
+  defp in_receipt_thread(query, thread_ref) do
+    where(
+      query,
+      [episode_work_turns: t],
+      fragment("(?::jsonb)->>'thread_ref' = ?", t.external_receipt, ^thread_ref)
+    )
+  end
+
   def cancelling(queryable),
     do: where(queryable, [episode_work_turns: t], t.status == :cancel_pending)
 
@@ -246,6 +284,19 @@ defmodule Ryker.Work.TurnQuery do
     do: select(queryable, [episode_work_turns: t], {t.delivered_at, t.delivery_document})
 
   def limit_to(queryable, count), do: limit(queryable, ^count)
+
+  @doc """
+  The turn `episode` stands on: the one that owns it, the one delivering its
+  answer, or else its latest.
+  """
+  def current(%Episode{owner_kind: :turn, owner_ref: turn_ref, id: id}),
+    do: id |> by_episode_id() |> by_turn_ref(turn_ref)
+
+  def current(%Episode{owner_kind: :delivery, owner_ref: delivery_ref, id: id}),
+    do: id |> by_episode_id() |> by_delivery_ref(delivery_ref)
+
+  def current(%Episode{id: id}), do: id |> by_episode_id() |> newest_first() |> limit_to(1)
+
   def select_statuses(queryable), do: select(queryable, [episode_work_turns: t], t.status)
 
   @doc "Each episode's latest Work turn, as an automation's runs show it."

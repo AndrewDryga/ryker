@@ -42,7 +42,21 @@ defmodule Ryker.Slack.ChannelMembershipQuery do
     )
   end
 
+  def by_id(queryable \\ all(), id),
+    do: where(queryable, [slack_channel_memberships: m], m.id == ^id)
+
+  def by_workspace(queryable \\ all(), workspace_ref),
+    do: where(queryable, [slack_channel_memberships: m], m.workspace_ref == ^workspace_ref)
+
   def joined(queryable), do: where(queryable, [slack_channel_memberships: m], m.status == :joined)
+
+  def updated_by(queryable, at),
+    do: where(queryable, [slack_channel_memberships: m], m.updated_at <= ^at)
+
+  def excluding_channels(queryable, channel_refs),
+    do: where(queryable, [slack_channel_memberships: m], m.channel_ref not in ^channel_refs)
+
+  def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
 
   @doc "Each membership's status and who may read its channel: `{status, private, external_shared}`."
   def select_audience(queryable) do
@@ -57,6 +71,9 @@ defmodule Ryker.Slack.ChannelMembershipQuery do
     do: order_by(queryable, [slack_channel_memberships: m], asc: m.channel_ref)
 
   def limit_to(queryable, count), do: limit(queryable, ^count)
+
+  def select_statuses(queryable),
+    do: select(queryable, [slack_channel_memberships: m], m.status)
 
   def select_privacy(queryable),
     do: select(queryable, [slack_channel_memberships: m], {m.private, m.external_shared})

@@ -7,13 +7,14 @@ defmodule Ryker.Slack.InteractionRepaint do
   action values are never interpreted as authority here.
   """
 
-  import Ecto.Query
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes.{Episode, EpisodeQuery}
   alias Ryker.Records.DerivedContext
   alias Ryker.Repo
-  alias Ryker.Slack.{ChannelSetup, ConfigurationSession, IncidentRoom, IncidentRoomCard}
-  alias Ryker.Slack.{InteractionAudit, Mentions, ReplyRecords, TaskCard, TaskCardProjection}
-  alias Ryker.Work.{Session, Turn}
+  alias Ryker.Slack.{ChannelSetup, ConfigurationSession, ConfigurationSessionQuery}
+  alias Ryker.Slack.{IncidentRoom, IncidentRoomCard, IncidentRoomQuery}
+  alias Ryker.Slack.{InteractionAudit, Mentions, ReplyRecords}
+  alias Ryker.Slack.{TaskCard, TaskCardProjection, TaskCardQuery}
+  alias Ryker.Work.{Session, SessionQuery, Turn, TurnQuery}
 
   @confirmation_kinds ~w(preference_offer guidance_offer standing_assignment_offer memory_offer schedule_offer automation_change_offer)
 
@@ -70,41 +71,24 @@ defmodule Ryker.Slack.InteractionRepaint do
   defp setup_document(_session, _options), do: {:error, :slack_setup_presentation_unavailable}
 
   defp task_card(audit) do
-    query =
-      from(card in TaskCard,
-        where:
-          card.workspace_ref == ^audit.workspace_ref and card.channel_ref == ^audit.channel_ref and
-            card.message_ref == ^audit.message_ref,
-        limit: 1
-      )
-
-    query
-    |> maybe_task_thread(audit.thread_ref)
+    audit.workspace_ref
+    |> TaskCardQuery.by_message(audit.channel_ref, audit.message_ref, audit.thread_ref)
+    |> TaskCardQuery.limit_to(1)
     |> Repo.one()
   end
 
   defp incident_room(audit) do
-    Repo.one(
-      from(room in IncidentRoom,
-        where:
-          room.workspace_ref == ^audit.workspace_ref and room.channel_ref == ^audit.channel_ref and
-            room.root_message_ref == ^audit.message_ref,
-        limit: 1
-      )
-    )
+    audit.workspace_ref
+    |> IncidentRoomQuery.by_root_message(audit.channel_ref, audit.message_ref)
+    |> IncidentRoomQuery.limit_to(1)
+    |> Repo.one()
   end
 
   defp configuration_session(audit) do
-    Repo.one(
-      from(session in ConfigurationSession,
-        where:
-          session.workspace_ref == ^audit.workspace_ref and
-            session.channel_ref == ^audit.channel_ref and
-            session.current_message_ref == ^audit.message_ref,
-        order_by: [desc: session.revision, desc: session.updated_at],
-        limit: 1
-      )
-    )
+    audit.workspace_ref
+    |> ConfigurationSessionQuery.by_current_message(audit.channel_ref, audit.message_ref)
+    |> ConfigurationSessionQuery.limit_to(1)
+    |> Repo.one()
   end
 
   defp task_card_document(card) do
@@ -124,34 +108,13 @@ defmodule Ryker.Slack.InteractionRepaint do
     end
   end
 
-  @doc false
-  # The turn whose delivered reply is the audited message, found by the
-  # message's ref (`episode_work_turns_receipt_message`): the lookup read every
-  # delivered turn's receipt as JSON on each repaint (2026-10-04 review).
-  @spec delivered_turn(InteractionAudit.t()) :: Ecto.Query.t()
-  def delivered_turn(audit) do
-    conversation_ref = "slack:#{audit.workspace_ref}:#{audit.channel_ref}"
-
-    query =
-      from(turn in Turn,
-        where:
-          not is_nil(turn.external_receipt) and
-            fragment("(?::jsonb)->>'transport' = 'slack'", turn.external_receipt) and
-            fragment(
-              "(?::jsonb)->>'conversation_ref' = ?",
-              turn.external_receipt,
-              ^conversation_ref
-            ) and
-            fragment(
-              "(?::jsonb)->>'message_ref' = ?",
-              turn.external_receipt,
-              ^audit.message_ref
-            ),
-        order_by: [desc: turn.delivered_at, desc: turn.id],
-        limit: 1
-      )
-
-    maybe_turn_thread(query, audit.thread_ref)
+  defp delivered_turn(audit) do
+    TurnQuery.delivered_slack_message(
+      audit.workspace_ref,
+      audit.channel_ref,
+      audit.message_ref,
+      audit.thread_ref
+    )
   end
 
   defp public_turn_document(turn, audit) do
@@ -187,12 +150,12 @@ defmodule Ryker.Slack.InteractionRepaint do
   end
 
   defp public_turn_sources(turn, audit, document) do
-    with %Episode{} = episode <- Repo.get(Episode, turn.episode_id),
+    with %Episode{} = episode <- Repo.one(EpisodeQuery.by_id(turn.episode_id)),
          true <- episode.destination_transport == "slack",
          true <-
            episode.destination_conversation_ref ==
              "slack:#{audit.workspace_ref}:#{audit.channel_ref}",
-         %Session{episode_id: owner} = session <- Repo.get(Session, turn.session_id),
+         %Session{episode_id: owner} = session <- Repo.one(SessionQuery.by_id(turn.session_id)),
          true <- owner == episode.id,
          {:ok, _} <-
            DerivedContext.resolve(
@@ -268,23 +231,6 @@ defmodule Ryker.Slack.InteractionRepaint do
     if Enum.any?(records, &(&1.kind in @confirmation_kinds and &1.status == :confirmed)),
       do: "Confirmation saved. The confirmed items are shown below.",
       else: message
-  end
-
-  defp maybe_task_thread(query, nil), do: query
-
-  defp maybe_task_thread(query, thread_ref),
-    do: from(card in query, where: card.thread_ref == ^thread_ref)
-
-  defp maybe_turn_thread(query, nil) do
-    from(turn in query,
-      where: fragment("(?::jsonb)->>'thread_ref' IS NULL", turn.external_receipt)
-    )
-  end
-
-  defp maybe_turn_thread(query, thread_ref) do
-    from(turn in query,
-      where: fragment("(?::jsonb)->>'thread_ref' = ?", turn.external_receipt, ^thread_ref)
-    )
   end
 
   defp repaint_api?(api) do

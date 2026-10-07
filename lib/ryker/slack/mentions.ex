@@ -7,12 +7,9 @@ defmodule Ryker.Slack.Mentions do
   channel link.
   """
 
-  import Ecto.Query
   import Ryker.Slack.Renderer.Blocks, only: [escape: 1]
-  alias Ryker.Delivery.PlatformAction
-  alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.Episodes.{Episode, EpisodeQuery, Event, EventQuery}
   alias Ryker.Repo
-  alias Ryker.Work.Turn
 
   @typed_link ~r/\[([^\]\r\n]{1,120})\]\((slack-(?:user|channel|usergroup|broadcast)):([A-Za-z0-9_.:-]{1,1024})\)/u
   @typed_prefix ~r/\]\(\s*slack-/u
@@ -71,22 +68,8 @@ defmodule Ryker.Slack.Mentions do
   def authority_for_delivery(delivery_ref)
       when is_binary(delivery_ref) and byte_size(delivery_ref) in 1..256 do
     answered =
-      Repo.one(
-        from(episode in Episode,
-          join: turn in Turn,
-          on: turn.episode_id == episode.id,
-          where: turn.delivery_ref == ^delivery_ref,
-          select: {episode, turn.selected_input_refs}
-        )
-      ) ||
-        Repo.one(
-          from(episode in Episode,
-            join: action in PlatformAction,
-            on: action.episode_id == episode.id,
-            where: action.action_ref == ^delivery_ref and action.tool == :post_slack_update,
-            select: {episode, episode.active_input_refs}
-          )
-        )
+      Repo.one(EpisodeQuery.answered_by_delivery(delivery_ref)) ||
+        Repo.one(EpisodeQuery.updated_by_slack_action(delivery_ref))
 
     case answered do
       {%Episode{} = episode, input_refs} ->
@@ -349,14 +332,11 @@ defmodule Ryker.Slack.Mentions do
   defp active_events(_episode_id, []), do: []
 
   defp active_events(episode_id, active_refs) do
-    Repo.all(
-      from(event in Event,
-        where:
-          event.episode_id == ^episode_id and event.kind == :input_admitted and
-            event.dedupe_key in ^Enum.uniq(active_refs),
-        order_by: [asc: event.sequence]
-      )
-    )
+    episode_id
+    |> EventQuery.by_episode_id()
+    |> EventQuery.admitted_inputs(Enum.uniq(active_refs))
+    |> EventQuery.oldest_first()
+    |> Repo.all()
   end
 
   # Evidence is scanned for mention tokens, so key order is irrelevant. An

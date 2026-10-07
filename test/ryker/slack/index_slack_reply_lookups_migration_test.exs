@@ -2,9 +2,9 @@ defmodule Ryker.Slack.IndexSlackReplyLookupsMigrationTest do
   use Ryker.MigrationCase
   import Ecto.Query
   alias Ecto.Adapters.SQL
-  alias Ryker.Delivery.RoutingResponse
-  alias Ryker.Slack.{InteractionAudit, InteractionRepaint}
+  alias Ryker.Delivery.RoutingResponseQuery
   alias Ryker.TestMigrations
+  alias Ryker.Work.TurnQuery
 
   @version 20_261_006_100_000
   @receipt_index "episode_work_turns_receipt_message"
@@ -22,30 +22,20 @@ defmodule Ryker.Slack.IndexSlackReplyLookupsMigrationTest do
   # cannot be used by the transaction that built it. A scratch schema starts
   # with empty tables and commits each migration, as a deployment does.
   test "a reply's repaint and a thread's continuation each read an index" do
-    audit = %InteractionAudit{
-      workspace_ref: "T1",
-      channel_ref: "C1",
-      message_ref: "1787832001.000200",
-      thread_ref: nil
-    }
+    # The lookup `Ryker.Slack.InteractionRepaint` repaints a reply by.
+    delivered = TurnQuery.delivered_slack_message("T1", "C1", "1787832001.000200", nil)
 
     # The routing half of `Ryker.Slack.Engagement.continuation?/1`.
     continuation =
-      from(response in RoutingResponse,
-        where:
-          response.kind == :message and response.transport == "slack" and
-            response.conversation_ref == "slack:T1:C1" and
-            response.thread_ref == "1787832000.000100",
-        select: response.id
-      )
+      RoutingResponseQuery.messages_in_thread("slack", "slack:T1:C1", "1787832000.000100")
 
     in_scratch_schema("reply_lookups", fn repo, prefix ->
       migrate!(repo, prefix, TestMigrations.version_before(@version))
-      refute plan(repo, prefix, InteractionRepaint.delivered_turn(audit)) =~ @receipt_index
+      refute plan(repo, prefix, delivered) =~ @receipt_index
       refute plan(repo, prefix, continuation) =~ @thread_index
 
       assert @version in migrate!(repo, prefix, @version)
-      assert plan(repo, prefix, InteractionRepaint.delivered_turn(audit)) =~ @receipt_index
+      assert plan(repo, prefix, delivered) =~ @receipt_index
       assert plan(repo, prefix, continuation) =~ @thread_index
     end)
   end

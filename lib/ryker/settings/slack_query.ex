@@ -21,4 +21,8 @@ defmodule Ryker.Settings.SlackQuery do
 
   def select_connection(queryable \\ all()),
     do: select(queryable, [slack_settings: s], map(s, [:enabled, :workspace_ref]))
+
+  @doc "How the installation's channels take part by default, as `{workspace_ref, participation}`."
+  def select_default_participation(queryable \\ all()),
+    do: select(queryable, [slack_settings: s], {s.workspace_ref, s.default_participation})
 end

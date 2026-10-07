@@ -5,6 +5,9 @@ defmodule Ryker.Settings.EnvironmentQuery do
 
   def all, do: from(environments in Environment, as: :environment_settings)
 
+  def by_ref(queryable \\ all(), ref),
+    do: where(queryable, [environment_settings: e], e.ref == ^ref)
+
   def ordered_by_ref(queryable), do: order_by(queryable, [environment_settings: e], e.ref)
   def with_repositories(queryable), do: preload(queryable, :repositories)
 

@@ -14,12 +14,11 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   """
 
   use Ryker.PollingWorker, lane: :slack_incidents, interval: :interval_ms
-  import Ecto.Query, only: [from: 2]
   require Logger
   alias Ryker.Delivery.HostNote
   alias Ryker.Delivery.Retry
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, Episode}
+  alias Ryker.Episodes.{Command, Episode, EpisodeQuery}
   alias Ryker.ErrorDetail
   alias Ryker.Observability.Progress
   alias Ryker.Options
@@ -267,7 +266,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   end
 
   defp reconcile_lifecycle(room, options) do
-    with %Episode{} = episode <- Repo.get(Episode, room.episode_id),
+    with %Episode{} = episode <- Repo.one(EpisodeQuery.by_id(room.episode_id)),
          {:ok, result} <- reconcile_episode_destination(room, episode),
          {:ok, outcome} <- settle_lifecycle_reconciliation(room, episode, result, options) do
       {:ok, outcome}
@@ -378,7 +377,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   # hold the room open, and neither does a reply the alert thread refused: it
   # stays owed, for a person to post from the Failures page.
   defp close_on_request(room, options) do
-    episode = room.episode_id && Repo.get(Episode, room.episode_id)
+    episode = room.episode_id && Repo.one(EpisodeQuery.by_id(room.episode_id))
 
     with {:ok, result} <- close_requested_investigation(room, episode),
          {:ok, outcome} <- settle_close(room, episode, result, options) do
@@ -436,12 +435,10 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   defp execution_mode(_room, %Episode{execution_mode: mode}), do: mode
 
   defp execution_mode(room, nil) do
-    Repo.one(
-      from(episode in Episode,
-        where: episode.id == ^room.source_episode_id,
-        select: episode.execution_mode
-      )
-    ) || :live
+    room.source_episode_id
+    |> EpisodeQuery.by_id()
+    |> EpisodeQuery.select_execution_modes()
+    |> Repo.one() || :live
   end
 
   # Fixed words, no model, in the room while Ryker can still post there.

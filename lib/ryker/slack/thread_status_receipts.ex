@@ -1,29 +1,11 @@
 defmodule Ryker.Slack.ThreadStatusReceipts do
   @moduledoc "Append-only observations of actual Slack status API results, separate from desired state."
-  use Ecto.Schema
-  import Ecto.Query
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
-  alias Ryker.Slack.ThreadStatuses
-
-  @primary_key {:id, :binary_id, autogenerate: true}
-  schema "slack_thread_status_receipts" do
-    field(:workspace_ref, :string)
-    field(:channel_ref, :string)
-    field(:thread_ref, :string)
-    field(:generation, :integer)
-    field(:lease_ref, :binary_id)
-    field(:origin_kind, :string)
-    field(:origin_id, :binary_id)
-    field(:phase, :string)
-    field(:text, :string)
-    field(:error, :string)
-    field(:acknowledged_at, :utc_datetime_usec)
-    timestamps(type: :utc_datetime_usec, updated_at: false)
-  end
+  alias Ryker.Slack.{ThreadStatuses, ThreadStatusReceipt, ThreadStatusReceiptQuery}
 
   def record(status, result) do
-    %__MODULE__{
+    %ThreadStatusReceipt{
       workspace_ref: status.workspace_ref,
       channel_ref: status.channel_ref,
       thread_ref: status.thread_ref,
@@ -44,29 +26,19 @@ defmodule Ryker.Slack.ThreadStatusReceipts do
   # Tests read the receipts of one thread back, in acknowledgement order.
   @doc false
   def for_thread(workspace, channel, thread) do
-    Repo.all(
-      from(r in __MODULE__,
-        where:
-          r.workspace_ref == ^workspace and r.channel_ref == ^channel and r.thread_ref == ^thread,
-        order_by: [asc: r.inserted_at, asc: r.id],
-        limit: 1_000
-      )
-    )
+    workspace
+    |> ThreadStatusReceiptQuery.in_thread(channel, thread)
+    |> ThreadStatusReceiptQuery.oldest_first()
+    |> ThreadStatusReceiptQuery.limit_to(1_000)
+    |> Repo.all()
   end
 
   def for_episode(episode_id) do
-    inputs =
-      from(i in Ryker.Ingress.Inbox.Entry, where: i.episode_id == ^episode_id, select: i.id)
-
-    Repo.all(
-      from(r in __MODULE__,
-        where:
-          (r.origin_kind == "episode" and r.origin_id == ^episode_id) or
-            (r.origin_kind == "input" and r.origin_id in subquery(inputs)),
-        order_by: [desc: r.inserted_at, desc: r.id],
-        limit: 500
-      )
-    )
+    episode_id
+    |> ThreadStatusReceiptQuery.of_episode()
+    |> ThreadStatusReceiptQuery.newest_first()
+    |> ThreadStatusReceiptQuery.limit_to(500)
+    |> Repo.all()
     |> Enum.reverse()
     |> Enum.chunk_by(&{&1.text, &1.error, &1.origin_kind, &1.origin_id})
     |> Enum.map(&hd/1)

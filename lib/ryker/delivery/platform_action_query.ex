@@ -16,6 +16,11 @@ defmodule Ryker.Delivery.PlatformActionQuery do
 
   def by_tool(queryable, tool), do: where(queryable, [platform_actions: a], a.tool == ^tool)
 
+  def by_action_refs(queryable, action_refs),
+    do: where(queryable, [platform_actions: a], a.action_ref in ^action_refs)
+
+  def select_action_refs(queryable), do: select(queryable, [platform_actions: a], a.action_ref)
+
   def pending(queryable \\ all()),
     do: where(queryable, [platform_actions: a], a.status == :pending)
 

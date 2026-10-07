@@ -614,12 +614,7 @@ defmodule Ryker.Work.Custody.Sessions do
   end
 
   defp latest_session(episode_id) do
-    episode_id
-    |> SessionQuery.by_episode_id()
-    |> SessionQuery.latest_generation_first()
-    |> SessionQuery.limit_to(1)
-    |> SessionQuery.lock_for_update()
-    |> Repo.one()
+    episode_id |> SessionQuery.latest_of_episode() |> SessionQuery.lock_for_update() |> Repo.one()
   end
 
   defp reusable_grace?(%Session{

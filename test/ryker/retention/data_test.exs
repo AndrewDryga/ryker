@@ -34,7 +34,7 @@ defmodule Ryker.Retention.DataTest do
   alias Ryker.Schedules.ScheduleChangeset
   alias Ryker.Schedules.ScheduleOccurrence
   alias Ryker.Schedules.ScheduleOccurrenceChangeset
-  alias Ryker.Slack.{IncidentRoom, IncidentRoomLifecycleEvent, ThreadStatusReceipts}
+  alias Ryker.Slack.{IncidentRoom, IncidentRoomLifecycleEvent, ThreadStatusReceipt}
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.StateTools.{CallLog, CallRecord}
   alias Ryker.WeeklyReport.Report, as: WeeklyReport
@@ -816,7 +816,7 @@ defmodule Ryker.Retention.DataTest do
 
     assert Repo.get(StandingAssignmentRun, run.id)
     assert Repo.get(StandingRuleInventory, inventory.id)
-    assert Repo.get(ThreadStatusReceipts, receipt.id)
+    assert Repo.get(ThreadStatusReceipt, receipt.id)
 
     Repo.query!("UPDATE episode_kernel_episodes SET state = 'complete' WHERE id = $1", [
       uuid!(work.episode.id)
@@ -827,7 +827,7 @@ defmodule Ryker.Retention.DataTest do
 
     assert Repo.get(StandingAssignmentRun, run.id) == nil
     assert Repo.get(StandingRuleInventory, inventory.id) == nil
-    assert Repo.get(ThreadStatusReceipts, receipt.id) == nil
+    assert Repo.get(ThreadStatusReceipt, receipt.id) == nil
   end
 
   # A deleted, replaced or expired rule, preference or guidance was never
@@ -1611,7 +1611,7 @@ defmodule Ryker.Retention.DataTest do
   end
 
   defp insert_status_receipt!(episode_id) do
-    Repo.insert!(%ThreadStatusReceipts{
+    Repo.insert!(%ThreadStatusReceipt{
       channel_ref: "C456",
       generation: 1,
       id: Ecto.UUID.generate(),

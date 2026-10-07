@@ -11,10 +11,9 @@ defmodule Ryker.Slack.ThreadStatuses do
   (`subscribe_thread_statuses/0`).
   """
 
-  import Ecto.Query
   alias Ryker.ErrorDetail
   alias Ryker.Repo
-  alias Ryker.Slack.{ThreadStatus, ThreadStatusChangeset}
+  alias Ryker.Slack.{ThreadStatus, ThreadStatusChangeset, ThreadStatusQuery}
   alias Ryker.UTCDateTime
 
   @maximum_targets 1_000
@@ -46,12 +45,10 @@ defmodule Ryker.Slack.ThreadStatuses do
     now = Repo.now!()
 
     existing =
-      Repo.all(
-        from(status in ThreadStatus,
-          where: status.workspace_ref == ^workspace_ref,
-          lock: "FOR UPDATE"
-        )
-      )
+      workspace_ref
+      |> ThreadStatusQuery.by_workspace()
+      |> ThreadStatusQuery.lock_for_update()
+      |> Repo.all()
 
     target_map = Map.new(targets, &{{&1.channel_ref, &1.thread_ref}, &1})
     existing_map = Map.new(existing, &{{&1.channel_ref, &1.thread_ref}, &1})
@@ -117,26 +114,9 @@ defmodule Ryker.Slack.ThreadStatuses do
     refresh_since = DateTime.add(since, -refresh_interval_ms, :millisecond)
 
     [next_attempt, lease, delivered] =
-      Repo.one(
-        from(status in ThreadStatus,
-          where: status.workspace_ref == ^workspace_ref,
-          select: [
-            filter(
-              min(status.next_attempt_at),
-              status.status == :pending and status.next_attempt_at > ^since
-            ),
-            filter(
-              min(status.lease_expires_at),
-              status.status == :pending and status.lease_expires_at > ^since
-            ),
-            filter(
-              min(status.delivered_at),
-              status.status == :delivered and status.desired_text != "" and
-                status.delivered_at > ^refresh_since
-            )
-          ]
-        )
-      )
+      workspace_ref
+      |> ThreadStatusQuery.next_due_after(since, refresh_since)
+      |> Repo.one()
 
     refresh = delivered && DateTime.add(delivered, refresh_interval_ms, :millisecond)
     UTCDateTime.earliest([next_attempt, lease, refresh])
@@ -156,18 +136,9 @@ defmodule Ryker.Slack.ThreadStatuses do
   defp claim_next_locked(worker_ref, workspace_ref, lease_seconds) do
     now = Repo.now!()
 
-    query =
-      from(status in ThreadStatus,
-        where:
-          status.workspace_ref == ^workspace_ref and status.status == :pending and
-            (is_nil(status.next_attempt_at) or status.next_attempt_at <= ^now) and
-            (is_nil(status.lease_expires_at) or status.lease_expires_at <= ^now),
-        order_by: [asc: status.updated_at, asc: status.id],
-        limit: 1,
-        lock: "FOR UPDATE SKIP LOCKED"
-      )
+    next = workspace_ref |> ThreadStatusQuery.next_claimable(now) |> Repo.one()
 
-    case Repo.one(query) do
+    case next do
       nil -> nil
       %ThreadStatus{} = status -> lease!(status, worker_ref, lease_seconds, now)
     end
@@ -265,7 +236,9 @@ defmodule Ryker.Slack.ThreadStatuses do
   end
 
   defp rearm_locked(id) do
-    case Repo.one(from(status in ThreadStatus, where: status.id == ^id, lock: "FOR UPDATE")) do
+    locked = id |> ThreadStatusQuery.by_id() |> ThreadStatusQuery.lock_for_update() |> Repo.one()
+
+    case locked do
       nil ->
         Repo.rollback(:slack_thread_status_not_found)
 
@@ -371,7 +344,7 @@ defmodule Ryker.Slack.ThreadStatuses do
 
   defp mutate_claim_locked(id, lease_ref, generation, callback) do
     now = Repo.now!()
-    status = Repo.one(from(status in ThreadStatus, where: status.id == ^id, lock: "FOR UPDATE"))
+    status = id |> ThreadStatusQuery.by_id() |> ThreadStatusQuery.lock_for_update() |> Repo.one()
 
     cond do
       is_nil(status) ->

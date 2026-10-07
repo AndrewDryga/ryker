@@ -8,9 +8,8 @@ defmodule Ryker.Slack.Engagement do
   how that input relates to the existing work.
   """
 
-  import Ecto.Query
-  alias Ryker.Delivery.RoutingResponse
-  alias Ryker.Episodes.Episode
+  alias Ryker.Delivery.RoutingResponseQuery
+  alias Ryker.Episodes.EpisodeQuery
   alias Ryker.Repo
 
   @spec continuation?(map()) :: boolean()
@@ -24,22 +23,8 @@ defmodule Ryker.Slack.Engagement do
         }
       })
       when is_binary(conversation_ref) and is_binary(thread_ref) do
-    Repo.exists?(
-      from(episode in Episode,
-        where:
-          episode.destination_transport == "slack" and
-            episode.destination_conversation_ref == ^conversation_ref and
-            episode.destination_thread_ref == ^thread_ref
-      )
-    ) or
-      Repo.exists?(
-        from(response in RoutingResponse,
-          where:
-            response.kind == :message and response.transport == "slack" and
-              response.conversation_ref == ^conversation_ref and
-              response.thread_ref == ^thread_ref
-        )
-      )
+    Repo.exists?(EpisodeQuery.in_thread("slack", conversation_ref, thread_ref)) or
+      Repo.exists?(RoutingResponseQuery.messages_in_thread("slack", conversation_ref, thread_ref))
   end
 
   def continuation?(_normalized), do: false

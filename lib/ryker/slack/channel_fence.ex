@@ -11,9 +11,8 @@ defmodule Ryker.Slack.ChannelFence do
   whole of each other's transactions.
   """
 
-  import Ecto.Query
   alias Ryker.Repo
-  alias Ryker.Slack.ChannelMembership
+  alias Ryker.Slack.ChannelMembershipQuery
 
   @spec authorize_in_transaction(String.t(), String.t()) :: :ok | {:error, term()}
   def authorize_in_transaction(transport, conversation_ref) do
@@ -53,28 +52,26 @@ defmodule Ryker.Slack.ChannelFence do
   defp authorize_public_destination(_direct_or_invalid), do: {:error, :slack_channel_not_public}
 
   defp channel_status(workspace_ref, channel_ref) do
-    case Repo.one(
-           from(membership in ChannelMembership,
-             where:
-               membership.workspace_ref == ^workspace_ref and
-                 membership.channel_ref == ^channel_ref,
-             select: membership.status
-           )
-         ) do
+    status =
+      workspace_ref
+      |> ChannelMembershipQuery.by_channel(channel_ref)
+      |> ChannelMembershipQuery.select_statuses()
+      |> Repo.one()
+
+    case status do
       :deleted -> {:error, :slack_channel_deleted}
       _other -> :ok
     end
   end
 
   defp public_channel_status(workspace_ref, channel_ref) do
-    case Repo.one(
-           from(membership in ChannelMembership,
-             where:
-               membership.workspace_ref == ^workspace_ref and
-                 membership.channel_ref == ^channel_ref,
-             select: {membership.status, membership.private, membership.external_shared}
-           )
-         ) do
+    audience =
+      workspace_ref
+      |> ChannelMembershipQuery.by_channel(channel_ref)
+      |> ChannelMembershipQuery.select_audience()
+      |> Repo.one()
+
+    case audience do
       {:joined, false, false} -> :ok
       _not_public -> {:error, :slack_channel_not_public}
     end

@@ -7,18 +7,14 @@ defmodule Ryker.Slack.AppHomeProjection do
   titles, counts, and the next host-owned action.
   """
 
-  import Ecto.Query
-  alias Ryker.Behaviors.Behavior
-  alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.Episodes.Episode
   alias Ryker.Memories
-  alias Ryker.Memories.MemoryEntry
   alias Ryker.Publication.{Publication, Review}
   alias Ryker.Repo
   alias Ryker.Schedules.Schedule
-  alias Ryker.Slack.{Collections, IncidentRoom, SavedEntity}
-  alias Ryker.Work.{Session, Turn}
+  alias Ryker.Slack.{AppHomeQuery, Collections, SavedEntity}
+  alias Ryker.Work.Session
 
-  @active_episode_states [:working, :waiting_for_input, :waiting_for_event]
   @maximum_collection_rows 10
   @maximum_attention 8
   @maximum_work 8
@@ -214,124 +210,34 @@ defmodule Ryker.Slack.AppHomeProjection do
     |> Enum.map(&Map.delete(&1, :updated_at))
   end
 
-  defp active_behavior_count(workspace_ref, actor_ref, now) do
-    visibility = home_behavior_visibility(actor_ref)
+  defp active_behavior_count(workspace_ref, actor_ref, now),
+    do: count(AppHomeQuery.active_behaviors(workspace_ref, actor_ref, now))
 
-    count(
-      from(behavior in Behavior,
-        where:
-          behavior.workspace_ref == ^workspace_ref and behavior.status == :active and
-            (is_nil(behavior.expires_at) or behavior.expires_at > ^now),
-        where: ^visibility
-      )
-    )
-  end
+  defp active_commitment_count(destination_refs),
+    do: count(AppHomeQuery.active_commitments(destination_refs))
 
-  defp active_commitment_count(destination_refs) do
-    count(
-      from(episode in Episode,
-        where:
-          episode.destination_transport == "slack" and
-            episode.destination_conversation_ref in ^destination_refs and
-            episode.state in ^@active_episode_states
-      )
-    )
-  end
+  defp active_memory_count(workspace_ref, now),
+    do: count(AppHomeQuery.workspace_facts(workspace_ref, now))
 
-  defp active_memory_count(workspace_ref, now) do
-    count(
-      from(memory in MemoryEntry,
-        where:
-          memory.workspace_ref == ^workspace_ref and memory.status == :active and
-            memory.expires_at > ^now and memory.visibility == :workspace and
-            memory.scope_kind in [:repository, :workspace]
-      )
-    )
-  end
+  defp active_schedule_count(destination_refs, now),
+    do: count(AppHomeQuery.active_schedules(destination_refs, now))
 
-  defp active_schedule_count(destination_refs, now) do
-    count(
-      from(schedule in Schedule,
-        where:
-          schedule.destination_transport == "slack" and
-            schedule.destination_conversation_ref in ^destination_refs and
-            schedule.status == :active and
-            (is_nil(schedule.expires_at) or schedule.expires_at > ^now)
-      )
-    )
-  end
+  defp blocked_work_count(destination_refs),
+    do: count(AppHomeQuery.blocked_turns(destination_refs))
 
-  defp blocked_work_count(destination_refs) do
-    count(
-      from(turn in Turn,
-        join: episode in Episode,
-        on:
-          episode.id == turn.episode_id and episode.owner_kind == :turn and
-            episode.owner_ref == turn.turn_ref,
-        where:
-          episode.destination_transport == "slack" and
-            episode.destination_conversation_ref in ^destination_refs and
-            episode.state == :working and turn.status == :blocked
-      )
-    )
-  end
+  defp incident_count(workspace_ref, channel_refs, state),
+    do: count(AppHomeQuery.incidents(workspace_ref, channel_refs, state))
 
-  defp incident_count(workspace_ref, channel_refs, :closed) do
-    count(
-      from(room in IncidentRoom,
-        where:
-          room.workspace_ref == ^workspace_ref and room.channel_ref in ^channel_refs and
-            room.status == :closed
-      )
-    )
-  end
+  defp published_work_count(destination_refs),
+    do: count(AppHomeQuery.published_work(destination_refs))
 
-  defp incident_count(workspace_ref, channel_refs, :open) do
-    count(
-      from(room in IncidentRoom,
-        where:
-          room.workspace_ref == ^workspace_ref and room.channel_ref in ^channel_refs and
-            room.status != :closed
-      )
-    )
-  end
-
-  defp published_work_count(destination_refs) do
-    count(
-      from(publication in Publication,
-        where:
-          publication.destination_transport == "slack" and
-            publication.destination_conversation_ref in ^destination_refs and
-            publication.status == :published
-      )
-    )
-  end
-
-  defp retained_workspace_count(destination_refs) do
-    count(
-      from(session in Session,
-        join: episode in Episode,
-        on: episode.id == session.episode_id,
-        where:
-          episode.destination_transport == "slack" and
-            episode.destination_conversation_ref in ^destination_refs and
-            session.cleanup_status == :retained
-      )
-    )
-  end
+  defp retained_workspace_count(destination_refs),
+    do: count(AppHomeQuery.retained_workspaces(destination_refs))
 
   defp operator_waits(workspace_ref, destination_refs) do
-    Repo.all(
-      from(episode in Episode,
-        where:
-          episode.destination_transport == "slack" and
-            episode.destination_conversation_ref in ^destination_refs and
-            episode.state == :waiting_for_input,
-        order_by: [desc: episode.updated_at, desc: episode.id],
-        limit: ^@maximum_attention,
-        select: episode
-      )
-    )
+    destination_refs
+    |> AppHomeQuery.operator_waits(@maximum_attention)
+    |> Repo.all()
     |> with_requests()
     |> Enum.map(fn {episode, title} ->
       episode_attention(episode, title, workspace_ref, :operator_input, [])
@@ -339,21 +245,9 @@ defmodule Ryker.Slack.AppHomeProjection do
   end
 
   defp blocked_work(workspace_ref, destination_refs) do
-    Repo.all(
-      from(turn in Turn,
-        join: episode in Episode,
-        on:
-          episode.id == turn.episode_id and episode.owner_kind == :turn and
-            episode.owner_ref == turn.turn_ref,
-        where:
-          episode.destination_transport == "slack" and
-            episode.destination_conversation_ref in ^destination_refs and
-            episode.state == :working and turn.status == :blocked,
-        order_by: [desc: turn.updated_at, desc: turn.id],
-        limit: ^@maximum_attention,
-        select: {episode, turn.updated_at}
-      )
-    )
+    destination_refs
+    |> AppHomeQuery.listed_blocked_turns(@maximum_attention)
+    |> Repo.all()
     |> with_requests(&elem(&1, 0))
     |> Enum.map(fn {{episode, updated_at}, title} ->
       episode
@@ -363,18 +257,9 @@ defmodule Ryker.Slack.AppHomeProjection do
   end
 
   defp publication_attention(workspace_ref, destination_refs) do
-    attention = publication_attention_filter()
-
-    Repo.all(
-      from(publication in Publication,
-        where:
-          publication.destination_transport == "slack" and
-            publication.destination_conversation_ref in ^destination_refs,
-        where: ^attention,
-        order_by: [desc: publication.updated_at, desc: publication.id],
-        limit: ^@maximum_attention
-      )
-    )
+    destination_refs
+    |> AppHomeQuery.publication_attention(@publication_conflicts, @maximum_attention)
+    |> Repo.all()
     |> Enum.map(fn publication ->
       controls = publication_controls(publication)
 
@@ -396,48 +281,10 @@ defmodule Ryker.Slack.AppHomeProjection do
     |> Enum.reject(&(&1.controls == []))
   end
 
-  defp publication_attention_filter do
-    conflict =
-      dynamic(
-        [publication],
-        publication.status == :publish_pending and
-          publication.last_error_code in ^@publication_conflicts
-      )
-
-    failed =
-      dynamic(
-        [publication],
-        publication.status in [:review_pending, :review_ready, :publish_pending, :published_ready] and
-          not is_nil(publication.last_error_code)
-      )
-
-    unapproved =
-      dynamic(
-        [publication],
-        publication.status in [:reviewed, :blocked] and is_nil(publication.approval_ref)
-      )
-
-    stale =
-      dynamic(
-        [publication],
-        publication.status == :published and
-          not is_nil(publication.expected_remote_head_sha)
-      )
-
-    dynamic([publication], ^conflict or ^failed or ^unapproved or ^stale)
-  end
-
   defp incident_attention(workspace_ref, channel_refs) do
-    Repo.all(
-      from(room in IncidentRoom,
-        where:
-          room.workspace_ref == ^workspace_ref and room.channel_ref in ^channel_refs and
-            room.status == :blocked,
-        order_by: [desc: room.updated_at, desc: room.id],
-        limit: ^@maximum_attention,
-        select: room
-      )
-    )
+    workspace_ref
+    |> AppHomeQuery.blocked_incidents(channel_refs, @maximum_attention)
+    |> Repo.all()
     |> Enum.map(fn room ->
       %{
         controls: [],
@@ -451,23 +298,9 @@ defmodule Ryker.Slack.AppHomeProjection do
   end
 
   defp retained_workspace_attention(workspace_ref, destination_refs) do
-    Repo.all(
-      from(session in Session,
-        join: episode in Episode,
-        on: episode.id == session.episode_id,
-        where:
-          episode.destination_transport == "slack" and
-            episode.destination_conversation_ref in ^destination_refs and
-            session.cleanup_status == :retained and
-            session.retained_reason == "unpublished_unmerged" and
-            not is_nil(session.external_ref) and not is_nil(session.discard_plan_fingerprint) and
-            fragment("(?::jsonb)->'workspace'->>'dirty' = 'false'", session.discard_plan) and
-            fragment("(?::jsonb)->'workspace'->>'unmerged' = 'true'", session.discard_plan),
-        order_by: [desc: session.updated_at, desc: session.id],
-        limit: ^@maximum_attention,
-        select: {session, episode}
-      )
-    )
+    destination_refs
+    |> AppHomeQuery.unmerged_workspaces(@maximum_attention)
+    |> Repo.all()
     |> Enum.filter(fn {session, _episode} -> safe_unmerged_discard?(session) end)
     |> with_requests(&elem(&1, 1))
     |> Enum.map(fn {{session, episode}, request} ->
@@ -489,21 +322,9 @@ defmodule Ryker.Slack.AppHomeProjection do
   end
 
   defp work(workspace_ref, destination_refs) do
-    Repo.all(
-      from(episode in Episode,
-        left_join: turn in Turn,
-        on:
-          turn.episode_id == episode.id and episode.owner_kind == :turn and
-            turn.turn_ref == episode.owner_ref,
-        where:
-          episode.destination_transport == "slack" and
-            episode.destination_conversation_ref in ^destination_refs and
-            episode.state in ^@active_episode_states,
-        order_by: [desc: episode.updated_at, desc: episode.id],
-        limit: ^@maximum_work,
-        select: {episode, turn.status, turn.coop_turn_id}
-      )
-    )
+    destination_refs
+    |> AppHomeQuery.work(@maximum_work)
+    |> Repo.all()
     |> with_requests(&elem(&1, 0))
     |> Enum.map(fn {{episode, turn_status, coop_turn_id}, title} ->
       %{
@@ -522,16 +343,9 @@ defmodule Ryker.Slack.AppHomeProjection do
   end
 
   defp incidents(workspace_ref, channel_refs) do
-    Repo.all(
-      from(room in IncidentRoom,
-        where:
-          room.workspace_ref == ^workspace_ref and room.channel_ref in ^channel_refs and
-            room.status != :closed,
-        order_by: [desc: room.updated_at, desc: room.id],
-        limit: ^@maximum_incidents,
-        select: room
-      )
-    )
+    workspace_ref
+    |> AppHomeQuery.listed_open_incidents(channel_refs, @maximum_incidents)
+    |> Repo.all()
     |> Enum.map(fn room ->
       %{
         channel_ref: room.channel_ref,
@@ -544,19 +358,9 @@ defmodule Ryker.Slack.AppHomeProjection do
   end
 
   defp behaviors(workspace_ref, actor_ref, slack_workspace_ref, shared_conversations, now) do
-    visibility = home_behavior_visibility(actor_ref)
-
-    Repo.all(
-      from(behavior in Behavior,
-        where:
-          behavior.workspace_ref == ^workspace_ref and behavior.status in [:active, :disabled] and
-            (is_nil(behavior.expires_at) or behavior.expires_at > ^now),
-        where: ^visibility,
-        order_by: [desc: behavior.updated_at, desc: behavior.id],
-        limit: ^@maximum_behaviors,
-        select: behavior
-      )
-    )
+    workspace_ref
+    |> AppHomeQuery.listed_behaviors(actor_ref, now, @maximum_behaviors)
+    |> Repo.all()
     |> Enum.map(fn behavior ->
       %{
         kind: behavior.kind,
@@ -569,45 +373,10 @@ defmodule Ryker.Slack.AppHomeProjection do
     end)
   end
 
-  defp home_behavior_visibility(actor_ref) do
-    dynamic(
-      [behavior],
-      fragment(
-        """
-        CASE WHEN ? = 'guidance' THEN
-          ((? = 'operator' AND ? = ? AND (?::jsonb)->>'visibility' = 'private') OR
-           (? IN ('repository', 'workspace') AND (?::jsonb)->>'visibility' = 'workspace'))
-        ELSE
-          ((? = 'operator' AND ? = ?) OR ? IN ('repository', 'workspace'))
-        END
-        """,
-        behavior.kind,
-        behavior.scope_kind,
-        behavior.scope_ref,
-        ^actor_ref,
-        behavior.payload,
-        behavior.scope_kind,
-        behavior.payload,
-        behavior.scope_kind,
-        behavior.scope_ref,
-        ^actor_ref,
-        behavior.scope_kind
-      )
-    )
-  end
-
   defp memories(workspace_ref, slack_workspace_ref, shared_conversations, now) do
-    Repo.all(
-      from(memory in MemoryEntry,
-        where:
-          memory.workspace_ref == ^workspace_ref and memory.status == :active and
-            memory.expires_at > ^now and memory.visibility == :workspace and
-            memory.scope_kind in [:repository, :workspace],
-        order_by: [desc: memory.updated_at, desc: memory.id],
-        limit: ^@maximum_memories,
-        select: memory
-      )
-    )
+    workspace_ref
+    |> AppHomeQuery.listed_facts(now, @maximum_memories)
+    |> Repo.all()
     |> Enum.map(fn memory ->
       %{
         kind: memory.kind,
@@ -634,17 +403,9 @@ defmodule Ryker.Slack.AppHomeProjection do
   defp decorate_memory_review(review, _workspace_ref, _conversations), do: review
 
   defp schedules(workspace_ref, destination_refs, now) do
-    Repo.all(
-      from(schedule in Schedule,
-        where:
-          schedule.destination_transport == "slack" and
-            schedule.destination_conversation_ref in ^destination_refs and
-            schedule.status in [:active, :paused, :completed] and
-            (is_nil(schedule.expires_at) or schedule.expires_at > ^now),
-        order_by: [asc: schedule.next_occurrence_at, asc: schedule.id],
-        limit: ^@maximum_schedules
-      )
-    )
+    destination_refs
+    |> AppHomeQuery.listed_schedules(now, @maximum_schedules)
+    |> Repo.all()
     |> Enum.map(fn schedule ->
       %{
         next_occurrence_at: schedule.next_occurrence_at,
@@ -687,27 +448,8 @@ defmodule Ryker.Slack.AppHomeProjection do
   defp with_requests(rows, episode_of) do
     ids = rows |> Enum.map(&episode_of.(&1).id) |> Enum.uniq()
 
-    tasks =
-      Repo.all(
-        from(session in Session,
-          where: session.episode_id in ^ids,
-          distinct: session.episode_id,
-          order_by: [asc: session.episode_id, desc: session.generation, desc: session.id],
-          select: {session.episode_id, session.workspace_task}
-        )
-      )
-      |> Map.new()
-
-    inputs =
-      Repo.all(
-        from(event in Event,
-          where: event.episode_id in ^ids and event.kind == :input_admitted,
-          distinct: event.episode_id,
-          order_by: [asc: event.episode_id, asc: event.sequence],
-          select: {event.episode_id, event.payload}
-        )
-      )
-      |> Map.new()
+    tasks = ids |> AppHomeQuery.latest_tasks() |> Repo.all() |> Map.new()
+    inputs = ids |> AppHomeQuery.first_inputs() |> Repo.all() |> Map.new()
 
     Enum.map(rows, fn row ->
       episode = episode_of.(row)

@@ -1,10 +1,9 @@
 defmodule Ryker.Slack.WorkTarget do
   @moduledoc false
 
-  import Ecto.Query
   alias Ryker.Episodes.Episode
   alias Ryker.Repo
-  alias Ryker.Slack.{IncidentRoom, TaskCard}
+  alias Ryker.Slack.{IncidentRoom, IncidentRoomQuery, TaskCard, TaskCardQuery}
 
   @spec resolve(String.t(), map()) :: {:ok, map()} | {:error, term()}
   def resolve("task-card:" <> _rest = work_ref, target) do
@@ -22,14 +21,10 @@ defmodule Ryker.Slack.WorkTarget do
   def resolve(_work_ref, _target), do: {:error, :work_control_not_found}
 
   defp task(work_ref) do
-    case Repo.one(
-           from(card in TaskCard,
-             join: episode in Episode,
-             on: episode.id == card.episode_id,
-             where: card.ref == ^work_ref,
-             select: {card, episode}
-           )
-         ) do
+    found =
+      work_ref |> TaskCardQuery.by_ref() |> TaskCardQuery.select_with_episode() |> Repo.one()
+
+    case found do
       {%TaskCard{} = card, %Episode{} = episode} ->
         {:ok,
          %{
@@ -48,14 +43,13 @@ defmodule Ryker.Slack.WorkTarget do
   end
 
   defp incident(work_ref) do
-    case Repo.one(
-           from(room in IncidentRoom,
-             join: episode in Episode,
-             on: episode.id == room.episode_id,
-             where: room.ref == ^work_ref,
-             select: {room, episode}
-           )
-         ) do
+    found =
+      work_ref
+      |> IncidentRoomQuery.by_ref()
+      |> IncidentRoomQuery.select_with_episode()
+      |> Repo.one()
+
+    case found do
       {%IncidentRoom{} = room, %Episode{} = episode} ->
         {:ok,
          %{

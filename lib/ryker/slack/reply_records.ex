@@ -11,16 +11,15 @@ defmodule Ryker.Slack.ReplyRecords do
   omitted rather than linked.
   """
 
-  import Ecto.Query
-  alias Ryker.Behaviors.Behavior
-  alias Ryker.Delivery.PlatformAction
-  alias Ryker.Memories.MemoryEntry
+  alias Ryker.Behaviors.BehaviorQuery
+  alias Ryker.Delivery.{PlatformAction, PlatformActionQuery}
+  alias Ryker.Memories.{MemoryEntry, MemoryEntryQuery}
   alias Ryker.Records
   alias Ryker.Records.SlackPostOffers
   alias Ryker.Repo
-  alias Ryker.Schedules.Schedule
+  alias Ryker.Schedules.ScheduleQuery
   alias Ryker.Settings
-  alias Ryker.Slack.{IncidentRoom, Permalink, SavedEntity}
+  alias Ryker.Slack.{IncidentRoom, IncidentRoomQuery, Permalink, SavedEntity}
   alias Ryker.Waits.EventWaitTiming
   alias Ryker.Work.ActivityEventQuery
 
@@ -35,14 +34,11 @@ defmodule Ryker.Slack.ReplyRecords do
   @spec fetch(String.t(), [String.t()]) :: {:ok, [Records.Record.t()]} | {:error, term()}
   def fetch(episode_id, refs) when is_binary(episode_id) and is_list(refs) do
     actions =
-      Repo.all(
-        from(action in PlatformAction,
-          where:
-            action.episode_id == ^episode_id and
-              action.action_ref in ^Enum.filter(refs, &is_binary/1),
-          select: action.action_ref
-        )
-      )
+      episode_id
+      |> PlatformActionQuery.by_episode_id()
+      |> PlatformActionQuery.by_action_refs(Enum.filter(refs, &is_binary/1))
+      |> PlatformActionQuery.select_action_refs()
+      |> Repo.all()
 
     Records.fetch_for_episode(episode_id, Enum.reject(refs, &(&1 in actions)))
   end
@@ -90,10 +86,7 @@ defmodule Ryker.Slack.ReplyRecords do
   defp present_sent_post(document, _record), do: document
 
   defp sent_action(record) do
-    Repo.get_by(PlatformAction,
-      turn_id: record.turn_id,
-      host_slot: SlackPostOffers.host_slot(record)
-    )
+    Repo.one(PlatformActionQuery.by_turn_slot(record.turn_id, SlackPostOffers.host_slot(record)))
   end
 
   # A confirmed offer is shown as the entity it saved, with the entity's current
@@ -128,7 +121,7 @@ defmodule Ryker.Slack.ReplyRecords do
          document,
          %{status: :confirmed, kind: "task_offer", payload: %{"kind" => "incident"}} = record
        ) do
-    case Repo.get_by(IncidentRoom, record_id: record.id) do
+    case Repo.one(IncidentRoomQuery.by_record_id(record.id)) do
       nil -> document
       room -> Map.put(document, "presentation", %{"incident_room" => %{"url" => room_url(room)}})
     end
@@ -164,20 +157,11 @@ defmodule Ryker.Slack.ReplyRecords do
   defp present_saved_entity(document, _record), do: document
 
   defp remembered_answer(ref) do
-    Repo.one(
-      from(memory in MemoryEntry,
-        where:
-          memory.status == :active and
-            fragment(
-              "? IS NOT NULL AND pg_input_is_valid(?, 'jsonb') AND (?::jsonb ->> 'question_ref') = ?",
-              memory.answer_provenance,
-              memory.answer_provenance,
-              memory.answer_provenance,
-              ^ref
-            ),
-        limit: 1
-      )
-    )
+    ref
+    |> MemoryEntryQuery.answering()
+    |> MemoryEntryQuery.active()
+    |> MemoryEntryQuery.limit_to(1)
+    |> Repo.one()
   end
 
   defp room_url(%IncidentRoom{channel_ref: channel_ref, workspace_ref: workspace_ref})
@@ -194,16 +178,16 @@ defmodule Ryker.Slack.ReplyRecords do
   defp room_url(_room), do: nil
 
   defp saved_entity("schedule_offer", record),
-    do: Repo.get_by(Schedule, offer_record_id: record.id)
+    do: Repo.one(ScheduleQuery.by_offer_record_id(record.id))
 
   defp saved_entity("memory_offer", record),
-    do: Repo.get_by(MemoryEntry, offer_record_id: record.id)
+    do: Repo.one(MemoryEntryQuery.by_offer_record_id(record.id))
 
   defp saved_entity(_behavior_offer, record),
-    do: Repo.get_by(Behavior, offer_record_id: record.id)
+    do: Repo.one(BehaviorQuery.by_offer_record_id(record.id))
 
-  defp updated_automation("schedule:" <> _rest = ref), do: Repo.get_by(Schedule, ref: ref)
-  defp updated_automation("behavior:" <> _rest = ref), do: Repo.get_by(Behavior, ref: ref)
+  defp updated_automation("schedule:" <> _rest = ref), do: Repo.one(ScheduleQuery.by_ref(ref))
+  defp updated_automation("behavior:" <> _rest = ref), do: Repo.one(BehaviorQuery.by_ref(ref))
   defp updated_automation(_ref), do: nil
 
   @doc false

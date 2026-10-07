@@ -5,6 +5,24 @@ defmodule Ryker.Memories.MemoryEntryQuery do
 
   def all, do: from(entries in MemoryEntry, as: :operational_memory_entries)
 
+  @doc "The fact a person's answer to question `question_ref` saved."
+  def answering(question_ref) do
+    where(
+      all(),
+      [operational_memory_entries: m],
+      fragment(
+        "? IS NOT NULL AND pg_input_is_valid(?, 'jsonb') AND (?::jsonb ->> 'question_ref') = ?",
+        m.answer_provenance,
+        m.answer_provenance,
+        m.answer_provenance,
+        ^question_ref
+      )
+    )
+  end
+
+  def by_ids(queryable \\ all(), ids),
+    do: where(queryable, [operational_memory_entries: m], m.id in ^ids)
+
   def by_ref(queryable \\ all(), ref),
     do: where(queryable, [operational_memory_entries: m], m.ref == ^ref)
 

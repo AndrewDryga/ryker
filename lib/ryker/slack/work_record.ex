@@ -7,15 +7,14 @@ defmodule Ryker.Slack.WorkRecord do
   missing impact, cause, ownership, or corrective-action facts.
   """
 
-  import Ecto.Query
-  alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.Episodes.{Episode, EventQuery}
   alias Ryker.Episodes.Words
-  alias Ryker.Publication.{Followup, Publication}
-  alias Ryker.Records.{DerivedContext, Record}
+  alias Ryker.Publication.{FollowupQuery, Publication, PublicationQuery}
+  alias Ryker.Records.{DerivedContext, Record, RecordQuery}
   alias Ryker.Repo
-  alias Ryker.Slack.{IncidentRoom, TaskCard, TaskCardDetails, WorkTarget}
+  alias Ryker.Slack.{IncidentRoomQuery, TaskCardDetails, TaskCardQuery, WorkTarget}
   alias Ryker.Slack.Renderer.Blocks
-  alias Ryker.Work.{Recovery, Session, Turn}
+  alias Ryker.Work.{Recovery, SessionQuery, Turn, TurnQuery}
 
   @maximum_events 60
   @maximum_records 80
@@ -68,44 +67,37 @@ defmodule Ryker.Slack.WorkRecord do
     episode_id = resolved.episode.id
 
     events =
-      Repo.all(
-        from(event in Event,
-          where: event.episode_id == ^episode_id,
-          order_by: [desc: event.sequence],
-          limit: @maximum_events
-        )
-      )
+      episode_id
+      |> EventQuery.by_episode_id()
+      |> EventQuery.newest_first()
+      |> EventQuery.limit_to(@maximum_events)
+      |> Repo.all()
       |> Enum.reverse()
 
     records =
-      Repo.all(
-        from(record in Record,
-          where: record.episode_id == ^episode_id,
-          order_by: [desc: record.sequence],
-          limit: @maximum_records
-        )
-      )
+      episode_id
+      |> RecordQuery.by_episode_id()
+      |> RecordQuery.latest_sequence_first()
+      |> RecordQuery.limit_to(@maximum_records)
+      |> Repo.all()
       |> Enum.reverse()
 
     publications =
-      Repo.all(
-        from(publication in Publication,
-          where: publication.episode_id == ^episode_id,
-          order_by: [desc: publication.inserted_at],
-          limit: @maximum_publications
-        )
-      )
+      episode_id
+      |> PublicationQuery.by_episode_id()
+      |> PublicationQuery.newest_first()
+      |> PublicationQuery.limit_to(@maximum_publications)
+      |> Repo.all()
       |> Enum.reverse()
 
     # What GitHub last said of each pull request: the views said "open" for one
     # a person had merged (2026-10-04 review).
     pull_request_states =
-      Repo.all(
-        from(followup in Followup,
-          where: followup.publication_id in ^Enum.map(publications, & &1.id),
-          select: {followup.publication_id, followup.pr_state}
-        )
-      )
+      publications
+      |> Enum.map(& &1.id)
+      |> FollowupQuery.by_publication_ids()
+      |> FollowupQuery.select_states()
+      |> Repo.all()
       |> Map.new()
 
     %{
@@ -116,7 +108,7 @@ defmodule Ryker.Slack.WorkRecord do
       pull_request_states: pull_request_states,
       records: records,
       title: work_title(resolved.work_ref),
-      turn: current_turn(resolved.episode),
+      turn: Repo.one(TurnQuery.current(resolved.episode)),
       work_ref: resolved.work_ref
     }
   end
@@ -129,9 +121,7 @@ defmodule Ryker.Slack.WorkRecord do
   defp shown_in_channel(%{turn: %Turn{session_id: session_id}} = snapshot)
        when is_binary(session_id) do
     repository =
-      Repo.one(
-        from(session in Session, where: session.id == ^session_id, select: session.repository_ref)
-      )
+      session_id |> SessionQuery.by_id() |> SessionQuery.select_repository_refs() |> Repo.one()
 
     shown =
       snapshot.records
@@ -148,43 +138,15 @@ defmodule Ryker.Slack.WorkRecord do
 
   # The task or incident by its own title; the card's reference is Ryker's (Andrew, 2026-10-01:
   # "Timeline for task-card:c00814ba-…").
-  defp work_title("task-card:" <> _rest = ref) do
-    Repo.one(
-      from(card in TaskCard,
-        join: record in Record,
-        on: record.id == card.record_id,
-        where: card.ref == ^ref,
-        select: fragment("(?::jsonb)->>'title'", record.payload)
-      )
-    )
-  end
+  defp work_title("task-card:" <> _rest = ref), do: Repo.one(TaskCardQuery.task_title(ref))
 
-  defp work_title("record:task_offer:" <> _rest = ref) do
-    Repo.one(
-      from(record in Record,
-        where: record.ref == ^ref,
-        select: fragment("(?::jsonb)->>'title'", record.payload)
-      )
-    )
-  end
+  defp work_title("record:task_offer:" <> _rest = ref),
+    do: ref |> RecordQuery.by_ref() |> RecordQuery.select_titles() |> Repo.one()
 
   defp work_title("incident-room:" <> _rest = ref),
-    do: Repo.one(from(room in IncidentRoom, where: room.ref == ^ref, select: room.title))
+    do: ref |> IncidentRoomQuery.by_ref() |> IncidentRoomQuery.select_titles() |> Repo.one()
 
   defp work_title(_ref), do: nil
-
-  defp current_turn(%Episode{owner_kind: :turn, owner_ref: turn_ref} = episode),
-    do: Repo.get_by(Turn, episode_id: episode.id, turn_ref: turn_ref)
-
-  defp current_turn(episode) do
-    Repo.one(
-      from(turn in Turn,
-        where: turn.episode_id == ^episode.id,
-        order_by: [desc: turn.inserted_at, desc: turn.id],
-        limit: 1
-      )
-    )
-  end
 
   # A person's account of the task, in Slack's own dates that each reader sees in their time
   # zone. Andrew, 2026-10-01, of what these said before: "overall all this is simply useless in

@@ -8,8 +8,7 @@ defmodule Ryker.Slack.CapabilityTools.Authority do
   Slack's own conversation record decides whether a channel is visible.
   """
 
-  import Ecto.Query
-  alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.Episodes.{Episode, EventQuery}
   alias Ryker.Repo
   alias Ryker.Slack.CapabilityTools.Arguments
   alias Ryker.Slack.Mentions
@@ -233,14 +232,11 @@ defmodule Ryker.Slack.CapabilityTools.Authority do
     if refs == [] do
       []
     else
-      Repo.all(
-        from(event in Event,
-          where:
-            event.episode_id == ^episode_id and event.kind == :input_admitted and
-              event.dedupe_key in ^refs,
-          order_by: [desc: event.sequence]
-        )
-      )
+      episode_id
+      |> EventQuery.by_episode_id()
+      |> EventQuery.admitted_inputs(refs)
+      |> EventQuery.newest_first()
+      |> Repo.all()
     end
   end
 

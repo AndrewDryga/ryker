@@ -92,6 +92,39 @@ defmodule Ryker.Records.RecordQuery do
 
   def select_payloads(queryable), do: select(queryable, [episode_state_records: r], r.payload)
 
+  @doc "Each record's title, as its payload names it."
+  def select_titles(queryable),
+    do: select(queryable, [episode_state_records: r], fragment("(?::jsonb)->>'title'", r.payload))
+
+  def select_latest_insert(queryable),
+    do: select(queryable, [episode_state_records: r], max(r.inserted_at))
+
+  @doc "Records other than progress Work reported about feedback on its pull request."
+  def not_feedback_progress(queryable) do
+    where(
+      queryable,
+      [episode_state_records: r],
+      fragment("COALESCE((?::jsonb)->>'phase', '') NOT LIKE 'feedback:%'", r.payload)
+    )
+  end
+
+  @doc """
+  Episode `episode_id`'s 16 latest open publication offers made by a settled
+  turn, each with that turn's delivered answer, as `{record, delivery_document}`.
+  """
+  def delivered_publication_offers(episode_id) do
+    from(record in all(),
+      join: turn in Turn,
+      on: turn.id == record.turn_id and turn.episode_id == record.episode_id,
+      where:
+        record.episode_id == ^episode_id and record.kind == "publication_offer" and
+          record.status == :open and turn.status == :settled,
+      order_by: [desc: record.sequence],
+      limit: 16,
+      select: {record, turn.delivery_document}
+    )
+  end
+
   def select_kinds_and_payloads(queryable),
     do: select(queryable, [episode_state_records: r], %{kind: r.kind, payload: r.payload})
 
@@ -254,6 +287,29 @@ defmodule Ryker.Records.RecordQuery do
       order_by: [asc: task.sequence],
       limit: 1,
       select: task.confirmed_by_actor_ref
+    )
+  end
+
+  @doc """
+  The incident offer `record_ref` with its episode, the turn that made it and
+  that turn's session, as `{record, episode, turn, session}`. Only the offer's
+  row is locked: it serializes its requests and investigations, and locking
+  the episode, turn and session made every write to that conversation's work
+  wait for the request (2026-10-04 review).
+  """
+  def incident_offer(record_ref) do
+    from(record in all(),
+      join: episode in Episode,
+      on: episode.id == record.episode_id,
+      join: turn in Turn,
+      on: turn.id == record.turn_id and turn.episode_id == record.episode_id,
+      join: session in Session,
+      on: session.id == turn.session_id and session.episode_id == turn.episode_id,
+      where:
+        record.ref == ^record_ref and record.kind == "task_offer" and
+          fragment("(?::jsonb ->> 'kind') = 'incident'", record.payload),
+      select: {record, episode, turn, session},
+      lock: fragment("FOR UPDATE OF ?", record)
     )
   end
 

@@ -266,11 +266,18 @@ defmodule Ryker.Work.SessionQuery do
     )
   end
 
+  def select_repository_refs(queryable),
+    do: select(queryable, [episode_work_sessions: s], s.repository_ref)
+
   def select_episode_ids(queryable),
     do: select(queryable, [episode_work_sessions: s], s.episode_id)
 
   def latest_generation_first(queryable),
     do: order_by(queryable, [episode_work_sessions: s], desc: s.generation)
+
+  @doc "The latest generation of `episode_id`'s session."
+  def latest_of_episode(episode_id),
+    do: episode_id |> by_episode_id() |> latest_generation_first() |> limit_to(1)
 
   def limit_to(queryable, count), do: limit(queryable, ^count)
 
@@ -334,4 +341,9 @@ defmodule Ryker.Work.SessionQuery do
 
   def select_generation(queryable),
     do: select(queryable, [episode_work_sessions: s], s.generation)
+
+  @doc "Each session with its episode, as `{session, episode}`."
+  def select_with_episode(queryable) do
+    from(s in queryable, join: e in Episode, on: e.id == s.episode_id, select: {s, e})
+  end
 end

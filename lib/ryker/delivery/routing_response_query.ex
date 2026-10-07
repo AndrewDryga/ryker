@@ -8,6 +8,16 @@ defmodule Ryker.Delivery.RoutingResponseQuery do
   def by_delivery_ref(queryable \\ all(), delivery_ref),
     do: where(queryable, [delivery_routing_responses: r], r.delivery_ref == ^delivery_ref)
 
+  @doc "Quick replies routing posted in one thread."
+  def messages_in_thread(queryable \\ all(), transport, conversation_ref, thread_ref) do
+    where(
+      queryable,
+      [delivery_routing_responses: r],
+      r.kind == :message and r.transport == ^transport and
+        r.conversation_ref == ^conversation_ref and r.thread_ref == ^thread_ref
+    )
+  end
+
   def pending(queryable \\ all()),
     do: where(queryable, [delivery_routing_responses: r], r.status == :pending)
 

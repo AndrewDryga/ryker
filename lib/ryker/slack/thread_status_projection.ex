@@ -11,12 +11,10 @@ defmodule Ryker.Slack.ThreadStatusProjection do
   channel sees no tool argument, command, path, title or model text.
   """
 
-  import Ecto.Query
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
-  alias Ryker.Slack.ThreadStatuses
-  alias Ryker.Work.{ActivityEvent, Turn}
+  alias Ryker.Slack.{ThreadActivityQuery, ThreadStatuses}
 
   @recent_terminal_seconds 24 * 60 * 60
   @maximum_rows 1_000
@@ -111,35 +109,15 @@ defmodule Ryker.Slack.ThreadStatusProjection do
   def snapshot(_workspace_ref), do: {:error, {:invalid_slack_thread_status, :workspace_ref}}
 
   defp recent_entries(workspace_ref, cutoff) do
-    Repo.all(
-      from(entry in Entry,
-        where:
-          entry.source_kind == "slack" and entry.source_ref == ^workspace_ref and
-            entry.destination_transport == "slack" and entry.execution_mode == :live and
-            (entry.status in [:pending, :blocked] or entry.updated_at >= ^cutoff),
-        order_by: [desc: entry.updated_at],
-        limit: @maximum_rows
-      )
-    )
+    workspace_ref
+    |> ThreadActivityQuery.recent_entries(cutoff, @maximum_rows)
+    |> Repo.all()
   end
 
   defp recent_episodes(workspace_ref, cutoff) do
-    Repo.all(
-      from(episode in Episode,
-        where:
-          episode.destination_transport == "slack" and episode.execution_mode == :live and
-            fragment(
-              "split_part(?, ':', 1) = 'slack' AND split_part(?, ':', 2) = ?",
-              episode.destination_conversation_ref,
-              episode.destination_conversation_ref,
-              ^workspace_ref
-            ) and
-            (episode.state in [:working, :waiting_for_input, :waiting_for_event] or
-               episode.updated_at >= ^cutoff),
-        order_by: [desc: episode.updated_at],
-        limit: @maximum_rows
-      )
-    )
+    workspace_ref
+    |> ThreadActivityQuery.recent_episodes(cutoff, @maximum_rows)
+    |> Repo.all()
   end
 
   # What each working episode's owning turn is doing, keyed by episode and turn
@@ -161,16 +139,8 @@ defmodule Ryker.Slack.ThreadStatusProjection do
       {episode_ids, turn_refs} = owners |> MapSet.to_list() |> Enum.unzip()
 
       turns =
-        from(turn in Turn,
-          where: turn.episode_id in ^episode_ids and turn.turn_ref in ^turn_refs,
-          select: %{
-            coop_turn_id: turn.coop_turn_id,
-            episode_id: turn.episode_id,
-            session_id: turn.session_id,
-            status: turn.status,
-            turn_ref: turn.turn_ref
-          }
-        )
+        episode_ids
+        |> ThreadActivityQuery.owning_turns(turn_refs)
         |> Repo.all()
         |> Enum.filter(&MapSet.member?(owners, {&1.episode_id, &1.turn_ref}))
 
@@ -205,23 +175,11 @@ defmodule Ryker.Slack.ThreadStatusProjection do
   end
 
   defp latest_steps(remote_turns) do
-    from(event in ActivityEvent,
-      where: event.coop_turn_id in ^remote_turns and event.kind in ^@narration_kinds,
-      distinct: [event.session_id, event.coop_turn_id],
-      order_by: [desc: fragment("? = 'tool.started'", event.kind), desc: event.sequence],
-      select: {{event.session_id, event.coop_turn_id}, {event.kind, event.payload}}
-    )
-    |> Repo.all()
+    remote_turns |> ThreadActivityQuery.latest_steps(@narration_kinds) |> Repo.all()
   end
 
   defp last_heard(remote_turns) do
-    from(event in ActivityEvent,
-      where: event.coop_turn_id in ^remote_turns and event.kind in ^@heard_kinds,
-      group_by: [event.session_id, event.coop_turn_id],
-      select: {{event.session_id, event.coop_turn_id}, max(event.occurred_at)}
-    )
-    |> Repo.all()
-    |> Map.new()
+    remote_turns |> ThreadActivityQuery.last_heard(@heard_kinds) |> Repo.all() |> Map.new()
   end
 
   defp turn_progress(%{status: :blocked}, _narration), do: :parked

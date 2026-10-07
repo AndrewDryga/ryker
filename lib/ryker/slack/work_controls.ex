@@ -11,10 +11,10 @@ defmodule Ryker.Slack.WorkControls do
   alias Ryker.Episodes.Command
   alias Ryker.Operator.Publication, as: PublicationOperator
   alias Ryker.Publication.Custody, as: PublicationCustody
-  alias Ryker.Publication.{Publication, Review}
+  alias Ryker.Publication.{Publication, PublicationQuery, Review}
   alias Ryker.Repo
   alias Ryker.Slack.{WorkRecord, WorkTarget}
-  alias Ryker.Work.{Custody, Turn}
+  alias Ryker.Work.{Custody, Turn, TurnQuery}
 
   @control_fields [:actor_ref, :occurred_at, :request_ref, :target, :work_ref]
   @publication_fields @control_fields ++ [:publication_ref]
@@ -201,12 +201,11 @@ defmodule Ryker.Slack.WorkControls do
   defp close_resolved(_resolved, _attributes), do: {:error, :work_control_stale}
 
   defp stoppable_turn(%{state: :working, owner_kind: :turn, owner_ref: turn_ref, id: id}) do
-    case Repo.get_by(Turn, episode_id: id, turn_ref: turn_ref) do
+    turn = id |> TurnQuery.by_episode_id() |> TurnQuery.by_turn_ref(turn_ref) |> Repo.one()
+
+    case turn do
       %Turn{status: :pending} -> {:ok, turn_ref}
-      %Turn{status: :cancel_pending} -> {:error, :work_control_stale}
-      %Turn{status: :blocked} -> {:error, :work_control_stale}
-      %Turn{} -> {:error, :work_control_stale}
-      nil -> {:error, :work_control_stale}
+      _stopping_parked_settled_or_gone -> {:error, :work_control_stale}
     end
   end
 
@@ -216,7 +215,7 @@ defmodule Ryker.Slack.WorkControls do
   # offered only when the separate draft-shareability verdict says its exact
   # snapshot is safe. Custody re-decides both; this is the card's own fence.
   defp approvable_publication(episode_id, publication_ref) do
-    case Repo.get_by(Publication, episode_id: episode_id, ref: publication_ref) do
+    case episode_publication(episode_id, publication_ref) do
       %Publication{status: :reviewed} = publication ->
         {:ok, publication}
 
@@ -234,10 +233,17 @@ defmodule Ryker.Slack.WorkControls do
   end
 
   defp publication(episode_id, publication_ref) do
-    case Repo.get_by(Publication, episode_id: episode_id, ref: publication_ref) do
+    case episode_publication(episode_id, publication_ref) do
       %Publication{} = publication -> {:ok, publication}
       nil -> {:error, :task_publication_mismatch}
     end
+  end
+
+  defp episode_publication(episode_id, publication_ref) do
+    episode_id
+    |> PublicationQuery.by_episode_id()
+    |> PublicationQuery.by_ref(publication_ref)
+    |> Repo.one()
   end
 
   defp publication_review_target(%Publication{review_delivery_receipt: receipt})

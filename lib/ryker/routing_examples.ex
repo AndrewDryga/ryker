@@ -54,7 +54,7 @@ defmodule Ryker.RoutingExamples do
   alias Ryker.InspectionRedactor
   alias Ryker.Knowledge.ConversationKnowledgeQuery
   alias Ryker.Learning
-  alias Ryker.Learning.{ConversationObservationQuery, Observations}
+  alias Ryker.Learning.{ConversationObservation, ConversationObservationQuery, Observations}
   alias Ryker.LocalRouting
   alias Ryker.Repo
   alias Ryker.RoutingExamples.{Example, ExampleQuery, Feedback, FeedbackQuery}
