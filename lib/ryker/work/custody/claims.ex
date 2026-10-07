@@ -3,10 +3,11 @@ defmodule Ryker.Work.Custody.Claims do
   Worker claims and the fenced lease on one turn.
 
   A worker claims the least recently updated eligible episode under
-  `FOR UPDATE SKIP LOCKED`, spends one attempt on its owning turn, and holds an
-  opaque lease that it renews while healthy, yields at the end of a polling
-  window, or defers after a failed attempt. Leased custody mutations elsewhere
-  prove this lease before they write.
+  `FOR UPDATE SKIP LOCKED`, checks its owning turn again under the turn's own
+  lock, spends one attempt on it, and holds an opaque lease that it renews
+  while healthy, yields at the end of a polling window, or defers after a
+  failed attempt. Leased custody mutations elsewhere prove this lease before
+  they write.
 
   An episode that cannot be claimed (its session cannot be set up, say) is
   logged, its turn when it has one waits a minute with the error on it, and the
@@ -49,6 +50,9 @@ defmodule Ryker.Work.Custody.Claims do
     case Repo.transaction(fn -> claim_locked(worker_ref, lease_seconds, phase, skipped) end) do
       {:error, {:work_claim_failed, episode_id, reason}} ->
         claim_failed(episode_id, reason)
+        claim_candidate(worker_ref, lease_seconds, phase, [episode_id | skipped], left - 1)
+
+      {:error, {:work_claim_taken, episode_id}} ->
         claim_candidate(worker_ref, lease_seconds, phase, [episode_id | skipped], left - 1)
 
       result ->
@@ -170,6 +174,7 @@ defmodule Ryker.Work.Custody.Claims do
 
       episode ->
         with {:ok, session, turn} <- Sessions.ensure_session_and_turn(episode),
+             :ok <- still_free(turn, now),
              false <- active_publication_review?(session, turn),
              {:ok, turn} <- claim_turn(turn, worker_ref, now, lease_seconds) do
           %{
@@ -180,6 +185,7 @@ defmodule Ryker.Work.Custody.Claims do
           }
         else
           true -> nil
+          :taken -> Repo.rollback({:work_claim_taken, episode.id})
           {:error, reason} -> Repo.rollback({:work_claim_failed, episode.id, reason})
         end
     end
@@ -187,6 +193,16 @@ defmodule Ryker.Work.Custody.Claims do
 
   defp eligible_episode(now, phase, skipped),
     do: Repo.one(OwningTurn.Query.next_claimable_episode(now, phase, skipped))
+
+  # The episode came from the snapshot the choosing query started with, which
+  # can predate another worker's committed claim, and a claim writes the turn,
+  # not the episode row the choice locked. Unchecked, a worker took a turn
+  # another had just leased and overwrote that lease: two pool workers owned
+  # one turn on a loaded gate (2026-10-07).
+  defp still_free(turn, now) do
+    due? = is_nil(turn.next_attempt_at) or DateTime.compare(turn.next_attempt_at, now) != :gt
+    if due? and not Lease.held?(turn, turn.lease_ref, now), do: :ok, else: :taken
+  end
 
   defp active_publication_review?(session, %Turn{status: status})
        when status in [:pending, :cancel_pending] do

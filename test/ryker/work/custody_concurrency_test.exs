@@ -58,6 +58,81 @@ defmodule Ryker.Work.CustodyConcurrencyTest do
     end)
   end
 
+  # A claim chooses its episode from the snapshot its query started with, and
+  # a claim writes the turn, not the episode row the choice locks: a worker
+  # whose choice predated another's committed claim locked the episode after
+  # it and overwrote that worker's lease. Two pool workers owned one turn on a
+  # loaded gate (2026-10-07).
+  test "a worker never takes a turn another worker leased after it chose the episode" do
+    Sandbox.unboxed_run(Repo, fn ->
+      command = create_episode!()
+      session = Repo.get_by!(Session, episode_id: command.episode_id)
+
+      turn =
+        Ecto.UUID.generate()
+        |> Turn.Changeset.insert(command.episode_id, session.id, command.turn_ref)
+        |> Repo.insert!()
+
+      # First in line, ahead of anything an earlier test left claimable.
+      Repo.update_all(from(episode in Episode, where: episode.id == ^command.episode_id),
+        set: [updated_at: ~U[2000-01-01 00:00:00.000000Z]]
+      )
+
+      parent = self()
+
+      # The first worker's claim, caught holding the session and its new lease
+      # before it commits, as Custody's own claim holds them.
+      first =
+        unboxed_task(fn ->
+          Repo.transaction(fn ->
+            Repo.one!(
+              from(locked in Session, where: locked.id == ^session.id, lock: "FOR UPDATE")
+            )
+
+            Repo.update_all(from(leased in Turn, where: leased.id == ^turn.id),
+              set: [
+                lease_expires_at: DateTime.add(Repo.now!(), 60, :second),
+                lease_owner: "worker:first",
+                lease_ref: "work-lease:first"
+              ]
+            )
+
+            send(parent, {:first_leased, backend_pid()})
+
+            receive do
+              :commit -> :ok
+            end
+          end)
+        end)
+
+      second =
+        unboxed_task(fn ->
+          receive do
+            :claim -> :ok
+          end
+
+          send(parent, {:second_claiming, backend_pid()})
+          Custody.claim_next("worker:second", 60, :work)
+        end)
+
+      try do
+        assert_receive {:first_leased, first_backend}, 5_000
+        send(second.pid, :claim)
+        assert_receive {:second_claiming, second_backend}, 5_000
+        await_blocked_by(second_backend, first_backend)
+        send(first.pid, :commit)
+        assert {:ok, :ok} = Task.await(first, 5_000)
+
+        refute match?({:ok, %{turn: %{id: id}}} when id == turn.id, Task.await(second, 5_000))
+        assert Repo.get!(Turn, turn.id).lease_ref == "work-lease:first"
+      after
+        send(first.pid, :commit)
+        stop_tasks([first, second])
+        cleanup(command)
+      end
+    end)
+  end
+
   test "activity ingestion cannot deadlock a final preflight holding its episode owner" do
     # September 9's concurrent-human-feedback World run returned HTTP 500 from
     # validate_final: activity held Session then waited on its Episode FK while
