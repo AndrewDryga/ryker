@@ -158,7 +158,7 @@ defmodule Ryker.ControlPlane.ImprovementPage do
 
   @doc """
   Whether a request can be accepted as an eval case: Ryker found the
-  person's words (`Ryker.Improvement.Evidence.gather/2`), from a place a
+  person's words (`Ryker.Improvement.Evidence.gather/1`), from a place a
   world scenario replays (`Ryker.Improvement.replayable?/1`).
   """
   @spec acceptable?(map()) :: boolean()
@@ -284,7 +284,6 @@ defmodule Ryker.ControlPlane.ImprovementPage do
   defp reason("asked_again"), do: "asked again"
   defp reason("edited"), do: "changed their message"
   defp reason("rated"), do: "a person rated it as needing work"
-  defp reason("stopped"), do: "the request was stopped"
   defp reason(other), do: other
 
   # -- Counts, views and paths --------------------------------------------------------

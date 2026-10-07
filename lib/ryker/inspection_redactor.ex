@@ -104,6 +104,20 @@ defmodule Ryker.InspectionRedactor do
   end
 
   @doc """
+  Every configured secret and the value of every saved credential read from
+  the database now, longest first: what a copy that outlives its source
+  redacts (training examples, an analysis's evidence). The values the runtime
+  last read can miss a credential saved since.
+  """
+  @spec current_secrets() :: [String.t()]
+  def current_secrets do
+    (configured_secrets() ++
+       Enum.filter(Ryker.Credentials.redaction_values(), &(byte_size(&1) >= 8)))
+    |> Enum.uniq()
+    |> Enum.sort_by(&byte_size/1, :desc)
+  end
+
+  @doc """
   Runs `fun` with the configured secrets worked out once, for every artifact
   it builds. Each artifact asked again, and each time walked the whole
   application environment: 182 times for one timeline, 1.4 of its 1.6

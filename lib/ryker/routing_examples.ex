@@ -43,8 +43,6 @@ defmodule Ryker.RoutingExamples do
   those were recorded (2026-09-28) names none, so its previews stay untraced.
   """
 
-  require Logger
-  alias Ryker.Accounting.Pricing
   alias Ryker.Admission.{Attempt, Prompt}
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
@@ -61,10 +59,13 @@ defmodule Ryker.RoutingExamples do
   alias Ryker.RoutingExamples.{Example, Feedback}
   alias Ryker.Settings.Retention
   alias Ryker.Slack.ChannelMembership
+  alias Ryker.TrainingExamples
   alias Ryker.Work.Turn
   alias Ryker.WorkExamples
 
   @lock "ryker-routing-examples"
+  # What forgetting empties; the example keeps its identity.
+  @bodies [:prompt, :output_schema, :answer, :rejected_answers, :decision, :outcome, :usage]
 
   @type capture_result :: %{copied: non_neg_integer(), forgotten: non_neg_integer()}
 
@@ -84,7 +85,7 @@ defmodule Ryker.RoutingExamples do
   def capture(%{batch_size: batch_size, window_seconds: window_seconds})
       when is_integer(batch_size) and batch_size > 0 and is_integer(window_seconds) and
              window_seconds > 0 do
-    secrets = secrets()
+    secrets = InspectionRedactor.current_secrets()
 
     results =
       batch_size
@@ -92,12 +93,7 @@ defmodule Ryker.RoutingExamples do
       |> Enum.map(&copy(&1, secrets))
 
     {:ok, _copied} = copy_feedback()
-
-    {:ok,
-     %{
-       copied: Enum.count(results, &(&1 == {:ok, :copied})),
-       forgotten: Enum.count(results, &(&1 == {:ok, :forgotten}))
-     }}
+    {:ok, TrainingExamples.counts(results)}
   end
 
   @doc """
@@ -114,23 +110,8 @@ defmodule Ryker.RoutingExamples do
   removes what this copied.
   """
   @spec copy_feedback() :: {:ok, non_neg_integer()}
-  def copy_feedback do
-    Repo.transaction(fn ->
-      if enabled?() do
-        :ok = lock(:shared)
-
-        {count, _rows} =
-          Repo.insert_all(Feedback, Feedback.Query.copies_of_signals(),
-            on_conflict: :nothing,
-            conflict_target: [:example_id, :signal_id]
-          )
-
-        count
-      else
-        0
-      end
-    end)
-  end
+  def copy_feedback,
+    do: TrainingExamples.copy_feedback(&enabled?/0, Feedback, Feedback.Query.copies_of_signals())
 
   # A decided message whose routing turn completed and was committed, whose
   # bodies are still kept, with no example yet, and with nothing it started
@@ -138,22 +119,10 @@ defmodule Ryker.RoutingExamples do
   defp settled_inputs(limit, window_seconds),
     do: limit |> Example.Query.settled_decisions(window_seconds) |> Repo.all()
 
-  # One decision that cannot be copied is logged and left for the next pass,
-  # never allowed to stop the copy of every decision after it; only losing the
-  # database stops a pass, for the worker's backoff.
   defp copy(input_id, secrets) do
-    copy_in_transaction(input_id, secrets)
-  rescue
-    error in DBConnection.ConnectionError ->
-      reraise error, __STACKTRACE__
-
-    error ->
-      # The exception can carry the prompt, so only its kind is logged.
-      Logger.error(
-        "routing example copy failed input=#{input_id} category=#{inspect(error.__struct__)}"
-      )
-
-      {:ok, :skipped}
+    TrainingExamples.copy("routing example", "input=#{input_id}", fn ->
+      copy_in_transaction(input_id, secrets)
+    end)
   end
 
   defp copy_in_transaction(input_id, secrets) do
@@ -166,7 +135,7 @@ defmodule Ryker.RoutingExamples do
            %Attempt{} = attempt <- committed_attempt(entry),
            :ok <- lock(:shared),
            false <- Repo.exists?(Example.Query.by_input_id(input_id)) do
-        entry |> example(attempt, secrets) |> insert!()
+        entry |> example(attempt, secrets) |> TrainingExamples.insert!([:input_id])
       else
         _nothing_to_copy -> :skipped
       end
@@ -191,16 +160,6 @@ defmodule Ryker.RoutingExamples do
   end
 
   defp committed_attempt(entry), do: entry |> Attempt.Query.committed_for() |> Repo.one()
-
-  defp insert!(%{forgotten_at: nil} = example) do
-    Repo.insert!(example, on_conflict: :nothing, conflict_target: [:input_id])
-    :copied
-  end
-
-  defp insert!(example) do
-    Repo.insert!(example, on_conflict: :nothing, conflict_target: [:input_id])
-    :forgotten
-  end
 
   defp example(entry, attempt, secrets) do
     now = Repo.now!()
@@ -275,9 +234,8 @@ defmodule Ryker.RoutingExamples do
     })
   end
 
-  @doc "The key an example's `message_keys` holds for one quoted learned topic."
-  @spec knowledge_key(String.t()) :: String.t()
-  def knowledge_key(knowledge_id) when is_binary(knowledge_id),
+  # The key an example's `message_keys` holds for one quoted learned topic.
+  defp knowledge_key(knowledge_id) when is_binary(knowledge_id),
     do: CanonicalJSON.digest(%{"knowledge" => knowledge_id})
 
   @doc false
@@ -509,15 +467,6 @@ defmodule Ryker.RoutingExamples do
 
   # -- Redaction -------------------------------------------------------------------
 
-  # Every configured secret and the value of every saved credential, read when
-  # a batch is copied.
-  defp secrets do
-    (InspectionRedactor.configured_secrets() ++
-       Enum.filter(Ryker.Credentials.redaction_values(), &(byte_size(&1) >= 8)))
-    |> Enum.uniq()
-    |> Enum.sort_by(&byte_size/1, :desc)
-  end
-
   defp decoded(text) do
     case Jason.decode(text) do
       {:ok, document} when is_map(document) or is_list(document) -> document
@@ -618,45 +567,24 @@ defmodule Ryker.RoutingExamples do
     }
   end
 
-  # The provider's cost when it reported one; otherwise an estimate at the
-  # price saved for the model on the day of the decision, as Usage shows it.
+  # What the attempt measured, as `TrainingExamples.usage/5` labels it.
   defp usage(attempt, decided_at) do
     measured = if is_map(attempt.measurements), do: attempt.measurements, else: %{}
-    recorded = measured["usage_recorded"] == true
 
     tokens =
-      Map.new(~w(input cached_input output reasoning), fn kind ->
-        {kind <> "_tokens", if(recorded, do: measured["usage_#{kind}_tokens"])}
-      end)
+      if measured["usage_recorded"] == true do
+        Map.new(~w(input cached_input output reasoning), fn kind ->
+          {kind <> "_tokens", measured["usage_#{kind}_tokens"]}
+        end)
+      end
 
     cost = if measured["usage_cost_recorded"] == true, do: measured["usage_cost_usd"]
-    estimated = if recorded and is_nil(cost), do: estimate(attempt, tokens, decided_at)
 
-    Map.merge(tokens, %{
-      "cost_usd" => cost,
-      "estimated_cost_usd" => estimated,
+    TrainingExamples.usage(tokens, cost, attempt.execution_target, decided_at, %{
       "provider_ms" => measured["usage_provider_ms"],
       "queued_ms" => measured["usage_queued_ms"]
     })
   end
-
-  defp estimate(%Attempt{execution_target: target}, tokens, decided_at) when is_binary(target) do
-    counts = %{
-      input: tokens["input_tokens"],
-      cached: tokens["cached_input_tokens"],
-      output: tokens["output_tokens"],
-      reasoning: tokens["reasoning_tokens"]
-    }
-
-    with true <- Enum.all?(Map.values(counts), &(is_integer(&1) or is_nil(&1))),
-         {:ok, price} <- Pricing.fetch_in_effect(target, DateTime.to_date(decided_at)) do
-      price |> Pricing.estimate(counts) |> Decimal.normalize() |> Decimal.to_string(:normal)
-    else
-      _unpriced -> nil
-    end
-  end
-
-  defp estimate(_attempt, _tokens, _decided_at), do: nil
 
   # -- Forgetting ------------------------------------------------------------------
 
@@ -744,26 +672,7 @@ defmodule Ryker.RoutingExamples do
   end
 
   defp erase(query) do
-    now = Repo.now!()
-
-    query |> Feedback.Query.by_examples() |> Repo.delete_all()
-
-    Repo.update_all(
-      Example.Query.kept(query),
-      set: [
-        prompt: nil,
-        output_schema: nil,
-        answer: nil,
-        rejected_answers: nil,
-        decision: nil,
-        outcome: nil,
-        usage: nil,
-        forgotten_at: now,
-        updated_at: now
-      ]
-    )
-
-    :ok
+    TrainingExamples.erase(Feedback.Query.by_examples(query), Example.Query.kept(query), @bodies)
   end
 
   @doc """

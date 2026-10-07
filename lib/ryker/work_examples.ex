@@ -41,8 +41,6 @@ defmodule Ryker.WorkExamples do
   off.
   """
 
-  require Logger
-  alias Ryker.Accounting.Pricing
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.Episode
   alias Ryker.Ingress.Inbox.Entry
@@ -52,6 +50,7 @@ defmodule Ryker.WorkExamples do
   alias Ryker.Repo
   alias Ryker.RoutingExamples
   alias Ryker.Settings.Retention
+  alias Ryker.TrainingExamples
   alias Ryker.Work.{ActivityEvent, CandidateResponse, Turn}
   alias Ryker.WorkExamples.{Example, Feedback}
 
@@ -63,6 +62,18 @@ defmodule Ryker.WorkExamples do
 
   # How far up the chain of confirmed tasks an example traces its messages.
   @maximum_links 8
+
+  # What forgetting empties; the example keeps its identity.
+  @bodies [
+    :briefing,
+    :context,
+    :output_schema,
+    :trajectory,
+    :result,
+    :rejected_results,
+    :outcome,
+    :usage
+  ]
 
   @type capture_result :: %{copied: non_neg_integer(), forgotten: non_neg_integer()}
 
@@ -83,7 +94,7 @@ defmodule Ryker.WorkExamples do
   def capture(%{batch_size: batch_size, window_seconds: window_seconds})
       when is_integer(batch_size) and batch_size > 0 and is_integer(window_seconds) and
              window_seconds > 0 do
-    secrets = secrets()
+    secrets = InspectionRedactor.current_secrets()
 
     results =
       batch_size
@@ -91,12 +102,7 @@ defmodule Ryker.WorkExamples do
       |> Enum.map(&copy(&1, secrets))
 
     {:ok, _copied} = copy_feedback()
-
-    {:ok,
-     %{
-       copied: Enum.count(results, &(&1 == {:ok, :copied})),
-       forgotten: Enum.count(results, &(&1 == {:ok, :forgotten}))
-     }}
+    {:ok, TrainingExamples.counts(results)}
   end
 
   @doc """
@@ -106,45 +112,18 @@ defmodule Ryker.WorkExamples do
   are copied, under the lock a copy holds.
   """
   @spec copy_feedback() :: {:ok, non_neg_integer()}
-  def copy_feedback do
-    Repo.transaction(fn ->
-      if enabled?() do
-        :ok = RoutingExamples.copy_lock_in_transaction()
-
-        {count, _rows} =
-          Repo.insert_all(Feedback, Feedback.Query.copies_of_signals(),
-            on_conflict: :nothing,
-            conflict_target: [:example_id, :signal_id]
-          )
-
-        count
-      else
-        0
-      end
-    end)
-  end
+  def copy_feedback,
+    do: TrainingExamples.copy_feedback(&enabled?/0, Feedback, Feedback.Query.copies_of_signals())
 
   # A settled turn whose bodies are still kept, with no example yet, whose
   # request has nothing still running. Taken oldest first.
   defp settled_turns(limit, window_seconds),
     do: limit |> Example.Query.settled_turns(window_seconds) |> Repo.all()
 
-  # One turn that cannot be copied is logged and left for the next pass, never
-  # allowed to stop the copy of every turn after it; only losing the database
-  # stops a pass, for the worker's backoff.
   defp copy(turn_id, secrets) do
-    copy_in_transaction(turn_id, secrets)
-  rescue
-    error in DBConnection.ConnectionError ->
-      reraise error, __STACKTRACE__
-
-    error ->
-      # The exception can carry the briefing, so only its kind is logged.
-      Logger.error(
-        "work example copy failed turn=#{turn_id} category=#{inspect(error.__struct__)}"
-      )
-
-      {:ok, :skipped}
+    TrainingExamples.copy("work example", "turn=#{turn_id}", fn ->
+      copy_in_transaction(turn_id, secrets)
+    end)
   end
 
   defp copy_in_transaction(turn_id, secrets) do
@@ -153,7 +132,7 @@ defmodule Ryker.WorkExamples do
            %Turn{} = turn <- held_turn(turn_id),
            :ok <- RoutingExamples.copy_lock_in_transaction(),
            false <- Repo.exists?(Example.Query.by_turn_id(turn_id)) do
-        turn |> example(secrets) |> insert!()
+        turn |> example(secrets) |> TrainingExamples.insert!([:turn_id])
       else
         _nothing_to_copy -> :skipped
       end
@@ -175,16 +154,6 @@ defmodule Ryker.WorkExamples do
     |> Turn.Query.settled_with_bodies()
     |> Turn.Query.lock_for_share()
     |> Repo.one()
-  end
-
-  defp insert!(%{forgotten_at: nil} = example) do
-    Repo.insert!(example, on_conflict: :nothing, conflict_target: [:turn_id])
-    :copied
-  end
-
-  defp insert!(example) do
-    Repo.insert!(example, on_conflict: :nothing, conflict_target: [:turn_id])
-    :forgotten
   end
 
   defp example(turn, secrets) do
@@ -327,15 +296,6 @@ defmodule Ryker.WorkExamples do
 
   defp redacted_text(_absent, _secrets), do: ""
 
-  # Every configured secret and the value of every saved credential, read when
-  # a batch is copied.
-  defp secrets do
-    (InspectionRedactor.configured_secrets() ++
-       Enum.filter(Ryker.Credentials.redaction_values(), &(byte_size(&1) >= 8)))
-    |> Enum.uniq()
-    |> Enum.sort_by(&byte_size/1, :desc)
-  end
-
   # -- Labels ----------------------------------------------------------------------
 
   # What happened after: the request's state, the turn's, and how the change it
@@ -356,54 +316,27 @@ defmodule Ryker.WorkExamples do
     }
   end
 
-  # The provider's cost when it reported one; otherwise an estimate at the
-  # price saved for the model on the day the turn settled, as Usage shows it.
+  # What the turn measured, as `TrainingExamples.usage/5` labels it.
   defp usage(turn, settled_at) do
     tokens =
-      if turn.usage_recorded do
-        %{
+      if turn.usage_recorded,
+        do: %{
           "input_tokens" => turn.usage_input_tokens,
           "cached_input_tokens" => turn.usage_cached_input_tokens,
           "output_tokens" => turn.usage_output_tokens,
           "reasoning_tokens" => turn.usage_reasoning_tokens
         }
-      else
-        Map.new(~w(input_tokens cached_input_tokens output_tokens reasoning_tokens), &{&1, nil})
-      end
 
     cost =
       if turn.usage_cost_recorded,
         do: turn.usage_cost_usd && Decimal.to_string(turn.usage_cost_usd, :normal)
 
-    estimated = if turn.usage_recorded and is_nil(cost), do: estimate(turn, settled_at)
-
-    Map.merge(tokens, %{
-      "cost_usd" => cost,
-      "estimated_cost_usd" => estimated,
+    TrainingExamples.usage(tokens, cost, turn.execution_target, settled_at, %{
       "provider_ms" => turn.usage_provider_ms,
       "queued_ms" => turn.usage_queued_ms,
       "host_ms" => turn.usage_host_ms
     })
   end
-
-  defp estimate(%Turn{execution_target: target} = turn, settled_at) when is_binary(target) do
-    counts = %{
-      input: turn.usage_input_tokens,
-      cached: turn.usage_cached_input_tokens,
-      output: turn.usage_output_tokens,
-      reasoning: turn.usage_reasoning_tokens
-    }
-
-    case Pricing.fetch_in_effect(target, DateTime.to_date(settled_at)) do
-      {:ok, price} ->
-        price |> Pricing.estimate(counts) |> Decimal.normalize() |> Decimal.to_string(:normal)
-
-      {:error, :not_found} ->
-        nil
-    end
-  end
-
-  defp estimate(_turn, _settled_at), do: nil
 
   # -- Forgetting ------------------------------------------------------------------
 
@@ -426,26 +359,6 @@ defmodule Ryker.WorkExamples do
   end
 
   defp erase(query) do
-    now = Repo.now!()
-
-    query |> Feedback.Query.by_examples() |> Repo.delete_all()
-
-    Repo.update_all(
-      Example.Query.kept(query),
-      set: [
-        briefing: nil,
-        context: nil,
-        output_schema: nil,
-        trajectory: nil,
-        result: nil,
-        rejected_results: nil,
-        outcome: nil,
-        usage: nil,
-        forgotten_at: now,
-        updated_at: now
-      ]
-    )
-
-    :ok
+    TrainingExamples.erase(Feedback.Query.by_examples(query), Example.Query.kept(query), @bodies)
   end
 end

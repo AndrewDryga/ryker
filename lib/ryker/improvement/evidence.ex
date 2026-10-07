@@ -66,9 +66,9 @@ defmodule Ryker.Improvement.Evidence do
   request at all: an alert, a schedule or an app started it
   (`improvement_evidence_automated`).
   """
-  @spec gather(Candidate.t(), [String.t()] | nil) :: t()
-  def gather(%Candidate{} = candidate, secrets \\ nil),
-    do: read(candidate, secrets || InspectionRedactor.configured_secrets()).evidence
+  @spec gather(Candidate.t()) :: t()
+  def gather(%Candidate{} = candidate),
+    do: read(candidate, InspectionRedactor.current_secrets()).evidence
 
   @doc """
   What an accepted case keeps: the request, the person's messages with who
@@ -85,7 +85,7 @@ defmodule Ryker.Improvement.Evidence do
         }
   def case_snapshot(%Candidate{} = candidate) do
     %{evidence: evidence, messages: messages} =
-      read(candidate, InspectionRedactor.configured_secrets())
+      read(candidate, InspectionRedactor.current_secrets())
 
     # A revision whose words an edit replaced stays without them, as when the
     # message was first sent: the replay sends it then, in the words the
@@ -609,7 +609,4 @@ defmodule Ryker.Improvement.Evidence do
 
   defp iso(nil), do: nil
   defp iso(%DateTime{} = at), do: at |> DateTime.truncate(:microsecond) |> DateTime.to_iso8601()
-
-  defp iso(%NaiveDateTime{} = at),
-    do: at |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_iso8601()
 end

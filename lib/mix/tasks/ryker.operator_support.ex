@@ -72,6 +72,45 @@ defmodule Mix.Tasks.Ryker.OperatorSupport do
   def fail(operation, reason),
     do: Mix.raise("#{operation} failed: #{inspect(reason)}")
 
+  @doc """
+  Writes the lines `reduce` makes to `--output`, or to standard output
+  without one: the one writer both training example exports use (`kind`
+  names what they hold, as "routing example").
+  """
+  def export_lines(arguments, kind, reduce) when is_function(reduce, 2) do
+    case parse(arguments, [output: :string], 0) do
+      {:ok, options, []} -> export(Keyword.get(options, :output), kind, reduce)
+      {:error, reason} -> fail("#{kind} export", reason)
+    end
+  end
+
+  defp export(nil, kind, reduce) do
+    case with_repo(fn -> write(:stdio, reduce) end) do
+      {:ok, _count} -> :ok
+      {:error, reason} -> fail("#{kind} export", reason)
+    end
+  end
+
+  defp export(path, kind, reduce) do
+    result =
+      File.open(path, [:write, :binary], fn device ->
+        with_repo(fn -> write(device, reduce) end)
+      end)
+
+    case result do
+      {:ok, {:ok, count}} -> Mix.shell().info("Wrote #{count} #{kind}s to #{path}")
+      {:ok, {:error, reason}} -> fail("#{kind} export", reason)
+      {:error, reason} -> fail("#{kind} export", {:output, reason})
+    end
+  end
+
+  defp write(device, reduce) do
+    reduce.(0, fn line, count ->
+      IO.binwrite(device, line)
+      {:cont, count + 1}
+    end)
+  end
+
   defp valid_positional_count?(positional, count) when is_integer(count),
     do: length(positional) == count
 

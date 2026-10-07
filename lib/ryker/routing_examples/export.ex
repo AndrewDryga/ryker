@@ -33,8 +33,8 @@ defmodule Ryker.RoutingExamples.Export do
   on as it is encoded, so an export never holds the whole set in memory.
   """
 
-  alias Ryker.Repo
   alias Ryker.RoutingExamples.{Example, Feedback}
+  alias Ryker.TrainingExamples
 
   @batch 100
 
@@ -46,26 +46,14 @@ defmodule Ryker.RoutingExamples.Export do
           {:ok, acc} | {:error, term()}
         when acc: term()
   def reduce(acc, fun) when is_function(fun, 2) do
-    Repo.transaction(
-      fn ->
-        Example.Query.kept()
-        |> Example.Query.ordered_by_decided_at()
-        |> Repo.stream(max_rows: @batch)
-        |> Stream.chunk_every(@batch)
-        |> Stream.flat_map(&Repo.preload(&1, feedback: feedback_order()))
-        |> Stream.map(&line/1)
-        |> Enum.reduce_while(acc, fun)
-      end,
-      timeout: :infinity
-    )
+    Example.Query.kept()
+    |> Example.Query.ordered_by_decided_at()
+    |> TrainingExamples.reduce(@batch, feedback_order(), &line/1, acc, fun)
   end
 
-  @doc "One example as one line of JSON, newline included."
-  @spec line(Example.t()) :: iodata()
-  def line(%Example{forgotten_at: nil} = example) do
-    example = Repo.preload(example, feedback: feedback_order())
-    [Jason.encode_to_iodata!(document(example)), ?\n]
-  end
+  # One example as one line of JSON, newline included.
+  defp line(%Example{forgotten_at: nil} = example),
+    do: [Jason.encode_to_iodata!(document(example)), ?\n]
 
   defp feedback_order, do: Feedback.Query.ordered_by_occurred_at(Feedback.Query.all())
 
@@ -96,17 +84,8 @@ defmodule Ryker.RoutingExamples.Export do
          {"decision", example.decision},
          {"outcome", example.outcome},
          {"usage", example.usage},
-         {"feedback", Enum.map(example.feedback, &signal/1)}
+         {"feedback", Enum.map(example.feedback, &TrainingExamples.signal/1)}
        ])}
-    ])
-  end
-
-  defp signal(%Feedback{} = feedback) do
-    Jason.OrderedObject.new([
-      {"kind", feedback.kind},
-      {"value", feedback.value},
-      {"category", feedback.category},
-      {"occurred_at", DateTime.to_iso8601(feedback.occurred_at)}
     ])
   end
 end

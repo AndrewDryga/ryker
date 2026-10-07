@@ -16,37 +16,5 @@ defmodule Mix.Tasks.Ryker.RoutingExamples do
   @shortdoc "Exports the routing examples kept for training as JSON Lines"
 
   @impl Mix.Task
-  def run(arguments) do
-    case Support.parse(arguments, [output: :string], 0) do
-      {:ok, options, []} -> export(Keyword.get(options, :output))
-      {:error, reason} -> Support.fail("routing example export", reason)
-    end
-  end
-
-  defp export(nil) do
-    case Support.with_repo(fn -> write(:stdio) end) do
-      {:ok, _count} -> :ok
-      {:error, reason} -> Support.fail("routing example export", reason)
-    end
-  end
-
-  defp export(path) do
-    result =
-      File.open(path, [:write, :binary], fn device ->
-        Support.with_repo(fn -> write(device) end)
-      end)
-
-    case result do
-      {:ok, {:ok, count}} -> Mix.shell().info("Wrote #{count} routing examples to #{path}")
-      {:ok, {:error, reason}} -> Support.fail("routing example export", reason)
-      {:error, reason} -> Support.fail("routing example export", {:output, reason})
-    end
-  end
-
-  defp write(device) do
-    Export.reduce(0, fn line, count ->
-      IO.binwrite(device, line)
-      {:cont, count + 1}
-    end)
-  end
+  def run(arguments), do: Support.export_lines(arguments, "routing example", &Export.reduce/2)
 end

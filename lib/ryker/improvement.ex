@@ -14,7 +14,7 @@ defmodule Ryker.Improvement do
   negative signal only adds to it. Negative is exactly one of:
 
   - routing read the person's next message as frustrated or angry;
-  - a reaction that judges the answer (`negative_reactions/0`);
+  - a reaction that judges the answer: 👎 and the few like it;
   - the same person asked the same thing again soon after the answer;
   - the person edited or deleted their message after the answer;
   - a person rated how the request went as needing work.
@@ -52,9 +52,7 @@ defmodule Ryker.Improvement do
   alias Ryker.Repo
   alias Ryker.RoutingExamples
 
-  # "stopped" named a review of a cancelled request, before ratings; it stays
-  # so the candidates it made still read.
-  @reasons ~w(frustrated reaction asked_again edited rated stopped)
+  @reasons ~w(frustrated reaction asked_again edited rated)
 
   # Reactions that judge the answer itself. The Feedback page counts a longer
   # list as frustrated, but crying, worried or weary faces are as often about
@@ -68,10 +66,6 @@ defmodule Ryker.Improvement do
   @doc "The kinds of negative feedback a candidate records, in the order the page names them."
   @spec reasons() :: [String.t()]
   def reasons, do: @reasons
-
-  @doc "The reactions that make a request a candidate: 👎 and the few like it."
-  @spec negative_reactions() :: [String.t()]
-  def negative_reactions, do: @negative_reactions
 
   @doc """
   The kind of negative feedback `signal` is, or nil when it is not negative:
@@ -258,7 +252,7 @@ defmodule Ryker.Improvement do
   Accepts a candidate as an eval case, by `actor_ref`. The evidence it rests
   on is read now and kept with it, so the case can be exported after the
   request's own messages expire. With none of the person's words left there
-  is no case, and the error says why (`Ryker.Improvement.Evidence.gather/2`);
+  is no case, and the error says why (`Ryker.Improvement.Evidence.gather/1`);
   a GitHub request is not kept either, since a world scenario replays Slack
   and Chat messages only (`{:error, :improvement_case_unsupported}`). A
   candidate that was dismissed can still be accepted; one already accepted
@@ -367,7 +361,7 @@ defmodule Ryker.Improvement do
   `keys` are the message and topic keys routing examples quote them by. The
   diagnosis, the evidence of an accepted case and the prompts and answers of
   every analysis go; the candidate stays as forgotten, so the same request
-  never becomes one again.
+  does not become one again until the history horizon prunes it.
   """
   @spec forget_in_transaction([String.t()]) :: :ok
   def forget_in_transaction([]), do: :ok
@@ -418,6 +412,7 @@ defmodule Ryker.Improvement do
   """
   def subscribe_improvement, do: Ryker.PubSub.subscribe(topic())
 
+  # A page leaves a topic by its subscription's `un` twin (`WorkbenchLive`).
   def unsubscribe_improvement, do: Ryker.PubSub.unsubscribe(topic())
 
   @doc false
