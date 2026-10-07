@@ -1,6 +1,7 @@
 defmodule Ryker.CredoChecks.BoundaryChecksTest do
   # Fixture coverage for the checks that keep each layer to its job: queries
-  # only in query modules (IL-1, IL-2), pure query modules (IL-6), money never
+  # only in query modules (IL-1, IL-2), pure query modules (IL-6), schemas of
+  # fields only (IL-7), pure changeset modules (IL-8), money never
   # in a float (IL-12), preloads named by query helpers, an `Ecto.Enum` for a
   # fixed set of strings, whole hashes on the console, and LiveView
   # subscriptions only once connected (IL-18). Each gets a probe it must flag
@@ -149,6 +150,111 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
       """
 
       assert issues(il06(), source, @context) == []
+    end
+  end
+
+  describe "Ryker.Checks.IL07SchemaFieldsOnly" do
+    # Twelve settings schemas built their own changesets until 2026-10-07,
+    # beside session evidence and feedback signals: the shape this keeps out.
+    test "flags changeset logic in a schema module" do
+      source = """
+      defmodule Ryker.Sprockets.Sprocket do
+        use Ecto.Schema
+        import Ecto.Changeset
+
+        schema "sprockets" do
+          field(:name, :string)
+        end
+
+        def changeset(sprocket, attributes) do
+          sprocket
+          |> cast(attributes, [:name])
+          |> validate_required([:name])
+          |> Validation.validate_known(:name, [], :unknown)
+        end
+
+        def insert(attributes), do: Ecto.Changeset.change(%__MODULE__{}, attributes)
+      end
+      """
+
+      assert triggers(il07(), source, "lib/ryker/sprockets/sprocket.ex") == [
+               "Ecto.Changeset.change",
+               "Validation.validate_known",
+               "cast",
+               "def changeset",
+               "def insert",
+               "validate_required"
+             ]
+
+      assert [issue | _] = issues(il07(), source, "lib/ryker/sprockets/sprocket.ex")
+      assert issue.message =~ "IL-7"
+    end
+
+    test "allows a schema's own helpers and a changeset module's builders" do
+      schema = """
+      defmodule Ryker.Sprockets.Sprocket do
+        use Ecto.Schema
+
+        schema "sprockets" do
+          field(:teeth, :integer)
+        end
+
+        def toothed?(%__MODULE__{teeth: teeth}), do: teeth > 0
+        def teeth(value), do: Ecto.Type.cast(:integer, value)
+      end
+      """
+
+      changeset = """
+      defmodule Ryker.Sprockets.SprocketChangeset do
+        import Ecto.Changeset
+
+        def insert(attributes), do: %Sprocket{} |> cast(attributes, [:teeth]) |> checked()
+        def update(sprocket, attributes), do: sprocket |> cast(attributes, [:teeth]) |> checked()
+        defp checked(changeset), do: validate_required(changeset, [:teeth])
+      end
+      """
+
+      assert issues(il07(), schema, "lib/ryker/sprockets/sprocket.ex") == []
+      assert issues(il07(), changeset, @changeset) == []
+    end
+  end
+
+  describe "Ryker.Checks.IL08ChangesetPure" do
+    test "flags a Repo call inside a changeset module, either spelling" do
+      source = """
+      defmodule Ryker.Sprockets.SprocketChangeset do
+        import Ecto.Changeset
+
+        def insert(attributes) do
+          taken = Repo.exists?(SprocketQuery.named(attributes.name))
+          %Sprocket{} |> cast(attributes, [:name]) |> put_change(:taken, taken)
+        end
+      end
+      """
+
+      assert [issue] = issues(il08(), source, @changeset)
+      assert issue.trigger == "Repo.exists?"
+      assert issue.line_no == 5
+      assert issue.message =~ "IL-8"
+      assert triggers(il08(), source, "lib/ryker/sprockets/changeset.ex") == ["Repo.exists?"]
+    end
+
+    test "allows a grouped Repo alias, and Repo calls outside changeset modules" do
+      grouped = """
+      defmodule Ryker.Sprockets.SprocketChangeset do
+        alias Ryker.Repo.{Filter, Paginator}
+        def insert(attributes), do: Ecto.Changeset.change(%Sprocket{}, attributes)
+      end
+      """
+
+      context = """
+      defmodule Ryker.Sprockets do
+        def create(attributes), do: attributes |> SprocketChangeset.insert() |> Repo.insert()
+      end
+      """
+
+      assert issues(il08(), grouped, @changeset) == []
+      assert issues(il08(), context, @context) == []
     end
   end
 
@@ -501,6 +607,8 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
   defp il01, do: check("IL01NoInlineEctoDsl")
   defp il02, do: check("IL02NoRepoGet")
   defp il06, do: check("IL06QueryModulePure")
+  defp il07, do: check("IL07SchemaFieldsOnly")
+  defp il08, do: check("IL08ChangesetPure")
   defp il12, do: check("IL12NoFloatMoney")
   defp preload_opts, do: check("NoPreloadInRepoOpts")
   defp enum_over_inclusion, do: check("EnumOverValidateInclusion")
