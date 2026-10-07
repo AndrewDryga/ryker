@@ -1,13 +1,13 @@
 defmodule Ryker.Ingress.Projections do
   @moduledoc false
 
-  alias Ryker.Behaviors
+  alias Ryker.Behaviors.StandingRules
   alias Ryker.Ingress.Input
   alias Ryker.Publication.Followups
 
   @spec observe(Input.t(), String.t()) :: :ok | {:error, term()}
   def observe(%Input{} = input, input_ref) when is_binary(input_ref) do
-    with {:ok, _assignment_count} <- Behaviors.observe_input(input, input_ref),
+    with {:ok, _assignment_count} <- StandingRules.observe_input(input, input_ref),
          {:ok, _followup_count} <- Followups.observe_input(input) do
       :ok
     end
@@ -24,7 +24,7 @@ defmodule Ryker.Ingress.Projections do
   """
   @spec observe_rules(Input.t(), String.t()) :: :ok
   def observe_rules(%Input{} = input, input_ref) when is_binary(input_ref) do
-    _evidence = Behaviors.record_rule_inventory(input, input_ref)
+    _evidence = StandingRules.record_rule_inventory(input, input_ref)
     :ok
   end
 

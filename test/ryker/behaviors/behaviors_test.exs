@@ -9,7 +9,9 @@ defmodule Ryker.Behaviors.BehaviorsTest do
   alias Ryker.Admission.Decision
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Behavior
+  alias Ryker.Behaviors.Recall
   alias Ryker.Behaviors.StandingAssignmentRun
+  alias Ryker.Behaviors.StandingRules
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{BehaviorLibrary, Projection, Router}
   alias Ryker.Episodes
@@ -244,7 +246,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     |> Repo.update!()
 
     assert {:ok, 1} =
-             Behaviors.observe_input(
+             StandingRules.observe_input(
                github_review_input("slack:T123:C456", "submitted", "changes_requested"),
                "input:library"
              )
@@ -348,7 +350,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
              }
            }
 
-    assert [recalled] = Behaviors.guidance(context)
+    assert [recalled] = Recall.guidance(context)
     assert recalled["behavior_ref"] == guidance.behavior.ref
     assert recalled["subject"] == "terraform_review_style"
     assert recalled["text"] =~ "availability risk"
@@ -360,7 +362,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     assert MemoryPages.guidance(context, "availability risk", "invalid") == []
 
     other_conversation = %{context | conversation_ref: "slack:T123:C999"}
-    assert Behaviors.guidance(other_conversation) == []
+    assert Recall.guidance(other_conversation) == []
 
     assert {:ok, duplicate} =
              Behaviors.confirm(confirmation(fixture, fixture.guidance, "guidance-retry"))
@@ -543,7 +545,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
       workspace_ref: "slack:T123"
     }
 
-    assert [guidance] = Behaviors.guidance(context)
+    assert [guidance] = Recall.guidance(context)
     assert guidance["behavior_ref"] == relevant.behavior.ref
   end
 
@@ -568,7 +570,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
       workspace_ref: "slack:T123"
     }
 
-    assert [_, _, _] = Behaviors.guidance(context)
+    assert [_, _, _] = Recall.guidance(context)
     assert_received {:behavior_updated, _id}
     refute_received {:behavior_updated, _id}
   end
@@ -605,7 +607,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
       workspace_ref: "slack:T123"
     }
 
-    assert [first | _rest] = Behaviors.guidance(context)
+    assert [first | _rest] = Recall.guidance(context)
     assert first["behavior_ref"] == relevant.behavior.ref
   end
 
@@ -638,14 +640,14 @@ defmodule Ryker.Behaviors.BehaviorsTest do
       workspace_ref: "slack:T123"
     }
 
-    assert [guidance] = Behaviors.guidance(source_context)
+    assert [guidance] = Recall.guidance(source_context)
     assert guidance["behavior_ref"] == confirmed.behavior.ref
 
     assert [searched] =
              MemoryPages.guidance(source_context, "availability", "repository")
 
     assert searched["behavior_ref"] == confirmed.behavior.ref
-    assert Behaviors.guidance(%{source_context | conversation_ref: "slack:T123:C999"}) == []
+    assert Recall.guidance(%{source_context | conversation_ref: "slack:T123:C999"}) == []
   end
 
   test "a confirmed standing rule admits only its exact source, channel and filter" do
@@ -1132,8 +1134,8 @@ defmodule Ryker.Behaviors.BehaviorsTest do
              Behaviors.manage_assignment("ref", :unknown, "workspace", "channel")
 
     assert Behaviors.assignments_for_channel("", "") == []
-    assert Behaviors.guidance(:invalid, 20) == []
-    assert Behaviors.guidance(%{}, 0) == []
+    assert Recall.guidance(:invalid, 20) == []
+    assert Recall.guidance(%{}, 0) == []
     refute Behaviors.standing_match?(%{})
 
     assert Behaviors.model_context(%{}, "operator", nil) == %{
@@ -1142,10 +1144,10 @@ defmodule Ryker.Behaviors.BehaviorsTest do
              "standing_assignments" => []
            }
 
-    assert Behaviors.observe_input(%{}, "input") ==
+    assert StandingRules.observe_input(%{}, "input") ==
              {:error, {:invalid_behavior_run, :input}}
 
-    assert Behaviors.finalize_assignment_runs_in_transaction(
+    assert StandingRules.finalize_assignment_runs_in_transaction(
              "input",
              :start_episode,
              "decision",
@@ -1153,7 +1155,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
              :decided
            ) == {:error, :behavior_run_transaction_required}
 
-    assert Behaviors.finalize_assignment_runs_in_transaction(
+    assert StandingRules.finalize_assignment_runs_in_transaction(
              "input",
              :unknown,
              "decision",
@@ -1259,12 +1261,12 @@ defmodule Ryker.Behaviors.BehaviorsTest do
              "standing_assignments" => []
            }
 
-    assert Behaviors.guidance(%{}, 20) == []
-    assert Behaviors.guidance(%{}, 0) == []
+    assert Recall.guidance(%{}, 20) == []
+    assert Recall.guidance(%{}, 0) == []
     assert MemoryPages.guidance(%{}, "query", "workspace") == []
     refute Behaviors.standing_match?(:invalid)
 
-    assert Behaviors.finalize_assignment_runs_in_transaction(
+    assert StandingRules.finalize_assignment_runs_in_transaction(
              "input:one",
              :reply,
              "decision:one",
@@ -1274,7 +1276,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
 
     assert {:ok, {:error, {:invalid_behavior_confirmation, :input_ref}}} =
              Repo.transaction(fn ->
-               Behaviors.finalize_assignment_runs_in_transaction(
+               StandingRules.finalize_assignment_runs_in_transaction(
                  "",
                  :reply,
                  "decision:one",

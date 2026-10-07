@@ -311,7 +311,7 @@ defmodule Ryker.ControlPlane.StandingRulesCardTest do
     assert participation_tree(episode) == before
   end
 
-  # The shape Behaviors.record_rule_inventory/2 writes for a rule that listens
+  # The shape StandingRules.record_rule_inventory/2 writes for a rule that listens
   # to one Slack app's messages; evidence exists only where the rule was
   # checked.
   defp rule(title, verdict, reason) do

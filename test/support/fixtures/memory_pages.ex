@@ -8,13 +8,13 @@ defmodule Ryker.Fixtures.MemoryPages do
   keeps no second search path that only tests call.
   """
 
-  alias Ryker.Behaviors
+  alias Ryker.Behaviors.Recall, as: BehaviorRecall
   alias Ryker.Memories.MemorySearchPage
   alias Ryker.Memories.Recall
   alias Ryker.Repo
 
   def guidance(context, query, scope, limit \\ 20),
-    do: search(&Behaviors.search_page(context, &1), query, scope, limit)
+    do: search(&BehaviorRecall.search_page(context, &1), query, scope, limit)
 
   def facts(context, query, scope, limit \\ 20),
     do: search(&Recall.search_page(context, &1), query, scope, limit)

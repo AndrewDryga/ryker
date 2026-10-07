@@ -14,7 +14,7 @@ defmodule Ryker.Admission do
   alias Ryker.Admission.{Candidate, CandidateSearch, Context, ConversationContext}
   alias Ryker.Admission.{ConversationSummaries, CorrelationScope, Decision, Occurrences, Prompt}
   alias Ryker.Admission.Ranking
-  alias Ryker.Behaviors
+  alias Ryker.Behaviors.StandingRules
   alias Ryker.Delivery.RoutingResponseCustody
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, ConversationLock, CorrelationClaims, Episode}
@@ -797,7 +797,7 @@ defmodule Ryker.Admission do
     selected_episode =
       if decision.action in [:start_episode, :continue_episode, :reply], do: episode
 
-    Behaviors.finalize_assignment_runs_in_transaction(
+    StandingRules.finalize_assignment_runs_in_transaction(
       Inbox.ref(entry),
       decision.action,
       decision_ref,

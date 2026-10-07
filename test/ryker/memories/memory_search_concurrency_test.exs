@@ -3,6 +3,7 @@ defmodule Ryker.Memories.MemorySearchConcurrencyTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Behavior
+  alias Ryker.Behaviors.Recall, as: BehaviorRecall
   alias Ryker.{CanonicalJSON, Episodes, Repo}
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
@@ -428,7 +429,7 @@ defmodule Ryker.Memories.MemorySearchConcurrencyTest do
   defp read(:fact, :search, context),
     do: MemoryPages.facts(context, "draft-ai-suggestions", "workspace", 10)
 
-  defp read(:guidance, :recall, context), do: Behaviors.guidance(context)
+  defp read(:guidance, :recall, context), do: BehaviorRecall.guidance(context)
 
   defp read(:guidance, :search, context),
     do: MemoryPages.guidance(context, "draft-ai-suggestions", "workspace", 10)

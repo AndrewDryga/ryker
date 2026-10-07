@@ -1,6 +1,6 @@
 defmodule Ryker.Memories.MemorySearch do
   @moduledoc "Bounded, permission-rechecked keyset recall across existing memory owners."
-  alias Ryker.Behaviors
+  alias Ryker.Behaviors.Recall, as: BehaviorRecall
   alias Ryker.{CanonicalJSON, Repo}
   alias Ryker.Continuity.Recall, as: ContinuityRecall
   alias Ryker.Crypto
@@ -313,7 +313,7 @@ defmodule Ryker.Memories.MemorySearch do
 
   defp fetch("guidance", binding, page) do
     context = context(binding) |> Map.put(:operator_ref, binding.operator_ref)
-    Behaviors.search_page(context, page)
+    BehaviorRecall.search_page(context, page)
   end
 
   defp fetch("knowledge", binding, page),

@@ -14,6 +14,7 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
   alias Ryker.Behaviors.Behavior
   alias Ryker.Behaviors.StandingAssignmentRun
   alias Ryker.Behaviors.StandingRuleInventory
+  alias Ryker.Behaviors.StandingRules
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkSessions
@@ -51,7 +52,7 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
       )
 
     input = terraform_input(:app)
-    assert {:ok, inventory} = Behaviors.record_rule_inventory(input, "input:verdicts")
+    assert {:ok, inventory} = StandingRules.record_rule_inventory(input, "input:verdicts")
 
     assert inventory.rule_count == 5
     assert inventory.matched_count == 1
@@ -89,7 +90,7 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
     paused = rule!(offers, "paused", status: :disabled)
 
     assert {:ok, inventory} =
-             Behaviors.record_rule_inventory(terraform_input(:app), "input:evidence")
+             StandingRules.record_rule_inventory(terraform_input(:app), "input:evidence")
 
     entries = Map.new(inventory.entries, &{&1["ref"], &1})
 
@@ -128,8 +129,8 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
 
     input = terraform_input(:app)
     assert Behaviors.standing_match?(input)
-    assert {:ok, 1} = Behaviors.observe_input(input, "input:scheduling")
-    assert {:ok, inventory} = Behaviors.record_rule_inventory(input, "input:scheduling")
+    assert {:ok, 1} = StandingRules.observe_input(input, "input:scheduling")
+    assert {:ok, inventory} = StandingRules.record_rule_inventory(input, "input:scheduling")
 
     # The inventory lists the out-of-scope and paused rules; scheduling did not.
     assert inventory.rule_count == 3
@@ -137,7 +138,7 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
     assert runs == [matched.id]
 
     # And recording it again has not created a second opinion.
-    assert {:ok, 1} = Behaviors.observe_input(input, "input:scheduling")
+    assert {:ok, 1} = StandingRules.observe_input(input, "input:scheduling")
     assert Repo.aggregate(StandingRuleInventory, :count) == 1
   end
 
@@ -152,7 +153,7 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
           do: rule!(offers, "window-#{String.pad_leading("#{index}", 3, "0")}")
 
     input = terraform_input(:app)
-    assert {:ok, inventory} = Behaviors.record_rule_inventory(input, "input:window")
+    assert {:ok, inventory} = StandingRules.record_rule_inventory(input, "input:window")
 
     assert inventory.rule_count == 205
     assert inventory.matched_count == 100
@@ -166,7 +167,7 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
              "Only the first 100 applicable rules are evaluated. This rule's trigger was not checked."
 
     # Scheduling is unchanged: still exactly the hundred the runtime considered.
-    assert {:ok, 100} = Behaviors.observe_input(input, "input:window")
+    assert {:ok, 100} = StandingRules.observe_input(input, "input:window")
   end
 
   test "an inventory that cannot be written does not fail the input" do
@@ -181,10 +182,10 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
     input = terraform_input(:app)
     assert {:ok, %{entry: entry}} = Inbox.record(input)
     assert entry.id
-    assert {:ok, 1} = Behaviors.observe_input(input, "ingress-input:#{entry.id}")
+    assert {:ok, 1} = StandingRules.observe_input(input, "ingress-input:#{entry.id}")
 
     assert {:error, {:standing_rule_inventory_failed, _reason}} =
-             Behaviors.record_rule_inventory(input, "ingress-input:#{entry.id}")
+             StandingRules.record_rule_inventory(input, "ingress-input:#{entry.id}")
 
     Repo.query!(
       "ALTER TABLE standing_rule_inventories_broken RENAME TO standing_rule_inventories"
@@ -221,7 +222,7 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
 
   test "a workspace with no rules records an empty inventory, which is not an absent one" do
     input = terraform_input(:app)
-    assert {:ok, inventory} = Behaviors.record_rule_inventory(input, "input:empty")
+    assert {:ok, inventory} = StandingRules.record_rule_inventory(input, "input:empty")
     assert inventory.rule_count == 0
     assert inventory.entries == []
     assert Inspectors.rule_inventory("input:empty").rule_count == 0
@@ -229,8 +230,8 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
   end
 
   test "malformed references are refused without touching the database" do
-    assert {:error, _reason} = Behaviors.record_rule_inventory(terraform_input(:app), "")
-    assert {:error, _reason} = Behaviors.record_rule_inventory(%{}, "input:x")
+    assert {:error, _reason} = StandingRules.record_rule_inventory(terraform_input(:app), "")
+    assert {:error, _reason} = StandingRules.record_rule_inventory(%{}, "input:x")
     assert Repo.aggregate(StandingRuleInventory, :count) == 0
   end
 
