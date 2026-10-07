@@ -259,6 +259,61 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
     end
   end
 
+  describe "Ryker.Checks.IL08ValidationInChangesets" do
+    # Fourteen modules that read and wrote the database validated rows
+    # themselves until 2026-10-07: workers, placements, commands, platform
+    # actions, weekly reports, operator actions and admission sessions.
+    test "flags validation in a module that calls Repo" do
+      source = """
+      defmodule Ryker.Sprockets do
+        import Ecto.Changeset, only: [cast: 3]
+
+        def create(attributes) do
+          %Sprocket{}
+          |> Ecto.Changeset.cast(attributes, [:name])
+          |> Ecto.Changeset.validate_required([:name])
+          |> Ecto.Changeset.unique_constraint(:name)
+          |> Repo.insert()
+        end
+      end
+      """
+
+      assert triggers(il08_validation(), source, @context) == [
+               "Ecto.Changeset.cast",
+               "Ecto.Changeset.unique_constraint",
+               "Ecto.Changeset.validate_required",
+               "import Ecto.Changeset"
+             ]
+    end
+
+    test "allows a context's bare change, a helper without Repo, and a changeset module" do
+      context = """
+      defmodule Ryker.Sprockets do
+        def rename(sprocket, name),
+          do: sprocket |> Ecto.Changeset.change(name: name) |> Repo.update()
+      end
+      """
+
+      helper = """
+      defmodule Ryker.Sprockets.Validation do
+        import Ecto.Changeset
+        def validate_teeth(changeset), do: validate_number(changeset, :teeth, greater_than: 0)
+      end
+      """
+
+      changeset = """
+      defmodule Ryker.Sprockets.SprocketChangeset do
+        import Ecto.Changeset
+        def insert(attributes), do: %Sprocket{} |> cast(attributes, [:name]) |> unique_constraint(:name)
+      end
+      """
+
+      assert issues(il08_validation(), context, @context) == []
+      assert issues(il08_validation(), helper, "lib/ryker/sprockets/validation.ex") == []
+      assert issues(il08_validation(), changeset, @changeset) == []
+    end
+  end
+
   describe "Ryker.Checks.WebNoRepoCalls" do
     # The running-system card read workers and the clock itself until
     # 2026-10-07; every other page reads through a projection.
@@ -691,6 +746,7 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
   defp il06, do: check("IL06QueryModulePure")
   defp il07, do: check("IL07SchemaFieldsOnly")
   defp il08, do: check("IL08ChangesetPure")
+  defp il08_validation, do: check("IL08ValidationInChangesets")
   defp web_repo, do: check("WebNoRepoCalls")
   defp web_changeset, do: check("WebNoChangesetConstruction")
   defp il12, do: check("IL12NoFloatMoney")

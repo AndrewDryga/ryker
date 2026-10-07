@@ -26,6 +26,7 @@
           {Ryker.Checks.IL06QueryModulePure, []},
           {Ryker.Checks.IL07SchemaFieldsOnly, []},
           {Ryker.Checks.IL08ChangesetPure, []},
+          {Ryker.Checks.IL08ValidationInChangesets, []},
           {Ryker.Checks.IL12NoFloatMoney, []},
           {Ryker.Checks.InlineBroadcast, []},
           {Ryker.Checks.MatchOnMapFieldValue, []},
