@@ -134,7 +134,7 @@ into `.ryker/backups/pre-deploy-<time>.tar.gz`, and replaces only the `ryker` co
 `docker compose up --detach --no-build --wait --no-deps ryker` (migrations run when the container
 boots), waits from the host's side for `/healthz`, `/readyz` and the exact `x-ryker-version`
 header, and only then pins the new version in `.ryker/compose.env` and keeps the newest ten
-pre-deploy backups. On failure it prints the
+pre-deploy backups and the newest of each of the last seven days. On failure it prints the
 container's log tail, stops the unverified replacement and leaves the previous version pinned.
 It also says whether the failed release migrated the database; if it did, restore the pre-deploy
 backup before restarting the previous image, which refuses a schema a newer release migrated. PostgreSQL

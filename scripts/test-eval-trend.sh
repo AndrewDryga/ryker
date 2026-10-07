@@ -81,9 +81,9 @@ world 27 30 25 30 none >"$work/history/world-20260801T090000Z.json"
 world 30 30 29 30 0 >"$work/history/world-20260807T090000Z.json"
 world 9 9 0 0 none >"$work/history/world-smoke-20260803T090000Z.json"
 printf 'not json at all' >"$work/history/broken-20260808T010000Z.json"
-# A report the retired Go runner wrote: valid JSON, not a world report.
-printf '{"mode":"live","total":30,"passed":30,"failed":0,"quality":{"mean_score":4.4},"results":[]}\n' \
-  >"$work/history/prompts-20260802T000000Z.json"
+# A routing replay's report shares the history: valid JSON, not a world report.
+printf '{"total":30,"same":28,"changed":2,"not_answered":0,"skipped":[],"fields":{},"examples":[]}\n' \
+  >"$work/history/routing-replay-20260802T000000Z.json"
 
 report=$("$trend" "$work/history")
 
@@ -99,7 +99,7 @@ grep -Fq 'UNREADABLE' <<<"$report" || fail 'a corrupt result was skipped silentl
 grep -Eq '^world$' <<<"$report" || fail 'runs are not grouped by label'
 grep -Eq '^world-smoke$' <<<"$report" || fail 'the smoke label was folded into world'
 # A file that is not a world report is named, once, and never counted as a run.
-grep -Fq 'not world reports: prompts-20260802T000000Z' <<<"$report" || fail 'a non-world report was not named'
+grep -Fq 'not world reports: routing-replay-20260802T000000Z' <<<"$report" || fail 'a non-world report was not named'
 if grep -Eq '^prompts$' <<<"$report"; then
   fail 'a non-world report was listed as a run'
 fi

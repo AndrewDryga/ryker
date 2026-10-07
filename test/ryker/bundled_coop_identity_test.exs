@@ -83,12 +83,26 @@ defmodule Ryker.BundledCoopIdentityTest do
           alter(document, "workspace_ref", "another-workspace"),
           alter(document, "certificate_pem", "not a certificate"),
           alter(document, "private_key_pem", "not a key"),
-          alter(document, "unknown", true)
+          document |> Jason.decode!() |> Map.delete("workspace_ref") |> Jason.encode!()
         ] do
       File.write!(identity, replacement)
       assert {_message, 1} = run(context, "recover_identity")
       assert File.read!(identity) == replacement
     end
+  end
+
+  # 2026-10-04 review: the check wanted exactly the six keys this Coop writes, so a Coop pin
+  # that adds one would have left the worker refusing its own identity and unable to start
+  # until someone deleted it by hand. What it checks is still all there.
+  test "an identity a newer Coop wrote with a field of its own stays valid",
+       %{identity: identity} = context do
+    document = write_identity!(context, DateTime.utc_now())
+    newer = alter(document, "renewed_at", "2026-10-07T00:00:00Z")
+    File.write!(identity, newer)
+
+    assert {"valid\n", 0} = run(context, "identity_state")
+    assert {"", 0} = run(context, "recover_identity")
+    assert File.read!(identity) == newer
   end
 
   test "symlinks and nonprivate files are refused without touching their content",

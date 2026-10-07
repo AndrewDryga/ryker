@@ -101,3 +101,18 @@ probe_console() {
     "$probe_headers" 2>/dev/null) || true
   rm -f "$probe_headers" "$probe_body"
 }
+
+# write_backup ARCHIVE DIRECTORY FILE... packs the FILEs in DIRECTORY into
+# ARCHIVE, owner-only, under a hidden name until it is whole: a backup written
+# under its final name and cut short looked like a good one (2026-10-04 review).
+write_backup() {
+  backup_archive=$1
+  backup_partial=$(dirname "$backup_archive")/.partial-$(basename "$backup_archive")
+  shift
+  if (umask 077 && tar -czf "$backup_partial" -C "$@"); then
+    mv -f "$backup_partial" "$backup_archive"
+  else
+    rm -f "$backup_partial"
+    return 1
+  fi
+}

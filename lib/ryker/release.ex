@@ -1,10 +1,11 @@
 defmodule Ryker.Release do
   @moduledoc """
-  Release-safe database migration entry points.
+  What the assembled release runs through its `eval` command: migrating the
+  database as the container starts, preparing the bundled worker, and the
+  operator commands `scripts/compose.sh` runs inside the container.
 
-  Invoke these through the assembled release's `eval` command. Rollback is
-  deliberately guarded by the exact latest version the operator reviewed; it
-  never interprets a stale version as permission to remove several migrations.
+  There is no rollback: going back is restoring the backup taken before the
+  release (`docs/operations.md`, "The schema baseline").
   """
 
   alias Ryker.{Bootstrap, Settings}
@@ -65,47 +66,6 @@ defmodule Ryker.Release do
         raise "the database has migrations newer than this release (#{Enum.join(newer, ", ")}); " <>
                 "restore the backup taken before the newer release, or deploy that release again"
     end
-  end
-
-  @spec rollback(pos_integer(), keyword()) :: [integer()]
-  def rollback(expected_version, options \\ [])
-
-  def rollback(expected_version, options)
-      when is_integer(expected_version) and expected_version > 0 do
-    settings = settings!(options)
-
-    with_repo!(settings, fn repo ->
-      latest = latest_applied(repo, settings)
-
-      if latest != expected_version do
-        raise ArgumentError,
-              "latest applied migration #{inspect(latest)} does not match expected #{expected_version}"
-      end
-
-      Ecto.Migrator.run(
-        repo,
-        settings.migrations_path,
-        :down,
-        migrator_options(settings, step: 1)
-      )
-    end)
-  end
-
-  def rollback(_expected_version, _options) do
-    raise ArgumentError, "rollback version must be a positive integer"
-  end
-
-  @spec migrations(keyword()) :: [{:up | :down, integer(), String.t()}]
-  def migrations(options \\ []) do
-    settings = settings!(options)
-
-    with_repo!(settings, fn repo ->
-      Ecto.Migrator.migrations(
-        repo,
-        [settings.migrations_path],
-        migrator_options(settings)
-      )
-    end)
   end
 
   @doc "Prepares the bundled Compose worker without starting a second Ryker runtime."
@@ -252,19 +212,6 @@ defmodule Ryker.Release do
 
   defp report(%{log: false}, _value), do: :ok
   defp report(_settings, value), do: IO.puts(Jason.encode!(value))
-
-  defp latest_applied(repo, settings) do
-    repo
-    |> Ecto.Migrator.migrations(
-      [settings.migrations_path],
-      migrator_options(settings)
-    )
-    |> Enum.flat_map(fn
-      {:up, version, _name} -> [version]
-      {:down, _version, _name} -> []
-    end)
-    |> Enum.max(fn -> nil end)
-  end
 
   defp with_repo!(settings, function) do
     load_app!()

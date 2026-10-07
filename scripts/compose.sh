@@ -142,6 +142,16 @@ generate_env() {
     checkpoint_key=$(random_base64 32)
     credential_key=$(random_base64 32)
     state_tools_token=$(random_urlsafe 32)
+    # sh has no pipefail: an openssl that failed left these empty, the file was
+    # written anyway, and every later run reused it (2026-10-04 review). Base64
+    # of 32 bytes is 43 characters or more.
+    for secret in "$db_password" "$checkpoint_key" "$credential_key" "$state_tools_token"; do
+      [ "${#secret}" -ge 43 ] || {
+        echo "openssl did not generate Ryker's secrets; nothing was written to $env_file." >&2
+        exit 1
+      }
+    done
+    partial=$(mktemp "$state_dir/.compose.env.XXXXXX")
     {
       echo "# RYKER_GENERATED_ENV - generated once by install.sh; keep this file with backups."
       echo "RYKER_VERSION=$version"
@@ -156,8 +166,9 @@ generate_env() {
       echo "RYKER_GITHUB_PORT=${RYKER_GITHUB_PORT:-4319}"
       echo "RYKER_WEBHOOK_BIND=${RYKER_WEBHOOK_BIND:-127.0.0.1}"
       echo "RYKER_WEBHOOK_PORT=${RYKER_WEBHOOK_PORT:-4320}"
-    } >"$env_file"
-  )
+    } >"$partial"
+    mv -f "$partial" "$env_file"
+  ) || exit 1
   chmod 0600 "$env_file"
 }
 
@@ -231,6 +242,9 @@ install_ryker() {
   }
 }
 
+# A path an operator names is read from where they stood, before this moves
+# into the checkout (2026-10-04 review).
+caller_dir=$(pwd)
 cd "$repository"
 command=${1:-}
 
@@ -244,7 +258,10 @@ case "$command" in
     ;;
   restore)
     [ "$#" -eq 2 ] || usage
-    backup=$2
+    case $2 in
+      /*) backup=$2 ;;
+      *) backup=$caller_dir/$2 ;;
+    esac
     [ -r "$backup" ] || { echo "Cannot read backup: $backup" >&2; exit 1; }
     take_lifecycle_lock restore
     scratch=$(mktemp -d "${TMPDIR:-/tmp}/ryker-restore.XXXXXX")
@@ -500,8 +517,7 @@ case "$command" in
     cp "$env_file" "$scratch/compose.env"
     chmod 0600 "$scratch/database.dump" "$scratch/ryker-state.tar.gz" "$scratch/worker-state.tar.gz" "$scratch/compose.env"
     backup=$backup_dir/ryker-$(date -u +%Y%m%dT%H%M%SZ).tar.gz
-    tar -czf "$backup" -C "$scratch" database.dump ryker-state.tar.gz worker-state.tar.gz compose.env
-    chmod 0600 "$backup"
+    write_backup "$backup" "$scratch" database.dump ryker-state.tar.gz worker-state.tar.gz compose.env
     echo "$backup"
     ;;
   uninstall)

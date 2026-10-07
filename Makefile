@@ -47,11 +47,13 @@ coverage:
 # because inside one `mix do` chain a task that already ran is skipped and the
 # release then carried the previous commit's version. Previous release trees
 # and archives are dropped first; a hundred of them once grew to two gigabytes.
+# Warnings fail it, as they fail the image build, so a warning only the
+# production compile raises fails CI, not the deploy (2026-10-04 review).
 elixir-release:
 	@version=$$(scripts/elixir-release-version.sh); \
 		rm -rf _build/prod/rel _build/prod/ryker-*.tar.gz; \
 		export RYKER_ELIXIR_VERSION="$$version" MIX_ENV=prod; \
-		scripts/elixir-mix.sh compile && \
+		scripts/elixir-mix.sh compile --warnings-as-errors && \
 		scripts/elixir-mix.sh compile.app --force && \
 		scripts/elixir-mix.sh release ryker --overwrite
 
@@ -115,10 +117,6 @@ eval-world: | $(EVAL_HISTORY)
 		--min-overall-pass-rate 0.9 --min-case-pass-rate 0.6666666666666666 \
 		--max-paired-regression 0.1
 
-# The deterministic side of the checked-in scenario bundles and the recorded
-# repository-knowledge answers, in a database of its own: `make check` runs it
-# beside the full suite, and sharing ryker_test once made four world cases
-# reject their supposedly disposable database.
 # Asks the routing decisions in a routing examples export again with today's
 # prompt and contract (docs/testing.md, Routing replay). Needs the eval worker
 # and RYKER_EVAL_ROUTING_TARGET; EXAMPLES is the export's absolute path.
@@ -132,6 +130,10 @@ eval-improvement-replay: | $(EVAL_HISTORY)
 		--runs "$(RUNS)" \
 		--results "$(EVAL_HISTORY)/improvement-replay-$$(date -u +%Y%m%dT%H%M%SZ).json"
 
+# The deterministic side of the checked-in scenario bundles and the recorded
+# repository-knowledge answers, in a database of its own: `make check` runs it
+# beside the full suite, and sharing ryker_test once made four world cases
+# reject their supposedly disposable database.
 eval-replay:
 	RYKER_TEST_ISOLATED=1 scripts/elixir-test.sh \
 		test/ryker/episodes/replay_test.exs \

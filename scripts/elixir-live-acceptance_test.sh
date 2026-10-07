@@ -12,19 +12,21 @@ state="$work/state"
 mkdir -p "$state" "$work/bin"
 printf 'RYKER_VERSION=1.2.3\nRYKER_CONTROL_PORT=4321\n' >"$state/compose.env"
 
-# A fake Docker that only answers the one exec the wrapper is allowed to run.
+# A fake Docker that only answers the one exec the wrapper is allowed to run. It
+# names the project's file, so it works from any directory: without it, a run
+# from outside the checkout found no project (2026-10-04 review).
 # These literals are its source and expand when it runs.
 # shellcheck disable=SC2016
 printf '%s\n' \
   '#!/usr/bin/env bash' \
   'set -euo pipefail' \
-  "expected=\"compose --env-file $state/compose.env exec -T --env RYKER_LIVE_CHANNEL=C0BLU1GACKC --env RYKER_LIVE_TIMEOUT_SECONDS=600 ryker /opt/ryker/bin/ryker eval Ryker.Acceptance.Live.run_from_env!()\"" \
+  "expected=\"compose --env-file $state/compose.env --file $root/compose.yml exec -T --env RYKER_LIVE_CHANNEL=C0BLU1GACKC --env RYKER_LIVE_TIMEOUT_SECONDS=600 ryker /opt/ryker/bin/ryker eval Ryker.Acceptance.Live.run_from_env!()\"" \
   '[[ $* == "$expected" ]] || { echo "unexpected docker call: $*" >&2; exit 7; }' \
   'printf "%s\\n" live-acceptance-exec-ok' >"$work/bin/docker"
 chmod 0700 "$work/bin/docker"
 
 set +e
-output=$(PATH="$work/bin:$PATH" RYKER_INSTALL_STATE="$state" \
+output=$(cd "$work" && PATH="$work/bin:$PATH" RYKER_INSTALL_STATE="$state" \
   "$root/scripts/elixir-live-acceptance.sh" C0BLU1GACKC 2>&1)
 status=$?
 set -e

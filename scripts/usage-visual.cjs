@@ -1,4 +1,4 @@
-// Read-only acceptance against a running Emisar control plane, with private screenshots.
+// Read-only acceptance against a running Ryker console, with private screenshots.
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const {createCaptureDirectory} = require('./visual-artifacts.cjs');

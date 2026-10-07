@@ -157,8 +157,8 @@ tar -tzf "$scratch/ryker-state.tar.gz" >/dev/null || fail "the encrypted state b
 cp "$env_file" "$scratch/compose.env"
 chmod 0600 "$scratch/database.dump" "$scratch/ryker-state.tar.gz" "$scratch/compose.env"
 backup="$backup_dir/pre-deploy-$(date -u +%Y%m%dT%H%M%SZ).tar.gz"
-tar -czf "$backup" -C "$scratch" database.dump ryker-state.tar.gz compose.env
-chmod 0600 "$backup"
+write_backup "$backup" "$scratch" database.dump ryker-state.tar.gz compose.env ||
+  fail "the backup could not be written to $backup_dir"
 say "database and encrypted state backed up to $backup (scripts/compose.sh restore takes it)"
 
 # --- replace the container ---------------------------------------------------
@@ -241,14 +241,28 @@ if ((${#pruned[@]} > 0)); then
 fi
 
 # Every deploy writes a backup of about 20 MB and none was ever removed: 140
-# of them held 2.4 GB on 2026-09-28. Keep the newest ten, the one this deploy
-# wrote among them; other archives in the directory are never touched.
+# of them held 2.4 GB on 2026-09-28. The newest ten stay, the one this deploy
+# wrote among them, and past them the newest of each of the last seven days:
+# ten can be a few hours on a day of many deploys (2026-10-04 review). Other
+# archives in the directory are never touched.
+day_of() { date -u -r "$1" +%Y%m%d 2>/dev/null || date -u -d "@$1" +%Y%m%d; }
+week_ago=$(day_of $(($(date -u +%s) - 7 * 86400)))
 removed_backups=0
+listed=0
+kept_days=" "
 while IFS= read -r old_backup; do
-  rm -f -- "$old_backup" && removed_backups=$((removed_backups + 1))
-done < <(find "$backup_dir" -maxdepth 1 -name 'pre-deploy-*.tar.gz' | sort -r | tail -n +$((keep_backups + 1)))
+  listed=$((listed + 1))
+  day=$(basename "$old_backup")
+  day=${day#pre-deploy-}
+  day=${day%%T*}
+  if ((listed <= keep_backups)) || [[ $day > $week_ago && $kept_days != *" $day "* ]]; then
+    kept_days+="$day "
+  else
+    rm -f -- "$old_backup" && removed_backups=$((removed_backups + 1))
+  fi
+done < <(find "$backup_dir" -maxdepth 1 -name 'pre-deploy-*.tar.gz' | sort -r)
 if ((removed_backups > 0)); then
-  say "removed $removed_backups older pre-deploy backup(s); the newest $keep_backups stay in $backup_dir"
+  say "removed $removed_backups older pre-deploy backup(s); the newest $keep_backups and the newest of each of the last seven days stay in $backup_dir"
 fi
 
 elapsed=$((SECONDS - started))

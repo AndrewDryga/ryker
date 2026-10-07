@@ -337,6 +337,49 @@ check "the oldest kept backup is the fourth" "pre-deploy-20200104T000000Z.tar.gz
 refute "the oldest backups are removed" "pre-deploy-20200103T000000Z.tar.gz" "$(ls "$state/backups")"
 check "other archives are never touched" "ryker-20200101T000000Z.tar.gz" "$(ls "$state/backups")"
 
+# Ten backups can be a few hours of history on a day of many deploys (2026-10-04 review).
+# Past the newest ten, the newest backup of each of the last seven days stays too.
+seed
+mkdir -p "$state/backups"
+day_of() { date -u -r "$1" +%Y%m%d 2>/dev/null || date -u -d "@$1" +%Y%m%d; }
+now=$(date -u +%s)
+today=$(day_of "$now")
+yesterday=$(day_of $((now - 86400)))
+two_days_ago=$(day_of $((now - 2 * 86400)))
+nine_days_ago=$(day_of $((now - 9 * 86400)))
+for hour in 00 01 02 03 04 05 06 07 08 09; do
+  : >"$state/backups/pre-deploy-${today}T${hour}0000Z.tar.gz"
+done
+: >"$state/backups/pre-deploy-${yesterday}T100000Z.tar.gz"
+: >"$state/backups/pre-deploy-${yesterday}T200000Z.tar.gz"
+: >"$state/backups/pre-deploy-${two_days_ago}T120000Z.tar.gz"
+: >"$state/backups/pre-deploy-${nine_days_ago}T120000Z.tar.gz"
+out=$(run)
+check "a deploy with a week of backups succeeds" "exit=0" "$out"
+kept=$(ls "$state/backups")
+check "yesterday's newest backup stays past the newest ten" "pre-deploy-${yesterday}T200000Z.tar.gz" "$kept"
+check "a backup two days old stays as its day's newest" "pre-deploy-${two_days_ago}T120000Z.tar.gz" "$kept"
+refute "a day's older backups beyond the newest ten go" "pre-deploy-${yesterday}T100000Z.tar.gz" "$kept"
+refute "a backup older than a week goes" "pre-deploy-${nine_days_ago}T120000Z.tar.gz" "$kept"
+check "the newest ten and one a day stay" "12" "$(backups)"
+
+# 2026-10-04 review: a backup was written under its final name, so an interrupted one was left
+# looking like a good one.
+seed
+real_tar=$(command -v tar)
+mkdir -p "$work/failing-tar"
+cat >"$work/failing-tar/tar" <<SH
+#!/bin/sh
+case "\$1 \$2" in
+  "-czf "*pre-deploy-*) printf 'half an archive' >"\$2"; exit 1 ;;
+esac
+exec "$real_tar" "\$@"
+SH
+chmod 0755 "$work/failing-tar/tar"
+out=$(PATH="$work/failing-tar:$PATH" run)
+check "a deploy whose backup is cut short fails" "exit=1" "$out"
+check "a backup cut short is never named like a good one" "0" "$(backups)"
+
 # ---------------------------------------------------------------------------
 # An image that does not build. On 2026-09-26 mix.exs read a file the
 # Dockerfile copied too late, the build failed, and the script blamed the
@@ -490,6 +533,12 @@ check "a whole restore keeps the replaced database" "ALTER DATABASE ryker RENAME
 check "a whole restore swaps the restored database in" "ALTER DATABASE ryker_restoring RENAME TO ryker" "$(cat "$fake/calls")"
 check "a restore starts the pinned image without building" "up --detach --no-build --wait ryker" "$(cat "$fake/calls")"
 
+# 2026-10-04 review: compose.sh changes into the checkout before it reads its arguments, so a
+# backup named relative to where the operator stood was looked for in the checkout instead.
+seed
+out=$(cd "$work" && sh "$repo/scripts/compose.sh" restore whole-backup.tar.gz 2>&1; echo "exit=$?")
+check "a restore finds a backup named relative to where it was run" "exit=0" "$out"
+
 # 2026-10-06: the state-tools token signs only the tool tokens of turns running now, and it is
 # rotated when it leaks, as a reviewer's helper printed it on 2026-10-04. Restore compared it
 # with the keys that encrypt what a backup holds, so every backup taken before a rotation was
@@ -526,6 +575,24 @@ check "a backup from another release restores" "exit=0" "$out"
 check "the backup's release is pinned" "$old_version" "$(pin_line)"
 check "the restore says which release it pinned" "Pinned Ryker $old_version" "$out"
 check "the backup's release starts" "PINNED=$old_version" "$(tail -n 1 "$fake/up.env")"
+
+# 2026-10-04 review: install wrote compose.env even when openssl produced nothing, since sh
+# has no pipefail, and every later run then reused the empty database password and keys.
+seed
+rm "$state/compose.env"
+mkdir -p "$work/broken-openssl"
+printf '#!/bin/sh\nexit 1\n' >"$work/broken-openssl/openssl"
+chmod 0755 "$work/broken-openssl/openssl"
+out=$(cd "$repo" && PATH="$work/broken-openssl:$PATH" sh scripts/compose.sh install 2>&1; echo "exit=$?")
+check "install refuses secrets openssl did not make" "did not generate" "$out"
+check "install without secrets fails" "exit=1" "$out"
+if [[ -e $state/compose.env ]]; then
+  printf 'FAIL install without secrets writes no compose.env\n'
+  failures=$((failures + 1))
+else
+  printf 'ok   install without secrets writes no compose.env\n'
+fi
+refute "install without secrets starts nothing" "up --detach" "$(cat "$fake/calls" 2>/dev/null)"
 
 # 2026-10-04 review: the project's name is fixed, so an install or restore from a second
 # checkout acted on the live project. With no compose.env here, an existing database volume

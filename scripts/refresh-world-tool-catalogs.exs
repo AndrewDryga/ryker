@@ -3,7 +3,9 @@
 # recorded external tool world and catalog references exactly as JSON values.
 tools = Ryker.StateTools.Tools.list(capabilities: [:event_waits, :publication, :schedules])
 
-for path <- Path.wildcard("testdata/scenarios/*/tool-catalog.json") do
+# From the checkout, wherever it runs: a relative wildcard found nothing outside
+# it and said nothing (2026-10-04 review).
+for path <- Path.wildcard(Path.expand("../testdata/scenarios/*/tool-catalog.json", __DIR__)) do
   catalog = path |> File.read!() |> Jason.decode!()
 
   case catalog do
@@ -11,7 +13,7 @@ for path <- Path.wildcard("testdata/scenarios/*/tool-catalog.json") do
       :ok
 
     %{"version" => 1, "servers" => servers} ->
-      unless Enum.count(servers, &(&1["name"] in ["controller-tools", "responder-state"])) == 1,
+      unless Enum.count(servers, &(&1["name"] == "controller-tools")) == 1,
         do: raise("expected one Ryker schema owner in #{path}")
 
       updated =
@@ -19,8 +21,8 @@ for path <- Path.wildcard("testdata/scenarios/*/tool-catalog.json") do
           catalog,
           "servers",
           Enum.map(servers, fn
-            %{"name" => name} = server when name in ["controller-tools", "responder-state"] ->
-              server |> Map.put("name", "controller-tools") |> Map.put("tools", tools)
+            %{"name" => "controller-tools"} = server ->
+              Map.put(server, "tools", tools)
 
             server ->
               server

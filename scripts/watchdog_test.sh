@@ -342,6 +342,10 @@ reset; ready
 nothing=$(WATCHDOG_ENV_FILE="$work/nowhere/compose.env" run)
 check "nothing to watch alarms" "ALERT Ryker watchdog found nothing to watch" "$nothing"
 check "nothing to watch fails the run" "exit=1" "$nothing"
+# It alarmed every minute, past the repeat limit every other alarm keeps (2026-10-04 review).
+again=$(WATCHDOG_ENV_FILE="$work/nowhere/compose.env" run)
+refute "nothing to watch repeats only after the renotify interval" "ALERT" "$again"
+check "nothing to watch still fails every run" "exit=1" "$again"
 
 if [[ $failures -gt 0 ]]; then
   echo "$failures watchdog check(s) failed"

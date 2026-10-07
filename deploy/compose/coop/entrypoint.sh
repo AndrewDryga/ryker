@@ -29,7 +29,8 @@ trap stop_connector EXIT
 trap 'exit 0' HUP INT TERM
 
 # An invalid identity is not an expired identity: never erase it as recovery.
-# Read one bounded snapshot so a concurrent atomic renewal cannot mix keys.
+# Read one bounded snapshot so a concurrent atomic renewal cannot mix keys. The
+# keys checked must be there; a newer Coop may write more (2026-10-04 review).
 identity_state() {
   [ ! -L "$identity" ] || return 1
   if [ ! -e "$identity" ]; then
@@ -41,8 +42,8 @@ identity_state() {
   certificate=$(printf '%s' "$document" | jq -er \
     --arg controller "$controller" --arg worker "$worker_id" --arg workspace "$workspace_ref" '
     select(type == "object" and
-      keys == ["ca_certificate_pem", "certificate_pem", "controller_url",
-               "private_key_pem", "worker_id", "workspace_ref"]) |
+      (["ca_certificate_pem", "certificate_pem", "controller_url",
+        "private_key_pem", "worker_id", "workspace_ref"] - keys) == []) |
     select(.controller_url == $controller and .worker_id == $worker and
       .workspace_ref == $workspace) | .certificate_pem | select(type == "string")
   ') || return 1

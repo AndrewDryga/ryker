@@ -41,8 +41,6 @@ defmodule Ryker.RenameAuditTest do
      "read-only historical activity and immutable state-record idempotency namespace; new execution uses controller-tools"},
     {~r{^(lib/ryker/control_plane/(model_requests|request_context_html)\.ex|test/ryker/control_plane/request_context_html_test\.exs)$},
      ~r/responder_state_tools/, "read-only inspection of previously saved prompt context"},
-    {~r{^scripts/refresh-world-tool-catalogs\.exs$}, ~r/responder-state/,
-     "reading the old generated host catalog before writing the neutral server name"},
     {~r//, ~r/x-responder-(signature|timestamp|event-id|event-type|item-id|occurred-at|revision)/,
      "inbound webhook contract; configured external senders set these headers"},
     {~r//, ~r/responder\.publication_lifecycle\.v1/,

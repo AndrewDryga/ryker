@@ -34,8 +34,10 @@ trap cleanup EXIT
 # brings its own server, with compose.test.yml's settings, and removes it at exit.
 start_private_postgres() {
   private_postgres=$(mktemp -d "${TMPDIR:-/tmp}/ryker-test-postgres.XXXXXX")
+  # C.UTF-8 is built into glibc and needs no locales package, which a box may
+  # lack (2026-10-04 review); the alpine server in compose.test.yml, on musl, sorts like C.
   initdb --pgdata="$private_postgres/data" --username=postgres --auth=trust \
-    --encoding=UTF8 --locale=en_US.UTF-8 >/dev/null
+    --encoding=UTF8 --locale=C.UTF-8 >/dev/null
 
   # A random port, retried, so concurrent runs in one box each get their own.
   for _ in 1 2 3 4 5; do

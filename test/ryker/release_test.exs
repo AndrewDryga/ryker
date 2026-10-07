@@ -221,7 +221,7 @@ defmodule Ryker.ReleaseTest do
     end
 
     assert {output, 0} = check.(complete_release_archive!(root, "product", version, []))
-    assert output =~ "is self-contained and migration-capable"
+    assert output =~ "is self-contained and loads Ryker.Release"
 
     for module <- ~w(
           Elixir.Ryker.Evals.WorldRunner
@@ -255,23 +255,9 @@ defmodule Ryker.ReleaseTest do
     refute nginx =~ "127.0.0.1:8080"
   end
 
-  test "release migration entrypoints are idempotent and rollback is exact" do
-    migrations = Release.migrations(log: false)
-
-    assert migrations != []
-
-    assert Enum.all?(migrations, fn {state, version, name} ->
-             state == :up and is_integer(version) and version > 0 and is_binary(name)
-           end)
-
+  test "migrating a database that has every migration runs none again" do
     assert Release.migrate(log: false) == []
-    assert Release.migrations(log: false, prefix: "public") == migrations
-
-    latest = migrations |> Enum.map(&elem(&1, 1)) |> Enum.max()
-
-    assert_raise ArgumentError,
-                 ~r/latest applied migration .* does not match expected/,
-                 fn -> Release.rollback(latest - 1, log: false) end
+    assert Release.migrate(log: false, prefix: "public") == []
   end
 
   # Ecto skips an applied version it has no file for, so the release a failed
@@ -310,29 +296,28 @@ defmodule Ryker.ReleaseTest do
   end
 
   test "release migration entrypoints reject unsafe operator arguments" do
-    assert_raise ArgumentError, ~r/positive integer/, fn -> Release.rollback(0) end
-    assert_raise ArgumentError, ~r/must be a keyword/, fn -> Release.migrations(%{}) end
+    assert_raise ArgumentError, ~r/must be a keyword/, fn -> Release.migrate(%{}) end
 
     assert_raise ArgumentError, ~r/unique known keys/, fn ->
-      Release.migrations(log: false, log: :info)
+      Release.migrate(log: false, log: :info)
     end
 
     assert_raise ArgumentError, ~r/unique known keys/, fn ->
-      Release.migrations(unknown: true)
+      Release.migrate(unknown: true)
     end
 
     assert_raise ArgumentError, ~r/options are invalid/, fn ->
-      Release.migrations(pool_size: 1)
+      Release.migrate(pool_size: 1)
     end
 
     for options <- [[prefix: "Public"], [log: :silent], [repo: "Ryker.Repo"]] do
       assert_raise ArgumentError, ~r/options are invalid/, fn ->
-        Release.migrations(options)
+        Release.migrate(options)
       end
     end
 
     assert_raise ArgumentError, ~r/migrations path must be absolute/, fn ->
-      Release.migrations(migrations_path: "relative/migrations")
+      Release.migrate(migrations_path: "relative/migrations")
     end
   end
 

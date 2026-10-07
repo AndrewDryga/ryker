@@ -33,7 +33,8 @@ if [[ ! -r $env_file ]]; then
   exit 1
 fi
 
-exec docker compose --env-file "$env_file" exec -T \
+# The project's own file, so the lane runs from any directory.
+exec docker compose --env-file "$env_file" --file "$repository/compose.yml" exec -T \
   --env "RYKER_LIVE_CHANNEL=$channel_ref" \
   --env "RYKER_LIVE_TIMEOUT_SECONDS=$timeout_seconds" \
   ryker /opt/ryker/bin/ryker eval 'Ryker.Acceptance.Live.run_from_env!()'

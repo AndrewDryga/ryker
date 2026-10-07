@@ -180,9 +180,27 @@ blocked_count() {
     /usr/bin/awk '/^ryker_[a-z_]+_total\{status="blocked"\} [0-9]+$/ {sum += $2} END {print sum + 0}'
 }
 
-# A watchdog with nothing to watch is itself a failure, not a quiet success.
+strike_file="$state_dir/ryker.strikes"
+alerted_file="$state_dir/ryker.alerted"
+blocked_file="$state_dir/ryker.blocked"
+
+# repeat_alarm TITLE MESSAGE alarms, unless it last did less than the renotify
+# interval ago: a standing failure is repeated every half hour, not every minute.
+repeat_alarm() {
+  local now last
+  now=$(date +%s)
+  last=$(cat "$alerted_file" 2>/dev/null || echo 0)
+  if [[ $((now - last)) -ge $((renotify_minutes * 60)) ]]; then
+    echo "$now" >"$alerted_file"
+    alarm "$1" "$2"
+  fi
+}
+
+# A watchdog with nothing to watch is itself a failure, not a quiet success. It
+# alarmed every minute, past the limit the other alarms keep (2026-10-04 review).
 if [[ ! -r $env_file ]]; then
-  alarm "Ryker watchdog found nothing to watch" \
+  note "nothing to watch: no Compose installation at $env_file"
+  repeat_alarm "Ryker watchdog found nothing to watch" \
     "No Compose installation at $env_file: nothing is pinned there, so nothing is being watched."
   exit 1
 fi
@@ -192,10 +210,6 @@ port=$(compose_env_value RYKER_CONTROL_PORT "$env_file")
 # Ryker does not start with the console published beyond loopback.
 base=$(control_origin "$(compose_env_value RYKER_CONTROL_BIND "$env_file")" "$port")
 pinned=$(compose_env_value RYKER_VERSION "$env_file")
-
-strike_file="$state_dir/ryker.strikes"
-alerted_file="$state_dir/ryker.alerted"
-blocked_file="$state_dir/ryker.blocked"
 
 readiness "$base"
 state=$readiness_state
@@ -236,12 +250,7 @@ else
   echo "$strikes" >"$strike_file"
   note "unhealthy (strike $strikes/$strikes_required): $state"
   if [[ $strikes -ge $strikes_required ]]; then
-    now=$(date +%s)
-    last=$(cat "$alerted_file" 2>/dev/null || echo 0)
-    if [[ $((now - last)) -ge $((renotify_minutes * 60)) ]]; then
-      echo "$now" >"$alerted_file"
-      alarm "$title" "$state"
-    fi
+    repeat_alarm "$title" "$state"
   fi
 fi
 

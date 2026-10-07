@@ -186,7 +186,10 @@ again or its temporary files. The worker keeps working meanwhile, and a file it 
 archive does not fail the backup. It restarts the previously running controller even if the backup fails. Worker leases use
 their normal expiry rules during this maintenance window; allow time for large bodies to copy.
 Pre-deploy backups hold the database, the encrypted files and the environment, and not the
-worker's state. Store these owner-only archives as sensitive material.
+worker's state. A deploy keeps the newest ten of them and, past those, the newest of each of the
+last seven days; the backups you take yourself are never removed. Each archive is written under a
+hidden name and renamed once it is whole, so one cut short never looks like a good one. Store
+these owner-only archives as sensitive material.
 
 Restore with:
 

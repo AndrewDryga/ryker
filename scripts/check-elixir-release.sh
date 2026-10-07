@@ -4,7 +4,7 @@
 # safe; the release must carry its executable, its runtime configuration,
 # every migration in this tree and every operator asset in release-assets.txt,
 # no development dependency, no eval-only module, the expected version, and it
-# must boot its migration entry point.
+# must start and load its migration module, Ryker.Release.
 set -euo pipefail
 
 archive=${1:-}
@@ -128,4 +128,4 @@ DATABASE_URL=ecto://release-check:release-check@127.0.0.1/ryker_release_check \
   $binary eval \
   'if Code.ensure_loaded?(Ryker.Release), do: System.halt(0), else: System.halt(1)'
 
-echo "Elixir release $expected_version is self-contained and migration-capable"
+echo "Elixir release $expected_version is self-contained and loads Ryker.Release"
