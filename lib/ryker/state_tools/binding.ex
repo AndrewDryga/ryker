@@ -47,7 +47,7 @@ defmodule Ryker.StateTools.Binding do
   def lock_current(binding) do
     # Routine Work bookkeeping briefly owns this row while the model is using
     # MCP. Wait within the existing recall lock budget, then recheck authority.
-    Repo.query!("SET LOCAL lock_timeout = '1000ms'")
+    Repo.lock_timeout!(1_000)
 
     session =
       binding.session.id

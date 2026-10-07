@@ -296,8 +296,8 @@ defmodule Ryker.Waits.EventWaits do
   end
 
   defp database_now do
-    case Repo.query("SELECT clock_timestamp()") do
-      {:ok, %{rows: [[%DateTime{} = now]]}} -> {:ok, now}
+    case Repo.now() do
+      {:ok, now} -> {:ok, now}
       {:error, reason} -> {:error, {:event_wait_clock_failed, reason}}
     end
   end

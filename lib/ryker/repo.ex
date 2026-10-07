@@ -151,6 +151,32 @@ defmodule Ryker.Repo do
     now
   end
 
+  @doc "`now!/0`, answering why the clock could not be read instead of raising."
+  @spec now() :: {:ok, DateTime.t()} | {:error, term()}
+  def now do
+    case query("SELECT clock_timestamp()") do
+      {:ok, %{rows: [[%DateTime{} = now]]}} -> {:ok, now}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc """
+  Ends any statement of the current transaction that runs past
+  `milliseconds`, so a broad search fails rather than holding a worker.
+  """
+  @spec statement_timeout!(pos_integer()) :: :ok
+  def statement_timeout!(milliseconds) when is_integer(milliseconds) and milliseconds > 0 do
+    query!("SET LOCAL statement_timeout = '#{milliseconds}ms'")
+    :ok
+  end
+
+  @doc "Gives up on any lock the current transaction waits for longer than `milliseconds`."
+  @spec lock_timeout!(pos_integer()) :: :ok
+  def lock_timeout!(milliseconds) when is_integer(milliseconds) and milliseconds > 0 do
+    query!("SET LOCAL lock_timeout = '#{milliseconds}ms'")
+    :ok
+  end
+
   @conflicts [:serialization_failure, :deadlock_detected]
   @exhausted [:query_canceled, :lock_not_available | @conflicts]
 

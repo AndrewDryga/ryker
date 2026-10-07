@@ -85,7 +85,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   end
 
   defp dispatch_current(name, arguments, context) do
-    Repo.query!("SET LOCAL statement_timeout = '5000ms'")
+    Repo.statement_timeout!(5_000)
 
     case Binding.lock_current(context.binding) do
       {:ok, _current} -> dispatch(name, arguments, context)

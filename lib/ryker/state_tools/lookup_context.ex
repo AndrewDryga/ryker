@@ -29,7 +29,7 @@ defmodule Ryker.StateTools.LookupContext do
   # What the lookup may show at all, decided under the turn's own binding.
   defp current(binding, result) do
     Repo.transaction(fn ->
-      Repo.query!("SET LOCAL statement_timeout = '5000ms'")
+      Repo.statement_timeout!(5_000)
 
       case LookupBoundary.current(binding, result) do
         {:ok, binding, result} -> {binding, result}

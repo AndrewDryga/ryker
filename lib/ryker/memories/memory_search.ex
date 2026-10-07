@@ -34,7 +34,7 @@ defmodule Ryker.Memories.MemorySearch do
   @doc "One-hop source-related memory for an already authorized platform lookup. No provider I/O."
   def related(binding, targets, before_time) when is_list(targets) and length(targets) <= 20 do
     Repo.transaction(fn ->
-      Repo.query!("SET LOCAL statement_timeout = '5000ms'")
+      Repo.statement_timeout!(5_000)
       binding = lock_binding(binding, %{"cursor" => nil})
       # The session, then the channel, then any recall accounting, as search
       # takes them: related memory charged a recall before the channel's lock,
@@ -78,7 +78,7 @@ defmodule Ryker.Memories.MemorySearch do
   defp search_in_transaction(binding, arguments, secret) do
     # Result count is not a database-work bound. A broad literal search or
     # expensive lineage filter must fail explicitly, not occupy a worker forever.
-    Repo.query!("SET LOCAL statement_timeout = '5000ms'")
+    Repo.statement_timeout!(5_000)
     binding = lock_binding(binding, arguments)
 
     {page, state} =

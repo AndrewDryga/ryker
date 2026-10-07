@@ -788,9 +788,9 @@ defmodule Ryker.Slack.Gateway do
   end
 
   defp database_now do
-    case Ryker.Repo.query("SELECT clock_timestamp()") do
-      {:ok, %{rows: [[%DateTime{} = now]]}} -> now
-      _failure -> DateTime.utc_now()
+    case Ryker.Repo.now() do
+      {:ok, now} -> now
+      {:error, _reason} -> DateTime.utc_now()
     end
   end
 

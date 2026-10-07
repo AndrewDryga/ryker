@@ -52,5 +52,27 @@ defmodule Ryker.RepoTest do
     assert_raise Ecto.MultipleResultsError, fn -> Repo.fetch(numbers.(2)) end
   end
 
+  # Search, lookups and binding locks bound their own transaction; five places
+  # spelled the setting by hand until 2026-10-07.
+  test "a transaction's statement and lock timeouts are its own, and the clock reads either way" do
+    :ok = Sandbox.checkout(Repo)
+
+    {:ok, settings} =
+      Repo.transaction(fn ->
+        :ok = Repo.statement_timeout!(5_000)
+        :ok = Repo.lock_timeout!(1_000)
+        {setting("statement_timeout"), setting("lock_timeout")}
+      end)
+
+    assert settings == {"5s", "1s"}
+    assert {:ok, %DateTime{} = now} = Repo.now()
+    assert DateTime.compare(now, Repo.now!()) in [:lt, :eq]
+  end
+
+  defp setting(name) do
+    %{rows: [[value]]} = Repo.query!("SELECT current_setting($1)", [name])
+    value
+  end
+
   defp postgres_error(code), do: %Postgrex.Error{postgres: %{code: code}}
 end
