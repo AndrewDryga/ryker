@@ -10,7 +10,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   """
 
   alias Ryker.CanonicalJSON
-  alias Ryker.CoopFleet.{Bodies, Command, JobAuthority, Placement}
+  alias Ryker.CoopFleet.{Bodies, JobAuthority, Placement}
   alias Ryker.CoopFleet.ControlPlane.{Commands, Shared}
   alias Ryker.CoopFleet.{Worker, WorkspaceCheckpointTransfer}
   alias Ryker.Repo
@@ -124,10 +124,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   # prepare past its minute of redelivery, which it cancels; counting those kept
   # the worker busy for good, and no routing session was ever prepared on it
   # again (2026-10-04 review).
-  defp commands_waiting?(worker_id, now) do
-    prepare_cutoff = DateTime.add(now, -Commands.prepare_redelivery_seconds(), :second)
-    Repo.exists?(Command.Query.waiting_on(worker_id, now, prepare_cutoff))
-  end
+  defp commands_waiting?(worker_id, now), do: Commands.waiting?(worker_id, now)
 
   @doc """
   The snapshot this session's work could continue from on another worker.

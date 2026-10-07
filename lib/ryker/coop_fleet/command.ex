@@ -34,4 +34,16 @@ defmodule Ryker.CoopFleet.Command do
   end
 
   @type t :: %__MODULE__{}
+
+  # A read answers only the caller that asked: its key is fresh, and nothing
+  # asks for the same answer again (`Ryker.CoopFleet.Client`).
+  @read_key_prefix "ryker:fleet:read:"
+
+  @doc "A fresh key for a read named `name`, whose answer only its caller waits for."
+  @spec read_key(String.t()) :: String.t()
+  def read_key(name), do: "#{@read_key_prefix}#{name}:#{Ecto.UUID.generate()}"
+
+  @doc "What the key of every read starts with."
+  @spec read_key_prefix() :: String.t()
+  def read_key_prefix, do: @read_key_prefix
 end

@@ -54,6 +54,16 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
   # that is not starting. A healthy one answers in seconds.
   @prepare_redelivery_seconds 60
 
+  # A read answers only its caller, and a caller waits for it about as long as
+  # Ryker waits on Coop (30 s, `Ryker.Defaults` coop `receive_timeout_ms`).
+  # Every poll sent every read nobody waited for any more, oldest first, so
+  # after a long command the worker ran stale reads before newer work: 19 of
+  # 10,215 reads in the week to 2026-10-07 ran after their caller had gone
+  # (2026-10-04 review). Two minutes after it was asked, a read is no longer
+  # sent: one the worker has is cancelled when its lease runs out, and one it
+  # never had fails when its placement ends.
+  @read_wait_seconds 120
+
   # Session -> key -> placement is the shared lock order for enqueue and fence.
   # Source preparation and waiting on the remote worker never hold these locks.
   @doc false
@@ -282,9 +292,18 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
     end
   end
 
-  @doc "How long a delivered prepare is delivered again before the worker gives it up."
-  @spec prepare_redelivery_seconds() :: pos_integer()
-  def prepare_redelivery_seconds, do: @prepare_redelivery_seconds
+  @doc "Whether a poll at `now` would still give worker `worker_id` a command."
+  @spec waiting?(String.t(), DateTime.t()) :: boolean()
+  def waiting?(worker_id, now), do: Repo.exists?(waiting(worker_id, now))
+
+  defp waiting(worker_id, now) do
+    Command.Query.waiting_on(
+      worker_id,
+      now,
+      DateTime.add(now, -@prepare_redelivery_seconds, :second),
+      DateTime.add(now, -@read_wait_seconds, :second)
+    )
+  end
 
   @doc false
   def fail_undelivered_commands(placement, now) do
@@ -440,11 +459,9 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
 
   @doc false
   def deliver_commands(worker_id, now, state_tools_secret, body_root, checkpoint_key) do
-    prepare_cutoff = DateTime.add(now, -@prepare_redelivery_seconds, :second)
-
     commands =
       worker_id
-      |> Command.Query.waiting_on(now, prepare_cutoff)
+      |> waiting(now)
       |> Command.Query.ordered_by_oldest()
       |> Command.Query.limit_to(100)
       |> Command.Query.lock_next_free()

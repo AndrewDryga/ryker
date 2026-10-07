@@ -419,7 +419,7 @@ defmodule Ryker.CoopFleet.Client do
              placement.id,
              "reconcile_operation",
              %{"operation_key" => command.idempotency_key},
-             "ryker:fleet:read:reconcile_operation:#{Ecto.UUID.generate()}"
+             Command.read_key("reconcile_operation")
            ),
          {:ok, response} <-
            client.bridge.await_command(reconciliation.id, client.bridge_options) do
@@ -695,7 +695,7 @@ defmodule Ryker.CoopFleet.Client do
              placement.id,
              "reconcile_operation",
              %{"operation_key" => command.idempotency_key},
-             "ryker:fleet:read:publication:#{Ecto.UUID.generate()}"
+             Command.read_key("publication")
            ),
          {:ok, operation} <- client.bridge.await_command(lookup.id, client.bridge_options) do
       publication_operation(client, placement, command, session_id, operation)
@@ -1016,10 +1016,8 @@ defmodule Ryker.CoopFleet.Client do
   defp execute(client, session, kind, payload, key),
     do: client.bridge.execute(session, kind, payload, key, client.bridge_options)
 
-  defp execute_read(client, session, kind, payload) do
-    key = "ryker:fleet:read:#{kind}:#{Ecto.UUID.generate()}"
-    execute(client, session, kind, payload, key)
-  end
+  defp execute_read(client, session, kind, payload),
+    do: execute(client, session, kind, payload, Command.read_key(kind))
 
   defp fence_durable_operation(client, session, key, kind, payload) do
     with {:ok, command} <- ControlPlane.fence_command(session, kind, payload, key) do

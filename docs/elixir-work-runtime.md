@@ -56,6 +56,12 @@ tools own durable records. The generic Delivery module owns external message cus
   anything nobody announced, and a stream of announcements never makes a worker poll more than four
   times a second. Measured on 2026-09-27 with every worker running against an empty database, an
   idle install went from about 107 commits a second to about 8.
+- A read sent to a Coop worker (a session, a turn, its changes, an output artifact) answers only
+  the caller that asked, and that caller waits about as long as Ryker waits on Coop, 30 seconds.
+  Two minutes after a read was asked Ryker stops sending it, so a worker that has it cancels it
+  when its lease runs out instead of running it ahead of newer work after a long command, and a
+  read never sent fails when its placement ends. A command someone waits on by its key is sent
+  until it is answered.
 - A worker cannot choose episode policy. Admission chooses only the abstract conversational,
   standard, or deep class and maps it through a host-owned profile. Existing episodes retain their
   pinned policy across deploys and later classifications.

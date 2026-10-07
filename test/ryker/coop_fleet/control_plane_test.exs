@@ -593,6 +593,54 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert [read.id] == delivered!("worker-stuck-prepare", "past-a-minute")
   end
 
+  # A read answers only the caller that asked, and none waits longer than Ryker waits on Coop.
+  # Every poll sent every read nobody waited for any more, oldest first, so after a long command
+  # the worker ran stale reads before newer work: 19 of 10,215 reads in the week to 2026-10-07 ran
+  # after their caller had gone (2026-10-04 review). Two minutes after it was asked a read is no
+  # longer sent, so the worker cancels one it has when its lease runs out, and it no longer keeps
+  # the worker busy. A command someone waits on by its key is sent until it is answered.
+  test "a read nobody can still be waiting for is no longer sent" do
+    authorize_and_poll!("worker-stale-read", capacity: capacity(4, 4))
+    placement = place!("stale-read")
+    session = Repo.get!(Session, placement.session_id)
+    bind!(session, "coop-stale-read")
+
+    ask = fn key ->
+      assert {:ok, command} =
+               ControlPlane.enqueue_command(
+                 placement.id,
+                 "get_session",
+                 %{"coop_session_id" => "coop-stale-read"},
+                 key
+               )
+
+      command
+    end
+
+    asked_ago = fn command, seconds ->
+      {1, nil} =
+        Repo.update_all(from(row in Command, where: row.id == ^command.id),
+          set: [inserted_at: DateTime.add(Repo.now!(), -seconds, :second)]
+        )
+    end
+
+    read = ask.(Command.read_key("get_session"))
+    asked_ago.(read, div(Ryker.Defaults.fetch!(:coop).receive_timeout_ms, 1_000))
+    assert [read.id] == delivered!("worker-stale-read", "waited-for")
+    refute ControlPlane.worker_idle?(session.id)
+
+    unsent = ask.(Command.read_key("get_session"))
+    asked_ago.(read, 10 * 60)
+    asked_ago.(unsent, 10 * 60)
+    assert [] == delivered!("worker-stale-read", "stale")
+    assert ControlPlane.worker_idle?(session.id)
+
+    durable = ask.("ryker:test:stale-read:durable")
+    asked_ago.(durable, 10 * 60)
+    assert [durable.id] == delivered!("worker-stale-read", "durable")
+    refute ControlPlane.worker_idle?(session.id)
+  end
+
   # Coop sends no result for a command whose lease ran out before it ran, and a placement that
   # ends leaves its delivered commands as they were, so they stayed "delivered" for good and the
   # worker never counted as idle again: no routing session was ever prepared on it, and every

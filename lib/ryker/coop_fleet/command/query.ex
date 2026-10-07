@@ -62,10 +62,13 @@ defmodule Ryker.CoopFleet.Command.Query do
 
   @doc """
   Commands worker `worker_id` would still be given: open, on a placement
-  still active and leased at `now`, and, for a prepare, delivered no earlier
-  than `prepare_cutoff` (Coop cancels one past its redelivery).
+  still active and leased at `now`; for a prepare, delivered no earlier than
+  `prepare_cutoff` (Coop cancels one past its redelivery); for a read, asked
+  no earlier than `read_cutoff` (no caller waits for its answer longer).
   """
-  def waiting_on(worker_id, now, prepare_cutoff) do
+  def waiting_on(worker_id, now, prepare_cutoff, read_cutoff) do
+    reads = Command.read_key_prefix() <> "%"
+
     from(c in all(),
       join: p in Placement,
       as: :coop_session_placements,
@@ -74,7 +77,8 @@ defmodule Ryker.CoopFleet.Command.Query do
         c.worker_id == ^worker_id and c.status in [:queued, :delivered, :acknowledged] and
           p.state == :active and p.lease_expires_at > ^now,
       where:
-        c.kind != "prepare_session" or is_nil(c.delivered_at) or c.delivered_at > ^prepare_cutoff
+        c.kind != "prepare_session" or is_nil(c.delivered_at) or c.delivered_at > ^prepare_cutoff,
+      where: not like(c.idempotency_key, ^reads) or c.inserted_at > ^read_cutoff
     )
   end
 
