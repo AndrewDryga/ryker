@@ -88,6 +88,62 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
                 to: API
   end
 
+  # The fleet as a run's stop paths meet it: a source that could not be
+  # prepared, a worker that cannot address the session it just created, a
+  # submit whose answer was lost before Coop took it, and a submit Coop
+  # reports failed. Each fault is armed in the fake's
+  # state and fires once; everything else is the asynchronous fake above.
+  defmodule StopAPI do
+    alias Ryker.RepositoryKnowledge.LaneTest.API
+
+    def get_session(client, id) do
+      if fault?(client, :unaddressable),
+        do: {:error, {:coop_session_replacement_required, id, 1}},
+        else: API.get_session(client, id)
+    end
+
+    def submit_frozen_turn(client, session_id, key, revision, submission, gate, extra) do
+      if fault?(client, :lost_submit),
+        do: {:error, :socket_closed},
+        else: API.submit_frozen_turn(client, session_id, key, revision, submission, gate, extra)
+    end
+
+    def operation_by_key(client, "ryker:knowledge:submit:" <> _run = key) do
+      if fault?(client, :failed_submit) do
+        {:ok,
+         %{
+           "error_code" => "repository_unavailable",
+           "id" => "op_submit_failed",
+           "method" => "SubmitTurn",
+           "state" => "failed"
+         }}
+      else
+        API.operation_by_key(client, key)
+      end
+    end
+
+    def operation_by_key(client, key), do: API.operation_by_key(client, key)
+
+    def prepare_create_session(client, key, policy, ref, source) do
+      if fault?(client, :unprepared),
+        do: {:error, :repository_source_unavailable},
+        else: API.prepare_create_session(client, key, policy, ref, source)
+    end
+
+    defdelegate create_session(client, key, policy, ref, source), to: API
+    defdelegate get_turn(client, session_id, turn_id), to: API
+    defdelegate cancel_turn(client, session_id, turn_id, key, revision), to: API
+
+    defdelegate validate_frozen_candidate(client, session, turn, key, attempt, sha256, verdict),
+      to: API
+
+    # A fault armed with `arm/2` fires on its first use and never again.
+    defp fault?(client, fault),
+      do: Agent.get_and_update(client, &{Map.get(&1, fault, false), Map.put(&1, fault, false)})
+
+    def arm(client, fault), do: Agent.update(client, &Map.put(&1, fault, true))
+  end
+
   # Every preparation of the session is refused before it reaches the worker.
   defmodule RefusedPreparationAPI do
     alias Ryker.RepositoryKnowledge.LaneTest.API
@@ -590,6 +646,198 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
   end
 
   # -- Helpers ---------------------------------------------------------------------
+
+  # A run that ends without a document still has to say why, with the proof
+  # that nothing it started is still running at the worker, before the next
+  # start may be made. None of these stops was reached by a test before
+  # (2026-10-04 review), and each is the only way out of its state.
+  describe "a run that ends without a document" do
+    test "a session create Coop reports failed stops the run on that proof" do
+      github!()
+      ready!()
+      coop = coop!([answer_json()], fail_first_operation: true)
+
+      drain(settings(coop))
+
+      [failed, written] = runs()
+      assert failed.error_code == "repository_knowledge_provider_failed"
+
+      assert %{
+               "kind" => "failed_operation",
+               "phase" => "create",
+               "method" => "CreateRemoteSession"
+             } =
+               failed.stop_receipt
+
+      assert written.status == :applied
+    end
+
+    test "a session the worker cannot address before the turn is sent is given up" do
+      github!()
+      ready!()
+      coop = coop!([answer_json()])
+      StopAPI.arm(coop, :unaddressable)
+
+      drain(settings(coop, api: StopAPI))
+
+      [given_up, written] = runs()
+      assert given_up.error_code == "repository_knowledge_session_unaddressable"
+
+      assert %{
+               "kind" => "never_submitted",
+               "reason" => "coop_session_replacement_required",
+               "session" => "unaddressable"
+             } = given_up.stop_receipt
+
+      assert is_nil(given_up.submit_revision)
+      assert written.status == :applied
+    end
+
+    test "a run that ended before its session was asked for stops with nothing to stop" do
+      github!()
+      ready!()
+      coop = coop!([answer_json()])
+      StopAPI.arm(coop, :unprepared)
+
+      # Preparing the source fails, so the run exists and nothing was created.
+      run_until!(settings(coop, api: StopAPI), fn ->
+        runs() != [] and not Map.get(FakeCoopAPI.state(coop), :unprepared)
+      end)
+
+      [run] = runs()
+      end!(run)
+
+      run_until!(settings(coop, api: StopAPI), fn ->
+        not is_nil(Repo.get!(Run, run.id).remote_stopped_at)
+      end)
+
+      [stopped | _next] = runs()
+      assert stopped.stop_receipt == %{"kind" => "never_created"}
+      refute "ryker:knowledge:create:#{run.id}" in FakeCoopAPI.state(coop).create_keys
+    end
+
+    test "a run that ended before its turn was sent stops on Coop's word that no submit exists" do
+      github!()
+      ready!()
+      coop = coop!([answer_json()])
+      StopAPI.arm(coop, :lost_submit)
+
+      # The submit's answer is lost before Coop took it; the step tries again
+      # later, and the attempt ends meanwhile.
+      run_until!(settings(coop, api: StopAPI), fn ->
+        not Map.get(FakeCoopAPI.state(coop), :lost_submit)
+      end)
+
+      [run] = runs()
+      assert is_nil(run.coop_turn_id)
+      end!(run)
+
+      run_until!(settings(coop, api: StopAPI), fn ->
+        not is_nil(Repo.get!(Run, run.id).remote_stopped_at)
+      end)
+
+      [stopped | _next] = runs()
+
+      assert %{"kind" => "never_submitted", "session_id" => session_id, "submit_revision" => _} =
+               stopped.stop_receipt
+
+      assert is_binary(session_id)
+      assert Map.get(FakeCoopAPI.state(coop), :submissions, []) |> length() <= 1
+    end
+
+    test "a submit Coop reports failed stops the run on that proof" do
+      github!()
+      ready!()
+      coop = coop!([answer_json()])
+      StopAPI.arm(coop, :failed_submit)
+
+      drain(settings(coop, api: StopAPI))
+
+      [failed, written] = runs()
+      assert failed.error_code == "repository_knowledge_provider_failed"
+
+      assert %{"kind" => "failed_operation", "phase" => "submit", "method" => "SubmitTurn"} =
+               failed.stop_receipt
+
+      assert written.status == :applied
+    end
+
+    test "a turn past its time is cancelled and the run stops once Coop says it ended" do
+      github!()
+      ready!()
+      coop = coop!([answer_json(), answer_json()], turn_wait_polls: 1_000)
+      step_until_submitted!(coop)
+      [run] = runs()
+      started!(run, -120)
+
+      # The turn is cancelled, then waited for until Coop says it ended.
+      timed_out = settings(coop, execution_timeout_seconds: 60)
+
+      run_until!(timed_out, fn -> not is_nil(Repo.get!(Run, run.id).remote_stopped_at) end)
+
+      [stopped | _next] = runs()
+      assert stopped.error_code == "repository_knowledge_execution_timeout"
+      assert %DateTime{} = stopped.remote_stopped_at
+      assert stopped.stop_receipt["state"] == "cancelled"
+      assert FakeCoopAPI.state(coop).turn["state"] == "cancelled"
+    end
+
+    test "a run no turn of which can still be running is closed on the clock alone" do
+      github!()
+      ready!()
+      coop = coop!([answer_json(), answer_json()], turn_wait_polls: 1_000)
+      step_until_submitted!(coop)
+      [run] = runs()
+      started!(run, -(24 * 3_600 + 1_800 + 60))
+
+      run_until!(settings(coop), fn -> not is_nil(Repo.get!(Run, run.id).remote_stopped_at) end)
+
+      [closed | _next] = runs()
+      assert closed.error_code == "repository_knowledge_attempt_expired"
+
+      assert %{"kind" => "attempt_expired", "closed_after_seconds" => 88_200} =
+               closed.stop_receipt
+
+      assert closed.stop_receipt["turn_id"] == Repo.get!(Run, run.id).coop_turn_id
+    end
+  end
+
+  defp runs do
+    Repo.all(
+      from(run in Run,
+        where: run.repository_ref == "emisar",
+        order_by: [asc: run.inserted_at, asc: run.id]
+      )
+    )
+  end
+
+  # The attempt ended while nothing was out at the worker yet, as
+  # `Custody.end_attempt/3` ends a run that had not started.
+  defp end!(run) do
+    Repo.update_all(from(row in Run, where: row.id == ^run.id),
+      set: [status: :stale, error_code: "repository_knowledge_superseded"]
+    )
+  end
+
+  defp started!(run, seconds) do
+    Repo.update_all(from(row in Run, where: row.id == ^run.id),
+      set: [started_at: DateTime.add(DateTime.utc_now(), seconds, :second)]
+    )
+  end
+
+  # Takes due steps, each made due at once, until `done?` holds.
+  defp run_until!(settings, done?, limit \\ 20) do
+    Enum.reduce_while(1..limit, nil, fn pass, _ ->
+      retry_due!()
+      {:ok, _result} = Dispatcher.run_once(settings)
+
+      cond do
+        done?.() -> {:halt, :ok}
+        pass == limit -> flunk("still not done after #{limit} steps")
+        true -> {:cont, nil}
+      end
+    end)
+  end
 
   defp github!(options \\ []) do
     start_supervised!(

@@ -407,7 +407,9 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
         |> Map.put("candidate", nil)
         |> Map.put("state", "cancelled")
 
-      {{:ok, %{"turn" => cancelled}}, %{state | turn: cancelled}}
+      # A cancelled turn is over: Coop reports it as it is from then on, however
+      # many polls the turn was still to wait.
+      {{:ok, %{"turn" => cancelled}}, %{state | turn: cancelled, turn_wait_polls: 0}}
     end)
   end
 
