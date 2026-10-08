@@ -98,18 +98,13 @@ defmodule Ryker.Work.Dispatcher do
          claim,
          {:work_completion_blocked, _receipt, :work_knowledge_context_stale} = reason,
          _settings
-       ) do
-    case Custody.request_rerun(
-           claim.episode.id,
-           claim.episode.key,
-           claim.turn.turn_ref,
-           claim.turn.id,
-           claim.lease_ref
-         ) do
-      {:ok, _request} -> {:ok, {:deferred, {:work_rerun_pending, reason}}}
-      {:error, rerun_reason} -> custody_failed(reason, rerun_reason)
-    end
-  end
+       ),
+       do: rerun(claim, reason)
+
+  # The same withdrawal found before the answer finished: on 2026-10-07 a later attempt of a
+  # turn Coop already had found its briefing stale, and the turn stopped for a person.
+  defp execution_failure(claim, :work_knowledge_context_stale = reason, _settings),
+    do: rerun(claim, reason)
 
   defp execution_failure(claim, {:work_completion_blocked, receipt, reason}, _settings),
     do: block_completion(claim, receipt, reason)
@@ -143,6 +138,19 @@ defmodule Ryker.Work.Dispatcher do
     case retry_class(reason) do
       :transient -> retry_or_block(claim, reported_reason(reason), settings)
       :blocked -> stop_or_defer(claim, reason, settings)
+    end
+  end
+
+  defp rerun(claim, reason) do
+    case Custody.request_rerun(
+           claim.episode.id,
+           claim.episode.key,
+           claim.turn.turn_ref,
+           claim.turn.id,
+           claim.lease_ref
+         ) do
+      {:ok, _request} -> {:ok, {:deferred, {:work_rerun_pending, reason}}}
+      {:error, rerun_reason} -> custody_failed(reason, rerun_reason)
     end
   end
 

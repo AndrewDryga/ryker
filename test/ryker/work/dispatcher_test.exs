@@ -127,6 +127,22 @@ defmodule Ryker.Work.DispatcherTest do
     assert rerun.turn.turn_ref == rerun_ref
   end
 
+  # The same withdrawal found before the answer finished: on 2026-10-07 a later
+  # attempt of a turn Coop already had found a fact its briefing used
+  # withdrawn, and the turn stopped for a person instead of being answered
+  # again from what is current.
+  test "a briefing found withdrawn on a later attempt is answered again from what is current" do
+    command = create_episode!("withdrawn-on-retry")
+
+    assert Dispatcher.run_once(options({:error, :work_knowledge_context_stale})) ==
+             {:ok, {:deferred, {:work_rerun_pending, :work_knowledge_context_stale}}}
+
+    turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+    assert turn.status == :cancel_pending
+    rerun_ref = "turn:rerun:#{turn.id}"
+    assert %{"action" => "transfer", "new_turn_ref" => ^rerun_ref} = turn.cancellation_intent
+  end
+
   test "healthy running Coop work crosses many poll windows without spending failure attempts" do
     Enum.each([:turn, :operation], fn phase ->
       command = create_episode!("healthy-long-#{phase}")
