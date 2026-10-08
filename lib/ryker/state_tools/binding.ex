@@ -20,23 +20,19 @@ defmodule Ryker.StateTools.Binding do
 
     binding = token_sha256 |> Work.Session.Query.state_tools_binding() |> Repo.one()
 
-    case binding do
-      {%Work.Session{} = session, %Episodes.Episode{} = episode, %Work.Turn{} = turn} ->
-        with {:ok, scope} <- Work.StateBinding.current_scope(session),
-             true <- Work.StateBinding.scope_matches?(token, scope) do
-          {:ok,
-           %{
-             episode: episode,
-             session: session,
-             state_token: Records.token(turn),
-             turn: turn
-           }}
-        else
-          _invalid -> {:error, :state_tools_binding_not_authorized}
-        end
-
-      nil ->
-        {:error, :state_tools_binding_not_authorized}
+    with {%Work.Session{} = session, %Episodes.Episode{} = episode, %Work.Turn{} = turn} <-
+           binding,
+         {:ok, scope} <- Work.StateBinding.current_scope(session),
+         true <- Work.StateBinding.scope_matches?(token, scope) do
+      {:ok,
+       %{
+         episode: episode,
+         session: session,
+         state_token: Records.token(turn),
+         turn: turn
+       }}
+    else
+      _invalid -> {:error, :state_tools_binding_not_authorized}
     end
   end
 

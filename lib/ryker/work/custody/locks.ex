@@ -54,11 +54,7 @@ defmodule Ryker.Work.Custody.Locks do
   @doc false
   def lock_turn(episode_id, turn_ref) do
     locked = episode_id |> turn(turn_ref) |> Turn.Query.lock_for_update()
-
-    case Repo.one(locked) do
-      nil -> {:error, :work_turn_not_found}
-      %Turn{} = turn -> {:ok, turn}
-    end
+    with {:error, :not_found} <- Repo.fetch(locked), do: {:error, :work_turn_not_found}
   end
 
   # A lease that ran out, or that a stop or transfer revoked, read as a turn that was gone, and
@@ -116,10 +112,7 @@ defmodule Ryker.Work.Custody.Locks do
       |> Episodes.Episode.Query.working_for(owner_kind, owner_ref)
       |> Episodes.Episode.Query.lock_for_update()
 
-    case Repo.one(locked) do
-      nil -> {:error, :work_episode_owner_lost}
-      %Episodes.Episode{} = episode -> {:ok, episode}
-    end
+    with {:error, :not_found} <- Repo.fetch(locked), do: {:error, :work_episode_owner_lost}
   end
 
   @doc false
@@ -129,10 +122,7 @@ defmodule Ryker.Work.Custody.Locks do
       |> Session.Query.by_episode_id_and_id(session_id)
       |> Session.Query.lock_for_update()
 
-    case Repo.one(locked) do
-      nil -> {:error, :work_session_not_found}
-      %Session{} = session -> {:ok, session}
-    end
+    with {:error, :not_found} <- Repo.fetch(locked), do: {:error, :work_session_not_found}
   end
 
   @doc false

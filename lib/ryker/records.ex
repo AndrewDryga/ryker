@@ -764,22 +764,17 @@ defmodule Ryker.Records do
     requested_state = payload["state"]
     goals = goals(episode_id)
 
-    case Enum.find(goals, &(&1["id"] == goal_id)) do
-      nil ->
-        {:error, {:invalid_state_record, :goal_id}}
+    evidence_refs = Map.get(payload, "evidence_refs", [])
 
-      goal ->
-        with :ok <- goal_transition(goal["state"], requested_state),
-             :ok <- prerequisites_satisfied(goal, goals, requested_state),
-             :ok <- children_terminal(goal_id, goals, requested_state),
-             :ok <-
-               evidence_refs_exist(
-                 episode_id,
-                 Map.get(payload, "evidence_refs", []),
-                 :evidence_refs
-               ) do
-          working_capacity(goal_id, goals, requested_state, parallel_goal_limit)
-        end
+    with %{} = goal <- Enum.find(goals, &(&1["id"] == goal_id)),
+         :ok <- goal_transition(goal["state"], requested_state),
+         :ok <- prerequisites_satisfied(goal, goals, requested_state),
+         :ok <- children_terminal(goal_id, goals, requested_state),
+         :ok <- evidence_refs_exist(episode_id, evidence_refs, :evidence_refs) do
+      working_capacity(goal_id, goals, requested_state, parallel_goal_limit)
+    else
+      nil -> {:error, {:invalid_state_record, :goal_id}}
+      {:error, reason} -> {:error, reason}
     end
   end
 

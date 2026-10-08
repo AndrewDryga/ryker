@@ -201,6 +201,20 @@ Emisar's write rules (`../emisar/portal/.agent/kb/rules/README.md`) that Ryker f
 - A row whose identity is a unique key is written with one upsert
   (`on_conflict: {:replace, fields}, conflict_target: key`), and a
   fetch-or-create inserts with `on_conflict: :nothing` and reads the winner.
+  A write that depends on what the row already holds (a version to bump, a
+  state that refuses it, an event that says whether it was created) reads
+  the row under a lock first instead; six do (2026-10-08).
+- A row read answers through `Repo.fetch/1`, and a module that names its
+  missing row maps the one reason
+  (`with {:error, :not_found} <- Repo.fetch(locked), do: {:error, :work_turn_not_found}`),
+  never `Repo.one/1` with a `nil` clause of its own; eight moved on
+  2026-10-08 (Emisar has none).
+- A `case` whose one branch opens a `with` while the others only refuse is
+  one flat `with` (Emisar's README), or clause heads when it matches its own
+  argument's shape. Eight folded on 2026-10-08; the 48 left tell several
+  outcomes apart, each answered differently: nothing to do, already done,
+  or a refusal of its own (57 such branches, 2.4 per 10,000 lines; Emisar
+  31, 1.9).
 - Whether a row exists is never read before inserting it: the unique index
   decides in the insert itself. `insert_all` with `on_conflict: :nothing`
   answers how many rows it wrote (`Ryker.Feedback`, memory reviews); a plain
@@ -522,12 +536,19 @@ subscripts, and `Ryker.DataCase` fails an async test that saves settings.
 - A reference string is checked by `Ryker.Reference`: a boundary keeps its
   own error tag (`Reference.check(value, field, boundary, maximum)`), never
   its own copy of the rule.
+- A recurring job is its context's worker (`Ryker.Learning.Worker`,
+  `Ryker.Retention.Worker`) on the shared `Ryker.PollingWorker`, as Emisar
+  keeps domain jobs in their context and only the executor in common.
+  `Ryker.Runtime.Owner` starts them rather than each context's module,
+  because a settings save restarts exactly the workers it changed.
 
 ## Not adopted
 
 - **IL-3 and IL-4** (`%Auth.Subject{}` on every public context function) and
   authorizer modules: Ryker is one installation. Writes check the actor where
-  they happen (`Ryker.Settings` authorizes each save); there is no subject.
+  they happen (`Ryker.Settings` authorizes each save); there is no subject,
+  so the denial and cross-account tests Emisar asks of every write have no
+  role or account to cross.
 - **Audit context checks**: Ryker has no audit context.
 - **NoIslandContainers** (a page template paints no box of its own): Ryker's
   console draws with the Kit's classes and no utility classes, so the check
@@ -549,8 +570,6 @@ subscripts, and `Ryker.DataCase` fails an async test that saves settings.
   queries are built only in Query modules (IL-1), another context's modules
   are named through it (`CrossContextDeepAlias`), and transitions every
   custody shares live at the top (`Ryker.Lease.Changeset`).
-- **NoIslandContainers**: the console uses its own CSS classes, not
-  Tailwind's, so the class pattern it looks for never appears.
 - **No client-side draft store for an ordinary form**
   (`elixir-preserve-operator-form-input`). Ryker keeps typed text in the
   tab: the Chat composer per conversation since 2026-09-05, instruction

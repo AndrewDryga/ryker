@@ -209,15 +209,11 @@ defmodule Ryker.Slack.ChannelConfigurations do
   @spec fetch_session(Ecto.UUID.t()) ::
           {:ok, ConfigurationSession.t()} | {:error, :configuration_session_not_found}
   def fetch_session(session_ref) do
-    case Ecto.UUID.cast(session_ref) do
-      {:ok, session_ref} ->
-        case Repo.one(ConfigurationSession.Query.by_id(session_ref)) do
-          %ConfigurationSession{} = session -> {:ok, session}
-          nil -> {:error, :configuration_session_not_found}
-        end
-
-      :error ->
-        {:error, :configuration_session_not_found}
+    with {:ok, session_ref} <- Ecto.UUID.cast(session_ref),
+         {:ok, session} <- Repo.fetch(ConfigurationSession.Query.by_id(session_ref)) do
+      {:ok, session}
+    else
+      _missing -> {:error, :configuration_session_not_found}
     end
   end
 

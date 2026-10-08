@@ -195,28 +195,29 @@ defmodule Ryker.Slack.InteractionRepaint do
        when map_size(turn.delivery_document) == 1 and is_binary(message),
        do: {:ok, %{"message" => message}}
 
-  defp reply_document(%Work.Turn{} = turn) do
-    case turn.delivery_document do
-      %{
-        "decision_reason" => nil,
-        "delivery" => "reply",
-        "message" => message,
-        "outcome" => %{"record_refs" => refs} = outcome
-      } = document
-      when map_size(document) == 4 and map_size(outcome) == 3 and is_binary(message) and
-             is_list(refs) ->
-        with {:ok, records} <- ReplyRecords.fetch(turn.episode_id, refs) do
-          {:ok,
-           %{
-             "message" => confirmation_message(records, message),
-             "records" => ReplyRecords.documents("slack", turn.episode_id, records)
-           }}
-        end
-
-      _invalid ->
-        {:error, :slack_interaction_repaint_document_invalid}
+  defp reply_document(
+         %Work.Turn{
+           delivery_document:
+             %{
+               "decision_reason" => nil,
+               "delivery" => "reply",
+               "message" => message,
+               "outcome" => %{"record_refs" => refs} = outcome
+             } = document
+         } = turn
+       )
+       when map_size(document) == 4 and map_size(outcome) == 3 and is_binary(message) and
+              is_list(refs) do
+    with {:ok, records} <- ReplyRecords.fetch(turn.episode_id, refs) do
+      {:ok,
+       %{
+         "message" => confirmation_message(records, message),
+         "records" => ReplyRecords.documents("slack", turn.episode_id, records)
+       }}
     end
   end
+
+  defp reply_document(_turn), do: {:error, :slack_interaction_repaint_document_invalid}
 
   # The publisher sends a reply that names someone with its delivery's
   # mention authority, and the repaint names them the same way.

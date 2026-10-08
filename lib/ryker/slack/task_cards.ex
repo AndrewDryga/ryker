@@ -377,15 +377,13 @@ defmodule Ryker.Slack.TaskCards do
   end
 
   defp slack_conversation("slack:" <> _rest = conversation_ref) do
-    case ConversationRef.parse_slack(conversation_ref) do
-      {:ok, workspace_ref, channel_ref} ->
-        with :ok <- reference(workspace_ref, :workspace_ref),
-             :ok <- reference(channel_ref, :channel_ref) do
-          {:ok, workspace_ref, channel_ref}
-        end
-
-      :error ->
-        {:error, :task_card_destination_invalid}
+    with {:ok, workspace_ref, channel_ref} <- ConversationRef.parse_slack(conversation_ref),
+         :ok <- reference(workspace_ref, :workspace_ref),
+         :ok <- reference(channel_ref, :channel_ref) do
+      {:ok, workspace_ref, channel_ref}
+    else
+      :error -> {:error, :task_card_destination_invalid}
+      {:error, reason} -> {:error, reason}
     end
   end
 

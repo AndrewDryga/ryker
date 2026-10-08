@@ -21,17 +21,12 @@ defmodule Ryker.GitHub.Target do
   def parse(_request), do: {:error, {:invalid_github_delivery_target, :transport}}
 
   defp conversation(value) do
-    case String.split(value, ":", parts: 4) do
-      ["github", binding, "repository", repository_id] ->
-        with true <- Settings.adapter_name?(binding),
-             {repository_id, ""} when repository_id > 0 <- Integer.parse(repository_id) do
-          {:ok, binding, repository_id}
-        else
-          _invalid -> {:error, {:invalid_github_delivery_target, :conversation_ref}}
-        end
-
-      _invalid ->
-        {:error, {:invalid_github_delivery_target, :conversation_ref}}
+    with ["github", binding, "repository", repository_id] <- String.split(value, ":", parts: 4),
+         true <- Settings.adapter_name?(binding),
+         {repository_id, ""} when repository_id > 0 <- Integer.parse(repository_id) do
+      {:ok, binding, repository_id}
+    else
+      _invalid -> {:error, {:invalid_github_delivery_target, :conversation_ref}}
     end
   end
 

@@ -489,10 +489,7 @@ defmodule Ryker.Work.Custody.Delivery do
       |> Turn.Query.by_delivery_ref(delivery_ref)
       |> Turn.Query.lock_for_update()
 
-    case Repo.one(locked) do
-      nil -> {:error, :work_delivery_turn_not_found}
-      %Turn{} = turn -> {:ok, turn}
-    end
+    with {:error, :not_found} <- Repo.fetch(locked), do: {:error, :work_delivery_turn_not_found}
   end
 
   defp block_delivery_locked(episode_id, turn_ref, lease_ref, error_code, error_detail) do

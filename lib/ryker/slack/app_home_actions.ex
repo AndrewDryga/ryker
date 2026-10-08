@@ -141,11 +141,11 @@ defmodule Ryker.Slack.AppHomeActions do
        when action in [:retry_publication, :update_publication, :discard_publication] do
     case String.split(value, ":", parts: 2) do
       [id, _generation] ->
-        case Repo.one(Publication.Publication.Query.by_ref("publication:#{id}")) do
-          %Publication.Publication{destination_conversation_ref: destination_ref} ->
+        case Repo.fetch(Publication.Publication.Query.by_ref("publication:#{id}")) do
+          {:ok, %Publication.Publication{destination_conversation_ref: destination_ref}} ->
             {:ok, destination_ref}
 
-          nil ->
+          {:error, :not_found} ->
             {:error, :app_home_resource_not_visible}
         end
 
@@ -178,9 +178,12 @@ defmodule Ryker.Slack.AppHomeActions do
   defp destination_ref(_interaction), do: {:error, :app_home_resource_not_visible}
 
   defp schedule_destination("schedule:" <> _ = schedule_ref) do
-    case Repo.one(Schedules.Schedule.Query.by_ref(schedule_ref)) do
-      %Schedules.Schedule{destination_conversation_ref: destination_ref} -> {:ok, destination_ref}
-      nil -> {:error, :app_home_resource_not_visible}
+    case Repo.fetch(Schedules.Schedule.Query.by_ref(schedule_ref)) do
+      {:ok, %Schedules.Schedule{destination_conversation_ref: destination_ref}} ->
+        {:ok, destination_ref}
+
+      {:error, :not_found} ->
+        {:error, :app_home_resource_not_visible}
     end
   end
 

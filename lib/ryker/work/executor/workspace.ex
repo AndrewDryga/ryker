@@ -178,21 +178,21 @@ defmodule Ryker.Work.Executor.Workspace do
        else: {:error, {:coop_protocol_error, :session_workspace}}
   end
 
-  defp repository_freshness(remote_session, source, primary, companions) do
-    case {
-      Map.get(remote_session, "repository_freshness_status"),
-      Map.get(remote_session, "repository_freshness")
-    } do
-      {"recorded", receipts} when is_list(receipts) and length(receipts) in 1..34 ->
-        with {:ok, receipts} <- repository_freshness_receipts(receipts),
-             :ok <- exact_repository_receipts(receipts, source, primary, companions) do
-          {:ok, %{"owner" => "coop", "repositories" => receipts, "status" => "recorded"}}
-        end
-
-      _invalid ->
-        {:error, {:coop_protocol_error, :repository_freshness}}
+  defp repository_freshness(
+         %{"repository_freshness_status" => "recorded", "repository_freshness" => receipts},
+         source,
+         primary,
+         companions
+       )
+       when is_list(receipts) and length(receipts) in 1..34 do
+    with {:ok, receipts} <- repository_freshness_receipts(receipts),
+         :ok <- exact_repository_receipts(receipts, source, primary, companions) do
+      {:ok, %{"owner" => "coop", "repositories" => receipts, "status" => "recorded"}}
     end
   end
+
+  defp repository_freshness(_remote_session, _source, _primary, _companions),
+    do: {:error, {:coop_protocol_error, :repository_freshness}}
 
   defp repository_freshness_receipts(receipts) do
     Enum.reduce_while(receipts, {:ok, []}, fn receipt, {:ok, prepared} ->

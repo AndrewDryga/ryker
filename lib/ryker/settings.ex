@@ -139,9 +139,9 @@ defmodule Ryker.Settings do
   end
 
   defp read do
-    case Repo.one(Installation.Query.all()) do
-      nil -> {:error, :settings_not_initialized}
-      %Installation{} = installation -> {:ok, load(installation)}
+    case Repo.fetch(Installation.Query.all()) do
+      {:ok, installation} -> {:ok, load(installation)}
+      {:error, :not_found} -> {:error, :settings_not_initialized}
     end
   end
 

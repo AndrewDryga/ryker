@@ -307,14 +307,13 @@ defmodule Ryker.Slack.Mentions do
   defp broadcasts(_values), do: {:error, :broadcasts}
 
   defp conversation(value) when is_binary(value) do
-    case ConversationRef.parse_slack(value) do
-      {:ok, workspace_ref, channel_ref} ->
-        with :ok <- slack_id(workspace_ref), :ok <- slack_id(channel_ref) do
-          {:ok, workspace_ref, channel_ref}
-        end
-
-      :error ->
-        {:error, :conversation}
+    with {:ok, workspace_ref, channel_ref} <- ConversationRef.parse_slack(value),
+         :ok <- slack_id(workspace_ref),
+         :ok <- slack_id(channel_ref) do
+      {:ok, workspace_ref, channel_ref}
+    else
+      :error -> {:error, :conversation}
+      {:error, reason} -> {:error, reason}
     end
   end
 
