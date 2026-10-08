@@ -650,12 +650,23 @@ defmodule Ryker.Emisar.Approvals do
   defp resume_command(episode, admit, record, approval, now) do
     %Episodes.Command.ResumeWait{
       episode_key: episode.key,
-      expected_wait: %{kind: :event, ref: record.ref},
+      expected_wait: %{kind: :event, ref: waited_ref(episode, record)},
       occurred_at: now,
       resolution_ref: Episodes.Command.dedupe_key(admit),
       turn_ref: turn_ref(approval.request_id)
     }
   end
+
+  # A task may wait on several approvals at once, with one of them, or a
+  # watch, owning its wait (`Ryker.Work.Validator`): whichever settles first
+  # resumes that wait, and the others stay open for the task to wait on again.
+  defp waited_ref(
+         %Episodes.Episode{state: :waiting_for_event, owner_kind: :event} = episode,
+         _record
+       ),
+       do: episode.owner_ref
+
+  defp waited_ref(_episode, record), do: record.ref
 
   defp turn_ref(request_id) do
     digest = Crypto.sha256_hex(request_id)

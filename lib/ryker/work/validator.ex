@@ -462,7 +462,34 @@ defmodule Ryker.Work.Validator do
     end
   end
 
+  # A task may wait on several Emisar approvals at once, with event-only
+  # watches beside them: production ran two governed actions in one turn on
+  # 2026-10-08, and with only "exactly one durable event wait" and "open
+  # durable waits cannot be abandoned" no answer was valid. The approval that
+  # expires first owns the wait; the others ride along, and whichever settles
+  # first resumes the task (`Ryker.Emisar.Approvals`).
+  defp primary_waits(waits, :waiting_for_event) do
+    case Enum.split_with(waits, &(&1.kind == "emisar_approval")) do
+      {[_first | _rest] = approvals, watches} ->
+        if Enum.all?(watches, &event_only_watch?/1),
+          do: [Enum.min_by(approvals, &{expiry(&1), &1.ref})],
+          else: waits
+
+      _other ->
+        waits
+    end
+  end
+
   defp primary_waits(waits, _state), do: waits
+
+  # An approval's deadline in microseconds; one without a readable deadline
+  # expires last.
+  defp expiry(%{continuation: %{"deadline_at" => deadline_at}}) do
+    case UTCDateTime.parse(deadline_at) do
+      {:ok, deadline} -> DateTime.to_unix(deadline, :microsecond)
+      _unreadable -> :infinity
+    end
+  end
 
   # A timed wait is a wait somebody must come back to, so it can never ride
   # along silently; only a deadline-free source watch can.
@@ -529,7 +556,9 @@ defmodule Ryker.Work.Validator do
   defp accepted_continuation(%{state: :complete}, _context), do: %{"kind" => "complete"}
 
   defp accepted_continuation(final, context) do
-    [%{continuation: continuation} | _retained_watch] = referenced_waits(final, context)
+    [%{continuation: continuation}] =
+      final |> referenced_waits(context) |> primary_waits(final.state)
+
     continuation
   end
 

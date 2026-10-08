@@ -734,6 +734,60 @@ defmodule Ryker.Work.ValidatorTest do
              )
   end
 
+  # 2026-10-08, two production turns: a task ran two Emisar actions that each
+  # needed approval, so two approval waits were open, with a watch on the
+  # Terraform run beside them. No answer was valid: referencing all three
+  # failed "exactly one durable event wait", and leaving one out failed "open
+  # durable waits cannot be abandoned". Both turns spent their three attempts
+  # and blocked. The approval that expires first owns the wait; the others
+  # ride along, and whichever settles first resumes the task.
+  test "a task waits on several pending approvals at once, with a source watch beside them" do
+    approval = fn ref, deadline ->
+      record("emisar_approval", %{
+        "deadline_at" => deadline,
+        "kind" => "wait",
+        "wait_kind" => "event",
+        "wait_ref" => ref
+      })
+    end
+
+    watch = %{
+      "deadline_at" => nil,
+      "kind" => "wait",
+      "wait_kind" => "event",
+      "wait_ref" => "record:watch"
+    }
+
+    records = %{
+      "record:approval-later" =>
+        approval.("record:approval-later", "2099-08-29T12:00:00.000000Z"),
+      "record:approval-sooner" =>
+        approval.("record:approval-sooner", "2099-08-28T12:00:00.000000Z"),
+      "record:watch" => record("event_wait", watch)
+    }
+
+    outcome =
+      empty_outcome(%{
+        "record_refs" => ["record:approval-later", "record:watch", "record:approval-sooner"],
+        "state" => "waiting_for_event"
+      })
+
+    message = "Both actions wait for approval in Emisar."
+
+    assert {:accept, accepted} =
+             Validator.validate(candidate(outcome, message), context(records: records), @now)
+
+    assert accepted.result.continuation == records["record:approval-sooner"]["continuation"]
+
+    # A timed wait beside them still cannot ride along: somebody has to come
+    # back to it.
+    timed =
+      put_in(records, ["record:watch", "continuation", "deadline_at"], "2099-08-28T12:30:00Z")
+
+    assert {:reject, _violations} =
+             Validator.validate(candidate(outcome, message), context(records: timed), @now)
+  end
+
   test "waiting and complete outcomes name exactly one compatible durable wait" do
     input_wait = %{
       "deadline_at" => nil,

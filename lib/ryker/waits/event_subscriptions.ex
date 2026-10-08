@@ -195,14 +195,22 @@ defmodule Ryker.Waits.EventSubscriptions do
 
     case wait do
       {:ok, %Records.Record{} = record} -> ensure_record(episode, record)
-      {:error, :not_found} -> {:ok, :not_source_event}
+      # An approval owns the wait, and a watch beside it keeps the subscription.
+      {:error, :not_found} -> ensure_watch(episode)
     end
   end
 
-  # A question may leave event-only watches open beside it; production had two
-  # (episode 0b0c3590, 2026-09-13). An episode keeps one active subscription, so
-  # the watch that already holds it keeps it, and otherwise the oldest gets it.
-  defp ensure_locked(%Episodes.Episode{state: :waiting_for_input, owner_kind: :input} = episode) do
+  defp ensure_locked(%Episodes.Episode{state: :waiting_for_input, owner_kind: :input} = episode),
+    do: ensure_watch(episode)
+
+  defp ensure_locked(%Episodes.Episode{}), do: {:ok, :not_source_event}
+
+  # A question or an approval may leave event-only watches open beside it;
+  # production had two beside a question (episode 0b0c3590, 2026-09-13) and
+  # one beside two approvals (2026-10-08). An episode keeps one active
+  # subscription, so the watch that already holds it keeps it, and otherwise
+  # the oldest gets it.
+  defp ensure_watch(episode) do
     records =
       episode.id
       |> Records.Record.Query.by_episode_id()
@@ -217,8 +225,6 @@ defmodule Ryker.Waits.EventSubscriptions do
       nil -> {:ok, :not_source_event}
     end
   end
-
-  defp ensure_locked(%Episodes.Episode{}), do: {:ok, :not_source_event}
 
   defp active_subscription?(%Records.Record{id: record_id}) do
     record_id

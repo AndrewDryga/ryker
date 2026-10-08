@@ -13,6 +13,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Settings
+  alias Ryker.Waits.{EventSubscription, EventSubscriptions}
   alias Ryker.Work.Custody
 
   @actor "control-plane:local"
@@ -151,6 +152,89 @@ defmodule Ryker.Emisar.ApprovalsTest do
     assert content["run_id"] == "run-terminal"
     assert content["status"] == "success"
     assert content["verification"] =~ "Never call run_action"
+  end
+
+  # 2026-10-08: tasks ran two Emisar actions that each needed approval. The
+  # watcher only looked at the approval its task waited on, so the other was
+  # never polled, and settling it could not have resumed the task, which
+  # waited on its sibling. Every pending approval of a waiting task is
+  # watched now, and the first to settle resumes the task.
+  test "an approval that settles while its task waits on another approval resumes the task" do
+    %{claim: claim, record: first} = registered!("sibling-first")
+
+    assert {:ok, second} =
+             Records.create(
+               Records.token(claim.turn),
+               "op-sibling-second",
+               "emisar_approval",
+               approval_payload("sibling-second")
+             )
+
+    assert {:ok, %{episode: %{owner_ref: owner_ref}}} = wait_on!(claim, first)
+    assert owner_ref == first.ref
+
+    leases =
+      Map.new(["approval-worker-one", "approval-worker-two"], fn worker ->
+        assert {:ok, %{approval: approval, lease_ref: lease_ref}} =
+                 Approvals.claim_next(@connection_ref, worker, 60)
+
+        {approval.request_id, lease_ref}
+      end)
+
+    assert Map.keys(leases) == ["apr-sibling-first", "apr-sibling-second"]
+
+    assert {:ok,
+            %{
+              episode: resumed,
+              record: %Record{status: :answered, ref: answered_ref},
+              status: :resumed
+            }} =
+             Approvals.observe(
+               @connection_ref,
+               "apr-sibling-second",
+               leases["apr-sibling-second"],
+               run_state("sibling-second", "success"),
+               5
+             )
+
+    assert answered_ref == second.ref
+    assert resumed.state == :working
+
+    # The sibling stays pending, for the task to wait on again.
+    assert Repo.get!(Record, first.id).status == :open
+  end
+
+  # The same tasks watched a Terraform run beside their approvals. A watch
+  # keeps the episode's one subscription while a question owns the wait; an
+  # approval owning it left the watch unsubscribed.
+  test "a source watch beside a pending approval keeps its subscription" do
+    %{claim: claim, record: approval} = registered!("beside-watch")
+
+    assert {:ok, watch} =
+             Records.create(Records.token(claim.turn), "watch-beside-approval", "event_wait", %{
+               "deadline_at" => nil,
+               "event_matcher" => %{
+                 "type" => "source_event",
+                 "source_kind" => "slack",
+                 "match" => %{"attachments" => [%{"title" => "Run beside"}]},
+                 "poll_after" => nil,
+                 "on_timeout" => nil
+               },
+               "kind" => "source_event",
+               "verification" => "Read the run and say whether it finished."
+             })
+
+    assert {:ok, %{episode: waiting}} = wait_on!(claim, approval)
+
+    assert {:ok, %EventSubscription{record_id: record_id, status: :active}} =
+             Repo.transaction(fn ->
+               case EventSubscriptions.ensure_in_transaction(waiting) do
+                 {:ok, value} -> value
+                 {:error, reason} -> Repo.rollback(reason)
+               end
+             end)
+
+    assert record_id == watch.id
   end
 
   test "identity mismatches block no episode transition and transient failures retain durable custody" do
@@ -409,19 +493,21 @@ defmodule Ryker.Emisar.ApprovalsTest do
 
   defp approval_wait!(suffix) do
     %{claim: claim, record: record} = registered!(suffix)
-
-    assert {:ok, waiting} =
-             Episodes.apply(%Command.StartWait{
-               deadline_at: ~U[2099-08-29 12:00:00.000000Z],
-               episode_key: claim.episode.key,
-               expected_turn_ref: claim.turn.turn_ref,
-               kind: :event,
-               occurred_at: ~U[2026-08-29 12:00:01.000000Z],
-               wait_ref: record.ref
-             })
-
+    assert {:ok, waiting} = wait_on!(claim, record)
     assert waiting.episode.state == :waiting_for_event
     %{claim: claim, record: record}
+  end
+
+  # The claimed turn's delivered result starts the episode's wait on `record`.
+  defp wait_on!(claim, record) do
+    Episodes.apply(%Command.StartWait{
+      deadline_at: ~U[2099-08-29 12:00:00.000000Z],
+      episode_key: claim.episode.key,
+      expected_turn_ref: claim.turn.turn_ref,
+      kind: :event,
+      occurred_at: ~U[2026-08-29 12:00:01.000000Z],
+      wait_ref: record.ref
+    })
   end
 
   # The approval as its turn records it, before the delivered result starts
