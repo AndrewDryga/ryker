@@ -17,22 +17,20 @@ defmodule Ryker.RepoAfterCommitTest do
   end
 
   test "an announcement made inside a transaction arrives only after the commit", %{topic: topic} do
-    assert {:ok, :written} =
-             Repo.transaction(fn ->
-               announce(topic, :changed)
-               refute_received {:announced, :changed}
-               :written
-             end)
+    assert Repo.transaction(fn ->
+             announce(topic, :changed)
+             refute_received {:announced, :changed}
+             :written
+           end) == {:ok, :written}
 
     assert_received {:announced, :changed}
   end
 
   test "a rolled-back change is never announced", %{topic: topic} do
-    assert {:error, :refused} =
-             Repo.transaction(fn ->
-               announce(topic, :changed)
-               Repo.rollback(:refused)
-             end)
+    assert Repo.transaction(fn ->
+             announce(topic, :changed)
+             Repo.rollback(:refused)
+           end) == {:error, :refused}
 
     assert {:error, :failed_step, :refused, %{}} =
              Ecto.Multi.new()

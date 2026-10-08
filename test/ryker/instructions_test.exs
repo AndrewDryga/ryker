@@ -151,14 +151,14 @@ defmodule Ryker.InstructionsTest do
 
   test "invalid scopes and edit metadata never create settings" do
     for scope <- [:workspace, {:channel, "T1", "C1:other"}, {:channel, "", "C1"}] do
-      assert {:error, {:invalid_instructions, :scope}} =
-               Instructions.save(scope, "Text", 0, @actor)
+      assert Instructions.save(scope, "Text", 0, @actor) ==
+               {:error, {:invalid_instructions, :scope}}
     end
 
-    assert {:error, {:invalid_instructions, :revision}} =
-             Instructions.save(:global, "Text", -1, @actor)
+    assert Instructions.save(:global, "Text", -1, @actor) ==
+             {:error, {:invalid_instructions, :revision}}
 
-    assert {:error, {:invalid_instructions, :actor}} = Instructions.save(:global, "Text", 0, "")
+    assert Instructions.save(:global, "Text", 0, "") == {:error, {:invalid_instructions, :actor}}
     assert Repo.aggregate(Setting, :count) == 0
   end
 end

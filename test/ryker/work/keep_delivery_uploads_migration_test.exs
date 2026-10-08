@@ -20,8 +20,8 @@ defmodule Ryker.Work.KeepDeliveryUploadsMigrationTest do
   test "a turn keeps at most five uploads, and only for a reply it owes" do
     turn = working_turn!()
 
-    assert :ok = migrate_down(@version)
-    assert :ok = migrate_up(@version)
+    assert migrate_down(@version) == :ok
+    assert migrate_up(@version) == :ok
 
     assert Repo.get!(Turn, turn.id).delivery_upload_refs == []
     assert {:error, %Postgrex.Error{postgres: %{code: :check_violation}}} = keep(turn, ["F101"])
@@ -29,7 +29,7 @@ defmodule Ryker.Work.KeepDeliveryUploadsMigrationTest do
     assert {:error, %Postgrex.Error{postgres: %{code: :check_violation}}} =
              keep(turn, ["F101", "F102", "F103", "F104", "F105", "F106"], @delivery)
 
-    assert {:ok, 1} = keep(turn, ["F101", "F102"], @delivery)
+    assert keep(turn, ["F101", "F102"], @delivery) == {:ok, 1}
     assert Repo.get!(Turn, turn.id).delivery_upload_refs == ["F101", "F102"]
   end
 

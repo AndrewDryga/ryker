@@ -42,8 +42,8 @@ defmodule Ryker.GitHub.AccessTest do
         "repositories_removed" => [%{"id" => 501}]
       })
 
-    assert {:error, :github_repository_auto_import_failed} =
-             Access.apply("installation_repositories", payload, trusted)
+    assert Access.apply("installation_repositories", payload, trusted) ==
+             {:error, :github_repository_auto_import_failed}
 
     snapshot = Settings.fetch!()
     assert repository(snapshot, "widget").github_access == :available

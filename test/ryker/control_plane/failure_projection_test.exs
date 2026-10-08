@@ -419,8 +419,8 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
       "expected_version" => 0
     }
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn -> KnowledgeFixtures.record_topic(old, proposal, []) end)
+    assert Repo.transaction(fn -> KnowledgeFixtures.record_topic(old, proposal, []) end) ==
+             {:ok, :ok}
 
     topic = Repo.one!(ConversationKnowledge)
     KnowledgeFixtures.revoke!(old)

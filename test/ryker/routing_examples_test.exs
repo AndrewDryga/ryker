@@ -316,9 +316,9 @@ defmodule Ryker.RoutingExamplesTest do
         at: DateTime.add(@now, @day, :second)
       )
 
-      assert {:ok, 1} = RoutingExamples.copy_feedback()
+      assert RoutingExamples.copy_feedback() == {:ok, 1}
       # Copied once, however often a pass runs.
-      assert {:ok, 0} = RoutingExamples.copy_feedback()
+      assert RoutingExamples.copy_feedback() == {:ok, 0}
 
       # The feedback table's own window passes.
       Repo.delete_all(Signal)
@@ -353,7 +353,7 @@ defmodule Ryker.RoutingExamplesTest do
       assert_erased(entry)
 
       feedback!(entry, :reaction_added, "tada", "reaction:Ev-feedback-forgotten-2")
-      assert {:ok, 0} = RoutingExamples.copy_feedback()
+      assert RoutingExamples.copy_feedback() == {:ok, 0}
       assert Repo.aggregate(KeptFeedback, :count) == 0
     end
 
@@ -361,7 +361,7 @@ defmodule Ryker.RoutingExamplesTest do
       entry = route!("Ev-examples-feedback-off", "hi, reply with one word", @quick_reply)
       deliver_routing_responses!()
       feedback!(entry, :reaction_added, "+1", "reaction:Ev-feedback-off")
-      assert {:ok, 0} = RoutingExamples.copy_feedback()
+      assert RoutingExamples.copy_feedback() == {:ok, 0}
     end
   end
 
@@ -399,10 +399,9 @@ defmodule Ryker.RoutingExamplesTest do
       second = route!("Ev-examples-topic-2", "which account is staging?", @ignore, message: 2)
       assert {:ok, %{copied: 2}} = RoutingExamples.capture(@options)
 
-      assert {:ok, :ok} =
-               Repo.transaction(fn ->
-                 RoutingExamples.forget_topics_in_transaction([topic.id])
-               end)
+      assert Repo.transaction(fn ->
+               RoutingExamples.forget_topics_in_transaction([topic.id])
+             end) == {:ok, :ok}
 
       assert_erased(second)
       # Routed before the topic was learned, it never quoted it.
@@ -730,8 +729,8 @@ defmodule Ryker.RoutingExamplesTest do
     test "a routing example window outside one day to ten years is refused" do
       revision = Settings.fetch!().installation.revision
 
-      assert {:error, {:invalid_settings, [routing_examples_seconds: :bounds]}} =
-               Settings.save_retention(%{routing_examples_seconds: 30}, revision, @actor)
+      assert Settings.save_retention(%{routing_examples_seconds: 30}, revision, @actor) ==
+               {:error, {:invalid_settings, [routing_examples_seconds: :bounds]}}
 
       assert {:ok, saved} =
                Settings.save_retention(
@@ -777,7 +776,7 @@ defmodule Ryker.RoutingExamplesTest do
         message_ref: "1788629999.000200"
       )
 
-      assert {:ok, 1} = RoutingExamples.copy_feedback()
+      assert RoutingExamples.copy_feedback() == {:ok, 1}
       assert [line] = lines()
       assert [%{"value" => "+1"}] = Jason.decode!(line)["labels"]["feedback"]
     end
@@ -1122,8 +1121,8 @@ defmodule Ryker.RoutingExamplesTest do
       "expected_version" => 0
     }
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn -> KnowledgeFixtures.record_topic(entry, proposal, []) end)
+    assert Repo.transaction(fn -> KnowledgeFixtures.record_topic(entry, proposal, []) end) ==
+             {:ok, :ok}
 
     Repo.one!(from(k in ConversationKnowledge, where: k.topic_key == ^key))
   end

@@ -65,11 +65,11 @@ defmodule Ryker.PeopleConcurrencyTest do
 
       try do
         assert_receive {:contending, contender_backend}, 5_000
-        assert :ok = await_blocked_by(contender_backend, holder_backend)
+        assert await_blocked_by(contender_backend, holder_backend) == :ok
 
         send(holder.pid, :release)
-        assert {:ok, :ok} = Task.await(holder, 5_000)
-        assert {:ok, :ok} = Task.await(contender, 5_000)
+        assert Task.await(holder, 5_000) == {:ok, :ok}
+        assert Task.await(contender, 5_000) == {:ok, :ok}
 
         assert [%PersonFact{fact: "Works on Lisbon time.", status: :kept}] =
                  Repo.all(from(f in PersonFact, where: f.person_ref == ^person))

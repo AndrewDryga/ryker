@@ -36,7 +36,7 @@ defmodule Ryker.Settings.UncheckedGitHubGrantsMigrationTest do
         @actor
       )
 
-    assert :ok = migrate_down(@version)
+    assert migrate_down(@version) == :ok
 
     SQL.query!(
       Repo,
@@ -44,7 +44,7 @@ defmodule Ryker.Settings.UncheckedGitHubGrantsMigrationTest do
       [~w(read review open_pull_request update_ryker_branch rerun_ci cancel_ci issues)]
     )
 
-    assert :ok = migrate_up(@version)
+    assert migrate_up(@version) == :ok
 
     assert saved_grants() == ~w(read review rerun_ci cancel_ci)
 

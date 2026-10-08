@@ -86,13 +86,13 @@ defmodule Ryker.Knowledge.KnowledgeSnapshotCapacityTest do
 
     document = %{"source_ref" => summary.ref, "state" => summary.state}
 
-    assert {:error, :work_memory_source_capacity_exceeded} =
-             KnowledgeSnapshot.expose(claim, [document])
+    assert KnowledgeSnapshot.expose(claim, [document]) ==
+             {:error, :work_memory_source_capacity_exceeded}
 
     assert Repo.aggregate(SourceExposure, :count) == 10_000
 
     Repo.update!(Ecto.Changeset.change(summary, source_dependencies: [hd(roots)]))
-    assert :ok = KnowledgeSnapshot.expose(claim, [document])
+    assert KnowledgeSnapshot.expose(claim, [document]) == :ok
     assert Repo.aggregate(SourceExposure, :count) == 10_000
   end
 
@@ -179,7 +179,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshotCapacityTest do
       Ecto.Changeset.change(summary, source_dependencies: LearningSources.merge([[older | rest]]))
     )
 
-    assert :ok = KnowledgeSnapshot.expose(claim, [document])
+    assert KnowledgeSnapshot.expose(claim, [document]) == :ok
 
     saved =
       Repo.get_by!(SourceExposure,
@@ -190,7 +190,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshotCapacityTest do
 
     assert saved.receipt == older
     assert Repo.aggregate(SourceExposure, :count) == 1000
-    assert :ok = KnowledgeSnapshot.authorize_session(claim.episode, claim.session)
+    assert KnowledgeSnapshot.authorize_session(claim.episode, claim.session) == :ok
   end
 
   defp exposure_queries(fun) do

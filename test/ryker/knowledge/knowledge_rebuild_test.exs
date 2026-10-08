@@ -26,10 +26,9 @@ defmodule Ryker.Knowledge.KnowledgeRebuildTest do
     context = context(head, [first])
     before = {Repo.all(KnowledgeRevision), Repo.all(KnowledgeSource)}
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Knowledge.check_rebuild_sources_in_transaction([first], proposal(), [], context)
-             end)
+    assert Repo.transaction(fn ->
+             Knowledge.check_rebuild_sources_in_transaction([first], proposal(), [], context)
+           end) == {:ok, :ok}
 
     assert Repo.get!(ConversationKnowledge, head.id) == head
     assert {Repo.all(KnowledgeRevision), Repo.all(KnowledgeSource)} == before
@@ -37,10 +36,9 @@ defmodule Ryker.Knowledge.KnowledgeRebuildTest do
     # The model's create-shaped name is not a new durable identity in this path.
     renamed = Map.put(proposal(), "topic_key", "different-create-shaped-key")
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Knowledge.rebuild_sources_in_transaction([first], renamed, [], context)
-             end)
+    assert Repo.transaction(fn ->
+             Knowledge.rebuild_sources_in_transaction([first], renamed, [], context)
+           end) == {:ok, :ok}
 
     rebuilt = Repo.get!(ConversationKnowledge, head.id)
     assert rebuilt.topic_key == head.topic_key
@@ -55,10 +53,9 @@ defmodule Ryker.Knowledge.KnowledgeRebuildTest do
     assert document["source_ref"] == "knowledge:#{head.id}"
     assert document["source_count"] == 1
 
-    assert {:ok, {:error, :knowledge_rebuild_conflict}} =
-             Repo.transaction(fn ->
-               Knowledge.rebuild_sources_in_transaction([first], renamed, [], context)
-             end)
+    assert Repo.transaction(fn ->
+             Knowledge.rebuild_sources_in_transaction([first], renamed, [], context)
+           end) == {:ok, {:error, :knowledge_rebuild_conflict}}
   end
 
   test "relearning rejects available targets and changed version or generation without a write" do
@@ -66,10 +63,9 @@ defmodule Ryker.Knowledge.KnowledgeRebuildTest do
     [first, second | _] = entries
     valid = context(head, [first])
 
-    assert {:ok, {:error, :knowledge_rebuild_conflict}} =
-             Repo.transaction(fn ->
-               Knowledge.check_rebuild_sources_in_transaction([first], proposal(), [], valid)
-             end)
+    assert Repo.transaction(fn ->
+             Knowledge.check_rebuild_sources_in_transaction([first], proposal(), [], valid)
+           end) == {:ok, {:error, :knowledge_rebuild_conflict}}
 
     KnowledgeFixtures.revoke!(second)
 
@@ -77,13 +73,12 @@ defmodule Ryker.Knowledge.KnowledgeRebuildTest do
           %{valid.rebuild | version: head.version - 1},
           %{valid.rebuild | generation: head.source_generation + 1}
         ] do
-      assert {:ok, {:error, :knowledge_rebuild_conflict}} =
-               Repo.transaction(fn ->
-                 Knowledge.rebuild_sources_in_transaction([first], proposal(), [], %{
-                   valid
-                   | rebuild: target
-                 })
-               end)
+      assert Repo.transaction(fn ->
+               Knowledge.rebuild_sources_in_transaction([first], proposal(), [], %{
+                 valid
+                 | rebuild: target
+               })
+             end) == {:ok, {:error, :knowledge_rebuild_conflict}}
     end
 
     assert Repo.get!(ConversationKnowledge, head.id) == head
@@ -105,10 +100,9 @@ defmodule Ryker.Knowledge.KnowledgeRebuildTest do
         Ecto.Changeset.change(head, conversation_ref: other_conversation, scope_key: key)
       )
 
-    assert {:ok, {:error, :knowledge_rebuild_conflict}} =
-             Repo.transaction(fn ->
-               Knowledge.rebuild_sources_in_transaction([first], proposal(), [], valid)
-             end)
+    assert Repo.transaction(fn ->
+             Knowledge.rebuild_sources_in_transaction([first], proposal(), [], valid)
+           end) == {:ok, {:error, :knowledge_rebuild_conflict}}
 
     assert Repo.get!(ConversationKnowledge, head.id) == other
   end
@@ -130,10 +124,9 @@ defmodule Ryker.Knowledge.KnowledgeRebuildTest do
         &LearningSources.merge([&1, LearningSources.document_sources(current)])
       )
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Knowledge.record_sources_in_transaction([third], update, [current], inherited)
-             end)
+    assert Repo.transaction(fn ->
+             Knowledge.record_sources_in_transaction([third], update, [current], inherited)
+           end) == {:ok, :ok}
 
     head = Repo.get!(ConversationKnowledge, head.id)
     KnowledgeFixtures.revoke!(second)
@@ -142,10 +135,9 @@ defmodule Ryker.Knowledge.KnowledgeRebuildTest do
     # as direct support. The uncited disclosed original still contributes custody.
     context = context(head, [first, third])
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Knowledge.rebuild_sources_in_transaction([first], proposal(), [], context)
-             end)
+    assert Repo.transaction(fn ->
+             Knowledge.rebuild_sources_in_transaction([first], proposal(), [], context)
+           end) == {:ok, :ok}
 
     rebuilt = Repo.get!(ConversationKnowledge, head.id)
 
@@ -166,22 +158,19 @@ defmodule Ryker.Knowledge.KnowledgeRebuildTest do
     context = context(head, [first])
     inherited = %{context | source_dependencies: LearningSources.document_sources(first_document)}
 
-    assert {:ok, {:error, :learning_source_stale}} =
-             Repo.transaction(fn ->
-               Knowledge.check_rebuild_sources_in_transaction([first], proposal(), [], inherited)
-             end)
+    assert Repo.transaction(fn ->
+             Knowledge.check_rebuild_sources_in_transaction([first], proposal(), [], inherited)
+           end) == {:ok, {:error, :learning_source_stale}}
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Knowledge.check_rebuild_sources_in_transaction([first], proposal(), [], context)
-             end)
+    assert Repo.transaction(fn ->
+             Knowledge.check_rebuild_sources_in_transaction([first], proposal(), [], context)
+           end) == {:ok, :ok}
 
     KnowledgeFixtures.revoke!(first)
 
-    assert {:ok, {:error, :learning_source_stale}} =
-             Repo.transaction(fn ->
-               Knowledge.rebuild_sources_in_transaction([first], proposal(), [], context)
-             end)
+    assert Repo.transaction(fn ->
+             Knowledge.rebuild_sources_in_transaction([first], proposal(), [], context)
+           end) == {:ok, {:error, :learning_source_stale}}
 
     assert Repo.get!(ConversationKnowledge, head.id) == head
   end
@@ -207,11 +196,11 @@ defmodule Ryker.Knowledge.KnowledgeRebuildTest do
         "updated_at" => DateTime.to_iso8601(summary.updated_at)
       })
 
-    assert :ok = KnowledgeSnapshot.still_valid(first, first.repository_ref, [first_document])
-    assert :ok = KnowledgeSnapshot.authorize_session(warm.episode, warm.session)
+    assert KnowledgeSnapshot.still_valid(first, first.repository_ref, [first_document]) == :ok
+    assert KnowledgeSnapshot.authorize_session(warm.episode, warm.session) == :ok
 
-    assert :ok =
-             KnowledgeSnapshot.authorize_session(summary_reader.episode, summary_reader.session)
+    assert KnowledgeSnapshot.authorize_session(summary_reader.episode, summary_reader.session) ==
+             :ok
 
     assert LearningSources.valid?(old_reference, scope)
     assert Repo.exists?(LearningSources.eligible(query, scope))
@@ -221,11 +210,11 @@ defmodule Ryker.Knowledge.KnowledgeRebuildTest do
     # a valid raw source, but the superseded understanding is no longer current.
     Repo.update!(Ecto.Changeset.change(head, source_generation: head.source_generation + 1))
 
-    assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.still_valid(first, first.repository_ref, [first_document])
+    assert KnowledgeSnapshot.still_valid(first, first.repository_ref, [first_document]) ==
+             {:error, :work_knowledge_context_stale}
 
-    assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.authorize_session(warm.episode, warm.session)
+    assert KnowledgeSnapshot.authorize_session(warm.episode, warm.session) ==
+             {:error, :work_knowledge_context_stale}
 
     refute LearningSources.valid?(old_reference, scope)
     assert [_] = LearningSources.expand(old_reference)
@@ -234,8 +223,8 @@ defmodule Ryker.Knowledge.KnowledgeRebuildTest do
 
     # Expanding summary dependencies into raw roots alone loses the generation
     # boundary even though the old prose remains in the native transcript.
-    assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.authorize_session(summary_reader.episode, summary_reader.session)
+    assert KnowledgeSnapshot.authorize_session(summary_reader.episode, summary_reader.session) ==
+             {:error, :work_knowledge_context_stale}
   end
 
   test "handover dependencies keep compact generations and the earliest raw lifetime without double accounting" do
@@ -270,14 +259,14 @@ defmodule Ryker.Knowledge.KnowledgeRebuildTest do
 
     Repo.update!(Ecto.Changeset.change(session, source_exposure_count: 0))
 
-    assert {:ok, {:error, "source_unavailable"}} =
-             Repo.transaction(fn -> KnowledgeSnapshot.summary_sources(reader.session.id) end)
+    assert Repo.transaction(fn -> KnowledgeSnapshot.summary_sources(reader.session.id) end) ==
+             {:ok, {:error, "source_unavailable"}}
 
     Repo.update!(Ecto.Changeset.change(Repo.get!(Session, session.id), source_exposure_count: 1))
     Repo.delete_all(from(r in KnowledgeRevision, where: r.version == ^document["version"]))
 
-    assert {:ok, {:error, "source_unavailable"}} =
-             Repo.transaction(fn -> KnowledgeSnapshot.summary_sources(reader.session.id) end)
+    assert Repo.transaction(fn -> KnowledgeSnapshot.summary_sources(reader.session.id) end) ==
+             {:ok, {:error, "source_unavailable"}}
   end
 
   defp warm_reader!(entry, document) do
@@ -304,7 +293,7 @@ defmodule Ryker.Knowledge.KnowledgeRebuildTest do
       )
 
     {:ok, claim} = Custody.claim_next("generation-reader:#{id}", 60)
-    assert :ok = KnowledgeSnapshot.expose(claim, [document])
+    assert KnowledgeSnapshot.expose(claim, [document]) == :ok
     claim
   end
 
@@ -343,15 +332,14 @@ defmodule Ryker.Knowledge.KnowledgeRebuildTest do
 
     [first, second | _] = entries
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Knowledge.record_sources_in_transaction(
-                 [first],
-                 proposal(),
-                 [],
-                 source_context([first])
-               )
-             end)
+    assert Repo.transaction(fn ->
+             Knowledge.record_sources_in_transaction(
+               [first],
+               proposal(),
+               [],
+               source_context([first])
+             )
+           end) == {:ok, :ok}
 
     [first_document] = Knowledge.context(first, first.repository_ref)
 
@@ -370,15 +358,14 @@ defmodule Ryker.Knowledge.KnowledgeRebuildTest do
         &LearningSources.merge([&1, LearningSources.document_sources(first_document)])
       )
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Knowledge.record_sources_in_transaction(
-                 [second],
-                 update,
-                 [first_document],
-                 inherited
-               )
-             end)
+    assert Repo.transaction(fn ->
+             Knowledge.record_sources_in_transaction(
+               [second],
+               update,
+               [first_document],
+               inherited
+             )
+           end) == {:ok, :ok}
 
     {entries, Repo.one!(ConversationKnowledge), first_document}
   end

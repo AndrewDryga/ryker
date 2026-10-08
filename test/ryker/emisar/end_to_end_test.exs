@@ -70,7 +70,7 @@ defmodule Ryker.Emisar.EndToEndTest do
     # The fake model's approval record is constructed before Executor runs.
     # Normal execution exposes its frozen context before any tool call. Preserve
     # that ordering here; existing records cannot retroactively gain custody.
-    assert :ok = KnowledgeSnapshot.expose(claim, [])
+    assert KnowledgeSnapshot.expose(claim, []) == :ok
 
     assert {:ok, recorded} =
              Tools.call(
@@ -131,20 +131,19 @@ defmodule Ryker.Emisar.EndToEndTest do
                }
              })
 
-    assert {:ok, {:resumed, "apr-e2e", "success"}} =
-             ApprovalDispatcher.run_once(
-               api: EmisarAPI,
-               client: {self(), terminal_run_state()},
-               connection_ref: @connection_ref,
-               lease_seconds: 60,
-               poll_seconds: 5,
-               presentation: adapters,
-               presenter: Ryker.Emisar.ApprovalPresenter,
-               retry_base_seconds: 2,
-               retry_max_seconds: 60,
-               wait_seconds: 20,
-               worker_ref: "emisar-approval-monitor"
-             )
+    assert ApprovalDispatcher.run_once(
+             api: EmisarAPI,
+             client: {self(), terminal_run_state()},
+             connection_ref: @connection_ref,
+             lease_seconds: 60,
+             poll_seconds: 5,
+             presentation: adapters,
+             presenter: Ryker.Emisar.ApprovalPresenter,
+             retry_base_seconds: 2,
+             retry_max_seconds: 60,
+             wait_seconds: 20,
+             worker_ref: "emisar-approval-monitor"
+           ) == {:ok, {:resumed, "apr-e2e", "success"}}
 
     assert_receive {:wait_for_run, "run-e2e"}
 
@@ -161,7 +160,7 @@ defmodule Ryker.Emisar.EndToEndTest do
     assert delivery_ref == first.turn.delivery_ref
 
     approval = Inspectors.emisar_approval(@connection_ref, "apr-e2e")
-    assert :ok = ApprovalPresenter.publish(approval, terminal_run_state(), adapters)
+    assert ApprovalPresenter.publish(approval, terminal_run_state(), adapters) == :ok
     refute_receive {:slack_updated, _, _, _, _}
 
     changed = %{terminal_run_state() | error_message: "governed action failed", status: "failure"}
@@ -250,7 +249,7 @@ defmodule Ryker.Emisar.EndToEndTest do
 
   test "the governed-review card repaints on a decision and not on the run's own progress" do
     claim = claim_episode!("approval-repaints")
-    assert :ok = KnowledgeSnapshot.expose(claim, [])
+    assert KnowledgeSnapshot.expose(claim, []) == :ok
 
     assert {:ok, recorded} =
              Tools.call(
@@ -304,7 +303,7 @@ defmodule Ryker.Emisar.EndToEndTest do
     held = held_run_state(review(1, "pending"))
 
     # The first receipt is a change: the card gains the tally and the rationale.
-    assert :ok = ApprovalPresenter.publish(approval, held, adapters)
+    assert ApprovalPresenter.publish(approval, held, adapters) == :ok
     assert_receive {:slack_updated, _, _, %{"emisar_approval_status" => shown}, _}
     assert shown["review"]["approved_count"] == 1
 
@@ -312,7 +311,7 @@ defmodule Ryker.Emisar.EndToEndTest do
     held = held_run_state(review(1, "pending"))
 
     # The first receipt is a change: the card gains the tally and the rationale.
-    assert :ok = ApprovalPresenter.publish(approval, held, adapters)
+    assert ApprovalPresenter.publish(approval, held, adapters) == :ok
     assert_receive {:slack_updated, _, _, %{"emisar_approval_status" => shown}, _}
     assert shown["review"]["approved_count"] == 1
 
@@ -323,12 +322,12 @@ defmodule Ryker.Emisar.EndToEndTest do
 
     # Emisar re-reporting the same review is not news, however often the monitor
     # polls it.
-    assert :ok = ApprovalPresenter.publish(observed, held, adapters)
+    assert ApprovalPresenter.publish(observed, held, adapters) == :ok
     refute_receive {:slack_updated, _, _, _, _}
 
     # A decision is.
     released = %{held | status: "sent", review: review(2, "approved")}
-    assert :ok = ApprovalPresenter.publish(observed, released, adapters)
+    assert ApprovalPresenter.publish(observed, released, adapters) == :ok
     assert_receive {:slack_updated, _, _, %{"emisar_approval_status" => decided}, _}
     assert decided["review"]["status"] == "approved"
 
@@ -340,7 +339,7 @@ defmodule Ryker.Emisar.EndToEndTest do
     presented = %{observed | remote_status: "sent", review_digest: Review.digest(released.review)}
 
     for status <- ~w(running success) do
-      assert :ok = ApprovalPresenter.publish(presented, %{released | status: status}, adapters)
+      assert ApprovalPresenter.publish(presented, %{released | status: status}, adapters) == :ok
       refute_receive {:slack_updated, _, _, _, _}
     end
   end

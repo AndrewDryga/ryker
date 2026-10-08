@@ -152,13 +152,12 @@ defmodule Ryker.SettingsTest do
     assert {:ok, _} = Settings.initialize(@actor)
     :ok = Settings.subscribe()
 
-    assert {:error, :second_write_failed} =
-             Settings.atomically(fn ->
-               {:ok, _saved} =
-                 Settings.save_retention(%{audit_data_seconds: 60 * @day}, 1, @actor)
+    assert Settings.atomically(fn ->
+             {:ok, _saved} =
+               Settings.save_retention(%{audit_data_seconds: 60 * @day}, 1, @actor)
 
-               {:error, :second_write_failed}
-             end)
+             {:error, :second_write_failed}
+           end) == {:error, :second_write_failed}
 
     assert Settings.fetch!().installation.revision == 1
     assert Settings.fetch!().retention.audit_data_seconds == 30 * @day
@@ -167,7 +166,7 @@ defmodule Ryker.SettingsTest do
 
   test "a successful edit records provenance and survives a fresh database read" do
     assert {:ok, initial} = Settings.initialize(@actor)
-    assert :ok = Settings.record_application(1, :ok)
+    assert Settings.record_application(1, :ok) == :ok
 
     assert {:ok, saved} = Settings.save_retention(%{audit_data_seconds: 60 * @day}, 1, @actor)
     assert saved.installation.host_ref == initial.installation.host_ref
@@ -319,7 +318,7 @@ defmodule Ryker.SettingsTest do
 
   test "a late apply result cannot mark a newer save applied or overwrite its failure" do
     assert {:ok, _} = Settings.initialize(@actor)
-    assert :ok = Settings.record_application(1, :ok)
+    assert Settings.record_application(1, :ok) == :ok
     assert {:ok, saved} = Settings.save_retention(%{audit_data_seconds: 60 * @day}, 1, @actor)
     assert Settings.application_status(saved) == :pending
 
@@ -328,12 +327,12 @@ defmodule Ryker.SettingsTest do
     assert Settings.record_application(1, {:error, :runtime_start_failed}) ==
              {:error, :settings_revision_changed}
 
-    assert :ok = Settings.record_application(2, {:error, :runtime_start_failed})
+    assert Settings.record_application(2, {:error, :runtime_start_failed}) == :ok
     assert {:ok, failed} = Settings.fetch()
     assert Settings.application_status(failed) == {:failed, :runtime_start_failed}
     assert failed.installation.applied_revision == 1
 
-    assert :ok = Settings.record_application(2, :ok)
+    assert Settings.record_application(2, :ok) == :ok
     assert {:ok, applied} = Settings.fetch()
     assert Settings.application_status(applied) == :applied
     assert applied.installation.applied_revision == 2

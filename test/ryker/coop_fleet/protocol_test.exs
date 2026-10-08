@@ -119,8 +119,8 @@ defmodule Ryker.CoopFleet.ProtocolTest do
     poll = @fixture |> File.read!() |> Jason.decode!() |> Map.fetch!("poll")
 
     for field <- ~w(policy_digests policy_authority_digests repositories) do
-      assert {:error, {:invalid_coop_worker_poll, :worker}} =
-               Protocol.poll(put_in(poll, ["worker", field], %{}))
+      assert Protocol.poll(put_in(poll, ["worker", field], %{})) ==
+               {:error, {:invalid_coop_worker_poll, :worker}}
     end
   end
 
@@ -130,8 +130,8 @@ defmodule Ryker.CoopFleet.ProtocolTest do
     assert {:ok, _} =
              Protocol.poll(put_in(poll, ["worker", "build_version"], String.duplicate("b", 256)))
 
-    assert {:error, {:invalid_coop_worker_protocol, :build_version}} =
-             Protocol.poll(put_in(poll, ["worker", "build_version"], String.duplicate("b", 257)))
+    assert Protocol.poll(put_in(poll, ["worker", "build_version"], String.duplicate("b", 257))) ==
+             {:error, {:invalid_coop_worker_protocol, :build_version}}
   end
 
   test "unknown versions fields command kinds and sequence gaps fail before mutation" do
@@ -142,8 +142,8 @@ defmodule Ryker.CoopFleet.ProtocolTest do
     assert Protocol.poll(%{poll | "version" => 1}) ==
              {:error, {:unsupported_coop_worker_protocol, :version}}
 
-    assert {:error, {:invalid_coop_worker_poll, :poll}} =
-             Protocol.poll(Map.put(poll, "provider_credentials", ["must-not-cross"]))
+    assert Protocol.poll(Map.put(poll, "provider_credentials", ["must-not-cross"])) ==
+             {:error, {:invalid_coop_worker_poll, :poll}}
 
     [batch] = poll["event_batches"]
     [first, second] = batch["events"]
@@ -206,8 +206,8 @@ defmodule Ryker.CoopFleet.ProtocolTest do
       |> put_in(["payload", "type"], "assistant.message")
       |> put_in(["payload", "payload"], %{"message" => "must not cross"})
 
-    assert {:error, {:invalid_coop_worker_protocol, :session_event_payload}} =
-             Protocol.poll(%{poll | "event_batches" => [%{batch | "events" => [raw_lifecycle]}]})
+    assert Protocol.poll(%{poll | "event_batches" => [%{batch | "events" => [raw_lifecycle]}]}) ==
+             {:error, {:invalid_coop_worker_protocol, :session_event_payload}}
   end
 
   # 2026-09-29: the first worker that narrated the model's progress in words
@@ -283,8 +283,8 @@ defmodule Ryker.CoopFleet.ProtocolTest do
           %{"status" => 200, "headers" => %{"Content-Type" => "bad\r\nheader"}},
           %{"status" => 200, "body" => String.duplicate("x", 256 * 1_024 + 1)}
         ] do
-      assert {:error, {:invalid_coop_worker_poll, :command_result_shape}} =
-               Protocol.poll(%{poll | "command_results" => [%{result | "resource" => response}]})
+      assert Protocol.poll(%{poll | "command_results" => [%{result | "resource" => response}]}) ==
+               {:error, {:invalid_coop_worker_poll, :command_result_shape}}
     end
 
     for response <- [
@@ -339,8 +339,8 @@ defmodule Ryker.CoopFleet.ProtocolTest do
     [command] = response["commands"]
 
     for kind <- ~w(get_session get_turn validate_candidate fence_operation) do
-      assert {:error, {:invalid_coop_worker_protocol, :command_kind}} =
-               Protocol.response(%{response | "commands" => [%{command | "kind" => kind}]})
+      assert Protocol.response(%{response | "commands" => [%{command | "kind" => kind}]}) ==
+               {:error, {:invalid_coop_worker_protocol, :command_kind}}
     end
   end
 
@@ -398,14 +398,13 @@ defmodule Ryker.CoopFleet.ProtocolTest do
       assert {:error, {:invalid_coop_worker_protocol, ^field}} = Protocol.response(invalid)
     end)
 
-    assert {:error, {:invalid_coop_worker_response, :acknowledged_result_command_ids}} =
-             Protocol.response(
-               Map.put(response, "acknowledged_result_command_ids", ["same", "same"])
-             )
+    assert Protocol.response(
+             Map.put(response, "acknowledged_result_command_ids", ["same", "same"])
+           ) == {:error, {:invalid_coop_worker_response, :acknowledged_result_command_ids}}
 
-    assert {:error, {:invalid_coop_worker_response, :document}} = Protocol.response([])
-    assert {:error, {:invalid_coop_worker_poll, :document}} = Protocol.poll([])
-    assert {:error, {:invalid_coop_worker_poll, :json}} = Protocol.decode_poll("{")
+    assert Protocol.response([]) == {:error, {:invalid_coop_worker_response, :document}}
+    assert Protocol.poll([]) == {:error, {:invalid_coop_worker_poll, :document}}
+    assert Protocol.decode_poll("{") == {:error, {:invalid_coop_worker_poll, :json}}
 
     assert {:ok, _} =
              Protocol.response(%{
@@ -433,11 +432,11 @@ defmodule Ryker.CoopFleet.ProtocolTest do
       assert {:error, {:invalid_coop_worker_poll, ^field}} = Protocol.poll(invalid)
     end)
 
-    assert {:error, {:invalid_coop_worker_response, :command}} =
-             Protocol.response(Map.put(response, "commands", [nil]))
+    assert Protocol.response(Map.put(response, "commands", [nil])) ==
+             {:error, {:invalid_coop_worker_response, :command}}
 
-    assert {:error, {:invalid_coop_worker_response, :event_acknowledgement}} =
-             Protocol.response(Map.put(response, "event_acknowledgements", [nil]))
+    assert Protocol.response(Map.put(response, "event_acknowledgements", [nil])) ==
+             {:error, {:invalid_coop_worker_response, :event_acknowledgement}}
 
     empty_events = put_in(poll, ["event_batches", Access.at(0), "events"], [])
     assert {:ok, _} = Protocol.poll(empty_events)
@@ -445,8 +444,8 @@ defmodule Ryker.CoopFleet.ProtocolTest do
     invalid_cooldown =
       put_in(poll, ["worker", "capacity", "cooldown_until"], "2026-08-29T12:00:00Z")
 
-    assert {:error, {:invalid_coop_worker_protocol, :cooldown_until}} =
-             Protocol.poll(invalid_cooldown)
+    assert Protocol.poll(invalid_cooldown) ==
+             {:error, {:invalid_coop_worker_protocol, :cooldown_until}}
 
     [result] = poll["command_results"]
 
@@ -463,8 +462,8 @@ defmodule Ryker.CoopFleet.ProtocolTest do
         "pid" => self()
       })
 
-    assert {:error, {:invalid_coop_worker_protocol, :event_payload}} =
-             Protocol.poll(unserializable)
+    assert Protocol.poll(unserializable) ==
+             {:error, {:invalid_coop_worker_protocol, :event_payload}}
   end
 
   test "a sealed run's network refusals are carried, not rejected as an unknown payload" do

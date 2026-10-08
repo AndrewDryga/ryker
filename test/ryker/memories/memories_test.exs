@@ -61,8 +61,7 @@ defmodule Ryker.Memories.MemoriesTest do
 
     page = MemorySearchPage.first("ryker", "current_channel")
 
-    assert :done =
-             Recall.search_page(context, %{page | cutoff: DateTime.add(database_time, -1)})
+    assert Recall.search_page(context, %{page | cutoff: DateTime.add(database_time, -1)}) == :done
   end
 
   test "operator fact edits use database time without entering an older search snapshot" do
@@ -91,8 +90,7 @@ defmodule Ryker.Memories.MemoriesTest do
 
     page = MemorySearchPage.first("ryker-elixir", "current_channel")
 
-    assert :done =
-             Recall.search_page(context, %{page | cutoff: DateTime.add(database_time, -1)})
+    assert Recall.search_page(context, %{page | cutoff: DateTime.add(database_time, -1)}) == :done
 
     edited = Repo.get!(MemoryEntry, confirmed.memory.id)
     assert edited.edited_at == database_time
@@ -538,13 +536,12 @@ defmodule Ryker.Memories.MemoriesTest do
                "slack:T123"
              )
 
-    assert {:error, :memory_review_conflict} =
-             Memories.resolve_review(
-               duplicate_review["review_ref"],
-               :keep,
-               "slack:user:operator",
-               "slack:T123"
-             )
+    assert Memories.resolve_review(
+             duplicate_review["review_ref"],
+             :keep,
+             "slack:user:operator",
+             "slack:T123"
+           ) == {:error, :memory_review_conflict}
 
     Repo.update_all(
       from(entry in MemoryEntry, where: entry.id == ^first.memory.id),
@@ -635,13 +632,12 @@ defmodule Ryker.Memories.MemoriesTest do
 
     assert Inspectors.memory_reviews("slack:T999") == []
 
-    assert {:error, :memory_review_workspace_mismatch} =
-             Memories.resolve_review(
-               forget_review["review_ref"],
-               :forget,
-               "slack:user:operator",
-               "slack:T999"
-             )
+    assert Memories.resolve_review(
+             forget_review["review_ref"],
+             :forget,
+             "slack:user:operator",
+             "slack:T999"
+           ) == {:error, :memory_review_workspace_mismatch}
   end
 
   test "confirming a replacement closes the review its superseded fact was waiting on" do
@@ -882,15 +878,14 @@ defmodule Ryker.Memories.MemoriesTest do
 
     assert fetched["review_ref"] == visible["review_ref"]
 
-    assert :ok =
-             AppHomeEditor.open_memory_review(
-               ModalAPI,
-               self(),
-               visible["review_ref"],
-               "trigger.home-memory",
-               "slack:user:U123",
-               "slack:T123"
-             )
+    assert AppHomeEditor.open_memory_review(
+             ModalAPI,
+             self(),
+             visible["review_ref"],
+             "trigger.home-memory",
+             "slack:user:U123",
+             "slack:T123"
+           ) == :ok
 
     assert_received {:opened_memory_modal, "trigger.home-memory", %{"type" => "modal"}}
 

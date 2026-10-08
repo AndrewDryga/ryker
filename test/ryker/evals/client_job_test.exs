@@ -31,18 +31,18 @@ defmodule Ryker.Evals.ClientJobTest do
     key = OperationKeys.create(session)
     ref = Session.coop_task_ref(session)
 
-    assert :ok = Client.prepare_create_session(client, key, job.name, ref, nil)
+    assert Client.prepare_create_session(client, key, job.name, ref, nil) == :ok
     pinned = Repo.get!(Session, session.id)
     assert {:ok, ^pinned} = JobAuthority.validate(pinned)
     assert {:ok, expected, digest} = Job.bind(job, session.external_ref)
     assert pinned.worker_job_document == expected
     assert pinned.worker_job_digest == digest
-    assert :ok = Client.prepare_create_session(client, key, job.name, ref, nil)
+    assert Client.prepare_create_session(client, key, job.name, ref, nil) == :ok
 
     {:ok, changed} = Job.new(:world, "codex:different/high@eval")
 
-    assert {:error, :model_eval_session_authority_mismatch} =
-             Client.prepare_create_session(%{client | job: changed}, key, job.name, ref, nil)
+    assert Client.prepare_create_session(%{client | job: changed}, key, job.name, ref, nil) ==
+             {:error, :model_eval_session_authority_mismatch}
 
     assert Repo.get!(Session, session.id).worker_job_digest == digest
   end
@@ -97,41 +97,38 @@ defmodule Ryker.Evals.ClientJobTest do
     key = OperationKeys.create(session)
     ref = Session.coop_task_ref(session)
     default = RepositorySource.default()
-    assert :ok = Client.prepare_create_session(client, key, sourced.name, ref, default)
+    assert Client.prepare_create_session(client, key, sourced.name, ref, default) == :ok
     pinned = Repo.get!(Session, session.id)
     assert pinned.worker_job_document["source"] == source
     assert {:ok, ^pinned} = JobAuthority.validate(pinned)
 
     other = work_session(sourced, "another-repository")
 
-    assert {:error, :model_eval_session_authority_mismatch} =
-             Client.prepare_create_session(
-               client,
-               OperationKeys.create(other),
-               sourced.name,
-               Session.coop_task_ref(other),
-               default
-             )
+    assert Client.prepare_create_session(
+             client,
+             OperationKeys.create(other),
+             sourced.name,
+             Session.coop_task_ref(other),
+             default
+           ) == {:error, :model_eval_session_authority_mismatch}
 
     unsourced = work_session(job, "tenant-rivals-scraper")
 
-    assert {:error, :model_eval_session_authority_mismatch} =
-             Client.prepare_create_session(
-               %{client | job: job},
-               OperationKeys.create(unsourced),
-               job.name,
-               Session.coop_task_ref(unsourced),
-               nil
-             )
+    assert Client.prepare_create_session(
+             %{client | job: job},
+             OperationKeys.create(unsourced),
+             job.name,
+             Session.coop_task_ref(unsourced),
+             nil
+           ) == {:error, :model_eval_session_authority_mismatch}
 
-    assert {:error, {:invalid_coop_request, :repository_source}} =
-             Client.prepare_create_session(
-               client,
-               key,
-               sourced.name,
-               ref,
-               %{"kind" => "branch", "name" => "feature"}
-             )
+    assert Client.prepare_create_session(
+             client,
+             key,
+             sourced.name,
+             ref,
+             %{"kind" => "branch", "name" => "feature"}
+           ) == {:error, {:invalid_coop_request, :repository_source}}
   end
 
   test "learning uses the real preparation callback with no scratch checkout", %{client: client} do
@@ -147,14 +144,13 @@ defmodule Ryker.Evals.ClientJobTest do
     {:ok, session} = FleetSession.ensure(run)
     key = Ryker.Learning.operation_key(run, :create)
 
-    assert :ok =
-             Client.prepare_create_session(
-               %{client | job: job},
-               key,
-               job.name,
-               FleetSession.external_ref(run),
-               nil
-             )
+    assert Client.prepare_create_session(
+             %{client | job: job},
+             key,
+             job.name,
+             FleetSession.external_ref(run),
+             nil
+           ) == :ok
 
     pinned = Repo.get!(Session, session.id)
     assert pinned.worker_job_document["source"] == nil

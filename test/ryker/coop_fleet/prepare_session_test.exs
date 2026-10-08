@@ -29,8 +29,8 @@ defmodule Ryker.CoopFleet.PrepareSessionTest do
 
     poll!("busy", capacity(3, 4))
 
-    assert {:error, :coop_worker_busy} =
-             Client.prepare_session(client!(fn -> :ok end), @coop_session_id, key)
+    assert Client.prepare_session(client!(fn -> :ok end), @coop_session_id, key) ==
+             {:error, :coop_worker_busy}
 
     assert commands(session) == []
 

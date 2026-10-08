@@ -56,7 +56,7 @@ defmodule Ryker.InstructionsConcurrencyTest do
         assert current == saved
         assert Instructions.get(scope) == saved
         assert Repo.aggregate(from(edit in Edit, where: edit.scope_ref == ^ref), :count) == 1
-        assert {:ok, :ok} = Task.await(blocker, 5_000)
+        assert Task.await(blocker, 5_000) == {:ok, :ok}
       after
         send(blocker.pid, :release)
         stop_tasks([blocker | contenders])

@@ -53,11 +53,10 @@ defmodule Ryker.Evals.WorldReportTest do
       thresholds: %{min_overall_pass_rate: 0.9}
     }
 
-    assert :ok =
-             WorldReport.write(path, [report],
-               now: fn -> ~U[2026-08-30 12:00:00Z] end,
-               summary: summary
-             )
+    assert WorldReport.write(path, [report],
+             now: fn -> ~U[2026-08-30 12:00:00Z] end,
+             summary: summary
+           ) == :ok
 
     document = path |> File.read!() |> Jason.decode!()
 
@@ -133,7 +132,7 @@ defmodule Ryker.Evals.WorldReportTest do
       |> Map.put(:execution_error, {:world_eval_failed, :event_wait_not_matched})
       |> Map.put(:cleanup_error, reason)
 
-    assert :ok = WorldReport.write(path, [report])
+    assert WorldReport.write(path, [report]) == :ok
 
     document = path |> File.read!() |> Jason.decode!()
 
@@ -167,7 +166,7 @@ defmodule Ryker.Evals.WorldReportTest do
     dropped = Map.merge(valid_report(), %{database: nil, lane: :baseline})
     reports = [preserved, dropped]
 
-    assert :ok = WorldReport.write(path, reports, summary: nil)
+    assert WorldReport.write(path, reports, summary: nil) == :ok
     assert {:ok, read} = WorldReport.read(path)
 
     assert Enum.map(read, &Map.take(&1, [:database, :lane, :repeat_index, :scenario_id, :status])) ==
@@ -198,19 +197,19 @@ defmodule Ryker.Evals.WorldReportTest do
 
     File.write!(Path.join(root, "text.json"), "not json")
 
-    assert {:error, {:invalid_world_report, :document}} =
-             WorldReport.read(Path.join(root, "text.json"))
+    assert WorldReport.read(Path.join(root, "text.json")) ==
+             {:error, {:invalid_world_report, :document}}
 
     File.write!(Path.join(root, "kind.json"), Jason.encode!(%{document | "kind" => "other"}))
 
-    assert {:error, {:invalid_world_report, :kind}} =
-             WorldReport.read(Path.join(root, "kind.json"))
+    assert WorldReport.read(Path.join(root, "kind.json")) ==
+             {:error, {:invalid_world_report, :kind}}
 
     broken = put_in(document, ["results", Access.at(0), "lane"], "judge")
     File.write!(Path.join(root, "lane.json"), Jason.encode!(broken))
 
-    assert {:error, {:invalid_world_report, :report}} =
-             WorldReport.read(Path.join(root, "lane.json"))
+    assert WorldReport.read(Path.join(root, "lane.json")) ==
+             {:error, {:invalid_world_report, :report}}
   end
 
   defp valid_report do

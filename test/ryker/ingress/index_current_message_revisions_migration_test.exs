@@ -31,11 +31,11 @@ defmodule Ryker.Ingress.IndexCurrentMessageRevisionsMigrationTest do
         select: entry.id
       )
 
-    assert :ok = migrate_down(@version)
+    assert migrate_down(@version) == :ok
     refute plan(current) =~ @revisions_index
     refute plan(conversation) =~ @conversation_index
 
-    assert :ok = migrate_up(@version)
+    assert migrate_up(@version) == :ok
     assert plan(current) =~ @revisions_index
     assert plan(conversation) =~ @conversation_index
   end

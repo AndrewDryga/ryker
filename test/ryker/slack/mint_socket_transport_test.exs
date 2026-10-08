@@ -121,11 +121,11 @@ defmodule Ryker.Slack.MintSocketTransportTest do
                 port: 443
               }}
 
-    assert {:error, {:invalid_slack_socket_url, :url}} =
-             MintSocketTransport.connection_target("ws://wss-primary.slack.com/link")
+    assert MintSocketTransport.connection_target("ws://wss-primary.slack.com/link") ==
+             {:error, {:invalid_slack_socket_url, :url}}
 
-    assert {:error, {:invalid_slack_socket_url, :url}} =
-             MintSocketTransport.connection_target("wss://user@wss-primary.slack.com/link")
+    assert MintSocketTransport.connection_target("wss://user@wss-primary.slack.com/link") ==
+             {:error, {:invalid_slack_socket_url, :url}}
 
     assert MintSocketTransport.connection_target("wss://wss-primary.slack.com") ==
              {:ok, %{host: "wss-primary.slack.com", path: "/", port: 443}}
@@ -230,7 +230,7 @@ defmodule Ryker.Slack.MintSocketTransportTest do
     assert {:ok, sent} = MintSocketTransport.send_frame(streamed, {:text, "ack"})
     assert_received {:frame_sent, {:text, "ack"}}
 
-    assert :ok = MintSocketTransport.close(sent)
+    assert MintSocketTransport.close(sent) == :ok
     assert_received {:frame_sent, :close}
     assert_received :connection_closed
   end
@@ -284,7 +284,7 @@ defmodule Ryker.Slack.MintSocketTransportTest do
 
     assert {:ok, state} = MintSocketTransport.connect(fake_options())
     assert_received :an_announcement_for_the_gateway
-    assert :ok = MintSocketTransport.close(state)
+    assert MintSocketTransport.close(state) == :ok
 
     assert MintSocketTransport.connect(fake_options(%{handshake_timeout_ms: 100})) ==
              {:error, {:slack_socket_upgrade_failed, :timeout}}
@@ -317,7 +317,7 @@ defmodule Ryker.Slack.MintSocketTransportTest do
     assert MintSocketTransport.send_frame(encode_error, {:text, "bad"}) ==
              {:error, {:slack_socket_transport, :closed}}
 
-    assert :ok = MintSocketTransport.close(state)
+    assert MintSocketTransport.close(state) == :ok
   end
 
   test "accepts unique keyword options and rejects invalid injected modules" do

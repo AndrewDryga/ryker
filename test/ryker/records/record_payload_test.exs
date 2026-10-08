@@ -17,12 +17,11 @@ defmodule Ryker.Records.RecordPayloadTest do
     assert prepared.payload == payload
     assert prepared.continuation["wait_kind"] == "input"
 
-    assert {:error, {:invalid_state_record, :remember}} =
-             RecordPayload.prepare(
-               "input_request",
-               put_in(payload, ["remember", "applicability"], ""),
-               "record:input:1"
-             )
+    assert RecordPayload.prepare(
+             "input_request",
+             put_in(payload, ["remember", "applicability"], ""),
+             "record:input:1"
+           ) == {:error, {:invalid_state_record, :remember}}
   end
 
   test "source wait validation matches the durable subscription byte limits" do

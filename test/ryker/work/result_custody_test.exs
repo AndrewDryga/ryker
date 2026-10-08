@@ -121,34 +121,32 @@ defmodule Ryker.Work.ResultCustodyTest do
     assert repeated_bytes_new_attempt.validation_intent == nil
     assert repeated_bytes_new_attempt.validation_intent_fingerprint == nil
 
-    assert {:error, {:invalid_work_custody, :candidate_sha256}} =
-             Custody.stage_candidate(
-               work.episode.id,
-               work.turn.turn_ref,
-               work.lease_ref,
-               second_sha,
-               2,
-               second_candidate,
-               String.duplicate("f", 64),
-               2
-             )
+    assert Custody.stage_candidate(
+             work.episode.id,
+             work.turn.turn_ref,
+             work.lease_ref,
+             second_sha,
+             2,
+             second_candidate,
+             String.duplicate("f", 64),
+             2
+           ) == {:error, {:invalid_work_custody, :candidate_sha256}}
   end
 
   test "a candidate larger than Coop can return is rejected before persistence" do
     work = bound_turn!("candidate-bound")
     oversized = String.duplicate("x", 256 * 1_024 + 1)
 
-    assert {:error, {:invalid_work_custody, :candidate}} =
-             Custody.stage_candidate(
-               work.episode.id,
-               work.turn.turn_ref,
-               work.lease_ref,
-               nil,
-               nil,
-               oversized,
-               digest(oversized),
-               1
-             )
+    assert Custody.stage_candidate(
+             work.episode.id,
+             work.turn.turn_ref,
+             work.lease_ref,
+             nil,
+             nil,
+             oversized,
+             digest(oversized),
+             1
+           ) == {:error, {:invalid_work_custody, :candidate}}
   end
 
   test "the validation mutation and accepted result are rebuilt only from one frozen intent" do
@@ -220,14 +218,13 @@ defmodule Ryker.Work.ResultCustodyTest do
 
     wrong_destination = %{receipt | "conversation_ref" => "slack:T-tenant:C-other"}
 
-    assert {:error, :work_delivery_destination_mismatch} =
-             Custody.confirm_delivery(
-               work.episode.id,
-               work.episode.key,
-               work.turn.turn_ref,
-               delivery_claim.lease_ref,
-               wrong_destination
-             )
+    assert Custody.confirm_delivery(
+             work.episode.id,
+             work.episode.key,
+             work.turn.turn_ref,
+             delivery_claim.lease_ref,
+             wrong_destination
+           ) == {:error, :work_delivery_destination_mismatch}
 
     assert {:ok, delivered} =
              Custody.confirm_delivery(
@@ -358,14 +355,13 @@ defmodule Ryker.Work.ResultCustodyTest do
 
     assert {:ok, third} = Custody.claim_next("worker:moved-reply-retry", 60, :delivery)
 
-    assert {:error, :work_delivery_destination_mismatch} =
-             Custody.confirm_delivery(
-               work.episode.id,
-               work.episode.key,
-               work.turn.turn_ref,
-               third.lease_ref,
-               receipt(work, "1787932810.000100")
-             )
+    assert Custody.confirm_delivery(
+             work.episode.id,
+             work.episode.key,
+             work.turn.turn_ref,
+             third.lease_ref,
+             receipt(work, "1787932810.000100")
+           ) == {:error, :work_delivery_destination_mismatch}
 
     assert {:ok, at_alert} =
              DeliveryReceipt.new(
@@ -749,14 +745,13 @@ defmodule Ryker.Work.ResultCustodyTest do
     assert {:ok, _accepted} = accept!(second, result!(:reply, %{"message" => "Second."}))
     assert {:ok, second_delivery} = Custody.claim_next("worker:second-delivery", 60)
 
-    assert {:error, :work_delivery_receipt_mismatch} =
-             Custody.confirm_delivery(
-               second.episode.id,
-               second.episode.key,
-               second.turn.turn_ref,
-               second_delivery.lease_ref,
-               first_receipt
-             )
+    assert Custody.confirm_delivery(
+             second.episode.id,
+             second.episode.key,
+             second.turn.turn_ref,
+             second_delivery.lease_ref,
+             first_receipt
+           ) == {:error, :work_delivery_receipt_mismatch}
 
     second_receipt = receipt(second, "1787932807.000100")
 

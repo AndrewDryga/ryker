@@ -133,6 +133,7 @@ defmodule Ryker.CoopFleet.ManagedSourcesTest do
     on_exit(fn -> File.rm_rf!(directory) end)
 
     git!(["init", "--quiet", remote])
+    git!(["-C", remote, "config", "uploadpack.allowFilter", "true"])
     File.write!(Path.join(remote, "README.md"), "default\n")
     git!(["-C", remote, "add", "README.md"])
     commit!(remote, "default")
@@ -171,13 +172,12 @@ defmodule Ryker.CoopFleet.ManagedSourcesTest do
     git!(["-C", mirror, "cat-file", "-e", selected_commit <> "^{commit}"])
     refute File.exists?(Path.join(storage, "coop-job-bundles"))
 
-    assert {:error, :invalid_coop_worker_source} =
-             ManagedSources.prepare_from_remote(
-               storage,
-               identity("../wrong", remote, 1),
-               "main",
-               nil
-             )
+    assert ManagedSources.prepare_from_remote(
+             storage,
+             identity("../wrong", remote, 1),
+             "main",
+             nil
+           ) == {:error, :invalid_coop_worker_source}
   end
 
   test "an exact commit must still be served by the authenticated remote" do
@@ -189,6 +189,7 @@ defmodule Ryker.CoopFleet.ManagedSourcesTest do
     File.mkdir_p!(remote)
     on_exit(fn -> File.rm_rf!(directory) end)
     git!(["init", "--quiet", remote])
+    git!(["-C", remote, "config", "uploadpack.allowFilter", "true"])
 
     git!([
       "-C",
@@ -206,13 +207,12 @@ defmodule Ryker.CoopFleet.ManagedSourcesTest do
 
     git!(["-C", remote, "branch", "-M", "main"])
 
-    assert {:error, :coop_worker_source_unavailable} =
-             ManagedSources.prepare_from_remote(
-               storage,
-               identity("repo:one", remote, 1, "test/repository"),
-               "main",
-               %{"kind" => "commit", "sha" => String.duplicate("f", 40)}
-             )
+    assert ManagedSources.prepare_from_remote(
+             storage,
+             identity("repo:one", remote, 1, "test/repository"),
+             "main",
+             %{"kind" => "commit", "sha" => String.duplicate("f", 40)}
+           ) == {:error, :coop_worker_source_unavailable}
   end
 
   test "nested gitlinks freeze configured identities, not the URLs or default branches" do
@@ -355,15 +355,14 @@ defmodule Ryker.CoopFleet.ManagedSourcesTest do
       %{path: "second", commit: leaf_commit, repository: "example/second"}
     ]
 
-    assert {:error, :submodule_not_authorized} =
-             ManagedSources.resolve_submodules(
-               Path.join(directory, "state"),
-               declarations,
-               resolver,
-               [],
-               0,
-               2
-             )
+    assert ManagedSources.resolve_submodules(
+             Path.join(directory, "state"),
+             declarations,
+             resolver,
+             [],
+             0,
+             2
+           ) == {:error, :submodule_not_authorized}
 
     assert_received {:resolved, "example/middle"}
     assert_received {:resolved, "example/leaf"}
@@ -421,11 +420,11 @@ defmodule Ryker.CoopFleet.ManagedSourcesTest do
 
     git!(["-C", primary, "add", ".gitmodules"])
     commit!(primary, "duplicate declaration")
-    assert {:error, :coop_worker_source_unavailable} = prepare.()
+    assert prepare.() == {:error, :coop_worker_source_unavailable}
 
     git!(["-C", primary, "rm", ".gitmodules"])
     commit!(primary, "missing declaration")
-    assert {:error, :coop_worker_source_unavailable} = prepare.()
+    assert prepare.() == {:error, :coop_worker_source_unavailable}
 
     assert Path.wildcard(
              Path.join([directory, "state", "coop-source-mirrors", "*", ".coop-gitlinks-*"])
@@ -446,9 +445,12 @@ defmodule Ryker.CoopFleet.ManagedSourcesTest do
     directory
   end
 
+  # A remote serves partial clones, as GitHub does; a local repository
+  # refuses the filter Ryker fetches with and warns on every fetch.
   defp remote!(directory, name) do
     remote = Path.join(directory, name)
     git!(["init", "--quiet", "--initial-branch=main", remote])
+    git!(["-C", remote, "config", "uploadpack.allowFilter", "true"])
     File.write!(Path.join(remote, "README.md"), name <> "\n")
     git!(["-C", remote, "add", "README.md"])
     commit!(remote, "initial")

@@ -91,12 +91,12 @@ defmodule Ryker.Records.DerivedContextTest do
     recipient = replacement!(producer)
     assert {:ok, state} = work_state(recipient)
     assert Enum.any?(state["records"], &(&1["ref"] == record.ref))
-    assert :ok = KnowledgeSnapshot.authorize_session(recipient.episode, recipient.session)
+    assert KnowledgeSnapshot.authorize_session(recipient.episode, recipient.session) == :ok
 
     KnowledgeFixtures.revoke!(source)
 
-    assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.authorize_session(recipient.episode, recipient.session)
+    assert KnowledgeSnapshot.authorize_session(recipient.episode, recipient.session) ==
+             {:error, :work_knowledge_context_stale}
   end
 
   test "later revocation rejects acceptance even when the citation was only read through the tool" do
@@ -106,16 +106,15 @@ defmodule Ryker.Records.DerivedContextTest do
     assert {:ok, %{"records" => [_]}} = work_state(recipient)
     KnowledgeFixtures.revoke!(source)
 
-    assert {:error, :work_knowledge_context_stale} =
-             Custody.accept_result(
-               recipient.episode.id,
-               recipient.episode.key,
-               recipient.turn.turn_ref,
-               recipient.lease_ref,
-               recipient.turn.candidate_sha256,
-               recipient.turn.candidate_attempt,
-               "validation:derived-source"
-             )
+    assert Custody.accept_result(
+             recipient.episode.id,
+             recipient.episode.key,
+             recipient.turn.turn_ref,
+             recipient.lease_ref,
+             recipient.turn.candidate_sha256,
+             recipient.turn.candidate_attempt,
+             "validation:derived-source"
+           ) == {:error, :work_knowledge_context_stale}
 
     assert Repo.get!(Turn, recipient.turn.id).result_ref == nil
     assert Repo.get!(Turn, recipient.turn.id).delivery_ref == nil
@@ -127,14 +126,13 @@ defmodule Ryker.Records.DerivedContextTest do
     assert {:ok, submission} = SubmissionBuilder.build(recipient)
     assert Enum.any?(submission["context"]["records"], &(&1["ref"] == record.ref))
 
-    assert :ok =
-             KnowledgeSnapshot.authorize_submission(recipient.episode, "tenant-infra", submission)
+    assert KnowledgeSnapshot.authorize_submission(recipient.episode, "tenant-infra", submission) ==
+             :ok
 
-    assert :ok =
-             KnowledgeSnapshot.expose_submission(%{
-               recipient
-               | turn: %{recipient.turn | submission: submission}
-             })
+    assert KnowledgeSnapshot.expose_submission(%{
+             recipient
+             | turn: %{recipient.turn | submission: submission}
+           }) == :ok
 
     assert KnowledgeSnapshot.session_sources(recipient.session.id) ==
              KnowledgeSnapshot.session_sources(producer.session.id)
@@ -152,13 +150,13 @@ defmodule Ryker.Records.DerivedContextTest do
         "forged model text"
       )
 
-    assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.authorize_submission(recipient.episode, "tenant-infra", forged)
+    assert KnowledgeSnapshot.authorize_submission(recipient.episode, "tenant-infra", forged) ==
+             {:error, :work_knowledge_context_stale}
 
     other = claim!("another-episode", producer.episode.destination_conversation_ref)
 
-    assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.authorize_submission(other.episode, "tenant-infra", submission)
+    assert KnowledgeSnapshot.authorize_submission(other.episode, "tenant-infra", submission) ==
+             {:error, :work_knowledge_context_stale}
   end
 
   test "physically removed source roots fail closed without deleting retained record history" do
@@ -181,7 +179,7 @@ defmodule Ryker.Records.DerivedContextTest do
   test "partial exposure pruning cannot be healed by another otherwise valid disclosure" do
     {producer, source, _record} = cited_source!()
     {_extra_source, knowledge} = KnowledgeFixtures.learn!(producer.episode, "tenant-infra")
-    assert :ok = KnowledgeSnapshot.expose(producer, [knowledge])
+    assert KnowledgeSnapshot.expose(producer, [knowledge]) == :ok
     session = Repo.get!(Session, producer.session.id)
     assert session.source_exposure_count == 2
     assert session.knowledge_exposure_count == 1
@@ -192,8 +190,8 @@ defmodule Ryker.Records.DerivedContextTest do
       )
     )
 
-    assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.expose(producer, [knowledge])
+    assert KnowledgeSnapshot.expose(producer, [knowledge]) ==
+             {:error, :work_knowledge_context_stale}
 
     assert Repo.get!(Session, session.id).source_exposure_count == 2
     assert Records.model_records(producer.episode, "tenant-infra") == []
@@ -207,14 +205,14 @@ defmodule Ryker.Records.DerivedContextTest do
                binding: tool_binding(producer)
              })
 
-    assert :ok = KnowledgeSnapshot.expose(producer, [])
+    assert KnowledgeSnapshot.expose(producer, []) == :ok
     assert Repo.get!(Session, producer.session.id).source_exposure_count == nil
     assert Records.model_records(producer.episode, "tenant-infra") == []
 
     # This separate fresh session explicitly accounts for its source-free host
     # input before producing any model record; absence alone is not the proof.
     fresh = claim!("tracked-zero")
-    assert :ok = KnowledgeSnapshot.expose(fresh, [])
+    assert KnowledgeSnapshot.expose(fresh, []) == :ok
     assert Repo.get!(Session, fresh.session.id).source_exposure_count == 0
     assert Repo.get!(Session, fresh.session.id).knowledge_exposure_count == 0
 
@@ -234,17 +232,17 @@ defmodule Ryker.Records.DerivedContextTest do
       "source_ref" => "observation:#{Ecto.UUID.generate()}"
     }
 
-    assert {:error, :work_knowledge_context_stale} = KnowledgeSnapshot.expose(fresh, [missing])
+    assert KnowledgeSnapshot.expose(fresh, [missing]) == {:error, :work_knowledge_context_stale}
     assert Repo.get!(Session, fresh.session.id).source_exposure_count == nil
-    assert :ok = KnowledgeSnapshot.expose(fresh, [])
-    assert :ok = KnowledgeSnapshot.expose(fresh, [])
+    assert KnowledgeSnapshot.expose(fresh, []) == :ok
+    assert KnowledgeSnapshot.expose(fresh, []) == :ok
     assert Repo.get!(Session, fresh.session.id).source_exposure_count == 0
   end
 
   test "later producer disclosures are inherited conservatively including knowledge withdrawal" do
     {producer, _source, _record} = cited_source!()
     {_additional_source, knowledge} = KnowledgeFixtures.learn!(producer.episode, "tenant-infra")
-    assert :ok = KnowledgeSnapshot.expose(producer, [knowledge])
+    assert KnowledgeSnapshot.expose(producer, [knowledge]) == :ok
     recipient = replacement!(producer)
     assert {:ok, %{"records" => [_]}} = work_state(recipient)
 
@@ -252,8 +250,8 @@ defmodule Ryker.Records.DerivedContextTest do
     # must invalidate the inherited knowledge exposure as well.
     Repo.delete_all(ConversationKnowledge)
 
-    assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.authorize_session(recipient.episode, recipient.session)
+    assert KnowledgeSnapshot.authorize_session(recipient.episode, recipient.session) ==
+             {:error, :work_knowledge_context_stale}
   end
 
   test "previous deliveries in both briefing modes retain their producer source identity" do
@@ -273,19 +271,17 @@ defmodule Ryker.Records.DerivedContextTest do
     ]
 
     for context <- contexts do
-      assert :ok =
-               KnowledgeSnapshot.authorize_submission(producer.episode, "tenant-infra", %{
-                 "context" => context
-               })
+      assert KnowledgeSnapshot.authorize_submission(producer.episode, "tenant-infra", %{
+               "context" => context
+             }) == :ok
     end
 
     KnowledgeFixtures.revoke!(source)
 
     for context <- contexts do
-      assert {:error, :work_knowledge_context_stale} =
-               KnowledgeSnapshot.authorize_submission(producer.episode, "tenant-infra", %{
-                 "context" => context
-               })
+      assert KnowledgeSnapshot.authorize_submission(producer.episode, "tenant-infra", %{
+               "context" => context
+             }) == {:error, :work_knowledge_context_stale}
     end
   end
 
@@ -294,12 +290,11 @@ defmodule Ryker.Records.DerivedContextTest do
     turn = settled_turn!(producer)
     document = DerivedContext.delivery_document(turn)
 
-    assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.authorize_submission(producer.episode, "tenant-infra", %{
-               "context" => %{
-                 "prior_outcome" => %{document | "source_turn_ref" => Ecto.UUID.generate()}
-               }
-             })
+    assert KnowledgeSnapshot.authorize_submission(producer.episode, "tenant-infra", %{
+             "context" => %{
+               "prior_outcome" => %{document | "source_turn_ref" => Ecto.UUID.generate()}
+             }
+           }) == {:error, :work_knowledge_context_stale}
 
     Repo.update!(
       Ecto.Changeset.change(turn,
@@ -308,10 +303,9 @@ defmodule Ryker.Records.DerivedContextTest do
       )
     )
 
-    assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.authorize_submission(producer.episode, "tenant-infra", %{
-               "context" => %{"prior_outcome" => document}
-             })
+    assert KnowledgeSnapshot.authorize_submission(producer.episode, "tenant-infra", %{
+             "context" => %{"prior_outcome" => document}
+           }) == {:error, :work_knowledge_context_stale}
   end
 
   test "records sharing one producer do not repeat its source-lineage database work" do
@@ -347,19 +341,18 @@ defmodule Ryker.Records.DerivedContextTest do
     # The full gate counted another async test's exposure queries (13 vs 7),
     # making a constant-work implementation look quadratic. Telemetry handlers
     # execute in the calling process; this event is structural test interference.
-    assert {:ok, 0} =
-             source_queries(fn ->
-               Task.async(fn ->
-                 :telemetry.execute(
-                   [:ryker, :repo, :query],
-                   %{},
-                   %{query: "SELECT 1 FROM episode_work_source_exposures"}
-                 )
-               end)
-               |> Task.await()
+    assert source_queries(fn ->
+             Task.async(fn ->
+               :telemetry.execute(
+                 [:ryker, :repo, :query],
+                 %{},
+                 %{query: "SELECT 1 FROM episode_work_source_exposures"}
+               )
              end)
+             |> Task.await()
+           end) == {:ok, 0}
 
-    assert {0, 1} = source_queries(fn -> Repo.aggregate(SourceExposure, :count) end)
+    assert source_queries(fn -> Repo.aggregate(SourceExposure, :count) end) == {0, 1}
   end
 
   defp source_queries(fun) do
@@ -517,7 +510,7 @@ defmodule Ryker.Records.DerivedContextTest do
     document =
       source.id |> then(&Repo.get!(ConversationObservation, &1)) |> Observations.document()
 
-    assert :ok = KnowledgeSnapshot.expose(producer, [document])
+    assert KnowledgeSnapshot.expose(producer, [document]) == :ok
 
     # Only the host-issued observation reference changes with this fixture's
     # custody identity; the recorded model's citation prose remains verbatim.

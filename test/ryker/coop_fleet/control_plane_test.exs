@@ -759,15 +759,14 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
       set: [worker_job_digest: String.duplicate("f", 64)]
     )
 
-    assert {:error, {:coop_fleet_authority_mismatch, :worker_job}} =
-             ControlPlane.place_session(
-               session.id,
-               %{
-                 capability_names: ["controller-tools"],
-                 workspace_ref: "workspace-main"
-               },
-               60
-             )
+    assert ControlPlane.place_session(
+             session.id,
+             %{
+               capability_names: ["controller-tools"],
+               workspace_ref: "workspace-main"
+             },
+             60
+           ) == {:error, {:coop_fleet_authority_mismatch, :worker_job}}
 
     refute Repo.exists?(from(p in Placement, where: p.session_id == ^session.id))
   end
@@ -1419,14 +1418,14 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert {:ok, _revoked} = WorkerLifecycle.revoke("worker-b", "operator:test")
 
     # Ryker itself has just started: a worker could not have polled it yet.
-    assert {:ok, 1} =
-             ControlPlane.retire_abandoned_placements(now, DateTime.add(now, -60, :second))
+    assert ControlPlane.retire_abandoned_placements(now, DateTime.add(now, -60, :second)) ==
+             {:ok, 1}
 
     assert Repo.get!(Placement, revoked.id).state == :replaced
     assert Repo.get!(Placement, vanished.id).state == :active
 
-    assert {:ok, 1} =
-             ControlPlane.retire_abandoned_placements(now, DateTime.add(now, -3_600, :second))
+    assert ControlPlane.retire_abandoned_placements(now, DateTime.add(now, -3_600, :second)) ==
+             {:ok, 1}
 
     assert Repo.get!(Placement, vanished.id).state == :replaced
     assert Repo.get!(Placement, held.id).state == :active
@@ -2622,7 +2621,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     sha256 = digest(bundle)
     reference = %{"sha256" => sha256, "byte_size" => byte_size(bundle)}
     key = Ryker.Secret.new(:binary.copy(<<9>>, 32))
-    assert :ok = Bodies.put(body_root, command.id, :response, reference, [bundle], key)
+    assert Bodies.put(body_root, command.id, :response, reference, [bundle], key) == :ok
 
     Repo.insert!(%WorkspaceCheckpointTransfer{
       id: Ecto.UUID.generate(),

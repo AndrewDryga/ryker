@@ -95,33 +95,30 @@ defmodule Ryker.ProductContractsTest do
 
     assert WorkProfile.restore(%{}) == {:error, {:invalid_work_profile, :fields}}
 
-    assert {:error, {:invalid_work_profile, :class_policies}} =
-             WorkProfile.new(%{
-               attributes
-               | class_policies: Map.delete(attributes.class_policies, :deep)
-             })
+    assert WorkProfile.new(%{
+             attributes
+             | class_policies: Map.delete(attributes.class_policies, :deep)
+           }) == {:error, {:invalid_work_profile, :class_policies}}
 
     for malformed <- [
           [],
           %{attributes.class_policies | deep: nil},
           %{attributes.class_policies | deep: %{policy: "", policy_digest: @deep_digest}}
         ] do
-      assert {:error, {:invalid_work_profile, :class_policies}} =
-               WorkProfile.new(%{attributes | class_policies: malformed})
+      assert WorkProfile.new(%{attributes | class_policies: malformed}) ==
+               {:error, {:invalid_work_profile, :class_policies}}
     end
 
-    assert {:error, {:invalid_work_profile, :class_policies}} =
-             document
-             |> put_in(["class_policies", "deep"], nil)
-             |> WorkProfile.restore()
+    assert document
+           |> put_in(["class_policies", "deep"], nil)
+           |> WorkProfile.restore() == {:error, {:invalid_work_profile, :class_policies}}
 
-    assert {:error, {:invalid_work_profile, :class_policies}} =
-             document
-             |> Map.put("class_policies", [])
-             |> WorkProfile.restore()
+    assert document
+           |> Map.put("class_policies", [])
+           |> WorkProfile.restore() == {:error, {:invalid_work_profile, :class_policies}}
 
-    assert {:error, {:invalid_work_profile, :work_class}} =
-             WorkProfile.policy_for(profile, :provider_named_by_model)
+    assert WorkProfile.policy_for(profile, :provider_named_by_model) ==
+             {:error, {:invalid_work_profile, :work_class}}
   end
 
   # An environment's repositories are a set. Every session in it mounts all of
@@ -369,10 +366,9 @@ defmodule Ryker.ProductContractsTest do
                WorkProfile.policy_for(profile, work_class)
     end
 
-    assert {:error, {:invalid_work_profile, :authority_equivalence}} =
-             attributes
-             |> put_in([:class_policies, :deep, :authority_digest], String.duplicate("e", 64))
-             |> WorkProfile.new()
+    assert attributes
+           |> put_in([:class_policies, :deep, :authority_digest], String.duplicate("e", 64))
+           |> WorkProfile.new() == {:error, {:invalid_work_profile, :authority_equivalence}}
   end
 
   test "publication receipts bind the exact reviewed GitHub identity" do

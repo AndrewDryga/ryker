@@ -39,8 +39,8 @@ defmodule Ryker.CanonicalJSONTest do
   end
 
   test "rejects object keys that collapse to the same JSON field" do
-    assert {:error, {:duplicate_key, "$", "same"}} =
-             CanonicalJSON.validate(%{"same" => 1, same: 2})
+    assert CanonicalJSON.validate(%{"same" => 1, same: 2}) ==
+             {:error, {:duplicate_key, "$", "same"}}
 
     assert_raise ArgumentError, ~r/duplicate JSON key "same" at \$/, fn ->
       CanonicalJSON.encode!(%{"same" => 1, same: 2})
@@ -48,8 +48,8 @@ defmodule Ryker.CanonicalJSONTest do
   end
 
   test "rejects values that JSON cannot preserve" do
-    assert {:error, {:invalid_json_value, "$.nested", :tuple}} =
-             CanonicalJSON.validate(%{"nested" => {:tuple, 1}})
+    assert CanonicalJSON.validate(%{"nested" => {:tuple, 1}}) ==
+             {:error, {:invalid_json_value, "$.nested", :tuple}}
   end
 
   # 2026-10-04 review: an error carried the value it refused, and the raised message printed
@@ -58,8 +58,8 @@ defmodule Ryker.CanonicalJSONTest do
   test "an error names where and what kind, never the value" do
     secret = "xoxb-secret-token-" <> <<0>>
 
-    assert {:error, {:invalid_json_value, "$.token", :string_with_nul}} =
-             CanonicalJSON.validate(%{"token" => secret})
+    assert CanonicalJSON.validate(%{"token" => secret}) ==
+             {:error, {:invalid_json_value, "$.token", :string_with_nul}}
 
     error = assert_raise ArgumentError, fn -> CanonicalJSON.encode!(%{"token" => secret}) end
     refute error.message =~ "xoxb-secret-token"
@@ -84,8 +84,7 @@ defmodule Ryker.CanonicalJSONTest do
   end
 
   test "rejects non-string object keys even without a collision" do
-    assert {:error, {:invalid_json_key, "$", :atom}} =
-             CanonicalJSON.validate(%{atom_key: 1})
+    assert CanonicalJSON.validate(%{atom_key: 1}) == {:error, {:invalid_json_key, "$", :atom}}
 
     assert_raise ArgumentError, ~r/invalid JSON key \(an atom\) at \$/, fn ->
       CanonicalJSON.encode!(%{atom_key: 1})
@@ -93,8 +92,8 @@ defmodule Ryker.CanonicalJSONTest do
   end
 
   test "rejects a key with no string representation instead of crashing" do
-    assert {:error, {:invalid_json_key, "$", :tuple}} =
-             CanonicalJSON.validate(%{{:bad, 1} => "value"})
+    assert CanonicalJSON.validate(%{{:bad, 1} => "value"}) ==
+             {:error, {:invalid_json_key, "$", :tuple}}
 
     assert_raise ArgumentError, ~r/invalid JSON key \(a tuple\) at \$/, fn ->
       CanonicalJSON.encode!(%{{:bad, 1} => "value"})
@@ -102,13 +101,13 @@ defmodule Ryker.CanonicalJSONTest do
   end
 
   test "rejects strings that Postgres JSONB cannot preserve" do
-    assert {:error, {:invalid_json_value, "$.text", :string_with_nul}} =
-             CanonicalJSON.validate(%{"text" => <<0>>})
+    assert CanonicalJSON.validate(%{"text" => <<0>>}) ==
+             {:error, {:invalid_json_value, "$.text", :string_with_nul}}
 
-    assert {:error, {:invalid_json_value, "$.text", :invalid_utf8}} =
-             CanonicalJSON.validate(%{"text" => <<255>>})
+    assert CanonicalJSON.validate(%{"text" => <<255>>}) ==
+             {:error, {:invalid_json_value, "$.text", :invalid_utf8}}
 
-    assert {:error, {:invalid_json_key, "$", :string_with_nul}} =
-             CanonicalJSON.validate(%{<<0>> => "value"})
+    assert CanonicalJSON.validate(%{<<0>> => "value"}) ==
+             {:error, {:invalid_json_key, "$", :string_with_nul}}
   end
 end

@@ -43,7 +43,7 @@ defmodule Ryker.CoopFleet.JobCheckTest do
       assert {:ok, %{"argv" => [], "environment" => %{}}} = resolve(name)
     end
 
-    assert {:error, {:github_onboarding, :permission}} = resolve("refused")
+    assert resolve("refused") == {:error, {:github_onboarding, :permission}}
   end
 
   # The same cases as Coop's TestShellSplit.

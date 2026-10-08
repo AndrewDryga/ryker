@@ -268,13 +268,12 @@ defmodule Ryker.Slack.PublisherTest do
       "emisar_approval_status" => approval_status("success")
     }
 
-    assert :ok =
-             Publisher.update_message(
-               request,
-               "1787832001.000200",
-               status,
-               publisher_binding(api)
-             )
+    assert Publisher.update_message(
+             request,
+             "1787832001.000200",
+             status,
+             publisher_binding(api)
+           ) == :ok
 
     assert [
              %{

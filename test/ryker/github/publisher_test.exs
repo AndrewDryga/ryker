@@ -244,13 +244,12 @@ defmodule Ryker.GitHub.PublisherTest do
       "emisar_approval_status" => approval_status("denied")
     }
 
-    assert :ok =
-             Publisher.update_message(
-               request,
-               "github:pull_request_review:9100",
-               document,
-               publisher_binding(api)
-             )
+    assert Publisher.update_message(
+             request,
+             "github:pull_request_review:9100",
+             document,
+             publisher_binding(api)
+           ) == :ok
 
     assert [{{:pull_review, "octo/example", 42, 9_100}, body}] =
              FakeAPI.state(api).updates

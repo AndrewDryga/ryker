@@ -132,8 +132,7 @@ defmodule Ryker.Webhooks.EndToEndTest do
     assert receipt["conversation_ref"] == "slack:T6E06DA3564B2:C456"
     assert receipt["thread_ref"] == nil
 
-    assert {:ok, :idle} =
-             AdmissionDispatcher.run_once(admission_dispatcher_options(fake))
+    assert AdmissionDispatcher.run_once(admission_dispatcher_options(fake)) == {:ok, :idle}
 
     assert FakeCoopAPI.state(fake).submit_count == 1
     assert FakeWorkCoopAPI.state(work_fake).submit_count == 1

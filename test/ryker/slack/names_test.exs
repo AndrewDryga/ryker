@@ -50,7 +50,7 @@ defmodule Ryker.Slack.NamesTest do
 
     assert Names.name("T123", "C456") == "#infra"
     assert Names.name("T123", "G789") == "Slack channel G789"
-    assert :ok = GenServer.call(Names, :refresh)
+    assert GenServer.call(Names, :refresh) == :ok
     refute_received {:lookup, "C456"}
   end
 
@@ -71,7 +71,7 @@ defmodule Ryker.Slack.NamesTest do
     )
 
     assert Names.name("T123", "UBOT") == "@Ryker"
-    assert :ok = GenServer.call(Names, :refresh)
+    assert GenServer.call(Names, :refresh) == :ok
     refute_received {:lookup, "UBOT"}
   end
 
@@ -89,7 +89,7 @@ defmodule Ryker.Slack.NamesTest do
 
     assert Names.name("T123", "C456") == "Slack channel C456"
     assert Names.name("T999", "C456") == "Slack channel C456"
-    assert :ok = GenServer.call(Names, :refresh)
+    assert GenServer.call(Names, :refresh) == :ok
     assert_receive {:lookup, "C456"}
     assert Names.name("T123", "C456") == "#test"
     assert Names.name("T999", "C456") == "Slack channel C456"
@@ -106,8 +106,8 @@ defmodule Ryker.Slack.NamesTest do
     Names.name("T123", "U1")
     Names.name("T123", "C1")
     # refresh resolves one queued reference per call
-    assert :ok = GenServer.call(Names, :refresh)
-    assert :ok = GenServer.call(Names, :refresh)
+    assert GenServer.call(Names, :refresh) == :ok
+    assert GenServer.call(Names, :refresh) == :ok
 
     html = SlackMarkdown.render("<@U1> ping <#C1>", "T123") |> IO.iodata_to_binary()
 
@@ -144,12 +144,12 @@ defmodule Ryker.Slack.NamesTest do
 
     # A reference Slack would reject is never echoed back into the page.
     assert Names.name("T123", "../../secrets") == "Slack reference"
-    assert :ok = GenServer.call(Names, :refresh)
+    assert GenServer.call(Names, :refresh) == :ok
     assert_receive {:lookup, "C789"}
-    assert :ok = GenServer.call(Names, :refresh)
+    assert GenServer.call(Names, :refresh) == :ok
     assert_receive {:lookup, "U789"}
     assert Names.name("T123", "U789") == "Slack user"
-    assert :ok = GenServer.call(Names, :refresh)
+    assert GenServer.call(Names, :refresh) == :ok
     refute_receive {:lookup, _}
   end
 
@@ -166,7 +166,7 @@ defmodule Ryker.Slack.NamesTest do
 
     profile = "https://acme.slack.com/team/U456"
     assert Names.person("T123", "U456") == %{name: "Slack user", href: profile}
-    assert :ok = GenServer.call(Names, :refresh)
+    assert GenServer.call(Names, :refresh) == :ok
     assert Names.person("T123", "U456") == %{name: "@Andrew", href: profile}
     assert Names.person("T123", "slack:user:U456") == %{name: "@Andrew", href: profile}
 
@@ -186,20 +186,20 @@ defmodule Ryker.Slack.NamesTest do
     start_supervised!({Names, workspace: "T123", fetch: fn _ref -> {:ok, "Andrew"} end})
 
     Names.name("T123", "U456")
-    assert :ok = GenServer.call(Names, :refresh)
+    assert GenServer.call(Names, :refresh) == :ok
     assert_receive {:slack_names_updated, first}
 
     # The same name again changes nothing any page shows.
-    assert :ok = Names.remember([{"T123", "U456", "Andrew"}])
+    assert Names.remember([{"T123", "U456", "Andrew"}]) == :ok
     refute_receive {:slack_names_updated, _revision}, 50
 
-    assert :ok = Names.remember([{"T123", "U456", "Andy"}])
+    assert Names.remember([{"T123", "U456", "Andy"}]) == :ok
     assert_receive {:slack_names_updated, second}
     assert second > first
     assert Names.name("T123", "U456") == "@Andy"
 
     # Another workspace's people are not this cache's to keep.
-    assert :ok = Names.remember([{"T999", "U777", "Eve"}])
+    assert Names.remember([{"T999", "U777", "Eve"}]) == :ok
     refute_receive {:slack_names_updated, _revision}, 50
     assert Names.name("T999", "U777") == "Slack user"
   end
@@ -236,7 +236,7 @@ defmodule Ryker.Slack.NamesTest do
   test "a directory transport exit cannot take down the console" do
     start_supervised!({Names, workspace: "T123", fetch: fn _ -> exit(:timeout) end})
     Names.name("T123", "C456")
-    assert :ok = GenServer.call(Names, :refresh)
+    assert GenServer.call(Names, :refresh) == :ok
     assert Names.name("T123", "C456") == "Slack channel C456"
   end
 

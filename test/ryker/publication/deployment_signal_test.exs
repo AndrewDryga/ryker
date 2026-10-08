@@ -35,35 +35,33 @@ defmodule Ryker.Publication.DeploymentSignalTest do
              }
            ) == {:error, :publication_lifecycle_source_unauthorized}
 
-    assert {:error, {:invalid_publication_deployment_signal, :fields}} =
-             DeploymentSignal.prepare(put_in(signal, ["extra"], true))
+    assert DeploymentSignal.prepare(put_in(signal, ["extra"], true)) ==
+             {:error, {:invalid_publication_deployment_signal, :fields}}
 
-    assert {:error, {:invalid_publication_deployment_signal, :fields}} =
-             DeploymentSignal.prepare(put_in(signal, ["payload", "extra"], true))
+    assert DeploymentSignal.prepare(put_in(signal, ["payload", "extra"], true)) ==
+             {:error, {:invalid_publication_deployment_signal, :fields}}
 
-    assert {:error, {:invalid_publication_deployment_signal, :state}} =
-             DeploymentSignal.prepare(put_in(signal, ["payload", "state"], "complete"))
+    assert DeploymentSignal.prepare(put_in(signal, ["payload", "state"], "complete")) ==
+             {:error, {:invalid_publication_deployment_signal, :state}}
 
-    assert {:error, {:invalid_publication_deployment_signal, :references}} =
-             DeploymentSignal.prepare(
-               put_in(signal, ["payload", "references"], ["duplicate", "duplicate"])
-             )
+    assert DeploymentSignal.prepare(
+             put_in(signal, ["payload", "references"], ["duplicate", "duplicate"])
+           ) == {:error, {:invalid_publication_deployment_signal, :references}}
 
-    assert {:error, {:invalid_publication_deployment_signal, :references}} =
-             DeploymentSignal.prepare(put_in(signal, ["payload", "references"], []))
+    assert DeploymentSignal.prepare(put_in(signal, ["payload", "references"], [])) ==
+             {:error, {:invalid_publication_deployment_signal, :references}}
 
-    assert {:error, {:invalid_publication_deployment_signal, :references}} =
-             DeploymentSignal.prepare(put_in(signal, ["payload", "references"], [42]))
+    assert DeploymentSignal.prepare(put_in(signal, ["payload", "references"], [42])) ==
+             {:error, {:invalid_publication_deployment_signal, :references}}
 
-    assert {:error, {:invalid_publication_deployment_signal, :environment}} =
-             DeploymentSignal.prepare(put_in(signal, ["payload", "environment"], " \t"))
+    assert DeploymentSignal.prepare(put_in(signal, ["payload", "environment"], " \t")) ==
+             {:error, {:invalid_publication_deployment_signal, :environment}}
 
-    assert {:error, {:invalid_publication_deployment_signal, :run_ref}} =
-             DeploymentSignal.prepare(put_in(signal, ["payload", "run_ref"], nil))
+    assert DeploymentSignal.prepare(put_in(signal, ["payload", "run_ref"], nil)) ==
+             {:error, {:invalid_publication_deployment_signal, :run_ref}}
 
-    assert {:error, {:invalid_publication_deployment_signal, :target}} =
-             DeploymentSignal.prepare(
-               put_in(signal, ["payload", "target"], String.duplicate("x", 1_025))
-             )
+    assert DeploymentSignal.prepare(
+             put_in(signal, ["payload", "target"], String.duplicate("x", 1_025))
+           ) == {:error, {:invalid_publication_deployment_signal, :target}}
   end
 end

@@ -372,7 +372,7 @@ defmodule Ryker.StateTools.RouterTest do
                options
              )
 
-    assert {:error, "unauthorized"} = Tools.call("record_finding", args, [])
+    assert Tools.call("record_finding", args, []) == {:error, "unauthorized"}
     assert Enum.count(Records.retained_records(claim.episode.id), &(&1["kind"] == "finding")) == 1
   end
 
@@ -394,12 +394,11 @@ defmodule Ryker.StateTools.RouterTest do
 
     assert Repo.get_by!(Record, ref: ref).payload == args
 
-    assert {:error, "invalid_arguments"} =
-             Tools.call(
-               "record_finding",
-               %{args | "what" => args["what"] <> "é"},
-               bound_options(claim)
-             )
+    assert Tools.call(
+             "record_finding",
+             %{args | "what" => args["what"] <> "é"},
+             bound_options(claim)
+           ) == {:error, "invalid_arguments"}
   end
 
   test "a finding cannot borrow another episode's evidence" do
@@ -460,12 +459,11 @@ defmodule Ryker.StateTools.RouterTest do
       assert {:ok, %{"kind" => "goal"}} = Tools.call("plan_goal", arguments, bound_options(claim))
       assert Enum.any?(Records.retained_records(claim.episode.id), &(&1["kind"] == "goal"))
 
-      assert {:error, "unauthorized"} =
-               Tools.call(
-                 "plan_goal",
-                 %{arguments | "id" => "escape", "read_only_repositories" => ["unbound"]},
-                 bound_options(claim)
-               )
+      assert Tools.call(
+               "plan_goal",
+               %{arguments | "id" => "escape", "read_only_repositories" => ["unbound"]},
+               bound_options(claim)
+             ) == {:error, "unauthorized"}
     end
   end
 
@@ -498,12 +496,11 @@ defmodule Ryker.StateTools.RouterTest do
     # same id is the conflict.
     assert {:ok, %{"kind" => "goal"}} = Tools.call("plan_goal", arguments, options)
 
-    assert {:error, "operation_conflict"} =
-             Tools.call(
-               "plan_goal",
-               %{arguments | "requested_outcome" => "Drain the workers only"},
-               options
-             )
+    assert Tools.call(
+             "plan_goal",
+             %{arguments | "requested_outcome" => "Drain the workers only"},
+             options
+           ) == {:error, "operation_conflict"}
 
     assert [%{"kind" => "goal"}] = Records.retained_records(claim.episode.id)
   end
@@ -528,11 +525,11 @@ defmodule Ryker.StateTools.RouterTest do
       "writable_repository" => nil
     }
 
-    assert {:error, "invalid_arguments"} = Tools.call("plan_goal", arguments, options)
+    assert Tools.call("plan_goal", arguments, options) == {:error, "invalid_arguments"}
 
     for stage <- ~w(workspace_setup draft_pr ci review_and_merge unknown) do
-      assert {:error, "invalid_arguments"} =
-               Tools.call("plan_goal", Map.put(arguments, "stage", stage), options)
+      assert Tools.call("plan_goal", Map.put(arguments, "stage", stage), options) ==
+               {:error, "invalid_arguments"}
     end
 
     assert {:ok, %{"kind" => "goal"}} =
@@ -572,41 +569,39 @@ defmodule Ryker.StateTools.RouterTest do
                options
              )
 
-    assert {:error, "invalid_arguments"} =
-             Tools.call(
-               "update_goal",
-               %{
-                 "detail" => nil,
-                 "evidence_refs" => ["not a reference"],
-                 "goal_id" => "drain-workers",
-                 "state" => "completed"
-               },
-               options
-             )
+    assert Tools.call(
+             "update_goal",
+             %{
+               "detail" => nil,
+               "evidence_refs" => ["not a reference"],
+               "goal_id" => "drain-workers",
+               "state" => "completed"
+             },
+             options
+           ) == {:error, "invalid_arguments"}
   end
 
   test "typed goal tools persist a dependency plan and preflight its live state" do
     claim = claim!("typed-goals")
     options = bound_options(claim)
 
-    assert {:error, "unauthorized"} =
-             Tools.call(
-               "plan_goal",
-               %{
-                 "authority" => "repository_write",
-                 "completion_contract" => "The unrelated repository changes.",
-                 "id" => "escape-workspace",
-                 "kind" => "engineering",
-                 "parent_goal_id" => nil,
-                 "prerequisite_goal_ids" => [],
-                 "read_only_repositories" => [],
-                 "requested_outcome" => "Change an unbound repository",
-                 "required" => true,
-                 "stage" => "implementation",
-                 "writable_repository" => "unbound"
-               },
-               options
-             )
+    assert Tools.call(
+             "plan_goal",
+             %{
+               "authority" => "repository_write",
+               "completion_contract" => "The unrelated repository changes.",
+               "id" => "escape-workspace",
+               "kind" => "engineering",
+               "parent_goal_id" => nil,
+               "prerequisite_goal_ids" => [],
+               "read_only_repositories" => [],
+               "requested_outcome" => "Change an unbound repository",
+               "required" => true,
+               "stage" => "implementation",
+               "writable_repository" => "unbound"
+             },
+             options
+           ) == {:error, "unauthorized"}
 
     assert {:ok, %{"kind" => "goal", "record_ref" => parent_ref}} =
              Tools.call(
@@ -920,11 +915,10 @@ defmodule Ryker.StateTools.RouterTest do
     claim = claim!("deleted-automation")
     assert {:ok, initial} = SubmissionBuilder.build(claim)
 
-    assert :ok =
-             KnowledgeSnapshot.expose_submission(%{
-               claim
-               | turn: %{claim.turn | submission: initial}
-             })
+    assert KnowledgeSnapshot.expose_submission(%{
+             claim
+             | turn: %{claim.turn | submission: initial}
+           }) == :ok
 
     options = bound_options(claim)
 
@@ -1012,11 +1006,10 @@ defmodule Ryker.StateTools.RouterTest do
     claim = claim!("fixed-product-surface")
     assert {:ok, initial} = SubmissionBuilder.build(claim)
 
-    assert :ok =
-             KnowledgeSnapshot.expose_submission(%{
-               claim
-               | turn: %{claim.turn | submission: initial}
-             })
+    assert KnowledgeSnapshot.expose_submission(%{
+             claim
+             | turn: %{claim.turn | submission: initial}
+           }) == :ok
 
     options = bound_options(claim)
 
@@ -1270,11 +1263,10 @@ defmodule Ryker.StateTools.RouterTest do
     claim = claim!("work-state-newest")
     assert {:ok, initial} = SubmissionBuilder.build(claim)
 
-    assert :ok =
-             KnowledgeSnapshot.expose_submission(%{
-               claim
-               | turn: %{claim.turn | submission: initial}
-             })
+    assert KnowledgeSnapshot.expose_submission(%{
+             claim
+             | turn: %{claim.turn | submission: initial}
+           }) == :ok
 
     options = bound_options(claim)
 
@@ -2850,14 +2842,13 @@ defmodule Ryker.StateTools.RouterTest do
 
     assert get_in(Jason.decode!(cite.resp_body), ["result", "isError"]) == false
 
-    assert {:error, :work_final_preflight_required} =
-             Custody.verify_final_preflight(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               digest,
-               []
-             )
+    assert Custody.verify_final_preflight(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             digest,
+             []
+           ) == {:error, :work_final_preflight_required}
   end
 
   test "recorded malformed final checks explain the complete call without accepting a partial answer" do
@@ -3084,7 +3075,7 @@ defmodule Ryker.StateTools.RouterTest do
         }
       })
 
-    assert :ok = KnowledgeSnapshot.expose(claim, [])
+    assert KnowledgeSnapshot.expose(claim, []) == :ok
     test_pid = self()
 
     reader = %{

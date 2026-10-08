@@ -92,15 +92,14 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
         assert get["payload"]["path"] == "/v1/operations/op-checkpoint/checkpoint-bundle"
         reference = Map.take(checkpoint["bundle"], ~w(sha256 byte_size))
 
-        assert :ok =
-                 Bodies.put(
-                   root,
-                   get["command_id"],
-                   :response,
-                   reference,
-                   [bundle],
-                   @checkpoint_key
-                 )
+        assert Bodies.put(
+                 root,
+                 get["command_id"],
+                 :response,
+                 reference,
+                 [bundle],
+                 @checkpoint_key
+               ) == :ok
 
         response =
           result(get, nil)
@@ -246,8 +245,8 @@ defmodule Ryker.CoopFleet.FailoverEndToEndTest do
     assert restore_wire["payload"]["body_ref"] ==
              Map.take(checkpoint["bundle"], ~w(sha256 byte_size))
 
-    assert {:error, :body_not_authorized} =
-             Bodies.authorize(worker_a.certificate, restore_wire["command_id"])
+    assert Bodies.authorize(worker_a.certificate, restore_wire["command_id"]) ==
+             {:error, :body_not_authorized}
 
     assert {:ok, _} = Bodies.authorize(worker_b.certificate, restore_wire["command_id"])
     assert {:ok, body, _} = Bodies.fetch(root, restore_wire["command_id"], :request)

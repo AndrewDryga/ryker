@@ -82,12 +82,11 @@ defmodule Ryker.Delivery.RoutingResponseCustodyTest do
                pending.source_item_ref
              )
 
-    assert {:error, :routing_response_receipt_mismatch} =
-             RoutingResponseCustody.confirm_delivery(
-               pending.delivery_ref,
-               claim.lease_ref,
-               crossed
-             )
+    assert RoutingResponseCustody.confirm_delivery(
+             pending.delivery_ref,
+             claim.lease_ref,
+             crossed
+           ) == {:error, :routing_response_receipt_mismatch}
 
     assert {:ok, receipt} =
              DeliveryReceipt.new(
@@ -127,14 +126,13 @@ defmodule Ryker.Delivery.RoutingResponseCustodyTest do
                "1787832001.000201"
              )
 
-    assert {:error, :routing_response_receipt_conflict} =
-             RoutingResponseCustody.confirm_delivery(
-               pending.delivery_ref,
-               claim.lease_ref,
-               conflicting
-             )
+    assert RoutingResponseCustody.confirm_delivery(
+             pending.delivery_ref,
+             claim.lease_ref,
+             conflicting
+           ) == {:error, :routing_response_receipt_conflict}
 
-    assert {:ok, nil} = RoutingResponseCustody.claim_next("delivery:reaction:2", 60)
+    assert RoutingResponseCustody.claim_next("delivery:reaction:2", 60) == {:ok, nil}
   end
 
   # Routing answers "hi" itself. Its words are a message of their own in the
@@ -175,12 +173,11 @@ defmodule Ryker.Delivery.RoutingResponseCustodyTest do
                "1787832002.000300"
              )
 
-    assert {:error, :routing_response_receipt_mismatch} =
-             RoutingResponseCustody.confirm_delivery(
-               pending.delivery_ref,
-               claim.lease_ref,
-               elsewhere
-             )
+    assert RoutingResponseCustody.confirm_delivery(
+             pending.delivery_ref,
+             claim.lease_ref,
+             elsewhere
+           ) == {:error, :routing_response_receipt_mismatch}
 
     assert {:ok, receipt} =
              DeliveryReceipt.new(
@@ -222,7 +219,7 @@ defmodule Ryker.Delivery.RoutingResponseCustodyTest do
 
     # The second message waits while the first is out, and still after the
     # first is put back for a retry.
-    assert {:ok, nil} = RoutingResponseCustody.claim_next("delivery:routing:two", 60)
+    assert RoutingResponseCustody.claim_next("delivery:routing:two", 60) == {:ok, nil}
 
     assert {:ok, _deferred} =
              RoutingResponseCustody.defer(
@@ -289,7 +286,7 @@ defmodule Ryker.Delivery.RoutingResponseCustodyTest do
              reaction_ref
            ]
 
-    assert {:ok, nil} = RoutingResponseCustody.claim_next("delivery:routing:done", 60)
+    assert RoutingResponseCustody.claim_next("delivery:routing:done", 60) == {:ok, nil}
   end
 
   test "a shadow reaction is audited as a decision but never enters delivery custody" do
@@ -324,7 +321,7 @@ defmodule Ryker.Delivery.RoutingResponseCustodyTest do
     assert deferred.status == :pending
     assert deferred.lease_ref == nil
     assert deferred.next_attempt_at
-    assert {:ok, nil} = RoutingResponseCustody.claim_next("delivery:reaction:too-early", 60)
+    assert RoutingResponseCustody.claim_next("delivery:reaction:too-early", 60) == {:ok, nil}
 
     Repo.update_all(RoutingResponse, set: [next_attempt_at: @now])
 
@@ -397,8 +394,8 @@ defmodule Ryker.Delivery.RoutingResponseCustodyTest do
     assert renewed.attempt_count == claim.response.attempt_count
     assert DateTime.compare(renewed.lease_expires_at, claim.response.lease_expires_at) == :gt
 
-    assert {:error, :routing_response_lease_lost} =
-             RoutingResponseCustody.renew(claim.response.delivery_ref, "wrong-lease", 60)
+    assert RoutingResponseCustody.renew(claim.response.delivery_ref, "wrong-lease", 60) ==
+             {:error, :routing_response_lease_lost}
   end
 
   test "ignore creates no delivery outbox row" do
@@ -413,11 +410,11 @@ defmodule Ryker.Delivery.RoutingResponseCustodyTest do
   end
 
   test "invalid custody references are rejected before touching the queue" do
-    assert {:error, {:invalid_routing_response, :worker_ref}} =
-             RoutingResponseCustody.claim_next("", 60)
+    assert RoutingResponseCustody.claim_next("", 60) ==
+             {:error, {:invalid_routing_response, :worker_ref}}
 
-    assert {:error, {:invalid_routing_response, :request}} =
-             RoutingResponseCustody.request(:invalid)
+    assert RoutingResponseCustody.request(:invalid) ==
+             {:error, {:invalid_routing_response, :request}}
   end
 
   test "the database requires an emoji name in every durable reaction document" do

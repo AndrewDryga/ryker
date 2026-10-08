@@ -191,8 +191,8 @@ defmodule Ryker.WorkExamplesTest do
                  request: {:episode, work.episode_id}
                })
 
-      assert {:ok, 1} = WorkExamples.copy_feedback()
-      assert {:ok, 0} = WorkExamples.copy_feedback()
+      assert WorkExamples.copy_feedback() == {:ok, 1}
+      assert WorkExamples.copy_feedback() == {:ok, 0}
       Repo.delete_all(Signal)
 
       assert [line] = lines()
@@ -226,7 +226,7 @@ defmodule Ryker.WorkExamplesTest do
                  request: {:episode, work.episode_id}
                })
 
-      assert {:ok, 2} = WorkExamples.copy_feedback()
+      assert WorkExamples.copy_feedback() == {:ok, 2}
       assert [line] = lines()
 
       assert [%{"value" => "-1"}, %{"value" => "frustrated"}] =

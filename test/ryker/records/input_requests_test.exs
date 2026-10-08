@@ -262,8 +262,8 @@ defmodule Ryker.Records.InputRequestsTest do
     fixture = delivered_question!()
     entry = typed_answer!(fixture)
 
-    assert {:error, :state_record_transaction_required} =
-             InputRequests.associate_in_transaction(fixture.episode, entry)
+    assert InputRequests.associate_in_transaction(fixture.episode, entry) ==
+             {:error, :state_record_transaction_required}
 
     assert Repo.aggregate(Response, :count) == 0
     associate!(fixture, entry)
@@ -325,10 +325,9 @@ defmodule Ryker.Records.InputRequestsTest do
   end
 
   defp associate!(fixture, entry) do
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               InputRequests.associate_in_transaction(fixture.episode, entry)
-             end)
+    assert Repo.transaction(fn ->
+             InputRequests.associate_in_transaction(fixture.episode, entry)
+           end) == {:ok, :ok}
   end
 
   defp typed_answer!(fixture, overrides \\ %{}) do

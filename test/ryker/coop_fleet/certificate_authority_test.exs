@@ -155,25 +155,23 @@ defmodule Ryker.CoopFleet.CertificateAuthorityTest do
       |> :public_key.pem_entry_encode(weak_key)
       |> then(&:public_key.pem_encode([&1]))
 
-    assert {:error, :coop_worker_public_key_too_small} =
-             CertificateAuthority.issue(
-               weak_public_pem,
-               "worker-one",
-               ca_certificate_pem,
-               ca_key_pem,
-               ~U[2026-08-29 12:00:00.000000Z],
-               3_600
-             )
+    assert CertificateAuthority.issue(
+             weak_public_pem,
+             "worker-one",
+             ca_certificate_pem,
+             ca_key_pem,
+             ~U[2026-08-29 12:00:00.000000Z],
+             3_600
+           ) == {:error, :coop_worker_public_key_too_small}
 
-    assert {:error, :invalid_coop_worker_public_key} =
-             CertificateAuthority.issue(
-               private_pem,
-               "worker-one",
-               ca_certificate_pem,
-               ca_key_pem,
-               ~U[2026-08-29 12:00:00.000000Z],
-               3_600
-             )
+    assert CertificateAuthority.issue(
+             private_pem,
+             "worker-one",
+             ca_certificate_pem,
+             ca_key_pem,
+             ~U[2026-08-29 12:00:00.000000Z],
+             3_600
+           ) == {:error, :invalid_coop_worker_public_key}
   end
 
   defp private_key, do: :public_key.generate_key({:rsa, 2_048, 65_537})

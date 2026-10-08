@@ -84,7 +84,7 @@ defmodule Ryker.Delivery.WorkerTest do
            end)
 
     assert Process.alive?(worker)
-    assert :ok = stop_supervised(Worker)
+    assert stop_supervised(Worker) == :ok
   end
 
   test "invalid dispatcher settings do not crash the polling process" do
@@ -103,7 +103,7 @@ defmodule Ryker.Delivery.WorkerTest do
 
     assert log =~ "delivery dispatcher failed"
     assert Process.whereis(__MODULE__.InvalidWorker)
-    assert :ok = stop_supervised(Worker)
+    assert stop_supervised(Worker) == :ok
   end
 
   test "an idle named delivery worker keeps polling" do
@@ -129,7 +129,7 @@ defmodule Ryker.Delivery.WorkerTest do
     settled(worker)
     assert beats(:delivery) > before
     assert Process.whereis(__MODULE__.IdleWorker) == worker
-    assert :ok = stop_supervised(Worker)
+    assert stop_supervised(Worker) == :ok
   end
 
   # On 2026-09-27 an idle install committed about 125 transactions a second;

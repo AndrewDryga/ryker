@@ -1315,15 +1315,14 @@ defmodule Ryker.Retention.DataTest do
   end
 
   test "data horizons reject missing, unknown, and unordered policy" do
-    assert {:error, {:invalid_retention_data, :settings}} = Data.prune(%{})
+    assert Data.prune(%{}) == {:error, {:invalid_retention_data, :settings}}
 
-    assert {:error, {:invalid_retention_data, :settings}} =
-             settings()
-             |> Map.put(:unknown, 1)
-             |> Data.prune()
+    assert settings()
+           |> Map.put(:unknown, 1)
+           |> Data.prune() == {:error, {:invalid_retention_data, :settings}}
 
-    assert {:error, {:invalid_retention_data, :settings}} =
-             Data.prune(settings(operational_data_seconds: 120, closed_work_seconds: 60))
+    assert Data.prune(settings(operational_data_seconds: 120, closed_work_seconds: 60)) ==
+             {:error, {:invalid_retention_data, :settings}}
   end
 
   defp settled_work!(suffix) do

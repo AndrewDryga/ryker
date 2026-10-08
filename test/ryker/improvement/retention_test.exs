@@ -186,9 +186,9 @@ defmodule Ryker.Improvement.RetentionTest do
     assert Repo.get(Candidate, candidate.id)
     Repo.delete_all(Candidate)
 
-    assert :ok = migrate_down(@version)
+    assert migrate_down(@version) == :ok
     refute table?("improvement_candidates")
-    assert :ok = migrate_up(@version)
+    assert migrate_up(@version) == :ok
     assert table?("improvement_candidates")
     assert candidate!("1790400700.000100")
   end

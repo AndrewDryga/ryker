@@ -91,8 +91,8 @@ defmodule Ryker.CoopFleet.SessionEvidenceDocumentTest do
       |> put_in(~w(network observation projection), "destinations-included")
       |> put_in(~w(network access projection), "destinations-included")
 
-    assert {:error, {:invalid_coop_session_evidence, :denial_destination}} =
-             Document.validate(document)
+    assert Document.validate(document) ==
+             {:error, {:invalid_coop_session_evidence, :denial_destination}}
   end
 
   test "a section that says it read nothing may not carry evidence" do
@@ -135,8 +135,8 @@ defmodule Ryker.CoopFleet.SessionEvidenceDocumentTest do
 
     # A version this build does not speak is its own answer: "a newer worker
     # exported something we cannot read" is not "a worker exported nonsense".
-    assert {:error, {:unsupported_coop_session_evidence, :version}} =
-             Document.validate(Map.put(document, "version", 2))
+    assert Document.validate(Map.put(document, "version", 2)) ==
+             {:error, {:unsupported_coop_session_evidence, :version}}
 
     invalid = [
       {Map.put(document, "revision", 0), :revision},

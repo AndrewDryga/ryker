@@ -383,7 +383,7 @@ defmodule Ryker.Slack.GatewayRuntimeTest do
     assert_receive {:socket_connect_failed, ^gateway, :offline}
     send(gateway, :connect)
     assert_receive {:socket_connect_failed, ^gateway, :still_offline}
-    assert :ok = Gateway.terminate(:shutdown, :sys.get_state(gateway))
+    assert Gateway.terminate(:shutdown, :sys.get_state(gateway)) == :ok
 
     assert_raise ArgumentError, fn ->
       Gateway.options!(%{
@@ -397,7 +397,7 @@ defmodule Ryker.Slack.GatewayRuntimeTest do
     live = start_gateway(settings(), name: :live_termination_gateway)
     assert_receive {:socket_connected, ^live}
     caller = self()
-    assert :ok = Gateway.terminate(:shutdown, :sys.get_state(live))
+    assert Gateway.terminate(:shutdown, :sys.get_state(live)) == :ok
     assert_receive {:socket_closed, ^caller}
   end
 

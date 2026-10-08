@@ -98,11 +98,11 @@ defmodule Ryker.GitHub.InputTest do
   test "a review without words around its line comments is not a message of its own" do
     wordless = put_in(review_payload(), ["review", "body"], nil)
 
-    assert {:error, {:github_input_ignored, :wordless_review}} =
-             normalize("pull_request_review", wordless)
+    assert normalize("pull_request_review", wordless) ==
+             {:error, {:github_input_ignored, :wordless_review}}
 
-    assert {:error, {:github_input_ignored, :wordless_review}} =
-             normalize("pull_request_review", put_in(wordless, ["review", "body"], " \n"))
+    assert normalize("pull_request_review", put_in(wordless, ["review", "body"], " \n")) ==
+             {:error, {:github_input_ignored, :wordless_review}}
 
     for state <- ~w(approved changes_requested) do
       assert {:ok, _input} =
@@ -206,23 +206,20 @@ defmodule Ryker.GitHub.InputTest do
   end
 
   test "the adapter rejects unsupported actions and payload-selected installation or repository" do
-    assert {:error, {:invalid_github_input, :event}} =
-             normalize("push", issue_comment_payload())
+    assert normalize("push", issue_comment_payload()) == {:error, {:invalid_github_input, :event}}
 
-    assert {:error, {:invalid_github_input, :action}} =
-             normalize("issue_comment", put_in(issue_comment_payload(), ["action"], "pinned"))
+    assert normalize("issue_comment", put_in(issue_comment_payload(), ["action"], "pinned")) ==
+             {:error, {:invalid_github_input, :action}}
 
-    assert {:error, {:invalid_github_input, :installation}} =
-             normalize(
-               "issue_comment",
-               put_in(issue_comment_payload(), ["installation", "id"], 1234)
-             )
+    assert normalize(
+             "issue_comment",
+             put_in(issue_comment_payload(), ["installation", "id"], 1234)
+           ) == {:error, {:invalid_github_input, :installation}}
 
-    assert {:error, {:invalid_github_input, :repository}} =
-             normalize(
-               "issue_comment",
-               put_in(issue_comment_payload(), ["repository", "id"], 1234)
-             )
+    assert normalize(
+             "issue_comment",
+             put_in(issue_comment_payload(), ["repository", "id"], 1234)
+           ) == {:error, {:invalid_github_input, :repository}}
   end
 
   test "the trusted binding suppresses self events after repository access is checked" do
@@ -230,8 +227,8 @@ defmodule Ryker.GitHub.InputTest do
       issue_comment_payload()
       |> put_in(["sender"], %{"id" => 99, "login" => "ryker[bot]", "type" => "Bot"})
 
-    assert {:error, {:github_input_ignored, :self_authored}} =
-             normalize("issue_comment", self_authored)
+    assert normalize("issue_comment", self_authored) ==
+             {:error, {:github_input_ignored, :self_authored}}
 
     other_writer =
       issue_comment_payload()

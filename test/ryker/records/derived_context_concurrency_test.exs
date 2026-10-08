@@ -33,15 +33,14 @@ defmodule Ryker.Records.DerivedContextConcurrencyTest do
         Enum.each(readers, &Task.await/1)
 
         for claim <- [left, right] do
-          assert {:ok, []} =
-                   Repo.transaction(fn ->
-                     KnowledgeSnapshot.producer_sources(
-                       claim.episode,
-                       Repo.get!(Session, claim.session.id)
-                     )
-                   end)
+          assert Repo.transaction(fn ->
+                   KnowledgeSnapshot.producer_sources(
+                     claim.episode,
+                     Repo.get!(Session, claim.session.id)
+                   )
+                 end) == {:ok, []}
 
-          assert :ok = KnowledgeSnapshot.authorize_session(claim.episode, claim.session)
+          assert KnowledgeSnapshot.authorize_session(claim.episode, claim.session) == :ok
           assert Repo.get!(Session, claim.session.id).source_exposure_count == 0
         end
       after
@@ -87,7 +86,7 @@ defmodule Ryker.Records.DerivedContextConcurrencyTest do
     {:ok, _} = WorkSessions.pin_episode(id, "fixture", String.duplicate("a", 64))
     {:ok, claim} = Custody.claim_next("worker:#{id}", 60)
     assert claim.episode.id == id
-    assert :ok = KnowledgeSnapshot.expose(claim, [])
+    assert KnowledgeSnapshot.expose(claim, []) == :ok
     claim
   end
 

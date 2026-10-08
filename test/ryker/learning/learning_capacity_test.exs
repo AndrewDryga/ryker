@@ -263,8 +263,8 @@ defmodule Ryker.Learning.LearningCapacityTest do
     history = Inspectors.knowledge_history("knowledge:#{head.id}")
     sources = source_rows(head)
 
-    assert {:error, :learning_match_required} =
-             Ryker.Fixtures.Learning.accept(run.id, candidate, %{})
+    assert Ryker.Fixtures.Learning.accept(run.id, candidate, %{}) ==
+             {:error, :learning_match_required}
 
     assert Repo.get!(ConversationKnowledge, head.id) == head
     assert Inspectors.knowledge_history("knowledge:#{head.id}") == history
@@ -305,19 +305,18 @@ defmodule Ryker.Learning.LearningCapacityTest do
     assert proposal["expected_version"] == 0
     assert proposal["source_input_ids"] == [entry.id]
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Knowledge.record_sources_in_transaction(
-                 [hd(historical)],
-                 Map.drop(proposal, ~w(action source_input_ids)),
-                 [],
-                 %{
-                   result_ref: "host-capacity-fixture",
-                   source_dependencies: dependencies,
-                   omissions: []
-                 }
-               )
-             end)
+    assert Repo.transaction(fn ->
+             Knowledge.record_sources_in_transaction(
+               [hd(historical)],
+               Map.drop(proposal, ~w(action source_input_ids)),
+               [],
+               %{
+                 result_ref: "host-capacity-fixture",
+                 source_dependencies: dependencies,
+                 omissions: []
+               }
+             )
+           end) == {:ok, :ok}
 
     head = Repo.get_by!(ConversationKnowledge, topic_key: proposal["topic_key"])
     assert LearningSources.expand(head.source_dependencies) == dependencies
@@ -369,7 +368,7 @@ defmodule Ryker.Learning.LearningCapacityTest do
         )
       )
 
-    assert {:ok, :ok} = Repo.transaction(fn -> Observations.receive_in_transaction(entry) end)
+    assert Repo.transaction(fn -> Observations.receive_in_transaction(entry) end) == {:ok, :ok}
     entry
   end
 
@@ -393,8 +392,8 @@ defmodule Ryker.Learning.LearningCapacityTest do
 
     historical = Repo.insert!(struct!(Entry, attrs))
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn -> Observations.receive_in_transaction(historical) end)
+    assert Repo.transaction(fn -> Observations.receive_in_transaction(historical) end) ==
+             {:ok, :ok}
 
     historical
   end

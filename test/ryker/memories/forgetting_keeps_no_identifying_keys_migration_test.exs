@@ -9,7 +9,7 @@ defmodule Ryker.Memories.ForgettingKeepsNoIdentifyingKeysMigrationTest do
   # topic its key and anchors (2026-10-04 review). What was forgotten before
   # keeps what a forgetting writes now; what is kept keeps its names.
   test "what was forgotten before keeps no name for what it was" do
-    assert :ok = migrate_down(@version)
+    assert migrate_down(@version) == :ok
 
     SQL.query!(
       Repo,
@@ -51,7 +51,7 @@ defmodule Ryker.Memories.ForgettingKeepsNoIdentifyingKeysMigrationTest do
       )
     end
 
-    assert :ok = migrate_up(@version)
+    assert migrate_up(@version) == :ok
 
     digest =
       digest("slack:user:UERIN\nmedical-leave")

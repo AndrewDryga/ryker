@@ -55,16 +55,15 @@ defmodule Ryker.Learning.LearningWorkBoundaryTest do
       "expected_version" => 0
     }
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               :ok = Observations.record_excerpt_in_transaction(second)
+    assert Repo.transaction(fn ->
+             :ok = Observations.record_excerpt_in_transaction(second)
 
-               Knowledge.record_sources_in_transaction([second], proposal, [], %{
-                 result_ref: "host-queued-source-fixture",
-                 source_dependencies: LearningSources.for_entry(second),
-                 omissions: []
-               })
-             end)
+             Knowledge.record_sources_in_transaction([second], proposal, [], %{
+               result_ref: "host-queued-source-fixture",
+               source_dependencies: LearningSources.for_entry(second),
+               omissions: []
+             })
+           end) == {:ok, :ok}
 
     [document] = Knowledge.context(second, second.repository_ref)
     assert document["summary"] == summary
@@ -73,7 +72,7 @@ defmodule Ryker.Learning.LearningWorkBoundaryTest do
     assert Observations.context(claim.episode, first.repository_ref) == []
     assert {:ok, submission} = SubmissionBuilder.build(claim)
     refute submission["prompt"] =~ summary
-    assert {:error, :work_knowledge_context_stale} = KnowledgeSnapshot.expose(claim, [document])
+    assert KnowledgeSnapshot.expose(claim, [document]) == {:error, :work_knowledge_context_stale}
     assert Repo.aggregate(SourceExposure, :count) == 0
   end
 end

@@ -8,13 +8,13 @@ defmodule Ryker.GitHub.DeliveryCursorsMigrationTest do
   # restart read a day of deliveries back and warned that older ones were
   # skipped (2026-10-07). One row per App keeps it.
   test "an App keeps one place its deliveries were read to, never a negative one" do
-    assert :ok = migrate_down(@version)
-    assert :ok = migrate_up(@version)
+    assert migrate_down(@version) == :ok
+    assert migrate_up(@version) == :ok
 
-    assert {:ok, 1} = keep(7_001, 42)
+    assert keep(7_001, 42) == {:ok, 1}
 
-    assert {:ok, 1} =
-             keep(7_001, 43, "ON CONFLICT (app_id) DO UPDATE SET through_delivery_id = 43")
+    assert keep(7_001, 43, "ON CONFLICT (app_id) DO UPDATE SET through_delivery_id = 43") ==
+             {:ok, 1}
 
     assert %{rows: [[43]]} =
              SQL.query!(Repo, "SELECT through_delivery_id FROM github_delivery_cursors", [])

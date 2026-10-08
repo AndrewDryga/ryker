@@ -75,7 +75,7 @@ defmodule Ryker.Learning.LearningThreadContextTest do
     result =
       Jason.encode!(%{"updates" => updates, "reason" => "Host-contract invalid-anchor retry."})
 
-    assert {:error, :knowledge_anchor_not_sourced} = Fixtures.accept(initial.id, result, %{})
+    assert Fixtures.accept(initial.id, result, %{}) == {:error, :knowledge_anchor_not_sourced}
     assert {:ok, retried} = Learning.prepare([second.id], @policy)
     assert retried.generation == initial.generation + 1
     assert length(retried.knowledge) == 8
@@ -209,7 +209,7 @@ defmodule Ryker.Learning.LearningThreadContextTest do
       set: [operational_pruned_at: DateTime.utc_now()]
     )
 
-    assert {:ok, 1} = Repo.transaction(fn -> Learning.prune_in_transaction(86_400 * 365) end)
+    assert Repo.transaction(fn -> Learning.prune_in_transaction(86_400 * 365) end) == {:ok, 1}
 
     erased = Repo.get!(LearningRun, run.id)
     assert erased.prompt == nil
@@ -245,7 +245,7 @@ defmodule Ryker.Learning.LearningThreadContextTest do
       set: [forgotten_at: Repo.now!()]
     )
 
-    assert {:error, :learning_source_stale} = Learning.authorize(run.id)
+    assert Learning.authorize(run.id) == {:error, :learning_source_stale}
   end
 
   test "a message outside any thread is prepared as it always was" do
@@ -294,8 +294,8 @@ defmodule Ryker.Learning.LearningThreadContextTest do
         |> Map.drop(~w(action source_input_ids))
         |> Map.merge(%{"topic_key" => key, "anchors" => []})
 
-      assert {:ok, :ok} =
-               Repo.transaction(fn -> KnowledgeFixtures.record_topic(source, proposal, []) end)
+      assert Repo.transaction(fn -> KnowledgeFixtures.record_topic(source, proposal, []) end) ==
+               {:ok, :ok}
 
       [topic] =
         Knowledge.context(source, source.repository_ref, {:topic_keys, [key]}, 1, "writable")
@@ -325,7 +325,7 @@ defmodule Ryker.Learning.LearningThreadContextTest do
       })
       |> then(&Repo.insert!(struct!(Entry, &1)))
 
-    assert {:ok, :ok} = Repo.transaction(fn -> Observations.receive_in_transaction(entry) end)
+    assert Repo.transaction(fn -> Observations.receive_in_transaction(entry) end) == {:ok, :ok}
     entry
   end
 

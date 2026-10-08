@@ -98,12 +98,11 @@ defmodule Ryker.CoopFleet.RequestsTest do
                nil
              )
 
-    assert {:error, :invalid_coop_request} =
-             Requests.encode(
-               "create_session",
-               %{"external_ref" => "task-1", "policy" => "old"},
-               nil
-             )
+    assert Requests.encode(
+             "create_session",
+             %{"external_ref" => "task-1", "policy" => "old"},
+             nil
+           ) == {:error, :invalid_coop_request}
   end
 
   test "frozen turn uses the service output contract and excludes Ryker bookkeeping" do

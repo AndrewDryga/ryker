@@ -18,17 +18,16 @@ defmodule Ryker.Delivery.PresentationTest do
   test "a visible result is renderable only at its exact supported destination" do
     final = final!(:reply)
 
-    assert :ok = Presentation.validate(episode("slack"), turn(), final)
-    assert :ok = Presentation.validate(episode("github"), turn(), final)
-    assert :ok = Presentation.validate(episode("control_plane"), turn(), final)
+    assert Presentation.validate(episode("slack"), turn(), final) == :ok
+    assert Presentation.validate(episode("github"), turn(), final) == :ok
+    assert Presentation.validate(episode("control_plane"), turn(), final) == :ok
 
     assert Presentation.validate(episode("webhook"), turn(), final) ==
              {:error, {:invalid_delivery_presentation, {:unsupported_transport, "webhook"}}}
   end
 
   test "a silent result has no platform presentation to validate" do
-    assert :ok =
-             Presentation.validate(episode("webhook"), turn(), final!(:none))
+    assert Presentation.validate(episode("webhook"), turn(), final!(:none)) == :ok
   end
 
   test "presentation refuses missing durable records and malformed calls" do
@@ -60,8 +59,8 @@ defmodule Ryker.Delivery.PresentationTest do
              })
 
     final = final!(:reply, [action.action_ref])
-    assert :ok = Presentation.validate(claim.episode, claim.turn, final)
-    assert {:ok, []} = ReplyRecords.fetch(claim.episode.id, [action.action_ref])
+    assert Presentation.validate(claim.episode, claim.turn, final) == :ok
+    assert ReplyRecords.fetch(claim.episode.id, [action.action_ref]) == {:ok, []}
   end
 
   test "audit retention does not spend Slack interactive-card capacity or force a retry" do
@@ -84,7 +83,7 @@ defmodule Ryker.Delivery.PresentationTest do
         record.ref
       end)
 
-    assert :ok = Presentation.validate(claim.episode, claim.turn, final!(:reply, refs))
+    assert Presentation.validate(claim.episode, claim.turn, final!(:reply, refs)) == :ok
     assert length(Records.retained_records(claim.episode.id)) == 51
   end
 

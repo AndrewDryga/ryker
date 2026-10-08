@@ -17,15 +17,15 @@ defmodule Ryker.Learning.CandidateCustodyTest do
     assert Repo.aggregate(KnowledgeRevision, :count) == 0
     assert {:ok, _} = Learning.check_candidate(run.id)
     assert Repo.aggregate(KnowledgeRevision, :count) == 0
-    assert {:error, :learning_validation_unconfirmed} = Learning.apply_result(run.id)
+    assert Learning.apply_result(run.id) == {:error, :learning_validation_unconfirmed}
     assert Repo.get!(LearningRun, run.id).status == :responded
 
     for field <-
           ~w(id session_id validation_attempt validation_candidate_sha256 validation_receipt assistant_message) do
       invalid = Map.put(completed, field, nil)
 
-      assert {:error, :learning_validation_unconfirmed} =
-               Learning.confirm_candidate(run.id, invalid)
+      assert Learning.confirm_candidate(run.id, invalid) ==
+               {:error, :learning_validation_unconfirmed}
     end
 
     assert {:ok, verified} = Learning.confirm_candidate(run.id, completed)
@@ -43,17 +43,16 @@ defmodule Ryker.Learning.CandidateCustodyTest do
     assert {:ok, _} = Learning.check_candidate(run.id)
     assert {:ok, _} = Learning.confirm_candidate(run.id, completed)
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Observations.receive_in_transaction(%{
-                 entry
-                 | id: Ecto.UUID.generate(),
-                   revision: entry.revision + 1,
-                   event_kind: :delete
-               })
-             end)
+    assert Repo.transaction(fn ->
+             Observations.receive_in_transaction(%{
+               entry
+               | id: Ecto.UUID.generate(),
+                 revision: entry.revision + 1,
+                 event_kind: :delete
+             })
+           end) == {:ok, :ok}
 
-    assert {:error, :learning_source_stale} = Learning.apply_result(run.id)
+    assert Learning.apply_result(run.id) == {:error, :learning_source_stale}
     assert Repo.aggregate(KnowledgeRevision, :count) == 0
     assert Repo.get!(LearningRun, run.id).validation_receipt != nil
   end

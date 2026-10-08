@@ -537,11 +537,10 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     claim = claim_episode!("state-tools", "Please prepare an engineering task.")
     assert {:ok, initial} = SubmissionBuilder.build(claim)
 
-    assert :ok =
-             KnowledgeSnapshot.expose_submission(%{
-               claim
-               | turn: %{claim.turn | submission: initial}
-             })
+    assert KnowledgeSnapshot.expose_submission(%{
+             claim
+             | turn: %{claim.turn | submission: initial}
+           }) == :ok
 
     assert {:ok, record} =
              Records.create(
@@ -709,7 +708,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     claim = claim_episode!("answered-project", "Finish the deployment verification.")
     # Normal Executor exposure precedes tools; initialize that empty custody
     # before the wait record rather than attesting it afterwards.
-    assert :ok = KnowledgeSnapshot.expose(claim, [])
+    assert KnowledgeSnapshot.expose(claim, []) == :ok
 
     assert {:ok, watch} =
              Records.create(Records.token(claim.turn), "run-watch", "event_wait", %{
@@ -1996,7 +1995,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
                submission
              )
 
-    assert :ok = KnowledgeSnapshot.expose_submission(%{claim | turn: frozen})
+    assert KnowledgeSnapshot.expose_submission(%{claim | turn: frozen}) == :ok
 
     assert {:ok, session} =
              Custody.bind_session(

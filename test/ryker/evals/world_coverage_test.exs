@@ -44,7 +44,7 @@ defmodule Ryker.Evals.WorldCoverageTest do
     assert report.complete?
     assert report.missing_jobs == []
     assert report.missing_failure_axes == []
-    assert :ok = WorldCoverage.complete(@scenario_root)
+    assert WorldCoverage.complete(@scenario_root) == :ok
   end
 
   test "coverage cannot claim an unknown or duplicate scenario" do
@@ -67,7 +67,7 @@ defmodule Ryker.Evals.WorldCoverageTest do
 
     unknown = put_in(coverage, ["jobs", "artifacts"], ["missing-scenario"])
     File.write!(Path.join(fixture, "coverage.json"), Jason.encode!(unknown))
-    assert {:error, {:invalid_world_coverage, :jobs}} = WorldCoverage.report(fixture)
+    assert WorldCoverage.report(fixture) == {:error, {:invalid_world_coverage, :jobs}}
 
     duplicate =
       put_in(
@@ -77,11 +77,11 @@ defmodule Ryker.Evals.WorldCoverageTest do
       )
 
     File.write!(Path.join(fixture, "coverage.json"), Jason.encode!(duplicate))
-    assert {:error, {:invalid_world_coverage, :failure_axes}} = WorldCoverage.report(fixture)
+    assert WorldCoverage.report(fixture) == {:error, {:invalid_world_coverage, :failure_axes}}
   end
 
   test "coverage roots and documents fail closed" do
-    assert {:error, {:invalid_world_coverage, :root}} = WorldCoverage.report(nil)
+    assert WorldCoverage.report(nil) == {:error, {:invalid_world_coverage, :root}}
 
     fixture =
       Path.join(
@@ -93,7 +93,7 @@ defmodule Ryker.Evals.WorldCoverageTest do
     on_exit(fn -> File.rm_rf!(fixture) end)
 
     File.write!(Path.join(fixture, "coverage.json"), "[]")
-    assert {:error, {:invalid_world_coverage, :json_object}} = WorldCoverage.report(fixture)
+    assert WorldCoverage.report(fixture) == {:error, {:invalid_world_coverage, :json_object}}
   end
 
   test "coverage files cannot hide missing cells or malformed release evidence" do
@@ -101,10 +101,10 @@ defmodule Ryker.Evals.WorldCoverageTest do
     coverage_path = Path.join(fixture, "coverage.json")
     scenario_id = "universal-webhook-unknown-payload"
 
-    assert {:error, {:invalid_world_coverage, :enoent}} = WorldCoverage.report(fixture)
+    assert WorldCoverage.report(fixture) == {:error, {:invalid_world_coverage, :enoent}}
 
     File.write!(coverage_path, String.duplicate(" ", 64 * 1_024 + 1))
-    assert {:error, {:invalid_world_coverage, :too_large}} = WorldCoverage.report(fixture)
+    assert WorldCoverage.report(fixture) == {:error, {:invalid_world_coverage, :too_large}}
 
     incomplete = %{
       "version" => 1,
@@ -125,15 +125,15 @@ defmodule Ryker.Evals.WorldCoverageTest do
 
     wrong_version = %{coverage_document(scenario_id) | "version" => 2}
     File.write!(coverage_path, Jason.encode!(wrong_version))
-    assert {:error, {:invalid_world_coverage, :version}} = WorldCoverage.report(fixture)
+    assert WorldCoverage.report(fixture) == {:error, {:invalid_world_coverage, :version}}
 
     malformed_matrix = %{coverage_document(scenario_id) | "jobs" => []}
     File.write!(coverage_path, Jason.encode!(malformed_matrix))
-    assert {:error, {:invalid_world_coverage, :jobs}} = WorldCoverage.report(fixture)
+    assert WorldCoverage.report(fixture) == {:error, {:invalid_world_coverage, :jobs}}
 
     malformed_ids = put_in(coverage_document(scenario_id), ["jobs", "artifacts"], scenario_id)
     File.write!(coverage_path, Jason.encode!(malformed_ids))
-    assert {:error, {:invalid_world_coverage, :jobs}} = WorldCoverage.report(fixture)
+    assert WorldCoverage.report(fixture) == {:error, {:invalid_world_coverage, :jobs}}
   end
 
   defp coverage_document(scenario_id) do

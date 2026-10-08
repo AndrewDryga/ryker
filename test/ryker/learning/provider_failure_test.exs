@@ -101,7 +101,7 @@ defmodule Ryker.Learning.ProviderFailureTest do
     assert {:ok, %{status: :deferred, start_count: 3, start_limit: 3}} =
              Dispatcher.run_once(settings)
 
-    assert {:ok, :idle} = Dispatcher.run_once(settings)
+    assert Dispatcher.run_once(settings) == {:ok, :idle}
     assert Repo.aggregate(Batch, :count) == 1
     assert Repo.aggregate(LearningRun, :count) == 3
     assert Repo.aggregate(KnowledgeRevision, :count) == 0

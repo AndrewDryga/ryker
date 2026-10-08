@@ -175,13 +175,13 @@ defmodule Ryker.Evals.MixTaskTest do
 
     single = Path.join(root, "single.json")
     assert {:ok, summary} = WorldSuite.summarize(reports, thresholds)
-    assert :ok = WorldReport.write(single, reports, summary: summary)
+    assert WorldReport.write(single, reports, summary: summary) == :ok
 
     # Pairs stay together, and the shard order is not the plan order.
     {first, second} = Enum.split_with(reports, &(&1.repeat_index == 2))
     partials = [Path.join(root, "shard-1.json"), Path.join(root, "shard-2.json")]
-    assert :ok = WorldReport.write(Enum.at(partials, 0), first, summary: nil)
-    assert :ok = WorldReport.write(Enum.at(partials, 1), second, summary: nil)
+    assert WorldReport.write(Enum.at(partials, 0), first, summary: nil) == :ok
+    assert WorldReport.write(Enum.at(partials, 1), second, summary: nil) == :ok
 
     merged = Path.join(root, "merged.json")
 
@@ -257,8 +257,8 @@ defmodule Ryker.Evals.MixTaskTest do
     ]
 
     partials = [Path.join(root, "shard-1.json"), Path.join(root, "shard-2.json")]
-    assert :ok = WorldReport.write(Enum.at(partials, 0), first, summary: nil)
-    assert :ok = WorldReport.write(Enum.at(partials, 1), second, summary: nil)
+    assert WorldReport.write(Enum.at(partials, 0), first, summary: nil) == :ok
+    assert WorldReport.write(Enum.at(partials, 1), second, summary: nil) == :ok
     merged = Path.join(root, "merged.json")
 
     output =
@@ -299,7 +299,7 @@ defmodule Ryker.Evals.MixTaskTest do
   test "the merge refuses partial results it cannot trust" do
     root = report_root!()
     partial = Path.join(root, "shard-1.json")
-    assert :ok = WorldReport.write(partial, [merge_report("case-a", 1, :candidate, :passed)])
+    assert WorldReport.write(partial, [merge_report("case-a", 1, :candidate, :passed)]) == :ok
     merged = Path.join(root, "merged.json")
 
     assert_raise Mix.Error, ~r/world merge failed: :invalid_arguments/, fn ->
@@ -479,7 +479,7 @@ defmodule Ryker.Evals.MixTaskTest do
     # The database is per observation now: a pass leaves nothing behind, and a
     # failure keeps exactly its own rows under a name the report carries.
     template = "ryker_world_eval_template_#{System.unique_integer([:positive])}"
-    assert :ok = Storage.storage_up(storage(template))
+    assert Storage.storage_up(storage(template)) == :ok
     on_exit(fn -> Storage.storage_down(storage(template)) end)
     query!(template, "CREATE TABLE custody (id integer)")
 

@@ -1819,7 +1819,7 @@ defmodule Ryker.Slack.RendererTest do
     assert button["url"] == "https://emisar.example/app/acme/approvals/apr-1"
 
     malformed = put_in(document, ["records", Access.at(0), "payload", "request_id"], "other")
-    assert {:error, {:invalid_slack_render, :record}} = Renderer.render(malformed)
+    assert Renderer.render(malformed) == {:error, {:invalid_slack_render, :record}}
   end
 
   test "a pending review leads with the dispatch rationale and a trusted command block" do

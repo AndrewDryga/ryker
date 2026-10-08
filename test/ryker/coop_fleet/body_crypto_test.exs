@@ -50,16 +50,15 @@ defmodule Ryker.CoopFleet.BodyCryptoTest do
           {key, identity, metadata,
            <<Bitwise.bxor(:binary.at(encrypted, 0), 1)>> <> binary_part(encrypted, 1, 16)}
         ] do
-      assert {:error, :body_authentication_failed} =
-               BodyCrypto.authenticate(candidate_key, candidate_identity, candidate_metadata, [
-                 bytes
-               ])
+      assert BodyCrypto.authenticate(candidate_key, candidate_identity, candidate_metadata, [
+               bytes
+             ]) == {:error, :body_authentication_failed}
     end
 
     assert {:ok, replay} = BodyCrypto.start(key, identity)
     refute BodyCrypto.encrypt(replay, plaintext) == encrypted
     refute BodyCrypto.finish(replay)["salt"] == metadata["salt"]
-    assert {:error, :body_encryption_key_invalid} = BodyCrypto.start(nil, identity)
+    assert BodyCrypto.start(nil, identity) == {:error, :body_encryption_key_invalid}
   end
 
   defp hex(value), do: Base.decode16!(value, case: :lower)

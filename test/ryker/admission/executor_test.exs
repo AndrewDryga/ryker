@@ -686,8 +686,8 @@ defmodule Ryker.Admission.ExecutorTest do
     lease_ref = claim!(entry)
     {:ok, fake} = FakeAPI.start_link([decision("reply")], fail_create: true)
 
-    assert {:error, {:coop_unavailable, :simulated}} =
-             Executor.run(Inbox.ref(entry), executor_options(fake, lease_ref))
+    assert Executor.run(Inbox.ref(entry), executor_options(fake, lease_ref)) ==
+             {:error, {:coop_unavailable, :simulated}}
 
     assert {:ok, pending} = Inbox.fetch(Inbox.ref(entry))
     assert pending.status == :pending
@@ -729,11 +729,11 @@ defmodule Ryker.Admission.ExecutorTest do
         resume_operations: true
       )
 
-    assert {:error,
-            {:admission_generation_spent,
-             {:coop_operation_failed, "repository_unavailable",
-              "temporary workspace preparation failure"}}} =
-             Executor.run(Inbox.ref(entry), executor_options(fake, lease_ref))
+    assert Executor.run(Inbox.ref(entry), executor_options(fake, lease_ref)) ==
+             {:error,
+              {:admission_generation_spent,
+               {:coop_operation_failed, "repository_unavailable",
+                "temporary workspace preparation failure"}}}
 
     assert {:ok, pending} = Inbox.fetch(Inbox.ref(entry))
     assert pending.status == :pending
@@ -763,8 +763,8 @@ defmodule Ryker.Admission.ExecutorTest do
     {:ok, fake} =
       FakeAPI.start_link([decision("reply")], omit_validation_receipt: true)
 
-    assert {:error, {:admission_generation_spent, {:coop_protocol_error, :validation_receipt}}} =
-             Executor.run(Inbox.ref(entry), executor_options(fake, lease_ref))
+    assert Executor.run(Inbox.ref(entry), executor_options(fake, lease_ref)) ==
+             {:error, {:admission_generation_spent, {:coop_protocol_error, :validation_receipt}}}
 
     assert {:ok, pending} = Inbox.fetch(Inbox.ref(entry))
     assert pending.status == :pending
@@ -779,9 +779,10 @@ defmodule Ryker.Admission.ExecutorTest do
     {:ok, fake} =
       FakeAPI.start_link([submitted], accepted_candidate_override: different)
 
-    assert {:error,
-            {:admission_execution_blocked, {:coop_protocol_error, :validated_candidate_mismatch}}} =
-             Executor.run(Inbox.ref(entry), executor_options(fake, lease_ref))
+    assert Executor.run(Inbox.ref(entry), executor_options(fake, lease_ref)) ==
+             {:error,
+              {:admission_execution_blocked,
+               {:coop_protocol_error, :validated_candidate_mismatch}}}
 
     assert {:ok, pending} = Inbox.fetch(Inbox.ref(entry))
     assert pending.status == :pending
@@ -792,8 +793,8 @@ defmodule Ryker.Admission.ExecutorTest do
     {:ok, fake} = FakeAPI.start_link([decision("reply")])
     missing_ref = "ingress-input:#{Ecto.UUID.generate()}"
 
-    assert {:error, {:admission_execution_failed, :input_not_found}} =
-             Executor.run(missing_ref, executor_options(fake, "ingress-lease:unused"))
+    assert Executor.run(missing_ref, executor_options(fake, "ingress-lease:unused")) ==
+             {:error, {:admission_execution_failed, :input_not_found}}
 
     assert FakeAPI.state(fake).submit_count == 0
   end

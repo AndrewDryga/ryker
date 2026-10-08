@@ -15,14 +15,14 @@ defmodule Ryker.RescuedTest do
         error -> {error, __STACKTRACE__}
       end
 
-    log = capture_log(fn -> assert :ok = Rescued.log("Readiness", error, stacktrace) end)
+    log = capture_log(fn -> assert Rescued.log("Readiness", error, stacktrace) == :ok end)
     assert log =~ "Readiness raised: ** (ArgumentError) bad shape"
     assert log =~ "rescued_test.exs"
 
     log =
       capture_log(fn ->
-        assert {:error, "temporarily_unavailable"} =
-                 Rescued.tool("Slack tool x", error, stacktrace)
+        assert Rescued.tool("Slack tool x", error, stacktrace) ==
+                 {:error, "temporarily_unavailable"}
       end)
 
     assert log =~ "Slack tool x raised"

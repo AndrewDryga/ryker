@@ -48,16 +48,15 @@ defmodule Ryker.ControlPlane.SettingsWorkerJobsLiveTest do
   test "retired policy forms cannot mutate settings through direct events" do
     revision = Settings.fetch!().installation.revision
 
-    assert {:error, {:invalid_settings, [{:section, :unknown}]}} =
-             SettingsCommands.put_item(
-               :policies,
-               %{"policy_name" => "anything"},
-               revision,
-               "control-plane:local"
-             )
+    assert SettingsCommands.put_item(
+             :policies,
+             %{"policy_name" => "anything"},
+             revision,
+             "control-plane:local"
+           ) == {:error, {:invalid_settings, [{:section, :unknown}]}}
 
-    assert {:error, {:invalid_settings, [{:section, :unknown}]}} =
-             SettingsCommands.delete_item(:policies, "anything", revision, "control-plane:local")
+    assert SettingsCommands.delete_item(:policies, "anything", revision, "control-plane:local") ==
+             {:error, {:invalid_settings, [{:section, :unknown}]}}
 
     assert Settings.fetch!().installation.revision == revision
   end

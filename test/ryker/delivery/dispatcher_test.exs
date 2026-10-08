@@ -436,7 +436,7 @@ defmodule Ryker.Delivery.DispatcherTest do
 
     assert {:ok, {:delivered, :action, first_ref}} = Dispatcher.run_once(options)
     assert {:ok, {:delivered, :action, second_ref}} = Dispatcher.run_once(options)
-    assert {:ok, :idle} = Dispatcher.run_once(options)
+    assert Dispatcher.run_once(options) == {:ok, :idle}
     refute first_ref == second_ref
 
     assert FakeSlackAPI.state(slack).reacted == [
@@ -536,7 +536,7 @@ defmodule Ryker.Delivery.DispatcherTest do
     assert blocked.last_error_code == "slack_api_error"
     assert blocked.delivery_attempt_count == 1
     assert blocked.delivery_retry_generation == 0
-    assert {:ok, :idle} = Dispatcher.run_once(dispatcher_options(:message, publisher))
+    assert Dispatcher.run_once(dispatcher_options(:message, publisher)) == {:ok, :idle}
 
     assert {:ok, [listed]} = DeliveryOperator.list_blocked()
     assert listed.delivery_ref == delivery_ref
@@ -746,7 +746,7 @@ defmodule Ryker.Delivery.DispatcherTest do
     assert delivery_ref == pending.delivery_ref
     blocked = Repo.get_by!(RoutingResponse, input_id: pending.input_id)
     assert blocked.status == :blocked
-    assert {:ok, :idle} = Dispatcher.run_once(options)
+    assert Dispatcher.run_once(options) == {:ok, :idle}
 
     assert {:ok, rearmed} = DeliveryOperator.rearm(delivery_ref)
     assert rearmed.status == :pending
@@ -758,9 +758,9 @@ defmodule Ryker.Delivery.DispatcherTest do
   test "each delivery phase is independently idle" do
     {:ok, publisher} = Agent.start_link(fn -> %{calls: [], responses: []} end)
 
-    assert {:ok, :idle} = Dispatcher.run_once(dispatcher_options(:message, publisher))
-    assert {:ok, :idle} = Dispatcher.run_once(dispatcher_options(:routing, publisher))
-    assert {:ok, :idle} = Dispatcher.run_once(dispatcher_options(:action, publisher))
+    assert Dispatcher.run_once(dispatcher_options(:message, publisher)) == {:ok, :idle}
+    assert Dispatcher.run_once(dispatcher_options(:routing, publisher)) == {:ok, :idle}
+    assert Dispatcher.run_once(dispatcher_options(:action, publisher)) == {:ok, :idle}
   end
 
   test "a slow provider call renews custody before a second worker can reclaim it" do

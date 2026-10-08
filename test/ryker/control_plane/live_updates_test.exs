@@ -58,8 +58,8 @@ defmodule Ryker.ControlPlane.LiveUpdatesTest do
         assert function_exported?(module, leave, length(arguments)),
                "#{path}: #{inspect(subscription)} has no #{leave} to leave it"
 
-        assert :ok = apply(module, function, arguments)
-        assert :ok = apply(module, leave, arguments)
+        assert apply(module, function, arguments) == :ok
+        assert apply(module, leave, arguments) == :ok
       end
     end
   end

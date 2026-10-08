@@ -10,9 +10,9 @@ defmodule Ryker.CanonicalJSON.TypeTest do
     assert encoded == ~s({"nested":[1,true,null]})
     assert {:ok, ^value} = Type.load(encoded)
 
-    assert :error = Type.cast(%{"bad" => {:tuple, 1}})
-    assert :error = Type.dump(%{"bad" => <<0>>})
-    assert :error = Type.load("{")
-    assert :error = Type.load(123)
+    assert Type.cast(%{"bad" => {:tuple, 1}}) == :error
+    assert Type.dump(%{"bad" => <<0>>}) == :error
+    assert Type.load("{") == :error
+    assert Type.load(123) == :error
   end
 end

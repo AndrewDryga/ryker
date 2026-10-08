@@ -137,12 +137,11 @@ defmodule Ryker.Retention.RuntimeTest do
     end
 
     # Pruning is not optional: a worker without its horizons does not start.
-    assert {:stop, {:invalid_retention_worker, :options}} =
-             Worker.init(
-               dispatcher: __MODULE__.Dispatcher,
-               dispatcher_options: [],
-               poll_interval_ms: 60_000
-             )
+    assert Worker.init(
+             dispatcher: __MODULE__.Dispatcher,
+             dispatcher_options: [],
+             poll_interval_ms: 60_000
+           ) == {:stop, {:invalid_retention_worker, :options}}
   end
 
   # One failing pruning phase makes the whole pass an error, and the worker

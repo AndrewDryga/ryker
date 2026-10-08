@@ -158,7 +158,7 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
   # pressed now and says why on hover.
   test "with no signing credential, Add webhook source is disabled and says why on hover" do
     installation!()
-    assert :ok = Credentials.delete(:webhook, @registered, @actor)
+    assert Credentials.delete(:webhook, @registered, @actor) == :ok
     {:ok, view, _html} = open()
 
     blocked =
@@ -193,13 +193,12 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
 
     revision = Settings.fetch!().installation.revision
 
-    assert {:error, {:invalid_settings, [{:secret_name, :unregistered_secret}]}} =
-             Actions.callbacks().put_settings_item.(
-               :webhooks,
-               Map.put(source_params(), "secret_name", "SLACK_BOT_TOKEN"),
-               revision,
-               nil
-             )
+    assert Actions.callbacks().put_settings_item.(
+             :webhooks,
+             Map.put(source_params(), "secret_name", "SLACK_BOT_TOKEN"),
+             revision,
+             nil
+           ) == {:error, {:invalid_settings, [{:secret_name, :unregistered_secret}]}}
 
     assert Settings.fetch!().webhook_sources == []
   end
@@ -515,7 +514,7 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
     |> element("#confirm-delete-webhook-credential button", "Delete credential")
     |> render_click()
 
-    assert {:error, :credential_missing} = Credentials.fetch(:webhook, @registered)
+    assert Credentials.fetch(:webhook, @registered) == {:error, :credential_missing}
     assert has_element?(view, ".form-feedback-success", "#{@registered} was deleted.")
   end
 

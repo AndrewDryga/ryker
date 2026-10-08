@@ -261,8 +261,8 @@ defmodule Ryker.Admission.ReadySessionsTest do
     other = route!(fake, "Ev-ready-other", "C601")
     assert other.session_id == "ready_2"
 
-    assert {:error, {:admission_generation_spent, {:ready_session_abandoned, "ready_1"}}} =
-             Executor.run(Inbox.ref(stranded), executor_options(fake, lease_ref))
+    assert Executor.run(Inbox.ref(stranded), executor_options(fake, lease_ref)) ==
+             {:error, {:admission_generation_spent, {:ready_session_abandoned, "ready_1"}}}
 
     assert FakeAPI.state(fake).closed_sessions |> Enum.member?("ready_1")
 
@@ -302,7 +302,7 @@ defmodule Ryker.Admission.ReadySessionsTest do
     stalled = fn -> if FakeAPI.state(fake).validations == [], do: @now, else: later end
     options = entry |> claim!() |> then(&executor_options(fake, &1)) |> Keyword.put(:now, stalled)
 
-    assert {:error, :admission_attempt_lease_lost} = Executor.run(Inbox.ref(entry), options)
+    assert Executor.run(Inbox.ref(entry), options) == {:error, :admission_attempt_lease_lost}
     assert FakeAPI.sessions(fake)["ready_1"]["state"] == "closed"
 
     assert {:ok, %{entry: %{id: id}, lease_ref: retry_lease}} =

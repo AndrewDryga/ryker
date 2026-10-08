@@ -41,8 +41,8 @@ defmodule Ryker.Admission.AttemptsTest do
 
     {:ok, claim} = Inbox.claim_next("new-slot", settings.now.(), 60)
 
-    assert {:error, :admission_attempt_lease_lost} =
-             Attempts.observe(entry, "provider_running", %{}, settings)
+    assert Attempts.observe(entry, "provider_running", %{}, settings) ==
+             {:error, :admission_attempt_lease_lost}
 
     assert {:ok, current} =
              Attempts.prepare(claim.entry, %{settings | lease_ref: claim.lease_ref})
@@ -66,10 +66,10 @@ defmodule Ryker.Admission.AttemptsTest do
       }
     }
 
-    assert :ok = Attempts.observe_turn(entry, remote, settings)
+    assert Attempts.observe_turn(entry, remote, settings) == :ok
 
-    assert :ok =
-             Attempts.observe_turn(entry, %{"id" => remote["id"], "state" => "failed"}, settings)
+    assert Attempts.observe_turn(entry, %{"id" => remote["id"], "state" => "failed"}, settings) ==
+             :ok
 
     row = Repo.one!(Ryker.Accounting.Execution)
     assert row.kind == "admission"
@@ -93,7 +93,7 @@ defmodule Ryker.Admission.AttemptsTest do
     assert_received {:routing_updated, ^id}
     assert_received {:input_updated, ^id}
 
-    assert :ok = Attempts.observe(entry, "provider_running", %{}, settings)
+    assert Attempts.observe(entry, "provider_running", %{}, settings) == :ok
     assert_received {:routing_updated, ^id}
   end
 

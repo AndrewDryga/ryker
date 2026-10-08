@@ -33,10 +33,10 @@ defmodule Ryker.Emisar.ApprovalErrorCodesMigrationTest do
       assert saved == Approvals.error_code(reason), inspect(reason)
     end
 
-    assert :ok = migrate_down(@version)
+    assert migrate_down(@version) == :ok
     refute "last_error_code" in columns()
 
-    assert :ok = migrate_up(@version)
+    assert migrate_up(@version) == :ok
     assert "last_error_code" in columns()
   end
 

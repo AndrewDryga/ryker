@@ -37,8 +37,8 @@ defmodule Ryker.WorkExamples.ReactionsMigrationTest do
     off_quick = reaction!({:input, quick.id}, "off-quick", "1790600888.000200")
     for signal <- [on_quick, off_quick], do: copy!(RoutingCopy, answered, signal)
 
-    assert :ok = migrate_down(@version)
-    assert :ok = migrate_up(@version)
+    assert migrate_down(@version) == :ok
+    assert migrate_up(@version) == :ok
 
     assert copies(WorkCopy, work_example) == Enum.sort([on_reply.id, rated.id])
     assert copies(RoutingCopy, started) == [rated.id]

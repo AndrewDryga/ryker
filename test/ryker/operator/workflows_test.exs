@@ -194,22 +194,20 @@ defmodule Ryker.Operator.WorkflowsTest do
     assert action.actor_ref == "control-plane:test"
     assert action.resource_ref == Inbox.ref(entry)
 
-    assert {:error, :operator_action_conflict} =
-             Failures.retry(
-               "work",
-               Inbox.ref(entry),
-               Keyword.put(options, :expected_recovery, String.duplicate("a", 64))
-             )
+    assert Failures.retry(
+             "work",
+             Inbox.ref(entry),
+             Keyword.put(options, :expected_recovery, String.duplicate("a", 64))
+           ) == {:error, :operator_action_conflict}
 
-    assert {:error, {:invalid_operator_failure, :kind}} =
-             Failures.retry(
-               "publication",
-               "publication:not-generically-retryable",
-               options
-             )
+    assert Failures.retry(
+             "publication",
+             "publication:not-generically-retryable",
+             options
+           ) == {:error, {:invalid_operator_failure, :kind}}
 
-    assert {:error, {:invalid_operator_failure, :options}} =
-             Failures.retry("admission", Inbox.ref(entry), [])
+    assert Failures.retry("admission", Inbox.ref(entry), []) ==
+             {:error, {:invalid_operator_failure, :options}}
   end
 
   test "typed failure retry preserves delivery and Slack interaction identity" do
@@ -452,13 +450,12 @@ defmodule Ryker.Operator.WorkflowsTest do
     assert SlackReplay.enqueue(Inbox.ref(invalid_source), "request-invalid", replay_identity) ==
              {:error, :slack_replay_source_invalid}
 
-    assert {:error, :slack_replay_source_not_found} =
-             SlackReplay.enqueue(
-               "ingress-input:00000000-0000-0000-0000-000000000000",
-               "request",
-               actor_ref: "slack:user:U123",
-               action_ref: "operator-action:missing-replay"
-             )
+    assert SlackReplay.enqueue(
+             "ingress-input:00000000-0000-0000-0000-000000000000",
+             "request",
+             actor_ref: "slack:user:U123",
+             action_ref: "operator-action:missing-replay"
+           ) == {:error, :slack_replay_source_not_found}
 
     assert {:ok, input} = slack_input("Ev-pruned-replay", "1788512400.000300")
     assert {:ok, %{entry: source}} = Inbox.record(input, work_profile: work_profile!())
@@ -468,11 +465,10 @@ defmodule Ryker.Operator.WorkflowsTest do
       set: [content: %{"retention" => "pruned"}, operational_pruned_at: DateTime.utc_now()]
     )
 
-    assert {:error, :slack_replay_source_pruned} =
-             SlackReplay.enqueue(Inbox.ref(source), "request-pruned",
-               actor_ref: "slack:user:U123",
-               action_ref: "operator-action:pruned-replay"
-             )
+    assert SlackReplay.enqueue(Inbox.ref(source), "request-pruned",
+             actor_ref: "slack:user:U123",
+             action_ref: "operator-action:pruned-replay"
+           ) == {:error, :slack_replay_source_pruned}
 
     assert Repo.aggregate(Entry, :count) == 2
     assert Actions.fetch("operator-action:missing-replay") == :error
@@ -483,11 +479,10 @@ defmodule Ryker.Operator.WorkflowsTest do
     assert {:ok, input} = slack_input("Ev-profileless-replay", "1788512400.000400")
     assert {:ok, %{entry: source}} = Inbox.record(input)
 
-    assert {:error, :slack_replay_work_profile_missing} =
-             SlackReplay.enqueue(Inbox.ref(source), "request-profileless",
-               actor_ref: "slack:user:U123",
-               action_ref: "operator-action:profileless-replay"
-             )
+    assert SlackReplay.enqueue(Inbox.ref(source), "request-profileless",
+             actor_ref: "slack:user:U123",
+             action_ref: "operator-action:profileless-replay"
+           ) == {:error, :slack_replay_work_profile_missing}
 
     assert Actions.fetch("operator-action:profileless-replay") == :error
   end

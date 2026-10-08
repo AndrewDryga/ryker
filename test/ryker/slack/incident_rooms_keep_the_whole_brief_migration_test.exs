@@ -8,11 +8,11 @@ defmodule Ryker.Slack.IncidentRoomsKeepTheWholeBriefMigrationTest do
   # an offer with a longer brief could never get its room (2026-10-05). The
   # check is rebuilt whole, so the test holds the rest of it unchanged.
   test "a room keeps the brief an offer may carry, and nothing else in its check moves" do
-    assert :ok = migrate_down(@version)
+    assert migrate_down(@version) == :ok
     before = definition()
     assert before =~ "(char_length(prompt) <= 4000)"
 
-    assert :ok = migrate_up(@version)
+    assert migrate_up(@version) == :ok
 
     assert definition() ==
              String.replace(

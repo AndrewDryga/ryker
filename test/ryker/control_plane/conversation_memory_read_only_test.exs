@@ -20,23 +20,22 @@ defmodule Ryker.ControlPlane.ConversationMemoryReadOnlyTest do
     with_topics(fn fixture ->
       before = snapshot(fixture.workspace)
 
-      assert {:ok, :ok} =
-               Repo.transaction(fn ->
-                 Repo.query!("SET TRANSACTION READ ONLY")
-                 assert Repo.query!("SHOW transaction_read_only").rows == [["on"]]
+      assert Repo.transaction(fn ->
+               Repo.query!("SET TRANSACTION READ ONLY")
+               assert Repo.query!("SHOW transaction_read_only").rows == [["on"]]
 
-                 for id <- [fixture.local, fixture.inherited] do
-                   view = ConversationMemory.project(%{"kind" => "knowledge", "item" => id})
-                   assert [%{available: true, text: text}] = view.items
-                   assert text =~ "draft-ai-suggestions"
-                   assert [%{version: 1}] = view.history
+               for id <- [fixture.local, fixture.inherited] do
+                 view = ConversationMemory.project(%{"kind" => "knowledge", "item" => id})
+                 assert [%{available: true, text: text}] = view.items
+                 assert text =~ "draft-ai-suggestions"
+                 assert [%{version: 1}] = view.history
 
-                   assert {:ok, %{topic_id: ^id, version: 1, available?: true}} =
-                            Rebuilds.preview(id, %{page: 1, q: ""})
-                 end
+                 assert {:ok, %{topic_id: ^id, version: 1, available?: true}} =
+                          Rebuilds.preview(id, %{page: 1, q: ""})
+               end
 
-                 :ok
-               end)
+               :ok
+             end) == {:ok, :ok}
 
       assert snapshot(fixture.workspace) == before
     end)
@@ -115,11 +114,10 @@ defmodule Ryker.ControlPlane.ConversationMemoryReadOnlyTest do
       {_, document} = Fixtures.learn!(destination)
       id = String.replace_prefix(document["source_ref"], "knowledge:", "")
 
-      assert {:ok, true} =
-               Repo.transaction(fn ->
-                 Repo.query!("SET TRANSACTION READ ONLY")
-                 available?(id)
-               end)
+      assert Repo.transaction(fn ->
+               Repo.query!("SET TRANSACTION READ ONLY")
+               available?(id)
+             end) == {:ok, true}
     end)
   end
 
@@ -215,19 +213,18 @@ defmodule Ryker.ControlPlane.ConversationMemoryReadOnlyTest do
             "expected_version" => 0
           })
 
-        assert {:ok, :ok} =
-                 Repo.transaction(fn ->
-                   Knowledge.record_sources_in_transaction(
-                     [entry],
-                     proposal,
-                     [inherited_document],
-                     %{
-                       result_ref: "recorded-source-topology",
-                       source_dependencies: dependencies,
-                       omissions: []
-                     }
-                   )
-                 end)
+        assert Repo.transaction(fn ->
+                 Knowledge.record_sources_in_transaction(
+                   [entry],
+                   proposal,
+                   [inherited_document],
+                   %{
+                     result_ref: "recorded-source-topology",
+                     source_dependencies: dependencies,
+                     omissions: []
+                   }
+                 )
+               end) == {:ok, :ok}
 
         copied =
           Repo.get_by!(ConversationKnowledge,

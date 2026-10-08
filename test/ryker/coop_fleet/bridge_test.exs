@@ -166,21 +166,19 @@ defmodule Ryker.CoopFleet.BridgeTest do
 
     assert command_id == command.id
 
-    assert {:error, :worker_stopped} =
-             Bridge.await_command(command.id,
-               max_waits: 1,
-               poll_interval_ms: 1,
-               wait: fn -> {:error, :worker_stopped} end,
-               workspace_ref: "workspace-main"
-             )
+    assert Bridge.await_command(command.id,
+             max_waits: 1,
+             poll_interval_ms: 1,
+             wait: fn -> {:error, :worker_stopped} end,
+             workspace_ref: "workspace-main"
+           ) == {:error, :worker_stopped}
 
-    assert {:error, {:invalid_coop_worker_bridge_wait, :later}} =
-             Bridge.await_command(command.id,
-               max_waits: 1,
-               poll_interval_ms: 1,
-               wait: fn -> :later end,
-               workspace_ref: "workspace-main"
-             )
+    assert Bridge.await_command(command.id,
+             max_waits: 1,
+             poll_interval_ms: 1,
+             wait: fn -> :later end,
+             workspace_ref: "workspace-main"
+           ) == {:error, {:invalid_coop_worker_bridge_wait, :later}}
 
     failed =
       command
@@ -193,12 +191,11 @@ defmodule Ryker.CoopFleet.BridgeTest do
       )
       |> Repo.update!()
 
-    assert {:error, {:coop_error, 409, "revision_conflict", "stale"}} =
-             Bridge.await_command(failed.id,
-               max_waits: 1,
-               poll_interval_ms: 1,
-               workspace_ref: "workspace-main"
-             )
+    assert Bridge.await_command(failed.id,
+             max_waits: 1,
+             poll_interval_ms: 1,
+             workspace_ref: "workspace-main"
+           ) == {:error, {:coop_error, 409, "revision_conflict", "stale"}}
 
     uncertain =
       failed
@@ -208,12 +205,11 @@ defmodule Ryker.CoopFleet.BridgeTest do
       )
       |> Repo.update!()
 
-    assert {:error, {:coop_unavailable, "operation outcome unknown"}} =
-             Bridge.await_command(uncertain.id,
-               max_waits: 1,
-               poll_interval_ms: 1,
-               workspace_ref: "workspace-main"
-             )
+    assert Bridge.await_command(uncertain.id,
+             max_waits: 1,
+             poll_interval_ms: 1,
+             workspace_ref: "workspace-main"
+           ) == {:error, {:coop_unavailable, "operation outcome unknown"}}
 
     succeeded =
       uncertain
@@ -272,12 +268,12 @@ defmodule Ryker.CoopFleet.BridgeTest do
     )
     |> Repo.update!()
 
-    assert {:error, {:coop_error, 409, "revision_conflict", "stale"}} =
-             Bridge.await_command(command.id, max_waits: 1, workspace_ref: "workspace-main")
+    assert Bridge.await_command(command.id, max_waits: 1, workspace_ref: "workspace-main") ==
+             {:error, {:coop_error, 409, "revision_conflict", "stale"}}
 
-    assert {:ok, [1, 2]} = Bridge.response(%{"status" => 200, "body" => [1, 2]})
-    assert {:ok, nil} = Bridge.response(%{"status" => 204})
-    assert {:error, {:invalid_coop_worker_bridge, :response}} = Bridge.response(%{"id" => "old"})
+    assert Bridge.response(%{"status" => 200, "body" => [1, 2]}) == {:ok, [1, 2]}
+    assert Bridge.response(%{"status" => 204}) == {:ok, nil}
+    assert Bridge.response(%{"id" => "old"}) == {:error, {:invalid_coop_worker_bridge, :response}}
   end
 
   test "stored response bodies resolve as JSON or a binary file without losing their identity" do
@@ -296,7 +292,7 @@ defmodule Ryker.CoopFleet.BridgeTest do
         "sha256" => digest(bytes)
       }
 
-      assert :ok = Bodies.put(root, id, :response, reference, [bytes], key)
+      assert Bodies.put(root, id, :response, reference, [bytes], key) == :ok
 
       response = %{
         command
@@ -323,8 +319,8 @@ defmodule Ryker.CoopFleet.BridgeTest do
   end
 
   test "bridge options and session identities fail closed before placement" do
-    assert {:error, {:invalid_coop_worker_bridge, :session}} =
-             Bridge.execute(%{}, "get_session", %{}, "key", [])
+    assert Bridge.execute(%{}, "get_session", %{}, "key", []) ==
+             {:error, {:invalid_coop_worker_bridge, :session}}
 
     for invalid <- [
           nil,
@@ -337,8 +333,8 @@ defmodule Ryker.CoopFleet.BridgeTest do
           [workspace_ref: "workspace-main", lease_seconds: 0],
           [workspace_ref: "workspace-main", poll_interval_ms: 0]
         ] do
-      assert {:error, {:invalid_coop_worker_bridge, :options}} =
-               Bridge.await_command(Ecto.UUID.generate(), invalid)
+      assert Bridge.await_command(Ecto.UUID.generate(), invalid) ==
+               {:error, {:invalid_coop_worker_bridge, :options}}
     end
   end
 

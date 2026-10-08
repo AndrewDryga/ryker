@@ -194,25 +194,23 @@ defmodule Ryker.Settings.EnvironmentsTest do
           %{ref: "production", access: %{"payments" => :read_only}},
           %{ref: "production", repositories: ["ledger", "payments"]}
         ] do
-      assert {:error, {:invalid_settings, [access: :default_read_only]}} =
-               Settings.put_environment(attributes, limited.installation.revision, @actor)
+      assert Settings.put_environment(attributes, limited.installation.revision, @actor) ==
+               {:error, {:invalid_settings, [access: :default_read_only]}}
     end
 
     # An access for a repository the environment does not hold, or a word
     # that is not an access, is refused rather than dropped.
-    assert {:error, {:invalid_settings, [access: :unknown_repository]}} =
-             Settings.put_environment(
-               %{ref: "production", access: %{"billing-old" => :read_only}},
-               limited.installation.revision,
-               @actor
-             )
+    assert Settings.put_environment(
+             %{ref: "production", access: %{"billing-old" => :read_only}},
+             limited.installation.revision,
+             @actor
+           ) == {:error, {:invalid_settings, [access: :unknown_repository]}}
 
-    assert {:error, {:invalid_settings, [access: :access]}} =
-             Settings.put_environment(
-               %{ref: "production", access: %{"ledger" => "admin"}},
-               limited.installation.revision,
-               @actor
-             )
+    assert Settings.put_environment(
+             %{ref: "production", access: %{"ledger" => "admin"}},
+             limited.installation.revision,
+             @actor
+           ) == {:error, {:invalid_settings, [access: :access]}}
 
     assert Settings.fetch!().installation.revision == limited.installation.revision
   end
@@ -338,8 +336,8 @@ defmodule Ryker.Settings.EnvironmentsTest do
         @actor
       )
 
-    assert {:error, {:invalid_settings, [{:ref, :referenced}]}} =
-             Settings.delete_repository("ledger", saved.installation.revision, @actor)
+    assert Settings.delete_repository("ledger", saved.installation.revision, @actor) ==
+             {:error, {:invalid_settings, [{:ref, :referenced}]}}
 
     assert {:ok, saved} =
              Settings.delete_repository("runbooks", saved.installation.revision, @actor)

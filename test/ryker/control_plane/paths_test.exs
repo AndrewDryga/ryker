@@ -78,11 +78,11 @@ defmodule Ryker.ControlPlane.PathsTest do
   # The forward that serves everything but pages warns on a verified path, so a `~p` link that
   # names no page fails the build instead of answering 404.
   test "a verified path names a page, never what the forward serves" do
-    assert {nil, false} = WebRouter.__verify_route__(["timeline", @id])
-    assert {nil, false} = WebRouter.__verify_route__(["incident-rooms", "demo"])
+    assert WebRouter.__verify_route__(["timeline", @id]) == {nil, false}
+    assert WebRouter.__verify_route__(["incident-rooms", "demo"]) == {nil, false}
 
-    assert {nil, false} =
-             WebRouter.__verify_route__(["failures", "delivery", "platform-action:a"])
+    assert WebRouter.__verify_route__(["failures", "delivery", "platform-action:a"]) ==
+             {nil, false}
 
     assert {_forward, true} = WebRouter.__verify_route__(["actions", "memory", @id, "forget"])
   end

@@ -34,7 +34,7 @@ defmodule Ryker.Learning.FleetSessionTest do
     assert Repo.aggregate(Session, :count) == 1
     assert {:ok, bound} = FleetSession.bind(run, "host-contract-remote-session")
     assert bound.coop_session_id == "host-contract-remote-session"
-    assert {:error, :learning_session_identity_conflict} = FleetSession.bind(run, "other")
+    assert FleetSession.bind(run, "other") == {:error, :learning_session_identity_conflict}
     assert bound.cleanup_status == :active
     assert {:ok, ^bound} = FleetSession.ensure(run)
   end

@@ -104,13 +104,12 @@ defmodule Ryker.CoopFleet.WorkerLifecycleTest do
     assert ControlPlane.authenticate_certificate(certificate) ==
              {:error, :coop_worker_certificate_not_authorized}
 
-    assert {:error, :coop_worker_enrollment_not_authorized} =
-             Enrollment.issue_token(
-               "worker-revoke",
-               "workspace-main",
-               "operator:bootstrap",
-               300
-             )
+    assert Enrollment.issue_token(
+             "worker-revoke",
+             "workspace-main",
+             "operator:bootstrap",
+             300
+           ) == {:error, :coop_worker_enrollment_not_authorized}
 
     assert {:ok, %{status: :duplicate, worker: same}} =
              WorkerLifecycle.revoke("worker-revoke", "operator:other")

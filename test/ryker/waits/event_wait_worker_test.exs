@@ -15,7 +15,7 @@ defmodule Ryker.Waits.EventWaitWorkerTest do
     settled(worker)
 
     assert beats(:event_waits) > before
-    assert :ok = stop_supervised(EventWaitWorker)
+    assert stop_supervised(EventWaitWorker) == :ok
   end
 
   test "rejects malformed poll configuration" do

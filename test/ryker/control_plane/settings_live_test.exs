@@ -941,7 +941,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     view |> element("#confirm-disconnect-slack button", "Disconnect Slack") |> render_click()
 
-    assert {:error, :credential_missing} = Credentials.fetch(:slack_bot, "primary")
+    assert Credentials.fetch(:slack_bot, "primary") == {:error, :credential_missing}
     refute Settings.fetch!().slack.enabled
     assert has_element?(view, ".form-feedback-success", "Slack is disconnected.")
   end
@@ -1041,7 +1041,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     view |> element("#confirm-disconnect-github button", "Disconnect GitHub") |> render_click()
 
-    assert {:error, :credential_missing} = Credentials.fetch(:github_private_key, "primary")
+    assert Credentials.fetch(:github_private_key, "primary") == {:error, :credential_missing}
     assert has_element?(view, ".form-feedback-success", "GitHub is disconnected.")
     assert has_element?(view, ".settings-connection .state-word[data-tone=off]", "Not connected")
   end
@@ -2467,16 +2467,15 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     # must be a refusal, not a FunctionClauseError that takes the page down.
     initialize!()
 
-    assert {:error, {:invalid_settings, [{:channel_prefix, :invalid}]}} =
-             Actions.callbacks().save_settings.(
-               :incident_rooms,
-               %{"channel_prefix" => %{"a" => "b"}},
-               1,
-               nil
-             )
+    assert Actions.callbacks().save_settings.(
+             :incident_rooms,
+             %{"channel_prefix" => %{"a" => "b"}},
+             1,
+             nil
+           ) == {:error, {:invalid_settings, [{:channel_prefix, :invalid}]}}
 
-    assert {:error, {:invalid_settings, [{:section, :unknown}]}} =
-             Actions.callbacks().save_settings.(:not_a_section, %{}, 1, nil)
+    assert Actions.callbacks().save_settings.(:not_a_section, %{}, 1, nil) ==
+             {:error, {:invalid_settings, [{:section, :unknown}]}}
 
     assert Settings.fetch!().slack.channel_prefix == "inc"
     assert Settings.fetch!().installation.revision == 1

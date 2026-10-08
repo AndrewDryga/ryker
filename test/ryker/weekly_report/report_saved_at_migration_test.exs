@@ -13,7 +13,7 @@ defmodule Ryker.WeeklyReport.ReportSavedAtMigrationTest do
   # the time itself starts from its newest save still on record.
   test "an existing report keeps the time of its newest save on record" do
     {:ok, _initialized} = Settings.initialize(@actor)
-    assert :ok = migrate_down(@version)
+    assert migrate_down(@version) == :ok
 
     SQL.query!(
       Repo,
@@ -27,7 +27,7 @@ defmodule Ryker.WeeklyReport.ReportSavedAtMigrationTest do
       [@actor, String.duplicate("a", 64)]
     )
 
-    assert :ok = migrate_up(@version)
+    assert migrate_up(@version) == :ok
 
     assert Repo.one!(Settings.Report).saved_at == ~U[2026-09-20 08:00:00.000000Z]
   end

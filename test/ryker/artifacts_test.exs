@@ -257,7 +257,7 @@ defmodule Ryker.ArtifactsTest do
     assert {:ok, fetched} = Outputs.fetch_many(turn_id, requested)
     assert Enum.map(fetched, & &1.ref) == requested
     assert Enum.map(fetched, & &1.data) == Enum.reverse(Enum.map(bodies, & &1["data"]))
-    assert {:ok, []} = Outputs.fetch_many(turn_id, [])
+    assert Outputs.fetch_many(turn_id, []) == {:ok, []}
   end
 
   test "output artifact metadata and bodies reject every ambiguous identity" do

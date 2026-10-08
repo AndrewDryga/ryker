@@ -30,7 +30,7 @@ defmodule Ryker.Retention.DispatcherTest do
     stored = Repo.get!(Session, session.id)
     assert stored.cleanup_status == :discarded
     assert stored.cleanup_receipt["remote_session_id"] == session.coop_session_id
-    assert {:ok, :idle} = run(api, "cleanup:idle")
+    assert run(api, "cleanup:idle") == {:ok, :idle}
 
     calls = FakeAPI.calls(api)
     assert Enum.count(calls, &match?({:close, _, _}, &1)) == 1
@@ -71,20 +71,20 @@ defmodule Ryker.Retention.DispatcherTest do
         fail_first: [:close, :plan, :discard]
       )
 
-    assert {:ok, {:deferred, {:coop_unavailable, :response_lost}}} =
-             run(api, "cleanup:close:first")
+    assert run(api, "cleanup:close:first") ==
+             {:ok, {:deferred, {:coop_unavailable, :response_lost}}}
 
     make_due!(session.id)
     assert {:ok, {:executed, %{phase: :closed}}} = run(api, "cleanup:close:reconcile")
 
-    assert {:ok, {:deferred, {:coop_unavailable, :response_lost}}} =
-             run(api, "cleanup:plan:first")
+    assert run(api, "cleanup:plan:first") ==
+             {:ok, {:deferred, {:coop_unavailable, :response_lost}}}
 
     make_due!(session.id)
     assert {:ok, {:executed, %{phase: :planned}}} = run(api, "cleanup:plan:reconcile")
 
-    assert {:ok, {:deferred, {:coop_unavailable, :response_lost}}} =
-             run(api, "cleanup:discard:first")
+    assert run(api, "cleanup:discard:first") ==
+             {:ok, {:deferred, {:coop_unavailable, :response_lost}}}
 
     make_due!(session.id)
 
@@ -169,8 +169,8 @@ defmodule Ryker.Retention.DispatcherTest do
 
     {:ok, api} = FakeAPI.start_link(sessions: [crossed])
 
-    assert {:ok, {:blocked, {:coop_protocol_error, :session_authority}}} =
-             run(api, "cleanup:crossed")
+    assert run(api, "cleanup:crossed") ==
+             {:ok, {:blocked, {:coop_protocol_error, :session_authority}}}
 
     assert Repo.get!(Session, session.id).cleanup_status == :blocked
 
@@ -188,24 +188,24 @@ defmodule Ryker.Retention.DispatcherTest do
         sessions: [remote_session(invalid_state) |> Map.put("state", "starting")]
       )
 
-    assert {:ok, {:blocked, {:coop_protocol_error, :session_state}}} =
-             run(invalid_state_api, "cleanup:invalid-state")
+    assert run(invalid_state_api, "cleanup:invalid-state") ==
+             {:ok, {:blocked, {:coop_protocol_error, :session_state}}}
 
     missing_revision = terminal_session!("missing-revision")
 
     {:ok, missing_revision_api} =
       FakeAPI.start_link(sessions: [remote_session(missing_revision) |> Map.delete("revision")])
 
-    assert {:ok, {:blocked, {:coop_protocol_error, :session_revision}}} =
-             run(missing_revision_api, "cleanup:missing-revision")
+    assert run(missing_revision_api, "cleanup:missing-revision") ==
+             {:ok, {:blocked, {:coop_protocol_error, :session_revision}}}
 
     malformed_resource = terminal_session!("malformed-resource")
 
     {:ok, malformed_resource_api} =
       FakeAPI.start_link(sessions: [%{"id" => malformed_resource.coop_session_id}])
 
-    assert {:ok, {:blocked, {:coop_protocol_error, :session_resource}}} =
-             run(malformed_resource_api, "cleanup:malformed-resource")
+    assert run(malformed_resource_api, "cleanup:malformed-resource") ==
+             {:ok, {:blocked, {:coop_protocol_error, :session_resource}}}
 
     refute Enum.any?(FakeAPI.calls(invalid_state_api), &match?({:close, _, _}, &1))
     refute Enum.any?(FakeAPI.calls(missing_revision_api), &match?({:close, _, _}, &1))
@@ -506,59 +506,55 @@ defmodule Ryker.Retention.DispatcherTest do
   end
 
   test "invalid dispatcher and executor options fail before claiming custody" do
-    assert {:error, {:invalid_retention_dispatcher, :options}} = Dispatcher.settings(:invalid)
+    assert Dispatcher.settings(:invalid) == {:error, {:invalid_retention_dispatcher, :options}}
 
-    assert {:error, {:invalid_retention_dispatcher, :options}} =
-             Dispatcher.settings(client: :a, client: :b)
+    assert Dispatcher.settings(client: :a, client: :b) ==
+             {:error, {:invalid_retention_dispatcher, :options}}
 
-    assert {:error, {:invalid_retention_dispatcher, :options}} =
-             Dispatcher.settings(%{unknown: true})
+    assert Dispatcher.settings(%{unknown: true}) ==
+             {:error, {:invalid_retention_dispatcher, :options}}
 
-    assert {:error, {:invalid_retention_executor, :claim}} =
-             Executor.run(:invalid, [])
+    assert Executor.run(:invalid, []) == {:error, {:invalid_retention_executor, :claim}}
 
-    assert {:error, {:invalid_retention_executor, :options}} =
-             Executor.run(
-               %{lease_ref: "lease", session: %Session{cleanup_status: :active}},
-               :invalid
-             )
+    assert Executor.run(
+             %{lease_ref: "lease", session: %Session{cleanup_status: :active}},
+             :invalid
+           ) == {:error, {:invalid_retention_executor, :options}}
 
-    assert {:error, {:invalid_retention_executor, :status}} =
-             Executor.run(
-               %{lease_ref: "lease", session: %Session{cleanup_status: :active}},
-               api: FakeAPI,
-               client: :unused
-             )
+    assert Executor.run(
+             %{lease_ref: "lease", session: %Session{cleanup_status: :active}},
+             api: FakeAPI,
+             client: :unused
+           ) == {:error, {:invalid_retention_executor, :status}}
   end
 
   test "cleanup without an explicit Coop adapter is refused before it claims custody" do
     # A missing adapter used to fall back to the local Unix-socket client, which
     # is eval-only and left the release: cleanup must refuse to run rather than
     # claim a session and fail at its first Coop call.
-    assert {:error, {:invalid_retention_dispatcher, :options}} =
-             Dispatcher.settings(client: :client, worker_ref: "cleanup:no-adapter")
+    assert Dispatcher.settings(client: :client, worker_ref: "cleanup:no-adapter") ==
+             {:error, {:invalid_retention_dispatcher, :options}}
 
-    assert {:error, {:invalid_retention_dispatcher, :options}} =
-             Dispatcher.settings(api: nil, client: :client, worker_ref: "cleanup:no-adapter")
+    assert Dispatcher.settings(api: nil, client: :client, worker_ref: "cleanup:no-adapter") ==
+             {:error, {:invalid_retention_dispatcher, :options}}
 
-    assert {:error, {:invalid_retention_dispatcher, :options}} =
-             Dispatcher.settings(
-               api: FakeAPI,
-               client: :client,
-               learning_api: nil,
-               worker_ref: "cleanup:no-adapter"
-             )
+    assert Dispatcher.settings(
+             api: FakeAPI,
+             client: :client,
+             learning_api: nil,
+             worker_ref: "cleanup:no-adapter"
+           ) == {:error, {:invalid_retention_dispatcher, :options}}
 
     assert {:ok, %{api: FakeAPI, learning_api: FakeAPI}} =
              Dispatcher.settings(api: FakeAPI, client: :client, worker_ref: "cleanup:adapter")
 
     claim = %{lease_ref: "lease", session: %Session{cleanup_status: :active}}
 
-    assert {:error, {:invalid_retention_executor, :options}} =
-             Executor.run(claim, client: :unused)
+    assert Executor.run(claim, client: :unused) ==
+             {:error, {:invalid_retention_executor, :options}}
 
-    assert {:error, {:invalid_retention_executor, :options}} =
-             Executor.run(claim, api: nil, client: :unused)
+    assert Executor.run(claim, api: nil, client: :unused) ==
+             {:error, {:invalid_retention_executor, :options}}
   end
 
   defp run(api, worker_ref) do

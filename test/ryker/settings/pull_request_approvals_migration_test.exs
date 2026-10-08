@@ -36,7 +36,7 @@ defmodule Ryker.Settings.PullRequestApprovalsMigrationTest do
         @actor
       )
 
-    assert :ok = migrate_down(@version)
+    assert migrate_down(@version) == :ok
 
     SQL.query!(
       Repo,
@@ -44,7 +44,7 @@ defmodule Ryker.Settings.PullRequestApprovalsMigrationTest do
       [~w(read review open_pull_request approve merge)]
     )
 
-    assert :ok = migrate_up(@version)
+    assert migrate_up(@version) == :ok
 
     assert saved_row() == %{
              "action_grants" => ~w(read review open_pull_request),

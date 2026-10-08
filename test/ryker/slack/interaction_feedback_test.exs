@@ -73,8 +73,8 @@ defmodule Ryker.Slack.InteractionFeedbackTest do
       worker_ref: "slack-interaction:test"
     }
 
-    assert {:ok, {:repainted, "interaction:worker"}} =
-             InteractionFeedbackWorker.run_once(options)
+    assert InteractionFeedbackWorker.run_once(options) ==
+             {:ok, {:repainted, "interaction:worker"}}
 
     assert_received {:repainted, "interaction:worker", lease_ref}
     assert is_binary(lease_ref)
@@ -84,7 +84,7 @@ defmodule Ryker.Slack.InteractionFeedbackTest do
     assert settled.attempt_count == 1
     assert %DateTime{} = settled.repainted_at
     assert settled.lease_ref == nil
-    assert {:ok, :idle} = InteractionFeedbackWorker.run_once(options)
+    assert InteractionFeedbackWorker.run_once(options) == {:ok, :idle}
   end
 
   test "a successful confirmation retains one durable repaint across duplicate acknowledgements" do
@@ -106,7 +106,7 @@ defmodule Ryker.Slack.InteractionFeedbackTest do
     assert {:ok, settled} = InteractionAudits.settle(audit.id, claim.lease_ref)
     assert settled.repaint_status == :settled
     assert settled.attempt_count == 1
-    assert {:ok, nil} = InteractionAudits.claim_next("confirmation-worker", 30)
+    assert InteractionAudits.claim_next("confirmation-worker", 30) == {:ok, nil}
   end
 
   test "a stale setup control repaints the exact message from current durable state" do
@@ -149,12 +149,11 @@ defmodule Ryker.Slack.InteractionFeedbackTest do
     assert InteractionRepaint.repaint(audit, %{api: SlackAPI, client: self()}) ==
              {:error, :slack_setup_presentation_unavailable}
 
-    assert :ok =
-             InteractionRepaint.repaint(audit, %{
-               api: SlackAPI,
-               client: self(),
-               bot_user_ref: "UBOT"
-             })
+    assert InteractionRepaint.repaint(audit, %{
+             api: SlackAPI,
+             client: self(),
+             bot_user_ref: "UBOT"
+           }) == :ok
 
     assert_received {:updated_message, "C456", "1787832001.000200", document, delivery_ref}
 
@@ -191,16 +190,16 @@ defmodule Ryker.Slack.InteractionFeedbackTest do
         repaint: fn _audit, _options -> {:error, :slack_unavailable} end
       )
 
-    assert {:ok, {:deferred, "interaction:retry-block"}} =
-             InteractionFeedbackWorker.run_once(options)
+    assert InteractionFeedbackWorker.run_once(options) ==
+             {:ok, {:deferred, "interaction:retry-block"}}
 
     Repo.update_all(
       from(stored in InteractionAudit, where: stored.id == ^audit.id),
       set: [next_attempt_at: DateTime.add(Repo.now!(), -1, :second)]
     )
 
-    assert {:ok, {:blocked, "interaction:retry-block"}} =
-             InteractionFeedbackWorker.run_once(options)
+    assert InteractionFeedbackWorker.run_once(options) ==
+             {:ok, {:blocked, "interaction:retry-block"}}
 
     blocked = Repo.get!(InteractionAudit, audit.id)
     assert blocked.repaint_status == :blocked
@@ -224,8 +223,8 @@ defmodule Ryker.Slack.InteractionFeedbackTest do
     options = worker_options(max_attempts: 2, repaint: fn _audit, _options -> limited end)
 
     for _attempt <- 1..3 do
-      assert {:ok, {:deferred, "interaction:rate-limited"}} =
-               InteractionFeedbackWorker.run_once(options)
+      assert InteractionFeedbackWorker.run_once(options) ==
+               {:ok, {:deferred, "interaction:rate-limited"}}
 
       waiting = Repo.get!(InteractionAudit, audit.id)
       assert waiting.attempt_count == 0
@@ -253,8 +252,8 @@ defmodule Ryker.Slack.InteractionFeedbackTest do
         repaint: fn _audit, _options -> {:error, :slack_unavailable} end
       )
 
-    assert {:ok, {:blocked, "interaction:blocked-speaks"}} =
-             InteractionFeedbackWorker.run_once(options)
+    assert InteractionFeedbackWorker.run_once(options) ==
+             {:ok, {:blocked, "interaction:blocked-speaks"}}
 
     assert_receive {:ephemeral, channel_ref, actor_ref, thread_ref, text}
     assert channel_ref == audit.channel_ref
@@ -311,8 +310,8 @@ defmodule Ryker.Slack.InteractionFeedbackTest do
              interaction("interaction:quiet-success")
              |> InteractionAudits.record(:invalid)
 
-    assert {:ok, {:repainted, "interaction:quiet-success"}} =
-             InteractionFeedbackWorker.run_once(worker_options([]))
+    assert InteractionFeedbackWorker.run_once(worker_options([])) ==
+             {:ok, {:repainted, "interaction:quiet-success"}}
 
     refute_receive {:ephemeral, _channel, _actor, _thread, _text}
   end
@@ -333,8 +332,8 @@ defmodule Ryker.Slack.InteractionFeedbackTest do
     assert rearmed.last_error_code == nil
     assert rearmed.lease_ref == nil
 
-    assert {:error, :slack_interaction_audit_not_blocked} =
-             InteractionAudits.rearm(audit.event_ref)
+    assert InteractionAudits.rearm(audit.event_ref) ==
+             {:error, :slack_interaction_audit_not_blocked}
   end
 
   test "the supervised worker idles and rejects malformed runtime options" do
@@ -399,7 +398,7 @@ defmodule Ryker.Slack.InteractionFeedbackTest do
              interaction("interaction:vanished")
              |> InteractionAudits.record(:invalid)
 
-    assert :ok = InteractionRepaint.repaint(audit, %{api: SlackAPI, client: self()})
+    assert InteractionRepaint.repaint(audit, %{api: SlackAPI, client: self()}) == :ok
 
     assert InteractionRepaint.repaint(audit, %{api: :missing_api, client: self()}) ==
              {:error, :slack_interaction_repaint_api_invalid}

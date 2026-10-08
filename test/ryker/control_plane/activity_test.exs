@@ -38,8 +38,8 @@ defmodule Ryker.ControlPlane.ActivityTest do
 
     Names.name("T123", "U1")
     Names.name("T123", "C456")
-    assert :ok = GenServer.call(Names, :refresh)
-    assert :ok = GenServer.call(Names, :refresh)
+    assert GenServer.call(Names, :refresh) == :ok
+    assert GenServer.call(Names, :refresh) == :ok
 
     {:ok, input} =
       Input.new(%{
@@ -532,7 +532,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
   test "search and the repository filter find a request by what its row shows" do
     start_supervised!({Names, workspace: "T123", fetch: fn _ref -> {:ok, "ops-alerts"} end})
     Names.name("T123", "C777")
-    assert :ok = GenServer.call(Names, :refresh)
+    assert GenServer.call(Names, :refresh) == :ok
 
     {:ok, input} =
       Input.new(%{

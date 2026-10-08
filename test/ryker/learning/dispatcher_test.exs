@@ -283,7 +283,7 @@ defmodule Ryker.Learning.DispatcherTest do
         refute replacement.lease_ref == batch.lease_ref
         send(executor, :continue_provider)
 
-        assert {:error, :learning_lease_lost} = Task.await(worker)
+        assert Task.await(worker) == {:error, :learning_lease_lost}
         assert Repo.aggregate(KnowledgeRevision, :count) == 0
         assert Repo.get!(LearningRun, run.id) == run
         assert Repo.get!(Session, session.id) == session
@@ -384,7 +384,7 @@ defmodule Ryker.Learning.DispatcherTest do
       assert run.started_at != nil
       assert run.reconcile_attempt_count == 1
       assert %{status: :applied, start_count: 1} = drive_to_applied!(settings, 5)
-      assert {:ok, :idle} = Dispatcher.run_once(settings)
+      assert Dispatcher.run_once(settings) == {:ok, :idle}
       assert Repo.aggregate(LearningRun, :count) == 1
       assert Repo.aggregate(Session, :count) == 1
       assert Repo.aggregate(KnowledgeRevision, :count) == 1
@@ -454,15 +454,14 @@ defmodule Ryker.Learning.DispatcherTest do
     assert [%{status: :responded, result: result} = original] = Repo.all(LearningRun)
     assert is_binary(result)
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Observations.receive_in_transaction(%{
-                 entry
-                 | id: Ecto.UUID.generate(),
-                   revision: entry.revision + 1,
-                   event_kind: :delete
-               })
-             end)
+    assert Repo.transaction(fn ->
+             Observations.receive_in_transaction(%{
+               entry
+               | id: Ecto.UUID.generate(),
+                 revision: entry.revision + 1,
+                 event_kind: :delete
+             })
+           end) == {:ok, :ok}
 
     for _ <- 1..2 do
       make_due!()
@@ -523,7 +522,7 @@ defmodule Ryker.Learning.DispatcherTest do
 
     assert Repo.aggregate(LearningRun, :count) == 0
     assert Repo.aggregate(Session, :count) == 0
-    assert {:ok, :idle} = Dispatcher.run_once(Map.put(@settings, :client, nil))
+    assert Dispatcher.run_once(Map.put(@settings, :client, nil)) == {:ok, :idle}
   end
 
   # The 2026-09-28 token and context investigation: every "hi" someone sent
@@ -541,7 +540,7 @@ defmodule Ryker.Learning.DispatcherTest do
 
     assert Repo.aggregate(LearningRun, :count) == 0
     assert Repo.aggregate(Session, :count) == 0
-    assert {:ok, :idle} = Dispatcher.run_once(Map.put(@settings, :client, nil))
+    assert Dispatcher.run_once(Map.put(@settings, :client, nil)) == {:ok, :idle}
   end
 
   # A greeting that says anything more can carry the one correction worth
@@ -674,7 +673,7 @@ defmodule Ryker.Learning.DispatcherTest do
         )
       )
 
-    assert {:ok, :ok} = Repo.transaction(fn -> Observations.receive_in_transaction(next) end)
+    assert Repo.transaction(fn -> Observations.receive_in_transaction(next) end) == {:ok, :ok}
 
     assert {:ok, %{inputs: [claimed]}} =
              Batches.claim("next-evidence", @settings)
@@ -746,8 +745,7 @@ defmodule Ryker.Learning.DispatcherTest do
     assert {:ok, %Session{worker_job_document: nil, coop_session_id: nil}} =
              FleetSession.ensure(run)
 
-    assert {:ok, :stopped} =
-             Executor.stop(claim, run, :learning_session_unconfirmed, settings)
+    assert Executor.stop(claim, run, :learning_session_unconfirmed, settings) == {:ok, :stopped}
 
     assert %{remote_stopped_at: %DateTime{}, stop_receipt: %{"kind" => "never_created"}} =
              Repo.get!(LearningRun, run.id)
@@ -765,7 +763,7 @@ defmodule Ryker.Learning.DispatcherTest do
              drive_to_terminal!(settings, 12)
 
     assert [%{reconcile_attempt_count: 12}] = Repo.all(LearningRun)
-    assert {:ok, :idle} = Dispatcher.run_once(settings)
+    assert Dispatcher.run_once(settings) == {:ok, :idle}
     assert FakeCoopAPI.state(fake).submit_count == 0
   end
 
@@ -814,7 +812,7 @@ defmodule Ryker.Learning.DispatcherTest do
         )
       )
 
-    assert {:ok, :ok} = Repo.transaction(fn -> Observations.receive_in_transaction(next) end)
+    assert Repo.transaction(fn -> Observations.receive_in_transaction(next) end) == {:ok, :ok}
     make_due!()
     assert {:ok, resumed} = Dispatcher.run_once(settings)
     assert resumed.id == deferred.id
@@ -899,15 +897,14 @@ defmodule Ryker.Learning.DispatcherTest do
   end
 
   defp withdraw!(entry) do
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Observations.receive_in_transaction(%{
-                 entry
-                 | id: Ecto.UUID.generate(),
-                   revision: entry.revision + 1,
-                   event_kind: :delete
-               })
-             end)
+    assert Repo.transaction(fn ->
+             Observations.receive_in_transaction(%{
+               entry
+               | id: Ecto.UUID.generate(),
+                 revision: entry.revision + 1,
+                 event_kind: :delete
+             })
+           end) == {:ok, :ok}
   end
 
   defp drive_until_fault!(settings, fake, left) when left > 0 do

@@ -49,13 +49,12 @@ defmodule Ryker.Emisar.ApprovalContractTest do
                )
     end
 
-    assert {:error, {:invalid_emisar_approval, :fields}} =
-             payload
-             |> Map.put("invented", true)
-             |> ApprovalContract.authorize(
-               "https://emisar.example/api/mcp/rpc",
-               @now
-             )
+    assert payload
+           |> Map.put("invented", true)
+           |> ApprovalContract.authorize(
+             "https://emisar.example/api/mcp/rpc",
+             @now
+           ) == {:error, {:invalid_emisar_approval, :fields}}
   end
 
   # The record is what the MODEL relays when it registers a hold; the review

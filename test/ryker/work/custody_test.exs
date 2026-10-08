@@ -35,7 +35,7 @@ defmodule Ryker.Work.CustodyTest do
     assert claim.session.generation == 1
     assert claim.session.create_generation == 1
     assert claim.session.coop_session_id == nil
-    assert {:ok, nil} = Custody.claim_next("worker:b", 60)
+    assert Custody.claim_next("worker:b", 60) == {:ok, nil}
   end
 
   # Working copies lists every Coop session and a request's page shows its
@@ -242,15 +242,14 @@ defmodule Ryker.Work.CustodyTest do
                "remote_episode_1"
              )
 
-    assert {:error, {:work_session_conflict, "remote_episode_1"}} =
-             Custody.bind_session(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               claim.session.generation,
-               claim.session.create_generation,
-               "remote_episode_2"
-             )
+    assert Custody.bind_session(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             claim.session.generation,
+             claim.session.create_generation,
+             "remote_episode_2"
+           ) == {:error, {:work_session_conflict, "remote_episode_1"}}
   end
 
   test "renewal extends only the current fenced lease" do
@@ -262,15 +261,14 @@ defmodule Ryker.Work.CustodyTest do
 
     assert DateTime.compare(renewed.lease_expires_at, claim.turn.lease_expires_at) == :gt
 
-    assert {:error, :work_lease_lost} =
-             Custody.renew(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               "work-lease:stale",
-               90
-             )
+    assert Custody.renew(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             "work-lease:stale",
+             90
+           ) == {:error, :work_lease_lost}
 
-    assert {:ok, nil} = Custody.claim_next("worker:b", 30)
+    assert Custody.claim_next("worker:b", 30) == {:ok, nil}
   end
 
   # A lease that ran out read as a turn that no longer existed, so the worker's dispatcher took
@@ -284,15 +282,14 @@ defmodule Ryker.Work.CustodyTest do
       set: [lease_expires_at: ~U[2000-01-01 00:00:00.000000Z]]
     )
 
-    assert {:error, :work_lease_lost} =
-             Custody.defer(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               1,
-               "test",
-               "the lease ran out"
-             )
+    assert Custody.defer(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             1,
+             "test",
+             "the lease ran out"
+           ) == {:error, :work_lease_lost}
   end
 
   test "only a confirmed pre-resource failure spends an operation generation" do
@@ -309,13 +306,12 @@ defmodule Ryker.Work.CustodyTest do
 
     assert create_retry.create_generation == 2
 
-    assert {:error, {:work_session_create_generation_conflict, 2}} =
-             Custody.advance_session_create(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               1
-             )
+    assert Custody.advance_session_create(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             1
+           ) == {:error, {:work_session_create_generation_conflict, 2}}
 
     submission = submission!(%{"request" => "retry-safe"})
 
@@ -337,13 +333,12 @@ defmodule Ryker.Work.CustodyTest do
                "remote_episode_retry"
              )
 
-    assert {:error, :work_session_already_bound} =
-             Custody.advance_session_create(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               create_retry.create_generation
-             )
+    assert Custody.advance_session_create(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             create_retry.create_generation
+           ) == {:error, :work_session_already_bound}
 
     assert {:ok, submit_retry} =
              Custody.advance_turn_submit(
@@ -380,23 +375,21 @@ defmodule Ryker.Work.CustodyTest do
 
     assert exact_retry.id == bound.id
 
-    assert {:error, {:work_turn_conflict, "remote_turn_2"}} =
-             Custody.bind_turn(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               session.generation,
-               submit_retry.submit_generation,
-               "different_turn"
-             )
+    assert Custody.bind_turn(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             session.generation,
+             submit_retry.submit_generation,
+             "different_turn"
+           ) == {:error, {:work_turn_conflict, "remote_turn_2"}}
 
-    assert {:error, :work_turn_already_bound} =
-             Custody.advance_turn_submit(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               submit_retry.submit_generation
-             )
+    assert Custody.advance_turn_submit(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             submit_retry.submit_generation
+           ) == {:error, :work_turn_already_bound}
   end
 
   test "two episodes may use the same episode-scoped turn reference" do
@@ -433,23 +426,21 @@ defmodule Ryker.Work.CustodyTest do
     assert requested.turn.status == :cancel_pending
     assert requested.episode.owner_ref == command.turn_ref
 
-    assert {:error, :work_lease_lost} =
-             Custody.freeze_submission(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               submission!(%{"request" => "stale"})
-             )
+    assert Custody.freeze_submission(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             submission!(%{"request" => "stale"})
+           ) == {:error, :work_lease_lost}
 
-    assert {:error, :work_lease_lost} =
-             Custody.bind_session(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               claim.session.generation,
-               claim.session.create_generation,
-               "remote_stale"
-             )
+    assert Custody.bind_session(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             claim.session.generation,
+             claim.session.create_generation,
+             "remote_stale"
+           ) == {:error, :work_lease_lost}
 
     assert {:ok, cancellation_claim} = Custody.claim_next("worker:transfer-cleanup", 60, :work)
 
@@ -471,13 +462,12 @@ defmodule Ryker.Work.CustodyTest do
                receipt
              )
 
-    assert {:error, :work_turn_not_claimable} =
-             Custody.renew(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               60
-             )
+    assert Custody.renew(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             60
+           ) == {:error, :work_turn_not_claimable}
 
     assert {:ok, replacement} = Custody.claim_next("worker:b", 60)
     assert replacement.turn.turn_ref == "turn:replacement"
@@ -514,51 +504,46 @@ defmodule Ryker.Work.CustodyTest do
     create_episode!("binding-order")
     assert {:ok, claim} = Custody.claim_next("worker:binding-order", 60)
 
-    assert {:error, {:work_session_generation_conflict, 1}} =
-             Custody.bind_session(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               2,
-               1,
-               "remote:wrong-session-generation"
-             )
+    assert Custody.bind_session(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             2,
+             1,
+             "remote:wrong-session-generation"
+           ) == {:error, {:work_session_generation_conflict, 1}}
 
-    assert {:error, {:work_session_create_generation_conflict, 1}} =
-             Custody.bind_session(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               1,
-               2,
-               "remote:wrong-create-generation"
-             )
+    assert Custody.bind_session(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             1,
+             2,
+             "remote:wrong-create-generation"
+           ) == {:error, {:work_session_create_generation_conflict, 1}}
 
-    assert {:error, :work_session_not_bound} =
-             Custody.rotate_session(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               1
-             )
+    assert Custody.rotate_session(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             1
+           ) == {:error, :work_session_not_bound}
 
-    assert {:error, :work_session_not_bound} =
-             Custody.bind_turn(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               1,
-               1,
-               "remote:turn-before-session"
-             )
+    assert Custody.bind_turn(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             1,
+             1,
+             "remote:turn-before-session"
+           ) == {:error, :work_session_not_bound}
 
-    assert {:error, :work_session_not_bound} =
-             Custody.advance_turn_submit(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               1
-             )
+    assert Custody.advance_turn_submit(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             1
+           ) == {:error, :work_session_not_bound}
 
     assert {:ok, session} =
              Custody.bind_session(
@@ -570,43 +555,39 @@ defmodule Ryker.Work.CustodyTest do
                "remote:binding-order"
              )
 
-    assert {:error, {:work_session_generation_conflict, 1}} =
-             Custody.bind_turn(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               2,
-               1,
-               "remote:wrong-turn-session"
-             )
+    assert Custody.bind_turn(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             2,
+             1,
+             "remote:wrong-turn-session"
+           ) == {:error, {:work_session_generation_conflict, 1}}
 
-    assert {:error, {:work_turn_submit_generation_conflict, 1}} =
-             Custody.bind_turn(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               session.generation,
-               2,
-               "remote:wrong-submit-generation"
-             )
+    assert Custody.bind_turn(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             session.generation,
+             2,
+             "remote:wrong-submit-generation"
+           ) == {:error, {:work_turn_submit_generation_conflict, 1}}
 
-    assert {:error, :work_submission_not_frozen} =
-             Custody.bind_turn(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               session.generation,
-               1,
-               "remote:turn-before-freeze"
-             )
+    assert Custody.bind_turn(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             session.generation,
+             1,
+             "remote:turn-before-freeze"
+           ) == {:error, :work_submission_not_frozen}
 
-    assert {:error, :work_submission_not_frozen} =
-             Custody.advance_turn_submit(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               1
-             )
+    assert Custody.advance_turn_submit(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             1
+           ) == {:error, :work_submission_not_frozen}
 
     assert {:ok, _turn} =
              Custody.freeze_submission(
@@ -639,28 +620,26 @@ defmodule Ryker.Work.CustodyTest do
     candidate = ~s({"message":"candidate"})
     candidate_sha256 = digest(candidate)
 
-    assert {:error, :work_turn_not_bound} =
-             Custody.stage_candidate(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               nil,
-               nil,
-               candidate,
-               candidate_sha256,
-               1
-             )
+    assert Custody.stage_candidate(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             nil,
+             nil,
+             candidate,
+             candidate_sha256,
+             1
+           ) == {:error, :work_turn_not_bound}
 
-    assert {:error, :work_turn_not_bound} =
-             Custody.prepare_validation(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               candidate_sha256,
-               1,
-               {:reject, ["not ready"]},
-               nil
-             )
+    assert Custody.prepare_validation(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             candidate_sha256,
+             1,
+             {:reject, ["not ready"]},
+             nil
+           ) == {:error, :work_turn_not_bound}
 
     assert {:ok, _submission} =
              Custody.freeze_submission(
@@ -705,17 +684,16 @@ defmodule Ryker.Work.CustodyTest do
     different = ~s({"message":"different"})
     different_sha256 = digest(different)
 
-    assert {:error, {:work_candidate_attempt_conflict, 1}} =
-             Custody.stage_candidate(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               staged.candidate_sha256,
-               staged.candidate_attempt,
-               different,
-               different_sha256,
-               1
-             )
+    assert Custody.stage_candidate(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             staged.candidate_sha256,
+             staged.candidate_attempt,
+             different,
+             different_sha256,
+             1
+           ) == {:error, {:work_candidate_attempt_conflict, 1}}
 
     assert {:error, {:work_candidate_conflict, ^candidate_sha256}} =
              Custody.stage_candidate(
@@ -729,15 +707,14 @@ defmodule Ryker.Work.CustodyTest do
                2
              )
 
-    assert {:error, :work_validation_intent_not_frozen} =
-             Custody.advance_validation(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               candidate_sha256,
-               1,
-               1
-             )
+    assert Custody.advance_validation(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             candidate_sha256,
+             1,
+             1
+           ) == {:error, :work_validation_intent_not_frozen}
 
     assert {:ok, exact_candidate_retry} =
              Custody.stage_candidate(
@@ -1049,13 +1026,12 @@ defmodule Ryker.Work.CustodyTest do
                "remote:rotation-fence"
              )
 
-    assert {:error, {:work_session_generation_conflict, 1}} =
-             Custody.rotate_session(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               2
-             )
+    assert Custody.rotate_session(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             2
+           ) == {:error, {:work_session_generation_conflict, 1}}
 
     assert {:ok, %{session: replacement}} =
              Custody.rotate_session(
@@ -1177,86 +1153,86 @@ defmodule Ryker.Work.CustodyTest do
 
     assert WorkSessions.pin_episode(episode_id, ref, digest) == {:error, :episode_not_found}
 
-    assert {:error, {:invalid_work_custody, :repository_ref}} =
-             WorkSessions.pin_episode(episode_id, ref, digest, repository_ref: <<0>>)
+    assert WorkSessions.pin_episode(episode_id, ref, digest, repository_ref: <<0>>) ==
+             {:error, {:invalid_work_custody, :repository_ref}}
 
-    assert {:error, {:invalid_work_submission, :fields}} =
-             Custody.freeze_submission(episode_id, ref, ref, :invalid)
+    assert Custody.freeze_submission(episode_id, ref, ref, :invalid) ==
+             {:error, {:invalid_work_submission, :fields}}
 
-    assert {:error, {:invalid_work_custody, :final_preflight_candidate_sha256}} =
-             Custody.record_final_preflight(episode_id, ref, ref, "bad", digest, 1)
+    assert Custody.record_final_preflight(episode_id, ref, ref, "bad", digest, 1) ==
+             {:error, {:invalid_work_custody, :final_preflight_candidate_sha256}}
 
-    assert {:error, {:invalid_work_custody, :final_preflight_semantic_version}} =
-             Custody.record_final_preflight(episode_id, ref, ref, digest, digest, -1)
+    assert Custody.record_final_preflight(episode_id, ref, ref, digest, digest, -1) ==
+             {:error, {:invalid_work_custody, :final_preflight_semantic_version}}
 
-    assert {:error, {:invalid_work_custody, :artifact_refs}} =
-             Custody.verify_final_preflight(episode_id, ref, ref, digest, :invalid)
+    assert Custody.verify_final_preflight(episode_id, ref, ref, digest, :invalid) ==
+             {:error, {:invalid_work_custody, :artifact_refs}}
 
-    assert {:error, {:invalid_work_custody, :state_tools_endpoint}} =
-             Custody.bind_state_tools(episode_id, ref, ref, "", digest)
+    assert Custody.bind_state_tools(episode_id, ref, ref, "", digest) ==
+             {:error, {:invalid_work_custody, :state_tools_endpoint}}
 
-    assert {:error, {:invalid_work_custody, :state_tools_token_sha256}} =
-             Custody.bind_state_tools(episode_id, ref, ref, "https://state.test/mcp", "bad")
+    assert Custody.bind_state_tools(episode_id, ref, ref, "https://state.test/mcp", "bad") ==
+             {:error, {:invalid_work_custody, :state_tools_token_sha256}}
 
-    assert {:error, {:invalid_work_custody, :session_generation}} =
-             Custody.bind_session(episode_id, ref, ref, 0, 1, "coop-session")
+    assert Custody.bind_session(episode_id, ref, ref, 0, 1, "coop-session") ==
+             {:error, {:invalid_work_custody, :session_generation}}
 
-    assert {:error, {:invalid_work_custody, :create_generation}} =
-             Custody.advance_session_create(episode_id, ref, ref, 0)
+    assert Custody.advance_session_create(episode_id, ref, ref, 0) ==
+             {:error, {:invalid_work_custody, :create_generation}}
 
-    assert {:error, {:invalid_work_custody, :session_generation}} =
-             Custody.rotate_session(episode_id, ref, ref, 0)
+    assert Custody.rotate_session(episode_id, ref, ref, 0) ==
+             {:error, {:invalid_work_custody, :session_generation}}
 
-    assert {:error, {:invalid_work_custody, :session_generation}} =
-             Custody.replace_session_after_placement_loss(episode_id, ref, ref, 0)
+    assert Custody.replace_session_after_placement_loss(episode_id, ref, ref, 0) ==
+             {:error, {:invalid_work_custody, :session_generation}}
 
-    assert {:error, {:invalid_work_custody, :submit_generation}} =
-             Custody.bind_turn(episode_id, ref, ref, 1, 0, "coop-turn")
+    assert Custody.bind_turn(episode_id, ref, ref, 1, 0, "coop-turn") ==
+             {:error, {:invalid_work_custody, :submit_generation}}
 
-    assert {:error, {:invalid_work_custody, :submit_generation}} =
-             Custody.advance_turn_submit(episode_id, ref, ref, 0)
+    assert Custody.advance_turn_submit(episode_id, ref, ref, 0) ==
+             {:error, {:invalid_work_custody, :submit_generation}}
 
-    assert {:error, {:invalid_work_custody, :expected_candidate_identity}} =
-             Custody.stage_candidate(episode_id, ref, ref, digest, nil, "{}", digest, 1)
+    assert Custody.stage_candidate(episode_id, ref, ref, digest, nil, "{}", digest, 1) ==
+             {:error, {:invalid_work_custody, :expected_candidate_identity}}
 
-    assert {:error, {:invalid_work_custody, :candidate}} =
-             Custody.stage_candidate(episode_id, ref, ref, nil, nil, :invalid, digest, 1)
+    assert Custody.stage_candidate(episode_id, ref, ref, nil, nil, :invalid, digest, 1) ==
+             {:error, {:invalid_work_custody, :candidate}}
 
-    assert {:error, {:invalid_work_custody, :candidate_attempt}} =
-             Custody.stage_candidate(episode_id, ref, ref, nil, nil, "{}", digest, 0)
+    assert Custody.stage_candidate(episode_id, ref, ref, nil, nil, "{}", digest, 0) ==
+             {:error, {:invalid_work_custody, :candidate_attempt}}
 
-    assert {:error, {:invalid_work_custody, :candidate_sha256}} =
-             Custody.stage_candidate(episode_id, ref, ref, nil, nil, "{}", digest, 1)
+    assert Custody.stage_candidate(episode_id, ref, ref, nil, nil, "{}", digest, 1) ==
+             {:error, {:invalid_work_custody, :candidate_sha256}}
 
-    assert {:error, {:invalid_work_custody, :validation_generation}} =
-             Custody.advance_validation(episode_id, ref, ref, digest, 1, 0)
+    assert Custody.advance_validation(episode_id, ref, ref, digest, 1, 0) ==
+             {:error, {:invalid_work_custody, :validation_generation}}
 
-    assert {:error, {:invalid_work_custody, :measurement}} =
-             Custody.accept_result(episode_id, ref, ref, ref, digest, 1, ref, :invalid)
+    assert Custody.accept_result(episode_id, ref, ref, ref, digest, 1, ref, :invalid) ==
+             {:error, {:invalid_work_custody, :measurement}}
 
-    assert {:error, {:invalid_work_custody, :cancellation_revision_phase}} =
-             Custody.freeze_cancellation_revision(episode_id, ref, ref, :invalid, 1)
+    assert Custody.freeze_cancellation_revision(episode_id, ref, ref, :invalid, 1) ==
+             {:error, {:invalid_work_custody, :cancellation_revision_phase}}
 
-    assert {:error, {:invalid_work_custody, :cancellation_revision}} =
-             Custody.freeze_cancellation_revision(episode_id, ref, ref, :cancel_turn, 0)
+    assert Custody.freeze_cancellation_revision(episode_id, ref, ref, :cancel_turn, 0) ==
+             {:error, {:invalid_work_custody, :cancellation_revision}}
 
-    assert {:error, {:invalid_work_cancellation, :receipt}} =
-             Custody.settle_cancellation(episode_id, ref, ref, ref, %{})
+    assert Custody.settle_cancellation(episode_id, ref, ref, ref, %{}) ==
+             {:error, {:invalid_work_cancellation, :receipt}}
 
-    assert {:error, {:invalid_work_custody, :lease_seconds}} =
-             Custody.renew(episode_id, ref, ref, 0)
+    assert Custody.renew(episode_id, ref, ref, 0) ==
+             {:error, {:invalid_work_custody, :lease_seconds}}
 
-    assert {:error, {:invalid_work_custody, :retry_seconds}} =
-             Custody.defer(episode_id, ref, ref, 0, "error", "detail")
+    assert Custody.defer(episode_id, ref, ref, 0, "error", "detail") ==
+             {:error, {:invalid_work_custody, :retry_seconds}}
 
-    assert {:error, {:invalid_work_custody, :error_code}} =
-             Custody.block_delivery(episode_id, ref, ref, "", "detail")
+    assert Custody.block_delivery(episode_id, ref, ref, "", "detail") ==
+             {:error, {:invalid_work_custody, :error_code}}
 
-    assert {:error, {:invalid_work_custody, :delivery_ref}} =
-             Custody.retry_delivery(episode_id, ref, <<0>>)
+    assert Custody.retry_delivery(episode_id, ref, <<0>>) ==
+             {:error, {:invalid_work_custody, :delivery_ref}}
 
-    assert {:error, {:invalid_work_custody, :retry_seconds}} =
-             Custody.yield_progress(episode_id, ref, ref, 0)
+    assert Custody.yield_progress(episode_id, ref, ref, 0) ==
+             {:error, {:invalid_work_custody, :retry_seconds}}
   end
 
   test "durable Work phases cannot be applied out of order" do
@@ -1284,38 +1260,35 @@ defmodule Ryker.Work.CustodyTest do
 
     assert reason in [:work_submission_not_frozen, :work_session_not_bound]
 
-    assert {:error, :work_turn_not_bound} =
-             Custody.stage_candidate(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               nil,
-               nil,
-               "{}",
-               digest,
-               1
-             )
+    assert Custody.stage_candidate(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             nil,
+             nil,
+             "{}",
+             digest,
+             1
+           ) == {:error, :work_turn_not_bound}
 
-    assert {:error, :work_turn_not_bound} =
-             Custody.prepare_validation(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               digest,
-               1,
-               {:reject, ["candidate is incomplete"]},
-               nil
-             )
+    assert Custody.prepare_validation(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             digest,
+             1,
+             {:reject, ["candidate is incomplete"]},
+             nil
+           ) == {:error, :work_turn_not_bound}
 
-    assert {:error, {:work_candidate_conflict, nil}} =
-             Custody.advance_validation(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               digest,
-               1,
-               1
-             )
+    assert Custody.advance_validation(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             digest,
+             1,
+             1
+           ) == {:error, {:work_candidate_conflict, nil}}
 
     assert {:error, reason} =
              Custody.accept_result(
@@ -1338,42 +1311,38 @@ defmodule Ryker.Work.CustodyTest do
       "transport" => claim.episode.destination_transport
     }
 
-    assert {:error, :work_delivery_receipt_mismatch} =
-             Custody.confirm_delivery(
-               claim.episode.id,
-               command.episode_key,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               receipt
-             )
+    assert Custody.confirm_delivery(
+             claim.episode.id,
+             command.episode_key,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             receipt
+           ) == {:error, :work_delivery_receipt_mismatch}
 
     assert {:ok, cancellation_receipt} =
              Cancellation.absent_receipt("create-key", nil, nil, nil, nil)
 
-    assert {:error, :work_cancellation_not_pending} =
-             Custody.settle_cancellation(
-               claim.episode.id,
-               command.episode_key,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               cancellation_receipt
-             )
+    assert Custody.settle_cancellation(
+             claim.episode.id,
+             command.episode_key,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             cancellation_receipt
+           ) == {:error, :work_cancellation_not_pending}
 
-    assert {:error, :work_delivery_not_pending} =
-             Custody.block_delivery(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               "delivery_failed",
-               "not in delivery custody"
-             )
+    assert Custody.block_delivery(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             "delivery_failed",
+             "not in delivery custody"
+           ) == {:error, :work_delivery_not_pending}
 
-    assert {:error, :work_delivery_ref_mismatch} =
-             Custody.retry_delivery(
-               claim.episode.id,
-               claim.turn.turn_ref,
-               "delivery:phase-order"
-             )
+    assert Custody.retry_delivery(
+             claim.episode.id,
+             claim.turn.turn_ref,
+             "delivery:phase-order"
+           ) == {:error, :work_delivery_ref_mismatch}
   end
 
   test "frozen Coop and state-tool identities reconcile exact retries and reject rebinding" do
@@ -1750,7 +1719,7 @@ defmodule Ryker.Work.CustodyTest do
     sha256 = digest(bundle)
     reference = %{"sha256" => sha256, "byte_size" => byte_size(bundle)}
     key = Ryker.Secret.new(:binary.copy(<<9>>, 32))
-    assert :ok = Bodies.put(body_root, command.id, :response, reference, [bundle], key)
+    assert Bodies.put(body_root, command.id, :response, reference, [bundle], key) == :ok
 
     Repo.insert!(%WorkspaceCheckpointTransfer{
       body_command_id: command.id,

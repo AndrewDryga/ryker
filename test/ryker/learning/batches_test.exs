@@ -45,13 +45,13 @@ defmodule Ryker.Learning.BatchesTest do
     entries = inputs!()
     assert {:ok, first} = Batches.claim("worker-a", @settings)
     assert Enum.map(first.inputs, & &1.id) == Enum.map(entries, & &1.id)
-    assert {:ok, :idle} = Batches.claim("worker-b", @settings)
+    assert Batches.claim("worker-b", @settings) == {:ok, :idle}
     Repo.update_all(Batch, set: [lease_expires_at: DateTime.add(DateTime.utc_now(), -1)])
     assert {:ok, recovered} = Batches.claim("worker-b", @settings)
     assert recovered.batch.id == first.batch.id
     refute recovered.lease_ref == first.lease_ref
     assert Repo.aggregate(InputMembership, :count) == 2
-    assert {:error, :learning_lease_lost} = Batches.renew(first, 300)
+    assert Batches.renew(first, 300) == {:error, :learning_lease_lost}
     assert {:ok, _} = Batches.renew(recovered, 300)
   end
 
@@ -70,7 +70,7 @@ defmodule Ryker.Learning.BatchesTest do
     assert {:ok, b} = Batches.claim("worker-b", @settings)
     assert Enum.map(b.inputs, & &1.id) == [second.id]
     refute a.batch.id == b.batch.id
-    assert {:ok, :idle} = Batches.claim("worker-c", @settings)
+    assert Batches.claim("worker-c", @settings) == {:ok, :idle}
   end
 
   test "three started executions exhaust a batch across new judgments and pruned receipts" do
@@ -94,8 +94,7 @@ defmodule Ryker.Learning.BatchesTest do
         |> hd()
         |> Map.fetch!("text")
 
-      assert {:error, :invalid_learning_result} =
-               Fixtures.accept(run.id, body, %{})
+      assert Fixtures.accept(run.id, body, %{}) == {:error, :invalid_learning_result}
 
       assert {:ok, _} =
                Learning.record_stop(
@@ -112,7 +111,7 @@ defmodule Ryker.Learning.BatchesTest do
     end
 
     Repo.update_all(LearningRun, set: [result: nil, prompt: nil, pruned_at: DateTime.utc_now()])
-    assert {:ok, :idle} = Batches.claim("worker", @settings)
+    assert Batches.claim("worker", @settings) == {:ok, :idle}
 
     assert [%{status: :deferred, start_count: 3, error_code: "learning_retry_exhausted"}] =
              Repo.all(Batch)
@@ -159,7 +158,7 @@ defmodule Ryker.Learning.BatchesTest do
       |> hd()
       |> Map.fetch!("text")
 
-    assert {:error, :invalid_learning_result} = Fixtures.accept(run.id, body, %{})
+    assert Fixtures.accept(run.id, body, %{}) == {:error, :invalid_learning_result}
 
     assert {:ok, _} =
              Learning.record_stop(
@@ -173,7 +172,7 @@ defmodule Ryker.Learning.BatchesTest do
              )
 
     Repo.update!(Ecto.Changeset.change(invalid, operational_pruned_at: DateTime.utc_now()))
-    assert {:error, :learning_retry_exhausted} = Batches.prepare(claim)
+    assert Batches.prepare(claim) == {:error, :learning_retry_exhausted}
     assert Repo.get!(InputMembership, invalid.id).terminal_reason == "source_unavailable"
     assert Repo.get!(InputMembership, survivor.id).terminal_reason == nil
     assert Repo.get!(Batch, claim.batch.id).start_count == 1
@@ -184,7 +183,7 @@ defmodule Ryker.Learning.BatchesTest do
 
   test "quiet coalescing starts when admission finishes, not when an old input arrived" do
     entries = inputs!()
-    assert {:ok, :idle} = Batches.claim("worker", %{@settings | quiet_seconds: 10})
+    assert Batches.claim("worker", %{@settings | quiet_seconds: 10}) == {:ok, :idle}
     ids = Enum.map(entries, & &1.id)
 
     Repo.update_all(from(e in Entry, where: e.id in ^ids),
@@ -193,7 +192,7 @@ defmodule Ryker.Learning.BatchesTest do
 
     # Admission can spend minutes behind a provider queue. Those messages must
     # still coalesce once decided instead of buying one learning call each.
-    assert {:ok, :idle} = Batches.claim("worker", %{@settings | quiet_seconds: 10})
+    assert Batches.claim("worker", %{@settings | quiet_seconds: 10}) == {:ok, :idle}
 
     Repo.update_all(from(e in Entry, where: e.id in ^ids),
       set: [updated_at: DateTime.add(DateTime.utc_now(), -61)]
@@ -213,12 +212,12 @@ defmodule Ryker.Learning.BatchesTest do
 
     # Two minutes after the last message, people may still be answering.
     routed!([first, second], 2 * 60)
-    assert {:ok, :idle} = Batches.claim("worker", settings)
+    assert Batches.claim("worker", settings) == {:ok, :idle}
 
     # A conversation still going twenty minutes after it began keeps waiting.
     routed!([first], 20 * 60)
     routed!([second], 60)
-    assert {:ok, :idle} = Batches.claim("worker", settings)
+    assert Batches.claim("worker", settings) == {:ok, :idle}
 
     routed!([first, second], 5 * 60)
     assert {:ok, claim} = Batches.claim("worker", settings)
@@ -243,7 +242,7 @@ defmodule Ryker.Learning.BatchesTest do
     assert {:ok, batch} = Batches.release(claim, :knowledge_target_unavailable, 0)
     assert batch.status == :deferred
     assert batch.start_count == 1
-    assert {:ok, :idle} = Batches.claim("worker", @settings)
+    assert Batches.claim("worker", @settings) == {:ok, :idle}
   end
 
   test "a stale topic stays the named cause when it stops the last granted start" do
@@ -278,7 +277,7 @@ defmodule Ryker.Learning.BatchesTest do
       set: [inserted_at: now, updated_at: now]
     )
 
-    assert {:ok, :idle} = Batches.claim("coalescing", settings)
+    assert Batches.claim("coalescing", settings) == {:ok, :idle}
 
     # Move only the oldest decision past the explicit maximum. The newest
     # decision still prevents the quiet-time condition from being true.
@@ -307,16 +306,16 @@ defmodule Ryker.Learning.BatchesTest do
     routed!([firing, resolved], 7_200)
 
     # The Work is about to start.
-    assert {:ok, :idle} = Batches.claim("learning", @settings)
+    assert Batches.claim("learning", @settings) == {:ok, :idle}
 
     # The Work pool runs the firing alert's turn.
     work = run_work!(firing)
-    assert {:ok, :idle} = Batches.claim("learning", @settings)
+    assert Batches.claim("learning", @settings) == {:ok, :idle}
 
     # Its answer, a question, is accepted and waits to be sent.
     accepted = ask_question!(work)
     assert accepted.turn.status == :delivery_pending
-    assert {:ok, :idle} = Batches.claim("learning", @settings)
+    assert Batches.claim("learning", @settings) == {:ok, :idle}
 
     # Sent: the request waits for the person, and its message is learned from.
     deliver!(accepted)
@@ -326,7 +325,7 @@ defmodule Ryker.Learning.BatchesTest do
 
     # The resolved alert's Work has still not run.
     assert {:ok, _finished} = Batches.finish(claim, :no_change)
-    assert {:ok, :idle} = Batches.claim("learning", @settings)
+    assert Batches.claim("learning", @settings) == {:ok, :idle}
     refute Repo.exists?(from(m in InputMembership, where: m.input_id == ^resolved.id))
   end
 
@@ -339,7 +338,7 @@ defmodule Ryker.Learning.BatchesTest do
     settings = %{@settings | quiet_seconds: 10}
 
     firing |> run_work!() |> ask_question!() |> deliver!()
-    assert {:ok, :idle} = Batches.claim("learning", settings)
+    assert Batches.claim("learning", settings) == {:ok, :idle}
 
     # An idle worker sleeps until then. The time is the database's own
     # aggregate, which comes back without a zone.
@@ -377,7 +376,7 @@ defmodule Ryker.Learning.BatchesTest do
     # Neither the maximum delay nor a full batch forces it, and nothing falls
     # due by the clock: the Work coming to rest is what makes it learnable.
     for settings <- [%{@settings | quiet_seconds: 10}, %{@settings | batch_size: 1}] do
-      assert {:ok, :idle} = Batches.claim("learning", settings)
+      assert Batches.claim("learning", settings) == {:ok, :idle}
       assert Batches.next_due_at(DateTime.utc_now(), settings) == nil
     end
 
@@ -396,7 +395,7 @@ defmodule Ryker.Learning.BatchesTest do
     settings = %{@settings | quiet_seconds: 10}
 
     # Its quiet time counts from routing, as it always has.
-    assert {:ok, :idle} = Batches.claim("learning", settings)
+    assert Batches.claim("learning", settings) == {:ok, :idle}
     due_at = Batches.next_due_at(DateTime.utc_now(), settings)
     assert DateTime.diff(due_at, routed_at, :microsecond) == 10_000_000
 
@@ -443,7 +442,7 @@ defmodule Ryker.Learning.BatchesTest do
     refute claim.batch.id == paused.batch.id
     refute Repo.exists?(from(m in InputMembership, where: m.input_id == ^blocked.id))
     assert Repo.get!(Batch, paused.batch.id).status == :deferred
-    assert {:ok, :idle} = Batches.claim("no-duplicate-work", @settings)
+    assert Batches.claim("no-duplicate-work", @settings) == {:ok, :idle}
   end
 
   test "expired replay inputs cannot occupy a current learning batch" do
@@ -469,21 +468,20 @@ defmodule Ryker.Learning.BatchesTest do
     ids = Enum.map(claim.inputs, & &1.id)
     assert {:ok, run} = Learning.prepare(ids, @settings)
     assert {:ok, _} = Batches.begin_execution(claim, run.id)
-    assert {:error, :invalid_learning_result} = Fixtures.accept(run.id, "{}", %{})
+    assert Fixtures.accept(run.id, "{}", %{}) == {:error, :invalid_learning_result}
     assert {:ok, next} = Learning.prepare(ids, @settings)
-    assert {:error, :learning_remote_outstanding} = Batches.begin_execution(claim, next.id)
+    assert Batches.begin_execution(claim, next.id) == {:error, :learning_remote_outstanding}
     assert Repo.get!(Batch, claim.batch.id).start_count == 1
 
-    assert {:error, :learning_remote_not_stopped} =
-             Learning.record_stop(
-               run.id,
-               %{
-                 "id" => "host-contract-turn:#{run.id}",
-                 "session_id" => "host-contract-session:#{run.id}",
-                 "state" => "running"
-               },
-               claim
-             )
+    assert Learning.record_stop(
+             run.id,
+             %{
+               "id" => "host-contract-turn:#{run.id}",
+               "session_id" => "host-contract-session:#{run.id}",
+               "state" => "running"
+             },
+             claim
+           ) == {:error, :learning_remote_not_stopped}
 
     assert {:ok, _} =
              Learning.record_stop(
@@ -524,8 +522,7 @@ defmodule Ryker.Learning.BatchesTest do
         )
       )
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn -> Observations.receive_in_transaction(next) end)
+    assert Repo.transaction(fn -> Observations.receive_in_transaction(next) end) == {:ok, :ok}
 
     next
   end

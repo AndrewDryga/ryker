@@ -8,8 +8,8 @@ defmodule Ryker.RepositoryKnowledge.DocumentsFitWorkMigrationTest do
   # turn's briefing carried at most 48 KiB of it, cut in the middle (2026-10-04
   # review). The database now keeps no more than Work reads whole.
   test "a repository's document is kept only as large as a Work turn reads it" do
-    assert :ok = migrate_down(@version)
-    assert :ok = migrate_up(@version)
+    assert migrate_down(@version) == :ok
+    assert migrate_up(@version) == :ok
 
     SQL.query!(
       Repo,
@@ -18,7 +18,7 @@ defmodule Ryker.RepositoryKnowledge.DocumentsFitWorkMigrationTest do
       []
     )
 
-    assert {:ok, 1} = keep(49_152)
+    assert keep(49_152) == {:ok, 1}
     assert {:error, %Postgrex.Error{postgres: %{code: :check_violation}}} = keep(49_153)
   end
 

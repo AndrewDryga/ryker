@@ -64,7 +64,7 @@ defmodule Ryker.Slack.IncidentRoomsConcurrencyTest do
 
       try do
         send(holder.pid, :release)
-        assert {:ok, :released} = Task.await(holder, 10_000)
+        assert Task.await(holder, 10_000) == {:ok, :released}
 
         assert {:ok, confirmation} = Task.await(investigation, 10_000)
         assert confirmation.status == :confirmed
@@ -218,7 +218,7 @@ defmodule Ryker.Slack.IncidentRoomsConcurrencyTest do
                submission
              )
 
-    assert :ok = KnowledgeSnapshot.expose_submission(%{claim | turn: frozen_turn})
+    assert KnowledgeSnapshot.expose_submission(%{claim | turn: frozen_turn}) == :ok
 
     assert {:ok, session} =
              Custody.bind_session(

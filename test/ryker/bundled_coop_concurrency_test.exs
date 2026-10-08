@@ -48,19 +48,19 @@ defmodule Ryker.BundledCoopConcurrencyTest do
         for {contender, index} <- Enum.with_index(contenders, 1) do
           assert_receive {:contender, ^index, contender_backend}, 5_000
           send(contender.pid, :reconcile)
-          assert :ok = await_blocked_by(contender_backend, holder_backend)
+          assert await_blocked_by(contender_backend, holder_backend) == :ok
         end
 
         send(holder.pid, :release)
-        assert {:ok, :ok} = Task.await(holder, 5_000)
-        for contender <- contenders, do: assert(:ok = Task.await(contender, 5_000))
+        assert Task.await(holder, 5_000) == {:ok, :ok}
+        for contender <- contenders, do: assert(Task.await(contender, 5_000) == :ok)
 
         assert Repo.aggregate(from(t in EnrollmentToken, where: t.worker_id == ^worker), :count) ==
                  1
 
         path = Path.join(shared, "enrollment-token")
         original = File.read!(path)
-        assert :ok = BundledCoop.ensure_enrollment_file!()
+        assert BundledCoop.ensure_enrollment_file!() == :ok
         assert File.read!(path) == original
       after
         stop_tasks([holder | contenders])

@@ -8,9 +8,9 @@ defmodule Ryker.Settings.RetiredCommitIdentityMigrationTest do
   # 2026-09-27, and their columns stayed behind, read by nothing. The branch
   # prefix keeps the bound the shared check gave it.
   test "the retired commit identity is gone and the branch prefix keeps its bound" do
-    assert :ok = migrate_down(@version)
+    assert migrate_down(@version) == :ok
     assert "commit_email" in columns()
-    assert :ok = migrate_up(@version)
+    assert migrate_up(@version) == :ok
 
     refute "commit_name" in columns()
     refute "commit_email" in columns()
@@ -18,7 +18,7 @@ defmodule Ryker.Settings.RetiredCommitIdentityMigrationTest do
     assert {:error, %Postgrex.Error{postgres: %{code: :check_violation}}} =
              set_prefix(String.duplicate("p", 241))
 
-    assert {:ok, 1} = set_prefix("ryker")
+    assert set_prefix("ryker") == {:ok, 1}
   end
 
   defp columns do

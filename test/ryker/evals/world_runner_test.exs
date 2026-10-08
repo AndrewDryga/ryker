@@ -29,7 +29,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
 
   test "shipped token-rate reference data does not make a disposable world dirty" do
     assert Repo.aggregate(PricingRate, :count) == 3
-    assert :ok = WorldDatabase.disposable_database(false)
+    assert WorldDatabase.disposable_database(false) == :ok
   end
 
   test "an operator's missing-context question may retain its independent read-only event watch" do
@@ -512,15 +512,14 @@ defmodule Ryker.Evals.WorldRunnerTest do
     assert length(episode.queued_input_refs) == 1
     assert [%{"ref" => ^wait_ref, "status" => "open"}] = Records.retained_records(episode.id)
 
-    assert :ok =
-             WorldDatabase.run_cleanup(
-               {:error, {:world_eval_assertions, report}},
-               &WorldDatabase.terminalize_waiting_episodes/0,
-               fn ->
-                 Repo.delete_all(Turn)
-                 :ok
-               end
-             )
+    assert WorldDatabase.run_cleanup(
+             {:error, {:world_eval_assertions, report}},
+             &WorldDatabase.terminalize_waiting_episodes/0,
+             fn ->
+               Repo.delete_all(Turn)
+               :ok
+             end
+           ) == :ok
 
     assert Repo.aggregate(Turn, :count) == 1
     assert Repo.get!(Ryker.Episodes.Episode, episode.id).state == :cancelled
@@ -712,8 +711,8 @@ defmodule Ryker.Evals.WorldRunnerTest do
     assert timer.input_provenance.destination == initial.input_provenance.destination
     assert fallback.input_provenance.actor["ref"] == "event-wait-poll_fallback"
 
-    assert {:ok, :idle} =
-             EventWaits.resume_at(record.id, record.episode_id, subscription.poll_after)
+    assert EventWaits.resume_at(record.id, record.episode_id, subscription.poll_after) ==
+             {:ok, :idle}
 
     assert Repo.aggregate(Turn, :count) == 3
     assert FakeWorkCoopAPI.state(fake).submit_count == 3
@@ -736,15 +735,14 @@ defmodule Ryker.Evals.WorldRunnerTest do
 
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
 
-    assert {:error, {:invalid_world_runner, :input_actor}} =
-             WorldRunner.run(scenario,
-               api: FakeWorkCoopAPI,
-               client: fake,
-               policy: "world-eval-read-only",
-               policy_digest: @policy_digest,
-               state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret")
-             )
+    assert WorldRunner.run(scenario,
+             api: FakeWorkCoopAPI,
+             client: fake,
+             policy: "world-eval-read-only",
+             policy_digest: @policy_digest,
+             state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
+             state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret")
+           ) == {:error, {:invalid_world_runner, :input_actor}}
 
     assert FakeWorkCoopAPI.state(fake).submit_count == 0
     assert Repo.aggregate(Turn, :count) == 0
@@ -1055,26 +1053,24 @@ defmodule Ryker.Evals.WorldRunnerTest do
   test "failed remote cleanup preserves local custody evidence" do
     parent = self()
 
-    assert {:error, {:world_cleanup_blocked, :session_cleanup_error}} =
-             WorldDatabase.run_cleanup(
-               {:ok, %{status: :passed}},
-               fn -> {:error, {:world_cleanup_blocked, :session_cleanup_error}} end,
-               fn ->
-                 send(parent, :local_cleanup_ran)
-                 :ok
-               end
-             )
+    assert WorldDatabase.run_cleanup(
+             {:ok, %{status: :passed}},
+             fn -> {:error, {:world_cleanup_blocked, :session_cleanup_error}} end,
+             fn ->
+               send(parent, :local_cleanup_ran)
+               :ok
+             end
+           ) == {:error, {:world_cleanup_blocked, :session_cleanup_error}}
 
     refute_received :local_cleanup_ran
   end
 
   test "successful remote cleanup still reports a local cleanup failure" do
-    assert {:error, :local_cleanup_failed} =
-             WorldDatabase.run_cleanup(
-               {:ok, %{status: :passed}},
-               fn -> :ok end,
-               fn -> {:error, :local_cleanup_failed} end
-             )
+    assert WorldDatabase.run_cleanup(
+             {:ok, %{status: :passed}},
+             fn -> :ok end,
+             fn -> {:error, :local_cleanup_failed} end
+           ) == {:error, :local_cleanup_failed}
   end
 
   test "an executed failure keeps its database evidence even after safe remote cleanup" do
@@ -1087,18 +1083,17 @@ defmodule Ryker.Evals.WorldRunnerTest do
           {:ok, %{status: :failed}},
           {:ok, %{status: :unrun}}
         ] do
-      assert :ok =
-               WorldDatabase.run_cleanup(
-                 primary,
-                 fn ->
-                   send(parent, :remote_cleanup_ran)
-                   :ok
-                 end,
-                 fn ->
-                   send(parent, :local_cleanup_ran)
-                   :ok
-                 end
-               )
+      assert WorldDatabase.run_cleanup(
+               primary,
+               fn ->
+                 send(parent, :remote_cleanup_ran)
+                 :ok
+               end,
+               fn ->
+                 send(parent, :local_cleanup_ran)
+                 :ok
+               end
+             ) == :ok
 
       assert_received :remote_cleanup_ran
       refute_received :local_cleanup_ran
@@ -1108,11 +1103,10 @@ defmodule Ryker.Evals.WorldRunnerTest do
   test "successful observation and remote cleanup allow disposable cleanup" do
     parent = self()
 
-    assert :ok =
-             WorldDatabase.run_cleanup({:ok, %{status: :passed}}, fn -> :ok end, fn ->
-               send(parent, :local_cleanup_ran)
-               :ok
-             end)
+    assert WorldDatabase.run_cleanup({:ok, %{status: :passed}}, fn -> :ok end, fn ->
+             send(parent, :local_cleanup_ran)
+             :ok
+           end) == :ok
 
     assert_received :local_cleanup_ran
   end
@@ -1169,8 +1163,8 @@ defmodule Ryker.Evals.WorldRunnerTest do
     assert {:ok, waiting} = Episodes.fetch_by_key(episode_key)
     assert waiting.state == :waiting_for_event
 
-    assert :ok = WorldDatabase.terminalize_waiting_episodes()
-    assert :ok = WorldDatabase.terminalize_waiting_episodes()
+    assert WorldDatabase.terminalize_waiting_episodes() == :ok
+    assert WorldDatabase.terminalize_waiting_episodes() == :ok
 
     assert {:ok, cancelled} = Episodes.fetch_by_key(episode_key)
     assert cancelled.state == :cancelled
@@ -1790,7 +1784,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
     assert {:ok, claim} = Custody.claim_next("world-worker:lost", 300, :work)
     {:ok, fake} = FakeWorkCoopAPI.start_link([], pause_after_submit: self())
     assert {:ok, before_execute} = WorldHostReplay.before_execute(scenario, fake)
-    assert :ok = before_execute.(claim, scenario)
+    assert before_execute.(claim, scenario) == :ok
 
     {lost_worker, monitor} =
       spawn_monitor(fn ->
@@ -2167,56 +2161,52 @@ defmodule Ryker.Evals.WorldRunnerTest do
   test "runner inputs and settings fail closed before touching the database" do
     {:ok, scenario} = WorldCase.fetch("va1-health-review-repairs-and-finishes")
 
-    assert {:error, {:invalid_world_runner, :scenario}} = WorldRunner.run(%{}, [])
-    assert {:error, {:invalid_world_runner, :options}} = WorldRunner.run(scenario, nil)
+    assert WorldRunner.run(%{}, []) == {:error, {:invalid_world_runner, :scenario}}
+    assert WorldRunner.run(scenario, nil) == {:error, {:invalid_world_runner, :options}}
 
-    assert {:error, {:invalid_world_runner, :options}} =
-             WorldRunner.run(scenario, client: :client, client: :duplicate)
+    assert WorldRunner.run(scenario, client: :client, client: :duplicate) ==
+             {:error, {:invalid_world_runner, :options}}
 
-    assert {:error, {:invalid_world_runner, :options}} =
-             WorldRunner.run(scenario,
-               api: FakeWorkCoopAPI,
-               cleanup_remote: :invalid,
-               client: self(),
-               policy: "world-eval-read-only",
-               policy_digest: @policy_digest,
-               state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret")
-             )
+    assert WorldRunner.run(scenario,
+             api: FakeWorkCoopAPI,
+             cleanup_remote: :invalid,
+             client: self(),
+             policy: "world-eval-read-only",
+             policy_digest: @policy_digest,
+             state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
+             state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret")
+           ) == {:error, {:invalid_world_runner, :options}}
 
-    assert {:error, {:invalid_world_runner, :options}} =
-             WorldRunner.run(scenario,
-               api: FakeWorkCoopAPI,
-               client: self(),
-               policy: "world-eval-read-only",
-               policy_digest: "not-a-digest",
-               state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret")
-             )
+    assert WorldRunner.run(scenario,
+             api: FakeWorkCoopAPI,
+             client: self(),
+             policy: "world-eval-read-only",
+             policy_digest: "not-a-digest",
+             state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
+             state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret")
+           ) == {:error, {:invalid_world_runner, :options}}
 
-    assert {:error, :model_world_database_not_disposable} =
-             WorldRunner.run(scenario,
-               api: FakeWorkCoopAPI,
-               cleanup: true,
-               client: self(),
-               policy: "world-eval-read-only",
-               policy_digest: @policy_digest,
-               state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret")
-             )
+    assert WorldRunner.run(scenario,
+             api: FakeWorkCoopAPI,
+             cleanup: true,
+             client: self(),
+             policy: "world-eval-read-only",
+             policy_digest: @policy_digest,
+             state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
+             state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret")
+           ) == {:error, :model_world_database_not_disposable}
 
     scenario_without_input =
       %{scenario | events: Enum.reject(scenario.events, &(&1["kind"] == "input"))}
 
-    assert {:error, {:invalid_world_runner, :initial_input}} =
-             WorldRunner.run(scenario_without_input,
-               api: FakeWorkCoopAPI,
-               client: self(),
-               policy: "world-eval-read-only",
-               policy_digest: @policy_digest,
-               state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret")
-             )
+    assert WorldRunner.run(scenario_without_input,
+             api: FakeWorkCoopAPI,
+             client: self(),
+             policy: "world-eval-read-only",
+             policy_digest: @policy_digest,
+             state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
+             state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret")
+           ) == {:error, {:invalid_world_runner, :initial_input}}
 
     scenario_with_unknown_actor =
       update_in(scenario.events, fn events ->
@@ -2226,15 +2216,14 @@ defmodule Ryker.Evals.WorldRunnerTest do
         end)
       end)
 
-    assert {:error, {:invalid_world_runner, :input_actor}} =
-             WorldRunner.run(scenario_with_unknown_actor,
-               api: FakeWorkCoopAPI,
-               client: self(),
-               policy: "world-eval-read-only",
-               policy_digest: @policy_digest,
-               state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret")
-             )
+    assert WorldRunner.run(scenario_with_unknown_actor,
+             api: FakeWorkCoopAPI,
+             client: self(),
+             policy: "world-eval-read-only",
+             policy_digest: @policy_digest,
+             state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
+             state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret")
+           ) == {:error, {:invalid_world_runner, :input_actor}}
 
     assert Repo.aggregate(Ryker.Episodes.Episode, :count) == 0
   end
@@ -2260,15 +2249,14 @@ defmodule Ryker.Evals.WorldRunnerTest do
       }
     ])
 
-    assert {:error, :model_world_requires_an_empty_disposable_database} =
-             WorldRunner.run(scenario,
-               api: FakeWorkCoopAPI,
-               client: self(),
-               policy: "world-eval-read-only",
-               policy_digest: @policy_digest,
-               state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
-               state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret")
-             )
+    assert WorldRunner.run(scenario,
+             api: FakeWorkCoopAPI,
+             client: self(),
+             policy: "world-eval-read-only",
+             policy_digest: @policy_digest,
+             state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
+             state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret")
+           ) == {:error, :model_world_requires_an_empty_disposable_database}
 
     assert Repo.aggregate(Ryker.Episodes.Episode, :count) == 0
   end

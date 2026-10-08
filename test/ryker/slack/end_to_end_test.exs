@@ -118,7 +118,7 @@ defmodule Ryker.Slack.EndToEndTest do
       message_ref: "1787832002.000300"
     }
 
-    assert :ok = InteractionRepaint.repaint(audit, %{api: FakeSlackAPI, client: slack})
+    assert InteractionRepaint.repaint(audit, %{api: FakeSlackAPI, client: slack}) == :ok
 
     assert_receive {
       :slack_updated,
@@ -135,7 +135,7 @@ defmodule Ryker.Slack.EndToEndTest do
              |> Ecto.Changeset.change(delivery_document: %{"message" => "Rebuilt reply."})
              |> Repo.update!()
 
-    assert :ok = InteractionRepaint.repaint(audit, %{api: FakeSlackAPI, client: slack})
+    assert InteractionRepaint.repaint(audit, %{api: FakeSlackAPI, client: slack}) == :ok
 
     assert_receive {
       :slack_updated,
@@ -223,15 +223,14 @@ defmodule Ryker.Slack.EndToEndTest do
     assert continuation_receipt["conversation_ref"] == "slack:TSLACKENDTOEND:C456"
     assert continuation_receipt["thread_ref"] == "1787832001.000200"
 
-    assert {:ok, :idle} =
-             Dispatcher.run_once(
-               adapters: adapters,
-               kind: :message,
-               lease_seconds: 60,
-               retry_base_seconds: 1,
-               retry_max_seconds: 60,
-               worker_ref: "slack-delivery-e2e-second"
-             )
+    assert Dispatcher.run_once(
+             adapters: adapters,
+             kind: :message,
+             lease_seconds: 60,
+             retry_base_seconds: 1,
+             retry_max_seconds: 60,
+             worker_ref: "slack-delivery-e2e-second"
+           ) == {:ok, :idle}
 
     refute_receive {:slack_posted, _channel, _thread, _document, _ref, _message_ref}
   end
@@ -298,13 +297,13 @@ defmodule Ryker.Slack.EndToEndTest do
     assert {:ok, {:deferred, :routing, reply_ref, {:delivery_uncertain, _lost}}} =
              Dispatcher.run_once(routing)
 
-    assert {:ok, :idle} = Dispatcher.run_once(routing)
+    assert Dispatcher.run_once(routing) == {:ok, :idle}
 
     Repo.update_all(RoutingResponse, set: [next_attempt_at: DateTime.add(@now, -1, :second)])
 
     assert {:ok, {:delivered, :routing, ^reply_ref}} = Dispatcher.run_once(routing)
     assert {:ok, {:delivered, :routing, reaction_ref}} = Dispatcher.run_once(routing)
-    assert {:ok, :idle} = Dispatcher.run_once(routing)
+    assert Dispatcher.run_once(routing) == {:ok, :idle}
     refute reaction_ref == reply_ref
 
     state = FakeSlackAPI.state(slack)

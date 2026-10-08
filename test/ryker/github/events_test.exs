@@ -17,8 +17,8 @@ defmodule Ryker.GitHub.EventsTest do
 
     assert_received {:github_delivery_updated, ^name}
 
-    assert {:ok, :duplicate} =
-             Events.record(binding, "delivery-1", "pull_request:7", "pull_request", payload)
+    assert Events.record(binding, "delivery-1", "pull_request:7", "pull_request", payload) ==
+             {:ok, :duplicate}
 
     assert_received {:github_delivery_updated, ^name}
 
@@ -40,10 +40,10 @@ defmodule Ryker.GitHub.EventsTest do
              record.()
 
     assert id == event.id
-    assert {:ok, :duplicate} = record.()
+    assert record.() == {:ok, :duplicate}
 
     assert {:ok, _routed} = Events.complete(%{event | id: id}, "routed")
-    assert {:ok, :duplicate} = record.()
+    assert record.() == {:ok, :duplicate}
     assert Repo.get!(Event, id).duplicate_count == 2
   end
 
@@ -55,12 +55,12 @@ defmodule Ryker.GitHub.EventsTest do
     record = fn -> Events.record(binding, "delivery-3", "comment:8", "issue_comment", payload) end
 
     assert {:ok, %Event{id: id}} = record.()
-    assert {:ok, :duplicate} = record.()
+    assert record.() == {:ok, :duplicate}
     assert Events.settled(["delivery-3", "delivery-unknown"]) == MapSet.new(["delivery-3"])
 
     nine_minutes_ago = DateTime.add(Repo.now!(), -9 * 60, :second)
     Repo.update_all(Event, set: [inserted_at: nine_minutes_ago])
-    assert {:ok, :duplicate} = record.()
+    assert record.() == {:ok, :duplicate}
 
     eleven_minutes_ago = DateTime.add(Repo.now!(), -11 * 60, :second)
     Repo.update_all(Event, set: [inserted_at: eleven_minutes_ago])

@@ -121,7 +121,7 @@ defmodule Ryker.Work.CustodyConcurrencyTest do
         assert_receive {:second_claiming, second_backend}, 5_000
         await_blocked_by(second_backend, first_backend)
         send(first.pid, :commit)
-        assert {:ok, :ok} = Task.await(first, 5_000)
+        assert Task.await(first, 5_000) == {:ok, :ok}
 
         refute match?({:ok, %{turn: %{id: id}}} when id == turn.id, Task.await(second, 5_000))
         assert Repo.get!(Turn, turn.id).lease_ref == "work-lease:first"

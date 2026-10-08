@@ -60,11 +60,10 @@ defmodule Ryker.Episodes.CorrelationClaimsTest do
     right = episode!("claims:right")
     assert {:ok, claim} = claim(wrong, "slack:T1", "slack:app:B1", "run-1")
 
-    assert {:ok, 1} =
-             Repo.transaction(fn ->
-               {:ok, count} = CorrelationClaims.retire_in_transaction(wrong.id)
-               count
-             end)
+    assert Repo.transaction(fn ->
+             {:ok, count} = CorrelationClaims.retire_in_transaction(wrong.id)
+             count
+           end) == {:ok, 1}
 
     assert [%{id: retired_id, status: :retired}] = CorrelationClaims.for_episode(wrong.id)
     assert retired_id == claim.id

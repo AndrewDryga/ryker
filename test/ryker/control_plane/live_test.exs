@@ -2117,19 +2117,17 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert {:ok, connected} = LiveSocket.connect(%{}, socket, local)
     assert connected.private.connect_info == local
 
-    assert :error =
-             LiveSocket.connect(%{}, socket, %{
-               local
-               | peer_data: %{address: {203, 0, 113, 5}}
-             })
+    assert LiveSocket.connect(%{}, socket, %{
+             local
+             | peer_data: %{address: {203, 0, 113, 5}}
+           }) == :error
 
-    assert :error =
-             LiveSocket.connect(%{}, socket, %{
-               local
-               | uri: URI.parse("http://attacker.example/live")
-             })
+    assert LiveSocket.connect(%{}, socket, %{
+             local
+             | uri: URI.parse("http://attacker.example/live")
+           }) == :error
 
-    assert :error = LiveSocket.connect(%{}, socket, %{})
+    assert LiveSocket.connect(%{}, socket, %{}) == :error
   end
 
   # A console published at a tailnet name (mac-server, 2026-10-01) must go live there too: the
@@ -2145,11 +2143,10 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     assert {:ok, _connected} = LiveSocket.connect(%{}, socket, tailnet)
 
-    assert :error =
-             LiveSocket.connect(%{}, socket, %{
-               tailnet
-               | uri: URI.parse("https://evil.example/live")
-             })
+    assert LiveSocket.connect(%{}, socket, %{
+             tailnet
+             | uri: URI.parse("https://evil.example/live")
+           }) == :error
   end
 
   test "an input keeps one canonical timeline while routing adds evidence and becomes work" do

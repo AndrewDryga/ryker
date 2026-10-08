@@ -29,19 +29,17 @@ defmodule Ryker.CoopFleet.EnrollmentTest do
     assert token.certificate_sha256 == enrolled["certificate_sha256"]
     assert Repo.get!(Certificate, enrolled["certificate_sha256"]).source == :enrollment
 
-    assert {:ok, "worker-enroll"} =
-             enrolled["certificate_pem"]
-             |> certificate_der()
-             |> ControlPlane.authenticate_certificate()
+    assert enrolled["certificate_pem"]
+           |> certificate_der()
+           |> ControlPlane.authenticate_certificate() == {:ok, "worker-enroll"}
 
-    assert {:error, :coop_worker_enrollment_token_consumed} =
-             Enrollment.enroll(
-               %{
-                 "public_key_pem" => public_key_pem(private_key()),
-                 "token" => issued_token.token
-               },
-               authority
-             )
+    assert Enrollment.enroll(
+             %{
+               "public_key_pem" => public_key_pem(private_key()),
+               "token" => issued_token.token
+             },
+             authority
+           ) == {:error, :coop_worker_enrollment_token_consumed}
   end
 
   test "a fresh worker learns its identity and workspace from the token alone" do
@@ -64,8 +62,8 @@ defmodule Ryker.CoopFleet.EnrollmentTest do
     assert enrolled["ca_certificate_pem"] =~ "BEGIN CERTIFICATE"
     assert Repo.get!(EnrollmentToken, issued_token.id).consumed_at
 
-    assert {:error, :coop_worker_enrollment_token_consumed} =
-             Enrollment.enroll(request, authority())
+    assert Enrollment.enroll(request, authority()) ==
+             {:error, :coop_worker_enrollment_token_consumed}
   end
 
   test "certificate renewal overlaps old and new identities so a lost response cannot strand the worker" do
@@ -94,8 +92,8 @@ defmodule Ryker.CoopFleet.EnrollmentTest do
 
     new_der = certificate_der(renewed["certificate_pem"])
     refute renewed["certificate_sha256"] == enrolled["certificate_sha256"]
-    assert {:ok, "worker-rotate"} = ControlPlane.authenticate_certificate(old_der)
-    assert {:ok, "worker-rotate"} = ControlPlane.authenticate_certificate(new_der)
+    assert ControlPlane.authenticate_certificate(old_der) == {:ok, "worker-rotate"}
+    assert ControlPlane.authenticate_certificate(new_der) == {:ok, "worker-rotate"}
     assert Repo.aggregate(Certificate, :count) == 2
   end
 
@@ -115,16 +113,15 @@ defmodule Ryker.CoopFleet.EnrollmentTest do
     again = enroll!("worker-reenrolled", authority)
 
     for earlier <- [first, renewed] do
-      assert {:error, :coop_worker_certificate_not_authorized} =
-               earlier["certificate_pem"]
-               |> certificate_der()
-               |> ControlPlane.authenticate_certificate()
+      assert earlier["certificate_pem"]
+             |> certificate_der()
+             |> ControlPlane.authenticate_certificate() ==
+               {:error, :coop_worker_certificate_not_authorized}
     end
 
-    assert {:ok, "worker-reenrolled"} =
-             again["certificate_pem"]
-             |> certificate_der()
-             |> ControlPlane.authenticate_certificate()
+    assert again["certificate_pem"]
+           |> certificate_der()
+           |> ControlPlane.authenticate_certificate() == {:ok, "worker-reenrolled"}
   end
 
   test "a renewal leaves valid only the certificate that asked and the new one" do
@@ -139,25 +136,24 @@ defmodule Ryker.CoopFleet.EnrollmentTest do
     assert {:ok, second} = renew.(first)
     second = certificate_der(second["certificate_pem"])
 
-    assert {:error, :coop_worker_certificate_not_authorized} =
-             lost["certificate_pem"]
-             |> certificate_der()
-             |> ControlPlane.authenticate_certificate()
+    assert lost["certificate_pem"]
+           |> certificate_der()
+           |> ControlPlane.authenticate_certificate() ==
+             {:error, :coop_worker_certificate_not_authorized}
 
     assert {:ok, third} = renew.(second)
 
-    assert {:error, :coop_worker_certificate_not_authorized} =
-             ControlPlane.authenticate_certificate(first)
+    assert ControlPlane.authenticate_certificate(first) ==
+             {:error, :coop_worker_certificate_not_authorized}
 
-    assert {:ok, "worker-renewals"} = ControlPlane.authenticate_certificate(second)
+    assert ControlPlane.authenticate_certificate(second) == {:ok, "worker-renewals"}
 
-    assert {:ok, "worker-renewals"} =
-             third["certificate_pem"]
-             |> certificate_der()
-             |> ControlPlane.authenticate_certificate()
+    assert third["certificate_pem"]
+           |> certificate_der()
+           |> ControlPlane.authenticate_certificate() == {:ok, "worker-renewals"}
 
     # A certificate cut off this way cannot renew either.
-    assert {:error, :coop_worker_certificate_not_authorized} = renew.(first)
+    assert renew.(first) == {:error, :coop_worker_certificate_not_authorized}
   end
 
   test "a token cannot be redirected to another worker or workspace" do
@@ -173,8 +169,7 @@ defmodule Ryker.CoopFleet.EnrollmentTest do
       "workspace_ref" => "workspace-bound"
     }
 
-    assert {:error, :invalid_coop_worker_enrollment} =
-             Enrollment.enroll(request, authority)
+    assert Enrollment.enroll(request, authority) == {:error, :invalid_coop_worker_enrollment}
 
     refute Repo.get!(EnrollmentToken, issued_token.id).consumed_at
     assert Repo.aggregate(Certificate, :count) == 0
@@ -183,13 +178,13 @@ defmodule Ryker.CoopFleet.EnrollmentTest do
   test "enrollment authority request and TTL inputs fail closed before certificate custody" do
     authority = authority()
 
-    assert {:error, {:invalid_coop_worker_enrollment, :worker_id}} =
-             Enrollment.issue_token("bad worker", "workspace", "operator", 60)
+    assert Enrollment.issue_token("bad worker", "workspace", "operator", 60) ==
+             {:error, {:invalid_coop_worker_enrollment, :worker_id}}
 
-    assert {:error, :invalid_coop_worker_enrollment_token_ttl} =
-             Enrollment.issue_token("worker", "workspace", "operator", 0)
+    assert Enrollment.issue_token("worker", "workspace", "operator", 0) ==
+             {:error, :invalid_coop_worker_enrollment_token_ttl}
 
-    assert {:error, :invalid_coop_worker_enrollment} = Enrollment.enroll([], authority)
+    assert Enrollment.enroll([], authority) == {:error, :invalid_coop_worker_enrollment}
 
     for document <- [
           %{},
@@ -202,7 +197,7 @@ defmodule Ryker.CoopFleet.EnrollmentTest do
             "token" => String.duplicate("t", 32)
           }
         ] do
-      assert {:error, :invalid_coop_worker_enrollment} = Enrollment.enroll(document, authority)
+      assert Enrollment.enroll(document, authority) == {:error, :invalid_coop_worker_enrollment}
     end
 
     valid_document = %{
@@ -210,26 +205,25 @@ defmodule Ryker.CoopFleet.EnrollmentTest do
       "token" => String.duplicate("t", 32)
     }
 
-    assert {:error, :invalid_coop_worker_certificate_authority} =
-             Enrollment.enroll(valid_document, nil)
+    assert Enrollment.enroll(valid_document, nil) ==
+             {:error, :invalid_coop_worker_certificate_authority}
 
-    assert {:error, :invalid_coop_worker_certificate_ttl} =
-             Enrollment.enroll(valid_document, %{authority | certificate_ttl_seconds: 1})
+    assert Enrollment.enroll(valid_document, %{authority | certificate_ttl_seconds: 1}) ==
+             {:error, :invalid_coop_worker_certificate_ttl}
 
-    assert {:error, :authority} = Enrollment.enroll(valid_document, [:not_a_keyword])
-    assert {:error, :enoent} = Enrollment.enroll(valid_document, cacertfile: "/missing/ca")
+    assert Enrollment.enroll(valid_document, [:not_a_keyword]) == {:error, :authority}
+    assert Enrollment.enroll(valid_document, cacertfile: "/missing/ca") == {:error, :enoent}
 
-    assert {:error, :invalid_coop_worker_renewal} = Enrollment.renew(:invalid, %{}, authority)
+    assert Enrollment.renew(:invalid, %{}, authority) == {:error, :invalid_coop_worker_renewal}
 
-    assert {:error, :invalid_coop_worker_renewal} =
-             Enrollment.renew("certificate", %{}, authority)
+    assert Enrollment.renew("certificate", %{}, authority) ==
+             {:error, :invalid_coop_worker_renewal}
 
-    assert {:error, :coop_worker_certificate_not_authorized} =
-             Enrollment.renew(
-               "unknown-certificate",
-               %{"public_key_pem" => public_key_pem(private_key())},
-               authority
-             )
+    assert Enrollment.renew(
+             "unknown-certificate",
+             %{"public_key_pem" => public_key_pem(private_key())},
+             authority
+           ) == {:error, :coop_worker_certificate_not_authorized}
   end
 
   defp enroll!(worker_id, authority) do

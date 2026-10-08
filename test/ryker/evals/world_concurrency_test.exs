@@ -68,7 +68,7 @@ defmodule Ryker.Evals.WorldConcurrencyTest do
           # mirror that here even though the work claim itself is the frozen
           # first-turn snapshot.
           current_first_claim = %{first_claim | episode: Repo.get!(Episode, episode_id)}
-          assert :ok = before_execute.(current_first_claim, scenario)
+          assert before_execute.(current_first_claim, scenario) == :ok
 
           assert {:ok, {:executed, first_execution}} =
                    WorkDispatcher.run_claim(
@@ -84,7 +84,7 @@ defmodule Ryker.Evals.WorldConcurrencyTest do
 
           assert second_claim.episode.active_input_refs |> MapSet.new() == MapSet.new(queued_refs)
           assert second_claim.episode.queued_input_refs == []
-          assert :ok = before_execute.(second_claim, scenario)
+          assert before_execute.(second_claim, scenario) == :ok
 
           assert {:ok, {:executed, second_execution}} =
                    WorkDispatcher.run_claim(
@@ -94,7 +94,7 @@ defmodule Ryker.Evals.WorldConcurrencyTest do
 
           assert second_execution.turn.status == :delivery_pending
           assert {:ok, {:delivered, :message, _ref}} = deliver_once(adapters, "second")
-          assert {:ok, nil} = Custody.claim_next("world-worker:concurrent:idle", 300, :work)
+          assert Custody.claim_next("world-worker:concurrent:idle", 300, :work) == {:ok, nil}
 
           first_turn = Repo.get!(Turn, first_claim.turn.id)
           second_turn = Repo.get!(Turn, second_claim.turn.id)

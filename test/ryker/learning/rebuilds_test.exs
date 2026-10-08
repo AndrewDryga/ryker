@@ -59,10 +59,9 @@ defmodule Ryker.Learning.RebuildsTest do
     assert {:ok, _receipt} = rebuild(topic, current, "rebuild:before-delete")
     ["slack", workspace_ref, channel_ref] = String.split(topic.conversation_ref, ":")
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Ryker.Continuity.delete_slack_channel_in_transaction(workspace_ref, channel_ref)
-             end)
+    assert Repo.transaction(fn ->
+             Ryker.Continuity.delete_slack_channel_in_transaction(workspace_ref, channel_ref)
+           end) == {:ok, :ok}
 
     assert Repo.get(ConversationKnowledge, topic.id) == nil
     assert {:ok, _claim} = Batches.claim("rebuild-test", @settings)
@@ -134,7 +133,7 @@ defmodule Ryker.Learning.RebuildsTest do
     assert {:ok, %{forgotten: [_ | _]}} = Forgetting.forget_topic(topic.id)
 
     assert {:ok, claim} = Batches.claim("rebuild-forgotten", @settings)
-    assert {:error, :knowledge_rebuild_conflict} = Batches.prepare(claim)
+    assert Batches.prepare(claim) == {:error, :knowledge_rebuild_conflict}
 
     forgotten = Repo.get!(ConversationKnowledge, topic.id)
     assert %DateTime{} = forgotten.forgotten_at
@@ -175,15 +174,14 @@ defmodule Ryker.Learning.RebuildsTest do
     assert {:ok, _} = Batches.begin_execution(again, next.id)
     assert Repo.get!(Batch, again.batch.id).start_count == 2
 
-    assert {:error, :learning_retry_conflict} =
-             LearningOperator.reselect(
-               again.batch.id,
-               0,
-               target(topic),
-               [selection(current)],
-               "operator:andrew",
-               "rebuild:old-selection"
-             )
+    assert LearningOperator.reselect(
+             again.batch.id,
+             0,
+             target(topic),
+             [selection(current)],
+             "operator:andrew",
+             "rebuild:old-selection"
+           ) == {:error, :learning_retry_conflict}
   end
 
   @tag :policy_recovery
@@ -256,15 +254,14 @@ defmodule Ryker.Learning.RebuildsTest do
     assert {:ok, _} = Batches.release(claim, :learning_remote_unresolved, 0)
     before = Repo.get!(Batch, claim.batch.id)
 
-    assert {:error, :learning_remote_outstanding} =
-             LearningOperator.reselect(
-               before.id,
-               0,
-               target(topic),
-               [selection(current)],
-               "operator:andrew",
-               "rebuild:unsafe"
-             )
+    assert LearningOperator.reselect(
+             before.id,
+             0,
+             target(topic),
+             [selection(current)],
+             "operator:andrew",
+             "rebuild:unsafe"
+           ) == {:error, :learning_remote_outstanding}
 
     assert Repo.get!(Batch, before.id) == before
   end
@@ -409,15 +406,14 @@ defmodule Ryker.Learning.RebuildsTest do
     {topic, _old, current} = unavailable_topic!()
     stale = %{selection(current) | "revision" => current.revision + 1}
 
-    assert {:error, :learning_source_stale} =
-             LearningOperator.rebuild(
-               topic.id,
-               1,
-               1,
-               [stale],
-               "operator:andrew",
-               "rebuild:stale-source"
-             )
+    assert LearningOperator.rebuild(
+             topic.id,
+             1,
+             1,
+             [stale],
+             "operator:andrew",
+             "rebuild:stale-source"
+           ) == {:error, :learning_source_stale}
 
     assert Repo.aggregate(Ryker.Operator.Action, :count) == 0
     assert Repo.aggregate(Batch, :count) == 1
@@ -437,8 +433,8 @@ defmodule Ryker.Learning.RebuildsTest do
     assert {:error, _} = JSV.validate(invalid, schema, cast: false)
     assert {:ok, _} = Batches.begin_execution(claim, run.id)
 
-    assert {:error, :invalid_learning_result} =
-             Fixtures.accept(run.id, Jason.encode!(invalid), %{})
+    assert Fixtures.accept(run.id, Jason.encode!(invalid), %{}) ==
+             {:error, :invalid_learning_result}
 
     assert Repo.get!(ConversationKnowledge, topic.id) == topic
     assert Repo.aggregate(KnowledgeRevision, :count) == 1
@@ -454,15 +450,14 @@ defmodule Ryker.Learning.RebuildsTest do
     assert batch.error_code == "source_unavailable"
     assert Repo.get!(ConversationKnowledge, topic.id) == topic
 
-    assert {:error, :learning_source_stale} =
-             LearningOperator.reselect(
-               batch.id,
-               0,
-               target(topic),
-               [selection(current)],
-               "operator:andrew",
-               "rebuild:still-withdrawn"
-             )
+    assert LearningOperator.reselect(
+             batch.id,
+             0,
+             target(topic),
+             [selection(current)],
+             "operator:andrew",
+             "rebuild:still-withdrawn"
+           ) == {:error, :learning_source_stale}
 
     assert Repo.get!(Batch, batch.id).start_count == 0
   end
@@ -478,15 +473,14 @@ defmodule Ryker.Learning.RebuildsTest do
     # become unavailable again within the same generation.
     advanced = Repo.update!(Ecto.Changeset.change(topic, version: topic.version + 1))
 
-    assert {:error, :knowledge_rebuild_conflict} =
-             LearningOperator.reselect(
-               receipt.outcome["batch_id"],
-               0,
-               target(topic),
-               [selection(current)],
-               "operator:andrew",
-               "rebuild:old-head"
-             )
+    assert LearningOperator.reselect(
+             receipt.outcome["batch_id"],
+             0,
+             target(topic),
+             [selection(current)],
+             "operator:andrew",
+             "rebuild:old-head"
+           ) == {:error, :knowledge_rebuild_conflict}
 
     assert {:ok, granted} =
              LearningOperator.reselect(
@@ -515,15 +509,14 @@ defmodule Ryker.Learning.RebuildsTest do
 
     assert repeated.status == :duplicate
 
-    assert {:error, :learning_retry_conflict} =
-             LearningOperator.reselect(
-               receipt.outcome["batch_id"],
-               0,
-               target(advanced),
-               [selection(current)],
-               "operator:andrew",
-               "rebuild:old-budget"
-             )
+    assert LearningOperator.reselect(
+             receipt.outcome["batch_id"],
+             0,
+             target(advanced),
+             [selection(current)],
+             "operator:andrew",
+             "rebuild:old-budget"
+           ) == {:error, :learning_retry_conflict}
   end
 
   @tag :rebuild_mode
@@ -591,15 +584,14 @@ defmodule Ryker.Learning.RebuildsTest do
           completed_at: nil
       })
 
-      assert {:error, :learning_scope_busy} =
-               LearningOperator.reselect(
-                 previous.id,
-                 0,
-                 target(topic),
-                 [selection(live)],
-                 "operator:andrew",
-                 "rebuild:cross-busy"
-               )
+      assert LearningOperator.reselect(
+               previous.id,
+               0,
+               target(topic),
+               [selection(live)],
+               "operator:andrew",
+               "rebuild:cross-busy"
+             ) == {:error, :learning_scope_busy}
 
       assert Repo.get!(Batch, previous.id) == previous
     end
@@ -629,15 +621,14 @@ defmodule Ryker.Learning.RebuildsTest do
     extra = Fixtures.retained_input!(raw, @settings)
     extra = Repo.update!(Ecto.Changeset.change(extra, execution_mode: :live))
 
-    assert {:error, :learning_mixed_execution_modes} =
-             LearningOperator.rebuild(
-               topic.id,
-               1,
-               1,
-               [selection(current), selection(extra)],
-               "operator:andrew",
-               "rebuild:mixed"
-             )
+    assert LearningOperator.rebuild(
+             topic.id,
+             1,
+             1,
+             [selection(current), selection(extra)],
+             "operator:andrew",
+             "rebuild:mixed"
+           ) == {:error, :learning_mixed_execution_modes}
 
     assert Repo.aggregate(Ryker.Operator.Action, :count) == 0
     assert Repo.aggregate(Batch, :count) == 1
@@ -702,8 +693,8 @@ defmodule Ryker.Learning.RebuildsTest do
       |> Map.drop(~w(action source_input_ids))
       |> Map.put("topic_key", "original-historical-topic")
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn -> KnowledgeFixtures.record_topic(old, proposal, []) end)
+    assert Repo.transaction(fn -> KnowledgeFixtures.record_topic(old, proposal, []) end) ==
+             {:ok, :ok}
 
     topic = Repo.one!(ConversationKnowledge)
     KnowledgeFixtures.revoke!(old)

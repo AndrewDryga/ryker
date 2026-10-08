@@ -50,8 +50,8 @@ defmodule Ryker.CoopFleet.RetireDiscardedPlacementsMigrationTest do
         set: [cleanup_status: :discarded, discarded_at: Repo.now!()]
       )
 
-    assert :ok = migrate_down(@version)
-    assert :ok = migrate_up(@version)
+    assert migrate_down(@version) == :ok
+    assert migrate_up(@version) == :ok
 
     assert Repo.get!(Placement, leaked.id).state == :retired
     assert Repo.get!(Placement, live.id).state == :active

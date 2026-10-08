@@ -129,13 +129,12 @@ defmodule Ryker.Work.CancellationWorkerTest do
           {"submit_turn",
            %{"coop_session_id" => work.session.coop_session_id, "submission" => %{}}}
         ] do
-      assert {:error, :coop_cleanup_only_placement} =
-               ControlPlane.enqueue_command(
-                 holder.id,
-                 kind,
-                 payload,
-                 "denied:#{kind}:#{holder.id}"
-               )
+      assert ControlPlane.enqueue_command(
+               holder.id,
+               kind,
+               payload,
+               "denied:#{kind}:#{holder.id}"
+             ) == {:error, :coop_cleanup_only_placement}
     end
 
     # A request queued by an older build is checked again before delivery.
@@ -163,16 +162,15 @@ defmodule Ryker.Work.CancellationWorkerTest do
                "encoded-cancel:#{holder.id}"
              )
 
-    assert {:error, :coop_cleanup_only_placement} =
-             ControlPlane.enqueue_command(
-               holder.id,
-               "api_request",
-               %{
-                 "method" => "POST",
-                 "path" => path <> "/turns/part%2Ftwo/cancel"
-               },
-               "encoded-separator:#{holder.id}"
-             )
+    assert ControlPlane.enqueue_command(
+             holder.id,
+             "api_request",
+             %{
+               "method" => "POST",
+               "path" => path <> "/turns/part%2Ftwo/cancel"
+             },
+             "encoded-separator:#{holder.id}"
+           ) == {:error, :coop_cleanup_only_placement}
 
     # The worker proved the run stopped; the transfer keeps the session open.
     assert {:ok, claim} = Custody.claim_next("worker:fenced-stop", 60, :work)

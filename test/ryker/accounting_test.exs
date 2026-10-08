@@ -25,9 +25,9 @@ defmodule Ryker.AccountingTest do
     }
 
     target = %{"target" => "claude:opus/high@work"}
-    assert :ok = Accounting.observe_work(claim, remote, target)
-    assert :ok = Accounting.observe_work(claim, remote, target)
-    assert :ok = Accounting.observe_work(claim, %{"id" => remote["id"], "state" => "failed"})
+    assert Accounting.observe_work(claim, remote, target) == :ok
+    assert Accounting.observe_work(claim, remote, target) == :ok
+    assert Accounting.observe_work(claim, %{"id" => remote["id"], "state" => "failed"}) == :ok
     row = Repo.one!(Execution)
     assert row.status == "failed"
     assert row.usage_input_tokens == 1_200
@@ -36,7 +36,7 @@ defmodule Ryker.AccountingTest do
     assert row.execution_target == target["target"]
     assert row.measurement_error_code == nil
     assert Repo.aggregate(Execution, :count) == 1
-    assert :ok = Accounting.observe_work(claim, remote, target)
+    assert Accounting.observe_work(claim, remote, target) == :ok
     assert Repo.one!(Execution).status == "failed"
   end
 
@@ -55,7 +55,7 @@ defmodule Ryker.AccountingTest do
       "usage" => %{"input_tokens" => 10}
     }
 
-    assert :ok = Accounting.observe_work(claim, remote, %{"target" => "claude:opus/high@work"})
+    assert Accounting.observe_work(claim, remote, %{"target" => "claude:opus/high@work"}) == :ok
 
     execution_id = Repo.one!(from(execution in Execution, select: execution.id))
     assert_received {:usage_recorded, ^execution_id}
@@ -88,11 +88,10 @@ defmodule Ryker.AccountingTest do
 
     claim = %{claim | turn: frozen}
 
-    assert :ok =
-             Accounting.observe_work(claim, %{
-               "state" => "failed",
-               "usage" => %{"input_tokens" => 1200}
-             })
+    assert Accounting.observe_work(claim, %{
+             "state" => "failed",
+             "usage" => %{"input_tokens" => 1200}
+           }) == :ok
 
     assert {:ok, turn} =
              Custody.advance_turn_submit(
@@ -102,14 +101,13 @@ defmodule Ryker.AccountingTest do
                claim.turn.submit_generation
              )
 
-    assert {:error, :accounting_lease_lost} =
-             Accounting.observe_work(claim, %{"state" => "completed"})
+    assert Accounting.observe_work(claim, %{"state" => "completed"}) ==
+             {:error, :accounting_lease_lost}
 
-    assert :ok =
-             Accounting.observe_work(%{claim | turn: turn}, %{
-               "state" => "cancelled",
-               "usage" => %{"input_tokens" => 300}
-             })
+    assert Accounting.observe_work(%{claim | turn: turn}, %{
+             "state" => "cancelled",
+             "usage" => %{"input_tokens" => 300}
+           }) == :ok
 
     rows = Repo.all(from(e in Execution, order_by: e.generation))
     assert Enum.map(rows, & &1.usage_input_tokens) == [1200, 300]
@@ -119,11 +117,10 @@ defmodule Ryker.AccountingTest do
   test "compact accounting survives source artifact removal and separates shadow execution" do
     claim = claim!()
 
-    assert :ok =
-             Accounting.observe_work(claim, %{
-               "state" => "cancelled",
-               "usage" => %{"input_tokens" => 12}
-             })
+    assert Accounting.observe_work(claim, %{
+             "state" => "cancelled",
+             "usage" => %{"input_tokens" => 12}
+           }) == :ok
 
     [row] = Repo.all(Execution)
 
@@ -150,8 +147,8 @@ defmodule Ryker.AccountingTest do
     claim = claim!()
     shadow_database_clock!(3_600)
 
-    assert {:error, :accounting_lease_lost} =
-             Accounting.observe_work(claim, %{"state" => "completed"})
+    assert Accounting.observe_work(claim, %{"state" => "completed"}) ==
+             {:error, :accounting_lease_lost}
 
     assert Repo.aggregate(Execution, :count) == 0
   end

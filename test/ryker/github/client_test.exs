@@ -91,9 +91,9 @@ defmodule Ryker.GitHub.ClientTest do
 
     client = client(requester)
 
-    assert :ok = Client.update_issue_comment(client, "octo/example", 9_001, "Updated issue")
-    assert :ok = Client.update_pull_review(client, "octo/example", 42, 9_100, "Updated summary")
-    assert :ok = Client.update_review_comment(client, "octo/example", 9_002, "Updated review")
+    assert Client.update_issue_comment(client, "octo/example", 9_001, "Updated issue") == :ok
+    assert Client.update_pull_review(client, "octo/example", 42, 9_100, "Updated summary") == :ok
+    assert Client.update_review_comment(client, "octo/example", 9_002, "Updated review") == :ok
 
     assert Client.update_issue_comment(client, "octo/example", 9_003, "Crossed") ==
              {:error, {:github_protocol_error, :comment}}
@@ -133,8 +133,8 @@ defmodule Ryker.GitHub.ClientTest do
 
     client = client(requester)
 
-    assert :ok = Client.add_issue_comment_reaction(client, "octo/example", 9_001, "+1")
-    assert :ok = Client.add_review_comment_reaction(client, "octo/example", 9_002, "rocket")
+    assert Client.add_issue_comment_reaction(client, "octo/example", 9_001, "+1") == :ok
+    assert Client.add_review_comment_reaction(client, "octo/example", 9_002, "rocket") == :ok
 
     assert [
              {:post, "/repos/octo/example/issues/comments/9001/reactions", %{"content" => "+1"},

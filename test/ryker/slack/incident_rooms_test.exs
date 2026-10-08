@@ -185,7 +185,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     fixture = delivered_offer!()
     assert [receipt] = KnowledgeSnapshot.session_sources(fixture.session.id)
     assert receipt["source_input_id"] == fixture.input_entry.id
-    assert :ok = KnowledgeSnapshot.authorize_session(fixture.episode, fixture.session)
+    assert KnowledgeSnapshot.authorize_session(fixture.episode, fixture.session) == :ok
 
     deleted = %{
       fixture.input
@@ -196,8 +196,8 @@ defmodule Ryker.Slack.IncidentRoomsTest do
 
     assert {:ok, _} = Inbox.record(deleted)
 
-    assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.authorize_session(fixture.episode, fixture.session)
+    assert KnowledgeSnapshot.authorize_session(fixture.episode, fixture.session) ==
+             {:error, :work_knowledge_context_stale}
   end
 
   # One offer owns both paths. Before 2026-09-11 an incident offer had only
@@ -457,7 +457,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
 
     assert {:ok, submission} = SubmissionBuilder.build(claim)
     # As the room's live Work turn records, so its records may be shown there.
-    assert :ok = KnowledgeSnapshot.expose(claim, [])
+    assert KnowledgeSnapshot.expose(claim, []) == :ok
     instructions = submission["context"]["custom_instructions"]
     assert instructions["global"]["text"] == "Global incident default"
     assert instructions["channel"]["text"] == "Incident room default"
@@ -553,8 +553,8 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     assert WorkProfile.repository_refs(profile) == ["ryker"]
     assert WorkProfile.read_only_refs(profile) == ["docs"]
 
-    assert {:error, {:invalid_work_profile, :repository_ref}} =
-             WorkProfile.policy_for(profile, :standard, "docs")
+    assert WorkProfile.policy_for(profile, :standard, "docs") ==
+             {:error, {:invalid_work_profile, :repository_ref}}
 
     assert profile.parallel_goal_limit == 2
 
@@ -943,7 +943,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
              Repo.get_by!(IncidentRoomLifecycleEvent, room_id: room.id)
 
     # Nothing is left for the worker to do, and the limit has room again.
-    assert {:ok, :idle} = IncidentRoomWorker.run_once(worker_options(agent))
+    assert IncidentRoomWorker.run_once(worker_options(agent)) == {:ok, :idle}
     assert Repo.get!(IncidentRoom, room.id).status == :closed
 
     assert {:ok, %{status: :requested}} =
@@ -1025,7 +1025,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
            ]
 
     # Nothing is left to do, and a later pass never posts it again.
-    assert {:ok, :idle} = IncidentRoomWorker.run_once(worker_options(agent))
+    assert IncidentRoomWorker.run_once(worker_options(agent)) == {:ok, :idle}
     assert length(Agent.get(agent, & &1.posts)) == length(posted_before) + 1
 
     # Neither the room nor its closed request waits on anyone.
@@ -1083,11 +1083,11 @@ defmodule Ryker.Slack.IncidentRoomsTest do
              "Closed on request from Ryker's console. Ryker said so in the room and in the alert thread it was opened from."
 
     # Nothing is left to do, a closed room stays closed, and it no longer counts as open.
-    assert {:ok, :idle} = IncidentRoomWorker.run_once(worker_options(agent))
+    assert IncidentRoomWorker.run_once(worker_options(agent)) == {:ok, :idle}
     assert length(Agent.get(agent, & &1.posts)) == length(posted_before) + 2
 
-    assert {:error, :incident_room_closed} =
-             IncidentRooms.request_close(room.ref, "control-plane:local")
+    assert IncidentRooms.request_close(room.ref, "control-plane:local") ==
+             {:error, :incident_room_closed}
 
     assert {:ok, %{status: :requested}} =
              IncidentRooms.request(%{request(delivered_offer!()) | maximum_open_rooms: 1})
@@ -1189,14 +1189,14 @@ defmodule Ryker.Slack.IncidentRoomsTest do
   end
 
   test "closing a room asks for a known room and a named person" do
-    assert {:error, :incident_room_not_found} =
-             IncidentRooms.request_close("incident-room:missing", "control-plane:local")
+    assert IncidentRooms.request_close("incident-room:missing", "control-plane:local") ==
+             {:error, :incident_room_not_found}
 
-    assert {:error, {:invalid_incident_room_request, :actor_ref}} =
-             IncidentRooms.request_close("incident-room:missing", "")
+    assert IncidentRooms.request_close("incident-room:missing", "") ==
+             {:error, {:invalid_incident_room_request, :actor_ref}}
 
-    assert {:error, {:invalid_incident_room_request, :room_ref}} =
-             IncidentRooms.request_close(nil, "control-plane:local")
+    assert IncidentRooms.request_close(nil, "control-plane:local") ==
+             {:error, {:invalid_incident_room_request, :room_ref}}
   end
 
   # A run still working when its room is deleted is stopped through the same
@@ -1533,8 +1533,8 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     assert Repo.get!(IncidentRoom, room.id).status == :closed
 
     # Nothing is left to do, and a later pass of either lane posts nothing.
-    assert {:ok, :idle} = IncidentRoomWorker.run_once(worker_options(agent))
-    assert {:ok, :idle} = Dispatcher.run_once(delivery_options(agent))
+    assert IncidentRoomWorker.run_once(worker_options(agent)) == {:ok, :idle}
+    assert Dispatcher.run_once(delivery_options(agent)) == {:ok, :idle}
     assert length(Agent.get(agent, & &1.posts)) == length(posted_before) + 2
     assert FailureProjection.fetch("delivery", delivery_ref) == :not_found
 
@@ -1626,7 +1626,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
 
     # A finished answer ends the investigation once it is posted.
     assert Repo.get!(Episode, room.episode_id).state == :complete
-    assert {:ok, :idle} = IncidentRoomWorker.run_once(worker_options(agent))
+    assert IncidentRoomWorker.run_once(worker_options(agent)) == {:ok, :idle}
 
     assert {:ok, %{status: :requested}} =
              IncidentRooms.request(%{request(delivered_offer!()) | maximum_open_rooms: 1})
@@ -1690,7 +1690,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
 
     # The room stays closed, nothing more is posted, and a later pass is idle.
     assert Repo.get!(IncidentRoom, room.id).status == :closed
-    assert {:ok, :idle} = IncidentRoomWorker.run_once(worker_options(agent))
+    assert IncidentRoomWorker.run_once(worker_options(agent)) == {:ok, :idle}
     assert Agent.get(agent, & &1.posts) == posted
   end
 
@@ -1866,7 +1866,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     agent = incident_agent!()
 
     options = automatic_options(agent)
-    assert {:ok, :idle} = IncidentRoomWorker.run_once(options)
+    assert IncidentRoomWorker.run_once(options) == {:ok, :idle}
     assert Repo.aggregate(IncidentRoom, :count) == 0
 
     app_offer = delivered_offer!(:app)
@@ -1899,7 +1899,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
 
     options = automatic_options(agent, maximum_open_rooms: 1)
 
-    log = capture_log(fn -> assert {:ok, :idle} = IncidentRoomWorker.run_once(options) end)
+    log = capture_log(fn -> assert IncidentRoomWorker.run_once(options) == {:ok, :idle} end)
     refute log =~ "incident_room_capacity"
   end
 
@@ -2825,7 +2825,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
                submission
              )
 
-    assert :ok = KnowledgeSnapshot.expose_submission(%{claim | turn: frozen_turn})
+    assert KnowledgeSnapshot.expose_submission(%{claim | turn: frozen_turn}) == :ok
 
     assert {:ok, session} =
              Custody.bind_session(

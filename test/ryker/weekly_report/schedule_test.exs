@@ -89,10 +89,10 @@ defmodule Ryker.WeeklyReport.ScheduleTest do
   test "a zone the database cannot resolve is an error, not a send in UTC" do
     unknown = %{@monday_nine | timezone: "Mars/Olympus"}
 
-    assert {:error, :time_zone_not_found} =
-             Schedule.latest(unknown, ~U[2026-10-07 12:00:00Z], TimeZones)
+    assert Schedule.latest(unknown, ~U[2026-10-07 12:00:00Z], TimeZones) ==
+             {:error, :time_zone_not_found}
 
-    assert {:error, :time_zone_not_found} =
-             Schedule.next(unknown, ~U[2026-10-07 12:00:00Z], TimeZones)
+    assert Schedule.next(unknown, ~U[2026-10-07 12:00:00Z], TimeZones) ==
+             {:error, :time_zone_not_found}
   end
 end

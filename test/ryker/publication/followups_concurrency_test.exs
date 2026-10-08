@@ -127,7 +127,7 @@ defmodule Ryker.Publication.FollowupsConcurrencyTest do
       assert length(Enum.uniq([blocking_backend | backends])) == 3
       send(blocker.pid, :release)
       results = Enum.map(contenders, &Task.await(&1, 5_000))
-      assert {:ok, :ok} = Task.await(blocker, 5_000)
+      assert Task.await(blocker, 5_000) == {:ok, :ok}
       results
     after
       send(blocker.pid, :release)

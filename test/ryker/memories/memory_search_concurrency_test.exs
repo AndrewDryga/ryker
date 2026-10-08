@@ -52,7 +52,7 @@ defmodule Ryker.Memories.MemorySearchConcurrencyTest do
           await_blocked_by(reader_backend, blocker_backend)
           held = %{session: probe_session(fixture.session_id), channel: probe_channel(fixture)}
           send(blocker.pid, :release_lock)
-          assert {:ok, :released} = Task.await(blocker)
+          assert Task.await(blocker) == {:ok, :released}
           assert {:ok, %{"memories" => [_]}} = Task.await(reader)
           assert held == %{session: :busy, channel: :busy}
         after
@@ -86,7 +86,7 @@ defmodule Ryker.Memories.MemorySearchConcurrencyTest do
           await_blocked_by(reader_backend, blocker_backend)
           result = Task.await(reader, 8_000)
           send(blocker.pid, :release_lock)
-          assert {:ok, :released} = Task.await(blocker)
+          assert Task.await(blocker) == {:ok, :released}
           assert result == {:error, :memory_search_budget_exceeded}
           assert Repo.get!(MemoryEntry, fixture.entry.id).recall_count == 0
         after
@@ -122,7 +122,7 @@ defmodule Ryker.Memories.MemorySearchConcurrencyTest do
         lookup = %{"complete" => true, "results" => %{"messages" => [hit]}}
         result = LookupContext.enrich("search_slack", %{}, fixture.binding, lookup, [])
         send(blocker.pid, :release_lock)
-        assert {:ok, :released} = Task.await(blocker)
+        assert Task.await(blocker) == {:ok, :released}
 
         assert {:ok, enriched} = result
         assert enriched["results"]["messages"] == [hit]
@@ -150,7 +150,7 @@ defmodule Ryker.Memories.MemorySearchConcurrencyTest do
         reader = search_task(parent, fixture)
 
         try do
-          assert {:error, :memory_search_budget_exceeded} = Task.await(reader)
+          assert Task.await(reader) == {:error, :memory_search_budget_exceeded}
           assert Repo.get!(MemoryEntry, fixture.entry.id).recall_count == 0
         after
           stop_tasks([reader])
@@ -220,7 +220,7 @@ defmodule Ryker.Memories.MemorySearchConcurrencyTest do
         cond do
           blocked ->
             send(blocker.pid, :release_lock)
-            assert {:ok, :released} = Task.await(blocker, 5_000)
+            assert Task.await(blocker, 5_000) == {:ok, :released}
             Task.await(reader, 5_000)
 
           attempts > 0 ->
@@ -267,8 +267,8 @@ defmodule Ryker.Memories.MemorySearchConcurrencyTest do
               )
           end
 
-          assert {:error, :state_tools_binding_not_authorized} =
-                   MemorySearch.search(fixture.binding, @search_arguments, @search_secret)
+          assert MemorySearch.search(fixture.binding, @search_arguments, @search_secret) ==
+                   {:error, :state_tools_binding_not_authorized}
 
           assert Repo.get!(MemoryEntry, fixture.entry.id).recall_count == 0
         after
@@ -352,7 +352,7 @@ defmodule Ryker.Memories.MemorySearchConcurrencyTest do
         assert_receive {:reader_started, reader_backend}, 5_000
         await_blocked_by(reader_backend, revoker_backend)
         send(revoker.pid, :commit_revocation)
-        assert {:ok, :ok} = Task.await(revoker)
+        assert Task.await(revoker) == {:ok, :ok}
         assert {:ok, documents} = Task.await(recall)
         documents
       after

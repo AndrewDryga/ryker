@@ -84,7 +84,7 @@ defmodule Ryker.GitHub.OnboardingTest do
   test "a repository removed while it is being set up stays removed" do
     log =
       capture_log(fn ->
-        assert {:error, :repository_removed} = Onboarding.run("repo", api: RemovedDuringSetupAPI)
+        assert Onboarding.run("repo", api: RemovedDuringSetupAPI) == {:error, :repository_removed}
       end)
 
     snapshot = Settings.fetch!()
@@ -99,7 +99,7 @@ defmodule Ryker.GitHub.OnboardingTest do
   test "a repository whose setup cannot be marked blocked says so in the log" do
     log =
       capture_log(fn ->
-        assert {:error, :remote_failed} = Onboarding.run("repo", api: PoisoningAPI)
+        assert Onboarding.run("repo", api: PoisoningAPI) == {:error, :remote_failed}
       end)
 
     Repo.query!("ALTER TABLE installation_settings_broken RENAME TO installation_settings")
@@ -146,7 +146,7 @@ defmodule Ryker.GitHub.OnboardingTest do
   test "a setup failure Ryker has no sentence for is logged with its reason" do
     log =
       capture_log(fn ->
-        assert {:error, {:github_status, 502}} = Onboarding.run("repo", api: UnknownFailureAPI)
+        assert Onboarding.run("repo", api: UnknownFailureAPI) == {:error, {:github_status, 502}}
       end)
 
     assert log =~ "repository repo setup stopped"
@@ -158,7 +158,7 @@ defmodule Ryker.GitHub.OnboardingTest do
   # pins the default branch head and hands RYKER.md to the knowledge lane,
   # whose first check is due at once: a model reads the repository there.
   test "setup pins the default branch head and hands RYKER.md to the knowledge lane" do
-    assert {:ok, :ready} = Onboarding.run("repo", api: API)
+    assert Onboarding.run("repo", api: API) == {:ok, :ready}
     assert_receive {:pin, "repo", "acme/repo"}
 
     repository = Enum.find(Settings.fetch!().repositories, &(&1.ref == "repo"))

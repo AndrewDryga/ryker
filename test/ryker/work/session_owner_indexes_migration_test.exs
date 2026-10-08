@@ -21,13 +21,13 @@ defmodule Ryker.Work.SessionOwnerIndexesMigrationTest do
       "admission_input_id" => "episode_work_sessions_admission_generation_index"
     }
 
-    assert :ok = migrate_down(@version)
+    assert migrate_down(@version) == :ok
 
     for {column, index} <- owners do
       refute index in indexes_led_by(column)
     end
 
-    assert :ok = migrate_up(@version)
+    assert migrate_up(@version) == :ok
 
     for {column, index} <- owners do
       assert index in indexes_led_by(column)

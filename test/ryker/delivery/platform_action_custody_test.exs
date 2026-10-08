@@ -255,7 +255,7 @@ defmodule Ryker.Delivery.PlatformActionCustodyTest do
              PlatformActionCustody.claim_next("platform-action-worker", 60)
 
     assert out.id == eyes.id
-    assert {:ok, nil} = PlatformActionCustody.claim_next("platform-action-worker-2", 60)
+    assert PlatformActionCustody.claim_next("platform-action-worker-2", 60) == {:ok, nil}
 
     assert {:ok, _deferred} =
              PlatformActionCustody.defer(
@@ -383,7 +383,7 @@ defmodule Ryker.Delivery.PlatformActionCustodyTest do
              PlatformActionCustody.claim_next("platform-action-worker", 60)
 
     assert out.id == first.id
-    assert {:ok, nil} = PlatformActionCustody.claim_next("platform-action-worker-2", 60)
+    assert PlatformActionCustody.claim_next("platform-action-worker-2", 60) == {:ok, nil}
     deliver_claimed!(out, lease_ref, "1787832000.000301")
 
     # The answer is refused while the third update is still on its way.

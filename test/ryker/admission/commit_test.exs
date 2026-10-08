@@ -128,7 +128,7 @@ defmodule Ryker.Admission.CommitTest do
                  occurred_at: now
                })
 
-      assert {:ok, 1} = EventSubscriptions.reconcile()
+      assert EventSubscriptions.reconcile() == {:ok, 1}
 
       entry =
         record_input!(
@@ -262,8 +262,8 @@ defmodule Ryker.Admission.CommitTest do
       document = decision!(:ignore, nil, :unrelated) |> Decision.document()
 
       for field <- ["observation", "knowledge"] do
-        assert {:error, {:invalid_decision, :fields}} =
-                 Decision.parse(Map.put(document, field, %{}))
+        assert Decision.parse(Map.put(document, field, %{})) ==
+                 {:error, {:invalid_decision, :fields}}
       end
 
       assert {:ok, decision} = Decision.parse(document)
@@ -353,14 +353,13 @@ defmodule Ryker.Admission.CommitTest do
     assert {:ok, %{lease_ref: lease_ref}} =
              Inbox.claim_next("executor:owner", @now, 300)
 
-    assert {:error, {:admission_rejected, :lease_lost}} = context_result(entry)
+    assert context_result(entry) == {:error, {:admission_rejected, :lease_lost}}
     assert {:ok, context} = context_result(entry, lease_ref)
     decision = decision!(:reply, nil, :unrelated)
 
-    assert {:error, {:admission_rejected, :lease_lost}} =
-             Admission.commit(context, decision, "decision-wrong-lease",
-               lease_ref: "ingress-lease:wrong"
-             )
+    assert Admission.commit(context, decision, "decision-wrong-lease",
+             lease_ref: "ingress-lease:wrong"
+           ) == {:error, {:admission_rejected, :lease_lost}}
 
     assert {:ok, result} =
              Admission.commit(context, decision, "decision-right-lease", lease_ref: lease_ref)
@@ -388,10 +387,10 @@ defmodule Ryker.Admission.CommitTest do
     assert blocked.status == :blocked
     decision = decision!(:reply, nil, :unrelated)
 
-    assert {:error,
-            {:input_blocked, "operation_uncertain",
-             "Coop could not prove whether the admission mutation was accepted."}} =
-             Admission.commit(context, decision, "decision-after-block", lease_ref: lease_ref)
+    assert Admission.commit(context, decision, "decision-after-block", lease_ref: lease_ref) ==
+             {:error,
+              {:input_blocked, "operation_uncertain",
+               "Coop could not prove whether the admission mutation was accepted."}}
   end
 
   # Finished work is offered only when it is about what the message is about
@@ -836,8 +835,8 @@ defmodule Ryker.Admission.CommitTest do
                "work_class" => nil
              })
 
-    assert {:error, {:admission_rejected, :action_not_allowed, submitted: :quick_reply}} =
-             Admission.commit(context, decision, "decision-quick-reply-app")
+    assert Admission.commit(context, decision, "decision-quick-reply-app") ==
+             {:error, {:admission_rejected, :action_not_allowed, submitted: :quick_reply}}
 
     assert Repo.aggregate(Ryker.Delivery.RoutingResponse, :count) == 0
   end
@@ -904,12 +903,11 @@ defmodule Ryker.Admission.CommitTest do
     start = decision!(:start_episode, nil, :unrelated)
     assert {:ok, started} = Admission.commit(first_context, start, "decision-thread-first")
 
-    assert {:error, {:admission_rejected, :context_stale}} =
-             Admission.commit(
-               second_context,
-               start,
-               "decision-thread-second-stale"
-             )
+    assert Admission.commit(
+             second_context,
+             start,
+             "decision-thread-second-stale"
+           ) == {:error, {:admission_rejected, :context_stale}}
 
     assert {:ok, pending} = Inbox.fetch(Inbox.ref(second))
     assert pending.status == :pending
@@ -949,8 +947,8 @@ defmodule Ryker.Admission.CommitTest do
     assert {:ok, first_result} =
              Admission.commit(first_context, start, "decision-independent-first")
 
-    assert {:error, {:admission_rejected, :context_stale}} =
-             Admission.commit(second_context, start, "decision-independent-second-stale")
+    assert Admission.commit(second_context, start, "decision-independent-second-stale") ==
+             {:error, {:admission_rejected, :context_stale}}
 
     assert {:ok, pending} = Inbox.fetch(Inbox.ref(second))
     assert pending.status == :pending
@@ -1019,8 +1017,8 @@ defmodule Ryker.Admission.CommitTest do
 
     start = decision!(:start_episode, candidate.ref, :history_only)
 
-    assert {:error, {:admission_rejected, :context_stale}} =
-             Admission.commit(context, start, "decision-frozen-before-history-reopened")
+    assert Admission.commit(context, start, "decision-frozen-before-history-reopened") ==
+             {:error, {:admission_rejected, :context_stale}}
 
     assert {:ok, pending} = Inbox.fetch(Inbox.ref(entry))
     assert pending.status == :pending
@@ -1088,7 +1086,7 @@ defmodule Ryker.Admission.CommitTest do
     assert result.entry.status == :superseded
     assert result.episode.id == active.id
     assert result.entry.last_error_code == "stale_input_revision"
-    assert :error = Episodes.fetch_by_key("ingress-input:#{entry.id}")
+    assert Episodes.fetch_by_key("ingress-input:#{entry.id}") == :error
 
     assert {:ok, duplicate} =
              Admission.commit(context, stale_start, "decision-stale-revision-race")
@@ -1149,8 +1147,8 @@ defmodule Ryker.Admission.CommitTest do
 
     wrong_owner = decision!(:continue_episode, other_candidate.ref, :same_work)
 
-    assert {:error, {:admission_rejected, :context_stale}} =
-             Admission.commit(context, wrong_owner, "decision-source-owner-race")
+    assert Admission.commit(context, wrong_owner, "decision-source-owner-race") ==
+             {:error, {:admission_rejected, :context_stale}}
 
     assert {:ok, pending} = Inbox.fetch(Inbox.ref(entry))
     assert pending.status == :pending

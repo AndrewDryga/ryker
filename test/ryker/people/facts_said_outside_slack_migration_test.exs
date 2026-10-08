@@ -9,7 +9,7 @@ defmodule Ryker.People.FactsSaidOutsideSlackMigrationTest do
   # one (2026-10-04 review). Facts kept before the rule changed stay where
   # they were said as well; a public Slack channel's fact still travels.
   test "a fact already kept from outside Slack stays where it was said" do
-    assert :ok = migrate_down(@version)
+    assert migrate_down(@version) == :ok
 
     SQL.query!(
       Repo,
@@ -28,7 +28,7 @@ defmodule Ryker.People.FactsSaidOutsideSlackMigrationTest do
       []
     )
 
-    assert :ok = migrate_up(@version)
+    assert migrate_up(@version) == :ok
 
     assert SQL.query!(Repo, "SELECT person_ref, private FROM person_facts ORDER BY person_ref").rows ==
              [["github:user:octo-dev", true], ["slack:user:UPUBLIC", false]]

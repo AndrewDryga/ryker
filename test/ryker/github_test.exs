@@ -43,8 +43,8 @@ defmodule Ryker.GitHubTest do
                "acme/api"
              )
 
-    assert {:error, {:invalid_publication_receipt, :identity}} =
-             Receipt.prepare(receipt("https://github.com/acme/api/pull/7"), review, "acme/api")
+    assert Receipt.prepare(receipt("https://github.com/acme/api/pull/7"), review, "acme/api") ==
+             {:error, {:invalid_publication_receipt, :identity}}
   end
 
   test "without an enterprise, everything stays on github.com" do

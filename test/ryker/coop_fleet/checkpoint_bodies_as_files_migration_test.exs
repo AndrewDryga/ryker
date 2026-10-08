@@ -22,7 +22,7 @@ defmodule Ryker.CoopFleet.CheckpointBodiesAsFilesMigrationTest do
 
   test "a checkpoint body kept in the database stops the migration; without one its columns go" do
     command = command!()
-    assert :ok = migrate_down(@version)
+    assert migrate_down(@version) == :ok
     assert column?("ciphertext")
 
     body = :binary.copy(<<3>>, 16)
@@ -57,7 +57,7 @@ defmodule Ryker.CoopFleet.CheckpointBodiesAsFilesMigrationTest do
            ]
 
     Repo.query!("DELETE FROM coop_worker_workspace_checkpoints")
-    assert :ok = migrate_up(@version)
+    assert migrate_up(@version) == :ok
 
     refute column?("ciphertext")
     refute column?("encryption_nonce")

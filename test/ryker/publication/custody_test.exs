@@ -858,7 +858,7 @@ defmodule Ryker.Publication.CustodyTest do
       set: [lease_expires_at: @now, next_attempt_at: @now]
     )
 
-    assert {:ok, nil} = PublicationCustody.claim_next("publication:must-not-retry", 60)
+    assert PublicationCustody.claim_next("publication:must-not-retry", 60) == {:ok, nil}
 
     assert PublicationCustody.recover(approved.ref, :retry, 1) ==
              {:error, :publication_recovery_not_allowed}
@@ -910,7 +910,7 @@ defmodule Ryker.Publication.CustodyTest do
         set: [next_attempt_at: @now]
       )
 
-      assert {:ok, nil} = PublicationCustody.claim_next("publication:must-not-retry", 60)
+      assert PublicationCustody.claim_next("publication:must-not-retry", 60) == {:ok, nil}
 
       assert PublicationCustody.recover(approved.ref, :retry, 1) ==
                {:error, :publication_recovery_not_allowed}

@@ -36,8 +36,8 @@ defmodule Ryker.BundledCoopIdentityTest do
   test "a valid identity is retained and its durable installation is acknowledged",
        %{identity: identity, marker: marker} = context do
     original = write_identity!(context, DateTime.utc_now())
-    assert {"valid\n", 0} = run(context, "identity_state")
-    assert {"", 0} = run(context, "recover_identity")
+    assert run(context, "identity_state") == {"valid\n", 0}
+    assert run(context, "recover_identity") == {"", 0}
     assert File.exists?(marker)
     assert File.read!(identity) == original
   end
@@ -46,7 +46,7 @@ defmodule Ryker.BundledCoopIdentityTest do
        %{identity: identity, marker: marker, root: root} = context do
     write_identity!(context, DateTime.add(DateTime.utc_now(), -3_600, :second))
     File.touch!(marker)
-    assert {"expired\n", 0} = run(context, "identity_state")
+    assert run(context, "identity_state") == {"expired\n", 0}
     assert {_message, 0} = run(context, "recover_identity")
     refute File.exists?(identity)
     refute File.exists?(marker)
@@ -56,17 +56,17 @@ defmodule Ryker.BundledCoopIdentityTest do
   test "recovery rechecks a renewal that finished while the connector was stopping",
        %{identity: identity} = context do
     write_identity!(context, DateTime.add(DateTime.utc_now(), -3_600, :second))
-    assert {"expired\n", 0} = run(context, "identity_state")
+    assert run(context, "identity_state") == {"expired\n", 0}
     renewed = write_identity!(context, DateTime.utc_now())
-    assert {"", 0} = run(context, "recover_identity")
+    assert run(context, "recover_identity") == {"", 0}
     assert File.read!(identity) == renewed
   end
 
   test "a missing identity clears a stale acknowledgement and keeps the token",
        %{marker: marker, root: root} = context do
     File.touch!(marker)
-    assert {"absent\n", 0} = run(context, "identity_state")
-    assert {"", 0} = run(context, "recover_identity")
+    assert run(context, "identity_state") == {"absent\n", 0}
+    assert run(context, "recover_identity") == {"", 0}
     refute File.exists?(marker)
     assert File.exists?(Path.join(root, "token"))
   end
@@ -100,8 +100,8 @@ defmodule Ryker.BundledCoopIdentityTest do
     newer = alter(document, "renewed_at", "2026-10-07T00:00:00Z")
     File.write!(identity, newer)
 
-    assert {"valid\n", 0} = run(context, "identity_state")
-    assert {"", 0} = run(context, "recover_identity")
+    assert run(context, "identity_state") == {"valid\n", 0}
+    assert run(context, "recover_identity") == {"", 0}
     assert File.read!(identity) == newer
   end
 
@@ -167,14 +167,14 @@ defmodule Ryker.BundledCoopIdentityTest do
     tag =
       "ryker-coop-base:" <> digest(File.read!(coop))
 
-    assert {"", 0} = run(context, "set -e\nprepare_ryker_box\nprepare_ryker_box")
+    assert run(context, "set -e\nprepare_ryker_box\nprepare_ryker_box") == {"", 0}
     assert File.read!(Path.join(root, "builds")) == tag <> "\n"
 
     assert File.read!(Path.join(root, "overlays")) ==
              String.duplicate("COOP_BASE_IMAGE=#{tag}\n", 2)
 
     File.write!(coop, File.read!(coop) <> "# a different worker binary\n")
-    assert {"", 0} = run(context, "set -e\nprepare_ryker_box")
+    assert run(context, "set -e\nprepare_ryker_box") == {"", 0}
 
     assert [_first, second] =
              String.split(File.read!(Path.join(root, "builds")), "\n", trim: true)
@@ -191,7 +191,7 @@ defmodule Ryker.BundledCoopIdentityTest do
 
     overlay_receipt = File.read!(Path.join(root, "overlays"))
     File.write!(coop, "#!/bin/sh\nexit 7\n")
-    assert {"", 7} = run(context, "set -e\nprepare_ryker_box")
+    assert run(context, "set -e\nprepare_ryker_box") == {"", 7}
     assert File.read!(Path.join(root, "overlays")) == overlay_receipt
   end
 

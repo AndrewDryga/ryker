@@ -272,8 +272,8 @@ defmodule Ryker.Schedules.SchedulesTest do
         repository: "elsewhere"
       )
 
-    assert {:error, :schedule_repository_not_writable} =
-             Schedules.confirm(confirmation(foreign, "foreign-repository"))
+    assert Schedules.confirm(confirmation(foreign, "foreign-repository")) ==
+             {:error, :schedule_repository_not_writable}
 
     own = delivered_offer!("own-repository", environment_ref: "production", repository: "ryker")
     assert {:ok, %{schedule: schedule}} = Schedules.confirm(confirmation(own, "own-repository"))
@@ -426,7 +426,7 @@ defmodule Ryker.Schedules.SchedulesTest do
     assert deferred.failure_count == 1
     assert deferred.lease_ref == nil
     assert byte_size(deferred.last_error) <= 4_096
-    assert {:ok, nil} = Schedules.claim_due("schedule-worker:too-soon", 60)
+    assert Schedules.claim_due("schedule-worker:too-soon", 60) == {:ok, nil}
   end
 
   test "expired due schedules are terminalized without starving the next claim" do
@@ -442,7 +442,7 @@ defmodule Ryker.Schedules.SchedulesTest do
       ]
     )
 
-    assert {:ok, nil} = Schedules.claim_due("schedule-worker:expired", 60)
+    assert Schedules.claim_due("schedule-worker:expired", 60) == {:ok, nil}
     assert Repo.get!(Schedule, confirmed.schedule.id).status == :expired
   end
 
@@ -498,7 +498,7 @@ defmodule Ryker.Schedules.SchedulesTest do
 
     assert dispatched.schedule.status == :completed
     assert dispatched.schedule.next_occurrence_at == nil
-    assert {:ok, nil} = Schedules.claim_due("schedule-worker:once-retry", 60)
+    assert Schedules.claim_due("schedule-worker:once-retry", 60) == {:ok, nil}
   end
 
   # On 2026-09-27 an idle install committed about 125 transactions a second;

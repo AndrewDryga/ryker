@@ -370,17 +370,15 @@ defmodule Ryker.GitHub.InstallationTokensTest do
   test "a changed repository binding cannot mint a worker token for another repository" do
     {provider, requester} = provider_with([])
 
-    assert {:error, {:github_installation_token_unavailable, :binding}} =
-             InstallationTokens.fresh_source_token(provider, "github-main", %{
-               repository_id: 100,
-               installation_id: 41
-             })
+    assert InstallationTokens.fresh_source_token(provider, "github-main", %{
+             repository_id: 100,
+             installation_id: 41
+           }) == {:error, {:github_installation_token_unavailable, :binding}}
 
-    assert {:error, {:github_installation_token_unavailable, :binding}} =
-             InstallationTokens.fresh_source_token(provider, "github-main", %{
-               repository_id: 99,
-               installation_id: 42
-             })
+    assert InstallationTokens.fresh_source_token(provider, "github-main", %{
+             repository_id: 99,
+             installation_id: 42
+           }) == {:error, {:github_installation_token_unavailable, :binding}}
 
     assert Agent.get(requester, & &1.calls) == []
   end

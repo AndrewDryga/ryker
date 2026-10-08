@@ -22,7 +22,7 @@ defmodule Ryker.CoopFleet.BodiesTest do
       "sha256" => Base.encode16(:crypto.hash_final(hash), case: :lower)
     }
 
-    assert :ok = Bodies.put(root, command_id, :response, reference, chunks, @key)
+    assert Bodies.put(root, command_id, :response, reference, chunks, @key) == :ok
 
     assert {:ok, body, ^reference} =
              Bodies.fetch(root, command_id, :response, reference)
@@ -40,37 +40,35 @@ defmodule Ryker.CoopFleet.BodiesTest do
 
     # A lost upload acknowledgement reuses the exact file. A changed retry never overwrites it.
     receipt = File.read!(Path.join(Path.dirname(path), "receipt"))
-    assert :ok = Bodies.put(root, command_id, :response, reference, chunks, @key)
+    assert Bodies.put(root, command_id, :response, reference, chunks, @key) == :ok
     assert File.read!(Path.join(Path.dirname(path), "receipt")) == receipt
 
-    assert :ok =
-             Bodies.with_stream(body, @key, fn stream ->
-               for _ <- 1..2 do
-                 hash =
-                   Enum.reduce(
-                     stream.(),
-                     :crypto.hash_init(:sha256),
-                     &:crypto.hash_update(&2, &1)
-                   )
+    assert Bodies.with_stream(body, @key, fn stream ->
+             for _ <- 1..2 do
+               hash =
+                 Enum.reduce(
+                   stream.(),
+                   :crypto.hash_init(:sha256),
+                   &:crypto.hash_update(&2, &1)
+                 )
 
-                 assert Base.encode16(:crypto.hash_final(hash), case: :lower) ==
-                          reference["sha256"]
-               end
+               assert Base.encode16(:crypto.hash_final(hash), case: :lower) ==
+                        reference["sha256"]
+             end
 
-               :ok
-             end)
+             :ok
+           end) == :ok
 
-    assert {:error, :body_conflict} =
-             Bodies.put(
-               root,
-               command_id,
-               :response,
-               reference("changed"),
-               [
-                 "changed"
-               ],
-               @key
-             )
+    assert Bodies.put(
+             root,
+             command_id,
+             :response,
+             reference("changed"),
+             [
+               "changed"
+             ],
+             @key
+           ) == {:error, :body_conflict}
 
     assert {:ok, ^body, ^reference} = Bodies.fetch(root, command_id, :response)
   end
@@ -125,13 +123,13 @@ defmodule Ryker.CoopFleet.BodiesTest do
   } do
     bytes = :binary.copy("private body", 100)
     ref = reference(bytes)
-    assert :ok = Bodies.put(root, command_id, :response, ref, [bytes], @key)
+    assert Bodies.put(root, command_id, :response, ref, [bytes], @key) == :ok
     assert {:ok, body, ^ref} = Bodies.fetch(root, command_id, :response)
     path = Path.join([root, command_id, "response"])
     ciphertext = File.read!(Path.join(path, "data"))
     refute String.contains?(ciphertext, "private body")
     assert {:ok, ^bytes} = Bodies.read(body, @key, byte_size(bytes))
-    assert {:error, :body_too_large} = Bodies.read(body, @key, byte_size(bytes) - 1)
+    assert Bodies.read(body, @key, byte_size(bytes) - 1) == {:error, :body_too_large}
     deny = fn _ -> flunk("unauthenticated plaintext reached the consumer") end
     assert {:error, _} = Bodies.with_stream(body, Ryker.Secret.new(:binary.copy(<<8>>, 32)), deny)
 
@@ -155,29 +153,27 @@ defmodule Ryker.CoopFleet.BodiesTest do
     bytes = "immutable private bytes"
     ref = reference(bytes)
 
-    assert :ok =
-             Bodies.put(
-               root,
-               String.upcase(command_id),
-               :response,
-               ref,
-               [bytes],
-               @key
-             )
+    assert Bodies.put(
+             root,
+             String.upcase(command_id),
+             :response,
+             ref,
+             [bytes],
+             @key
+           ) == :ok
 
     assert {:ok, body, ^ref} = Bodies.fetch(root, command_id, :response)
 
-    assert :ok =
-             Bodies.with_stream(body, @key, fn stream ->
-               path = Path.join([root, command_id, "response", "data"])
-               File.rename!(path, path <> ".old")
-               File.write!(path, :binary.copy("x", byte_size(bytes)))
+    assert Bodies.with_stream(body, @key, fn stream ->
+             path = Path.join([root, command_id, "response", "data"])
+             File.rename!(path, path <> ".old")
+             File.write!(path, :binary.copy("x", byte_size(bytes)))
 
-               for _ <- 1..2,
-                   do: assert(stream.() |> Enum.to_list() |> IO.iodata_to_binary() == bytes)
+             for _ <- 1..2,
+                 do: assert(stream.() |> Enum.to_list() |> IO.iodata_to_binary() == bytes)
 
-               :ok
-             end)
+             :ok
+           end) == :ok
   end
 
   defp reference(bytes),

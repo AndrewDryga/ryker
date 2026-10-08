@@ -97,8 +97,8 @@ defmodule Ryker.Slack.SourceAuditsTest do
 
     private = Map.put(arguments, "source_ref", SourceRef.message("T123", "GOTHER", message["ts"]))
 
-    assert {:error, "unauthorized"} =
-             CapabilityTools.call("read_slack_source", private, binding, options)
+    assert CapabilityTools.call("read_slack_source", private, binding, options) ==
+             {:error, "unauthorized"}
 
     refute_received :notification_read
     assert Repo.aggregate(SourceAudit, :count) == 1
@@ -123,22 +123,21 @@ defmodule Ryker.Slack.SourceAuditsTest do
 
     assert {:ok, claim} = Custody.claim_next("slack-source-audit-worker", 60)
 
-    assert :ok =
-             SourceAudits.record(%{
-               authorized: true,
-               capability: "assistant.search.context",
-               channel_ref: nil,
-               complete: false,
-               episode_id: episode_id,
-               range: %{"after" => nil, "before" => nil, "cursor" => "next"},
-               request: %{"query" => "secret incident phrase"},
-               requester_ref: "slack:user:U123",
-               result_count: 3,
-               source_ref: nil,
-               tool: :search_slack,
-               turn_id: claim.turn.id,
-               workspace_ref: "T123"
-             })
+    assert SourceAudits.record(%{
+             authorized: true,
+             capability: "assistant.search.context",
+             channel_ref: nil,
+             complete: false,
+             episode_id: episode_id,
+             range: %{"after" => nil, "before" => nil, "cursor" => "next"},
+             request: %{"query" => "secret incident phrase"},
+             requester_ref: "slack:user:U123",
+             result_count: 3,
+             source_ref: nil,
+             tool: :search_slack,
+             turn_id: claim.turn.id,
+             workspace_ref: "T123"
+           }) == :ok
 
     audit = Repo.one!(SourceAudit)
     assert audit.episode_id == episode_id

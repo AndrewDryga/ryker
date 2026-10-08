@@ -787,8 +787,7 @@ defmodule Ryker.Episodes.ReducerTest do
       input = EpisodeFixtures.admit_input(%{native_input_id: "slack:new-run-notification"})
       assert {:ok, queued} = Reducer.decide(admitted.episode, input)
 
-      assert {:error, :queued_inputs_prevent_wait} =
-               Reducer.decide(queued.episode, result)
+      assert Reducer.decide(queued.episode, result) == {:error, :queued_inputs_prevent_wait}
     end
 
     test "an empty next-turn reference cannot strand queued input" do

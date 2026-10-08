@@ -188,17 +188,16 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
           put_in(request, ["request", "candidate_head"], String.duplicate("f", 40)),
           put_in(request, ["request", "body"], "Changed after approval")
         ] do
-      assert {:error, :publication_grant_denied} = authority(certificate, session, request)
+      assert authority(certificate, session, request) == {:error, :publication_grant_denied}
     end
 
-    assert {:error, :publication_grant_denied} =
-             authority("another-worker", session, request)
+    assert authority("another-worker", session, request) == {:error, :publication_grant_denied}
 
     review
     |> change(payload: Map.put(review.payload, "expected_revision", 8))
     |> Repo.update!()
 
-    assert {:error, :publication_grant_denied} = authority(certificate, session, request)
+    assert authority(certificate, session, request) == {:error, :publication_grant_denied}
 
     review.__struct__
     |> Repo.get!(review.id)
@@ -211,7 +210,7 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
     |> change(review_document: Map.put(publication.review_document, "candidate_retained", false))
     |> Repo.update!()
 
-    assert {:error, :publication_grant_denied} = authority(certificate, session, request)
+    assert authority(certificate, session, request) == {:error, :publication_grant_denied}
   end
 
   # A review waits for a person; its placement's lease does not. Once a publish could follow the
@@ -277,9 +276,9 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
        %{certificate: certificate, placement: placement, request: request, session: session} do
     placement |> change(lease_expires_at: DateTime.add(Repo.now!(), -1)) |> Repo.update!()
     assert route(certificate, session, request).status == 503
-    assert {:error, :publication_grant_unavailable} = authority(certificate, session, request)
+    assert authority(certificate, session, request) == {:error, :publication_grant_unavailable}
     placement |> change(state: :retired) |> Repo.update!()
-    assert {:error, :publication_grant_denied} = authority(certificate, session, request)
+    assert authority(certificate, session, request) == {:error, :publication_grant_denied}
     assert route(certificate, session, request).status == 403
   end
 
@@ -289,7 +288,7 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
     {task, minter} = begin_mint(certificate, session, request, provider)
     placement |> change(state: :revoking) |> Repo.update!()
     send(minter, :complete)
-    assert {:error, :publication_grant_denied} = Task.await(task)
+    assert Task.await(task) == {:error, :publication_grant_denied}
   end
 
   test "a binding changed during token minting never receives the old repository credential",
@@ -312,7 +311,7 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
       )
 
     send(minter, :complete)
-    assert {:error, :publication_grant_unavailable} = Task.await(task)
+    assert Task.await(task) == {:error, :publication_grant_unavailable}
   end
 
   defp authority(certificate, session, request) do

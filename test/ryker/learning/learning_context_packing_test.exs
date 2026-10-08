@@ -97,7 +97,7 @@ defmodule Ryker.Learning.LearningContextPackingTest do
       )
     )
 
-    assert {:error, :learning_capacity_exceeded} = Learning.prepare(ids, @policy)
+    assert Learning.prepare(ids, @policy) == {:error, :learning_capacity_exceeded}
     assert Repo.aggregate(LearningRun, :count) == 2
   end
 
@@ -209,14 +209,13 @@ defmodule Ryker.Learning.LearningContextPackingTest do
     assert hd(LearningSources.for_entry(hd(history))) in dependencies
     assert hd(LearningSources.for_entry(List.last(history))) in dependencies
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Knowledge.record_sources_in_transaction([hd(history)], proposal, [], %{
-                 result_ref: "host-context-packing-fixture",
-                 source_dependencies: dependencies,
-                 omissions: []
-               })
-             end)
+    assert Repo.transaction(fn ->
+             Knowledge.record_sources_in_transaction([hd(history)], proposal, [], %{
+               result_ref: "host-context-packing-fixture",
+               source_dependencies: dependencies,
+               omissions: []
+             })
+           end) == {:ok, :ok}
 
     head = Repo.get_by!(ConversationKnowledge, topic_key: topic["topic_key"])
     assert head.state == Map.put(topic["state"], "anchors", [])
@@ -291,7 +290,7 @@ defmodule Ryker.Learning.LearningContextPackingTest do
       )
 
     entry = Repo.insert!(struct!(Entry, Map.put(attrs, :occurred_at, at)))
-    assert {:ok, :ok} = Repo.transaction(fn -> Observations.receive_in_transaction(entry) end)
+    assert Repo.transaction(fn -> Observations.receive_in_transaction(entry) end) == {:ok, :ok}
     entry
   end
 
@@ -362,8 +361,8 @@ defmodule Ryker.Learning.LearningContextPackingTest do
   defp historical_source!(entry, n) do
     historical = Repo.insert!(struct!(Entry, historical_attributes(entry, n)))
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn -> Observations.receive_in_transaction(historical) end)
+    assert Repo.transaction(fn -> Observations.receive_in_transaction(historical) end) ==
+             {:ok, :ok}
 
     historical
   end

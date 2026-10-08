@@ -19,14 +19,13 @@ defmodule Ryker.Knowledge.KnowledgeSourcesTest do
     before = Repo.all(ConversationObservation)
     dependencies = entries |> Enum.map(&LearningSources.for_entry/1) |> LearningSources.merge()
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Knowledge.record_sources_in_transaction(entries, proposal(), [], %{
-                 result_ref: "learning-result:host-contract-test",
-                 source_dependencies: dependencies,
-                 omissions: []
-               })
-             end)
+    assert Repo.transaction(fn ->
+             Knowledge.record_sources_in_transaction(entries, proposal(), [], %{
+               result_ref: "learning-result:host-contract-test",
+               source_dependencies: dependencies,
+               omissions: []
+             })
+           end) == {:ok, :ok}
 
     assert Repo.all(ConversationObservation) == before
     assert [item] = Knowledge.context(hd(entries), "tenant-infra")
@@ -36,16 +35,15 @@ defmodule Ryker.Knowledge.KnowledgeSourcesTest do
     assert revision.source_result_ref == "learning-result:host-contract-test"
     assert LearningSources.expand(revision.source_dependencies) == dependencies
     assert revision.source_input_id == List.last(entries).id
-    assert :ok = KnowledgeSnapshot.still_valid(hd(entries), "tenant-infra", [item])
+    assert KnowledgeSnapshot.still_valid(hd(entries), "tenant-infra", [item]) == :ok
 
     # Filling a derived observation later does not change the raw source.
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Observations.record_excerpt_in_transaction(hd(entries))
-             end)
+    assert Repo.transaction(fn ->
+             Observations.record_excerpt_in_transaction(hd(entries))
+           end) == {:ok, :ok}
 
     assert [^item] = Knowledge.context(hd(entries), "tenant-infra")
-    assert :ok = KnowledgeSnapshot.still_valid(hd(entries), "tenant-infra", [item])
+    assert KnowledgeSnapshot.still_valid(hd(entries), "tenant-infra", [item]) == :ok
   end
 
   test "raw learning cannot reduce disclosed lineage to the claimed supporting sources" do
@@ -80,14 +78,13 @@ defmodule Ryker.Knowledge.KnowledgeSourcesTest do
     assert Repo.aggregate(ConversationKnowledge, :count) == 1
     dependencies = LearningSources.merge([raw, LearningSources.document_sources(offered)])
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Knowledge.record_sources_in_transaction(entries, proposal(), [offered], %{
-                 result_ref: "learning-result:complete-offered-topic",
-                 source_dependencies: dependencies,
-                 omissions: []
-               })
-             end)
+    assert Repo.transaction(fn ->
+             Knowledge.record_sources_in_transaction(entries, proposal(), [offered], %{
+               result_ref: "learning-result:complete-offered-topic",
+               source_dependencies: dependencies,
+               omissions: []
+             })
+           end) == {:ok, :ok}
 
     assert length(Knowledge.context(hd(entries), "tenant-infra")) == 2
     Ryker.Fixtures.Knowledge.revoke!(old_source)
@@ -122,14 +119,13 @@ defmodule Ryker.Knowledge.KnowledgeSourcesTest do
     assert is_map(Repo.get!(ConversationObservation, hd(entries).id).note)
     raw = entries |> Enum.map(&LearningSources.for_entry/1) |> LearningSources.merge()
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Knowledge.record_sources_in_transaction(entries, proposal(), [], %{
-                 result_ref: "learning-result:raw-only",
-                 source_dependencies: raw,
-                 omissions: []
-               })
-             end)
+    assert Repo.transaction(fn ->
+             Knowledge.record_sources_in_transaction(entries, proposal(), [], %{
+               result_ref: "learning-result:raw-only",
+               source_dependencies: raw,
+               omissions: []
+             })
+           end) == {:ok, :ok}
 
     assert Repo.all(ConversationObservation) == before
 
@@ -151,36 +147,34 @@ defmodule Ryker.Knowledge.KnowledgeSourcesTest do
     entries = sources!()
     dependencies = entries |> Enum.map(&LearningSources.for_entry/1) |> LearningSources.merge()
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Knowledge.record_sources_in_transaction(entries, proposal(), [], %{
-                 result_ref: "learning-result:pruning",
-                 source_dependencies: dependencies,
-                 omissions: []
-               })
-             end)
+    assert Repo.transaction(fn ->
+             Knowledge.record_sources_in_transaction(entries, proposal(), [], %{
+               result_ref: "learning-result:pruning",
+               source_dependencies: dependencies,
+               omissions: []
+             })
+           end) == {:ok, :ok}
 
     [item] = Knowledge.context(hd(entries), "tenant-infra")
     Repo.update_all(ConversationKnowledge, set: [state: %{"retention" => "pruned"}])
     Repo.update_all(KnowledgeRevision, set: [state: %{"retention" => "pruned"}])
     assert Knowledge.context(hd(entries), "tenant-infra") == []
 
-    assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.still_valid(hd(entries), "tenant-infra", [item])
+    assert KnowledgeSnapshot.still_valid(hd(entries), "tenant-infra", [item]) ==
+             {:error, :work_knowledge_context_stale}
   end
 
   test "an edit to a raw supporting input invalidates both recall and frozen Work" do
     entries = sources!()
     dependencies = entries |> Enum.map(&LearningSources.for_entry/1) |> LearningSources.merge()
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Knowledge.record_sources_in_transaction(entries, proposal(), [], %{
-                 result_ref: "learning-result:before-edit",
-                 source_dependencies: dependencies,
-                 omissions: []
-               })
-             end)
+    assert Repo.transaction(fn ->
+             Knowledge.record_sources_in_transaction(entries, proposal(), [], %{
+               result_ref: "learning-result:before-edit",
+               source_dependencies: dependencies,
+               omissions: []
+             })
+           end) == {:ok, :ok}
 
     [item] = Knowledge.context(hd(entries), "tenant-infra")
     first = hd(entries)
@@ -193,11 +187,11 @@ defmodule Ryker.Knowledge.KnowledgeSourcesTest do
         event_fingerprint: String.duplicate("c", 64)
     }
 
-    assert {:ok, :ok} = Repo.transaction(fn -> Observations.receive_in_transaction(edited) end)
+    assert Repo.transaction(fn -> Observations.receive_in_transaction(edited) end) == {:ok, :ok}
     assert Knowledge.context(List.last(entries), "tenant-infra") == []
 
-    assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.still_valid(List.last(entries), "tenant-infra", [item])
+    assert KnowledgeSnapshot.still_valid(List.last(entries), "tenant-infra", [item]) ==
+             {:error, :work_knowledge_context_stale}
   end
 
   defp sources! do
@@ -233,7 +227,7 @@ defmodule Ryker.Knowledge.KnowledgeSourcesTest do
         })
 
       # Source custody only; no admission, model, work, or publisher runs in this test.
-      assert {:ok, :ok} = Repo.transaction(fn -> Observations.receive_in_transaction(entry) end)
+      assert Repo.transaction(fn -> Observations.receive_in_transaction(entry) end) == {:ok, :ok}
       entry
     end)
   end

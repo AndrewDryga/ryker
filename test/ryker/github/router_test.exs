@@ -731,12 +731,11 @@ defmodule Ryker.GitHub.RouterTest do
       assert get_in(Repo.get!(LifecycleEvent, event.id).observation, ["content", "payload"]) ==
                deleted
 
-      assert :ok =
-               KnowledgeSnapshot.authorize_submission(
-                 claim.episode,
-                 claim.session.repository_ref,
-                 submission
-               )
+      assert KnowledgeSnapshot.authorize_submission(
+               claim.episode,
+               claim.session.repository_ref,
+               submission
+             ) == :ok
 
       for invalid <- [
             Map.delete(notice, "source_event_id"),
@@ -747,19 +746,17 @@ defmodule Ryker.GitHub.RouterTest do
           ] do
         tampered = put_in(submission, ["context", "current_inputs", "items"], [invalid])
 
-        assert {:error, :work_knowledge_context_stale} =
-                 KnowledgeSnapshot.authorize_submission(
-                   claim.episode,
-                   claim.session.repository_ref,
-                   tampered
-                 )
+        assert KnowledgeSnapshot.authorize_submission(
+                 claim.episode,
+                 claim.session.repository_ref,
+                 tampered
+               ) == {:error, :work_knowledge_context_stale}
       end
 
-      assert :ok =
-               KnowledgeSnapshot.expose_submission(%{
-                 claim
-                 | turn: %{claim.turn | submission: submission}
-               })
+      assert KnowledgeSnapshot.expose_submission(%{
+               claim
+               | turn: %{claim.turn | submission: submission}
+             }) == :ok
     end
 
     test "a #{event_name} #{action} notice never rehabilitates a session exposed to its body" do
@@ -773,18 +770,17 @@ defmodule Ryker.GitHub.RouterTest do
       claim = claim_feedback!(event)
       assert {:ok, submission} = SubmissionBuilder.build(claim)
       claim = %{claim | turn: %{claim.turn | submission: submission}}
-      assert :ok = KnowledgeSnapshot.expose_submission(claim)
+      assert KnowledgeSnapshot.expose_submission(claim) == :ok
       assert [_receipt] = KnowledgeSnapshot.session_sources(claim.session.id)
 
       deleted = Map.put(original, "action", unquote(action))
       deletion = record_feedback!(deleted, unquote(event_name), "deleted")
       assert deletion.id != event.id
 
-      assert {:error, :work_knowledge_context_stale} =
-               KnowledgeSnapshot.authorize_session(claim.episode, claim.session)
+      assert KnowledgeSnapshot.authorize_session(claim.episode, claim.session) ==
+               {:error, :work_knowledge_context_stale}
 
-      assert {:error, :work_knowledge_context_stale} =
-               KnowledgeSnapshot.expose_submission(claim)
+      assert KnowledgeSnapshot.expose_submission(claim) == {:error, :work_knowledge_context_stale}
     end
   end
 

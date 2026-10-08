@@ -360,7 +360,7 @@ defmodule Ryker.IntegrationSetupTest do
 
     assert Names.name("T0123456789", "U1") == "@Ada"
     assert Names.name("T0123456789", "U2") == "@Zoe"
-    assert :ok = GenServer.call(Names, :refresh)
+    assert GenServer.call(Names, :refresh) == :ok
     refute_received {:name_lookup, _ref}
   end
 
@@ -495,27 +495,25 @@ defmodule Ryker.IntegrationSetupTest do
   # failed until the credential was deleted. A secret nothing can use is
   # refused where it is typed; an empty field still makes a strong one.
   test "a signing secret too short for a signed route is refused before it is stored" do
-    assert {:error, :webhook_secret_too_short} =
-             IntegrationSetup.create_webhook_credential("grafana", "short", @actor)
+    assert IntegrationSetup.create_webhook_credential("grafana", "short", @actor) ==
+             {:error, :webhook_secret_too_short}
 
-    assert {:error, :webhook_secret_too_short} =
-             IntegrationSetup.create_webhook_credential(
-               "grafana",
-               String.duplicate("s", 31),
-               @actor
-             )
+    assert IntegrationSetup.create_webhook_credential(
+             "grafana",
+             String.duplicate("s", 31),
+             @actor
+           ) == {:error, :webhook_secret_too_short}
 
     assert Credentials.status(:webhook, "grafana").status == :missing
 
     key = :public_key.generate_key({:rsa, 2_048, 65_537})
     pem = :public_key.pem_encode([:public_key.pem_entry_encode(:RSAPrivateKey, key)])
 
-    assert {:error, :webhook_secret_too_short} =
-             IntegrationSetup.connect_github(
-               %{"app_id" => "1234", "private_key" => pem, "webhook_secret" => "short"},
-               @actor,
-               requester: Requester
-             )
+    assert IntegrationSetup.connect_github(
+             %{"app_id" => "1234", "private_key" => pem, "webhook_secret" => "short"},
+             @actor,
+             requester: Requester
+           ) == {:error, :webhook_secret_too_short}
 
     assert Credentials.status(:github_webhook, "primary").status == :missing
     assert Credentials.status(:github_private_key, "primary").status == :missing
@@ -596,18 +594,17 @@ defmodule Ryker.IntegrationSetupTest do
                ryker_actor_id: allowed.ryker_actor_id
              })
 
-    assert {:ok, []} =
-             Access.apply(
-               "installation",
-               %{
-                 "action" => "new_permissions_accepted",
-                 "installation" => %{
-                   "id" => binding.installation_id,
-                   "permissions" => %{"contents" => "write", "pull_requests" => "write"}
-                 }
-               },
-               %{binding.name => trusted}
-             )
+    assert Access.apply(
+             "installation",
+             %{
+               "action" => "new_permissions_accepted",
+               "installation" => %{
+                 "id" => binding.installation_id,
+                 "permissions" => %{"contents" => "write", "pull_requests" => "write"}
+               }
+             },
+             %{binding.name => trusted}
+           ) == {:ok, []}
 
     refreshed = hd(Settings.fetch!().github_bindings)
     assert refreshed.approvals_allowed
@@ -760,14 +757,13 @@ defmodule Ryker.IntegrationSetupTest do
         @actor
       )
 
-    assert {:error, {:github_repository_unreachable, "acme/site"}} =
-             IntegrationSetup.add_github_repository_again(
-               "acme-site",
-               [
-                 github_repository("acme/other", 601)
-               ],
-               @actor
-             )
+    assert IntegrationSetup.add_github_repository_again(
+             "acme-site",
+             [
+               github_repository("acme/other", 601)
+             ],
+             @actor
+           ) == {:error, {:github_repository_unreachable, "acme/site"}}
 
     assert {:ok, %{added: ["acme/site"], failed: []}} =
              IntegrationSetup.add_github_repository_again(
@@ -785,8 +781,8 @@ defmodule Ryker.IntegrationSetupTest do
     # Its setup, stopped for want of the binding, starts over.
     assert [%{onboarding_state: :pending, onboarding_error: nil}] = snapshot.repositories
 
-    assert {:error, :repository_not_found} =
-             IntegrationSetup.add_github_repository_again("missing", [], @actor)
+    assert IntegrationSetup.add_github_repository_again("missing", [], @actor) ==
+             {:error, :repository_not_found}
   end
 
   # Andrew, 2026-09-27: "how do I remove repositories?!" Nothing could: a
@@ -882,13 +878,13 @@ defmodule Ryker.IntegrationSetupTest do
     assert File.exists?(other)
     assert %{repository_ref: "acme-widget"} = Repo.reload!(session)
 
-    assert {:error, :repository_not_found} =
-             IntegrationSetup.remove_repository("acme-widget", @actor, storage_root: storage)
+    assert IntegrationSetup.remove_repository("acme-widget", @actor, storage_root: storage) ==
+             {:error, :repository_not_found}
 
     # An environment left with nothing work could change is refused, and
     # nothing is removed.
-    assert {:error, {:environment_left_read_only, "Default"}} =
-             IntegrationSetup.remove_repository("acme-tool", @actor, storage_root: storage)
+    assert IntegrationSetup.remove_repository("acme-tool", @actor, storage_root: storage) ==
+             {:error, {:environment_left_read_only, "Default"}}
 
     assert Enum.map(Settings.fetch!().repositories, & &1.ref) == ["acme-gadget", "acme-tool"]
   end
@@ -1128,51 +1124,49 @@ defmodule Ryker.IntegrationSetupTest do
                ryker_actor_id: binding.ryker_actor_id
              })
 
-    assert {:ok, []} =
-             Access.apply(
-               "installation",
-               %{
-                 "action" => "new_permissions_accepted",
-                 "installation" => %{
-                   "id" => 41,
-                   "permissions" => %{
-                     "contents" => "read",
-                     "issues" => "write",
-                     "pull_requests" => "read"
-                   }
+    assert Access.apply(
+             "installation",
+             %{
+               "action" => "new_permissions_accepted",
+               "installation" => %{
+                 "id" => 41,
+                 "permissions" => %{
+                   "contents" => "read",
+                   "issues" => "write",
+                   "pull_requests" => "read"
                  }
-               },
-               %{binding.name => trusted}
-             )
+               }
+             },
+             %{binding.name => trusted}
+           ) == {:ok, []}
 
     refreshed = hd(Settings.fetch!().github_bindings)
     assert refreshed.granted_permissions["issues"] == "write"
     assert refreshed.action_grants == ~w(read)
 
-    assert {:ok, []} =
-             Access.apply(
-               "installation_repositories",
-               %{
-                 "action" => "added",
-                 "installation" => %{
-                   "account" => %{"id" => 99, "login" => "Acme"},
-                   "id" => 41,
-                   "permissions" => %{
-                     "contents" => "write",
-                     "pull_requests" => "write"
-                   }
-                 },
-                 "repositories_added" => [
-                   %{
-                     "default_branch" => "main",
-                     "full_name" => "acme/new-repository",
-                     "id" => 502,
-                     "private" => true
-                   }
-                 ]
+    assert Access.apply(
+             "installation_repositories",
+             %{
+               "action" => "added",
+               "installation" => %{
+                 "account" => %{"id" => 99, "login" => "Acme"},
+                 "id" => 41,
+                 "permissions" => %{
+                   "contents" => "write",
+                   "pull_requests" => "write"
+                 }
                },
-               %{binding.name => trusted}
-             )
+               "repositories_added" => [
+                 %{
+                   "default_branch" => "main",
+                   "full_name" => "acme/new-repository",
+                   "id" => 502,
+                   "private" => true
+                 }
+               ]
+             },
+             %{binding.name => trusted}
+           ) == {:ok, []}
 
     added = Enum.find(Settings.fetch!().github_bindings, &(&1.repository_id == 502))
     assert added.ryker_actor_id == 4_321
@@ -1228,13 +1222,12 @@ defmodule Ryker.IntegrationSetupTest do
                requester: Requester
              )
 
-    assert {:error, {:emisar_verification_failed, :token_refused}} =
-             IntegrationSetup.rotate_emisar(
-               "production",
-               "refused-replacement-token-long-enough",
-               @actor,
-               requester: Requester
-             )
+    assert IntegrationSetup.rotate_emisar(
+             "production",
+             "refused-replacement-token-long-enough",
+             @actor,
+             requester: Requester
+           ) == {:error, {:emisar_verification_failed, :token_refused}}
 
     assert Credentials.status(:emisar, "production").status == :configured
 
@@ -1297,29 +1290,27 @@ defmodule Ryker.IntegrationSetupTest do
   end
 
   test "an Emisar key Emisar refuses says so, and nothing is saved" do
-    assert {:error, {:emisar_verification_failed, :token_refused}} =
-             IntegrationSetup.connect_emisar(
-               %{
-                 "rpc_url" => "https://emisar.example/api/mcp/rpc",
-                 "token" => "refused-emisar-token-long-enough"
-               },
-               @actor,
-               requester: Requester
-             )
+    assert IntegrationSetup.connect_emisar(
+             %{
+               "rpc_url" => "https://emisar.example/api/mcp/rpc",
+               "token" => "refused-emisar-token-long-enough"
+             },
+             @actor,
+             requester: Requester
+           ) == {:error, {:emisar_verification_failed, :token_refused}}
 
     assert Settings.fetch!().emisar_connections == []
   end
 
   test "a key that cannot run agent tools says which key to make" do
-    assert {:error, {:emisar_verification_failed, :wrong_key_kind}} =
-             IntegrationSetup.connect_emisar(
-               %{
-                 "rpc_url" => "https://emisar.example/api/mcp/rpc",
-                 "token" => "audit-emisar-token-long-enough"
-               },
-               @actor,
-               requester: Requester
-             )
+    assert IntegrationSetup.connect_emisar(
+             %{
+               "rpc_url" => "https://emisar.example/api/mcp/rpc",
+               "token" => "audit-emisar-token-long-enough"
+             },
+             @actor,
+             requester: Requester
+           ) == {:error, {:emisar_verification_failed, :wrong_key_kind}}
 
     assert Settings.fetch!().emisar_connections == []
   end
@@ -1333,8 +1324,8 @@ defmodule Ryker.IntegrationSetupTest do
     assert {:ok, %{ref: ref}} =
              IntegrationSetup.connect_emisar(params, @actor, requester: Requester)
 
-    assert {:error, {:emisar_key_already_connected, "emisar.example"}} =
-             IntegrationSetup.connect_emisar(params, @actor, requester: Requester)
+    assert IntegrationSetup.connect_emisar(params, @actor, requester: Requester) ==
+             {:error, {:emisar_key_already_connected, "emisar.example"}}
 
     assert [%{ref: ^ref}] = Settings.fetch!().emisar_connections
   end

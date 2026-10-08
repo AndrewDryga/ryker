@@ -12,15 +12,13 @@ defmodule Ryker.Continuity.ConversationSummaryStateTest do
     assert {:ok, _state} = ConversationSummaryState.prepare(state(%{"goal" => ukrainian}))
     assert {:ok, _state} = ConversationSummaryState.prepare(state(%{"decisions" => [ukrainian]}))
 
-    assert {:error, {:invalid_conversation_summary, "decisions"}} =
-             ConversationSummaryState.prepare(
-               state(%{"decisions" => [String.duplicate("ї", 2_001)]})
-             )
+    assert ConversationSummaryState.prepare(
+             state(%{"decisions" => [String.duplicate("ї", 2_001)]})
+           ) == {:error, {:invalid_conversation_summary, "decisions"}}
 
-    assert {:error, {:invalid_conversation_summary, "evidence_refs"}} =
-             ConversationSummaryState.prepare(
-               state(%{"evidence_refs" => [String.duplicate("ї", 600)]})
-             )
+    assert ConversationSummaryState.prepare(
+             state(%{"evidence_refs" => [String.duplicate("ї", 600)]})
+           ) == {:error, {:invalid_conversation_summary, "evidence_refs"}}
   end
 
   defp state(fields) do

@@ -7,10 +7,10 @@ defmodule Ryker.Improvement.DropCandidateAnalysisRunMigrationTest do
   # A candidate's copy of its applied run's id was written and never read
   # (2026-10-04 review); the run says it on its own.
   test "a candidate no longer keeps a copy of its applied run's id" do
-    assert :ok = migrate_down(@version)
+    assert migrate_down(@version) == :ok
     assert "analysis_run_id" in columns()
 
-    assert :ok = migrate_up(@version)
+    assert migrate_up(@version) == :ok
     refute "analysis_run_id" in columns()
   end
 

@@ -50,7 +50,7 @@ defmodule Ryker.Operator.MixTasksTest do
         end
       end)
 
-    assert [[]] = documents
+    assert documents == [[]]
   end
 
   # The retry task's help listed seven kinds after the Slack card and thread
@@ -209,23 +209,22 @@ defmodule Ryker.Operator.MixTasksTest do
   end
 
   test "shared option parsing rejects duplicates and missing action identities" do
-    assert {:ok, [operator: "U123"], ["one"]} =
-             OperatorSupport.parse(["one", "--operator", "U123"], [operator: :string], 1)
+    assert OperatorSupport.parse(["one", "--operator", "U123"], [operator: :string], 1) ==
+             {:ok, [operator: "U123"], ["one"]}
 
-    assert {:error, :invalid_arguments} =
-             OperatorSupport.parse(
-               ["--operator", "U1", "--operator", "U2"],
-               [operator: :string],
-               0
-             )
+    assert OperatorSupport.parse(
+             ["--operator", "U1", "--operator", "U2"],
+             [operator: :string],
+             0
+           ) == {:error, :invalid_arguments}
 
-    assert {:ok, "action:one"} =
-             OperatorSupport.required_option([action_ref: "action:one"], :action_ref)
+    assert OperatorSupport.required_option([action_ref: "action:one"], :action_ref) ==
+             {:ok, "action:one"}
 
-    assert {:error, {:action_ref, :required}} = OperatorSupport.required_option([], :action_ref)
+    assert OperatorSupport.required_option([], :action_ref) == {:error, {:action_ref, :required}}
 
-    assert {:error, :invalid_arguments} =
-             OperatorSupport.parse(["one"], [operator: :string], [0, 2])
+    assert OperatorSupport.parse(["one"], [operator: :string], [0, 2]) ==
+             {:error, :invalid_arguments}
 
     assert OperatorSupport.authorized_actor(:invalid) ==
              {:error, :configured_slack_operator_required}

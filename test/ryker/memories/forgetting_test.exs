@@ -155,10 +155,9 @@ defmodule Ryker.Memories.ForgettingTest do
         &(&1["source_ref"] == "knowledge:" <> mixed.id)
       )
 
-    assert :ok =
-             KnowledgeSnapshot.still_valid(second, second.repository_ref, [
-               document
-             ])
+    assert KnowledgeSnapshot.still_valid(second, second.repository_ref, [
+             document
+           ]) == :ok
 
     assert {:ok, _forgotten} = Forgetting.forget_topic(target.id)
 
@@ -248,8 +247,8 @@ defmodule Ryker.Memories.ForgettingTest do
       "expected_version" => 0
     }
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn -> KnowledgeFixtures.record_topic(entry, proposal, []) end)
+    assert Repo.transaction(fn -> KnowledgeFixtures.record_topic(entry, proposal, []) end) ==
+             {:ok, :ok}
 
     Repo.one!(from(k in ConversationKnowledge, where: k.topic_key == ^key))
   end
@@ -273,10 +272,9 @@ defmodule Ryker.Memories.ForgettingTest do
       "expected_version" => topic.version
     }
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               KnowledgeFixtures.record_topic(entry, proposal, [offered])
-             end)
+    assert Repo.transaction(fn ->
+             KnowledgeFixtures.record_topic(entry, proposal, [offered])
+           end) == {:ok, :ok}
 
     Repo.get!(ConversationKnowledge, topic.id)
   end

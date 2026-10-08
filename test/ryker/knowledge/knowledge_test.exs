@@ -234,12 +234,11 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     stale = context!(second)
     learn!(first, @firing)
 
-    assert {:error, {:admission_rejected, :context_stale}} =
-             Ryker.Fixtures.Knowledge.commit_topic(
-               stale,
-               decision!(@resolved),
-               "stale-create"
-             )
+    assert Ryker.Fixtures.Knowledge.commit_topic(
+             stale,
+             decision!(@resolved),
+             "stale-create"
+           ) == {:error, {:admission_rejected, :context_stale}}
 
     assert {:ok, %{status: :pending}} = Inbox.fetch(Inbox.ref(second))
     assert [item] = Knowledge.context(first, "tenant-infra")
@@ -255,21 +254,19 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     third = input!(3, @resolved)
     learn!(third, @resolved, item)
 
-    assert {:error, {:admission_rejected, :context_stale}} =
-             Ryker.Fixtures.Knowledge.commit_topic(
-               stale,
-               decision!(@resolved, item),
-               "stale-update"
-             )
+    assert Ryker.Fixtures.Knowledge.commit_topic(
+             stale,
+             decision!(@resolved, item),
+             "stale-update"
+           ) == {:error, {:admission_rejected, :context_stale}}
 
     forged = %{item | "source_ref" => "knowledge:" <> Ecto.UUID.generate()}
 
-    assert {:error, {:admission_rejected, :context_stale}} =
-             Ryker.Fixtures.Knowledge.commit_topic(
-               context!(second),
-               decision!(@resolved, forged),
-               "forged"
-             )
+    assert Ryker.Fixtures.Knowledge.commit_topic(
+             context!(second),
+             decision!(@resolved, forged),
+             "forged"
+           ) == {:error, {:admission_rejected, :context_stale}}
   end
 
   test "a late alert can support the current understanding without erasing its resolution" do
@@ -302,8 +299,8 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     learn!(edited, @resolved, nil, knowledge: false)
     assert Knowledge.context(second, "tenant-infra") == []
 
-    assert {:error, {:admission_rejected, :context_stale}} =
-             Knowledge.still_current(second, "tenant-infra", [current])
+    assert Knowledge.still_current(second, "tenant-infra", [current]) ==
+             {:error, {:admission_rejected, :context_stale}}
 
     assert length(Inspectors.knowledge_history(item["source_ref"])) == 2
   end
@@ -334,12 +331,11 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     target = input!(2, @resolved, channel: "C2")
     assert [item] = Knowledge.context(target, "tenant-infra")
 
-    assert {:error, {:admission_rejected, :context_stale}} =
-             Ryker.Fixtures.Knowledge.commit_topic(
-               context!(target),
-               decision!(@resolved, item),
-               "cross-channel-write"
-             )
+    assert Ryker.Fixtures.Knowledge.commit_topic(
+             context!(target),
+             decision!(@resolved, item),
+             "cross-channel-write"
+           ) == {:error, {:admission_rejected, :context_stale}}
 
     Repo.update_all(from(m in ChannelMembership, where: m.channel_ref == "C1"),
       set: [private: true]
@@ -347,8 +343,8 @@ defmodule Ryker.Knowledge.KnowledgeTest do
 
     assert Knowledge.context(target, "tenant-infra") == []
 
-    assert {:error, {:admission_rejected, :context_stale}} =
-             Knowledge.still_current(target, "tenant-infra", [item])
+    assert Knowledge.still_current(target, "tenant-infra", [item]) ==
+             {:error, {:admission_rejected, :context_stale}}
 
     assert Knowledge.context(
              %{target | destination_conversation_ref: "slack:OTHER:C2"},
@@ -449,12 +445,11 @@ defmodule Ryker.Knowledge.KnowledgeTest do
 
     fresh = input!(3, @resolved)
 
-    assert {:error, :knowledge_target_unavailable} =
-             Ryker.Fixtures.Knowledge.commit_topic(
-               context!(fresh),
-               decision!(@resolved),
-               "unavailable-topic"
-             )
+    assert Ryker.Fixtures.Knowledge.commit_topic(
+             context!(fresh),
+             decision!(@resolved),
+             "unavailable-topic"
+           ) == {:error, :knowledge_target_unavailable}
 
     assert Knowledge.context(fresh, "tenant-infra") == []
     assert length(Inspectors.knowledge_history(before["source_ref"])) == 1
@@ -622,12 +617,11 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     fresh = input!(3, @resolved, channel: "C2")
     assert context!(fresh).knowledge == []
 
-    assert {:error, :knowledge_target_unavailable} =
-             Ryker.Fixtures.Knowledge.commit_topic(
-               context!(fresh),
-               decision!(@resolved),
-               "unavailable-inherited-topic"
-             )
+    assert Ryker.Fixtures.Knowledge.commit_topic(
+             context!(fresh),
+             decision!(@resolved),
+             "unavailable-inherited-topic"
+           ) == {:error, :knowledge_target_unavailable}
 
     assert Knowledge.context(fresh, "tenant-infra") == []
   end
@@ -829,19 +823,17 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     assert Knowledge.context(first, "tenant-infra") == []
     {:ok, decided} = Inbox.fetch(Inbox.ref(first))
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Observations.record_excerpt_in_transaction(decided)
-             end)
+    assert Repo.transaction(fn ->
+             Observations.record_excerpt_in_transaction(decided)
+           end) == {:ok, :ok}
 
     assert Knowledge.context(first, "tenant-infra") == []
 
-    assert {:error, :knowledge_target_unavailable} =
-             Ryker.Fixtures.Knowledge.commit_topic(
-               context!(edited),
-               decision!(@resolved),
-               "edited-unavailable-topic"
-             )
+    assert Ryker.Fixtures.Knowledge.commit_topic(
+             context!(edited),
+             decision!(@resolved),
+             "edited-unavailable-topic"
+           ) == {:error, :knowledge_target_unavailable}
 
     assert Knowledge.context(edited, "tenant-infra") == []
   end
@@ -850,12 +842,11 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     first = input!(1, @firing)
     _deleted = input!(1, @resolved, revision: 2, kind: :delete)
 
-    assert {:error, {:admission_rejected, :context_stale}} =
-             Ryker.Fixtures.Knowledge.commit_topic(
-               context!(first),
-               decision!(@firing),
-               "stale-first-result"
-             )
+    assert Ryker.Fixtures.Knowledge.commit_topic(
+             context!(first),
+             decision!(@firing),
+             "stale-first-result"
+           ) == {:error, {:admission_rejected, :context_stale}}
 
     assert Observations.context(first, "tenant-infra") == []
     assert Knowledge.context(first, "tenant-infra") == []
@@ -895,10 +886,9 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     assert [%{note: nil, revision: 1, updated_at: ^old}] = Repo.all(ConversationObservation)
     {:ok, decided} = Inbox.fetch(Inbox.ref(first))
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Observations.record_excerpt_in_transaction(decided)
-             end)
+    assert Repo.transaction(fn ->
+             Observations.record_excerpt_in_transaction(decided)
+           end) == {:ok, :ok}
 
     assert Observations.context(first, "tenant-infra") == []
     assert {:ok, _} = Inbox.fetch(Inbox.ref(first))
@@ -910,11 +900,11 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     [frozen] = Knowledge.context(first, "tenant-infra")
     second = input!(2, @resolved)
     learn!(second, @resolved, frozen)
-    assert :ok = KnowledgeSnapshot.still_valid(first, "tenant-infra", [frozen])
+    assert KnowledgeSnapshot.still_valid(first, "tenant-infra", [frozen]) == :ok
     _edit = input!(1, @resolved, revision: 2, kind: :delete)
 
-    assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.still_valid(first, "tenant-infra", [frozen])
+    assert KnowledgeSnapshot.still_valid(first, "tenant-infra", [frozen]) ==
+             {:error, :work_knowledge_context_stale}
   end
 
   test "copying into a fresh topic cannot retain expired source prose or refresh its displayed expiry" do

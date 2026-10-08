@@ -41,29 +41,26 @@ defmodule Ryker.Admission.DecisionTest do
   end
 
   test "rejects unknown fields and inconsistent action shapes" do
-    assert {:error, {:invalid_decision, :fields}} =
-             decision_document(action: "ignore", work_class: nil)
-             |> Map.put("thread_ts", "the model cannot route")
-             |> Decision.parse()
+    assert decision_document(action: "ignore", work_class: nil)
+           |> Map.put("thread_ts", "the model cannot route")
+           |> Decision.parse() == {:error, {:invalid_decision, :fields}}
 
-    assert {:error, {:invalid_decision, :episode_ref}} =
-             Decision.parse(
-               decision_document(
-                 action: "continue_episode",
-                 relation: "same_work",
-                 work_class: "standard"
-               )
+    assert Decision.parse(
+             decision_document(
+               action: "continue_episode",
+               relation: "same_work",
+               work_class: "standard"
              )
+           ) == {:error, {:invalid_decision, :episode_ref}}
 
-    assert {:error, {:invalid_decision, :relation}} =
-             Decision.parse(
-               decision_document(
-                 action: "ignore",
-                 episode_ref: "candidate-1",
-                 relation: "same_work",
-                 work_class: nil
-               )
+    assert Decision.parse(
+             decision_document(
+               action: "ignore",
+               episode_ref: "candidate-1",
+               relation: "same_work",
+               work_class: nil
              )
+           ) == {:error, {:invalid_decision, :relation}}
   end
 
   # Andrew, 2026-09-26, wrote "Now both reply and add a reaction" to Ryker in
@@ -312,7 +309,7 @@ defmodule Ryker.Admission.DecisionTest do
     for reason <- ["", " \n\t", <<0>>, String.duplicate("x", 513)] do
       document = decision_document(reason: reason)
       assert {:error, _validation_error} = JSV.validate(document, schema, cast: false)
-      assert {:error, {:invalid_decision, :reason}} = Decision.parse(document)
+      assert Decision.parse(document) == {:error, {:invalid_decision, :reason}}
     end
   end
 
@@ -329,14 +326,13 @@ defmodule Ryker.Admission.DecisionTest do
 
     assert decision.reactions == ["white_check_mark"]
 
-    assert {:error, {:invalid_decision, :reactions}} =
-             Decision.parse(
-               decision_document(
-                 action: "react",
-                 reason: "This cannot be delivered without an emoji name.",
-                 work_class: nil
-               )
+    assert Decision.parse(
+             decision_document(
+               action: "react",
+               reason: "This cannot be delivered without an emoji name.",
+               work_class: nil
              )
+           ) == {:error, {:invalid_decision, :reactions}}
   end
 
   test "retry identity ignores prose but retains every executable choice" do
@@ -382,8 +378,8 @@ defmodule Ryker.Admission.DecisionTest do
       assert {:error, {:invalid_decision, ^field}} = Decision.parse(document)
     end
 
-    assert {:error, {:invalid_decision, :type}} = Decision.parse("not an object")
-    assert {:error, {:invalid_decision, :type}} = Decision.prepare(%{})
+    assert Decision.parse("not an object") == {:error, {:invalid_decision, :type}}
+    assert Decision.prepare(%{}) == {:error, {:invalid_decision, :type}}
   end
 
   test "limits the published action enum to the source capabilities" do

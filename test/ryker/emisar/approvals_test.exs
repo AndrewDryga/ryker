@@ -108,7 +108,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
     assert resumed.owner_kind == :turn
     assert resumed.owner_ref =~ "turn:emisar-approval:"
 
-    assert {:ok, nil} = Approvals.claim_next(@connection_ref, "second-worker", 60)
+    assert Approvals.claim_next(@connection_ref, "second-worker", 60) == {:ok, nil}
 
     events = Episodes.list_events(claim.episode.key)
 
@@ -235,7 +235,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
     refute failures_page() =~ "apr-closed-task"
 
     # The monitor closes it on its next idle pass, with the reason, and keeps it.
-    assert {:ok, {:closed, ["apr-closed-task"]}} = ApprovalDispatcher.run_once(dispatcher())
+    assert ApprovalDispatcher.run_once(dispatcher()) == {:ok, {:closed, ["apr-closed-task"]}}
 
     closed = Inspectors.emisar_approval(@connection_ref, "apr-closed-task")
     assert closed.status == :closed
@@ -247,7 +247,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
     assert EmisarOperator.rearm("production/apr-closed-task") ==
              {:error, :emisar_approval_not_blocked}
 
-    assert {:ok, :idle} = ApprovalDispatcher.run_once(dispatcher())
+    assert ApprovalDispatcher.run_once(dispatcher()) == {:ok, :idle}
   end
 
   test "a watch whose wait has not started yet is never closed as if nothing waited for it" do
@@ -255,7 +255,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
     # starts the wait; only a closed task or an answered wait ends it.
     unstarted = registered_approval!("unstarted")
 
-    assert {:ok, :idle} = ApprovalDispatcher.run_once(dispatcher("closer-unstarted"))
+    assert ApprovalDispatcher.run_once(dispatcher("closer-unstarted")) == {:ok, :idle}
     assert Inspectors.emisar_approval(@connection_ref, unstarted).status == :monitoring
   end
 
@@ -295,7 +295,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
 
   test "an approval a task waits for is a failure while its account has no token, until one is saved" do
     approval_wait!("tokenless")
-    assert :ok = Credentials.delete(:emisar, @connection_ref, @actor)
+    assert Credentials.delete(:emisar, @connection_ref, @actor) == :ok
 
     row = failure("production/apr-tokenless")
     assert %{stall: :token_unavailable, action: nil} = row

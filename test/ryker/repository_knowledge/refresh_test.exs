@@ -55,8 +55,8 @@ defmodule Ryker.RepositoryKnowledge.RefreshTest do
 
     assert Refresh.decide(six_days, @head, changes(["lib/a.ex"]), @now) == :current
 
-    assert {:write, "A week has passed since the last write, and code changed."} =
-             Refresh.decide(seven_days, @head, changes(["lib/a.ex"]), @now)
+    assert Refresh.decide(seven_days, @head, changes(["lib/a.ex"]), @now) ==
+             {:write, "A week has passed since the last write, and code changed."}
   end
 
   test "an unmoved default branch is never read again, and asks GitHub nothing more" do
@@ -81,11 +81,11 @@ defmodule Ryker.RepositoryKnowledge.RefreshTest do
   test "a repository without a model's RYKER.md is written at once" do
     unasked = fn -> flunk("the comparison was asked for") end
 
-    assert {:write, "Ryker has no RYKER.md for this repository yet."} =
-             Refresh.decide(%{commit: nil, at: nil, by: nil}, @head, unasked, @now)
+    assert Refresh.decide(%{commit: nil, at: nil, by: nil}, @head, unasked, @now) ==
+             {:write, "Ryker has no RYKER.md for this repository yet."}
 
-    assert {:write, "RYKER.md is only an outline from the last try."} =
-             Refresh.decide(%{written(@now) | by: :outline}, @head, unasked, @now)
+    assert Refresh.decide(%{written(@now) | by: :outline}, @head, unasked, @now) ==
+             {:write, "RYKER.md is only an outline from the last try."}
   end
 
   defp written(at), do: %{commit: @written, at: at, by: :model}

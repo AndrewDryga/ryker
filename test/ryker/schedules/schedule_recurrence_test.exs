@@ -96,12 +96,11 @@ defmodule Ryker.Schedules.ScheduleRecurrenceTest do
                ~U[2026-08-28 12:00:00.000000Z]
              )
 
-    assert {:ok, nil} =
-             ScheduleRecurrence.next_after(
-               %{"at" => "2026-08-28T13:00:00.000000Z", "kind" => "once"},
-               "Etc/UTC",
-               ~U[2026-08-28 13:00:00.000000Z]
-             )
+    assert ScheduleRecurrence.next_after(
+             %{"at" => "2026-08-28T13:00:00.000000Z", "kind" => "once"},
+             "Etc/UTC",
+             ~U[2026-08-28 13:00:00.000000Z]
+           ) == {:ok, nil}
 
     interval = %{
       "every_seconds" => 300,

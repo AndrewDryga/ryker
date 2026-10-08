@@ -62,7 +62,7 @@ defmodule Ryker.Waits.EventWaitConcurrencyTest do
           results = Enum.map(contenders, &Task.await(&1, 5_000))
           assert Enum.count(results, &match?({:ok, %{record: %{status: :answered}}}, &1)) == 1
           assert Enum.count(results, &(&1 == {:ok, :idle})) == 1
-          assert {:ok, :ok} = Task.await(blocker, 5_000)
+          assert Task.await(blocker, 5_000) == {:ok, :ok}
 
           events = Episodes.list_events(episode_key)
           assert Enum.count(events, &(&1.kind == :wait_resumed)) == 1
@@ -122,13 +122,12 @@ defmodule Ryker.Waits.EventWaitConcurrencyTest do
 
           # The episode is still free for the admission that holds the
           # conversation, so it can finish.
-          assert {:ok, [[true]]} =
-                   Repo.transaction(fn ->
-                     Repo.query!(
-                       "SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))",
-                       [episode_key]
-                     ).rows
-                   end)
+          assert Repo.transaction(fn ->
+                   Repo.query!(
+                     "SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))",
+                     [episode_key]
+                   ).rows
+                 end) == {:ok, [[true]]}
 
           send(admission.pid, :release)
           assert {:ok, %{record: %{status: :answered}}} = Task.await(resumer, 5_000)

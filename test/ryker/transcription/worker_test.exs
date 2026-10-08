@@ -37,10 +37,10 @@ defmodule Ryker.Transcription.WorkerTest do
     now = entry.inserted_at
 
     # Nothing earlier holds its conversation, yet routing cannot take it.
-    assert {:ok, nil} = Inbox.claim_next("routing:test", now, 60)
+    assert Inbox.claim_next("routing:test", now, 60) == {:ok, nil}
 
     :ok = Inbox.subscribe_inputs()
-    assert {:ok, :transcribed} = Worker.transcribe_next(transcriber: TestTranscriber)
+    assert Worker.transcribe_next(transcriber: TestTranscriber) == {:ok, :transcribed}
     assert_received {:transcribed, ^audio}
 
     # The words wake routing, which takes the message at once.
@@ -86,7 +86,7 @@ defmodule Ryker.Transcription.WorkerTest do
           ts: ts
         )
 
-      assert {:ok, :transcribed} = Worker.transcribe_next(transcriber: TestTranscriber)
+      assert Worker.transcribe_next(transcriber: TestTranscriber) == {:ok, :transcribed}
       assert_received {:transcribed, ^audio}
 
       assert {:ok, transcribed} = Inbox.fetch(Inbox.ref(entry))
@@ -100,7 +100,7 @@ defmodule Ryker.Transcription.WorkerTest do
   # transcript is kept beside its recording, so it is never transcribed twice.
   test "a recording already transcribed is read from what was kept, not transcribed again" do
     {_first, audio} = record_voice!("Ev-voice-first", "Restart the ingest workers")
-    assert {:ok, :transcribed} = Worker.transcribe_next(transcriber: TestTranscriber)
+    assert Worker.transcribe_next(transcriber: TestTranscriber) == {:ok, :transcribed}
     assert_received {:transcribed, ^audio}
 
     {again, _audio} =
@@ -108,7 +108,7 @@ defmodule Ryker.Transcription.WorkerTest do
         ts: "1790500009.000100"
       )
 
-    assert {:ok, :transcribed} = Worker.transcribe_next(transcriber: TestTranscriber)
+    assert Worker.transcribe_next(transcriber: TestTranscriber) == {:ok, :transcribed}
     refute_received {:transcribed, _data}
 
     assert {:ok, transcribed} = Inbox.fetch(Inbox.ref(again))
@@ -120,7 +120,7 @@ defmodule Ryker.Transcription.WorkerTest do
   test "a transcriber that crashes leaves a plain note instead of a stuck message" do
     {entry, _audio} = record_voice!("Ev-voice-crash", "never read")
 
-    assert {:ok, :transcribed} = Worker.transcribe_next(transcriber: CrashingTranscriber)
+    assert Worker.transcribe_next(transcriber: CrashingTranscriber) == {:ok, :transcribed}
     assert Worker.transcribe_next(transcriber: CrashingTranscriber) == :idle
 
     assert {:ok, transcribed} = Inbox.fetch(Inbox.ref(entry))

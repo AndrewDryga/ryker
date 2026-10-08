@@ -20,8 +20,8 @@ defmodule Ryker.Admission.ReadySessionWarmMigrationTest do
     assert {:ok, ready} = ReadySessions.mark_ready(reserved, "coop-warm-migration")
     work = work_session!()
 
-    assert :ok = migrate_down(@version)
-    assert :ok = migrate_up(@version)
+    assert migrate_down(@version) == :ok
+    assert migrate_up(@version) == :ok
 
     kept = Repo.get!(Session, ready.id)
     assert {kept.ready_state, kept.coop_session_id} == {:ready, "coop-warm-migration"}

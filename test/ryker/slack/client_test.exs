@@ -57,8 +57,8 @@ defmodule Ryker.Slack.ClientTest do
       "blocks" => [%{"type" => "section", "text" => %{"type" => "mrkdwn", "text" => "hi"}}]
     }
 
-    assert {:error, {:invalid_slack_render, :document}} =
-             Client.post_message(client(requester), "C123", nil, frozen, "delivery:unrendered")
+    assert Client.post_message(client(requester), "C123", nil, frozen, "delivery:unrendered") ==
+             {:error, {:invalid_slack_render, :document}}
 
     assert FakeRequester.requests(requester) == []
   end
@@ -155,14 +155,14 @@ defmodule Ryker.Slack.ClientTest do
     assert Client.find_message(client, "C123", "1787832000.000100", "delivery:slack:1") ==
              {:ok, "1.000002"}
 
-    assert [
+    assert FakeRequester.requests(requester) == [
              {:get,
               "/conversations.replies?channel=C123&ts=1787832000.000100&limit=100&include_all_metadata=true",
               nil, []},
              {:get,
               "/conversations.replies?channel=C123&ts=1787832000.000100&limit=100&include_all_metadata=true&cursor=next+page",
               nil, []}
-           ] = FakeRequester.requests(requester)
+           ]
   end
 
   test "posts Slack messages with opaque metadata and the exact optional thread" do
@@ -392,8 +392,8 @@ defmodule Ryker.Slack.ClientTest do
 
     client = client(requester)
 
-    assert :ok = Client.add_reaction(client, "C123", "1787832001.000200", "rocket")
-    assert :ok = Client.add_reaction(client, "C123", "1787832001.000200", "rocket")
+    assert Client.add_reaction(client, "C123", "1787832001.000200", "rocket") == :ok
+    assert Client.add_reaction(client, "C123", "1787832001.000200", "rocket") == :ok
 
     assert Client.add_reaction(client, "C123", "1787832001.000200", "not-real") ==
              {:error, {:slack_api_error, "invalid_name"}}
@@ -409,8 +409,8 @@ defmodule Ryker.Slack.ClientTest do
 
     client = client(requester)
 
-    assert :ok = Client.remove_reaction(client, "C123", "1787832001.000200", "rocket")
-    assert :ok = Client.remove_reaction(client, "C123", "1787832001.000200", "rocket")
+    assert Client.remove_reaction(client, "C123", "1787832001.000200", "rocket") == :ok
+    assert Client.remove_reaction(client, "C123", "1787832001.000200", "rocket") == :ok
 
     assert Client.remove_reaction(client, "C123", "1787832001.000200", "rocket") ==
              {:error, {:slack_api_error, "channel_not_found"}}
@@ -566,9 +566,9 @@ defmodule Ryker.Slack.ClientTest do
 
     client = client(requester)
 
-    assert :ok = Client.invite_users(client, "CINCIDENT", ["U123", "U456"])
-    assert :ok = Client.set_topic(client, "CINCIDENT", "Incident 1234 | checkout | managed")
-    assert :ok = Client.pin_message(client, "CINCIDENT", "1787832001.000200")
+    assert Client.invite_users(client, "CINCIDENT", ["U123", "U456"]) == :ok
+    assert Client.set_topic(client, "CINCIDENT", "Incident 1234 | checkout | managed") == :ok
+    assert Client.pin_message(client, "CINCIDENT", "1787832001.000200") == :ok
 
     assert FakeRequester.requests(requester) == [
              {:post, "/conversations.invite", %{"channel" => "CINCIDENT", "users" => "U123"}, []},
@@ -1079,8 +1079,9 @@ defmodule Ryker.Slack.ClientTest do
 
     assert Client.user_group_members(client, "S123", "T123") == {:ok, ["U123", "U456"]}
 
-    assert [{:get, "/usergroups.users.list?usergroup=S123", nil, []}] =
-             FakeRequester.requests(requester)
+    assert FakeRequester.requests(requester) == [
+             {:get, "/usergroups.users.list?usergroup=S123", nil, []}
+           ]
   end
 
   test "lists only current joined conversations through bounded pagination" do
@@ -1193,11 +1194,11 @@ defmodule Ryker.Slack.ClientTest do
            ) ==
              :not_found
 
-    assert [
+    assert FakeRequester.requests(requester) == [
              {:get,
               "/conversations.history?channel=C123&limit=100&include_all_metadata=true&oldest=1790000000.000000",
               nil, []}
-           ] = FakeRequester.requests(requester)
+           ]
 
     assert Client.find_message(client, "C123", nil, "weekly-report:2026-10-05", "yesterday") ==
              {:error, {:invalid_slack_api_request, :timestamp}}

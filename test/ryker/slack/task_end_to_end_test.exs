@@ -83,7 +83,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
     claim = claim_episode!()
     # Structural records are installed before the fake provider runs; initialize
     # their empty external-source custody at the real pre-disclosure boundary.
-    assert :ok = KnowledgeSnapshot.expose(claim, [])
+    assert KnowledgeSnapshot.expose(claim, []) == :ok
 
     assert {:ok, offer} =
              Records.create(
@@ -173,7 +173,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
     assert task_claim.episode.id == task_episode.id
     assert task_claim.session.id == task_session.id
     assert task_claim.session.policy == "ryker-contributor"
-    assert :ok = KnowledgeSnapshot.expose(task_claim, [])
+    assert KnowledgeSnapshot.expose(task_claim, []) == :ok
 
     assert {:ok, {:created, card_ref}} = TaskCardWorker.run_once(card_options(slack_api))
     assert {:ok, {:updated, ^card_ref}} = TaskCardWorker.run_once(card_options(slack_api))

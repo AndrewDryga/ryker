@@ -155,13 +155,12 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
        {:error, :timeout}}
     ])
 
-    assert {:error, :coop_worker_source_unavailable} =
-             JobAuthority.ensure_pinned(
-               session,
-               "/private/source",
-               &prepare/3,
-               RepositoryFiles
-             )
+    assert JobAuthority.ensure_pinned(
+             session,
+             "/private/source",
+             &prepare/3,
+             RepositoryFiles
+           ) == {:error, :coop_worker_source_unavailable}
 
     assert Repo.get!(Session, session.id).worker_job_document == nil
   end
@@ -226,18 +225,18 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
       "job_digest" => created.worker_job_digest
     }
 
-    assert :ok = JobAuthority.exact_cleanup_receipt(created, receipt)
+    assert JobAuthority.exact_cleanup_receipt(created, receipt) == :ok
 
-    assert {:error, {:coop_protocol_error, :session_authority}} =
-             JobAuthority.exact_receipt(created, receipt)
+    assert JobAuthority.exact_receipt(created, receipt) ==
+             {:error, {:coop_protocol_error, :session_authority}}
 
     for {field, value} <- [
           {"external_ref", "offer:other"},
           {"job_ref", "job:other"},
           {"job_digest", String.duplicate("0", 64)}
         ] do
-      assert {:error, {:coop_protocol_error, :session_authority}} =
-               JobAuthority.exact_cleanup_receipt(created, Map.put(receipt, field, value))
+      assert JobAuthority.exact_cleanup_receipt(created, Map.put(receipt, field, value)) ==
+               {:error, {:coop_protocol_error, :session_authority}}
     end
 
     tampered = %{created | worker_job_document: Map.put(v1, "mode", "bare")}
@@ -246,8 +245,8 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
       Ecto.Changeset.change(created, worker_job_document: tampered.worker_job_document)
     )
 
-    assert {:error, {:coop_protocol_error, :session_authority}} =
-             JobAuthority.exact_cleanup_receipt(tampered, receipt)
+    assert JobAuthority.exact_cleanup_receipt(tampered, receipt) ==
+             {:error, {:coop_protocol_error, :session_authority}}
   end
 
   test "workspace task identity does not replace the execution generation identity", %{
@@ -265,12 +264,11 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
     changed = Map.put(pinned.worker_job_document, "job_ref", "offer:shared")
     {:ok, digest} = JobSpec.digest(changed)
 
-    assert {:error, {:coop_fleet_authority_mismatch, :worker_job}} =
-             JobAuthority.validate(%{
-               pinned
-               | worker_job_document: changed,
-                 worker_job_digest: digest
-             })
+    assert JobAuthority.validate(%{
+             pinned
+             | worker_job_document: changed,
+               worker_job_digest: digest
+           }) == {:error, {:coop_fleet_authority_mismatch, :worker_job}}
   end
 
   test "receipts prove the frozen job and independent task, never policy aliases", %{
@@ -290,29 +288,28 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
       "job_digest" => pinned.worker_job_digest
     }
 
-    assert :ok = JobAuthority.exact_receipt(expected, receipt)
-    assert :ok = JobAuthority.exact_receipt(pinned, receipt)
+    assert JobAuthority.exact_receipt(expected, receipt) == :ok
+    assert JobAuthority.exact_receipt(pinned, receipt) == :ok
 
     for {field, value} <- [
           {"external_ref", expected.external_ref},
           {"job_ref", "offer:shared"},
           {"job_digest", expected.policy_digest}
         ] do
-      assert {:error, {:coop_protocol_error, :session_authority}} =
-               JobAuthority.exact_receipt(expected, Map.put(receipt, field, value))
+      assert JobAuthority.exact_receipt(expected, Map.put(receipt, field, value)) ==
+               {:error, {:coop_protocol_error, :session_authority}}
     end
 
-    assert {:error, {:coop_protocol_error, :session_authority}} =
-             JobAuthority.exact_receipt(expected, %{
-               "external_ref" => "offer:shared",
-               "policy" => expected.policy,
-               "policy_digest" => expected.policy_digest
-             })
+    assert JobAuthority.exact_receipt(expected, %{
+             "external_ref" => "offer:shared",
+             "policy" => expected.policy,
+             "policy_digest" => expected.policy_digest
+           }) == {:error, {:coop_protocol_error, :session_authority}}
 
     changed = %{pinned | worker_job_digest: String.duplicate("0", 64)}
 
-    assert {:error, {:coop_protocol_error, :session_authority}} =
-             JobAuthority.exact_receipt(changed, receipt)
+    assert JobAuthority.exact_receipt(changed, receipt) ==
+             {:error, {:coop_protocol_error, :session_authority}}
   end
 
   test "jobless historical receipts authorize only cleanup of the already bound session", %{
@@ -322,7 +319,7 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
       session |> Ecto.Changeset.change(coop_session_id: "legacy-session") |> Repo.update!()
 
     receipt = %{"id" => "legacy-session", "external_ref" => session.external_ref}
-    assert :ok = JobAuthority.exact_cleanup_receipt(session, receipt)
+    assert JobAuthority.exact_cleanup_receipt(session, receipt) == :ok
     assert {:error, _} = JobAuthority.exact_receipt(session, receipt)
 
     assert {:error, _} =
@@ -384,10 +381,9 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
       )
       |> Repo.update!()
 
-    assert {:error, :coop_worker_job_settings_unavailable} =
-             JobAuthority.ensure_pinned(session, nil, fn _, _, _ ->
-               flunk("unauthorized source access")
-             end)
+    assert JobAuthority.ensure_pinned(session, nil, fn _, _, _ ->
+             flunk("unauthorized source access")
+           end) == {:error, :coop_worker_job_settings_unavailable}
 
     assert Repo.get!(Session, session.id).worker_job_document == nil
   end
@@ -439,10 +435,9 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
         )
         |> Repo.update!()
 
-      assert {:error, :coop_worker_job_settings_unavailable} =
-               JobAuthority.ensure_pinned(changed, nil, fn _, _, _ ->
-                 flunk("fetched an unapproved source list")
-               end)
+      assert JobAuthority.ensure_pinned(changed, nil, fn _, _, _ ->
+               flunk("fetched an unapproved source list")
+             end) == {:error, :coop_worker_job_settings_unavailable}
     end
 
     session = session |> Ecto.Changeset.change(repository_context: context) |> Repo.update!()
@@ -622,8 +617,8 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
       "job_digest" => refreshed.worker_job_digest
     }
 
-    assert {:error, {:coop_protocol_error, :session_authority}} =
-             JobAuthority.exact_receipt(pinned, remote)
+    assert JobAuthority.exact_receipt(pinned, remote) ==
+             {:error, {:coop_protocol_error, :session_authority}}
 
     assert {:ok, adopted} = JobAuthority.prepared(pinned)
     assert adopted.worker_job_digest == refreshed.worker_job_digest
@@ -810,10 +805,9 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
         |> Ecto.Changeset.change(repository_context: invalid)
         |> Repo.update!()
 
-      assert {:error, :coop_worker_job_settings_unavailable} =
-               JobAuthority.ensure_pinned(changed, nil, fn _, _, _ ->
-                 flunk("fetched an unapproved incident source list")
-               end)
+      assert JobAuthority.ensure_pinned(changed, nil, fn _, _, _ ->
+               flunk("fetched an unapproved incident source list")
+             end) == {:error, :coop_worker_job_settings_unavailable}
     end
 
     session =
@@ -841,8 +835,8 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
       prepare(root, ref, selector)
     end
 
-    assert {:error, :coop_worker_job_settings_changed} =
-             JobAuthority.ensure_pinned(session, "/private/source", prepare)
+    assert JobAuthority.ensure_pinned(session, "/private/source", prepare) ==
+             {:error, :coop_worker_job_settings_changed}
 
     assert Repo.get!(Session, session.id).worker_job_document == nil
     assert Repo.aggregate(Placement, :count) == 0
@@ -868,10 +862,9 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
           Map.put(source(), "github_repository_id", 18),
           put_in(source(), ["binding", "requested"], %{"kind" => "branch", "name" => "other"})
         ] do
-      assert {:error, :coop_worker_source_unavailable} =
-               JobAuthority.ensure_pinned(session, "/private/source", fn _, _, _ ->
-                 {:ok, %{source: invalid}}
-               end)
+      assert JobAuthority.ensure_pinned(session, "/private/source", fn _, _, _ ->
+               {:ok, %{source: invalid}}
+             end) == {:error, :coop_worker_source_unavailable}
 
       assert Repo.get!(Session, session.id).worker_job_document == nil
     end
@@ -886,8 +879,8 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
       {:error, {:coop_worker_source_refused, "example/" <> ref, "skypjack/entt"}}
     end
 
-    assert {:error, {:coop_worker_source_refused, "example/app", "skypjack/entt"}} =
-             JobAuthority.ensure_pinned(session, "/private/source", refused)
+    assert JobAuthority.ensure_pinned(session, "/private/source", refused) ==
+             {:error, {:coop_worker_source_refused, "example/app", "skypjack/entt"}}
 
     add_repository!("library", 18)
     snapshot = add_repository!("tools", 19)
@@ -941,8 +934,8 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
          }}
     end
 
-    assert {:error, {:coop_worker_companion_refused, "example/tools", "skypjack/entt"}} =
-             JobAuthority.ensure_pinned(session, nil, prepare)
+    assert JobAuthority.ensure_pinned(session, nil, prepare) ==
+             {:error, {:coop_worker_companion_refused, "example/tools", "skypjack/entt"}}
 
     assert Repo.get!(Session, session.id).worker_job_document == nil
   end
@@ -950,12 +943,11 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
   test "invalid persisted authority is never silently rebuilt", %{session: session} do
     assert {:ok, pinned} = JobAuthority.ensure_pinned(session, "/private/source", &prepare/3)
 
-    assert {:error, {:coop_fleet_authority_mismatch, :worker_job}} =
-             JobAuthority.ensure_pinned(
-               %{pinned | worker_job_digest: String.duplicate("f", 64)},
-               nil,
-               fn _, _, _ -> flunk("rebuilt invalid authority") end
-             )
+    assert JobAuthority.ensure_pinned(
+             %{pinned | worker_job_digest: String.duplicate("f", 64)},
+             nil,
+             fn _, _, _ -> flunk("rebuilt invalid authority") end
+           ) == {:error, {:coop_fleet_authority_mismatch, :worker_job}}
   end
 
   defp add_repository!(ref, id) do

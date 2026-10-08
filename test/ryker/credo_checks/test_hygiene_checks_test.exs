@@ -10,6 +10,45 @@ defmodule Ryker.CredoChecks.TestHygieneChecksTest do
     load()
   end
 
+  describe "Ryker.Checks.TestAssertKnownResult" do
+    # Until 2026-10-08 the suite matched 1,554 fully known results with `=`,
+    # which states no value and fails without a left/right diff.
+    test "flags a fully known result matched with =" do
+      source = """
+      defmodule Ryker.SprocketsTest do
+        use ExUnit.Case
+
+        test "spins" do
+          assert :ok = Sprockets.spin()
+          assert {:error, :jammed} = Sprockets.spin(:jammed)
+          assert [1, -2, "three"] = Sprockets.parts()
+        end
+      end
+      """
+
+      assert length(issues(known_result(), source, @test_file)) == 3
+    end
+
+    test "allows a match that binds, a map or a float, and == itself" do
+      source = """
+      defmodule Ryker.SprocketsTest do
+        use ExUnit.Case
+
+        test "spins" do
+          assert {:ok, sprocket} = Sprockets.spin()
+          assert {:ok, _} = Sprockets.spin()
+          assert %{teeth: 12} = Sprockets.gear()
+          assert {:ok, 1.5} = Sprockets.ratio()
+          assert {:ok, ^sprocket} = Sprockets.spin()
+          assert Sprockets.spin() == :ok
+        end
+      end
+      """
+
+      assert issues(known_result(), source, @test_file) == []
+    end
+  end
+
   describe "Ryker.Checks.TestNoProcessSleep" do
     test "flags Process.sleep and :timer.sleep in a test" do
       source = """
@@ -160,4 +199,5 @@ defmodule Ryker.CredoChecks.TestHygieneChecksTest do
   defp context_pattern, do: check("TestContextPattern")
   defp put_env, do: check("NoApplicationPutEnv")
   defp sleep, do: check("TestNoProcessSleep")
+  defp known_result, do: check("TestAssertKnownResult")
 end

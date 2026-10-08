@@ -25,7 +25,7 @@ defmodule Ryker.Admission.WorkerTest do
            end)
 
     assert FakeCoopAPI.state(fake).submit_count == 1
-    assert :ok = stop_supervised(Worker)
+    assert stop_supervised(Worker) == :ok
   end
 
   test "keeps running after a transient Coop failure and leaves a durable retry" do
@@ -46,7 +46,7 @@ defmodule Ryker.Admission.WorkerTest do
            end)
 
     assert Process.alive?(worker)
-    assert :ok = stop_supervised(Worker)
+    assert stop_supervised(Worker) == :ok
   end
 
   test "keeps running after an input enters durable blocked custody" do
@@ -73,7 +73,7 @@ defmodule Ryker.Admission.WorkerTest do
     refute_receive {:DOWN, ^monitor_ref, :process, ^worker, _reason}, 100
     assert Process.alive?(worker)
     assert FakeCoopAPI.state(fake).submit_count == 1
-    assert :ok = stop_supervised(Worker)
+    assert stop_supervised(Worker) == :ok
   end
 
   # On 2026-09-27 an idle install committed about 125 transactions a second,
@@ -123,11 +123,10 @@ defmodule Ryker.Admission.WorkerTest do
   test "rejects a polling loop that would spin continuously" do
     Process.flag(:trap_exit, true)
 
-    assert {:error, {:invalid_admission_worker, :options}} =
-             Worker.start_link(
-               dispatcher_options: [],
-               poll_interval_ms: 0
-             )
+    assert Worker.start_link(
+             dispatcher_options: [],
+             poll_interval_ms: 0
+           ) == {:error, {:invalid_admission_worker, :options}}
   end
 
   defp decided?(entry) do

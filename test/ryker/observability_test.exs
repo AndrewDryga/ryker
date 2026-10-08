@@ -91,7 +91,7 @@ defmodule Ryker.ObservabilityTest do
     )
 
     # Structural fixture: the Work lane last cycled an hour ago.
-    assert :ok = Progress.record(:work, :cycle)
+    assert Progress.record(:work, :cycle) == :ok
 
     Repo.query!("UPDATE ryker_runtime_progress SET observed_at = $1 WHERE lane = 'work'", [
       progress_at
@@ -507,7 +507,7 @@ defmodule Ryker.ObservabilityTest do
 
     Config.put_override(:work, %{enabled: true})
 
-    assert :ok = Progress.record(:work, :cycle)
+    assert Progress.record(:work, :cycle) == :ok
     old = DateTime.add(DateTime.utc_now(), -3_600, :second)
 
     assert {:ok, _result} =
@@ -525,7 +525,7 @@ defmodule Ryker.ObservabilityTest do
 
     assert stale.stale_progress_lanes == [:work]
 
-    assert :ok = Progress.record(:work, :cycle)
+    assert Progress.record(:work, :cycle) == :ok
 
     assert {:ok, fresh} =
              Observability.ready(
@@ -545,17 +545,17 @@ defmodule Ryker.ObservabilityTest do
   # those polls was a quarter of everything an idle install still committed
   # on 2026-09-27, where readiness needs one in fifteen minutes.
   test "a lane polled every ten seconds writes its heartbeat once a minute" do
-    assert :ok = Progress.beat(:learning)
+    assert Progress.beat(:learning) == :ok
     # The next idle poll, ten seconds on.
     Process.put({Progress, :learning}, System.monotonic_time(:millisecond) - 10_000)
-    assert :ok = Progress.beat(:learning)
+    assert Progress.beat(:learning) == :ok
 
     assert Repo.query!("SELECT cycle_count FROM ryker_runtime_progress WHERE lane = 'learning'").rows ==
              [[1]]
 
     # A minute on, it beats again.
     Process.put({Progress, :learning}, System.monotonic_time(:millisecond) - 60_000)
-    assert :ok = Progress.beat(:learning)
+    assert Progress.beat(:learning) == :ok
 
     assert Repo.query!("SELECT cycle_count FROM ryker_runtime_progress WHERE lane = 'learning'").rows ==
              [[2]]
@@ -821,7 +821,7 @@ defmodule Ryker.ObservabilityTest do
     assert {:ok, _runtime} =
              Agent.start_link(fn -> :healthy end, name: Ryker.Admission.Runtime)
 
-    assert :ok = Progress.record(:admission, :cycle)
+    assert Progress.record(:admission, :cycle) == :ok
 
     assert {:ok, readiness} =
              Observability.ready(check_runtimes: true, stall_after_seconds: 86_400)

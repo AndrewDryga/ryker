@@ -215,10 +215,9 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
   test "explicit source-channel deletion revokes its global facts as well as conversation memory" do
     entry = insert_fact!("Production portal", "portal-prod")
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Memories.delete_slack_channel_in_transaction("TORIGINAL", "CPRIVATE")
-             end)
+    assert Repo.transaction(fn ->
+             Memories.delete_slack_channel_in_transaction("TORIGINAL", "CPRIVATE")
+           end) == {:ok, :ok}
 
     assert Repo.get!(MemoryEntry, entry.id).status == :deleted
   end
@@ -231,7 +230,7 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
     newer = AnswerMemory.answered!("portal-current", DateTime.add(now, 1, :second))
 
     assert {:ok, %{memory: current}} = remember(newer, "portal-current")
-    assert {:error, :answer_memory_conflict} = remember(older, "portal-old")
+    assert remember(older, "portal-old") == {:error, :answer_memory_conflict}
     assert Repo.get!(MemoryEntry, current.id).status == :active
     assert Repo.aggregate(MemoryEntry, :count) == 1
   end
@@ -247,7 +246,7 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
     assert replaced.status == :superseded
     refute inspect(replaced.payload) =~ "portal-old"
     assert current.answer_provenance["answer_ref"] == newer.entry.event_ref
-    assert {:error, :answer_memory_conflict} = remember(older, "portal-old")
+    assert remember(older, "portal-old") == {:error, :answer_memory_conflict}
   end
 
   # remember_answer saved whatever value the model passed as an
@@ -261,7 +260,7 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
   test "an answer given in a private channel is not remembered for every conversation" do
     answer = AnswerMemory.answered!("portal-private", DateTime.utc_now(), private: true)
 
-    assert {:error, :answer_memory_private_source} = remember(answer, "portal-private")
+    assert remember(answer, "portal-private") == {:error, :answer_memory_private_source}
     assert Repo.aggregate(MemoryEntry, :count) == 0
 
     public = AnswerMemory.answered!("portal-public", DateTime.utc_now())
@@ -274,8 +273,8 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
     answer =
       AnswerMemory.answered!("It is portal-prod, the one in us-central1.", DateTime.utc_now())
 
-    assert {:error, :answer_memory_not_in_answer} = remember(answer, "portal-staging")
-    assert {:error, :answer_memory_not_in_answer} = remember(answer, "portal-prod in europe")
+    assert remember(answer, "portal-staging") == {:error, :answer_memory_not_in_answer}
+    assert remember(answer, "portal-prod in europe") == {:error, :answer_memory_not_in_answer}
     assert Repo.aggregate(MemoryEntry, :count) == 0
 
     assert {:ok, %{memory: memory}} = remember(answer, "Portal-Prod")
@@ -318,7 +317,7 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
              |> SlackInput.new()
 
     assert {:ok, _} = Inbox.record(revision)
-    assert {:error, :answer_memory_revised} = remember(answer, "portal-old")
+    assert remember(answer, "portal-old") == {:error, :answer_memory_revised}
     assert Repo.aggregate(MemoryEntry, :count) == 0
   end
 
@@ -329,7 +328,7 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
     assert {:ok, %{memory: memory}} = remember(original, "portal-original")
     assert {:ok, _} = Memories.forget(memory.ref)
 
-    assert {:error, :answer_memory_conflict} = remember(queued, "portal-queued")
+    assert remember(queued, "portal-queued") == {:error, :answer_memory_conflict}
     assert Repo.get!(MemoryEntry, memory.id).status == :deleted
     assert Repo.aggregate(MemoryEntry, :count) == 1
   end
@@ -352,7 +351,7 @@ defmodule Ryker.Memories.GlobalMemoriesTest do
                %{"subject" => "GCP project", "value" => "portal-corrected"}
              )
 
-    assert {:error, :answer_memory_conflict} = remember(queued, "portal-queued")
+    assert remember(queued, "portal-queued") == {:error, :answer_memory_conflict}
     assert Repo.get!(MemoryEntry, memory.id).payload["value"] == "portal-corrected"
     assert Repo.aggregate(MemoryEntry, :count) == 1
   end

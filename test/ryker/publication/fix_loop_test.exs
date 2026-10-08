@@ -85,12 +85,11 @@ defmodule Ryker.Publication.FixLoopTest do
     assert current["content"]["content"] == content
 
     # The host's own words carry no raw source, so Work may show them as they are.
-    assert :ok =
-             KnowledgeSnapshot.authorize_submission(
-               fix.episode,
-               fix.session.repository_ref,
-               submission
-             )
+    assert KnowledgeSnapshot.authorize_submission(
+             fix.episode,
+             fix.session.repository_ref,
+             submission
+           ) == :ok
 
     # Its commit is reviewed by the ordinary path, on the same publication.
     finish_turn!(fix, "checks-fail", "fix")

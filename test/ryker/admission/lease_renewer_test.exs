@@ -14,19 +14,19 @@ defmodule Ryker.Admission.LeaseRenewerTest do
 
     heartbeat = LeaseRenewer.new(now.(), 300, now, renew)
 
-    for _poll <- 1..2_000, do: assert(:ok = heartbeat.())
+    for _poll <- 1..2_000, do: assert(heartbeat.() == :ok)
     assert Agent.get(renewals, &length/1) == 0
 
     Agent.update(clock, &DateTime.add(&1, 100, :second))
-    for _poll <- 1..2_000, do: assert(:ok = heartbeat.())
+    for _poll <- 1..2_000, do: assert(heartbeat.() == :ok)
     assert Agent.get(renewals, &length/1) == 1
 
     Agent.update(clock, &DateTime.add(&1, 99, :second))
-    for _poll <- 1..2_000, do: assert(:ok = heartbeat.())
+    for _poll <- 1..2_000, do: assert(heartbeat.() == :ok)
     assert Agent.get(renewals, &length/1) == 1
 
     Agent.update(clock, &DateTime.add(&1, 1, :second))
-    assert :ok = heartbeat.()
+    assert heartbeat.() == :ok
     assert Agent.get(renewals, &length/1) == 2
   end
 end

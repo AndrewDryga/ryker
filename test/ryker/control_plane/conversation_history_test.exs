@@ -263,7 +263,7 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
     # Both clocks pass `since` before anything changes.
     since = Enum.max([DateTime.utc_now(), Repo.now!()], DateTime)
     clocks_past!(since)
-    assert {:ok, []} = ConversationProjection.changes(@conversation_id, since)
+    assert ConversationProjection.changes(@conversation_id, since) == {:ok, []}
 
     all =
       @conversation_id

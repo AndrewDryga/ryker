@@ -244,11 +244,10 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     |> Behavior.Changeset.update(%{expires_at: DateTime.add(DateTime.utc_now(), -1)})
     |> Repo.update!()
 
-    assert {:ok, 1} =
-             StandingRules.observe_input(
-               github_review_input("slack:T123:C456", "submitted", "changes_requested"),
-               "input:library"
-             )
+    assert StandingRules.observe_input(
+             github_review_input("slack:T123:C456", "submitted", "changes_requested"),
+             "input:library"
+           ) == {:ok, 1}
 
     assert %{items: [item], runs: [run], counts: %{"active" => 1}} =
              BehaviorLibrary.list(:standing_assignment, %{})
@@ -1273,16 +1272,15 @@ defmodule Ryker.Behaviors.BehaviorsTest do
              :decided
            ) == {:error, :behavior_run_transaction_required}
 
-    assert {:ok, {:error, {:invalid_behavior_confirmation, :input_ref}}} =
-             Repo.transaction(fn ->
-               StandingRules.finalize_assignment_runs_in_transaction(
-                 "",
-                 :reply,
-                 "decision:one",
-                 nil,
-                 :decided
-               )
-             end)
+    assert Repo.transaction(fn ->
+             StandingRules.finalize_assignment_runs_in_transaction(
+               "",
+               :reply,
+               "decision:one",
+               nil,
+               :decided
+             )
+           end) == {:ok, {:error, {:invalid_behavior_confirmation, :input_ref}}}
   end
 
   defp delivered_offers!(suffix, delivery_thread_ref \\ "1787832000.000100") do

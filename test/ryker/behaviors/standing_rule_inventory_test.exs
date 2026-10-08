@@ -73,7 +73,7 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
     assert elsewhere |> Map.keys() |> Enum.sort() == ~w(reason ref revision status verdict)
     assert {"disabled", reason} = verdicts[paused.ref]
     assert reason == "This rule was paused when the message was processed."
-    assert {"expired", "This rule expired before the message arrived."} = verdicts[expired.ref]
+    assert verdicts[expired.ref] == {"expired", "This rule expired before the message arrived."}
 
     # Definitions are frozen with the verdict so a later edit cannot rewrite it.
     assert Enum.all?(inventory.entries, &is_integer(&1["revision"]))
@@ -129,7 +129,7 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
 
     input = terraform_input(:app)
     assert Behaviors.standing_match?(input)
-    assert {:ok, 1} = StandingRules.observe_input(input, "input:scheduling")
+    assert StandingRules.observe_input(input, "input:scheduling") == {:ok, 1}
     assert {:ok, inventory} = StandingRules.record_rule_inventory(input, "input:scheduling")
 
     # The inventory lists the out-of-scope and paused rules; scheduling did not.
@@ -138,7 +138,7 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
     assert runs == [matched.id]
 
     # And recording it again has not created a second opinion.
-    assert {:ok, 1} = StandingRules.observe_input(input, "input:scheduling")
+    assert StandingRules.observe_input(input, "input:scheduling") == {:ok, 1}
     assert Repo.aggregate(StandingRuleInventory, :count) == 1
   end
 
@@ -167,7 +167,7 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
              "Only the first 100 applicable rules are evaluated. This rule's trigger was not checked."
 
     # Scheduling is unchanged: still exactly the hundred the runtime considered.
-    assert {:ok, 100} = StandingRules.observe_input(input, "input:window")
+    assert StandingRules.observe_input(input, "input:window") == {:ok, 100}
   end
 
   test "an inventory that cannot be written does not fail the input" do
@@ -182,7 +182,7 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
     input = terraform_input(:app)
     assert {:ok, %{entry: entry}} = Inbox.record(input)
     assert entry.id
-    assert {:ok, 1} = StandingRules.observe_input(input, "ingress-input:#{entry.id}")
+    assert StandingRules.observe_input(input, "ingress-input:#{entry.id}") == {:ok, 1}
 
     assert {:error, {:standing_rule_inventory_failed, _reason}} =
              StandingRules.record_rule_inventory(input, "ingress-input:#{entry.id}")

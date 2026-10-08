@@ -1304,7 +1304,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
     # Repository-less conversation sessions are not repository checkouts and do
     # not belong on the Workspaces page.
-    assert [] = WorkspaceProjection.copies(%{}).current
+    assert WorkspaceProjection.copies(%{}).current == []
 
     assert {:ok, detail} = EpisodeProjection.fetch(working.episode.key)
     assert Enum.flat_map(detail.trace.chapters, & &1.steps) == detail.trace.steps

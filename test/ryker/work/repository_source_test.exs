@@ -152,10 +152,8 @@ defmodule Ryker.Work.RepositorySourceTest do
             "2026-09-26T12:00:00,1Z",
             "2026-02-30T12:00:00Z"
           ] do
-        assert {:error, {:invalid_repository_source_binding, :resolved_at}} =
-                 RepositorySource.parse_binding(
-                   Map.put(branch_binding(), "resolved_at", timestamp)
-                 )
+        assert RepositorySource.parse_binding(Map.put(branch_binding(), "resolved_at", timestamp)) ==
+                 {:error, {:invalid_repository_source_binding, :resolved_at}}
       end
     end
 

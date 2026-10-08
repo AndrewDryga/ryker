@@ -36,14 +36,14 @@ defmodule Ryker.Settings.SlackWorkspaceAdminsMigrationTest do
              "workspace_ref" => "T0123456789"
            }
 
-    assert :ok = migrate_down(@version)
+    assert migrate_down(@version) == :ok
 
     assert saved_row() == %{
              "operators" => ["U1111111111", "U2222222222"],
              "workspace_ref" => "T0123456789"
            }
 
-    assert :ok = migrate_up(@version)
+    assert migrate_up(@version) == :ok
 
     assert saved_row() == %{
              "operators" => ["U1111111111", "U2222222222"],

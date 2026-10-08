@@ -76,7 +76,7 @@ defmodule Ryker.PeopleTest do
     learn!([told], [item(told, "medical-leave", "On leave for surgery.")])
     [fact] = People.facts("slack:user:UERIN")
 
-    assert {:ok, 1} = People.forget_fact(fact.id)
+    assert People.forget_fact(fact.id) == {:ok, 1}
     assert kinds("slack:user:UERIN") == [:forgotten]
 
     learn!([told], [item(told, "medical-leave", "On leave for surgery.")])
@@ -89,7 +89,7 @@ defmodule Ryker.PeopleTest do
     also = said!(workspace, "CPUBLIC", "UDAN", "tea is the best", at: ago(now, 60))
     learn!([told], [item(told, "favourite-drink", "Loves tea.")])
 
-    assert {:ok, 1} = People.forget_person("slack:user:UDAN")
+    assert People.forget_person("slack:user:UDAN") == {:ok, 1}
     learn!([told, also], [item(also, "favourite-drink", "Loves tea.")])
     assert People.about("slack:user:UDAN", public) == []
 
@@ -110,7 +110,7 @@ defmodule Ryker.PeopleTest do
     ])
 
     [birthday] = Enum.filter(People.facts("slack:user:UFAY"), &(&1.key == "birthday"))
-    assert {:ok, 1} = People.forget_fact(birthday.id)
+    assert People.forget_fact(birthday.id) == {:ok, 1}
     assert People.about("slack:user:UFAY", public) == ["Loves tea."]
 
     learn!([told], [item(told, "birthday", "Birthday is 3 June.")])
@@ -258,7 +258,7 @@ defmodule Ryker.PeopleTest do
   end
 
   defp learn!(entries, items) do
-    assert {:ok, :ok} = Repo.transaction(fn -> People.learn_in_transaction(items, entries) end)
+    assert Repo.transaction(fn -> People.learn_in_transaction(items, entries) end) == {:ok, :ok}
   end
 
   defp item(%Entry{id: id}, key, fact),

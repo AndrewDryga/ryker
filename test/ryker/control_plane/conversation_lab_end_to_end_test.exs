@@ -415,8 +415,8 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
         ref
       end)
 
-    assert {:ok, :idle} =
-             Ryker.Delivery.Dispatcher.run_once(delivery_options("several-done", :routing))
+    assert Ryker.Delivery.Dispatcher.run_once(delivery_options("several-done", :routing)) ==
+             {:ok, :idle}
 
     assert {:ok, conversation} = ConversationProjection.fetch(@conversation_id)
     [first_ref, second_ref, reaction_ref] = delivered

@@ -106,16 +106,16 @@ defmodule Ryker.CoopFleet.ClientTest do
   end
 
   test "new requires one bounded workspace and rejects unknown or duplicate options" do
-    assert {:error, {:invalid_coop_fleet_client, :options}} = Client.new([])
+    assert Client.new([]) == {:error, {:invalid_coop_fleet_client, :options}}
 
-    assert {:error, {:invalid_coop_fleet_client, :options}} =
-             Client.new(workspace_ref: "workspace-main", workspace_ref: "other")
+    assert Client.new(workspace_ref: "workspace-main", workspace_ref: "other") ==
+             {:error, {:invalid_coop_fleet_client, :options}}
 
-    assert {:error, {:invalid_coop_fleet_client, :options}} =
-             Client.new(workspace_ref: "workspace-main", secret: "must-not-cross")
+    assert Client.new(workspace_ref: "workspace-main", secret: "must-not-cross") ==
+             {:error, {:invalid_coop_fleet_client, :options}}
 
-    assert {:error, {:invalid_coop_fleet_client, :options}} =
-             Client.new(workspace_ref: String.duplicate("w", 1_025))
+    assert Client.new(workspace_ref: String.duplicate("w", 1_025)) ==
+             {:error, {:invalid_coop_fleet_client, :options}}
   end
 
   test "create and fence use the same pinned job instead of a worker policy", %{
@@ -195,8 +195,8 @@ defmodule Ryker.CoopFleet.ClientTest do
 
     key = "ryker:work:create:#{session.id}:g#{session.create_generation}"
 
-    assert :ok =
-             Client.prepare_create_session(client, key, @policy, offer, session.repository_source)
+    assert Client.prepare_create_session(client, key, @policy, offer, session.repository_source) ==
+             :ok
 
     assert {:ok, _} =
              Client.create_session(client, key, @policy, offer, session.repository_source)
@@ -395,13 +395,12 @@ defmodule Ryker.CoopFleet.ClientTest do
       session = session |> Ecto.Changeset.change(attributes) |> Repo.update!()
       key = "create:after-prune:#{Ecto.UUID.generate()}"
 
-      assert {:error, {:coop_fleet_authority_mismatch, :worker_job}} =
-               ControlPlane.enqueue_command(
-                 command.placement_id,
-                 "create_session",
-                 create_payload(session, session.external_ref),
-                 key
-               )
+      assert ControlPlane.enqueue_command(
+               command.placement_id,
+               "create_session",
+               create_payload(session, session.external_ref),
+               key
+             ) == {:error, {:coop_fleet_authority_mismatch, :worker_job}}
 
       refute Repo.get_by(Command, idempotency_key: key)
     end
@@ -429,14 +428,13 @@ defmodule Ryker.CoopFleet.ClientTest do
     assert Keyword.fetch!(options, :workspace_ref) == "workspace-main"
     assert Keyword.fetch!(options, :capability_names) == ["controller-tools"]
 
-    assert {:error, {:coop_fleet_authority_mismatch, :policy}} =
-             Client.create_session(
-               client,
-               key,
-               "write-everywhere",
-               session.external_ref,
-               session.repository_source
-             )
+    assert Client.create_session(
+             client,
+             key,
+             "write-everywhere",
+             session.external_ref,
+             session.repository_source
+           ) == {:error, {:coop_fleet_authority_mismatch, :policy}}
 
     refute_receive {:fleet_command, _, _, _, _, _}
   end
@@ -642,8 +640,8 @@ defmodule Ryker.CoopFleet.ClientTest do
   } do
     session = bind_session!(session, "coop-session-checkpoint")
 
-    assert {:error, :checkpoint_not_available} =
-             Client.checkpoint_workspace(client, session.coop_session_id, "checkpoint-key-1", 4)
+    assert Client.checkpoint_workspace(client, session.coop_session_id, "checkpoint-key-1", 4) ==
+             {:error, :checkpoint_not_available}
 
     assert_receive {:fleet_command, ^session, "checkpoint_workspace", payload, "checkpoint-key-1",
                     _options}
@@ -1439,15 +1437,14 @@ defmodule Ryker.CoopFleet.ClientTest do
 
     Process.put(:coop_fleet_await_result, {:ok, %{"operation" => %{"state" => "succeeded"}}})
 
-    assert {:error, {:coop_protocol_error, :publication_resource}} =
-             Client.publish_review(
-               client,
-               session.coop_session_id,
-               owner.idempotency_key,
-               "review-op",
-               "publish:malformed",
-               publication_body()
-             )
+    assert Client.publish_review(
+             client,
+             session.coop_session_id,
+             owner.idempotency_key,
+             "review-op",
+             "publish:malformed",
+             publication_body()
+           ) == {:error, {:coop_protocol_error, :publication_resource}}
 
     refute_receive {:fleet_command, _, _, _, _, _}
   end
@@ -1560,8 +1557,8 @@ defmodule Ryker.CoopFleet.ClientTest do
     for state <- ["reserved", "running"] do
       Process.put(:coop_fleet_await_result, {:ok, %{"method" => "RunReview", "state" => state}})
 
-      assert {:error, {:coop_unavailable, "Review operation has not completed."}} =
-               Client.run_review(client, session.coop_session_id, command.idempotency_key, 3)
+      assert Client.run_review(client, session.coop_session_id, command.idempotency_key, 3) ==
+               {:error, {:coop_unavailable, "Review operation has not completed."}}
     end
 
     # Coop marks an operation uncertain when its service restarts under it; that review never
@@ -1584,8 +1581,8 @@ defmodule Ryker.CoopFleet.ClientTest do
       }
     })
 
-    assert {:error, {:coop_error, 409, "revision_conflict", "stale revision"}} =
-             Client.run_review(client, session.coop_session_id, command.idempotency_key, 3)
+    assert Client.run_review(client, session.coop_session_id, command.idempotency_key, 3) ==
+             {:error, {:coop_error, 409, "revision_conflict", "stale revision"}}
 
     assert Repo.get!(Command, command.id) == command
   end
@@ -1605,8 +1602,8 @@ defmodule Ryker.CoopFleet.ClientTest do
       end
     end)
 
-    assert {:error, {:coop_error, 404, "review_not_found", "missing"}} =
-             Client.run_review(client, session.coop_session_id, command.idempotency_key, 3)
+    assert Client.run_review(client, session.coop_session_id, command.idempotency_key, 3) ==
+             {:error, {:coop_error, 404, "review_not_found", "missing"}}
 
     assert Repo.get!(Command, command.id) == command
   end
@@ -1779,8 +1776,8 @@ defmodule Ryker.CoopFleet.ClientTest do
         ] do
       Process.put(:coop_fleet_await_result, {:ok, changed})
 
-      assert {:error, {:coop_protocol_error, :review_resource}} =
-               Client.run_review(client, session.coop_session_id, command.idempotency_key, 3)
+      assert Client.run_review(client, session.coop_session_id, command.idempotency_key, 3) ==
+               {:error, {:coop_protocol_error, :review_resource}}
     end
   end
 
@@ -1801,7 +1798,7 @@ defmodule Ryker.CoopFleet.ClientTest do
       "sha256" => digest(bytes)
     }
 
-    assert :ok = Bodies.put(root, id, :response, reference, [bytes], key)
+    assert Bodies.put(root, id, :response, reference, [bytes], key) == :ok
     assert {:ok, stored, ^reference} = Bodies.fetch(root, id, :response)
 
     response = %{
@@ -1824,8 +1821,8 @@ defmodule Ryker.CoopFleet.ClientTest do
 
     Process.put(:coop_fleet_binary_result, {:ok, put_in(response, [:headers, "Etag"], "wrong")})
 
-    assert {:error, {:coop_protocol_error, :output_artifact_transfer}} =
-             Client.get_output_artifact(client, session.coop_session_id, "t", "a")
+    assert Client.get_output_artifact(client, session.coop_session_id, "t", "a") ==
+             {:error, {:coop_protocol_error, :output_artifact_transfer}}
   end
 
   test "frozen turn transports exact artifact references without persisting their bytes", %{
@@ -2005,15 +2002,14 @@ defmodule Ryker.CoopFleet.ClientTest do
     assert accept["verdict"] == "accept"
     assert accept["violations"] == []
 
-    assert {:error, {:invalid_coop_request, :verdict}} =
-             Client.validate_candidate(
-               client,
-               session.coop_session_id,
-               "coop-turn-1",
-               "invalid",
-               String.duplicate("b", 64),
-               :maybe
-             )
+    assert Client.validate_candidate(
+             client,
+             session.coop_session_id,
+             "coop-turn-1",
+             "invalid",
+             String.duplicate("b", 64),
+             :maybe
+           ) == {:error, {:invalid_coop_request, :verdict}}
 
     assert {:ok, _} =
              Client.cancel_turn(client, session.coop_session_id, "coop-turn-1", "cancel", 4)
@@ -2032,16 +2028,16 @@ defmodule Ryker.CoopFleet.ClientTest do
   test "unknown remote session identities fail closed before a fleet command is created", %{
     client: client
   } do
-    assert {:error, {:coop_session_not_found, "missing-session"}} =
-             Client.get_session(client, "missing-session")
+    assert Client.get_session(client, "missing-session") ==
+             {:error, {:coop_session_not_found, "missing-session"}}
 
-    assert {:error, {:coop_session_not_found, "missing-session"}} =
-             Client.get_turn(client, "missing-session", "missing-turn")
+    assert Client.get_turn(client, "missing-session", "missing-turn") ==
+             {:error, {:coop_session_not_found, "missing-session"}}
 
-    assert {:error, {:coop_session_not_found, "missing-task"}} =
-             Client.create_session(client, "missing-create", @policy, "missing-task", nil)
+    assert Client.create_session(client, "missing-create", @policy, "missing-task", nil) ==
+             {:error, {:coop_session_not_found, "missing-task"}}
 
-    assert :not_found = Client.operation_by_key(client, "missing-operation")
+    assert Client.operation_by_key(client, "missing-operation") == :not_found
     refute_receive {:fleet_command, _, _, _, _, _}
   end
 
@@ -2094,33 +2090,30 @@ defmodule Ryker.CoopFleet.ClientTest do
   } do
     Process.put(:coop_fleet_binary_result, {:ok, %{"unexpected" => "not a body receipt"}})
 
-    assert {:error, {:coop_fleet_authority_mismatch, :policy}} =
-             Client.create_session(
-               client,
-               "wrong-create",
-               "wrong-policy",
-               session.external_ref,
-               nil
-             )
+    assert Client.create_session(
+             client,
+             "wrong-create",
+             "wrong-policy",
+             session.external_ref,
+             nil
+           ) == {:error, {:coop_fleet_authority_mismatch, :policy}}
 
-    assert {:error, {:coop_fleet_authority_mismatch, :policy}} =
-             Client.fence_create_session(
-               client,
-               "wrong-fence",
-               "wrong-policy",
-               session.external_ref,
-               nil
-             )
+    assert Client.fence_create_session(
+             client,
+             "wrong-fence",
+             "wrong-policy",
+             session.external_ref,
+             nil
+           ) == {:error, {:coop_fleet_authority_mismatch, :policy}}
 
     session = bind_session!(session, "coop-session-transfers")
 
-    assert {:error, {:coop_protocol_error, :output_artifact_transfer}} =
-             Client.get_output_artifact(
-               client,
-               session.coop_session_id,
-               "coop-turn",
-               "artifact"
-             )
+    assert Client.get_output_artifact(
+             client,
+             session.coop_session_id,
+             "coop-turn",
+             "artifact"
+           ) == {:error, {:coop_protocol_error, :output_artifact_transfer}}
 
     assert_receive {:fleet_command, ^session, "get_output_artifact", _payload, _key, _options}
 
@@ -2132,27 +2125,25 @@ defmodule Ryker.CoopFleet.ClientTest do
       "prompt" => "prompt"
     }
 
-    assert {:error, :coop_fleet_input_artifact_mismatch} =
-             Client.submit_frozen_turn(
-               client,
-               session.coop_session_id,
-               "submit-artifact",
-               1,
-               submission,
-               nil,
-               artifacts
-             )
+    assert Client.submit_frozen_turn(
+             client,
+             session.coop_session_id,
+             "submit-artifact",
+             1,
+             submission,
+             nil,
+             artifacts
+           ) == {:error, :coop_fleet_input_artifact_mismatch}
 
-    assert {:error, :coop_fleet_input_artifact_mismatch} =
-             Client.fence_frozen_turn(
-               client,
-               session.coop_session_id,
-               "fence-artifact",
-               1,
-               submission,
-               nil,
-               artifacts
-             )
+    assert Client.fence_frozen_turn(
+             client,
+             session.coop_session_id,
+             "fence-artifact",
+             1,
+             submission,
+             nil,
+             artifacts
+           ) == {:error, :coop_fleet_input_artifact_mismatch}
 
     refute_receive {:fleet_command, _, _, _, "wrong-create", _}
     refute_receive {:fleet_command, _, _, _, "wrong-fence", _}
@@ -2164,8 +2155,8 @@ defmodule Ryker.CoopFleet.ClientTest do
   } do
     queued = command!(session, "queued")
 
-    assert {:error, :unexpected_command_wait} =
-             Client.operation_by_key(client, queued.idempotency_key)
+    assert Client.operation_by_key(client, queued.idempotency_key) ==
+             {:error, :unexpected_command_wait}
 
     wrapped = command!(session, "wrapped")
 

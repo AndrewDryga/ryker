@@ -1938,7 +1938,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
   test "a conversation whose environment cannot run work runs outside any environment" do
     environment!("platform", true)
     environment!("staging", false)
-    assert {:ok, "staging"} = ConversationLab.select_environment(@conversation_id, "staging")
+    assert ConversationLab.select_environment(@conversation_id, "staging") == {:ok, "staging"}
 
     runnable = placements(["platform"])
     assert {:ok, outside} = ConversationLab.work_profile(@conversation_id, runnable)

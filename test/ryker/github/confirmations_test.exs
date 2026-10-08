@@ -161,7 +161,7 @@ defmodule Ryker.GitHub.ConfirmationsTest do
 
     log =
       capture_log(fn ->
-        assert {:error, :github_confirmation_unavailable} = Confirmations.apply(input, options())
+        assert Confirmations.apply(input, options()) == {:error, :github_confirmation_unavailable}
       end)
 
     Repo.query!("ALTER TABLE episode_state_records_broken RENAME TO episode_state_records")

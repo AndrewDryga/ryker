@@ -535,7 +535,7 @@ defmodule Ryker.Slack.WorkControlsTest do
 
     assert {:ok, claim} = Custody.claim_next("work-controls:#{suffix}", 60, :work)
     # As a live Work turn records, so its records may be shown in the channel.
-    assert :ok = KnowledgeSnapshot.expose(claim, [])
+    assert KnowledgeSnapshot.expose(claim, []) == :ok
 
     assert {:ok, evidence} =
              Records.create(Records.token(claim.turn), "record-evidence", "evidence", %{

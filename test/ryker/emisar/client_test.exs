@@ -135,11 +135,11 @@ defmodule Ryker.Emisar.ClientTest do
   test "rejects foreign URLs, malformed identities, errors, and unsafe client configuration" do
     valid = valid_client_attributes(nil)
 
-    assert {:error, {:invalid_emisar_client, :rpc_origin}} =
-             Client.new(%{valid | rpc_origin: "http://emisar.example"})
+    assert Client.new(%{valid | rpc_origin: "http://emisar.example"}) ==
+             {:error, {:invalid_emisar_client, :rpc_origin}}
 
-    assert {:error, {:invalid_emisar_client, :rpc_path}} =
-             Client.new(%{valid | rpc_path: "https://evil.example/rpc"})
+    assert Client.new(%{valid | rpc_path: "https://evil.example/rpc"}) ==
+             {:error, {:invalid_emisar_client, :rpc_path}}
 
     assert {:ok, client} =
              Client.new(%{

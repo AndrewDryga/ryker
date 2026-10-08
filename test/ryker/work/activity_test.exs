@@ -166,7 +166,7 @@ defmodule Ryker.Work.ActivityTest do
     assert {:ok, %{inserted: 0}} = Activity.ingest(session.id, [secret_event])
     refute inspect(Activity.list_for_episode(started.episode.id)) =~ "opaque-private-value"
     changed = put_in(secret_event, ["payload", "text"], "different text")
-    assert {:error, {:coop_activity_replay_conflict, 5}} = Activity.ingest(session.id, [changed])
+    assert Activity.ingest(session.id, [changed]) == {:error, {:coop_activity_replay_conflict, 5}}
 
     # Keep a complete public message through redaction, including secrets that
     # straddled Coop's former 4 KiB event boundary. Only then bound display text.
@@ -245,7 +245,7 @@ defmodule Ryker.Work.ActivityTest do
 
     log =
       capture_log(fn ->
-        assert {:error, :coop_activity_unavailable} = Activity.sync(session, RaisingAPI, nil)
+        assert Activity.sync(session, RaisingAPI, nil) == {:error, :coop_activity_unavailable}
       end)
 
     assert log =~ "Coop activity read raised"
@@ -330,8 +330,8 @@ defmodule Ryker.Work.ActivityTest do
 
     changed_identity = events |> Enum.at(1) |> Map.put("id", "event-2-changed")
 
-    assert {:error, {:coop_activity_replay_conflict, 2}} =
-             Activity.ingest(session.id, [changed_identity])
+    assert Activity.ingest(session.id, [changed_identity]) ==
+             {:error, {:coop_activity_replay_conflict, 2}}
 
     public_events = [
       event(session, 5, "model.plan", %{
@@ -397,8 +397,8 @@ defmodule Ryker.Work.ActivityTest do
     assert filtered_backoff.payload == %{"reset_at" => "2026-09-04T12:05:00Z"}
     assert tool.payload["input"] == %{"arguments" => %{"action_id" => "nomad.allocations"}}
 
-    assert {:error, {:coop_activity_cursor_gap, 13, 14}} =
-             Activity.ingest(session.id, [event(session, 14, "model.plan", %{"entries" => []})])
+    assert Activity.ingest(session.id, [event(session, 14, "model.plan", %{"entries" => []})]) ==
+             {:error, {:coop_activity_cursor_gap, 13, 14}}
 
     assert Activity.ingest(session.id, [event(session, 13, "model.plan", %{"step_count" => 33})]) ==
              {:error, {:invalid_coop_activity, :step_count}}

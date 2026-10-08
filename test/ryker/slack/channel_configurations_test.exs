@@ -280,8 +280,8 @@ defmodule Ryker.Slack.ChannelConfigurationsTest do
                @catalog
              )
 
-    assert {:ok, 0} =
-             ChannelConfigurations.reconcile_absent("TCE3E523134AD", [], snapshot_started_at)
+    assert ChannelConfigurations.reconcile_absent("TCE3E523134AD", [], snapshot_started_at) ==
+             {:ok, 0}
 
     assert Repo.get!(ChannelMembership, joined.membership.id).status == :joined
   end
@@ -550,7 +550,7 @@ defmodule Ryker.Slack.ChannelConfigurationsTest do
     joined!()
     active = reconfiguration!("event:race-before-reservation")
 
-    assert :ok = ChannelConfigurations.reserve_managed_channel("TCE3E523134AD", "C456")
+    assert ChannelConfigurations.reserve_managed_channel("TCE3E523134AD", "C456") == :ok
 
     assert Repo.get!(ConfigurationSession, active.id).status == :cancelled
     refute Repo.get_by(ChannelConfiguration, workspace_ref: "TCE3E523134AD", channel_ref: "C456")
@@ -558,7 +558,7 @@ defmodule Ryker.Slack.ChannelConfigurationsTest do
     assert Repo.get_by!(ChannelMembership, workspace_ref: "TCE3E523134AD", channel_ref: "C456").status ==
              :joined
 
-    assert :ok = ChannelConfigurations.reserve_managed_channel("TCE3E523134AD", "C456")
+    assert ChannelConfigurations.reserve_managed_channel("TCE3E523134AD", "C456") == :ok
   end
 
   test "an addressed operator can start one idempotent reconfiguration in its current thread" do

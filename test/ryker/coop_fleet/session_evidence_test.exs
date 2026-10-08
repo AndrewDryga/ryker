@@ -228,8 +228,8 @@ defmodule Ryker.CoopFleet.SessionEvidenceTest do
 
     stolen = evidence(%{"session_id" => "remote_someone_elses_session"})
 
-    assert {:error, {:coop_session_evidence_session_conflict, "remote_someone_elses_session"}} =
-             record(session, stolen)
+    assert record(session, stolen) ==
+             {:error, {:coop_session_evidence_session_conflict, "remote_someone_elses_session"}}
 
     assert Inspectors.session_evidences(session.id) == []
   end
@@ -245,14 +245,14 @@ defmodule Ryker.CoopFleet.SessionEvidenceTest do
   test "malformed evidence never reaches the table" do
     session = bound_session!("malformed")
 
-    assert {:error, {:invalid_coop_session_evidence, :network_mode}} =
-             record(session, evidence(%{"network" => %{"mode" => "maybe"}}))
+    assert record(session, evidence(%{"network" => %{"mode" => "maybe"}})) ==
+             {:error, {:invalid_coop_session_evidence, :network_mode}}
 
-    assert {:error, {:invalid_coop_session_evidence, :worker_id}} =
-             record(session, evidence(), worker_id: "")
+    assert record(session, evidence(), worker_id: "") ==
+             {:error, {:invalid_coop_session_evidence, :worker_id}}
 
-    assert {:error, {:invalid_coop_session_evidence, :placement_generation}} =
-             record(session, evidence(), placement_generation: 0)
+    assert record(session, evidence(), placement_generation: 0) ==
+             {:error, {:invalid_coop_session_evidence, :placement_generation}}
 
     assert Inspectors.session_evidences(session.id) == []
   end
@@ -312,11 +312,11 @@ defmodule Ryker.CoopFleet.SessionEvidenceTest do
 
     # No placement, no worker, no adapter support: three different skips, and
     # none of them records an absence as an observation.
-    assert {:skipped, :export_unsupported} =
-             SessionEvidenceCapture.capture(session, ExportlessAPI, :client)
+    assert SessionEvidenceCapture.capture(session, ExportlessAPI, :client) ==
+             {:skipped, :export_unsupported}
 
-    assert {:skipped, :no_active_placement} =
-             SessionEvidenceCapture.capture(session, ExportingAPI, :client)
+    assert SessionEvidenceCapture.capture(session, ExportingAPI, :client) ==
+             {:skipped, :no_active_placement}
 
     assert Inspectors.session_evidences(session.id) == []
   end

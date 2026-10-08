@@ -86,32 +86,29 @@ defmodule Ryker.Webhooks.InputTest do
   end
 
   test "rejects malformed metadata without raising" do
-    assert {:error, {:invalid_webhook_input, :event_id}} =
-             Input.new(route!(), %{},
-               event_id: " ",
-               event_type: nil,
-               occurred_at: @occurred_at,
-               occurred_at_source: :source,
-               revision: 1
-             )
+    assert Input.new(route!(), %{},
+             event_id: " ",
+             event_type: nil,
+             occurred_at: @occurred_at,
+             occurred_at_source: :source,
+             revision: 1
+           ) == {:error, {:invalid_webhook_input, :event_id}}
 
-    assert {:error, {:invalid_webhook_input, :revision}} =
-             Input.new(route!(), %{},
-               event_id: "evt-1",
-               event_type: nil,
-               occurred_at: @occurred_at,
-               occurred_at_source: :source,
-               revision: 0
-             )
+    assert Input.new(route!(), %{},
+             event_id: "evt-1",
+             event_type: nil,
+             occurred_at: @occurred_at,
+             occurred_at_source: :source,
+             revision: 0
+           ) == {:error, {:invalid_webhook_input, :revision}}
 
-    assert {:error, {:invalid_webhook_input, :revision}} =
-             Input.new(route!(), %{},
-               event_id: "evt-1",
-               event_type: nil,
-               occurred_at: @occurred_at,
-               occurred_at_source: :source,
-               revision: 9_223_372_036_854_775_808
-             )
+    assert Input.new(route!(), %{},
+             event_id: "evt-1",
+             event_type: nil,
+             occurred_at: @occurred_at,
+             occurred_at_source: :source,
+             revision: 9_223_372_036_854_775_808
+           ) == {:error, {:invalid_webhook_input, :revision}}
   end
 
   defp route!(publication_lifecycle \\ nil) do

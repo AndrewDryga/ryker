@@ -322,7 +322,7 @@ defmodule Ryker.Runtime.OwnerTest do
 
     assert applied(owner, verified)
     refute Config.get_env(:slack)
-    assert :ok = Names.remember([{"T0123456789", "U1111111111", "Andrew"}])
+    assert Names.remember([{"T0123456789", "U1111111111", "Andrew"}]) == :ok
     assert Names.name("T0123456789", "U1111111111") == "@Andrew"
 
     {:ok, chosen} =

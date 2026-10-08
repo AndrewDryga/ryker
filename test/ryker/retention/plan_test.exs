@@ -70,8 +70,8 @@ defmodule Ryker.Retention.PlanTest do
                Plan.prepare(document, "remote_123", 8, false)
     end
 
-    assert {:error, {:invalid_discard_plan, :document}} =
-             Plan.prepare(valid, "remote_123", 0, false)
+    assert Plan.prepare(valid, "remote_123", 0, false) ==
+             {:error, {:invalid_discard_plan, :document}}
 
     assert {:ok, _plan} =
              valid

@@ -29,26 +29,23 @@ defmodule Ryker.Settings.LocalRoutingSettingTest do
     assert {:local_routing_endpoint, :required} in errors
     assert {:local_routing_model, :required} in errors
 
-    assert {:error, {:invalid_settings, [{:local_routing_endpoint, :insecure}]}} =
-             Settings.save_work(
-               shadow("http://llm.example.com/v1", "qwen2.5:3b"),
-               revision,
-               @actor
-             )
+    assert Settings.save_work(
+             shadow("http://llm.example.com/v1", "qwen2.5:3b"),
+             revision,
+             @actor
+           ) == {:error, {:invalid_settings, [{:local_routing_endpoint, :insecure}]}}
 
-    assert {:error, {:invalid_settings, [{:local_routing_endpoint, :format}]}} =
-             Settings.save_work(
-               shadow("http://user:secret@localhost:11434/v1", "qwen2.5:3b"),
-               revision,
-               @actor
-             )
+    assert Settings.save_work(
+             shadow("http://user:secret@localhost:11434/v1", "qwen2.5:3b"),
+             revision,
+             @actor
+           ) == {:error, {:invalid_settings, [{:local_routing_endpoint, :format}]}}
 
-    assert {:error, {:invalid_settings, [{:local_routing_model, :format}]}} =
-             Settings.save_work(
-               shadow("http://host.docker.internal:11434/v1", "qwen 2.5"),
-               revision,
-               @actor
-             )
+    assert Settings.save_work(
+             shadow("http://host.docker.internal:11434/v1", "qwen 2.5"),
+             revision,
+             @actor
+           ) == {:error, {:invalid_settings, [{:local_routing_model, :format}]}}
 
     assert Settings.fetch!().installation.revision == revision
 

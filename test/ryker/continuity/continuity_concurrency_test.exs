@@ -151,7 +151,7 @@ defmodule Ryker.Continuity.ContinuityConcurrencyTest do
         await_blocked_by(searcher_backend, holder_backend)
         send(holder.pid, :count)
 
-        assert {:ok, :counted} = Task.await(holder, 5_000)
+        assert Task.await(holder, 5_000) == {:ok, :counted}
         assert {:ok, {:ok, document, _position}} = Task.await(searcher, 5_000)
         assert document["state"]["situation"] == "Search race"
         assert Repo.get!(ConversationSummary, summary.id).recall_count == 2

@@ -41,8 +41,8 @@ defmodule Ryker.Admission.FleetSessionTest do
     assert {:ok, duplicate} = FleetSession.ensure(entry, %{name: @policy, digest: @digest})
     assert duplicate.id == session.id
 
-    assert {:error, :admission_fleet_authority_conflict} =
-             FleetSession.ensure(entry, %{name: "different", digest: @digest})
+    assert FleetSession.ensure(entry, %{name: "different", digest: @digest}) ==
+             {:error, :admission_fleet_authority_conflict}
 
     assert {:ok, bound} = FleetSession.bind(entry, "coop-admission-session")
     assert bound.coop_session_id == "coop-admission-session"

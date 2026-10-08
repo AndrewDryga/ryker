@@ -218,7 +218,7 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
   # its publication queued for the trusted review.
   defp committed_task! do
     claim = claim_episode!()
-    assert :ok = KnowledgeSnapshot.expose(claim, [])
+    assert KnowledgeSnapshot.expose(claim, []) == :ok
 
     assert {:ok, offer} =
              Records.create(
@@ -260,7 +260,7 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
 
     assert {:ok, task_claim} = Custody.claim_next("fix-loop-e2e-task", 60, :work)
     assert task_claim.episode.id == task_episode.id
-    assert :ok = KnowledgeSnapshot.expose(task_claim, [])
+    assert KnowledgeSnapshot.expose(task_claim, []) == :ok
 
     {:ok, task_api} =
       FakeWorkCoopAPI.start_link([writable_task_reply()],

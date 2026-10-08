@@ -44,15 +44,15 @@ defmodule Ryker.Knowledge.KnowledgeRebuildConcurrencyTest do
       try do
         assert_receive {:generation_locked, pid} when pid == writer.pid, 5_000
 
-        assert {:error, :work_derived_context_busy} = KnowledgeSnapshot.expose(claim, [document])
+        assert KnowledgeSnapshot.expose(claim, [document]) == {:error, :work_derived_context_busy}
         assert Repo.get!(Session, claim.session.id).knowledge_exposure_count == 0
         assert Repo.get!(Session, claim.session.id).source_exposure_count == 0
 
         send(writer.pid, :replace_generation)
         assert {:ok, _} = Task.await(writer)
 
-        assert {:error, :work_knowledge_context_stale} =
-                 KnowledgeSnapshot.expose(claim, [document])
+        assert KnowledgeSnapshot.expose(claim, [document]) ==
+                 {:error, :work_knowledge_context_stale}
 
         assert Repo.get!(Session, claim.session.id).knowledge_exposure_count == 0
         assert Repo.get!(Session, claim.session.id).source_exposure_count == 0
@@ -85,8 +85,8 @@ defmodule Ryker.Knowledge.KnowledgeRebuildConcurrencyTest do
       |> hd()
       |> Map.drop(~w(action source_input_ids))
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn -> KnowledgeFixtures.record_topic(entry, proposal, []) end)
+    assert Repo.transaction(fn -> KnowledgeFixtures.record_topic(entry, proposal, []) end) ==
+             {:ok, :ok}
 
     [topic] = Knowledge.context(entry, entry.repository_ref)
     head = Repo.one!(ConversationKnowledge)
@@ -143,7 +143,7 @@ defmodule Ryker.Knowledge.KnowledgeRebuildConcurrencyTest do
 
     {:ok, claim} = Custody.claim_next("generation-race-worker:#{id}", 60)
     assert claim.episode.id == id
-    assert :ok = KnowledgeSnapshot.expose(claim, [])
+    assert KnowledgeSnapshot.expose(claim, []) == :ok
     claim
   end
 

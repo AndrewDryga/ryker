@@ -132,7 +132,7 @@ defmodule Ryker.Slack.ThreadStatusWorkerTest do
 
     assert %ThreadStatus{status: :pending, attempt_count: 0, last_error_code: nil} = status!()
     assert FailureProjection.fetch("slack_thread_status", blocked.id) == :not_found
-    assert {:error, :slack_thread_status_not_blocked} = ThreadStatuses.rearm(blocked.id)
+    assert ThreadStatuses.rearm(blocked.id) == {:error, :slack_thread_status_not_blocked}
 
     Agent.update(client, &%{&1 | result: :ok})
     assert {:ok, %{failed: 0, written: 1}} = ThreadStatusWorker.run_once(options)
@@ -240,7 +240,7 @@ defmodule Ryker.Slack.ThreadStatusWorkerTest do
     assert {:ok, _statuses} =
              ThreadStatuses.reconcile("T123", [target(:working, "is working...")], 3_000, 90_000)
 
-    assert {:ok, []} = ThreadStatuses.reconcile("T123", [], 3_000, 90_000)
+    assert ThreadStatuses.reconcile("T123", [], 3_000, 90_000) == {:ok, []}
     assert Repo.aggregate(ThreadStatus, :count) == 0
 
     assert {:ok, _statuses} =
@@ -258,7 +258,7 @@ defmodule Ryker.Slack.ThreadStatusWorkerTest do
     assert {:ok, %ThreadStatus{status: :blocked}} =
              ThreadStatuses.block(clear.id, clear.lease_ref, clear.generation, :channel_not_found)
 
-    assert {:ok, []} = ThreadStatuses.reconcile("T123", [], 3_000, 90_000)
+    assert ThreadStatuses.reconcile("T123", [], 3_000, 90_000) == {:ok, []}
     assert Repo.aggregate(ThreadStatus, :count) == 0
   end
 

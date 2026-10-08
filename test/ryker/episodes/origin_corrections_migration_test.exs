@@ -7,11 +7,11 @@ defmodule Ryker.Episodes.OriginCorrectionsMigrationTest do
   # Every origin was written effective with no correction, so the columns held constants
   # (2026-10-04 review). The check that named them keeps its other rules.
   test "origins keep no correction columns, and their check keeps every other rule" do
-    assert :ok = migrate_down(@version)
+    assert migrate_down(@version) == :ok
     assert "effective" in columns()
     assert check() =~ "correction_ref"
 
-    assert :ok = migrate_up(@version)
+    assert migrate_up(@version) == :ok
     refute "effective" in columns()
     refute "correction_ref" in columns()
     refute check() =~ "effective"

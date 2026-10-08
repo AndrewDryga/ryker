@@ -51,7 +51,7 @@ defmodule Ryker.Slack.UploadClientTest do
                receive_timeout: 2_000
              )
 
-    assert :ok = UploadClient.upload(client, origin <> "/ok", "exact bytes", "image/png")
+    assert UploadClient.upload(client, origin <> "/ok", "exact bytes", "image/png") == :ok
 
     assert_receive {:upload, "/ok", ["11"], ["image/png"], "exact bytes"}
 

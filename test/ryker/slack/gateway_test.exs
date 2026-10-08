@@ -587,7 +587,9 @@ defmodule Ryker.Slack.GatewayTest do
     assert {:ack, {:recorded, ref}} = Gateway.handle_envelope(envelope, settings)
     assert {:ack, {:duplicate, ^ref}} = Gateway.handle_envelope(envelope, settings)
 
-    assert {:ok, :transcribed} = TranscriptionWorker.transcribe_next(transcriber: TestTranscriber)
+    assert TranscriptionWorker.transcribe_next(transcriber: TestTranscriber) ==
+             {:ok, :transcribed}
+
     assert_received {:transcribed, ^audio}
 
     assert {:ack, {:duplicate, ^ref}} = Gateway.handle_envelope(envelope, settings)
@@ -657,8 +659,8 @@ defmodule Ryker.Slack.GatewayTest do
       |> Map.put(:interaction_options, %{observer: self(), result: {:ok, %{outcome: :denied}}})
       |> Map.put(:interaction_audit, audit)
 
-    assert {:ack, {:interaction, :denied}} =
-             Gateway.handle_envelope(interaction_envelope("env-denied"), denied)
+    assert Gateway.handle_envelope(interaction_envelope("env-denied"), denied) ==
+             {:ack, {:interaction, :denied}}
 
     assert_received {:told_presser, _actor,
                      "You don't have permission to use that Ryker control."}
@@ -667,8 +669,8 @@ defmodule Ryker.Slack.GatewayTest do
 
     invalid = put_in(denied, [:interaction_options, :result], {:ok, %{outcome: :invalid}})
 
-    assert {:ack, {:interaction, :invalid}} =
-             Gateway.handle_envelope(interaction_envelope("env-stale"), invalid)
+    assert Gateway.handle_envelope(interaction_envelope("env-stale"), invalid) ==
+             {:ack, {:interaction, :invalid}}
 
     assert_received {:told_presser, _actor,
                      "That control is no longer current. Use the refreshed message instead."}
@@ -694,8 +696,8 @@ defmodule Ryker.Slack.GatewayTest do
       })
       |> Map.put(:interaction_audit, audit)
 
-    assert {:ack, {:interaction, :room_capacity}} =
-             Gateway.handle_envelope(interaction_envelope("env-rooms-full"), full)
+    assert Gateway.handle_envelope(interaction_envelope("env-rooms-full"), full) ==
+             {:ack, {:interaction, :room_capacity}}
 
     assert_received {:told_presser, _actor, text}
     assert text =~ "as many incident rooms open as it keeps"
@@ -723,8 +725,8 @@ defmodule Ryker.Slack.GatewayTest do
       })
       |> Map.put(:interaction_audit, audit)
 
-    assert {:ack, {:interaction, :task_not_here}} =
-             Gateway.handle_envelope(interaction_envelope("env-task-elsewhere"), elsewhere)
+    assert Gateway.handle_envelope(interaction_envelope("env-task-elsewhere"), elsewhere) ==
+             {:ack, {:interaction, :task_not_here}}
 
     assert_received {:told_presser, _actor,
                      "Ryker can't start this task in this channel. " <>
@@ -742,8 +744,8 @@ defmodule Ryker.Slack.GatewayTest do
         result: {:ok, %{outcome: :selection_required}}
       })
 
-    assert {:ack, {:interaction, :selection_required}} =
-             Gateway.handle_envelope(interaction_envelope("env-no-selection"), options)
+    assert Gateway.handle_envelope(interaction_envelope("env-no-selection"), options) ==
+             {:ack, {:interaction, :selection_required}}
 
     assert_received {:told_presser, _actor, "Choose an option first, then select Submit answer."}
   end
@@ -776,7 +778,7 @@ defmodule Ryker.Slack.GatewayTest do
       unavailable =
         Map.put(settings, :interaction_audit, fn _, _ -> {:error, :database_unavailable} end)
 
-      assert {:retry, :database_unavailable} = Gateway.handle_envelope(envelope, unavailable)
+      assert Gateway.handle_envelope(envelope, unavailable) == {:retry, :database_unavailable}
     end
   end
 

@@ -18,8 +18,8 @@ defmodule Ryker.Publication.FixLoopMigrationTest do
     %{publication: published} = PublicationFixture.published!("fix-loop-migration")
     %{publication: requested} = PublicationFixture.review_requested!("fix-loop-unreviewed")
 
-    assert :ok = migrate_down(@version)
-    assert :ok = migrate_up(@version)
+    assert migrate_down(@version) == :ok
+    assert migrate_up(@version) == :ok
 
     migrated = Repo.get!(Publication, published.id)
 

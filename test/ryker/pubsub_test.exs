@@ -24,8 +24,8 @@ defmodule Ryker.PubSubTest do
 
   test "a broadcast reaches the subscribers of its topic and no other" do
     :ok = Ryker.PubSub.subscribe("pubsub-test:one")
-    assert :ok = Ryker.PubSub.broadcast("pubsub-test:one", {:changed, 1})
-    assert :ok = Ryker.PubSub.broadcast("pubsub-test:two", {:changed, 2})
+    assert Ryker.PubSub.broadcast("pubsub-test:one", {:changed, 1}) == :ok
+    assert Ryker.PubSub.broadcast("pubsub-test:two", {:changed, 2}) == :ok
     assert_received {:changed, 1}
     refute_received {:changed, 2}
 
@@ -40,13 +40,13 @@ defmodule Ryker.PubSubTest do
   test "a message on its way to a subscription that ended is dropped, not delivered late" do
     topic = "pubsub-test:alias"
     alias = Ryker.PubSub.subscribe_alias(topic)
-    assert :ok = Ryker.PubSub.broadcast_to_aliases(topic, {:settled, 1})
+    assert Ryker.PubSub.broadcast_to_aliases(topic, {:settled, 1}) == :ok
     assert_received {:settled, 1}
 
     # A broadcast that had already found the subscription, delivered after it ended.
     :ok = Ryker.PubSub.unsubscribe_alias(topic, alias)
     AliasDispatcher.dispatch([{self(), alias}], self(), {:settled, 2})
-    assert :ok = Ryker.PubSub.broadcast_to_aliases(topic, {:settled, 3})
+    assert Ryker.PubSub.broadcast_to_aliases(topic, {:settled, 3}) == :ok
     refute_receive {:settled, _late}, 50
   end
 end

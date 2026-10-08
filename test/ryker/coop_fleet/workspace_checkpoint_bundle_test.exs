@@ -55,20 +55,19 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointBundleTest do
         Fixture.build(%{session_ref: "source", patch: <<255>> <> " " <> secret})
 
       for size <- [1, 7, 64, 512, 4096] do
-        assert {:error, {:invalid_workspace_checkpoint_bundle, :secret}} =
-                 Bundle.validate_stream(
-                   checkpoint,
-                   chunks(bytes, size),
-                   Ryker.Secret.new(["configured-secret"])
-                 )
+        assert Bundle.validate_stream(
+                 checkpoint,
+                 chunks(bytes, size),
+                 Ryker.Secret.new(["configured-secret"])
+               ) == {:error, {:invalid_workspace_checkpoint_bundle, :secret}}
       end
     end
 
     {checkpoint, bytes} =
       Fixture.build(%{session_ref: "source", patch: "ghp_" <> :binary.copy("A", 300_000) <> "!"})
 
-    assert {:error, {:invalid_workspace_checkpoint_bundle, :secret}} =
-             Bundle.validate_stream(checkpoint, chunks(bytes, 16_384))
+    assert Bundle.validate_stream(checkpoint, chunks(bytes, 16_384)) ==
+             {:error, {:invalid_workspace_checkpoint_bundle, :secret}}
   end
 
   test "similar strings without the required token boundaries remain ordinary code" do
@@ -98,8 +97,8 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointBundleTest do
     <<prefix::binary-size(124), _size::binary-size(12), rest::binary>> = bytes
 
     for field <- [<<255::96>>, <<128, 0::88>>, <<128, 1::1, 0::87>>, <<255, 0::88>>] do
-      assert {:error, {:invalid_workspace_checkpoint_bundle, :header}} =
-               Bundle.validate_stream(checkpoint, [prefix <> field <> rest])
+      assert Bundle.validate_stream(checkpoint, [prefix <> field <> rest]) ==
+               {:error, {:invalid_workspace_checkpoint_bundle, :header}}
     end
   end
 
@@ -124,8 +123,8 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointBundleTest do
 
     checkpoint = put_in(checkpoint, ["bundle", "byte_size"], size + byte_size(prefix) + 2_048)
 
-    assert {:error, {:invalid_workspace_checkpoint_bundle, :member_length}} =
-             Bundle.validate_stream(checkpoint, chunks(prefix, 7))
+    assert Bundle.validate_stream(checkpoint, chunks(prefix, 7)) ==
+             {:error, {:invalid_workspace_checkpoint_bundle, :member_length}}
   end
 
   defp chunks(bytes, size) do

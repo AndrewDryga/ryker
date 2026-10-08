@@ -642,7 +642,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
 
     {entry, episode} = admitted_input!()
     Names.name("TC9F5B40D364C", "U1")
-    assert :ok = GenServer.call(Names, :refresh)
+    assert GenServer.call(Names, :refresh) == :ok
 
     Repo.update_all(from(i in Entry, where: i.id == ^entry.id),
       set: [content: %{"text" => "<@U1> is checkout healthy?"}]

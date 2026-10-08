@@ -52,7 +52,7 @@ defmodule Ryker.Learning.LearningTest do
       for generation <- 1..3 do
         assert {:ok, run} = Learning.prepare([first.id], @policy)
         assert run.generation == generation
-        assert {:error, :invalid_learning_result} = Fixtures.accept(run.id, "not-json", %{})
+        assert Fixtures.accept(run.id, "not-json", %{}) == {:error, :invalid_learning_result}
 
         assert {:ok, _} =
                  Ryker.Instructions.save(
@@ -66,7 +66,7 @@ defmodule Ryker.Learning.LearningTest do
       end
 
     assert length(Enum.uniq(keys)) == 1
-    assert {:error, :learning_retry_exhausted} = Learning.prepare([first.id], @policy)
+    assert Learning.prepare([first.id], @policy) == {:error, :learning_retry_exhausted}
   end
 
   test "the frozen learning input preserves the original conversation and reply identities" do
@@ -257,7 +257,7 @@ defmodule Ryker.Learning.LearningTest do
   test "learning does not coalesce live and shadow inputs even in one conversation" do
     [first, second] = Fixtures.inputs!()
     Repo.update!(Ecto.Changeset.change(second, execution_mode: :live))
-    assert {:error, :learning_source_stale} = Learning.prepare([first.id, second.id], @policy)
+    assert Learning.prepare([first.id, second.id], @policy) == {:error, :learning_source_stale}
   end
 
   test "uncertain identity can be explicitly deferred without inventing or changing knowledge" do
@@ -290,8 +290,8 @@ defmodule Ryker.Learning.LearningTest do
     document = %{document | "updates" => [invalid]}
     assert {:error, _} = JSV.validate(document, JSV.build!(run.output_schema), cast: false)
 
-    assert {:error, :invalid_learning_result} =
-             Fixtures.accept(run.id, Jason.encode!(document), %{})
+    assert Fixtures.accept(run.id, Jason.encode!(document), %{}) ==
+             {:error, :invalid_learning_result}
 
     assert Repo.aggregate(KnowledgeRevision, :count) == 0
   end
@@ -327,12 +327,11 @@ defmodule Ryker.Learning.LearningTest do
         "anchors" => ["forged:unrelated-deployment"]
       })
 
-    assert {:error, :knowledge_anchor_not_sourced} =
-             Fixtures.accept(
-               next.id,
-               Jason.encode!(%{document | "updates" => [update]}),
-               %{}
-             )
+    assert Fixtures.accept(
+             next.id,
+             Jason.encode!(%{document | "updates" => [update]}),
+             %{}
+           ) == {:error, :knowledge_anchor_not_sourced}
 
     assert Repo.aggregate(KnowledgeRevision, :count) == 1
 
@@ -372,7 +371,7 @@ defmodule Ryker.Learning.LearningTest do
       })
       |> then(&Repo.insert!(struct!(Entry, &1)))
 
-    assert {:ok, :ok} = Repo.transaction(fn -> Observations.receive_in_transaction(entry) end)
+    assert Repo.transaction(fn -> Observations.receive_in_transaction(entry) end) == {:ok, :ok}
     assert {:ok, run} = Learning.prepare([entry.id], @policy)
     document = Jason.decode!(result([entry]))
 
@@ -402,15 +401,14 @@ defmodule Ryker.Learning.LearningTest do
                %{}
              )
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Observations.receive_in_transaction(%{
-                 first
-                 | id: Ecto.UUID.generate(),
-                   revision: first.revision + 1,
-                   event_kind: :delete
-               })
-             end)
+    assert Repo.transaction(fn ->
+             Observations.receive_in_transaction(%{
+               first
+               | id: Ecto.UUID.generate(),
+                 revision: first.revision + 1,
+                 event_kind: :delete
+             })
+           end) == {:ok, :ok}
 
     assert {:ok, fresh} = Learning.prepare([second.id], @policy)
     assert fresh.knowledge == []
@@ -418,12 +416,11 @@ defmodule Ryker.Learning.LearningTest do
     renamed =
       Map.merge(proposal, %{"topic_key" => "another-name", "source_input_ids" => [second.id]})
 
-    assert {:error, :knowledge_target_unavailable} =
-             Fixtures.accept(
-               fresh.id,
-               Jason.encode!(%{document | "updates" => [renamed]}),
-               %{}
-             )
+    assert Fixtures.accept(
+             fresh.id,
+             Jason.encode!(%{document | "updates" => [renamed]}),
+             %{}
+           ) == {:error, :knowledge_target_unavailable}
 
     assert Repo.aggregate(KnowledgeRevision, :count) == 1
   end
@@ -454,8 +451,8 @@ defmodule Ryker.Learning.LearningTest do
     assert Repo.aggregate(KnowledgeRevision, :count) == 16
     assert {:ok, ^saved} = Fixtures.accept(run.id, candidate, %{})
 
-    assert {:error, :invalid_learning_result} =
-             Fixtures.accept(run.id, String.duplicate("x", 524_289), %{})
+    assert Fixtures.accept(run.id, String.duplicate("x", 524_289), %{}) ==
+             {:error, :invalid_learning_result}
   end
 
   test "a source changed after freezing rejects the saved result without refreshing its prompt" do
@@ -471,12 +468,11 @@ defmodule Ryker.Learning.LearningTest do
         event_fingerprint: String.duplicate("c", 64)
     }
 
-    assert {:ok, :ok} = Repo.transaction(fn -> Observations.receive_in_transaction(edited) end)
-    assert {:error, :learning_source_stale} = Learning.authorize(run.id)
+    assert Repo.transaction(fn -> Observations.receive_in_transaction(edited) end) == {:ok, :ok}
+    assert Learning.authorize(run.id) == {:error, :learning_source_stale}
     candidate = result(entries)
 
-    assert {:error, :learning_source_stale} =
-             Fixtures.accept(run.id, candidate, %{})
+    assert Fixtures.accept(run.id, candidate, %{}) == {:error, :learning_source_stale}
 
     saved = Repo.get!(LearningRun, run.id)
     assert saved.prompt == run.prompt
@@ -499,8 +495,7 @@ defmodule Ryker.Learning.LearningTest do
 
     candidate = Jason.encode!(%{document | "updates" => document["updates"] ++ [invalid]})
 
-    assert {:error, :learning_context_stale} =
-             Fixtures.accept(run.id, candidate, %{})
+    assert Fixtures.accept(run.id, candidate, %{}) == {:error, :learning_context_stale}
 
     assert Repo.aggregate(KnowledgeRevision, :count) == 0
     assert Repo.get!(LearningRun, run.id).result == candidate
@@ -519,8 +514,7 @@ defmodule Ryker.Learning.LearningTest do
       )
     )
 
-    assert {:error, :learning_attempt_finished} =
-             Fixtures.accept(run.id, candidate, %{})
+    assert Fixtures.accept(run.id, candidate, %{}) == {:error, :learning_attempt_finished}
 
     assert Repo.aggregate(KnowledgeRevision, :count) == 0
     assert {:ok, fresh} = Learning.prepare(Enum.map(entries, & &1.id), @policy)
@@ -536,7 +530,7 @@ defmodule Ryker.Learning.LearningTest do
     expired = DateTime.add(DateTime.utc_now(), -3601) |> DateTime.to_iso8601()
     dependencies = Enum.map(applied.source_dependencies, &Map.put(&1, "retained_at", expired))
     Repo.update!(Ecto.Changeset.change(applied, source_dependencies: dependencies))
-    assert {:ok, 1} = Repo.transaction(fn -> Learning.prune_in_transaction(3600) end)
+    assert Repo.transaction(fn -> Learning.prune_in_transaction(3600) end) == {:ok, 1}
     saved = Repo.get!(LearningRun, run.id)
     assert saved.prompt == nil
     assert saved.result == nil
@@ -546,7 +540,7 @@ defmodule Ryker.Learning.LearningTest do
     assert saved.result_sha256 == applied.result_sha256
     assert saved.source_dependencies == dependencies
     assert saved.pruned_at != nil
-    assert {:error, :learning_source_stale} = Learning.authorize(run.id)
+    assert Learning.authorize(run.id) == {:error, :learning_source_stale}
   end
 
   test "a late model result cannot resurrect an already pruned learning attempt" do
@@ -556,18 +550,17 @@ defmodule Ryker.Learning.LearningTest do
     expired = DateTime.add(DateTime.utc_now(), -3601) |> DateTime.to_iso8601()
     dependencies = Enum.map(run.source_dependencies, &Map.put(&1, "retained_at", expired))
     Repo.update!(Ecto.Changeset.change(run, source_dependencies: dependencies))
-    assert {:ok, 1} = Repo.transaction(fn -> Learning.prune_in_transaction(3600) end)
+    assert Repo.transaction(fn -> Learning.prune_in_transaction(3600) end) == {:ok, 1}
 
-    assert {:error, :learning_source_stale} =
-             Fixtures.accept(run.id, result(entries), %{
-               "detail" => "late-response"
-             })
+    assert Fixtures.accept(run.id, result(entries), %{
+             "detail" => "late-response"
+           }) == {:error, :learning_source_stale}
 
     saved = Repo.get!(LearningRun, run.id)
     assert saved.result == nil
     assert saved.result_sha256 == nil
     assert saved.producer == %{}
-    assert {:ok, 0} = Repo.transaction(fn -> Learning.prune_in_transaction(3600) end)
+    assert Repo.transaction(fn -> Learning.prune_in_transaction(3600) end) == {:ok, 0}
     assert Repo.aggregate(KnowledgeRevision, :count) == 0
   end
 
@@ -599,7 +592,7 @@ defmodule Ryker.Learning.LearningTest do
         event_fingerprint: String.duplicate("c", 64)
     }
 
-    assert {:ok, :ok} = Repo.transaction(fn -> Observations.receive_in_transaction(edited) end)
+    assert Repo.transaction(fn -> Observations.receive_in_transaction(edited) end) == {:ok, :ok}
     assert Knowledge.context(hd(entries), "tenant-infra") == []
   end
 
@@ -646,8 +639,7 @@ defmodule Ryker.Learning.LearningTest do
     assert saved.result == candidate
     assert {:ok, _} = Fixtures.accept(run.id, candidate, %{})
 
-    assert {:error, :learning_result_conflict} =
-             Fixtures.accept(run.id, "{}", %{})
+    assert Fixtures.accept(run.id, "{}", %{}) == {:error, :learning_result_conflict}
 
     assert Repo.aggregate(KnowledgeRevision, :count) == 1
   end
@@ -655,20 +647,20 @@ defmodule Ryker.Learning.LearningTest do
   test "invalid and oversized batches fail without creating attempts" do
     entries = Fixtures.inputs!()
     ids = Enum.map(entries, & &1.id)
-    assert {:error, :invalid_learning_inputs} = Learning.prepare([], @policy)
-    assert {:error, :invalid_learning_inputs} = Learning.prepare(ids ++ ids, @policy)
-    assert {:error, :invalid_learning_inputs} = Learning.prepare(["not-an-id"], @policy)
-    assert {:error, :learning_source_stale} = Learning.prepare([Ecto.UUID.generate()], @policy)
-    assert {:error, :invalid_learning_inputs} = Learning.prepare(ids, %{@policy | policy: ""})
+    assert Learning.prepare([], @policy) == {:error, :invalid_learning_inputs}
+    assert Learning.prepare(ids ++ ids, @policy) == {:error, :invalid_learning_inputs}
+    assert Learning.prepare(["not-an-id"], @policy) == {:error, :invalid_learning_inputs}
+    assert Learning.prepare([Ecto.UUID.generate()], @policy) == {:error, :learning_source_stale}
+    assert Learning.prepare(ids, %{@policy | policy: ""}) == {:error, :invalid_learning_inputs}
 
-    assert {:error, :invalid_learning_inputs} =
-             Learning.prepare(ids, %{@policy | policy_digest: "x"})
+    assert Learning.prepare(ids, %{@policy | policy_digest: "x"}) ==
+             {:error, :invalid_learning_inputs}
 
     Repo.update!(
       Ecto.Changeset.change(hd(entries), content: %{"text" => String.duplicate("x", 65_537)})
     )
 
-    assert {:error, :learning_capacity_exceeded} = Learning.prepare(ids, @policy)
+    assert Learning.prepare(ids, @policy) == {:error, :learning_capacity_exceeded}
     assert Repo.aggregate(LearningRun, :count) == 0
   end
 
@@ -687,8 +679,8 @@ defmodule Ryker.Learning.LearningTest do
       deleted_at: DateTime.utc_now()
     })
 
-    assert {:error, :learning_source_stale} =
-             Learning.prepare(Enum.map(entries, & &1.id), @policy)
+    assert Learning.prepare(Enum.map(entries, & &1.id), @policy) ==
+             {:error, :learning_source_stale}
 
     assert Repo.aggregate(LearningRun, :count) == 0
   end
@@ -697,18 +689,17 @@ defmodule Ryker.Learning.LearningTest do
     entries = Fixtures.inputs!()
     assert {:ok, run} = Learning.prepare(Enum.map(entries, & &1.id), @policy)
 
-    assert {:error, :invalid_learning_result} =
-             Fixtures.accept(run.id, "not-json", %{})
+    assert Fixtures.accept(run.id, "not-json", %{}) == {:error, :invalid_learning_result}
 
     assert Repo.get!(LearningRun, run.id).status == :rejected
     assert Repo.get!(LearningRun, run.id).result == "not-json"
-    assert {:error, :learning_attempt_finished} = Learning.authorize(run.id)
+    assert Learning.authorize(run.id) == {:error, :learning_attempt_finished}
 
-    assert {:error, :invalid_learning_result} =
-             Fixtures.accept(run.id, String.duplicate("x", 524_289), %{})
+    assert Fixtures.accept(run.id, String.duplicate("x", 524_289), %{}) ==
+             {:error, :invalid_learning_result}
 
-    assert {:error, :learning_run_not_found} = Learning.authorize("invalid")
-    assert {:error, :learning_run_not_found} = Learning.authorize(Ecto.UUID.generate())
+    assert Learning.authorize("invalid") == {:error, :learning_run_not_found}
+    assert Learning.authorize(Ecto.UUID.generate()) == {:error, :learning_run_not_found}
     assert Repo.aggregate(KnowledgeRevision, :count) == 0
   end
 
@@ -724,7 +715,7 @@ defmodule Ryker.Learning.LearningTest do
     assert {:ok, _} =
              Fixtures.accept(other.id, update_result(entries, offered), %{})
 
-    assert {:error, :learning_context_stale} = Learning.authorize(waiting.id)
+    assert Learning.authorize(waiting.id) == {:error, :learning_context_stale}
     assert {:ok, fresh} = Learning.prepare([second.id], @policy)
     assert fresh.generation == 2
     assert Repo.get!(LearningRun, waiting.id).status == :stale
@@ -773,14 +764,13 @@ defmodule Ryker.Learning.LearningTest do
           "topics" => ["Another project"]
         })
 
-      assert {:ok, :ok} =
-               Repo.transaction(fn ->
-                 Knowledge.record_sources_in_transaction([second], proposal, [], %{
-                   result_ref: "host-contract-test:#{n}",
-                   source_dependencies: LearningSources.for_entry(second),
-                   omissions: []
-                 })
-               end)
+      assert Repo.transaction(fn ->
+               Knowledge.record_sources_in_transaction([second], proposal, [], %{
+                 result_ref: "host-contract-test:#{n}",
+                 source_dependencies: LearningSources.for_entry(second),
+                 omissions: []
+               })
+             end) == {:ok, :ok}
     end
 
     assert {:ok, missing} = Learning.prepare([second.id], @policy)
@@ -788,8 +778,7 @@ defmodule Ryker.Learning.LearningTest do
     proposal = Map.put(opaque, "source_input_ids", [second.id])
     candidate = Jason.encode!(%{document | "updates" => [proposal]})
 
-    assert {:error, :learning_match_required} =
-             Fixtures.accept(missing.id, candidate, %{})
+    assert Fixtures.accept(missing.id, candidate, %{}) == {:error, :learning_match_required}
 
     assert {:ok, fresh} = Learning.prepare([second.id], @policy)
     assert fresh.id != missing.id
@@ -851,8 +840,7 @@ defmodule Ryker.Learning.LearningTest do
 
     candidate = Jason.encode!(%{document | "updates" => [renamed]})
 
-    assert {:error, :learning_match_required} =
-             Fixtures.accept(missing.id, candidate, %{})
+    assert Fixtures.accept(missing.id, candidate, %{}) == {:error, :learning_match_required}
 
     assert Repo.aggregate(KnowledgeRevision, :count) == 1
     assert {:ok, fresh} = Learning.prepare([second.id], @policy)

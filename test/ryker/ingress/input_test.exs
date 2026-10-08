@@ -208,10 +208,10 @@ defmodule Ryker.Slack.InputTest do
   end
 
   test "rejects malformed trusted fields and unbounded content without raising" do
-    assert {:error, {:invalid_input, :revision}} = SlackInput.new(valid_attributes(revision: 0))
+    assert SlackInput.new(valid_attributes(revision: 0)) == {:error, {:invalid_input, :revision}}
 
-    assert {:error, {:invalid_input, :actor}} =
-             SlackInput.new(valid_attributes(actor: %{kind: :unknown, ref: "X1"}))
+    assert SlackInput.new(valid_attributes(actor: %{kind: :unknown, ref: "X1"})) ==
+             {:error, {:invalid_input, :actor}}
 
     assert {:error, {:invalid_input, :content, {:too_large, _, _}}} =
              SlackInput.new(
@@ -223,18 +223,16 @@ defmodule Ryker.Slack.InputTest do
   end
 
   test "rejects Slack fields whose derived episode command would be invalid" do
-    assert {:error, {:invalid_input, :destination}} =
-             SlackInput.new(
-               valid_attributes(
-                 channel_ref: String.duplicate("c", 1_024),
-                 workspace_ref: String.duplicate("w", 1_024)
-               )
+    assert SlackInput.new(
+             valid_attributes(
+               channel_ref: String.duplicate("c", 1_024),
+               workspace_ref: String.duplicate("w", 1_024)
              )
+           ) == {:error, {:invalid_input, :destination}}
 
-    assert {:error, {:invalid_input, :episode_envelope, :actor_ref}} =
-             SlackInput.new(
-               valid_attributes(actor: %{kind: :user, ref: String.duplicate("u", 1_024)})
-             )
+    assert SlackInput.new(
+             valid_attributes(actor: %{kind: :user, ref: String.duplicate("u", 1_024)})
+           ) == {:error, {:invalid_input, :episode_envelope, :actor_ref}}
   end
 
   test "accepts a large durable payload when the complete derived command stays bounded" do

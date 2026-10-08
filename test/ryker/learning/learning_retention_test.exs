@@ -215,8 +215,8 @@ defmodule Ryker.Learning.LearningRetentionTest do
 
     saved = Repo.update!(Ecto.Changeset.change(run, source_dependencies: dependencies))
 
-    assert {:ok, 1} =
-             Repo.transaction(fn -> Learning.prune_in_transaction(@retention_seconds) end)
+    assert Repo.transaction(fn -> Learning.prune_in_transaction(@retention_seconds) end) ==
+             {:ok, 1}
 
     assert_pruned_receipt!(saved)
   end
@@ -297,8 +297,8 @@ defmodule Ryker.Learning.LearningRetentionTest do
   end
 
   defp assert_prunes_only!(expired, current) do
-    assert {:ok, 1} =
-             Repo.transaction(fn -> Learning.prune_in_transaction(@retention_seconds) end)
+    assert Repo.transaction(fn -> Learning.prune_in_transaction(@retention_seconds) end) ==
+             {:ok, 1}
 
     assert_pruned_receipt!(expired)
     assert Repo.get!(LearningRun, current.id) == current

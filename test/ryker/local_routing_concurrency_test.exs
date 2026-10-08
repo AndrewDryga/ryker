@@ -112,7 +112,7 @@ defmodule Ryker.LocalRoutingConcurrencyTest do
         try do
           await_finished_or_blocked(lane, lane_backend, deleter_backend)
           send(deleter.pid, :commit)
-          assert {:ok, :ok} = Task.await(deleter, 5_000)
+          assert Task.await(deleter, 5_000) == {:ok, :ok}
           assert {:ran, _comparison} = Task.await(lane, 5_000)
 
           refute Repo.get_by(Comparison, input_id: entry.id),

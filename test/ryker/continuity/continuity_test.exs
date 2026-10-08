@@ -119,13 +119,12 @@ defmodule Ryker.Continuity.ContinuityTest do
     assert saved.updated_at == database_time
     assert saved.inserted_at == if(existing?, do: old, else: database_time)
 
-    assert {:ok, :done} =
-             Repo.transaction(fn ->
-               Recall.search_page(kind, work.episode, "tenant-infra", %{
-                 page
-                 | cutoff: DateTime.add(database_time, -1)
-               })
-             end)
+    assert Repo.transaction(fn ->
+             Recall.search_page(kind, work.episode, "tenant-infra", %{
+               page
+               | cutoff: DateTime.add(database_time, -1)
+             })
+           end) == {:ok, :done}
 
     if kind == :rollup do
       assert saved.period_end == old
@@ -136,8 +135,8 @@ defmodule Ryker.Continuity.ContinuityTest do
   defp compact_clock_summary!(old) do
     Repo.update_all(ConversationSummary, set: [inserted_at: old, updated_at: old])
 
-    assert {:ok, {:ok, 1}} =
-             Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end)
+    assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end) ==
+             {:ok, {:ok, 1}}
   end
 
   test "inherited topic roots do not invalidate a warm session or rewrite earlier attribution" do
@@ -156,7 +155,7 @@ defmodule Ryker.Continuity.ContinuityTest do
     {original, offered} = KnowledgeFixtures.learn!(work.episode, "ryker")
     id = Ecto.UUID.generate()
     input = %{original | id: id, native_input_id: id, event_fingerprint: CanonicalJSON.digest(id)}
-    assert {:ok, :ok} = Repo.transaction(fn -> Observations.receive_in_transaction(input) end)
+    assert Repo.transaction(fn -> Observations.receive_in_transaction(input) end) == {:ok, :ok}
 
     proposal =
       offered
@@ -174,27 +173,26 @@ defmodule Ryker.Continuity.ContinuityTest do
         LearningSources.document_sources(offered)
       ])
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Ryker.Knowledge.record_sources_in_transaction(
-                 [input],
-                 proposal,
-                 [offered],
-                 %{
-                   result_ref: "host-inherited-session-fixture",
-                   source_dependencies: dependencies,
-                   omissions: []
-                 }
-               )
-             end)
+    assert Repo.transaction(fn ->
+             Ryker.Knowledge.record_sources_in_transaction(
+               [input],
+               proposal,
+               [offered],
+               %{
+                 result_ref: "host-inherited-session-fixture",
+                 source_dependencies: dependencies,
+                 omissions: []
+               }
+             )
+           end) == {:ok, :ok}
 
     topic =
       Ryker.Knowledge.context(work.episode, "ryker")
       |> Enum.find(&(&1["topic_key"] == "separate-context"))
 
     assert topic["source_count"] == 1
-    assert :ok = KnowledgeSnapshot.expose(work.claim, [topic])
-    assert :ok = KnowledgeSnapshot.authorize_session(work.episode, work.claim.session)
+    assert KnowledgeSnapshot.expose(work.claim, [topic]) == :ok
+    assert KnowledgeSnapshot.authorize_session(work.episode, work.claim.session) == :ok
 
     # The inherited root becomes direct support only in revision 2. Revision 1
     # must keep its one-source attribution and remain valid in the warm session.
@@ -206,26 +204,25 @@ defmodule Ryker.Continuity.ContinuityTest do
         LearningSources.document_sources(topic)
       ])
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Ryker.Knowledge.record_sources_in_transaction(
-                 [original],
-                 proposal,
-                 [topic],
-                 %{
-                   result_ref: "host-promoted-source-fixture",
-                   source_dependencies: dependencies,
-                   omissions: []
-                 }
-               )
-             end)
+    assert Repo.transaction(fn ->
+             Ryker.Knowledge.record_sources_in_transaction(
+               [original],
+               proposal,
+               [topic],
+               %{
+                 result_ref: "host-promoted-source-fixture",
+                 source_dependencies: dependencies,
+                 omissions: []
+               }
+             )
+           end) == {:ok, :ok}
 
-    assert :ok = KnowledgeSnapshot.authorize_session(work.episode, work.claim.session)
-    assert :ok = KnowledgeSnapshot.still_valid(work.episode, "ryker", [topic])
+    assert KnowledgeSnapshot.authorize_session(work.episode, work.claim.session) == :ok
+    assert KnowledgeSnapshot.still_valid(work.episode, "ryker", [topic]) == :ok
     KnowledgeFixtures.revoke!(original)
 
-    assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.authorize_session(work.episode, work.claim.session)
+    assert KnowledgeSnapshot.authorize_session(work.episode, work.claim.session) ==
+             {:error, :work_knowledge_context_stale}
   end
 
   for compact? <- [false, true], missing <- [[], nil, %{}] do
@@ -240,8 +237,8 @@ defmodule Ryker.Continuity.ContinuityTest do
           set: [updated_at: DateTime.add(DateTime.utc_now(), -120)]
         )
 
-        assert {:ok, {:ok, 1}} =
-                 Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end)
+        assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end) ==
+                 {:ok, {:ok, 1}}
       end
 
       schema = if unquote(compact?), do: ConversationRollup, else: ConversationSummary
@@ -266,11 +263,11 @@ defmodule Ryker.Continuity.ContinuityTest do
         "context" => %{"operator_context" => %{"continuity" => %{"related" => [document]}}}
       }
 
-      assert {:error, :work_knowledge_context_stale} =
-               KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", frozen)
+      assert KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", frozen) ==
+               {:error, :work_knowledge_context_stale}
 
-      assert {:error, :work_knowledge_context_stale} =
-               KnowledgeSnapshot.expose(work.claim, [document])
+      assert KnowledgeSnapshot.expose(work.claim, [document]) ==
+               {:error, :work_knowledge_context_stale}
 
       preserved = Repo.get!(schema, original.id)
       assert preserved.state == original.state
@@ -381,8 +378,8 @@ defmodule Ryker.Continuity.ContinuityTest do
       set: [updated_at: DateTime.add(old, -120)]
     )
 
-    assert {:ok, {:ok, 1}} =
-             Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end)
+    assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end) ==
+             {:ok, {:ok, 1}}
 
     rollup = Repo.one!(ConversationRollup)
     assert rollup.source_refs == [original.ref]
@@ -411,8 +408,8 @@ defmodule Ryker.Continuity.ContinuityTest do
       old = DateTime.add(DateTime.utc_now(), -8 * 86_400)
       summary = Repo.update!(Ecto.Changeset.change(summary, updated_at: old))
 
-      assert {:ok, {:ok, 1}} =
-               Repo.transaction(fn -> Compaction.compact_in_transaction(60, 14 * 86_400) end)
+      assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 14 * 86_400) end) ==
+               {:ok, {:ok, 1}}
 
       rollup = Repo.one!(ConversationRollup)
       assert rollup.scope_kind == scope_kind
@@ -444,8 +441,8 @@ defmodule Ryker.Continuity.ContinuityTest do
             updated_at: DateTime.add(old, 7 * 86_400)
         })
 
-      assert {:ok, {:ok, 1}} =
-               Repo.transaction(fn -> Compaction.compact_in_transaction(60, 14 * 86_400) end)
+      assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 14 * 86_400) end) ==
+               {:ok, {:ok, 1}}
 
       assert Repo.get!(ConversationRollup, rollup.id) == rollup
       assert Repo.get!(ConversationSummary, summary.id) == summary
@@ -521,7 +518,9 @@ defmodule Ryker.Continuity.ContinuityTest do
           event_fingerprint: String.duplicate("f", 64)
       }
 
-      assert {:ok, :ok} = Repo.transaction(fn -> Observations.receive_in_transaction(changed) end)
+      assert Repo.transaction(fn -> Observations.receive_in_transaction(changed) end) ==
+               {:ok, :ok}
+
       assert Continuity.model_context(work.episode, "tenant-infra")["current"] == nil
 
       for kind <- [:summary, :rollup] do
@@ -539,8 +538,8 @@ defmodule Ryker.Continuity.ContinuityTest do
           [Map.delete(input, unquote(field))]
         end)
 
-      assert {:error, :work_knowledge_context_stale} =
-               KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", changed)
+      assert KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", changed) ==
+               {:error, :work_knowledge_context_stale}
     end
   end
 
@@ -553,8 +552,8 @@ defmodule Ryker.Continuity.ContinuityTest do
           [Map.put(input, "source_dependencies", replacement)]
         end)
 
-      assert {:error, :work_knowledge_context_stale} =
-               KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", changed)
+      assert KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", changed) ==
+               {:error, :work_knowledge_context_stale}
     end
   end
 
@@ -572,7 +571,7 @@ defmodule Ryker.Continuity.ContinuityTest do
     [item] = get_in(rebuilt, ["context", "inputs", "items"])
     assert item["content"]["source_dependencies"] == []
     assert Enum.any?(item["source_dependencies"], &(&1["source_input_id"] == entry.id))
-    assert :ok = KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", rebuilt)
+    assert KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", rebuilt) == :ok
   end
 
   test "historical truncation retains exact raw lineage and malformed ingress fails closed" do
@@ -582,7 +581,7 @@ defmodule Ryker.Continuity.ContinuityTest do
     [historical] = get_in(rebuilt, ["context", "inputs", "items"])
     assert historical["content"]["truncated"]
     assert Enum.any?(historical["source_dependencies"], &(&1["source_input_id"] == entry.id))
-    assert :ok = KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", rebuilt)
+    assert KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", rebuilt) == :ok
 
     event = Repo.get!(Ryker.Episodes.Event, historical["source_event_id"])
     payload = Map.delete(event.payload["payload"], "native_input_id")
@@ -593,8 +592,8 @@ defmodule Ryker.Continuity.ContinuityTest do
 
     assert {:ok, malformed} = SubmissionBuilder.build(work.claim)
 
-    assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", malformed)
+    assert KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", malformed) ==
+             {:error, :work_knowledge_context_stale}
   end
 
   test "withdrawn historical inputs become no-prose tombstones but active requests fail closed" do
@@ -606,15 +605,15 @@ defmodule Ryker.Continuity.ContinuityTest do
     assert active_input["current"]
     assert active_input["source_dependencies"] == nil
 
-    assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", active)
+    assert KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", active) ==
+             {:error, :work_knowledge_context_stale}
 
     claim = %{work.claim | episode: %{work.episode | active_input_refs: []}}
     assert {:ok, rebuilt} = SubmissionBuilder.build(claim)
     [historical] = get_in(rebuilt, ["context", "inputs", "items"])
     assert historical["content"] == %{"unavailable" => "source_not_current"}
     refute Jason.encode!(historical) =~ "nomad-hst01"
-    assert :ok = KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", rebuilt)
+    assert KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", rebuilt) == :ok
   end
 
   test "a delta's withdrawn first input cannot reintroduce its original prose" do
@@ -633,10 +632,10 @@ defmodule Ryker.Continuity.ContinuityTest do
     first = get_in(delta, ["context", "continuity", "first_input"])
     assert first["content"] == %{"unavailable" => "source_not_current"}
     refute Jason.encode!(first) =~ "nomad-hst01"
-    assert :ok = KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", delta)
+    assert KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", delta) == :ok
 
-    assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.authorize_session(work.episode, work.claim.session)
+    assert KnowledgeSnapshot.authorize_session(work.episode, work.claim.session) ==
+             {:error, :work_knowledge_context_stale}
   end
 
   test "a current delete envelope cannot reintroduce the retained body it withdraws" do
@@ -652,7 +651,7 @@ defmodule Ryker.Continuity.ContinuityTest do
     }
 
     Repo.insert!(deleted)
-    assert {:ok, :ok} = Repo.transaction(fn -> Observations.receive_in_transaction(deleted) end)
+    assert Repo.transaction(fn -> Observations.receive_in_transaction(deleted) end) == {:ok, :ok}
     [original] = get_in(submission, ["context", "inputs", "items"])
     event = Repo.get!(Ryker.Episodes.Event, original["source_event_id"])
 
@@ -672,17 +671,17 @@ defmodule Ryker.Continuity.ContinuityTest do
     raw =
       put_in(submission, ["context", "inputs", "items"], [%{original | "content" => envelope}])
 
-    assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", raw)
+    assert KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", raw) ==
+             {:error, :work_knowledge_context_stale}
 
     assert {:ok, current} = SubmissionBuilder.build(work.claim)
     [notice] = get_in(current, ["context", "inputs", "items"])
     assert notice["content"] == %{"event_kind" => "delete", "unavailable" => "source_deleted"}
     refute Jason.encode!(current) =~ "nomad-hst01"
-    assert :ok = KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", current)
+    assert KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", current) == :ok
 
-    assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.authorize_session(work.episode, work.claim.session)
+    assert KnowledgeSnapshot.authorize_session(work.episode, work.claim.session) ==
+             {:error, :work_knowledge_context_stale}
 
     claim = %{work.claim | episode: %{work.episode | active_input_refs: []}}
     assert {:ok, historical} = SubmissionBuilder.build(claim)
@@ -746,7 +745,7 @@ defmodule Ryker.Continuity.ContinuityTest do
       assert item["content"]["content"]["kind"] == unquote(content_kind)
       assert item["source_dependencies"] == []
       claim = %{work.claim | turn: %{work.claim.turn | submission: submission}}
-      assert :ok = KnowledgeSnapshot.expose_submission(claim)
+      assert KnowledgeSnapshot.expose_submission(claim) == :ok
     end
   end
 
@@ -759,7 +758,7 @@ defmodule Ryker.Continuity.ContinuityTest do
         event_fingerprint: String.duplicate("f", 64)
     }
 
-    assert {:ok, :ok} = Repo.transaction(fn -> Observations.receive_in_transaction(changed) end)
+    assert Repo.transaction(fn -> Observations.receive_in_transaction(changed) end) == {:ok, :ok}
   end
 
   defp raw_work! do
@@ -831,7 +830,7 @@ defmodule Ryker.Continuity.ContinuityTest do
              )
 
     claim = %{claim | turn: turn}
-    assert :ok = KnowledgeSnapshot.expose_submission(claim)
+    assert KnowledgeSnapshot.expose_submission(claim) == :ok
 
     work = %{
       claim: claim,
@@ -887,8 +886,8 @@ defmodule Ryker.Continuity.ContinuityTest do
           })
         end
 
-        assert {:error, :work_knowledge_context_stale} =
-                 KnowledgeSnapshot.authorize_session(work.claim.episode, work.claim.session)
+        assert KnowledgeSnapshot.authorize_session(work.claim.episode, work.claim.session) ==
+                 {:error, :work_knowledge_context_stale}
 
         # The structural historical transcript includes its exact custody
         # attestation. Unaccounted writes above must still fail closed; the
@@ -953,8 +952,8 @@ defmodule Ryker.Continuity.ContinuityTest do
 
       Repo.insert!(duplicate)
 
-      assert {:ok, {:ok, 0}} =
-               Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end)
+      assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end) ==
+               {:ok, {:ok, 0}}
 
       assert Repo.aggregate(ConversationRollup, :count) == 0
       assert Repo.aggregate(ConversationSummary, :count) == 2
@@ -1022,11 +1021,11 @@ defmodule Ryker.Continuity.ContinuityTest do
           updated_at: DateTime.add(old, 60)
       })
 
-    assert {:ok, {:ok, 0}} =
-             Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end)
+    assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end) ==
+             {:ok, {:ok, 0}}
 
-    assert {:ok, {:ok, 1}} =
-             Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end)
+    assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end) ==
+             {:ok, {:ok, 1}}
 
     assert Repo.get(ConversationSummary, healthy.id) == nil
     assert Repo.aggregate(ConversationSummary, :count) == 100
@@ -1042,8 +1041,8 @@ defmodule Ryker.Continuity.ContinuityTest do
     old = DateTime.add(DateTime.utc_now(), -120)
     Repo.update!(Ecto.Changeset.change(summary, updated_at: old))
 
-    assert {:ok, {:ok, 1}} =
-             Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end)
+    assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end) ==
+             {:ok, {:ok, 1}}
 
     rollup = Repo.one!(ConversationRollup)
 
@@ -1062,8 +1061,8 @@ defmodule Ryker.Continuity.ContinuityTest do
     accept!(healthy)
     Repo.update_all(ConversationSummary, set: [updated_at: old])
 
-    assert {:ok, {:ok, 1}} =
-             Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end)
+    assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end) ==
+             {:ok, {:ok, 1}}
 
     assert %{compaction_error_code: "scope_capacity"} = Repo.get!(ConversationSummary, pending.id)
     assert Repo.aggregate(ConversationSummary, :count) == 1
@@ -1090,8 +1089,8 @@ defmodule Ryker.Continuity.ContinuityTest do
 
     summary = Repo.one!(ConversationSummary)
 
-    assert {:ok, {:ok, 1}} =
-             Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end)
+    assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end) ==
+             {:ok, {:ok, 1}}
 
     rollup = Repo.one!(ConversationRollup)
 
@@ -1105,8 +1104,8 @@ defmodule Ryker.Continuity.ContinuityTest do
 
     Repo.insert!(%{summary | id: Ecto.UUID.generate(), ref: "continuity:#{Ecto.UUID.generate()}"})
 
-    assert {:ok, {:ok, 1}} =
-             Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end)
+    assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end) ==
+             {:ok, {:ok, 1}}
 
     assert Repo.one!(ConversationRollup).state == summary.state
     assert Repo.one!(ConversationRollup).id == rollup.id
@@ -1141,7 +1140,7 @@ defmodule Ryker.Continuity.ContinuityTest do
       )
 
     {entry, document} = KnowledgeFixtures.learn!(work.claim.episode, "ryker")
-    assert :ok = KnowledgeSnapshot.expose(work.claim, [document])
+    assert KnowledgeSnapshot.expose(work.claim, [document]) == :ok
     [receipt] = KnowledgeSnapshot.session_sources(work.claim.session.id)
 
     earlier =
@@ -1150,8 +1149,7 @@ defmodule Ryker.Continuity.ContinuityTest do
     source = Repo.get_by!(ConversationObservation, source_input_id: entry.id)
     Repo.update!(Ecto.Changeset.change(source, source_dependencies: [earlier]))
 
-    assert :ok =
-             KnowledgeSnapshot.expose(work.claim, [Observations.document(source)])
+    assert KnowledgeSnapshot.expose(work.claim, [Observations.document(source)]) == :ok
 
     assert KnowledgeSnapshot.session_sources(work.claim.session.id) == [earlier]
   end
@@ -1169,7 +1167,7 @@ defmodule Ryker.Continuity.ContinuityTest do
         )
 
       {_source, document} = KnowledgeFixtures.learn!(work.claim.episode, "ryker")
-      assert :ok = KnowledgeSnapshot.expose(work.claim, [document])
+      assert KnowledgeSnapshot.expose(work.claim, [document]) == :ok
       assert {:ok, _} = Continuity.stage(work.state_token, state(document["summary"]))
       accept!(work)
       summary = Repo.one!(ConversationSummary)
@@ -1197,8 +1195,8 @@ defmodule Ryker.Continuity.ContinuityTest do
           set: [updated_at: DateTime.add(DateTime.utc_now(), -120)]
         )
 
-        assert {:ok, {:ok, 1}} =
-                 Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end)
+        assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end) ==
+                 {:ok, {:ok, 1}}
       end
 
       schema = if unquote(compact?), do: ConversationRollup, else: ConversationSummary
@@ -1217,7 +1215,7 @@ defmodule Ryker.Continuity.ContinuityTest do
       work = open_work!("summary-lineage", "slack:T123:CTARGET", nil, "ryker")
       destination = %{work.claim.episode | destination_conversation_ref: "slack:T123:CSOURCE"}
       {source, document} = KnowledgeFixtures.learn!(destination, "ryker")
-      assert :ok = KnowledgeSnapshot.expose(work.claim, [document])
+      assert KnowledgeSnapshot.expose(work.claim, [document]) == :ok
       assert {:ok, _} = Continuity.stage(work.state_token, state(document["summary"]))
       accept!(work)
 
@@ -1226,8 +1224,8 @@ defmodule Ryker.Continuity.ContinuityTest do
           set: [updated_at: DateTime.add(DateTime.utc_now(), -120)]
         )
 
-        assert {:ok, {:ok, 1}} =
-                 Repo.transaction(fn -> Compaction.compact_in_transaction(60, 3600) end)
+        assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 3600) end) ==
+                 {:ok, {:ok, 1}}
       end
 
       KnowledgeFixtures.revoke!(source)
@@ -1252,7 +1250,7 @@ defmodule Ryker.Continuity.ContinuityTest do
       work = open_work!("summary-generation", "slack:T123:CTARGET", nil, "ryker")
       destination = %{work.claim.episode | destination_conversation_ref: "slack:T123:CSOURCE"}
       {source, document} = KnowledgeFixtures.learn!(destination, "ryker")
-      assert :ok = KnowledgeSnapshot.expose(work.claim, [document])
+      assert KnowledgeSnapshot.expose(work.claim, [document]) == :ok
       assert {:ok, _} = Continuity.stage(work.state_token, state(document["summary"]))
       accept!(work)
 
@@ -1261,8 +1259,8 @@ defmodule Ryker.Continuity.ContinuityTest do
           set: [updated_at: DateTime.add(DateTime.utc_now(), -120)]
         )
 
-        assert {:ok, {:ok, 1}} =
-                 Repo.transaction(fn -> Compaction.compact_in_transaction(60, 3600) end)
+        assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 3600) end) ==
+                 {:ok, {:ok, 1}}
       end
 
       schema = if unquote(compact?), do: ConversationRollup, else: ConversationSummary
@@ -1273,8 +1271,8 @@ defmodule Ryker.Continuity.ContinuityTest do
       # so rejection must come from retaining the original topic generation.
       assert [%{"version" => 3}] = Knowledge.context(source, source.repository_ref)
 
-      assert {:error, :work_knowledge_context_stale} =
-               KnowledgeSnapshot.authorize_session(work.claim.episode, work.claim.session)
+      assert KnowledgeSnapshot.authorize_session(work.claim.episode, work.claim.session) ==
+               {:error, :work_knowledge_context_stale}
 
       fresh = open_work!("fresh-generation", "slack:T123:CTARGET", nil, "ryker")
       context = get_in(fresh.submission, ["context", "operator_context", "continuity"])
@@ -1299,11 +1297,10 @@ defmodule Ryker.Continuity.ContinuityTest do
         "expected_version" => document["version"]
       })
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               :ok = Observations.record_excerpt_in_transaction(later)
-               KnowledgeFixtures.record_topic(later, update, [document])
-             end)
+    assert Repo.transaction(fn ->
+             :ok = Observations.record_excerpt_in_transaction(later)
+             KnowledgeFixtures.record_topic(later, update, [document])
+           end) == {:ok, :ok}
 
     [current] = Knowledge.context(source, source.repository_ref)
     "knowledge:" <> topic_id = current["source_ref"]
@@ -1321,10 +1318,9 @@ defmodule Ryker.Continuity.ContinuityTest do
 
     create = Map.merge(proposal, %{"target_ref" => nil, "expected_version" => 0})
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Knowledge.rebuild_sources_in_transaction([source], create, [], context)
-             end)
+    assert Repo.transaction(fn ->
+             Knowledge.rebuild_sources_in_transaction([source], create, [], context)
+           end) == {:ok, :ok}
   end
 
   test "shadow work can publish derived summaries without creating a visible result" do
@@ -1439,15 +1435,15 @@ defmodule Ryker.Continuity.ContinuityTest do
   test "invalid and unaccepted drafts never become conversation memory" do
     work = open_work!("rejected", "slack:T123:C222", "1710000000.000002", nil)
 
-    assert {:error, {:invalid_conversation_summary, :fields}} =
-             Continuity.stage(work.state_token, %{"goal" => "too little"})
+    assert Continuity.stage(work.state_token, %{"goal" => "too little"}) ==
+             {:error, {:invalid_conversation_summary, :fields}}
 
     assert {:ok, _draft} = Continuity.stage(work.state_token, state("Unaccepted"))
     assert Repo.aggregate(ConversationSummary, :count) == 0
     assert Repo.aggregate(ConversationSummaryDraft, :count) == 1
 
-    assert {:error, :conversation_summary_unauthorized} =
-             Continuity.stage("state:#{Ecto.UUID.generate()}", state("Unknown"))
+    assert Continuity.stage("state:#{Ecto.UUID.generate()}", state("Unknown")) ==
+             {:error, :conversation_summary_unauthorized}
 
     assert Continuity.stage("state:not-a-uuid", state("Invalid token")) ==
              {:error, :conversation_summary_unauthorized}
@@ -1531,8 +1527,8 @@ defmodule Ryker.Continuity.ContinuityTest do
     old = DateTime.add(DateTime.utc_now(), -120, :second)
     Repo.update_all(ConversationSummary, set: [inserted_at: old, updated_at: old])
 
-    assert {:ok, {:ok, 1}} =
-             Repo.transaction(fn -> Compaction.compact_in_transaction(60, 3_600) end)
+    assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 3_600) end) ==
+             {:ok, {:ok, 1}}
 
     assert %ConversationRollup{scope_kind: :conversation, visibility: :conversation} =
              Repo.one!(ConversationRollup)
@@ -1619,8 +1615,8 @@ defmodule Ryker.Continuity.ContinuityTest do
     old = DateTime.add(DateTime.utc_now(), -120, :second)
     Repo.update_all(ConversationSummary, set: [inserted_at: old, updated_at: old])
 
-    assert {:ok, {:ok, 1}} =
-             Repo.transaction(fn -> Compaction.compact_in_transaction(60, 3_600) end)
+    assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 3_600) end) ==
+             {:ok, {:ok, 1}}
 
     assert Repo.aggregate(ConversationSummary, :count) == 0
     assert %ConversationRollup{} = rollup = Repo.one!(ConversationRollup)
@@ -1671,8 +1667,8 @@ defmodule Ryker.Continuity.ContinuityTest do
     old = DateTime.add(DateTime.utc_now(), -120, :second)
     Repo.update_all(ConversationSummary, set: [inserted_at: old, updated_at: old])
 
-    assert {:ok, {:ok, 1}} =
-             Repo.transaction(fn -> Compaction.compact_in_transaction(60, 60) end)
+    assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 60) end) ==
+             {:ok, {:ok, 1}}
 
     assert Repo.aggregate(ConversationSummary, :count) == 0
     assert Repo.aggregate(ConversationRollup, :count) == 0
@@ -1693,8 +1689,8 @@ defmodule Ryker.Continuity.ContinuityTest do
     first_time = %{DateTime.add(now, -180, :second) | microsecond: {900_000, 6}}
     Repo.update_all(ConversationSummary, set: [inserted_at: first_time, updated_at: first_time])
 
-    assert {:ok, {:ok, 1}} =
-             Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7_200) end)
+    assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7_200) end) ==
+             {:ok, {:ok, 1}}
 
     first_rollup = Repo.one!(ConversationRollup)
 
@@ -1708,8 +1704,8 @@ defmodule Ryker.Continuity.ContinuityTest do
     second_time = %{DateTime.add(now, -120, :second) | microsecond: {100_000, 6}}
     Repo.update_all(ConversationSummary, set: [inserted_at: second_time, updated_at: second_time])
 
-    assert {:ok, {:ok, 1}} =
-             Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7_200) end)
+    assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7_200) end) ==
+             {:ok, {:ok, 1}}
 
     rollup = Repo.one!(ConversationRollup)
     assert rollup.id == first_rollup.id
@@ -1864,10 +1860,9 @@ defmodule Ryker.Continuity.ContinuityTest do
 
     bound_turn = Repo.get!(Ryker.Work.Turn, claim.turn.id)
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Continuity.candidate_staged_in_transaction(bound_turn, first_sha, 1)
-             end)
+    assert Repo.transaction(fn ->
+             Continuity.candidate_staged_in_transaction(bound_turn, first_sha, 1)
+           end) == {:ok, :ok}
 
     assert {:ok, _turn} =
              Custody.stage_candidate(
@@ -1958,8 +1953,8 @@ defmodule Ryker.Continuity.ContinuityTest do
     old = DateTime.add(DateTime.utc_now(), -120, :second)
     Repo.update_all(ConversationSummary, set: [inserted_at: old, updated_at: old])
 
-    assert {:ok, {:ok, 2}} =
-             Repo.transaction(fn -> Compaction.compact_in_transaction(60, 3_600) end)
+    assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 3_600) end) ==
+             {:ok, {:ok, 2}}
 
     rollup = Repo.one!(ConversationRollup)
     assert byte_size(CanonicalJSON.encode!(rollup.state)) <= 32 * 1_024
@@ -2052,7 +2047,7 @@ defmodule Ryker.Continuity.ContinuityTest do
                submission
              )
 
-    assert :ok = KnowledgeSnapshot.expose_submission(%{claim | turn: frozen})
+    assert KnowledgeSnapshot.expose_submission(%{claim | turn: frozen}) == :ok
     after_exposure.()
 
     assert {:ok, session} =

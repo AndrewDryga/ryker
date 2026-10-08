@@ -175,7 +175,13 @@ defmodule Ryker.ComposeDistributionTest do
   # The gate checked scripts/*.sh only, so the two container entrypoints, which run as
   # PID 1, and install.sh were never checked (2026-10-04 review).
   test "ShellCheck reads every shell file in the repository" do
-    {command, 0} = System.cmd("make", ["-n", "shellcheck"])
+    # A clean make environment: inside the gate this child inherited the
+    # parent's jobserver flags and printed a warning into every run.
+    {command, 0} =
+      System.cmd("make", ["-n", "shellcheck"],
+        env: [{"MAKEFLAGS", nil}, {"MFLAGS", nil}, {"MAKELEVEL", nil}]
+      )
+
     {tracked, 0} = System.cmd("git", ["ls-files", "*.sh"])
 
     for file <- String.split(tracked, "\n", trim: true) do

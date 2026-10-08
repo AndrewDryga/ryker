@@ -84,7 +84,7 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
     # This fixture pre-creates a model tool result. Normal Executor exposure
     # precedes tools; initialize that empty custody before the synthetic record,
     # never retrospectively attest a transcript that already produced records.
-    assert :ok = KnowledgeSnapshot.expose(work_claim, [])
+    assert KnowledgeSnapshot.expose(work_claim, []) == :ok
 
     # The reported missing-project question must not discard the exact Terraform
     # watch while the user supplies the fact. Use its retained run identity.
@@ -165,15 +165,15 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
     assert subscription, "asking a question must retain the independent source-event watch"
     assert subscription.status == :active
     assert subscription.matcher == matcher
-    assert {:ok, 0} = EventSubscriptions.reconcile()
+    assert EventSubscriptions.reconcile() == {:ok, 0}
     assert Repo.get!(EventSubscription, subscription.id).status == :active
     Repo.delete!(subscription)
-    assert {:ok, 1} = EventSubscriptions.reconcile()
+    assert EventSubscriptions.reconcile() == {:ok, 1}
     subscription = Repo.get_by!(EventSubscription, record_id: watch.id)
-    assert {:ok, nil} = Custody.claim_next("slack-question-no-work", 60, :work)
+    assert Custody.claim_next("slack-question-no-work", 60, :work) == {:ok, nil}
 
-    assert {:ack, {:ignored, :not_engaged}} =
-             Gateway.handle_envelope(unrelated_thread_envelope(), gateway_settings())
+    assert Gateway.handle_envelope(unrelated_thread_envelope(), gateway_settings()) ==
+             {:ack, {:ignored, :not_engaged}}
 
     events = Episodes.list_events(episode.key)
     wait_event = Enum.find(events, &(&1.kind == :delivery_confirmed))
@@ -240,7 +240,7 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
     assert resumed.result.episode.id == episode.id
     assert resumed.result.episode.state == :working
     assert Repo.get!(Record, request.id).status == :answered
-    assert {:ok, 0} = EventSubscriptions.reconcile()
+    assert EventSubscriptions.reconcile() == {:ok, 0}
     assert Repo.get!(EventSubscription, subscription.id).status == :active
     assert Repo.get!(Record, watch.id).status == :open
 
@@ -286,27 +286,25 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
 
     authorize = &(&1.actor_kind == :user and &1.actor_ref == "U123")
 
-    assert {:error, :answer_memory_unauthorized} =
-             Memories.confirm_answer(continuation_claim, request.ref, "one percent", fn _ ->
-               false
-             end)
+    assert Memories.confirm_answer(continuation_claim, request.ref, "one percent", fn _ ->
+             false
+           end) == {:error, :answer_memory_unauthorized}
 
     assert Repo.aggregate(MemoryEntry, :count) == 0
 
     # A lost save transaction must leave the accepted answer available for the
     # same Work turn to retry, without claiming or duplicating remembered state.
-    assert {:error, :interrupted_before_commit} =
-             Repo.transaction(fn ->
-               assert {:ok, _} =
-                        Memories.confirm_answer(
-                          continuation_claim,
-                          request.ref,
-                          "one percent",
-                          authorize
-                        )
+    assert Repo.transaction(fn ->
+             assert {:ok, _} =
+                      Memories.confirm_answer(
+                        continuation_claim,
+                        request.ref,
+                        "one percent",
+                        authorize
+                      )
 
-               Repo.rollback(:interrupted_before_commit)
-             end)
+             Repo.rollback(:interrupted_before_commit)
+           end) == {:error, :interrupted_before_commit}
 
     assert Repo.aggregate(MemoryEntry, :count) == 0
     assert Repo.get!(Response, response.id).inbox_entry_id == answer_entry.id
@@ -371,16 +369,16 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
 
     # A value the answer does not say is refused; one it says that is not the
     # value saved from it conflicts.
-    assert {:error, :answer_memory_not_in_answer} =
-             Memories.confirm_answer(continuation_claim, request.ref, "ten percent", authorize)
+    assert Memories.confirm_answer(continuation_claim, request.ref, "ten percent", authorize) ==
+             {:error, :answer_memory_not_in_answer}
 
-    assert {:error, :answer_memory_conflict} =
-             Memories.confirm_answer(continuation_claim, request.ref, "percent", authorize)
+    assert Memories.confirm_answer(continuation_claim, request.ref, "percent", authorize) ==
+             {:error, :answer_memory_conflict}
 
     assert {:ok, _} = Memories.forget(remembered.memory.ref)
 
-    assert {:error, :answer_memory_conflict} =
-             Memories.confirm_answer(continuation_claim, request.ref, "one percent", authorize)
+    assert Memories.confirm_answer(continuation_claim, request.ref, "one percent", authorize) ==
+             {:error, :answer_memory_conflict}
 
     assert Repo.get!(MemoryEntry, remembered.memory.id).status == :deleted
 
@@ -414,7 +412,7 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
     assert watching.state == :waiting_for_event
     assert watching.owner_ref == watch.ref
     assert Repo.get!(EventSubscription, subscription.id).matcher == matcher
-    assert {:ok, :idle} = deliver_once(adapters, "idle")
+    assert deliver_once(adapters, "idle") == {:ok, :idle}
   end
 
   defp assert_recalled_in_new_channel!(memory, original_session_id) do
@@ -447,7 +445,7 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
     assert {:ok, claim} = Custody.claim_next("question-recall-worker", 60, :work)
     assert claim.session.id != original_session_id
     assert claim.episode.destination_conversation_ref == "slack:TQUESTIONENDTOEND:COTHER"
-    assert :ok = KnowledgeSnapshot.expose(claim, [])
+    assert KnowledgeSnapshot.expose(claim, []) == :ok
 
     options =
       Router.init(
@@ -534,11 +532,13 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
         %{"type" => "button", "action_id" => "ryker_submit_input", "value" => request.ref}
       ])
 
-    assert {:ack, {:interaction, :recorded}} = Gateway.handle_envelope(submit, gateway_settings())
+    assert Gateway.handle_envelope(submit, gateway_settings()) ==
+             {:ack, {:interaction, :recorded}}
+
     accepted = Repo.get_by!(Response, record_id: request.id)
 
-    assert {:ack, {:interaction, :duplicate}} =
-             Gateway.handle_envelope(submit, gateway_settings())
+    assert Gateway.handle_envelope(submit, gateway_settings()) ==
+             {:ack, {:interaction, :duplicate}}
 
     assert Repo.get_by!(Response, record_id: request.id).id == accepted.id
     {:ok, entry} = Inbox.fetch("ingress-input:#{accepted.inbox_entry_id}")

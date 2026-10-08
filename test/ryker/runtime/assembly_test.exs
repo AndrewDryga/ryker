@@ -869,8 +869,8 @@ defmodule Ryker.Runtime.AssemblyTest do
     assert WorkProfile.read_only_refs(profile) == ["docs"]
     assert WorkProfile.repository_choices(profile) == []
 
-    assert {:error, {:invalid_work_profile, :repository_ref}} =
-             WorkProfile.policy_for(profile, :standard, "docs")
+    assert WorkProfile.policy_for(profile, :standard, "docs") ==
+             {:error, {:invalid_work_profile, :repository_ref}}
 
     assert {:ok, placement} = WorkProfile.policy_for(profile, :standard, nil)
     assert placement.repository_ref == "ryker"

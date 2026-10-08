@@ -43,13 +43,13 @@ defmodule Ryker.Delivery.HostNoteTest do
         }
       })
 
-    assert {:ok, {:not_posted, :shadow}} =
-             HostNote.deliver(%{note() | execution_mode: :shadow}, adapters)
+    assert HostNote.deliver(%{note() | execution_mode: :shadow}, adapters) ==
+             {:ok, {:not_posted, :shadow}}
 
-    assert {:ok, {:not_posted, {:delivery_adapter_not_configured, "slack"}}} =
-             HostNote.deliver(note(), adapters)
+    assert HostNote.deliver(note(), adapters) ==
+             {:ok, {:not_posted, {:delivery_adapter_not_configured, "slack"}}}
 
-    assert {:ok, {:not_posted, :delivery_not_configured}} = HostNote.deliver(note(), nil)
+    assert HostNote.deliver(note(), nil) == {:ok, {:not_posted, :delivery_not_configured}}
 
     refute_received :published
   end

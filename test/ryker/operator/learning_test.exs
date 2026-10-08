@@ -137,8 +137,8 @@ defmodule Ryker.Operator.LearningTest do
     assert duplicate.status == :duplicate
     assert duplicate.outcome == receipt.outcome
 
-    assert {:error, :learning_retry_conflict} =
-             LearningOperator.retry(batch.id, 0, "operator:andrew", "learning-retry:stale-form")
+    assert LearningOperator.retry(batch.id, 0, "operator:andrew", "learning-retry:stale-form") ==
+             {:error, :learning_retry_conflict}
 
     assert Repo.aggregate(Ryker.Operator.Action, :count) == 1
 
@@ -151,7 +151,7 @@ defmodule Ryker.Operator.LearningTest do
     assert {:ok, terminal} = Batches.release(claim, :invalid_learning_result, 0)
     assert terminal.status == :deferred
     assert terminal.error_code == "learning_retry_exhausted"
-    assert {:ok, :idle} = Batches.claim("operator-test", @settings)
+    assert Batches.claim("operator-test", @settings) == {:ok, :idle}
   end
 
   test "operator retry cannot buy a second turn while remote custody is unresolved" do
@@ -161,8 +161,8 @@ defmodule Ryker.Operator.LearningTest do
     assert {:ok, _} = Batches.begin_execution(claim, run.id)
     assert {:ok, _} = Batches.release(claim, :learning_remote_unresolved, 0)
 
-    assert {:error, :learning_remote_outstanding} =
-             LearningOperator.retry(claim.batch.id, 0, "operator:andrew", "learning-retry:unsafe")
+    assert LearningOperator.retry(claim.batch.id, 0, "operator:andrew", "learning-retry:unsafe") ==
+             {:error, :learning_remote_outstanding}
 
     assert Repo.aggregate(Ryker.Operator.Action, :count) == 0
     assert Repo.get!(Batch, claim.batch.id).start_limit == 3
@@ -183,13 +183,12 @@ defmodule Ryker.Operator.LearningTest do
       )
     end)
 
-    assert {:error, :learning_source_stale} =
-             LearningOperator.retry(
-               claim.batch.id,
-               0,
-               "operator:andrew",
-               "learning-retry:withdrawn"
-             )
+    assert LearningOperator.retry(
+             claim.batch.id,
+             0,
+             "operator:andrew",
+             "learning-retry:withdrawn"
+           ) == {:error, :learning_source_stale}
 
     assert Repo.aggregate(Ryker.Operator.Action, :count) == 0
     assert Repo.get!(Batch, claim.batch.id).status == :deferred
@@ -268,7 +267,7 @@ defmodule Ryker.Operator.LearningTest do
       |> hd()
       |> Map.fetch!("text")
 
-    assert {:error, :invalid_learning_result} = Fixtures.accept(run.id, body, %{})
+    assert Fixtures.accept(run.id, body, %{}) == {:error, :invalid_learning_result}
 
     assert {:ok, _} =
              Learning.record_stop(

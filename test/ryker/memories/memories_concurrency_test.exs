@@ -181,7 +181,7 @@ defmodule Ryker.Memories.MemoriesConcurrencyTest do
         assert_receive {:second_started, second_backend}, 5_000
         await_blocked_by(second_backend, first_backend)
         send(first.pid, :commit)
-        assert {:ok, :ok} = Task.await(first, 5_000)
+        assert Task.await(first, 5_000) == {:ok, :ok}
         assert {:ok, %{status: :confirmed, memory: replacement}} = Task.await(second, 5_000)
         assert replacement.payload["value"] == "second"
 

@@ -107,7 +107,7 @@ defmodule Ryker.Work.ExecutorTest do
       subscription = Repo.get_by!(Ryker.Waits.EventSubscription, record_id: wait.id)
       assert subscription.status == :active
       assert subscription.poll_after == nil
-      assert {:ok, nil} = Custody.claim_next("quiet-wait-proof", 60, :work)
+      assert Custody.claim_next("quiet-wait-proof", 60, :work) == {:ok, nil}
       assert FakeAPI.state(fake).validations |> Enum.map(& &1.verdict) == [:accept]
     end
   end
@@ -116,7 +116,7 @@ defmodule Ryker.Work.ExecutorTest do
     # Empty current recall does not erase the transcript of a warm provider session.
     claim = claim_with_bound_empty_session!("withdrawn-session-knowledge")
     {source, document} = KnowledgeFixtures.learn!(claim.episode)
-    assert :ok = KnowledgeSnapshot.expose(claim, [document])
+    assert KnowledgeSnapshot.expose(claim, [document]) == :ok
     KnowledgeFixtures.revoke!(source)
     {:ok, fake} = fake_for(claim, [reply("Continue without withdrawn memory.")])
 
@@ -185,7 +185,7 @@ defmodule Ryker.Work.ExecutorTest do
         )
 
       assert Repo.get!(Ryker.Work.Turn, claim.turn.id).result_ref == nil
-      assert {:error, :work_knowledge_context_stale} = result
+      assert result == {:error, :work_knowledge_context_stale}
     end
   end
 
@@ -217,7 +217,7 @@ defmodule Ryker.Work.ExecutorTest do
 
     result = Executor.run(claim, protocol_options(fake, %{get_session: get_session}))
     assert FakeAPI.state(fake).submissions == []
-    assert {:error, :work_knowledge_context_stale} = result
+    assert result == {:error, :work_knowledge_context_stale}
     assert Process.get(counter) >= 2
   end
 
@@ -328,16 +328,15 @@ defmodule Ryker.Work.ExecutorTest do
     |> Ecto.Changeset.change(submission: %{claim.turn.submission | "context" => context})
     |> Repo.update!()
 
-    assert {:error, :work_knowledge_context_stale} =
-             Custody.accept_result(
-               claim.episode.id,
-               claim.episode.key,
-               claim.turn.turn_ref,
-               claim.lease_ref,
-               claim.turn.candidate_sha256,
-               claim.turn.candidate_attempt,
-               "validation:withdrawn"
-             )
+    assert Custody.accept_result(
+             claim.episode.id,
+             claim.episode.key,
+             claim.turn.turn_ref,
+             claim.lease_ref,
+             claim.turn.candidate_sha256,
+             claim.turn.candidate_attempt,
+             "validation:withdrawn"
+           ) == {:error, :work_knowledge_context_stale}
 
     unchanged = Repo.get!(Ryker.Work.Turn, claim.turn.id)
     assert unchanged.status == claim.turn.status
@@ -979,8 +978,8 @@ defmodule Ryker.Work.ExecutorTest do
         }
       end)
 
-      assert {:error, {:coop_protocol_error, :workspace_task_binding}} =
-               Executor.run(%{claim | session: session}, options(fake))
+      assert Executor.run(%{claim | session: session}, options(fake)) ==
+               {:error, {:coop_protocol_error, :workspace_task_binding}}
 
       assert FakeAPI.state(fake).submit_count == 0
     end
@@ -1055,8 +1054,7 @@ defmodule Ryker.Work.ExecutorTest do
                receipt
              )
 
-    assert {:error, :work_completed_workspace_recovery_required} =
-             retry_inspected_work(claim)
+    assert retry_inspected_work(claim) == {:error, :work_completed_workspace_recovery_required}
 
     assert Repo.get!(Ryker.Work.Turn, claim.turn.id).candidate == claim.turn.candidate
 
@@ -1069,7 +1067,7 @@ defmodule Ryker.Work.ExecutorTest do
     assert {:ok, recovery} = FailureProjection.work(claim.episode.key)
     assert recovery.action == nil
     assert recovery.work_recovery.next_step =~ "restore the work"
-    assert {:error, :work_completed_workspace_recovery_required} = retry_inspected_work(claim)
+    assert retry_inspected_work(claim) == {:error, :work_completed_workspace_recovery_required}
   end
 
   test "completed reconciliation retains its final activity without rerunning work" do
@@ -1116,7 +1114,7 @@ defmodule Ryker.Work.ExecutorTest do
     assert detail.trace.stopped.href ==
              "/failures/delivery/" <> delivery.turn.id
 
-    assert :not_found = FailureProjection.work(claim.episode.key)
+    assert FailureProjection.work(claim.episode.key) == :not_found
 
     assert {:ok, _} =
              FailureProjection.fetch("delivery", delivery.turn.delivery_ref)
@@ -1144,8 +1142,8 @@ defmodule Ryker.Work.ExecutorTest do
                executor_options: options(fake)
              )
 
-    assert {:error, :work_recovery_changed} =
-             Custody.retry_blocked(claim.episode.key, fingerprint)
+    assert Custody.retry_blocked(claim.episode.key, fingerprint) ==
+             {:error, :work_recovery_changed}
 
     assert Repo.get!(Ryker.Work.Turn, claim.turn.id).status == :blocked
     assert FakeAPI.state(fake).submit_count == 0
@@ -2241,17 +2239,16 @@ defmodule Ryker.Work.ExecutorTest do
 
     work = %{work | turn: turn}
 
-    assert :ok =
-             prepare_remote_operation(work, :submit_turn, turn_key(work), 1, fn ->
-               FakeAPI.seed_operation(
-                 fake,
-                 turn_key(work),
-                 succeeded_operation("SubmitTurn", "turn", remote_turn_id)
-               )
+    assert prepare_remote_operation(work, :submit_turn, turn_key(work), 1, fn ->
+             FakeAPI.seed_operation(
+               fake,
+               turn_key(work),
+               succeeded_operation("SubmitTurn", "turn", remote_turn_id)
+             )
 
-               FakeAPI.seed_turn(fake, work.session.coop_session_id, remote_turn_id, "running")
-               :ok
-             end)
+             FakeAPI.seed_turn(fake, work.session.coop_session_id, remote_turn_id, "running")
+             :ok
+           end) == :ok
 
     assert {:ok, requested} =
              Custody.request_cancel(
@@ -2519,10 +2516,10 @@ defmodule Ryker.Work.ExecutorTest do
       operation_by_key: first_not_found_then(lookup_count, wrong_operation)
     }
 
-    assert {:error,
-            {:work_cancellation_unresolved,
-             {:turn_submit_fence, {:error, {:coop_unavailable, :simulated_fence_response_loss}}}}} =
-             Executor.run(cancel_claim, protocol_options(fake, overrides))
+    assert Executor.run(cancel_claim, protocol_options(fake, overrides)) ==
+             {:error,
+              {:work_cancellation_unresolved,
+               {:turn_submit_fence, {:error, {:coop_unavailable, :simulated_fence_response_loss}}}}}
 
     assert Agent.get(lookup_count, & &1) == 0
     assert FakeAPI.state(fake).turn["state"] == "running"
@@ -2571,16 +2568,15 @@ defmodule Ryker.Work.ExecutorTest do
     failed = claim_episode!("cancel-failed-create-journal")
     {:ok, failed_fake} = fake_for(failed, [reply("unused")])
 
-    assert :ok =
-             prepare_remote_operation(failed, :create_session, create_key(failed), nil, fn ->
-               FakeAPI.seed_operation(
-                 failed_fake,
-                 create_key(failed),
-                 failed_operation("repository_unavailable", "CreateRemoteSession")
-               )
+    assert prepare_remote_operation(failed, :create_session, create_key(failed), nil, fn ->
+             FakeAPI.seed_operation(
+               failed_fake,
+               create_key(failed),
+               failed_operation("repository_unavailable", "CreateRemoteSession")
+             )
 
-               :ok
-             end)
+             :ok
+           end) == :ok
 
     assert {:ok, _requested} =
              Custody.request_cancel(
@@ -2602,17 +2598,16 @@ defmodule Ryker.Work.ExecutorTest do
     {:ok, uncertain_fake} = fake_for(uncertain, [reply("unused")])
     uncertainty = uncertain_operation("operation_uncertain", "CreateRemoteSession")
 
-    assert :ok =
-             prepare_remote_operation(
-               uncertain,
-               :create_session,
-               create_key(uncertain),
-               nil,
-               fn ->
-                 FakeAPI.seed_operation(uncertain_fake, create_key(uncertain), uncertainty)
-                 :ok
-               end
-             )
+    assert prepare_remote_operation(
+             uncertain,
+             :create_session,
+             create_key(uncertain),
+             nil,
+             fn ->
+               FakeAPI.seed_operation(uncertain_fake, create_key(uncertain), uncertainty)
+               :ok
+             end
+           ) == :ok
 
     assert {:ok, _requested} =
              Custody.request_cancel(
@@ -3701,8 +3696,8 @@ defmodule Ryker.Work.ExecutorTest do
     {:ok, fake} = fake_for(claim, [reply("Must not run.")], job_backed: false)
     bind_source_session!(fake, binding, default_head, [], freshness)
 
-    assert {:error, {:coop_protocol_error, :session_authority}} =
-             Executor.run(claim, options(fake))
+    assert Executor.run(claim, options(fake)) ==
+             {:error, {:coop_protocol_error, :session_authority}}
 
     assert FakeAPI.state(fake).submit_count == 0
     assert Ryker.Repo.get!(Ryker.Work.Session, claim.session.id).repository_source == nil
@@ -4093,13 +4088,13 @@ defmodule Ryker.Work.ExecutorTest do
     cleanup_error =
       {:error, {:coop_error, 503, "session_cleanup_error", "cleanup unavailable"}}
 
-    assert {:error,
-            {:work_generation_spent, :validation,
-             {:coop_error, 503, "session_cleanup_error", "cleanup unavailable"}}} =
-             Executor.run(
-               cleanup_claim,
-               protocol_options(cleanup_fake, %{validate_candidate: cleanup_error})
-             )
+    assert Executor.run(
+             cleanup_claim,
+             protocol_options(cleanup_fake, %{validate_candidate: cleanup_error})
+           ) ==
+             {:error,
+              {:work_generation_spent, :validation,
+               {:coop_error, 503, "session_cleanup_error", "cleanup unavailable"}}}
 
     uncertain_claim = claim_episode!("direct-validation-uncertain")
     {:ok, uncertain_fake} = fake_for(uncertain_claim, [reply("Uncertain validation.")])
@@ -4107,13 +4102,13 @@ defmodule Ryker.Work.ExecutorTest do
     uncertain_error =
       {:error, {:coop_error, 409, "operation_uncertain", "outcome unknown"}}
 
-    assert {:error,
-            {:work_execution_blocked,
-             {:coop_error, 409, "operation_uncertain", "outcome unknown"}}} =
-             Executor.run(
-               uncertain_claim,
-               protocol_options(uncertain_fake, %{validate_candidate: uncertain_error})
-             )
+    assert Executor.run(
+             uncertain_claim,
+             protocol_options(uncertain_fake, %{validate_candidate: uncertain_error})
+           ) ==
+             {:error,
+              {:work_execution_blocked,
+               {:coop_error, 409, "operation_uncertain", "outcome unknown"}}}
 
     malformed_claim = claim_episode!("bad-validation-envelope")
     {:ok, malformed_fake} = fake_for(malformed_claim, [reply("Malformed validation.")])
@@ -4167,13 +4162,13 @@ defmodule Ryker.Work.ExecutorTest do
     conflict_error =
       {:error, {:coop_error, 409, "revision_conflict", "remote advanced"}}
 
-    assert {:error,
-            {:work_generation_spent, :cancellation,
-             {:coop_error, 409, "revision_conflict", "remote advanced"}}} =
-             Executor.run(
-               conflict,
-               protocol_options(conflict_fake, %{cancel_turn: conflict_error})
-             )
+    assert Executor.run(
+             conflict,
+             protocol_options(conflict_fake, %{cancel_turn: conflict_error})
+           ) ==
+             {:error,
+              {:work_generation_spent, :cancellation,
+               {:coop_error, 409, "revision_conflict", "remote advanced"}}}
 
     uncertain = cancel_claim!("direct-cancel-uncertain", "running")
     {:ok, uncertain_fake} = fake_for(uncertain, [])
@@ -4187,13 +4182,13 @@ defmodule Ryker.Work.ExecutorTest do
     uncertain_error =
       {:error, {:coop_error, 409, "operation_uncertain", "outcome unknown"}}
 
-    assert {:error,
-            {:work_cancellation_unresolved,
-             {:coop_error, 409, "operation_uncertain", "outcome unknown"}}} =
-             Executor.run(
-               uncertain,
-               protocol_options(uncertain_fake, %{cancel_turn: uncertain_error})
-             )
+    assert Executor.run(
+             uncertain,
+             protocol_options(uncertain_fake, %{cancel_turn: uncertain_error})
+           ) ==
+             {:error,
+              {:work_cancellation_unresolved,
+               {:coop_error, 409, "operation_uncertain", "outcome unknown"}}}
 
     malformed = cancel_claim!("bad-cancel-envelope", "running")
     {:ok, malformed_fake} = fake_for(malformed, [])
@@ -4315,13 +4310,13 @@ defmodule Ryker.Work.ExecutorTest do
     {:ok, conflict_fake} = fake_for(conflict, [reply("unused")])
     conflict_error = {:error, {:coop_error, 409, "revision_conflict", "stale revision"}}
 
-    assert {:error,
-            {:work_generation_spent, :turn_submit,
-             {:coop_error, 409, "revision_conflict", "stale revision"}}} =
-             Executor.run(
-               conflict,
-               protocol_options(conflict_fake, %{submit_turn: conflict_error})
-             )
+    assert Executor.run(
+             conflict,
+             protocol_options(conflict_fake, %{submit_turn: conflict_error})
+           ) ==
+             {:error,
+              {:work_generation_spent, :turn_submit,
+               {:coop_error, 409, "revision_conflict", "stale revision"}}}
 
     uncertain = claim_with_bound_session!("submit-uncertain")
     {:ok, uncertain_fake} = fake_for(uncertain, [reply("unused")])

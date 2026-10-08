@@ -175,8 +175,8 @@ defmodule Ryker.Learning.ObservationsTest do
 
       if unquote(boundary) == :restored, do: revoke.()
 
-      assert {:error, {:admission_generation_spent, {:admission_rejected, :context_stale}}} =
-               Executor.run(Inbox.ref(target), options)
+      assert Executor.run(Inbox.ref(target), options) ==
+               {:error, {:admission_generation_spent, {:admission_rejected, :context_stale}}}
 
       assert {:ok, %{status: :pending, decision_ref: nil}} = Inbox.fetch(Inbox.ref(target))
 
@@ -373,10 +373,9 @@ defmodule Ryker.Learning.ObservationsTest do
     assert [note] = Observations.context(updated, nil)
     assert note["summary"] =~ "withdrawn"
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Observations.record_excerpt_in_transaction(first)
-             end)
+    assert Repo.transaction(fn ->
+             Observations.record_excerpt_in_transaction(first)
+           end) == {:ok, :ok}
 
     assert Observations.context(updated, nil) == [note]
     deleted = observe!("deleted", "C1", @note, revision: 3, kind: :delete)
@@ -410,14 +409,14 @@ defmodule Ryker.Learning.ObservationsTest do
     target = input!("later-request", "CTARGET")
     notes = context!(target).observations
     assert length(notes) == 1
-    assert :ok = Observations.reauthorize(target, nil, notes)
+    assert Observations.reauthorize(target, nil, notes) == :ok
 
     Repo.update_all(from(m in ChannelMembership, where: m.channel_ref == "CTARGET"),
       set: [external_shared: true]
     )
 
-    assert {:error, {:admission_rejected, :context_stale}} =
-             Observations.reauthorize(target, nil, notes)
+    assert Observations.reauthorize(target, nil, notes) ==
+             {:error, {:admission_rejected, :context_stale}}
 
     Repo.update_all(from(m in ChannelMembership, where: m.channel_ref == "CTARGET"),
       set: [external_shared: false]
@@ -427,8 +426,8 @@ defmodule Ryker.Learning.ObservationsTest do
       set: [private: true]
     )
 
-    assert {:error, {:admission_rejected, :context_stale}} =
-             Observations.reauthorize(target, nil, notes)
+    assert Observations.reauthorize(target, nil, notes) ==
+             {:error, {:admission_rejected, :context_stale}}
   end
 
   test "channel deletion also removes silent notes and neither an old source nor recall restores them" do
@@ -436,15 +435,14 @@ defmodule Ryker.Learning.ObservationsTest do
     entry = observe!("delete-channel", "C1", @note)
     Repo.update_all(ChannelMembership, set: [status: :deleted, deleted_at: @now])
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Continuity.delete_slack_channel_in_transaction("TNOTES", "C1")
-             end)
+    assert Repo.transaction(fn ->
+             Continuity.delete_slack_channel_in_transaction("TNOTES", "C1")
+           end) == {:ok, :ok}
 
     assert Repo.aggregate(ConversationObservation, :count) == 0
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn -> Observations.record_excerpt_in_transaction(entry) end)
+    assert Repo.transaction(fn -> Observations.record_excerpt_in_transaction(entry) end) ==
+             {:ok, :ok}
 
     assert Observations.context(entry, nil) == []
     assert Repo.aggregate(ConversationObservation, :count) == 0
@@ -453,8 +451,8 @@ defmodule Ryker.Learning.ObservationsTest do
   test "unaccepted decisions cannot expose even an original source excerpt" do
     entry = input!("pending", "C1")
 
-    assert {:error, :observation_source_not_decided} =
-             Observations.record_excerpt_in_transaction(entry)
+    assert Observations.record_excerpt_in_transaction(entry) ==
+             {:error, :observation_source_not_decided}
 
     # Receipt custody keeps only a revision fence until classification succeeds.
     assert [%{note: nil, source_result_ref: nil}] = Repo.all(ConversationObservation)

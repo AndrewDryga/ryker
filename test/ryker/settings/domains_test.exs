@@ -79,12 +79,11 @@ defmodule Ryker.Settings.DomainsTest do
     fallback = "codex:gpt-5.6-sol/medium@personal"
     routing = ["codex:gpt-5.6-sol/medium@default", fallback]
 
-    assert {:error, {:invalid_settings, [{:routing_models, :unknown_account}]}} =
-             Settings.save_work(
-               %{routing_models: routing},
-               snapshot.installation.revision,
-               @actor
-             )
+    assert Settings.save_work(
+             %{routing_models: routing},
+             snapshot.installation.revision,
+             @actor
+           ) == {:error, {:invalid_settings, [{:routing_models, :unknown_account}]}}
 
     assert {:ok, saved} =
              Settings.save_work(
@@ -96,12 +95,11 @@ defmodule Ryker.Settings.DomainsTest do
     assert saved.work.routing_models == routing
 
     # Removing an account a saved model still uses is refused at the account.
-    assert {:error, {:invalid_settings, [{:model_accounts, :in_use}]}} =
-             Settings.save_work(
-               %{model_accounts: ["codex@default"]},
-               saved.installation.revision,
-               @actor
-             )
+    assert Settings.save_work(
+             %{model_accounts: ["codex@default"]},
+             saved.installation.revision,
+             @actor
+           ) == {:error, {:invalid_settings, [{:model_accounts, :in_use}]}}
 
     for {accounts, reason} <- [
           {[], :length},
@@ -174,8 +172,8 @@ defmodule Ryker.Settings.DomainsTest do
 
     claude = ["codex:gpt-5.6-sol/medium@default", "claude:claude-opus-4-6/high@work"]
 
-    assert {:error, {:invalid_settings, [{:routing_models, :unpriced}]}} =
-             Settings.save_work(%{routing_models: claude}, snapshot.installation.revision, @actor)
+    assert Settings.save_work(%{routing_models: claude}, snapshot.installation.revision, @actor) ==
+             {:error, {:invalid_settings, [{:routing_models, :unpriced}]}}
 
     {:ok, snapshot} =
       Settings.put_pricing_rate(
@@ -205,12 +203,11 @@ defmodule Ryker.Settings.DomainsTest do
                @actor
              )
 
-    assert {:error, {:invalid_settings, [{:incident_models, :unpriced}]}} =
-             Settings.save_work(
-               %{incident_models: ["claude:claude-opus-4-6/low@work"]},
-               saved.installation.revision,
-               @actor
-             )
+    assert Settings.save_work(
+             %{incident_models: ["claude:claude-opus-4-6/low@work"]},
+             saved.installation.revision,
+             @actor
+           ) == {:error, {:invalid_settings, [{:incident_models, :unpriced}]}}
   end
 
   test "a new installation learns by default", %{snapshot: snapshot} do
@@ -295,11 +292,11 @@ defmodule Ryker.Settings.DomainsTest do
     assert {:ok, ^saved} =
              Settings.put_repository(%{ref: "ryker", base_branch: "main"}, 2, @actor)
 
-    assert {:error, {:invalid_settings, [{:path, :unknown}]}} =
-             Settings.put_repository(%{ref: "ryker", path: "/srv/x"}, 2, @actor)
+    assert Settings.put_repository(%{ref: "ryker", path: "/srv/x"}, 2, @actor) ==
+             {:error, {:invalid_settings, [{:path, :unknown}]}}
 
-    assert {:error, {:invalid_settings, [{"bot_token", :unknown}]}} =
-             Settings.save_slack(%{"bot_token" => "xoxb-secret"}, 2, @actor)
+    assert Settings.save_slack(%{"bot_token" => "xoxb-secret"}, 2, @actor) ==
+             {:error, {:invalid_settings, [{"bot_token", :unknown}]}}
 
     assert {:ok, ^saved} = Settings.fetch()
     assert snapshot.installation.host_ref == saved.installation.host_ref
@@ -315,8 +312,8 @@ defmodule Ryker.Settings.DomainsTest do
     assert {:bot_user_ref, :required_to_enable} in errors
 
     # Which repository a channel works in is its environment's choice now.
-    assert {:error, {:invalid_settings, [{:default_repository_ref, :unknown}]}} =
-             Settings.save_slack(%{default_repository_ref: "ryker"}, 1, @actor)
+    assert Settings.save_slack(%{default_repository_ref: "ryker"}, 1, @actor) ==
+             {:error, {:invalid_settings, [{:default_repository_ref, :unknown}]}}
 
     {:ok, _} = Settings.put_repository(%{ref: "ryker"}, 1, @actor)
 
@@ -351,11 +348,11 @@ defmodule Ryker.Settings.DomainsTest do
         @actor
       )
 
-    assert {:error, {:invalid_settings, [{:ref, :referenced}]}} =
-             Settings.delete_repository("coop", 4, @actor)
+    assert Settings.delete_repository("coop", 4, @actor) ==
+             {:error, {:invalid_settings, [{:ref, :referenced}]}}
 
-    assert {:error, {:invalid_settings, [{:ref, :unknown}]}} =
-             Settings.delete_repository("nothing", 4, @actor)
+    assert Settings.delete_repository("nothing", 4, @actor) ==
+             {:error, {:invalid_settings, [{:ref, :unknown}]}}
 
     assert {:ok, ^saved} = Settings.fetch()
 
@@ -390,28 +387,26 @@ defmodule Ryker.Settings.DomainsTest do
     assert {:ok, saved} = Settings.put_webhook_source(source, 2, @actor)
     assert [%{name: "alerts", enabled: true}] = saved.webhook_sources
 
-    assert {:error, {:invalid_settings, [{:mapping, :mapping_required}]}} =
-             Settings.put_webhook_source(%{source | mapping: %{"event_id" => "id"}}, 3, @actor)
+    assert Settings.put_webhook_source(%{source | mapping: %{"event_id" => "id"}}, 3, @actor) ==
+             {:error, {:invalid_settings, [{:mapping, :mapping_required}]}}
 
-    assert {:error, {:invalid_settings, [{:mapping, :mapping_fields}]}} =
-             Settings.put_webhook_source(
-               %{source | mapping: Map.put(source.mapping, "change.kind", "kind")},
-               3,
-               @actor
-             )
+    assert Settings.put_webhook_source(
+             %{source | mapping: Map.put(source.mapping, "change.kind", "kind")},
+             3,
+             @actor
+           ) == {:error, {:invalid_settings, [{:mapping, :mapping_fields}]}}
 
-    assert {:error, {:invalid_settings, [{:mapping, :mapping_unsupported}]}} =
-             Settings.put_webhook_source(
-               %{source | name: "grafana", adapter_kind: :grafana},
-               3,
-               @actor
-             )
+    assert Settings.put_webhook_source(
+             %{source | name: "grafana", adapter_kind: :grafana},
+             3,
+             @actor
+           ) == {:error, {:invalid_settings, [{:mapping, :mapping_unsupported}]}}
 
-    assert {:error, {:invalid_settings, [{:environment_ref, :unknown_environment}]}} =
-             Settings.put_webhook_source(%{source | environment_ref: "missing"}, 3, @actor)
+    assert Settings.put_webhook_source(%{source | environment_ref: "missing"}, 3, @actor) ==
+             {:error, {:invalid_settings, [{:environment_ref, :unknown_environment}]}}
 
-    assert {:error, {:invalid_settings, [{:secret_name, :format}]}} =
-             Settings.put_webhook_source(%{source | secret_name: "UPPERCASE"}, 3, @actor)
+    assert Settings.put_webhook_source(%{source | secret_name: "UPPERCASE"}, 3, @actor) ==
+             {:error, {:invalid_settings, [{:secret_name, :format}]}}
   end
 
   test "pricing rates are versioned by the revision that introduced them" do
@@ -429,8 +424,8 @@ defmodule Ryker.Settings.DomainsTest do
     assert %{revision: 2, effective_from: ~D[2026-09-01]} = saved_rate
     assert Decimal.equal?(saved_rate.input_usd_per_million, Decimal.new("4"))
 
-    assert {:error, {:invalid_settings, [{:effective_from, :already_bound}]}} =
-             Settings.put_pricing_rate(rate, 2, @actor)
+    assert Settings.put_pricing_rate(rate, 2, @actor) ==
+             {:error, {:invalid_settings, [{:effective_from, :already_bound}]}}
 
     assert {:error, {:invalid_settings, errors}} =
              Settings.put_pricing_rate(

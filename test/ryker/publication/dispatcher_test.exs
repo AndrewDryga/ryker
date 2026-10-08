@@ -374,7 +374,7 @@ defmodule Ryker.Publication.DispatcherTest do
     assert opened.status == :published_ready
     assert opened.pull_request_number == 91
 
-    assert {:ok, {:deferred, {:slack_api_error, "ratelimited"}}} = Dispatcher.run_once(options)
+    assert Dispatcher.run_once(options) == {:ok, {:deferred, {:slack_api_error, "ratelimited"}}}
 
     deferred = Repo.get!(Publication, publication.id)
     assert deferred.status == :published_ready
@@ -462,8 +462,8 @@ defmodule Ryker.Publication.DispatcherTest do
                }
              })
 
-    assert {:ok, {:deferred, {:publication_repository_not_configured, "ryker"}}} =
-             Dispatcher.run_once(options)
+    assert Dispatcher.run_once(options) ==
+             {:ok, {:deferred, {:publication_repository_not_configured, "ryker"}}}
 
     deferred = Repo.get!(Publication, publication.id)
     assert deferred.status == :publish_pending
@@ -501,8 +501,8 @@ defmodule Ryker.Publication.DispatcherTest do
         %{delivery_requests: [], publication_id: publication.id, publication_requests: []}
       end)
 
-    assert {:ok, {:deferred, {:publication_coop_protocol_error, :review}}} =
-             Dispatcher.run_once(dispatcher_options(coop, effects))
+    assert Dispatcher.run_once(dispatcher_options(coop, effects)) ==
+             {:ok, {:deferred, {:publication_coop_protocol_error, :review}}}
 
     stored = Repo.get!(Publication, publication.id)
     assert stored.status == :review_pending
@@ -600,7 +600,7 @@ defmodule Ryker.Publication.DispatcherTest do
       set: [next_attempt_at: @now]
     )
 
-    assert {:ok, :idle} = Dispatcher.run_once(options)
+    assert Dispatcher.run_once(options) == {:ok, :idle}
     assert [_request] = Agent.get(effects, & &1.publication_requests)
   end
 
@@ -689,8 +689,7 @@ defmodule Ryker.Publication.DispatcherTest do
 
     assert {:ok, {:executed, %{phase: :publish_again}}} = Dispatcher.run_once(options)
 
-    assert {:ok, {:deferred, :publication_authorization_revoked}} =
-             Dispatcher.run_once(options)
+    assert Dispatcher.run_once(options) == {:ok, {:deferred, :publication_authorization_revoked}}
 
     parked = Repo.get!(Publication, publication.id)
     assert parked.status == :publish_pending
@@ -701,7 +700,7 @@ defmodule Ryker.Publication.DispatcherTest do
       set: [next_attempt_at: @now]
     )
 
-    assert {:ok, :idle} = Dispatcher.run_once(options)
+    assert Dispatcher.run_once(options) == {:ok, :idle}
     assert length(Agent.get(effects, & &1.publication_requests)) == 2
   end
 
@@ -828,8 +827,8 @@ defmodule Ryker.Publication.DispatcherTest do
     effects = effects!(publication)
     options = dispatcher_options(coop, effects)
 
-    assert {:ok, {:discarded, {:publication_review_session_closed, "closed"}}} =
-             Dispatcher.run_once(options)
+    assert Dispatcher.run_once(options) ==
+             {:ok, {:discarded, {:publication_review_session_closed, "closed"}}}
 
     ended = Repo.get!(Publication, publication.id)
     assert ended.status == :discarded
@@ -843,7 +842,7 @@ defmodule Ryker.Publication.DispatcherTest do
     assert ended.attempt_count == 1
 
     # Nothing is left to retry, so nothing asks the worker again.
-    assert {:ok, :idle} = Dispatcher.run_once(options)
+    assert Dispatcher.run_once(options) == {:ok, :idle}
     assert Agent.get(coop, & &1.session_calls) == 1
     assert Agent.get(coop, & &1.review_calls) == []
     assert Agent.get(effects, & &1.delivery_requests) == []
@@ -867,8 +866,8 @@ defmodule Ryker.Publication.DispatcherTest do
     coop = review_coop!(work_claim, "closed")
     options = dispatcher_options(coop, effects!(publication))
 
-    assert {:ok, {:discarded, {:publication_review_session_closed, "closed"}}} =
-             Dispatcher.run_once(options)
+    assert Dispatcher.run_once(options) ==
+             {:ok, {:discarded, {:publication_review_session_closed, "closed"}}}
 
     assert Repo.get!(Publication, publication.id).discarded_reason == :review_session_closed
     assert Agent.get(coop, & &1.session_calls) == 0
@@ -887,7 +886,7 @@ defmodule Ryker.Publication.DispatcherTest do
     coop = review_coop!(work_claim, "open", session_errors: [{:coop_unavailable, :simulated}])
     options = dispatcher_options(coop, effects!(publication))
 
-    assert {:ok, {:deferred, {:coop_unavailable, :simulated}}} = Dispatcher.run_once(options)
+    assert Dispatcher.run_once(options) == {:ok, {:deferred, {:coop_unavailable, :simulated}}}
 
     assert {:ok, %{summary: "coop_unavailable"}} =
              FailureProjection.fetch("publication", publication.ref)
@@ -938,7 +937,7 @@ defmodule Ryker.Publication.DispatcherTest do
     result = Dispatcher.run_once(options)
 
     assert_received {:discarded_mid_review, {:ok, %{publication: %{status: :discarded}}}}
-    assert {:ok, {:lease_lost, :publication_lease_lost}} = result
+    assert result == {:ok, {:lease_lost, :publication_lease_lost}}
 
     ended = Repo.get!(Publication, publication.id)
     assert ended.status == :discarded
@@ -946,7 +945,7 @@ defmodule Ryker.Publication.DispatcherTest do
     assert ended.last_error_code == nil
     assert ended.next_attempt_at == nil
     assert Agent.get(effects, & &1.delivery_requests) == []
-    assert {:ok, :idle} = Dispatcher.run_once(options)
+    assert Dispatcher.run_once(options) == {:ok, :idle}
   end
 
   defp review_coop!(work_claim, state, options \\ []) do

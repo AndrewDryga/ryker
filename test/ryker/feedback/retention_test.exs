@@ -56,15 +56,13 @@ defmodule Ryker.Feedback.RetentionTest do
     assert Repo.get(Signal, signal.id)
     Repo.delete_all(Signal)
 
-    assert :ok =
-             migrate_down(@message_ref_version)
+    assert migrate_down(@message_ref_version) == :ok
 
-    assert :ok = migrate_down(@version)
+    assert migrate_down(@version) == :ok
     refute table?("answer_feedback")
-    assert :ok = migrate_up(@version)
+    assert migrate_up(@version) == :ok
 
-    assert :ok =
-             migrate_up(@message_ref_version)
+    assert migrate_up(@message_ref_version) == :ok
 
     assert table?("answer_feedback")
     assert {:ok, %{status: :recorded}} = Feedback.record(attributes(input, "slack-event:Ev-back"))

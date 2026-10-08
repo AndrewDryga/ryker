@@ -52,7 +52,7 @@ defmodule Ryker.Improvement.ExportTest do
     assert accepted.decided_by == "control-plane:local"
 
     root = tmp_dir!()
-    assert {:ok, 1} = Export.write(Path.join(root, "cases"))
+    assert Export.write(Path.join(root, "cases")) == {:ok, 1}
     File.mkdir_p!(Path.join([root, "cases", "va1-health-review-repairs-and-finishes"]))
 
     File.cp!(
@@ -165,7 +165,7 @@ defmodule Ryker.Improvement.ExportTest do
     assert {:ok, accepted} = Improvement.accept(candidate.id, "control-plane:local")
 
     root = tmp_dir!()
-    assert {:ok, 1} = Export.write(Path.join(root, "cases"))
+    assert Export.write(Path.join(root, "cases")) == {:ok, 1}
     File.mkdir_p!(Path.join([root, "cases", "va1-health-review-repairs-and-finishes"]))
 
     File.cp!(

@@ -174,7 +174,7 @@ defmodule Ryker.WeeklyReport.SchedulerTest do
 
     log =
       capture_log(fn ->
-        assert {:ok, :off} = run_once(~U[2026-11-04 12:00:00Z])
+        assert run_once(~U[2026-11-04 12:00:00Z]) == {:ok, :off}
       end)
 
     assert log == ""
@@ -192,7 +192,7 @@ defmodule Ryker.WeeklyReport.SchedulerTest do
              Settings.save_slack(%{enabled: false}, on.installation.revision, @actor)
 
     last_saved!(~U[2026-09-01 00:00:00.000000Z])
-    assert capture_log(fn -> assert {:ok, :off} = run_once(~U[2026-11-04 12:00:00Z]) end) == ""
+    assert capture_log(fn -> assert run_once(~U[2026-11-04 12:00:00Z]) == {:ok, :off} end) == ""
     assert reports() == []
   end
 
@@ -205,7 +205,7 @@ defmodule Ryker.WeeklyReport.SchedulerTest do
 
     agent = start_supervised!({Agent, fn -> %{calls: [], responses: []} end})
 
-    assert {:ok, {:delivered, :report, "weekly-report:2026-10-05"}} = deliver(agent)
+    assert deliver(agent) == {:ok, {:delivered, :report, "weekly-report:2026-10-05"}}
     assert [request] = Agent.get(agent, & &1.calls)
     assert request.kind == :message
     assert request.ref == "weekly-report:2026-10-05"
@@ -226,7 +226,7 @@ defmodule Ryker.WeeklyReport.SchedulerTest do
     assert delivered.external_receipt["message_ref"] == "1790900000.000100"
 
     # Nothing is posted twice.
-    assert {:ok, :idle} = deliver(agent)
+    assert deliver(agent) == {:ok, :idle}
     assert length(Agent.get(agent, & &1.calls)) == 1
 
     # Next week Slack refuses: Ryker is not in the channel any more.
@@ -236,9 +236,10 @@ defmodule Ryker.WeeklyReport.SchedulerTest do
       %{state | responses: [{:error, {:slack_api_error, "not_in_channel"}}]}
     end)
 
-    assert {:ok,
-            {:blocked, :report, "weekly-report:2026-10-12", {:slack_api_error, "not_in_channel"}}} =
-             deliver(agent)
+    assert deliver(agent) ==
+             {:ok,
+              {:blocked, :report, "weekly-report:2026-10-12",
+               {:slack_api_error, "not_in_channel"}}}
 
     assert Repo.get!(Report, refused.id).status == :blocked
 
@@ -256,7 +257,7 @@ defmodule Ryker.WeeklyReport.SchedulerTest do
     assert {:ok, %{status: :pending, retry_generation: 1}} =
              DeliveryOperator.rearm("weekly-report:2026-10-12")
 
-    assert {:ok, {:delivered, :report, "weekly-report:2026-10-12"}} = deliver(agent)
+    assert deliver(agent) == {:ok, {:delivered, :report, "weekly-report:2026-10-12"}}
     assert List.last(Agent.get(agent, & &1.calls)).document == refused.document
   end
 
@@ -329,7 +330,7 @@ defmodule Ryker.WeeklyReport.SchedulerTest do
                @actor
              )
 
-    assert {:error, :no_channel} = send_preview(~U[2026-10-07 12:00:00Z])
+    assert send_preview(~U[2026-10-07 12:00:00Z]) == {:error, :no_channel}
     assert reports() == []
   end
 
@@ -354,12 +355,11 @@ defmodule Ryker.WeeklyReport.SchedulerTest do
         }
       })
 
-    assert {:ok, {:delivered, :report, "weekly-report:2026-10-05"}} =
-             Dispatcher.run_once(
-               adapters: adapters,
-               kind: :report,
-               worker_ref: "delivery:weekly-report-test"
-             )
+    assert Dispatcher.run_once(
+             adapters: adapters,
+             kind: :report,
+             worker_ref: "delivery:weekly-report-test"
+           ) == {:ok, {:delivered, :report, "weekly-report:2026-10-05"}}
 
     oldest = report.inserted_at |> DateTime.add(-3_600) |> DateTime.to_unix()
     state = FakeSlackAPI.state(slack)

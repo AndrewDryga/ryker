@@ -17,15 +17,15 @@ defmodule Ryker.Learning.DroppedBatchesMigrationTest do
     dropped = batch!(:dropped)
     stopped = batch!(:deferred)
 
-    assert :ok = migrate_down(@version)
+    assert migrate_down(@version) == :ok
 
     assert Repo.get!(Batch, dropped.id).status == :deferred
     assert Repo.get!(Batch, stopped.id).status == :deferred
     assert {:error, %Postgrex.Error{postgres: %{code: :check_violation}}} = drop(stopped)
 
-    assert :ok = migrate_up(@version)
+    assert migrate_up(@version) == :ok
 
-    assert {:ok, 1} = drop(stopped)
+    assert drop(stopped) == {:ok, 1}
     assert Repo.get!(Batch, stopped.id).status == :dropped
   end
 

@@ -63,7 +63,7 @@ defmodule Ryker.Slack.TaskCardSourcesTest do
       thread_ref: fixture.card.thread_ref
     }
 
-    assert :ok = InteractionRepaint.repaint(audit, %{api: API, client: client})
+    assert InteractionRepaint.repaint(audit, %{api: API, client: client}) == :ok
     assert [document] = Agent.get(client, & &1)
     assert_neutral(document)
   end
@@ -187,8 +187,8 @@ defmodule Ryker.Slack.TaskCardSourcesTest do
 
     source = LearningFixtures.retained_input!(raw, %{policy: "fixture", policy_digest: digest()})
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn -> Observations.record_excerpt_in_transaction(source) end)
+    assert Repo.transaction(fn -> Observations.record_excerpt_in_transaction(source) end) ==
+             {:ok, :ok}
 
     document =
       source.id |> then(&Repo.get!(ConversationObservation, &1)) |> Observations.document()
@@ -196,8 +196,10 @@ defmodule Ryker.Slack.TaskCardSourcesTest do
     producer = claim!("task-source")
     task = claim!("task-work")
 
-    assert :ok = KnowledgeSnapshot.expose(producer, if(owner == :offer, do: [document], else: []))
-    assert :ok = KnowledgeSnapshot.expose(task, if(owner == :progress, do: [document], else: []))
+    assert KnowledgeSnapshot.expose(producer, if(owner == :offer, do: [document], else: [])) ==
+             :ok
+
+    assert KnowledgeSnapshot.expose(task, if(owner == :progress, do: [document], else: [])) == :ok
 
     assert {:ok, offered} =
              Records.create(

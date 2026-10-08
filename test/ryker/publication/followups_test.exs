@@ -253,7 +253,7 @@ defmodule Ryker.Publication.FollowupsTest do
       set: [next_poll_at: DateTime.add(Repo.now!(), 1, :day)]
     )
 
-    assert {:ok, nil} = Followups.claim_poll("publication-followup:webhook:early", 60)
+    assert Followups.claim_poll("publication-followup:webhook:early", 60) == {:ok, nil}
 
     payload = %{
       "pull_request" => %{"head" => %{"sha" => head_sha}, "number" => 92}
@@ -269,7 +269,7 @@ defmodule Ryker.Publication.FollowupsTest do
              crossed
            ) == {:ok, :ignored}
 
-    assert {:ok, nil} = Followups.claim_poll("publication-followup:webhook:crossed", 60)
+    assert Followups.claim_poll("publication-followup:webhook:crossed", 60) == {:ok, nil}
 
     assert Followups.nudge_github_event("acme/ryker", "pull_request", "delivery:1", payload) ==
              {:ok, :nudged}
@@ -334,7 +334,7 @@ defmodule Ryker.Publication.FollowupsTest do
     assert {:ok, _polled} = Followups.store_poll(publication.ref, claim.lease_ref, pending)
 
     # Its next check is ten minutes out, so nothing is due yet.
-    assert {:ok, nil} = Followups.claim_poll("publication-followup:nudge-recheck:early", 60)
+    assert Followups.claim_poll("publication-followup:nudge-recheck:early", 60) == {:ok, nil}
 
     check_run = %{
       "check_run" => %{
@@ -593,7 +593,7 @@ defmodule Ryker.Publication.FollowupsTest do
     )
 
     comment = %{feedback_input("feedback-discarded") | event_kind: :message}
-    assert {:ok, :unmatched} = Followups.observe_github_feedback(comment)
+    assert Followups.observe_github_feedback(comment) == {:ok, :unmatched}
   end
 
   # A bot updating its own review comment, as a checks bot does with each run,
@@ -825,7 +825,7 @@ defmodule Ryker.Publication.FollowupsTest do
             set: [pr_state: :closed]
           )
 
-          assert {:ok, :unmatched} = Followups.observe_github_feedback(input)
+          assert Followups.observe_github_feedback(input) == {:ok, :unmatched}
 
           assert {:ok, inbox} =
                    Inbox.record(input, revision_ties: :receipt_order)
@@ -853,8 +853,8 @@ defmodule Ryker.Publication.FollowupsTest do
       if previous_source do
         {previous, previous_scope} = previous_source
 
-        assert {:ok, false} =
-                 Repo.transaction(fn -> LearningSources.valid?([previous], previous_scope) end)
+        assert Repo.transaction(fn -> LearningSources.valid?([previous], previous_scope) end) ==
+                 {:ok, false}
 
         assert Repo.aggregate(Entry, :count) == 1
       else
@@ -867,30 +867,29 @@ defmodule Ryker.Publication.FollowupsTest do
       assert duplicate.id == event.id
       assert Repo.get!(ConversationObservation, source.id) == source
 
-      assert {:ok, {:error, :publication_feedback_source_invalid}} =
-               Repo.transaction(fn ->
-                 Observations.record_publication_feedback_in_transaction(
-                   event,
-                   %{publication | episode_id: Ecto.UUID.generate()}
-                 )
-               end)
+      assert Repo.transaction(fn ->
+               Observations.record_publication_feedback_in_transaction(
+                 event,
+                 %{publication | episode_id: Ecto.UUID.generate()}
+               )
+             end) == {:ok, {:error, :publication_feedback_source_invalid}}
 
       assert {:ok, delivery} = Followups.claim_delivery("review-lineage", 60)
       assert {:ok, _} = Followups.admit_wakeup(event.ref, delivery.lease_ref)
       assert {:ok, claim} = WorkCustody.claim_next("review-lineage", 60, :work)
       assert {:ok, submission} = SubmissionBuilder.build(claim)
       claim = %{claim | turn: %{claim.turn | submission: submission}}
-      assert :ok = KnowledgeSnapshot.expose_submission(claim)
+      assert KnowledgeSnapshot.expose_submission(claim) == :ok
       assert [receipt] = KnowledgeSnapshot.session_sources(claim.session.id)
       assert receipt["source_input_id"] == event.id
 
       assert {:ok, scope} = Continuity.destination_context(episode, publication.repository)
       assert scope.visibility == :public
-      assert {:ok, true} = Repo.transaction(fn -> LearningSources.valid?([receipt], scope) end)
+      assert Repo.transaction(fn -> LearningSources.valid?([receipt], scope) end) == {:ok, true}
       other_scope = %{scope | conversation_ref: "slack:TREVIEW:COTHER"}
 
-      assert {:ok, false} =
-               Repo.transaction(fn -> LearningSources.valid?([receipt], other_scope) end)
+      assert Repo.transaction(fn -> LearningSources.valid?([receipt], other_scope) end) ==
+               {:ok, false}
 
       changed = %{
         input
@@ -908,7 +907,7 @@ defmodule Ryker.Publication.FollowupsTest do
           set: [pr_state: :closed]
         )
 
-        assert {:ok, :unmatched} = Followups.observe_github_feedback(changed)
+        assert Followups.observe_github_feedback(changed) == {:ok, :unmatched}
 
         assert {:ok, inbox} =
                  Inbox.record(changed, revision_ties: :receipt_order)
@@ -916,12 +915,12 @@ defmodule Ryker.Publication.FollowupsTest do
         assert [current] = LearningSources.for_entry(inbox.entry)
         assert {:ok, canonical_scope} = Continuity.destination_context(inbox.entry, nil)
 
-        assert {:ok, true} =
-                 Repo.transaction(fn -> LearningSources.valid?([current], canonical_scope) end)
+        assert Repo.transaction(fn -> LearningSources.valid?([current], canonical_scope) end) ==
+                 {:ok, true}
       end
 
-      assert {:error, :work_knowledge_context_stale} =
-               KnowledgeSnapshot.authorize_session(episode, claim.session)
+      assert KnowledgeSnapshot.authorize_session(episode, claim.session) ==
+               {:error, :work_knowledge_context_stale}
 
       assert LearningSources.for_work_input(Input.document(input)) == nil
 
@@ -945,13 +944,12 @@ defmodule Ryker.Publication.FollowupsTest do
       else
         current = Repo.get!(ConversationObservation, source.id)
 
-        assert {:ok, :ok} =
-                 Repo.transaction(fn ->
-                   Observations.record_publication_feedback_in_transaction(
-                     event,
-                     publication
-                   )
-                 end)
+        assert Repo.transaction(fn ->
+                 Observations.record_publication_feedback_in_transaction(
+                   event,
+                   publication
+                 )
+               end) == {:ok, :ok}
 
         assert Repo.get!(ConversationObservation, source.id) == current
       end
@@ -1377,7 +1375,7 @@ defmodule Ryker.Publication.FollowupsTest do
       set: [next_poll_at: @now]
     )
 
-    assert {:ok, nil} = Followups.claim_poll("publication-followup:re-review", 60)
+    assert Followups.claim_poll("publication-followup:re-review", 60) == {:ok, nil}
 
     Repo.update_all(
       from(followup in Followup, where: followup.publication_id == ^refreshed.id),

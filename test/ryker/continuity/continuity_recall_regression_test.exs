@@ -66,16 +66,15 @@ defmodule Ryker.Continuity.ContinuityRecallRegressionTest do
       stale = captured_memory!(unquote(kind), stale_input, older: false)
       expand_stale_memory!(unquote(kind), stale)
 
-      assert {:ok, :ok} =
-               Repo.transaction(fn ->
-                 Observations.receive_in_transaction(%{
-                   stale_input
-                   | id: Ecto.UUID.generate(),
-                     event_kind: :delete,
-                     revision: stale_input.revision + 1,
-                     event_fingerprint: String.duplicate("f", 64)
-                 })
-               end)
+      assert Repo.transaction(fn ->
+               Observations.receive_in_transaction(%{
+                 stale_input
+                 | id: Ecto.UUID.generate(),
+                   event_kind: :delete,
+                   revision: stale_input.revision + 1,
+                   event_fingerprint: String.duplicate("f", 64)
+               })
+             end) == {:ok, :ok}
 
       key = if unquote(kind) == :summary, do: "related", else: "rollups"
 
@@ -400,17 +399,16 @@ defmodule Ryker.Continuity.ContinuityRecallRegressionTest do
     end
 
     for kind <- [:summary, :rollup] do
-      assert [] = search!(kind, public_target, "ryker", @captured_query, "current_channel", 1)
+      assert search!(kind, public_target, "ryker", @captured_query, "current_channel", 1) == []
 
-      assert [] =
-               search!(
-                 kind,
-                 target("slack:TFOREIGN:CFOR"),
-                 "ryker",
-                 @captured_query,
-                 "workspace",
-                 1
-               )
+      assert search!(
+               kind,
+               target("slack:TFOREIGN:CFOR"),
+               "ryker",
+               @captured_query,
+               "workspace",
+               1
+             ) == []
     end
   end
 

@@ -7,10 +7,10 @@ defmodule Ryker.Waits.WaitFailuresMigrationTest do
   # One wait Ryker kept failing to resume held up every other (2026-10-04 review); it is now
   # marked and passed over, which the table refused.
   test "a wait can be marked as one Ryker failed to schedule or resume, and back" do
-    assert :ok = migrate_down(@version)
+    assert migrate_down(@version) == :ok
     refute check() =~ "resume_failed"
 
-    assert :ok = migrate_up(@version)
+    assert migrate_up(@version) == :ok
     assert check() =~ "'schedule_failed'"
     assert check() =~ "'resume_failed'"
     assert check() =~ "'cursor'"

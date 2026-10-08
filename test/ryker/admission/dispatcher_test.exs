@@ -25,7 +25,7 @@ defmodule Ryker.Admission.DispatcherTest do
     assert execution.result.entry.id == entry.id
     assert execution.result.entry.status == :decided
     assert execution.result.entry.lease_ref == nil
-    assert {:ok, :idle} = Dispatcher.run_once(options(stub))
+    assert Dispatcher.run_once(options(stub)) == {:ok, :idle}
   end
 
   test "a transient failure is durably deferred and retried without losing the input" do
@@ -43,7 +43,7 @@ defmodule Ryker.Admission.DispatcherTest do
     assert deferred.last_error_code == "coop_unavailable"
     assert DateTime.compare(deferred.next_attempt_at, DateTime.add(@now, 1, :second)) == :eq
 
-    assert {:ok, :idle} = Dispatcher.run_once(options(stub))
+    assert Dispatcher.run_once(options(stub)) == {:ok, :idle}
 
     ExecutorStub.succeed(stub)
     later_options = Keyword.put(options(stub), :now, fn -> DateTime.add(@now, 2, :second) end)
@@ -285,8 +285,7 @@ defmodule Ryker.Admission.DispatcherTest do
     assert {:ok, deferred} = Inbox.fetch(input_ref)
     assert Map.fetch!(deferred, :execution_generation) == 2
 
-    assert {:ok, :idle} =
-             Dispatcher.run_once(real_options(fake, DateTime.add(@now, 2, :second)))
+    assert Dispatcher.run_once(real_options(fake, DateTime.add(@now, 2, :second))) == {:ok, :idle}
 
     assert FakeAPI.state(fake).submit_count == 1
     assert {:ok, _rearmed} = Inbox.rearm(input_ref)
@@ -341,7 +340,7 @@ defmodule Ryker.Admission.DispatcherTest do
       assert blocked.execution_generation == 2
       assert blocked.last_error_code == code
       assert blocked.last_error_detail =~ detail
-      assert {:ok, :idle} = Dispatcher.run_once(options(stub))
+      assert Dispatcher.run_once(options(stub)) == {:ok, :idle}
     end
   end
 
@@ -442,7 +441,7 @@ defmodule Ryker.Admission.DispatcherTest do
       assert waiting.execution_generation == 2
 
       # Nothing was posted or started for it, and nothing waits for a person.
-      assert :error = Episodes.fetch_by_key("ingress-input:#{entry.id}")
+      assert Episodes.fetch_by_key("ingress-input:#{entry.id}") == :error
       assert FailureProjection.admission(input_ref) == :not_found
 
       assert {:ok, {:decided, execution}} =
@@ -562,8 +561,7 @@ defmodule Ryker.Admission.DispatcherTest do
     assert blocked.lease_ref == nil
     assert blocked.next_attempt_at == nil
 
-    assert {:ok, :idle} =
-             Dispatcher.run_once(real_options(fake, DateTime.add(@now, 2, :second)))
+    assert Dispatcher.run_once(real_options(fake, DateTime.add(@now, 2, :second))) == {:ok, :idle}
 
     state = FakeAPI.state(fake)
     assert state.submit_count == 1
@@ -610,8 +608,7 @@ defmodule Ryker.Admission.DispatcherTest do
     assert FakeAPI.state(fake).submit_count == 1
     assert FakeAPI.state(fake).closed
 
-    assert {:ok, :idle} =
-             Dispatcher.run_once(real_options(fake, DateTime.add(@now, 2, :second)))
+    assert Dispatcher.run_once(real_options(fake, DateTime.add(@now, 2, :second))) == {:ok, :idle}
   end
 
   test "a mismatched receipt remains blocked when its session close response is lost" do
@@ -634,8 +631,7 @@ defmodule Ryker.Admission.DispatcherTest do
     assert blocked.decision_ref == nil
     assert FakeAPI.state(fake).submit_count == 1
 
-    assert {:ok, :idle} =
-             Dispatcher.run_once(real_options(fake, DateTime.add(@now, 2, :second)))
+    assert Dispatcher.run_once(real_options(fake, DateTime.add(@now, 2, :second))) == {:ok, :idle}
   end
 
   test "an input made stale by a newer revision is terminally superseded after one model turn" do
@@ -697,8 +693,7 @@ defmodule Ryker.Admission.DispatcherTest do
     assert Enum.map(FakeAPI.state(fake).validations, & &1.verdict) == [:accept]
     assert Enum.all?(FakeAPI.state(fake).turn_keys, &String.contains?(&1, ":g1:"))
 
-    assert {:ok, :idle} =
-             Dispatcher.run_once(real_options(fake, DateTime.add(@now, 4, :second)))
+    assert Dispatcher.run_once(real_options(fake, DateTime.add(@now, 4, :second))) == {:ok, :idle}
   end
 
   # The decision is saved before routing closes its session, so a close
@@ -718,8 +713,7 @@ defmodule Ryker.Admission.DispatcherTest do
     assert state.submit_count == 1
     assert length(state.close_keys) == 1
 
-    assert {:ok, :idle} =
-             Dispatcher.run_once(real_options(fake, DateTime.add(@now, 2, :second)))
+    assert Dispatcher.run_once(real_options(fake, DateTime.add(@now, 2, :second))) == {:ok, :idle}
   end
 
   test "a healthy long turn renews its lease before another worker can reclaim it" do
@@ -884,7 +878,7 @@ defmodule Ryker.Admission.DispatcherTest do
     assert {:ok, {:deferred, ^input_ref, {:admission_rejected, :context_stale}}} =
              Dispatcher.run_once(real_options(fake, DateTime.add(@now, 2, :second)))
 
-    assert :error = Episodes.fetch_by_key("ingress-input:#{entry.id}")
+    assert Episodes.fetch_by_key("ingress-input:#{entry.id}") == :error
     assert {:ok, reclassified} = Inbox.fetch(input_ref)
     assert reclassified.execution_generation == 2
     assert reclassified.admission_context == nil

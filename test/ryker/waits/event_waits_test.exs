@@ -46,7 +46,7 @@ defmodule Ryker.Waits.EventWaitsTest do
     assert EventWaits.resume_due() == {:ok, :idle}
 
     Repo.delete!(fixture.subscription)
-    assert {:ok, 1} = EventSubscriptions.reconcile()
+    assert EventSubscriptions.reconcile() == {:ok, 1}
     restored = Repo.get_by!(EventSubscription, record_id: fixture.record.id)
     assert restored.status == :active
     assert restored.poll_after == nil
@@ -155,7 +155,7 @@ defmodule Ryker.Waits.EventWaitsTest do
     :ok = EventSubscriptions.subscribe_follow_ups()
     :ok = Episodes.subscribe_episode(episode_id)
 
-    assert {:ok, 1} = EventSubscriptions.reconcile()
+    assert EventSubscriptions.reconcile() == {:ok, 1}
     %{id: id} = Repo.get_by!(EventSubscription, record_id: fixture.record.id)
     assert_received {:follow_up_updated, ^id}
     assert_received {:episode_updated, ^episode_id}
@@ -387,7 +387,7 @@ defmodule Ryker.Waits.EventWaitsTest do
     assert %Record{status: :open, wait_error: "schedule_failed"} =
              Repo.get!(Record, unschedulable.record.id)
 
-    assert {:ok, 0} = EventSubscriptions.reconcile()
+    assert EventSubscriptions.reconcile() == {:ok, 0}
 
     set_trigger!(unschedulable, trigger)
 
@@ -395,7 +395,7 @@ defmodule Ryker.Waits.EventWaitsTest do
       set: [updated_at: DateTime.add(now, -601, :second)]
     )
 
-    assert {:ok, 1} = EventSubscriptions.reconcile()
+    assert EventSubscriptions.reconcile() == {:ok, 1}
     assert Repo.get!(Record, unschedulable.record.id).wait_error == nil
     assert Repo.get_by!(EventSubscription, record_id: unschedulable.record.id).status == :active
   end
@@ -481,10 +481,10 @@ defmodule Ryker.Waits.EventWaitsTest do
     due_at = fixture.subscription.poll_after
     Repo.delete!(fixture.subscription)
 
-    assert {:ok, 1} = EventSubscriptions.reconcile()
+    assert EventSubscriptions.reconcile() == {:ok, 1}
     restored = Repo.get_by!(EventSubscription, record_id: fixture.record.id)
     assert restored.poll_after == due_at
-    assert {:ok, 0} = EventSubscriptions.reconcile()
+    assert EventSubscriptions.reconcile() == {:ok, 0}
     assert Repo.get_by!(EventSubscription, record_id: fixture.record.id).id == restored.id
   end
 
@@ -568,7 +568,7 @@ defmodule Ryker.Waits.EventWaitsTest do
       set: [status: :dismissed]
     )
 
-    assert {:ok, 1} = EventSubscriptions.reconcile()
+    assert EventSubscriptions.reconcile() == {:ok, 1}
 
     assert EventWaits.resume_at(
              fixture.record.id,
@@ -718,7 +718,7 @@ defmodule Ryker.Waits.EventWaitsTest do
       set: [status: :dismissed]
     )
 
-    assert {:ok, 1} = EventSubscriptions.reconcile()
+    assert EventSubscriptions.reconcile() == {:ok, 1}
 
     subscription = Repo.get!(EventSubscription, fixture.subscription.id)
     assert subscription.status == :cancelled
@@ -741,7 +741,7 @@ defmodule Ryker.Waits.EventWaitsTest do
       set: [payload: payload]
     )
 
-    assert {:ok, 1} = EventSubscriptions.reconcile()
+    assert EventSubscriptions.reconcile() == {:ok, 1}
 
     assert Repo.get_by!(EventSubscription, record_id: fixture.record.id).poll_after ==
              fixture.deadline
@@ -755,10 +755,9 @@ defmodule Ryker.Waits.EventWaitsTest do
     assert EventSubscriptions.resolve_wait_in_transaction(fixture.record.ref, :unsupported) ==
              {:error, :event_subscription_not_found}
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               EventSubscriptions.resolve_wait_in_transaction("missing-wait", :cancelled)
-             end)
+    assert Repo.transaction(fn ->
+             EventSubscriptions.resolve_wait_in_transaction("missing-wait", :cancelled)
+           end) == {:ok, :ok}
   end
 
   defp active_source_wait!(suffix, now) do

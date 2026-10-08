@@ -90,7 +90,7 @@ defmodule Ryker.CoopFleet.RouterTest do
     assert {:ok, body, ^reference} = Bodies.fetch(root, command.id, :response)
     assert {:ok, ^bytes} = Bodies.read(body, key, byte_size(bytes))
 
-    assert :ok = Bodies.put(root, command.id, :request, reference, [bytes], key)
+    assert Bodies.put(root, command.id, :request, reference, [bytes], key) == :ok
 
     download =
       :get
@@ -378,8 +378,8 @@ defmodule Ryker.CoopFleet.RouterTest do
     as_source =
       put_in(job, ["source"], Map.merge(job["source"], Map.put(public, "submodules", [])))
 
-    assert {:error, :coop_worker_source_grant_not_authorized} =
-             SourceGrants.source_grant(certificate, job_ref, other)
+    assert SourceGrants.source_grant(certificate, job_ref, other) ==
+             {:error, :coop_worker_source_grant_not_authorized}
 
     {:ok, source_digest} = JobSpec.digest(as_source)
 
@@ -387,8 +387,8 @@ defmodule Ryker.CoopFleet.RouterTest do
     |> Ecto.Changeset.change(worker_job_document: as_source, worker_job_digest: source_digest)
     |> Repo.update!()
 
-    assert {:error, :coop_worker_source_grant_not_authorized} =
-             SourceGrants.source_grant(certificate, job_ref, public)
+    assert SourceGrants.source_grant(certificate, job_ref, public) ==
+             {:error, :coop_worker_source_grant_not_authorized}
   end
 
   test "only an actively leased job may request its exact GitHub source grant without a create command" do
@@ -534,12 +534,11 @@ defmodule Ryker.CoopFleet.RouterTest do
     |> Ecto.Changeset.change(worker_job_document: job, worker_job_digest: digest)
     |> Repo.update!()
 
-    assert {:error, :coop_worker_source_grant_not_authorized} =
-             SourceGrants.source_grant_authority(
-               certificate,
-               task_ref,
-               job_source
-             )
+    assert SourceGrants.source_grant_authority(
+             certificate,
+             task_ref,
+             job_source
+           ) == {:error, :coop_worker_source_grant_not_authorized}
 
     for source <- [
           Map.put(job_source, "repository_ref", "other"),
@@ -573,12 +572,11 @@ defmodule Ryker.CoopFleet.RouterTest do
         ] do
       Repo.get!(Placement, placement.id) |> Ecto.Changeset.change(changes) |> Repo.update!()
 
-      assert {:error, :coop_worker_source_grant_not_authorized} =
-               SourceGrants.source_grant_authority(
-                 certificate,
-                 job_ref,
-                 job_source
-               )
+      assert SourceGrants.source_grant_authority(
+               certificate,
+               job_ref,
+               job_source
+             ) == {:error, :coop_worker_source_grant_not_authorized}
 
       Repo.get!(Placement, placement.id)
       |> Ecto.Changeset.change(state: :active, lease_expires_at: placement.lease_expires_at)
@@ -641,7 +639,7 @@ defmodule Ryker.CoopFleet.RouterTest do
     |> Repo.update!()
 
     send(minter, :complete_source_token)
-    assert {:error, :coop_worker_source_grant_not_authorized} = Task.await(task)
+    assert Task.await(task) == {:error, :coop_worker_source_grant_not_authorized}
     Repo.get!(Placement, placement.id) |> Ecto.Changeset.change(state: :active) |> Repo.update!()
 
     # GitHub busy or silent may answer the worker's next try, so the worker hears that it
@@ -650,24 +648,23 @@ defmodule Ryker.CoopFleet.RouterTest do
     for answer <- [{:ok, %{status: 503, body: %{}}}, {:error, :timeout}] do
       {task, minter} = begin_mint.()
       send(minter, {:complete_source_token, answer})
-      assert {:error, :coop_worker_source_grant_unavailable} = Task.await(task)
+      assert Task.await(task) == {:error, :coop_worker_source_grant_unavailable}
     end
 
     # A token GitHub refused, it refuses again.
     {task, minter} = begin_mint.()
     send(minter, {:complete_source_token, {:ok, %{status: 403, body: %{}}}})
-    assert {:error, :coop_worker_source_grant_not_authorized} = Task.await(task)
+    assert Task.await(task) == {:error, :coop_worker_source_grant_not_authorized}
 
     Repo.get!(Session, session.id)
     |> Ecto.Changeset.change(worker_job_digest: String.duplicate("f", 64))
     |> Repo.update!()
 
-    assert {:error, :coop_worker_source_grant_not_authorized} =
-             SourceGrants.source_grant_authority(
-               certificate,
-               job_ref,
-               job_source
-             )
+    assert SourceGrants.source_grant_authority(
+             certificate,
+             job_ref,
+             job_source
+           ) == {:error, :coop_worker_source_grant_not_authorized}
   end
 
   test "generic API checkpoint custody restores an authenticated body with no special transfer route" do
@@ -780,7 +777,7 @@ defmodule Ryker.CoopFleet.RouterTest do
                options
              )
 
-    assert :ok = Checkpoints.prepare_restore(restore, options)
+    assert Checkpoints.prepare_restore(restore, options) == :ok
 
     assert {:ok, %{"commands" => [wire]}} =
              ControlPlane.handle_poll_certificate(
@@ -804,8 +801,8 @@ defmodule Ryker.CoopFleet.RouterTest do
 
     changed = put_in(response, ["checkpoint", "candidate_tree_sha256"], String.duplicate("a", 64))
 
-    assert {:error, :checkpoint_not_authorized} =
-             Checkpoints.capture(command.session_id, command.idempotency_key, changed, options)
+    assert Checkpoints.capture(command.session_id, command.idempotency_key, changed, options) ==
+             {:error, :checkpoint_not_authorized}
   end
 
   defp assert_body_retention(root, live_id) do
@@ -819,7 +816,7 @@ defmodule Ryker.CoopFleet.RouterTest do
     File.ln_s!(Path.join(root, live_id), link)
     File.mkdir_p!(Path.join(root, "unrecognized"))
     File.touch!(Path.join(root, "unrecognized"), old)
-    assert :ok = Bodies.prune_orphans(root)
+    assert Bodies.prune_orphans(root) == :ok
     refute File.exists?(Path.join(root, orphan))
     assert File.dir?(Path.join(root, recent))
     assert File.dir?(Path.join(root, live_id))
@@ -845,7 +842,7 @@ defmodule Ryker.CoopFleet.RouterTest do
       })
 
     {result, _options, _response} = capture_checkpoint(command, checkpoint, bundle, certificate)
-    assert {:error, {:invalid_workspace_checkpoint_bundle, :secret}} = result
+    assert result == {:error, {:invalid_workspace_checkpoint_bundle, :secret}}
     assert Repo.aggregate(WorkspaceCheckpointTransfer, :count) == 0
   end
 

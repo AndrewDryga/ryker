@@ -77,7 +77,7 @@ defmodule Ryker.Retention.DataConcurrencyTest do
             :blocked -> Task.await(recorder, 5_000)
           end
 
-        assert {:error, :input_artifact_not_found} = result
+        assert result == {:error, :input_artifact_not_found}
         assert Repo.aggregate(Ryker.Ingress.Inbox.Entry, :count) == 0
       after
         tasks =
@@ -231,7 +231,7 @@ defmodule Ryker.Retention.DataConcurrencyTest do
         assert {:ok, %MemoryEntry{status: :deleted}} = Task.await(forget, 5_000)
 
         send(blocker.pid, :release)
-        assert {:ok, :ok} = Task.await(blocker, 5_000)
+        assert Task.await(blocker, 5_000) == {:ok, :ok}
         assert {:ok, %{}} = Task.await(pruner, 15_000)
       after
         send(blocker.pid, :release)

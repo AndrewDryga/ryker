@@ -52,10 +52,9 @@ defmodule Ryker.Knowledge.KnowledgeRetentionShapeTest do
       expired = retained!(schema, expired_sources, source)
       current = retained!(schema, current_sources, source)
 
-      assert {:ok, 1} =
-               Repo.transaction(fn ->
-                 KnowledgeRetention.prune_in_transaction(@retention_seconds)
-               end)
+      assert Repo.transaction(fn ->
+               KnowledgeRetention.prune_in_transaction(@retention_seconds)
+             end) == {:ok, 1}
 
       assert Repo.get!(schema, expired.id).state == %{"retention" => "pruned"}
       # Keep the audit identity, not up to 8 MiB of now-unused copied receipts.
@@ -99,10 +98,9 @@ defmodule Ryker.Knowledge.KnowledgeRetentionShapeTest do
       expired = retained!(schema, expired_sources, source)
       current = retained!(schema, current_sources, source)
 
-      assert {:ok, 1} =
-               Repo.transaction(fn ->
-                 KnowledgeRetention.prune_in_transaction(@retention_seconds)
-               end)
+      assert Repo.transaction(fn ->
+               KnowledgeRetention.prune_in_transaction(@retention_seconds)
+             end) == {:ok, 1}
 
       assert Repo.get!(schema, expired.id).state == %{"retention" => "pruned"}
 
@@ -139,10 +137,9 @@ defmodule Ryker.Knowledge.KnowledgeRetentionShapeTest do
       expired = retained!(schema, [Map.put(receipt, "retained_at", clock)], source)
       current = retained!(schema, current_sources, source)
 
-      assert {:ok, 1} =
-               Repo.transaction(fn ->
-                 KnowledgeRetention.prune_in_transaction(@retention_seconds)
-               end)
+      assert Repo.transaction(fn ->
+               KnowledgeRetention.prune_in_transaction(@retention_seconds)
+             end) == {:ok, 1}
 
       assert Repo.get!(schema, expired.id).state == %{"retention" => "pruned"}
 

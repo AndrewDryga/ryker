@@ -25,10 +25,10 @@ defmodule Ryker.Publication.RecheckParkedPullRequestsMigrationTest do
     # What the releases before the fix left after each first poll.
     park!(open, :open)
     park!(merged, :merged)
-    assert {:ok, nil} = Followups.claim_poll("migration:before", 60)
+    assert Followups.claim_poll("migration:before", 60) == {:ok, nil}
 
-    assert :ok = migrate_down(@version)
-    assert :ok = migrate_up(@version)
+    assert migrate_down(@version) == :ok
+    assert migrate_up(@version) == :ok
 
     assert {:ok, %{publication: %{id: due}}} = Followups.claim_poll("migration:after", 60)
     assert due == open.id

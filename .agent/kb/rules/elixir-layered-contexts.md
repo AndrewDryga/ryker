@@ -183,6 +183,30 @@ Not adopted, measured 2026-10-08:
   for one that rewrites rows, the test's transaction for one that changes a
   table's shape. Write the rows in the shape they had before the migration.
 
+## Tests
+
+Emisar's test rules Ryker follows (`elixir-layered-contexts.md` §7 there):
+
+- A fully known result is asserted with `==` (`assert Settings.fetch() ==
+  {:error, :not_found}`); `=` binds or matches part of a value, and a map
+  pattern or a float stays a match (`TestAssertKnownResult`).
+- The context of a test is an explicit `%{...}` pattern (`TestContextPattern`),
+  no `Process.sleep` synchronizes (`TestNoProcessSleep`), fixtures are named
+  per domain and never imported, and a read only tests make lives in
+  `Ryker.Inspectors`.
+- Logs are captured at the ExUnit boundary (`capture_log: true`), and the
+  code under test prints nothing else: git runs keep their errors and log one
+  line on failure, and a test remote serves partial clones as GitHub does.
+
+Not adopted, because Ryker's own test rules (CLAUDE.md) differ:
+
+- **A `describe "fun/arity"` per public function, in module order, with a
+  coverage test.** Ryker names each test after the invariant it holds and
+  groups tests by behaviour, which usually crosses several functions.
+- **No narrative comments in a test body.** Ryker asks every regression test
+  to record what it is holding shut and what the defect cost, so a reader
+  does not delete it as redundant.
+
 ## Phoenix safety
 
 - IL-14: no `String.to_atom/1` on outside input (none in `lib`).
@@ -223,6 +247,7 @@ Not adopted, measured 2026-10-08:
 - `WebNoNestedDomainCalls`: a web module calls a top-level context, never a
   module below one, in code or in a `~H` template.
 - `NoBoundTupleReturn`: no tuple bound only to be returned.
+- `TestAssertKnownResult`: a fully known result is asserted with `==`.
 - `NoBlankBetweenDirectives` with Credo's `StrictModuleLayout`: the module
   header's order and one block; `UtcNowTruncate` and
   `WrongTestFileExtension`, which Emisar enables too.

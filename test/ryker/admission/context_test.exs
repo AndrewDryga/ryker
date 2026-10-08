@@ -44,8 +44,8 @@ defmodule Ryker.Admission.ContextTest do
       | destination: %{context.input.destination | conversation_ref: "slack:TA6E21ABA08AF:COTHER"}
     }
 
-    assert {:error, {:invalid_admission_context_snapshot, :custom_instructions}} =
-             Context.restore(saved, other, entry, %{})
+    assert Context.restore(saved, other, entry, %{}) ==
+             {:error, {:invalid_admission_context_snapshot, :custom_instructions}}
 
     historical = Map.delete(saved, "custom_instructions")
     assert {:ok, old} = Context.restore(historical, context.input, entry, %{})
@@ -72,8 +72,8 @@ defmodule Ryker.Admission.ContextTest do
       "fact" => "Birthday is 12 March."
     }
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn -> People.learn_in_transaction([birthday], [told]) end)
+    assert Repo.transaction(fn -> People.learn_in_transaction([birthday], [told]) end) ==
+             {:ok, :ok}
 
     asking = record_input!(actor: alice, content: %{"text" => "hi!"})
     assert {:ok, context} = build_context(asking)
@@ -84,7 +84,7 @@ defmodule Ryker.Admission.ContextTest do
     assert use =~ "never repeat it to anyone else"
 
     saved = Context.snapshot(context)
-    assert {:ok, 1} = People.forget_person("slack:user:UALICE")
+    assert People.forget_person("slack:user:UALICE") == {:ok, 1}
     assert {:ok, restored} = Context.restore(saved, context.input, asking, %{})
 
     assert Context.for_model(restored)["person_asking"] ==
@@ -166,27 +166,25 @@ defmodule Ryker.Admission.ContextTest do
           %{"audience" => "direct", "ryker_user_ref" => String.duplicate("U", 257)},
           %{"audience" => "mention", "ryker_user_ref" => "UBOT", "authority" => "write"}
         ] do
-      assert {:error, {:invalid_admission_context_snapshot, :slack_addressing}} =
-               Context.restore(
-                 Map.put(snapshot, "slack_addressing", invalid),
-                 context.input,
-                 context.input_entry,
-                 %{}
-               )
+      assert Context.restore(
+               Map.put(snapshot, "slack_addressing", invalid),
+               context.input,
+               context.input_entry,
+               %{}
+             ) == {:error, {:invalid_admission_context_snapshot, :slack_addressing}}
     end
 
     other_input = %{context.input | source: %{kind: "webhook", ref: "other"}}
 
-    assert {:error, {:invalid_admission_context_snapshot, :slack_addressing}} =
-             Context.restore(
-               Map.put(snapshot, "slack_addressing", %{
-                 "audience" => "ambient",
-                 "ryker_user_ref" => "UBOT"
-               }),
-               other_input,
-               context.input_entry,
-               %{}
-             )
+    assert Context.restore(
+             Map.put(snapshot, "slack_addressing", %{
+               "audience" => "ambient",
+               "ryker_user_ref" => "UBOT"
+             }),
+             other_input,
+             context.input_entry,
+             %{}
+           ) == {:error, {:invalid_admission_context_snapshot, :slack_addressing}}
   end
 
   test "offers same-work and history candidates without inspecting provider text" do
@@ -543,10 +541,10 @@ defmodule Ryker.Admission.ContextTest do
                "work_class" => "standard"
              })
 
-    assert {:error,
-            {:admission_rejected, :relation_not_allowed,
-             allowed: [:history_only], submitted: :same_work}} =
-             Admission.validate(context, continuation)
+    assert Admission.validate(context, continuation) ==
+             {:error,
+              {:admission_rejected, :relation_not_allowed,
+               allowed: [:history_only], submitted: :same_work}}
 
     assert {:ok, unknown} =
              Decision.parse(%{
@@ -561,8 +559,8 @@ defmodule Ryker.Admission.ContextTest do
                "work_class" => "standard"
              })
 
-    assert {:error, {:admission_rejected, :unknown_candidate}} =
-             Admission.validate(context, unknown)
+    assert Admission.validate(context, unknown) ==
+             {:error, {:admission_rejected, :unknown_candidate}}
   end
 
   test "refuses to build a second model context after an input is decided" do
@@ -589,7 +587,7 @@ defmodule Ryker.Admission.ContextTest do
       ]
     )
 
-    assert {:error, {:input_already_decided, "decision-1"}} = build_context(entry)
+    assert build_context(entry) == {:error, {:input_already_decided, "decision-1"}}
   end
 
   test "returns the durable reason when an input is already blocked" do
@@ -604,9 +602,10 @@ defmodule Ryker.Admission.ContextTest do
                "Coop cannot prove whether the mutation was accepted"
              )
 
-    assert {:error,
-            {:input_blocked, "operation_uncertain",
-             "Coop cannot prove whether the mutation was accepted"}} = build_context(blocked)
+    assert build_context(blocked) ==
+             {:error,
+              {:input_blocked, "operation_uncertain",
+               "Coop cannot prove whether the mutation was accepted"}}
   end
 
   test "candidate history fetches only chronological first and latest inputs" do
@@ -714,65 +713,59 @@ defmodule Ryker.Admission.ContextTest do
     assert Context.for_model(restored) == Context.for_model(context)
     assert Context.snapshot(restored) == snapshot
 
-    assert {:error, {:invalid_admission_context_snapshot, :episode_ids}} =
-             Context.episode_ids(%{"candidates" => [%{"episode_id" => "not-a-uuid"}]})
+    assert Context.episode_ids(%{"candidates" => [%{"episode_id" => "not-a-uuid"}]}) ==
+             {:error, {:invalid_admission_context_snapshot, :episode_ids}}
 
-    assert {:error, {:invalid_admission_context_snapshot, :episode_ids}} =
-             Context.episode_ids(:not_a_snapshot)
+    assert Context.episode_ids(:not_a_snapshot) ==
+             {:error, {:invalid_admission_context_snapshot, :episode_ids}}
 
-    assert {:error, {:invalid_admission_context_snapshot, :episode_ids}} =
-             Context.episode_ids(%{"candidates" => [:not_a_candidate]})
+    assert Context.episode_ids(%{"candidates" => [:not_a_candidate]}) ==
+             {:error, {:invalid_admission_context_snapshot, :episode_ids}}
 
-    assert {:error, {:invalid_admission_context_snapshot, :document}} =
-             Context.restore(
-               Map.put(snapshot, "unexpected", true),
-               context.input,
-               context.input_entry,
-               %{episode.id => episode}
-             )
+    assert Context.restore(
+             Map.put(snapshot, "unexpected", true),
+             context.input,
+             context.input_entry,
+             %{episode.id => episode}
+           ) == {:error, {:invalid_admission_context_snapshot, :document}}
 
-    assert {:error, {:invalid_admission_context_snapshot, :built_at}} =
-             Context.restore(
-               Map.put(snapshot, "built_at", "not-a-date"),
-               context.input,
-               context.input_entry,
-               %{episode.id => episode}
-             )
+    assert Context.restore(
+             Map.put(snapshot, "built_at", "not-a-date"),
+             context.input,
+             context.input_entry,
+             %{episode.id => episode}
+           ) == {:error, {:invalid_admission_context_snapshot, :built_at}}
 
-    assert {:error, {:invalid_admission_context_snapshot, :built_at}} =
-             Context.restore(
-               Map.put(snapshot, "built_at", 1),
-               context.input,
-               context.input_entry,
-               %{episode.id => episode}
-             )
+    assert Context.restore(
+             Map.put(snapshot, "built_at", 1),
+             context.input,
+             context.input_entry,
+             %{episode.id => episode}
+           ) == {:error, {:invalid_admission_context_snapshot, :built_at}}
 
-    assert {:error, {:invalid_admission_context_snapshot, :candidates}} =
-             Context.restore(
-               snapshot,
-               context.input,
-               context.input_entry,
-               %{}
-             )
+    assert Context.restore(
+             snapshot,
+             context.input,
+             context.input_entry,
+             %{}
+           ) == {:error, {:invalid_admission_context_snapshot, :candidates}}
 
-    assert {:error, {:invalid_admission_context_snapshot, :candidates}} =
-             Context.restore(
-               Map.put(snapshot, "candidates", :not_a_candidate_list),
-               context.input,
-               context.input_entry,
-               %{}
-             )
+    assert Context.restore(
+             Map.put(snapshot, "candidates", :not_a_candidate_list),
+             context.input,
+             context.input_entry,
+             %{}
+           ) == {:error, {:invalid_admission_context_snapshot, :candidates}}
 
-    assert {:error, {:invalid_admission_context_snapshot, :document}} =
-             Context.restore(snapshot, context.input, context.input_entry, :not_an_episode_map)
+    assert Context.restore(snapshot, context.input, context.input_entry, :not_an_episode_map) ==
+             {:error, {:invalid_admission_context_snapshot, :document}}
 
-    assert {:error, {:invalid_admission_context_snapshot, :candidate_messages}} =
-             Context.restore(
-               Map.put(snapshot, "candidate_messages", [%{"message_ref" => 1}]),
-               context.input,
-               context.input_entry,
-               %{episode.id => episode}
-             )
+    assert Context.restore(
+             Map.put(snapshot, "candidate_messages", [%{"message_ref" => 1}]),
+             context.input,
+             context.input_entry,
+             %{episode.id => episode}
+           ) == {:error, {:invalid_admission_context_snapshot, :candidate_messages}}
   end
 
   # A route in an environment with several repositories lists them for the
@@ -842,13 +835,12 @@ defmodule Ryker.Admission.ContextTest do
           [%{"ref" => "billing"}, %{"ref" => "billing"}],
           [%{"ref" => "billing"}]
         ] do
-      assert {:error, {:invalid_admission_context_snapshot, :repository_choices}} =
-               Context.restore(
-                 Map.put(snapshot, "repository_choices", malformed),
-                 context.input,
-                 entry,
-                 %{}
-               )
+      assert Context.restore(
+               Map.put(snapshot, "repository_choices", malformed),
+               context.input,
+               entry,
+               %{}
+             ) == {:error, {:invalid_admission_context_snapshot, :repository_choices}}
     end
 
     # One repository, or none, leaves nothing to choose.

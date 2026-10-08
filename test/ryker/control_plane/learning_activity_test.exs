@@ -70,7 +70,7 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
     assert LearningActivity.project(%{}).state == :starting
     assert render(%{}) =~ "Learning is starting"
 
-    assert :ok = Ryker.Settings.record_application(installation.revision, :ok)
+    assert Ryker.Settings.record_application(installation.revision, :ok) == :ok
     assert LearningActivity.project(%{}).state == :cannot_start
     assert render(%{}) =~ "Learning can&#39;t start"
 
@@ -115,8 +115,8 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
       "expected_version" => 0
     }
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn -> KnowledgeFixtures.record_topic(old, proposal, []) end)
+    assert Repo.transaction(fn -> KnowledgeFixtures.record_topic(old, proposal, []) end) ==
+             {:ok, :ok}
 
     topic = Repo.one!(ConversationKnowledge)
 
@@ -970,8 +970,8 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
       "expected_version" => 0
     }
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn -> KnowledgeFixtures.record_topic(old, proposal, []) end)
+    assert Repo.transaction(fn -> KnowledgeFixtures.record_topic(old, proposal, []) end) ==
+             {:ok, :ok}
 
     KnowledgeFixtures.revoke!(old)
     Repo.one!(ConversationKnowledge)

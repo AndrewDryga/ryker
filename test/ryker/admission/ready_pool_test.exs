@@ -31,6 +31,6 @@ defmodule Ryker.Admission.ReadyPoolTest do
                2
            end)
 
-    assert :ok = stop_supervised(ReadyPool)
+    assert stop_supervised(ReadyPool) == :ok
   end
 end

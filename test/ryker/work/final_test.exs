@@ -45,33 +45,30 @@ defmodule Ryker.Work.FinalTest do
   end
 
   test "delivery shape is exact and rejects hidden fallback prose" do
-    assert {:error, {:invalid_work_final, :delivery_shape}} =
-             Final.parse(%{
-               "decision_reason" => "Do not send.",
-               "delivery" => "reply",
-               "message" => "Visible answer.",
-               "outcome" => empty_outcome()
-             })
+    assert Final.parse(%{
+             "decision_reason" => "Do not send.",
+             "delivery" => "reply",
+             "message" => "Visible answer.",
+             "outcome" => empty_outcome()
+           }) == {:error, {:invalid_work_final, :delivery_shape}}
 
-    assert {:error, {:invalid_work_final, :decision_reason}} =
-             Final.parse(%{
-               "decision_reason" => "   ",
-               "delivery" => "none",
-               "message" => nil,
-               "outcome" => empty_outcome()
-             })
+    assert Final.parse(%{
+             "decision_reason" => "   ",
+             "delivery" => "none",
+             "message" => nil,
+             "outcome" => empty_outcome()
+           }) == {:error, {:invalid_work_final, :decision_reason}}
 
-    assert {:error, {:invalid_work_final, :state_requires_visible_reply}} =
-             Final.parse(%{
-               "decision_reason" => "Waiting is already visible elsewhere.",
-               "delivery" => "none",
-               "message" => nil,
-               "outcome" => %{
-                 "artifact_refs" => [],
-                 "record_refs" => ["record:wait:1"],
-                 "state" => "waiting_for_input"
-               }
-             })
+    assert Final.parse(%{
+             "decision_reason" => "Waiting is already visible elsewhere.",
+             "delivery" => "none",
+             "message" => nil,
+             "outcome" => %{
+               "artifact_refs" => [],
+               "record_refs" => ["record:wait:1"],
+               "state" => "waiting_for_input"
+             }
+           }) == {:error, {:invalid_work_final, :state_requires_visible_reply}}
   end
 
   test "the audited silence reason accepts 240 Unicode characters and rejects 241" do
@@ -82,7 +79,7 @@ defmodule Ryker.Work.FinalTest do
     assert {:ok, _validated} = JSV.validate(accepted, schema)
     assert {:ok, _final} = Final.parse(accepted)
     assert {:error, _reason} = JSV.validate(rejected, schema)
-    assert {:error, {:invalid_work_final, :decision_reason}} = Final.parse(rejected)
+    assert Final.parse(rejected) == {:error, {:invalid_work_final, :decision_reason}}
   end
 
   # Episodes had no name, so every list and candidate card fell back to the
@@ -138,7 +135,7 @@ defmodule Ryker.Work.FinalTest do
     duplicate = reply_document("Done.")
     duplicate = put_in(duplicate, ["outcome", "record_refs"], ["record:1", "record:1"])
 
-    assert {:error, {:invalid_work_final, :record_refs}} = Final.parse(duplicate)
+    assert Final.parse(duplicate) == {:error, {:invalid_work_final, :record_refs}}
 
     too_many = reply_document("Done.")
 
@@ -149,7 +146,7 @@ defmodule Ryker.Work.FinalTest do
         Enum.map(1..6, &"artifact:#{&1}")
       )
 
-    assert {:error, {:invalid_work_final, :artifact_refs}} = Final.parse(too_many)
+    assert Final.parse(too_many) == {:error, {:invalid_work_final, :artifact_refs}}
   end
 
   test "the final parser rejects malformed envelope and enum fields" do

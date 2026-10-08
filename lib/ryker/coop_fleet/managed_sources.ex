@@ -11,6 +11,7 @@ defmodule Ryker.CoopFleet.ManagedSources do
   alias Ryker.CoopFleet.Protocol
   alias Ryker.GitHub
   alias Ryker.Settings
+  alias Ryker.Text
   alias Ryker.Work
   require Logger
 
@@ -743,12 +744,30 @@ defmodule Ryker.CoopFleet.ManagedSources do
     end
   end
 
+  # A command whose output Ryker does not read takes its errors with it, so a
+  # failure is one log line here instead of raw text on the container's
+  # stderr.
   defp git(git, directory, arguments, token) do
-    case git_output(git, directory, arguments, token) do
-      {:ok, _output} -> :ok
-      {:error, reason} -> {:error, reason}
+    with {:ok, port} <- open_git(git, directory, arguments, token, [:stderr_to_stdout]) do
+      deadline = System.monotonic_time(:millisecond) + git.timeout_ms
+
+      case await_git(port, os_pid(port), deadline, "", &collect_bounded/2) do
+        {:ok, _output} ->
+          :ok
+
+        {:error, reason, output} ->
+          Logger.warning("git #{hd(arguments)} failed: #{first_line(output)}")
+          {:error, reason}
+      end
     end
   end
+
+  defp collect_bounded(acc, {:cont, data}) when byte_size(acc) < 4_096, do: acc <> data
+  defp collect_bounded(acc, {:cont, _data}), do: acc
+  defp collect_bounded(acc, _done_or_halt), do: acc
+
+  defp first_line(output),
+    do: output |> String.split("\n", trim: true) |> List.first("no output") |> Text.cut(240)
 
   defp git_output(git, directory, arguments, token) do
     with {:ok, output} <- git_raw(git, directory, arguments, token),
@@ -760,14 +779,18 @@ defmodule Ryker.CoopFleet.ManagedSources do
       {:ok, port} ->
         {initial, collect} = Collectable.into(into)
         deadline = System.monotonic_time(:millisecond) + git.timeout_ms
-        await_git(port, os_pid(port), deadline, initial, collect)
+
+        case await_git(port, os_pid(port), deadline, initial, collect) do
+          {:ok, output} -> {:ok, output}
+          {:error, reason, _output} -> {:error, reason}
+        end
 
       {:error, reason} ->
         {:error, reason}
     end
   end
 
-  defp open_git(git, directory, arguments, token) do
+  defp open_git(git, directory, arguments, token, extra_options \\ []) do
     arguments = [
       "--no-replace-objects",
       "-c",
@@ -785,14 +808,9 @@ defmodule Ryker.CoopFleet.ManagedSources do
       "http.lowSpeedTime=60" | arguments
     ]
 
-    options = [
-      :binary,
-      :exit_status,
-      :hide,
-      :use_stdio,
-      args: arguments,
-      env: port_environment(token)
-    ]
+    options =
+      [:binary, :exit_status, :hide, :use_stdio | extra_options] ++
+        [args: arguments, env: port_environment(token)]
 
     options = if directory, do: [{:cd, directory} | options], else: options
     {:ok, Port.open({:spawn_executable, git.executable}, options)}
@@ -811,13 +829,11 @@ defmodule Ryker.CoopFleet.ManagedSources do
         {:ok, collect.(acc, :done)}
 
       {^port, {:exit_status, _status}} ->
-        collect.(acc, :halt)
-        {:error, :git}
+        {:error, :git, collect.(acc, :halt)}
     after
       remaining ->
         stop_git(port, os_pid)
-        collect.(acc, :halt)
-        {:error, :git_timeout}
+        {:error, :git_timeout, collect.(acc, :halt)}
     end
   end
 
@@ -869,7 +885,8 @@ defmodule Ryker.CoopFleet.ManagedSources do
     ChildEnvironment.port([
       {"GIT_CONFIG_GLOBAL", "/dev/null"},
       {"GIT_CONFIG_NOSYSTEM", "1"},
-      {"GIT_TEMPLATE_DIR", "/dev/null"},
+      # Empty: no templates, where /dev/null warned on every init.
+      {"GIT_TEMPLATE_DIR", ""},
       {"GIT_TERMINAL_PROMPT", "0"},
       {"GIT_CONFIG_COUNT", if(token, do: "1", else: "0")},
       {"GIT_CONFIG_KEY_0", "http.#{GitHub.web_url()}/.extraheader"},

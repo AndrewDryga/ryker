@@ -11,12 +11,12 @@ defmodule Ryker.Slack.DropTaskCardRenderedOfferRefMigrationTest do
   # (2026-10-04 review). The check that named it is rebuilt without it, so the
   # test holds every other clause of the check where it was.
   test "a task card loses the retired offer column and nothing else in its check" do
-    assert :ok = migrate_down(@version)
+    assert migrate_down(@version) == :ok
     assert "rendered_publication_offer_ref" in columns()
     before = check()
     assert before =~ @offer_clause
 
-    assert :ok = migrate_up(@version)
+    assert migrate_up(@version) == :ok
     refute "rendered_publication_offer_ref" in columns()
     assert check() == String.replace(before, @offer_clause, "")
   end

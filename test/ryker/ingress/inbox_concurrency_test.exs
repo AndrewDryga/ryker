@@ -359,8 +359,8 @@ defmodule Ryker.Ingress.InboxConcurrencyTest do
       "expected_version" => 0
     }
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn -> KnowledgeFixtures.record_topic(decided, proposal, []) end)
+    assert Repo.transaction(fn -> KnowledgeFixtures.record_topic(decided, proposal, []) end) ==
+             {:ok, :ok}
 
     Repo.one!(
       from(topic in ConversationKnowledge,

@@ -317,7 +317,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
     {:ok, view, _html} = open("/settings/advanced")
     assert has_element?(view, ".page-feedback", "Applying the saved settings")
 
-    assert :ok = Settings.record_application(snapshot.installation.revision, :ok)
+    assert Settings.record_application(snapshot.installation.revision, :ok) == :ok
 
     assert shows?(fn ->
              not has_element?(view, ".page-feedback", "Applying the saved settings")
@@ -353,7 +353,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
   # caught up, so the notice blinked for as long as setup ran.
   test "setup recording its progress never reads as a save being applied" do
     assert {:ok, snapshot} = Settings.initialize(@actor)
-    assert :ok = Settings.record_application(snapshot.installation.revision, :ok)
+    assert Settings.record_application(snapshot.installation.revision, :ok) == :ok
     {:ok, view, _html} = open("/integrations/emisar")
     refute has_element?(view, ".page-feedback", "Applying the saved settings")
 

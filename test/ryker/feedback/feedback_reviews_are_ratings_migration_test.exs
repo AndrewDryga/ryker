@@ -9,11 +9,11 @@ defmodule Ryker.Feedback.FeedbackReviewsAreRatingsMigrationTest do
   # table, the signal and the Feedback page kept a value set and a category only they could
   # fill (2026-10-04 review).
   test "a feedback review is a rating, and rolling back accepts an ending again" do
-    assert :ok = migrate_down(@version)
+    assert migrate_down(@version) == :ok
     assert "reviewed" in allowed(~r/category = ANY \(ARRAY\[([^\]]*)\]/)
     assert allowed(@reviews) == ~w(complete cancelled good needs_work)
 
-    assert :ok = migrate_up(@version)
+    assert migrate_up(@version) == :ok
     refute "reviewed" in allowed(~r/category = ANY \(ARRAY\[([^\]]*)\]/)
     assert allowed(@reviews) == ~w(good needs_work)
   end

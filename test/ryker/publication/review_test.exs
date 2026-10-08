@@ -19,11 +19,10 @@ defmodule Ryker.Publication.ReviewTest do
     refute Map.has_key?(retained, "source")
     assert Review.draft_shareable?(retained)
 
-    assert {:error, {:invalid_publication_review, :fields}} =
-             Review.prepare(Map.put(document, "unknown", true), %{
-               revision: 7,
-               session_id: "session-review"
-             })
+    assert Review.prepare(Map.put(document, "unknown", true), %{
+             revision: 7,
+             session_id: "session-review"
+           }) == {:error, {:invalid_publication_review, :fields}}
   end
 
   # Coop now says of every review what its gate ran and how much of its output
@@ -62,8 +61,8 @@ defmodule Ryker.Publication.ReviewTest do
           %{"bytes" => 1, "complete" => true, "command" => ["./run", 7]},
           %{"bytes" => 1, "complete" => true, "stdout" => "hidden"}
         ] do
-      assert {:error, {:invalid_publication_review, :gate_output}} =
-               Review.prepare(Map.put(red, "gate_output", output), expected)
+      assert Review.prepare(Map.put(red, "gate_output", output), expected) ==
+               {:error, {:invalid_publication_review, :gate_output}}
     end
   end
 

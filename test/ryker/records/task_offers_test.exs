@@ -381,12 +381,12 @@ defmodule Ryker.Records.TaskOffersTest do
 
     refute stored.lease_ref
 
-    assert {:ok, :idle} = TaskCardWorker.run_once(options)
+    assert TaskCardWorker.run_once(options) == {:ok, :idle}
     assert Agent.get(agent, &length(&1.updates)) == 1
 
     assert {:ok, claim} = Custody.claim_next("task-card-progress", 60, :work)
     assert claim.episode.id == confirmation.episode.id
-    assert :ok = KnowledgeSnapshot.expose(claim, [])
+    assert KnowledgeSnapshot.expose(claim, []) == :ok
 
     assert {:ok, _progress} =
              Records.create(Records.token(claim.turn), "task-progress", "progress", %{
@@ -425,7 +425,7 @@ defmodule Ryker.Records.TaskOffersTest do
   test "task cards explain waits, terminal work, and blocked custody from durable state" do
     waiting = confirmed_card!("waiting")
     assert {:ok, waiting_claim} = Custody.claim_next("task-card:waiting", 60, :work)
-    assert :ok = KnowledgeSnapshot.expose(waiting_claim, [])
+    assert KnowledgeSnapshot.expose(waiting_claim, []) == :ok
 
     assert {:ok, question} =
              Records.create(
@@ -1044,7 +1044,7 @@ defmodule Ryker.Records.TaskOffersTest do
   test "task cards expose event verification and stop-in-progress without losing their thread" do
     event_wait = confirmed_card!("event-record")
     assert {:ok, claim} = Custody.claim_next("task-card:event-record", 60, :work)
-    assert :ok = KnowledgeSnapshot.expose(claim, [])
+    assert KnowledgeSnapshot.expose(claim, []) == :ok
 
     deadline = ~U[2099-08-28 13:00:00.000000Z]
 
@@ -1119,7 +1119,7 @@ defmodule Ryker.Records.TaskOffersTest do
 
     # These existing structural task fixtures disclose no external knowledge;
     # attest that explicitly instead of treating missing lineage as authority.
-    assert :ok = KnowledgeSnapshot.expose(claim, [])
+    assert KnowledgeSnapshot.expose(claim, []) == :ok
 
     records =
       payloads
@@ -1297,7 +1297,7 @@ defmodule Ryker.Records.TaskOffersTest do
     fixture = confirmed_card!(suffix)
     assert {:ok, claim} = Custody.claim_next("task-card:#{suffix}", 60, :work)
     assert claim.episode.id == fixture.episode.id
-    assert :ok = KnowledgeSnapshot.expose(claim, [])
+    assert KnowledgeSnapshot.expose(claim, []) == :ok
 
     assert {:ok, _requested} =
              Custody.request_block(
@@ -1353,7 +1353,7 @@ defmodule Ryker.Records.TaskOffersTest do
 
     assert {:ok, claim} = Custody.claim_next("task-card:#{suffix}", 60, :work)
     assert claim.episode.id == fixture.episode.id
-    assert :ok = KnowledgeSnapshot.expose(claim, [])
+    assert KnowledgeSnapshot.expose(claim, []) == :ok
 
     assert {:ok, submission} =
              Submission.new(

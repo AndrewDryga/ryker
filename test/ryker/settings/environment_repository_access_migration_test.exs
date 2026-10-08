@@ -35,7 +35,7 @@ defmodule Ryker.Settings.EnvironmentRepositoryAccessMigrationTest do
         @actor
       )
 
-    assert :ok = migrate_down(@version)
+    assert migrate_down(@version) == :ok
     assert Enum.all?(rows(), &(not Map.has_key?(&1, "access")))
 
     SQL.query!(
@@ -45,7 +45,7 @@ defmodule Ryker.Settings.EnvironmentRepositoryAccessMigrationTest do
       []
     )
 
-    assert :ok = migrate_up(@version)
+    assert migrate_up(@version) == :ok
 
     assert Enum.map(rows(), &{&1["repository_ref"], &1["position"], &1["access"]}) == [
              {"docs", 0, "read_write"},

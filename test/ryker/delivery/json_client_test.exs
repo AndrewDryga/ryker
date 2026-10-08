@@ -153,11 +153,11 @@ defmodule Ryker.Delivery.JSONClientTest do
     assert {:ok, client} = JSONClient.new(valid)
     assert {:ok, _long_poll_client} = JSONClient.new(%{valid | receive_timeout: 75_000})
 
-    assert {:error, {:invalid_delivery_json_request, :path}} =
-             JSONClient.request(client, :get, "https://attacker.test", nil, [])
+    assert JSONClient.request(client, :get, "https://attacker.test", nil, []) ==
+             {:error, {:invalid_delivery_json_request, :path}}
 
-    assert {:error, {:invalid_delivery_json_request, :method}} =
-             JSONClient.request(client, :delete, "/v1/example", nil, [])
+    assert JSONClient.request(client, :delete, "/v1/example", nil, []) ==
+             {:error, {:invalid_delivery_json_request, :method}}
 
     assert {:ok, unavailable} =
              JSONClient.new(%{valid | token_provider: fn -> {:error, :vault_unavailable} end})

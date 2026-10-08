@@ -22,7 +22,7 @@ defmodule Ryker.Retention.CustodyTest do
     assert claim.session.cleanup_status == :close_pending
     assert claim.session.cleanup_attempt_count == 1
     assert is_binary(claim.lease_ref)
-    assert {:ok, nil} = Ryker.Retention.Custody.claim_next("cleanup:b", 60)
+    assert Ryker.Retention.Custody.claim_next("cleanup:b", 60) == {:ok, nil}
 
     assert Repo.get!(Session, active.id).cleanup_status == :active
   end
@@ -46,7 +46,7 @@ defmodule Ryker.Retention.CustodyTest do
 
     assert {:ok, cleanup} = Ryker.Retention.Custody.claim_next("cleanup:replaced", 60)
     assert cleanup.session.id == replaced.id
-    assert {:ok, nil} = Ryker.Retention.Custody.claim_next("cleanup:current", 60)
+    assert Ryker.Retention.Custody.claim_next("cleanup:current", 60) == {:ok, nil}
     assert Repo.get!(Session, current.id).cleanup_status == :active
   end
 
@@ -66,7 +66,7 @@ defmodule Ryker.Retention.CustodyTest do
         do: {first.session, second.session},
         else: {second.session, first.session}
 
-    assert {:ok, 1} = Custody.release_worker_leases("cleanup:host-a")
+    assert Custody.release_worker_leases("cleanup:host-a") == {:ok, 1}
 
     released = Repo.get!(Session, mine.id)
     assert is_nil(released.cleanup_lease_ref)
@@ -105,11 +105,11 @@ defmodule Ryker.Retention.CustodyTest do
     assert {:ok, same_frozen} = Custody.freeze_close_revision(session.id, claim.lease_ref, 7)
     assert same_frozen.close_expected_revision == 7
 
-    assert {:error, {:retention_close_revision_conflict, 7}} =
-             Custody.freeze_close_revision(session.id, claim.lease_ref, 8)
+    assert Custody.freeze_close_revision(session.id, claim.lease_ref, 8) ==
+             {:error, {:retention_close_revision_conflict, 7}}
 
-    assert {:error, {:retention_generation_conflict, 1}} =
-             Custody.advance_close(session.id, claim.lease_ref, 2)
+    assert Custody.advance_close(session.id, claim.lease_ref, 2) ==
+             {:error, {:retention_generation_conflict, 1}}
 
     assert {:ok, advanced} = Custody.advance_close(session.id, claim.lease_ref, 1)
     assert advanced.close_generation == 2
@@ -118,8 +118,8 @@ defmodule Ryker.Retention.CustodyTest do
     assert {:ok, refrozen} = Custody.freeze_close_revision(session.id, claim.lease_ref, 8)
     assert refrozen.close_expected_revision == 8
 
-    assert {:error, :retention_lease_lost} =
-             Custody.freeze_close_revision(session.id, "stale", 8)
+    assert Custody.freeze_close_revision(session.id, "stale", 8) ==
+             {:error, :retention_lease_lost}
 
     assert {:ok, closed} = Custody.mark_closed(session.id, claim.lease_ref)
 
@@ -147,11 +147,11 @@ defmodule Ryker.Retention.CustodyTest do
     assert {:ok, _same_plan} =
              Custody.freeze_plan_revision(session.id, plan_claim.lease_ref, 8, false)
 
-    assert {:error, {:retention_plan_revision_conflict, 8}} =
-             Custody.freeze_plan_revision(session.id, plan_claim.lease_ref, 8, true)
+    assert Custody.freeze_plan_revision(session.id, plan_claim.lease_ref, 8, true) ==
+             {:error, {:retention_plan_revision_conflict, 8}}
 
-    assert {:error, {:retention_generation_conflict, 1}} =
-             Custody.advance_plan(session.id, plan_claim.lease_ref, 2)
+    assert Custody.advance_plan(session.id, plan_claim.lease_ref, 2) ==
+             {:error, {:retention_generation_conflict, 1}}
 
     plan = discard_plan(session.coop_session_id, 8, false, false)
     assert {:ok, prepared} = Plan.prepare(plan, session.coop_session_id, 8, false)
@@ -167,21 +167,19 @@ defmodule Ryker.Retention.CustodyTest do
     assert {:ok, discard_claim} =
              Custody.claim_next("cleanup:c", 60)
 
-    assert {:error, :retention_remote_session_mismatch} =
-             Custody.settle_discard(
-               session.id,
-               discard_claim.lease_ref,
-               "ryker:retention:discard:#{session.id}:g1",
-               "remote:wrong"
-             )
+    assert Custody.settle_discard(
+             session.id,
+             discard_claim.lease_ref,
+             "ryker:retention:discard:#{session.id}:g1",
+             "remote:wrong"
+           ) == {:error, :retention_remote_session_mismatch}
 
-    assert {:error, :retention_discard_operation_mismatch} =
-             Custody.settle_discard(
-               session.id,
-               discard_claim.lease_ref,
-               "wrong-operation",
-               session.coop_session_id
-             )
+    assert Custody.settle_discard(
+             session.id,
+             discard_claim.lease_ref,
+             "wrong-operation",
+             session.coop_session_id
+           ) == {:error, :retention_discard_operation_mismatch}
 
     assert {:ok, discarded} =
              Custody.settle_discard(
@@ -213,24 +211,24 @@ defmodule Ryker.Retention.CustodyTest do
     assert {:ok, bound_claim} = Custody.claim_next("cleanup:bound", 60)
     assert bound_claim.session.id == bound.id
 
-    assert {:error, :retention_remote_session_bound} =
-             Custody.settle_absent(bound.id, bound_claim.lease_ref)
+    assert Custody.settle_absent(bound.id, bound_claim.lease_ref) ==
+             {:error, :retention_remote_session_bound}
   end
 
   test "invalid cleanup identities never enter a lease transaction" do
-    assert {:error, {:invalid_retention_custody, :worker_ref}} = Custody.claim_next("", 60)
+    assert Custody.claim_next("", 60) == {:error, {:invalid_retention_custody, :worker_ref}}
 
-    assert {:error, {:invalid_retention_custody, :lease_seconds}} =
-             Custody.claim_next("worker", 0)
+    assert Custody.claim_next("worker", 0) ==
+             {:error, {:invalid_retention_custody, :lease_seconds}}
 
-    assert {:error, {:invalid_retention_custody, :uuid}} =
-             Custody.freeze_close_revision("not-a-uuid", "lease", 1)
+    assert Custody.freeze_close_revision("not-a-uuid", "lease", 1) ==
+             {:error, {:invalid_retention_custody, :uuid}}
 
-    assert {:error, {:invalid_retention_custody, :revision}} =
-             Custody.freeze_close_revision(Ecto.UUID.generate(), "lease", 0)
+    assert Custody.freeze_close_revision(Ecto.UUID.generate(), "lease", 0) ==
+             {:error, {:invalid_retention_custody, :revision}}
 
-    assert {:error, {:invalid_retention_custody, :plan}} =
-             Custody.store_plan(Ecto.UUID.generate(), "lease", nil, 21_600)
+    assert Custody.store_plan(Ecto.UUID.generate(), "lease", nil, 21_600) ==
+             {:error, {:invalid_retention_custody, :plan}}
   end
 
   test "dirty and unpublished unmerged plans are durably retained" do
@@ -318,12 +316,11 @@ defmodule Ryker.Retention.CustodyTest do
 
     assert Repo.aggregate(Ryker.Operator.RetentionAction, :count) == 1
 
-    assert {:error, :retention_operator_action_conflict} =
-             RetentionOperator.discard_unmerged(
-               session.external_ref,
-               "operator:local",
-               "retention-action:rearm:one"
-             )
+    assert RetentionOperator.discard_unmerged(
+             session.external_ref,
+             "operator:local",
+             "retention-action:rearm:one"
+           ) == {:error, :retention_operator_action_conflict}
   end
 
   # Cleanup custody ages a session from its last change by the database clock,
@@ -393,12 +390,11 @@ defmodule Ryker.Retention.CustodyTest do
                "retention-action:discard:unmerged"
              )
 
-    assert {:error, :retention_dirty_workspace} =
-             RetentionOperator.discard_unmerged(
-               dirty.external_ref,
-               "operator:local",
-               "retention-action:discard:dirty"
-             )
+    assert RetentionOperator.discard_unmerged(
+             dirty.external_ref,
+             "operator:local",
+             "retention-action:discard:dirty"
+           ) == {:error, :retention_dirty_workspace}
 
     assert Repo.get!(Session, dirty.id).cleanup_status == :retained
     assert Repo.get!(Session, dirty.id).retained_reason == "dirty"

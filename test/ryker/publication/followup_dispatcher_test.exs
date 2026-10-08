@@ -109,7 +109,7 @@ defmodule Ryker.Publication.FollowupDispatcherTest do
       dispatcher_options(effects)
       |> Keyword.update!(:executor_options, &Keyword.put(&1, :api, FailingStatusAPI))
 
-    assert {:ok, {:deferred, :github_unavailable}} = FollowupDispatcher.run_once(options)
+    assert FollowupDispatcher.run_once(options) == {:ok, {:deferred, :github_unavailable}}
 
     followup = Repo.get_by!(Ryker.Publication.Followup, publication_id: publication.id)
     assert followup.failure_count == 1

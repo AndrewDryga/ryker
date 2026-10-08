@@ -237,7 +237,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     github!()
     coop = coop!([answer_json()], turn_wait_polls: 2)
 
-    assert {:ok, :ready} = Onboarding.run("emisar", api: FakeGitHubRepository)
+    assert Onboarding.run("emisar", api: FakeGitHubRepository) == {:ok, :ready}
     assert repository().onboarding_state == :ready
     assert repository().source_commit == @head
 
@@ -312,7 +312,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
   test "a source preparation that outlasts the lease keeps the run" do
     github!()
     coop = coop!([answer_json()], turn_wait_polls: 2)
-    assert {:ok, :ready} = Onboarding.run("emisar", api: FakeGitHubRepository)
+    assert Onboarding.run("emisar", api: FakeGitHubRepository) == {:ok, :ready}
 
     results = drain(settings(coop, api: SlowPreparationAPI, lease_seconds: 1))
 
@@ -476,14 +476,14 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     coop = coop!([answer_json(), answer_json()])
     written!(coop)
 
-    assert {:ok, :requested} = RepositoryKnowledge.refresh("emisar", @actor)
+    assert RepositoryKnowledge.refresh("emisar", @actor) == {:ok, :requested}
     entry = Inspectors.repository_knowledge("emisar")
     assert {entry.phase, entry.requested_by} == {:write, @actor}
     assert entry.reason == "Someone asked for it on the Repositories page."
 
     # Asked again while it is under way, it is the same write.
     assert {:ok, _yielded} = Dispatcher.run_once(settings(coop))
-    assert {:ok, :already_writing} = RepositoryKnowledge.refresh("emisar", @actor)
+    assert RepositoryKnowledge.refresh("emisar", @actor) == {:ok, :already_writing}
 
     drain(settings(coop))
     assert length(FakeCoopAPI.state(coop).submissions) == 2
@@ -492,7 +492,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     assert applied_runs() == 2
     assert Inspectors.repository_knowledge("emisar").phase == :idle
 
-    assert {:error, :repository_not_found} = RepositoryKnowledge.refresh("missing", @actor)
+    assert RepositoryKnowledge.refresh("missing", @actor) == {:error, :repository_not_found}
   end
 
   # Review of the knowledge lane, 2026-09-28: every reason GitHub gave was
@@ -504,7 +504,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     github!()
     coop = coop!([answer_json(), answer_json()])
     written!(coop)
-    assert {:ok, :requested} = RepositoryKnowledge.refresh("emisar", @actor)
+    assert RepositoryKnowledge.refresh("emisar", @actor) == {:ok, :requested}
 
     FakeGitHubRepository.update(
       &%{&1 | errors: %{head: {:error, {:github_onboarding, :response}}}}
@@ -672,7 +672,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     coop = coop!([answer_json(), invented, invented])
     written = written!(coop)
 
-    assert {:ok, :requested} = RepositoryKnowledge.refresh("emisar", @actor)
+    assert RepositoryKnowledge.refresh("emisar", @actor) == {:ok, :requested}
     drain(settings(coop), 60)
 
     entry = Inspectors.repository_knowledge("emisar")
@@ -910,7 +910,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
 
   # Set up as onboarding leaves it, with its first check asked for.
   defp ready! do
-    assert {:ok, :ready} = Onboarding.run("emisar", api: FakeGitHubRepository)
+    assert Onboarding.run("emisar", api: FakeGitHubRepository) == {:ok, :ready}
   end
 
   # Set up and written by the model.

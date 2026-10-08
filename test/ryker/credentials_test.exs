@@ -35,8 +35,8 @@ defmodule Ryker.CredentialsTest do
     refute inspect(Repo.all(Event)) =~ @secret
     refute inspect(Repo.all(Event)) =~ replacement
 
-    assert :ok = Credentials.delete(:slack_bot, "primary", @actor)
-    assert {:error, :credential_missing} = Credentials.fetch(:slack_bot, "primary")
+    assert Credentials.delete(:slack_bot, "primary", @actor) == :ok
+    assert Credentials.fetch(:slack_bot, "primary") == {:error, :credential_missing}
     assert %{status: :missing} = Credentials.status(:slack_bot, "primary")
   end
 
@@ -44,7 +44,7 @@ defmodule Ryker.CredentialsTest do
     assert {:ok, _metadata} = Credentials.put(:emisar, "primary", @secret, @actor)
 
     Config.put_override(:credential_key, :binary.copy(<<22>>, 32))
-    assert {:error, :credential_decryption_failed} = Credentials.fetch(:emisar, "primary")
+    assert Credentials.fetch(:emisar, "primary") == {:error, :credential_decryption_failed}
     Config.put_override(:credential_key, :binary.copy(<<21>>, 32))
 
     from(credential in Credential,
@@ -52,7 +52,7 @@ defmodule Ryker.CredentialsTest do
     )
     |> Repo.update_all(set: [ciphertext: <<0, 1, 2, 3>>])
 
-    assert {:error, :credential_decryption_failed} = Credentials.fetch(:emisar, "primary")
+    assert Credentials.fetch(:emisar, "primary") == {:error, :credential_decryption_failed}
 
     assert {:ok, _metadata} = Credentials.put(:github_webhook, "primary", @secret, @actor)
 
@@ -61,8 +61,8 @@ defmodule Ryker.CredentialsTest do
     )
     |> Repo.update_all(set: [name: "relocated"])
 
-    assert {:error, :credential_decryption_failed} =
-             Credentials.fetch(:github_webhook, "relocated")
+    assert Credentials.fetch(:github_webhook, "relocated") ==
+             {:error, :credential_decryption_failed}
   end
 
   # Every stored secret is redaction material too: worker output is scanned
@@ -70,8 +70,8 @@ defmodule Ryker.CredentialsTest do
   # eight bytes, which cannot be told apart from ordinary text. One stored
   # five-character secret therefore stopped every later settings apply.
   test "a secret too short to redact from worker output is never stored" do
-    assert {:error, :credential_value_too_short} =
-             Credentials.put(:webhook, "grafana", "short", @actor)
+    assert Credentials.put(:webhook, "grafana", "short", @actor) ==
+             {:error, :credential_value_too_short}
 
     assert Credentials.fetch(:webhook, "grafana") == {:error, :credential_missing}
     assert {:ok, _metadata} = Credentials.put(:webhook, "grafana", "eight-ch", @actor)
@@ -126,7 +126,7 @@ defmodule Ryker.CredentialsTest do
   # a change, and the runtime reassembled every lane for it (2026-10-04
   # review).
   test "removing a credential that is not saved changes nothing and announces nothing" do
-    assert :ok = Credentials.subscribe()
+    assert Credentials.subscribe() == :ok
 
     result = Credentials.delete(:webhook, "never-saved", @actor)
 
@@ -136,16 +136,16 @@ defmodule Ryker.CredentialsTest do
   end
 
   test "a committed credential change tells the runtime to reassemble" do
-    assert :ok = Credentials.subscribe()
+    assert Credentials.subscribe() == :ok
 
     assert {:ok, _metadata} = Credentials.put(:slack_bot, "primary", @secret, @actor)
     assert_receive {:credentials_changed, :slack_bot, "primary"}
 
-    assert :ok = Credentials.delete(:slack_bot, "primary", @actor)
+    assert Credentials.delete(:slack_bot, "primary", @actor) == :ok
     assert_receive {:credentials_changed, :slack_bot, "primary"}
 
-    assert {:error, :credential_identity_invalid} =
-             Credentials.put(:unknown, "primary", @secret, @actor)
+    assert Credentials.put(:unknown, "primary", @secret, @actor) ==
+             {:error, :credential_identity_invalid}
 
     refute_receive {:credentials_changed, :unknown, "primary"}
   end

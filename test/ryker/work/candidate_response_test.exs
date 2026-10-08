@@ -71,8 +71,8 @@ defmodule Ryker.Work.CandidateResponseTest do
     assert {:ok, staged} = stage(work, nil, first, 1)
     original = responses(work)
 
-    assert {:error, :work_lease_lost} =
-             stage(%{work | lease_ref: "stale-lease"}, staged, second, 2)
+    assert stage(%{work | lease_ref: "stale-lease"}, staged, second, 2) ==
+             {:error, :work_lease_lost}
 
     assert responses(work) == original
     assert Repo.get!(Turn, work.turn.id).candidate == first["body"]
@@ -95,7 +95,7 @@ defmodule Ryker.Work.CandidateResponseTest do
         recorded_at: @old
       })
 
-    assert {:error, {:work_candidate_response_conflict, 2}} = stage(work, staged, second, 2)
+    assert stage(work, staged, second, 2) == {:error, {:work_candidate_response_conflict, 2}}
     assert Repo.get!(Turn, work.turn.id).candidate == first["body"]
     assert List.last(responses(work)) == conflict
   end
@@ -126,7 +126,7 @@ defmodule Ryker.Work.CandidateResponseTest do
     assert Enum.map(responses(work), & &1.body) == [first["body"], second["body"], first["body"]]
 
     too_large = response(first["body"] <> " ")
-    assert {:error, {:invalid_work_custody, :candidate}} = stage(work, latest, too_large, 4)
+    assert stage(work, latest, too_large, 4) == {:error, {:invalid_work_custody, :candidate}}
     assert length(responses(work)) == 3
   end
 
@@ -165,7 +165,7 @@ defmodule Ryker.Work.CandidateResponseTest do
     )
 
     original = responses(work)
-    assert {:error, :work_candidate_response_pruned} = stage(work, staged, first, 1)
+    assert stage(work, staged, first, 1) == {:error, :work_candidate_response_pruned}
     assert responses(work) == original
   end
 

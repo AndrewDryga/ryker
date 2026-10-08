@@ -40,7 +40,7 @@ defmodule Ryker.Transcription.LocalTest do
         whisper: recognizer(dir, "Words.")
       )
 
-    assert {:ok, "Words."} = Local.transcribe("ID3 bytes", options)
+    assert Local.transcribe("ID3 bytes", options) == {:ok, "Words."}
 
     arguments = dir |> Path.join("ffmpeg-arguments") |> File.read!() |> String.split("\n")
     input = Enum.find_index(arguments, &(&1 == "-i"))
@@ -62,7 +62,7 @@ defmodule Ryker.Transcription.LocalTest do
         whisper: recognizer(dir, "Words.")
       )
 
-    assert {:ok, "Words."} = Local.transcribe("ID3 bytes", options)
+    assert Local.transcribe("ID3 bytes", options) == {:ok, "Words."}
 
     arguments = dir |> Path.join("ffmpeg-arguments") |> File.read!() |> String.split("\n")
     input = Enum.find_index(arguments, &(&1 == "-i"))

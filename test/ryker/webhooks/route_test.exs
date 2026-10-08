@@ -31,10 +31,9 @@ defmodule Ryker.Webhooks.RouteTest do
     assert route.work_profile.policy == "webhook-read-only"
     assert route.work_profile.repository_ref == "owner/service"
 
-    assert {:error, {:invalid_work_profile, :policy_digest}} =
-             attributes({:bearer, Ryker.Secret.new("a-secret-token-long-enough")})
-             |> Map.put(:work_profile, %{profile | policy_digest: "untrusted"})
-             |> Route.new()
+    assert attributes({:bearer, Ryker.Secret.new("a-secret-token-long-enough")})
+           |> Map.put(:work_profile, %{profile | policy_digest: "untrusted"})
+           |> Route.new() == {:error, {:invalid_work_profile, :policy_digest}}
   end
 
   test "publication lifecycle authority is an exact bounded route scope" do
@@ -63,63 +62,57 @@ defmodule Ryker.Webhooks.RouteTest do
           %{scope | environments: ["production", "production"]},
           Map.put(scope, :extra, ["untrusted"])
         ] do
-      assert {:error, {:invalid_webhook_route, :publication_lifecycle}} =
-               attributes({:bearer, Ryker.Secret.new("a-secret-token-long-enough")})
-               |> Map.put(:publication_lifecycle, invalid)
-               |> Route.new()
+      assert attributes({:bearer, Ryker.Secret.new("a-secret-token-long-enough")})
+             |> Map.put(:publication_lifecycle, invalid)
+             |> Route.new() == {:error, {:invalid_webhook_route, :publication_lifecycle}}
     end
   end
 
   test "rejects weak credentials, extra fields, and malformed destinations" do
-    assert {:error, {:invalid_webhook_route, :auth}} =
-             Route.new(attributes({:bearer, Ryker.Secret.new("short")}))
+    assert Route.new(attributes({:bearer, Ryker.Secret.new("short")})) ==
+             {:error, {:invalid_webhook_route, :auth}}
 
-    assert {:error, {:invalid_webhook_route, :fields}} =
-             Route.new(
-               Map.put(
-                 attributes({:bearer, Ryker.Secret.new("a-secret-token-long-enough")}),
-                 :extra,
-                 true
-               )
+    assert Route.new(
+             Map.put(
+               attributes({:bearer, Ryker.Secret.new("a-secret-token-long-enough")}),
+               :extra,
+               true
              )
+           ) == {:error, {:invalid_webhook_route, :fields}}
 
-    assert {:error, {:invalid_webhook_route, :destination}} =
-             Route.new(
-               put_in(
-                 attributes({:bearer, Ryker.Secret.new("a-secret-token-long-enough")}),
-                 [:destination, :conversation_ref],
-                 ""
-               )
+    assert Route.new(
+             put_in(
+               attributes({:bearer, Ryker.Secret.new("a-secret-token-long-enough")}),
+               [:destination, :conversation_ref],
+               ""
              )
+           ) == {:error, {:invalid_webhook_route, :destination}}
 
-    assert {:error, {:invalid_webhook_route, :max_body_bytes}} =
-             Route.new(
-               Map.put(
-                 attributes({:bearer, Ryker.Secret.new("a-secret-token-long-enough")}),
-                 :max_body_bytes,
-                 10
-               )
+    assert Route.new(
+             Map.put(
+               attributes({:bearer, Ryker.Secret.new("a-secret-token-long-enough")}),
+               :max_body_bytes,
+               10
              )
+           ) == {:error, {:invalid_webhook_route, :max_body_bytes}}
 
-    assert {:error, {:invalid_webhook_route, :max_body_bytes}} =
-             Route.new(
-               Map.put(
-                 attributes({:bearer, Ryker.Secret.new("a-secret-token-long-enough")}),
-                 :max_body_bytes,
-                 1_048_577
-               )
+    assert Route.new(
+             Map.put(
+               attributes({:bearer, Ryker.Secret.new("a-secret-token-long-enough")}),
+               :max_body_bytes,
+               1_048_577
              )
+           ) == {:error, {:invalid_webhook_route, :max_body_bytes}}
 
-    assert {:error, {:invalid_webhook_route, :max_clock_skew_seconds}} =
-             Route.new(
-               Map.put(
-                 attributes({:bearer, Ryker.Secret.new("a-secret-token-long-enough")}),
-                 :max_clock_skew_seconds,
-                 3_601
-               )
+    assert Route.new(
+             Map.put(
+               attributes({:bearer, Ryker.Secret.new("a-secret-token-long-enough")}),
+               :max_clock_skew_seconds,
+               3_601
              )
+           ) == {:error, {:invalid_webhook_route, :max_clock_skew_seconds}}
 
-    assert {:error, {:invalid_webhook_route, :fields}} = Route.new("not configuration")
+    assert Route.new("not configuration") == {:error, {:invalid_webhook_route, :fields}}
   end
 
   test "accepts unique keyword configuration" do

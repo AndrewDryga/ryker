@@ -44,7 +44,7 @@ defmodule Ryker.Learning.LearningFailureTest do
 
     assert {:ok, third} = prepare_with_custody(ids, @policy)
     assert {:ok, _} = Learning.fail(third.id, :output_contract_failed, failure_receipt(third))
-    assert {:error, :learning_retry_exhausted} = prepare_with_custody(ids, @policy)
+    assert prepare_with_custody(ids, @policy) == {:error, :learning_retry_exhausted}
     assert Repo.aggregate(LearningRun, :count) == 3
   end
 
@@ -59,13 +59,13 @@ defmodule Ryker.Learning.LearningFailureTest do
       assert {:ok, run} = prepare_with_custody(ids, @policy)
       assert run.generation == generation
 
-      assert {:error, :invalid_learning_result} =
-               Ryker.Fixtures.Learning.accept(run.id, body, %{})
+      assert Ryker.Fixtures.Learning.accept(run.id, body, %{}) ==
+               {:error, :invalid_learning_result}
 
       assert Repo.get!(LearningRun, run.id).status == :rejected
     end
 
-    assert {:error, :learning_retry_exhausted} = prepare_with_custody(ids, @policy)
+    assert prepare_with_custody(ids, @policy) == {:error, :learning_retry_exhausted}
     assert Repo.aggregate(LearningRun, :count) == 3
     assert Repo.aggregate(ConversationKnowledge, :count) == 0
   end
@@ -78,7 +78,7 @@ defmodule Ryker.Learning.LearningFailureTest do
     assert {:ok, run} = prepare_with_custody(ids, @policy)
     failures = seed_failures!(run, 3)
 
-    assert {:error, :learning_retry_exhausted} = prepare_with_custody(ids, @policy)
+    assert prepare_with_custody(ids, @policy) == {:error, :learning_retry_exhausted}
     assert Repo.aggregate(LearningRun, :count) == 3
 
     expired = DateTime.add(DateTime.utc_now(), -3601) |> DateTime.to_iso8601()
@@ -88,8 +88,8 @@ defmodule Ryker.Learning.LearningFailureTest do
       Repo.update!(Ecto.Changeset.change(failed, source_dependencies: dependencies))
     end
 
-    assert {:ok, 3} = Repo.transaction(fn -> Learning.prune_in_transaction(3600) end)
-    assert {:error, :learning_retry_exhausted} = prepare_with_custody(ids, @policy)
+    assert Repo.transaction(fn -> Learning.prune_in_transaction(3600) end) == {:ok, 3}
+    assert prepare_with_custody(ids, @policy) == {:error, :learning_retry_exhausted}
     assert Repo.aggregate(LearningRun, :count) == 3
 
     for failed <- failures do
@@ -142,8 +142,8 @@ defmodule Ryker.Learning.LearningFailureTest do
     assert Repo.get!(LearningRun, run.id) == failed
 
     for response <- fixture()["public_responses"] do
-      assert {:error, :learning_attempt_finished} =
-               Ryker.Fixtures.Learning.accept(run.id, response["text"], receipt)
+      assert Ryker.Fixtures.Learning.accept(run.id, response["text"], receipt) ==
+               {:error, :learning_attempt_finished}
     end
 
     assert Repo.get!(LearningRun, run.id) == failed
@@ -193,8 +193,8 @@ defmodule Ryker.Learning.LearningFailureTest do
     from(s in Ryker.Work.Session, where: s.learning_run_id == ^run.id)
     |> Repo.update_all(set: [coop_session_id: nil])
 
-    assert {:error, :invalid_learning_failure} =
-             Learning.fail(run.id, :output_contract_failed, receipt)
+    assert Learning.fail(run.id, :output_contract_failed, receipt) ==
+             {:error, :invalid_learning_failure}
 
     assert Repo.get!(LearningRun, run.id) == run
   end
@@ -294,8 +294,8 @@ defmodule Ryker.Learning.LearningFailureTest do
     assert stale.result == nil
     assert stale.result_sha256 == nil
 
-    assert {:error, :learning_attempt_finished} =
-             Learning.fail(run.id, :output_contract_failed, failure_receipt(run))
+    assert Learning.fail(run.id, :output_contract_failed, failure_receipt(run)) ==
+             {:error, :learning_attempt_finished}
 
     assert Repo.get!(LearningRun, run.id) == stale
   end
@@ -306,8 +306,8 @@ defmodule Ryker.Learning.LearningFailureTest do
     pruned =
       Repo.update!(Ecto.Changeset.change(run, prompt: nil, pruned_at: DateTime.utc_now()))
 
-    assert {:error, :learning_source_stale} =
-             Learning.fail(run.id, :output_contract_failed, failure_receipt(run))
+    assert Learning.fail(run.id, :output_contract_failed, failure_receipt(run)) ==
+             {:error, :learning_source_stale}
 
     assert Repo.get!(LearningRun, run.id) == pruned
   end
@@ -322,7 +322,7 @@ defmodule Ryker.Learning.LearningFailureTest do
     assert {:ok, failed} = Learning.fail(run.id, :output_contract_failed, failure_receipt(run))
     assert frozen(failed) == frozen(run)
     assert protected_rows() == before
-    assert {:error, :learning_source_stale} = prepare_with_custody(ids, @policy)
+    assert prepare_with_custody(ids, @policy) == {:error, :learning_source_stale}
     assert Repo.get!(LearningRun, run.id) == failed
     assert Repo.aggregate(LearningRun, :count) == 1
   end
@@ -335,7 +335,7 @@ defmodule Ryker.Learning.LearningFailureTest do
       assert {:ok, failed} = Learning.fail(run.id, :output_contract_failed, failure_receipt(run))
       change_source!(hd(entries), unquote(change))
 
-      assert {:error, :learning_source_stale} = prepare_with_custody(ids, @policy)
+      assert prepare_with_custody(ids, @policy) == {:error, :learning_source_stale}
       assert Repo.get!(LearningRun, run.id) == failed
       assert Repo.aggregate(LearningRun, :count) == 1
     end
@@ -362,7 +362,7 @@ defmodule Ryker.Learning.LearningFailureTest do
       end
 
     assert generations |> Enum.map(& &1.id) |> Enum.uniq() |> length() == 3
-    assert {:error, :learning_retry_exhausted} = prepare_with_custody(ids, @policy)
+    assert prepare_with_custody(ids, @policy) == {:error, :learning_retry_exhausted}
     assert Repo.aggregate(LearningRun, :count) == 4
   end
 
@@ -481,7 +481,7 @@ defmodule Ryker.Learning.LearningFailureTest do
         event_fingerprint: String.duplicate("c", 64)
     }
 
-    assert {:ok, :ok} = Repo.transaction(fn -> Observations.receive_in_transaction(changed) end)
+    assert Repo.transaction(fn -> Observations.receive_in_transaction(changed) end) == {:ok, :ok}
   end
 
   defp change_source!(entry, :prune),

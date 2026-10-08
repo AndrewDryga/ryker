@@ -382,8 +382,8 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     actions = Actions.callbacks()
 
     for scope <- [{:channel, "TUNKNOWN", "CUNKNOWN"}, {:channel, "../T", "C"}, :personal] do
-      assert {:error, :instructions_scope_unavailable} =
-               actions.save_instructions.(scope, "text", 0, nil)
+      assert actions.save_instructions.(scope, "text", 0, nil) ==
+               {:error, :instructions_scope_unavailable}
     end
 
     assert Repo.aggregate(Ryker.Instructions.Setting, :count) == 0

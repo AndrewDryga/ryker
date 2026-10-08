@@ -66,12 +66,12 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
       # Reuse the actual privacy-probe answer and citation, with an explicitly
       # structural delivered receipt. The live revoked answer was NOT sent.
       fixture = fixture!(unquote(shape))
-      assert :ok = repaint(fixture.audit)
+      assert repaint(fixture.audit) == :ok
       assert_received {:updated, _, _, before, _}
       assert before["message"] == @captured["candidate"]["message"]
 
       KnowledgeFixtures.revoke!(fixture.source)
-      assert :ok = repaint(fixture.audit)
+      assert repaint(fixture.audit) == :ok
       assert_received {:updated, _, _, after_withdrawal, _}
       assert_neutral(after_withdrawal)
 
@@ -89,7 +89,7 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
 
     assert Repo.get!(Session, fixture.claim.session.id).source_exposure_count == nil
 
-    assert :ok = repaint(fixture.audit)
+    assert repaint(fixture.audit) == :ok
     assert_received {:updated, _, _, document, _}
     assert_neutral(document)
   end
@@ -103,14 +103,14 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
     )
     |> Repo.update!()
 
-    assert :ok = repaint(fixture.audit)
+    assert repaint(fixture.audit) == :ok
     assert_received {:updated, _, _, document, _}
     assert_neutral(document)
   end
 
   test "a valid simple reply retains its exact content and delivery identity" do
     fixture = fixture!(:simple)
-    assert :ok = repaint(fixture.audit)
+    assert repaint(fixture.audit) == :ok
     assert_received {:updated, "C0TENANTOPS", "1787832001.000200", document, delivery}
     assert document == %{"message" => @captured["candidate"]["message"]}
     assert delivery == fixture.turn.delivery_ref
@@ -129,7 +129,7 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
       )
     )
 
-    assert :ok = repaint(fixture.audit)
+    assert repaint(fixture.audit) == :ok
     assert_received {:updated, _, _, document, _}
     assert document["message"] == @captured["candidate"]["message"]
     assert [record] = document["records"]
@@ -206,7 +206,7 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
       )
       |> Repo.update!()
 
-    assert :ok = repaint(fixture.audit)
+    assert repaint(fixture.audit) == :ok
     assert_received {:updated, _, _, document, _}
     assert document["message"] =~ "Confirmation saved"
     refute document["message"] =~ "not yet active"
@@ -238,7 +238,7 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
     )
     |> Repo.update!()
 
-    assert :ok = repaint(fixture.audit)
+    assert repaint(fixture.audit) == :ok
     assert_received {:updated, _, _, document, _}
     assert {:ok, rendered} = Renderer.render(document)
     assert rendered["text"] == "The rollout notes are in <##{channel}>."
@@ -251,13 +251,13 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
     |> Ecto.Changeset.change(delivery_document: %{"unsupported" => true})
     |> Repo.update!()
 
-    assert {:error, :slack_interaction_repaint_document_invalid} = repaint(fixture.audit)
+    assert repaint(fixture.audit) == {:error, :slack_interaction_repaint_document_invalid}
     refute_received {:updated, _, _, _, _}
   end
 
   test "an interaction in another thread cannot find the retained reply" do
     fixture = fixture!(:structured)
-    assert :ok = repaint(%{fixture.audit | thread_ref: "another-thread"})
+    assert repaint(%{fixture.audit | thread_ref: "another-thread"}) == :ok
     refute_received {:updated, _, _, _, _}
   end
 
@@ -283,15 +283,15 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
 
     source = LearningFixtures.retained_input!(raw, %{policy: "fixture", policy_digest: digest()})
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn -> Observations.record_excerpt_in_transaction(source) end)
+    assert Repo.transaction(fn -> Observations.record_excerpt_in_transaction(source) end) ==
+             {:ok, :ok}
 
     claim = claim!(source.destination_conversation_ref)
 
     document =
       source.id |> then(&Repo.get!(ConversationObservation, &1)) |> Observations.document()
 
-    assert :ok = KnowledgeSnapshot.expose(claim, [document])
+    assert KnowledgeSnapshot.expose(claim, [document]) == :ok
 
     # Rebind the host-issued source identity, not the recorded model's evidence
     # or reply. Each concurrent replay owns a separate Slack lock namespace.

@@ -55,8 +55,8 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
   test "polls the exact immutable run and resumes its episode on a terminal result" do
     episode = waiting_approval!("terminal")
 
-    assert {:ok, {:resumed, "apr-terminal", "success"}} =
-             ApprovalDispatcher.run_once(options({:ok, state("terminal", "success")}))
+    assert ApprovalDispatcher.run_once(options({:ok, state("terminal", "success")})) ==
+             {:ok, {:resumed, "apr-terminal", "success"}}
 
     assert_receive {:wait_for_run, "run-terminal", 0}
     assert_receive :approval_presented
@@ -74,8 +74,8 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
     waiting_approval!("long-poll")
     pending = state("long-poll", "pending_approval")
 
-    assert {:ok, {:monitoring, "apr-long-poll", "pending_approval"}} =
-             ApprovalDispatcher.run_once(options({:ok, pending}))
+    assert ApprovalDispatcher.run_once(options({:ok, pending})) ==
+             {:ok, {:monitoring, "apr-long-poll", "pending_approval"}}
 
     assert_receive {:wait_for_run, "run-long-poll", 0}
 
@@ -84,8 +84,8 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
       set: [next_attempt_at: nil]
     )
 
-    assert {:ok, {:monitoring, "apr-long-poll", "pending_approval"}} =
-             ApprovalDispatcher.run_once(options({:ok, pending}))
+    assert ApprovalDispatcher.run_once(options({:ok, pending})) ==
+             {:ok, {:monitoring, "apr-long-poll", "pending_approval"}}
 
     assert_receive {:wait_for_run, "run-long-poll", 20}
   end
@@ -93,8 +93,8 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
   test "backs off transient reads and blocks a crossed immutable identity" do
     waiting_approval!("transient")
 
-    assert {:ok, {:deferred, "apr-transient", {:transport, :offline}}} =
-             ApprovalDispatcher.run_once(options({:error, {:transport, :offline}}))
+    assert ApprovalDispatcher.run_once(options({:error, {:transport, :offline}})) ==
+             {:ok, {:deferred, "apr-transient", {:transport, :offline}}}
 
     deferred = Inspectors.emisar_approval(@connection_ref, "apr-transient")
     assert deferred.failure_count == 1
@@ -104,8 +104,8 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
     waiting_approval!("crossed")
     wrong = %{state("crossed", "success") | run_id: "run-other"}
 
-    assert {:ok, {:blocked, "apr-crossed", :emisar_approval_identity_mismatch}} =
-             ApprovalDispatcher.run_once(options({:ok, wrong}, "approval-worker-crossed"))
+    assert ApprovalDispatcher.run_once(options({:ok, wrong}, "approval-worker-crossed")) ==
+             {:ok, {:blocked, "apr-crossed", :emisar_approval_identity_mismatch}}
 
     assert Inspectors.emisar_approval(@connection_ref, "apr-crossed").status == :blocked
     assert {:ok, waiting} = Episodes.fetch_by_key("approval-dispatcher:crossed")
@@ -154,10 +154,10 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
       options({:ok, state("presentation-transient", "running")}, "presenter-transient")
       |> Keyword.put(:presentation, {self(), {:error, :socket_closed}})
 
-    assert {:ok,
-            {:deferred, "apr-presentation-transient",
-             {:emisar_approval_presentation_unavailable, :socket_closed}}} =
-             ApprovalDispatcher.run_once(transient)
+    assert ApprovalDispatcher.run_once(transient) ==
+             {:ok,
+              {:deferred, "apr-presentation-transient",
+               {:emisar_approval_presentation_unavailable, :socket_closed}}}
 
     waiting_approval!("presentation-permanent")
 
@@ -165,22 +165,23 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
       options({:ok, state("presentation-permanent", "running")}, "presenter-permanent")
       |> Keyword.put(:presentation, {self(), {:error, :invalid_destination}})
 
-    assert {:ok,
-            {:blocked, "apr-presentation-permanent",
-             {:emisar_approval_presentation_permanent, :invalid_destination}}} =
-             ApprovalDispatcher.run_once(permanent)
+    assert ApprovalDispatcher.run_once(permanent) ==
+             {:ok,
+              {:blocked, "apr-presentation-permanent",
+               {:emisar_approval_presentation_permanent, :invalid_destination}}}
   end
 
   test "keeps nonterminal runs monitored and contains malformed adapter envelopes" do
     waiting_approval!("monitoring")
 
-    assert {:ok, {:monitoring, "apr-monitoring", "running"}} =
-             ApprovalDispatcher.run_once(options({:ok, state("monitoring", "running")}))
+    assert ApprovalDispatcher.run_once(options({:ok, state("monitoring", "running")})) ==
+             {:ok, {:monitoring, "apr-monitoring", "running"}}
 
     waiting_approval!("invalid-api")
 
-    assert {:ok, {:blocked, "apr-invalid-api", {:emisar_protocol_error, {:api_result, :invalid}}}} =
-             ApprovalDispatcher.run_once(options(:invalid, "approval-worker-invalid-api"))
+    assert ApprovalDispatcher.run_once(options(:invalid, "approval-worker-invalid-api")) ==
+             {:ok,
+              {:blocked, "apr-invalid-api", {:emisar_protocol_error, {:api_result, :invalid}}}}
 
     waiting_approval!("invalid-presentation")
 
@@ -188,20 +189,19 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
       options({:ok, state("invalid-presentation", "running")}, "invalid-presentation")
       |> Keyword.put(:presentation, {self(), :invalid})
 
-    assert {:ok,
-            {:blocked, "apr-invalid-presentation",
-             {:emisar_protocol_error, {:presentation_result, :invalid}}}} =
-             ApprovalDispatcher.run_once(invalid_presentation)
+    assert ApprovalDispatcher.run_once(invalid_presentation) ==
+             {:ok,
+              {:blocked, "apr-invalid-presentation",
+               {:emisar_protocol_error, {:presentation_result, :invalid}}}}
 
     waiting_approval!("not-found")
 
-    assert {:ok, {:blocked, "apr-not-found", {:emisar_http_error, 404, "missing"}}} =
-             ApprovalDispatcher.run_once(
-               options(
-                 {:error, {:emisar_http_error, 404, "missing"}},
-                 "approval-worker-not-found"
-               )
+    assert ApprovalDispatcher.run_once(
+             options(
+               {:error, {:emisar_http_error, 404, "missing"}},
+               "approval-worker-not-found"
              )
+           ) == {:ok, {:blocked, "apr-not-found", {:emisar_http_error, 404, "missing"}}}
 
     # A request that timed out at Emisar (408) or arrived too early (425) asks to be sent again;
     # treating every 4xx but 429 as final blocked the watch on one slow answer (2026-10-04 review).

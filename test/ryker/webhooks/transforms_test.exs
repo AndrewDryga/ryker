@@ -151,56 +151,52 @@ defmodule Ryker.Webhooks.TransformsTest do
   end
 
   test "mapped route configuration rejects array-index paths" do
-    assert {:error, {:invalid_webhook_route, :adapter}} =
-             route_attributes(%{
-               kind: :mapped_json,
-               mapping: %{event_id: "array.0.id", status: "state", title: "title"}
-             })
-             |> Route.new()
+    assert route_attributes(%{
+             kind: :mapped_json,
+             mapping: %{event_id: "array.0.id", status: "state", title: "title"}
+           })
+           |> Route.new() == {:error, {:invalid_webhook_route, :adapter}}
   end
 
   test "Grafana requires a nonempty alert batch with a supported lifecycle status" do
-    assert {:error, {:invalid_webhook_transform, :alerts}} =
-             Transforms.normalize(grafana_route!(), %{"alerts" => []}, metadata())
+    assert Transforms.normalize(grafana_route!(), %{"alerts" => []}, metadata()) ==
+             {:error, {:invalid_webhook_transform, :alerts}}
 
-    assert {:error, {:invalid_webhook_transform, :status}} =
-             Transforms.normalize(
-               grafana_route!(),
-               grafana_payload("indeterminate", nil),
-               metadata()
-             )
+    assert Transforms.normalize(
+             grafana_route!(),
+             grafana_payload("indeterminate", nil),
+             metadata()
+           ) == {:error, {:invalid_webhook_transform, :status}}
 
-    assert {:error, {:invalid_webhook_transform, :payload}} =
-             Transforms.normalize(grafana_route!(), "not-an-object", metadata())
+    assert Transforms.normalize(grafana_route!(), "not-an-object", metadata()) ==
+             {:error, {:invalid_webhook_transform, :payload}}
 
-    assert {:error, {:invalid_webhook_transform, :alerts}} =
-             Transforms.normalize(grafana_route!(), nil, metadata())
+    assert Transforms.normalize(grafana_route!(), nil, metadata()) ==
+             {:error, {:invalid_webhook_transform, :alerts}}
   end
 
   test "mapped JSON retains only safe HTTP source links" do
     unsafe = put_in(mapped_payload(), ["incident", "url"], "file:///etc/passwd")
 
-    assert {:error, {:invalid_webhook_transform, :source_url}} =
-             Transforms.normalize(mapped_route!(), unsafe, metadata())
+    assert Transforms.normalize(mapped_route!(), unsafe, metadata()) ==
+             {:error, {:invalid_webhook_transform, :source_url}}
   end
 
   test "specialized transforms accept only the exact typed ingress metadata shape" do
-    assert {:error, {:invalid_webhook_transform, :metadata}} =
-             Transforms.normalize(
-               grafana_route!(),
-               grafana_payload("firing", nil),
-               Map.put(metadata(), :unexpected, true)
-             )
+    assert Transforms.normalize(
+             grafana_route!(),
+             grafana_payload("firing", nil),
+             Map.put(metadata(), :unexpected, true)
+           ) == {:error, {:invalid_webhook_transform, :metadata}}
 
-    assert {:error, {:invalid_webhook_transform, :metadata}} =
-             Transforms.normalize(grafana_route!(), grafana_payload("firing", nil), nil)
+    assert Transforms.normalize(grafana_route!(), grafana_payload("firing", nil), nil) ==
+             {:error, {:invalid_webhook_transform, :metadata}}
 
-    assert {:error, {:invalid_webhook_transform, :metadata}} =
-             Transforms.normalize(
-               mapped_route!(),
-               mapped_payload(),
-               metadata() |> Map.to_list() |> Kernel.++(event_id: "duplicate")
-             )
+    assert Transforms.normalize(
+             mapped_route!(),
+             mapped_payload(),
+             metadata() |> Map.to_list() |> Kernel.++(event_id: "duplicate")
+           ) == {:error, {:invalid_webhook_transform, :metadata}}
 
     identified_metadata = %{metadata() | event_id: "evt-provider", item_id: "item-provider"}
 
@@ -212,43 +208,39 @@ defmodule Ryker.Webhooks.TransformsTest do
              )
 
     for invalid <- [%{metadata() | event_id: 123}, %{metadata() | occurred_at: nil}] do
-      assert {:error, {:invalid_webhook_transform, :metadata}} =
-               Transforms.normalize(
-                 grafana_route!(),
-                 grafana_payload("firing", nil),
-                 invalid
-               )
+      assert Transforms.normalize(
+               grafana_route!(),
+               grafana_payload("firing", nil),
+               invalid
+             ) == {:error, {:invalid_webhook_transform, :metadata}}
     end
   end
 
   test "Grafana rejects non-string correlation and label fields" do
     malformed_group = Map.put(grafana_payload("firing", nil), "groupKey", %{"bad" => true})
 
-    assert {:error, {:invalid_webhook_transform, :group_key}} =
-             Transforms.normalize(grafana_route!(), malformed_group, metadata())
+    assert Transforms.normalize(grafana_route!(), malformed_group, metadata()) ==
+             {:error, {:invalid_webhook_transform, :group_key}}
 
-    assert {:error, {:invalid_webhook_transform, :labels}} =
-             Transforms.normalize(
-               grafana_route!(),
-               Map.put(grafana_payload("firing", nil), "commonLabels", %{"bad" => 1}),
-               metadata()
-             )
+    assert Transforms.normalize(
+             grafana_route!(),
+             Map.put(grafana_payload("firing", nil), "commonLabels", %{"bad" => 1}),
+             metadata()
+           ) == {:error, {:invalid_webhook_transform, :labels}}
 
-    assert {:error, {:invalid_webhook_transform, :labels}} =
-             Transforms.normalize(
-               grafana_route!(),
-               Map.put(grafana_payload("firing", nil), "commonLabels", []),
-               metadata()
-             )
+    assert Transforms.normalize(
+             grafana_route!(),
+             Map.put(grafana_payload("firing", nil), "commonLabels", []),
+             metadata()
+           ) == {:error, {:invalid_webhook_transform, :labels}}
   end
 
   test "mapped JSON label objects require string keys and scalar values" do
-    assert {:error, {:invalid_webhook_transform, :labels}} =
-             Transforms.normalize(
-               mapped_route!(),
-               Map.put(mapped_payload(), "labels", %{1 => "invalid-key"}),
-               metadata()
-             )
+    assert Transforms.normalize(
+             mapped_route!(),
+             Map.put(mapped_payload(), "labels", %{1 => "invalid-key"}),
+             metadata()
+           ) == {:error, {:invalid_webhook_transform, :labels}}
   end
 
   test "Grafana treats an absent or blank group key as optional" do
@@ -339,14 +331,14 @@ defmodule Ryker.Webhooks.TransformsTest do
         String.duplicate("f", 501)
       )
 
-    assert {:error, {:invalid_webhook_transform, :fingerprint}} =
-             Transforms.normalize(grafana_route!(), fingerprint_payload, metadata())
+    assert Transforms.normalize(grafana_route!(), fingerprint_payload, metadata()) ==
+             {:error, {:invalid_webhook_transform, :fingerprint}}
 
     group_payload =
       Map.put(grafana_payload("firing", nil), "groupKey", String.duplicate("g", 1_025))
 
-    assert {:error, {:invalid_webhook_transform, :group_key}} =
-             Transforms.normalize(grafana_route!(), group_payload, metadata())
+    assert Transforms.normalize(grafana_route!(), group_payload, metadata()) ==
+             {:error, {:invalid_webhook_transform, :group_key}}
   end
 
   test "bounded provider display fields remain valid UTF-8 within byte limits" do
@@ -375,57 +367,52 @@ defmodule Ryker.Webhooks.TransformsTest do
   end
 
   test "an unknown transform route fails closed" do
-    assert {:error, {:invalid_webhook_transform, :route}} =
-             Transforms.normalize(:not_a_route, %{}, metadata())
+    assert Transforms.normalize(:not_a_route, %{}, metadata()) ==
+             {:error, {:invalid_webhook_transform, :route}}
   end
 
   test "mapped JSON requires a nonblank external event identity" do
-    assert {:error, {:invalid_webhook_transform, :event_id}} =
-             Transforms.normalize(mapped_route!(), %{}, metadata())
+    assert Transforms.normalize(mapped_route!(), %{}, metadata()) ==
+             {:error, {:invalid_webhook_transform, :event_id}}
 
-    assert {:error, {:invalid_webhook_transform, :event_id}} =
-             Transforms.normalize(
-               mapped_route!(),
-               put_in(mapped_payload(), ["event", "id"], " "),
-               metadata()
-             )
+    assert Transforms.normalize(
+             mapped_route!(),
+             put_in(mapped_payload(), ["event", "id"], " "),
+             metadata()
+           ) == {:error, {:invalid_webhook_transform, :event_id}}
   end
 
   test "mapped JSON object fields reject arrays and nested values" do
-    assert {:error, {:invalid_webhook_transform, :labels}} =
-             Transforms.normalize(
-               mapped_route!(),
-               Map.put(mapped_payload(), "labels", ["not", "an", "object"]),
-               metadata()
-             )
+    assert Transforms.normalize(
+             mapped_route!(),
+             Map.put(mapped_payload(), "labels", ["not", "an", "object"]),
+             metadata()
+           ) == {:error, {:invalid_webhook_transform, :labels}}
 
-    assert {:error, {:invalid_webhook_transform, :labels}} =
-             Transforms.normalize(
-               mapped_route!(),
-               Map.put(mapped_payload(), "labels", %{"nested" => %{}}),
-               metadata()
-             )
+    assert Transforms.normalize(
+             mapped_route!(),
+             Map.put(mapped_payload(), "labels", %{"nested" => %{}}),
+             metadata()
+           ) == {:error, {:invalid_webhook_transform, :labels}}
   end
 
   test "mapped JSON occurrence times must be ISO-8601 strings" do
     for value <- ["tomorrow", 123] do
-      assert {:error, {:invalid_webhook_transform, :starts_at}} =
-               Transforms.normalize(
-                 mapped_route!(),
-                 put_in(mapped_payload(), ["incident", "started_at"], value),
-                 metadata()
-               )
+      assert Transforms.normalize(
+               mapped_route!(),
+               put_in(mapped_payload(), ["incident", "started_at"], value),
+               metadata()
+             ) == {:error, {:invalid_webhook_transform, :starts_at}}
     end
   end
 
   test "mapped JSON uses exact positive source revisions when supplied" do
     for value <- [0, "two"] do
-      assert {:error, {:invalid_webhook_transform, :revision}} =
-               Transforms.normalize(
-                 mapped_route!(%{revision: "event.revision"}),
-                 put_in(mapped_payload(), ["event", "revision"], value),
-                 metadata()
-               )
+      assert Transforms.normalize(
+               mapped_route!(%{revision: "event.revision"}),
+               put_in(mapped_payload(), ["event", "revision"], value),
+               metadata()
+             ) == {:error, {:invalid_webhook_transform, :revision}}
     end
 
     assert {:ok, %{inputs: [input], revision_ties: :exact}} =
@@ -456,8 +443,8 @@ defmodule Ryker.Webhooks.TransformsTest do
       |> put_in(["alerts", Access.at(0), "annotations"], %{})
       |> put_in(["alerts", Access.at(0), "labels"], %{})
 
-    assert {:error, {:invalid_webhook_transform, :title}} =
-             Transforms.normalize(grafana_route!(), missing_title, metadata())
+    assert Transforms.normalize(grafana_route!(), missing_title, metadata()) ==
+             {:error, {:invalid_webhook_transform, :title}}
   end
 
   defp grafana_payload(status, ends_at) do

@@ -169,8 +169,8 @@ defmodule Ryker.AdmissionConcurrencyTest do
                      "work_class" => "standard"
                    })
 
-          assert {:error, {:admission_rejected, :context_stale}} =
-                   Admission.commit(context, decision, "decision:#{suffix}")
+          assert Admission.commit(context, decision, "decision:#{suffix}") ==
+                   {:error, {:admission_rejected, :context_stale}}
         else
           assert candidate_ids == [episode_id]
         end
@@ -323,8 +323,8 @@ defmodule Ryker.AdmissionConcurrencyTest do
         send(blocker.pid, :release)
         assert {:ok, _transition} = Task.await(reopener, 5_000)
 
-        assert {:error, {:admission_rejected, :context_stale}} = Task.await(commit, 5_000)
-        assert :error = Episodes.fetch_by_key("ingress-input:#{entry.id}")
+        assert Task.await(commit, 5_000) == {:error, {:admission_rejected, :context_stale}}
+        assert Episodes.fetch_by_key("ingress-input:#{entry.id}") == :error
       after
         send(blocker.pid, :release)
         stop_tasks([blocker, reopener, commit])

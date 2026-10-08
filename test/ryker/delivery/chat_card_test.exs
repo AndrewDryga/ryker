@@ -163,7 +163,7 @@ defmodule Ryker.Delivery.ChatCardTest do
           {"event_wait", "unknown-secret"},
           {"finding", "source_kind"}
         ] do
-      assert :ignore = ChatCard.project(record(kind, %{}) |> Map.put(:wait_error, error))
+      assert ChatCard.project(record(kind, %{}) |> Map.put(:wait_error, error)) == :ignore
     end
   end
 
@@ -272,8 +272,8 @@ defmodule Ryker.Delivery.ChatCardTest do
   test "a question is asked once, in the reply, and its card holds only the answers" do
     question = "Which timezone should I use for the weekday 9:00 status?"
 
-    assert :ignore =
-             ChatCard.project(record("input_request", %{"choices" => [], "question" => question}))
+    assert ChatCard.project(record("input_request", %{"choices" => [], "question" => question})) ==
+             :ignore
 
     assert {:ok, choosing} =
              ChatCard.project(

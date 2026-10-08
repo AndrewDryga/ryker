@@ -29,8 +29,8 @@ defmodule Ryker.Records.RecordsTest do
       "verification" => "Verify Airflow after the observation window."
     }
 
-    assert {:error, {:invalid_state_record, :timer_deadline}} =
-             Records.create(Records.token(claim.turn), "impossible-timer", "event_wait", payload)
+    assert Records.create(Records.token(claim.turn), "impossible-timer", "event_wait", payload) ==
+             {:error, {:invalid_state_record, :timer_deadline}}
 
     assert Records.retained_records(claim.episode.id) == []
   end
@@ -246,8 +246,8 @@ defmodule Ryker.Records.RecordsTest do
 
     changed = %{task | "title" => "A different task"}
 
-    assert {:error, :state_record_operation_conflict} =
-             Records.create(token, "task-offer", "task_offer", changed)
+    assert Records.create(token, "task-offer", "task_offer", changed) ==
+             {:error, :state_record_operation_conflict}
 
     assert {:ok, question} =
              Records.create(token, "operator-question", "input_request", %{
@@ -342,8 +342,8 @@ defmodule Ryker.Records.RecordsTest do
     claim = claim!("record-capability")
     task = task_payload()
 
-    assert {:error, :state_record_unauthorized} =
-             Records.create("state:not-a-turn", "task", "task_offer", task)
+    assert Records.create("state:not-a-turn", "task", "task_offer", task) ==
+             {:error, :state_record_unauthorized}
 
     assert {:ok, _cancelled} =
              Custody.request_cancel(
@@ -354,8 +354,8 @@ defmodule Ryker.Records.RecordsTest do
                "Stop this work."
              )
 
-    assert {:error, :state_record_unauthorized} =
-             Records.create(Records.token(claim.turn), "task", "task_offer", task)
+    assert Records.create(Records.token(claim.turn), "task", "task_offer", task) ==
+             {:error, :state_record_unauthorized}
   end
 
   # The host's publication offer counted against the 64 records the model may
@@ -636,7 +636,7 @@ defmodule Ryker.Records.RecordsTest do
                "state" => "completed"
              })
 
-    assert [] = Records.open_required_goals(claim.episode.id)
+    assert Records.open_required_goals(claim.episode.id) == []
 
     assert {:accept, _accepted} =
              Validator.validate(
@@ -703,7 +703,7 @@ defmodule Ryker.Records.RecordsTest do
                })
     end
 
-    assert [] = Records.open_required_goals(claim.episode.id)
+    assert Records.open_required_goals(claim.episode.id) == []
 
     assert Records.create(token, "reopen-parent", "goal_state", %{
              "goal_id" => "deliver-change",

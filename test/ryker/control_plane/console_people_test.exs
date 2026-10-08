@@ -49,8 +49,8 @@ defmodule Ryker.ControlPlane.ConsolePeopleTest do
     assert ConsolePeople.person("tailscale:andrew@example.com") ==
              %{name: "andrew@example.com", href: nil}
 
-    assert :ok = ConsolePeople.seen(%{login: "andrew@example.com", name: "Andrew"})
-    assert :ok = ConsolePeople.seen(%{login: "andrew@example.com", name: "Andrew Example"})
+    assert ConsolePeople.seen(%{login: "andrew@example.com", name: "Andrew"}) == :ok
+    assert ConsolePeople.seen(%{login: "andrew@example.com", name: "Andrew Example"}) == :ok
 
     assert ConsolePeople.person("control-plane:tailscale:andrew@example.com") ==
              %{name: "Andrew Example", href: nil}
@@ -67,8 +67,8 @@ defmodule Ryker.ControlPlane.ConsolePeopleTest do
     login = String.duplicate("a", 150) <> "@example.com"
     long = String.duplicate("é", 130)
 
-    assert :ok = ConsolePeople.seen(%{login: login, name: login})
-    assert :ok = ConsolePeople.seen(%{login: "tailscale-user", name: long})
+    assert ConsolePeople.seen(%{login: login, name: login}) == :ok
+    assert ConsolePeople.seen(%{login: "tailscale-user", name: long}) == :ok
 
     assert %{name: kept} = ConsolePeople.person("tailscale:tailscale-user")
     assert String.length(kept) == 120

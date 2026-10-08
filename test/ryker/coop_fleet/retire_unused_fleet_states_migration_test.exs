@@ -10,14 +10,14 @@ defmodule Ryker.CoopFleet.RetireUnusedFleetStatesMigrationTest do
   @version 20_261_007_130_000
 
   test "placements and certificates name only the states and sources that exist" do
-    assert :ok = migrate_down(@version)
+    assert migrate_down(@version) == :ok
     assert "last_command_id" in columns("coop_session_placements")
     assert check("coop_session_placement_identity_valid") =~ "'assigning'::text"
     assert check("coop_worker_certificate_valid") =~ "'manual'::text"
     assert current_index() =~ "'draining'::text"
     assert state_default() == "'assigning'::text"
 
-    assert :ok = migrate_up(@version)
+    assert migrate_up(@version) == :ok
     refute "last_command_id" in columns("coop_session_placements")
     assert state_default() == nil
 

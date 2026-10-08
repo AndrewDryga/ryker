@@ -96,7 +96,7 @@ defmodule Ryker.RepositoryKnowledge.WorkerTest do
     _state = :sys.get_state(worker)
     assert FakeCoopAPI.state(coop).create_keys == []
 
-    assert {:ok, :requested} = RepositoryKnowledge.refresh("emisar", @actor)
+    assert RepositoryKnowledge.refresh("emisar", @actor) == {:ok, :requested}
     assert eventually(fn -> FakeCoopAPI.state(coop).create_keys != [] end)
   end
 end

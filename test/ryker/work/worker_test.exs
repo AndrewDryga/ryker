@@ -25,7 +25,7 @@ defmodule Ryker.Work.WorkerTest do
 
     assert Process.alive?(worker)
     assert FakeAPI.state(fake).submit_count == 1
-    assert :ok = stop_supervised(Worker)
+    assert stop_supervised(Worker) == :ok
   end
 
   test "keeps running after work enters durable remote-stop custody" do
@@ -53,7 +53,7 @@ defmodule Ryker.Work.WorkerTest do
            end)
 
     assert Process.alive?(worker)
-    assert :ok = stop_supervised(Worker)
+    assert stop_supervised(Worker) == :ok
   end
 
   test "keeps running while transient work is deferred" do
@@ -81,7 +81,7 @@ defmodule Ryker.Work.WorkerTest do
            end)
 
     assert Process.alive?(worker)
-    assert :ok = stop_supervised(Worker)
+    assert stop_supervised(Worker) == :ok
   end
 
   test "one long turn does not prevent another pool slot from processing a short episode" do
@@ -110,8 +110,8 @@ defmodule Ryker.Work.WorkerTest do
 
     send(long_worker, :release_long_turn)
     assert_receive {:long_released, ^long_episode_id}, 1_000
-    assert :ok = stop_supervised(:work_pool_long_slot)
-    assert :ok = stop_supervised(:work_pool_short_slot)
+    assert stop_supervised(:work_pool_long_slot) == :ok
+    assert stop_supervised(:work_pool_short_slot) == :ok
   end
 
   # On 2026-09-27 an idle install committed about 125 transactions a second,
@@ -169,7 +169,7 @@ defmodule Ryker.Work.WorkerTest do
         # inside a transaction takes the test's shared connection with it.
         :ok = :sys.suspend(worker)
         assert Process.alive?(worker)
-        assert :ok = stop_supervised(Worker)
+        assert stop_supervised(Worker) == :ok
       end)
 
     refute log =~ "dispatcher failed"
@@ -191,7 +191,7 @@ defmodule Ryker.Work.WorkerTest do
           )
 
         assert worker |> settled() |> Process.alive?()
-        assert :ok = stop_supervised(Worker)
+        assert stop_supervised(Worker) == :ok
       end)
 
     assert log =~ "episode work dispatcher failed"

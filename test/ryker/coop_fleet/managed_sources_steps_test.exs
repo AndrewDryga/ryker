@@ -12,12 +12,11 @@ defmodule Ryker.CoopFleet.ManagedSourcesStepsTest do
 
     log =
       capture_log(fn ->
-        assert {:error, :coop_worker_source_unavailable} =
-                 ManagedSources.prepare(
-                   Path.join(System.tmp_dir!(), "ryker-sources-steps"),
-                   "repository-never-added",
-                   nil
-                 )
+        assert ManagedSources.prepare(
+                 Path.join(System.tmp_dir!(), "ryker-sources-steps"),
+                 "repository-never-added",
+                 nil
+               ) == {:error, :coop_worker_source_unavailable}
       end)
 
     assert log =~ "repository source for repository-never-added unavailable at repository"

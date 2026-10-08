@@ -120,7 +120,7 @@ defmodule Ryker.Records.OutcomesTest do
 
     submission = probe.turn.submission
     assert length(submission["context"]["related_outcomes"]) == 2
-    assert :ok = KnowledgeSnapshot.authorize_submission(probe.episode, nil, submission)
+    assert KnowledgeSnapshot.authorize_submission(probe.episode, nil, submission) == :ok
 
     completed.episode
     |> Ecto.Changeset.change(updated_at: DateTime.add(DateTime.utc_now(), 1, :second))
@@ -145,7 +145,7 @@ defmodule Ryker.Records.OutcomesTest do
       status: :open
     })
 
-    assert :ok = KnowledgeSnapshot.authorize_submission(probe.episode, nil, submission)
+    assert KnowledgeSnapshot.authorize_submission(probe.episode, nil, submission) == :ok
     assert %{episode: %{state: :complete}} = complete!(probe, "Historical context remains valid.")
   end
 
@@ -191,7 +191,7 @@ defmodule Ryker.Records.OutcomesTest do
                submission
              )
 
-    assert :ok = KnowledgeSnapshot.expose_submission(%{claim | turn: frozen})
+    assert KnowledgeSnapshot.expose_submission(%{claim | turn: frozen}) == :ok
 
     assert {:ok, session} =
              Custody.bind_session(

@@ -67,14 +67,13 @@ defmodule Ryker.StateTools.MemorySearchTest do
     expired = put_in(claim.turn.lease_ref, Ecto.UUID.generate())
 
     for name <- ~w(search_slack read_github_conversation search_github) do
-      assert {:error, "unauthorized"} =
-               LookupContext.enrich(
-                 name,
-                 %{},
-                 expired,
-                 %{"results" => %{"messages" => []}},
-                 []
-               )
+      assert LookupContext.enrich(
+               name,
+               %{},
+               expired,
+               %{"results" => %{"messages" => []}},
+               []
+             ) == {:error, "unauthorized"}
     end
   end
 
@@ -146,14 +145,13 @@ defmodule Ryker.StateTools.MemorySearchTest do
     refute result["complete"]
     refute CanonicalJSON.encode!(result) =~ later["text"]
 
-    assert {:error, "source_not_available"} =
-             LookupContext.enrich(
-               "read_slack_source",
-               %{},
-               claim,
-               %{"anchor" => future, "messages" => []},
-               []
-             )
+    assert LookupContext.enrich(
+             "read_slack_source",
+             %{},
+             claim,
+             %{"anchor" => future, "messages" => []},
+             []
+           ) == {:error, "source_not_available"}
   end
 
   test "source-linked lookup memory is exposed under the original caller and stops after source deletion",
@@ -355,8 +353,8 @@ defmodule Ryker.StateTools.MemorySearchTest do
         String.duplicate("x", 131_072 - byte_size(CanonicalJSON.encode!(result)) - 20)
       )
 
-    assert {:error, "source_result_too_large"} =
-             LookupContext.enrich("read_slack_source", %{}, claim, result, ["read_slack_source"])
+    assert LookupContext.enrich("read_slack_source", %{}, claim, result, ["read_slack_source"]) ==
+             {:error, "source_result_too_large"}
   end
 
   test "a lookup cannot impersonate another thread or disclose memory after its lease is lost", %{
@@ -376,8 +374,8 @@ defmodule Ryker.StateTools.MemorySearchTest do
     assert {:ok, %{"memories" => []}} = MemorySearch.related(claim, targets, nil)
     expired = put_in(claim.turn.lease_ref, Ecto.UUID.generate())
 
-    assert {:error, :state_tools_binding_not_authorized} =
-             MemorySearch.related(expired, targets, nil)
+    assert MemorySearch.related(expired, targets, nil) ==
+             {:error, :state_tools_binding_not_authorized}
   end
 
   test "source-related recall includes confirmed facts and guidance without unrelated workspace memory",
@@ -402,10 +400,9 @@ defmodule Ryker.StateTools.MemorySearchTest do
 
   test "a searched source excerpt carries later retained thread knowledge without repeating the primary",
        %{claim: claim, options: options, entries: entries} do
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Enum.each(entries, &Observations.record_excerpt_in_transaction/1)
-             end)
+    assert Repo.transaction(fn ->
+             Enum.each(entries, &Observations.record_excerpt_in_transaction/1)
+           end) == {:ok, :ok}
 
     Knowledge.learn!(claim.episode, claim.session.repository_ref)
     # The captured FIRING and RESOLVED sources are different threads. Select
@@ -437,10 +434,9 @@ defmodule Ryker.StateTools.MemorySearchTest do
     options: options,
     entries: entries
   } do
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Enum.each(entries, &Observations.record_excerpt_in_transaction/1)
-             end)
+    assert Repo.transaction(fn ->
+             Enum.each(entries, &Observations.record_excerpt_in_transaction/1)
+           end) == {:ok, :ok}
 
     retained_case!(claim.episode, "FIRING alert on the checkout database, fixed by a failover")
     args = %{@args | "query" => "FIRING", "kinds" => ["continuity", "case"], "limit" => 5}
@@ -459,10 +455,9 @@ defmodule Ryker.StateTools.MemorySearchTest do
     # search for the original that cannot also surface the later correction, or
     # that returns both without separable dates, lets an answer present a stale
     # diagnosis as the current situation.
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Enum.each(entries, &Observations.record_excerpt_in_transaction/1)
-             end)
+    assert Repo.transaction(fn ->
+             Enum.each(entries, &Observations.record_excerpt_in_transaction/1)
+           end) == {:ok, :ok}
 
     args = %{
       @args
@@ -491,10 +486,9 @@ defmodule Ryker.StateTools.MemorySearchTest do
     # Asking what was known at 17:25 must not be answered with the 17:29
     # resolution. Later understanding entering an older window unnoticed is the
     # one failure a dated history cannot recover from.
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Enum.each(entries, &Observations.record_excerpt_in_transaction/1)
-             end)
+    assert Repo.transaction(fn ->
+             Enum.each(entries, &Observations.record_excerpt_in_transaction/1)
+           end) == {:ok, :ok}
 
     args = %{
       @args
@@ -617,10 +611,9 @@ defmodule Ryker.StateTools.MemorySearchTest do
   end
 
   test "an unknown source reference cannot be disclosed as dependency-free text", %{claim: claim} do
-    assert {:error, :work_knowledge_context_stale} =
-             KnowledgeSnapshot.expose(claim, [
-               %{"source_ref" => "unsupported:#{Ecto.UUID.generate()}", "summary" => @captured}
-             ])
+    assert KnowledgeSnapshot.expose(claim, [
+             %{"source_ref" => "unsupported:#{Ecto.UUID.generate()}", "summary" => @captured}
+           ]) == {:error, :work_knowledge_context_stale}
 
     assert Repo.aggregate(SourceExposure, :count) == 0
   end
@@ -673,17 +666,17 @@ defmodule Ryker.StateTools.MemorySearchTest do
           %{args | "kinds" => ["guidance"]},
           %{args | "time_basis" => "source"}
         ] do
-      assert {:error, "invalid_memory_cursor"} =
-               Tools.call("search_memory", %{changed | "cursor" => cursor}, options)
+      assert Tools.call("search_memory", %{changed | "cursor" => cursor}, options) ==
+               {:error, "invalid_memory_cursor"}
     end
 
-    assert {:error, "invalid_memory_cursor"} =
-             Tools.call("search_memory", %{args | "cursor" => "x" <> cursor}, options)
+    assert Tools.call("search_memory", %{args | "cursor" => "x" <> cursor}, options) ==
+             {:error, "invalid_memory_cursor"}
 
     other = put_in(options.binding.turn.lease_ref, Ecto.UUID.generate())
 
-    assert {:error, "invalid_memory_cursor"} =
-             Tools.call("search_memory", %{args | "cursor" => cursor}, other)
+    assert Tools.call("search_memory", %{args | "cursor" => cursor}, other) ==
+             {:error, "invalid_memory_cursor"}
 
     assert Repo.aggregate(MemoryEntry, :sum, :recall_count) == Decimal.new(1)
   end
@@ -766,8 +759,8 @@ defmodule Ryker.StateTools.MemorySearchTest do
           ),
           put_in(options.binding.episode.execution_mode, other_mode)
         ] do
-      assert {:error, "invalid_memory_cursor"} =
-               Tools.call("search_memory", %{args | "cursor" => cursor}, changed)
+      assert Tools.call("search_memory", %{args | "cursor" => cursor}, changed) ==
+               {:error, "invalid_memory_cursor"}
     end
 
     # Host-signed expired state, not a model fixture or a test-only clock in production.
@@ -788,23 +781,21 @@ defmodule Ryker.StateTools.MemorySearchTest do
       :crypto.mac(:hmac, :sha256, "host-only-search-test-secret", "memory-search:" <> expired)
       |> Base.url_encode64(padding: false)
 
-    assert {:error, "invalid_memory_cursor"} =
-             Tools.call(
-               "search_memory",
-               %{args | "cursor" => expired <> "." <> signature},
-               options
-             )
+    assert Tools.call(
+             "search_memory",
+             %{args | "cursor" => expired <> "." <> signature},
+             options
+           ) == {:error, "invalid_memory_cursor"}
 
     for {after_at, before_at} <- [
           {"2026-09-06T00:00:00Z", "2026-09-05T00:00:00Z"},
           {"2026-09-05T00:00:00Z", "2026-09-05T00:00:00Z"}
         ] do
-      assert {:error, "invalid_memory_time_filter"} =
-               Tools.call(
-                 "search_memory",
-                 %{args | "after" => after_at, "before" => before_at},
-                 options
-               )
+      assert Tools.call(
+               "search_memory",
+               %{args | "after" => after_at, "before" => before_at},
+               options
+             ) == {:error, "invalid_memory_time_filter"}
     end
   end
 
@@ -815,10 +806,9 @@ defmodule Ryker.StateTools.MemorySearchTest do
     # This assertion promises a callable expansion, so expose its real schema.
     options = Map.put(options, :additional_tools, SlackCapabilityTools.definitions())
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Enum.each(entries, &Observations.record_excerpt_in_transaction/1)
-             end)
+    assert Repo.transaction(fn ->
+             Enum.each(entries, &Observations.record_excerpt_in_transaction/1)
+           end) == {:ok, :ok}
 
     args = %{
       @args
@@ -856,15 +846,14 @@ defmodule Ryker.StateTools.MemorySearchTest do
 
     [older] = Enum.reject(entries, &(&1.id == newer["source_input_id"]))
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               Observations.receive_in_transaction(%{
-                 older
-                 | id: Ecto.UUID.generate(),
-                   event_kind: :delete,
-                   revision: older.revision + 1
-               })
-             end)
+    assert Repo.transaction(fn ->
+             Observations.receive_in_transaction(%{
+               older
+               | id: Ecto.UUID.generate(),
+                 event_kind: :delete,
+                 revision: older.revision + 1
+             })
+           end) == {:ok, :ok}
 
     assert {:ok, %{"memories" => [], "cursor" => nil, "exhausted" => true}} =
              Tools.call("search_memory", %{args | "cursor" => cursor}, options)
@@ -912,8 +901,8 @@ defmodule Ryker.StateTools.MemorySearchTest do
     # A conversation's own summary and the rollup it is compacted into are the
     # two kinds a reader most needs beside an old message, and nothing held
     # them: both could have stopped attaching without a test noticing.
-    assert {:ok, :ok} =
-             Repo.transaction(fn -> Observations.record_excerpt_in_transaction(entry) end)
+    assert Repo.transaction(fn -> Observations.record_excerpt_in_transaction(entry) end) ==
+             {:ok, :ok}
 
     fact!(claim, 1)
     guidance!(claim, 2)

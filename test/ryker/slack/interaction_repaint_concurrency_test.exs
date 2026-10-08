@@ -46,12 +46,12 @@ defmodule Ryker.Slack.InteractionRepaintConcurrencyTest do
 
         result = repaint(claim)
         refute_received {:updated, _, _, _, _}, "a busy session replaced the published reply"
-        assert {:error, :work_derived_context_busy} = result
+        assert result == {:error, :work_derived_context_busy}
 
         send(locker.pid, :release)
         Task.await(locker)
 
-        assert :ok = repaint(claim)
+        assert repaint(claim) == :ok
         assert_received {:updated, "CREPAINTLOCK", "1790522028.741419", document, _delivery}
         assert document == %{"message" => @message}
       after
@@ -97,7 +97,7 @@ defmodule Ryker.Slack.InteractionRepaintConcurrencyTest do
     {:ok, _} = WorkSessions.pin_episode(id, "fixture", String.duplicate("a", 64))
     {:ok, claim} = Custody.claim_next("worker:#{id}", 60)
     assert claim.episode.id == id
-    assert :ok = KnowledgeSnapshot.expose(claim, [])
+    assert KnowledgeSnapshot.expose(claim, []) == :ok
 
     delivery = %{"message" => @message}
 

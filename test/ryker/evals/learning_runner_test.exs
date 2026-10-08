@@ -367,11 +367,10 @@ defmodule Ryker.Evals.LearningRunnerTest do
   test "an explicit database mismatch prevents any imported source or remote call", %{
     options: options
   } do
-    assert {:error, :learning_eval_database_mismatch} =
-             LearningRunner.run(LearningRunner.recorded_sequence(), %{
-               options
-               | database: "ryker"
-             })
+    assert LearningRunner.run(LearningRunner.recorded_sequence(), %{
+             options
+             | database: "ryker"
+           }) == {:error, :learning_eval_database_mismatch}
 
     assert Fake.state(options.client).create_keys == []
   end
@@ -415,7 +414,7 @@ defmodule Ryker.Evals.LearningRunnerTest do
     assert is_binary(prompt)
     assert Repo.aggregate(Ryker.Ingress.Inbox.Entry, :count) == 1
     assert Fake.state(options.client).discard_keys == []
-    assert {:error, :learning_eval_database_not_empty} = LearningRunner.preflight(options)
+    assert LearningRunner.preflight(options) == {:error, :learning_eval_database_not_empty}
   end
 
   for release <- [:new_topic, :no_change] do
@@ -613,7 +612,10 @@ defmodule Ryker.Evals.LearningRunnerTest do
   test "changing a harvested source invalidates provenance before import", %{options: options} do
     [first | rest] = LearningRunner.recorded_sequence()
     first = put_in(first.input["content"]["text"], "invented later decision")
-    assert {:error, :learning_eval_invalid_sequence} = LearningRunner.run([first | rest], options)
+
+    assert LearningRunner.run([first | rest], options) ==
+             {:error, :learning_eval_invalid_sequence}
+
     assert Repo.aggregate(Ryker.Ingress.Inbox.Entry, :count) == 0
   end
 
@@ -644,15 +646,15 @@ defmodule Ryker.Evals.LearningRunnerTest do
 
   test "a job granting project access is refused before imports", %{options: options} do
     options = put_in(options, [:job, :document, "project_env"], true)
-    assert {:error, :invalid_model_eval_job} = LearningRunner.preflight(options)
+    assert LearningRunner.preflight(options) == {:error, :invalid_model_eval_job}
     assert Fake.state(options.client).create_keys == []
   end
 
   test "a configured background runtime is refused before imports", %{options: options} do
     Config.put_override(:delivery, %{worker_ref: "must-not-start"})
 
-    assert {:error, :learning_eval_background_runtime_configured} =
-             LearningRunner.preflight(options)
+    assert LearningRunner.preflight(options) ==
+             {:error, :learning_eval_background_runtime_configured}
 
     assert Fake.state(options.client).create_keys == []
   end

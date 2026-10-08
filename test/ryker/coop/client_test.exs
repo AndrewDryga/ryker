@@ -87,8 +87,8 @@ defmodule Ryker.Coop.ClientTest do
           {judge, "ryker:eval:routing-replay:789:create",
            "ryker-eval:routing-replay:789:routing-replay:example"}
         ] do
-      assert {:error, :invalid_model_eval_job} =
-               Client.create_session(unreachable_client(), key, template, task, nil)
+      assert Client.create_session(unreachable_client(), key, template, task, nil) ==
+               {:error, :invalid_model_eval_job}
     end
   end
 
@@ -410,7 +410,7 @@ defmodule Ryker.Coop.ClientTest do
     }
 
     with_unix_server(error, 404, fn client, request ->
-      assert :not_found = Client.operation_by_key(client, "ryker:key with spaces")
+      assert Client.operation_by_key(client, "ryker:key with spaces") == :not_found
       assert request.().path == "/v1/operations?key=ryker%3Akey+with+spaces"
     end)
   end
@@ -420,7 +420,7 @@ defmodule Ryker.Coop.ClientTest do
     # and rejecting that valid response prevents every new admission from
     # reaching session creation.
     with_unix_server(%{"error" => %{"code" => "operation_not_found"}}, 404, fn client, _request ->
-      assert :not_found = Client.operation_by_key(client, "ryker:code-only-missing")
+      assert Client.operation_by_key(client, "ryker:code-only-missing") == :not_found
     end)
   end
 
@@ -428,8 +428,8 @@ defmodule Ryker.Coop.ClientTest do
     error = %{"error" => %{"code" => "operation_not_found", "detail" => %{"unsafe" => true}}}
 
     with_unix_server(error, 404, fn client, _request ->
-      assert {:error, {:coop_protocol_error, {:unexpected_status, 404}}} =
-               Client.operation_by_key(client, "ryker:invalid-error-detail")
+      assert Client.operation_by_key(client, "ryker:invalid-error-detail") ==
+               {:error, {:coop_protocol_error, {:unexpected_status, 404}}}
     end)
   end
 
@@ -796,50 +796,47 @@ defmodule Ryker.Coop.ClientTest do
   end
 
   test "rejects malformed local requests before opening a socket" do
-    assert {:error, {:invalid_coop_client, :socket}} =
-             Client.new(finch: __MODULE__, receive_timeout: 1_000, socket: "tcp://coop")
+    assert Client.new(finch: __MODULE__, receive_timeout: 1_000, socket: "tcp://coop") ==
+             {:error, {:invalid_coop_client, :socket}}
 
     assert {:ok, client} =
              Client.new(finch: __MODULE__, receive_timeout: 1_000, socket: "/tmp/not-used.sock")
 
-    assert {:error, {:invalid_coop_request, :resource_id}} =
-             Client.get_session(client, "../../wrong")
+    assert Client.get_session(client, "../../wrong") ==
+             {:error, {:invalid_coop_request, :resource_id}}
 
-    assert {:error, {:invalid_coop_request, :expected_revision}} =
-             Client.close_session(client, "remote_123", "close:key", 0)
+    assert Client.close_session(client, "remote_123", "close:key", 0) ==
+             {:error, {:invalid_coop_request, :expected_revision}}
 
-    assert {:error, {:invalid_coop_request, :expected_revision}} =
-             Client.cancel_turn(client, "remote_123", "turn_123", "cancel:key", 0)
+    assert Client.cancel_turn(client, "remote_123", "turn_123", "cancel:key", 0) ==
+             {:error, {:invalid_coop_request, :expected_revision}}
 
-    assert {:error, {:invalid_coop_request, :candidate_sha256}} =
-             Client.validate_candidate(
-               client,
-               "remote_123",
-               "turn_123",
-               "validation:key",
-               "not-a-digest",
-               :accept
-             )
+    assert Client.validate_candidate(
+             client,
+             "remote_123",
+             "turn_123",
+             "validation:key",
+             "not-a-digest",
+             :accept
+           ) == {:error, {:invalid_coop_request, :candidate_sha256}}
 
-    assert {:error, {:invalid_coop_request, :violations}} =
-             Client.validate_candidate(
-               client,
-               "remote_123",
-               "turn_123",
-               "validation:key",
-               String.duplicate("a", 64),
-               {:reject, []}
-             )
+    assert Client.validate_candidate(
+             client,
+             "remote_123",
+             "turn_123",
+             "validation:key",
+             String.duplicate("a", 64),
+             {:reject, []}
+           ) == {:error, {:invalid_coop_request, :violations}}
 
-    assert {:error, {:invalid_coop_request, :violations}} =
-             Client.validate_candidate(
-               client,
-               "remote_123",
-               "turn_123",
-               "validation:key",
-               String.duplicate("a", 64),
-               {:reject, [<<255>>]}
-             )
+    assert Client.validate_candidate(
+             client,
+             "remote_123",
+             "turn_123",
+             "validation:key",
+             String.duplicate("a", 64),
+             {:reject, [<<255>>]}
+           ) == {:error, {:invalid_coop_request, :violations}}
   end
 
   test "rejects every oversized or malformed local submission before transport" do

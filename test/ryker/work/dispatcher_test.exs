@@ -34,7 +34,7 @@ defmodule Ryker.Work.DispatcherTest do
     assert turn.next_attempt_at != nil
     assert turn.last_error_code == "coop_unavailable"
 
-    assert {:ok, :idle} = Dispatcher.run_once(options({:error, reason}))
+    assert Dispatcher.run_once(options({:error, reason})) == {:ok, :idle}
   end
 
   # Coop's answer can quote the request it failed, credentials and all, and the turn kept it as
@@ -272,8 +272,8 @@ defmodule Ryker.Work.DispatcherTest do
         &Keyword.put(&1, :before_return, fn _claim -> flunk("a spent turn ran again") end)
       )
 
-    assert {:ok, {:deferred, {:work_stop_pending, {:work_retry_exhausted, :attempts}}}} =
-             Dispatcher.run_once(never)
+    assert Dispatcher.run_once(never) ==
+             {:ok, {:deferred, {:work_stop_pending, {:work_retry_exhausted, :attempts}}}}
 
     turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
     assert turn.status == :cancel_pending
@@ -318,7 +318,7 @@ defmodule Ryker.Work.DispatcherTest do
   test "the model dispatcher never steals a pending Slack delivery" do
     pending = delivery_pending!("delivery-owned")
 
-    assert {:ok, :idle} = Dispatcher.run_once(options({:error, :must_not_run}))
+    assert Dispatcher.run_once(options({:error, :must_not_run})) == {:ok, :idle}
     assert {:ok, delivery} = Custody.claim_next("worker:delivery", 60, :delivery)
     assert delivery.turn.id == pending.turn.id
   end
@@ -417,15 +417,15 @@ defmodule Ryker.Work.DispatcherTest do
                )
 
       # The executor's next write with its lease, as a running turn makes one each poll.
-      assert {:error, :work_lease_lost} =
-               Custody.renew(claim.episode.id, claim.turn.turn_ref, claim.lease_ref, 60)
+      assert Custody.renew(claim.episode.id, claim.turn.turn_ref, claim.lease_ref, 60) ==
+               {:error, :work_lease_lost}
     end
 
     dispatcher_options =
       options({:error, :work_lease_lost})
       |> Keyword.update!(:executor_options, &Keyword.put(&1, :before_return, before_return))
 
-    assert {:ok, {:lease_lost, :work_lease_lost}} = Dispatcher.run_once(dispatcher_options)
+    assert Dispatcher.run_once(dispatcher_options) == {:ok, {:lease_lost, :work_lease_lost}}
 
     turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
     assert turn.status == :cancel_pending
@@ -451,8 +451,8 @@ defmodule Ryker.Work.DispatcherTest do
       options({:error, {:coop_unavailable, :simulated}})
       |> Keyword.update!(:executor_options, &Keyword.put(&1, :before_return, before_return))
 
-    assert {:ok, {:lease_lost, {:coop_unavailable, :simulated}}} =
-             Dispatcher.run_once(dispatcher_options)
+    assert Dispatcher.run_once(dispatcher_options) ==
+             {:ok, {:lease_lost, {:coop_unavailable, :simulated}}}
   end
 
   test "a stale worker cannot stop the healthy claimant that replaced its lease" do

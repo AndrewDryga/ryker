@@ -617,7 +617,8 @@ defmodule Ryker.Work.CancellationTest do
     assert replacement.turn.turn_ref == resumed.owner_ref
     assert replacement.session.generation == work.session.generation + 1
 
-    assert {:error, :work_recovery_changed} = Custody.retry_blocked(work.episode.key, fingerprint)
+    assert Custody.retry_blocked(work.episode.key, fingerprint) ==
+             {:error, :work_recovery_changed}
   end
 
   # A "Try again" still showing on a card or the Failures page after the request was closed
@@ -657,7 +658,8 @@ defmodule Ryker.Work.CancellationTest do
                "Closed by the operator."
              )
 
-    assert {:error, :work_recovery_changed} = Custody.retry_blocked(work.episode.key, fingerprint)
+    assert Custody.retry_blocked(work.episode.key, fingerprint) ==
+             {:error, :work_recovery_changed}
   end
 
   test "cancellation and close retries retain their first exact session revision" do

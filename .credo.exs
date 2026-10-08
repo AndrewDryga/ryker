@@ -54,6 +54,7 @@
           {Ryker.Checks.ShortBindings, []},
           {Ryker.Checks.SubscribeNeedsConnected, []},
           {Ryker.Checks.TestContextPattern, []},
+          {Ryker.Checks.TestAssertKnownResult, []},
           {Ryker.Checks.TestNoProcessSleep, []},
           {Ryker.Checks.UseRykerRole, []},
           {Ryker.Checks.VendorViaWrapper, []},

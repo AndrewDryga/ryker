@@ -91,11 +91,11 @@ defmodule Ryker.CoopFleet.JobSpecTest do
 
     assert {:ok, ^digest} = JobSpec.digest(rebound)
 
-    assert {:error, :invalid_coop_worker_job} =
-             JobSpec.rebind(v1, String.duplicate("f", 64), "job:replacement")
+    assert JobSpec.rebind(v1, String.duplicate("f", 64), "job:replacement") ==
+             {:error, :invalid_coop_worker_job}
 
-    assert {:error, :invalid_coop_worker_job} =
-             JobSpec.rebind(%{v1 | "project_env" => true}, v1_digest, "job:replacement")
+    assert JobSpec.rebind(%{v1 | "project_env" => true}, v1_digest, "job:replacement") ==
+             {:error, :invalid_coop_worker_job}
   end
 
   test "rebinding a replacement changes only job identity and refuses a corrupted predecessor" do
@@ -107,18 +107,18 @@ defmodule Ryker.CoopFleet.JobSpecTest do
     assert {:ok, ^new_digest} = JobSpec.digest(rebound)
     refute new_digest == digest
 
-    assert {:error, :invalid_coop_worker_job} =
-             JobSpec.rebind(job, String.duplicate("f", 64), "job:replacement")
+    assert JobSpec.rebind(job, String.duplicate("f", 64), "job:replacement") ==
+             {:error, :invalid_coop_worker_job}
   end
 
   test "GitHub identities use the same segment boundaries as the worker" do
     for slug <- ["example/.github", "example/repo.git", String.duplicate("a", 100) <> "/repo"] do
-      assert :ok = JobSpec.validate(put_in(valid_job(), ["source", "github_repository"], slug))
+      assert JobSpec.validate(put_in(valid_job(), ["source", "github_repository"], slug)) == :ok
     end
 
     for slug <- ["example/.", "example/..", "../repo", String.duplicate("a", 101) <> "/repo"] do
-      assert {:error, :invalid_coop_worker_job} =
-               JobSpec.validate(put_in(valid_job(), ["source", "github_repository"], slug))
+      assert JobSpec.validate(put_in(valid_job(), ["source", "github_repository"], slug)) ==
+               {:error, :invalid_coop_worker_job}
     end
   end
 
@@ -153,7 +153,7 @@ defmodule Ryker.CoopFleet.JobSpecTest do
       put_in(job, ["mode"], "bare")
     ]
 
-    Enum.each(invalid, &assert({:error, :invalid_coop_worker_job} = JobSpec.digest(&1)))
+    Enum.each(invalid, &assert(JobSpec.digest(&1) == {:error, :invalid_coop_worker_job}))
   end
 
   test "a workspaceless job carries no source or worker-local project settings" do
@@ -165,10 +165,10 @@ defmodule Ryker.CoopFleet.JobSpecTest do
         "targets" => ["codex"]
     }
 
-    assert :ok = JobSpec.validate(bare)
+    assert JobSpec.validate(bare) == :ok
 
-    assert {:error, :invalid_coop_worker_job} =
-             JobSpec.validate(Map.put(bare, "project_env", false))
+    assert JobSpec.validate(Map.put(bare, "project_env", false)) ==
+             {:error, :invalid_coop_worker_job}
   end
 
   test "an empty normal workspace can carry independently authorized companions" do
@@ -181,10 +181,10 @@ defmodule Ryker.CoopFleet.JobSpecTest do
         "companions" => [%{"name" => "library", "source" => source}]
     }
 
-    assert :ok = JobSpec.validate(job)
+    assert JobSpec.validate(job) == :ok
 
-    assert {:error, :invalid_coop_worker_job} =
-             JobSpec.validate(%{job | "mode" => "bare", "repository_read_only" => false})
+    assert JobSpec.validate(%{job | "mode" => "bare", "repository_read_only" => false}) ==
+             {:error, :invalid_coop_worker_job}
   end
 
   test "submodule authority binds safe paths and exact recursive identities" do
@@ -200,7 +200,7 @@ defmodule Ryker.CoopFleet.JobSpecTest do
 
     child = %{child | "submodules" => [%{child | "path" => "nested"}]}
     job = put_in(valid_job(), ["source", "submodules"], [child])
-    assert :ok = JobSpec.validate(job)
+    assert JobSpec.validate(job) == :ok
 
     for path <- [
           "",
@@ -214,11 +214,11 @@ defmodule Ryker.CoopFleet.JobSpecTest do
           "a\0b"
         ] do
       invalid = put_in(job, ["source", "submodules"], [%{child | "path" => path}])
-      assert {:error, :invalid_coop_worker_job} = JobSpec.validate(invalid)
+      assert JobSpec.validate(invalid) == {:error, :invalid_coop_worker_job}
     end
 
-    assert {:error, :invalid_coop_worker_job} =
-             JobSpec.validate(put_in(job, ["source", "submodules"], [child, child]))
+    assert JobSpec.validate(put_in(job, ["source", "submodules"], [child, child])) ==
+             {:error, :invalid_coop_worker_job}
   end
 
   test "session custody accepts only a matching immutable job and digest" do

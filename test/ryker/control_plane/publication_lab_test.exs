@@ -272,14 +272,13 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
     session = Repo.get!(Ryker.Work.Session, child_claim.session.id)
     waiting_turn = %{child_claim.turn | continuation: %{"kind" => "wait"}}
 
-    assert {:ok, :ok} =
-             Repo.transaction(fn ->
-               PublicationCustody.ensure_task_review_in_transaction(
-                 confirmation.episode,
-                 session,
-                 waiting_turn
-               )
-             end)
+    assert Repo.transaction(fn ->
+             PublicationCustody.ensure_task_review_in_transaction(
+               confirmation.episode,
+               session,
+               waiting_turn
+             )
+           end) == {:ok, :ok}
 
     refute Repo.get_by(Publication, record_id: publication_offer.id)
 

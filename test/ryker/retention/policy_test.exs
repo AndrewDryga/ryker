@@ -67,8 +67,8 @@ defmodule Ryker.Retention.PolicyTest do
 
   test "lookup never invents a policy" do
     assert {:ok, %{class: :operational}} = Policy.fetch("ingress_inbox_entries")
-    assert :error = Policy.fetch("missing_table")
-    assert :error = Policy.fetch(nil)
+    assert Policy.fetch("missing_table") == :error
+    assert Policy.fetch(nil) == :error
   end
 
   test "expiring a learning prompt cannot erase spent starts or permit its inputs to be assigned again" do
@@ -97,12 +97,12 @@ defmodule Ryker.Retention.PolicyTest do
     assert length(before_assignments) == length(inputs)
 
     Repo.update_all(from(e in Entry, where: e.id in ^ids), set: [operational_pruned_at: now])
-    assert {:ok, 1} = Repo.transaction(fn -> Learning.prune_in_transaction(3600) end)
+    assert Repo.transaction(fn -> Learning.prune_in_transaction(3600) end) == {:ok, 1}
     assert Repo.get!(LearningRun, run.id).prompt == nil
     assert Repo.get!(LearningRun, run.id).pruned_at != nil
     assert Repo.get!(Batch, claim.batch.id) == before_batch
     assert Repo.all(from(m in InputMembership, order_by: m.input_id)) == before_assignments
-    assert {:ok, :idle} = Batches.claim("after-retention", settings)
+    assert Batches.claim("after-retention", settings) == {:ok, :idle}
     assert {:ok, %{class: :kept}} = Policy.fetch("conversation_learning_batches")
   end
 

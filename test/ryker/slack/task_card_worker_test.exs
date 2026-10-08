@@ -44,7 +44,7 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
     assert blocked.next_attempt_at == nil
 
     # Nothing claims it again: not on the next cycle, not in an hour.
-    assert {:ok, :idle} = TaskCardWorker.run_once(options)
+    assert TaskCardWorker.run_once(options) == {:ok, :idle}
     assert Agent.get(client, & &1.updates) == 1
 
     assert {:ok, failures} = FailureProjection.list(%{})
@@ -139,7 +139,7 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
     assert rearmed.last_error_code == nil
     assert FailureProjection.fetch("slack_task_card", card.ref) == :not_found
 
-    assert {:error, :task_card_not_blocked} = TaskCards.rearm(card.ref)
+    assert TaskCards.rearm(card.ref) == {:error, :task_card_not_blocked}
 
     Agent.update(client, &%{&1 | result: :ok})
     assert {:ok, {:updated, _ref}} = TaskCardWorker.run_once(options)

@@ -84,7 +84,7 @@ defmodule Ryker.Evals.WorldJudgeCaseTest do
     {:ok, scenario} = WorldCase.fetch("va1-health-review-repairs-and-finishes")
     {:ok, judge} = WorldJudgeCase.new(scenario, report())
 
-    assert {:error, {:invalid_world_judge, :fields}} = WorldJudgeCase.new(%{}, report())
+    assert WorldJudgeCase.new(%{}, report()) == {:error, {:invalid_world_judge, :fields}}
     assert {:reject, [message]} = WorldJudgeCase.validate(judge, "not-json")
     assert message =~ "valid bounded quality judgment"
 

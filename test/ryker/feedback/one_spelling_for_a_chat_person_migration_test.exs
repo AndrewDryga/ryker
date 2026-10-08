@@ -30,11 +30,11 @@ defmodule Ryker.Feedback.OneSpellingForAChatPersonMigrationTest do
       signal
     end
 
-    assert :ok = migrate_down(@version)
+    assert migrate_down(@version) == :ok
     chat = record.("control-plane:user:tailscale:andrew@example.com", "reaction-a")
     slack = record.("UALICE", "reaction-b")
 
-    assert :ok = migrate_up(@version)
+    assert migrate_up(@version) == :ok
 
     actors =
       Repo.all(

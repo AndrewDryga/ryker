@@ -41,8 +41,8 @@ defmodule Ryker.Slack.ReactionEventTest do
                )
     end
 
-    assert {:error, {:invalid_slack_reaction_event, :emoji_name}} =
-             ReactionEvent.from_socket(envelope("reaction_added", "+1::skin-tone-9"), @identity)
+    assert ReactionEvent.from_socket(envelope("reaction_added", "+1::skin-tone-9"), @identity) ==
+             {:error, {:invalid_slack_reaction_event, :emoji_name}}
   end
 
   test "ignores reactions that are not user feedback on this bot's own message" do

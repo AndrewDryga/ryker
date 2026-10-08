@@ -59,25 +59,24 @@ defmodule Ryker.Settings.ModelFallbacksMigrationTest do
       refute column_exists?(repo, prefix, "work_settings", "routing_model")
 
       # A new row starts where a new installation does.
-      assert {:error, [["codex@default"], ["codex:gpt-5.6-sol/medium@default"]]} =
-               repo.transaction(fn ->
-                 SQL.query!(repo, "DELETE FROM #{prefix}.work_settings", [])
+      assert repo.transaction(fn ->
+               SQL.query!(repo, "DELETE FROM #{prefix}.work_settings", [])
 
+               SQL.query!(
+                 repo,
+                 "INSERT INTO #{prefix}.work_settings (id) VALUES ('host-models')",
+                 []
+               )
+
+               %{rows: [row]} =
                  SQL.query!(
                    repo,
-                   "INSERT INTO #{prefix}.work_settings (id) VALUES ('host-models')",
+                   "SELECT model_accounts, routing_models FROM #{prefix}.work_settings",
                    []
                  )
 
-                 %{rows: [row]} =
-                   SQL.query!(
-                     repo,
-                     "SELECT model_accounts, routing_models FROM #{prefix}.work_settings",
-                     []
-                   )
-
-                 repo.rollback(row)
-               end)
+               repo.rollback(row)
+             end) == {:error, [["codex@default"], ["codex:gpt-5.6-sol/medium@default"]]}
 
       # The database refuses a list the worker could not run, and takes one it can.
       sol = "codex:gpt-5.6-sol/medium@default"

@@ -588,7 +588,7 @@ defmodule Ryker.Evals.WorldCaseTest do
 
     File.write!(Path.join(repository_dir, "gate.py"), "def timeout_window():\n    return 600\n")
 
-    assert {:error, :repository_digest} = WorldCase.fixture_context(compiled)
+    assert WorldCase.fixture_context(compiled) == {:error, :repository_digest}
 
     assert {:error, {:invalid_world_case, ^case_id, :repository_digest}} =
              WorldCase.all(fixture)
@@ -817,9 +817,10 @@ defmodule Ryker.Evals.WorldCaseTest do
       scenario = scenario_path |> File.read!() |> Jason.decode!() |> mutate.()
       File.write!(scenario_path, Jason.encode!(scenario))
 
-      assert {:error,
-              {:invalid_world_case, "artifact-delivery-survives-work-handoff", :output_artifacts}} =
-               WorldCase.all(fixture)
+      assert WorldCase.all(fixture) ==
+               {:error,
+                {:invalid_world_case, "artifact-delivery-survives-work-handoff",
+                 :output_artifacts}}
     end
   end
 
@@ -830,12 +831,12 @@ defmodule Ryker.Evals.WorldCaseTest do
     File.mkdir_p!(empty)
     on_exit(fn -> File.rm_rf!(empty) end)
 
-    assert {:error, {:invalid_world_cases, :empty}} = WorldCase.all(empty)
-    assert {:error, {:invalid_world_cases, :enoent}} = WorldCase.all(empty <> "-missing")
-    assert {:error, {:invalid_world_cases, :root}} = WorldCase.all(nil)
-    assert {:error, {:invalid_world_case, "unknown", :directory}} = WorldCase.load(nil)
-    assert {:error, {:world_case_not_found, "missing"}} = WorldCase.fetch("missing")
-    assert {:error, {:world_case_not_found, nil}} = WorldCase.fetch(nil)
+    assert WorldCase.all(empty) == {:error, {:invalid_world_cases, :empty}}
+    assert WorldCase.all(empty <> "-missing") == {:error, {:invalid_world_cases, :enoent}}
+    assert WorldCase.all(nil) == {:error, {:invalid_world_cases, :root}}
+    assert WorldCase.load(nil) == {:error, {:invalid_world_case, "unknown", :directory}}
+    assert WorldCase.fetch("missing") == {:error, {:world_case_not_found, "missing"}}
+    assert WorldCase.fetch(nil) == {:error, {:world_case_not_found, nil}}
   end
 
   test "rejects malformed, scalar, and oversized scenario documents at the file boundary" do
@@ -866,7 +867,7 @@ defmodule Ryker.Evals.WorldCaseTest do
     File.mkdir_p!(empty)
     on_exit(fn -> File.rm_rf!(empty) end)
 
-    assert {:error, {:invalid_world_cases, :empty}} = WorldCase.fetch("missing", empty)
+    assert WorldCase.fetch("missing", empty) == {:error, {:invalid_world_cases, :empty}}
   end
 
   defp copy_scenario_fixture!(case_id \\ @health_scenario) do

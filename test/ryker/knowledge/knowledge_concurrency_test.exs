@@ -68,7 +68,7 @@ defmodule Ryker.Knowledge.KnowledgeConcurrencyTest do
         await_blocked_by(second_backend, first_backend)
         send(first.pid, :commit_create)
         assert {:ok, {:ok, %{status: :applied}}} = Task.await(first)
-        assert {:error, :learning_match_required} = Task.await(second)
+        assert Task.await(second) == {:error, :learning_match_required}
 
         assert [head] = Knowledge.context(first_entry, first_entry.repository_ref)
         assert head["topic_key"] == "first-name"
@@ -97,14 +97,13 @@ defmodule Ryker.Knowledge.KnowledgeConcurrencyTest do
           for n <- 1..unquote(count) do
             proposal = create_proposal(first, "known-subject-#{n}")
 
-            assert {:ok, :ok} =
-                     Repo.transaction(fn ->
-                       KnowledgeFixtures.record_topic(
-                         first,
-                         Map.drop(proposal, ~w(action source_input_ids)),
-                         []
-                       )
-                     end)
+            assert Repo.transaction(fn ->
+                     KnowledgeFixtures.record_topic(
+                       first,
+                       Map.drop(proposal, ~w(action source_input_ids)),
+                       []
+                     )
+                   end) == {:ok, :ok}
           end
 
           assert {:ok, run} = Learning.prepare([second.id], @policy)
@@ -112,7 +111,7 @@ defmodule Ryker.Knowledge.KnowledgeConcurrencyTest do
           result = LearningFixtures.accept(run.id, create_result(second, "another-subject"), %{})
 
           if unquote(count) == 9 do
-            assert {:error, :knowledge_match_ambiguous} = result
+            assert result == {:error, :knowledge_match_ambiguous}
             assert Repo.get!(LearningRun, run.id).error_code == "knowledge_match_ambiguous"
             assert Repo.aggregate(ConversationKnowledge, :count) == 9
             assert Repo.aggregate(KnowledgeRevision, :count) == 9

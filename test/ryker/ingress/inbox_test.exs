@@ -57,15 +57,14 @@ defmodule Ryker.Ingress.InboxTest do
           [slack_audience: :mention, slack_bot_user_ref: "U-bot"],
           [slack_audience: :mention, slack_bot_user_ref: String.duplicate("U", 257)]
         ] do
-      assert {:error, {:invalid_ingress_execution, :slack_addressing}} =
-               Inbox.record(slack, options)
+      assert Inbox.record(slack, options) ==
+               {:error, {:invalid_ingress_execution, :slack_addressing}}
     end
 
-    assert {:error, {:invalid_ingress_execution, :slack_addressing}} =
-             Inbox.record_many([slack, other],
-               slack_audience: :ambient,
-               slack_bot_user_ref: "UBOT"
-             )
+    assert Inbox.record_many([slack, other],
+             slack_audience: :ambient,
+             slack_bot_user_ref: "UBOT"
+           ) == {:error, {:invalid_ingress_execution, :slack_addressing}}
 
     assert Repo.aggregate(Entry, :count) == 0
 
@@ -534,15 +533,14 @@ defmodule Ryker.Ingress.InboxTest do
     assert DateTime.compare(claimed.lease_expires_at, DateTime.add(@occurred_at, 60, :second)) ==
              :eq
 
-    assert {:error, {:ingress_retry_failed, :lease_lost}} =
-             Inbox.defer(
-               Inbox.ref(claimed),
-               "ingress-lease:wrong",
-               @occurred_at,
-               1_000,
-               "coop_unavailable",
-               "temporary failure"
-             )
+    assert Inbox.defer(
+             Inbox.ref(claimed),
+             "ingress-lease:wrong",
+             @occurred_at,
+             1_000,
+             "coop_unavailable",
+             "temporary failure"
+           ) == {:error, {:ingress_retry_failed, :lease_lost}}
 
     assert {:ok, deferred} =
              Inbox.defer(
@@ -607,7 +605,7 @@ defmodule Ryker.Ingress.InboxTest do
     assert claimed.id == first.id
     assert {:ok, %{entry: independent}} = Inbox.claim_next("slot:2", @occurred_at, 60)
     assert independent.id == other.id
-    assert {:ok, nil} = Inbox.claim_next("slot:3", @occurred_at, 60)
+    assert Inbox.claim_next("slot:3", @occurred_at, 60) == {:ok, nil}
 
     assert {:ok, _} =
              Inbox.defer(
@@ -619,7 +617,7 @@ defmodule Ryker.Ingress.InboxTest do
                "Retry under the same request identity"
              )
 
-    assert {:ok, nil} = Inbox.claim_next("slot:3", @occurred_at, 60)
+    assert Inbox.claim_next("slot:3", @occurred_at, 60) == {:ok, nil}
 
     assert {:ok, %{entry: retry, lease_ref: next_lease}} =
              Inbox.claim_next("slot:3", DateTime.add(@occurred_at, 1, :second), 60)
@@ -647,7 +645,7 @@ defmodule Ryker.Ingress.InboxTest do
              Inbox.record(input!(event_ref: "Ev-after-voice", message_ref: "1787832001.000100"))
 
     deadline = DateTime.add(voice.inserted_at, 180, :second)
-    assert {:ok, nil} = Inbox.claim_next("routing:test", DateTime.add(deadline, -1, :second), 60)
+    assert Inbox.claim_next("routing:test", DateTime.add(deadline, -1, :second), 60) == {:ok, nil}
 
     # Routing sleeps until then. The due time is a database aggregate, which
     # comes back without a zone.
@@ -668,8 +666,8 @@ defmodule Ryker.Ingress.InboxTest do
                [Ecto.UUID.dump!(voice.id)]
              )
 
-    assert {:ok, :released} =
-             Inbox.transcribed(Inbox.ref(claimed), %{file["artifact_ref"] => {:ok, "Too late"}})
+    assert Inbox.transcribed(Inbox.ref(claimed), %{file["artifact_ref"] => {:ok, "Too late"}}) ==
+             {:ok, :released}
 
     assert {:ok, %{content: content}} = Inbox.fetch(Inbox.ref(claimed))
     assert content == claimed.content
@@ -770,7 +768,7 @@ defmodule Ryker.Ingress.InboxTest do
     assert {:ok, %{entry: entry}} = Inbox.record(input!(event_ref: "Ev-expired"))
     assert {:ok, %{lease_ref: first_lease}} = Inbox.claim_next("executor:old", @occurred_at, 1)
 
-    assert {:ok, nil} = Inbox.claim_next("executor:new", @occurred_at, 60)
+    assert Inbox.claim_next("executor:new", @occurred_at, 60) == {:ok, nil}
 
     later = DateTime.add(@occurred_at, 2, :second)
 
@@ -781,15 +779,14 @@ defmodule Ryker.Ingress.InboxTest do
     assert reclaimed.attempt_count == 2
     refute second_lease == first_lease
 
-    assert {:error, {:ingress_retry_failed, :lease_lost}} =
-             Inbox.defer(
-               Inbox.ref(entry),
-               first_lease,
-               later,
-               1_000,
-               "late_worker",
-               "stale executor finished after its lease expired"
-             )
+    assert Inbox.defer(
+             Inbox.ref(entry),
+             first_lease,
+             later,
+             1_000,
+             "late_worker",
+             "stale executor finished after its lease expired"
+           ) == {:error, {:ingress_retry_failed, :lease_lost}}
   end
 
   test "the current executor can renew its fenced lease without spending another attempt" do
@@ -809,8 +806,8 @@ defmodule Ryker.Ingress.InboxTest do
              DateTime.add(@occurred_at, 3, :second)
            ) == :eq
 
-    assert {:ok, nil} =
-             Inbox.claim_next("executor:other", DateTime.add(@occurred_at, 2, :second), 2)
+    assert Inbox.claim_next("executor:other", DateTime.add(@occurred_at, 2, :second), 2) ==
+             {:ok, nil}
 
     assert {:ok, %{entry: reclaimed}} =
              Inbox.claim_next("executor:other", DateTime.add(@occurred_at, 4, :second), 2)
@@ -838,8 +835,8 @@ defmodule Ryker.Ingress.InboxTest do
     assert blocked.next_attempt_at == nil
     assert blocked.last_error_code == "operation_uncertain"
 
-    assert {:ok, nil} =
-             Inbox.claim_next("executor:test", DateTime.add(@occurred_at, 1, :hour), 60)
+    assert Inbox.claim_next("executor:test", DateTime.add(@occurred_at, 1, :hour), 60) ==
+             {:ok, nil}
   end
 
   test "an operator can rearm one exact blocked admission without changing its frozen decision context" do
@@ -875,8 +872,7 @@ defmodule Ryker.Ingress.InboxTest do
     assert rearmed.last_error_code == nil
     assert rearmed.lease_ref == nil
 
-    assert {:error, {:ingress_rearm_failed, :input_not_blocked}} =
-             Inbox.rearm(Inbox.ref(entry))
+    assert Inbox.rearm(Inbox.ref(entry)) == {:error, {:ingress_rearm_failed, :input_not_blocked}}
   end
 
   test "the database requires an exact source item before a reaction can be admitted" do
@@ -949,8 +945,8 @@ defmodule Ryker.Ingress.InboxTest do
 
     assert bytes > 65_536
 
-    assert {:error, {:invalid_ingress_execution, :record_options}} =
-             Inbox.record(input!(event_ref: "Ev-list"), source_envelope: ["not", "a", "map"])
+    assert Inbox.record(input!(event_ref: "Ev-list"), source_envelope: ["not", "a", "map"]) ==
+             {:error, {:invalid_ingress_execution, :record_options}}
   end
 
   # Open pages learn about a message from this context once it commits. Until

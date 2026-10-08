@@ -133,7 +133,7 @@ defmodule Ryker.ControlPlane.CloudflareViewerLiveTest do
     assert {:ok, _socket} = LiveSocket.connect(%{}, socket, at.(@published, session))
 
     for refused <- [%{}, expired, tailscale],
-        do: assert(:error = LiveSocket.connect(%{}, socket, at.(@published, refused)))
+        do: assert(LiveSocket.connect(%{}, socket, at.(@published, refused)) == :error)
 
     # The local console needs no sign-in, its socket included.
     assert {:ok, _socket} = LiveSocket.connect(%{}, socket, at.("localhost", %{}))
