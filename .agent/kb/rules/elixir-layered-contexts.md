@@ -207,6 +207,14 @@ Functions:
   so does the chain that only passed it on (29 on 2026-10-08, among them a
   run ordinal through six trace steps). A callback keeps the shape its
   caller requires: a function plug, a `Regex.replace/3` function.
+- An argument every caller must give is positional, or a field of a struct
+  the head matches, never an option fetched with `Keyword.fetch!/2` (Emisar's
+  always-present-arguments rule). The request page's model calls read with a
+  `ModelRequests.Reading` struct; its keyword bag carried page rows, a row's
+  attempt and the redactor's options together, and `disclosed` meant a set of
+  opened ids to the page and a boolean to the redactor. OTP and Plug `init/1`
+  options and a worker's settings from its child spec keep their keyword
+  shape.
 - A module attribute holds configuration: a limit, a version, a prefix, a
   pattern, a path. A message or other literal read in one place is written
   there.

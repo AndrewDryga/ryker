@@ -17,11 +17,35 @@ defmodule Ryker.ControlPlane.ModelRequests do
   alias Ryker.Settings
   alias Ryker.Slack
   alias Ryker.UTCDateTime
+  alias Ryker.Wording
   alias Ryker.Work
 
   @page_size 20
   @timeline_max_pages 10
   @response_page_size 10
+  @artifact_bytes 2 * 1_024 * 1_024
+
+  defmodule Reading do
+    @moduledoc """
+    What one page reads its model calls with: the rows it loaded once for all
+    of them, the artifacts the reader opened, the secrets every artifact is
+    redacted with, and whether the row being read has expired.
+    """
+    @enforce_keys [:secrets, :request_id, :opened]
+    defstruct @enforce_keys ++
+                [
+                  execution_mode: nil,
+                  sessions: %{},
+                  admission_failures: %{},
+                  previous_failures: %{},
+                  title_updates: %{},
+                  candidate_episodes: nil,
+                  response_windows: %{},
+                  responses: %{},
+                  responses_limited: false,
+                  expired: false
+                ]
+  end
 
   # Input identities address a specific incoming message, including messages
   # routed into an existing conversation rather than starting a new episode.
@@ -112,25 +136,24 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
     title_updates = title_updates(episode.id)
 
-    options =
-      [
+    reading =
+      %Reading{
         secrets: Redactor.configured_secrets(),
-        max_bytes: 2 * 1_024 * 1_024,
         request_id: episode.id,
         execution_mode: episode.execution_mode,
         sessions: sessions,
         admission_failures: admission_failures,
         previous_failures: previous_failures,
-        disclosed: disclosed,
+        opened: disclosed,
         title_updates: title_updates
-      ]
+      }
       |> with_responses(turns, params)
 
     work =
       turns
       |> Enum.reject(&Work.Recovery.retained_absent_submission?/1)
       |> Enum.flat_map(fn turn ->
-        request = inspect_row(turn, %{}, options)
+        request = inspect_turn(turn, reading)
 
         selection_event(turn, request) ++
           request_events(
@@ -156,7 +179,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
     admission =
       Enum.flat_map(entries, fn entry ->
         missing = if MapSet.member?(retained_inputs, entry.id), do: [], else: [nil]
-        Enum.flat_map(Map.get(by_input, entry.id, missing), &admission_events(entry, &1, options))
+        Enum.flat_map(Map.get(by_input, entry.id, missing), &admission_events(entry, &1, reading))
       end)
 
     # Background learning over this request's messages: the same model-request
@@ -170,7 +193,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
       |> Repo.all()
       |> Enum.reverse()
       |> LearningRequests.entries(
-        secrets: options[:secrets],
+        secrets: reading.secrets,
         disclosed: disclosed,
         scope: :request
       )
@@ -265,18 +288,11 @@ defmodule Ryker.ControlPlane.ModelRequests do
     |> Enum.sort_by(&{&1.inserted_at, &1.id}, :desc)
   end
 
-  defp admission_events(entry, attempt, options) do
+  defp admission_events(entry, attempt, reading) do
     generation = if attempt, do: attempt.generation, else: entry.execution_generation
-
-    request =
-      inspect_row(
-        entry,
-        %{"generation" => to_string(generation)},
-        Keyword.put(options, :attempt, attempt)
-      )
-
+    request = inspect_entry(entry, attempt, generation, reading)
     request = %{request | at: if(attempt, do: attempt.inserted_at, else: entry.inserted_at)}
-    failure = if attempt, do: options[:admission_failures][attempt.id]
+    failure = if attempt, do: reading.admission_failures[attempt.id]
     completed = admission_completed_at(attempt)
 
     search_event(entry, attempt) ++
@@ -286,12 +302,12 @@ defmodule Ryker.ControlPlane.ModelRequests do
         "admission-#{entry.id}-#{generation}",
         completed,
         attempt != nil and attempt.phase in ~w(response_received host_validation committed),
-        Paths.request(options[:request_id]) <> "#admission-#{entry.id}-#{generation}",
+        Paths.request(reading.request_id) <> "#admission-#{entry.id}-#{generation}",
         %{
           failure: failure,
           kind: :admission,
           run: CallRun.from_attempt(attempt),
-          retried_after: attempt && (options[:previous_failures] || %{})[attempt.id]
+          retried_after: attempt && reading.previous_failures[attempt.id]
         }
       )
   end
@@ -546,13 +562,10 @@ defmodule Ryker.ControlPlane.ModelRequests do
   def project_input(id, params) when is_map(params) do
     with {:ok, id} <- Ecto.UUID.cast(id),
          %Ingress.Inbox.Entry{} = entry <- Repo.one(Ingress.Inbox.Entry.Query.by_id(id)) do
-      options = [
-        secrets: Redactor.configured_secrets(),
-        candidate_episodes: candidate_episodes(entry.admission_context)
-      ]
-
+      secrets = Redactor.configured_secrets()
+      disclosed = disclosed(params)
       now = DateTime.utc_now()
-      message = CaseFile.input_message(entry, disclosed(params))
+      message = CaseFile.input_message(entry, disclosed)
 
       responses =
         id
@@ -566,10 +579,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
          # What people said about the answer routing sent by itself.
          feedback: FeedbackProjection.for_request({:input, id}),
          self_analysis:
-           ImprovementRequests.entries([input_id: id],
-             secrets: options[:secrets],
-             disclosed: disclosed(params)
-           ),
+           ImprovementRequests.entries([input_id: id], secrets: secrets, disclosed: disclosed),
          input_id: id,
          # The request page's header, for a message: what it says as people
          # read it, what happened to it in the words Activity uses, and where
@@ -590,15 +600,11 @@ defmodule Ryker.ControlPlane.ModelRequests do
          message: message,
          metrics: %{response_ms: response_ms(entry, responses), cost: routing_cost(entry)},
          preparation: EpisodeTrace.input_preparation(entry),
-         timeline: input_request_events(entry, params, options),
+         timeline: input_request_events(entry, disclosed, secrets),
          answer: routing_answer(entry, responses, message),
          learning:
            [entry.id]
-           |> LearningRequests.entries(
-             secrets: options[:secrets],
-             disclosed: disclosed(params),
-             scope: :message
-           )
+           |> LearningRequests.entries(secrets: secrets, disclosed: disclosed, scope: :message)
            |> with_model_choice(),
          recovery: admission_recovery(entry),
          names: Slack.Names.revision()
@@ -756,7 +762,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
        }),
        do: ":#{emoji}:"
 
-  defp input_request_events(entry, params, shared_options) do
+  defp input_request_events(entry, disclosed, secrets) do
     attempts =
       entry.id
       |> Admission.Attempt.Query.by_input_id()
@@ -774,65 +780,53 @@ defmodule Ryker.ControlPlane.ModelRequests do
         do: [nil],
         else: attempts
 
-    disclosed = disclosed(params)
+    reading = %Reading{
+      secrets: secrets,
+      request_id: entry.id,
+      execution_mode: entry.execution_mode,
+      admission_failures: admission_failures([entry.id], Enum.reject(attempts, &is_nil/1)),
+      opened: disclosed,
+      candidate_episodes: candidate_episodes(entry.admission_context)
+    }
 
-    options =
-      [
-        secrets: Redactor.configured_secrets(),
-        max_bytes: 2 * 1_024 * 1_024,
-        request_id: entry.id,
-        execution_mode: entry.execution_mode,
-        admission_failures: admission_failures([entry.id], Enum.reject(attempts, &is_nil/1)),
-        disclosed: disclosed
-      ]
-      |> Keyword.put(:candidate_episodes, shared_options[:candidate_episodes])
-
-    Enum.flat_map(attempts, &admission_events(entry, &1, options))
+    Enum.flat_map(attempts, &admission_events(entry, &1, reading))
   end
 
-  defp inspect_row(%Work.Turn{} = turn, _params, options) do
-    session = Map.fetch!(Keyword.fetch!(options, :sessions), turn.session_id)
-
+  defp inspect_turn(%Work.Turn{} = turn, %Reading{} = reading) do
+    session = Map.fetch!(reading.sessions, turn.session_id)
     expired = not is_nil(turn.operational_pruned_at)
-    options = Keyword.put(options, :expired, expired)
+    reading = %{reading | expired: expired}
     submission = if expired, do: %{}, else: turn.submission || %{}
     prompt = decode(submission["prompt"])
     context = prompt["work"]
+    work = if is_map(context), do: context, else: %{}
 
     tools =
-      Map.take(
-        if(is_map(context), do: context, else: %{}),
-        ~w(controller_tools responder_state_tools source_and_action_tools workspace)
-      )
+      Map.take(work, ~w(controller_tools responder_state_tools source_and_action_tools workspace))
 
     sections = [
-      section("instructions", "Ryker instructions", prompt["instructions"], options),
-      section("context", "Messages and selected context", context, options),
+      section("instructions", "Ryker instructions", prompt["instructions"], reading),
+      section("context", "Messages and selected context", context, reading),
       section(
         "tools",
         "Advertised tools and workspace scope",
         if(tools != %{}, do: tools),
-        options
+        reading
       ),
-      section("contract", "Required output contract", submission["output_schema"], options),
-      section(
-        "request",
+      section("contract", "Required output contract", submission["output_schema"], reading),
+      request_section(
         "Submitted prompt · sanitized raw view",
         submission["prompt"],
-        Keyword.put(options, :artifact_id, "work-#{turn.id}-request")
+        "work-#{turn.id}-request",
+        reading
       ),
-      section(
-        "candidate",
-        "Response to validate",
-        unless(expired, do: turn.candidate),
-        options
-      ),
-      validation_section(turn, options),
+      section("candidate", "Response to validate", unless(expired, do: turn.candidate), reading),
+      validation_section(turn, reading),
       section(
         "delivery",
         "Validated response",
         unless(expired, do: turn.delivery_document),
-        options
+        reading
       )
     ]
 
@@ -846,7 +840,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
       policy: session.policy,
       policy_digest: session.policy_digest,
       fingerprint: turn.submission_fingerprint,
-      execution_mode: options[:execution_mode],
+      execution_mode: reading.execution_mode,
       sections:
         Enum.map(sections, fn section ->
           section
@@ -856,13 +850,10 @@ defmodule Ryker.ControlPlane.ModelRequests do
     }
   end
 
-  defp inspect_row(%Ingress.Inbox.Entry{} = entry, params, options) do
+  defp inspect_entry(%Ingress.Inbox.Entry{} = entry, attempt, generation, %Reading{} = reading) do
     expired = not is_nil(entry.operational_pruned_at)
-    options = Keyword.put(options, :expired, expired)
-
-    generation = min(PagedRelation.requested(params, "generation"), entry.execution_generation)
-    attempt = Keyword.fetch!(options, :attempt)
-
+    reading = %{reading | expired: expired}
+    generation = min(generation, entry.execution_generation)
     submission = admission_submission(attempt, expired)
 
     prompt = decode(submission["prompt"])
@@ -870,12 +861,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
     %{
       id: entry.id,
-      counts:
-        admission_counts(
-          entry,
-          prompt["context"],
-          Keyword.put(options, :current_generation, generation == entry.execution_generation)
-        ),
+      counts: admission_counts(entry, prompt["context"], reading),
       title: "Admission · execution #{generation}",
       generation: generation,
       generations: entry.execution_generation,
@@ -887,7 +873,8 @@ defmodule Ryker.ControlPlane.ModelRequests do
       fingerprint:
         attempt_value(attempt, :submission_fingerprint) || entry.admission_context_fingerprint,
       sections:
-        admission_sections(entry, attempt, submission, prompt, response, generation, options)
+        entry
+        |> admission_sections(attempt, submission, prompt, response, generation, reading)
         |> Enum.map(fn section ->
           section
           |> Map.put(:source_kind, :admission)
@@ -917,16 +904,13 @@ defmodule Ryker.ControlPlane.ModelRequests do
       for {key, label} <- [{"observations", "source note"}, {"knowledge", "saved topic"}],
           included = get_in(context, ["operator_context", "continuity", key]),
           is_list(included),
-          do: continuity_count(length(included), label)
+          do: Wording.count(length(included), label)
 
     case parts do
       [] -> counts
       parts -> Map.put(counts, "continuity", count(Enum.join(parts, " · "), true))
     end
   end
-
-  defp continuity_count(1, label), do: "1 #{label}"
-  defp continuity_count(number, label), do: "#{number} #{label}s"
 
   defp put_listed_counts(counts, context) do
     Enum.reduce(
@@ -953,14 +937,12 @@ defmodule Ryker.ControlPlane.ModelRequests do
   # The briefing shows what the model was sent and counts only that; what the
   # search found and left out is the search card's, before it. Candidate refs
   # resolve to their episodes' timelines for links.
-  defp admission_counts(entry, context, options) when is_map(context) do
-    %{
-      "candidate_episodes" =>
-        options[:candidate_episodes] || candidate_episodes(entry.admission_context)
-    }
+  defp admission_counts(entry, context, %Reading{candidate_episodes: resolved})
+       when is_map(context) do
+    %{"candidate_episodes" => resolved || candidate_episodes(entry.admission_context)}
   end
 
-  defp admission_counts(_entry, _context, _options), do: %{}
+  defp admission_counts(_entry, _context, _reading), do: %{}
 
   # A candidate card shows what the router read: the digest and the first and
   # latest messages. The rest of that episode belongs to its own timeline, so
@@ -989,7 +971,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
   defp count(label, known?), do: %{label: label, known?: known?}
 
-  defp with_responses(options, turns, params) do
+  defp with_responses(%Reading{} = reading, turns, params) do
     windows = Map.new(turns, &{&1.id, response_window(&1, params)})
 
     attempts =
@@ -1004,11 +986,12 @@ defmodule Ryker.ControlPlane.ModelRequests do
       |> Work.CandidateResponse.Query.latest_of_attempts(@response_page_size)
       |> Repo.all()
 
-    Keyword.merge(options,
-      response_windows: windows,
-      responses: Map.new(rows, &{{&1.turn_id, &1.candidate_attempt}, &1}),
-      responses_limited: length(rows) == @response_page_size
-    )
+    %{
+      reading
+      | response_windows: windows,
+        responses: Map.new(rows, &{{&1.turn_id, &1.candidate_attempt}, &1}),
+        responses_limited: length(rows) == @response_page_size
+    }
   end
 
   defp window_attempts(window),
@@ -1031,61 +1014,58 @@ defmodule Ryker.ControlPlane.ModelRequests do
     Enum.slice(history, offset, @response_page_size)
   end
 
-  defp validation_section(turn, options) do
-    window = Keyword.fetch!(options, :response_windows)[turn.id]
-    expired = options[:expired]
+  defp validation_section(turn, %Reading{} = reading) do
+    window = reading.response_windows[turn.id]
 
     responses =
       for %{"candidate_attempt" => attempt} <- window,
           is_integer(attempt),
           into: %{},
-          do: {attempt, response_artifact(turn, attempt, options)}
+          do: {attempt, response_artifact(turn, attempt, reading)}
 
-    section(
-      "validation",
-      "Host validation and repair history",
-      unless(expired,
-        do: %{
+    history =
+      unless reading.expired do
+        %{
           "verdict" => turn.validation_intent,
           "history" => window,
           "candidate_attempt" => turn.candidate_attempt,
           "accepted_at" => UTCDateTime.iso8601(turn.accepted_at)
         }
-      ),
-      options
-    )
+      end
+
+    "validation"
+    |> section("Host validation and repair history", history, reading)
     |> Map.merge(%{
       responses: responses,
-      response_links: response_links(turn, responses, options)
+      response_links: response_links(turn, responses, reading)
     })
   end
 
-  defp response_artifact(turn, attempt, options) do
-    case Keyword.fetch!(options, :responses)[{turn.id, attempt}] do
+  defp response_artifact(turn, attempt, %Reading{} = reading) do
+    case reading.responses[{turn.id, attempt}] do
       %{body: body, sha256: digest, byte_size: bytes, operational_pruned_at: pruned_at} ->
-        expired = options[:expired] || not is_nil(pruned_at)
+        reading = %{reading | expired: reading.expired or not is_nil(pruned_at)}
+        retained = unless reading.expired, do: body
+        artifact = Redactor.artifact(retained, redaction(reading))
 
-        artifact =
-          Redactor.artifact(unless(expired, do: body), Keyword.put(options, :expired, expired))
-
-        if expired || (artifact.sha256 == digest && artifact.bytes == bytes),
+        if reading.expired || (artifact.sha256 == digest && artifact.bytes == bytes),
           do: artifact,
-          else: Redactor.artifact(nil, options)
+          else: Redactor.artifact(nil, redaction(reading))
 
       nil ->
-        absent_response(options)
+        absent_response(reading)
     end
   end
 
-  defp absent_response(options) do
-    artifact = Redactor.artifact(nil, options)
+  defp absent_response(%Reading{} = reading) do
+    artifact = Redactor.artifact(nil, redaction(reading))
 
-    if options[:responses_limited] && !options[:expired],
+    if reading.responses_limited and not reading.expired,
       do: %{artifact | state: :not_loaded},
       else: artifact
   end
 
-  defp response_links(turn, responses, options) do
+  defp response_links(turn, responses, %Reading{} = reading) do
     for {%{"candidate_attempt" => attempt, "candidate_sha256" => digest}, index} <-
           Enum.with_index(turn.validation_history || []),
         is_integer(attempt),
@@ -1107,16 +1087,16 @@ defmodule Ryker.ControlPlane.ModelRequests do
          # Only the answer that was accepted changed the title.
          title_update:
            if(turn.accepted_at && attempt == turn.candidate_attempt,
-             do: (options[:title_updates] || %{})[turn.id]
+             do: reading.title_updates[turn.id]
            ),
          # An archived response is read in its own check's card, on the page of
          # checks that holds it. The latest answer with no archive of its own
          # is read where the timeline shows it: its model call's result card.
          href:
            if(current?,
-             do: response_request_path(turn, options, %{}) <> "#request-#{turn.id}-result",
+             do: response_request_path(turn, reading, %{}) <> "#request-#{turn.id}-result",
              else:
-               response_request_path(turn, options, %{responses_page: page}) <>
+               response_request_path(turn, reading, %{responses_page: page}) <>
                  "#turn-#{turn.id}-response-#{attempt}-body"
            )
        }}
@@ -1139,8 +1119,10 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
   defp current_response?(_turn, _attempt, _digest), do: false
 
-  defp response_request_path(turn, options, params),
-    do: Paths.query(Paths.request(options[:request_id]), Map.put(params, :attempt, turn.id))
+  defp response_request_path(turn, %Reading{request_id: request_id}, params) do
+    query = Map.put(params, :attempt, turn.id)
+    Paths.query(Paths.request(request_id), query)
+  end
 
   defp admission_recovery(%{status: :blocked} = entry) do
     %{
@@ -1151,22 +1133,17 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
   defp admission_recovery(_), do: nil
 
-  defp admission_sections(entry, attempt, submission, prompt, response, generation, options) do
-    expired = Keyword.fetch!(options, :expired)
+  defp admission_sections(entry, attempt, submission, prompt, response, generation, reading) do
+    expired = reading.expired
 
     [
-      section("input", "Source input", unless(expired, do: entry.content), options),
-      section(
-        "instructions",
-        "Ryker's routing instructions",
-        prompt["instructions"],
-        options
-      ),
+      section("input", "Source input", unless(expired, do: entry.content), reading),
+      section("instructions", "Ryker's routing instructions", prompt["instructions"], reading),
       section(
         "context",
         "What routing was given",
         unless(expired, do: prompt["context"]),
-        options
+        reading
       ),
       # Only the current attempt's search is retained; an older attempt's card
       # must not show the snapshot a later attempt replaced it with.
@@ -1176,35 +1153,35 @@ defmodule Ryker.ControlPlane.ModelRequests do
         unless(expired or generation != entry.execution_generation,
           do: routing_evidence(entry)
         ),
-        options
+        reading
       ),
-      section(
-        "request",
+      request_section(
         "Submitted prompt",
         submission["prompt"],
-        Keyword.put(options, :artifact_id, "admission-#{entry.id}-#{generation}-request")
+        "admission-#{entry.id}-#{generation}-request",
+        reading
       ),
-      section("contract", "Required output contract", submission["output_schema"], options),
-      section("response", "Observed model response", response, options),
+      section("contract", "Required output contract", submission["output_schema"], reading),
+      section("response", "Observed model response", response, reading),
       section(
         "candidate",
         "Committed admission decision",
         unless(expired or generation != entry.execution_generation,
           do: entry.decision_document
         ),
-        options
+        reading
       ),
       section(
         "progress",
         "Observed execution milestones",
         admission_milestones(attempt),
-        options
+        reading
       ),
       section(
         "measurements",
         "Reported usage and timing",
         attempt_value(attempt, :measurements),
-        options
+        reading
       )
     ]
   end
@@ -1232,39 +1209,25 @@ defmodule Ryker.ControlPlane.ModelRequests do
   defp admission_milestones(attempt),
     do: %{"phase" => attempt.phase, "milestones" => attempt.milestones}
 
-  defp section("request" = id, title, value, options) do
-    artifact_id = Keyword.get(options, :artifact_id)
-
-    %{
-      id: id,
-      artifact_id: artifact_id,
-      title: title,
-      artifact:
-        Redactor.artifact(
-          value,
-          Keyword.merge(options,
-            preserve_format: true,
-            max_bytes: 2 * 1_024 * 1_024,
-            disclosed: opened?(options, artifact_id)
-          )
-        )
-    }
+  defp section(id, title, value, %Reading{} = reading) do
+    artifact = Redactor.artifact(value, redaction(reading))
+    %{id: id, title: title, artifact: artifact}
   end
 
-  defp section(id, title, value, options),
-    do: %{id: id, title: title, artifact: Redactor.artifact(value, options)}
+  # The submitted prompt is read as sent, and prepared only once its reader
+  # opens it: it is the largest artifact on the page.
+  defp request_section(title, value, artifact_id, %Reading{} = reading) do
+    options =
+      [preserve_format: true, disclosed: MapSet.member?(reading.opened, artifact_id)] ++
+        redaction(reading)
 
-  # An artifact with no identity cannot be opened again on the next refresh, so
-  # it is never collapsed: a body a reader could not restore is worse than a
-  # body they did not ask for.
-  defp opened?(_options, nil), do: true
-
-  defp opened?(options, id) do
-    case options[:disclosed] do
-      %MapSet{} = disclosed -> MapSet.member?(disclosed, id)
-      _no_disclosure_tracking -> true
-    end
+    artifact = Redactor.artifact(value, options)
+    %{id: "request", artifact_id: artifact_id, title: title, artifact: artifact}
   end
+
+  # Every artifact on a page is redacted with the same secrets and bound.
+  defp redaction(%Reading{secrets: secrets, expired: expired}),
+    do: [secrets: secrets, max_bytes: @artifact_bytes, expired: expired]
 
   defp decode(value) when is_binary(value) do
     case Jason.decode(value) do
