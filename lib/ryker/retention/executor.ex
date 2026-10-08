@@ -6,6 +6,7 @@ defmodule Ryker.Retention.Executor do
   A lost response therefore retries byte-for-byte, while crossed authority or
   an unsafe discard plan fails closed without touching another workspace.
   """
+  alias Ryker.Coop
   alias Ryker.CoopFleet
   alias Ryker.Reference
   alias Ryker.Retention.{Custody, Plan}
@@ -130,7 +131,7 @@ defmodule Ryker.Retention.Executor do
 
   defp close_from_state(state, session, lease_ref, remote, settings)
        when state in ["open", "exhausted"] do
-    with {:ok, revision} <- revision(remote),
+    with {:ok, revision} <- Coop.Documents.revision(remote, :session_revision),
          {:ok, frozen} <- Custody.freeze_close_revision(session.id, lease_ref, revision) do
       close_remote(frozen, lease_ref, settings)
     end
@@ -200,7 +201,7 @@ defmodule Ryker.Retention.Executor do
   defp plan_from_state("closed", session, lease_ref, remote, settings) do
     accept_unmerged = session.discard_plan_accept_unmerged or Custody.published?(session)
 
-    with {:ok, revision} <- revision(remote),
+    with {:ok, revision} <- Coop.Documents.revision(remote, :session_revision),
          {:ok, frozen} <-
            Custody.freeze_plan_revision(session.id, lease_ref, revision, accept_unmerged) do
       plan_remote(frozen, lease_ref, settings)
@@ -386,11 +387,6 @@ defmodule Ryker.Retention.Executor do
 
   defp exact_session(_expected, _remote, _allowed_states),
     do: {:error, {:coop_protocol_error, :session_resource}}
-
-  defp revision(%{"revision" => revision}) when is_integer(revision) and revision > 0,
-    do: {:ok, revision}
-
-  defp revision(_remote), do: {:error, {:coop_protocol_error, :session_revision}}
 
   # A client reports its transport failures as errors. One that raises has a
   # bug, which no retry fixes, unless its database is down, which is an

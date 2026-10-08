@@ -528,22 +528,21 @@ defmodule Ryker.Work.Custody.Turns do
     do: {:error, {:invalid_work_mutation_fence, :request}}
 
   defp authorize_remote_mutation(episode_id, turn_ref, lease_ref, request) do
-    Repo.transaction(fn ->
-      remote_mutation_turn!(
-        episode_id,
-        turn_ref,
-        lease_ref,
-        request.kind,
-        request.operation_key,
-        request.lease_seconds,
-        request.operation_revision
-      )
-    end)
-    |> mutation_authorization_result()
-  end
+    authorized =
+      Repo.transaction(fn ->
+        remote_mutation_turn!(
+          episode_id,
+          turn_ref,
+          lease_ref,
+          request.kind,
+          request.operation_key,
+          request.lease_seconds,
+          request.operation_revision
+        )
+      end)
 
-  defp mutation_authorization_result({:ok, _turn}), do: :ok
-  defp mutation_authorization_result({:error, reason}), do: {:error, reason}
+    with {:ok, _turn} <- authorized, do: :ok
+  end
 
   defp prepare_remote_operation(
          _episode_id,

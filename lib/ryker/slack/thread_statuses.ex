@@ -16,6 +16,7 @@ defmodule Ryker.Slack.ThreadStatuses do
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Slack.{Id, ThreadStatus, Timestamp}
+  alias Ryker.Text
   alias Ryker.UTCDateTime
 
   @maximum_targets 1_000
@@ -400,25 +401,9 @@ defmodule Ryker.Slack.ThreadStatuses do
         {value, _detail} when is_atom(value) -> Atom.to_string(value)
         _other -> "slack_thread_status_error"
       end
-      |> byte_slice(128)
+      |> Text.bytes(128)
 
     {code, ErrorDetail.detail(reason)}
-  end
-
-  defp byte_slice(value, maximum) do
-    if byte_size(value) <= maximum do
-      value
-    else
-      value
-      |> String.graphemes()
-      |> Enum.reduce_while("", &append_grapheme(&1, &2, maximum))
-    end
-  end
-
-  defp append_grapheme(grapheme, output, maximum) do
-    if byte_size(output) + byte_size(grapheme) <= maximum,
-      do: {:cont, output <> grapheme},
-      else: {:halt, output}
   end
 
   defp reference(value, field),

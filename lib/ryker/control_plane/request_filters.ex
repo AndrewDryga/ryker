@@ -15,9 +15,10 @@ defmodule Ryker.ControlPlane.RequestFilters do
   use Phoenix.Component
   import Ryker.ControlPlane.Components
   alias Phoenix.LiveView.JS
-  alias Ryker.ControlPlane.{ShortTime, UsagePage, UsageProjection}
+  alias Ryker.ControlPlane.{UsagePage, UsageProjection}
   alias Ryker.Episodes
   alias Ryker.Slack
+  alias Ryker.UTCDateTime
   alias Ryker.Work
 
   @efforts ~w(none minimal low medium high xhigh max)
@@ -390,7 +391,7 @@ defmodule Ryker.ControlPlane.RequestFilters do
     with [seconds | _fraction] <- String.split(value, ".", parts: 2),
          {seconds, ""} <- Integer.parse(seconds),
          {:ok, started} <- DateTime.from_unix(seconds) do
-      "started " <> ShortTime.full(started)
+      "started " <> UTCDateTime.readable(started)
     else
       _other -> "this thread"
     end

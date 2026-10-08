@@ -391,7 +391,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
       attempt_count: entry.attempt_count,
       detail: Operator.FailureDetail.project(entry.last_error_detail),
       diagnosis: Operator.FailureDetail.facts(entry.last_error_detail),
-      cause: explained_cause(entry.last_error_detail),
+      cause: Work.FailureCause.cause(entry.last_error_detail),
       destination: failure_destination(entry),
       episode_id: entry.episode_id,
       kind: "admission",
@@ -1010,13 +1010,6 @@ defmodule Ryker.ControlPlane.FailureProjection do
 
   # A provider's own sentence, unescaped, redacted and bounded once by
   # FailureCause, for the saved errors it can read; nil otherwise.
-  defp explained_cause(detail) do
-    case Work.FailureCause.explain(detail) do
-      %{cause: cause} -> cause
-      nil -> nil
-    end
-  end
-
   # The first setup step without its receipt is where a room stopped.
   defp setup_step(%Slack.IncidentRoom{channel_ref: nil}), do: :channel
   defp setup_step(%Slack.IncidentRoom{root_message_ref: nil}), do: :root

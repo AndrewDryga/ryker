@@ -10,6 +10,8 @@ defmodule Ryker.ControlPlane.ContextSearch do
   their counts, so their cards show counts without the words.
   """
   alias Ryker.Slack
+  alias Ryker.Text
+  alias Ryker.Wording
 
   @lanes [
     {"thread", "Same thread"},
@@ -106,7 +108,7 @@ defmodule Ryker.ControlPlane.ContextSearch do
     "Public channels Ryker is in: " <> listed <> capped
   end
 
-  defp place(other, _receipt), do: other |> String.replace("_", " ") |> String.capitalize()
+  defp place(other, _receipt), do: Wording.label(other)
 
   defp listed(names, count) do
     shown = Enum.take(names, 4)
@@ -148,7 +150,7 @@ defmodule Ryker.ControlPlane.ContextSearch do
   defp used("text", %{"words" => words}) when is_list(words), do: words
 
   defp used("identity", %{"identifiers" => identifiers}) when is_list(identifiers),
-    do: Enum.map(identifiers, &shorten/1)
+    do: Enum.map(identifiers, &Text.shorten(&1, 60))
 
   defp used(_lane, _receipt), do: []
 
@@ -174,11 +176,6 @@ defmodule Ryker.ControlPlane.ContextSearch do
     do: "compared by #{model} in any language"
 
   defp note(_lane, _receipt), do: nil
-
-  defp shorten(identifier) when byte_size(identifier) > 60,
-    do: String.slice(identifier, 0, 57) <> "…"
-
-  defp shorten(identifier), do: identifier
 
   defp result(%{"examined" => 0}),
     do: "Nothing found, so routing had no earlier work to consider."

@@ -185,13 +185,19 @@ defmodule Ryker.Artifacts.Outputs do
   defp unique?(values, field),
     do: values |> Enum.map(& &1[field]) |> Enum.uniq() == Enum.map(values, & &1[field])
 
-  defp valid_name?(value) when is_binary(value) do
+  @doc """
+  Whether `value` can name an output file: 1 to 255 bytes of UTF-8, not `.` or
+  `..`, with no path separator and no control character. The validator checks
+  an answer's artifact names with it before anything is written.
+  """
+  @spec valid_name?(term()) :: boolean()
+  def valid_name?(value) when is_binary(value) do
     String.valid?(value) and byte_size(value) in 1..255 and value not in [".", ".."] and
       not String.contains?(value, ["/", "\\"]) and
       not Enum.any?(String.to_charlist(value), &(&1 < 32 or &1 == 127))
   end
 
-  defp valid_name?(_value), do: false
+  def valid_name?(_value), do: false
 
   @doc "Whether `data` starts the way an image of `media_type` does: PNG, JPEG, GIF or WebP."
   @spec image_matches?(term(), binary()) :: boolean()

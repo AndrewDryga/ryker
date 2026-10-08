@@ -12,6 +12,7 @@ defmodule Ryker.Slack.WorkRecord do
   alias Ryker.Repo
   alias Ryker.Slack.{IncidentRoom, TaskCard, TaskCardDetails, WorkTarget}
   alias Ryker.Slack.Renderer.Blocks
+  alias Ryker.Text
   alias Ryker.Work
 
   @maximum_events 60
@@ -532,12 +533,12 @@ defmodule Ryker.Slack.WorkRecord do
   # mention the whole channel, put a link under any label or add a date token
   # (2026-10-04 review). Only Ryker's own dates and links are markup here.
   defp compact(value, maximum) when is_binary(value),
-    do: value |> Blocks.truncate(maximum) |> Blocks.escape()
+    do: value |> Text.shorten(maximum) |> Blocks.escape()
 
   defp compact(_value, _maximum), do: "not recorded"
 
   defp text(value) when is_binary(value), do: Blocks.escape(value)
   defp text(_value), do: ""
 
-  defp compact_message(message), do: Blocks.truncate(message, @maximum_message_characters)
+  defp compact_message(message), do: Text.shorten(message, @maximum_message_characters)
 end

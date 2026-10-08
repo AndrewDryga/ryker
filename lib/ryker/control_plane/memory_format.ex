@@ -11,6 +11,7 @@ defmodule Ryker.ControlPlane.MemoryFormat do
   use Phoenix.Component
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Kit, ShortTime, SlackMarkdown}
+  alias Ryker.UTCDateTime
   alias Ryker.Wording
 
   @excerpt_limit 280
@@ -44,7 +45,7 @@ defmodule Ryker.ControlPlane.MemoryFormat do
        "<time datetime=\"",
        DateTime.to_iso8601(at),
        "\" title=\"",
-       escape(ShortTime.full(at)),
+       escape(UTCDateTime.readable(at)),
        "\">",
        escape(words),
        "</time>"

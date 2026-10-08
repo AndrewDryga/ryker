@@ -2,7 +2,6 @@ defmodule Ryker.ControlPlane.HTML do
   @moduledoc false
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Emoji, Kit, Layouts, SlackMarkdown}
-  alias Ryker.Crypto
   alias Ryker.Delivery
   alias Ryker.Wording
 
@@ -255,7 +254,7 @@ defmodule Ryker.ControlPlane.HTML do
         mine = Enum.any?(reactors, &(&1.actor_ref == own))
         count = length(reactors)
         glyph = Emoji.glyph(emoji_name)
-        form_id = "lab-reaction-" <> lab_short_digest(message_ref <> ":" <> emoji_name)
+        form_id = Kit.content_id("lab-reaction", message_ref <> ":" <> emoji_name)
 
         [
           "<form class=\"lab-reaction-form lab-reaction-pill\" id=\"",
@@ -305,7 +304,7 @@ defmodule Ryker.ControlPlane.HTML do
        })
        when is_binary(conversation_id) and is_binary(message_ref) and is_binary(token) and
               is_binary(ref) do
-    picker_id = "lab-reaction-picker-" <> lab_short_digest(ref)
+    picker_id = Kit.content_id("lab-reaction-picker", ref)
 
     quick =
       Enum.map(@quick_reactions, fn {emoji_name, glyph} ->
@@ -359,10 +358,6 @@ defmodule Ryker.ControlPlane.HTML do
   end
 
   defp lab_reaction_picker(_message), do: ""
-
-  defp lab_short_digest(value) do
-    Crypto.sha256_hex(value) |> binary_part(0, 16)
-  end
 
   # Ryker's reactions on a person's message read as the emoji, as in Slack;
   # they printed ":thumbsup:" until 2026-09-27.

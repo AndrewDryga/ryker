@@ -101,6 +101,15 @@ defmodule Ryker.Slack.Client.Fields do
   def listing_boolean(value) when is_boolean(value), do: {:ok, value}
   def listing_boolean(_value), do: {:error, :boolean}
 
+  # Slack lists up to 200 conversations a page and reads up to 100 messages.
+  @spec conversation_limit(term()) :: {:ok, pos_integer()} | {:error, :limit}
+  def conversation_limit(value) when is_integer(value) and value in 1..200, do: {:ok, value}
+  def conversation_limit(_value), do: {:error, :limit}
+
+  @spec message_limit(term()) :: {:ok, pos_integer()} | {:error, :limit}
+  def message_limit(value) when is_integer(value) and value in 1..100, do: {:ok, value}
+  def message_limit(_value), do: {:error, :limit}
+
   # --- what Slack sent back -------------------------------------------------
 
   @doc "A reply body the client will hand on: canonical JSON within the retained bound."

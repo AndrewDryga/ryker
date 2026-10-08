@@ -22,8 +22,7 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
       record_text: 2,
       submitted: 5,
       target: 2,
-      time: 2,
-      timestamp: 1
+      time: 2
     ]
 
   alias Ryker.Accounting
@@ -31,6 +30,7 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
   alias Ryker.Improvement
   alias Ryker.InspectionRedactor, as: Redactor
   alias Ryker.Repo
+  alias Ryker.UTCDateTime
   alias Ryker.Work
 
   @limit 20
@@ -104,7 +104,7 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
       retention_note:
         if run.pruned_at do
           "Retention removed the evidence and prompt this attempt was sent on " <>
-            timestamp(run.pruned_at) <> ". Nothing is rebuilt from today's records."
+            UTCDateTime.readable(run.pruned_at) <> ". Nothing is rebuilt from today's records."
         end,
       sections: [
         section("instructions", "Self-analysis instructions", prompt["instructions"], options),
@@ -132,7 +132,7 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
           run: CallRun.from_background(run, context.executions[run.id]),
           retention_note:
             if run.pruned_at do
-              "Retention removed the model's response on #{timestamp(run.pruned_at)}. " <>
+              "Retention removed the model's response on #{UTCDateTime.readable(run.pruned_at)}. " <>
                 "What it cost and how long it took stay recorded."
             end,
           sections: [section("response", "Model response", run.result, options)],

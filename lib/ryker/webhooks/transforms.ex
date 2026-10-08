@@ -109,15 +109,17 @@ defmodule Ryker.Webhooks.Transforms do
          {:ok, starts_at} <- optional_time(Map.get(alert, "startsAt"), :starts_at),
          {:ok, ends_at} <- optional_time(Map.get(alert, "endsAt"), :ends_at) do
       fingerprint = grafana_fingerprint(route, fingerprint, labels, starts_at)
-      item_id = stable_id("grafana-item", [route.name, fingerprint, encoded_time(starts_at)])
+
+      item_id =
+        stable_id("grafana-item", [route.name, fingerprint, UTCDateTime.iso8601(starts_at)])
 
       event_id =
         stable_id("grafana-event", [
           route.name,
           fingerprint,
-          encoded_time(starts_at),
+          UTCDateTime.iso8601(starts_at),
           status,
-          encoded_time(ends_at),
+          UTCDateTime.iso8601(ends_at),
           annotations
         ])
 
@@ -127,7 +129,7 @@ defmodule Ryker.Webhooks.Transforms do
         "adapter" => "grafana",
         "annotations" => bounded_map(annotations),
         "correlation_key" => correlation_key(route, group_key, labels, fingerprint),
-        "ends_at" => encoded_time(ends_at),
+        "ends_at" => UTCDateTime.iso8601(ends_at),
         "labels" => bounded_map(labels),
         "severity" =>
           first_nonempty([labels["severity"], labels["priority"], labels["level"]])
@@ -135,7 +137,7 @@ defmodule Ryker.Webhooks.Transforms do
         "source_fingerprint" => fingerprint,
         "source_incident_id" => group_key,
         "source_url" => grafana_url([panel_url, dashboard_url, generator_url, external_url]),
-        "starts_at" => encoded_time(starts_at),
+        "starts_at" => UTCDateTime.iso8601(starts_at),
         "status" => status,
         "summary" =>
           first_nonempty([
@@ -184,13 +186,13 @@ defmodule Ryker.Webhooks.Transforms do
         "annotations" => bounded_map(labels_or_empty(annotations)),
         "correlation_key" =>
           correlation_key(route, incident_id, labels_or_empty(labels), source_item),
-        "ends_at" => encoded_time(ends_at),
+        "ends_at" => UTCDateTime.iso8601(ends_at),
         "external_event_id" => event_id,
         "labels" => bounded_map(labels_or_empty(labels)),
         "severity" => severity,
         "source_incident_id" => incident_id,
         "source_url" => source_url,
-        "starts_at" => encoded_time(starts_at),
+        "starts_at" => UTCDateTime.iso8601(starts_at),
         "status" => status,
         "summary" => summary,
         "title" => title
@@ -462,7 +464,7 @@ defmodule Ryker.Webhooks.Transforms do
   end
 
   defp grafana_fingerprint(route, nil, labels, starts_at),
-    do: CanonicalJSON.digest([route.name, labels, encoded_time(starts_at)])
+    do: CanonicalJSON.digest([route.name, labels, UTCDateTime.iso8601(starts_at)])
 
   defp grafana_fingerprint(_route, fingerprint, _labels, _starts_at), do: fingerprint
 
@@ -578,9 +580,6 @@ defmodule Ryker.Webhooks.Transforms do
       do: {:cont, {[codepoint | codepoints], next_size}},
       else: {:halt, {codepoints, size}}
   end
-
-  defp encoded_time(nil), do: nil
-  defp encoded_time(%DateTime{} = value), do: DateTime.to_iso8601(value)
 
   defp transform_error(field), do: {:error, {:invalid_webhook_transform, field}}
 end

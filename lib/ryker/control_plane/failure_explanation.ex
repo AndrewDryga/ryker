@@ -258,7 +258,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   def kind_name("slack_thread_status"), do: "Thread status"
   def kind_name("stopping"), do: "Stopping a task"
   def kind_name("work"), do: "Task"
-  def kind_name(kind), do: kind |> to_string() |> String.replace("_", " ") |> String.capitalize()
+  def kind_name(kind), do: Wording.label(kind)
 
   # ---------------------------------------------------------------------------
   # Options
@@ -2635,7 +2635,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     end
   end
 
-  defp seen(%{last_seen_at: %DateTime{} = at}), do: " since #{ShortTime.full(at)}"
+  defp seen(%{last_seen_at: %DateTime{} = at}), do: " since #{UTCDateTime.readable(at)}"
   defp seen(_worker), do: " yet"
 
   defp worker_now(nil), do: nil
@@ -2644,7 +2644,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp worker_now(%{reporting: true}), do: "Reporting"
 
   defp worker_now(%{last_seen_at: %DateTime{} = at}),
-    do: "Not reporting since #{ShortTime.full(at)}"
+    do: "Not reporting since #{UTCDateTime.readable(at)}"
 
   defp worker_now(_worker), do: "Not reporting"
 

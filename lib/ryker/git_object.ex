@@ -16,4 +16,14 @@ defmodule Ryker.GitObject do
   @doc ~s(Whether `value` is a branch's full ref name: "refs/heads/" and a branch Ryker would name.)
   @spec branch_ref?(term()) :: boolean()
   def branch_ref?(value), do: is_binary(value) and Regex.match?(@branch_ref, value)
+
+  @doc """
+  Whether `part` can be one slash-separated part of a ref name, as git's
+  `check-ref-format` has it: not empty, not starting with a dot, not ending in
+  ".lock".
+  """
+  @spec ref_part?(String.t()) :: boolean()
+  def ref_part?(part) do
+    part != "" and not String.starts_with?(part, ".") and not String.ends_with?(part, ".lock")
+  end
 end

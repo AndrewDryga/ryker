@@ -1,6 +1,7 @@
 defmodule Ryker.Settings.Validation do
   @moduledoc "Shared typed validation for settings writes; errors name fields, never values."
   import Ecto.Changeset
+  alias Ryker.Settings.Retention
   alias Ryker.Slack
 
   @ten_years 10 * 365 * 86_400
@@ -79,19 +80,12 @@ defmodule Ryker.Settings.Validation do
       out_of_bounds != [] ->
         {:error, out_of_bounds}
 
-      not ordered?(values) ->
+      not Retention.ordered?(values) ->
         {:error, [{:retention, :ordering}]}
 
       true ->
         {:ok, values}
     end
-  end
-
-  defp ordered?(values) do
-    values.operational_data_seconds <= values.closed_work_seconds and
-      values.closed_work_seconds <= values.episode_history_seconds and
-      values.episode_history_seconds <= values.audit_data_seconds and
-      values.operational_data_seconds <= values.conversation_memory_seconds
   end
 
   def revision(value) when is_integer(value) and value >= 0, do: :ok

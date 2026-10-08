@@ -6,6 +6,7 @@ defmodule Ryker.Slack.AppHomeEditor do
   same review and applies the edit through memory's transactional review fence.
   """
   alias Ryker.Memories
+  alias Ryker.Slack.Renderer.Blocks
 
   @callback_id "ryker_home_edit_memory_review"
 
@@ -64,10 +65,10 @@ defmodule Ryker.Slack.AppHomeEditor do
         input("memory_value", "value", "Stored guidance", entry["value"], 4_000)
       ],
       "callback_id" => @callback_id,
-      "close" => plain("Cancel"),
+      "close" => Blocks.plain_text("Cancel"),
       "private_metadata" => Jason.encode!(%{"review_ref" => review_ref}),
-      "submit" => plain("Save edit"),
-      "title" => plain("Edit memory"),
+      "submit" => Blocks.plain_text("Save edit"),
+      "title" => Blocks.plain_text("Edit memory"),
       "type" => "modal"
     }
   end
@@ -82,10 +83,8 @@ defmodule Ryker.Slack.AppHomeEditor do
         "min_length" => 1,
         "type" => "plain_text_input"
       },
-      "label" => plain(label),
+      "label" => Blocks.plain_text(label),
       "type" => "input"
     }
   end
-
-  defp plain(text), do: %{"emoji" => true, "text" => text, "type" => "plain_text"}
 end

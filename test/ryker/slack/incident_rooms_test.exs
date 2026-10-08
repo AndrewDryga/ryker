@@ -2229,6 +2229,32 @@ defmodule Ryker.Slack.IncidentRoomsTest do
              IncidentRooms.observe_lifecycle(unknown)
   end
 
+  # The card cut a goal's words to 200 characters and the renderer allows 200
+  # bytes, so a goal written in Ukrainian, or with a few emoji, made Slack's
+  # renderer refuse the whole card and the room's pinned status stopped
+  # updating. The task card has cut in bytes since 2026-10-04; this card kept a
+  # copy of the old cut (found 2026-10-08).
+  test "an incident card's words fit the bounds its renderer checks, in any language" do
+    save_channel_configuration!()
+    room = ready_room!("card-bytes")
+    assert {:ok, claim} = Custody.claim_next("incident-card:bytes", 60, :work)
+    outcome = String.duplicate("Перевірити сервіс ", 9)
+
+    assert {:ok, _goal} =
+             Records.create(Records.token(claim.turn), "scope", "goal", %{
+               "authority" => "read_only",
+               "completion_contract" => "The affected service is named from a current signal.",
+               "id" => "confirm-scope",
+               "kind" => "check",
+               "requested_outcome" => outcome,
+               "required" => true,
+               "stage" => "planning"
+             })
+
+    assert {:ok, projection} = IncidentRoomCard.build(Repo.get!(IncidentRoom, room.room.id))
+    assert {:ok, _card} = Renderer.WorkCards.incident_room(projection.document["incident_room"])
+  end
+
   test "incident cards expose alert evidence, operator questions, event waits, and terminal state" do
     save_channel_configuration!()
     input_wait = ready_room!("card-input-wait")

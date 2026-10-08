@@ -27,6 +27,7 @@ defmodule Ryker.Improvement.Evidence do
   alias Ryker.Ingress
   alias Ryker.InspectionRedactor
   alias Ryker.Records
+  alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.RoutingExamples
   alias Ryker.Work
@@ -90,7 +91,7 @@ defmodule Ryker.Improvement.Evidence do
     events =
       for {entry, %{"text" => text} = said} <- messages,
           entry.actor_kind == :user,
-          words?(text) or said["note"] == "edited by the person",
+          Reference.text?(text) or said["note"] == "edited by the person",
           do: event(entry, text)
 
     snapshot =
@@ -267,7 +268,7 @@ defmodule Ryker.Improvement.Evidence do
     people = Enum.filter(messages, &(&1["from"] == "person"))
 
     cond do
-      Enum.any?(people, &words?(&1["text"])) ->
+      Enum.any?(people, &Reference.text?(&1["text"])) ->
         nil
 
       people == [] ->
@@ -285,8 +286,6 @@ defmodule Ryker.Improvement.Evidence do
   end
 
   # A message with something to read: a file or an image alone is not one.
-  defp words?(text), do: is_binary(text) and String.trim(text) != ""
-
   defp sender(:user), do: "person"
   defp sender(kind), do: Atom.to_string(kind)
 

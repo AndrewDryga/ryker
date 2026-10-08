@@ -177,7 +177,7 @@ defmodule Ryker.ControlPlane.ChannelDetail do
   defp environment(nil, %{}, _settings), do: none(:incident_room)
 
   defp environment(nil, nil, settings),
-    do: described(settings && default_ref(settings), :default, settings)
+    do: described(settings && Settings.default_environment_ref(settings), :default, settings)
 
   defp described(nil, source, _settings), do: none(source)
 
@@ -220,13 +220,6 @@ defmodule Ryker.ControlPlane.ChannelDetail do
       name: Environments.repository_name(settings, ref),
       set_up: Enum.any?(settings.repositories, &(&1.ref == ref))
     }
-
-  defp default_ref(settings) do
-    case Settings.default_environment(settings) do
-      %Settings.Environment{ref: ref} -> ref
-      nil -> nil
-    end
-  end
 
   # What a channel can choose between on its page, the default first.
   defp choices(nil), do: []

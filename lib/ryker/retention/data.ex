@@ -16,6 +16,7 @@ defmodule Ryker.Retention.Data do
   alias Ryker.Learning
   alias Ryker.Memories
   alias Ryker.Repo
+  alias Ryker.Settings
   alias Ryker.Work
   require Logger
 
@@ -1362,19 +1363,12 @@ defmodule Ryker.Retention.Data do
       Map.keys(settings) |> Enum.sort() == Enum.sort(switches ++ horizons) and
         Enum.all?(switches, &is_boolean(settings[&1])) and
         Enum.all?(horizons, &(is_integer(settings[&1]) and settings[&1] > 0)) and
-        horizons_ordered?(settings)
+        Settings.Retention.ordered?(settings)
 
     if valid, do: {:ok, settings}, else: {:error, {:invalid_retention_data, :settings}}
   end
 
   defp settings(_settings), do: {:error, {:invalid_retention_data, :settings}}
-
-  defp horizons_ordered?(settings) do
-    settings.operational_data_seconds <= settings.closed_work_seconds and
-      settings.closed_work_seconds <= settings.episode_history_seconds and
-      settings.episode_history_seconds <= settings.audit_data_seconds and
-      settings.operational_data_seconds <= settings.conversation_memory_seconds
-  end
 
   # -- PubSub ------------------------------------------------------------------
 

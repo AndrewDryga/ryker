@@ -12,6 +12,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Slack
+  alias Ryker.Text
   alias Ryker.UTCDateTime
   alias Ryker.Work
 
@@ -520,7 +521,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
 
   defp delivery_summary(%{"delivery" => "none", "decision_reason" => reason})
        when is_binary(reason),
-       do: "No reply: " <> (InspectionRedactor.artifact(reason).text |> bounded(240))
+       do: "No reply: " <> (InspectionRedactor.artifact(reason).text |> Text.shorten(240))
 
   defp delivery_summary(_document), do: "Accepted result recorded."
 

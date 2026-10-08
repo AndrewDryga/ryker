@@ -239,8 +239,8 @@ defmodule Ryker.Webhooks.Route do
     validations = [
       {valid_auth?(route.auth), :auth},
       {valid_destination?(route.destination), :destination},
-      {positive_bound?(route.max_body_bytes, 1_024, @maximum_body_bytes), :max_body_bytes},
-      {positive_bound?(route.max_clock_skew_seconds, 1, 3_600), :max_clock_skew_seconds},
+      {route.max_body_bytes in 1_024..@maximum_body_bytes, :max_body_bytes},
+      {route.max_clock_skew_seconds in 1..3_600, :max_clock_skew_seconds},
       {Reference.valid?(route.name, 128), :name}
     ]
 
@@ -268,7 +268,4 @@ defmodule Ryker.Webhooks.Route do
   end
 
   defp valid_destination?(_destination), do: false
-
-  defp positive_bound?(value, minimum, maximum),
-    do: is_integer(value) and value >= minimum and value <= maximum
 end

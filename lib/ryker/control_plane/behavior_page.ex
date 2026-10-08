@@ -12,7 +12,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   it lists changes (`subscriptions/1`).
   """
   use Phoenix.Component
-  alias Ryker.{Behaviors, ConversationRef, Instructions}
+  alias Ryker.{Behaviors, ConversationRef, Instructions, UTCDateTime}
   alias Ryker.ControlPlane.{Components, Kit, Paths, ShortTime}
   alias Ryker.Episodes
   alias Ryker.Slack
@@ -603,7 +603,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
       ~s(<time datetime="),
       DateTime.to_iso8601(at),
       ~s(" title="),
-      escape(Calendar.strftime(at, "%d %b %Y, %H:%M UTC")),
+      escape(UTCDateTime.readable(at)),
       ~s(">),
       escape(text),
       "</time>"

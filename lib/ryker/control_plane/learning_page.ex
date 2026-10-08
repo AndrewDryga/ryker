@@ -632,7 +632,7 @@ defmodule Ryker.ControlPlane.LearningPage do
     do: "The worker could not be reached. Check its connection, then retry."
 
   defp session_detail(%{status: :blocked, summary: summary}) when is_binary(summary),
-    do: summary |> String.replace("_", " ") |> String.capitalize()
+    do: Wording.label(summary)
 
   defp session_detail(_session), do: nil
 

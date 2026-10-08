@@ -5,6 +5,7 @@ defmodule Ryker.Episodes.Words do
   kernel's own names ("owner transferred", "wait resumed") stay in the code
   and the logs.
   """
+  alias Ryker.Wording
 
   @doc """
   A state, decision or stored name in words. States arrive as the strings the
@@ -27,7 +28,7 @@ defmodule Ryker.Episodes.Words do
   def label("react"), do: "Reaction selected"
   def label("quick_reply"), do: "Answered right away"
   def label("reply"), do: "Reply selected"
-  def label(value), do: value |> to_string() |> String.replace("_", " ") |> String.capitalize()
+  def label(value), do: Wording.label(value)
 
   @doc "What one kernel transition means to the person whose request it is."
   @spec lifecycle_title(atom()) :: String.t()

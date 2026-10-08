@@ -76,4 +76,16 @@ defmodule Ryker.GitHubTest do
   end
 
   defp commit, do: String.duplicate("b", 40)
+
+  # The webhook router and server each checked these on their own until
+  # 2026-10-08.
+  test "a login and a webhook secret are what GitHub issues and Ryker can verify" do
+    assert GitHub.login?("ryker-bot")
+    refute GitHub.login?("-ryker")
+    refute GitHub.login?(String.duplicate("a", 40))
+
+    assert GitHub.webhook_secret?(Ryker.Secret.new(String.duplicate("s", 32)))
+    refute GitHub.webhook_secret?(Ryker.Secret.new("short"))
+    refute GitHub.webhook_secret?(String.duplicate("s", 32))
+  end
 end

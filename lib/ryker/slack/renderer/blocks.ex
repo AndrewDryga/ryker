@@ -8,6 +8,7 @@ defmodule Ryker.Slack.Renderer.Blocks do
   every card at once.
   """
   alias Ryker.Slack.Renderer.Fields
+  alias Ryker.Text
   alias Ryker.UTCDateTime
 
   @maximum_section_characters 3_000
@@ -30,14 +31,6 @@ defmodule Ryker.Slack.Renderer.Blocks do
     |> String.replace("&", "&amp;")
     |> String.replace("<", "&lt;")
     |> String.replace(">", "&gt;")
-  end
-
-  def truncate(text, maximum) do
-    graphemes = String.graphemes(text)
-
-    if length(graphemes) <= maximum,
-      do: text,
-      else: graphemes |> Enum.take(maximum - 1) |> Enum.join() |> Kernel.<>("…")
   end
 
   # All owned structural headings share one colonless renderer.
@@ -87,7 +80,7 @@ defmodule Ryker.Slack.Renderer.Blocks do
 
   def section(text) do
     %{
-      "text" => %{"text" => truncate(text, @maximum_section_characters), "type" => "mrkdwn"},
+      "text" => %{"text" => Text.shorten(text, @maximum_section_characters), "type" => "mrkdwn"},
       "type" => "section"
     }
   end
@@ -204,7 +197,7 @@ defmodule Ryker.Slack.Renderer.Blocks do
   end
 
   defp field_text(heading, value),
-    do: truncate(heading <> fact_markdown(value), @maximum_field_characters)
+    do: Text.shorten(heading <> fact_markdown(value), @maximum_field_characters)
 
   defp fitting_lines(lines, heading, room) do
     lines
@@ -245,7 +238,7 @@ defmodule Ryker.Slack.Renderer.Blocks do
         %{
           "type" => "rich_text_preformatted",
           "elements" => [
-            %{"type" => "text", "text" => truncate(text, @maximum_section_characters)}
+            %{"type" => "text", "text" => Text.shorten(text, @maximum_section_characters)}
           ]
         }
       ]
@@ -286,12 +279,12 @@ defmodule Ryker.Slack.Renderer.Blocks do
     %{
       "action_id" => action_id,
       "confirm" => %{
-        "confirm" => plain_text(truncate(confirm_label, 30)),
+        "confirm" => plain_text(Text.shorten(confirm_label, 30)),
         "deny" => plain_text("Cancel"),
-        "text" => plain_text(truncate(confirmation, 300)),
-        "title" => plain_text(truncate(title, 100))
+        "text" => plain_text(Text.shorten(confirmation, 300)),
+        "title" => plain_text(Text.shorten(title, 100))
       },
-      "text" => plain_text(truncate(label, @maximum_button_characters)),
+      "text" => plain_text(Text.shorten(label, @maximum_button_characters)),
       "type" => "button",
       "value" => value
     }

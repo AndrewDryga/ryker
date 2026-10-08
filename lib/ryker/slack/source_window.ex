@@ -1,6 +1,7 @@
 defmodule Ryker.Slack.SourceWindow do
   @moduledoc false
   alias Ryker.Slack.SourceRef
+  alias Ryker.Slack.Timestamp
 
   # History is newest-first; replies are oldest-first. The side opposite that
   # ordering needs a bounded scan before it can claim to contain near neighbors.
@@ -165,14 +166,14 @@ defmodule Ryker.Slack.SourceWindow do
 
     cond do
       is_nil(bound) -> boundary
-      side == "before" -> Enum.min_by([bound, boundary], &timestamp/1)
-      true -> Enum.max_by([bound, boundary], &timestamp/1)
+      side == "before" -> Enum.min_by([bound, boundary], &Timestamp.microseconds/1)
+      true -> Enum.max_by([bound, boundary], &Timestamp.microseconds/1)
     end
   end
 
   defp side_pages(read, query, scan) do
     if query["oldest"] && query["latest"] &&
-         timestamp(query["oldest"]) >= timestamp(query["latest"]) do
+         Timestamp.microseconds(query["oldest"]) >= Timestamp.microseconds(query["latest"]) do
       {:ok, [], "", false, 0}
     else
       pages(read, query, if(scan, do: @scan_pages, else: 1), [], 0)
@@ -206,7 +207,7 @@ defmodule Ryker.Slack.SourceWindow do
     |> Enum.reject(&(&1["ts"] in excluded))
     |> Enum.filter(&within_side?(&1, side, anchor, document))
     |> Enum.uniq_by(& &1["ts"])
-    |> Enum.sort_by(&timestamp(&1["ts"]))
+    |> Enum.sort_by(&Timestamp.microseconds(&1["ts"]))
   end
 
   defp coverage(messages, {cursor, limited}, {scan, previous, at_anchor}, all_selected) do
@@ -247,24 +248,18 @@ defmodule Ryker.Slack.SourceWindow do
   defp valid_message?(_), do: false
 
   defp within_side?(message, side, anchor, document) do
-    time = timestamp(message["ts"])
+    time = Timestamp.microseconds(message["ts"])
 
     side_matches =
       if side == "before",
-        do: time < timestamp(anchor["ts"]),
-        else: time > timestamp(anchor["ts"])
+        do: time < Timestamp.microseconds(anchor["ts"]),
+        else: time > Timestamp.microseconds(anchor["ts"])
 
-    side_matches and (is_nil(document["oldest"]) or time >= timestamp(document["oldest"])) and
-      (is_nil(document["latest"]) or time <= timestamp(document["latest"]))
+    side_matches and
+      (is_nil(document["oldest"]) or time >= Timestamp.microseconds(document["oldest"])) and
+      (is_nil(document["latest"]) or time <= Timestamp.microseconds(document["latest"]))
   end
 
   defp message_time(nil), do: nil
   defp message_time(message), do: message["ts"]
-
-  defp timestamp(value) do
-    [seconds, fraction] = String.split(value, ".", parts: 2)
-
-    String.to_integer(seconds) * 1_000_000 +
-      String.to_integer(String.pad_trailing(fraction, 6, "0"))
-  end
 end

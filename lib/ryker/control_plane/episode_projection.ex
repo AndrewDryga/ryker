@@ -15,6 +15,7 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
   alias Ryker.Learning
   alias Ryker.Records
   alias Ryker.Repo
+  alias Ryker.Wording
 
   @record_limit 500
 
@@ -146,7 +147,7 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
             %{
               kind: event.kind,
               occurred_at: event.occurred_at,
-              summary: event_summary(event.kind)
+              summary: Wording.words(event.kind)
             }
           end)
 
@@ -258,10 +259,6 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
           }
         end)
     }
-  end
-
-  defp event_summary(kind) do
-    kind |> Atom.to_string() |> String.replace("_", " ")
   end
 
   defp record_summary(%Records.Record{subject_ref: subject}) when is_binary(subject), do: subject

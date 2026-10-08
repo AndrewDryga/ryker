@@ -14,6 +14,8 @@ defmodule Ryker.Slack.SavedEntity do
   alias Ryker.Delivery
   alias Ryker.Memories
   alias Ryker.Schedules
+  alias Ryker.UTCDateTime
+  alias Ryker.Wording
 
   @shown_bytes 2_000
 
@@ -64,7 +66,7 @@ defmodule Ryker.Slack.SavedEntity do
     %{
       "facts" =>
         facts([
-          {"Kind", memory_kind(entry.kind)},
+          {"Kind", Wording.words(entry.kind)},
           {"Scope", scope(entry.scope_kind, entry.scope_ref)},
           {"Visibility", visibility(Atom.to_string(entry.visibility))},
           {"Expires", expiry(entry.expires_at, "No expiry")},
@@ -204,7 +206,7 @@ defmodule Ryker.Slack.SavedEntity do
   defp notice(label, "superseded", _event), do: "#{label} replaced by a newer version"
 
   defp next_run(%Schedules.Schedule{status: :active, next_occurrence_at: %DateTime{} = at}),
-    do: time(at)
+    do: UTCDateTime.readable(at)
 
   defp next_run(_schedule), do: nil
 
@@ -252,12 +254,8 @@ defmodule Ryker.Slack.SavedEntity do
   defp visibility("global"), do: "Every installation"
   defp visibility(other), do: other
 
-  defp memory_kind(kind), do: kind |> Atom.to_string() |> String.replace("_", " ")
-
-  defp expiry(%DateTime{} = at, _default), do: time(at)
+  defp expiry(%DateTime{} = at, _default), do: UTCDateTime.readable(at)
   defp expiry(nil, default), do: default
-
-  defp time(%DateTime{} = at), do: Calendar.strftime(at, "%d %b %Y, %H:%M UTC")
 
   # A schedule or rule holds up to 12,000 bytes; its card shows the first 2,000,
   # its renderer's bound. The whole text stays saved (2026-10-04 review: a

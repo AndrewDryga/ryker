@@ -14,6 +14,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   alias Ryker.Repo
   alias Ryker.Settings
   alias Ryker.Slack.{Permalink, TaskCard, WorkControls}
+  alias Ryker.Slack.Renderer.Fields
   alias Ryker.StateTools
   alias Ryker.Wording
   alias Ryker.Work
@@ -127,7 +128,8 @@ defmodule Ryker.Slack.TaskCardProjection do
       "controls" =>
         controls(record, episode, turn, session, publication, snapshot.workspace_hold),
       "publication" => publication(publication, snapshot.followup, fix),
-      "request" => record.payload["prompt"] |> StateTools.TaskTools.request() |> compact(12_000),
+      "request" =>
+        record.payload["prompt"] |> StateTools.TaskTools.request() |> Fields.cut(12_000),
       "repository" => repository_name(record.payload["repository"]),
       "repository_url" => repository_url(publication),
       "stages" =>
@@ -226,8 +228,8 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   defp progress_detail(record) do
     %{
-      "phase" => compact(record.payload["phase"], 60),
-      "summary" => compact(record.payload["summary"], 600),
+      "phase" => Fields.cut(record.payload["phase"], 60),
+      "summary" => Fields.cut(record.payload["summary"], 600),
       "at" => DateTime.to_iso8601(record.inserted_at)
     }
   end
@@ -239,7 +241,7 @@ defmodule Ryker.Slack.TaskCardProjection do
          true <- same_destination?(card, source_episode),
          {:ok, _} <-
            Records.DerivedContext.resolve(
-             [Records.DerivedContext.record(record_document(record))],
+             [Records.DerivedContext.record(Records.Record.document(record))],
              source_episode,
              source_session.repository_ref
            ),
@@ -277,19 +279,11 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   defp snapshot_documents(snapshot) do
     (snapshot.records ++
-       Enum.map(snapshot.goal_records ++ snapshot.progress_records, &record_document/1) ++
+       Enum.map(snapshot.goal_records ++ snapshot.progress_records, &Records.Record.document/1) ++
        Enum.reject([snapshot.publication_offer], &is_nil/1))
     |> Enum.uniq_by(& &1["ref"])
     |> Enum.map(&Records.DerivedContext.record/1)
   end
-
-  defp record_document(record),
-    do: %{
-      "kind" => record.kind,
-      "payload" => record.payload,
-      "ref" => record.ref,
-      "status" => Atom.to_string(record.status)
-    }
 
   defp public_errors(projection, snapshot) do
     fix = snapshot.automatic_fix
@@ -365,7 +359,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   # so the step answering it starts its own line rather than running on.
   defp public_error(_publication, %Work.Turn{status: :blocked} = turn, _hold) do
     case Work.FailureCause.explain(turn.last_error_detail) do
-      %{cause: cause, next_step: next_step} -> compact(cause <> "\n" <> next_step, 2_000)
+      %{cause: cause, next_step: next_step} -> Fields.cut(cause <> "\n" <> next_step, 2_000)
       nil -> attention("Task work stopped and needs a person")
     end
   end
@@ -508,7 +502,7 @@ defmodule Ryker.Slack.TaskCardProjection do
     [held_cause(held), held_draft(publication), held_restore(closed?), held_report(report)]
     |> Enum.reject(&is_nil/1)
     |> Enum.join(" ")
-    |> compact(2_000)
+    |> Fields.cut(2_000)
   end
 
   # A pull request opened earlier stays reachable, but it predates the work the
@@ -536,7 +530,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp held_report(nil), do: nil
 
   defp held_report(report),
-    do: "The worker's own report, which is not a check result: \"#{compact(report, 900)}\""
+    do: "The worker's own report, which is not a check result: \"#{Fields.cut(report, 900)}\""
 
   defp unstarted_review(%Episodes.Episode{state: :complete}, nil, %{"status" => "open"}) do
     "Prepared changes are saved, but checks have not started. Open the request's timeline to review how to recover the working copy."
@@ -550,7 +544,7 @@ defmodule Ryker.Slack.TaskCardProjection do
          _records,
          %Publication.Publication{status: :blocked} = publication
        ) do
-    compact(
+    Fields.cut(
       publication.last_error_detail || "Draft pull-request work needs operator attention.",
       500
     )
@@ -585,7 +579,7 @@ defmodule Ryker.Slack.TaskCardProjection do
          %Publication.Publication{last_error_code: code} = publication
        )
        when is_binary(code) and code not in @in_flight,
-       do: compact(publication.last_error_detail || code, 500)
+       do: Fields.cut(publication.last_error_detail || code, 500)
 
   defp action_needed(%Episodes.Episode{state: :waiting_for_input}, _turn, records, _publication),
     do: wait_summary(records, "input_request", "An operator response is required.")
@@ -594,7 +588,10 @@ defmodule Ryker.Slack.TaskCardProjection do
     do: wait_summary(records, "event_wait", "The task is waiting for external verification.")
 
   defp action_needed(_episode, %Work.Turn{status: :blocked} = turn, _records, _publication) do
-    compact(turn.last_error_detail || "Task work is blocked and needs operator attention.", 500)
+    Fields.cut(
+      turn.last_error_detail || "Task work is blocked and needs operator attention.",
+      500
+    )
   end
 
   defp action_needed(_episode, _turn, _records, _publication), do: nil
@@ -633,8 +630,8 @@ defmodule Ryker.Slack.TaskCardProjection do
     |> Enum.reverse()
     |> Enum.find(&(&1["kind"] == kind))
     |> case do
-      %{"payload" => %{"question" => question}} -> compact(question, 500)
-      %{"payload" => %{"verification" => verification}} -> compact(verification, 500)
+      %{"payload" => %{"question" => question}} -> Fields.cut(question, 500)
+      %{"payload" => %{"verification" => verification}} -> Fields.cut(verification, 500)
       _missing -> fallback
     end
   end
@@ -642,7 +639,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp summary(record, progress) do
     case List.last(progress) do
       %{"summary" => summary} -> summary
-      _missing -> record.payload["prompt"] |> StateTools.TaskTools.request() |> compact(500)
+      _missing -> record.payload["prompt"] |> StateTools.TaskTools.request() |> Fields.cut(500)
     end
   end
 
@@ -711,7 +708,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp unverified(%Publication.Publication{status: status, review_document: review})
        when status in [:blocked, :publish_pending, :published_ready, :published] do
     case Publication.Review.draft_verdict(review) do
-      %{"shareable" => true, "incomplete_checks" => [reason | _rest]} -> compact(reason, 500)
+      %{"shareable" => true, "incomplete_checks" => [reason | _rest]} -> Fields.cut(reason, 500)
       _decided -> nil
     end
   end
@@ -806,12 +803,7 @@ defmodule Ryker.Slack.TaskCardProjection do
 
       if host_publication_offer?(record) or
            (is_list(record_refs) and record.ref in record_refs),
-         do: %{
-           "kind" => record.kind,
-           "payload" => record.payload,
-           "ref" => record.ref,
-           "status" => Atom.to_string(record.status)
-         }
+         do: Records.Record.document(record)
     end)
   end
 
@@ -821,14 +813,19 @@ defmodule Ryker.Slack.TaskCardProjection do
   # A workspace the host never saved has no changes page to open, so the diff
   # control would link to nothing; recovery is the control that state allows.
   defp controls(record, episode, turn, session, publication, hold) do
-    []
-    |> maybe_control(WorkControls.stoppable?(episode, turn), "stop")
-    |> maybe_control(is_nil(hold) and resumable?(turn), "resume")
-    |> maybe_control(is_nil(hold) and WorkControls.diff_available?(session), "view_diff")
-    |> maybe_control(close_allowed?(episode, turn, publication), "close")
-    |> Kernel.++(~w(timeline evidence handoff))
-    |> maybe_control(not is_nil(hold), "recovery")
-    |> maybe_control(incident?(record), "postmortem")
+    shown = [
+      {WorkControls.stoppable?(episode, turn), "stop"},
+      {is_nil(hold) and resumable?(turn), "resume"},
+      {is_nil(hold) and WorkControls.diff_available?(session), "view_diff"},
+      {close_allowed?(episode, turn, publication), "close"},
+      {true, "timeline"},
+      {true, "evidence"},
+      {true, "handoff"},
+      {not is_nil(hold), "recovery"},
+      {incident?(record), "postmortem"}
+    ]
+
+    for {true, control} <- shown, do: control
   end
 
   # A run an operator stopped could only be continued from the control plane, so
@@ -863,12 +860,4 @@ defmodule Ryker.Slack.TaskCardProjection do
        do: false
 
   defp close_allowed?(_episode, _turn, _publication), do: true
-
-  defp maybe_control(controls, true, control), do: controls ++ [control]
-  defp maybe_control(controls, false, _control), do: controls
-
-  # The renderer bounds every one of these fields in bytes.
-  defp compact(value, maximum) when is_binary(value), do: Ryker.Text.cut(value, maximum)
-
-  defp compact(_value, _maximum), do: nil
 end

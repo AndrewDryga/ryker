@@ -5,6 +5,7 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
   """
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
+  alias Ryker.Text
 
   @publication_controls ~w(publish open retry update discard)
   # Why Ryker ended a publication itself; a person's discard has none.
@@ -100,7 +101,7 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
             "#{task_ref}|#{publication_ref}",
             "primary",
             publish_title(number),
-            repository |> publish_confirmation(number, unverified) |> truncate(300),
+            repository |> publish_confirmation(number, unverified) |> Text.shorten(300),
             publish_label(number)
           )
 

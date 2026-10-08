@@ -79,13 +79,13 @@ defmodule Ryker.StateTools.MemoryTools do
 
   @spec propose_preference(map(), map()) :: {:ok, map()} | {:error, term()}
   def propose_preference(arguments, binding) do
-    scope = arguments["scope"] |> effective_memory_scope(binding.episode) |> preference_scope()
+    scope = arguments["scope"] |> effective_memory_scope(binding.episode) |> memory_scope()
 
     with {:ok, expires_in} <- expiry(arguments["expires_at"]),
          payload = %{
            "expires_in" => expires_in,
            "key" => arguments["key"],
-           "repository" => preference_repository(scope, binding),
+           "repository" => memory_repository(scope, binding),
            "scope" => scope,
            "value" => arguments["value"]
          },
@@ -126,13 +126,6 @@ defmodule Ryker.StateTools.MemoryTools do
 
   defp memory_repository("repository", binding), do: binding.session.repository_ref
   defp memory_repository(_scope, _binding), do: nil
-
-  defp preference_repository("repository", binding), do: binding.session.repository_ref
-  defp preference_repository(_scope, _binding), do: nil
-
-  defp preference_scope("mine"), do: "operator"
-  defp preference_scope("current_channel"), do: "conversation"
-  defp preference_scope(scope), do: scope
 
   defp effective_memory_scope(scope, %{destination_transport: "slack"} = episode)
        when scope in ["repository", "workspace"] do

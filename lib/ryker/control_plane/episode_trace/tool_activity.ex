@@ -8,7 +8,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
   import Ryker.ControlPlane.EpisodeTrace.Step
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.EpisodeCausality
-  alias Ryker.{InspectionRedactor, Repo}
+  alias Ryker.{InspectionRedactor, Repo, Text}
   alias Ryker.StateTools
   alias Ryker.Wording
   alias Ryker.Work
@@ -722,7 +722,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
 
   defp safe_fields(_fields), do: []
 
-  defp safe_activity_value(value) when is_binary(value), do: value |> scrub_url() |> bounded(512)
+  defp safe_activity_value(value) when is_binary(value),
+    do: value |> scrub_url() |> Text.shorten(512)
 
   defp safe_activity_value(value) when is_integer(value) or is_float(value) or is_boolean(value),
     do: to_string(value)
@@ -731,7 +732,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
     value
     |> redact_activity_value()
     |> CanonicalJSON.encode!()
-    |> bounded(512)
+    |> Text.shorten(512)
   rescue
     ArgumentError -> nil
   end

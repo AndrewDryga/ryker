@@ -27,6 +27,17 @@ defmodule Ryker.TextTest do
     assert Text.characters("ab" <> family, 9) == "ab" <> family
   end
 
+  # Eight modules cut display text by hand, three ways: a timeline bound kept
+  # its whole limit and added the ellipsis after it, and a routing note
+  # measured bytes but cut characters (2026-10-08).
+  test "a line shortened for display counts what a reader sees, its ellipsis included" do
+    flag = "🇺🇦"
+
+    assert Text.shorten("short", 10) == "short"
+    assert Text.shorten(String.duplicate(flag, 5), 3) == flag <> flag <> "…"
+    assert Text.shorten(String.duplicate("é", 101), 100) == String.duplicate("é", 99) <> "…"
+  end
+
   test "a length counts what JSON Schema and PostgreSQL count, not what a reader sees" do
     assert Text.char_length("") == 0
     assert Text.char_length("abc") == 3

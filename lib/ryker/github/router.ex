@@ -8,6 +8,7 @@ defmodule Ryker.GitHub.Router do
   """
   @behaviour Plug
   alias Ryker.Crypto
+  alias Ryker.GitHub
   alias Ryker.GitHub.{Access, Auth, Binding, Confirmations, Engagement, Events}
   alias Ryker.HTTPConnection
   alias Ryker.Ingress
@@ -55,21 +56,14 @@ defmodule Ryker.GitHub.Router do
     unless is_map(bindings) and Enum.all?(bindings, &valid_binding_entry?/1),
       do: raise(ArgumentError, "GitHub bindings must map names to matching bindings")
 
-    unless sealed_secret?(secret),
+    unless GitHub.webhook_secret?(secret),
       do: raise(ArgumentError, "GitHub webhook secret must be sealed and hold 32 to 1024 bytes")
 
     unless is_function(repository_access, 2),
       do: raise(ArgumentError, "GitHub repository access checker is invalid")
 
-    unless is_binary(bot_login) and
-             Regex.match?(~r/\A[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\z/, bot_login),
-           do: raise(ArgumentError, "GitHub bot login is invalid")
+    unless GitHub.login?(bot_login), do: raise(ArgumentError, "GitHub bot login is invalid")
   end
-
-  defp sealed_secret?(%Secret{value: value}),
-    do: is_binary(value) and byte_size(value) in 32..1_024
-
-  defp sealed_secret?(_unsealed), do: false
 
   defp confirmations(options) do
     case Keyword.get(options, :confirmations) do

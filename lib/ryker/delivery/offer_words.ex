@@ -9,6 +9,7 @@ defmodule Ryker.Delivery.OfferWords do
   out instead of showing a blank or an internal value.
   """
   alias Ryker.Schedules
+  alias Ryker.Wording
 
   @doc "Who a saved memory, preference or guidance applies to."
   @spec applies_to(String.t() | nil, String.t() | nil) :: String.t() | nil
@@ -114,8 +115,7 @@ defmodule Ryker.Delivery.OfferWords do
 
   @doc ~s(A stored name as words: "response_detail" becomes "Response detail".)
   @spec humanize(term()) :: String.t()
-  def humanize(value) when is_binary(value),
-    do: value |> String.replace("_", " ") |> String.capitalize()
+  def humanize(value) when is_binary(value), do: Wording.label(value)
 
   def humanize(value), do: to_string(value)
 end

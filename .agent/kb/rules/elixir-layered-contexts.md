@@ -55,34 +55,46 @@ rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-08.
   check, as `Ryker.Slack.MembershipTransition` does around
   `Slack.Timestamp.to_datetime/1`; the rule itself is written once.
 - The ones there are: `Ryker.Wording` (a count and its noun, plurals,
-  numbers with separators, a list in a sentence, capitals; every choice
-  between one and many, "needs you" or "need you" included, goes through
-  `Wording.word/3`),
-  `Ryker.Text` (text in the unit its limit counts), `Ryker.ConversationRef`
-  (a Slack conversation's ref, built and read one way), `Ryker.Reference`
-  (reference strings, identifier tokens, UUIDs), `Ryker.Crypto.sha256_hex?/1`,
-  `Ryker.UTCDateTime` (parsing, precision, UTC, ISO text, ages),
-  `Ryker.Backoff` (the doubling wait and its bounds), `Ryker.Adapter` (a
-  configured module that must export functions), `Ryker.Maps.put_present/3`,
+  numbers with separators, a list in a sentence, capitals, a stored name as
+  words or a label; every choice between one and many, "needs you" or "need
+  you" included, goes through `Wording.word/3`), `Ryker.Text` (text in the
+  unit its limit counts; `shorten/2` cuts a line shown in a narrow place in
+  graphemes), `Ryker.ConversationRef` (a Slack conversation's ref, built and
+  read one way), `Ryker.Reference` (reference strings, identifier tokens,
+  UUIDs, text a person or model wrote, with a byte bound beside it),
+  `Ryker.Crypto.sha256_hex?/1`, `Ryker.UTCDateTime` (parsing, precision, UTC,
+  ISO text, ages, the moment as a person reads it), `Ryker.Backoff` (the
+  doubling wait and its bounds), `Ryker.Adapter` (a configured module that
+  must export functions), `Ryker.ChildProcess` (signalling, closing and
+  draining an external program's port), `Ryker.Maps.put_present/3`,
   `Ryker.JSONSchema` (nonblank text, nullable), `Repo.passed?/2` (a deadline
   by the database clock), `Ryker.Lease.attempts_after_release/2`,
   `Ryker.PromptDocument` (a model prompt's text and its fitting),
-  `Ryker.Coop.Documents` (a Coop session, turn, candidate answer and stop proof),
-  `Ryker.Coop.RunStep` (one step of a background model run, for self-analysis
-  and repository reading, each a lane with its own store),
-  `Ryker.Work.ValidationContext` (what the validator is told, for the
-  preflight and the executor alike), `Ryker.GitHub.repository_name?/1` and
-  `id?/1`, `Ryker.GitObject.branch_ref?/1`, `Ryker.Emisar.Fields` and
-  `Ryker.Slack.Client.Fields` (a boundary's field checks), `Ryker.Slack.Id`,
-  `Ryker.Slack.Timestamp` and `Ryker.Slack.Permalink` (other contexts and the
-  console reach them through `Ryker.Slack`), and in the console `Search`,
-  `MemoryFormat`, `ChartAxis` (a chart's coordinates, for every chart),
-  `ShortTime`, `Units` (`Units.compact/1` writes a count in a few
-  characters, for a table and a chart's axis alike), `Kit` and
-  `BackgroundCards`. A rule an offer and its action both apply lives with the
-  action: `WorkControls.stoppable?/2`, `Publication.Custody.approvable?/1`.
-  A standard library function beats a copy: `:inet.is_ip_address/1` checks a
-  listener's address.
+  `Ryker.Coop.Documents` (a Coop session and its revision, a turn, a
+  candidate answer and stop proof), `Ryker.Coop.RunStep` (one step of a
+  background model run, for self-analysis and repository reading, each a lane
+  with its own store), `Ryker.Work.ValidationContext` (what the validator is
+  told, for the preflight and the executor alike), `Work.FailureCause.cause/1`,
+  `Records.Record.document/1` (a record as the model and the cards read it),
+  `Settings.Retention.ordered?/1`, `Settings.adapter_name?/1`,
+  `Settings.default_environment_ref/1`, `Artifacts.Outputs.valid_name?/1`,
+  `Ryker.GitHub` (`repository_name?/1`, `id?/1`, `login?/1`,
+  `webhook_secret?/1`), `Ryker.GitObject` (`branch_ref?/1`, `ref_part?/1`),
+  `Ryker.Emisar.Fields` and `Ryker.Slack.Client.Fields` (a boundary's field
+  checks and listing limits), `Slack.Renderer.Fields` (a card's checks, and
+  `cut/2` in the unit they count), `Ryker.Slack.Id`, `Ryker.Slack.Timestamp`
+  (with `microseconds/1` for ordering) and `Ryker.Slack.Permalink` (other
+  contexts and the console reach them through `Ryker.Slack`), and in the
+  console `Search`, `MemoryFormat`, `ChartAxis` (a chart's coordinates, for
+  every chart), `ShortTime`, `Units` (`Units.compact/1` writes a count in a
+  few characters, for a table and a chart's axis alike), `Kit` (with
+  `content_id/2` for content that has no ref), `ConversationMemory`
+  (`knowledge_path/1`) and `BackgroundCards`. A rule an offer and its action
+  both apply lives with the action: `WorkControls.stoppable?/2`,
+  `Publication.Custody.approvable?/1`. A standard library function beats a
+  copy: `:inet.is_ip_address/1` checks a listener's address, and a range
+  checks an integer bound (`value in minimum..maximum//1` is false for
+  anything not an integer).
 - A pattern a changeset checks comes from the module that owns the rule
   (`Crypto.sha256_hex_pattern/0`, `Reference.token_pattern/0`,
   `Slack.Id.pattern/0`, `GitHub.repository_name_pattern/0`).
@@ -91,8 +103,14 @@ rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-08.
   two-line read composed where it is used, a boundary's own error around a
   check it shares (ten modules map `Records.CardDelivery.check/3`'s two
   refusals to their own codes), and a guard-sized idiom such as
-  `is_integer(value) and value > 0`, which Emisar writes inline in 27 files. `Ryker.CopiedHelpersTest` lists the copies kept on purpose,
-  each with its reason.
+  `is_integer(value) and value > 0`, which Emisar writes inline in 27 files.
+- `Ryker.CopiedHelpersTest` compares functions with their own names set aside,
+  so a copy under another name counts; each call to a function of the same
+  module is read as that module's, so two modules' boundary checks are not
+  copies of each other. It lists the copies kept on purpose, each with its
+  reason, and fails on a kept copy that is no longer one. Comparing names only
+  missed 43 groups until 2026-10-08, one of them the incident room card's cut
+  that had drifted into a bug.
 
 ## Names
 

@@ -8,6 +8,7 @@ defmodule Ryker.ControlPlane.InstructionsEditor do
   use Phoenix.LiveComponent
   alias Ryker.ControlPlane.{ChannelPage, Components, Kit, ShortTime}
   alias Ryker.Instructions
+  alias Ryker.UTCDateTime
   alias Ryker.Wording
 
   @impl true
@@ -158,8 +159,6 @@ defmodule Ryker.ControlPlane.InstructionsEditor do
 
   defp saved_on(at), do: ShortTime.day(at, Date.utc_today())
 
-  defp saved_title(at), do: Calendar.strftime(at, "%d %b %Y, %H:%M UTC")
-
   @impl true
   def render(assigns) do
     ~H"""
@@ -219,7 +218,7 @@ defmodule Ryker.ControlPlane.InstructionsEditor do
             <span id="instructions-count">{character_count(@draft)}</span><span :if={@saved.saved_at}> · saved
               <time
               datetime={DateTime.to_iso8601(@saved.saved_at)}
-              title={saved_title(@saved.saved_at)}
+              title={UTCDateTime.readable(@saved.saved_at)}
             >{saved_on(@saved.saved_at)}</time></span>
           </p>
           <span role="status" class="instructions-message">{@message}</span>

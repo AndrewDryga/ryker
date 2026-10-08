@@ -18,6 +18,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   alias Ryker.Publication
   alias Ryker.Records
   alias Ryker.Repo
+  alias Ryker.Wording
   alias Ryker.Work
 
   @page_maximum 200
@@ -538,8 +539,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   defp source_label(source_kind) do
     source_kind
     |> marker_component("Integration")
-    |> String.replace("_", " ")
-    |> String.capitalize()
+    |> Wording.label()
   end
 
   defp marker_component(value, fallback) when is_binary(value) do

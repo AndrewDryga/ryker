@@ -183,14 +183,7 @@ defmodule Ryker.Records do
     |> Record.Query.limit_to(@maximum_model_records)
     |> Repo.all()
     |> Enum.reverse()
-    |> Enum.map(fn record ->
-      %{
-        "kind" => record.kind,
-        "payload" => record.payload,
-        "ref" => record.ref,
-        "status" => Atom.to_string(record.status)
-      }
-    end)
+    |> Enum.map(&Record.document/1)
   end
 
   @doc """

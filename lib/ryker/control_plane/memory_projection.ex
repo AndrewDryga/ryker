@@ -90,7 +90,7 @@ defmodule Ryker.ControlPlane.MemoryProjection do
   end
 
   defp active,
-    do: Memories.MemoryEntry.Query.active() |> Memories.MemoryEntry.Query.unexpired_now()
+    do: Memories.MemoryEntry.Query.active() |> Memories.MemoryEntry.Query.unexpired()
 
   defp fact_rows, do: Memories.MemoryEntry.Query.select_facts(active())
 

@@ -215,12 +215,6 @@ defmodule Ryker.Work.Executor.Remote do
     do: {:error, {:coop_mutation_response_unresolved, phase, reason}}
 
   @doc false
-  def revision(%{"revision" => revision}) when is_integer(revision) and revision > 0,
-    do: {:ok, revision}
-
-  def revision(_resource), do: {:error, {:coop_protocol_error, :resource_revision}}
-
-  @doc false
   def terminal_turn?(%{"state" => state}), do: state in @terminal_turn_states
   def terminal_turn?(_turn), do: false
 

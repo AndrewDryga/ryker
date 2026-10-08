@@ -40,6 +40,7 @@ defmodule Ryker.Improvement.Export do
   alias Ryker.Improvement.Candidate
   alias Ryker.Repo
   alias Ryker.UTCDateTime
+  alias Ryker.Wording
 
   @catalog_ref "../va1-health-review-repairs-and-finishes/tool-catalog.json"
 
@@ -456,12 +457,10 @@ defmodule Ryker.Improvement.Export do
   defp diagnosis_line(%{category: nil}), do: "Not analyzed."
 
   defp diagnosis_line(candidate),
-    do: "Category: #{words(candidate.category)}. Step: #{candidate.step}."
+    do: "Category: #{Wording.words(candidate.category)}. Step: #{candidate.step}."
 
   defp confidence(%{confidence: nil}), do: ""
   defp confidence(candidate), do: ", #{candidate.confidence} confidence"
-
-  defp words(atom), do: atom |> Atom.to_string() |> String.replace("_", " ")
 
   defp quoted(text), do: text |> String.split("\n") |> Enum.map_join("\n", &("> " <> &1))
 

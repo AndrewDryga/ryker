@@ -11,6 +11,7 @@ defmodule Ryker.Work.TaskStages do
   """
   alias Ryker.Episodes
   alias Ryker.Publication
+  alias Ryker.Text
   alias Ryker.Work.{FailureCause, Session, Turn}
 
   @stages ~w(workspace_setup planning implementation self_review draft_pr ci review_and_merge)
@@ -103,7 +104,7 @@ defmodule Ryker.Work.TaskStages do
   defp workspace_setup(%{turn: %Turn{status: :blocked, coop_turn_id: nil} = turn}) do
     row("workspace_setup", "failed",
       detail: "work never started",
-      reason: never_started(turn.last_error_detail)
+      reason: FailureCause.cause(turn.last_error_detail)
     )
   end
 
@@ -112,13 +113,6 @@ defmodule Ryker.Work.TaskStages do
 
   defp workspace_setup(_facts),
     do: row("workspace_setup", "waiting", detail: "waiting for a worker")
-
-  defp never_started(detail) do
-    case FailureCause.explain(detail) do
-      %{cause: cause} -> cause
-      nil -> nil
-    end
-  end
 
   defp planning(facts, workspace) do
     bucket = bucket(facts, "planning")
@@ -572,11 +566,7 @@ defmodule Ryker.Work.TaskStages do
 
   defp compact(nil, _maximum), do: nil
 
-  defp compact(value, maximum) do
-    if String.length(value) > maximum,
-      do: String.slice(value, 0, maximum - 1) <> "…",
-      else: value
-  end
+  defp compact(value, maximum), do: Text.shorten(value, maximum)
 
   # A detail is a short fact read on the stage's own line ("2/2 subtasks",
   # "#617"); a reason is the sentence saying why it failed, which Andrew

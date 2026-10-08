@@ -7,7 +7,7 @@ defmodule Ryker.GitHub.CapabilityTools do
   What a tool's arguments may be is `Ryker.GitHub.CapabilityTools.Arguments`;
   what a call may touch is `Ryker.GitHub.CapabilityTools.Authority`.
   """
-  alias Ryker.{Adapter, GitHub, JSONSchema, Options, Rescued}
+  alias Ryker.{Adapter, GitHub, JSONSchema, Options, Rescued, Settings}
   alias Ryker.Delivery
   alias Ryker.GitHub.CapabilityTools.{Arguments, Authority}
 
@@ -458,7 +458,7 @@ defmodule Ryker.GitHub.CapabilityTools do
   end
 
   defp prepare_bindings(%MapSet{} = bindings) do
-    if Enum.all?(bindings, &binding?/1),
+    if Enum.all?(bindings, &Settings.adapter_name?/1),
       do: {bindings, %{}},
       else: raise(ArgumentError, "GitHub capability-tool bindings are invalid")
   end
@@ -466,7 +466,7 @@ defmodule Ryker.GitHub.CapabilityTools do
   defp prepare_bindings(bindings) when is_map(bindings) do
     names = Map.keys(bindings)
 
-    if Enum.all?(names, &binding?/1) do
+    if Enum.all?(names, &Settings.adapter_name?/1) do
       clients =
         Map.new(bindings, fn {name, configured} ->
           {name, context_client(name, configured)}
@@ -496,9 +496,6 @@ defmodule Ryker.GitHub.CapabilityTools do
 
   defp normalize_clients(_clients, _bindings),
     do: raise(ArgumentError, "GitHub capability-tool authority is invalid")
-
-  defp binding?(value),
-    do: is_binary(value) and Regex.match?(~r/\A[a-z][a-z0-9_-]{0,63}\z/, value)
 
   defp context_client(
          name,

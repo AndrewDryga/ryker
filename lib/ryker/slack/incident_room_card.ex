@@ -11,6 +11,7 @@ defmodule Ryker.Slack.IncidentRoomCard do
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Slack.IncidentRoom
+  alias Ryker.Slack.Renderer.Fields
   alias Ryker.Slack.WorkControls
   alias Ryker.Work
 
@@ -46,7 +47,7 @@ defmodule Ryker.Slack.IncidentRoomCard do
        "controls" => [],
        "goals" => [],
        "status" => "provisioning",
-       "summary" => compact(room.prompt, 500),
+       "summary" => Fields.cut(room.prompt, 500),
        "updated_at" => DateTime.to_iso8601(room.requested_at)
      })}
   end
@@ -100,9 +101,9 @@ defmodule Ryker.Slack.IncidentRoomCard do
     |> Enum.take(@goals_shown)
     |> Enum.map(
       &%{
-        "detail" => compact(&1["detail"], 200),
+        "detail" => Fields.cut(&1["detail"], 200),
         "id" => &1["id"],
-        "outcome" => compact(&1["requested_outcome"], 200),
+        "outcome" => Fields.cut(&1["requested_outcome"], 200),
         "state" => &1["state"]
       }
     )
@@ -140,14 +141,14 @@ defmodule Ryker.Slack.IncidentRoomCard do
 
   defp action_needed(_room, %Episodes.Episode{state: :waiting_for_input}, records, _turn) do
     case records["input_request"] do
-      %Records.Record{payload: %{"question" => question}} -> compact(question, 500)
+      %Records.Record{payload: %{"question" => question}} -> Fields.cut(question, 500)
       _missing -> "An operator response is required before the investigation can continue."
     end
   end
 
   defp action_needed(_room, %Episodes.Episode{state: :waiting_for_event}, records, _turn) do
     case records["event_wait"] do
-      %Records.Record{payload: %{"verification" => verification}} -> compact(verification, 500)
+      %Records.Record{payload: %{"verification" => verification}} -> Fields.cut(verification, 500)
       _missing -> "Ryker is waiting for the configured verification event."
     end
   end
@@ -159,7 +160,7 @@ defmodule Ryker.Slack.IncidentRoomCard do
   defp action_needed(_room, _episode, _records, %Work.Turn{status: :blocked} = turn) do
     case Work.FailureCause.explain(turn.last_error_detail) do
       %{cause: cause, next_step: next_step} ->
-        compact(cause <> "\n" <> next_step, 500)
+        Fields.cut(cause <> "\n" <> next_step, 500)
 
       nil ->
         "The investigation stopped and needs a person. The cause is on Ryker's Failures page."
@@ -172,7 +173,7 @@ defmodule Ryker.Slack.IncidentRoomCard do
     case records["alert_assessment"] do
       %Records.Record{payload: payload} ->
         %{
-          "impact" => compact(payload["impact"], 500),
+          "impact" => Fields.cut(payload["impact"], 500),
           "verdict" => payload["verdict"]
         }
 
@@ -184,22 +185,28 @@ defmodule Ryker.Slack.IncidentRoomCard do
   defp summary(room, records) do
     cond do
       match?(%Records.Record{}, records["progress"]) ->
-        compact(records["progress"].payload["summary"], 500)
+        Fields.cut(records["progress"].payload["summary"], 500)
 
       match?(%Records.Record{}, records["alert_assessment"]) ->
-        compact(records["alert_assessment"].payload["impact"], 500)
+        Fields.cut(records["alert_assessment"].payload["impact"], 500)
 
       true ->
-        compact(room.prompt, 500)
+        Fields.cut(room.prompt, 500)
     end
   end
 
   defp controls(episode, turn, session) do
-    []
-    |> maybe_control(WorkControls.stoppable?(episode, turn), "stop")
-    |> maybe_control(WorkControls.diff_available?(session), "view_diff")
-    |> maybe_control(close_allowed?(episode, turn), "close")
-    |> Kernel.++(~w(timeline evidence handoff postmortem))
+    shown = [
+      {WorkControls.stoppable?(episode, turn), "stop"},
+      {WorkControls.diff_available?(session), "view_diff"},
+      {close_allowed?(episode, turn), "close"},
+      {true, "timeline"},
+      {true, "evidence"},
+      {true, "handoff"},
+      {true, "postmortem"}
+    ]
+
+    for {true, control} <- shown, do: control
   end
 
   defp close_allowed?(%Episodes.Episode{state: state}, _turn)
@@ -211,10 +218,4 @@ defmodule Ryker.Slack.IncidentRoomCard do
        do: false
 
   defp close_allowed?(_episode, _turn), do: true
-
-  defp maybe_control(controls, true, control), do: controls ++ [control]
-  defp maybe_control(controls, false, _control), do: controls
-
-  defp compact(value, maximum) when is_binary(value), do: String.slice(value, 0, maximum)
-  defp compact(_value, _maximum), do: nil
 end

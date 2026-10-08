@@ -31,4 +31,9 @@ defmodule Ryker.UTCDateTimeTest do
            ) ==
              1
   end
+
+  # Five pages and a Slack card wrote this format by hand until 2026-10-08.
+  test "a moment reads the same on every page and card" do
+    assert UTCDateTime.readable(~U[2026-10-05 14:03:59Z]) == "05 Oct 2026, 14:03 UTC"
+  end
 end

@@ -161,7 +161,7 @@ defmodule Ryker.Slack.Client.Conversations do
          {:ok, cursor} <- Fields.listing_cursor(Map.get(document, "cursor")),
          {:ok, exclude_archived} <-
            Fields.listing_boolean(Map.get(document, "exclude_archived", true)),
-         {:ok, limit} <- conversation_limit(Map.get(document, "limit", 100)),
+         {:ok, limit} <- Fields.conversation_limit(Map.get(document, "limit", 100)),
          {:ok, types} <- conversation_types(Map.get(document, "types", ["public_channel"])) do
       {:ok,
        [
@@ -176,9 +176,6 @@ defmodule Ryker.Slack.Client.Conversations do
   end
 
   defp list_document(_document), do: {:error, {:invalid_slack_api_request, :conversations}}
-
-  defp conversation_limit(value) when is_integer(value) and value in 1..200, do: {:ok, value}
-  defp conversation_limit(_value), do: {:error, :limit}
 
   defp conversation_types(values) when is_list(values) and length(values) in 1..2 do
     allowed = ["public_channel", "private_channel"]

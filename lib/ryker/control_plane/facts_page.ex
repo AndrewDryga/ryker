@@ -260,8 +260,8 @@ defmodule Ryker.ControlPlane.FactsPage do
 
   defp entry(entry, secrets) do
     %{
-      subject: redact(entry["subject"], secrets) || "Untitled",
-      value: redact(entry["value"], secrets),
+      subject: InspectionRedactor.artifact(entry["subject"], secrets: secrets).text || "Untitled",
+      value: InspectionRedactor.artifact(entry["value"], secrets: secrets).text,
       meta: [
         where(entry["scope"], entry["scope_ref"], entry["scope_name"]),
         kind(entry["kind"]),
@@ -368,7 +368,4 @@ defmodule Ryker.ControlPlane.FactsPage do
       nil -> words
     end
   end
-
-  defp redact(nil, _secrets), do: nil
-  defp redact(text, secrets), do: InspectionRedactor.artifact(text, secrets: secrets).text
 end

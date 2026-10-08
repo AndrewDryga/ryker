@@ -25,6 +25,7 @@ defmodule Ryker.Admission do
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Settings
+  alias Ryker.Text
   alias Ryker.UTCDateTime
   alias Ryker.Work
   require Logger
@@ -1267,11 +1268,10 @@ defmodule Ryker.Admission do
   defp outcome(_delivery, _delivered_at, _intent), do: nil
 
   defp outcome_text(text) do
-    line = text |> Candidate.model_text() |> String.replace(~r/\s+/, " ")
-
-    if String.length(line) > @outcome_characters,
-      do: String.slice(line, 0, @outcome_characters - 1) <> "…",
-      else: line
+    text
+    |> Candidate.model_text()
+    |> String.replace(~r/\s+/, " ")
+    |> Text.shorten(@outcome_characters)
   end
 
   defp conversation_episode_count(input, execution_mode) do

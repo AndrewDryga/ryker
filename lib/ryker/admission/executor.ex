@@ -436,7 +436,7 @@ defmodule Ryker.Admission.Executor do
          {:ok, current_session} <- settings.api.get_session(settings.client, session["id"]),
          {:ok, current_session} <-
            validate_session(current_session, settings, session["id"]),
-         {:ok, revision} <- session_revision(current_session),
+         {:ok, revision} <- Coop.Documents.revision(current_session, :session_revision),
          :ok <- reauthorize_context(entry, context),
          {:ok, response} <-
            settings.api.submit_turn(
@@ -1150,12 +1150,6 @@ defmodule Ryker.Admission.Executor do
         false
     end
   end
-
-  defp session_revision(%{"revision" => revision})
-       when is_integer(revision) and revision > 0,
-       do: {:ok, revision}
-
-  defp session_revision(_session), do: {:error, {:coop_protocol_error, :session_revision}}
 
   defp validate_turn(turn, expected_session_id, expected_turn_id \\ nil)
 

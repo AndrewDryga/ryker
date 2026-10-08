@@ -256,7 +256,7 @@ defmodule Ryker.Slack.Client.Messages do
     with true <- Enum.all?(keys, &is_binary/1) and keys -- allowed == [],
          {:ok, cursor} <- Fields.listing_cursor(Map.get(document, "cursor")),
          {:ok, inclusive} <- Fields.listing_boolean(Map.get(document, "inclusive", false)),
-         {:ok, limit} <- source_limit(Map.get(document, "limit", 100)),
+         {:ok, limit} <- Fields.message_limit(Map.get(document, "limit", 100)),
          :ok <- Fields.optional_message_timestamp(oldest),
          :ok <- Fields.optional_message_timestamp(latest) do
       {:ok,
@@ -273,9 +273,6 @@ defmodule Ryker.Slack.Client.Messages do
   end
 
   defp history_document(_document), do: {:error, {:invalid_slack_api_request, :history}}
-
-  defp source_limit(value) when is_integer(value) and value in 1..100, do: {:ok, value}
-  defp source_limit(_value), do: {:error, :limit}
 
   defp maybe_query_parameter(parameters, _key, nil), do: parameters
   defp maybe_query_parameter(parameters, key, value), do: parameters ++ [{key, value}]

@@ -49,4 +49,19 @@ defmodule Ryker.WordingTest do
     assert Wording.sentence("the recording was too long") == "The recording was too long."
     assert Wording.sentence("") == ""
   end
+
+  # Thirteen pages and cards turned a stored name into words by hand, nine of
+  # them capitalized, until 2026-10-08.
+  test "a stored name reads as words, or as a label" do
+    assert Wording.words(:host_bug) == "host bug"
+    assert Wording.words("response_detail") == "response detail"
+    assert Wording.label(:host_bug) == "Host bug"
+    assert Wording.label("response_detail") == "Response detail"
+  end
+
+  test "a label continues a sentence with its first letter lowered and the rest as written" do
+    assert Wording.lowercase_first("Title") == "title"
+    assert Wording.lowercase_first("Slack ID") == "slack ID"
+    assert Wording.lowercase_first("") == ""
+  end
 end

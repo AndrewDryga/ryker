@@ -14,6 +14,7 @@ defmodule Ryker.Slack.Renderer.Records do
   alias Ryker.Records
   alias Ryker.Slack.Renderer.{EmisarReview, Offers, SavedEntityCard}
   alias Ryker.Slack.ReplyRecords
+  alias Ryker.Text
   alias Ryker.UTCDateTime
   alias Ryker.Wording
 
@@ -359,7 +360,7 @@ defmodule Ryker.Slack.Renderer.Records do
   defp flagged_file({path, problem}) do
     if String.contains?(path, "`"),
       do: flagged_file(:unrecognized),
-      else: "• `#{escape(truncate(path, @maximum_finding_path))}` #{escape(problem)}."
+      else: "• `#{escape(Text.shorten(path, @maximum_finding_path))}` #{escape(problem)}."
   end
 
   defp flagged_file(:unrecognized), do: "• An issue I can't describe."

@@ -259,12 +259,7 @@ defmodule Ryker.Work.RepositorySource do
       not String.starts_with?(name, ["-", "/", "refs/"]) and
       not String.ends_with?(name, ["/", ".", ".lock"]) and
       not String.contains?(name, ["..", "@{", "//", "~", "^", ":", "?", "*", "[", "\\"]) and
-      name != "@" and Enum.all?(String.split(name, "/"), &branch_component?/1)
-  end
-
-  defp branch_component?(component) do
-    component != "" and not String.starts_with?(component, ".") and
-      not String.ends_with?(component, ".lock")
+      name != "@" and Enum.all?(String.split(name, "/"), &GitObject.ref_part?/1)
   end
 
   defp exact_binding_fields(value) do

@@ -41,6 +41,7 @@ defmodule Ryker.WeeklyReport.Digest do
   request's title is kept to one bounded line and cannot become a link or a
   mention.
   """
+  alias Ryker.Text
   alias Ryker.Wording
 
   @title_characters 160
@@ -392,12 +393,6 @@ defmodule Ryker.WeeklyReport.Digest do
       "]" -> ")"
     end)
     |> String.trim()
-    |> truncate()
-  end
-
-  defp truncate(text) do
-    if String.length(text) <= @title_characters,
-      do: text,
-      else: String.slice(text, 0, @title_characters - 1) <> "…"
+    |> Text.shorten(@title_characters)
   end
 end

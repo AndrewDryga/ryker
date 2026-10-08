@@ -13,6 +13,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
   alias Ryker.Slack
+  alias Ryker.Text
   alias Ryker.Work
 
   @doc """
@@ -200,7 +201,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
     |> String.split("\n", parts: 2)
     |> hd()
     |> SlackMarkdown.plain(workspace)
-    |> bounded(120)
+    |> Text.shorten(120)
   end
 
   defp case_repository(%Work.Session{repository_ref: ref}, _) when is_binary(ref), do: ref

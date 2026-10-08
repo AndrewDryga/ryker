@@ -11,9 +11,10 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
   """
   use Phoenix.Component
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{Components, Kit, Paths, ShortTime}
+  alias Ryker.ControlPlane.{Components, Kit, Paths}
   alias Ryker.ControlPlane.SubscriptionPresentation, as: Presentation
   alias Ryker.Records
+  alias Ryker.UTCDateTime
   alias Ryker.Waits
 
   @list_limit 100
@@ -199,7 +200,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
     assigns = %{text: text, at: at}
 
     ~H"""
-    <time datetime={DateTime.to_iso8601(@at)} title={ShortTime.full(@at)}>{@text}</time>
+    <time datetime={DateTime.to_iso8601(@at)} title={UTCDateTime.readable(@at)}>{@text}</time>
     """
   end
 

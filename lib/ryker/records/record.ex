@@ -48,4 +48,15 @@ defmodule Ryker.Records.Record do
           confirmed_by_actor_ref: String.t() | nil,
           confirmed_at: DateTime.t() | nil
         }
+
+  @doc "The record as the model and Slack's cards read it: its kind, payload, ref and status."
+  @spec document(t()) :: map()
+  def document(%__MODULE__{} = record) do
+    %{
+      "kind" => record.kind,
+      "payload" => record.payload,
+      "ref" => record.ref,
+      "status" => Atom.to_string(record.status)
+    }
+  end
 end

@@ -11,9 +11,10 @@ defmodule Ryker.Slack.TaskCardDetails do
   needs the person.
   """
   import Ryker.Slack.Renderer.Blocks,
-    only: [escape: 1, expanded_section: 1, link_label: 1, sections: 1, sections: 2, truncate: 2]
+    only: [escape: 1, expanded_section: 1, link_label: 1, sections: 1, sections: 2]
 
   alias Ryker.Records
+  alias Ryker.Text
   alias Ryker.Work
 
   @goal_states Records.InvestigationPayload.goal_states()
@@ -151,7 +152,7 @@ defmodule Ryker.Slack.TaskCardDetails do
       :binary.match(text, <<0>>) == :nomatch and String.trim(text) != ""
   end
 
-  defp display(text, maximum), do: text |> escape() |> truncate(maximum)
+  defp display(text, maximum), do: text |> escape() |> Text.shorten(maximum)
 
   @doc "A stage's name, the same on the Slack card and the task's page."
   @spec label(String.t()) :: String.t()

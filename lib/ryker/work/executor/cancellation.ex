@@ -10,6 +10,7 @@ defmodule Ryker.Work.Executor.Cancellation do
   holding the run was removed from Ryker, no remote state can ever be proved,
   and the receipt names that removal instead.
   """
+  alias Ryker.Coop
   alias Ryker.Work.Cancellation, as: WorkCancellation
   alias Ryker.Work.{Custody, OperationKeys, StateBinding}
   alias Ryker.Work.Custody.Cancellation, as: CancellationCustody
@@ -289,7 +290,7 @@ defmodule Ryker.Work.Executor.Cancellation do
              settings.api.get_session(settings.client, claim.session.coop_session_id)
            end),
          :ok <- Remote.exact_remote_session(claim.session, remote_session),
-         {:ok, observed_revision} <- Remote.revision(remote_session),
+         {:ok, observed_revision} <- Coop.Documents.revision(remote_session, :resource_revision),
          {:ok, turn} <-
            Custody.freeze_cancellation_revision(
              claim.episode.id,
@@ -520,7 +521,7 @@ defmodule Ryker.Work.Executor.Cancellation do
   end
 
   defp mutate_cancellation_close(claim, proof, remote_session, key, settings) do
-    with {:ok, observed_revision} <- Remote.revision(remote_session),
+    with {:ok, observed_revision} <- Coop.Documents.revision(remote_session, :resource_revision),
          {:ok, turn} <-
            Custody.freeze_cancellation_revision(
              claim.episode.id,

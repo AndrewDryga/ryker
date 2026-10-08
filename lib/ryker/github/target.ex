@@ -1,6 +1,7 @@
 defmodule Ryker.GitHub.Target do
   @moduledoc false
   alias Ryker.Delivery
+  alias Ryker.Settings
 
   @spec parse(Delivery.Request.t()) :: {:ok, map()} | {:error, term()}
   def parse(%Delivery.Request{transport: "github"} = request) do
@@ -22,7 +23,7 @@ defmodule Ryker.GitHub.Target do
   defp conversation(value) do
     case String.split(value, ":", parts: 4) do
       ["github", binding, "repository", repository_id] ->
-        with true <- reference?(binding),
+        with true <- Settings.adapter_name?(binding),
              {repository_id, ""} when repository_id > 0 <- Integer.parse(repository_id) do
           {:ok, binding, repository_id}
         else
@@ -79,7 +80,4 @@ defmodule Ryker.GitHub.Target do
 
   defp source_item(_request),
     do: {:error, {:invalid_github_delivery_target, :source_item_ref}}
-
-  defp reference?(value),
-    do: is_binary(value) and Regex.match?(~r/\A[a-z][a-z0-9_-]{0,63}\z/, value)
 end

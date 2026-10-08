@@ -30,4 +30,13 @@ defmodule Ryker.ReferenceTest do
     refute Reference.uuid?("not-a-uuid")
     refute Reference.uuid?(nil)
   end
+
+  # A reaction's reason and a Work result's text each added the byte bound by
+  # hand until 2026-10-08.
+  test "text under a byte bound too is held to both bounds" do
+    assert Reference.text?("Виправити", 9, 18)
+    refute Reference.text?("Виправити", 9, 17)
+    refute Reference.text?("Виправити", 8, 18)
+    refute Reference.text?(nil, 9, 18)
+  end
 end

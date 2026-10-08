@@ -25,6 +25,19 @@ defmodule Ryker.Text do
   end
 
   @doc """
+  `text` within `count` characters as a reader sees them (graphemes), ending
+  in "…" when it had to be cut: a line shown in a narrow place, where nothing
+  counts the bytes. A limit something enforces is cut in its own unit
+  (`cut/2`, `characters/2`).
+  """
+  @spec shorten(String.t(), pos_integer()) :: String.t()
+  def shorten(text, count) when is_binary(text) and is_integer(count) and count > 0 do
+    if String.length(text) <= count,
+      do: text,
+      else: String.slice(text, 0, count - 1) <> @ellipsis
+  end
+
+  @doc """
   The start of `text` within `max_bytes`, never splitting what a reader sees as
   one character, and with nothing added.
   """

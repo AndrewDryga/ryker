@@ -7,7 +7,7 @@ defmodule Ryker.Slack.CapabilityTools.SourceReader do
   every page, and continuation cursors are sealed to the turn that minted them.
   """
   alias Ryker.Slack.CapabilityTools.{Arguments, Resources}
-  alias Ryker.Slack.{SourceRef, SourceWindow}
+  alias Ryker.Slack.{SourceRef, SourceWindow, Timestamp}
 
   @spec read_source(map(), map(), atom(), map(), map(), map()) :: {:ok, map()} | {:error, term()}
   def read_source(options, %{kind: :bookmark} = source, view, _document, conversation, _binding)
@@ -158,7 +158,7 @@ defmodule Ryker.Slack.CapabilityTools.SourceReader do
 
   defp source_datetime(timestamp) do
     timestamp
-    |> Arguments.timestamp_value()
+    |> Timestamp.microseconds()
     |> DateTime.from_unix!(:microsecond)
     |> DateTime.to_iso8601()
   end

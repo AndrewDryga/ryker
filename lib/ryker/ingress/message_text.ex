@@ -12,6 +12,7 @@ defmodule Ryker.Ingress.MessageText do
   carried: its ids, types and flags are never words. Structured payloads with
   no text become "path: value" lines. Nothing is sent as JSON inside a string.
   """
+  alias Ryker.Reference
 
   @maximum_lines 200
 
@@ -36,7 +37,7 @@ defmodule Ryker.Ingress.MessageText do
       (words(content) ++
          Enum.flat_map(list(content["attachments"]), &attachment/1) ++
          Enum.flat_map(list(content["files"]), &file/1))
-      |> Enum.filter(&text?/1)
+      |> Enum.filter(&Reference.text?/1)
       |> Enum.uniq()
 
     cond do
@@ -49,7 +50,7 @@ defmodule Ryker.Ingress.MessageText do
   def parts(_content), do: nil
 
   defp words(content) do
-    if text?(content["text"]),
+    if Reference.text?(content["text"]),
       do: [content["text"]],
       else: Enum.flat_map(list(content["blocks"]), &block/1)
   end
@@ -63,7 +64,7 @@ defmodule Ryker.Ingress.MessageText do
     content["files"]
     |> list()
     |> Enum.map(&if(is_map(&1), do: &1["name"]))
-    |> Enum.filter(&text?/1)
+    |> Enum.filter(&Reference.text?/1)
   end
 
   defp attachment(%{} = attachment) do
@@ -73,7 +74,7 @@ defmodule Ryker.Ingress.MessageText do
         Enum.flat_map(list(attachment["blocks"]), &block/1) ++
         [attachment["footer"]]
 
-    case Enum.filter(parts, &text?/1) do
+    case Enum.filter(parts, &Reference.text?/1) do
       [] -> [attachment["fallback"]]
       parts -> parts
     end
@@ -82,7 +83,7 @@ defmodule Ryker.Ingress.MessageText do
   defp attachment(_attachment), do: []
 
   defp field(%{"title" => title, "value" => value}) when is_binary(value),
-    do: if(text?(title), do: "#{title}: #{value}", else: value)
+    do: if(Reference.text?(title), do: "#{title}: #{value}", else: value)
 
   defp field(%{"value" => value}) when is_binary(value), do: value
   defp field(_field), do: nil
@@ -120,5 +121,4 @@ defmodule Ryker.Ingress.MessageText do
 
   defp list(value) when is_list(value), do: value
   defp list(_value), do: []
-  defp text?(value), do: is_binary(value) and String.trim(value) != ""
 end

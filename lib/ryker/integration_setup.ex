@@ -1181,10 +1181,14 @@ defmodule Ryker.IntegrationSetup do
   def github_action_grants(permissions) do
     permissions = normalize_github_permissions(permissions)
 
-    ["read"]
-    |> maybe_grant(write?(permissions, "pull_requests"), "review")
-    |> maybe_grant(write?(permissions, "actions"), "rerun_ci")
-    |> maybe_grant(write?(permissions, "actions"), "cancel_ci")
+    allowed = [
+      {true, "read"},
+      {write?(permissions, "pull_requests"), "review"},
+      {write?(permissions, "actions"), "rerun_ci"},
+      {write?(permissions, "actions"), "cancel_ci"}
+    ]
+
+    for {true, grant} <- allowed, do: grant
   end
 
   defp normalize_github_permissions(permissions) when is_map(permissions) do
@@ -1202,9 +1206,6 @@ defmodule Ryker.IntegrationSetup do
   defp normalize_github_permissions(_permissions), do: %{}
 
   defp write?(permissions, name), do: permissions[name] in ["write", "admin"]
-  defp maybe_grant(grants, true, grant), do: grants ++ [grant]
-  defp maybe_grant(grants, false, _grant), do: grants
-
   # GitHub answers the App's own token only on /app endpoints: a /users
   # lookup with it is 401 Bad credentials, which failed every GitHub setup and
   # repair from 2026-09-20 as "did not return the App's bot account" (found

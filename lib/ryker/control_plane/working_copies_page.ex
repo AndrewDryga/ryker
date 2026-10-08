@@ -299,7 +299,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
   defp limit(bytes), do: "of " <> size(bytes) <> " allowed"
 
   defp refusal(nil), do: "reason not reported"
-  defp refusal(reason), do: reason |> to_string() |> String.replace("_", " ")
+  defp refusal(reason), do: Wording.words(reason)
 
   defp size(value) when is_integer(value), do: Units.bytes(value)
   defp size(_unmeasured), do: "unknown"

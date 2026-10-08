@@ -2,6 +2,7 @@ defmodule Ryker.GitHub.Server do
   @moduledoc """
   Optional Bandit listener for authenticated GitHub App webhooks.
   """
+  alias Ryker.GitHub
   alias Ryker.GitHub.{Binding, Confirmations, Router}
   alias Ryker.Options
   alias Ryker.Secret
@@ -74,8 +75,10 @@ defmodule Ryker.GitHub.Server do
     unless :inet.is_ip_address(ip),
       do: raise(ArgumentError, "GitHub IP must be an IPv4 or IPv6 tuple")
 
-    unless valid_secret?(secret), do: raise(ArgumentError, "GitHub webhook secret is invalid")
-    unless valid_bot_login?(bot_login), do: raise(ArgumentError, "GitHub bot login is invalid")
+    unless GitHub.webhook_secret?(secret),
+      do: raise(ArgumentError, "GitHub webhook secret is invalid")
+
+    unless GitHub.login?(bot_login), do: raise(ArgumentError, "GitHub bot login is invalid")
 
     unless is_function(repository_access, 2),
       do: raise(ArgumentError, "GitHub repository access checker is invalid")
@@ -123,14 +126,6 @@ defmodule Ryker.GitHub.Server do
 
   defp normalize_bindings!(_bindings),
     do: raise(ArgumentError, "GitHub bindings must be a map")
-
-  defp valid_secret?(%Secret{value: secret}),
-    do: is_binary(secret) and byte_size(secret) in 32..1_024
-
-  defp valid_secret?(_unsealed), do: false
-
-  defp valid_bot_login?(login),
-    do: is_binary(login) and Regex.match?(~r/\A[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\z/, login)
 
   defp unconfigured_repository_access(_binding, _payload),
     do: {:error, {:github_repository_access_unavailable, :not_configured}}

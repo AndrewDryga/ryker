@@ -44,7 +44,7 @@ defmodule Ryker.Work.Result do
   end
 
   def new(:none, nil, decision_reason, @complete) do
-    if valid_text?(decision_reason, 240, 960) do
+    if Reference.text?(decision_reason, 240, 960) do
       {:ok,
        %__MODULE__{
          continuation: @complete,
@@ -160,7 +160,7 @@ defmodule Ryker.Work.Result do
          } = continuation
        )
        when map_size(continuation) == 4 and kind in ~w(input event) do
-    if valid_text?(wait_ref, 1_024, 1_024),
+    if Reference.text?(wait_ref, 1_024, 1_024),
       do: {:ok, continuation},
       else: {:error, {:invalid_work_result, :continuation}}
   end
@@ -174,7 +174,7 @@ defmodule Ryker.Work.Result do
          } = continuation
        )
        when map_size(continuation) == 4 do
-    with true <- valid_text?(wait_ref, 1_024, 1_024),
+    with true <- Reference.text?(wait_ref, 1_024, 1_024),
          {:ok, deadline_at} <- normalize_deadline(deadline_at) do
       {:ok, %{continuation | "deadline_at" => DateTime.to_iso8601(deadline_at)}}
     else
@@ -184,10 +184,6 @@ defmodule Ryker.Work.Result do
 
   defp prepare_continuation(_continuation),
     do: {:error, {:invalid_work_result, :continuation}}
-
-  defp valid_text?(value, maximum_characters, maximum_bytes) do
-    Reference.text?(value, maximum_characters) and byte_size(value) <= maximum_bytes
-  end
 
   defp normalize_deadline(%DateTime{} = deadline_at) do
     if UTCDateTime.utc?(deadline_at),

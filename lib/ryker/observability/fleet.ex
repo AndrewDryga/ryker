@@ -98,30 +98,25 @@ defmodule Ryker.Observability.Fleet do
   def issues(%{required: false}, _stall_after_seconds), do: []
 
   def issues(fleet, stall_after_seconds) do
-    []
-    |> maybe_issue(fleet.eligible_workers == 0, :no_eligible_workers)
-    |> maybe_issue(fleet.capacity.session.free == 0, :no_session_capacity)
-    |> maybe_issue(fleet.capacity.turn.free == 0, :no_turn_capacity)
-    |> maybe_issue(fleet.capacity.workspace.free == 0, :no_workspace_capacity)
-    # Slot capacity and storage are separate refusals. On 2026-09-13 every Slack
-    # message stopped being processed while workers still advertised free
-    # session slots, because Coop refused every workspace on the volume
-    # watermark — and readiness said "ready" throughout. A fleet that cannot
-    # allocate a workspace cannot start work, whatever its slot counts say.
-    |> maybe_issue(
-      fleet.storage.reporting > 0 and fleet.storage.refused >= fleet.storage.reporting,
-      :no_workspace_storage
-    )
-    |> maybe_issue(fleet.expired_current_placements > 0, :expired_current_placements)
-    |> maybe_issue(fleet.event_cursor_lag > 0, :event_cursor_lag)
-    |> maybe_issue(
-      fleet.oldest_queued_command_age_seconds > stall_after_seconds,
-      :stalled_queued_commands
-    )
-  end
+    checks = [
+      {fleet.eligible_workers == 0, :no_eligible_workers},
+      {fleet.capacity.session.free == 0, :no_session_capacity},
+      {fleet.capacity.turn.free == 0, :no_turn_capacity},
+      {fleet.capacity.workspace.free == 0, :no_workspace_capacity},
+      # Slot capacity and storage are separate refusals. On 2026-09-13 every
+      # Slack message stopped being processed while workers still advertised
+      # free session slots, because Coop refused every workspace on the volume
+      # watermark — and readiness said "ready" throughout. A fleet that cannot
+      # allocate a workspace cannot start work, whatever its slot counts say.
+      {fleet.storage.reporting > 0 and fleet.storage.refused >= fleet.storage.reporting,
+       :no_workspace_storage},
+      {fleet.expired_current_placements > 0, :expired_current_placements},
+      {fleet.event_cursor_lag > 0, :event_cursor_lag},
+      {fleet.oldest_queued_command_age_seconds > stall_after_seconds, :stalled_queued_commands}
+    ]
 
-  defp maybe_issue(issues, true, issue), do: issues ++ [issue]
-  defp maybe_issue(issues, false, _issue), do: issues
+    for {true, issue} <- checks, do: issue
+  end
 
   defp storage(workers, cutoff, now) do
     {reported, unreported} = Enum.split_with(workers, &is_map(&1.storage))

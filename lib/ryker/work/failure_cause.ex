@@ -118,6 +118,15 @@ defmodule Ryker.Work.FailureCause do
 
   def explain(_detail), do: nil
 
+  @doc "The cause `explain/1` names for `detail` in words, or nil when it names none."
+  @spec cause(String.t() | nil) :: String.t() | nil
+  def cause(detail) do
+    case explain(detail) do
+      %{cause: cause} -> cause
+      nil -> nil
+    end
+  end
+
   @doc """
   Whether the saved error says the model account the worker signs in with
   needs a person: it is limited, or its sign-in no longer works. No retry

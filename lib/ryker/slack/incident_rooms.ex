@@ -932,7 +932,7 @@ defmodule Ryker.Slack.IncidentRooms do
   defp insert_room!(record, source_episode, source_session, attributes) do
     room_id = Repo.generate_id()
     room_ref = "incident-room:#{room_id}"
-    source_channel_ref = source_channel_ref!(attributes.target.conversation_ref)
+    source_channel_ref = ConversationRef.slack_channel(attributes.target.conversation_ref)
     configuration = configuration(attributes.workspace_ref, source_channel_ref)
     title = record.payload["title"]
     prompt = record.payload["prompt"]
@@ -1480,11 +1480,6 @@ defmodule Ryker.Slack.IncidentRooms do
 
   defp slack_conversation(_value, _workspace_ref),
     do: {:error, {:invalid_incident_room_request, :conversation_ref}}
-
-  defp source_channel_ref!(conversation_ref) do
-    {:ok, _workspace_ref, channel_ref} = ConversationRef.parse_slack(conversation_ref)
-    channel_ref
-  end
 
   defp channel_name(prefix, occurred_at, title, room_id) do
     date = Calendar.strftime(occurred_at, "%m%d")

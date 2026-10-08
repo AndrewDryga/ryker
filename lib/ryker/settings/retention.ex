@@ -21,4 +21,19 @@ defmodule Ryker.Settings.Retention do
   end
 
   @type t :: %__MODULE__{}
+
+  @doc """
+  Whether retention `horizons` keep each layer no longer than what is built on
+  it: operational data within closed work, closed work within a request's
+  history, history within the audit trail, and operational data within
+  conversation memory. Settings refuse a save that breaks it, and the
+  retention lanes refuse to start on one.
+  """
+  @spec ordered?(map()) :: boolean()
+  def ordered?(horizons) do
+    horizons.operational_data_seconds <= horizons.closed_work_seconds and
+      horizons.closed_work_seconds <= horizons.episode_history_seconds and
+      horizons.episode_history_seconds <= horizons.audit_data_seconds and
+      horizons.operational_data_seconds <= horizons.conversation_memory_seconds
+  end
 end

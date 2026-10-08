@@ -9,6 +9,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   alias Ryker.ControlPlane.RoutingReason
   alias Ryker.ControlPlane.Units
   alias Ryker.Episodes
+  alias Ryker.Wording
 
   # Background calls about a request that send no reply: learning from its
   # messages, and the self-analysis of a request a person was unhappy with.
@@ -386,8 +387,10 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
 
   defp artifact_meta(artifact), do: availability(artifact)
 
-  defp artifact_size(nil), do: "Size not recorded"
-  defp artifact_size(count), do: Units.bytes(count)
+  @doc "An artifact's size as its card states it, or that none was recorded."
+  @spec artifact_size(non_neg_integer() | nil) :: String.t()
+  def artifact_size(nil), do: "Size not recorded"
+  def artifact_size(count), do: Units.bytes(count)
 
   defp decision_artifact_needed?(request) do
     case Enum.find(request.sections, &(&1.id == "candidate")) do
@@ -400,7 +403,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   end
 
   defp readable_code(value) when is_binary(value) and value != "" do
-    value |> String.replace("_", " ") |> String.capitalize()
+    Wording.label(value)
   end
 
   defp readable_code(_value), do: nil

@@ -26,7 +26,7 @@ defmodule Ryker.ControlPlane.ShortTime do
     <time
       :if={@at}
       datetime={DateTime.to_iso8601(@at)}
-      title={full(@at)}
+      title={UTCDateTime.readable(@at)}
     >{@prefix}{text(@at, @now || DateTime.utc_now())}</time>
     """
   end
@@ -49,10 +49,6 @@ defmodule Ryker.ControlPlane.ShortTime do
   @spec iso(DateTime.t() | NaiveDateTime.t()) :: String.t()
   def iso(at),
     do: at |> UTCDateTime.to_utc() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
-
-  @doc "The exact instant, e.g. \"12 Sep 2026, 09:00 UTC\"."
-  @spec full(DateTime.t()) :: String.t()
-  def full(%DateTime{} = at), do: Calendar.strftime(at, "%d %b %Y, %H:%M UTC")
 
   @doc """
   A day as every page writes one: "5 Oct", or "5 Oct 2025" in another year

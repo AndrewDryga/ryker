@@ -274,15 +274,6 @@ defmodule Ryker.Memories.MemoryEntry.Query do
   def active(queryable \\ all()),
     do: where(queryable, [operational_memory_entries: m], m.status == :active)
 
-  @doc "Facts that have not expired by the database clock."
-  def unexpired_now(queryable) do
-    where(
-      queryable,
-      [operational_memory_entries: m],
-      is_nil(m.expires_at) or m.expires_at > fragment("clock_timestamp()")
-    )
-  end
-
   @doc "Facts whose subject, value or applicability says `text`, whatever the case."
   def saying(queryable, text) do
     where(

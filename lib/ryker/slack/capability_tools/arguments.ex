@@ -6,7 +6,8 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
   """
   alias Ryker.ConversationRef
   alias Ryker.Maps
-  alias Ryker.Slack.{Id, SourceRef}
+  alias Ryker.Slack.Client.Fields
+  alias Ryker.Slack.{Id, SourceRef, Timestamp}
 
   @content_types ~w(messages files channels users)
   @search_fields ~w(after author_ref before content_types conversation_refs cursor limit query)
@@ -68,11 +69,14 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
     with true <- Enum.all?(keys, &is_binary/1) and keys -- @list_fields == [],
          {:ok, query} <- optional_text(Map.get(arguments, "query"), 256),
          {:ok, kinds} <- kinds(Map.get(arguments, "kinds", ["public_channel"])),
-         {:ok, configured_only} <- boolean(Map.get(arguments, "configured_only", false)),
-         {:ok, include_archived} <- boolean(Map.get(arguments, "include_archived", false)),
-         {:ok, include_resources} <- boolean(Map.get(arguments, "include_resources", false)),
+         {:ok, configured_only} <-
+           Fields.listing_boolean(Map.get(arguments, "configured_only", false)),
+         {:ok, include_archived} <-
+           Fields.listing_boolean(Map.get(arguments, "include_archived", false)),
+         {:ok, include_resources} <-
+           Fields.listing_boolean(Map.get(arguments, "include_resources", false)),
          {:ok, cursor} <- optional_text(Map.get(arguments, "cursor"), 4_096),
-         {:ok, limit} <- channel_limit(Map.get(arguments, "limit", 50)),
+         {:ok, limit} <- Fields.conversation_limit(Map.get(arguments, "limit", 50)),
          :ok <- resources_limit(include_resources, limit) do
       {:ok,
        %{
@@ -106,7 +110,7 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
          {:ok, after_time} <- slack_timestamp(Map.get(arguments, "after")),
          {:ok, before_time} <- slack_timestamp(Map.get(arguments, "before")),
          {:ok, cursor} <- optional_text(Map.get(arguments, "cursor"), 8_192),
-         {:ok, limit} <- source_limit(Map.get(arguments, "limit", 100)),
+         {:ok, limit} <- Fields.message_limit(Map.get(arguments, "limit", 100)),
          {:ok, document} <-
            source_read_bounds(source, view, after_time, before_time, cursor, limit) do
       {:ok, source, view, document}
@@ -127,7 +131,7 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
            SourceRef.parse(ref, source.workspace_ref),
          true <-
            channel == source.channel_ref and
-             timestamp_value(timestamp) >= timestamp_value(source.message_ref) do
+             Timestamp.microseconds(timestamp) >= Timestamp.microseconds(source.message_ref) do
       {:ok, Map.put(source, :anchor_message_ref, timestamp)}
     else
       _ -> {:error, :unauthorized}
@@ -208,8 +212,8 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
     oldest = after_time || "#{max(seconds - 86_400, 0)}.000000"
     latest = before_time || "#{seconds + 86_400}.999999"
 
-    if timestamp_value(oldest) <= timestamp_value(source.message_ref) and
-         timestamp_value(source.message_ref) <= timestamp_value(latest) do
+    if Timestamp.microseconds(oldest) <= Timestamp.microseconds(source.message_ref) and
+         Timestamp.microseconds(source.message_ref) <= Timestamp.microseconds(latest) do
       {:ok,
        %{
          "cursor" => cursor,
@@ -232,15 +236,6 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
        "limit" => limit,
        "oldest" => after_time
      }}
-  end
-
-  @doc "A Slack message timestamp as microseconds, so two of them compare as numbers."
-  @spec timestamp_value(String.t()) :: non_neg_integer()
-  def timestamp_value(value) do
-    [seconds, fraction] = String.split(value, ".", parts: 2)
-
-    String.to_integer(seconds) * 1_000_000 +
-      String.to_integer(String.pad_trailing(fraction, 6, "0"))
   end
 
   defp bounded_query(query, conversations, author) do
@@ -370,22 +365,13 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
        else: {:error, :text}
   end
 
-  defp boolean(value) when is_boolean(value), do: {:ok, value}
-  defp boolean(_value), do: {:error, :boolean}
-
   defp limit(value) when is_integer(value) and value in 1..20, do: {:ok, value}
   defp limit(_value), do: {:error, :limit}
-
-  defp channel_limit(value) when is_integer(value) and value in 1..200, do: {:ok, value}
-  defp channel_limit(_value), do: {:error, :limit}
 
   # Bookmarks are read one channel at a time, a Tier 2 call each: a listing
   # that read them by default made up to 200 calls (2026-10-04 review).
   defp resources_limit(true, limit) when limit > @resources_channels, do: {:error, :limit}
   defp resources_limit(_include_resources, _limit), do: :ok
-
-  defp source_limit(value) when is_integer(value) and value in 1..100, do: {:ok, value}
-  defp source_limit(_value), do: {:error, :limit}
 
   defp kinds(values) when is_list(values) and length(values) in 1..2 do
     allowed = ["public_channel", "private_channel"]

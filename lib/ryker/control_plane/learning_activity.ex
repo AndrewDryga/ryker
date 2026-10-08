@@ -442,8 +442,10 @@ defmodule Ryker.ControlPlane.LearningActivity do
   def attempt_label(%{status: :applied}), do: "Learning completed"
   def attempt_label(%{status: status}), do: label(status)
 
-  defp batch(row, secrets, context),
-    do: %{
+  defp batch(row, secrets, context) do
+    code = Map.get(context.causes, row.id, row.error_code)
+
+    %{
       id: row.id,
       status: row.status,
       label: label(row.status),
@@ -458,10 +460,11 @@ defmodule Ryker.ControlPlane.LearningActivity do
       at: row.inserted_at,
       completed_at: row.completed_at,
       next_check: next_check(row, context),
-      error: error(Map.get(context.causes, row.id, row.error_code)),
-      error_code: safe_code(Map.get(context.causes, row.id, row.error_code), secrets),
+      error: error(code),
+      error_code: InspectionRedactor.artifact(code, secrets: secrets).text,
       path: path(row.id)
     }
+  end
 
   # A direct conversation is named by its title, like Chat names it; every
   # one of them read "Direct conversation" on its own.
@@ -624,9 +627,6 @@ defmodule Ryker.ControlPlane.LearningActivity do
   def error(_) do
     "Learning stopped for a reason Ryker doesn't recognize. The attempt and its error are saved."
   end
-
-  defp safe_code(nil, _secrets), do: nil
-  defp safe_code(value, secrets), do: InspectionRedactor.artifact(value, secrets: secrets).text
 
   defp oldest(nil, right), do: right
   defp oldest(left, nil), do: left

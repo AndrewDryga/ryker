@@ -1648,7 +1648,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
       data-revoked={if @artifact.state in [:expired], do: "true"}
     >
       <:meta>
-        <span :if={@artifact.state == :collapsed}>{bytes(@artifact.bytes)}</span>
+        <span :if={@artifact.state == :collapsed}>{EpisodeRequest.artifact_size(@artifact.bytes)}</span>
         <span :if={@artifact.state == :expired}>Expired</span>
         <span :if={@artifact.state == :not_recorded}>Not recorded</span>
         <span :if={@artifact.state == :omitted}>Omitted</span>
@@ -1667,13 +1667,11 @@ defmodule Ryker.ControlPlane.EpisodePage do
     """
   end
 
-  defp omission(%{reason: "oversized", omitted_bytes: bytes}),
-    do: "The source payload was #{bytes(bytes)}, over the 64 KiB limit, so it wasn't stored."
+  defp omission(%{reason: "oversized", omitted_bytes: bytes}) do
+    "The source payload was #{EpisodeRequest.artifact_size(bytes)}, over the 64 KiB limit, so it wasn't stored."
+  end
 
   defp omission(%{reason: reason}), do: "The source payload was not stored (#{reason})."
-
-  defp bytes(nil), do: "Size not recorded"
-  defp bytes(count), do: Units.bytes(count)
 
   defp message_text(%{available: false}), do: "Source content not recorded or expired"
 
@@ -1762,7 +1760,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
       data-revoked={if @artifact.state in [:expired, :not_recorded], do: "true"}
     >
       <:meta>
-        <span :if={@artifact.state == :collapsed}>{bytes(@artifact.bytes)}</span><span :if={
+        <span :if={@artifact.state == :collapsed}>{EpisodeRequest.artifact_size(@artifact.bytes)}</span><span :if={
           @artifact.truncated
         }>Partial display</span>
       </:meta>

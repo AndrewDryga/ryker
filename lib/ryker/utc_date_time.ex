@@ -34,6 +34,10 @@ defmodule Ryker.UTCDateTime do
   def iso8601(nil), do: nil
   def iso8601(%DateTime{} = value), do: DateTime.to_iso8601(value)
 
+  @doc ~s(A moment as a person reads it, on every page and card alike: "05 Oct 2026, 14:03 UTC".)
+  @spec readable(DateTime.t()) :: String.t()
+  def readable(%DateTime{} = at), do: Calendar.strftime(at, "%d %b %Y, %H:%M UTC")
+
   @doc "Whether `value` is a `DateTime` in UTC, with no offset."
   @spec utc?(term()) :: boolean()
   def utc?(%DateTime{time_zone: "Etc/UTC", utc_offset: 0, std_offset: 0}), do: true

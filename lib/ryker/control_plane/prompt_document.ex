@@ -8,8 +8,8 @@ defmodule Ryker.ControlPlane.PromptDocument do
   made each one impossible to find.
   """
   alias Ryker.ControlPlane.Components
+  alias Ryker.ControlPlane.Kit
   alias Ryker.ControlPlane.RequestContextHTML
-  alias Ryker.Crypto
 
   @tokens ~r/\s+|"(?:\\.|[^"\\])*"|[{}\[\],:]|[^\s{}\[\],:]+/u
   # Private-use characters mark where each part starts and ends during the walk;
@@ -43,7 +43,7 @@ defmodule Ryker.ControlPlane.PromptDocument do
         # highlight survives the page's periodic patches.
         [
           "<div class=\"prompt-document\" id=\"",
-          Plug.HTML.html_escape(id || "prompt-document-" <> digest(text)),
+          Plug.HTML.html_escape(id || Kit.content_id("prompt-document", text)),
           "\" phx-update=\"ignore\">",
           legend(parts, value),
           Components.copy_block_html(
@@ -303,9 +303,6 @@ defmodule Ryker.ControlPlane.PromptDocument do
     ]
 
   defp whitespace?(token), do: String.trim(token) == ""
-
-  defp digest(text),
-    do: Crypto.sha256_hex(text) |> binary_part(0, 16)
 
   defp pre(text) do
     Components.copy_block_html(

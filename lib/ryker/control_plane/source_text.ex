@@ -1,6 +1,7 @@
 defmodule Ryker.ControlPlane.SourceText do
   @moduledoc "Plain source-message content shared by the timeline and request inspector."
   alias Ryker.GitHub
+  alias Ryker.Reference
   alias Ryker.Wording
 
   # An answer given with a question card's button carries the chosen option, not text
@@ -10,12 +11,12 @@ defmodule Ryker.ControlPlane.SourceText do
 
   def from_content(%{} = content) do
     text = content["text"]
-    blocks = if present?(text), do: [], else: list(content["blocks"])
+    blocks = if Reference.text?(text), do: [], else: list(content["blocks"])
 
     [text | Enum.flat_map(list(content["attachments"]), &attachment/1)]
     |> Kernel.++(Enum.flat_map(blocks, &block/1))
     |> Kernel.++(Enum.flat_map(list(content["files"]), &transcript/1))
-    |> Enum.filter(&present?/1)
+    |> Enum.filter(&Reference.text?/1)
     |> Enum.uniq()
     |> case do
       [] -> GitHub.Input.body(content)
@@ -26,13 +27,12 @@ defmodule Ryker.ControlPlane.SourceText do
   def from_content(_), do: nil
   defp list(value) when is_list(value), do: value
   defp list(_), do: []
-  defp present?(value), do: is_binary(value) and String.trim(value) != ""
 
   defp attachment(%{} = value) do
     parts =
       (Enum.map(~w(pretext title text), &value[&1]) ++
          Enum.flat_map(list(value["blocks"]), &block/1))
-      |> Enum.filter(&present?/1)
+      |> Enum.filter(&Reference.text?/1)
 
     if parts == [], do: [value["fallback"]], else: parts
   end

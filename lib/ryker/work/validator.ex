@@ -7,6 +7,7 @@ defmodule Ryker.Work.Validator do
   durable wait that will resume it. It deliberately does not grade arbitrary
   prose, infer cause, or impose alert-specific checklists.
   """
+  alias Ryker.Artifacts
   alias Ryker.Reference
   alias Ryker.Slack
   alias Ryker.UTCDateTime
@@ -587,7 +588,8 @@ defmodule Ryker.Work.Validator do
     prepared =
       Enum.map(values, fn
         %{"id" => id, "name" => name} = value when map_size(value) == 2 ->
-          if Reference.token?(id) and bounded_artifact_name?(name), do: %{id: id, name: name}
+          if Reference.token?(id) and Artifacts.Outputs.valid_name?(name),
+            do: %{id: id, name: name}
 
         _invalid ->
           nil
@@ -602,14 +604,6 @@ defmodule Ryker.Work.Validator do
 
   defp prepare_artifact_metadata(_values, _artifact_refs),
     do: {:error, {:invalid_work_validation_context, :artifact_metadata}}
-
-  defp bounded_artifact_name?(value) when is_binary(value) do
-    String.valid?(value) and byte_size(value) in 1..255 and value not in [".", ".."] and
-      not String.contains?(value, ["/", "\\"]) and
-      not Enum.any?(String.to_charlist(value), &(&1 < 32 or &1 == 127))
-  end
-
-  defp bounded_artifact_name?(_value), do: false
 
   defp prepare_open_goals(goals) when is_list(goals) and length(goals) <= 64 do
     Enum.reduce_while(goals, {:ok, []}, fn goal, {:ok, prepared} ->

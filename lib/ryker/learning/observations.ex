@@ -1,6 +1,6 @@
 defmodule Ryker.Learning.Observations do
   @moduledoc "Authenticated source custody and bounded original excerpts, never model-written memories."
-  alias Ryker.{CanonicalJSON, Repo}
+  alias Ryker.{CanonicalJSON, Repo, Text}
   alias Ryker.Continuity
   alias Ryker.Episodes
   alias Ryker.Ingress
@@ -24,8 +24,7 @@ defmodule Ryker.Learning.Observations do
     text = entry.content |> Ingress.RecallText.prose() |> String.trim()
 
     if text != "" do
-      summary = if String.length(text) > 1200, do: String.slice(text, 0, 1199) <> "…", else: text
-      %{"summary" => summary, "topics" => []}
+      %{"summary" => Text.shorten(text, 1200), "topics" => []}
     end
   end
 

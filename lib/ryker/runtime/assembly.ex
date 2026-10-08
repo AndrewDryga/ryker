@@ -438,13 +438,6 @@ defmodule Ryker.Runtime.Assembly do
     end
   end
 
-  defp saved_default_environment(settings) do
-    case Settings.default_environment(settings) do
-      %Settings.Environment{ref: ref} -> ref
-      nil -> nil
-    end
-  end
-
   # GitHub events for a repository run in the environment
   # `Ryker.Settings.environment_for_repository/2` names among those that can
   # run work, else on the repository alone. An event is about its own repository, so that
@@ -1077,7 +1070,7 @@ defmodule Ryker.Runtime.Assembly do
         channel_prefix: settings.slack.channel_prefix,
         # The saved default, even while it cannot run work yet: a channel
         # joined then is still set to it, and works in it once it can.
-        default_environment: saved_default_environment(settings),
+        default_environment: Settings.default_environment_ref(settings),
         default_participation: settings.slack.default_participation,
         environments: environments,
         fallback_work_profile: outside,

@@ -7,6 +7,7 @@ defmodule Ryker.Slack.Renderer.Fields do
   a reason the card folds into its own `{:invalid_slack_render, family}`.
   """
   alias Ryker.Reference
+  alias Ryker.Text
   alias Ryker.UTCDateTime
 
   @spec bounded_text(term(), pos_integer()) :: :ok | {:error, :invalid_text}
@@ -17,6 +18,15 @@ defmodule Ryker.Slack.Renderer.Fields do
   @spec optional_bounded_text(term(), pos_integer()) :: :ok | {:error, :invalid_text}
   def optional_bounded_text(nil, _maximum), do: :ok
   def optional_bounded_text(value, maximum), do: bounded_text(value, maximum)
+
+  @doc """
+  A card's text cut to `maximum` bytes, the unit `bounded_text/2` checks, or
+  nil without text. The incident room card cut characters for these byte
+  checks, and a goal in Ukrainian refused the whole card (2026-10-08).
+  """
+  @spec cut(String.t() | nil, pos_integer()) :: String.t() | nil
+  def cut(value, maximum) when is_binary(value), do: Text.cut(value, maximum)
+  def cut(_value, _maximum), do: nil
 
   @doc "Whether `values` is a list naming members of `allowed`, each at most once."
   @spec unique_subset?(term(), [String.t()]) :: boolean()

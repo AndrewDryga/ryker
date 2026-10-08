@@ -45,7 +45,7 @@ defmodule Ryker.Slack.ReplyRecords do
 
   @spec documents(String.t(), String.t(), [map()]) :: [map()]
   def documents(transport, episode_id, records) do
-    documents = Enum.map(records, &document/1)
+    documents = Enum.map(records, &Records.Record.document/1)
 
     if transport == "slack" and records != [] do
       times = Map.new(records, &{&1.ref, &1.inserted_at})
@@ -221,15 +221,6 @@ defmodule Ryker.Slack.ReplyRecords do
   end
 
   def safe_url?(_value), do: false
-
-  defp document(record) do
-    %{
-      "kind" => record.kind,
-      "payload" => record.payload,
-      "ref" => record.ref,
-      "status" => Atom.to_string(record.status)
-    }
-  end
 
   defp enrich_record(%{"kind" => "evidence", "payload" => payload} = record, urls, _times) do
     case urls[payload["source_id"]] do

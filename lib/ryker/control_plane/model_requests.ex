@@ -2,11 +2,11 @@ defmodule Ryker.ControlPlane.ModelRequests do
   @moduledoc "Bounded, explicitly sensitive read boundary for retained model requests."
   alias Ryker.Accounting
   alias Ryker.Admission
-  alias Ryker.ControlPlane.{Activity, CallRun, ContextSearch, ContextSelection}
+  alias Ryker.ControlPlane.{Activity, CallRun, ContextSearch, ContextSelection, EpisodeProjection}
+  alias Ryker.ControlPlane.{BackgroundCards, RoutingReason, ThreadContext, Units, UsageProjection}
   alias Ryker.ControlPlane.{EpisodeTrace, FeedbackProjection, ImprovementRequests}
   alias Ryker.ControlPlane.EpisodeTrace.{CaseFile, Input, Step}
   alias Ryker.ControlPlane.{LearningRequests, PagedRelation, Paths, RepositoryNames}
-  alias Ryker.ControlPlane.{RoutingReason, ThreadContext, Units, UsageProjection}
   alias Ryker.CoopFleet
   alias Ryker.Crypto
   alias Ryker.Delivery
@@ -471,7 +471,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
       summary:
         if(explanation,
           do: explanation.cause,
-          else: transition.error_code |> to_string() |> String.replace("_", " ")
+          else: Wording.words(transition.error_code)
         )
     }
   end
@@ -575,7 +575,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
       {:ok,
        %{
-         episode_ref: episode_key(entry.episode_id),
+         episode_ref: EpisodeProjection.key(entry.episode_id),
          # What people said about the answer routing sent by itself.
          feedback: FeedbackProjection.for_request({:input, id}),
          self_analysis:
@@ -612,15 +612,6 @@ defmodule Ryker.ControlPlane.ModelRequests do
     else
       _missing -> :not_found
     end
-  end
-
-  defp episode_key(nil), do: nil
-
-  defp episode_key(episode_id) do
-    episode_id
-    |> Episodes.Episode.Query.by_id()
-    |> Episodes.Episode.Query.select_keys()
-    |> Repo.one()
   end
 
   defp input_state(entry, now), do: Repo.one!(Activity.Query.input_state(entry.id, now))
@@ -797,7 +788,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
     expired = not is_nil(turn.operational_pruned_at)
     reading = %{reading | expired: expired}
     submission = if expired, do: %{}, else: turn.submission || %{}
-    prompt = decode(submission["prompt"])
+    prompt = BackgroundCards.decode(submission["prompt"])
     context = prompt["work"]
     work = if is_map(context), do: context, else: %{}
 
@@ -856,7 +847,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
     generation = min(generation, entry.execution_generation)
     submission = admission_submission(attempt, expired)
 
-    prompt = decode(submission["prompt"])
+    prompt = BackgroundCards.decode(submission["prompt"])
     response = if not expired, do: attempt_value(attempt, :response)
 
     %{
@@ -1228,13 +1219,4 @@ defmodule Ryker.ControlPlane.ModelRequests do
   # Every artifact on a page is redacted with the same secrets and bound.
   defp redaction(%Reading{secrets: secrets, expired: expired}),
     do: [secrets: secrets, max_bytes: @artifact_bytes, expired: expired]
-
-  defp decode(value) when is_binary(value) do
-    case Jason.decode(value) do
-      {:ok, map} when is_map(map) -> map
-      _other -> %{}
-    end
-  end
-
-  defp decode(_value), do: %{}
 end

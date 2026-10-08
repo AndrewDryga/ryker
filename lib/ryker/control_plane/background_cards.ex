@@ -93,10 +93,6 @@ defmodule Ryker.ControlPlane.BackgroundCards do
   def time(label, %DateTime{} = at),
     do: %{label: label, value: Calendar.strftime(at, "%d %b %Y, %H:%M:%S UTC")}
 
-  @doc "A time in a sentence, to the minute."
-  @spec timestamp(DateTime.t()) :: String.t()
-  def timestamp(at), do: Calendar.strftime(at, "%d %b %Y, %H:%M UTC")
-
   @doc "Trimmed text, or nil when there is none."
   @spec present(term()) :: String.t() | nil
   def present(value) when is_binary(value) do

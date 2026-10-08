@@ -18,6 +18,7 @@ defmodule Ryker.Transcription.Local do
   """
   @behaviour Ryker.Transcription
   alias Ryker.ChildEnvironment
+  alias Ryker.ChildProcess
   alias Ryker.Crypto
   alias Ryker.Transcription
   alias Ryker.Transcription.Parts
@@ -229,10 +230,10 @@ defmodule Ryker.Transcription.Local do
         {:error, :output_too_large}
 
       {^port, {:exit_status, 0}} ->
-        flush(port)
+        ChildProcess.flush(port)
 
       {^port, {:exit_status, status}} ->
-        flush(port)
+        ChildProcess.flush(port)
         {:error, {:exit_status, status}}
     after
       remaining ->
@@ -246,25 +247,8 @@ defmodule Ryker.Transcription.Local do
   # The caller is a long-lived process, the transcription worker or Chat's
   # upload, so nothing the port sent is left in its mailbox.
   defp stop(port, os_pid) do
-    if is_integer(os_pid),
-      do: System.cmd("kill", ["-KILL", Integer.to_string(os_pid)], stderr_to_stdout: true)
-
-    try do
-      Port.close(port)
-    rescue
-      ArgumentError -> :ok
-    end
-
-    flush(port)
-  end
-
-  defp flush(port) do
-    receive do
-      {^port, _message} -> flush(port)
-      {:EXIT, ^port, _reason} -> flush(port)
-    after
-      0 -> :ok
-    end
+    ChildProcess.signal(os_pid, "KILL")
+    ChildProcess.close(port)
   end
 
   defp in_directory(base, function) do

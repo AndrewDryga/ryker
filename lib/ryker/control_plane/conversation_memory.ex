@@ -318,6 +318,17 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   @doc "Where one learned topic opens: its full text, history and sources."
   def topic_path(id), do: Paths.query("/memory/learned", %{"item" => id})
 
+  @doc "Where the topic a `knowledge:<id>` source ref names opens; nil for any other ref."
+  @spec knowledge_path(term()) :: String.t() | nil
+  def knowledge_path("knowledge:" <> id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, id} -> topic_path(id)
+      :error -> nil
+    end
+  end
+
+  def knowledge_path(_ref), do: nil
+
   @doc "Where one conversation summary's page is."
   @spec summary_path(String.t()) :: String.t()
   def summary_path(id),

@@ -7,6 +7,7 @@ defmodule Ryker.CoopFleet.ManagedSources do
   has checked this immutable identity.
   """
   alias Ryker.ChildEnvironment
+  alias Ryker.ChildProcess
   alias Ryker.CoopFleet.JobSpec
   alias Ryker.CoopFleet.Protocol
   alias Ryker.GitHub
@@ -841,35 +842,15 @@ defmodule Ryker.CoopFleet.ManagedSources do
   # remove its lock and temporary files, and killed if it has not after a
   # grace; either signal goes to its exact process id, never a name or pattern.
   defp stop_git(port, os_pid) do
-    signal(os_pid, "TERM")
+    ChildProcess.signal(os_pid, "TERM")
 
     receive do
       {^port, {:exit_status, _status}} -> :ok
     after
-      @git_stop_grace_ms -> signal(os_pid, "KILL")
+      @git_stop_grace_ms -> ChildProcess.signal(os_pid, "KILL")
     end
 
-    try do
-      Port.close(port)
-    rescue
-      ArgumentError -> :ok
-    end
-
-    flush_git(port)
-  end
-
-  defp signal(nil, _signal), do: :ok
-
-  defp signal(os_pid, signal) when is_integer(os_pid),
-    do: System.cmd("kill", ["-#{signal}", Integer.to_string(os_pid)], stderr_to_stdout: true)
-
-  defp flush_git(port) do
-    receive do
-      {^port, _message} -> flush_git(port)
-      {:EXIT, ^port, _reason} -> flush_git(port)
-    after
-      0 -> :ok
-    end
+    ChildProcess.close(port)
   end
 
   defp os_pid(port) do

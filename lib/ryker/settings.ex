@@ -199,6 +199,23 @@ defmodule Ryker.Settings do
   @spec default_environment(snapshot()) :: Environment.t() | nil
   def default_environment(snapshot), do: Enum.find(snapshot.environments, & &1.is_default)
 
+  @doc """
+  Whether `value` names an adapter as settings name one: a GitHub binding, a
+  webhook source or a transport (`Validation.adapter_name_pattern/0`).
+  """
+  @spec adapter_name?(term()) :: boolean()
+  def adapter_name?(value),
+    do: is_binary(value) and Regex.match?(Validation.adapter_name_pattern(), value)
+
+  @doc "The ref of a settings snapshot's default environment, or nil when none is chosen."
+  @spec default_environment_ref(snapshot()) :: String.t() | nil
+  def default_environment_ref(snapshot) do
+    case default_environment(snapshot) do
+      %Environment{ref: ref} -> ref
+      nil -> nil
+    end
+  end
+
   @doc "The environment `ref` names in a settings snapshot, or nil."
   @spec environment(snapshot(), String.t() | nil) :: Environment.t() | nil
   def environment(snapshot, ref), do: find_item(snapshot, Environment, ref)

@@ -398,4 +398,37 @@ defmodule Ryker.SettingsTest do
       [days, Ecto.UUID.dump!(episode_id)]
     )
   end
+
+  # Delivery, GitHub's tools and its delivery target each held this pattern
+  # until 2026-10-08.
+  test "an adapter name is a lowercase letter, then up to 63 letters, digits, dashes or underscores" do
+    assert Settings.adapter_name?("github-main")
+    refute Settings.adapter_name?("GitHub")
+    refute Settings.adapter_name?("1st")
+    refute Settings.adapter_name?(nil)
+  end
+
+  test "a snapshot's default environment is named by its ref, or by nothing without one" do
+    default = %Settings.Environment{ref: "production", is_default: true}
+    other = %Settings.Environment{ref: "staging", is_default: false}
+
+    assert Settings.default_environment_ref(%{environments: [other, default]}) == "production"
+    assert Settings.default_environment_ref(%{environments: [other]}) == nil
+  end
+
+  # Settings, the retention runtime and the retention pass each checked this
+  # order with their own copy until 2026-10-08.
+  test "retention keeps each layer no longer than what is built on it" do
+    ordered = %{
+      operational_data_seconds: 1,
+      closed_work_seconds: 2,
+      episode_history_seconds: 3,
+      audit_data_seconds: 4,
+      conversation_memory_seconds: 5
+    }
+
+    assert Retention.ordered?(ordered)
+    refute Retention.ordered?(%{ordered | closed_work_seconds: 4})
+    refute Retention.ordered?(%{ordered | conversation_memory_seconds: 0})
+  end
 end

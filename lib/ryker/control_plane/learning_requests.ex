@@ -25,8 +25,7 @@ defmodule Ryker.ControlPlane.LearningRequests do
       record_text: 2,
       submitted: 5,
       target: 2,
-      time: 2,
-      timestamp: 1
+      time: 2
     ]
 
   alias Ryker.Accounting
@@ -36,6 +35,7 @@ defmodule Ryker.ControlPlane.LearningRequests do
   alias Ryker.Learning
   alias Ryker.Repo
   alias Ryker.Slack
+  alias Ryker.UTCDateTime
   alias Ryker.Wording
   alias Ryker.Work
 
@@ -216,7 +216,7 @@ defmodule Ryker.ControlPlane.LearningRequests do
       retention_note:
         if run.pruned_at do
           "Retention removed the messages, instructions and prompt this attempt was sent on " <>
-            timestamp(run.pruned_at) <> ". Nothing is rebuilt from today's settings."
+            UTCDateTime.readable(run.pruned_at) <> ". Nothing is rebuilt from today's settings."
         end,
       sections: [
         section("instructions", "Learning instructions", prompt["instructions"], options),
@@ -245,7 +245,7 @@ defmodule Ryker.ControlPlane.LearningRequests do
           retried_after: retried_after(run, context),
           retention_note:
             if run.pruned_at do
-              "Retention removed the model's response on #{timestamp(run.pruned_at)}. " <>
+              "Retention removed the model's response on #{UTCDateTime.readable(run.pruned_at)}. " <>
                 "What it changed, what it cost and how long it took stay recorded."
             end,
           sections: [section("response", "Model response", run.result, options)],
@@ -396,20 +396,11 @@ defmodule Ryker.ControlPlane.LearningRequests do
       %{
         label: "Proposed, not saved",
         value: present(update["title"]) || present(update["topic_key"]) || "A topic",
-        href: target_topic(update["target_ref"]),
+        href: ConversationMemory.knowledge_path(update["target_ref"]),
         note: if(action == "update", do: "an update to this topic", else: "a new topic")
       }
     end
   end
-
-  defp target_topic("knowledge:" <> id) do
-    case Ecto.UUID.cast(id) do
-      {:ok, id} -> ConversationMemory.topic_path(id)
-      :error -> nil
-    end
-  end
-
-  defp target_topic(_ref), do: nil
 
   defp deferrals(nil), do: []
 

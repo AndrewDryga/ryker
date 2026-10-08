@@ -1284,15 +1284,12 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
          root
        )
        when is_map(bundle),
-       do: {bundle, context_map(envelope["manifest"]), root <> ".conversation_context.bundle"}
+       do: {bundle, map_value(envelope["manifest"]), root <> ".conversation_context.bundle"}
 
   defp conversation_context(values, root) do
-    {context_map(values["conversation_context"]), context_map(values["context_manifest"]),
+    {map_value(values["conversation_context"]), map_value(values["context_manifest"]),
      root <> ".conversation_context"}
   end
-
-  defp context_map(value) when is_map(value), do: value
-  defp context_map(_value), do: %{}
 
   defp earlier_messages_count(messages, _manifest) when is_list(messages),
     do: %{label: count(length(messages), "message"), known?: true}
@@ -2246,7 +2243,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       items
       |> Enum.filter(&is_map/1)
       |> Enum.map(fn item ->
-        path = topic_path(item["source_ref"])
+        path = ConversationMemory.knowledge_path(item["source_ref"])
 
         [
           "<li class=\"context-note\" data-memory-kind=\"knowledge\" title=\"",
@@ -2275,15 +2272,6 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       "</ol>"
     ]
   end
-
-  defp topic_path("knowledge:" <> id) do
-    case Ecto.UUID.cast(id) do
-      {:ok, id} -> ConversationMemory.topic_path(id)
-      :error -> nil
-    end
-  end
-
-  defp topic_path(_ref), do: nil
 
   # One entry per note: what was noted, then who and when. The row already says
   # these are source notes; a heading and a "Summary" label on each repeated it
@@ -3029,7 +3017,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   end
 
   defp human(value) when is_map(value) or is_list(value), do: "Structured value"
-  defp human(value), do: value |> to_string() |> String.replace("_", " ") |> String.capitalize()
+  defp human(value), do: Wording.label(value)
   defp escape(value) when is_map(value) or is_list(value), do: escape(Jason.encode!(value))
 
   defp escape(value),

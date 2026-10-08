@@ -32,36 +32,38 @@ defmodule Ryker.Accounting do
   hold: `:ok`, or `{:error, :accounting_lease_lost}`.
   """
   def observe_work(claim, remote_turn, remote_session \\ %{}) do
-    Repo.transaction(fn ->
-      current =
-        Work.Turn.Query.by_id(claim.turn.id)
-        |> Work.Turn.Query.lock_for_update()
-        |> Repo.one()
+    observed =
+      Repo.transaction(fn ->
+        current =
+          Work.Turn.Query.by_id(claim.turn.id)
+          |> Work.Turn.Query.lock_for_update()
+          |> Repo.one()
 
-      # The lease was written with the database's clock; only that clock can
-      # say whether it still holds.
-      now = Repo.now!()
+        # The lease was written with the database's clock; only that clock can
+        # say whether it still holds.
+        now = Repo.now!()
 
-      session_generation =
-        Work.Session.Query.by_id(claim.session.id)
-        |> Work.Session.Query.select_generation()
-        |> Repo.one()
+        session_generation =
+          Work.Session.Query.by_id(claim.session.id)
+          |> Work.Session.Query.select_generation()
+          |> Repo.one()
 
-      if is_nil(current) or not Lease.held?(current, claim.lease_ref, now) or
-           current.session_id != claim.session.id or
-           session_generation != claim.session.generation or
-           current.submit_generation != claim.turn.submit_generation do
-        Repo.rollback(:accounting_lease_lost)
-      end
+        if is_nil(current) or not Lease.held?(current, claim.lease_ref, now) or
+             current.session_id != claim.session.id or
+             session_generation != claim.session.generation or
+             current.submit_generation != claim.turn.submit_generation do
+          Repo.rollback(:accounting_lease_lost)
+        end
 
-      record(
-        work_identity(claim),
-        remote_turn,
-        Work.Measurement.prepare(remote_turn, remote_session),
-        now
-      )
-    end)
-    |> result()
+        record(
+          work_identity(claim),
+          remote_turn,
+          Work.Measurement.prepare(remote_turn, remote_session),
+          now
+        )
+      end)
+
+    with {:ok, _execution} <- observed, do: :ok
   end
 
   @doc "The caller already owns the input lock and exact execution generation."
@@ -314,9 +316,6 @@ defmodule Ryker.Accounting do
   end
 
   defp merge_timing(attributes, _current, _measurement), do: attributes
-
-  defp result({:ok, _}), do: :ok
-  defp result({:error, reason}), do: {:error, reason}
 
   # -- PubSub ------------------------------------------------------------------
 

@@ -22,6 +22,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   alias Ryker.Publication
   alias Ryker.Slack
   alias Ryker.UTCDateTime
+  alias Ryker.Wording
 
   @doc """
   The topics an open list of rooms listens to, as the context functions that
@@ -623,7 +624,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   # exact UTC instant a pointer away.
   defp moment(assigns) do
     ~H"""
-    <time datetime={ShortTime.iso(@at)} title={ShortTime.full(UTCDateTime.to_utc(@at))}>{@prefix}{spoken(
+    <time datetime={ShortTime.iso(@at)} title={UTCDateTime.readable(UTCDateTime.to_utc(@at))}>{@prefix}{spoken(
       @at,
       @now
     )}</time>
@@ -870,7 +871,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   defp in_sentence(day), do: day
 
   defp words(value) when is_binary(value),
-    do: value |> String.replace("_", " ") |> String.capitalize()
+    do: Wording.label(value)
 
   defp words(_value), do: nil
 

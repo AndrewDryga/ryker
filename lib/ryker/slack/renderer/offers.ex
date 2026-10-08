@@ -9,6 +9,8 @@ defmodule Ryker.Slack.Renderer.Offers do
   alias Ryker.ConversationRef
   alias Ryker.Delivery
   alias Ryker.Schedules
+  alias Ryker.Text
+  alias Ryker.Wording
 
   # A task brief shows this many checks and limits, each cut to this length,
   # and counts the rest.
@@ -74,7 +76,7 @@ defmodule Ryker.Slack.Renderer.Offers do
     shown =
       values
       |> Enum.take(@brief_items)
-      |> Enum.map(&("• " <> (&1 |> truncate(@brief_item_characters) |> escape())))
+      |> Enum.map(&("• " <> (&1 |> Text.shorten(@brief_item_characters) |> escape())))
 
     hidden = length(values) - @brief_items
     more = if hidden > 0, do: ["• and #{hidden} more"], else: []
@@ -289,12 +291,9 @@ defmodule Ryker.Slack.Renderer.Offers do
   defp change(label, value, %{} = was, _show), do: {label, [value, {:markup, "_was_"}, was]}
 
   defp change("How often" = label, value, was, _show),
-    do: {label, value <> " (was " <> lowercase_first(was) <> ")"}
+    do: {label, value <> " (was " <> Wording.lowercase_first(was) <> ")"}
 
   defp change(label, value, was, _show), do: {label, value <> " (was " <> was <> ")"}
-
-  defp lowercase_first(<<first::utf8, rest::binary>>),
-    do: String.downcase(<<first::utf8>>) <> rest
 
   defp channel("slack:" <> _rest = conversation_ref) do
     case ConversationRef.parse_slack(conversation_ref) do

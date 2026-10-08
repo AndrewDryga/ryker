@@ -35,6 +35,7 @@ defmodule Ryker.ControlPlane.Kit do
   alias Phoenix.HTML.Safe
   alias Phoenix.LiveView.JS
   alias Ryker.ControlPlane.{Components, ShortTime}
+  alias Ryker.Crypto
   alias Ryker.UTCDateTime
 
   attr(:id, :string, default: nil)
@@ -179,7 +180,7 @@ defmodule Ryker.ControlPlane.Kit do
           :if={@at}
           class="entity-at"
           datetime={@at_time && ShortTime.iso(@at_time)}
-          title={@at_time && ShortTime.full(UTCDateTime.to_utc(@at_time))}
+          title={@at_time && UTCDateTime.readable(UTCDateTime.to_utc(@at_time))}
         >{@at}</time>
       </div>
       <div :if={@actions != []} class="entity-actions">{render_slot(@actions)}</div>
@@ -243,6 +244,16 @@ defmodule Ryker.ControlPlane.Kit do
   @doc "A DOM id from a ref: anything but letters, digits, `_` and `-` becomes `-`."
   @spec dom_id(term()) :: String.t()
   def dom_id(ref), do: String.replace(to_string(ref), ~r/[^A-Za-z0-9_-]/, "-")
+
+  @doc """
+  A DOM id for content with no ref of its own: `prefix`, a dash, and the first
+  16 hex digits of the content's SHA-256, the same on every render.
+  """
+  @spec content_id(String.t(), String.t()) :: String.t()
+  def content_id(prefix, content) do
+    digest = content |> Crypto.sha256_hex() |> binary_part(0, 16)
+    prefix <> "-" <> digest
+  end
 
   attr(:value, :any, required: true)
 

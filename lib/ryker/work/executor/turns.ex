@@ -45,7 +45,7 @@ defmodule Ryker.Work.Executor.Turns do
              settings.api.get_session(settings.client, claim.session.coop_session_id)
            end),
          :ok <- Remote.exact_remote_session(claim.session, remote_session),
-         {:ok, revision} <- Remote.revision(remote_session),
+         {:ok, revision} <- Coop.Documents.revision(remote_session, :resource_revision),
          :ok <-
            Ryker.Accounting.observe_work(claim, %{"state" => "requested"}, remote_session),
          response <-
@@ -334,7 +334,7 @@ defmodule Ryker.Work.Executor.Turns do
   defp checkpoint_accepted_workspace(_claim, _remote_session, _settings), do: {:ok, nil}
 
   defp checkpoint_accepted_workspace(claim, remote_session, settings, true) do
-    with {:ok, expected_revision} <- Remote.revision(remote_session),
+    with {:ok, expected_revision} <- Coop.Documents.revision(remote_session, :resource_revision),
          {:ok, %{"transfer_id" => transfer_id}}
          when is_binary(transfer_id) and transfer_id != "" <-
            Remote.api_call(settings, fn ->

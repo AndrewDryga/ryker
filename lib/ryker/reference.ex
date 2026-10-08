@@ -59,6 +59,16 @@ defmodule Ryker.Reference do
 
   def text?(_value, _maximum), do: false
 
+  @doc """
+  `text?/2` under a byte bound too, for text a column or a wire format limits
+  in bytes beside the characters a schema allows.
+  """
+  @spec text?(term(), pos_integer(), pos_integer()) :: boolean()
+  def text?(value, maximum, maximum_bytes) when is_binary(value),
+    do: text?(value, maximum) and byte_size(value) <= maximum_bytes
+
+  def text?(_value, _maximum, _maximum_bytes), do: false
+
   @doc "Text of any length: valid UTF-8 with no NUL byte, not blank."
   @spec text?(term()) :: boolean()
   def text?(value) when is_binary(value) do

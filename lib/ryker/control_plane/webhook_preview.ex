@@ -97,11 +97,12 @@ defmodule Ryker.ControlPlane.WebhookPreview do
 
   defp message({:invalid_webhook_transform, field}, :grafana) do
     "This is not a Grafana alert delivery Ryker can read: it has no usable " <>
-      "#{lower(label(field))}."
+      "#{Wording.lowercase_first(label(field))}."
   end
 
-  defp message({:invalid_webhook_transform, field}, _universal),
-    do: "This is not in Ryker's own format: it has no usable #{lower(label(field))}."
+  defp message({:invalid_webhook_transform, field}, _universal) do
+    "This is not in Ryker's own format: it has no usable #{Wording.lowercase_first(label(field))}."
+  end
 
   defp message({:invalid_webhook_route, _field}, _shape) do
     "This source's settings are not complete, so it cannot read anything yet. Edit it, then check again."
@@ -115,8 +116,6 @@ defmodule Ryker.ControlPlane.WebhookPreview do
   defp label(:alerts), do: "Alerts"
   defp label(:metadata), do: "Labels and annotations"
   defp label(field), do: SettingsSections.subfield_label(to_string(field))
-
-  defp lower(<<first::utf8, rest::binary>>), do: String.downcase(<<first::utf8>>) <> rest
 
   @impl true
   def render(assigns) do

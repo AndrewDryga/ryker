@@ -7,6 +7,7 @@ defmodule Ryker.ControlPlane.WorkChanges do
   never pages a patch itself.
   """
   alias Ryker.Crypto
+  alias Ryker.Text
 
   @path_groups ~w(committed staged unstaged untracked conflicts)
   @maximum_paths 20
@@ -78,7 +79,7 @@ defmodule Ryker.ControlPlane.WorkChanges do
       Enum.flat_map(@path_groups, fn group ->
         Enum.map(changes[group], fn entry ->
           path = entry["path"] || "[non-UTF-8 path #{entry["path_bytes"]}]"
-          path = compact_text(path, @maximum_path_characters)
+          path = Text.shorten(path, @maximum_path_characters)
           "#{group}: #{path} (#{entry["status"]})"
         end)
       end)
@@ -155,28 +156,17 @@ defmodule Ryker.ControlPlane.WorkChanges do
   end
 
   defp typed?(digest, bytes, offset, next, more) do
-    Crypto.sha256_hex?(digest) and valid_patch_size?(bytes) and valid_offset?(offset, 0, bytes) and
-      valid_offset?(next, offset, bytes) and is_boolean(more)
+    Crypto.sha256_hex?(digest) and valid_patch_size?(bytes) and offset in 0..bytes//1 and
+      next in offset..bytes//1 and is_boolean(more)
   end
 
   defp valid_patch_size?(value), do: is_integer(value) and value in 0..1_073_741_824
 
-  defp valid_offset?(value, minimum, maximum),
-    do: is_integer(value) and value >= minimum and value <= maximum
-
   defp compact_patch(patch) do
     if String.valid?(patch) and :binary.match(patch, <<0>>) == :nomatch do
-      compact_text(patch, @maximum_patch_characters)
+      Text.shorten(patch, @maximum_patch_characters)
     else
       "[binary patch page omitted; verify it from Coop using the snapshot digest]"
     end
-  end
-
-  defp compact_text(value, maximum) do
-    graphemes = String.graphemes(value)
-
-    if length(graphemes) <= maximum,
-      do: value,
-      else: graphemes |> Enum.take(maximum - 1) |> Enum.join() |> Kernel.<>("…")
   end
 end

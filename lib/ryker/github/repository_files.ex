@@ -40,7 +40,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
 
   defp head_commit(client, repository) do
     path =
-      "/repos/#{repository.github_repository}/git/ref/heads/#{encode_ref(repository.base_branch)}"
+      "/repos/#{repository.github_repository}/git/ref/heads/#{segment(repository.base_branch)}"
 
     case get(client, path) do
       {:ok, %{status: 200, body: %{"object" => %{"sha" => sha}}}} when is_binary(sha) ->
@@ -211,5 +211,5 @@ defmodule Ryker.GitHub.RepositoryFiles do
   # GitHub itself; in tests, the replies each test records (config/test.exs).
   defp requester, do: Config.get_env(:github_files_requester, Delivery.JSONClient)
 
-  defp encode_ref(ref), do: URI.encode(ref, &URI.char_unreserved?/1)
+  defp segment(ref), do: URI.encode(ref, &URI.char_unreserved?/1)
 end

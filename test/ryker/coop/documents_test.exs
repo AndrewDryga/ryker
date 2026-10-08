@@ -88,4 +88,16 @@ defmodule Ryker.Coop.DocumentsTest do
              "finished_at" => "2026-10-08T09:00:00Z"
            }
   end
+
+  # Admission, retention and Work each read a session's revision their own
+  # way until 2026-10-08; each still names its own field.
+  test "a session's revision is a positive integer, or the caller's own protocol error" do
+    assert Documents.revision(%{"revision" => 3}, :session_revision) == {:ok, 3}
+
+    assert Documents.revision(%{"revision" => 0}, :session_revision) ==
+             {:error, {:coop_protocol_error, :session_revision}}
+
+    assert Documents.revision(%{}, :resource_revision) ==
+             {:error, {:coop_protocol_error, :resource_revision}}
+  end
 end

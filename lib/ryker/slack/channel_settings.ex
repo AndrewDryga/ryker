@@ -55,7 +55,7 @@ defmodule Ryker.Slack.ChannelSettings do
          :ok <- conversation(workspace_ref, conversation_ref),
          :ok <- participation(default_participation, :default_participation) do
       workspace_ref
-      |> configuration(channel_ref(conversation_ref))
+      |> configuration(ConversationRef.slack_channel(conversation_ref))
       |> resolve(default_participation)
     end
   end
@@ -105,7 +105,7 @@ defmodule Ryker.Slack.ChannelSettings do
 
         ChannelConfigurations.broadcast_channel_updated(
           attributes.workspace_ref,
-          channel_ref(attributes.conversation_ref)
+          ConversationRef.slack_channel(attributes.conversation_ref)
         )
 
         %{effective: effective!(attributes, default), status: :updated}
@@ -156,7 +156,9 @@ defmodule Ryker.Slack.ChannelSettings do
 
   defp locked_configuration!(attributes) do
     attributes.workspace_ref
-    |> ChannelConfiguration.Query.by_channel(channel_ref(attributes.conversation_ref))
+    |> ChannelConfiguration.Query.by_channel(
+      ConversationRef.slack_channel(attributes.conversation_ref)
+    )
     |> ChannelConfiguration.Query.lock_for_update()
     |> Repo.one()
   end
@@ -200,12 +202,6 @@ defmodule Ryker.Slack.ChannelSettings do
 
   defp configuration(workspace_ref, channel_ref) do
     workspace_ref |> ChannelConfiguration.Query.by_channel(channel_ref) |> Repo.one()
-  end
-
-  # Read only after `conversation/2` accepted the ref.
-  defp channel_ref(conversation_ref) do
-    {:ok, _workspace_ref, channel_ref} = ConversationRef.parse_slack(conversation_ref)
-    channel_ref
   end
 
   defp fingerprint(attributes) do

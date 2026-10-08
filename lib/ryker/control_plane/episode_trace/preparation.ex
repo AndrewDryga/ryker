@@ -14,6 +14,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   alias Ryker.Ingress
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
+  alias Ryker.Text
   alias Ryker.Wording
   alias Ryker.Work
 
@@ -516,7 +517,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     do: "Ryker processed this message because it continued earlier work."
 
   defp live_reason({:rule, title}) do
-    "Ryker processed this message because the standing rule \"#{bounded(title, 160)}\" matched."
+    "Ryker processed this message because the standing rule \"#{Text.shorten(title, 160)}\" matched."
   end
 
   defp live_reason(:rule),
@@ -544,7 +545,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
           " and it qualified because it continued earlier work"
 
         {:rule, title} ->
-          " and it qualified because the standing rule \"#{bounded(title, 160)}\" matched"
+          " and it qualified because the standing rule \"#{Text.shorten(title, 160)}\" matched"
 
         :rule ->
           " and it qualified because a standing rule matched"
@@ -951,7 +952,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   defp request_words(_input, _linked), do: nil
 
   defp linked_words(nil), do: "earlier work"
-  defp linked_words(title), do: "\"#{bounded(title, 160)}\""
+  defp linked_words(title), do: "\"#{Text.shorten(title, 160)}\""
 
   # Why the work ran in its environment, read from where the request came
   # from the way the runtime chose it: an incident room works in the

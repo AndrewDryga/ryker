@@ -9,9 +9,11 @@ defmodule Ryker.GitHub do
   2026-10-08 they assumed github.com whatever the App was connected to.
   """
   alias Ryker.Config
+  alias Ryker.Secret
 
   @github "https://github.com"
   @maximum_id 9_223_372_036_854_775_807
+  @login ~r/\A[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\z/
   @repository_name ~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
   @github_api "https://api.github.com/"
 
@@ -66,6 +68,23 @@ defmodule Ryker.GitHub do
   @doc "Whether `value` is a GitHub numeric id: a positive 64-bit integer."
   @spec id?(term()) :: boolean()
   def id?(value), do: is_integer(value) and value > 0 and value <= @maximum_id
+
+  @doc """
+  Whether `value` is a GitHub login: a letter or digit, then up to 38 letters,
+  digits or dashes.
+  """
+  @spec login?(term()) :: boolean()
+  def login?(value), do: is_binary(value) and Regex.match?(@login, value)
+
+  @doc """
+  Whether `secret` is a sealed webhook secret Ryker checks GitHub's deliveries
+  with: 32 to 1,024 bytes.
+  """
+  @spec webhook_secret?(term()) :: boolean()
+  def webhook_secret?(%Secret{value: value}),
+    do: is_binary(value) and byte_size(value) in 32..1_024
+
+  def webhook_secret?(_unsealed), do: false
 
   @doc "The pattern `repository_name?/1` matches, for a changeset's format check."
   @spec repository_name_pattern() :: Regex.t()

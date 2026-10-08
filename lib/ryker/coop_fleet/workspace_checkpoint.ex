@@ -416,7 +416,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
   defp valid_branch_ref?(value) when is_binary(value) and byte_size(value) in 1..256 do
     parts = :binary.split(value, "/", [:global])
 
-    valid_branch_name?(value) and Enum.all?(parts, &valid_branch_part?/1)
+    valid_branch_name?(value) and Enum.all?(parts, &GitObject.ref_part?/1)
   end
 
   defp valid_branch_ref?(_value), do: false
@@ -425,10 +425,6 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
     String.valid?(value) and value != "@" and not String.starts_with?(value, ["-", "/"]) and
       not String.ends_with?(value, ["/", "."]) and not String.contains?(value, ["..", "@{"]) and
       not Regex.match?(~r/[\x00-\x20\x7f~^:?*\[\\]/u, value)
-  end
-
-  defp valid_branch_part?(part) do
-    part != "" and not String.starts_with?(part, ".") and not String.ends_with?(part, ".lock")
   end
 
   defp manifest_digest(value) do

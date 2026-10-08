@@ -7,6 +7,7 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
   import Ryker.Slack.Renderer.Fields
   alias Ryker.Reference
   alias Ryker.Slack.Renderer.ChannelCards
+  alias Ryker.Text
   alias Ryker.Wording
 
   @setup_statuses ~w(asking confirming saved cancelled expired)
@@ -190,7 +191,7 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
       |> Enum.map(fn {environment, index} ->
         setup_button(
           "ryker_setup_environment_#{index}",
-          truncate(environment["name"], maximum_button_characters()),
+          Text.shorten(environment["name"], maximum_button_characters()),
           session_ref,
           nil
         )

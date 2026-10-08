@@ -168,9 +168,9 @@ defmodule Ryker.CoopFleet.JobSpec do
 
   defp resources?(%{} = resources) do
     exact?(resources, ~w(cpu_millis memory_bytes pids)) and
-      integer_between?(resources["cpu_millis"], 10, 128_000) and
-      integer_between?(resources["memory_bytes"], 6 * 1_048_576, 1_099_511_627_776) and
-      integer_between?(resources["pids"], 1, 65_536)
+      resources["cpu_millis"] in 10..128_000 and
+      resources["memory_bytes"] in (6 * 1_048_576)..1_099_511_627_776 and
+      resources["pids"] in 1..65_536
   end
 
   defp resources?(_resources), do: false
@@ -193,7 +193,7 @@ defmodule Ryker.CoopFleet.JobSpec do
   defp repository_identity?(source) do
     Protocol.reference?(source["repository_ref"]) and
       github_repository?(source["github_repository"]) and
-      integer_between?(source["github_repository_id"], 1, 9_223_372_036_854_775_807)
+      source["github_repository_id"] in 1..9_223_372_036_854_775_807
   end
 
   defp submodules?(modules, depth)
@@ -293,18 +293,15 @@ defmodule Ryker.CoopFleet.JobSpec do
 
   defp limits?(%{} = limits) do
     exact?(limits, @limit_fields) and
-      integer_between?(limits["max_turns"], 1, 10_000) and
-      integer_between?(limits["max_queued_turns"], 1, 1_000) and
-      integer_between?(limits["max_queued_bytes"], 1, 64 * 1_024 * 1_024) and
-      integer_between?(limits["turn_timeout_ms"], 1, 86_400_000) and
-      integer_between?(limits["warm_idle_timeout_ms"], 0, 3_600_000) and
-      integer_between?(limits["max_patch_bytes"], 1, 1_048_576)
+      limits["max_turns"] in 1..10_000 and
+      limits["max_queued_turns"] in 1..1_000 and
+      limits["max_queued_bytes"] in 1..(64 * 1_024 * 1_024) and
+      limits["turn_timeout_ms"] in 1..86_400_000 and
+      limits["warm_idle_timeout_ms"] in 0..3_600_000 and
+      limits["max_patch_bytes"] in 1..1_048_576
   end
 
   defp limits?(_limits), do: false
-
-  defp integer_between?(value, min, max),
-    do: is_integer(value) and value >= min and value <= max
 
   defp mode_bounds?(%{"mode" => "bare"} = job) do
     job["companions"] == [] and not job["repository_read_only"] and restricted_bounds?(job)

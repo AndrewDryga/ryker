@@ -31,6 +31,16 @@ defmodule Ryker.Coop.Documents do
   def exact_turn?(_turn, _session_id, _expected), do: false
 
   @doc """
+  The revision a Coop session document carries: `{:ok, revision}`, or
+  `{:error, {:coop_protocol_error, field}}` under the caller's own `field`.
+  """
+  @spec revision(map(), atom()) :: {:ok, pos_integer()} | {:error, {:coop_protocol_error, atom()}}
+  def revision(%{"revision" => revision}, _field) when is_integer(revision) and revision > 0,
+    do: {:ok, revision}
+
+  def revision(_document, field), do: {:error, {:coop_protocol_error, field}}
+
+  @doc """
   The stop proof a turn that finished leaves on its run: its id, session,
   state, error code and validation attempt.
   """

@@ -11,6 +11,7 @@ defmodule Ryker.Delivery.ChatCard do
   alias Ryker.Schedules
   alias Ryker.Slack
   alias Ryker.UTCDateTime
+  alias Ryker.Wording
 
   @doc "Only a lifecycle state that changes the card's meaning is shown."
   def display_status(%{status: status})
@@ -34,7 +35,7 @@ defmodule Ryker.Delivery.ChatCard do
     do: "Replaced by a newer one"
 
   def display_status(%{status: status}),
-    do: status |> to_string() |> String.replace("_", " ") |> String.capitalize()
+    do: Wording.label(status)
 
   @spec project(Records.Record.t()) :: {:ok, map()} | :ignore
   def project(%Records.Record{} = record) do

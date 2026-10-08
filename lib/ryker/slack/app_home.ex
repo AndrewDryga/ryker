@@ -12,6 +12,7 @@ defmodule Ryker.Slack.AppHome do
   can open Home for the complete list.
   """
   alias Ryker.Slack.{Collections, ControlValue, HomeEvent, Operators}
+  alias Ryker.Text
   alias Ryker.Wording
 
   @maximum_attention 8
@@ -664,7 +665,7 @@ defmodule Ryker.Slack.AppHome do
 
   defp label(value) when is_binary(value) do
     value
-    |> String.replace("_", " ")
+    |> Wording.words()
     |> bounded()
   end
 
@@ -679,11 +680,9 @@ defmodule Ryker.Slack.AppHome do
   defp bounded(_value), do: "Unknown"
 
   defp bounded_part(value, maximum) when is_binary(value) do
-    value = String.replace(value, ~r/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u, " ")
-
-    if String.length(value) > maximum,
-      do: String.slice(value, 0, maximum - 1) <> "…",
-      else: value
+    value
+    |> String.replace(~r/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u, " ")
+    |> Text.shorten(maximum)
   end
 
   defp bounded_part(_value, _maximum), do: "unknown"

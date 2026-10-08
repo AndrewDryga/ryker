@@ -4,6 +4,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Step do
   the trace shares: bounded text, human labels, durations and reference
   formatting. Chapters `import` this module; nothing here reads the database.
   """
+  alias Ryker.Text
 
   def step(id, band, at, attributes) do
     %{
@@ -62,14 +63,14 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Step do
         [%{label: label, value: DateTime.to_iso8601(value)}]
 
       {label, value} ->
-        [%{label: label, value: bounded(to_string(value), 1_024)}]
+        [%{label: label, value: Text.shorten(to_string(value), 1_024)}]
 
       {label, %DateTime{} = value, options} ->
         [%{label: label, value: DateTime.to_iso8601(value)} |> Map.merge(Map.new(options))]
 
       {label, value, options} ->
         [
-          %{label: label, value: bounded(to_string(value), 1_024)}
+          %{label: label, value: Text.shorten(to_string(value), 1_024)}
           |> Map.merge(Map.new(options))
         ]
     end)
@@ -77,18 +78,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Step do
   end
 
   def bounded_strings(values) when is_list(values) do
-    values |> Enum.filter(&is_binary/1) |> Enum.map(&bounded(&1, 512)) |> Enum.take(16)
+    values |> Enum.filter(&is_binary/1) |> Enum.map(&Text.shorten(&1, 512)) |> Enum.take(16)
   end
 
   def bounded_strings(_values), do: []
-
-  # In characters, as the cut is: counting bytes put an ellipsis on accented
-  # text that fitted (2026-10-04 review).
-  def bounded(value, maximum) do
-    if String.length(value) <= maximum,
-      do: value,
-      else: String.slice(value, 0, maximum) <> "…"
-  end
 
   def elapsed(%DateTime{} = left, %DateTime{} = right),
     do: format_ms(max(DateTime.diff(right, left, :millisecond), 0))
@@ -131,7 +124,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Step do
   def capitalize(value), do: String.capitalize(value)
 
   def present(nil), do: nil
-  def present(value), do: bounded(to_string(value), 2_000)
+  def present(value), do: Text.shorten(to_string(value), 2_000)
 
   def state_tone(state)
       when state in [:blocked, "blocked", :failed, "failed", :superseded, "superseded"], do: :bad
@@ -173,7 +166,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Step do
   def timestamp_precise(_value), do: "Not recorded"
 
   def error_label(nil), do: nil
-  def error_label(code), do: code |> human() |> capitalize() |> bounded(200)
+  def error_label(code), do: code |> human() |> capitalize() |> Text.shorten(200)
 
   def live_after?(%DateTime{} = at, now), do: DateTime.compare(at, now) == :gt
   def live_after?(_at, _now), do: false

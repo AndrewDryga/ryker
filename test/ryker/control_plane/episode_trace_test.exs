@@ -204,10 +204,10 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
   # ellipsis it did not need (2026-10-04 review).
   test "a timeline text bound counts characters, as its cut does" do
     fits = "é" <> String.duplicate("a", 99)
-    assert EpisodeTrace.Step.bounded(fits, 100) == fits
+    assert Ryker.Text.shorten(fits, 100) == fits
 
     long = String.duplicate("é", 101)
-    assert EpisodeTrace.Step.bounded(long, 100) == String.duplicate("é", 100) <> "…"
+    assert Ryker.Text.shorten(long, 100) == String.duplicate("é", 99) <> "…"
   end
 
   test "a discarded draft is not listed as outstanding" do

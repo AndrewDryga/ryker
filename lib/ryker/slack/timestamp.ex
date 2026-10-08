@@ -18,21 +18,22 @@ defmodule Ryker.Slack.Timestamp do
 
   @doc "The moment a Slack message timestamp names: `{:ok, datetime}`, or `:error`."
   @spec to_datetime(term()) :: {:ok, DateTime.t()} | :error
-  def to_datetime(value) when is_binary(value) do
-    case Regex.run(@pattern, value) do
-      [_whole, seconds, fraction] ->
-        microseconds =
-          String.to_integer(seconds) * 1_000_000 +
-            String.to_integer(String.pad_trailing(fraction, 6, "0"))
-
-        from_unix(microseconds)
-
-      nil ->
-        :error
-    end
+  def to_datetime(value) do
+    if valid?(value),
+      do: value |> microseconds() |> from_unix(),
+      else: :error
   end
 
-  def to_datetime(_value), do: :error
+  @doc """
+  The microseconds since 1970 a valid Slack message timestamp names, so two
+  of them compare as numbers in the order Slack posted them.
+  """
+  @spec microseconds(String.t()) :: non_neg_integer()
+  def microseconds(value) do
+    [seconds, fraction] = String.split(value, ".", parts: 2)
+    microseconds = fraction |> String.pad_trailing(6, "0") |> String.to_integer()
+    String.to_integer(seconds) * 1_000_000 + microseconds
+  end
 
   # Seconds past the year 9999 match the pattern and name no date.
   defp from_unix(microseconds) do

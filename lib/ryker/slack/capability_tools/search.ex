@@ -6,7 +6,7 @@ defmodule Ryker.Slack.CapabilityTools.Search do
   """
   alias Ryker.Delivery
   alias Ryker.Slack.CapabilityTools.{Arguments, Authority, Resources, SourceReader}
-  alias Ryker.Slack.{Id, SourceRef}
+  alias Ryker.Slack.{Id, SourceRef, Timestamp}
 
   @search_expansions 2
 
@@ -79,7 +79,7 @@ defmodule Ryker.Slack.CapabilityTools.Search do
       {before, after_messages} =
         Enum.split_with(
           messages,
-          &(Arguments.timestamp_value(&1["ts"]) < Arguments.timestamp_value(anchor["ts"]))
+          &(Timestamp.microseconds(&1["ts"]) < Timestamp.microseconds(anchor["ts"]))
         )
 
       coverage =
@@ -265,12 +265,12 @@ defmodule Ryker.Slack.CapabilityTools.Search do
         messages
         |> Enum.uniq_by(& &1["source_ref"])
         |> Enum.reject(&(&1["ts"] == anchor["message_ts"]))
-        |> Enum.sort_by(&Arguments.timestamp_value(&1["ts"]))
+        |> Enum.sort_by(&Timestamp.microseconds(&1["ts"]))
 
       {before_messages, after_messages} =
         Enum.split_while(
           originals,
-          &(Arguments.timestamp_value(&1["ts"]) < Arguments.timestamp_value(anchor["message_ts"]))
+          &(Timestamp.microseconds(&1["ts"]) < Timestamp.microseconds(anchor["message_ts"]))
         )
 
       selected = Enum.take(before_messages, -2) ++ Enum.take(after_messages, 2)

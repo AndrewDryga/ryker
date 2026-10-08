@@ -33,4 +33,13 @@ defmodule Ryker.GitObjectTest do
     refute GitObject.branch_ref?("refs/heads/fix retries")
     refute GitObject.branch_ref?(nil)
   end
+
+  # The workspace checkpoint and the repository source each held this part of
+  # git's rule until 2026-10-08.
+  test "a part of a ref name is not empty, starts with no dot and ends in no .lock" do
+    assert GitObject.ref_part?("feature")
+    refute GitObject.ref_part?("")
+    refute GitObject.ref_part?(".hidden")
+    refute GitObject.ref_part?("main.lock")
+  end
 end

@@ -603,7 +603,7 @@ defmodule Ryker.Episodes.Command do
   defp valid_decision_reason?(%AcceptResult{delivery: :reply, decision_reason: nil}), do: true
 
   defp valid_decision_reason?(%AcceptResult{delivery: :none, decision_reason: reason}),
-    do: bounded_unicode_text?(reason, 240, 960)
+    do: Reference.text?(reason, 240, 960)
 
   defp valid_decision_reason?(_command), do: false
 
@@ -653,9 +653,5 @@ defmodule Ryker.Episodes.Command do
   defp bounded_text?(value, maximum) do
     is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
       String.trim(value) != "" and byte_size(value) <= maximum
-  end
-
-  defp bounded_unicode_text?(value, maximum_characters, maximum_bytes) do
-    Reference.text?(value, maximum_characters) and byte_size(value) <= maximum_bytes
   end
 end

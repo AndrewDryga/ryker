@@ -56,6 +56,22 @@ defmodule Ryker.Wording do
   def capitalize(<<first::utf8, rest::binary>>), do: String.upcase(<<first::utf8>>) <> rest
   def capitalize(text) when is_binary(text), do: text
 
+  @doc """
+  `text` with its first letter lowered and the rest as written, to continue a
+  sentence with a label written to start one ("Title" in "(was title)").
+  """
+  @spec lowercase_first(String.t()) :: String.t()
+  def lowercase_first(<<first::utf8, rest::binary>>), do: String.downcase(<<first::utf8>>) <> rest
+  def lowercase_first(text) when is_binary(text), do: text
+
+  @doc ~s(A stored name as words: `:host_bug` and "host_bug" both read "host bug".)
+  @spec words(atom() | String.t()) :: String.t()
+  def words(name), do: name |> to_string() |> String.replace("_", " ")
+
+  @doc ~s(A stored name as a label: `:host_bug` and "host_bug" both read "Host bug".)
+  @spec label(atom() | String.t()) :: String.t()
+  def label(name), do: name |> words() |> String.capitalize()
+
   @doc "`text` as a sentence: a capital first letter and a full stop; empty text stays empty."
   @spec sentence(String.t()) :: String.t()
   def sentence(""), do: ""

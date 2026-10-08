@@ -20,7 +20,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   use Phoenix.Component
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Components, Kit, Paths, ShortTime, Units}
-  alias Ryker.{ConversationRef, Episodes, Schedules}
+  alias Ryker.{ConversationRef, Episodes, Schedules, UTCDateTime}
   alias Ryker.Slack
 
   @list_limit 100
@@ -507,7 +507,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
 
   defp clock(local), do: Calendar.strftime(local, "%H:%M")
 
-  defp exact(%DateTime{} = utc), do: ShortTime.full(utc)
+  defp exact(%DateTime{} = utc), do: UTCDateTime.readable(utc)
   defp exact(_value), do: nil
 
   defp segments(path, query, view) do
