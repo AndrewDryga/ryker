@@ -163,7 +163,7 @@ defmodule Ryker.Repo do
   def now do
     case query("SELECT clock_timestamp()") do
       {:ok, %{rows: [[%DateTime{} = now]]}} -> {:ok, now}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

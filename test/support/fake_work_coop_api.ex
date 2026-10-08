@@ -258,7 +258,7 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
       nil -> {:error, {:coop_error, 404, "not_found", "evidence export is unavailable"}}
       :raise -> raise "the evidence export blew up"
       :exit -> exit(:evidence_transport_died)
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       document when is_map(document) -> {:ok, document}
     end
   end

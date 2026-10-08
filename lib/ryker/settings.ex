@@ -111,8 +111,8 @@ defmodule Ryker.Settings do
       {:ok, snapshot} ->
         if moved?(snapshot.installation), do: read_locked(), else: {:ok, snapshot}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

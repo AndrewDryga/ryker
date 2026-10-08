@@ -31,7 +31,7 @@ defmodule Ryker.Evals.SessionCleanup do
       {:ok, {:executed, _execution}} -> drain_passes(options, left - 1)
       {:ok, {:deferred, reason}} -> {:error, {:session_cleanup_deferred, reason}}
       {:ok, {:blocked, reason}} -> {:error, {:session_cleanup_blocked, reason}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

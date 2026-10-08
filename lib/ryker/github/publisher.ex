@@ -66,7 +66,7 @@ defmodule Ryker.GitHub.Publisher do
       )
     else
       false -> {:error, {:invalid_github_delivery, :reaction_action}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -140,7 +140,7 @@ defmodule Ryker.GitHub.Publisher do
 
     case settle(result) do
       {:ok, message_id} -> {:ok, message_ref(thread, message_id)}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

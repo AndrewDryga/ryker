@@ -836,7 +836,7 @@ defmodule Ryker.Schedules do
       :ok
     else
       false -> {:error, :schedule_not_future}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

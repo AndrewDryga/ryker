@@ -91,7 +91,7 @@ defmodule Ryker.Delivery.Request do
          :ok <- CanonicalJSON.validate(request.document, max_bytes: @maximum_document_bytes) do
       validate_kind(request)
     else
-      {:error, {:invalid_delivery_request, _field}} = error -> error
+      {:error, {:invalid_delivery_request, field}} -> {:error, {:invalid_delivery_request, field}}
       {:error, _reason} -> {:error, {:invalid_delivery_request, :document}}
     end
   end
@@ -114,7 +114,7 @@ defmodule Ryker.Delivery.Request do
          true <- text?(emoji_name) do
       :ok
     else
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       false -> {:error, {:invalid_delivery_request, :emoji_name}}
     end
   end

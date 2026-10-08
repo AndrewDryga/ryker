@@ -518,8 +518,8 @@ defmodule Ryker.Coop.Client do
       {:ok, _document, _bytes} ->
         {:halt, {:error, {:invalid_coop_request, :artifacts}}}
 
-      {:error, _reason} = error ->
-        {:halt, error}
+      {:error, reason} ->
+        {:halt, {:error, reason}}
     end
   end
 

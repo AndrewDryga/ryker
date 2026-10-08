@@ -89,8 +89,8 @@ defmodule Ryker.StateTools.WorkStateTools do
            "violations" => [presentation_violation(reason)]
          }}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

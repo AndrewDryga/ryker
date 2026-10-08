@@ -51,7 +51,7 @@ defmodule Ryker.Slack.Publisher do
       else
         %{} -> {:error, {:slack_mention_authority_not_configured, :delivery}}
         [_first | _rest] -> {:error, {:invalid_slack_mentions, :unauthorized}}
-        {:error, _reason} = error -> error
+        {:error, reason} -> {:error, reason}
         _invalid -> {:error, {:slack_mention_authority_not_configured, :delivery}}
       end
     else

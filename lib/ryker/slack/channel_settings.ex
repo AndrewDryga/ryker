@@ -194,7 +194,7 @@ defmodule Ryker.Slack.ChannelSettings do
   defp default_participation(default, _workspace_ref) do
     case participation(default, :default_participation) do
       :ok -> {:ok, default}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

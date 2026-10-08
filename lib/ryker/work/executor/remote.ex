@@ -171,8 +171,8 @@ defmodule Ryker.Work.Executor.Remote do
         :not_found ->
           {:error, {:coop_protocol_error, :operation_disappeared}}
 
-        {:error, _reason} = error ->
-          error
+        {:error, reason} ->
+          {:error, reason}
       end
     end
   end
@@ -253,7 +253,7 @@ defmodule Ryker.Work.Executor.Remote do
       :ok
     else
       false -> {:error, {:coop_protocol_error, :session_authority}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -360,7 +360,7 @@ defmodule Ryker.Work.Executor.Remote do
 
     case renewal do
       :ok -> result
-      {:error, _reason} = lost -> lost
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -370,7 +370,7 @@ defmodule Ryker.Work.Executor.Remote do
     after
       settings.heartbeat_interval_ms ->
         case renew_lease(settings) do
-          {:error, _reason} = lost -> lost
+          {:error, reason} -> {:error, reason}
           _renewed_or_unreachable -> keep_lease(settings)
         end
     end
@@ -411,8 +411,8 @@ defmodule Ryker.Work.Executor.Remote do
           Process.put(settings.heartbeat_key, now)
           :ok
 
-        {:error, _reason} = error ->
-          error
+        {:error, reason} ->
+          {:error, reason}
       end
     else
       :ok

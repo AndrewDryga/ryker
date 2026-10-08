@@ -71,7 +71,7 @@ defmodule Ryker.WeeklyReport.Schedule do
       {:ok, at} -> {:ok, utc(at)}
       {:ambiguous, first, _second} -> {:ok, utc(first)}
       {:gap, _before, just_after} -> {:ok, utc(just_after)}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

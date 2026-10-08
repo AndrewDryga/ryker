@@ -384,7 +384,7 @@ defmodule Mix.Tasks.Ryker.Eval do
     end)
     |> case do
       {:ok, reports} -> {:ok, Enum.sort_by(reports, &{&1.scenario_id, &1.repeat_index, &1.lane})}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -588,8 +588,8 @@ defmodule Mix.Tasks.Ryker.Eval do
              {:ok, sourced} <- Job.with_source(policy, source),
              do: {:ok, sourced, capture["repository"]}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -724,7 +724,7 @@ defmodule Mix.Tasks.Ryker.Eval do
     else
       %{shard: nil} -> {:error, :world_needs_a_shard}
       {:ok, _parsed, _positional} -> {:error, :invalid_arguments}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

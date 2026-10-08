@@ -47,8 +47,8 @@ defmodule Ryker.Publication.Followups.Signals do
       :unmatched ->
         {:ok, :unmatched}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

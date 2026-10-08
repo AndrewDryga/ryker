@@ -256,7 +256,7 @@ defmodule Ryker.Work.Custody.Locks do
       when is_binary(candidate_sha256) and is_integer(candidate_attempt) do
     case sha256(candidate_sha256, :expected_candidate_sha256) do
       :ok -> positive_integer(candidate_attempt, :expected_candidate_attempt)
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

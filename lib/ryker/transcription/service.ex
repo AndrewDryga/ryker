@@ -92,12 +92,12 @@ defmodule Ryker.Transcription.Service do
            {:ok, text} <- write(settings, part, language, deadline) do
         {:cont, {:ok, [text | texts]}}
       else
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> case do
       {:ok, texts} -> {:ok, Enum.reverse(texts)}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -109,8 +109,8 @@ defmodule Ryker.Transcription.Service do
       {:ok, _answer} ->
         {:error, {:service, "answered without language probabilities"}}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -118,7 +118,7 @@ defmodule Ryker.Transcription.Service do
     case post(settings, settings.url, path, language, deadline) do
       {:ok, %{"text" => text}} when is_binary(text) -> {:ok, text}
       {:ok, _answer} -> {:error, {:service, "answered without words"}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

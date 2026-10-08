@@ -24,7 +24,7 @@ defmodule Ryker.Slack.Client.Rooms do
       create_conversation(client, workspace_ref, name, private, creator_ref, requested_at)
     else
       false -> {:error, {:invalid_slack_api_request, :private}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -70,7 +70,7 @@ defmodule Ryker.Slack.Client.Rooms do
       case Transport.request(client, :post, "/pins.add", document) do
         {:ok, %{body: %{"error" => "already_pinned", "ok" => false}, status: 200}} -> :ok
         {:ok, response} -> response |> Transport.response() |> Transport.success()
-        {:error, _reason} = error -> error
+        {:error, reason} -> {:error, reason}
       end
     end
   end
@@ -116,7 +116,7 @@ defmodule Ryker.Slack.Client.Rooms do
     case find_conversation(client, name, private, creator_ref, requested_at) do
       {:ok, channel_ref} -> {:ok, channel_ref}
       :not_found -> {:error, {:slack_reconciliation_pending, :conversation}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -188,7 +188,7 @@ defmodule Ryker.Slack.Client.Rooms do
 
     case invitation_response(Transport.request(client, :post, "/conversations.invite", document)) do
       :ok -> {:cont, :ok}
-      {:error, _reason} = error -> {:halt, error}
+      {:error, reason} -> {:halt, {:error, reason}}
     end
   end
 

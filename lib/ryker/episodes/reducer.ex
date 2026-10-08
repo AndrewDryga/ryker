@@ -203,8 +203,8 @@ defmodule Ryker.Episodes.Reducer do
         |> advance_after_delivery(command)
         |> append(command, :delivery_confirmed)
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

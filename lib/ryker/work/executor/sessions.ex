@@ -52,8 +52,8 @@ defmodule Ryker.Work.Executor.Sessions do
       {:error, {:coop_error, 404, "session_not_found", _detail}} ->
         replace_lost_session(claim, settings)
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -74,7 +74,7 @@ defmodule Ryker.Work.Executor.Sessions do
         case Remote.operation_by_key(settings, key) do
           :not_found -> create_session(claim, key, settings)
           {:ok, operation} -> bind_session_from_operation(claim, operation, key, settings)
-          {:error, _reason} = error -> error
+          {:error, reason} -> {:error, reason}
         end
       end
 
@@ -266,7 +266,7 @@ defmodule Ryker.Work.Executor.Sessions do
                key
              ) do
           {:ok, _turn} -> error
-          {:error, _reason} = release_error -> release_error
+          {:error, reason} -> {:error, reason}
         end
 
       {:error, _unresolved} ->
@@ -309,8 +309,8 @@ defmodule Ryker.Work.Executor.Sessions do
       {:uncertain, reason} ->
         {:error, {:work_execution_blocked, reason}}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

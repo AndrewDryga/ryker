@@ -152,7 +152,7 @@ defmodule Ryker.Acceptance.Live do
        }}
     else
       false -> {:error, {:invalid_live_acceptance, :timeout_ms}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -201,7 +201,7 @@ defmodule Ryker.Acceptance.Live do
   defp first_operator([operator_ref | _rest]) do
     case reference(operator_ref, :operator_ref) do
       :ok -> {:ok, operator_ref}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -390,8 +390,8 @@ defmodule Ryker.Acceptance.Live do
           {:error, {:live_acceptance_timeout, event_ref}}
         end
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
 
       other ->
         {:error, {:live_acceptance_observation_invalid, other}}

@@ -34,7 +34,7 @@ defmodule Ryker.Slack.AppHomeControls do
       {:ok, false} -> {:ok, %{outcome: :denied}}
       {:error, :operator_required} -> {:ok, %{outcome: :denied}}
       {:error, :app_home_resource_not_visible} -> {:ok, %{outcome: :denied}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -43,7 +43,7 @@ defmodule Ryker.Slack.AppHomeControls do
       callback when is_function(callback, 1) ->
         case callback.(interaction) do
           :ok -> :ok
-          {:error, _reason} = error -> error
+          {:error, reason} -> {:error, reason}
           _invalid -> {:error, {:invalid_app_home_control, :authorize_resource}}
         end
 
@@ -58,7 +58,7 @@ defmodule Ryker.Slack.AppHomeControls do
          true <- function_exported?(directory, :user_allowed, 3) do
       case directory.user_allowed(client, interaction.actor_ref, interaction.workspace_ref) do
         {:ok, allowed} when is_boolean(allowed) -> {:ok, allowed}
-        {:error, _reason} = error -> error
+        {:error, reason} -> {:error, reason}
         _invalid -> {:error, {:invalid_app_home_control, :directory}}
       end
     else
@@ -366,8 +366,8 @@ defmodule Ryker.Slack.AppHomeControls do
                ] ->
             {:ok, :invalid}
 
-          {:error, _reason} = error ->
-            error
+          {:error, reason} ->
+            {:error, reason}
 
           _invalid ->
             {:error, {:invalid_app_home_control, :open_memory_review_editor}}
@@ -386,7 +386,7 @@ defmodule Ryker.Slack.AppHomeControls do
       callback when is_function(callback, 3) ->
         case callback.(home_event(interaction), kind, offset) do
           {:ok, _published} -> {:ok, :listed}
-          {:error, _reason} = error -> error
+          {:error, reason} -> {:error, reason}
           _invalid -> {:error, {:invalid_app_home_control, :show_collection}}
         end
 
@@ -411,8 +411,8 @@ defmodule Ryker.Slack.AppHomeControls do
                ] ->
             {:ok, :invalid}
 
-          {:error, _reason} = error ->
-            error
+          {:error, reason} ->
+            {:error, reason}
 
           _invalid ->
             {:error, {:invalid_app_home_control, :forget_memory}}
@@ -594,7 +594,7 @@ defmodule Ryker.Slack.AppHomeControls do
   defp refresh_if_needed(interaction, _outcome, options) do
     case refresh(interaction, options) do
       {:ok, _refresh} -> :ok
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:invalid_app_home_control, :refresh_home}}
     end
   end

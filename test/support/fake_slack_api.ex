@@ -134,7 +134,7 @@ defmodule Ryker.TestSupport.FakeSlackAPI do
         |> Map.update!(:posts, &(&1 ++ [post]))
         |> answer(:post_message, {:ok, message_ref})
       else
-        {:error, _reason} = error -> {error, state}
+        {:error, reason} -> {{:error, reason}, state}
       end
     end)
   end
@@ -155,8 +155,8 @@ defmodule Ryker.TestSupport.FakeSlackAPI do
 
           {:ok, Map.update!(state, :updates, &(&1 ++ [update]))}
 
-        {:error, _reason} = error ->
-          {error, state}
+        {:error, reason} ->
+          {{:error, reason}, state}
       end
     end)
   end
@@ -205,8 +205,8 @@ defmodule Ryker.TestSupport.FakeSlackAPI do
 
           answer(state, :upload_files, upload_answer(state, message_ref, files))
 
-        {:error, _reason} = error ->
-          {error, state}
+        {:error, reason} ->
+          {{:error, reason}, state}
       end
     end)
   end

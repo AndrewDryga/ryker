@@ -247,7 +247,7 @@ defmodule Ryker.Slack.CapabilityTools.SourceReader do
     end)
     |> case do
       {:ok, decorated} -> {:ok, Enum.reverse(decorated)}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

@@ -47,7 +47,7 @@ defmodule Ryker.Slack.Client do
       {:ok, client}
     else
       false -> {:error, {:invalid_slack_client, :requester}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -206,7 +206,7 @@ defmodule Ryker.Slack.Client do
            receive_timeout: @upload_receive_timeout_ms
          ) do
       {:ok, upload_http} -> {:ok, %{client | upload_http: upload_http, uploader: UploadClient}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

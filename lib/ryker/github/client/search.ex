@@ -71,12 +71,12 @@ defmodule Ryker.GitHub.Client.Search do
     |> Enum.reduce_while({:ok, []}, fn item, {:ok, prepared} ->
       case search_item(item, request) do
         {:ok, result} -> {:cont, {:ok, [result | prepared]}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> case do
       {:ok, prepared} -> {:ok, Enum.reverse(prepared), total}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

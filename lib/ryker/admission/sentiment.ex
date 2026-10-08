@@ -18,6 +18,7 @@ defmodule Ryker.Admission.Sentiment do
   never does either: it keeps a feeling it knows and a reason that is plain
   text short enough, and leaves out the rest without a word.
   """
+  alias Ryker.Reference
 
   @feelings %{
     "satisfied" => :satisfied,
@@ -90,10 +91,7 @@ defmodule Ryker.Admission.Sentiment do
   end
 
   defp reason(value) when is_binary(value) do
-    if String.valid?(value) and not String.contains?(value, <<0>>) and String.trim(value) != "" and
-         String.length(value) <= @maximum_reason,
-       do: value,
-       else: nil
+    if Reference.text?(value, @maximum_reason), do: value, else: nil
   end
 
   defp reason(_value), do: nil

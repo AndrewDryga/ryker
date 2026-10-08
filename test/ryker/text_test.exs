@@ -26,4 +26,12 @@ defmodule Ryker.TextTest do
     assert Text.characters("ab" <> family, 8) == "ab"
     assert Text.characters("ab" <> family, 9) == "ab" <> family
   end
+
+  test "a length counts what JSON Schema and PostgreSQL count, not what a reader sees" do
+    assert Text.char_length("") == 0
+    assert Text.char_length("abc") == 3
+    assert Text.char_length("🇺🇦") == 2
+    assert Text.char_length("e\u0301") == 2
+    assert Text.char_length("👨‍👩‍👧‍👦") == 7
+  end
 end

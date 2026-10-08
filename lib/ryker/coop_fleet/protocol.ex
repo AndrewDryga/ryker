@@ -218,7 +218,7 @@ defmodule Ryker.CoopFleet.Protocol do
     Enum.reduce_while(fields, :ok, fn {name, field}, :ok ->
       case bytes(document[name], field) do
         :ok -> {:cont, :ok}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
@@ -433,12 +433,12 @@ defmodule Ryker.CoopFleet.Protocol do
     Enum.reduce_while(values, {:ok, []}, fn value, {:ok, prepared} ->
       case prepare.(value) do
         {:ok, item} -> {:cont, {:ok, [item | prepared]}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> case do
       {:ok, prepared} -> {:ok, Enum.reverse(prepared)}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -451,7 +451,7 @@ defmodule Ryker.CoopFleet.Protocol do
       {:ok, prepared}
     else
       false -> {:error, {:invalid_coop_worker_poll, field}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -461,7 +461,7 @@ defmodule Ryker.CoopFleet.Protocol do
       {:ok, prepared}
     else
       false -> {:error, {:invalid_coop_worker_poll, field}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -471,7 +471,7 @@ defmodule Ryker.CoopFleet.Protocol do
       {:ok, prepared}
     else
       false -> {:error, {:invalid_coop_worker_response, field}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

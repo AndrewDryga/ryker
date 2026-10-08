@@ -67,8 +67,11 @@ defmodule Ryker.CoopFleet.Client do
            |> Enum.to_list()
        }}
     else
-      false -> {:error, {:invalid_coop_fleet_client, :options}}
-      {:error, {:invalid_coop_fleet_client, :options}} = error -> error
+      false ->
+        {:error, {:invalid_coop_fleet_client, :options}}
+
+      {:error, {:invalid_coop_fleet_client, :options}} ->
+        {:error, {:invalid_coop_fleet_client, :options}}
     end
   end
 
@@ -153,7 +156,7 @@ defmodule Ryker.CoopFleet.Client do
         key
       )
     else
-      {:error, _} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:coop_protocol_error, :create_session_response}}
     end
   end
@@ -183,7 +186,7 @@ defmodule Ryker.CoopFleet.Client do
            ) do
       Checkpoints.capture(session.id, key, response, client.bridge_options)
     else
-      {:error, _} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:coop_workspace_checkpoint_unavailable, coop_session_id}}
     end
   end
@@ -528,7 +531,7 @@ defmodule Ryker.CoopFleet.Client do
          {:ok, response} <- publication_command_response(client, command) do
       publication_result(client, command, coop_session_id, response)
     else
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _unproven -> {:error, {:coop_protocol_error, :publication_owner}}
     end
   end
@@ -577,8 +580,8 @@ defmodule Ryker.CoopFleet.Client do
         {:error,
          {:coop_session_replacement_required, owner.session_id, owner.placement_generation}}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -699,7 +702,7 @@ defmodule Ryker.CoopFleet.Client do
       publication_operation(client, placement, command, session_id, operation)
     else
       nil -> {:error, {:coop_session_not_found, command.session_id}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -971,7 +974,7 @@ defmodule Ryker.CoopFleet.Client do
           {:ok, operation}
         else
           nil -> {:error, {:coop_session_not_found, command.session_id}}
-          {:error, _reason} = error -> error
+          {:error, reason} -> {:error, reason}
         end
     end
   end
@@ -1007,7 +1010,7 @@ defmodule Ryker.CoopFleet.Client do
     else
       false -> {:error, {:coop_protocol_error, :output_artifact_transfer}}
       {:ok, _invalid} -> {:error, {:coop_protocol_error, :output_artifact_transfer}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -1205,7 +1208,7 @@ defmodule Ryker.CoopFleet.Client do
           operation_result(result)
         else
           nil -> {:error, {:coop_session_not_found, command.session_id}}
-          {:error, _reason} = error -> error
+          {:error, reason} -> {:error, reason}
         end
     end
   end

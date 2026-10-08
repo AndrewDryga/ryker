@@ -49,8 +49,8 @@ defmodule Ryker.Observability.Progress do
           Process.put(key, now)
           :ok
 
-        {:error, _reason} = error ->
-          error
+        {:error, reason} ->
+          {:error, reason}
       end
     else
       :ok

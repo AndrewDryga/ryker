@@ -1360,7 +1360,7 @@ defmodule Ryker.Publication.Custody do
 
         case live_lease(publication, lease_ref, now) do
           :ok -> {:ok, publication, now}
-          {:error, _reason} = error -> error
+          {:error, reason} -> {:error, reason}
         end
     end
   end

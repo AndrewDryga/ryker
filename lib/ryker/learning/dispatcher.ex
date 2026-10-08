@@ -76,8 +76,8 @@ defmodule Ryker.Learning.Dispatcher do
          {:ok, run} <- Batches.begin_execution(claim, run.id) do
       execute(claim, run, settings)
     else
-      {:error, :learning_lease_lost} = error ->
-        error
+      {:error, :learning_lease_lost} ->
+        {:error, :learning_lease_lost}
 
       {:error, :learning_source_stale} ->
         unavailable_sources(claim, settings)
@@ -103,8 +103,8 @@ defmodule Ryker.Learning.Dispatcher do
       {:error, :learning_capacity_exceeded} ->
         Batches.finish(claim, :deferred, "learning_capacity_exceeded")
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -133,8 +133,8 @@ defmodule Ryker.Learning.Dispatcher do
       {:ok, :stopped} ->
         stopped(claim, Batches.fetch_latest(claim.batch.id), settings)
 
-      {:error, :learning_lease_lost} = error ->
-        error
+      {:error, :learning_lease_lost} ->
+        {:error, :learning_lease_lost}
 
       {:error, reason} ->
         failed(claim, Batches.fetch_outstanding(claim.batch.id), reason, settings)
@@ -186,8 +186,8 @@ defmodule Ryker.Learning.Dispatcher do
           settings.step_delay_seconds
         )
 
-      {:error, :learning_lease_lost} = error ->
-        error
+      {:error, :learning_lease_lost} ->
+        {:error, :learning_lease_lost}
 
       _ ->
         expire_or_wait(claim, run, settings)
@@ -206,8 +206,8 @@ defmodule Ryker.Learning.Dispatcher do
       {:ok, :stopped} ->
         Batches.release(claim, :learning_attempt_expired, settings.step_delay_seconds)
 
-      {:error, :learning_lease_lost} = error ->
-        error
+      {:error, :learning_lease_lost} ->
+        {:error, :learning_lease_lost}
 
       _ ->
         Batches.release(claim, :learning_remote_unresolved, 0)

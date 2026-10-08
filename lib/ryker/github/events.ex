@@ -90,7 +90,7 @@ defmodule Ryker.GitHub.Events do
     )
     |> case do
       {:ok, _cursor} -> :ok
-      {:error, _changeset} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

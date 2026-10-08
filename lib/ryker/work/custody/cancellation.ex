@@ -823,7 +823,7 @@ defmodule Ryker.Work.Custody.Cancellation do
     end
     |> case do
       :ok -> exact_reference(receipt["remote_session_id"], session.coop_session_id)
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -884,7 +884,7 @@ defmodule Ryker.Work.Custody.Cancellation do
            Sessions.session_authority(session)
          ) do
       {:ok, _session} -> :ok
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -893,7 +893,7 @@ defmodule Ryker.Work.Custody.Cancellation do
   defp settle_episode_after_cancellation(command, _episode, turn) do
     case Episodes.apply_batch_in_transaction([command], settled_work_turn_id: turn.id) do
       {:ok, [transition]} -> {:ok, transition.episode}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

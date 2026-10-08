@@ -68,7 +68,7 @@ defmodule Ryker.Work.Executor do
         Turns.finalize_completed(claim, remote_turn, proof, settings)
       else
         {:ok, _changed_proof} -> {:error, {:coop_protocol_error, :completion_receipt_changed}}
-        {:error, _reason} = error -> error
+        {:error, reason} -> {:error, reason}
       end
 
     Turns.completion_result(result, proof)
@@ -121,8 +121,8 @@ defmodule Ryker.Work.Executor do
           authorize_or_rebuild(claim, remote_session, settings, true)
         end
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

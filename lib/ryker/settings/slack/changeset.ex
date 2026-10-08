@@ -25,7 +25,7 @@ defmodule Ryker.Settings.Slack.Changeset do
     # cannot derive. It is an origin, never a path, so a card can build a link
     # from it without ever trusting a stored URL shape.
     |> validate_format(:workspace_url, ~r/\Ahttps:\/\/[a-z0-9-]{1,64}\.slack\.com\/?\z/)
-    |> validate_length(:workspace_url, max: 256)
+    |> validate_length(:workspace_url, max: 256, count: :codepoints)
     # Both names are varchar(255) columns, which count code points.
     |> validate_length(:workspace_name, min: 1, max: 255, count: :codepoints)
     |> validate_format(:bot_ref, Validation.slack_id_pattern())

@@ -40,8 +40,8 @@ defmodule Ryker.Slack.SourceAudits do
       {:error, %Ecto.Changeset{} = changeset} ->
         {:error, {:slack_source_audit_persistence_failed, changeset.errors}}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

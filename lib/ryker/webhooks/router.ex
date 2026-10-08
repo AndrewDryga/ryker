@@ -104,7 +104,7 @@ defmodule Ryker.Webhooks.Router do
     else
       nil -> {:error, :event_id}
       "" -> {:error, :event_id}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

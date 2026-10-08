@@ -120,7 +120,7 @@ defmodule Ryker.Artifacts do
        end)}
     else
       false -> {:error, :input_artifact_bound_exceeded}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

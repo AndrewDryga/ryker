@@ -25,7 +25,7 @@ defmodule Ryker.Slack.FileClient do
       {:ok, client}
     else
       false -> {:error, {:invalid_slack_file_client, :requester}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

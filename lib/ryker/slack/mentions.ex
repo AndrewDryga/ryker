@@ -162,7 +162,7 @@ defmodule Ryker.Slack.Mentions do
       {:ok, rendered}
     else
       [_first | _rest] -> {:error, {:invalid_slack_mentions, :unauthorized}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -220,8 +220,8 @@ defmodule Ryker.Slack.Mentions do
           {:ok, native} ->
             {:cont, {:ok, [rendered, escape(before), native], start + length}}
 
-          {:error, _reason} = error ->
-            {:halt, error}
+          {:error, reason} ->
+            {:halt, {:error, reason}}
         end
     end)
     |> case do
@@ -229,8 +229,8 @@ defmodule Ryker.Slack.Mentions do
         tail = binary_part(message, cursor, byte_size(message) - cursor)
         {:ok, IO.iodata_to_binary([rendered, escape(tail)])}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

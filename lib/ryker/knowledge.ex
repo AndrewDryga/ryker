@@ -200,7 +200,7 @@ defmodule Ryker.Knowledge do
          {:ok, _, _, _} = result <- source_update(entries, proposal, [], context) do
       result
     else
-      {:error, :knowledge_anchor_not_sourced} = error -> error
+      {:error, :knowledge_anchor_not_sourced} -> {:error, :knowledge_anchor_not_sourced}
       _ -> {:error, :learning_source_stale}
     end
   end
@@ -239,7 +239,7 @@ defmodule Ryker.Knowledge do
            latest_source_at: source.occurred_at
        }}
     else
-      {:error, :knowledge_capacity_exceeded} = error -> error
+      {:error, :knowledge_capacity_exceeded} -> {:error, :knowledge_capacity_exceeded}
       _ -> {:error, :knowledge_rebuild_conflict}
     end
   end
@@ -271,7 +271,7 @@ defmodule Ryker.Knowledge do
          :ok <- still_current(entry, entry.repository_ref, offered) do
       {:ok, scope, source, proposal}
     else
-      {:error, :knowledge_anchor_not_sourced} = error -> error
+      {:error, :knowledge_anchor_not_sourced} -> {:error, :knowledge_anchor_not_sourced}
       _ -> @stale
     end
   end

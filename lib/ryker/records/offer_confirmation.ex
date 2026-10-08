@@ -82,7 +82,7 @@ defmodule Ryker.Records.OfferConfirmation do
       {:ok, target}
     else
       false -> {:error, :target}
-      {:error, _field} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

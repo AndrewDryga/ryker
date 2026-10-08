@@ -34,7 +34,7 @@ defmodule Ryker.Operator.Publication do
         fn -> recover_publication(publication_ref, action, expected_generation) end
       )
     else
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:invalid_publication_recovery, :arguments}}
     end
   end

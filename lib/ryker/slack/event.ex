@@ -69,9 +69,9 @@ defmodule Ryker.Slack.Event do
        }}
     else
       :ignore -> :ignore
-      {:error, {:invalid_slack_event, _field}} = error -> error
-      {:error, {:invalid_input, _field}} = error -> error
-      {:error, {:invalid_input, _field, _reason}} = error -> error
+      {:error, {:invalid_slack_event, field}} -> {:error, {:invalid_slack_event, field}}
+      {:error, {:invalid_input, field}} -> {:error, {:invalid_input, field}}
+      {:error, {:invalid_input, field, reason}} -> {:error, {:invalid_input, field, reason}}
       {:error, _reason} -> {:error, {:invalid_slack_event, :input}}
     end
   end

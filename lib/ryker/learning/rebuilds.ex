@@ -394,7 +394,7 @@ defmodule Ryker.Learning.Rebuilds do
 
   defp settings_or_rollback! do
     case Runtime.configured_options() do
-      {:ok, _} = result -> result
+      {:ok, value} -> {:ok, value}
       {:error, reason} -> Repo.rollback(reason)
     end
   end

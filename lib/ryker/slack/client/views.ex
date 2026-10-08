@@ -21,7 +21,7 @@ defmodule Ryker.Slack.Client.Views do
          %{"view" => %{"type" => "home"}} <- body do
       :ok
     else
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:slack_protocol_error, :home_view}}
     end
   end
@@ -38,7 +38,7 @@ defmodule Ryker.Slack.Client.Views do
          %{"view" => %{"type" => "modal"}} <- body do
       :ok
     else
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:slack_protocol_error, :modal_view}}
     end
   end

@@ -31,7 +31,7 @@ defmodule Ryker.TestSupport.WorldHostReplay do
     else
       [] -> {:error, {:invalid_world_host_replay, :model_events}}
       false -> {:error, {:invalid_world_host_replay, :model_events}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:invalid_world_host_replay, :model_events}}
     end
   end
@@ -96,8 +96,8 @@ defmodule Ryker.TestSupport.WorldHostReplay do
               metadata: prepared.metadata ++ [metadata]
             }}}
 
-        {:error, _reason} = error ->
-          {:halt, error}
+        {:error, reason} ->
+          {:halt, {:error, reason}}
       end
     end)
   end
@@ -124,7 +124,7 @@ defmodule Ryker.TestSupport.WorldHostReplay do
     |> Enum.reduce_while({:ok, []}, fn call, {:ok, outputs} ->
       case execute_call(call, claim, cassette) do
         {:ok, output} -> {:cont, {:ok, outputs ++ [output]}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
@@ -189,7 +189,7 @@ defmodule Ryker.TestSupport.WorldHostReplay do
     |> Enum.reduce_while({:ok, []}, fn candidate, {:ok, rendered} ->
       case render_candidate(candidate, outputs) do
         {:ok, bytes} -> {:cont, {:ok, rendered ++ [bytes]}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
@@ -216,7 +216,7 @@ defmodule Ryker.TestSupport.WorldHostReplay do
     |> Enum.reduce_while({:ok, %{}}, fn {key, nested}, {:ok, rendered} ->
       case render(nested, outputs) do
         {:ok, result} -> {:cont, {:ok, Map.put(rendered, key, result)}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
@@ -226,7 +226,7 @@ defmodule Ryker.TestSupport.WorldHostReplay do
     |> Enum.reduce_while({:ok, []}, fn nested, {:ok, rendered} ->
       case render(nested, outputs) do
         {:ok, result} -> {:cont, {:ok, rendered ++ [result]}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
@@ -270,7 +270,7 @@ defmodule Ryker.TestSupport.WorldHostReplay do
   defp preflight_result(1, validate) do
     case validate.() do
       :ok -> {:ok, :ok}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

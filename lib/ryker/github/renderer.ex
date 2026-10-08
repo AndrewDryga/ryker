@@ -82,7 +82,7 @@ defmodule Ryker.GitHub.Renderer do
       case render_record(record) do
         {:ok, ""} -> {:cont, {:ok, rendered}}
         {:ok, section} -> {:cont, {:ok, rendered ++ [section]}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end

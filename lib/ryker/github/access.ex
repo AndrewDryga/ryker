@@ -139,7 +139,7 @@ defmodule Ryker.GitHub.Access do
              ) do
           {:ok, %{failed: []}} -> :ok
           {:ok, _partial} -> {:error, :github_repository_auto_import_failed}
-          {:error, _reason} = error -> error
+          {:error, reason} -> {:error, reason}
         end
     end
   end
@@ -209,7 +209,7 @@ defmodule Ryker.GitHub.Access do
     Enum.reduce_while(bindings, {:ok, snapshot}, fn binding, {:ok, snapshot} ->
       case update.(binding, snapshot) do
         {:ok, snapshot} -> {:cont, {:ok, snapshot}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end

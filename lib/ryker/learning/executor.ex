@@ -17,8 +17,8 @@ defmodule Ryker.Learning.Executor do
             do: stop(claim, run, :learning_execution_timeout, settings),
             else: execute(claim, run, settings)
 
-        {:error, :learning_lease_lost} = error ->
-          error
+        {:error, :learning_lease_lost} ->
+          {:error, :learning_lease_lost}
 
         {:error, reason} ->
           stop(claim, run, reason, settings)
@@ -49,10 +49,10 @@ defmodule Ryker.Learning.Executor do
              {:ok, %{} = turn} <- remote_turn(claim, run, session, settings, :submit),
              do: process_turn(claim, run, session, turn, settings)
 
-      {:error, reason} = error ->
+      {:error, reason} ->
         if unaddressable?(run, reason),
           do: stop(claim, run, :learning_session_unconfirmed, settings),
-          else: error
+          else: {:error, reason}
 
       other ->
         other
@@ -100,7 +100,7 @@ defmodule Ryker.Learning.Executor do
          :ok <- JobAuthority.exact_cleanup_receipt(saved, remote) do
       {:ok, remote}
     else
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _unproven -> {:error, :learning_remote_unresolved}
     end
   end
@@ -371,9 +371,9 @@ defmodule Ryker.Learning.Executor do
         {:ok, applied} ->
           {:ok, {:applied, applied}}
 
-        {:error, reason} = error ->
+        {:error, reason} ->
           Learning.end_attempt(run.id, reason, claim)
-          error
+          {:error, reason}
       end
     end
   end
@@ -409,7 +409,7 @@ defmodule Ryker.Learning.Executor do
       {:error, :learning_session_never_created} ->
         run.id |> Learning.record_uncreated_stop(claim) |> stopped()
 
-      {:error, reason} = error ->
+      {:error, reason} ->
         # An unreachable worker proves nothing and keeps reconciling; a session
         # that can never be addressed again leaves only the local proof.
         if unaddressable?(run, reason) do
@@ -417,7 +417,7 @@ defmodule Ryker.Learning.Executor do
           |> Learning.record_unaddressable_stop(unaddressable_code(reason), claim)
           |> stopped()
         else
-          error
+          {:error, reason}
         end
 
       other ->

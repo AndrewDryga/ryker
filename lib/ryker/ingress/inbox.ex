@@ -49,7 +49,7 @@ defmodule Ryker.Ingress.Inbox do
   def record(input, options \\ []) do
     case record_many([input], options) do
       {:ok, [receipt]} -> {:ok, receipt}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -811,7 +811,7 @@ defmodule Ryker.Ingress.Inbox do
     |> Enum.reduce_while(:ok, fn key, :ok ->
       case lock(key) do
         :ok -> {:cont, :ok}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
@@ -954,12 +954,12 @@ defmodule Ryker.Ingress.Inbox do
     |> Enum.reduce_while({:ok, []}, fn input, {:ok, prepared} ->
       case Input.prepare(input) do
         {:ok, input} -> {:cont, {:ok, [input | prepared]}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> case do
       {:ok, prepared} -> {:ok, Enum.reverse(prepared)}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -1035,7 +1035,7 @@ defmodule Ryker.Ingress.Inbox do
          }}
       else
         false -> {:error, {:invalid_ingress_execution, :record_options}}
-        {:error, _reason} = error -> error
+        {:error, reason} -> {:error, reason}
       end
     else
       {:error, {:invalid_ingress_execution, :record_options}}

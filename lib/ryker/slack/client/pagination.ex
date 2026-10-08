@@ -48,8 +48,8 @@ defmodule Ryker.Slack.Client.Pagination do
         :not_found ->
           incomplete(page_size)
 
-        {:error, _reason} = error ->
-          error
+        {:error, reason} ->
+          {:error, reason}
       end
     end
   end

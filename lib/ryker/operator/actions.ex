@@ -123,7 +123,7 @@ defmodule Ryker.Operator.Actions do
          :ok <- document(attributes.request, :request) do
       {:ok, attributes}
     else
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:invalid_operator_action, :attributes}}
     end
   end

@@ -173,7 +173,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
     Enum.reduce_while(channels, {:ok, []}, fn channel, {:ok, results} ->
       case reconcile_joined_channel(workspace_ref, channel, catalog) do
         {:ok, result} -> {:cont, {:ok, [result | results]}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> reverse_results()
@@ -1440,7 +1440,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
       {:ok, %{default_environment: default, environments: environments}}
     else
       false -> {:error, {:invalid_channel_configuration, :catalog}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

@@ -46,8 +46,8 @@ defmodule Ryker.Settings.WebhookSource.Changeset do
     # an atom.
     # credo:disable-for-next-line Ryker.Checks.EnumOverValidateInclusion
     |> validate_inclusion(:destination_transport, ~w(slack github control_plane))
-    |> validate_length(:destination_conversation_ref, min: 1, max: 1_024)
-    |> validate_length(:destination_thread_ref, min: 1, max: 1_024)
+    |> validate_length(:destination_conversation_ref, min: 1, max: 1_024, count: :codepoints)
+    |> validate_length(:destination_thread_ref, min: 1, max: 1_024, count: :codepoints)
     |> Validation.validate_known(:environment_ref, environments, :unknown_environment)
     |> Validation.validate_unique_list(
       :group_by_labels,

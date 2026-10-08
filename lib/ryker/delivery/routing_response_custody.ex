@@ -37,7 +37,7 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
       |> Enum.reduce_while({:ok, []}, &insert_response(entry, &1, &2))
       |> then(fn
         {:ok, inserted} -> {:ok, Enum.reverse(inserted)}
-        {:error, _reason} = error -> error
+        {:error, reason} -> {:error, reason}
       end)
     end
   end
@@ -58,7 +58,7 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
     |> persistence_result(:routing_response)
     |> case do
       {:ok, response} -> {:cont, {:ok, [response | inserted]}}
-      {:error, _reason} = error -> {:halt, error}
+      {:error, reason} -> {:halt, {:error, reason}}
     end
   end
 
@@ -311,7 +311,7 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
       %RoutingResponse{status: :pending} = response ->
         case current_lease(response, lease_ref, now) do
           :ok -> {:ok, response}
-          {:error, _reason} = error -> error
+          {:error, reason} -> {:error, reason}
         end
 
       %RoutingResponse{} ->

@@ -1,16 +1,18 @@
 defmodule Ryker.Knowledge.KnowledgeUpdate do
   @moduledoc "Bounded proposal to maintain one topic; the host supplies ownership and sources."
+  alias Ryker.Reference
+
   @fields ~w(topic_key title summary topics anchors target_ref expected_version)
 
   def prepare(nil), do: {:ok, nil}
 
   def prepare(%{} = value) do
     with true <- Enum.sort(Map.keys(value)) == Enum.sort(@fields),
-         true <- text?(value["title"], 160),
+         true <- Reference.text?(value["title"], 160),
          true <-
            is_binary(value["topic_key"]) and
              Regex.match?(~r/\A[a-z0-9][a-z0-9-]{0,159}\z/, value["topic_key"]),
-         true <- text?(value["summary"], 1200),
+         true <- Reference.text?(value["summary"], 1200),
          true <- topics?(value["topics"]),
          true <- anchors?(value["anchors"]),
          true <- target?(value["target_ref"], value["expected_version"]) do
@@ -105,8 +107,10 @@ defmodule Ryker.Knowledge.KnowledgeUpdate do
 
   defp anchors?(_), do: false
 
-  defp topics?(topics) when is_list(topics),
-    do: length(topics) <= 8 and Enum.uniq(topics) == topics and Enum.all?(topics, &text?(&1, 80))
+  defp topics?(topics) when is_list(topics) do
+    length(topics) <= 8 and Enum.uniq(topics) == topics and
+      Enum.all?(topics, &Reference.text?(&1, 80))
+  end
 
   defp topics?(_), do: false
 
@@ -117,10 +121,4 @@ defmodule Ryker.Knowledge.KnowledgeUpdate do
       "maxLength" => maximum,
       "pattern" => "^[^\\x00]*[^\\s\\x00][^\\x00]*$"
     }
-
-  defp text?(value, max) do
-    is_binary(value) and String.valid?(value) and
-      String.length(value) <= max and String.trim(value) != "" and
-      not String.contains?(value, <<0>>)
-  end
 end

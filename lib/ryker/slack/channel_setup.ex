@@ -161,7 +161,7 @@ defmodule Ryker.Slack.ChannelSetup do
       :not_setup -> :not_setup
       false -> :not_setup
       {:ok, false} -> :not_setup
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -213,8 +213,8 @@ defmodule Ryker.Slack.ChannelSetup do
       {:error, :configuration_audience_member_invalid} ->
         clarify(input, platform_thread_ref, options)
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -304,8 +304,8 @@ defmodule Ryker.Slack.ChannelSetup do
           bind_prompt(session, message_ref, options, :posted)
         end
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -484,8 +484,8 @@ defmodule Ryker.Slack.ChannelSetup do
           {:ok, :posted}
         end
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -591,7 +591,7 @@ defmodule Ryker.Slack.ChannelSetup do
          ) do
       {:ok, _session} -> {:ok, outcome}
       {:error, :configuration_prompt_already_bound} -> {:ok, :existing}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -871,7 +871,7 @@ defmodule Ryker.Slack.ChannelSetup do
       case options.directory.user_allowed(options.client, user_ref, workspace_ref) do
         {:ok, true} -> {:cont, :ok}
         {:ok, false} -> {:halt, {:error, :configuration_audience_member_invalid}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
@@ -889,7 +889,7 @@ defmodule Ryker.Slack.ChannelSetup do
   defp validate_group(group_ref, workspace_ref, options) do
     case options.directory.user_group_members(options.client, group_ref, workspace_ref) do
       {:ok, users} when is_list(users) -> {:cont, :ok}
-      {:error, _reason} = error -> {:halt, error}
+      {:error, reason} -> {:halt, {:error, reason}}
       _invalid -> {:halt, {:error, {:slack_protocol_error, :user_group}}}
     end
   end
@@ -928,7 +928,7 @@ defmodule Ryker.Slack.ChannelSetup do
       )
       |> case do
         {:ok, %{session: session}} -> {:ok, session, true}
-        {:error, _reason} = error -> error
+        {:error, reason} -> {:error, reason}
       end
     else
       {:error, :not_setup}
@@ -1001,7 +1001,7 @@ defmodule Ryker.Slack.ChannelSetup do
       {:ok, %{outcome: :settings_shown}}
     else
       {:ok, _message_ref} -> {:ok, %{outcome: :settings_shown}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -1051,8 +1051,8 @@ defmodule Ryker.Slack.ChannelSetup do
       {:session, {:error, :not_found}} ->
         :not_setup
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

@@ -63,7 +63,7 @@ defmodule Ryker.IntegrationSetup do
     else
       false -> {:error, {:slack_verification_failed, :socket_mode}}
       {:ok, %{body: %{"error" => error}}} -> {:error, {:slack_verification_failed, error}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:slack_verification_failed, :response}}
     end
   end
@@ -104,7 +104,7 @@ defmodule Ryker.IntegrationSetup do
 
       {:ok, people |> Enum.map(&slack_member/1) |> Enum.sort_by(&String.downcase(&1.name))}
     else
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:slack_verification_failed, :members}}
     end
   end
@@ -134,7 +134,7 @@ defmodule Ryker.IntegrationSetup do
          webhook_secret: webhook_secret
        }}
     else
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:github_verification_failed, :response}}
     end
   end
@@ -185,13 +185,13 @@ defmodule Ryker.IntegrationSetup do
            |> Enum.sort_by(&String.downcase(&1.full_name))
            |> Enum.sort_by(&(&1.pushed_at || ""), :desc)}
 
-        {:error, _reason} = error ->
-          error
+        {:error, reason} ->
+          {:error, reason}
       end
     else
       nil -> {:error, {:github_verification_failed, :app_not_connected}}
       false -> {:error, {:github_verification_failed, :installations}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:github_verification_failed, :installations}}
     end
   end
@@ -211,7 +211,7 @@ defmodule Ryker.IntegrationSetup do
     Enum.reduce_while(installations, {:ok, []}, fn installation, {:ok, repositories} ->
       case installation_repositories(app_http, api_url, installation, options) do
         {:ok, found} -> {:cont, {:ok, repositories ++ found}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
@@ -323,7 +323,7 @@ defmodule Ryker.IntegrationSetup do
          status: :connected
        }}
     else
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:emisar_verification_failed, :response}}
     end
   end
@@ -411,7 +411,7 @@ defmodule Ryker.IntegrationSetup do
       {:ok, %{ref: ref, status: :rotated}}
     else
       nil -> {:error, :connection_not_found}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -590,7 +590,7 @@ defmodule Ryker.IntegrationSetup do
              actor_ref
            ) do
         {:ok, saved} -> {:cont, {:ok, saved}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
@@ -681,8 +681,8 @@ defmodule Ryker.IntegrationSetup do
         :ok = ManagedSources.remove_mirror(storage_root, ref)
         {:ok, removed}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -766,7 +766,7 @@ defmodule Ryker.IntegrationSetup do
     Enum.reduce_while(items, {:ok, nil}, fn item, _result ->
       case write.(item) do
         {:ok, snapshot} -> {:cont, {:ok, snapshot}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
@@ -809,7 +809,7 @@ defmodule Ryker.IntegrationSetup do
        }}
     else
       false -> {:error, {:slack_verification_failed, :identity}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:slack_verification_failed, :identity}}
     end
   end
@@ -890,7 +890,7 @@ defmodule Ryker.IntegrationSetup do
           {:ok, actor["id"]}
         else
           nil -> {:error, {:github_verification_failed, :app_not_connected}}
-          {:error, _reason} = error -> error
+          {:error, reason} -> {:error, reason}
           _invalid -> {:error, {:github_verification_failed, :actor}}
         end
     end
@@ -935,7 +935,7 @@ defmodule Ryker.IntegrationSetup do
            emisar_call(http, path, "tools/list", %{}, options) do
       {:ok, %{account_ref: key_fingerprint(token), account_label: URI.parse(rpc_url).host}}
     else
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _unexpected -> {:error, {:emisar_verification_failed, :response}}
     end
   end
@@ -969,8 +969,8 @@ defmodule Ryker.IntegrationSetup do
       {:ok, _unexpected} ->
         {:error, {:emisar_verification_failed, :response}}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -1008,7 +1008,7 @@ defmodule Ryker.IntegrationSetup do
          }
        end)}
     else
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:github_verification_failed, :repositories}}
     end
   end
@@ -1035,8 +1035,8 @@ defmodule Ryker.IntegrationSetup do
           do: {:ok, read},
           else: repository_pages(http, options, page + 1, read)
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
 
       _invalid ->
         {:error, {:github_verification_failed, :repositories}}
@@ -1100,7 +1100,7 @@ defmodule Ryker.IntegrationSetup do
     end)
     |> case do
       {:ok, _snapshot} -> :ok
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -1179,8 +1179,8 @@ defmodule Ryker.IntegrationSetup do
       {:ok, %{body: [], status: 200}} ->
         {:error, {:github_verification_failed, :app_not_installed}}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
 
       _invalid ->
         {:error, {:github_verification_failed, :installations}}
@@ -1194,8 +1194,8 @@ defmodule Ryker.IntegrationSetup do
       {:ok, %{body: %{"token" => token}, status: 201}} when is_binary(token) ->
         json_http(api_url, token, options)
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
 
       _invalid ->
         {:error, {:github_verification_failed, :actor}}
@@ -1213,8 +1213,8 @@ defmodule Ryker.IntegrationSetup do
       {:ok, %{status: 404}} ->
         {:error, {:github_verification_failed, :operator_not_found}}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
 
       _invalid ->
         {:error, {:github_verification_failed, :actor}}
@@ -1292,8 +1292,8 @@ defmodule Ryker.IntegrationSetup do
         Keyword.get(options, :sleep, &Process.sleep/1).(retry_after(limited) * 1_000)
         slack_member_pages(http, options, cursor, members, {pages_left, waits - 1})
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
 
       _invalid ->
         {:error, {:slack_verification_failed, :members}}

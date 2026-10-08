@@ -68,10 +68,10 @@ defmodule Ryker.RepositoryKnowledge.Executor do
       {:ok, %{} = session} ->
         session_step(claim, run, session, target, settings)
 
-      {:error, reason} = error ->
+      {:error, reason} ->
         if unaddressable?(run, reason),
           do: give_up_session(claim, run, reason),
-          else: error
+          else: {:error, reason}
 
       other ->
         other
@@ -205,7 +205,7 @@ defmodule Ryker.RepositoryKnowledge.Executor do
 
       case Task.await(heartbeat, :infinity) do
         :ok -> result
-        {:error, _lost} = lost -> lost
+        {:error, reason} -> {:error, reason}
       end
     after
       Task.shutdown(heartbeat, :brutal_kill)
@@ -219,7 +219,7 @@ defmodule Ryker.RepositoryKnowledge.Executor do
       max(div(settings.lease_seconds * 1_000, 3), 100) ->
         case renew_lease(claim, settings) do
           :ok -> keep_lease(claim, settings)
-          {:error, _lost} = lost -> lost
+          {:error, reason} -> {:error, reason}
         end
     end
   end
@@ -390,8 +390,8 @@ defmodule Ryker.RepositoryKnowledge.Executor do
       when reason in [:invalid_repository_knowledge, :invalid_repository_knowledge_candidate] ->
         stop(claim, run, session, reason, target, settings)
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -478,7 +478,7 @@ defmodule Ryker.RepositoryKnowledge.Executor do
         {:ok, text} when is_binary(text) -> {:cont, {:ok, Map.put(sources, path, text)}}
         {:ok, :not_found} -> {:cont, {:ok, sources}}
         {:error, :source_unavailable} -> {:cont, {:ok, sources}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end

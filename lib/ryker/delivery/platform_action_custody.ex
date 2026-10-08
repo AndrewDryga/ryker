@@ -120,7 +120,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
       {:ok, enqueue_for_ids(record.episode_id, record.turn_id, attributes, request)}
     else
       false -> {:error, :platform_action_not_authorized}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -531,7 +531,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
       %PlatformAction{status: :pending} = action ->
         case current_lease(action, lease_ref, now) do
           :ok -> {:ok, action}
-          {:error, _reason} = error -> error
+          {:error, reason} -> {:error, reason}
         end
 
       %PlatformAction{} ->
@@ -613,7 +613,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
        }}
     else
       false -> {:error, {:invalid_platform_action, :kind}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

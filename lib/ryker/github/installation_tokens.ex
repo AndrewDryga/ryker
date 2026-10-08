@@ -160,7 +160,7 @@ defmodule Ryker.GitHub.InstallationTokens do
           {:noreply, start_mint(state, mint, binding, permissions)}
       end
     else
-      {:error, _reason} = error -> {:reply, error, state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
 
@@ -173,7 +173,7 @@ defmodule Ryker.GitHub.InstallationTokens do
       {:noreply, start_mint(state, mint, binding, Map.fetch!(@purpose_permissions, purpose))}
     else
       {:ok, _changed_binding} -> {:reply, unavailable(:binding), state}
-      {:error, _reason} = error -> {:reply, error, state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
 

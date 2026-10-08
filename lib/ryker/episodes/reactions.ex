@@ -66,7 +66,7 @@ defmodule Ryker.Episodes.Reactions do
       case resolve_target(attributes.target) do
         {:ok, episode, delivery_ref} -> record_on_reply(attributes, episode, delivery_ref)
         {:error, :conversation_reaction_target_not_found} -> record_on_other_message(attributes)
-        {:error, _reason} = error -> error
+        {:error, reason} -> {:error, reason}
       end
     end
   end
@@ -117,7 +117,7 @@ defmodule Ryker.Episodes.Reactions do
     else
       :error -> {:error, :conversation_reaction_target_not_found}
       {:error, :feedback_request_not_found} -> {:error, :conversation_reaction_target_not_found}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

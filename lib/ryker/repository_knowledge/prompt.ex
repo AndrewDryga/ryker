@@ -14,6 +14,7 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
   way first, then the lists, and each cut is named in `omitted`.
   """
   alias Ryker.CanonicalJSON
+  alias Ryker.Reference
   alias Ryker.RepositoryKnowledge.Document
 
   @contract_version "repository-knowledge-v1"
@@ -351,10 +352,7 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
   defp text(value, maximum) when is_binary(value) do
     line = value |> String.replace(~r/\s+/u, " ") |> String.trim()
 
-    if String.valid?(line) and line != "" and String.length(line) <= maximum and
-         not String.contains?(line, <<0>>),
-       do: {:ok, line},
-       else: :error
+    if Reference.text?(line, maximum), do: {:ok, line}, else: :error
   end
 
   defp text(_value, _maximum), do: :error

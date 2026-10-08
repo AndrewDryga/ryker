@@ -42,7 +42,7 @@ defmodule Ryker.GitHub.PublicRepositories do
       public(status, body)
     else
       false -> {:error, :not_public}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

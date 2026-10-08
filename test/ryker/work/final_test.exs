@@ -104,6 +104,21 @@ defmodule Ryker.Work.FinalTest do
     assert Final.document(final) == document
   end
 
+  # The routing digest stores a title under char_length(title) <= 80, which
+  # counts code points, and the parser counted what a reader sees as one
+  # character. A flag is one of those and two code points, so a title of 80
+  # passed the parser and raised when the digest stored it (2026-10-08).
+  test "a title's length counts code points, as the routing digest stores it" do
+    flag = "🇺🇦"
+    titled = &Map.put(reply_document("Done."), "title", &1)
+
+    assert Final.parse(titled.(String.duplicate("a", 79) <> flag)) ==
+             {:error, {:invalid_work_final, :title}}
+
+    assert {:ok, %{title: title}} = Final.parse(titled.(String.duplicate("a", 78) <> flag))
+    assert Ryker.Text.char_length(title) == 80
+  end
+
   test "a title is one short line" do
     schema = JSV.build!(Final.json_schema())
 

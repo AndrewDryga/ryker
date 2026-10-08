@@ -32,7 +32,7 @@ defmodule Ryker.Artifacts.Outputs do
       {:ok, prepared}
     else
       false -> {:error, {:invalid_work_output_artifacts, :metadata}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -54,7 +54,7 @@ defmodule Ryker.Artifacts.Outputs do
       end)
     else
       false -> {:error, {:invalid_work_output_artifacts, :bodies}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -93,12 +93,12 @@ defmodule Ryker.Artifacts.Outputs do
     Enum.reduce_while(values, {:ok, []}, fn value, {:ok, prepared} ->
       case prepare_metadata_item(value) do
         {:ok, item} -> {:cont, {:ok, [item | prepared]}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> case do
       {:ok, prepared} -> {:ok, Enum.reverse(prepared)}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -120,12 +120,12 @@ defmodule Ryker.Artifacts.Outputs do
     Enum.reduce_while(values, {:ok, []}, fn value, {:ok, prepared} ->
       case prepare_body(turn_id, value) do
         {:ok, item} -> {:cont, {:ok, [item | prepared]}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> case do
       {:ok, prepared} -> {:ok, Enum.reverse(prepared)}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -149,7 +149,7 @@ defmodule Ryker.Artifacts.Outputs do
        }}
     else
       false -> {:error, {:invalid_work_output_artifacts, :bodies}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

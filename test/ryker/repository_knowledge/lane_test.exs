@@ -425,6 +425,28 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     assert entry.document =~ "MIT-licensed"
   end
 
+  # A check's reason names the files that changed as GitHub lists them, and a
+  # name typed on a Mac keeps each accent apart from its letter. The reason
+  # was cut to 512 of what a reader sees as characters, up to twice as many
+  # code points as the row's check allows, so the write failed the check
+  # (2026-10-08).
+  test "a long reason naming changed files is cut to what the row keeps" do
+    github!()
+    coop = coop!([answer_json(), answer_json()])
+    written!(coop)
+
+    accented = String.duplicate("e\u0301", 150)
+    paths = for n <- 1..5, do: "guides/#{n}-#{accented}/README.md"
+    FakeGitHubRepository.push(@head, @pushed, paths)
+    due!()
+    drain(settings(coop))
+
+    reason = Inspectors.repository_knowledge("emisar").reason
+    assert String.starts_with?(reason, "These files changed: guides/1-")
+    assert String.ends_with?(reason, "…")
+    assert Ryker.Text.char_length(reason) == 512
+  end
+
   test "a week after the last write, any code change is enough" do
     github!()
     coop = coop!([answer_json(), answer_json()])

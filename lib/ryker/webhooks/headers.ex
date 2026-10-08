@@ -28,12 +28,12 @@ defmodule Ryker.Webhooks.Headers do
     Enum.reduce_while(@event_headers, {:ok, []}, fn name, {:ok, values} ->
       case optional(conn, name) do
         {:ok, value} -> {:cont, {:ok, [value || "" | values]}}
-        {:error, :header} = error -> {:halt, error}
+        {:error, :header} -> {:halt, {:error, :header}}
       end
     end)
     |> case do
       {:ok, values} -> {:ok, Enum.reverse(values)}
-      {:error, :header} = error -> error
+      {:error, :header} -> {:error, :header}
     end
   end
 end

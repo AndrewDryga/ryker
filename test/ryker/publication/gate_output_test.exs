@@ -16,7 +16,7 @@ defmodule Ryker.Publication.GateOutputTest do
   defmodule Pages do
     def read_review_gate_output(pages, "coop-session", "op-review", cursor) do
       case Map.fetch!(pages, cursor) do
-        {:error, _reason} = error -> error
+        {:error, reason} -> {:error, reason}
         page -> {:ok, page}
       end
     end

@@ -84,7 +84,7 @@ defmodule Ryker.Continuity.Compaction do
       case compact_group(sources, rollup_retention_seconds) do
         :ok -> {:cont, {:ok, count + length(sources)}}
         :skipped -> {:cont, {:ok, count}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
@@ -318,7 +318,7 @@ defmodule Ryker.Continuity.Compaction do
          {_count, nil} <- delete_compacted_summaries(sources) do
       :ok
     else
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

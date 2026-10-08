@@ -24,9 +24,9 @@ defmodule Ryker.Settings.EmisarConnection.Changeset do
     changeset
     |> validate_required([:ref, :display_name, :rpc_url, :account_ref, :verified_at])
     |> Validation.validate_reference(:ref)
-    |> validate_length(:display_name, min: 1, max: 120)
-    |> validate_length(:account_ref, min: 1, max: 256)
-    |> validate_length(:account_label, min: 1, max: 256)
+    |> validate_length(:display_name, min: 1, max: 120, count: :codepoints)
+    |> validate_length(:account_ref, min: 1, max: 256, count: :codepoints)
+    |> validate_length(:account_label, min: 1, max: 256, count: :codepoints)
     |> validate_rpc_url()
     |> unique_constraint(:account_ref,
       name: :emisar_connection_endpoint_account_index,

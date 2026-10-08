@@ -58,8 +58,8 @@ defmodule Ryker.GitHub.RepositoryFiles do
       {:ok, _other} ->
         {:error, {:github_onboarding, :response}}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -170,8 +170,8 @@ defmodule Ryker.GitHub.RepositoryFiles do
       {:ok, _other} ->
         {:error, {:github_onboarding, :response}}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

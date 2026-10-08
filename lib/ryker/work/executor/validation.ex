@@ -51,8 +51,8 @@ defmodule Ryker.Work.Executor.Validation do
         {:reject, violations} ->
           prepare_validation(claim, sha256, attempt, {:reject, violations}, nil)
 
-        {:error, _reason} = error ->
-          error
+        {:error, reason} ->
+          {:error, reason}
       end
     end
   end
@@ -74,8 +74,8 @@ defmodule Ryker.Work.Executor.Validation do
       # Anything else is the host's to fix, not the model's. It fails this
       # attempt with its reason on record instead of crashing the worker,
       # which left a turn retrying every five minutes with no error saved.
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -112,8 +112,8 @@ defmodule Ryker.Work.Executor.Validation do
           nil
         )
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -155,7 +155,7 @@ defmodule Ryker.Work.Executor.Validation do
     case Remote.operation_by_key(settings, key) do
       :not_found -> mutate_validation(claim, key, verdict, settings)
       {:ok, operation} -> validation_from_operation(claim, operation, key, settings)
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -228,8 +228,8 @@ defmodule Ryker.Work.Executor.Validation do
       {:uncertain, reason} ->
         reconcile_uncertain_validation(claim, reason, settings)
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -342,7 +342,7 @@ defmodule Ryker.Work.Executor.Validation do
     case settings.validation_context.(claim) do
       %{} = context -> complete_validation_context(context, claim, artifacts, settings)
       {:ok, %{} = context} -> complete_validation_context(context, claim, artifacts, settings)
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:invalid_work_executor, :validation_context}}
     end
   end
@@ -404,7 +404,7 @@ defmodule Ryker.Work.Executor.Validation do
           {:ok, prepared}
         else
           false -> {:error, {:invalid_work_executor, :workspace_changes_api}}
-          {:error, _reason} = error -> error
+          {:error, reason} -> {:error, reason}
         end
     end
   end

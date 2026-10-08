@@ -33,8 +33,8 @@ defmodule Ryker.Slack.InteractionRepaint do
         :not_found ->
           :ok
 
-        {:error, _reason} = error ->
-          error
+        {:error, reason} ->
+          {:error, reason}
       end
     else
       {:error, :slack_interaction_repaint_api_invalid}
@@ -136,8 +136,8 @@ defmodule Ryker.Slack.InteractionRepaint do
         # started, or its sources could not be gathered. The worker checks
         # again, then gives up and leaves the reply as it is; until
         # 2026-09-27 this replaced the reply as though it were withdrawn.
-        {:error, _reason} = unchecked ->
-          unchecked
+        {:error, reason} ->
+          {:error, reason}
 
         :withdrawn ->
           {:ok,
@@ -167,7 +167,7 @@ defmodule Ryker.Slack.InteractionRepaint do
       # Only a source that is gone, or a receipt that is not this reply's,
       # withdraws it; any other error is Ryker's and is checked again.
       {:error, :work_knowledge_context_stale} -> :withdrawn
-      {:error, _reason} = unchecked -> unchecked
+      {:error, reason} -> {:error, reason}
       _refused -> :withdrawn
     end
   end

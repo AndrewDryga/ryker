@@ -22,7 +22,7 @@ defmodule Ryker.Publication.LifecycleStatus do
       {:ok, status}
     else
       false -> {:error, {:invalid_publication_lifecycle_status, :document}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

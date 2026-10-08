@@ -204,7 +204,7 @@ defmodule Ryker.Webhooks.Transforms do
              revision: revision
            }) do
         {:ok, input} -> {:ok, input, revision_ties}
-        {:error, _reason} = error -> error
+        {:error, reason} -> {:error, reason}
       end
     end
   end
@@ -390,7 +390,7 @@ defmodule Ryker.Webhooks.Transforms do
       {key, item}, {:ok, result} when is_binary(key) ->
         case scalar(item, field, 1_000) do
           {:ok, scalar} -> {:cont, {:ok, Map.put(result, bounded(key, 128), scalar)}}
-          {:error, _reason} = error -> {:halt, error}
+          {:error, reason} -> {:halt, {:error, reason}}
         end
 
       _entry, _result ->

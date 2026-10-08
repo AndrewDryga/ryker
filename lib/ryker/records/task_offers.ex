@@ -237,7 +237,7 @@ defmodule Ryker.Records.TaskOffers do
              ) do
         {:ok, policy}
       else
-        {:error, _reason} = error -> error
+        {:error, reason} -> {:error, reason}
         false -> {:error, {:invalid_task_offer_confirmation, :policy_digest}}
       end
     else

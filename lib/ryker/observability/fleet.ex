@@ -235,8 +235,8 @@ defmodule Ryker.Observability.Fleet do
       {:ok, _unexpected} ->
         {:error, {:observability_query_failed, "event cursor lag returned no count"}}
 
-      {:error, _failure} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 end

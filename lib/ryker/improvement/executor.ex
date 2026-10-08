@@ -77,10 +77,10 @@ defmodule Ryker.Improvement.Executor do
       {:ok, %{} = session} ->
         session_step(claim, run, session, settings)
 
-      {:error, reason} = error ->
+      {:error, reason} ->
         if unaddressable?(run, reason),
           do: give_up_session(claim, run, reason),
-          else: error
+          else: {:error, reason}
 
       other ->
         other
@@ -339,8 +339,8 @@ defmodule Ryker.Improvement.Executor do
       {:error, :improvement_forgotten} ->
         stop(claim, run, session, :improvement_forgotten, settings)
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

@@ -23,7 +23,7 @@ defmodule Ryker.CoopFleet.JobCheck do
     case reader.read(binding, repository, @project_file, commit) do
       {:ok, :not_found} -> {:ok, none()}
       {:ok, text} when is_binary(text) -> {:ok, check(gate(text, repository))}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

@@ -33,7 +33,7 @@ defmodule Ryker.GitHub.Client do
       {:ok, client}
     else
       false -> {:error, {:invalid_github_client, :requester}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

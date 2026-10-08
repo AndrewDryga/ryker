@@ -55,7 +55,7 @@ defmodule Ryker.Records.InputRequests do
       end
     else
       false -> {:error, :state_record_transaction_required}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -73,8 +73,8 @@ defmodule Ryker.Records.InputRequests do
       {:ok, _response} ->
         InteractionAudits.record_answer_in_transaction(entry, record, turn, :typed)
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

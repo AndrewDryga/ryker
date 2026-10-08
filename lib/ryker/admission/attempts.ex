@@ -51,7 +51,7 @@ defmodule Ryker.Admission.Attempts do
     )
     |> case do
       {:ok, _attempt} -> :ok
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -77,7 +77,7 @@ defmodule Ryker.Admission.Attempts do
     end)
     |> case do
       {:ok, _attempt} -> :ok
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -122,7 +122,7 @@ defmodule Ryker.Admission.Attempts do
     end)
     |> case do
       {:ok, _attempt} -> :ok
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

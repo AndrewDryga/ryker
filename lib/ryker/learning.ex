@@ -21,6 +21,7 @@ defmodule Ryker.Learning do
   alias Ryker.People
   alias Ryker.Reference
   alias Ryker.Repo
+  alias Ryker.Text
   alias Ryker.Work.Session
 
   @max_inputs 16
@@ -144,7 +145,7 @@ defmodule Ryker.Learning do
       when is_list(ids) and length(ids) in 1..@max_inputs and is_binary(policy) and
              is_binary(digest) do
     transaction(fn ->
-      unless String.length(policy) in 1..160 and Regex.match?(~r/\A[0-9a-f]{64}\z/, digest),
+      unless Text.char_length(policy) in 1..160 and Regex.match?(~r/\A[0-9a-f]{64}\z/, digest),
         do: Repo.rollback(:invalid_learning_inputs)
 
       limit =
@@ -1228,7 +1229,7 @@ defmodule Ryker.Learning do
          true <- Map.keys(document) -- ~w(updates reason people) == [],
          true <- people?(Map.get(document, "people", [])),
          true <- is_list(updates) and length(updates) <= @max_inputs,
-         true <- is_binary(reason) and String.length(reason) in 1..1200,
+         true <- Reference.text?(reason, 1200),
          true <- Enum.all?(updates, &valid_update?(&1, entries)),
          keys = updates |> Enum.reject(&(&1["action"] == "defer")) |> Enum.map(& &1["topic_key"]),
          true <- Enum.uniq(keys) == keys do
@@ -1252,8 +1253,7 @@ defmodule Ryker.Learning do
 
   defp valid_action?(%{"action" => "defer", "reason" => reason} = update) do
     Enum.sort(Map.keys(update)) == ~w(action reason source_input_ids) and
-      is_binary(reason) and String.valid?(reason) and String.length(reason) in 1..1200 and
-      String.trim(reason) != "" and not String.contains?(reason, <<0>>)
+      Reference.text?(reason, 1200)
   end
 
   defp valid_action?(%{"action" => action} = update) when action in ["create", "update"] do

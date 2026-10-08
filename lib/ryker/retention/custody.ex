@@ -149,7 +149,7 @@ defmodule Ryker.Retention.Custody do
         store_plan_locked(session, plan, now, retained_recheck_seconds)
       end)
     else
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       false -> {:error, {:invalid_retention_custody, :plan}}
     end
   end
@@ -835,7 +835,7 @@ defmodule Ryker.Retention.Custody do
         {:ok, %{session_ids: session_ids, worker_ids: worker_ids}}
       else
         false -> {:error, {:invalid_retention_custody, :worker_ids}}
-        {:error, _reason} = error -> error
+        {:error, reason} -> {:error, reason}
       end
     else
       {:error, {:invalid_retention_custody, :exclude}}

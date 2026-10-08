@@ -45,13 +45,13 @@ defmodule Ryker.Slack.AttachmentIngestor do
         {:ok, descriptor, next_total} ->
           {:cont, {:ok, [descriptor | descriptors], next_total}}
 
-        {:error, _reason} = error ->
-          {:halt, error}
+        {:error, reason} ->
+          {:halt, {:error, reason}}
       end
     end)
     |> case do
       {:ok, descriptors, _total} -> {:ok, Enum.reverse(descriptors)}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -68,8 +68,8 @@ defmodule Ryker.Slack.AttachmentIngestor do
       {:unavailable, reason} ->
         {:ok, unavailable(reason, file), total}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -119,8 +119,8 @@ defmodule Ryker.Slack.AttachmentIngestor do
       {:error, {:slack_file_unavailable, answer}} = error ->
         if lasting?(answer), do: {:unavailable, "file_unavailable"}, else: error
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -139,7 +139,7 @@ defmodule Ryker.Slack.AttachmentIngestor do
     case store.fetch_source("slack", source_ref) do
       {:ok, artifact} -> {:ok, artifact}
       {:error, :input_artifact_not_found} -> {:miss, source_ref}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

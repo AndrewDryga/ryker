@@ -263,7 +263,7 @@ defmodule Ryker.Publication.Executor do
            frozen.review_generation
          ) do
       {:ok, _publication} -> {:error, {:publication_review_generation_spent, reason}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -349,7 +349,7 @@ defmodule Ryker.Publication.Executor do
       {:ok, settings}
     else
       false -> {:error, {:invalid_publication_executor, :settings}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

@@ -65,8 +65,8 @@ defmodule Ryker.Observability.Reads do
       {:error, %{__exception__: true} = error} ->
         {:error, {:observability_query_failed, Exception.message(error)}}
 
-      {:error, _failure} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -79,12 +79,12 @@ defmodule Ryker.Observability.Reads do
     |> Enum.reduce_while({:ok, []}, fn item, {:ok, values} ->
       case read.(item) do
         {:ok, value} -> {:cont, {:ok, [value | values]}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> case do
       {:ok, values} -> {:ok, Enum.reverse(values)}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

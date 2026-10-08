@@ -15,7 +15,7 @@ defmodule Ryker.Delivery.Adapters do
     Enum.reduce_while(registrations, {:ok, %{}}, fn {transport, registration}, {:ok, result} ->
       case prepare_registration(transport, registration) do
         {:ok, prepared} -> {:cont, {:ok, Map.put(result, transport, prepared)}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end

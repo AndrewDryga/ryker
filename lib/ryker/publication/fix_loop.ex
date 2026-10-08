@@ -164,7 +164,7 @@ defmodule Ryker.Publication.FixLoop do
          {:ok, _episode} <- Episodes.lock_current_in_transaction(episode.key) do
       :ok
     else
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _nothing_to_start -> :ok
     end
   end

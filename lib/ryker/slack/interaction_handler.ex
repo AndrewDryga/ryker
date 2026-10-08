@@ -148,8 +148,8 @@ defmodule Ryker.Slack.InteractionHandler do
            ] ->
         {:ok, %{outcome: :invalid}}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -171,7 +171,7 @@ defmodule Ryker.Slack.InteractionHandler do
       {:error, :operator_required} -> {:ok, %{outcome: :denied}}
       {:error, :slack_action_mismatch} -> {:ok, %{outcome: :invalid}}
       {:error, reason} when reason in @settled_entity_errors -> {:ok, %{outcome: :invalid}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -281,8 +281,8 @@ defmodule Ryker.Slack.InteractionHandler do
       {:error, :state_record_not_found} ->
         {:ok, %{outcome: :invalid}}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -509,8 +509,8 @@ defmodule Ryker.Slack.InteractionHandler do
       {:ok, _invalid} ->
         {:error, :state_record_not_found}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -538,7 +538,7 @@ defmodule Ryker.Slack.InteractionHandler do
            target: target(interaction)
          }) do
       {:ok, answer} -> {:ok, %{input_ref: answer.input_ref, outcome: answer.status}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

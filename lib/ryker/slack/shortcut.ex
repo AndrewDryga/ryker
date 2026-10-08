@@ -72,9 +72,9 @@ defmodule Ryker.Slack.Shortcut do
          platform_thread_ref: thread_ref
        }}
     else
-      {:error, {:invalid_input, _field}} = error -> error
-      {:error, {:invalid_input, _field, _reason}} = error -> error
-      {:error, _reason} = error -> error
+      {:error, {:invalid_input, field}} -> {:error, {:invalid_input, field}}
+      {:error, {:invalid_input, field, reason}} -> {:error, {:invalid_input, field, reason}}
+      {:error, reason} -> {:error, reason}
     end
   end
 

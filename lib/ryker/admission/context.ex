@@ -306,7 +306,7 @@ defmodule Ryker.Admission.Context do
          source_dependencies: snapshot["source_dependencies"]
        }}
     else
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:invalid_admission_context_snapshot, :document}}
     end
   end
@@ -522,7 +522,7 @@ defmodule Ryker.Admission.Context do
     end)
     |> case do
       {:ok, restored} -> {:ok, Enum.reverse(restored)}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

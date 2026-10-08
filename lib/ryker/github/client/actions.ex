@@ -65,7 +65,7 @@ defmodule Ryker.GitHub.Client.Actions do
       end
     else
       false -> {:error, {:github_action_unavailable, :run_not_completed}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -88,7 +88,7 @@ defmodule Ryker.GitHub.Client.Actions do
       end
     else
       false -> {:error, {:github_action_unavailable, :run_not_active}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -156,12 +156,12 @@ defmodule Ryker.GitHub.Client.Actions do
     |> Enum.reduce_while({:ok, []}, fn job, {:ok, prepared} ->
       case ci_job(job, repository) do
         {:ok, result} -> {:cont, {:ok, [result | prepared]}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> case do
       {:ok, prepared} -> {:ok, Enum.reverse(prepared)}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

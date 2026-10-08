@@ -47,7 +47,7 @@ defmodule Ryker.CoopFleet.PublicationGrants do
          {:ok, snapshot} <- settings() do
       authorize(request, job_ref, session, placement, command, snapshot)
     else
-      {:error, :publication_grant_unavailable} = error -> error
+      {:error, :publication_grant_unavailable} -> {:error, :publication_grant_unavailable}
       _revoked_or_unproven -> {:error, :publication_grant_denied}
     end
   end

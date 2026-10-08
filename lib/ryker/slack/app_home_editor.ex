@@ -19,7 +19,7 @@ defmodule Ryker.Slack.AppHomeEditor do
       :ok
     else
       false -> {:error, {:invalid_app_home_editor, :api}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:invalid_app_home_editor, :view}}
     end
   end

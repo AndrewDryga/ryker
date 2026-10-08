@@ -10,6 +10,7 @@ defmodule Ryker.Work.Final do
   The schema requires the property so strict providers always answer it; the
   parser also accepts a recorded answer without it, which keeps the name.
   """
+  alias Ryker.Reference
 
   @deliveries [:reply, :none]
   @states [:complete, :waiting_for_input, :waiting_for_event]
@@ -177,7 +178,7 @@ defmodule Ryker.Work.Final do
   defp title(nil), do: :ok
 
   defp title(value) do
-    if bounded_text?(value, @title_length) and not String.contains?(value, ["\n", "\r"]),
+    if Reference.text?(value, @title_length) and not String.contains?(value, ["\n", "\r"]),
       do: :ok,
       else: {:error, {:invalid_work_final, :title}}
   end
@@ -199,13 +200,13 @@ defmodule Ryker.Work.Final do
   defp outcome(_value), do: {:error, {:invalid_work_final, :outcome}}
 
   defp delivery_shape(:reply, message, nil) do
-    if bounded_text?(message, 20_000),
+    if Reference.text?(message, 20_000),
       do: :ok,
       else: {:error, {:invalid_work_final, :message}}
   end
 
   defp delivery_shape(:none, nil, reason) do
-    if bounded_text?(reason, 240),
+    if Reference.text?(reason, 240),
       do: :ok,
       else: {:error, {:invalid_work_final, :decision_reason}}
   end
@@ -250,11 +251,6 @@ defmodule Ryker.Work.Final do
     if Map.keys(value) |> Enum.sort() == Enum.sort(fields),
       do: :ok,
       else: {:error, {:invalid_work_final, field}}
-  end
-
-  defp bounded_text?(value, maximum) do
-    is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
-      String.trim(value) != "" and String.length(value) <= maximum
   end
 
   defp bounded_string_schema(maximum) do

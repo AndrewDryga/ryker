@@ -56,7 +56,7 @@ defmodule Ryker.Publication.FollowupExecutor do
            settings.interval_seconds
          ) do
       {:ok, updated} -> {:ok, %{phase: :verification, followup: updated}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

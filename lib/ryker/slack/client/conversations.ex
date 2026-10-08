@@ -31,7 +31,7 @@ defmodule Ryker.Slack.Client.Conversations do
       {:ok, channel}
     else
       {:ok, _invalid} -> {:error, {:slack_protocol_error, :conversation}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -242,7 +242,7 @@ defmodule Ryker.Slack.Client.Conversations do
     end)
     |> case do
       {:ok, conversations} -> {:ok, Enum.reverse(conversations)}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -299,7 +299,7 @@ defmodule Ryker.Slack.Client.Conversations do
     end)
     |> case do
       {:ok, refs} -> {:ok, Enum.reverse(refs)}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -352,12 +352,12 @@ defmodule Ryker.Slack.Client.Conversations do
       case shared_conversation_ref(channel) do
         {:ok, nil} -> {:cont, {:ok, refs}}
         {:ok, channel_ref} -> {:cont, {:ok, [channel_ref | refs]}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> case do
       {:ok, refs} -> {:ok, Enum.reverse(refs)}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

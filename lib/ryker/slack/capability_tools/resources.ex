@@ -13,12 +13,12 @@ defmodule Ryker.Slack.CapabilityTools.Resources do
     |> Enum.reduce_while({:ok, []}, fn bookmark, {:ok, normalized} ->
       case normalize_bookmark(bookmark, workspace_ref, channel_ref) do
         {:ok, resource} -> {:cont, {:ok, [resource | normalized]}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> case do
       {:ok, normalized} -> {:ok, Enum.reverse(normalized)}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

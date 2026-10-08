@@ -61,16 +61,16 @@ defmodule Ryker.Evals.WorldDriver do
         {:ok, execution} ->
           {:cont, {:ok, [execution | executions], execution.episode.id, skipped}}
 
-        {:error, _reason} = error ->
-          {:halt, error}
+        {:error, reason} ->
+          {:halt, {:error, reason}}
       end
     end)
     |> case do
       {:ok, executions, _episode_id, skipped} ->
         {:ok, Enum.reverse(executions), Enum.reverse(skipped)}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -111,7 +111,7 @@ defmodule Ryker.Evals.WorldDriver do
          :ok <- deliver_message(execution, adapters, settings, index, 3) do
       {:ok, Map.put(execution, :world_routing, admission.routing)}
     else
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:invalid_world_runner, :input_event}}
     end
   end
@@ -154,7 +154,7 @@ defmodule Ryker.Evals.WorldDriver do
        })}
     else
       nil -> {:error, {:world_eval_failed, :event_wait_not_found}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:invalid_world_runner, :wait_wakeup}}
     end
   end
@@ -203,7 +203,7 @@ defmodule Ryker.Evals.WorldDriver do
          :ok <- ensure_world_wait_resumed(waiting_event, result.episode, input) do
       {:ok, %{episode: result.episode, routing: routing_evidence(decision)}}
     else
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:invalid_world_runner, :admission}}
     end
   end
@@ -361,11 +361,11 @@ defmodule Ryker.Evals.WorldDriver do
              true <- not is_nil(retried) or {:error, :work_retry_not_claimable} do
           execute_work(retried, scenario, settings, index, left - 1)
         else
-          {:error, _reason} = error -> error
+          {:error, reason} -> {:error, reason}
         end
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
 
       _unexpected ->
         {:error, {:world_eval_failed, :unexpected_work_result}}
@@ -406,8 +406,8 @@ defmodule Ryker.Evals.WorldDriver do
         make_turn_claimable(execution.turn.id)
         deliver_message(execution, adapters, settings, index, left - 1)
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
 
       other ->
         {:error, {:world_eval_failed, {:delivery_result, other}}}

@@ -231,7 +231,7 @@ defmodule Ryker.Work.Activity do
       end
     else
       false -> {:error, {:invalid_coop_activity, :page}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -256,12 +256,12 @@ defmodule Ryker.Work.Activity do
     |> Enum.reduce_while({:ok, []}, fn event, {:ok, prepared} ->
       case prepare_event(event, session) do
         {:ok, value} -> {:cont, {:ok, [ActivityRetention.mark(value, retention) | prepared]}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> case do
       {:ok, prepared} -> ordered_page(Enum.reverse(prepared))
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -296,7 +296,7 @@ defmodule Ryker.Work.Activity do
        }}
     else
       false -> {:error, {:invalid_coop_activity, :event}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -473,7 +473,7 @@ defmodule Ryker.Work.Activity do
   defp retry_sync(session, api, client) do
     case sync(session, api, client) do
       {:ok, _receipt} -> {:ok, {:synced, session.id}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

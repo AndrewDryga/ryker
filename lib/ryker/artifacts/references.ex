@@ -69,7 +69,7 @@ defmodule Ryker.Artifacts.References do
       :ok
     else
       false -> {:error, {:invalid_input_artifact_reference, :refs}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -97,7 +97,7 @@ defmodule Ryker.Artifacts.References do
   defp descriptors(content) do
     case collect(content, %{}) do
       {:ok, descriptors} -> {:ok, descriptors}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -120,7 +120,7 @@ defmodule Ryker.Artifacts.References do
     Enum.reduce_while(value, {:ok, accumulated}, fn {_key, child}, {:ok, current} ->
       case collect(child, current) do
         {:ok, next} -> {:cont, {:ok, next}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
@@ -129,7 +129,7 @@ defmodule Ryker.Artifacts.References do
     Enum.reduce_while(value, {:ok, accumulated}, fn child, {:ok, current} ->
       case collect(child, current) do
         {:ok, next} -> {:cont, {:ok, next}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end

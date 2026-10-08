@@ -43,8 +43,8 @@ defmodule Ryker.Settings.PricingRate.Changeset do
       # A price covers work by its provider and model, the way every execution
       # names its model, so it needs both and exactly one colon between them.
       |> validate_format(:execution_target, @execution_target)
-      |> validate_length(:execution_target, max: 256)
-      |> validate_length(:provenance, min: 1, max: 1_024)
+      |> validate_length(:execution_target, max: 256, count: :codepoints)
+      |> validate_length(:provenance, min: 1, max: 1_024, count: :codepoints)
       |> validate_rates()
 
     if duplicate?(changeset, snapshot.pricing_rates) do

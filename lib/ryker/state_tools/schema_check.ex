@@ -2,6 +2,7 @@ defmodule Ryker.StateTools.SchemaCheck do
   @moduledoc false
   alias Ryker.Schedules.ScheduleRecurrence
   alias Ryker.StateTools.Catalog
+  alias Ryker.Text
 
   # Validates tool arguments against the exact JSON-schema subset the catalog
   # emits (anyOf, oneOf, const, enum, object, array, string, integer, boolean,
@@ -110,7 +111,7 @@ defmodule Ryker.StateTools.SchemaCheck do
   end
 
   defp valid_schema_value?(%{"type" => "string"} = schema, value) when is_binary(value) do
-    length = String.length(value)
+    length = Text.char_length(value)
 
     String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
       length >= Map.get(schema, "minLength", 0) and

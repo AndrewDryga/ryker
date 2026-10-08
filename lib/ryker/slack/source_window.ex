@@ -236,7 +236,7 @@ defmodule Ryker.Slack.SourceWindow do
         {:ok, collected, cursor, limited, count + 1}
       end
     else
-      {:error, _} = error -> error
+      {:error, reason} -> {:error, reason}
       _ -> {:error, :slack_protocol_error}
     end
   end

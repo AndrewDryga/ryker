@@ -13,6 +13,7 @@ defmodule Ryker.Episodes.Command do
   triggered a wait, so unrelated queued input cannot wake it.
   """
   alias Ryker.CanonicalJSON
+  alias Ryker.Reference
 
   defmodule AdmitInput do
     @moduledoc false
@@ -249,7 +250,7 @@ defmodule Ryker.Episodes.Command do
 
     case validate(command) do
       :ok -> {:ok, command}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -659,9 +660,7 @@ defmodule Ryker.Episodes.Command do
   end
 
   defp bounded_unicode_text?(value, maximum_characters, maximum_bytes) do
-    is_binary(value) and String.valid?(value) and
-      String.length(value) in 1..maximum_characters and byte_size(value) <= maximum_bytes and
-      :binary.match(value, <<0>>) == :nomatch and String.trim(value) != ""
+    Reference.text?(value, maximum_characters) and byte_size(value) <= maximum_bytes
   end
 
   defp utc_datetime?(%DateTime{} = value) do

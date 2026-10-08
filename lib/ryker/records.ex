@@ -769,7 +769,7 @@ defmodule Ryker.Records do
   defp evidence_refs_exist(episode_id, refs, field) do
     case evidence_records(episode_id, Enum.uniq(refs), field) do
       {:ok, _records} -> :ok
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

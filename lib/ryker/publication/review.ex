@@ -82,7 +82,7 @@ defmodule Ryker.Publication.Review do
       {:ok, document}
     else
       false -> {:error, {:invalid_publication_review, :identity}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -419,7 +419,7 @@ defmodule Ryker.Publication.Review do
       :ok
     else
       false -> {:error, {:invalid_publication_review, :publishable}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

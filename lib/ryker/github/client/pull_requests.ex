@@ -81,7 +81,7 @@ defmodule Ryker.GitHub.Client.PullRequests do
       end
     else
       false -> {:error, {:invalid_github_api_request, :review_event}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -90,12 +90,12 @@ defmodule Ryker.GitHub.Client.PullRequests do
     |> Enum.reduce_while({:ok, []}, fn comment, {:ok, prepared} ->
       case review_comment(comment) do
         {:ok, normalized} -> {:cont, {:ok, [normalized | prepared]}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> case do
       {:ok, prepared} -> {:ok, Enum.reverse(prepared)}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

@@ -47,7 +47,7 @@ defmodule Ryker.Work.SubmissionBuilder do
   def build(claim, options \\ []) do
     case prepare(claim, options) do
       {:ok, %{submission: submission}} -> {:ok, submission}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

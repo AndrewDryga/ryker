@@ -32,7 +32,7 @@ defmodule Ryker.Work.Validator do
       end
     else
       {:reject, _violations} = rejection -> rejection
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -547,7 +547,7 @@ defmodule Ryker.Work.Validator do
        }}
     else
       false -> {:error, {:invalid_work_validation_context, :boolean}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -605,7 +605,7 @@ defmodule Ryker.Work.Validator do
     Enum.reduce_while(goals, {:ok, []}, fn goal, {:ok, prepared} ->
       case prepare_open_goal(goal) do
         {:ok, goal} -> {:cont, {:ok, [goal | prepared]}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> case do
@@ -616,8 +616,8 @@ defmodule Ryker.Work.Validator do
           do: {:ok, prepared},
           else: {:error, {:invalid_work_validation_context, :open_required_goals}}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -647,7 +647,7 @@ defmodule Ryker.Work.Validator do
     Enum.reduce_while(records, {:ok, %{}}, fn {ref, record}, {:ok, prepared} ->
       case prepare_record(ref, record) do
         {:ok, record} -> {:cont, {:ok, Map.put(prepared, ref, record)}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
@@ -662,7 +662,7 @@ defmodule Ryker.Work.Validator do
       {:ok, %{continuation: continuation, kind: kind}}
     else
       false -> {:error, {:invalid_work_validation_context, :record}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -680,7 +680,7 @@ defmodule Ryker.Work.Validator do
       {:ok, %{continuation: continuation, kind: "event_wait", wait_mode: wait_mode(wait_mode)}}
     else
       false -> {:error, {:invalid_work_validation_context, :record}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -745,7 +745,7 @@ defmodule Ryker.Work.Validator do
     Enum.reduce_while(inputs, {:ok, []}, fn input, {:ok, prepared} ->
       case prepare_current_human_input(input) do
         {:ok, input} -> {:cont, {:ok, [input | prepared]}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> case do
@@ -756,8 +756,8 @@ defmodule Ryker.Work.Validator do
           do: {:ok, prepared},
           else: {:error, :current_human_inputs}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

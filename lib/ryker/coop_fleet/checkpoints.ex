@@ -36,7 +36,7 @@ defmodule Ryker.CoopFleet.Checkpoints do
          "state" => "stored"
        }}
     else
-      {:error, _} = error -> error
+      {:error, reason} -> {:error, reason}
       _ -> {:error, :checkpoint_not_available}
     end
   end

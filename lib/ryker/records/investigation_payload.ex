@@ -325,7 +325,7 @@ defmodule Ryker.Records.InvestigationPayload do
       :ok
     else
       false -> invalid(:scope)
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -367,7 +367,7 @@ defmodule Ryker.Records.InvestigationPayload do
       :ok
     else
       false -> invalid(field)
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -441,7 +441,7 @@ defmodule Ryker.Records.InvestigationPayload do
   defp required_datetime(payload, key, field) do
     case normalize_datetime(payload[key], field) do
       {:ok, value} -> {:ok, Map.put(payload, key, value)}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -453,7 +453,7 @@ defmodule Ryker.Records.InvestigationPayload do
       value ->
         case normalize_datetime(value, field) do
           {:ok, normalized} -> {:ok, Map.put(payload, key, normalized)}
-          {:error, _reason} = error -> error
+          {:error, reason} -> {:error, reason}
         end
     end
   end

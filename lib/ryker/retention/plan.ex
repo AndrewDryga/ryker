@@ -60,7 +60,7 @@ defmodule Ryker.Retention.Plan do
          true <- value["resource_id"] == session_id or error(:operation_identity) do
       {:ok, value}
     else
-      {:error, _reason} = result -> result
+      {:error, reason} -> {:error, reason}
       false -> {:error, {:invalid_discard_plan, :operation}}
     end
   end
@@ -84,7 +84,7 @@ defmodule Ryker.Retention.Plan do
          "workspace" => workspace
        }}
     else
-      {:error, _reason} = result -> result
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:invalid_discard_plan, :plan}}
     end
   end
@@ -120,7 +120,7 @@ defmodule Ryker.Retention.Plan do
          "unmerged" => value["unmerged"]
        }}
     else
-      {:error, _reason} = result -> result
+      {:error, reason} -> {:error, reason}
       false -> {:error, {:invalid_discard_plan, :workspace}}
     end
   end

@@ -48,7 +48,7 @@ defmodule Mix.Tasks.Ryker.OperatorSupport do
     with_repo(fn ->
       case configuration() do
         {:ok, configuration} -> operation.(configuration)
-        {:error, _reason} = error -> error
+        {:error, reason} -> {:error, reason}
       end
     end)
   end

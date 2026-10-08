@@ -32,7 +32,7 @@ defmodule Ryker.Slack.AppHome do
       {:ok, %{access: access, outcome: :published}}
     else
       {:ok, false} -> {:ok, %{access: :denied, outcome: :ignored}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -53,7 +53,7 @@ defmodule Ryker.Slack.AppHome do
       {:ok, %{access: access, outcome: :published}}
     else
       {:ok, false} -> {:ok, %{access: :denied, outcome: :ignored}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -72,7 +72,7 @@ defmodule Ryker.Slack.AppHome do
          true <- function_exported?(directory, :user_allowed, 3) do
       case directory.user_allowed(client, event.actor_ref, event.workspace_ref) do
         {:ok, allowed} when is_boolean(allowed) -> {:ok, allowed}
-        {:error, _reason} = error -> error
+        {:error, reason} -> {:error, reason}
         _invalid -> {:error, {:invalid_app_home, :directory}}
       end
     else
@@ -87,7 +87,7 @@ defmodule Ryker.Slack.AppHome do
              projection.(event.workspace_ref, event.actor_ref, shared_conversations) do
         {:ok, operator_view(snapshot)}
       else
-        {:error, _reason} = error -> error
+        {:error, reason} -> {:error, reason}
         _invalid -> {:error, {:invalid_app_home, :projection}}
       end
     end)
@@ -100,7 +100,7 @@ defmodule Ryker.Slack.AppHome do
              projection.(kind, event.workspace_ref, shared_conversations, offset) do
         {:ok, collection_view(collection)}
       else
-        {:error, _reason} = error -> error
+        {:error, reason} -> {:error, reason}
         _invalid -> {:error, {:invalid_app_home, :collection}}
       end
     end)
@@ -131,7 +131,7 @@ defmodule Ryker.Slack.AppHome do
       callback when is_function(callback, 3) ->
         case callback.(Map.get(options, :client), event.actor_ref, event.workspace_ref) do
           {:ok, %MapSet{} = conversations} -> {:ok, conversations}
-          {:error, _reason} = error -> error
+          {:error, reason} -> {:error, reason}
           _invalid -> {:error, {:invalid_app_home, :shared_conversations}}
         end
 

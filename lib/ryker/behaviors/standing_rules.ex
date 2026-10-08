@@ -105,7 +105,7 @@ defmodule Ryker.Behaviors.StandingRules do
       finalize_assignment_runs_locked(input_ref, action, decision_ref, episode, outcome)
     else
       false -> {:error, :behavior_run_transaction_required}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

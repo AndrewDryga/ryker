@@ -72,8 +72,11 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
        |> Map.put("task_projection", task_projection)
        |> Map.put("gate_receipt", gate_receipt)}
     else
-      false -> bundle_error(:metadata)
-      {:error, {:invalid_workspace_checkpoint_bundle, _reason}} = error -> error
+      false ->
+        bundle_error(:metadata)
+
+      {:error, {:invalid_workspace_checkpoint_bundle, reason}} ->
+        {:error, {:invalid_workspace_checkpoint_bundle, reason}}
     end
   end
 
@@ -143,7 +146,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
       {:ok, checkpoint}
     else
       false -> {:error, {:invalid_workspace_checkpoint, :version}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -160,7 +163,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
          :ok <- digest(task["state_sha256"], :task_state_sha256) do
       :ok
     else
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       false -> {:error, {:invalid_workspace_checkpoint, :task}}
     end
   end
@@ -178,7 +181,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
          :ok <- reference(gate["receipt_ref"], :gate_receipt_ref) do
       :ok
     else
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       false -> {:error, {:invalid_workspace_checkpoint, :gate}}
     end
   end
@@ -193,7 +196,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
            is_integer(bundle["byte_size"]) and bundle["byte_size"] in 1..@maximum_bundle_bytes do
       :ok
     else
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       false -> {:error, {:invalid_workspace_checkpoint, :bundle}}
     end
   end
@@ -254,8 +257,11 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
            manifest_files(task["files"], "task", @maximum_task_files, entries, total) do
       {:ok, Map.put(task, "files", files), entries, total}
     else
-      false -> bundle_error(:task_projection)
-      {:error, {:invalid_workspace_checkpoint_bundle, _reason}} = error -> error
+      false ->
+        bundle_error(:task_projection)
+
+      {:error, {:invalid_workspace_checkpoint_bundle, reason}} ->
+        {:error, {:invalid_workspace_checkpoint_bundle, reason}}
     end
   end
 
@@ -268,8 +274,11 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
          false <- MapSet.member?(entries, receipt["entry"]) do
       {:ok, receipt, MapSet.put(entries, receipt["entry"]), total + receipt["byte_size"]}
     else
-      true -> bundle_error(:duplicate_entry)
-      {:error, {:invalid_workspace_checkpoint_bundle, _reason}} = error -> error
+      true ->
+        bundle_error(:duplicate_entry)
+
+      {:error, {:invalid_workspace_checkpoint_bundle, reason}} ->
+        {:error, {:invalid_workspace_checkpoint_bundle, reason}}
     end
   end
 
@@ -285,8 +294,8 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
       {:ok, normalized, entries, _paths, total} ->
         {:ok, Enum.reverse(normalized), entries, total}
 
-      {:error, {:invalid_workspace_checkpoint_bundle, _reason}} = error ->
-        error
+      {:error, {:invalid_workspace_checkpoint_bundle, reason}} ->
+        {:error, {:invalid_workspace_checkpoint_bundle, reason}}
     end
   end
 
@@ -304,8 +313,8 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
       {:ok, file, entries, paths} ->
         continue_manifest_file(file, normalized, entries, paths, total)
 
-      {:error, {:invalid_workspace_checkpoint_bundle, _reason}} = error ->
-        {:halt, error}
+      {:error, {:invalid_workspace_checkpoint_bundle, reason}} ->
+        {:halt, {:error, {:invalid_workspace_checkpoint_bundle, reason}}}
     end
   end
 
@@ -330,9 +339,14 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
       {:ok, Map.put(file, "path_bytes", path_bytes), MapSet.put(entries, expected_entry),
        MapSet.put(paths, path_bytes)}
     else
-      true -> bundle_error(:file)
-      false -> bundle_error(:file)
-      {:error, {:invalid_workspace_checkpoint_bundle, _reason}} = error -> error
+      true ->
+        bundle_error(:file)
+
+      false ->
+        bundle_error(:file)
+
+      {:error, {:invalid_workspace_checkpoint_bundle, reason}} ->
+        {:error, {:invalid_workspace_checkpoint_bundle, reason}}
     end
   end
 
@@ -346,8 +360,11 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
          true <- entry["byte_size"] in 1..@maximum_bundle_bytes do
       {:ok, entry}
     else
-      false -> bundle_error(:entry)
-      {:error, {:invalid_workspace_checkpoint_bundle, _reason}} = error -> error
+      false ->
+        bundle_error(:entry)
+
+      {:error, {:invalid_workspace_checkpoint_bundle, reason}} ->
+        {:error, {:invalid_workspace_checkpoint_bundle, reason}}
     end
   end
 

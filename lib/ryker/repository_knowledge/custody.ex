@@ -24,6 +24,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   alias Ryker.Repo
   alias Ryker.RepositoryKnowledge
   alias Ryker.RepositoryKnowledge.{Entry, FleetSession, Run}
+  alias Ryker.Text
   alias Ryker.UTCDateTime
   alias Ryker.Work.Session
   require Logger
@@ -968,8 +969,14 @@ defmodule Ryker.RepositoryKnowledge.Custody do
     |> tap(&RepositoryKnowledge.broadcast_updated(&1.repository_ref))
   end
 
+  # Within `maximum` characters as the row's char_length check counts them,
+  # code points, ending in "…" when cut. A model's reason in accents typed
+  # after their letters counted half as long and failed the check.
   defp bounded(text, maximum) do
     text = String.trim(text)
-    if String.length(text) <= maximum, do: text, else: String.slice(text, 0, maximum - 1) <> "…"
+
+    if Text.char_length(text) <= maximum,
+      do: text,
+      else: Text.characters(text, maximum - 1) <> "…"
   end
 end

@@ -4,6 +4,7 @@ defmodule Ryker.Reference do
   and within a byte bound. Every module keeps its own error tuple; the rule is
   shared so a reference that one boundary accepts is one every boundary accepts.
   """
+  alias Ryker.Text
 
   @default_maximum_bytes 1_024
 
@@ -35,7 +36,7 @@ defmodule Ryker.Reference do
   @spec text?(term(), pos_integer()) :: boolean()
   def text?(value, maximum) when is_binary(value) do
     String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
-      String.trim(value) != "" and length(String.codepoints(value)) <= maximum
+      String.trim(value) != "" and Text.char_length(value) <= maximum
   end
 
   def text?(_value, _maximum), do: false

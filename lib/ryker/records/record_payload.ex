@@ -256,8 +256,8 @@ defmodule Ryker.Records.RecordPayload do
       {:error, :invalid_slack_source_ref} ->
         {:error, {:invalid_state_record, :destination_ref}}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
 
       false ->
         {:error, {:invalid_state_record, :destination_ref}}
@@ -282,7 +282,7 @@ defmodule Ryker.Records.RecordPayload do
          :ok <- canonical(payload) do
       {:ok, %{continuation: nil, payload: payload, subject_ref: nil}}
     else
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       false -> {:error, {:invalid_state_record, :destination_ref}}
     end
   end
@@ -573,7 +573,7 @@ defmodule Ryker.Records.RecordPayload do
          true <- Regex.match?(~r/\A[A-Za-z0-9_.:-]+\z/, value) do
       :ok
     else
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       false -> {:error, {:invalid_state_record, field}}
     end
   end

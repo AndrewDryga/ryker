@@ -26,12 +26,12 @@ defmodule Ryker.GitHub.Onboarding do
       {:ok, :ready}
     else
       # Removed while it was being set up: there is nothing left to mark.
-      {:error, :repository_removed} = removed ->
-        removed
+      {:error, :repository_removed} ->
+        {:error, :repository_removed}
 
-      {:error, reason} = error ->
+      {:error, reason} ->
         _ = block(repository_ref, reason)
-        error
+        {:error, reason}
     end
   rescue
     # One repository's setup that raises stops that repository, never the

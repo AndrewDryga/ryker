@@ -115,7 +115,7 @@ defmodule Ryker.Slack.WorkControls do
        }}
     else
       {:ok, _non_task} -> {:error, :task_publication_mismatch}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -143,7 +143,7 @@ defmodule Ryker.Slack.WorkControls do
        }}
     else
       {:ok, _non_task} -> {:error, :task_publication_mismatch}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

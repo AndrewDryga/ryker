@@ -111,8 +111,8 @@ defmodule Ryker.Embeddings.Worker do
 
         {:ok, written}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

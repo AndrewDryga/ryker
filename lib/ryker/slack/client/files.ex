@@ -65,7 +65,7 @@ defmodule Ryker.Slack.Client.Files do
       {:ok, file}
     else
       {:ok, _invalid} -> {:error, {:slack_protocol_error, :file}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -124,7 +124,7 @@ defmodule Ryker.Slack.Client.Files do
     Enum.reduce_while(files, {:ok, []}, fn file, {:ok, uploaded} ->
       case upload_external_file(client, file) do
         {:ok, result} -> {:cont, {:ok, uploaded ++ [result]}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end

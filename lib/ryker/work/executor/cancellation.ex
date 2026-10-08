@@ -169,15 +169,15 @@ defmodule Ryker.Work.Executor.Cancellation do
       {:uncertain, reason} ->
         {:error, {:work_cancellation_unresolved, reason}}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
   defp fetch_and_bind_cancellation_session(claim, session_id, settings) do
     case Remote.api_call(settings, fn -> settings.api.get_session(settings.client, session_id) end) do
       {:ok, remote_session} -> bind_cancellation_session(claim, remote_session)
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -267,8 +267,8 @@ defmodule Ryker.Work.Executor.Cancellation do
       {:uncertain, reason} ->
         {:error, {:work_cancellation_unresolved, reason}}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -279,7 +279,7 @@ defmodule Ryker.Work.Executor.Cancellation do
     case Remote.operation_by_key(settings, key) do
       :not_found -> mutate_cancellation(claim, key, remote_turn, settings)
       {:ok, operation} -> cancellation_from_operation(claim, operation, key, settings)
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -323,7 +323,7 @@ defmodule Ryker.Work.Executor.Cancellation do
        )
        when is_map(cancelled) do
     case settle_remote_cancellation(claim, key, cancelled, settings) do
-      {:ok, _execution} = success -> success
+      {:ok, value} -> {:ok, value}
       {:error, reason} -> reconcile_cancellation_response(claim, key, reason, settings)
     end
   end
@@ -403,8 +403,8 @@ defmodule Ryker.Work.Executor.Cancellation do
       {:uncertain, reason} ->
         reconcile_uncertain_cancellation(claim, key, reason, settings)
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -514,8 +514,8 @@ defmodule Ryker.Work.Executor.Cancellation do
       {:ok, operation} ->
         cancellation_close_from_operation(claim, proof, operation, key, settings)
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -564,8 +564,8 @@ defmodule Ryker.Work.Executor.Cancellation do
       end
 
     case result do
-      {:ok, _execution} = success ->
-        success
+      {:ok, execution} ->
+        {:ok, execution}
 
       {:error, reason} ->
         reconcile_cancellation_close_response(claim, proof, key, reason, settings)
@@ -663,8 +663,8 @@ defmodule Ryker.Work.Executor.Cancellation do
       {:uncertain, reason} ->
         reconcile_uncertain_close(claim, proof, key, reason, settings)
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

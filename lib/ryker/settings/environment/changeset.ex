@@ -41,8 +41,8 @@ defmodule Ryker.Settings.Environment.Changeset do
     |> cast(attributes, @cast_fields)
     |> validate_required([:ref, :display_name, :is_default, :parallel_goal_limit])
     |> validate_format(:ref, Environment.ref_pattern())
-    |> validate_length(:display_name, min: 1, max: 80)
-    |> validate_length(:description, min: 1, max: 500)
+    |> validate_length(:display_name, min: 1, max: 80, count: :codepoints)
+    |> validate_length(:description, min: 1, max: 500, count: :codepoints)
     |> Validation.validate_known(
       :emisar_connection_ref,
       Enum.map(snapshot.emisar_connections, & &1.ref),

@@ -84,7 +84,7 @@ defmodule Ryker.Slack.IncidentRooms do
       |> transaction_result()
     else
       false -> {:error, {:invalid_incident_room_request, :private}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -182,8 +182,8 @@ defmodule Ryker.Slack.IncidentRooms do
 
       {:ok, candidate} ->
         case request(Map.merge(candidate, settings)) do
-          {:error, :incident_room_capacity} = full ->
-            full
+          {:error, :incident_room_capacity} ->
+            {:error, :incident_room_capacity}
 
           {:error, reason} ->
             {:error, {:automatic_incident_refused, candidate.record_ref, reason}}
@@ -192,8 +192,8 @@ defmodule Ryker.Slack.IncidentRooms do
             requested
         end
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -1446,7 +1446,7 @@ defmodule Ryker.Slack.IncidentRooms do
            true <- is_binary(policy.digest) and Regex.match?(~r/\A[0-9a-f]{64}\z/, policy.digest) do
         {:ok, policy}
       else
-        {:error, _reason} = error -> error
+        {:error, reason} -> {:error, reason}
         false -> {:error, {:invalid_incident_room_request, :policy_digest}}
       end
     else
@@ -1465,7 +1465,7 @@ defmodule Ryker.Slack.IncidentRooms do
         {:ok, target}
       else
         false -> {:error, {:invalid_incident_room_request, :transport}}
-        {:error, _reason} = error -> error
+        {:error, reason} -> {:error, reason}
       end
     else
       {:error, {:invalid_incident_room_request, :target}}
@@ -1479,7 +1479,7 @@ defmodule Ryker.Slack.IncidentRooms do
       ["slack", ^workspace_ref, channel_ref] ->
         case slack_id(channel_ref, :channel_ref) do
           :ok -> {:ok, channel_ref}
-          {:error, _reason} = error -> error
+          {:error, reason} -> {:error, reason}
         end
 
       _invalid ->

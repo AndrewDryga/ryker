@@ -67,7 +67,7 @@ defmodule Ryker.Slack.Client.Users do
          {:ok, %{"team_id" => ^workspace, "team" => name}} <- Transport.response(response) do
       {:ok, name}
     else
-      {:error, _} = error -> error
+      {:error, reason} -> {:error, reason}
       _ -> {:error, :directory_name_unavailable}
     end
   end
@@ -85,7 +85,7 @@ defmodule Ryker.Slack.Client.Users do
          &(is_binary(&1) and String.trim(&1) != "")
        )}
     else
-      {:error, _} = error -> error
+      {:error, reason} -> {:error, reason}
       _ -> {:error, :directory_name_unavailable}
     end
   end

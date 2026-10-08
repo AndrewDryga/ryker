@@ -105,7 +105,7 @@ defmodule Ryker.Slack.Collections do
              options
            ) do
         :ok -> {:cont, :ok}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
@@ -161,8 +161,8 @@ defmodule Ryker.Slack.Collections do
           :ok
         end
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

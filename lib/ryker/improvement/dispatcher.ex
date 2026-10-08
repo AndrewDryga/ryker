@@ -77,8 +77,8 @@ defmodule Ryker.Improvement.Dispatcher do
          {:ok, run} <- Analyses.begin_execution(claim, run.id) do
       execute(claim, run, settings)
     else
-      {:error, :improvement_lease_lost} = error ->
-        error
+      {:error, :improvement_lease_lost} ->
+        {:error, :improvement_lease_lost}
 
       {:error, reason}
       when reason in [
@@ -116,8 +116,8 @@ defmodule Ryker.Improvement.Dispatcher do
           settings.retry_delay_seconds
         )
 
-      {:error, :improvement_lease_lost} = error ->
-        error
+      {:error, :improvement_lease_lost} ->
+        {:error, :improvement_lease_lost}
 
       {:error, reason} ->
         unresolved(claim, run, reason)

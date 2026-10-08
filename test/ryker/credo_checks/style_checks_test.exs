@@ -232,6 +232,52 @@ defmodule Ryker.CredoChecks.StyleChecksTest do
     end
   end
 
+  describe "Ryker.Checks.NoBoundTupleReturn" do
+    # Until 2026-10-08 about 500 clauses bound a result only to return it, so
+    # a reader had to look back at the head to know what came out.
+    test "flags a tuple bound only to be returned, alone or inside another" do
+      source = """
+      defmodule Ryker.Sprockets do
+        def spin(result) do
+          case result do
+            {:error, :lease_lost} = error -> error
+            {:error, {:invalid, _field}} = error -> {:halt, error}
+            {:ok, _sprocket} = ok when is_tuple(ok) -> ok
+          end
+        end
+
+        def stop(result) do
+          case result do
+            {:error, _reason} = error ->
+              :telemetry.execute([:stop], %{})
+              error
+          end
+        end
+      end
+      """
+
+      assert length(issues(bound_tuple(), source, @context)) == 4
+    end
+
+    test "allows a restated tuple and a binding passed on to a function" do
+      source = """
+      defmodule Ryker.Sprockets do
+        def spin(result) do
+          case result do
+            {:error, :lease_lost} -> {:error, :lease_lost}
+            {:error, reason} -> {:halt, {:error, reason}}
+            {:error, _reason} = error -> retry(error)
+          end
+        end
+
+        defp retry(error), do: error
+      end
+      """
+
+      assert issues(bound_tuple(), source, @context) == []
+    end
+  end
+
   describe "Ryker.Checks.NoBlankBetweenDirectives" do
     test "flags a blank line sandwiched between two directives" do
       source = """
@@ -440,6 +486,7 @@ defmodule Ryker.CredoChecks.StyleChecksTest do
   defp alias_group, do: check("MultilineAliasGroup")
   defp do_colon, do: check("MultilineDoColon")
   defp blank_directives, do: check("NoBlankBetweenDirectives")
+  defp bound_tuple, do: check("NoBoundTupleReturn")
   defp capture_closure, do: check("PreferCaptureClosure")
   defp pipe_in_branch_head, do: check("NoPipeInBranchHead")
   defp short_bindings, do: check("ShortBindings")

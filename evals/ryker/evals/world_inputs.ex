@@ -120,7 +120,7 @@ defmodule Ryker.Evals.WorldInputs do
       })
     else
       nil -> {:error, {:invalid_world_runner, :input_actor}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:invalid_world_runner, :input_profile}}
     end
   end
@@ -136,7 +136,7 @@ defmodule Ryker.Evals.WorldInputs do
         do: {:ok, content},
         else: {:ok, Map.put(content, "world_fixture_context", context)}
     else
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, :invalid_world_fixture_context}
     end
   end

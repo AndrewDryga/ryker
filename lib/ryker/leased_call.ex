@@ -77,7 +77,7 @@ defmodule Ryker.LeasedCall do
 
         case renewed(renew) do
           :ok -> result
-          {:error, _reason} = error -> error
+          {:error, reason} -> {:error, reason}
         end
 
       {:DOWN, ^monitor, :process, ^guardian, reason} ->
@@ -86,7 +86,7 @@ defmodule Ryker.LeasedCall do
       cadence_ms ->
         case renewed(renew) do
           :ok -> await(result_ref, guardian, monitor, renew, cadence_ms, exit_tag)
-          {:error, _reason} = error -> error
+          {:error, reason} -> {:error, reason}
         end
     end
   end
@@ -94,7 +94,7 @@ defmodule Ryker.LeasedCall do
   defp renewed(renew) do
     case renew.() do
       {:ok, _renewed} -> :ok
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

@@ -97,15 +97,15 @@ defmodule Ryker.GitHub.Client.Context do
     |> Enum.reduce_while({:ok, []}, fn item, {:ok, items} ->
       case context_item(item, request.section) do
         {:ok, prepared} -> {:cont, {:ok, [prepared | items]}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> case do
       {:ok, items} ->
         {:ok, Enum.reverse(items) |> filter_context_items(request), provider_count}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -381,7 +381,7 @@ defmodule Ryker.GitHub.Client.Context do
       case read_review_parent(client, request, id) do
         {:ok, parent} -> {:cont, {:ok, parents ++ [parent], unavailable}}
         :not_found -> {:cont, {:ok, parents, unavailable ++ [id]}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end

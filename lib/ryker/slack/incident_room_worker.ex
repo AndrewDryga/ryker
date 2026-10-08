@@ -90,7 +90,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
     case IncidentRooms.claim_next(options.worker_ref, options.lease_seconds) do
       {:ok, nil} -> claim_health_check(options)
       {:ok, room} -> execute(room, options)
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -102,7 +102,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
          ) do
       {:ok, nil} -> claim_root_card(options)
       {:ok, room} -> execute(room, options)
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -114,7 +114,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
          ) do
       {:ok, nil} -> close_orphaned_investigation(options)
       {:ok, room} -> refresh_root_card(room, options)
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -130,7 +130,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
         case close_investigation(room, episode, deletion(room)) do
           {:ok, %{status: :settled}} -> {:ok, {:closed, room.ref}}
           {:ok, %{status: :pending}} -> {:ok, {:closing, room.ref}}
-          {:error, _reason} = error -> error
+          {:error, reason} -> {:error, reason}
         end
     end
   end
@@ -228,8 +228,8 @@ defmodule Ryker.Slack.IncidentRoomWorker do
         Process.put(@refused_offers, MapSet.put(refused, record_ref))
         {:ok, {:refused, record_ref}}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
 
       _invalid ->
         {:error, :invalid_automatic_incident_request}
@@ -337,7 +337,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
 
     case Episodes.apply(command) do
       {:ok, _transition} -> {:ok, %{status: :settled}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -396,7 +396,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
 
     case IncidentRooms.defer(room.id, room.lease_ref, retry_seconds, :incident_room_close_pending) do
       {:ok, deferred} -> {:ok, {:deferred, deferred.ref}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -507,7 +507,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
            :incident_room_lifecycle_pending
          ) do
       {:ok, deferred} -> {:ok, {:deferred, deferred.ref}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -543,7 +543,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
            room.channel_state
          ) do
       {:ok, reconciled} -> {:ok, {:ready, reconciled.ref}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -552,7 +552,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
 
     case IncidentRooms.close_deleted(room.id, room.lease_ref, detail) do
       {:ok, closed} -> {:ok, {:closed, closed.ref}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -664,8 +664,8 @@ defmodule Ryker.Slack.IncidentRoomWorker do
 
           {:cont, {:ok, users}}
 
-        {:error, _reason} = error ->
-          {:halt, error}
+        {:error, reason} ->
+          {:halt, {:error, reason}}
       end
     end)
   end
@@ -680,8 +680,8 @@ defmodule Ryker.Slack.IncidentRoomWorker do
           Logger.warning("incident room #{room.ref} left out #{user_ref}: they cannot join it")
           {:cont, {:ok, joinable}}
 
-        {:error, _reason} = error ->
-          {:halt, error}
+        {:error, reason} ->
+          {:halt, {:error, reason}}
       end
     end)
   end
@@ -740,8 +740,8 @@ defmodule Ryker.Slack.IncidentRoomWorker do
           delivery_ref
         )
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -829,8 +829,8 @@ defmodule Ryker.Slack.IncidentRoomWorker do
             delivery_ref
           )
 
-        {:error, _reason} = error ->
-          error
+        {:error, reason} ->
+          {:error, reason}
       end
 
     with {:ok, message_ref} <- result do
@@ -862,14 +862,14 @@ defmodule Ryker.Slack.IncidentRoomWorker do
          (permanent?(reason) or room.attempt_count >= options.max_attempts) do
       case IncidentRooms.block(room.id, room.lease_ref, reason) do
         {:ok, blocked} -> {:ok, {:blocked, blocked.ref, reason}}
-        {:error, _reason} = error -> error
+        {:error, reason} -> {:error, reason}
       end
     else
       retry_seconds = retry_delay(room.attempt_count, options.retry_base_seconds)
 
       case IncidentRooms.defer(room.id, room.lease_ref, retry_seconds, reason) do
         {:ok, deferred} -> {:ok, {:deferred, deferred.ref}}
-        {:error, _reason} = error -> error
+        {:error, reason} -> {:error, reason}
       end
     end
   end
@@ -879,7 +879,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
 
     case IncidentRooms.defer(room.id, room.lease_ref, retry_seconds, reason) do
       {:ok, deferred} -> {:ok, {:deferred, deferred.ref}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

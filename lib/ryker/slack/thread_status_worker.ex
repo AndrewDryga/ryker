@@ -108,8 +108,8 @@ defmodule Ryker.Slack.ThreadStatusWorker do
             deliver_due(options, remaining - 1, outcome)
         end
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -127,7 +127,7 @@ defmodule Ryker.Slack.ThreadStatusWorker do
 
         case confirmation do
           {:ok, _confirmed} -> {:ok, Map.update!(outcome, :written, &(&1 + 1))}
-          {:error, _reason} = error -> {error, Map.update!(outcome, :failed, &(&1 + 1))}
+          {:error, reason} -> {{:error, reason}, Map.update!(outcome, :failed, &(&1 + 1))}
         end
 
       {:error, reason} ->
@@ -137,8 +137,8 @@ defmodule Ryker.Slack.ThreadStatusWorker do
           {:ok, _settled} ->
             {{:error, reason}, Map.update!(outcome, :failed, &(&1 + 1))}
 
-          {:error, _reason} = error ->
-            {error, Map.update!(outcome, :failed, &(&1 + 1))}
+          {:error, reason} ->
+            {{:error, reason}, Map.update!(outcome, :failed, &(&1 + 1))}
         end
     end
   end

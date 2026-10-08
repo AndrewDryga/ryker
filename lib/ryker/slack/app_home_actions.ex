@@ -46,7 +46,7 @@ defmodule Ryker.Slack.AppHomeActions do
       :ok
     else
       false -> {:error, :app_home_resource_not_visible}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:invalid_app_home_authorization, :shared_conversations}}
     end
   end

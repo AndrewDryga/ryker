@@ -33,7 +33,7 @@ defmodule Ryker.Work.Executor.Turns do
     case Remote.operation_by_key(settings, key) do
       :not_found -> submit_turn(claim, key, settings)
       {:ok, operation} -> bind_turn_from_operation(claim, operation, key, settings)
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -114,8 +114,8 @@ defmodule Ryker.Work.Executor.Turns do
       {:uncertain, reason} ->
         {:error, {:work_execution_blocked, reason}}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -345,7 +345,7 @@ defmodule Ryker.Work.Executor.Turns do
       {:ok, %{"transfer_id" => transfer_id}}
     else
       {:ok, _invalid} -> {:error, {:coop_protocol_error, :workspace_checkpoint}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -506,12 +506,12 @@ defmodule Ryker.Work.Executor.Turns do
 
       case verify_output_artifact(expected, result) do
         {:ok, artifact} -> {:cont, {:ok, [artifact | fetched]}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> case do
       {:ok, fetched} -> {:ok, Enum.reverse(fetched)}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

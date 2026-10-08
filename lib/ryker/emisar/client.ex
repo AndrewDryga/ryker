@@ -40,7 +40,7 @@ defmodule Ryker.Emisar.Client do
       {:ok, client}
     else
       false -> {:error, {:invalid_emisar_client, :requester}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -136,7 +136,7 @@ defmodule Ryker.Emisar.Client do
        }}
     else
       false -> {:error, {:emisar_protocol_error, :status}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -185,7 +185,7 @@ defmodule Ryker.Emisar.Client do
 
     case reference(text, maximum, :error_message) do
       :ok -> {:ok, text}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

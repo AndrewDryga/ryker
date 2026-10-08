@@ -179,8 +179,8 @@ defmodule Ryker.GitHub.Client.Comments do
         :not_found ->
           {:error, {:github_reconciliation_incomplete, @maximum_pages * @page_size}}
 
-        {:error, _reason} = error ->
-          error
+        {:error, reason} ->
+          {:error, reason}
       end
     end
   end

@@ -117,8 +117,8 @@ defmodule Ryker.Evals.CoopRunner do
       {:ok, _response} ->
         {:error, {:coop_protocol_error, :create_session_response}}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -215,8 +215,8 @@ defmodule Ryker.Evals.CoopRunner do
       :not_found ->
         {:error, {:coop_protocol_error, :operation_disappeared}}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -391,14 +391,14 @@ defmodule Ryker.Evals.CoopRunner do
           {:ok, current}
         else
           false -> {:error, {:coop_protocol_error, :validation_turn_identity}}
-          {:error, _reason} = error -> error
+          {:error, reason} -> {:error, reason}
         end
 
       {:ok, _response} ->
         {:error, {:coop_protocol_error, :validation_response}}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -409,7 +409,7 @@ defmodule Ryker.Evals.CoopRunner do
       :ok
     else
       false -> {:error, {:coop_protocol_error, :validation_rejection_not_applied}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -475,7 +475,7 @@ defmodule Ryker.Evals.CoopRunner do
       :ok
     else
       {:ok, _response} -> {:error, {:coop_protocol_error, :close_session_response}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -523,7 +523,7 @@ defmodule Ryker.Evals.CoopRunner do
       :ok
     else
       false -> {:error, {:eval_workspace_not_discardable, session["id"]}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

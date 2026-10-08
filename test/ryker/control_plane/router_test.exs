@@ -2507,7 +2507,7 @@ defmodule Ryker.ControlPlane.RouterTest do
       _incomplete ->
         case :gen_tcp.recv(socket, 0, 5_000) do
           {:ok, data} -> socket_response(socket, received <> data)
-          {:error, _reason} = error -> error
+          {:error, reason} -> {:error, reason}
         end
     end
   end

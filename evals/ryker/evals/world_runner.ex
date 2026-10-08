@@ -89,7 +89,7 @@ defmodule Ryker.Evals.WorldRunner do
          {:ok, report} <- assess(scenario, executions, delivery_agent, settings, skipped) do
       {:ok, report}
     else
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   rescue
     error -> {:error, {:world_eval_runner_exception, Exception.message(error)}}

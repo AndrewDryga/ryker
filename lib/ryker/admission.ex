@@ -78,7 +78,7 @@ defmodule Ryker.Admission do
       {:ok, context}
     else
       nil -> {:error, {:invalid_admission_context_snapshot, :missing}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:invalid_admission_context_snapshot, :document}}
     end
   end
@@ -736,8 +736,8 @@ defmodule Ryker.Admission do
       {:error, {:stale_input_revision, details} = reason} ->
         supersede_stale_revision(entry, selection, decision, decision_ref, details, reason)
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -1117,7 +1117,7 @@ defmodule Ryker.Admission do
            repository_source: decision.repository_source
          ) do
       {:ok, _session} -> :ok
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

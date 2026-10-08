@@ -361,7 +361,7 @@ defmodule Ryker.Ingress.WorkProfile do
     Enum.reduce_while(repositories, {:ok, %{}}, fn repository_ref, {:ok, prepared} ->
       case repository_classes(Map.fetch!(policies, repository_ref)) do
         {:ok, classes} -> {:cont, {:ok, Map.put(prepared, repository_ref, classes)}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end

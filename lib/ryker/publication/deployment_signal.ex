@@ -42,7 +42,7 @@ defmodule Ryker.Publication.DeploymentSignal do
          }
        }}
     else
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:invalid_publication_deployment_signal, :fields}}
     end
   end
@@ -74,7 +74,7 @@ defmodule Ryker.Publication.DeploymentSignal do
          :ok <- Enum.reduce_while(values, :ok, &validate_reference/2) do
       {:ok, values}
     else
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       false -> {:error, {:invalid_publication_deployment_signal, :references}}
     end
   end
@@ -85,7 +85,7 @@ defmodule Ryker.Publication.DeploymentSignal do
   defp validate_reference(value, :ok) do
     case reference(value, :references, 2_048) do
       :ok -> {:cont, :ok}
-      {:error, _reason} = error -> {:halt, error}
+      {:error, reason} -> {:halt, {:error, reason}}
     end
   end
 

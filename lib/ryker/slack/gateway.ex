@@ -383,7 +383,7 @@ defmodule Ryker.Slack.Gateway do
       callback when is_function(callback, 2) ->
         case callback.(input.source.ref, input.destination.conversation_ref) do
           {:ok, profile} when is_map(profile) -> {:ok, profile}
-          {:error, _reason} = error -> error
+          {:error, reason} -> {:error, reason}
           _invalid -> {:error, {:invalid_slack_settings, :work_profile}}
         end
 
@@ -439,8 +439,8 @@ defmodule Ryker.Slack.Gateway do
       {:ok, false} ->
         :not_setup
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -449,7 +449,7 @@ defmodule Ryker.Slack.Gateway do
       callback when is_function(callback, 2) ->
         case callback.(input.source.ref, input.destination.conversation_ref) do
           {:ok, allowed} when is_boolean(allowed) -> {:ok, allowed}
-          {:error, _reason} = error -> error
+          {:error, reason} -> {:error, reason}
           _invalid -> {:error, {:invalid_slack_settings, :setup_allowed}}
         end
 
@@ -754,8 +754,8 @@ defmodule Ryker.Slack.Gateway do
                shadow_setting: setting_source(shadow_setting)
              }}
 
-          {:error, _reason} = error ->
-            error
+          {:error, reason} ->
+            {:error, reason}
 
           _invalid ->
             {:error, {:invalid_slack_settings, :effective}}

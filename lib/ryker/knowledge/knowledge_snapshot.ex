@@ -27,10 +27,17 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
   @doc "Record every knowledge revision disclosed to this exact native session, without copying its text."
   def expose(%{episode: destination, session: session, turn: turn}, documents) do
     case Repo.transaction(fn -> expose_locked(destination, session, turn, documents) end) do
-      {:ok, :ok} -> :ok
-      {:error, :work_derived_context_busy} = error -> error
-      {:error, :work_memory_source_capacity_exceeded} = error -> error
-      {:error, _} -> @stale
+      {:ok, :ok} ->
+        :ok
+
+      {:error, :work_derived_context_busy} ->
+        {:error, :work_derived_context_busy}
+
+      {:error, :work_memory_source_capacity_exceeded} ->
+        {:error, :work_memory_source_capacity_exceeded}
+
+      {:error, _} ->
+        @stale
     end
   end
 
@@ -313,7 +320,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
          sources when is_list(sources) <- LearningSources.merge([references, remaining]) do
       {:ok, sources}
     else
-      {:error, _} = error -> error
+      {:error, reason} -> {:error, reason}
       _ -> {:error, "source_capacity"}
     end
   end
@@ -406,7 +413,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
              sources_valid?(destination, repository, sources)
          end) do
       {:ok, true} -> :ok
-      {:error, :work_derived_context_busy} = error -> error
+      {:error, :work_derived_context_busy} -> {:error, :work_derived_context_busy}
       _ -> @stale
     end
   end

@@ -631,7 +631,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceDocument do
     Enum.reduce_while(values, :ok, fn value, :ok ->
       case validate.(value) do
         :ok -> {:cont, :ok}
-        {:error, _reason} = failure -> {:halt, failure}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end

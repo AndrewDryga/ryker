@@ -159,7 +159,7 @@ defmodule Ryker.Learning.Observations do
     else
       false -> {:error, :observation_transaction_required}
       {:error, :slack_channel_deleted} -> :ok
-      {:error, _} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

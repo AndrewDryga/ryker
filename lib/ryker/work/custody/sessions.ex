@@ -400,8 +400,8 @@ defmodule Ryker.Work.Custody.Sessions do
           :ok ->
             insert_session(episode.id, session.generation + 1, session_authority(session))
 
-          {:error, _reason} = error ->
-            error
+          {:error, reason} ->
+            {:error, reason}
         end
     end
   end

@@ -74,7 +74,7 @@ defmodule Ryker.Operator.Emisar do
       {:ok, item(row, unwatched_accounts())}
     else
       nil -> {:error, :emisar_approval_not_found}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

@@ -18,6 +18,44 @@ defmodule Ryker.Settings.EnvironmentsTest do
     %{snapshot: snapshot}
   end
 
+  # A name or description is bounded by its column, which counts code points,
+  # and the changeset counted what a reader sees as one character: 80
+  # accented letters typed as a letter and a combining accent are 160 code
+  # points, passed validation and raised in the insert, so saving crashed
+  # the settings page instead of saying which field was too long (2026-10-08).
+  test "an environment's name and description are bounded as their columns count them",
+       %{snapshot: snapshot} do
+    revision = snapshot.installation.revision
+    accented = &String.duplicate("e\u0301", &1)
+
+    for {field, value} <- [display_name: accented.(80), description: accented.(500)] do
+      assert {:error, {:invalid_settings, errors}} =
+               Settings.put_environment(
+                 Map.merge(%{ref: "staging", display_name: "Staging"}, %{field => value}),
+                 revision,
+                 @actor
+               )
+
+      assert Keyword.has_key?(errors, field)
+    end
+
+    assert {:error, {:invalid_settings, errors}} =
+             Settings.put_repository(
+               %{ref: "billing", display_name: accented.(120)},
+               revision,
+               @actor
+             )
+
+    assert Keyword.has_key?(errors, :display_name)
+
+    assert {:ok, _saved} =
+             Settings.put_environment(
+               %{ref: "staging", display_name: accented.(40), description: accented.(250)},
+               revision,
+               @actor
+             )
+  end
+
   # Environments, Repositories, Channels and Chat show the saved environments
   # and repositories. Until 2026-09-26 an open page in another tab heard of a
   # save from a trigger's NOTIFY and a five-second poll; the settings now

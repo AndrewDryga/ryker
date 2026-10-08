@@ -54,7 +54,7 @@ defmodule Ryker.Slack.InteractionFeedbackWorker do
     case InteractionAudits.claim_next(options.worker_ref, options.lease_seconds) do
       {:ok, nil} -> {:ok, :idle}
       {:ok, audit} -> repaint(audit, options)
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

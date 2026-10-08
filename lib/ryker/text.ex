@@ -1,12 +1,16 @@
 defmodule Ryker.Text do
   @moduledoc """
-  Cutting text to a byte budget.
+  Measuring and cutting text in the unit its limit counts.
 
   Slack, GitHub and the database enforce their limits in bytes, so a value cut
   to fit one is cut in bytes. A cut counted in characters and checked in bytes
   failed on any multi-byte text and on the "…" it added: a task card stopped
   refreshing on a long check reason (2026-10-04 review). The cut never splits a
   character.
+
+  A limit in characters is JSON Schema's `maxLength` or PostgreSQL's
+  `char_length`, and both count code points, not what a reader sees as one
+  character: a flag is two, an accent typed after its letter makes two.
   """
 
   @ellipsis "…"
@@ -19,6 +23,13 @@ defmodule Ryker.Text do
       do: text,
       else: String.byte_slice(text, 0, max_bytes - byte_size(@ellipsis)) <> @ellipsis
   end
+
+  @doc """
+  How many characters `text` has as JSON Schema's `maxLength` and PostgreSQL's
+  `char_length` count them: code points.
+  """
+  @spec char_length(String.t()) :: non_neg_integer()
+  def char_length(text) when is_binary(text), do: text |> String.codepoints() |> length()
 
   @doc """
   The start of `text` within `count` characters as PostgreSQL's `char_length`

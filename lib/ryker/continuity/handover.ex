@@ -34,7 +34,7 @@ defmodule Ryker.Continuity.Handover do
       Repo.transaction(fn -> stage_locked(turn_id, state) end)
     else
       :error -> {:error, :conversation_summary_unauthorized}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -70,8 +70,8 @@ defmodule Ryker.Continuity.Handover do
 
           :ok
 
-        {:error, _reason} = error ->
-          error
+        {:error, reason} ->
+          {:error, reason}
       end
     else
       {:error, :conversation_summary_transaction_required}
@@ -119,8 +119,8 @@ defmodule Ryker.Continuity.Handover do
           false ->
             {:error, :conversation_summary_fingerprint_mismatch}
 
-          {:error, _reason} = error ->
-            error
+          {:error, reason} ->
+            {:error, reason}
         end
     end
   end

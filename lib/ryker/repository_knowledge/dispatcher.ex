@@ -207,7 +207,7 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
 
     case result do
       {:ok, run} -> execute(claim, run, target, settings)
-      {:error, :repository_knowledge_lease_lost} = error -> error
+      {:error, :repository_knowledge_lease_lost} -> {:error, :repository_knowledge_lease_lost}
       {:error, reason} -> failed(claim, reason, settings, &Custody.give_up_write/2)
     end
   end
@@ -276,8 +276,8 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
           settings.retry_delay_seconds
         )
 
-      {:error, :repository_knowledge_lease_lost} = error ->
-        error
+      {:error, :repository_knowledge_lease_lost} ->
+        {:error, :repository_knowledge_lease_lost}
 
       {:error, reason} ->
         unresolved(claim, run, reason)
@@ -352,7 +352,7 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
         case remote.read(binding, repository, path, head) do
           {:ok, text} -> {:ok, text(text)}
           {:error, :source_unavailable} -> {:ok, nil}
-          {:error, _reason} = error -> error
+          {:error, reason} -> {:error, reason}
         end
     end
   end

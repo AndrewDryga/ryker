@@ -90,7 +90,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceCapture do
     case api.get_session_evidence(client, remote) do
       {:ok, document} when is_map(document) -> {:ok, document}
       {:ok, _invalid} -> {:error, {:coop_protocol_error, :session_evidence}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 end

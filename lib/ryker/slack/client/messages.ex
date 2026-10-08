@@ -93,7 +93,7 @@ defmodule Ryker.Slack.Client.Messages do
       :ok
     else
       false -> {:error, {:slack_protocol_error, :message_update}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

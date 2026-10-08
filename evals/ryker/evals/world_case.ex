@@ -105,7 +105,7 @@ defmodule Ryker.Evals.WorldCase do
       {:ok, scenario}
     else
       nil -> {:error, {:world_case_not_found, id}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -122,7 +122,7 @@ defmodule Ryker.Evals.WorldCase do
 
     case result do
       {:ok, cases} -> unique(Enum.reverse(cases))
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -272,7 +272,7 @@ defmodule Ryker.Evals.WorldCase do
        }}
     else
       false -> {:error, :scenario}
-      {:error, _field} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -587,7 +587,7 @@ defmodule Ryker.Evals.WorldCase do
     Enum.reduce_while(repositories, :ok, fn repository, :ok ->
       case repository_entry(repository, directory) do
         :ok -> {:cont, :ok}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
@@ -679,7 +679,7 @@ defmodule Ryker.Evals.WorldCase do
   defp collect_repository_directory(root, path, collected) do
     case repository_entries(root, path, collected) do
       {:ok, nested} -> {:cont, {:ok, nested}}
-      {:error, _reason} = error -> {:halt, error}
+      {:error, reason} -> {:halt, {:error, reason}}
     end
   end
 
@@ -719,7 +719,7 @@ defmodule Ryker.Evals.WorldCase do
     Enum.reduce_while(rules, :ok, fn rule, :ok ->
       case tool_rule(rule) do
         :ok -> {:cont, :ok}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
@@ -745,7 +745,7 @@ defmodule Ryker.Evals.WorldCase do
     Enum.reduce_while(responses, :ok, fn response, :ok ->
       case response(response) do
         :ok -> {:cont, :ok}
-        {:error, _field} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
@@ -770,7 +770,7 @@ defmodule Ryker.Evals.WorldCase do
          :ok <- model_events(events) do
       :ok
     else
-      {:error, _field} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, :model_events}
     end
   end
@@ -782,7 +782,7 @@ defmodule Ryker.Evals.WorldCase do
       Enum.reduce_while(events, :ok, fn event, :ok ->
         case model_event(event) do
           :ok -> {:cont, :ok}
-          {:error, _field} = error -> {:halt, error}
+          {:error, reason} -> {:halt, {:error, reason}}
         end
       end)
 
@@ -845,7 +845,7 @@ defmodule Ryker.Evals.WorldCase do
     Enum.reduce_while(values, {:ok, []}, fn value, {:ok, artifacts} ->
       case output_artifact(value) do
         {:ok, artifact} -> {:cont, {:ok, [artifact | artifacts]}}
-        {:error, _field} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
@@ -911,7 +911,7 @@ defmodule Ryker.Evals.WorldCase do
     Enum.reduce_while(calls, :ok, fn call, :ok ->
       case model_call(call) do
         :ok -> {:cont, :ok}
-        {:error, _field} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
@@ -945,7 +945,7 @@ defmodule Ryker.Evals.WorldCase do
     Enum.reduce_while(candidates, :ok, fn candidate, :ok ->
       case model_candidate(candidate) do
         :ok -> {:cont, :ok}
-        {:error, _field} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end

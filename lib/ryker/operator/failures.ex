@@ -66,7 +66,7 @@ defmodule Ryker.Operator.Failures do
     case FailureProjection.fetch(kind, ref) do
       {:ok, failure} -> {:ok, failure}
       :not_found -> {:error, :operator_failure_not_found}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -194,7 +194,7 @@ defmodule Ryker.Operator.Failures do
          }}
       else
         :error -> {:error, {:invalid_operator_failure, :options}}
-        {:error, _reason} = error -> error
+        {:error, reason} -> {:error, reason}
       end
     else
       {:error, {:invalid_operator_failure, :options}}

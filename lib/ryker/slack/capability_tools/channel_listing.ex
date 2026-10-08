@@ -29,7 +29,7 @@ defmodule Ryker.Slack.CapabilityTools.ChannelListing do
            ) do
         {:ok, nil} -> {:cont, {:ok, listed}}
         {:ok, result} -> {:cont, {:ok, [result | listed]}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> case do
@@ -41,8 +41,8 @@ defmodule Ryker.Slack.CapabilityTools.ChannelListing do
            "visibility" => "public_and_current_private"
          }}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -205,12 +205,12 @@ defmodule Ryker.Slack.CapabilityTools.ChannelListing do
 
         {:cont, {:ok, [conversation | hydrated]}}
       else
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> case do
       {:ok, hydrated} -> {:ok, %{listed | "conversations" => Enum.reverse(hydrated)}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

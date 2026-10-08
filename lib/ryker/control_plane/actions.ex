@@ -188,8 +188,8 @@ defmodule Ryker.ControlPlane.Actions do
       :not_found ->
         {:error, :failure_not_found}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -264,7 +264,7 @@ defmodule Ryker.ControlPlane.Actions do
         build_lab_task_record(record, episode, view, params, work_view_options)
       else
         %Record{} -> {:error, :conversation_lab_task_mismatch}
-        {:error, _reason} = error -> error
+        {:error, reason} -> {:error, reason}
       end
     end
   end
@@ -300,7 +300,7 @@ defmodule Ryker.ControlPlane.Actions do
        }}
     else
       nil -> {:error, :conversation_lab_work_changes_not_available}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, :conversation_lab_work_changes_not_available}
     end
   end
@@ -679,7 +679,7 @@ defmodule Ryker.ControlPlane.Actions do
       {:ok, result}
     else
       false -> {:error, :conversation_lab_task_control_stale}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -710,7 +710,7 @@ defmodule Ryker.ControlPlane.Actions do
       )
     else
       nil -> {:error, :conversation_lab_publication_not_found}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -762,7 +762,7 @@ defmodule Ryker.ControlPlane.Actions do
        ) do
     case task_episode(record, target) do
       {:ok, episode} -> close_task_episode(episode, request)
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -858,7 +858,7 @@ defmodule Ryker.ControlPlane.Actions do
 
     case Episodes.apply(command) do
       {:ok, transition} -> {:ok, %{episode: transition.episode, status: :settled}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

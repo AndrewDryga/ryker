@@ -55,7 +55,7 @@ defmodule Ryker.Slack.Renderer.Records do
       Enum.reduce_while(records, {:ok, []}, fn record, {:ok, blocks} ->
         case render_record(record) do
           {:ok, rendered} -> {:cont, {:ok, blocks ++ rendered}}
-          {:error, _reason} = error -> {:halt, error}
+          {:error, reason} -> {:halt, {:error, reason}}
         end
       end)
 

@@ -192,8 +192,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
       {:error, {:too_large, _actual, _limit}} ->
         {:error, {:invalid_coop_worker_command, :payload}}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -578,7 +578,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
          {:ok, request} <- Requests.encode(command.kind, payload, placement) do
       case Bodies.prepare_request(request, body_root, command.id, checkpoint_key) do
         {:ok, request} -> {:ok, request}
-        {:error, _reason} = error -> {:defer, error}
+        {:error, reason} -> {:defer, {:error, reason}}
       end
     end
   end

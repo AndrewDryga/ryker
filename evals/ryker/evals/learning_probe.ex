@@ -149,21 +149,21 @@ defmodule Ryker.Evals.LearningProbe do
              platform_tools: []
            ]
          ) do
-      {:ok, {:executed, _}} = result ->
-        result
+      {:ok, {:executed, value}} ->
+        {:ok, {:executed, value}}
 
-      {:ok, {:blocked, _}} = result ->
-        result
+      {:ok, {:blocked, value}} ->
+        {:ok, {:blocked, value}}
 
-      {:error, _} = result ->
-        result
+      {:error, reason} ->
+        {:error, reason}
 
       {:ok, {:deferred, {:work_poll_window_elapsed, _}}} ->
         Process.sleep(1000)
         work(settings, left - 1)
 
-      {:ok, {:deferred, _}} = result ->
-        result
+      {:ok, {:deferred, value}} ->
+        {:ok, {:deferred, value}}
 
       _ ->
         Process.sleep(1000)

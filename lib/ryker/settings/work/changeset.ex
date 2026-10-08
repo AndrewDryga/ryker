@@ -22,7 +22,7 @@ defmodule Ryker.Settings.Work.Changeset do
   def update(%Work{} = work, attributes, snapshot) do
     work
     |> cast(attributes, @fields)
-    |> validate_length(:workspace_ref, min: 1, max: 256)
+    |> validate_length(:workspace_ref, min: 1, max: 256, count: :codepoints)
     |> validate_required([:ready_routing_sessions, :model_accounts | @model_fields])
     |> validate_number(:ready_routing_sessions,
       greater_than_or_equal_to: 0,

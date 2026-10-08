@@ -13,6 +13,7 @@ defmodule Ryker.Improvement.Prompt do
   """
   alias Ryker.CanonicalJSON
   alias Ryker.Improvement.Candidate
+  alias Ryker.Reference
 
   @contract_version "improvement-analysis-v1"
   @max_encoded_bytes 65_536
@@ -202,10 +203,7 @@ defmodule Ryker.Improvement.Prompt do
   defp text(value, maximum) when is_binary(value) do
     trimmed = String.trim(value)
 
-    if String.valid?(trimmed) and trimmed != "" and String.length(trimmed) <= maximum and
-         not String.contains?(trimmed, <<0>>),
-       do: {:ok, trimmed},
-       else: :error
+    if Reference.text?(trimmed, maximum), do: {:ok, trimmed}, else: :error
   end
 
   defp text(_value, _maximum), do: :error

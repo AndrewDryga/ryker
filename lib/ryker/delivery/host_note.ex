@@ -49,8 +49,8 @@ defmodule Ryker.Delivery.HostNote do
         {:error, {:delivery_adapter_not_configured, _transport} = reason} ->
           {:ok, {:not_posted, reason}}
 
-        {:error, _reason} = error ->
-          error
+        {:error, reason} ->
+          {:error, reason}
       end
     end
   end

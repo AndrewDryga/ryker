@@ -66,7 +66,7 @@ defmodule Ryker.Publication.Request do
       {:ok, request}
     else
       false -> {:error, {:invalid_publication_request, :identity}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

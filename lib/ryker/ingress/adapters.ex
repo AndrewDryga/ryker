@@ -53,8 +53,8 @@ defmodule Ryker.Ingress.Adapters do
       {:ok, %Input{}} ->
         {:error, {:invalid_ingress_adapter_output, kind, :source_kind}}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
 
       _other ->
         {:error, {:invalid_ingress_adapter_output, kind, :result}}

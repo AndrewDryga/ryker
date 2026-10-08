@@ -52,7 +52,7 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
     case Approvals.close_ended(settings.connection_ref) do
       {:ok, []} -> {:ok, :idle}
       {:ok, closed} -> {:ok, {:closed, closed}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

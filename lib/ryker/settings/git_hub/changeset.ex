@@ -16,9 +16,9 @@ defmodule Ryker.Settings.GitHub.Changeset do
       |> cast(attributes, @fields)
       |> validate_required([:enabled])
       |> validate_number(:app_id, greater_than: 0)
-      |> validate_length(:app_slug, min: 1, max: 256)
+      |> validate_length(:app_slug, min: 1, max: 256, count: :codepoints)
       |> validate_number(:bot_actor_id, greater_than: 0)
-      |> validate_length(:bot_login, min: 1, max: 256)
+      |> validate_length(:bot_login, min: 1, max: 256, count: :codepoints)
       |> validate_url(:api_url)
       |> validate_identity_pair(:bot_actor_id, :bot_login)
 

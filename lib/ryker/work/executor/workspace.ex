@@ -87,7 +87,7 @@ defmodule Ryker.Work.Executor.Workspace do
       Enum.reduce_while(companions, {:ok, []}, fn companion, {:ok, prepared} ->
         case companion_workspace(companion) do
           {:ok, value} -> {:cont, {:ok, [value | prepared]}}
-          {:error, _reason} = error -> {:halt, error}
+          {:error, reason} -> {:halt, {:error, reason}}
         end
       end)
 
@@ -100,8 +100,8 @@ defmodule Ryker.Work.Executor.Workspace do
           do: {:ok, sorted},
           else: {:error, {:coop_protocol_error, :session_workspace}}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -196,7 +196,7 @@ defmodule Ryker.Work.Executor.Workspace do
     Enum.reduce_while(receipts, {:ok, []}, fn receipt, {:ok, prepared} ->
       case repository_freshness_receipt(receipt) do
         {:ok, receipt} -> {:cont, {:ok, [receipt | prepared]}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> case do
@@ -208,8 +208,8 @@ defmodule Ryker.Work.Executor.Workspace do
           do: {:ok, prepared},
           else: {:error, {:coop_protocol_error, :repository_freshness}}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

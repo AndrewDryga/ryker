@@ -86,7 +86,7 @@ defmodule Ryker.Behaviors.Automations do
     else
       nil -> {:error, :invalid_arguments}
       :error -> {:error, :not_found}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, :invalid_arguments}
     end
   end
@@ -209,7 +209,7 @@ defmodule Ryker.Behaviors.Automations do
       :ok
     else
       false -> {:error, :automation_change_offer_invalid}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -245,8 +245,8 @@ defmodule Ryker.Behaviors.Automations do
         |> Repo.update()
         |> persistence_result(:automation_behavior)
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -444,7 +444,7 @@ defmodule Ryker.Behaviors.Automations do
       :ok
     else
       false -> {:error, :unauthorized}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

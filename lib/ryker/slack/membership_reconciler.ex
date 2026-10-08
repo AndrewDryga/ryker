@@ -114,7 +114,7 @@ defmodule Ryker.Slack.MembershipReconciler do
       %{configuration: %{} = configuration, status: :joined}, {:ok, count} ->
         case options.setup_handler.ensure_welcome(configuration, nil, options.setup_options) do
           {:ok, _outcome} -> {:cont, {:ok, count + 1}}
-          {:error, _reason} = error -> {:halt, error}
+          {:error, reason} -> {:halt, {:error, reason}}
         end
 
       _result, {:ok, count} ->

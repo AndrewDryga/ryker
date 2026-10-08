@@ -28,7 +28,7 @@ defmodule Ryker.GitHub.CapabilityTools.Authority do
     else
       :error -> {:error, :not_configured}
       false -> {:error, :unauthorized}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

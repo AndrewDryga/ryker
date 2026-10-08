@@ -27,7 +27,7 @@ defmodule Ryker.Slack.CapabilityTools.Search do
     Enum.reduce_while(messages, {:ok, [], @search_expansions}, fn hit, {:ok, hits, remaining} ->
       case expand_search_hit(hit, arguments, binding, options, remaining) do
         {:ok, hit, remaining} -> {:cont, {:ok, [hit | hits], remaining}}
-        {:error, _} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> expanded_search_response(response, length(messages))
@@ -117,8 +117,8 @@ defmodule Ryker.Slack.CapabilityTools.Search do
           do: error,
           else: {:ok, put_in(hit, ["context_coverage", "reason"], unread_reason(code)), remaining}
 
-      {:error, _} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -132,7 +132,7 @@ defmodule Ryker.Slack.CapabilityTools.Search do
       case public_search_channel(options, channel_ref) do
         {:ok, true} -> {:cont, :ok}
         {:ok, false} -> {:halt, {:error, :unauthorized}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
@@ -321,7 +321,7 @@ defmodule Ryker.Slack.CapabilityTools.Search do
       authorize_search_file_channel(result, options, channel_ref, file)
     else
       {:ok, _crossed_file} -> {:error, :slack_protocol_error}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -381,7 +381,7 @@ defmodule Ryker.Slack.CapabilityTools.Search do
     case authorize.(value) do
       {:ok, nil} -> {:cont, {:ok, authorized}}
       {:ok, result} -> {:cont, {:ok, [result | authorized]}}
-      {:error, _reason} = error -> {:halt, error}
+      {:error, reason} -> {:halt, {:error, reason}}
     end
   end
 
@@ -403,7 +403,7 @@ defmodule Ryker.Slack.CapabilityTools.Search do
       case public_search_channel(options, channel_ref) do
         {:ok, true} -> {:halt, {:ok, channel_ref}}
         {:ok, false} -> {:cont, {:ok, nil}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end

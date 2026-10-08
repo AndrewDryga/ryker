@@ -18,9 +18,9 @@ defmodule Ryker.Evals.PrivateFile do
          :ok <- File.rename(temporary, path) do
       :ok
     else
-      {:error, _reason} = error ->
+      {:error, reason} ->
         File.rm(temporary)
-        error
+        {:error, reason}
     end
   end
 end

@@ -35,6 +35,7 @@
           {Ryker.Checks.MultilineDoColon, []},
           {Ryker.Checks.NoApplicationPutEnv, []},
           {Ryker.Checks.NoBlankBetweenDirectives, []},
+          {Ryker.Checks.NoBoundTupleReturn, []},
           {Ryker.Checks.NoIfOnArgField, []},
           {Ryker.Checks.NoHashPrefixSlice, []},
           {Ryker.Checks.NoPipeInBranchHead, []},

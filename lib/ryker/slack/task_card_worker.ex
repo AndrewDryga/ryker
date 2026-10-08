@@ -97,8 +97,8 @@ defmodule Ryker.Slack.TaskCardWorker do
         Process.put(@unbuildable, MapSet.put(unbuildable, record_id))
         claim_and_refresh(options)
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -110,7 +110,7 @@ defmodule Ryker.Slack.TaskCardWorker do
          ) do
       {:ok, nil} -> {:ok, :idle}
       {:ok, card} -> refresh(card, options)
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -162,7 +162,7 @@ defmodule Ryker.Slack.TaskCardWorker do
       {:ok, seconds} ->
         case TaskCards.defer(card.id, card.lease_ref, seconds || 30, reason, counted: false) do
           {:ok, deferred} -> {:ok, {:deferred, deferred.ref}}
-          {:error, _reason} = error -> error
+          {:error, reason} -> {:error, reason}
         end
 
       :error ->
@@ -174,7 +174,7 @@ defmodule Ryker.Slack.TaskCardWorker do
     if permanent?(reason) or card.attempt_count >= options.max_attempts do
       case TaskCards.block(card.id, card.lease_ref, reason) do
         {:ok, blocked} -> {:ok, {:blocked, blocked.ref}}
-        {:error, _reason} = error -> error
+        {:error, reason} -> {:error, reason}
       end
     else
       defer(card, reason, options)
@@ -209,7 +209,7 @@ defmodule Ryker.Slack.TaskCardWorker do
 
     case TaskCards.defer(card.id, card.lease_ref, retry_seconds, reason) do
       {:ok, deferred} -> {:ok, {:deferred, deferred.ref}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

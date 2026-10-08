@@ -64,7 +64,7 @@ defmodule Ryker.StateTools.FixedTools do
         })
 
       case dispatch(name, arguments, binding) do
-        {:ok, _result} = success -> success
+        {:ok, value} -> {:ok, value}
         {:error, reason} -> {:error, error_code(name, reason)}
       end
     else

@@ -137,8 +137,8 @@ defmodule Ryker.CoopFleet.ManagedSources do
       false ->
         {:error, :invalid_coop_worker_source}
 
-      {:error, :invalid_coop_worker_source} = invalid ->
-        invalid
+      {:error, :invalid_coop_worker_source} ->
+        {:error, :invalid_coop_worker_source}
 
       # No retry fetches a submodule from a repository Ryker was never given:
       # the caller stops at once and says which one.
@@ -481,8 +481,11 @@ defmodule Ryker.CoopFleet.ManagedSources do
 
         {:cont, {:ok, [module | modules], left}}
       else
-        {:error, {:submodule_not_configured, _submodule}} = refused -> {:halt, refused}
-        _unavailable -> {:halt, {:error, :submodule_not_authorized}}
+        {:error, {:submodule_not_configured, submodule}} ->
+          {:halt, {:error, {:submodule_not_configured, submodule}}}
+
+        _unavailable ->
+          {:halt, {:error, :submodule_not_authorized}}
       end
     end)
     |> case do
@@ -743,7 +746,7 @@ defmodule Ryker.CoopFleet.ManagedSources do
   defp git(git, directory, arguments, token) do
     case git_output(git, directory, arguments, token) do
       {:ok, _output} -> :ok
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -759,8 +762,8 @@ defmodule Ryker.CoopFleet.ManagedSources do
         deadline = System.monotonic_time(:millisecond) + git.timeout_ms
         await_git(port, os_pid(port), deadline, initial, collect)
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

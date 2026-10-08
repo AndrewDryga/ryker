@@ -26,7 +26,7 @@ defmodule Ryker.AdvisoryLock do
   def hold(key, mode \\ :exclusive, repo \\ Repo) do
     case repo.query(statement(key, mode), [key]) do
       {:ok, _result} -> :ok
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

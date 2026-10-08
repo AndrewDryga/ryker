@@ -32,7 +32,7 @@ defmodule Ryker.Emisar.ApprovalPresenter do
         :ok
       else
         false -> {:error, :emisar_approval_record_stale}
-        {:error, _reason} = error -> error
+        {:error, reason} -> {:error, reason}
       end
     else
       :ok

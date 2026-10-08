@@ -23,8 +23,8 @@ defmodule Ryker.Settings.Repository.Changeset do
     changeset
     |> validate_required([:ref, :base_branch])
     |> Validation.validate_reference(:ref)
-    |> validate_length(:display_name, min: 1, max: 120)
-    |> validate_length(:description, min: 1, max: 1_000)
+    |> validate_length(:display_name, min: 1, max: 120, count: :codepoints)
+    |> validate_length(:description, min: 1, max: 1_000, count: :codepoints)
     |> validate_format(:github_repository, Validation.github_repository_pattern())
     |> Validation.validate_git_ref(:base_branch)
     |> validate_length(:onboarding_error, max: 1_024)

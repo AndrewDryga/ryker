@@ -224,7 +224,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
       })
     else
       false -> {:error, {:invalid_conversation_lab, :options}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -267,7 +267,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
       end)
     else
       false -> {:error, {:invalid_conversation_lab, :attachments}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -579,7 +579,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
     end)
     |> case do
       {:ok, done} -> {:ok, Enum.reverse(done)}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -608,7 +608,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
     end)
     |> case do
       {:ok, files} -> {:ok, Enum.reverse(files)}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

@@ -38,14 +38,14 @@ defmodule Ryker.Slack.ChannelFence do
   defp authorize_slack_destination({:channel, workspace_ref, channel_ref}) do
     case share_in_transaction(workspace_ref, channel_ref) do
       :ok -> channel_status(workspace_ref, channel_ref)
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
   defp authorize_public_destination({:channel, workspace_ref, channel_ref}) do
     case share_in_transaction(workspace_ref, channel_ref) do
       :ok -> public_channel_status(workspace_ref, channel_ref)
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

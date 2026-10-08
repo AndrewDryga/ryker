@@ -104,6 +104,30 @@ Emisar's write rules (`../emisar/portal/.agent/kb/rules/README.md`) that Ryker f
   `Ryker.Crypto` (`ContextCryptoBoundary`); runtime configuration a test
   changes goes through `Ryker.Config` (`NoApplicationPutEnv`).
 
+Text and its limits (Emisar's `elixir-byte-budgets-need-byte-bounds`):
+
+- A limit counts in the unit that enforces it. JSON Schema's `maxLength` and
+  PostgreSQL's `char_length` count code points: Ryker measures with
+  `Ryker.Text.char_length/1`, cuts with `Ryker.Text.characters/2`, and checks
+  text a person or model wrote with `Ryker.Reference.text?/2`, never
+  `String.length/1`, which counts what a reader sees as one character (a flag
+  is two code points, an accent typed after its letter makes two). A byte
+  limit (`octet_length`, Slack, GitHub) is measured and cut in bytes
+  (`Ryker.Text.cut/2`, `Ryker.Reference.valid?/2`).
+- A changeset bounds a field in its column's unit: `validate_length(field,
+  max: n, count: :codepoints)` under a `char_length` check, `count: :bytes`
+  under an `octet_length` one, so a long value is a field error instead of a
+  constraint that raises.
+- A budget made of parts is derived from their bounds
+  (`Artifacts.maximum_bytes() + @maximum_lab_form_bytes`), never a second
+  literal.
+
+Results:
+
+- A clause never binds an `{:ok, _}` or `{:error, _}` tuple only to return
+  it; it restates the tuple (`{:error, reason} -> {:halt, {:error, reason}}`)
+  (`NoBoundTupleReturn`). A tuple handed on to a function keeps its name.
+
 Not adopted yet (2026-10-08):
 
 - **`Ecto.Multi` with `Repo.commit_multi`, and `Repo.fetch_and_update/3`.**
@@ -172,6 +196,7 @@ Not adopted yet (2026-10-08):
   `use Ryker`, and no other module does.
 - `WebNoNestedDomainCalls`: a web module calls a top-level context, never a
   module below one, in code or in a `~H` template.
+- `NoBoundTupleReturn`: no tuple bound only to be returned.
 - `NoBlankBetweenDirectives` with Credo's `StrictModuleLayout`: the module
   header's order and one block; `UtcNowTruncate` and
   `WrongTestFileExtension`, which Emisar enables too.

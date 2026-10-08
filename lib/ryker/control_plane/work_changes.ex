@@ -36,7 +36,7 @@ defmodule Ryker.ControlPlane.WorkChanges do
        }}
     else
       false -> {:error, :work_diff_invalid}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

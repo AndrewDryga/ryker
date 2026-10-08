@@ -78,8 +78,8 @@ defmodule Ryker.RepositoryKnowledge.Refresh do
             :current
         end
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

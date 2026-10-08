@@ -130,7 +130,7 @@ defmodule Ryker.Transcription.Local do
 
     case File.write(path, Parts.wav(binary_part(pcm, offset, length))) do
       :ok -> write_each(rest, pcm, directory, [path | written])
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -147,12 +147,12 @@ defmodule Ryker.Transcription.Local do
     Enum.reduce_while(parts, {:ok, []}, fn part, {:ok, texts} ->
       case File.read(part <> ".txt") do
         {:ok, text} -> {:cont, {:ok, [text | texts]}}
-        {:error, _reason} = error -> {:halt, error}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> case do
       {:ok, texts} -> {:ok, texts |> Enum.reverse() |> Enum.join("\n")}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

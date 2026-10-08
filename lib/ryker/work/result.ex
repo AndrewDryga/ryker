@@ -7,6 +7,7 @@ defmodule Ryker.Work.Result do
   no-delivery result.
   """
   alias Ryker.CanonicalJSON
+  alias Ryker.Reference
 
   @enforce_keys [:continuation, :delivery]
   defstruct [:continuation, :delivery, :decision_reason, :delivery_document]
@@ -36,7 +37,7 @@ defmodule Ryker.Work.Result do
          delivery_document: delivery_document
        }}
     else
-      {:error, {:invalid_work_result, _field}} = error -> error
+      {:error, {:invalid_work_result, field}} -> {:error, {:invalid_work_result, field}}
       {:error, _reason} -> {:error, {:invalid_work_result, :delivery_document}}
     end
   end
@@ -184,9 +185,7 @@ defmodule Ryker.Work.Result do
     do: {:error, {:invalid_work_result, :continuation}}
 
   defp valid_text?(value, maximum_characters, maximum_bytes) do
-    is_binary(value) and String.valid?(value) and
-      String.length(value) in 1..maximum_characters and byte_size(value) <= maximum_bytes and
-      :binary.match(value, <<0>>) == :nomatch and String.trim(value) != ""
+    Reference.text?(value, maximum_characters) and byte_size(value) <= maximum_bytes
   end
 
   defp utc_datetime?(%DateTime{} = value),

@@ -115,8 +115,8 @@ defmodule Ryker.Slack.Renderer do
       {:error, {:invalid_slack_mentions, _reason}} ->
         {:error, {:invalid_slack_render, :mentions}}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

@@ -41,7 +41,7 @@ defmodule Ryker.Credentials do
       {:ok, plaintext}
     else
       nil -> {:error, :credential_missing}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

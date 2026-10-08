@@ -26,8 +26,8 @@ defmodule Ryker.Admission.LeaseRenewer do
           :atomics.put(next_due, 1, current_ms + cadence_ms)
           :ok
 
-        {:error, _reason} = error ->
-          error
+        {:error, reason} ->
+          {:error, reason}
       end
     end
   end

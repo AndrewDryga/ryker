@@ -21,8 +21,8 @@ defmodule Ryker.Slack.CommandHandler do
       {:ok, false} ->
         {:ok, response("Commands require an active full workspace member.")}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -78,7 +78,7 @@ defmodule Ryker.Slack.CommandHandler do
        )}
     else
       {:error, :usage} -> {:ok, response(setting_usage(setting))}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -104,7 +104,7 @@ defmodule Ryker.Slack.CommandHandler do
   defp settings_view(command, options) do
     case options.settings_view.(command.workspace_ref, command.channel_ref) do
       {:ok, %{} = settings} -> {:ok, settings}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:invalid_slack_command, :settings}}
     end
   end
@@ -135,8 +135,8 @@ defmodule Ryker.Slack.CommandHandler do
       when reason in [:behavior_not_found, :behavior_terminal, :assignment_scope_mismatch] ->
         {:ok, response("That standing assignment is not active in this channel.")}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -171,8 +171,8 @@ defmodule Ryker.Slack.CommandHandler do
              is_boolean(value2) ->
         {:ok, settings}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
 
       _invalid ->
         {:error, {:invalid_slack_command, :settings}}

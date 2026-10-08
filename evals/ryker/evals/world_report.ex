@@ -127,7 +127,7 @@ defmodule Ryker.Evals.WorldReport do
     end)
     |> case do
       {:ok, reports} -> {:ok, Enum.reverse(reports)}
-      {:error, :report} = error -> error
+      {:error, :report} -> {:error, :report}
     end
   end
 
@@ -162,7 +162,7 @@ defmodule Ryker.Evals.WorldReport do
     end)
     |> case do
       {:ok, values} -> {:ok, Enum.reverse(values)}
-      {:error, :report} = error -> error
+      {:error, :report} -> {:error, :report}
     end
   end
 

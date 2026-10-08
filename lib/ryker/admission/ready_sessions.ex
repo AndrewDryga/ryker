@@ -78,7 +78,7 @@ defmodule Ryker.Admission.ReadySessions do
     |> case do
       {:ok, :none} -> :none
       {:ok, {%Session{} = session, origin}} -> {:ok, session, origin}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 

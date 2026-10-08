@@ -56,7 +56,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
       ensure_pinned(session, root, prepare, reader)
     else
       false -> {:error, {:coop_fleet_authority_mismatch, :worker_job}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -111,7 +111,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
       {:error, :coop_worker_job_requires_new_session} -> {:ok, session}
       # Without settings there is no repository to read a gate from.
       {:error, :settings_not_initialized} -> {:ok, session}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -140,7 +140,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
     else
       # A placed session keeps the job the worker was already asked with.
       {:error, :coop_worker_job_requires_new_session} -> {:ok, session}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -477,8 +477,11 @@ defmodule Ryker.CoopFleet.JobAuthority do
          true <- source["binding"]["requested"] == (requested || RepositorySource.default()) do
       {:ok, source}
     else
-      {:error, {:coop_worker_source_refused, _repository, _submodule}} = refused -> refused
-      _unavailable -> {:error, :coop_worker_source_unavailable}
+      {:error, {:coop_worker_source_refused, repository, submodule}} ->
+        {:error, {:coop_worker_source_refused, repository, submodule}}
+
+      _unavailable ->
+        {:error, :coop_worker_source_unavailable}
     end
   end
 

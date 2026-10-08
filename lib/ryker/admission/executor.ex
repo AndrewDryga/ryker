@@ -39,7 +39,7 @@ defmodule Ryker.Admission.Executor do
       end
     else
       :error -> {:error, {:admission_execution_failed, :input_not_found}}
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -154,8 +154,8 @@ defmodule Ryker.Admission.Executor do
              {:ok, session} <- ensure_session(entry, settings),
              do: {:ok, session, settings}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -187,8 +187,8 @@ defmodule Ryker.Admission.Executor do
       {:error, {:coop_error, 404, _code, _detail} = reason} ->
         generation_spent({:ready_session_unavailable, reason})
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -246,8 +246,8 @@ defmodule Ryker.Admission.Executor do
       {:error, {:coop_protocol_error, :validated_candidate_mismatch} = reason} ->
         block_after_close(session, entry, settings, reason)
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -269,7 +269,7 @@ defmodule Ryker.Admission.Executor do
        when is_map(profile) do
     case WorkProfile.restore(profile) do
       {:ok, restored} -> WorkProfile.policy_for(restored, work_class, repository)
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -323,8 +323,8 @@ defmodule Ryker.Admission.Executor do
       {:ok, operation} ->
         session_from_operation(operation, key, settings, settings.max_polls)
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
     |> case do
       # The placement that addressed this generation's session expired before
@@ -365,8 +365,8 @@ defmodule Ryker.Admission.Executor do
       {:ok, _response} ->
         {:error, {:coop_protocol_error, :create_session_response}}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -410,8 +410,8 @@ defmodule Ryker.Admission.Executor do
       {:ok, operation} ->
         turn_from_operation(operation, session["id"], key, settings)
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -531,8 +531,8 @@ defmodule Ryker.Admission.Executor do
         :not_found ->
           {:error, {:coop_protocol_error, :operation_disappeared}}
 
-        {:error, _reason} = error ->
-          error
+        {:error, reason} ->
+          {:error, reason}
       end
     end
   end
@@ -958,14 +958,14 @@ defmodule Ryker.Admission.Executor do
                :cleanup
              ) do
           {:ok, _closed} -> :ok
-          {:error, _reason} = error -> error
+          {:error, reason} -> {:error, reason}
         end
 
       {:ok, _response} ->
         {:error, {:coop_protocol_error, :close_session_response}}
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -1226,7 +1226,7 @@ defmodule Ryker.Admission.Executor do
   defp renew_lease(settings) do
     case settings.renew_lease.() do
       :ok -> :ok
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _other -> {:error, {:admission_execution_failed, :lease_renewal}}
     end
   end
@@ -1248,7 +1248,7 @@ defmodule Ryker.Admission.Executor do
   defp close_then(session, entry, settings, result) do
     case close_session(session, entry, settings) do
       :ok -> result
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -1282,8 +1282,8 @@ defmodule Ryker.Admission.Executor do
       :none ->
         :none
 
-      {:error, _reason} = error ->
-        error
+      {:error, reason} ->
+        {:error, reason}
 
       _other ->
         {:error, {:admission_execution_failed, :claim_ready_session}}

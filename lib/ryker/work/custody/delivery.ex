@@ -163,7 +163,7 @@ defmodule Ryker.Work.Custody.Delivery do
          false <- target["conversation_ref"] == gone_conversation_ref do
       :ok
     else
-      {:error, _reason} = error -> error
+      {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:invalid_work_custody, :target}}
     end
   end

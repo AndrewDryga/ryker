@@ -205,7 +205,7 @@ defmodule Ryker.WeeklyReport do
            }) do
         {:ok, :already_queued} -> {:ok, {:waiting, next.at}}
         {:ok, report} -> {:ok, {:queued, report, next.at}}
-        {:error, _reason} = error -> error
+        {:error, reason} -> {:error, reason}
       end
     end
   end

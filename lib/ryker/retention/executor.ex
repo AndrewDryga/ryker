@@ -244,7 +244,7 @@ defmodule Ryker.Retention.Executor do
       end
 
     case result do
-      {:ok, _execution} = success -> success
+      {:ok, value} -> {:ok, value}
       {:error, reason} -> {:error, {:coop_mutation_response_unresolved, :plan, reason}}
     end
   end
