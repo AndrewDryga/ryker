@@ -157,8 +157,8 @@ defmodule Ryker.WeeklyReport do
   defp destination do
     with %Settings.Report{channel_ref: channel} = report when is_binary(channel) <-
            Repo.one(Settings.Report.Query.all()),
-         %{enabled: true, workspace_ref: workspace} when is_binary(workspace) <-
-           Repo.one(Settings.Slack.Query.select_connection()) do
+         %Settings.Slack{enabled: true, workspace_ref: workspace} when is_binary(workspace) <-
+           Repo.one(Settings.Slack.Query.all()) do
       {:ok,
        %{
          conversation_ref: ConversationRef.slack(workspace, channel),

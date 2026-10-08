@@ -9,12 +9,4 @@ defmodule Ryker.Settings.Work.Query do
 
   def select_workspace_ref(queryable \\ all()),
     do: select(queryable, [work_settings: w], w.workspace_ref)
-
-  def select_local_routing(queryable \\ all()) do
-    select(queryable, [work_settings: w], %{
-      mode: w.local_routing_mode,
-      endpoint: w.local_routing_endpoint,
-      model: w.local_routing_model
-    })
-  end
 end

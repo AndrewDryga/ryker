@@ -751,18 +751,17 @@ defmodule Ryker.Learning do
     settings
     |> Map.put(:retry_topic_keys, keys)
     |> Map.put(:retry_match_refs, if(existing, do: existing.match_refs, else: []))
-    |> Map.put(
-      :retry_feedback,
-      retry_feedback(feedback_attempt(existing) || previous_batch_error(settings))
-    )
+    |> Map.put(:retry_feedback, retry_feedback(retry_error_code(existing, settings)))
   end
 
   # Retiring an undisclosed manifest is not a newer model judgment. A later
   # accepted result still clears an older correction rather than reviving it.
-  defp feedback_attempt(%{started_at: nil, status: status}) when status in [:prepared, :stale],
-    do: nil
+  defp retry_error_code(%{started_at: nil, status: status}, settings)
+       when status in [:prepared, :stale],
+       do: previous_batch_error(settings)
 
-  defp feedback_attempt(existing), do: existing
+  defp retry_error_code(nil, settings), do: previous_batch_error(settings)
+  defp retry_error_code(%LearningRun{error_code: code}, _settings), do: code
 
   defp previous_batch_error(%{batch_claim: %{batch: %{id: id}}}) do
     # Reselection changes the frozen request key, not the lifetime learning job.
@@ -781,14 +780,12 @@ defmodule Ryker.Learning do
 
   # Feedback is static host text, not an echo of the rejected model body. A
   # previous attempt's now-withdrawn context must not leak into a fresh prompt.
-  defp retry_feedback(%{error_code: code}) do
+  defp retry_feedback(code) do
     case @retry_instructions[code] do
       nil -> nil
       instruction -> %{"code" => code, "instruction" => instruction}
     end
   end
-
-  defp retry_feedback(_), do: nil
 
   defp new_attempt(entries, manifest, key, generation, settings) do
     failures =

@@ -335,7 +335,7 @@ defmodule Ryker.Knowledge.ConversationKnowledge.Query do
       is_nil(k.forgotten_at) and k.inserted_at >= ^from and k.inserted_at < ^to
     )
     |> order_by([conversation_knowledge: k], desc: k.inserted_at, desc: k.id)
-    |> select([conversation_knowledge: k], %{conversation: k.conversation_ref, state: k.state})
+    |> select([conversation_knowledge: k], %{conversation_ref: k.conversation_ref, state: k.state})
   end
 
   def limit_to(queryable, count), do: limit(queryable, ^count)

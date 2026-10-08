@@ -39,14 +39,6 @@ defmodule Ryker.Episodes.Event.Query do
   def ordered_by_occurred_at_desc(queryable),
     do: order_by(queryable, [episode_kernel_events: e], desc: e.occurred_at, desc: e.sequence)
 
-  def select_endpoints(queryable) do
-    select(queryable, [episode_kernel_events: e], %{
-      episode_id: e.episode_id,
-      occurred_at: e.occurred_at,
-      payload: e.payload
-    })
-  end
-
   def limit_to(queryable, count), do: limit(queryable, ^count)
 
   def by_dedupe_key(queryable, dedupe_key),

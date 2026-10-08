@@ -127,23 +127,16 @@ defmodule Ryker.Slack.IncidentRooms do
     Repo.exists?(IncidentRoom.Query.by_channel(workspace_ref, channel_ref))
   end
 
-  @spec channel_profile(String.t(), String.t()) :: {:ok, map()} | :not_found
-  def channel_profile(workspace_ref, channel_ref) do
-    profile =
-      workspace_ref
-      |> IncidentRoom.Query.by_channel(channel_ref)
-      |> IncidentRoom.Query.select_profile()
-
-    case Repo.one(profile) do
-      nil -> :not_found
-      profile -> {:ok, profile}
-    end
-  end
+  @doc "The incident room channel `channel_ref` of `workspace_ref` is, or `{:error, :not_found}`."
+  @spec fetch_channel_room(String.t(), String.t()) ::
+          {:ok, IncidentRoom.t()} | {:error, :not_found}
+  def fetch_channel_room(workspace_ref, channel_ref),
+    do: workspace_ref |> IncidentRoom.Query.by_channel(channel_ref) |> Repo.fetch()
 
   @spec delivery_allowed(String.t(), String.t()) :: :ok | {:error, term()}
   def delivery_allowed(workspace_ref, channel_ref) do
-    case channel_profile(workspace_ref, channel_ref) do
-      :not_found -> :ok
+    case fetch_channel_room(workspace_ref, channel_ref) do
+      {:error, :not_found} -> :ok
       {:ok, %{channel_state: :active, status: :ready}} -> :ok
       {:ok, %{channel_state: state}} -> {:error, {:slack_incident_room_inactive, state}}
     end

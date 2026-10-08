@@ -1073,10 +1073,13 @@ defmodule Ryker.Settings do
   defp authorize("github:onboarding"), do: :ok
 
   defp authorize("slack:user:" <> user_ref) when byte_size(user_ref) in 1..255 do
-    saved = Repo.one(__MODULE__.Slack.Query.select_operators())
-
-    with %{chosen: chosen} when is_list(chosen) <- saved,
-         operators = Slack.Operators.new(Map.to_list(saved)),
+    with %__MODULE__.Slack{} = saved <- Repo.one(__MODULE__.Slack.Query.all()),
+         operators =
+           Slack.Operators.new(
+             chosen: saved.operators,
+             workspace_admins: saved.workspace_admins_manage,
+             workspace_ref: saved.workspace_ref
+           ),
          true <- Slack.Operators.operator?(operators, user_ref) do
       :ok
     else

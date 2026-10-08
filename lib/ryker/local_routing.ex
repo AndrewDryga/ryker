@@ -62,8 +62,17 @@ defmodule Ryker.LocalRouting do
   @doc "The saved setting; off before an installation has settings."
   @spec setting() :: setting()
   def setting do
-    Repo.one(Settings.Work.Query.select_local_routing()) ||
-      %{mode: :off, endpoint: nil, model: nil}
+    case Repo.one(Settings.Work.Query.all()) do
+      %Settings.Work{} = work ->
+        %{
+          mode: work.local_routing_mode,
+          endpoint: work.local_routing_endpoint,
+          model: work.local_routing_model
+        }
+
+      nil ->
+        %{mode: :off, endpoint: nil, model: nil}
+    end
   end
 
   @doc """
@@ -286,14 +295,14 @@ defmodule Ryker.LocalRouting do
     |> Accounting.Execution.Query.admission_call(comparison.input_id, generation)
     |> Repo.one()
     |> case do
-      %{recorded: true, reported: %Decimal{} = cost} = call ->
-        %{cost: cost, estimated: false, ms: call.ms}
+      %{usage_cost_recorded: true, usage_cost_usd: %Decimal{} = cost} = call ->
+        %{cost: cost, estimated: false, ms: call.usage_provider_ms}
 
-      %{estimate: %Decimal{} = estimate} = call ->
-        %{cost: estimate, estimated: true, ms: call.ms}
+      %{estimated_cost_usd: %Decimal{} = estimate} = call ->
+        %{cost: estimate, estimated: true, ms: call.usage_provider_ms}
 
       %{} = call ->
-        %{cost: nil, estimated: nil, ms: call.ms}
+        %{cost: nil, estimated: nil, ms: call.usage_provider_ms}
 
       nil ->
         %{cost: nil, estimated: nil, ms: nil}

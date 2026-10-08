@@ -108,7 +108,7 @@ defmodule Ryker.Accounting.Execution.Query do
   def admission_calls(ledger, input_id),
     do: where(ledger, [ledger: e], e.kind == "admission" and e.source_id == ^input_id)
 
-  @doc "The routing call for generation `generation` of message `input_id`, with what it cost and how long it took."
+  @doc "The routing call for generation `generation` of message `input_id`."
   def admission_call(ledger, input_id, generation) do
     ledger
     |> where(
@@ -116,12 +116,6 @@ defmodule Ryker.Accounting.Execution.Query do
       e.kind == "admission" and e.source_id == ^input_id and e.generation == ^generation
     )
     |> limit(1)
-    |> select([ledger: e], %{
-      recorded: e.usage_cost_recorded,
-      reported: e.usage_cost_usd,
-      estimate: e.estimated_cost_usd,
-      ms: e.usage_provider_ms
-    })
   end
 
   @doc """

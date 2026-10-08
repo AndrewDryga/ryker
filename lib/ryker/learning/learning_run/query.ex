@@ -104,7 +104,7 @@ defmodule Ryker.Learning.LearningRun.Query do
     do: order_by(queryable, [conversation_learning_runs: r], asc: r.inserted_at, asc: r.id)
 
   def select_error_codes(queryable),
-    do: select(queryable, [conversation_learning_runs: r], %{error_code: r.error_code})
+    do: select(queryable, [conversation_learning_runs: r], r.error_code)
 
   def by_ids(queryable \\ all(), ids),
     do: where(queryable, [conversation_learning_runs: r], r.id in ^ids)

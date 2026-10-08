@@ -171,6 +171,17 @@ rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-08.
   pipeline names a `select_*` helper (`select_next_due_after`,
   `select_coop_session_ids`), which is how `IL05TaggedReads` tells it from a
   row.
+- A read carries the row (Emisar's README: carry the struct) or one value
+  through a `select_*` helper, never a map of a few of one row's fields
+  renamed for one caller. A map a query selects is an aggregate, a read
+  model over joined tables (a page's rows, a lateral join's latest turn), a
+  document a prompt or a worker reads, or a projection that leaves out a
+  column too large to load for its purpose (a learning run's prompt and
+  result, a knowledge topic's dependency list, a session's job document).
+  On 2026-10-08 ten selects that reshaped one small row carry the struct or
+  a value instead, and an incident room's read became
+  `fetch_channel_room/2`; 113 select maps remain, 48 of them aggregates
+  (Emisar: 51, 34).
 - Lists stay plain lists: Ryker has no paginated `Repo.list/3` and no
   metadata to return beside them.
 - No context function exists only for tests. A read only tests make is in

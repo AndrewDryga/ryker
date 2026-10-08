@@ -54,13 +54,6 @@ defmodule Ryker.Knowledge.KnowledgeSource.Query do
     )
   end
 
-  def select_support(queryable) do
-    select(queryable, [conversation_knowledge_sources: s], %{
-      receipt_fingerprint: s.receipt_fingerprint,
-      direct_support_version: s.direct_support_version
-    })
-  end
-
   @doc """
   The observations that directly support the topics `eligible` selects, by
   its `id` and `source_generation`, evaluated once: flattening the join made

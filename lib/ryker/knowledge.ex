@@ -838,7 +838,6 @@ defmodule Ryker.Knowledge do
     existing =
       item.id
       |> KnowledgeSource.Query.by_generation(item.source_generation)
-      |> KnowledgeSource.Query.select_support()
       |> Repo.all()
       |> Map.new(&{&1.receipt_fingerprint, &1})
 

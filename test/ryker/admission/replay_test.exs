@@ -31,10 +31,8 @@ defmodule Ryker.Admission.ReplayTest do
 
       if seed && fixture["input"]["actor"]["kind"] == "app" &&
            fixture["seed"]["input"]["actor"]["kind"] == "app" do
-        assert get_in(
-                 Admission.input_event_endpoints([seed.id]),
-                 [seed.id, :first, :payload, "actor_ref"]
-               ) == actor_ref(input)
+        endpoints = Admission.input_event_endpoints([seed.id])
+        assert endpoints[seed.id].first.payload["actor_ref"] == actor_ref(input)
       end
 
       assert {:ok, %{entry: entry}} = Inbox.record(input)

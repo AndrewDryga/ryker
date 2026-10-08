@@ -126,9 +126,6 @@ defmodule Ryker.Records.Record.Query do
     )
   end
 
-  def select_kinds_and_payloads(queryable),
-    do: select(queryable, [episode_state_records: r], %{kind: r.kind, payload: r.payload})
-
   def select_ids_and_payloads(queryable),
     do: select(queryable, [episode_state_records: r], {r.id, r.payload})
 

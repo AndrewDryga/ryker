@@ -1341,7 +1341,6 @@ defmodule Ryker.Admission do
 
     ordered
     |> Episodes.Event.Query.limit_to(1)
-    |> Episodes.Event.Query.select_endpoints()
     |> Repo.one()
   end
 

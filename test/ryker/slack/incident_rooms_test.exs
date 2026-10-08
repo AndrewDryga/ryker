@@ -2054,7 +2054,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
              {:error, {:invalid_incident_room_lifecycle, :transition}}
 
     refute IncidentRooms.managed_channel?("T123", "CUNKNOWN")
-    assert IncidentRooms.channel_profile("T123", "CUNKNOWN") == :not_found
+    assert IncidentRooms.fetch_channel_room("T123", "CUNKNOWN") == {:error, :not_found}
     assert IncidentRooms.delivery_allowed("T123", "CUNKNOWN") == :ok
     assert {:error, _reason} = IncidentRooms.automatic_candidate("")
     assert {:error, _reason} = IncidentRooms.claim_next("", 0)

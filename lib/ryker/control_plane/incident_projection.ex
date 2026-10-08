@@ -269,7 +269,6 @@ defmodule Ryker.ControlPlane.IncidentProjection do
     |> Slack.IncidentRoomLifecycleEvent.Query.by_room_id()
     |> Slack.IncidentRoomLifecycleEvent.Query.ordered_by_occurred_at()
     |> Slack.IncidentRoomLifecycleEvent.Query.limit_to(@detail_limit)
-    |> Slack.IncidentRoomLifecycleEvent.Query.select_timeline()
     |> Repo.all()
   end
 

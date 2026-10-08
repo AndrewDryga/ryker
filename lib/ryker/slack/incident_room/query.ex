@@ -72,21 +72,6 @@ defmodule Ryker.Slack.IncidentRoom.Query do
     )
   end
 
-  @doc "What a channel's room lets Work do there: its state, its investigation and its authority."
-  def select_profile(queryable) do
-    select(queryable, [slack_incident_rooms: r], %{
-      channel_state: r.channel_state,
-      environment_ref: r.environment_ref,
-      episode_id: r.episode_id,
-      policy: r.policy,
-      policy_digest: r.policy_digest,
-      repository_context: r.repository_context,
-      repository_ref: r.repository_ref,
-      room_ref: r.ref,
-      status: r.status
-    })
-  end
-
   @doc "The ready room investigating `episode_id` whose pinned card was checked."
   def card_checked_for(episode_id) do
     where(

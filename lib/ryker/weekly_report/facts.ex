@@ -315,7 +315,7 @@ defmodule Ryker.WeeklyReport.Facts do
       count: facts + length(topics),
       newest:
         topics
-        |> Enum.filter(&public?(&1.conversation))
+        |> Enum.filter(&public?(&1.conversation_ref))
         |> Enum.find_value(&topic_title/1)
     }
   end

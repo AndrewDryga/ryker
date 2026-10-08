@@ -615,7 +615,7 @@ defmodule Ryker.Slack.Runtime do
 
   defp effective_settings(default_participation) do
     fn workspace_ref, conversation_ref ->
-      case room_profile(workspace_ref, ConversationRef.slack_channel(conversation_ref)) do
+      case channel_room(workspace_ref, ConversationRef.slack_channel(conversation_ref)) do
         {:ok, %{channel_state: :active, status: :ready}} ->
           %{
             proactive: %{source: :incident_room, value: true},
@@ -628,7 +628,7 @@ defmodule Ryker.Slack.Runtime do
             shadow: %{source: :incident_room, value: false}
           }
 
-        :not_found ->
+        {:error, :not_found} ->
           ChannelSettings.effective(workspace_ref, conversation_ref, default_participation)
       end
     end
@@ -651,7 +651,7 @@ defmodule Ryker.Slack.Runtime do
     fn workspace_ref, conversation_ref ->
       channel_ref = ConversationRef.slack_channel(conversation_ref)
 
-      case room_profile(workspace_ref, channel_ref) do
+      case channel_room(workspace_ref, channel_ref) do
         {:ok, room} ->
           work_profile =
             Map.merge(
@@ -665,7 +665,7 @@ defmodule Ryker.Slack.Runtime do
 
           {:ok, work_profile}
 
-        :not_found ->
+        {:error, :not_found} ->
           workspace_ref
           |> channel_environment(channel_ref, default_environment)
           |> environment_work_profile(environments, fallback)
@@ -732,9 +732,9 @@ defmodule Ryker.Slack.Runtime do
   # configured channel's choice (nil is No environment, never the default), or
   # the default for a conversation with no setting of its own.
   defp conversation_environment(default_environment, workspace_ref, channel_ref) do
-    case IncidentRooms.channel_profile(workspace_ref, channel_ref) do
+    case IncidentRooms.fetch_channel_room(workspace_ref, channel_ref) do
       {:ok, room} -> room.environment_ref
-      :not_found -> channel_environment(workspace_ref, channel_ref, default_environment)
+      {:error, :not_found} -> channel_environment(workspace_ref, channel_ref, default_environment)
     end
   end
 
@@ -754,8 +754,8 @@ defmodule Ryker.Slack.Runtime do
   defp incident_actor_allowed(input) do
     channel_ref = ConversationRef.slack_channel(input.destination.conversation_ref)
 
-    case room_profile(input.source.ref, channel_ref) do
-      :not_found -> {:ok, true}
+    case channel_room(input.source.ref, channel_ref) do
+      {:error, :not_found} -> {:ok, true}
       {:ok, %{channel_state: :active, status: :ready}} -> {:ok, input.actor.kind == :user}
       {:ok, _inactive_room} -> {:ok, false}
     end
@@ -763,10 +763,10 @@ defmodule Ryker.Slack.Runtime do
 
   # The incident room a conversation's channel is, if it is one; a ref that
   # names no channel is none.
-  defp room_profile(_workspace_ref, nil), do: :not_found
+  defp channel_room(_workspace_ref, nil), do: {:error, :not_found}
 
-  defp room_profile(workspace_ref, channel_ref),
-    do: IncidentRooms.channel_profile(workspace_ref, channel_ref)
+  defp channel_room(workspace_ref, channel_ref),
+    do: IncidentRooms.fetch_channel_room(workspace_ref, channel_ref)
 
   # The setup surfaces need the same override view as the gateway, keyed by
   # channel rather than conversation reference.

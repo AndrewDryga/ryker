@@ -413,7 +413,6 @@ defmodule Ryker.Records do
       wait_ref
       |> Record.Query.by_ref()
       |> Record.Query.open_or_question()
-      |> Record.Query.select_kinds_and_payloads()
       |> Repo.one()
 
     case holder do
