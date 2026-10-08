@@ -265,6 +265,12 @@ Emisar's write rules (`../emisar/portal/.agent/kb/rules/README.md`) that Ryker f
   selects and for aggregates: 324 `fetch`, 189 `peek` and 73 `one` on
   2026-10-08 (Emisar: 67, 52 and 17). `IL05TaggedReads` reads `peek` as it
   reads `one`.
+- A row the caller has proved is there (a foreign key it follows, a row it
+  just locked or wrote) is `Repo.fetch!/2`, Emisar's name for it, which
+  raises without one. On 2026-10-08, 46 `Repo.one!` reads of whole rows
+  became `Repo.fetch!`; ten `Repo.one!` select a value or an aggregate
+  (Emisar: 3 `fetch!`, 1 `one!`). `OneReadsAValue` flags `Repo.one` or
+  `Repo.one!` of a query with a `by_*` filter and no `select_*` helper.
 - Whether a row exists is `Repo.exists?/1`, never a fetch whose row is
   thrown away or a count compared with zero; a lock in the query holds
   through `exists?` too (`Ryker.Feedback` holds a request that way).
@@ -618,6 +624,8 @@ Model-facing tools (Emisar's `elixir-model-authoring-validation-is-actionable`):
 - `LockNameReturnsNothing`: a `lock_*` function hands back nothing a caller
   reads; one that hands back its row is `fetch_and_lock_*`.
 - `TaggedReadNamedFetch`: a function that ends in `Repo.fetch` is `fetch_*`.
+- `OneReadsAValue`: `Repo.one` and `Repo.one!` read values, not a row by its
+  identity.
 - `IL06QueryModulePure`: Query modules never call `Repo`.
 - `IL07SchemaFieldsOnly`: no changeset code in a schema module.
 - `IL08ChangesetPure`: changeset modules never call `Repo`.

@@ -365,7 +365,7 @@ defmodule Ryker.Work.Custody.Cancellation do
           turn
       )
       when state in ["closed", "discarded"] do
-    session = Repo.one!(Session.Query.by_id(turn.session_id))
+    session = Repo.fetch!(Session.Query.by_id(turn.session_id))
     key = OperationKeys.checkpoint(turn)
     saved = Repo.exists?(CoopFleet.WorkspaceCheckpointTransfer.Query.saved_by(session.id, key))
 

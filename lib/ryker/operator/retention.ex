@@ -87,7 +87,7 @@ defmodule Ryker.Operator.Retention do
 
     case Repo.fetch(locked) do
       {:ok, %RetentionAction{request_fingerprint: ^fingerprint} = action} ->
-        session = Repo.one!(Work.Session.Query.by_id(action.session_id))
+        session = Repo.fetch!(Work.Session.Query.by_id(action.session_id))
         %{action: action, outcome: :duplicate, session: session}
 
       {:ok, %RetentionAction{}} ->

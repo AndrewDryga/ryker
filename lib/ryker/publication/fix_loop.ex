@@ -176,7 +176,7 @@ defmodule Ryker.Publication.FixLoop do
   """
   @spec admit_in_transaction(Publication.t(), DateTime.t()) :: :ok | {:error, term()}
   def admit_in_transaction(%Publication{} = publication, now) do
-    episode = Repo.one!(Episodes.Episode.Query.by_id(publication.episode_id))
+    episode = Repo.fetch!(Episodes.Episode.Query.by_id(publication.episode_id))
     identity = "#{@source}:#{publication.id}:g#{publication.review_generation}"
 
     with {:ok, input} <-

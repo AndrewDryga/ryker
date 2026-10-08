@@ -125,7 +125,7 @@ defmodule Ryker.CoopFleet.Checkpoints do
       saved =
         prepared.command_id
         |> WorkspaceCheckpointTransfer.Query.by_command_checkpoint(prepared.checkpoint_ref)
-        |> Repo.one!()
+        |> Repo.fetch!()
 
       if Map.take(saved, Map.keys(prepared) -- [:id]) != Map.delete(prepared, :id),
         do: Repo.rollback(:checkpoint_conflict)

@@ -159,6 +159,15 @@ defmodule Ryker.Repo do
   end
 
   @doc """
+  The one row `queryable` selects, when the caller has proved it is there: a
+  foreign key it follows, a row it just locked or wrote. Raises
+  `Ecto.NoResultsError` without one, as `Repo.one!/2` does; `Repo.one!/2`
+  is left for a value a query selects and for aggregates.
+  """
+  @spec fetch!(Ecto.Queryable.t(), keyword()) :: term()
+  def fetch!(queryable, opts \\ []), do: one!(queryable, opts)
+
+  @doc """
   A new row id: a UUIDv7, the kind `use Ryker, :schema` generates, for a row
   whose id is needed before it is written or that `insert_all/3` writes.
   """

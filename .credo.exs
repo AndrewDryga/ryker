@@ -52,6 +52,7 @@
           {Ryker.Checks.NoUnsafeDeserialization, []},
           {Ryker.Checks.PreferCaptureClosure, []},
           {Ryker.Checks.LockNameReturnsNothing, []},
+          {Ryker.Checks.OneReadsAValue, []},
           {Ryker.Checks.TaggedReadNamedFetch, []},
           {Ryker.Checks.RepoExistsOverCount, []},
           {Ryker.Checks.ShortBindings, []},

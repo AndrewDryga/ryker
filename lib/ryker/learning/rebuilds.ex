@@ -225,7 +225,7 @@ defmodule Ryker.Learning.Rebuilds do
       id
       |> Knowledge.ConversationKnowledge.Query.by_id()
       |> Knowledge.ConversationKnowledge.Query.lock_for_update()
-      |> Repo.one!()
+      |> Repo.fetch!()
 
     {:ok, scope} = scope(topic)
 

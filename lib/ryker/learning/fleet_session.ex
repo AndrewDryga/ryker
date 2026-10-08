@@ -24,7 +24,7 @@ defmodule Ryker.Learning.FleetSession do
   def ensure(%LearningRun{} = run) do
     Repo.transaction(fn ->
       current =
-        run.id |> LearningRun.Query.by_id() |> LearningRun.Query.lock_for_share() |> Repo.one!()
+        run.id |> LearningRun.Query.by_id() |> LearningRun.Query.lock_for_share() |> Repo.fetch!()
 
       unless current.policy == run.policy and current.policy_digest == run.policy_digest,
         do: Repo.rollback(:learning_session_authority_conflict)
@@ -52,13 +52,13 @@ defmodule Ryker.Learning.FleetSession do
       on_conflict: :nothing
     )
 
-    run |> run_session() |> Repo.one!() |> tap(&Work.Custody.broadcast_session_updated/1)
+    run |> run_session() |> Repo.fetch!() |> tap(&Work.Custody.broadcast_session_updated/1)
   end
 
   def bind(%LearningRun{} = run, remote_id)
       when is_binary(remote_id) and byte_size(remote_id) in 1..1024 do
     Repo.transaction(fn ->
-      session = run |> run_session() |> Repo.one!()
+      session = run |> run_session() |> Repo.fetch!()
 
       case session.coop_session_id do
         nil ->

@@ -113,6 +113,38 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
     end
   end
 
+  describe "Ryker.Checks.OneReadsAValue" do
+    test "flags Repo.one and Repo.one! of a row read by its identity" do
+      source = """
+      defmodule Ryker.Sprockets do
+        alias Ryker.Repo
+        alias Ryker.Sprockets.Sprocket
+
+        defp owner(sprocket), do: Repo.one!(Sprocket.Query.by_id(sprocket.owner_id))
+        defp latest(id), do: id |> Sprocket.Query.by_id() |> Repo.one()
+      end
+      """
+
+      assert one_triggers(source) == ["Repo.one!", "Repo.one"]
+    end
+
+    test "allows a value a query selects, an aggregate and the row reads that say so" do
+      source = """
+      defmodule Ryker.Sprockets do
+        alias Ryker.Repo
+        alias Ryker.Sprockets.Sprocket
+
+        defp count(id), do: id |> Sprocket.Query.by_id() |> Sprocket.Query.select_count() |> Repo.one!()
+        defp totals, do: Repo.one!(Sprocket.Query.totals())
+        defp owner(sprocket), do: Repo.fetch!(Sprocket.Query.by_id(sprocket.owner_id))
+        defp latest(id), do: id |> Sprocket.Query.by_id() |> Repo.peek()
+      end
+      """
+
+      assert issues(one_reads(), source, @context) == []
+    end
+  end
+
   describe "Ryker.Checks.IL05TaggedReads" do
     test "flags a public function that answers a row or nil" do
       source = """
@@ -1044,6 +1076,15 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
   defp il01, do: check("IL01NoInlineEctoDsl")
   defp il02, do: check("IL02NoRepoGet")
   defp il05, do: check("IL05TaggedReads")
+  defp one_reads, do: check("OneReadsAValue")
+
+  defp one_triggers(source) do
+    one_reads()
+    |> issues(source, @context)
+    |> Enum.sort_by(& &1.line_no)
+    |> Enum.map(& &1.trigger)
+  end
+
   defp il06, do: check("IL06QueryModulePure")
   defp il07, do: check("IL07SchemaFieldsOnly")
   defp il08, do: check("IL08ChangesetPure")

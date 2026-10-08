@@ -248,7 +248,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
       :ok = ensure([ref])
 
       entry =
-        ref |> Entry.Query.by_repository() |> Entry.Query.lock_for_update() |> Repo.one!()
+        ref |> Entry.Query.by_repository() |> Entry.Query.lock_for_update() |> Repo.fetch!()
 
       if entry.phase == :write do
         :already_writing
@@ -273,7 +273,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
       :ok = ensure([ref])
 
       entry =
-        ref |> Entry.Query.by_repository() |> Entry.Query.lock_for_update() |> Repo.one!()
+        ref |> Entry.Query.by_repository() |> Entry.Query.lock_for_update() |> Repo.fetch!()
 
       if entry.phase == :idle, do: save(entry, next_check_at: Repo.now!())
     end)
@@ -376,7 +376,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
 
   @doc "A run as it is stored now."
   @impl true
-  def current(run_id), do: Repo.one!(Run.Query.by_id(run_id))
+  def current(run_id), do: Repo.fetch!(Run.Query.by_id(run_id))
 
   @doc "A repository's latest run."
   @spec fetch_last_run(String.t()) :: {:ok, Run.t()} | {:error, :not_found}

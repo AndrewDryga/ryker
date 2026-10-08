@@ -1454,7 +1454,7 @@ defmodule Ryker.Learning do
       # Prepare and acceptance share batch -> row lock order. Taking the row
       # first deadlocks with a concurrent retry preparing the same batch.
       lock_batch(run.batch_key)
-      id |> LearningRun.Query.by_id() |> LearningRun.Query.lock_for_update() |> Repo.one!()
+      id |> LearningRun.Query.by_id() |> LearningRun.Query.lock_for_update() |> Repo.fetch!()
     else
       _ -> Repo.rollback(:learning_run_not_found)
     end

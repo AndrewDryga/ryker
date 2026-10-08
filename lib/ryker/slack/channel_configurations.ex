@@ -574,7 +574,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
     case Repo.fetch(stored) do
       {:ok, %ChannelMembershipEvent{event_fingerprint: ^fingerprint} = event} ->
-        membership = Repo.one!(ChannelMembership.Query.by_id(event.membership_id))
+        membership = Repo.fetch!(ChannelMembership.Query.by_id(event.membership_id))
 
         %{
           configuration: configuration(membership.workspace_ref, membership.channel_ref),
@@ -957,7 +957,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
     case Repo.fetch(stored) do
       {:ok, %ConfigurationAction{event_fingerprint: ^fingerprint} = action} ->
         %{
-          session: Repo.one!(ConfigurationSession.Query.by_id(action.session_id)),
+          session: Repo.fetch!(ConfigurationSession.Query.by_id(action.session_id)),
           status: :duplicate
         }
 

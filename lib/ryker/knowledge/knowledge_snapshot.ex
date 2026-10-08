@@ -41,7 +41,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
       session.id
       |> Work.Session.Query.by_id()
       |> Work.Session.Query.lock_for_update()
-      |> Repo.one!()
+      |> Repo.fetch!()
 
     unless exposure_counts_consistent?(current),
       do: Repo.rollback(:work_knowledge_context_stale)

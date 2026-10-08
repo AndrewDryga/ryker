@@ -162,7 +162,7 @@ defmodule Ryker.WorkExamples do
 
   defp example(turn, secrets) do
     now = Repo.now!()
-    episode = Repo.one!(Episodes.Episode.Query.by_id(turn.episode_id))
+    episode = Repo.fetch!(Episodes.Episode.Query.by_id(turn.episode_id))
     inputs = inputs(episode, turn)
     quoted = Enum.map(inputs, &RoutingExamples.quoted_keys/1)
     submission = turn.submission

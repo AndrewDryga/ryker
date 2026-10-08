@@ -282,7 +282,7 @@ defmodule Ryker.Coop.RunStep do
     end)
   end
 
-  defp reread(local), do: Repo.one!(Work.Session.Query.by_id(local.id))
+  defp reread(local), do: Repo.fetch!(Work.Session.Query.by_id(local.id))
 
   defp bind(%__MODULE__{lane: lane, store: store, claim: claim}, run, id),
     do: store.with_lease(claim, fn -> lane.fleet_session().bind(run, id) end)

@@ -224,7 +224,7 @@ defmodule Ryker.Improvement.Analyses do
 
   @doc "A run as it is stored now."
   @impl true
-  def current(run_id), do: Repo.one!(AnalysisRun.Query.by_id(run_id))
+  def current(run_id), do: Repo.fetch!(AnalysisRun.Query.by_id(run_id))
 
   @doc """
   Freezes the next attempt: the evidence read now, rendered into the exact

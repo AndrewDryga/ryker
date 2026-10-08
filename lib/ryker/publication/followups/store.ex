@@ -43,7 +43,7 @@ defmodule Ryker.Publication.Followups.Store do
     publication_id
     |> Followup.Query.by_publication_id()
     |> Followup.Query.lock_for_update()
-    |> Repo.one!()
+    |> Repo.fetch!()
   end
 
   @spec update_followup!(Followup.t(), map(), DateTime.t()) :: Followup.t()
@@ -137,7 +137,7 @@ defmodule Ryker.Publication.Followups.Store do
           on_conflict: :nothing
         )
 
-      event = Repo.one!(LifecycleEvent.Query.by_ref(attributes.ref))
+      event = Repo.fetch!(LifecycleEvent.Query.by_ref(attributes.ref))
 
       if count == 1 do
         Custody.broadcast_publication_updated(event.publication_id)

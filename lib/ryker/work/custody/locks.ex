@@ -163,7 +163,7 @@ defmodule Ryker.Work.Custody.Locks do
 
   @doc false
   def episode_for_result!(episode_key) do
-    Repo.one!(Episodes.Episode.Query.by_key(episode_key))
+    Repo.fetch!(Episodes.Episode.Query.by_key(episode_key))
   end
 
   @doc false

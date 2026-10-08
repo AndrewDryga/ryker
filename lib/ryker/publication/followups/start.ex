@@ -154,7 +154,7 @@ defmodule Ryker.Publication.Followups.Start do
         :ignored
 
       {:ok, followup} ->
-        publication = Repo.one!(Publication.Query.by_id(followup.publication_id))
+        publication = Repo.fetch!(Publication.Query.by_id(followup.publication_id))
 
         if is_nil(head_sha) or head_sha == publication.commit_sha do
           Store.update_followup!(followup, %{next_poll_at: now}, now)

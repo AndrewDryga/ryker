@@ -810,7 +810,7 @@ defmodule Ryker.Retention.Custody do
       session_id
       |> Work.Session.Query.by_id()
       |> Work.Session.Query.lock_for_update()
-      |> Repo.one!()
+      |> Repo.fetch!()
 
     now = Repo.now!()
 

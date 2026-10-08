@@ -172,7 +172,7 @@ defmodule Ryker.Learning.Observations do
       identity
       |> ConversationObservation.Query.by_identity()
       |> ConversationObservation.Query.lock_for_update()
-      |> Repo.one!()
+      |> Repo.fetch!()
 
     if current.revision == entry.revision and current.source_input_id != entry.id and
          not source_conflicted?(current) and

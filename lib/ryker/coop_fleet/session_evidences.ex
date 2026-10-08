@@ -86,7 +86,7 @@ defmodule Ryker.CoopFleet.SessionEvidences do
   end
 
   defp upsert(session_id, evidence, worker_id, generation) do
-    session = Repo.one!(Work.Session.Query.by_id(session_id))
+    session = Repo.fetch!(Work.Session.Query.by_id(session_id))
     fingerprint = Document.content_fingerprint(evidence)
     captured_at = captured_at(evidence)
 

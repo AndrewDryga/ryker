@@ -62,7 +62,7 @@ defmodule Ryker.Learning.Executor do
   # Binding needs only the session's exact identity, so a session this run owns
   # is bound even when its authority is unusable and cleanup can close it.
   defp remote_session(claim, run, settings, mode) do
-    local = Repo.one!(Work.Session.Query.by_learning_run_id(run.id))
+    local = Repo.fetch!(Work.Session.Query.by_learning_run_id(run.id))
 
     if mode == :fence and is_nil(local.worker_job_document) and is_nil(local.worker_job_digest) and
          is_nil(local.coop_session_id) and is_nil(run.submit_revision) and
@@ -185,7 +185,7 @@ defmodule Ryker.Learning.Executor do
     do: call(claim, settings, :get_session, [id])
 
   defp remote_turn(claim, run, session, settings, mode) do
-    run = Repo.one!(LearningRun.Query.by_id(run.id))
+    run = Repo.fetch!(LearningRun.Query.by_id(run.id))
 
     result =
       if run.coop_turn_id do
@@ -205,7 +205,7 @@ defmodule Ryker.Learning.Executor do
   # under its input lock.
   defp observe(claim, run, session, turn) do
     Batches.with_lease(claim, fn ->
-      local = Repo.one!(Work.Session.Query.by_learning_run_id(run.id))
+      local = Repo.fetch!(Work.Session.Query.by_learning_run_id(run.id))
 
       Ryker.Accounting.observe_learning_in_transaction(
         claim.batch,
@@ -320,7 +320,7 @@ defmodule Ryker.Learning.Executor do
            ] ->
         # The retained candidate and exact alternatives survive this generation.
         # Semantic retries get a fresh briefing, never an in-turn prose patch.
-        case stop(claim, Repo.one!(LearningRun.Query.by_id(run.id)), reason, settings) do
+        case stop(claim, Repo.fetch!(LearningRun.Query.by_id(run.id)), reason, settings) do
           {:ok, :stopped} -> error
           other -> other
         end

@@ -61,8 +61,8 @@ defmodule Ryker.Publication.Followups.Delivery do
        do: event
 
   defp admit_wakeup_event(%LifecycleEvent{wakeup_state: :pending} = event, now) do
-    publication = Repo.one!(Publication.Query.by_id(event.publication_id))
-    episode = Repo.one!(Episodes.Episode.Query.by_id(event.episode_id))
+    publication = Repo.fetch!(Publication.Query.by_id(event.publication_id))
+    episode = Repo.fetch!(Episodes.Episode.Query.by_id(event.episode_id))
     input = wakeup_input(publication, episode, event)
     command = admit_command(episode, input, event)
 
@@ -280,7 +280,7 @@ defmodule Ryker.Publication.Followups.Delivery do
           else: Repo.rollback(:publication_lifecycle_delivery_conflict)
 
       {:ok, event} ->
-        publication = Repo.one!(Publication.Query.by_id(event.publication_id))
+        publication = Repo.fetch!(Publication.Query.by_id(event.publication_id))
 
         with :ok <- Leases.live_event_lease(event, lease_ref, now),
              :ok <- exact_delivery_receipt(event, publication, receipt) do

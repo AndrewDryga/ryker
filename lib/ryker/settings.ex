@@ -965,15 +965,15 @@ defmodule Ryker.Settings do
   defp load(%Installation{host_ref: host_ref} = installation) do
     %{
       installation: installation,
-      retention: Repo.one!(Retention.Query.by_id(host_ref)),
-      slack: Repo.one!(__MODULE__.Slack.Query.by_id(host_ref)),
-      github: Repo.one!(GitHub.Query.by_id(host_ref)),
-      publication: Repo.one!(Publication.Query.by_id(host_ref)),
+      retention: Repo.fetch!(Retention.Query.by_id(host_ref)),
+      slack: Repo.fetch!(__MODULE__.Slack.Query.by_id(host_ref)),
+      github: Repo.fetch!(GitHub.Query.by_id(host_ref)),
+      publication: Repo.fetch!(Publication.Query.by_id(host_ref)),
       emisar_connections:
         Repo.all(EmisarConnection.Query.ordered_by_ref(EmisarConnection.Query.all())),
-      report: Repo.one!(Report.Query.by_id(host_ref)),
-      learning: Repo.one!(Learning.Query.by_id(host_ref)),
-      work: Repo.one!(__MODULE__.Work.Query.by_id(host_ref)),
+      report: Repo.fetch!(Report.Query.by_id(host_ref)),
+      learning: Repo.fetch!(Learning.Query.by_id(host_ref)),
+      work: Repo.fetch!(__MODULE__.Work.Query.by_id(host_ref)),
       repositories: Repo.all(Repository.Query.ordered_by_ref(Repository.Query.all())),
       environments:
         Environment.Query.all()

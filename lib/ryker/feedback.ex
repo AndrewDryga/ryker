@@ -290,7 +290,7 @@ defmodule Ryker.Feedback do
       {0, []} ->
         {:ok,
          %{
-           signal: Repo.one!(Signal.Query.by_source(signal.kind, signal.source_ref)),
+           signal: Repo.fetch!(Signal.Query.by_source(signal.kind, signal.source_ref)),
            status: :duplicate
          }}
     end

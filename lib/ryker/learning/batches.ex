@@ -631,7 +631,7 @@ defmodule Ryker.Learning.Batches do
     do: LearningInput.Query.processable(query, now, LearningSources.retention_seconds())
 
   defp inputs(batch_id) do
-    case Repo.one!(Batch.Query.by_id(batch_id)) do
+    case Repo.fetch!(Batch.Query.by_id(batch_id)) do
       %{rebuild_target_id: nil} -> assigned_inputs(batch_id)
       batch -> Rebuilds.inputs(batch)
     end

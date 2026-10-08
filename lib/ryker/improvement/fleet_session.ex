@@ -59,7 +59,7 @@ defmodule Ryker.Improvement.FleetSession do
       on_conflict: :nothing
     )
 
-    run |> run_session() |> Repo.one!() |> tap(&Work.Custody.broadcast_session_updated/1)
+    run |> run_session() |> Repo.fetch!() |> tap(&Work.Custody.broadcast_session_updated/1)
   end
 
   @doc "Binds the run's session to the Coop session created for it, once."
@@ -67,7 +67,7 @@ defmodule Ryker.Improvement.FleetSession do
   def bind(%AnalysisRun{} = run, remote_id)
       when is_binary(remote_id) and byte_size(remote_id) in 1..1024 do
     Repo.transaction(fn ->
-      session = run |> run_session() |> Repo.one!()
+      session = run |> run_session() |> Repo.fetch!()
 
       case session.coop_session_id do
         nil ->

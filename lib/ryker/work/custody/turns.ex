@@ -135,7 +135,7 @@ defmodule Ryker.Work.Custody.Turns do
          artifact_refs
        ) do
     {_, turn} = leased!(episode_id, turn_ref, lease_ref)
-    episode = Repo.one!(Episodes.Episode.Query.by_id(episode_id))
+    episode = Repo.fetch!(Episodes.Episode.Query.by_id(episode_id))
 
     ledger_sha256 =
       FinalPreflight.ledger_sha256(
