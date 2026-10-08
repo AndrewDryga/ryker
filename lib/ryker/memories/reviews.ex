@@ -23,6 +23,7 @@ defmodule Ryker.Memories.Reviews do
   alias Ryker.Memories.Forgetting
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Memories.MemoryReviewItem
+  alias Ryker.Reference
   alias Ryker.Repo
 
   @maximum_reviews 100
@@ -37,7 +38,7 @@ defmodule Ryker.Memories.Reviews do
           {:ok, %{created: non_neg_integer()}} | {:error, term()}
   def refresh_reviews(workspace_ref, stale_seconds)
       when is_integer(stale_seconds) and stale_seconds > 0 do
-    with :ok <- Memories.reference(workspace_ref, :workspace_ref) do
+    with :ok <- Reference.check(workspace_ref, :workspace_ref, :invalid_memory_confirmation) do
       Repo.transaction(fn ->
         lock_review_maintenance!()
         refresh_reviews_locked(workspace_ref, stale_seconds)
@@ -106,8 +107,8 @@ defmodule Ryker.Memories.Reviews do
           total: non_neg_integer()
         }
   def home_reviews(workspace_ref, actor_ref, options \\ []) do
-    with :ok <- Memories.reference(workspace_ref, :workspace_ref),
-         :ok <- Memories.reference(actor_ref, :actor_ref),
+    with :ok <- Reference.check(workspace_ref, :workspace_ref, :invalid_memory_confirmation),
+         :ok <- Reference.check(actor_ref, :actor_ref, :invalid_memory_confirmation),
          {:ok, status, limit} <- review_list_options(options) do
       query = home_review_query(workspace_ref, actor_ref, status)
 
@@ -157,9 +158,9 @@ defmodule Ryker.Memories.Reviews do
   @spec fetch_home_review(String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, :memory_review_not_found}
   def fetch_home_review(review_ref, workspace_ref, actor_ref) do
-    with :ok <- Memories.reference(review_ref, :review_ref),
-         :ok <- Memories.reference(workspace_ref, :workspace_ref),
-         :ok <- Memories.reference(actor_ref, :actor_ref),
+    with :ok <- Reference.check(review_ref, :review_ref, :invalid_memory_confirmation),
+         :ok <- Reference.check(workspace_ref, :workspace_ref, :invalid_memory_confirmation),
+         :ok <- Reference.check(actor_ref, :actor_ref, :invalid_memory_confirmation),
          %MemoryReviewItem{} = review <- pending_home_review(review_ref, workspace_ref, actor_ref) do
       {:ok, review_document(review)}
     else
@@ -177,10 +178,10 @@ defmodule Ryker.Memories.Reviews do
   @spec resolve_review(String.t(), atom(), String.t(), String.t(), map() | nil) ::
           {:ok, map()} | {:error, term()}
   def resolve_review(review_ref, action, actor_ref, workspace_ref, replacement \\ nil) do
-    with :ok <- Memories.reference(review_ref, :review_ref),
+    with :ok <- Reference.check(review_ref, :review_ref, :invalid_memory_confirmation),
          :ok <- review_action(action),
-         :ok <- Memories.reference(actor_ref, :actor_ref),
-         :ok <- Memories.reference(workspace_ref, :workspace_ref),
+         :ok <- Reference.check(actor_ref, :actor_ref, :invalid_memory_confirmation),
+         :ok <- Reference.check(workspace_ref, :workspace_ref, :invalid_memory_confirmation),
          {:ok, replacement} <- review_replacement(action, replacement) do
       Repo.transaction(fn ->
         lock_review_maintenance!()
@@ -193,10 +194,10 @@ defmodule Ryker.Memories.Reviews do
   @spec resolve_home_review(String.t(), atom(), String.t(), String.t(), map() | nil) ::
           {:ok, map()} | {:error, term()}
   def resolve_home_review(review_ref, action, actor_ref, workspace_ref, replacement \\ nil) do
-    with :ok <- Memories.reference(review_ref, :review_ref),
+    with :ok <- Reference.check(review_ref, :review_ref, :invalid_memory_confirmation),
          :ok <- review_action(action),
-         :ok <- Memories.reference(actor_ref, :actor_ref),
-         :ok <- Memories.reference(workspace_ref, :workspace_ref),
+         :ok <- Reference.check(actor_ref, :actor_ref, :invalid_memory_confirmation),
+         :ok <- Reference.check(workspace_ref, :workspace_ref, :invalid_memory_confirmation),
          {:ok, replacement} <- review_replacement(action, replacement) do
       Repo.transaction(fn ->
         lock_review_maintenance!()

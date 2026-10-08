@@ -199,7 +199,7 @@ defmodule Ryker.Emisar.EndToEndTest do
 
     assert ApprovalPresenter.permanent?(:invalid_destination)
 
-    assert {:ok, resumed} = Episodes.fetch_by_key(first.episode.key)
+    assert resumed = Inspectors.episode(first.episode.key)
 
     assert resumed.id == first.episode.id
     assert resumed.state == :working
@@ -237,7 +237,7 @@ defmodule Ryker.Emisar.EndToEndTest do
            ) ==
              2
 
-    assert Enum.map(Episodes.list_events(first.episode.key), & &1.kind) == [
+    assert Enum.map(Inspectors.episode_events(first.episode.key), & &1.kind) == [
              :input_admitted,
              :result_accepted,
              :delivery_confirmed,

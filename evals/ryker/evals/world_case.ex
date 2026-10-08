@@ -569,7 +569,7 @@ defmodule Ryker.Evals.WorldCase do
   end
 
   defp validation_step(:ok), do: {:cont, :ok}
-  defp validation_step({:error, _field} = error), do: {:halt, error}
+  defp validation_step({:error, field}), do: {:halt, {:error, field}}
 
   defp wait_wakeup(%{"kind" => "wait_wakeup"} = value) do
     with :ok <- exact_fields(value, @wait_wakeup_fields, :scheduled_events),
@@ -713,7 +713,7 @@ defmodule Ryker.Evals.WorldCase do
   defp sort_repository_entries({:ok, values}),
     do: {:ok, Enum.sort_by(values, & &1["path"])}
 
-  defp sort_repository_entries({:error, _reason} = error), do: error
+  defp sort_repository_entries({:error, reason}), do: {:error, reason}
 
   defp tool_rules(rules) when is_list(rules) and length(rules) <= 256 do
     Enum.reduce_while(rules, :ok, fn rule, :ok ->

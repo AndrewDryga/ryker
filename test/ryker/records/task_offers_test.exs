@@ -71,7 +71,7 @@ defmodule Ryker.Records.TaskOffersTest do
     assert record.confirmed_by_actor_ref == "slack:user:U123"
     assert record.confirmation_ref == "interaction:confirm"
 
-    assert [event] = Episodes.list_events(confirmation.episode.key)
+    assert [event] = Ryker.Inspectors.episode_events(confirmation.episode.key)
     assert event.kind == :input_admitted
     assert event.payload["payload"]["task"] == fixture.record.payload
 

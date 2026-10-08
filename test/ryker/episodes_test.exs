@@ -16,9 +16,11 @@ defmodule Ryker.EpisodesTest do
     assert duplicate.status == :duplicate
     assert duplicate.event.id == first.event.id
 
-    assert {:ok, episode} = Episodes.fetch_by_key(command.episode_key)
+    assert episode = Ryker.Inspectors.episode(command.episode_key)
     assert episode.semantic_version == 1
-    assert [%{sequence: 1, kind: :input_admitted}] = Episodes.list_events(command.episode_key)
+
+    assert [%{sequence: 1, kind: :input_admitted}] =
+             Ryker.Inspectors.episode_events(command.episode_key)
   end
 
   # A request's Timeline, the Activity list and the conversation the request
@@ -74,7 +76,7 @@ defmodule Ryker.EpisodesTest do
     assert duplicate.status == :duplicate
     assert duplicate.event.id == recorded.event.id
 
-    assert Enum.map(Episodes.list_events(input.episode_key), & &1.kind) == [
+    assert Enum.map(Ryker.Inspectors.episode_events(input.episode_key), & &1.kind) == [
              :input_admitted,
              :reaction_recorded
            ]
@@ -91,7 +93,7 @@ defmodule Ryker.EpisodesTest do
 
     assert {:ok, duplicate} = Episodes.apply(command)
     assert duplicate.status == :duplicate
-    assert length(Episodes.list_events(command.episode_key)) == 1
+    assert length(Ryker.Inspectors.episode_events(command.episode_key)) == 1
   end
 
   test "invalid commands return tagged errors before identity or storage work" do
@@ -105,7 +107,7 @@ defmodule Ryker.EpisodesTest do
     assert Episodes.apply(postgres_poison) == {:error, {:invalid_command, :payload}}
     assert Episodes.apply(invalid_utf8) == {:error, {:invalid_command, :episode_key}}
     assert Episodes.apply(%{unknown: "command"}) == {:error, {:invalid_command, :type}}
-    assert Episodes.fetch_by_key(invalid_payload.episode_key) == :error
+    assert Ryker.Inspectors.episode(invalid_payload.episode_key) == nil
   end
 
   test "a stale source revision is rejected without another durable event" do
@@ -120,7 +122,7 @@ defmodule Ryker.EpisodesTest do
       })
 
     assert {:error, {:stale_input_revision, _details}} = Episodes.apply(stale)
-    assert length(Episodes.list_events(newest.episode_key)) == 1
+    assert length(Ryker.Inspectors.episode_events(newest.episode_key)) == 1
   end
 
   test "a changed retry cannot overwrite the accepted source revision" do
@@ -131,9 +133,9 @@ defmodule Ryker.EpisodesTest do
     assert {:error, {:idempotency_conflict, details}} = Episodes.apply(changed)
     assert details[:dedupe_key] == first.event.dedupe_key
 
-    assert {:ok, episode} = Episodes.fetch_by_key(command.episode_key)
+    assert episode = Ryker.Inspectors.episode(command.episode_key)
     assert episode.semantic_version == 1
-    assert length(Episodes.list_events(command.episode_key)) == 1
+    assert length(Ryker.Inspectors.episode_events(command.episode_key)) == 1
   end
 
   test "the stored canonical command still matches its accepted fingerprint" do
@@ -149,7 +151,7 @@ defmodule Ryker.EpisodesTest do
         })
 
       assert {:ok, accepted} = Episodes.apply(command)
-      [stored] = Episodes.list_events(command.episode_key)
+      [stored] = Ryker.Inspectors.episode_events(command.episode_key)
       assert stored.payload == accepted.event.payload
       assert Ryker.CanonicalJSON.digest(stored.payload) == stored.fingerprint
     end)
@@ -167,7 +169,12 @@ defmodule Ryker.EpisodesTest do
     assert {:ok, delivered} = Episodes.apply(EpisodeFixtures.confirm_delivery())
     assert delivered.episode.state == :complete
     assert delivered.episode.destination_thread_ref == input.destination.thread_ref
-    assert Enum.map(Episodes.list_events(input.episode_key), & &1.sequence) == [1, 2, 3]
+
+    assert Enum.map(Ryker.Inspectors.episode_events(input.episode_key), & &1.sequence) == [
+             1,
+             2,
+             3
+           ]
   end
 
   test "a failed linked-history write leaves no ownerless episode" do
@@ -181,7 +188,7 @@ defmodule Ryker.EpisodesTest do
     assert {:linked_episode_id, {"does not exist", _metadata}} =
              List.keyfind(errors, :linked_episode_id, 0)
 
-    assert Episodes.fetch_by_key(invalid.episode_key) == :error
+    assert Ryker.Inspectors.episode(invalid.episode_key) == nil
   end
 
   test "database integrity rejects a self-linked episode even outside the reducer" do
@@ -194,7 +201,7 @@ defmodule Ryker.EpisodesTest do
     assert {:linked_episode_id, {"is invalid", _metadata}} =
              List.keyfind(changeset.errors, :linked_episode_id, 0)
 
-    assert Episodes.fetch_by_key(input.episode_key) == :error
+    assert Ryker.Inspectors.episode(input.episode_key) == nil
   end
 
   test "a reused episode id returns a tagged conflict instead of raising" do
@@ -210,7 +217,7 @@ defmodule Ryker.EpisodesTest do
 
     assert {:error, {:persistence_failed, :episode, errors}} = Episodes.apply(reused)
     assert {:id, {"has already been taken", _metadata}} = List.keyfind(errors, :id, 0)
-    assert Episodes.fetch_by_key(reused.episode_key) == :error
+    assert Ryker.Inspectors.episode(reused.episode_key) == nil
   end
 
   test "an event insert failure rolls the projection update back" do
@@ -234,7 +241,7 @@ defmodule Ryker.EpisodesTest do
     assert {:error, {:persistence_failed, :event, _errors}} =
              Episodes.apply(EpisodeFixtures.transfer_owner())
 
-    assert {:ok, stored} = Episodes.fetch_by_key(input.episode_key)
+    assert stored = Ryker.Inspectors.episode(input.episode_key)
     assert stored.owner_ref == "turn-1"
     assert stored.next_sequence == 2
   end
@@ -263,8 +270,8 @@ defmodule Ryker.EpisodesTest do
                end
              end)
 
-    assert Episodes.fetch_by_key(input.episode_key) == :error
-    assert Episodes.list_events(input.episode_key) == []
+    assert Ryker.Inspectors.episode(input.episode_key) == nil
+    assert Ryker.Inspectors.episode_events(input.episode_key) == []
   end
 
   test "a rejected no-op does not consume durable owner handoff custody" do
@@ -281,7 +288,7 @@ defmodule Ryker.EpisodesTest do
     assert {:ok, moved} = Episodes.apply(EpisodeFixtures.transfer_owner())
     assert moved.episode.owner_ref == "turn-1-replacement"
 
-    assert Enum.map(Episodes.list_events(input.episode_key), & &1.kind) == [
+    assert Enum.map(Ryker.Inspectors.episode_events(input.episode_key), & &1.kind) == [
              :input_admitted,
              :owner_transferred
            ]
@@ -300,7 +307,7 @@ defmodule Ryker.EpisodesTest do
 
     assert {:error, {:stale_turn, _details}} = Episodes.apply(EpisodeFixtures.accept_result())
 
-    assert Enum.map(Episodes.list_events(input.episode_key), & &1.kind) == [
+    assert Enum.map(Ryker.Inspectors.episode_events(input.episode_key), & &1.kind) == [
              :input_admitted,
              :episode_cancelled
            ]

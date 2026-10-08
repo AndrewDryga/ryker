@@ -1258,7 +1258,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     refute has_element?(view, "[role=alert]")
     assert Repo.aggregate(Installation, :count) == 1
-    assert Ryker.Instructions.get(:global).text == "Existing guidance"
+    assert {:ok, %{text: "Existing guidance"}} = Ryker.Instructions.get(:global)
   end
 
   test "each kind of work has its own models, chosen by model, effort and account" do

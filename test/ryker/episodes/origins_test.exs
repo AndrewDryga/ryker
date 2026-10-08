@@ -28,7 +28,7 @@ defmodule Ryker.Episodes.OriginsTest do
         admit(reply, episode_key: "routing:home", destination: home.episode |> home_destination())
       )
 
-    assert {:ok, episode} = Episodes.fetch_by_key("routing:home")
+    assert episode = Ryker.Inspectors.episode("routing:home")
     assert episode.destination_conversation_ref == "slack:TORIGINS:CDEVOPS"
     assert episode.destination_thread_ref == "1787832000.000100"
 
@@ -66,7 +66,7 @@ defmodule Ryker.Episodes.OriginsTest do
     command = admit(input, episode_key: "routing:retry")
     assert {:ok, %{status: :applied}} = Episodes.apply(command)
     assert {:ok, %{status: :duplicate}} = Episodes.apply(command)
-    assert {:ok, episode} = Episodes.fetch_by_key("routing:retry")
+    assert episode = Ryker.Inspectors.episode("routing:retry")
     assert [_origin] = Origins.for_episode(episode.id)
   end
 

@@ -344,19 +344,22 @@ defmodule Ryker.WorkExamples do
 
   # -- Forgetting ------------------------------------------------------------------
 
-  @doc false
-  # Erases the examples whose request was asked in one of these messages
-  # (by source identity) or whose routing quoted one of these keys. Called by
-  # `Ryker.RoutingExamples` while it holds the lock exclusively, inside the
-  # transaction that forgets them.
+  @doc """
+  Internal — erases the Work examples whose request was asked in one of these
+  messages (by source identity) or whose routing quoted one of these keys.
+  `Ryker.RoutingExamples` calls it inside the transaction that forgets them,
+  while it holds their lock exclusively.
+  """
   @spec forget_in_transaction([String.t()], [String.t()]) :: :ok
   def forget_in_transaction(identities, keys) do
     identities |> Example.Query.from_sources_or_messages(keys) |> erase()
   end
 
-  @doc false
-  # Erases the examples from a deleted conversation, or that quote it. Called
-  # by `Ryker.RoutingExamples` while it holds the lock exclusively.
+  @doc """
+  Internal — erases the Work examples from a deleted conversation, or that
+  quote it. `Ryker.RoutingExamples` calls it while it holds their lock
+  exclusively.
+  """
   @spec forget_conversation_in_transaction(String.t()) :: :ok
   def forget_conversation_in_transaction(conversation_ref) when is_binary(conversation_ref) do
     conversation_ref |> Example.Query.by_conversation() |> erase()

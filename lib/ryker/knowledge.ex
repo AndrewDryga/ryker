@@ -19,7 +19,12 @@ defmodule Ryker.Knowledge do
 
   @stale {:error, {:admission_rejected, :context_stale}}
 
-  @doc false
+  @doc """
+  Internal — the query for which of topics `ids` the conversation of `scope`
+  may still use: valid, learned there whatever repository it was learned
+  with, and in a Slack channel also the workspace's public topics it
+  inherits. Rebuilds and the console's conversation memory read it.
+  """
   def availability_query(scope, ids) do
     # The conversation's topics, whatever repository each was learned with
     # (`scope_key/1`).
@@ -57,6 +62,12 @@ defmodule Ryker.Knowledge do
 
   defp slack_channel(_), do: :local
 
+  @doc """
+  The learned topics a request in `destination` may be shown for
+  `repository_ref`, best matches for `search` first, at most `limit` (1 to
+  32) within `search_scope`: each topic's document, or `[]` when the
+  conversation's scope cannot be read.
+  """
   def context(destination, repository_ref, search \\ "", limit \\ 16, search_scope \\ "workspace") do
     case Repo.transaction(fn ->
            recall_locked(destination, repository_ref, search, limit, search_scope)
@@ -82,7 +93,11 @@ defmodule Ryker.Knowledge do
     end
   end
 
-  @doc false
+  @doc """
+  Internal — one step of `search_memory`'s topic lane for a Work turn:
+  `{:ok, document, position}`, `{:skip, position}` for a match the turn may
+  not see, or `:done`. `Ryker.Memories.MemorySearch` pages through it.
+  """
   def search_page(destination, repository_ref, page) do
     case Learning.Observations.locked_scope(destination, repository_ref) do
       {:ok, scope} -> search_page_locked(scope, page)
@@ -291,7 +306,13 @@ defmodule Ryker.Knowledge do
     KnowledgeAnchors.validate(proposal["anchors"], texts, inherited)
   end
 
-  @doc false
+  @doc """
+  Internal — takes the topic lock of `destination`'s conversation inside the
+  caller's transaction, the lock every topic write holds: `:ok`, or
+  `{:error, {:admission_rejected, :context_stale}}` outside a transaction or
+  for a conversation that cannot be read. Learning's apply and rebuilds call
+  it before they change topics.
+  """
   def lock_scope_in_transaction(destination, repository_ref) do
     with true <- Repo.in_transaction?(),
          {:ok, scope} <- Learning.Observations.locked_scope(destination, repository_ref) do
@@ -437,7 +458,11 @@ defmodule Ryker.Knowledge do
     end
   end
 
-  @doc false
+  @doc """
+  Internal — the query for the observations a valid topic of `scope` rests on
+  directly, so `Ryker.Learning.Observations` offers only the ones no topic
+  holds yet.
+  """
   def current_source_ids_query(scope) do
     valid_query()
     |> Learning.LearningSources.eligible(scope)
@@ -445,7 +470,11 @@ defmodule Ryker.Knowledge do
     |> KnowledgeSource.Query.direct_observation_ids()
   end
 
-  @doc false
+  @doc """
+  Internal — the query for valid topics: each source still current and
+  unchanged in its conversation, none older than learning's retention
+  window. The capacity test measures its plan.
+  """
   def valid_query,
     do: ConversationKnowledge.Query.valid(Learning.LearningSources.retention_seconds())
 
@@ -964,7 +993,10 @@ defmodule Ryker.Knowledge do
   """
   def subscribe_knowledge, do: Ryker.PubSub.subscribe(knowledge_topic())
 
-  # A page leaves a topic by its subscription's `un` twin (`WorkbenchLive`).
+  @doc """
+  Stops the announcements `subscribe_knowledge/0` started. A page leaves a
+  topic by this twin of its subscription (`WorkbenchLive`).
+  """
   def unsubscribe_knowledge, do: Ryker.PubSub.unsubscribe(knowledge_topic())
 
   @doc """

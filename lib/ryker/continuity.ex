@@ -59,6 +59,7 @@ defmodule Ryker.Continuity do
   """
   def subscribe_continuity, do: Ryker.PubSub.subscribe(continuity_topic())
 
+  @doc "Stops the announcements `subscribe_continuity/0` started."
   def unsubscribe_continuity, do: Ryker.PubSub.unsubscribe(continuity_topic())
 
   @doc """

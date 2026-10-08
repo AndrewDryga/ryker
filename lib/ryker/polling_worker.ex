@@ -152,7 +152,11 @@ defmodule Ryker.PollingWorker do
     end
   end
 
-  @doc false
+  @doc """
+  Internal — the `init/1` a `use Ryker.PollingWorker` module gets: runs its
+  `c:setup/1` when it has one, subscribes to what `c:wake_on/1` names, and
+  asks for the first poll at once.
+  """
   def init(module, argument) do
     result =
       if function_exported?(module, :setup, 1), do: module.setup(argument), else: {:ok, argument}
@@ -178,7 +182,11 @@ defmodule Ryker.PollingWorker do
     end
   end
 
-  @doc false
+  @doc """
+  Internal — the `handle_info/2` a `use Ryker.PollingWorker` module gets: a
+  `:poll` runs one cycle and schedules the next by the delay it returned;
+  any other message is a wake from a subscription and asks for a poll.
+  """
   def handle_info(module, lane, interval, :poll, state) do
     # A wake that arrives from here on may name a row this cycle's reads miss,
     # so it asks for the poll after this one.

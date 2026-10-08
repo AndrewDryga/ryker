@@ -1789,7 +1789,10 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     # An update's reaction is feedback, not the request's event: Work is not
     # told about it the way it is told about a reaction on its reply.
-    refute Enum.any?(Ryker.Episodes.list_events(episode.key), &(&1.kind == :reaction_recorded))
+    refute Enum.any?(
+             Ryker.Inspectors.episode_events(episode.key),
+             &(&1.kind == :reaction_recorded)
+           )
   end
 
   # A live window patches its latest page and the rows changed since it last

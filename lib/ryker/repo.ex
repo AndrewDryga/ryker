@@ -20,10 +20,13 @@ defmodule Ryker.Repo do
 
   require Logger
 
-  # Every column is `timestamp without time zone` holding UTC, and SQL compares
-  # them with now() and clock_timestamp(), which PostgreSQL reads in the
-  # session's zone. Each connection asks for UTC, so a server in another zone
-  # cannot shift every lease and retention horizon by its offset.
+  @doc """
+  Asks every connection for the UTC session time zone. Every column is
+  `timestamp without time zone` holding UTC, and SQL compares them with
+  `now()` and `clock_timestamp()`, which PostgreSQL reads in the session's
+  zone, so a server in another zone would shift every lease and retention
+  horizon by its offset.
+  """
   def init(_context, config) do
     {:ok,
      Keyword.update(config, :parameters, [timezone: "UTC"], &Keyword.put(&1, :timezone, "UTC"))}
@@ -71,7 +74,12 @@ defmodule Ryker.Repo do
   # that sees each transaction open and close.
   defoverridable transact: 2
 
-  @doc false
+  @doc """
+  Internal — Ecto's `transact/2`, through which every `Repo.transaction/2`
+  runs, wrapped to open and close the after-commit queue
+  (`after_commit/1`): callbacks run once the outermost transaction commits,
+  and are dropped when it rolls back.
+  """
   def transact(fun_or_multi, opts) do
     scope = open_after_commit_scope()
 

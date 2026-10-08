@@ -179,7 +179,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
   end
 
   defp reverse_results({:ok, results}), do: {:ok, Enum.reverse(results)}
-  defp reverse_results({:error, _reason} = error), do: error
+  defp reverse_results({:error, reason}), do: {:error, reason}
 
   @spec bind_prompt(Ecto.UUID.t(), pos_integer(), String.t(), String.t() | nil) ::
           {:ok, ConfigurationSession.t()} | {:error, term()}

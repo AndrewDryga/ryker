@@ -469,10 +469,16 @@ defmodule Ryker.Improvement do
   """
   def subscribe_improvement, do: Ryker.PubSub.subscribe(topic())
 
-  # A page leaves a topic by its subscription's `un` twin (`WorkbenchLive`).
+  @doc """
+  Stops the announcements `subscribe_improvement/0` started. A page leaves a
+  topic by this twin of its subscription (`WorkbenchLive`).
+  """
   def unsubscribe_improvement, do: Ryker.PubSub.unsubscribe(topic())
 
-  @doc false
+  @doc """
+  Internal — announces, after the outermost commit, that candidate `id`
+  changed. `Ryker.Improvement.Analyses` calls it as an analysis runs.
+  """
   @spec broadcast_improvement_updated(Ecto.UUID.t()) :: :ok
   def broadcast_improvement_updated(id) do
     Repo.after_commit(fn -> Ryker.PubSub.broadcast(topic(), {:improvement_updated, id}) end)

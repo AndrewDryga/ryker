@@ -50,7 +50,7 @@ defmodule Ryker.Slack.CapabilityTools.Search do
      })}
   end
 
-  defp expanded_search_response({:error, _} = error, _response, _count), do: error
+  defp expanded_search_response({:error, reason}, _response, _count), do: {:error, reason}
 
   defp expand_search_hit(hit, arguments, binding, options, remaining) do
     read = Arguments.source_read_arguments(hit, arguments)
@@ -388,7 +388,7 @@ defmodule Ryker.Slack.CapabilityTools.Search do
   defp put_authorized_search_values({:ok, authorized}, results, key),
     do: {:ok, Map.put(results, key, Enum.reverse(authorized))}
 
-  defp put_authorized_search_values({:error, _reason} = error, _results, _key), do: error
+  defp put_authorized_search_values({:error, reason}, _results, _key), do: {:error, reason}
 
   defp public_search_channel(options, channel_ref) when is_binary(channel_ref) do
     with {:ok, conversation} <- options.api.conversation_info(options.client, channel_ref) do

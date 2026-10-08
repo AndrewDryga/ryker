@@ -9,7 +9,7 @@ defmodule Ryker.Inspectors do
   alias Ryker.Behaviors.StandingRuleInventory
   alias Ryker.CoopFleet.SessionEvidence
   alias Ryker.Emisar.Approval
-  alias Ryker.Episodes.{CorrelationClaim, RoutingDigest}
+  alias Ryker.Episodes.{CorrelationClaim, Episode, Event, RoutingDigest}
   alias Ryker.Improvement.Candidate
   alias Ryker.Knowledge.KnowledgeRevision
   alias Ryker.Memories
@@ -17,6 +17,12 @@ defmodule Ryker.Inspectors do
   alias Ryker.Repo
   alias Ryker.RepositoryKnowledge.Entry
   alias Ryker.Slack.{ChannelConfiguration, ChannelMembership}
+
+  @doc "The episode with `key`, or nil. Production reads go through the kernel's own loads."
+  def episode(key), do: key |> Episode.Query.by_key() |> Repo.one()
+
+  @doc "The events of the episode with `key`, in sequence order."
+  def episode_events(key), do: key |> Event.Query.by_episode_key() |> Repo.all()
 
   @doc "A learned topic's revisions, oldest first, by its `knowledge:` source ref."
   def knowledge_history("knowledge:" <> id) do

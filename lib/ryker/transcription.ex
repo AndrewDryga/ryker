@@ -50,9 +50,14 @@ defmodule Ryker.Transcription do
   @spec transcriber() :: module()
   def transcriber, do: Config.get_env(:transcriber, Ryker.Transcription.Service)
 
+  @doc "The largest recording Ryker transcribes, in bytes."
   @spec maximum_bytes() :: pos_integer()
   def maximum_bytes, do: @maximum_bytes
 
+  @doc """
+  The longest recording Ryker transcribes, in seconds; a longer one is refused
+  as too long rather than cut.
+  """
   @spec maximum_seconds() :: pos_integer()
   def maximum_seconds, do: @maximum_seconds
 

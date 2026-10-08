@@ -196,7 +196,7 @@ defmodule Ryker.GitHub.EndToEndTest do
 
     assert lifecycle_message =~ "Authenticated GitHub review feedback"
 
-    assert {:ok, resumed} = Ryker.Episodes.fetch_by_key(episode.key)
+    assert resumed = Ryker.Inspectors.episode(episode.key)
     assert resumed.id == episode.id
     assert resumed.destination_transport == "slack"
     assert resumed.destination_conversation_ref == "slack:TB14ADAF3E1AF:C456"

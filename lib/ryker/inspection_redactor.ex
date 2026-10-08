@@ -10,6 +10,13 @@ defmodule Ryker.InspectionRedactor do
   @maximum_source_bytes 2 * 1_024 * 1_024
   @secrets_memo {__MODULE__, :configured_secrets}
 
+  @doc """
+  A retained value as the console may show it: `%{state, text, sha256, bytes,
+  redacted, truncated}`. Configured secrets and credential-shaped keys are
+  redacted from `text`; a body nobody opened (`disclosed: false`) is
+  collapsed unread; text past `max_bytes` (512 KiB) is cut, and a source past
+  2 MiB is not read at all. A nil value is `:expired` or `:not_recorded`.
+  """
   def artifact(value, options \\ [])
 
   def artifact(nil, options) do
@@ -96,6 +103,12 @@ defmodule Ryker.InspectionRedactor do
   @spec redact(term(), [String.t()]) :: term()
   def redact(value, secrets) when is_list(secrets), do: sanitize(value, secrets, 0)
 
+  @doc """
+  The secret values in the application's configuration and the credentials
+  the runtime last read, longest first and at least 8 bytes each: what an
+  inspection artifact redacts. Within `with_configured_secrets/1` they are
+  worked out once.
+  """
   def configured_secrets do
     case Process.get(@secrets_memo) do
       nil -> collect_configured_secrets()
@@ -153,7 +166,11 @@ defmodule Ryker.InspectionRedactor do
     |> Enum.sort_by(&byte_size/1, :desc)
   end
 
-  @doc false
+  @doc """
+  Internal — every secret in a configuration value: what a `Ryker.Secret`
+  holds and what sits under a key that names a credential.
+  `configured_secrets/0` collects them; the module's tests read it directly.
+  """
   def secret_values(value), do: secret_values(value, false)
 
   defp secret_values(%Ryker.Secret{value: value}, _inherited), do: secret_values(value, true)

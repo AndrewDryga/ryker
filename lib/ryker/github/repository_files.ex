@@ -87,7 +87,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
   defp tree_entries({:error, {:delivery_protocol_error, :response_too_large}}),
     do: {:error, :repository_too_large}
 
-  defp tree_entries({:error, _reason} = error), do: error
+  defp tree_entries({:error, reason}), do: {:error, reason}
 
   @impl Ryker.RepositoryKnowledge.Remote
   def read(binding, repository, path, ref) do
@@ -122,7 +122,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
   defp compared({:error, {:delivery_protocol_error, :response_too_large}}),
     do: {:ok, :unknown}
 
-  defp compared({:error, _reason} = error), do: error
+  defp compared({:error, reason}), do: {:error, reason}
 
   defp changed_paths(%{"filename" => name} = file) when is_binary(name) do
     case file["previous_filename"] do

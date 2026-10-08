@@ -952,7 +952,7 @@ defmodule Ryker.Admission.ContextTest do
         :ok
     end
 
-    {:ok, episode} = Episodes.fetch_by_key(episode_key)
+    episode = Ryker.Inspectors.episode(episode_key)
     episode
   end
 

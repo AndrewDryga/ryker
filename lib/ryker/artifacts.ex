@@ -51,6 +51,13 @@ defmodule Ryker.Artifacts do
   }
   @text_media_types ~w(text/plain text/markdown text/csv application/json application/yaml application/x-yaml)
 
+  @doc """
+  Stores one artifact a source supplied: its bytes, media type, name and
+  source identity, checked against Coop's input-artifact contract. Storing
+  the same source again answers the artifact already kept, or
+  `{:error, :input_artifact_source_conflict}` when its bytes differ.
+  Returns `{:ok, artifact}`, or `{:error, {:invalid_input_artifact, field}}`.
+  """
   @spec put(map()) :: {:ok, Artifact.t()} | {:error, term()}
   def put(%{} = attributes) do
     with {:ok, prepared} <- prepare(attributes) do
@@ -69,6 +76,10 @@ defmodule Ryker.Artifacts do
 
   def put(_attributes), do: {:error, {:invalid_input_artifact, :fields}}
 
+  @doc """
+  The artifact a source stored under `source_kind`/`source_ref`:
+  `{:ok, artifact}`, or `{:error, :input_artifact_not_found}`.
+  """
   @spec fetch_source(String.t(), String.t()) :: {:ok, Artifact.t()} | {:error, term()}
   def fetch_source(source_kind, source_ref) do
     Artifact.Query.by_source(source_kind, source_ref)
@@ -79,6 +90,11 @@ defmodule Ryker.Artifacts do
     end
   end
 
+  @doc """
+  The artifacts `refs` name, in the order given: `{:ok, artifacts}`, or
+  `{:error, :input_artifact_not_found}` when any is missing, malformed or
+  repeated.
+  """
   @spec fetch_many([String.t()]) :: {:ok, [Artifact.t()]} | {:error, term()}
   def fetch_many(refs) when is_list(refs) do
     unique = Enum.uniq(refs)
@@ -103,6 +119,12 @@ defmodule Ryker.Artifacts do
 
   def fetch_many(_refs), do: {:error, :input_artifact_not_found}
 
+  @doc """
+  Up to five artifacts as Coop's input-artifact documents (bytes, media type,
+  name and SHA-256), together within `maximum_bytes/0`: `{:ok, inputs}`,
+  `{:error, :input_artifact_bound_exceeded}`, or
+  `{:error, :input_artifact_not_found}`.
+  """
   @spec coop_inputs([String.t()]) :: {:ok, [map()]} | {:error, term()}
   def coop_inputs(refs) do
     with true <- is_list(refs) and length(refs) <= 5,
@@ -124,9 +146,14 @@ defmodule Ryker.Artifacts do
     end
   end
 
+  @doc "The most bytes one artifact, or all a turn takes together, may hold: 8 MiB."
   @spec maximum_bytes() :: pos_integer()
   def maximum_bytes, do: @maximum_bytes
 
+  @doc """
+  Whether Ryker keeps artifacts of this media type: the types models read,
+  and voice messages and videos, which reach them as transcripts.
+  """
   @spec supported_media_type?(term()) :: boolean()
   def supported_media_type?(media_type), do: media_type in @media_types
 

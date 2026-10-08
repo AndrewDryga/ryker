@@ -110,7 +110,7 @@ defmodule Ryker.SettingsTest do
     assert {:ok, saved} = Settings.initialize(@actor)
     assert saved.installation.revision == 1
     assert Repo.aggregate(Installation, :count) == 1
-    assert Ryker.Instructions.get(:global).text == "Existing operator guidance"
+    assert {:ok, %{text: "Existing operator guidance"}} = Ryker.Instructions.get(:global)
   end
 
   test "a normalized no-op does not buy a revision, audit or reconfiguration" do

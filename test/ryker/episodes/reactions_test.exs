@@ -1,7 +1,6 @@
 defmodule Ryker.Episodes.ReactionsTest do
   use Ryker.DataCase, async: true
   import Ecto.Query
-  alias Ryker.Episodes
   alias Ryker.Episodes.{Event, Reactions, Transition}
   alias Ryker.Feedback
   alias Ryker.Fixtures.Answers
@@ -200,7 +199,7 @@ defmodule Ryker.Episodes.ReactionsTest do
            ) ==
              events_before
 
-    assert {:ok, episode} = Episodes.fetch_by_key(reply.episode.key)
+    assert episode = Ryker.Inspectors.episode(reply.episode.key)
     assert episode.state == reply.episode.state
 
     # A message Ryker never sent is still nobody's answer.

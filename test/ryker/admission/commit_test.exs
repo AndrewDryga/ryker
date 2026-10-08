@@ -300,14 +300,14 @@ defmodule Ryker.Admission.CommitTest do
     assert first.episode.destination_conversation_ref == "slack:TADMISSIONCOMMIT:C456"
     assert length(first.transitions) == 1
 
-    assert [event] = Episodes.list_events(first.episode.key)
+    assert [event] = Ryker.Inspectors.episode_events(first.episode.key)
     assert event.payload["payload"]["content"]["text"] =~ "unfamiliar app card"
 
     assert {:ok, duplicate} = Admission.commit(context, decision, "decision-start-1")
     assert duplicate.status == :duplicate
     assert duplicate.entry.id == first.entry.id
     assert duplicate.episode.id == first.episode.id
-    assert Episodes.list_events(first.episode.key) == [event]
+    assert Ryker.Inspectors.episode_events(first.episode.key) == [event]
 
     paraphrased = %{decision | reason: "Same decision, explained differently after reconnecting."}
     assert {:ok, duplicate} = Admission.commit(context, paraphrased, "decision-start-1")
@@ -342,7 +342,7 @@ defmodule Ryker.Admission.CommitTest do
     assert result.episode.linked_episode_id == nil
     assert result.episode.destination_conversation_ref == live.destination_conversation_ref
 
-    assert {:ok, unchanged_live} = Episodes.fetch_by_key(live.key)
+    assert unchanged_live = Ryker.Inspectors.episode(live.key)
     assert unchanged_live.execution_mode == :live
     assert unchanged_live.queued_input_refs == []
   end
@@ -420,7 +420,7 @@ defmodule Ryker.Admission.CommitTest do
     assert result.episode.linked_episode_id == old.id
     assert result.episode.destination_thread_ref == entry.destination_thread_ref
 
-    assert {:ok, unchanged_old} = Episodes.fetch_by_key(old.key)
+    assert unchanged_old = Ryker.Inspectors.episode(old.key)
     assert unchanged_old.destination_thread_ref == "1787830000.000001"
   end
 
@@ -450,7 +450,7 @@ defmodule Ryker.Admission.CommitTest do
     assert result.episode.owner_ref == active.owner_ref
     assert length(result.episode.queued_input_refs) == 1
 
-    assert Enum.map(Episodes.list_events(active.key), & &1.kind) == [
+    assert Enum.map(Ryker.Inspectors.episode_events(active.key), & &1.kind) == [
              :input_admitted,
              :input_admitted
            ]
@@ -856,7 +856,7 @@ defmodule Ryker.Admission.CommitTest do
 
     assert {:ok, still_pending} = Inbox.fetch(Inbox.ref(second_entry))
     assert still_pending.status == :pending
-    assert :error == Episodes.fetch_by_key("ingress-input:#{second_entry.id}")
+    assert Ryker.Inspectors.episode("ingress-input:#{second_entry.id}") == nil
   end
 
   test "the natural input slot rejects a different decision after acceptance" do
@@ -924,7 +924,7 @@ defmodule Ryker.Admission.CommitTest do
              )
 
     assert continued.episode.id == started.episode.id
-    assert :error == Episodes.fetch_by_key("ingress-input:#{second.id}")
+    assert Ryker.Inspectors.episode("ingress-input:#{second.id}") == nil
   end
 
   test "new work in another thread is reconsidered with the new candidate visible" do
@@ -1022,7 +1022,7 @@ defmodule Ryker.Admission.CommitTest do
 
     assert {:ok, pending} = Inbox.fetch(Inbox.ref(entry))
     assert pending.status == :pending
-    :error = Episodes.fetch_by_key("ingress-input:#{entry.id}")
+    assert Ryker.Inspectors.episode("ingress-input:#{entry.id}") == nil
   end
 
   test "bounded exact-thread context can start linked work while unrelated active work stays unchanged" do
@@ -1086,7 +1086,7 @@ defmodule Ryker.Admission.CommitTest do
     assert result.entry.status == :superseded
     assert result.episode.id == active.id
     assert result.entry.last_error_code == "stale_input_revision"
-    assert Episodes.fetch_by_key("ingress-input:#{entry.id}") == :error
+    assert Ryker.Inspectors.episode("ingress-input:#{entry.id}") == nil
 
     assert {:ok, duplicate} =
              Admission.commit(context, stale_start, "decision-stale-revision-race")
@@ -1152,7 +1152,7 @@ defmodule Ryker.Admission.CommitTest do
 
     assert {:ok, pending} = Inbox.fetch(Inbox.ref(entry))
     assert pending.status == :pending
-    assert {:ok, unchanged_other} = Episodes.fetch_by_key(other.key)
+    assert unchanged_other = Ryker.Inspectors.episode(other.key)
     refute Map.has_key?(unchanged_other.input_revisions, entry.native_input_id)
   end
 
@@ -1233,7 +1233,7 @@ defmodule Ryker.Admission.CommitTest do
     assert result.episode.id == owner.id
     assert result.transitions == []
 
-    assert {:ok, unchanged_selected} = Episodes.fetch_by_key(selected.episode.key)
+    assert unchanged_selected = Ryker.Inspectors.episode(selected.episode.key)
     refute Map.has_key?(unchanged_selected.input_revisions, entry.native_input_id)
   end
 
@@ -1279,7 +1279,7 @@ defmodule Ryker.Admission.CommitTest do
     assert result.episode.id == owner.id
     assert result.episode.input_revisions[entry.native_input_id] == 2
 
-    assert {:ok, unchanged_other} = Episodes.fetch_by_key(other.key)
+    assert unchanged_other = Ryker.Inspectors.episode(other.key)
     refute Map.has_key?(unchanged_other.input_revisions, entry.native_input_id)
   end
 
@@ -1309,7 +1309,7 @@ defmodule Ryker.Admission.CommitTest do
 
     assert ignored.entry.status == :decided
     assert ignored.entry.decision_action == :ignore
-    assert {:ok, unchanged_owner} = Episodes.fetch_by_key(owner.key)
+    assert unchanged_owner = Ryker.Inspectors.episode(owner.key)
     assert unchanged_owner.input_revisions[ignored_entry.native_input_id] == 1
 
     routed_entry =
@@ -1779,7 +1779,7 @@ defmodule Ryker.Admission.CommitTest do
         :ok
     end
 
-    assert {:ok, episode} = Episodes.fetch_by_key(episode_key)
+    assert episode = Ryker.Inspectors.episode(episode_key)
     episode
   end
 

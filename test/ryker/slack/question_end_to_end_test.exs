@@ -8,7 +8,6 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
   import Ecto.Query
   alias Ryker.Admission.Dispatcher, as: AdmissionDispatcher
   alias Ryker.Delivery.{Adapters, Dispatcher}
-  alias Ryker.Episodes
   alias Ryker.Ingress.Inbox
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Memories
@@ -157,7 +156,7 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
       "1788264002.000300"
     }
 
-    assert {:ok, waiting} = Episodes.fetch_by_key(episode.key)
+    assert waiting = Ryker.Inspectors.episode(episode.key)
     assert waiting.state == :waiting_for_input
     assert waiting.owner_kind == :input
     assert waiting.owner_ref == request.ref
@@ -175,7 +174,7 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
     assert Gateway.handle_envelope(unrelated_thread_envelope(), gateway_settings()) ==
              {:ack, {:ignored, :not_engaged}}
 
-    events = Episodes.list_events(episode.key)
+    events = Ryker.Inspectors.episode_events(episode.key)
     wait_event = Enum.find(events, &(&1.kind == :delivery_confirmed))
     assert get_in(wait_event.payload, ["next_wait", "ref"]) == request.ref
 
@@ -408,7 +407,7 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
 
     assert %Turn{status: :settled, session_id: session_id} = Repo.get!(Turn, final.turn.id)
     assert session_id == work_claim.session.id
-    assert {:ok, watching} = Episodes.fetch_by_key(episode.key)
+    assert watching = Ryker.Inspectors.episode(episode.key)
     assert watching.state == :waiting_for_event
     assert watching.owner_ref == watch.ref
     assert Repo.get!(EventSubscription, subscription.id).matcher == matcher

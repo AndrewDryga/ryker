@@ -13,6 +13,11 @@ defmodule Ryker.Options do
   """
   @type messages :: String.t() | [list: String.t(), map: String.t(), other: String.t()]
 
+  @doc """
+  `options` as a map once it is a keyword list without repeated keys, or a
+  map holding only `known` keys and every `required` one; raises
+  `ArgumentError` with the caller's message otherwise (`t:messages/0`).
+  """
   @spec normalize!(term(), [atom()], [atom()], messages()) :: map()
   def normalize!(options, known, required, messages) when is_list(options) do
     if Keyword.keyword?(options) and Enum.uniq(Keyword.keys(options)) == Keyword.keys(options),

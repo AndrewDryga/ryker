@@ -73,6 +73,29 @@ defmodule Ryker.Settings do
           pricing_rates: [PricingRate.t()]
         }
 
+  @typedoc """
+  What a settings write answers: the snapshot after it, or why it changed
+  nothing. `:settings_forbidden` names an actor who may not change settings,
+  `{:invalid_settings, errors}` a value or reference the change refused,
+  `{:settings_conflict, snapshot}` settings saved past `expected_revision`
+  (with what is current), and `:settings_not_initialized` an installation
+  never set up. `expected_revision` is the revision the change was made
+  against, or `:current` for one that cannot conflict.
+  """
+  @type write_result ::
+          {:ok, snapshot()}
+          | {:error,
+             :settings_forbidden
+             | :settings_not_initialized
+             | {:invalid_settings, keyword()}
+             | {:settings_conflict, snapshot()}
+             | term()}
+
+  @typedoc "The revision a change was made against, or `:current`."
+  @type revision :: non_neg_integer() | :current
+
+  @doc "The retention limits a new installation starts with, in seconds by field."
+  @spec retention_defaults() :: map()
   def retention_defaults, do: @retention_defaults
 
   @doc """
@@ -135,6 +158,8 @@ defmodule Ryker.Settings do
     fetched
   end
 
+  @doc "The current settings snapshot; raises when there are none (`fetch/0`)."
+  @spec fetch!() :: snapshot()
   def fetch! do
     case fetch() do
       {:ok, snapshot} -> snapshot
@@ -242,6 +267,10 @@ defmodule Ryker.Settings do
   defp person?("slack:user:" <> _user_ref), do: true
   defp person?(_system), do: false
 
+  @doc """
+  Whether the runtime has applied the snapshot's revision: `:applied`,
+  `:pending`, or `{:failed, code}` with the reason it could not.
+  """
   @spec application_status(snapshot()) :: :pending | :applied | {:failed, atom()}
   def application_status(%{installation: installation}) do
     cond do
@@ -296,6 +325,12 @@ defmodule Ryker.Settings do
 
   # Retention -----------------------------------------------------------------
 
+  @doc """
+  What saving these retention limits would do, without saving them:
+  `{:ok, %{proposed, shortened_fields, impact, confirmation, current_revision}}`.
+  A save that shortens a limit must carry `confirmation` (`save_retention/4`).
+  """
+  @spec preview_retention(map(), revision()) :: {:ok, map()} | {:error, term()}
   def preview_retention(attributes, expected_revision) do
     with {:ok, attributes} <- Validation.attributes(attributes, @retention_fields) do
       transaction(fn -> retention_preview(current!(expected_revision), attributes) end)
@@ -314,6 +349,13 @@ defmodule Ryker.Settings do
     }
   end
 
+  @doc """
+  Saves the retention limits. One that shortens a limit needs the
+  `confirmation` its preview gave (`preview_retention/2`), or answers
+  `{:error, :retention_impact_confirmation_required}`; otherwise
+  `t:write_result/0`.
+  """
+  @spec save_retention(map(), revision(), String.t(), String.t() | nil) :: write_result()
   def save_retention(attributes, expected_revision, actor_ref, confirmation \\ nil) do
     with :ok <- authorize(actor_ref),
          {:ok, attributes} <- Validation.attributes(attributes, @retention_fields) do
@@ -387,23 +429,47 @@ defmodule Ryker.Settings do
 
   # Singleton domains ---------------------------------------------------------
 
+  @doc """
+  Saves the Slack settings: the workspace and bot, operators, room naming and
+  default participation. Returns `t:write_result/0`.
+  """
+  @spec save_slack(map(), revision(), String.t()) :: write_result()
   def save_slack(attributes, expected_revision, actor_ref) do
     save_singleton(:slack, __MODULE__.Slack.Changeset, attributes, expected_revision, actor_ref)
   end
 
+  @doc """
+  Saves the GitHub App settings: the App, its API address and whether new
+  repositories are added. Returns `t:write_result/0`.
+  """
+  @spec save_github(map(), revision(), String.t()) :: write_result()
   def save_github(attributes, expected_revision, actor_ref),
     do: save_singleton(:github, GitHub.Changeset, attributes, expected_revision, actor_ref)
 
+  @doc """
+  Saves whether tasks publish draft pull requests, and their branch prefix.
+  Returns `t:write_result/0`.
+  """
+  @spec save_publication(map(), revision(), String.t()) :: write_result()
   def save_publication(attributes, expected_revision, actor_ref) do
     save_singleton(:publication, Publication.Changeset, attributes, expected_revision, actor_ref)
   end
 
+  @doc "Saves the weekly report: whether it is sent, where, and when. Returns `t:write_result/0`."
+  @spec save_report(map(), revision(), String.t()) :: write_result()
   def save_report(attributes, expected_revision, actor_ref),
     do: save_singleton(:report, Report.Changeset, attributes, expected_revision, actor_ref)
 
+  @doc "Saves whether Ryker learns from conversations. Returns `t:write_result/0`."
+  @spec save_learning(map(), revision(), String.t()) :: write_result()
   def save_learning(attributes, expected_revision, actor_ref),
     do: save_singleton(:learning, Learning.Changeset, attributes, expected_revision, actor_ref)
 
+  @doc """
+  Saves the Work settings: model accounts, ready routing sessions and local
+  routing. Returns `t:write_result/0`.
+  """
+  @spec save_work(map(), revision(), String.t()) :: write_result()
   def save_work(attributes, expected_revision, actor_ref),
     do: save_singleton(:work, __MODULE__.Work.Changeset, attributes, expected_revision, actor_ref)
 
@@ -413,7 +479,10 @@ defmodule Ryker.Settings do
   The Slack surface has no editor draft to protect, so it writes against the
   revision it reads under the same lock; the authorization check is the operator
   membership saved in these settings, never the Slack payload's own claim.
+  Returns `t:write_result/0`.
   """
+  @spec save_default_participation(:mentions | :proactive | :shadow, String.t()) ::
+          write_result()
   def save_default_participation(value, actor_ref)
       when value in [:mentions, :proactive, :shadow] do
     with :ok <- authorize(actor_ref) do
@@ -461,6 +530,8 @@ defmodule Ryker.Settings do
 
   # Collections ---------------------------------------------------------------
 
+  @doc "Adds a repository, or edits the one with its ref. Returns `t:write_result/0`."
+  @spec put_repository(map(), revision(), String.t()) :: write_result()
   def put_repository(attributes, expected_revision, actor_ref),
     do: put_item(:repositories, Repository, attributes, expected_revision, actor_ref)
 
@@ -468,8 +539,9 @@ defmodule Ryker.Settings do
   Saves a change to a repository that is still added, at whatever revision
   the settings are at: a step of Ryker's own, such as setup, never conflicts
   with a person's save. A removed repository stays removed
-  (`{:error, :repository_removed}`).
+  (`{:error, :repository_removed}`); otherwise `t:write_result/0`.
   """
+  @spec update_repository(String.t(), map(), String.t()) :: write_result()
   def update_repository(ref, attributes, actor_ref) when is_binary(ref) do
     with :ok <- authorize(actor_ref),
          {:ok, attributes} <-
@@ -491,8 +563,9 @@ defmodule Ryker.Settings do
   @doc """
   Removes a repository. Its requests, usage and learned topics keep its ref,
   so the name it was known by is kept (`removed_repository_names`) and they
-  still read owner/repo.
+  still read owner/repo. Returns `t:write_result/0`.
   """
+  @spec delete_repository(String.t(), revision(), String.t()) :: write_result()
   def delete_repository(ref, expected_revision, actor_ref) do
     with :ok <- authorize(actor_ref) do
       save(:repositories, expected_revision, actor_ref, fn snapshot ->
@@ -531,17 +604,30 @@ defmodule Ryker.Settings do
   maps a repository ref to `:read_write`, which a task may change, or
   `:read_only`, which work only reads; see `Ryker.Settings.Environment`.
   Making an environment the default takes the default from whichever
-  environment had it, in the same revision.
+  environment had it, in the same revision. Returns `t:write_result/0`.
   """
+  @spec put_environment(map(), revision(), String.t()) :: write_result()
   def put_environment(attributes, expected_revision, actor_ref),
     do: put_item(:environments, Environment, attributes, expected_revision, actor_ref)
 
+  @doc """
+  Removes an environment no Slack channel or webhook source selects. Returns
+  `t:write_result/0`.
+  """
+  @spec delete_environment(String.t(), revision(), String.t()) :: write_result()
   def delete_environment(ref, expected_revision, actor_ref),
     do: delete_item(:environments, Environment, ref, expected_revision, actor_ref)
 
+  @doc "Adds an Emisar connection, or edits the one with its ref. Returns `t:write_result/0`."
+  @spec put_emisar_connection(map(), revision(), String.t()) :: write_result()
   def put_emisar_connection(attributes, expected_revision, actor_ref),
     do: put_item(:emisar, EmisarConnection, attributes, expected_revision, actor_ref)
 
+  @doc """
+  Removes an Emisar connection nothing still names, and its token with it,
+  in one change. Returns `t:write_result/0`.
+  """
+  @spec delete_emisar_connection(String.t(), revision(), String.t()) :: write_result()
   def delete_emisar_connection(ref, expected_revision, actor_ref) do
     atomically(fn ->
       with {:ok, snapshot} <-
@@ -551,21 +637,33 @@ defmodule Ryker.Settings do
     end)
   end
 
+  @doc "Adds a GitHub binding, or edits the one with its name. Returns `t:write_result/0`."
+  @spec put_github_binding(map(), revision(), String.t()) :: write_result()
   def put_github_binding(attributes, expected_revision, actor_ref),
     do: put_item(:github, GitHubBinding, attributes, expected_revision, actor_ref)
 
+  @doc "Removes a GitHub binding. Returns `t:write_result/0`."
+  @spec delete_github_binding(String.t(), revision(), String.t()) :: write_result()
   def delete_github_binding(name, expected_revision, actor_ref),
     do: delete_item(:github, GitHubBinding, name, expected_revision, actor_ref)
 
+  @doc "Adds a webhook source, or edits the one with its name. Returns `t:write_result/0`."
+  @spec put_webhook_source(map(), revision(), String.t()) :: write_result()
   def put_webhook_source(attributes, expected_revision, actor_ref),
     do: put_item(:webhooks, WebhookSource, attributes, expected_revision, actor_ref)
 
+  @doc "Removes a webhook source. Returns `t:write_result/0`."
+  @spec delete_webhook_source(String.t(), revision(), String.t()) :: write_result()
   def delete_webhook_source(name, expected_revision, actor_ref),
     do: delete_item(:webhooks, WebhookSource, name, expected_revision, actor_ref)
 
+  @doc "Adds a model price, or edits the one with its id. Returns `t:write_result/0`."
+  @spec put_pricing_rate(map(), revision(), String.t()) :: write_result()
   def put_pricing_rate(attributes, expected_revision, actor_ref),
     do: put_item(:pricing, PricingRate, attributes, expected_revision, actor_ref)
 
+  @doc "Removes a model price. Returns `t:write_result/0`."
+  @spec delete_pricing_rate(String.t(), revision(), String.t()) :: write_result()
   def delete_pricing_rate(id, expected_revision, actor_ref),
     do: delete_item(:pricing, PricingRate, id, expected_revision, actor_ref)
 
@@ -911,6 +1009,7 @@ defmodule Ryker.Settings do
   @spec subscribe() :: :ok | {:error, term()}
   def subscribe, do: Ryker.PubSub.subscribe(saves_topic())
 
+  @doc "Stops the announcements `subscribe/0` started."
   def unsubscribe, do: Ryker.PubSub.unsubscribe(saves_topic())
 
   @doc """
@@ -921,6 +1020,7 @@ defmodule Ryker.Settings do
   @spec subscribe_application() :: :ok | {:error, term()}
   def subscribe_application, do: Ryker.PubSub.subscribe(application_topic())
 
+  @doc "Stops the announcements `subscribe_application/0` started."
   def unsubscribe_application, do: Ryker.PubSub.unsubscribe(application_topic())
 
   defp saves_topic, do: "settings"

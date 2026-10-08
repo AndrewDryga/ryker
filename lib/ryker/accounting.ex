@@ -19,8 +19,18 @@ defmodule Ryker.Accounting do
                         @timing_fields ++
                         ~w(execution_target usage_recorded usage_cost_recorded usage_cost_usd timing_recorded measurement_error_code)a
 
+  @doc """
+  The usage and timing fields a measurement fills: token counts, remote
+  times, cost, and whether each was recorded. Admission copies these onto a
+  message's attempt.
+  """
   def measurement_fields, do: @measurement_fields
 
+  @doc """
+  Records what Coop reported for a Work turn (its state, tokens, times and
+  cost) while the claim's lease, session generation and submission still
+  hold: `:ok`, or `{:error, :accounting_lease_lost}`.
+  """
   def observe_work(claim, remote_turn, remote_session \\ %{}) do
     Repo.transaction(fn ->
       current =
@@ -77,7 +87,10 @@ defmodule Ryker.Accounting do
     {:ok, saved}
   end
 
-  @doc "The caller already owns the learning batch lease; one ledger row per frozen learning attempt."
+  @doc """
+  The caller already owns the learning batch lease; one ledger row per frozen
+  learning attempt.
+  """
   def observe_learning_in_transaction(batch, run, session_id, remote_turn, remote_session, now) do
     measurement = Work.Measurement.prepare(remote_turn, remote_session)
 
@@ -188,6 +201,11 @@ defmodule Ryker.Accounting do
     :ok
   end
 
+  @doc """
+  Internal — gives a message's routing usage the episode routing just chose
+  for it, inside the caller's transaction. `Ryker.Admission.Attempts` calls
+  it when a decision commits.
+  """
   def attach_admission_in_transaction(entry) do
     {_count, attached} =
       Execution.Query.unattached_admission(entry.id)
@@ -298,7 +316,7 @@ defmodule Ryker.Accounting do
   defp merge_timing(attributes, _current, _measurement), do: attributes
 
   defp result({:ok, _}), do: :ok
-  defp result({:error, _} = error), do: error
+  defp result({:error, reason}), do: {:error, reason}
 
   # -- PubSub ------------------------------------------------------------------
 
@@ -309,6 +327,7 @@ defmodule Ryker.Accounting do
   """
   def subscribe_usage, do: Ryker.PubSub.subscribe(usage_topic())
 
+  @doc "Stops the announcements `subscribe_usage/0` started."
   def unsubscribe_usage, do: Ryker.PubSub.unsubscribe(usage_topic())
 
   defp usage_topic, do: "usage"

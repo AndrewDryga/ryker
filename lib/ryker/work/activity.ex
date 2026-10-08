@@ -411,13 +411,13 @@ defmodule Ryker.Work.Activity do
 
   # What a turn is doing shows on its request's page, and what routing is
   # doing on its message's.
-  defp announce_inserted({:ok, inserted} = result, session) when inserted > 0 do
+  defp announce_inserted({:ok, inserted}, session) when inserted > 0 do
     Episodes.broadcast_episode_updated(session.episode_id)
 
     if session.admission_input_id,
       do: Ingress.Inbox.broadcast_input_updated(session.admission_input_id)
 
-    result
+    {:ok, inserted}
   end
 
   defp announce_inserted(result, _session), do: result

@@ -125,8 +125,8 @@ defmodule Ryker.Records.RecordsTest do
              })
 
     assert Records.user_resumable_wait?(wait.ref, input)
-    assert Records.user_resumable_wait?(wait.ref)
-    refute Records.user_resumable_wait?(nil)
+    assert Records.user_resumable_wait?(wait.ref, %{input | actor: %{kind: :user, ref: "U123"}})
+    refute Records.user_resumable_wait?(nil, input)
     refute Records.user_resumable_wait?(wait.ref, %{input | content: %{"state" => "healthy"}})
 
     refute Records.user_resumable_wait?(wait.ref, %{

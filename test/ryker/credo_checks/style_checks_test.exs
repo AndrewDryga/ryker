@@ -259,6 +259,29 @@ defmodule Ryker.CredoChecks.StyleChecksTest do
       assert length(issues(bound_tuple(), source, @context)) == 4
     end
 
+    test "flags a function clause that binds a tuple in its head only to return it" do
+      source = """
+      defmodule Ryker.Sprockets do
+        defp settle({:error, {:rate_limited, _delay}} = error), do: error
+        defp halt({:error, _reason} = error, _step), do: {:halt, error}
+        defp settle_ok({:ok, _sprocket} = ok), do: ok
+      end
+      """
+
+      assert length(issues(bound_tuple(), source, @context)) == 3
+    end
+
+    test "allows a function clause that restates its tuple or hands it on" do
+      source = """
+      defmodule Ryker.Sprockets do
+        defp settle({:error, {:rate_limited, delay}}), do: {:error, {:rate_limited, delay}}
+        defp log({:error, _reason} = error), do: Logger.warning(inspect(error))
+      end
+      """
+
+      assert issues(bound_tuple(), source, @context) == []
+    end
+
     test "allows a restated tuple and a binding passed on to a function" do
       source = """
       defmodule Ryker.Sprockets do

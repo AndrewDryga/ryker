@@ -182,7 +182,7 @@ defmodule Ryker.Work.Executor.Sessions do
   defp validate_repository_freshness_capability({:error, {:coop_error, 404, _code, _detail}}),
     do: {:error, {:coop_upgrade_required, :repository_freshness_v2}}
 
-  defp validate_repository_freshness_capability({:error, _reason} = error), do: error
+  defp validate_repository_freshness_capability({:error, reason}), do: {:error, reason}
 
   defp capability_versions?(versions)
        when is_list(versions) and versions != [] and

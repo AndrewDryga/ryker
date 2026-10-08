@@ -12,7 +12,7 @@ defmodule Ryker.ControlPlane.InstructionSettings do
   """
   def fetch(scope) do
     with {:ok, _membership} <- available(scope),
-         %{scope_ref: _} = setting <- Instructions.get(scope) do
+         {:ok, setting} <- Instructions.get(scope) do
       {:ok, view(scope, setting)}
     else
       _ -> {:error, :instructions_scope_unavailable}

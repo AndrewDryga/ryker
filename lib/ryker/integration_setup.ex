@@ -30,10 +30,21 @@ defmodule Ryker.IntegrationSetup do
     reactions:read reactions:write usergroups:read users:read
   )
 
-  @doc "The Slack bot scopes connecting verifies; the shipped app manifest asks for exactly these."
+  @doc """
+  The Slack bot scopes connecting verifies; the shipped app manifest asks for
+  exactly these.
+  """
   @spec slack_scopes() :: [String.t()]
   def slack_scopes, do: @slack_scopes
 
+  @doc """
+  Connects Slack with an app-level token (`xapp-`) and a bot token (`xoxb-`):
+  opens a Socket Mode connection, reads the bot's identity and scopes, and
+  saves the tokens, the workspace and their verification as one change.
+  Returns `{:ok, %{status: :connected, identity, settings_revision}}`, or
+  `{:error, {:slack_verification_failed, reason}}` and the reasons a token or
+  a save was refused.
+  """
   @spec connect_slack(map(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def connect_slack(params, actor_ref, options \\ []) when is_map(params) do
     app_token = text(params, "app_token")
@@ -108,6 +119,14 @@ defmodule Ryker.IntegrationSetup do
     end
   end
 
+  @doc """
+  Connects a GitHub App by id and private key at `api_url` (github.com, or a
+  GitHub Enterprise API address): reads the App and its bot account, and
+  saves the key, the webhook signing secret (the one given, or a new one) and
+  the App's identity as one change. Returns `{:ok, %{status: :connected,
+  app_id, app_slug, webhook_secret, ...}}`, or
+  `{:error, {:github_verification_failed, reason}}`.
+  """
   @spec connect_github(map(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def connect_github(params, actor_ref, options \\ []) when is_map(params) do
     app_id = integer(params, "app_id")
@@ -153,6 +172,11 @@ defmodule Ryker.IntegrationSetup do
     end)
   end
 
+  @doc """
+  Every repository the connected App's installations reach, the most recently
+  pushed first, each marked `already_present` once Ryker has it set up:
+  `{:ok, repositories}`, or `{:error, {:github_verification_failed, reason}}`.
+  """
   @spec github_repositories(keyword()) :: {:ok, [map()]} | {:error, term()}
   def github_repositories(options \\ []) do
     with {:ok, snapshot} <- Settings.fetch(),
@@ -215,6 +239,12 @@ defmodule Ryker.IntegrationSetup do
     end)
   end
 
+  @doc """
+  Adds the chosen GitHub repositories with their bindings and switches GitHub
+  on if one was added: `{:ok, %{added, already_present, failed}}`, each a
+  list of repositories, or `{:error, reason}` when settings or the App
+  cannot be read.
+  """
   @spec import_github_repositories([map()], String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def import_github_repositories(repositories, actor_ref, options \\ [])
@@ -394,6 +424,12 @@ defmodule Ryker.IntegrationSetup do
     end
   end
 
+  @doc """
+  Replaces Emisar connection `ref`'s token with one that works at its address,
+  keeping the connection's identity, which approvals are pinned to:
+  `{:ok, %{ref: ref, status: :rotated}}`, `{:error, :connection_not_found}`,
+  or the reason Emisar refused the token.
+  """
   @spec rotate_emisar(String.t(), String.t(), String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def rotate_emisar(ref, token, actor_ref, options \\ [])
@@ -452,6 +488,10 @@ defmodule Ryker.IntegrationSetup do
 
   defp signing_secret(_absent), do: {:ok, generate_secret()}
 
+  @doc """
+  Switches Slack or GitHub off and deletes its credentials, as one change:
+  `{:ok, %{status: :disconnected, kind: kind}}`, or `{:error, reason}`.
+  """
   @spec disconnect(:slack | :github, String.t()) :: {:ok, map()} | {:error, term()}
   def disconnect(kind, actor_ref) when kind in [:slack, :github] do
     snapshot = Settings.fetch!()
@@ -770,6 +810,10 @@ defmodule Ryker.IntegrationSetup do
     end)
   end
 
+  @doc """
+  Deletes the webhook signing secret `name`: `{:ok, %{name, status: :deleted}}`,
+  or `{:error, :credential_in_use}` while a webhook source names it.
+  """
   @spec delete_webhook_credential(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def delete_webhook_credential(name, actor_ref) when is_binary(name) do
     if Enum.any?(Settings.fetch!().webhook_sources, &(&1.secret_name == name)) do
@@ -1129,7 +1173,11 @@ defmodule Ryker.IntegrationSetup do
     )
   end
 
-  @doc false
+  @doc """
+  Internal — the GitHub actions an App's permissions allow: `read` always,
+  `review` with pull-request write, and `rerun_ci` and `cancel_ci` with
+  Actions write. `Ryker.GitHub.Access` grants these per repository.
+  """
   def github_action_grants(permissions) do
     permissions = normalize_github_permissions(permissions)
 

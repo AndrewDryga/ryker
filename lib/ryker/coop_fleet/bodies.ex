@@ -372,7 +372,7 @@ defmodule Ryker.CoopFleet.Bodies do
     end
   end
 
-  defp verify_written({:error, _} = error, _reference), do: error
+  defp verify_written({:error, reason}, _reference), do: {:error, reason}
 
   defp verify_written({size, hash}, reference) do
     if %{"byte_size" => size, "sha256" => hex(:crypto.hash_final(hash))} == reference,

@@ -1160,13 +1160,13 @@ defmodule Ryker.Evals.WorldRunnerTest do
                wait_ref: "eval-wait:cleanup-wait:1"
              })
 
-    assert {:ok, waiting} = Episodes.fetch_by_key(episode_key)
+    assert waiting = Ryker.Inspectors.episode(episode_key)
     assert waiting.state == :waiting_for_event
 
     assert WorldDatabase.terminalize_waiting_episodes() == :ok
     assert WorldDatabase.terminalize_waiting_episodes() == :ok
 
-    assert {:ok, cancelled} = Episodes.fetch_by_key(episode_key)
+    assert cancelled = Ryker.Inspectors.episode(episode_key)
     assert cancelled.state == :cancelled
     assert cancelled.owner_kind == nil
     assert cancelled.owner_ref == nil

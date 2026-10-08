@@ -527,7 +527,7 @@ defmodule Ryker.Work.Executor.Turns do
       else: {:error, {:coop_protocol_error, :output_artifact_identity}}
   end
 
-  defp verify_output_artifact(_expected, {:error, _reason} = error), do: error
+  defp verify_output_artifact(_expected, {:error, reason}), do: {:error, reason}
 
   defp verify_output_artifact(_expected, _result),
     do: {:error, {:coop_protocol_error, :output_artifact}}

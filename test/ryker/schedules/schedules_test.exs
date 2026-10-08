@@ -91,7 +91,7 @@ defmodule Ryker.Schedules.SchedulesTest do
 
     assert digest == @policy.digest
 
-    assert [event] = Episodes.list_events(dispatched.episode.key)
+    assert [event] = Ryker.Inspectors.episode_events(dispatched.episode.key)
     assert event.kind == :input_admitted
     assert event.payload["payload"]["content"]["kind"] == "scheduled_task"
 

@@ -73,9 +73,9 @@ defmodule Ryker.Ingress.Inbox do
   # already gave (`Ryker.Feedback.Messages`), read after the custody commit
   # like the rule inventories: it is evidence about the message, never a
   # reason to refuse it. A duplicate delivery was read the first time.
-  defp observe_feedback({:ok, receipts} = result) do
+  defp observe_feedback({:ok, receipts}) do
     for %{status: :recorded, entry: entry} <- receipts, do: Feedback.Messages.observe(entry)
-    result
+    {:ok, receipts}
   end
 
   defp observe_feedback(result), do: result
@@ -86,14 +86,14 @@ defmodule Ryker.Ingress.Inbox do
   # "we could not write down why" into "the message was never accepted". A
   # duplicate delivery's inventory was written the first time; every
   # redelivery read the workspace's rules again (2026-10-04 review).
-  defp record_rule_inventories({:ok, receipts} = result, inputs) do
+  defp record_rule_inventories({:ok, receipts}, inputs) do
     for {input, %{status: :recorded, entry: entry}} <- Enum.zip(inputs, receipts) do
       _evidence = Projections.observe_rules(input, ref(entry))
       # The Standing rules card of the message's page reads it.
       broadcast_input_updated(entry)
     end
 
-    result
+    {:ok, receipts}
   end
 
   defp record_rule_inventories(result, _inputs), do: result

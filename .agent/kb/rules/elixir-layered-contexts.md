@@ -146,11 +146,29 @@ Functions:
   anything that is not the argument (`DispatchOnPattern`, and Emisar's own
   `NoIfOnArgField` for a closure). Eighteen moved on 2026-10-08.
 
+Docs (Emisar's `elixir-doc-contract`):
+
+- Every public function of a top-level context has a `@doc` with its
+  contract: one line on what it does, and what it returns, error reasons
+  included, matching the code. A doc never narrates the body; the steps live
+  in the code, and the reason for a step lives beside it as a comment.
+- A function another module calls for the context's own plumbing says so:
+  `@doc "Internal — ..."` and who calls it. A shared contract is said once, as
+  a type every function points to (`Ryker.Settings.write_result/0`), and an
+  `unsubscribe_*` twin points to the `subscribe_*` it ends.
+- Query, Changeset and schema modules, and `@impl` callbacks, take their role
+  from their name and need no per-function doc. Internal modules document
+  what a caller needs (about half of their public functions, as in Emisar).
+- Measured 2026-10-08: 448 of 448 top-level context functions documented
+  (Emisar: 935 of 1,018).
+
 Results:
 
 - A clause never binds an `{:ok, _}` or `{:error, _}` tuple only to return
   it; it restates the tuple (`{:error, reason} -> {:halt, {:error, reason}}`)
-  (`NoBoundTupleReturn`). A tuple handed on to a function keeps its name.
+  (`NoBoundTupleReturn`). That holds for a function clause's head too
+  (`defp result({:error, reason}), do: {:error, reason}`; 37 moved on
+  2026-10-08). A tuple handed on to a function keeps its name.
 
 Stored data (Emisar's `elixir-nil-is-not-an-empty-list`):
 

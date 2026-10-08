@@ -239,7 +239,7 @@ defmodule Ryker.ControlPlane.Actions do
     do: {:error, :episode_not_resolvable}
 
   defp resolved_episode_result({:ok, transition}), do: {:ok, transition.episode}
-  defp resolved_episode_result({:error, _reason} = error), do: error
+  defp resolved_episode_result({:error, reason}), do: {:error, reason}
   defp resolve_action_ref, do: "control-plane:resolve:#{Ecto.UUID.generate()}"
 
   defp lab_task_record_view(work_view_options) do

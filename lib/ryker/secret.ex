@@ -15,9 +15,14 @@ defmodule Ryker.Secret do
 
   @type t :: %__MODULE__{value: term()}
 
+  @doc """
+  Wraps `value` so that inspecting it, in a log or a crash report, prints
+  `#Ryker.Secret<redacted>`.
+  """
   @spec new(term()) :: t()
   def new(value), do: %__MODULE__{value: value}
 
+  @doc "The value a secret wraps, for the one call that sends it."
   @spec reveal(t()) :: term()
   def reveal(%__MODULE__{value: value}), do: value
 

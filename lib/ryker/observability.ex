@@ -23,11 +23,16 @@ defmodule Ryker.Observability do
   @default_stall_after_seconds 15 * 60
   @readiness_options [:check_progress, :check_runtimes, :stall_after_seconds]
 
+  @doc "The probes the HTTP endpoints serve: `health`, `ready` and `metrics`."
   @spec callbacks() :: map()
   def callbacks do
     %{health: &health/0, metrics: &metrics/0, ready: &ready/0}
   end
 
+  @doc """
+  Whether the database answers: `{:ok, %{database: :ok}}`, or
+  `{:error, {:database_unavailable, reason}}`.
+  """
   @spec health() :: {:ok, map()} | {:error, term()}
   def health do
     case Reads.sql("SELECT 1") do
@@ -36,6 +41,14 @@ defmodule Ryker.Observability do
     end
   end
 
+  @doc """
+  Whether Ryker can do its work: every runtime it should run is up, the
+  worker fleet has nothing wrong, and no lane, queue or lease has stalled
+  past `stall_after_seconds` (15 minutes by default); `check_runtimes` and
+  `check_progress` leave a half out. The verdict is the same map either way,
+  `{:ok, readiness}` or `{:error, readiness}` (`problems/1` says why), or
+  `{:error, reason}` when the snapshot cannot be read.
+  """
   @spec ready(keyword()) :: {:ok, map()} | {:error, map() | term()}
   def ready(options \\ []) do
     with {:ok, check} <- readiness_options(options),
@@ -59,6 +72,10 @@ defmodule Ryker.Observability do
 
   def problems(_reason), do: ["readiness check failed"]
 
+  @doc """
+  The snapshot as Prometheus text: fixed labels and counts only.
+  `{:ok, text}`, or `{:error, reason}`.
+  """
   @spec metrics() :: {:ok, binary()} | {:error, term()}
   def metrics do
     with {:ok, snapshot} <- snapshot(@default_stall_after_seconds) do
@@ -66,11 +83,20 @@ defmodule Ryker.Observability do
     end
   end
 
+  @doc """
+  The Coop worker fleet as of the database clock: `{:ok, fleet}`, or
+  `{:error, reason}`.
+  """
   @spec fleet() :: {:ok, map()} | {:error, term()}
   def fleet do
     with {:ok, now} <- database_now(), do: Fleet.snapshot(now)
   end
 
+  @doc """
+  Every queue, lane progress, fleet and retention count at one database clock
+  reading, a lane counting as stalled after `stall_after_seconds`:
+  `{:ok, snapshot}`, or `{:error, reason}` from the first read that failed.
+  """
   @spec snapshot(pos_integer()) :: {:ok, map()} | {:error, term()}
   def snapshot(stall_after_seconds \\ @default_stall_after_seconds)
 

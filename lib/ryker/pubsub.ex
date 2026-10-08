@@ -19,13 +19,17 @@ defmodule Ryker.PubSub do
   @doc "Starts the server, `Ryker.PubSub.Server`, under a supervisor."
   def child_spec(_options), do: Phoenix.PubSub.child_spec(name: @pubsub)
 
+  @doc "Subscribes the calling process to `topic`: `:ok`, or `{:error, reason}`."
   def subscribe(topic) when is_binary(topic), do: Phoenix.PubSub.subscribe(@pubsub, topic)
 
+  @doc "Unsubscribes the calling process from `topic`."
   def unsubscribe(topic) when is_binary(topic), do: Phoenix.PubSub.unsubscribe(@pubsub, topic)
 
-  # Normalized to :ok so the per-event broadcast_* functions can be handed to
-  # `Repo.after_commit/1` without each appending a bare :ok. Broadcasts are
-  # fire-and-forget; no caller branches on delivery.
+  @doc """
+  Sends `payload` to every subscriber of `topic` and answers `:ok`, so a
+  context's `broadcast_*` function can be handed to `Repo.after_commit/1`
+  as it is. Delivery is fire-and-forget: no caller branches on it.
+  """
   def broadcast(topic, payload) when is_binary(topic) do
     _ = Phoenix.PubSub.broadcast(@pubsub, topic, payload)
     :ok
@@ -45,6 +49,10 @@ defmodule Ryker.PubSub do
     alias
   end
 
+  @doc """
+  Unsubscribes `alias` from `topic` and drops the alias, so a message still
+  on its way is discarded (`subscribe_alias/1`).
+  """
   @spec unsubscribe_alias(String.t(), reference()) :: :ok
   def unsubscribe_alias(topic, alias) when is_binary(topic) and is_reference(alias) do
     :ok = Phoenix.PubSub.unsubscribe(@pubsub, topic)

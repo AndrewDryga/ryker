@@ -80,7 +80,9 @@ defmodule Ryker.ControlPlane.ViewerLiveTest do
 
     {:ok, view, _html} = tailnet("zoe@example.com", "Zoë Smith") |> live("/instructions")
     view |> element("#instructions-form") |> render_submit(%{"text" => "Answer in English."})
-    assert Instructions.get(:global).saved_by == "control-plane:tailscale:zoe@example.com"
+
+    assert {:ok, %{saved_by: "control-plane:tailscale:zoe@example.com"}} =
+             Instructions.get(:global)
   end
 
   # Serve replaces the Tailscale headers a client sends, but a request at a

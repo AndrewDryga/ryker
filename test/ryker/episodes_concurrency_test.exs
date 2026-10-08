@@ -43,7 +43,7 @@ defmodule Ryker.EpisodesConcurrencyTest do
                  :duplicate
                ]
 
-        assert [%{sequence: 1}] = Episodes.list_events(command.episode_key)
+        assert [%{sequence: 1}] = Ryker.Inspectors.episode_events(command.episode_key)
       after
         send(blocker.pid, :release)
         stop_tasks([blocker | contenders])
@@ -94,19 +94,19 @@ defmodule Ryker.EpisodesConcurrencyTest do
                  _result -> false
                end)
 
-        assert {:ok, stored} = Episodes.fetch_by_key(episode_key)
+        assert stored = Ryker.Inspectors.episode(episode_key)
         assert stored.id in Enum.map(commands, & &1.episode_id)
-        assert Enum.map(Episodes.list_events(episode_key), & &1.sequence) == [1, 2]
+        assert Enum.map(Ryker.Inspectors.episode_events(episode_key), & &1.sequence) == [1, 2]
       after
         send(blocker.pid, :release)
         stop_tasks([blocker | contenders])
 
-        case Episodes.fetch_by_key(episode_key) do
-          {:ok, stored} ->
+        case Ryker.Inspectors.episode(episode_key) do
+          %Episode{} = stored ->
             Repo.delete_all(from(event in Event, where: event.episode_id == ^stored.id))
             Repo.delete_all(from(episode in Episode, where: episode.id == ^stored.id))
 
-          :error ->
+          nil ->
             :ok
         end
       end
@@ -162,11 +162,11 @@ defmodule Ryker.EpisodesConcurrencyTest do
         assert 1 == Enum.count(results, &match?({:ok, %{status: :applied}}, &1))
         assert 1 == Enum.count(results, &match?({:error, {:stale_owner, _}}, &1))
 
-        assert {:ok, stored} = Episodes.fetch_by_key(input.episode_key)
+        assert stored = Ryker.Inspectors.episode(input.episode_key)
         assert stored.owner_ref in ["turn-contender-a", "turn-contender-b"]
 
         assert Enum.count(
-                 Episodes.list_events(input.episode_key),
+                 Ryker.Inspectors.episode_events(input.episode_key),
                  &(&1.kind == :owner_transferred)
                ) == 1
       after

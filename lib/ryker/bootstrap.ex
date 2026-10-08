@@ -36,6 +36,13 @@ defmodule Ryker.Bootstrap do
     keyfile: "RYKER_WORKER_KEY_FILE"
   ]
 
+  @doc """
+  Reads the installation's bootstrap from its environment: the database URL
+  and pool, the console, worker, GitHub and webhook listeners and their public
+  addresses, the state directory, the credential key and the log level.
+  Raises with the variable's name, never its value, for one missing or
+  malformed.
+  """
   def load!(env \\ &System.fetch_env/1) do
     :ok = optional_services!(env)
     control_plane = control_listener!(env)
@@ -63,12 +70,25 @@ defmodule Ryker.Bootstrap do
     }
   end
 
+  @doc """
+  A machine secret by kind (`:state_tools`, the token that signs state-tool
+  bindings), read from its variable; raises when it is missing or shorter
+  than 16 bytes.
+  """
   def secret!(kind, env \\ &System.fetch_env/1),
     do: required_secret!(env, Keyword.fetch!(@machine_secrets, kind))
 
+  @doc """
+  Where Ryker keeps its files (`RYKER_STATE_DIR`, `/var/lib/ryker` unless
+  set); raises for a path it cannot use.
+  """
   def storage_root!(env \\ &System.fetch_env/1),
     do: env |> value!("RYKER_STATE_DIR", "/var/lib/ryker") |> path!("RYKER_STATE_DIR")
 
+  @doc """
+  The 32-byte key that seals workspace checkpoints (`RYKER_CHECKPOINT_KEY`,
+  base64); raises when it is missing or not 32 bytes.
+  """
   def checkpoint_key!(env \\ &System.fetch_env/1), do: key!(env, "RYKER_CHECKPOINT_KEY")
 
   defp credential_key!(env), do: key!(env, "RYKER_CREDENTIAL_KEY")
@@ -151,12 +171,13 @@ defmodule Ryker.Bootstrap do
     end
   end
 
-  # Any RYKER_WORKER_* variable means the operator wants the gateway, and the
-  # gateway needs all of them: an address without the TLS material used to be
-  # validated and then silently dropped, leaving a listener nobody started.
-  # Public for the world eval, which serves a gateway and needs nothing else of
-  # the installation's bootstrap.
-  @doc false
+  @doc """
+  Internal — the worker gateway's listener and TLS files, or nil when no
+  `RYKER_WORKER_*` variable is set. Any one of them means the gateway is
+  wanted, and it needs all of them: an address without its TLS material was
+  once validated and then dropped, leaving a listener nobody started. The
+  world eval serves a gateway from this alone.
+  """
   def worker_gateway!(env \\ &System.fetch_env/1) do
     names = [
       "RYKER_WORKER_IP",

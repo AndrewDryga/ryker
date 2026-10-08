@@ -138,6 +138,15 @@ defmodule Ryker.Learning do
   @thread_context 6
   @thread_text 800
 
+  @doc """
+  Prepares one learning pass over 1 to 16 retained messages under `settings`'s policy.
+
+  The same messages, policy and contract make the same pass: an applied one
+  is returned as it is, an open one while its sources still hold, and
+  otherwise a new attempt is frozen. Returns `{:ok, run}`, or
+  `{:error, :invalid_learning_inputs}` and the reasons a message or its
+  thread can no longer be read.
+  """
   def prepare(ids, %{policy: policy, policy_digest: digest} = settings)
       when is_list(ids) and length(ids) in 1..@max_inputs and is_binary(policy) and
              is_binary(digest) do
@@ -221,6 +230,11 @@ defmodule Ryker.Learning do
 
   defp instructions(rebuild, _thread), do: instructions(rebuild)
 
+  @doc """
+  Checks that pass `id`'s messages and thread may still be learned from, under
+  the batch `claim` when one is given: `{:ok, run}`, or `{:error, reason}`
+  naming what went stale, forgotten or out of reach.
+  """
   def authorize(id, claim \\ nil) do
     owned_read(id, claim, fn run ->
       case authorize_run(run) do
@@ -340,6 +354,11 @@ defmodule Ryker.Learning do
       Reference.valid?(turn["validation_receipt"])
   end
 
+  @doc """
+  Freezes the settings `revision` pass `id` is submitted under, checking its
+  sources the first time: `{:ok, run}`, or `{:error, :learning_submission_conflict}`
+  for another revision already frozen.
+  """
   def freeze_submit(id, revision, claim \\ nil)
 
   def freeze_submit(id, revision, claim) when is_integer(revision) and revision > 0 do
@@ -366,6 +385,10 @@ defmodule Ryker.Learning do
       do: Repo.rollback(:learning_attempt_not_running)
   end
 
+  @doc """
+  Binds the remote turn `turn_id` to pass `id` in its own session: `{:ok, run}`,
+  or `{:error, :learning_remote_identity_conflict}` for another session or turn.
+  """
   def bind_turn(id, session_id, turn_id, claim \\ nil) do
     owned_transaction(id, claim, fn run ->
       unless owned_remote_session?(run, session_id) and Reference.valid?(turn_id),
@@ -460,6 +483,11 @@ defmodule Ryker.Learning do
     end)
   end
 
+  @doc """
+  Records that pass `id`, stale or rejected before anything was submitted,
+  stopped in session `session_id`: `{:ok, run}`, or
+  `{:error, :learning_absence_unconfirmed}`.
+  """
   def record_unsubmitted_stop(id, session_id, claim) do
     owned_transaction(id, claim, fn run ->
       unless run.status in [:stale, :rejected] and is_nil(run.submit_revision) and
@@ -518,6 +546,7 @@ defmodule Ryker.Learning do
     end)
   end
 
+  @doc "The idempotency key of a pass's `:create`, `:submit` or `:cancel` call to Coop."
   def operation_key(%LearningRun{id: id}, phase) when phase in [:create, :submit, :cancel],
     do: "ryker:learning:#{phase}:#{id}"
 
@@ -1068,7 +1097,10 @@ defmodule Ryker.Learning do
     }
   end
 
-  @doc false
+  @doc """
+  Internal — how many bytes one message takes in a learning prompt.
+  `Ryker.Learning.Batches` uses it to leave out a message too large for one.
+  """
   @spec input_bytes(Ingress.Inbox.Entry.t()) :: non_neg_integer()
   def input_bytes(entry), do: entry |> input_document() |> CanonicalJSON.encode!() |> byte_size()
 
@@ -1154,6 +1186,12 @@ defmodule Ryker.Learning do
     end)
   end
 
+  @doc """
+  Applies pass `id`'s confirmed result to the conversation's topics:
+  `{:ok, run}`, or `{:error, reason}`. A result that cannot apply fails the
+  pass, except one whose validation is not confirmed yet
+  (`:learning_validation_unconfirmed`), which can be applied later.
+  """
   def apply_result(id, claim \\ nil) do
     case owned_transaction(id, claim, &apply_locked/1) do
       {:ok, run} ->
@@ -1421,6 +1459,11 @@ defmodule Ryker.Learning do
 
   defp lock_batch(key), do: AdvisoryLock.hold!(Crypto.lock_key("learning:" <> key))
 
+  @doc """
+  Internal — retention's step: empties the prompt, result and topics of up to
+  100 passes whose messages left the operational window or whose sources are
+  older than `seconds`, and answers how many.
+  """
   def prune_in_transaction(seconds) do
     # Unknown receipt age is not permission to erase a retained attempt. Guard
     # both JSON shape and the shared UTC clock domain before casting so one
@@ -1491,7 +1534,10 @@ defmodule Ryker.Learning do
     |> erase_runs_reading()
   end
 
-  @doc "Erases learning runs that were shown any of these topics, inside the transaction that forgets them."
+  @doc """
+  Erases learning runs that were shown any of these topics, inside the
+  transaction that forgets them.
+  """
   @spec forget_topics_in_transaction([Ecto.UUID.t()]) :: :ok
   def forget_topics_in_transaction([]), do: :ok
 
@@ -1684,6 +1730,7 @@ defmodule Ryker.Learning do
   """
   def subscribe_learning, do: Ryker.PubSub.subscribe(learning_topic())
 
+  @doc "Stops the announcements `subscribe_learning/0` started."
   def unsubscribe_learning, do: Ryker.PubSub.unsubscribe(learning_topic())
 
   @doc """

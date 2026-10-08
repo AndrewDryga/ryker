@@ -75,13 +75,13 @@ defmodule Ryker.CoopFleet.ManagedSources do
     end
   end
 
-  defp log_failure({:error, reason} = error, repository_ref, step) do
+  defp log_failure({:error, reason}, repository_ref, step) do
     Logger.warning(
       "repository source for #{repository_ref} unavailable at #{step}: " <>
         inspect(reason, limit: 8, printable_limit: 200)
     )
 
-    error
+    {:error, reason}
   end
 
   defp log_failure(result, _repository_ref, _step), do: result

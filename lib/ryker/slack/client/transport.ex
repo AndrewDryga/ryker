@@ -51,7 +51,7 @@ defmodule Ryker.Slack.Client.Transport do
   @doc "A call whose body carries nothing the caller needs: `:ok` or the error."
   @spec success({:ok, term()} | {:error, term()}) :: :ok | {:error, term()}
   def success({:ok, _body}), do: :ok
-  def success({:error, _reason} = error), do: error
+  def success({:error, reason}), do: {:error, reason}
 
   defp retry_after(headers) do
     value =

@@ -396,6 +396,7 @@ defmodule Ryker.LocalRouting do
   @spec subscribe_comparisons() :: :ok | {:error, term()}
   def subscribe_comparisons, do: Ryker.PubSub.subscribe(@topic)
 
+  @doc "Stops the announcements `subscribe_comparisons/0` started."
   def unsubscribe_comparisons, do: Ryker.PubSub.unsubscribe(@topic)
 
   defp broadcast(input_id) do

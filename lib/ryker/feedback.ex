@@ -310,7 +310,10 @@ defmodule Ryker.Feedback do
   """
   def subscribe_feedback, do: Ryker.PubSub.subscribe(feedback_topic())
 
-  # A page leaves a topic by its subscription's `un` twin (`WorkbenchLive`).
+  @doc """
+  Stops the announcements `subscribe_feedback/0` started. A page leaves a
+  topic by this twin of its subscription (`WorkbenchLive`).
+  """
   def unsubscribe_feedback, do: Ryker.PubSub.unsubscribe(feedback_topic())
 
   defp feedback_topic, do: "feedback"

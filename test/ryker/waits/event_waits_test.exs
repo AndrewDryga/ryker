@@ -231,7 +231,7 @@ defmodule Ryker.Waits.EventWaitsTest do
                )
 
       wakeup =
-        Episodes.list_events(fixture.transition.episode.key)
+        Ryker.Inspectors.episode_events(fixture.transition.episode.key)
         |> Enum.find(&(&1.kind == :input_admitted and &1.sequence > 1))
 
       assert wakeup.payload["payload"]["content"]["kind"] == "deadline_elapsed"
@@ -441,7 +441,7 @@ defmodule Ryker.Waits.EventWaitsTest do
 
       wakeup =
         fixture.transition.episode.key
-        |> Episodes.list_events()
+        |> Ryker.Inspectors.episode_events()
         |> Enum.find(&(&1.kind == :input_admitted and &1.sequence > 1))
 
       assert wakeup.payload["payload"]["content"]["kind"] == "timer_due"
@@ -515,7 +515,7 @@ defmodule Ryker.Waits.EventWaitsTest do
              {:ok, :idle}
 
     assert Repo.get!(Record, fixture.record.id).status == :open
-    assert length(Episodes.list_events(fixture.transition.episode.key)) == 2
+    assert length(Ryker.Inspectors.episode_events(fixture.transition.episode.key)) == 2
   end
 
   test "a timer cannot resume a different episode even when both waits are due" do
@@ -532,8 +532,8 @@ defmodule Ryker.Waits.EventWaitsTest do
 
     assert Repo.get!(Record, first.record.id).status == :open
     assert Repo.get!(Record, second.record.id).status == :open
-    assert length(Episodes.list_events(first.transition.episode.key)) == 2
-    assert length(Episodes.list_events(second.transition.episode.key)) == 2
+    assert length(Ryker.Inspectors.episode_events(first.transition.episode.key)) == 2
+    assert length(Ryker.Inspectors.episode_events(second.transition.episode.key)) == 2
   end
 
   test "a timer processed after its hard deadline reports timeout instead of completion" do
@@ -554,7 +554,7 @@ defmodule Ryker.Waits.EventWaitsTest do
 
     wakeup =
       fixture.transition.episode.key
-      |> Episodes.list_events()
+      |> Ryker.Inspectors.episode_events()
       |> Enum.find(&(&1.kind == :input_admitted and &1.sequence > 1))
 
     assert wakeup.payload["payload"]["content"]["kind"] == "deadline_elapsed"
@@ -577,7 +577,7 @@ defmodule Ryker.Waits.EventWaitsTest do
            ) == {:ok, :idle}
 
     assert Repo.get!(EventSubscription, fixture.subscription.id).status == :cancelled
-    assert length(Episodes.list_events(fixture.transition.episode.key)) == 2
+    assert length(Ryker.Inspectors.episode_events(fixture.transition.episode.key)) == 2
   end
 
   test "a due durable event wait resumes once with host-owned evidence" do
@@ -646,7 +646,7 @@ defmodule Ryker.Waits.EventWaitsTest do
     assert resumed.episode.owner_kind == :turn
     assert resumed.record.status == :answered
 
-    events = Episodes.list_events(transition.episode.key)
+    events = Ryker.Inspectors.episode_events(transition.episode.key)
 
     assert Enum.map(events, & &1.kind) == [
              :input_admitted,
@@ -701,7 +701,7 @@ defmodule Ryker.Waits.EventWaitsTest do
 
     wakeup =
       transition.episode.key
-      |> Episodes.list_events()
+      |> Ryker.Inspectors.episode_events()
       |> Enum.find(&(&1.kind == :input_admitted and &1.sequence > 1))
 
     assert wakeup.payload["payload"]["content"]["kind"] == "poll_fallback_due"

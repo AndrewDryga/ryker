@@ -21,6 +21,12 @@ defmodule Ryker.Credentials do
   @type kind ::
           :slack_app | :slack_bot | :github_private_key | :github_webhook | :emisar | :webhook
 
+  @doc """
+  Seals and stores the credential `kind`/`name` as `actor_ref`, replacing any
+  previous value and its verification: `{:ok, metadata}` (status only, never
+  the value), or `{:error, reason}` for an identity, value (8 bytes to
+  1 MiB) or actor it refuses.
+  """
   @spec put(kind(), String.t(), binary(), String.t()) ::
           {:ok, map()} | {:error, term()}
   def put(kind, name, plaintext, actor_ref) do
@@ -32,6 +38,11 @@ defmodule Ryker.Credentials do
     end
   end
 
+  @doc """
+  The plaintext of credential `kind`/`name`: `{:ok, plaintext}`, or
+  `{:error, :credential_missing | :credential_decryption_failed}` and the
+  reasons an identity is refused.
+  """
   @spec fetch(kind(), String.t()) :: {:ok, binary()} | {:error, term()}
   def fetch(kind, name) do
     with :ok <- validate_identity(kind, name),
@@ -44,9 +55,18 @@ defmodule Ryker.Credentials do
     end
   end
 
+  @doc """
+  A function that reads credential `kind`/`name` when called (`fetch/2`), so
+  a client asks for its secret at the moment it uses it.
+  """
   @spec provider(kind(), String.t()) :: (-> {:ok, binary()} | {:error, term()})
   def provider(kind, name), do: fn -> fetch(kind, name) end
 
+  @doc """
+  The metadata of credential `kind`/`name`, never its value: whether it is
+  configured and verified, its fingerprint and times; `status: :missing` when
+  nothing is stored and `:invalid` for an identity no credential can have.
+  """
   @spec status(kind(), String.t()) :: map()
   def status(kind, name) do
     case validate_identity(kind, name) do
@@ -61,6 +81,7 @@ defmodule Ryker.Credentials do
     end
   end
 
+  @doc "The metadata of every stored credential, by kind and name (`status/2`)."
   @spec statuses() :: [map()]
   def statuses do
     Credential.Query.all()
@@ -122,6 +143,11 @@ defmodule Ryker.Credentials do
   @spec remembered_redaction_values() :: [binary()]
   def remembered_redaction_values, do: :persistent_term.get(@remembered, [])
 
+  @doc """
+  Records that credential `kind`/`name` was checked with its provider and
+  found `:verified` or `:invalid`: `{:ok, metadata}`, or
+  `{:error, :credential_missing}` for one never stored.
+  """
   @spec verify(kind(), String.t(), :verified | :invalid, String.t()) ::
           {:ok, map()} | {:error, term()}
   def verify(kind, name, verification_status, actor_ref)
@@ -345,6 +371,7 @@ defmodule Ryker.Credentials do
   """
   def subscribe, do: Ryker.PubSub.subscribe(topic())
 
+  @doc "Stops the announcements `subscribe/0` started."
   def unsubscribe, do: Ryker.PubSub.unsubscribe(topic())
 
   defp topic, do: "credentials"

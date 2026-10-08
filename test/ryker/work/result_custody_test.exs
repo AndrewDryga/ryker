@@ -821,10 +821,13 @@ defmodule Ryker.Work.ResultCustodyTest do
                "validation-receipt-1"
              )
 
-    assert {:ok, episode} = Episodes.fetch_by_key(work.episode.key)
+    assert episode = Ryker.Inspectors.episode(work.episode.key)
     assert episode.owner_kind == :turn
     assert episode.owner_ref == work.turn.turn_ref
-    assert Enum.map(Episodes.list_events(work.episode.key), & &1.kind) == [:input_admitted]
+
+    assert Enum.map(Ryker.Inspectors.episode_events(work.episode.key), & &1.kind) == [
+             :input_admitted
+           ]
   end
 
   defp bound_turn!(

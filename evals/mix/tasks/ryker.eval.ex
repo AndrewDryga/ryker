@@ -686,7 +686,7 @@ defmodule Mix.Tasks.Ryker.Eval do
     end
   end
 
-  defp start_repo_after_apps({:error, _reason} = error), do: error
+  defp start_repo_after_apps({:error, reason}), do: {:error, reason}
 
   defp start_repo(database) do
     case Repo.start_link(database: database) do

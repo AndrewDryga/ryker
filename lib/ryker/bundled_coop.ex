@@ -16,7 +16,12 @@ defmodule Ryker.BundledCoop do
   @doc "Whether this installation runs the Compose distribution's bundled worker."
   def distribution?, do: not is_nil(System.get_env(@shared_env))
 
-  @doc false
+  @doc """
+  Internal — readies the Compose distribution's bundled worker: initializes
+  settings, points Work at the worker's workspace, and leaves an enrollment
+  token in the shared directory. `Ryker.Release.prepare_bundled_coop/1`
+  runs it before the runtime starts; raises when settings cannot be saved.
+  """
   def prepare_distribution! do
     {:ok, snapshot} = Settings.initialize(@actor)
 
@@ -32,7 +37,12 @@ defmodule Ryker.BundledCoop do
     ensure_enrollment_file!()
   end
 
-  @doc false
+  @doc """
+  Internal — leaves a usable enrollment token in the shared directory unless
+  the worker has enrolled or was revoked, under the enrollment lock: `:ok`,
+  or a raise naming why enrollment failed. The bundled worker's reconciler
+  keeps it current.
+  """
   def ensure_enrollment_file! do
     shared = System.fetch_env!(@shared_env)
     File.mkdir_p!(shared)
@@ -146,7 +156,12 @@ defmodule Ryker.BundledCoop do
     |> Repo.exists?()
   end
 
-  @doc false
+  @doc """
+  Internal — whether the bundled worker is enrolled, eligible, speaking
+  protocol 2 and seen within its heartbeat, and Work uses its workspace.
+  `Ryker.Release.bundled_coop_ready?/1` asks it; a failure to read logs and
+  answers false.
+  """
   def ready? do
     worker = configured_worker()
     snapshot = Settings.fetch!()

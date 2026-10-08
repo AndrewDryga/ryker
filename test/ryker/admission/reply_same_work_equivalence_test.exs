@@ -53,7 +53,7 @@ defmodule Ryker.Admission.ReplySameWorkEquivalenceTest do
                result_ref: "harvested-result:#{episode_id}"
              })
 
-    assert {:ok, seed} = Episodes.fetch_by_key(episode_key)
+    assert seed = Ryker.Inspectors.episode(episode_key)
 
     assert {:ok, pinned} =
              WorkSessions.pin_episode(seed.id, "standard-sol-medium", String.duplicate("a", 64))

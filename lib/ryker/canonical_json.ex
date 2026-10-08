@@ -7,6 +7,10 @@ defmodule Ryker.CanonicalJSON do
   """
   alias Ryker.Crypto
 
+  @doc """
+  The SHA-256, in lowercase hex, of `value`'s canonical JSON (`encode!/1`);
+  raises for a value canonical JSON cannot hold.
+  """
   @spec digest(Jason.Encoder.t()) :: String.t()
   def digest(value) do
     value
@@ -91,6 +95,10 @@ defmodule Ryker.CanonicalJSON do
     end
   end
 
+  @doc """
+  `value` as canonical JSON: keys sorted, one spelling for each value. Raises
+  for a duplicate or non-string key, or a value JSON cannot hold.
+  """
   @spec encode!(Jason.Encoder.t()) :: String.t()
   def encode!(value) do
     case encode(value) do
@@ -99,6 +107,11 @@ defmodule Ryker.CanonicalJSON do
     end
   end
 
+  @doc """
+  Whether `value` encodes as canonical JSON within `max_bytes` when given:
+  `:ok`, `{:error, {:too_large, bytes, max_bytes}}`, or `{:error, reason}`
+  naming the key or value that cannot be encoded.
+  """
   @spec validate(term(), keyword()) :: :ok | {:error, term()}
   def validate(value, options \\ []) do
     max_bytes = Keyword.get(options, :max_bytes)

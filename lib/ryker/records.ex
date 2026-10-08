@@ -37,17 +37,30 @@ defmodule Ryker.Records do
   @shadow_record_kinds ~w(evidence coverage finding progress alert_assessment)
   @confirmation_offer_kinds ~w(task_offer publication_offer schedule_offer automation_change_offer memory_offer preference_offer guidance_offer standing_assignment_offer)
 
-  @doc "The name `create/5` takes for the records of `turn`; see the moduledoc for who may build it."
+  @doc """
+  The name `create/5` takes for the records of `turn`; see the moduledoc for
+  who may build it.
+  """
   @spec token(Work.Turn.t()) :: String.t()
   def token(%Work.Turn{id: id}) when is_binary(id), do: "state:" <> id
 
+  @doc """
+  Creates one record of `kind` for the turn `state_token` names, once per
+  `operation_id`: a retried call answers the record it already made.
+  Returns `{:ok, record}`, or `{:error, reason}` for a payload its kind
+  refuses or a turn that no longer owns its episode.
+  """
   @spec create(String.t(), String.t(), String.t(), map()) ::
           {:ok, Record.t()} | {:error, term()}
   def create(state_token, operation_id, kind, payload, options \\ []) do
     create(state_token, operation_id, kind, payload, options, false)
   end
 
-  @doc false
+  @doc """
+  Internal — `create/5` for an `event_wait`, answering the episode's open
+  source-event wait when one already matches instead of opening a second.
+  `Ryker.StateTools.RecordWriter` calls it for `wait_for`.
+  """
   @spec create_reusing_open_source_wait(String.t(), String.t(), map(), keyword() | map()) ::
           {:ok, Record.t()} | {:error, term()}
   def create_reusing_open_source_wait(state_token, operation_id, payload, options \\ []) do
@@ -126,6 +139,10 @@ defmodule Ryker.Records do
 
   defp validate_timer(_record), do: :ok
 
+  @doc """
+  The episode's records in use, by ref, in the form validation reads: each
+  one's kind and continuation, and whether a wait is a timer or external.
+  """
   @spec validation_records(Ecto.UUID.t()) :: map()
   def validation_records(episode_id) do
     episode_id
@@ -175,6 +192,10 @@ defmodule Ryker.Records do
     end)
   end
 
+  @doc """
+  The episode's retained records a Work turn is shown, for the repository
+  its session works in: each record's model document, newest first.
+  """
   @spec model_records(Episodes.Episode.t(), String.t() | nil) :: [map()]
   def model_records(%Episodes.Episode{} = destination, repository) do
     destination.id
@@ -214,6 +235,10 @@ defmodule Ryker.Records do
 
   def question_open?(_episode_id, _operation_id), do: false
 
+  @doc """
+  The episode's required goals not yet finished, each with its id, requested
+  outcome and state; `[]` for anything that is not an episode id.
+  """
   @spec open_required_goals(Ecto.UUID.t()) :: [map()]
   def open_required_goals(episode_id) when is_binary(episode_id) do
     episode_id
@@ -223,6 +248,10 @@ defmodule Ryker.Records do
 
   def open_required_goals(_episode_id), do: []
 
+  @doc """
+  Every goal the episode recorded, each with its current state; `[]` for
+  anything that is not an episode id.
+  """
   @spec goals(Ecto.UUID.t()) :: [map()]
   def goals(episode_id) when is_binary(episode_id) do
     episode_id
@@ -247,7 +276,11 @@ defmodule Ryker.Records do
 
   def plan(_episode_id), do: plan_from_records([])
 
-  @doc false
+  @doc """
+  Internal — a task's plan from its goal records: the current goals of each
+  stage with their leaves and counts. `Ryker.Slack.TaskCardProjection`
+  builds the task card's stages from it.
+  """
   @spec plan_from_records([Record.t()]) :: map()
   def plan_from_records(records) do
     goals = goals_from_records(records)
@@ -284,6 +317,11 @@ defmodule Ryker.Records do
     |> Enum.max(DateTime, fn -> nil end)
   end
 
+  @doc """
+  The episode's goals that write to a repository, each with its id, whether
+  it is required, its state and the repository; `[]` for anything that is
+  not an episode id.
+  """
   @spec repository_write_goals(Ecto.UUID.t()) :: [map()]
   def repository_write_goals(episode_id) when is_binary(episode_id) do
     goal_records(episode_id)
@@ -294,10 +332,18 @@ defmodule Ryker.Records do
 
   def repository_write_goals(_episode_id), do: []
 
+  @doc """
+  The records `refs` name, in the order given: `{:ok, records}`, or
+  `{:error, :state_record_not_found}` when any is missing or a ref repeats.
+  """
   @spec fetch_many([String.t()]) :: {:ok, [Record.t()]} | {:error, term()}
   def fetch_many(refs) when is_list(refs), do: fetch_records(refs, nil)
   def fetch_many(_refs), do: {:error, :state_record_not_found}
 
+  @doc """
+  `fetch_many/1` for one episode's records only: a ref of another episode's
+  record reads as missing.
+  """
   @spec fetch_for_episode(Ecto.UUID.t(), [String.t()]) ::
           {:ok, [Record.t()]} | {:error, term()}
   def fetch_for_episode(episode_id, refs) when is_binary(episode_id) and is_list(refs),
@@ -358,19 +404,12 @@ defmodule Ryker.Records do
     end
   end
 
-  @doc false
-  @spec user_resumable_wait?(String.t()) :: boolean()
-  def user_resumable_wait?(wait_ref) when is_binary(wait_ref) do
-    not (wait_ref
-         |> Record.Query.by_ref()
-         |> Record.Query.by_kind("emisar_approval")
-         |> Record.Query.open()
-         |> Repo.exists?())
-  end
-
-  def user_resumable_wait?(_wait_ref), do: false
-
-  @doc false
+  @doc """
+  Internal — whether `input` may resume the wait `wait_ref`. A person may
+  answer a question or end an event wait; another source only ends an event
+  wait whose matcher it meets; an Emisar approval waits for Emisar.
+  Admission calls it before it lets a message resume an episode.
+  """
   @spec user_resumable_wait?(String.t(), Ingress.Input.t()) :: boolean()
   def user_resumable_wait?(wait_ref, %Ingress.Input{} = input) when is_binary(wait_ref) do
     # A question owns its wait until admission resumes the episode, even after a
@@ -1070,6 +1109,7 @@ defmodule Ryker.Records do
   """
   def subscribe_records, do: Ryker.PubSub.subscribe(records_topic())
 
+  @doc "Stops the announcements `subscribe_records/0` started."
   def unsubscribe_records, do: Ryker.PubSub.unsubscribe(records_topic())
 
   @doc """

@@ -6,7 +6,6 @@ defmodule Ryker.Webhooks.EndToEndTest do
   alias Ryker.Admission.Dispatcher, as: AdmissionDispatcher
   alias Ryker.ControlPlane.{ConversationLab, ConversationProjection, Publisher}
   alias Ryker.Delivery.Adapters
-  alias Ryker.Episodes
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Publication.{Followup, LifecycleEvent}
   alias Ryker.Repo
@@ -40,7 +39,7 @@ defmodule Ryker.Webhooks.EndToEndTest do
     assert execution.result.entry.decision_action == :start_episode
     assert execution.result.episode.destination_conversation_ref == "slack:T6E06DA3564B2:C456"
 
-    assert [event] = Episodes.list_events(execution.result.episode.key)
+    assert [event] = Ryker.Inspectors.episode_events(execution.result.episode.key)
     assert event.payload["payload"]["content"]["payload"] == Jason.decode!(body)
 
     assert %Session{

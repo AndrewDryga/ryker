@@ -16,9 +16,10 @@ defmodule Ryker.Checks.NoBoundTupleReturn do
           {:error, :lease_lost} -> {:error, :lease_lost}
           {:error, reason} -> {:halt, {:error, reason}}
 
-      Flagged: a clause whose head binds such a tuple to a name and whose
-      body is that name alone, or that name as an element of a tuple it
-      returns. A tuple passed on to a function keeps its binding.
+      Flagged: a `case`, `with` or `fn` clause, or a function clause, whose
+      head binds such a tuple to a name and whose body is that name alone, or
+      that name as an element of a tuple it returns. A tuple passed on to a
+      function keeps its binding.
       """
     ]
 
@@ -42,7 +43,29 @@ defmodule Ryker.Checks.NoBoundTupleReturn do
     end
   end
 
+  # A function clause's head binds the tuple the same way:
+  # `defp result({:error, _} = error), do: error`.
+  defp walk({kind, meta, [head, [do: body]]} = ast, ctx) when kind in [:def, :defp] do
+    bound =
+      head
+      |> arguments()
+      |> Enum.flat_map(fn argument ->
+        case bound_tuple(argument) do
+          {:ok, name} -> [name]
+          :error -> []
+        end
+      end)
+
+    if Enum.any?(bound, &returns?(body, &1)),
+      do: {ast, put_issue(ctx, issue(ctx, meta))},
+      else: {ast, ctx}
+  end
+
   defp walk(ast, ctx), do: {ast, ctx}
+
+  defp arguments({:when, _, [head | _guards]}), do: arguments(head)
+  defp arguments({_name, _, arguments}) when is_list(arguments), do: arguments
+  defp arguments(_head), do: []
 
   defp bound_tuple({:when, _, [pattern, _guard]}), do: bound_tuple(pattern)
 

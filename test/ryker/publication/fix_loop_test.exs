@@ -59,7 +59,7 @@ defmodule Ryker.Publication.FixLoopTest do
 
     assert blocked.status == :blocked
 
-    assert {:ok, episode} = Episodes.fetch_by_key(claim.episode.key)
+    assert episode = Ryker.Inspectors.episode(claim.episode.key)
     assert {episode.state, episode.owner_kind} == {:working, :turn}
 
     content = last_input_content!(claim.episode.key)
@@ -218,7 +218,7 @@ defmodule Ryker.Publication.FixLoopTest do
     assert [%{"kind" => "publication_review"}] = request.document["records"]
     assert blocked.status == :blocked
     assert blocked.fix_rounds == 3
-    assert {:ok, %{state: :complete}} = Episodes.fetch_by_key(claim.episode.key)
+    assert %{state: :complete} = Ryker.Inspectors.episode(claim.episode.key)
     assert Custody.claim_next("work:capped:after", 60, :work) == {:ok, nil}
 
     assert {:ok, projection} = TaskCardProjection.build(Repo.get!(Record, task.id))
@@ -300,7 +300,7 @@ defmodule Ryker.Publication.FixLoopTest do
       assert blocked.status == :blocked
       assert blocked.fix_rounds == 0
       assert admitted == 0
-      assert {:ok, %{state: :complete}} = Episodes.fetch_by_key(claim.episode.key)
+      assert %{state: :complete} = Ryker.Inspectors.episode(claim.episode.key)
       assert Custody.claim_next("work:#{suffix}:after", 60, :work) == {:ok, nil}
     end
 
@@ -317,7 +317,7 @@ defmodule Ryker.Publication.FixLoopTest do
     %{claim: claim} = task_episode!("moved")
     %{claim: work} = completed_turn!(claim, "moved", "one")
     publication = Repo.get_by!(Publication, episode_id: claim.episode.id)
-    events = length(Episodes.list_events(claim.episode.key))
+    events = length(Ryker.Inspectors.episode_events(claim.episode.key))
 
     for {code, round} <- Enum.with_index(~w(parent_moved source_moved fork_owner_active), 1) do
       before = Repo.get!(Publication, publication.id)
@@ -337,7 +337,7 @@ defmodule Ryker.Publication.FixLoopTest do
       assert rechecked.review_document == nil
       assert rechecked.fix_rounds == 0
       assert DateTime.compare(rechecked.next_attempt_at, Repo.now!()) == :gt
-      assert length(Episodes.list_events(claim.episode.key)) == events
+      assert length(Ryker.Inspectors.episode_events(claim.episode.key)) == events
       assert Custody.claim_next("work:moved:#{round}", 60, :work) == {:ok, nil}
       due_now!(publication)
     end
@@ -359,7 +359,7 @@ defmodule Ryker.Publication.FixLoopTest do
     assert [%{"kind" => "publication_review"}] = request.document["records"]
     assert blocked.status == :blocked
     assert blocked.recheck_rounds == 3
-    assert {:ok, %{state: :complete}} = Episodes.fetch_by_key(claim.episode.key)
+    assert %{state: :complete} = Ryker.Inspectors.episode(claim.episode.key)
   end
 
   # Andrew's request, 2026-09-28, asked which of the other refusals loop. A
@@ -421,16 +421,16 @@ defmodule Ryker.Publication.FixLoopTest do
     followup = admit_followup!(work, "person")
     assert {:ok, person} = Custody.claim_next("work:busy:person", 60, :work)
     assert person.turn.turn_ref == followup.turn_ref
-    events = length(Episodes.list_events(claim.episode.key))
+    events = length(Ryker.Inspectors.episode_events(claim.episode.key))
 
     {request, blocked} = deliver_review!(publication, "busy", "one")
     assert [%{"kind" => "publication_review"}] = request.document["records"]
     assert blocked.status == :blocked
     assert blocked.fix_rounds == 0
-    assert {:ok, episode} = Episodes.fetch_by_key(claim.episode.key)
+    assert episode = Ryker.Inspectors.episode(claim.episode.key)
     assert episode.owner_ref == followup.turn_ref
     assert episode.queued_input_refs == []
-    assert length(Episodes.list_events(claim.episode.key)) == events
+    assert length(Ryker.Inspectors.episode_events(claim.episode.key)) == events
 
     # The same refusal on a task at rest goes back to its work.
     assert %{admitted: 1, blocked: %{fix_rounds: 1}} = refuse!("busy-control", %{})
@@ -442,7 +442,7 @@ defmodule Ryker.Publication.FixLoopTest do
     %{claim: claim} = task_episode!(suffix)
     %{claim: work} = completed_turn!(claim, suffix, "one")
     publication = Repo.get_by!(Publication, episode_id: claim.episode.id)
-    events = length(Episodes.list_events(claim.episode.key))
+    events = length(Ryker.Inspectors.episode_events(claim.episode.key))
 
     assert %Publication{status: :review_ready} =
              review!(publication, suffix, "one", refused(work, overrides))
@@ -450,7 +450,7 @@ defmodule Ryker.Publication.FixLoopTest do
     {request, blocked} = deliver_review!(publication, suffix, "one")
 
     %{
-      admitted: length(Episodes.list_events(claim.episode.key)) - events,
+      admitted: length(Ryker.Inspectors.episode_events(claim.episode.key)) - events,
       blocked: blocked,
       claim: claim,
       request: request
@@ -681,7 +681,7 @@ defmodule Ryker.Publication.FixLoopTest do
 
   defp last_input_content!(episode_key) do
     episode_key
-    |> Episodes.list_events()
+    |> Ryker.Inspectors.episode_events()
     |> Enum.filter(&(&1.kind == :input_admitted))
     |> List.last()
     |> then(& &1.payload["payload"]["content"])

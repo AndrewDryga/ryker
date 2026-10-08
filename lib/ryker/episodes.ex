@@ -21,6 +21,12 @@ defmodule Ryker.Episodes do
   alias Ryker.Repo
   alias Ryker.Work
 
+  @doc """
+  Applies one command to its episode in one transaction: the source is
+  locked, the pure transition decided, and the projection stored with its
+  immutable event. Returns `{:ok, transition}`, or `{:error, reason}` for a
+  command the episode's state refuses.
+  """
   @spec apply(Command.t()) :: {:ok, Transition.t()} | {:error, term()}
   def apply(command) do
     Repo.transaction(fn ->
@@ -51,23 +57,13 @@ defmodule Ryker.Episodes do
     end
   end
 
-  # Tests read an episode back by its key; production reads go through the
-  # kernel's own loads.
-  @doc false
-  @spec fetch_by_key(String.t()) :: {:ok, Episode.t()} | :error
-  def fetch_by_key(key) do
-    case Repo.fetch(Episode.Query.by_key(key)) do
-      {:ok, episode} -> {:ok, episode}
-      {:error, :not_found} -> :error
-    end
-  end
-
-  @spec list_events(String.t()) :: [Event.t()]
-  def list_events(key) do
-    key |> Event.Query.by_episode_key() |> Repo.all()
-  end
-
-  @doc false
+  @doc """
+  Internal — locks the episode `episode_key` names, the way commands lock it,
+  inside the caller's transaction: `{:ok, episode}`, or
+  `{:error, :episode_not_found | :invalid_episode_key}`. Custody that must
+  hold an episode while it changes another row calls it (cancellation, event
+  waits, the publication fix loop).
+  """
   @spec lock_current_in_transaction(String.t()) :: {:ok, Episode.t()} | {:error, term()}
   def lock_current_in_transaction(episode_key) when is_binary(episode_key) do
     with {:ok, :locked} <- lock_source(Repo, episode_key),
@@ -255,6 +251,7 @@ defmodule Ryker.Episodes do
   """
   def subscribe_episodes, do: Ryker.PubSub.subscribe(episodes_topic())
 
+  @doc "Stops the announcements `subscribe_episodes/0` started."
   def unsubscribe_episodes, do: Ryker.PubSub.unsubscribe(episodes_topic())
 
   @doc """
@@ -263,6 +260,7 @@ defmodule Ryker.Episodes do
   """
   def subscribe_episode(episode_id), do: Ryker.PubSub.subscribe(episode_topic(episode_id))
 
+  @doc "Stops the announcements `subscribe_episode/1` started."
   def unsubscribe_episode(episode_id), do: Ryker.PubSub.unsubscribe(episode_topic(episode_id))
 
   @doc """
@@ -274,6 +272,7 @@ defmodule Ryker.Episodes do
   def subscribe_conversations(transport),
     do: Ryker.PubSub.subscribe(conversations_topic(transport))
 
+  @doc "Stops the announcements `subscribe_conversations/1` started."
   def unsubscribe_conversations(transport),
     do: Ryker.PubSub.unsubscribe(conversations_topic(transport))
 
@@ -284,6 +283,7 @@ defmodule Ryker.Episodes do
   def subscribe_conversation(transport, conversation_ref),
     do: Ryker.PubSub.subscribe(conversation_topic(transport, conversation_ref))
 
+  @doc "Stops the announcements `subscribe_conversation/2` started."
   def unsubscribe_conversation(transport, conversation_ref),
     do: Ryker.PubSub.unsubscribe(conversation_topic(transport, conversation_ref))
 

@@ -47,10 +47,10 @@ defmodule Ryker.EpisodesReplayPersistenceTest do
 
   defp persist_and_reload(command) do
     with {:ok, transition} <- Episodes.apply(command),
-         {:ok, episode} <- Episodes.fetch_by_key(command.episode_key) do
+         %Ryker.Episodes.Episode{} = episode <- Ryker.Inspectors.episode(command.episode_key) do
       event =
         Enum.find(
-          Episodes.list_events(command.episode_key),
+          Ryker.Inspectors.episode_events(command.episode_key),
           &(&1.dedupe_key == transition.event.dedupe_key)
         )
 

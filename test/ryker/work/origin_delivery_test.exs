@@ -50,7 +50,7 @@ defmodule Ryker.Work.OriginDeliveryTest do
         result_ref: "result:#{episode.id}"
       })
 
-    {:ok, episode} = Episodes.fetch_by_key(episode.key)
+    episode = Ryker.Inspectors.episode(episode.key)
     turn = turn!(episode, [])
 
     assert is_nil(Custody.reply_target(episode, turn))

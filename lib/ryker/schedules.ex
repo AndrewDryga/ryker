@@ -28,6 +28,12 @@ defmodule Ryker.Schedules do
   @confirmation_fields [:actor_ref, :confirmation_ref, :occurred_at, :record_ref, :target]
   @target_fields [:conversation_ref, :message_ref, :thread_ref, :transport]
 
+  @doc """
+  Turns a confirmed schedule offer into its schedule, answering in the place
+  the offer was delivered: `{:ok, %{schedule: schedule, status: :confirmed}}`,
+  `status: :duplicate` for an offer already confirmed, or `{:error, reason}`
+  (`:schedule_offer_stale` for an offer no longer open).
+  """
   @spec confirm(keyword() | map()) :: {:ok, map()} | {:error, term()}
   def confirm(attributes) do
     with {:ok, attributes} <- confirmation_attributes(attributes),
@@ -53,6 +59,11 @@ defmodule Ryker.Schedules do
     since |> Schedule.Query.select_next_due_after() |> Repo.one()
   end
 
+  @doc """
+  Leases the next due schedule to `worker_ref` for `lease_seconds`, expiring
+  those past their end on the way: `{:ok, %{lease_ref: ref, schedule: schedule}}`,
+  or `{:ok, nil}` when none is due.
+  """
   @spec claim_due(String.t(), pos_integer()) :: {:ok, map() | nil} | {:error, term()}
   def claim_due(worker_ref, lease_seconds) do
     with :ok <- reference(worker_ref, :worker_ref),
@@ -61,6 +72,12 @@ defmodule Ryker.Schedules do
     end
   end
 
+  @doc """
+  Runs the due occurrence of a leased schedule under the policy
+  `policy_resolver` gives now: `{:ok, %{status: :dispatched}}` with its new
+  episode, `:overlap` while the previous occurrence still runs, or `:missed`
+  past `misfire_grace_seconds`; `{:error, reason}` for a lease lost.
+  """
   @spec dispatch(
           String.t(),
           String.t(),
@@ -82,6 +99,10 @@ defmodule Ryker.Schedules do
   def dispatch(_schedule_ref, _lease_ref, _resolver, _grace),
     do: {:error, {:invalid_schedule_dispatch, :policy_resolver}}
 
+  @doc """
+  Extends the lease `lease_ref` holds on a schedule by `lease_seconds`:
+  `{:ok, schedule}`, or `{:error, reason}` once the lease is lost.
+  """
   @spec renew(String.t(), String.t(), pos_integer()) :: {:ok, Schedule.t()} | {:error, term()}
   def renew(schedule_ref, lease_ref, lease_seconds) do
     with :ok <- reference(schedule_ref, :schedule_ref),
@@ -91,6 +112,10 @@ defmodule Ryker.Schedules do
     end
   end
 
+  @doc """
+  Releases a leased schedule to try again in `delay_seconds`, keeping why:
+  `{:ok, schedule}`, or `{:error, reason}` once the lease is lost.
+  """
   @spec defer(String.t(), String.t(), pos_integer(), term()) ::
           {:ok, Schedule.t()} | {:error, term()}
   def defer(schedule_ref, lease_ref, delay_seconds, reason) do
@@ -101,6 +126,11 @@ defmodule Ryker.Schedules do
     end
   end
 
+  @doc """
+  Pauses, resumes or deletes a schedule: `{:ok, schedule}`, or
+  `{:error, :schedule_not_found | :schedule_terminal}` for one that is gone or
+  already ended.
+  """
   @spec set_status(String.t(), :paused | :active | :deleted) ::
           {:ok, Schedule.t()} | {:error, term()}
   def set_status(schedule_ref, status) when status in [:paused, :active, :deleted] do
@@ -189,7 +219,10 @@ defmodule Ryker.Schedules do
   def run_now(_schedule_ref, _actor_ref, _action_ref, _scope, _policy_resolver),
     do: {:error, {:invalid_schedule, :run_now}}
 
-  @doc false
+  @doc """
+  Internal — `run_now/5` for the local console's operator, who acts on any
+  schedule. `Ryker.ControlPlane.Actions` calls it.
+  """
   @spec run_now_for_operator(String.t(), String.t(), String.t(), (Schedule.t() ->
                                                                     {:ok, map()}
                                                                     | {:error, term()})) ::
@@ -942,6 +975,7 @@ defmodule Ryker.Schedules do
   """
   def subscribe_schedules, do: Ryker.PubSub.subscribe(schedules_topic())
 
+  @doc "Stops the announcements `subscribe_schedules/0` started."
   def unsubscribe_schedules, do: Ryker.PubSub.unsubscribe(schedules_topic())
 
   @doc """
@@ -950,6 +984,7 @@ defmodule Ryker.Schedules do
   """
   def subscribe_schedule(schedule_ref), do: Ryker.PubSub.subscribe(schedule_topic(schedule_ref))
 
+  @doc "Stops the announcements `subscribe_schedule/1` started."
   def unsubscribe_schedule(schedule_ref),
     do: Ryker.PubSub.unsubscribe(schedule_topic(schedule_ref))
 

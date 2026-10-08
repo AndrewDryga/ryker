@@ -193,8 +193,8 @@ defmodule Ryker.Slack.Client.Files do
       else: {:cont, :not_found}
   end
 
-  defp file_delivery_result({:error, _reason} = error, _expected, _message_ref),
-    do: {:halt, error}
+  defp file_delivery_result({:error, reason}, _expected, _message_ref),
+    do: {:halt, {:error, reason}}
 
   defp file_names(files) do
     Enum.reduce_while(files, {:ok, []}, fn

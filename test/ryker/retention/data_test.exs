@@ -219,8 +219,7 @@ defmodule Ryker.Retention.DataTest do
     assert {:ok, _} = Instructions.save(:global, "Current", 1, "operator:test")
     assert {:ok, _} = Data.prune(settings())
     assert [%Edit{revision: 2}] = Repo.all(Edit)
-    assert Instructions.get(:global).text == "Current"
-    assert Instructions.get(:global).revision == 2
+    assert {:ok, %{text: "Current", revision: 2}} = Instructions.get(:global)
   end
 
   test "operational bodies expire only after the exact Coop workspace is discarded" do

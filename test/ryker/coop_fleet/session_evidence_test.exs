@@ -27,7 +27,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceTest do
       {:ok, document}
     end
 
-    def get_session_evidence({:error, _reason} = error, _session_id), do: error
+    def get_session_evidence({:error, reason}, _session_id), do: {:error, reason}
     def get_session_evidence(document, _session_id) when is_map(document), do: {:ok, document}
   end
 

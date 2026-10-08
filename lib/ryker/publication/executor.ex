@@ -168,7 +168,7 @@ defmodule Ryker.Publication.Executor do
     end
   end
 
-  defp store_publish_result({:error, _reason} = error, _claim, _settings), do: error
+  defp store_publish_result({:error, reason}, _claim, _settings), do: {:error, reason}
 
   # Ryker records the close itself when it cleans a session up, and a closed
   # Coop session never reopens: asking the worker about it again would only

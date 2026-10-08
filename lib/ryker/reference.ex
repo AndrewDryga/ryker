@@ -8,6 +8,10 @@ defmodule Ryker.Reference do
 
   @default_maximum_bytes 1_024
 
+  @doc """
+  Whether `value` is a reference: a string of valid UTF-8, not blank, with no
+  NUL byte, at most `maximum_bytes` long (1,024 unless given).
+  """
   @spec valid?(term(), pos_integer()) :: boolean()
   def valid?(value, maximum_bytes \\ @default_maximum_bytes)
 

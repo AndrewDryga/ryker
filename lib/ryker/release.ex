@@ -15,6 +15,10 @@ defmodule Ryker.Release do
   @app :ryker
   @fields [:log, :migrations_path, :pool_size, :prefix, :repo]
 
+  @doc """
+  Runs every pending migration, after refusing a database a newer release has
+  migrated (`newer_than_release/1`), and answers the versions it ran.
+  """
   @spec migrate(keyword()) :: [integer()]
   def migrate(options \\ []) do
     settings = settings!(options)

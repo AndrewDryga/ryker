@@ -29,6 +29,14 @@ defmodule Ryker.Admission do
 
   @active_states [:working, :waiting_for_input, :waiting_for_event]
 
+  @doc """
+  Builds the routing context of pending message `input_ref` under the lease
+  the caller holds: the message, its conversation, the candidate episodes it
+  may continue and their history, bounded by `options` (`:now`, `:lease_ref`,
+  the continuation and history windows, `:candidate_limit`). Returns
+  `{:ok, context}`, or `{:error, reason}` for a message no longer pending, a
+  lease lost, or options it refuses.
+  """
   @spec context(String.t(), keyword()) :: {:ok, Context.t()} | {:error, term()}
   def context(input_ref, options) do
     with {:ok, settings} <- validate_options(options),
@@ -40,7 +48,11 @@ defmodule Ryker.Admission do
     end
   end
 
-  @doc false
+  @doc """
+  Internal — the routing context frozen with a pending entry's attempt, read
+  back under `lease_ref` instead of built again: `{:ok, context}`, or
+  `{:error, reason}`. `Ryker.Admission.Executor` resumes an attempt with it.
+  """
   @spec restore_context(Ingress.Inbox.Entry.t(), String.t()) ::
           {:ok, Context.t()} | {:error, term()}
   def restore_context(%Ingress.Inbox.Entry{} = entry, lease_ref) do
@@ -229,6 +241,12 @@ defmodule Ryker.Admission do
     }
   end
 
+  @doc """
+  Checks a routing decision against its context: the action and reactions the
+  message allows, the episode it names among the candidates, the relation,
+  repository and source owner. Returns `{:ok, %{candidate, decision,
+  execution_mode}}`, or `{:error, {:admission_rejected, reason}}`.
+  """
   @spec validate(Context.t(), Decision.t()) ::
           {:ok,
            %{
@@ -354,10 +372,19 @@ defmodule Ryker.Admission do
           transitions: [Ryker.Episodes.Transition.t()]
         }
 
+  @doc "`commit/4` with no options."
   @spec commit(Context.t(), Decision.t(), String.t()) ::
           {:ok, commit_result()} | {:error, term()}
   def commit(context, decision, decision_ref), do: commit(context, decision, decision_ref, [])
 
+  @doc """
+  Applies a validated decision in one transaction: the episode transitions it
+  makes and the decision recorded on the message's entry. `options` take the
+  `:lease_ref` the attempt holds and the `:work_policy` new work runs under.
+  Returns `{:ok, %{status: :applied | :duplicate | :superseded, entry,
+  episode, transitions}}` (`t:commit_result/0`), or `{:error, reason}`, such
+  as `{:admission_rejected, :context_stale}` when the episode moved meanwhile.
+  """
   @spec commit(Context.t(), Decision.t(), String.t(), keyword()) ::
           {:ok, commit_result()} | {:error, term()}
   def commit(%Context{} = context, decision, decision_ref, options) do
@@ -1271,7 +1298,11 @@ defmodule Ryker.Admission do
     |> Ryker.CanonicalJSON.digest()
   end
 
-  @doc false
+  @doc """
+  Internal — the first and the latest message event of each episode, by
+  episode id (`%{first: event, latest: event}`), read without the history
+  between them. Building a context's candidates reads it.
+  """
   @spec input_event_endpoints([Ecto.UUID.t()]) :: map()
   def input_event_endpoints([]), do: %{}
 
@@ -1436,6 +1467,7 @@ defmodule Ryker.Admission do
   """
   def subscribe_routing, do: Ryker.PubSub.subscribe(routing_topic())
 
+  @doc "Stops the announcements `subscribe_routing/0` started."
   def unsubscribe_routing, do: Ryker.PubSub.unsubscribe(routing_topic())
 
   @doc """

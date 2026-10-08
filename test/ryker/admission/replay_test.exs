@@ -178,7 +178,7 @@ defmodule Ryker.Admission.ReplayTest do
       set: [updated_at: datetime!(seed["updated_at"])]
     )
 
-    assert {:ok, episode} = Episodes.fetch_by_key(seed["episode_key"])
+    assert episode = Ryker.Inspectors.episode(seed["episode_key"])
     episode
   end
 

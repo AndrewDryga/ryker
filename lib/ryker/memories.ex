@@ -38,6 +38,12 @@ defmodule Ryker.Memories do
   @maximum_total 1_000
   @maximum_per_scope 100
 
+  @doc """
+  Turns a confirmed memory offer into a fact, superseding the one it
+  replaces: `{:ok, %{memory: entry, status: :confirmed}}`, `status: :duplicate`
+  for an offer already confirmed, or `{:error, reason}`
+  (`:memory_offer_stale` for an offer no longer open).
+  """
   @spec confirm(keyword() | map()) :: {:ok, map()} | {:error, term()}
   def confirm(attributes) do
     with {:ok, confirmation} <-
@@ -297,7 +303,7 @@ defmodule Ryker.Memories do
   @doc "Forgets a fact from the console, which may forget any."
   @spec forget(String.t()) :: {:ok, MemoryEntry.t()} | {:error, term()}
   def forget(ref) do
-    with :ok <- reference(ref, :memory_ref) do
+    with :ok <- Reference.check(ref, :memory_ref, :invalid_memory_confirmation) do
       Repo.transaction(fn ->
         Reviews.lock_review_maintenance!()
         ref |> lock_memory() |> forget_found()
@@ -312,9 +318,9 @@ defmodule Ryker.Memories do
   @spec forget_home(String.t(), String.t(), String.t()) ::
           {:ok, MemoryEntry.t()} | {:error, term()}
   def forget_home(ref, actor_ref, workspace_ref) do
-    with :ok <- reference(ref, :memory_ref),
-         :ok <- reference(actor_ref, :actor_ref),
-         :ok <- reference(workspace_ref, :workspace_ref) do
+    with :ok <- Reference.check(ref, :memory_ref, :invalid_memory_confirmation),
+         :ok <- Reference.check(actor_ref, :actor_ref, :invalid_memory_confirmation),
+         :ok <- Reference.check(workspace_ref, :workspace_ref, :invalid_memory_confirmation) do
       Repo.transaction(fn ->
         Reviews.lock_review_maintenance!()
         forget_home_locked(ref, actor_ref, workspace_ref)
@@ -329,10 +335,10 @@ defmodule Ryker.Memories do
   (2026-10-04 review).
   """
   def forget_in_conversation(ref, actor_ref, workspace_ref, conversation_ref) do
-    with :ok <- reference(ref, :memory_ref),
-         :ok <- reference(actor_ref, :actor_ref),
-         :ok <- reference(workspace_ref, :workspace_ref),
-         :ok <- reference(conversation_ref, :conversation_ref) do
+    with :ok <- Reference.check(ref, :memory_ref, :invalid_memory_confirmation),
+         :ok <- Reference.check(actor_ref, :actor_ref, :invalid_memory_confirmation),
+         :ok <- Reference.check(workspace_ref, :workspace_ref, :invalid_memory_confirmation),
+         :ok <- Reference.check(conversation_ref, :conversation_ref, :invalid_memory_confirmation) do
       Repo.transaction(fn ->
         Reviews.lock_review_maintenance!()
         forget_home_locked(ref, actor_ref, workspace_ref, conversation_ref)
@@ -599,19 +605,22 @@ defmodule Ryker.Memories do
     end
   end
 
-  # Value rules shared with Memories.Recall and Memories.Reviews. They live
-  # here once; the error tuples are the memories confirmation vocabulary.
+  # Shared with Memories.Recall and Memories.Reviews, so every memory document
+  # writes its times the same way.
 
-  @doc false
-  def reference(value, field) do
-    if Reference.valid?(value), do: :ok, else: {:error, {:invalid_memory_confirmation, field}}
-  end
-
-  @doc false
+  @doc """
+  Internal — a time as a memory document writes it, ISO 8601, or nil.
+  `Ryker.Memories.Recall` and `Ryker.Memories.Reviews` use it.
+  """
   def datetime(nil), do: nil
   def datetime(%DateTime{} = value), do: DateTime.to_iso8601(value)
 
-  @doc false
+  @doc """
+  Internal — erases a fact's value and leaves it `status`, keeping only its
+  digest under `hash_field`, and announces the change; raises when the write
+  fails. `Ryker.Memories.Reviews` calls it when a fact is forgotten or its
+  channel deleted.
+  """
   def redact!(entry, status, hash_field) do
     payload = %{hash_field => entry.payload_fingerprint}
     fingerprint = CanonicalJSON.digest(payload)
@@ -632,6 +641,7 @@ defmodule Ryker.Memories do
   """
   def subscribe_memories, do: Ryker.PubSub.subscribe(memories_topic())
 
+  @doc "Stops the announcements `subscribe_memories/0` started."
   def unsubscribe_memories, do: Ryker.PubSub.unsubscribe(memories_topic())
 
   @doc """

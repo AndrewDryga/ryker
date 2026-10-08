@@ -244,12 +244,13 @@ defmodule Ryker.RoutingExamples do
   defp knowledge_key(knowledge_id) when is_binary(knowledge_id),
     do: CanonicalJSON.digest(%{"knowledge" => knowledge_id})
 
-  @doc false
-  # What a routing prompt for `entry` quotes, as its example records it: the
-  # message and topic keys, and the conversations they come from. The
-  # improvement candidates that quote the same prompt record the same keys
-  # (`Ryker.Improvement`), as do the local routing comparisons of it
-  # (`Ryker.LocalRouting`).
+  @doc """
+  Internal — what a routing prompt for `entry` quotes, as its example records
+  it: the message and topic keys, and the conversations they come from. The
+  improvement candidates that quote the same prompt record the same keys
+  (`Ryker.Improvement.Evidence`), as do the local routing comparisons of it
+  (`Ryker.LocalRouting`).
+  """
   @spec quoted_keys(Ingress.Inbox.Entry.t()) :: %{keys: [String.t()], conversations: [String.t()]}
   def quoted_keys(%Ingress.Inbox.Entry{} = entry),
     do: entry |> quoted() |> Map.take([:keys, :conversations])
@@ -317,12 +318,14 @@ defmodule Ryker.RoutingExamples do
   defp own_message(entry),
     do: {entry.destination_conversation_ref, entry.source_item_ref || entry.native_input_id}
 
-  @doc false
-  # Whether a person already forgot, deleted or edited anything a routing
-  # prompt for `entry` quotes, by the same test a copy passes before it keeps
-  # one. The analysis of a request people were unhappy with reads a routing
-  # attempt's own prompt only when this says no (`Ryker.Improvement.Evidence`),
-  # and the local routing model is sent one only then (`Ryker.LocalRouting`).
+  @doc """
+  Internal — whether a person already forgot, deleted or edited anything a
+  routing prompt for `entry` quotes, by the same test a copy passes before it
+  keeps one. The analysis of a request people were unhappy with reads a
+  routing attempt's own prompt only when this says no
+  (`Ryker.Improvement.Evidence`), and the local routing model is sent one
+  only then (`Ryker.LocalRouting`).
+  """
   @spec quotes_forgotten?(Ingress.Inbox.Entry.t()) :: boolean()
   def quotes_forgotten?(%Ingress.Inbox.Entry{} = entry) do
     quoted = quoted(entry)
@@ -387,12 +390,13 @@ defmodule Ryker.RoutingExamples do
         do: message
   end
 
-  @doc false
-  # The revisions among `entries`' messages whose words a person replaced by
-  # editing them: each one before the message's latest edit by a person that
-  # says something else. The analysis of a request people were unhappy with
-  # leaves their words out, as it does a deleted message's
-  # (`Ryker.Improvement.Evidence`).
+  @doc """
+  Internal — the ids of the revisions among `entries`' messages whose words a
+  person replaced by editing them: each one before the message's latest edit
+  by a person that says something else. The analysis of a request people
+  were unhappy with leaves their words out, as it does a deleted message's
+  (`Ryker.Improvement.Evidence`).
+  """
   @spec edited_revisions([Ingress.Inbox.Entry.t()]) :: MapSet.t(Ecto.UUID.t())
   def edited_revisions(entries) when is_list(entries) do
     entries

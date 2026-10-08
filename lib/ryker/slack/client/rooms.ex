@@ -200,5 +200,5 @@ defmodule Ryker.Slack.Client.Rooms do
   defp invitation_response({:ok, response}),
     do: response |> Transport.response() |> Transport.success()
 
-  defp invitation_response({:error, _reason} = error), do: error
+  defp invitation_response({:error, reason}), do: {:error, reason}
 end

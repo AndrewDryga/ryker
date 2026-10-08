@@ -613,7 +613,7 @@ defmodule Ryker.Retention.CustodyTest do
   defp terminal_session!(suffix) do
     session = session!(suffix)
 
-    assert {:ok, episode} = Episodes.fetch_by_key(episode_key!(session.episode_id))
+    assert episode = Ryker.Inspectors.episode(episode_key!(session.episode_id))
 
     assert {:ok, _transition} =
              Episodes.apply(
@@ -661,7 +661,7 @@ defmodule Ryker.Retention.CustodyTest do
 
   defp completed_session!(suffix) do
     session = session!(suffix)
-    assert {:ok, episode} = Episodes.fetch_by_key(episode_key!(session.episode_id))
+    assert episode = Ryker.Inspectors.episode(episode_key!(session.episode_id))
 
     assert {:ok, _transition} =
              Episodes.apply(

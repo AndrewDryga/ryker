@@ -346,7 +346,7 @@ defmodule Ryker.Slack.AppHomeControls do
             ],
        do: {:ok, :invalid}
 
-  defp memory_review_result({:error, _reason} = error, _review_action), do: error
+  defp memory_review_result({:error, reason}, _review_action), do: {:error, reason}
 
   defp memory_review_result(_invalid, _review_action),
     do: {:error, {:invalid_app_home_control, :resolve_memory_review}}

@@ -64,7 +64,7 @@ defmodule Ryker.Waits.EventWaitConcurrencyTest do
           assert Enum.count(results, &(&1 == {:ok, :idle})) == 1
           assert Task.await(blocker, 5_000) == {:ok, :ok}
 
-          events = Episodes.list_events(episode_key)
+          events = Ryker.Inspectors.episode_events(episode_key)
           assert Enum.count(events, &(&1.kind == :wait_resumed)) == 1
           assert Enum.count(events, &(&1.kind == :input_admitted)) == 2
           assert Repo.get!(EventSubscription, subscription.id).revision == 2

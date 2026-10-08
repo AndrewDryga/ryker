@@ -441,7 +441,7 @@ defmodule Ryker.Admission.DispatcherTest do
       assert waiting.execution_generation == 2
 
       # Nothing was posted or started for it, and nothing waits for a person.
-      assert Episodes.fetch_by_key("ingress-input:#{entry.id}") == :error
+      assert Ryker.Inspectors.episode("ingress-input:#{entry.id}") == nil
       assert FailureProjection.admission(input_ref) == :not_found
 
       assert {:ok, {:decided, execution}} =
@@ -878,7 +878,7 @@ defmodule Ryker.Admission.DispatcherTest do
     assert {:ok, {:deferred, ^input_ref, {:admission_rejected, :context_stale}}} =
              Dispatcher.run_once(real_options(fake, DateTime.add(@now, 2, :second)))
 
-    assert Episodes.fetch_by_key("ingress-input:#{entry.id}") == :error
+    assert Ryker.Inspectors.episode("ingress-input:#{entry.id}") == nil
     assert {:ok, reclassified} = Inbox.fetch(input_ref)
     assert reclassified.execution_generation == 2
     assert reclassified.admission_context == nil

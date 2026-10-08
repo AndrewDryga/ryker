@@ -324,7 +324,7 @@ defmodule Ryker.AdmissionConcurrencyTest do
         assert {:ok, _transition} = Task.await(reopener, 5_000)
 
         assert Task.await(commit, 5_000) == {:error, {:admission_rejected, :context_stale}}
-        assert Episodes.fetch_by_key("ingress-input:#{entry.id}") == :error
+        assert Ryker.Inspectors.episode("ingress-input:#{entry.id}") == nil
       after
         send(blocker.pid, :release)
         stop_tasks([blocker, reopener, commit])

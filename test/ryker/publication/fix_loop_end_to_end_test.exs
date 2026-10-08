@@ -254,7 +254,7 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
              {:ack, {:interaction, :confirmed}}
 
     confirmed = Repo.get!(Record, offer.id)
-    assert {:ok, task_episode} = Episodes.fetch_by_key("task-offer:#{offer.ref}")
+    assert task_episode = Ryker.Inspectors.episode("task-offer:#{offer.ref}")
     assert task_episode.id == confirmed.confirmed_episode_id
     task_session = Repo.get_by!(Session, episode_id: task_episode.id)
 

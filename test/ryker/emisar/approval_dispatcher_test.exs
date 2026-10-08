@@ -60,7 +60,7 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
 
     assert_receive {:wait_for_run, "run-terminal", 0}
     assert_receive :approval_presented
-    assert {:ok, resumed} = Episodes.fetch_by_key(episode.key)
+    assert resumed = Inspectors.episode(episode.key)
     assert resumed.state == :working
     assert Inspectors.emisar_approval(@connection_ref, "apr-terminal").status == :resumed
   end
@@ -108,7 +108,7 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
              {:ok, {:blocked, "apr-crossed", :emisar_approval_identity_mismatch}}
 
     assert Inspectors.emisar_approval(@connection_ref, "apr-crossed").status == :blocked
-    assert {:ok, waiting} = Episodes.fetch_by_key("approval-dispatcher:crossed")
+    assert waiting = Inspectors.episode("approval-dispatcher:crossed")
     assert waiting.state == :waiting_for_event
   end
 

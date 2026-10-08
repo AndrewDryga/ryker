@@ -138,10 +138,16 @@ defmodule Ryker.RepositoryKnowledge do
   @spec subscribe() :: :ok | {:error, term()}
   def subscribe, do: Ryker.PubSub.subscribe(topic())
 
-  # A page leaves a topic by its subscription's `un` twin (`WorkbenchLive`).
+  @doc """
+  Stops the announcements `subscribe/0` started. A page leaves a topic by
+  this twin of its subscription (`WorkbenchLive`).
+  """
   def unsubscribe, do: Ryker.PubSub.unsubscribe(topic())
 
-  @doc false
+  @doc """
+  Internal — announces, after the outermost commit, that repository `ref`'s
+  knowledge changed. `Ryker.RepositoryKnowledge.Custody` calls it.
+  """
   @spec broadcast_updated(String.t()) :: :ok
   def broadcast_updated(ref) do
     Repo.after_commit(fn ->

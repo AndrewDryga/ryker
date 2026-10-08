@@ -543,7 +543,7 @@ defmodule Ryker.Work.Custody.Turns do
   end
 
   defp mutation_authorization_result({:ok, _turn}), do: :ok
-  defp mutation_authorization_result({:error, _reason} = error), do: error
+  defp mutation_authorization_result({:error, reason}), do: {:error, reason}
 
   defp prepare_remote_operation(
          _episode_id,

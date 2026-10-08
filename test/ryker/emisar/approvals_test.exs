@@ -83,7 +83,8 @@ defmodule Ryker.Emisar.ApprovalsTest do
   test "a terminal exact run resumes the same episode once without repeating the action" do
     %{claim: claim, record: record} = approval_wait!("terminal")
 
-    assert Records.user_resumable_wait?(record.ref) == false
+    # A person's reply never ends a wait only Emisar's decision may end.
+    assert Records.user_resumable_wait?(record.ref, person_reply()) == false
 
     assert {:ok, %{lease_ref: lease_ref}} =
              Approvals.claim_next(@connection_ref, "approval-worker", 60)
@@ -110,7 +111,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
 
     assert Approvals.claim_next(@connection_ref, "second-worker", 60) == {:ok, nil}
 
-    events = Episodes.list_events(claim.episode.key)
+    events = Inspectors.episode_events(claim.episode.key)
 
     assert Enum.map(events, & &1.kind) == [
              :input_admitted,
@@ -154,10 +155,10 @@ defmodule Ryker.Emisar.ApprovalsTest do
     assert deferred.lease_ref == nil
     assert %DateTime{} = deferred.next_attempt_at
 
-    assert {:ok, waiting} = Episodes.fetch_by_key(claim.episode.key)
+    assert waiting = Inspectors.episode(claim.episode.key)
     assert waiting.state == :waiting_for_event
 
-    assert Enum.map(Episodes.list_events(claim.episode.key), & &1.kind) == [
+    assert Enum.map(Inspectors.episode_events(claim.episode.key), & &1.kind) == [
              :input_admitted,
              :event_wait_started
            ]
@@ -199,7 +200,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
              Approvals.claim_next(@connection_ref, "approval-worker-after-fix", 60)
 
     assert claimed_again.request_id == "apr-operator"
-    assert {:ok, waiting} = Episodes.fetch_by_key(claim.episode.key)
+    assert waiting = Inspectors.episode(claim.episode.key)
     assert waiting.state == :waiting_for_event
 
     assert EmisarOperator.rearm("production/apr-operator") ==
@@ -457,7 +458,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
   end
 
   defp close_task!(episode_key) do
-    assert {:ok, waiting} = Episodes.fetch_by_key(episode_key)
+    assert waiting = Inspectors.episode(episode_key)
 
     assert {:ok, _cancelled} =
              Episodes.apply(%Command.CancelEpisode{
@@ -565,5 +566,23 @@ defmodule Ryker.Emisar.ApprovalsTest do
       runner_ref: "production-runner",
       status: status
     }
+  end
+
+  defp person_reply do
+    {:ok, input} =
+      Ryker.Slack.Input.new(%{
+        actor: %{kind: :user, ref: "U123"},
+        channel_ref: "C456",
+        content: %{"text" => "Go ahead."},
+        event_kind: :message,
+        event_ref: "Ev-approval-reply",
+        message_ref: "1787832000.000200",
+        occurred_at: ~U[2026-08-28 12:00:00.000000Z],
+        revision: 1,
+        thread_ref: "1787832000.000100",
+        workspace_ref: "TAABB028FCC2E"
+      })
+
+    input
   end
 end

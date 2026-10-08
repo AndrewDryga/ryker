@@ -62,11 +62,11 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     assert html =~ "For every conversation"
     assert has_element?(view, "#instructions-form button[type=submit][disabled]")
     edit(view, "First draft 🌱")
-    assert Instructions.get(:global).revision == 0
+    assert {:ok, %{revision: 0}} = Instructions.get(:global)
     render_click(view, "refresh")
     assert has_element?(view, "#instructions-text", "First draft 🌱")
     submit(view, "First draft 🌱")
-    assert Instructions.get(:global).saved_by == "control-plane:local"
+    assert {:ok, %{saved_by: "control-plane:local"}} = Instructions.get(:global)
     assert has_element?(view, "[role=status]", "Instructions saved")
     render_click(view, "refresh")
     assert has_element?(view, "[role=status]", "Instructions saved")
@@ -85,12 +85,12 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     assert has_element?(view, "[role=alert]", "changed since you started editing")
     assert has_element?(view, "#instructions-current", "Another operator's saved text")
     assert has_element?(view, "#instructions-text", "My unsaved draft")
-    assert Instructions.get(:global).revision == 2
+    assert {:ok, %{revision: 2}} = Instructions.get(:global)
     view |> element("button[phx-click=cancel]") |> render_click()
     assert has_element?(view, "#instructions-text", "Another operator's saved text")
     submit(view, "")
-    assert Instructions.get(:global).revision == 3
-    assert Instructions.get(:global).text == ""
+    assert {:ok, %{revision: 3}} = Instructions.get(:global)
+    assert {:ok, %{text: ""}} = Instructions.get(:global)
   end
 
   test "Instructions reads the editor for every conversation, then channels, then what people saved" do
@@ -299,8 +299,8 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
            )
 
     submit(view, "CHANNEL_PRIVATE_INSTRUCTION")
-    assert Instructions.get(@scope).text == "CHANNEL_PRIVATE_INSTRUCTION"
-    assert Instructions.get(:global).revision == 1
+    assert {:ok, %{text: "CHANNEL_PRIVATE_INSTRUCTION"}} = Instructions.get(@scope)
+    assert {:ok, %{revision: 1}} = Instructions.get(:global)
     {:ok, _, roster} = open("/channels")
     assert roster =~ "own instructions"
     refute roster =~ "CHANNEL_PRIVATE_INSTRUCTION"
@@ -373,7 +373,7 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     |> Repo.update!()
 
     submit(view, "Unsaved private text")
-    assert Instructions.get(@scope).revision == 0
+    assert {:ok, %{revision: 0}} = Instructions.get(@scope)
     assert has_element?(view, "[role=alert]", "no longer available")
     assert has_element?(view, "#instructions-text", "Unsaved private text")
   end
@@ -402,10 +402,10 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     assert has_element?(view, "#instructions-text", "Retired channel guidance")
     submit(view, "Replacement is not allowed")
     assert has_element?(view, "[role=alert]", "no longer available")
-    assert Instructions.get(@scope).text == "Retired channel guidance"
+    assert {:ok, %{text: "Retired channel guidance"}} = Instructions.get(@scope)
     submit(view, " \r\n ")
-    assert Instructions.get(@scope).text == ""
-    assert Instructions.get(@scope).revision == 2
+    assert {:ok, %{text: ""}} = Instructions.get(@scope)
+    assert {:ok, %{revision: 2}} = Instructions.get(@scope)
     assert Repo.aggregate(Ryker.Instructions.Edit, :count) == 2
   end
 
@@ -514,8 +514,8 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     refute has_element?(view, "[role=alert]")
     assert has_element?(view, "#instructions-text", "My revised draft")
     submit(view, "My revised draft")
-    assert Instructions.get(:global).text == "My revised draft"
-    assert Instructions.get(:global).revision == 2
+    assert {:ok, %{text: "My revised draft"}} = Instructions.get(:global)
+    assert {:ok, %{revision: 2}} = Instructions.get(:global)
   end
 
   test "the quiet instruction counter measures normalized saved bytes" do
@@ -526,7 +526,8 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     assert has_element?(view, "#instructions-count", "714 characters left · 7,716 of 8,192 bytes")
     refute has_element?(view, "#instructions-count[role=status]")
     submit(view, pasted)
-    assert Instructions.get(:global).text == String.replace(pasted, "\r\n", "\n")
+    saved = String.replace(pasted, "\r\n", "\n")
+    assert {:ok, %{text: ^saved}} = Instructions.get(:global)
   end
 
   test "a recovered browser draft keeps its old revision and cannot overwrite a save during disconnect" do
@@ -540,7 +541,7 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
 
     submit(view, "Recovered draft")
     assert has_element?(view, "[role=alert]", "changed since you started editing")
-    assert Instructions.get(:global).text == "Saved during disconnect"
+    assert {:ok, %{text: "Saved during disconnect"}} = Instructions.get(:global)
   end
 
   test "an unconfirmed save keeps the submitted revision as well as the draft", %{
@@ -560,12 +561,12 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     assert has_element?(view, "input[name=revision][value='1']")
     Agent.update(failures, fn _ -> false end)
     submit(view, "Recovered draft")
-    assert Instructions.get(:global).text == "Concurrent save"
+    assert {:ok, %{text: "Concurrent save"}} = Instructions.get(:global)
     assert has_element?(view, "#instructions-current", "Concurrent save")
     view |> element("button[phx-click=review-current]") |> render_click()
     submit(view, "Recovered draft")
-    assert Instructions.get(:global).text == "Recovered draft"
-    assert Instructions.get(:global).revision == 3
+    assert {:ok, %{text: "Recovered draft"}} = Instructions.get(:global)
+    assert {:ok, %{revision: 3}} = Instructions.get(:global)
   end
 
   defp open(path), do: live(build_conn() |> Map.put(:host, "localhost"), path)

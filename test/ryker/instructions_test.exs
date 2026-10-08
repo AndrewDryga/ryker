@@ -7,7 +7,8 @@ defmodule Ryker.InstructionsTest do
   @actor "control-plane:local"
 
   test "empty settings are explicit and inspecting them never writes defaults" do
-    assert %{text: "", revision: 0, saved_by: nil, saved_at: nil} = Instructions.get(:global)
+    assert {:ok, %{text: "", revision: 0, saved_by: nil, saved_at: nil}} =
+             Instructions.get(:global)
 
     assert Instructions.snapshot(%{transport: "webhook", conversation_ref: "deployment"}) == %{
              "global" => %{"scope" => "global", "revision" => 0, "text" => ""},
@@ -86,7 +87,7 @@ defmodule Ryker.InstructionsTest do
 
     assert current.text == "First instructions"
     assert current.revision == 1
-    assert Instructions.get(:global) == first
+    assert Instructions.get(:global) == {:ok, first}
     assert Repo.aggregate(Edit, :count) == 1
   end
 
@@ -124,7 +125,7 @@ defmodule Ryker.InstructionsTest do
                Instructions.save(:global, text, 2, @actor)
     end
 
-    assert Instructions.get(:global).revision == 2
+    assert {:ok, %{revision: 2}} = Instructions.get(:global)
   end
 
   test "edit provenance records revision and actor without keeping a second copy of removed text" do

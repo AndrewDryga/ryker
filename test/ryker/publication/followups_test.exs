@@ -134,7 +134,7 @@ defmodule Ryker.Publication.FollowupsTest do
     assert deployment.wakeup_state == :pending
     deliver_pending!()
 
-    assert {:ok, resumed} = Episodes.fetch_by_key(episode.key)
+    assert resumed = Ryker.Inspectors.episode(episode.key)
     assert resumed.state == :working
     assert resumed.owner_ref == "turn:publication-verification:#{deployment.id}"
 
@@ -185,7 +185,7 @@ defmodule Ryker.Publication.FollowupsTest do
 
     deliver_pending!()
 
-    assert {:ok, resumed} = Episodes.fetch_by_key(episode.key)
+    assert resumed = Ryker.Inspectors.episode(episode.key)
     assert resumed.state == :working
     assert resumed.owner_ref == "turn:publication-verification:#{event.id}"
 

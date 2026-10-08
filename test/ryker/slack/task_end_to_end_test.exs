@@ -145,7 +145,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
     assert confirmed.confirmed_by_actor_ref == "slack:user:U123"
     assert confirmed.confirmation_ref == "interaction:task-e2e"
 
-    assert {:ok, task_episode} = Episodes.fetch_by_key("task-offer:#{offer.ref}")
+    assert task_episode = Ryker.Inspectors.episode("task-offer:#{offer.ref}")
     assert task_episode.id == confirmed.confirmed_episode_id
     assert task_episode.linked_episode_id == claim.episode.id
     assert task_episode.destination_transport == "slack"
@@ -464,7 +464,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
     assert Repo.get_by!(LifecycleEvent, ref: event_ref).delivery_receipt["message_ref"] ==
              card.message_ref
 
-    assert {:ok, resumed} = Episodes.fetch_by_key(task_episode.key)
+    assert resumed = Ryker.Inspectors.episode(task_episode.key)
     assert resumed.id == task_episode.id
     assert resumed.state == :working
     assert resumed.destination_transport == "slack"

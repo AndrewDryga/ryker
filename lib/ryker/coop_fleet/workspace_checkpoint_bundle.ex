@@ -47,7 +47,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointBundle do
        else: error(:identity)
   end
 
-  defp finish_validation({:error, _} = error), do: error
+  defp finish_validation({:error, reason}), do: {:error, reason}
   defp finish_validation({:ok, %{phase: {:body, _, _, _, _, _}}}), do: error(:member_length)
   defp finish_validation({:ok, %{phase: {:padding, _}}}), do: error(:member_length)
   defp finish_validation({:ok, %{phase: {:terminator, _}}}), do: error(:terminator)

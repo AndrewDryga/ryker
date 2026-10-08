@@ -55,11 +55,11 @@ defmodule Ryker.Evals.WorldEvidence do
           pid()
         ) ::
           {:ok, map()} | {:error, term()}
-  def retain_failure_report({:ok, _report} = result, _scenario, _identity, _settings, _agent),
-    do: result
+  def retain_failure_report({:ok, report}, _scenario, _identity, _settings, _agent),
+    do: {:ok, report}
 
-  def retain_failure_report({:error, {:world_eval_assertions, _report}} = result, _, _, _, _),
-    do: result
+  def retain_failure_report({:error, {:world_eval_assertions, report}}, _, _, _, _),
+    do: {:error, {:world_eval_assertions, report}}
 
   def retain_failure_report({:error, reason}, scenario, identity, settings, agent) do
     # Snapshot before cleanup can cancel the wait. Only turns with a remote turn

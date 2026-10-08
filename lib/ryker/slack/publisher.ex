@@ -249,14 +249,20 @@ defmodule Ryker.Slack.Publisher do
   defp settle({:error, {:slack_file_share_pending, [_ | _] = upload_refs}}),
     do: {:error, {:delivery_share_pending, upload_refs}}
 
-  defp settle({:error, {:delivery_rate_limited, _delay, _error}} = error), do: error
-  defp settle({:error, {:slack_api_error, _error}} = error), do: error
-  defp settle({:error, {:invalid_slack_api_request, _field}} = error), do: error
-  defp settle({:error, {:slack_upload_unavailable, _reason}} = error), do: error
+  defp settle({:error, {:delivery_rate_limited, delay, error}}),
+    do: {:error, {:delivery_rate_limited, delay, error}}
 
-  defp settle({:error, {:slack_http_error, status, _error}} = error)
+  defp settle({:error, {:slack_api_error, error}}), do: {:error, {:slack_api_error, error}}
+
+  defp settle({:error, {:invalid_slack_api_request, field}}),
+    do: {:error, {:invalid_slack_api_request, field}}
+
+  defp settle({:error, {:slack_upload_unavailable, reason}}),
+    do: {:error, {:slack_upload_unavailable, reason}}
+
+  defp settle({:error, {:slack_http_error, status, error}})
        when is_integer(status) and status < 500,
-       do: error
+       do: {:error, {:slack_http_error, status, error}}
 
   defp settle({:error, reason}), do: {:error, {:delivery_uncertain, reason}}
 

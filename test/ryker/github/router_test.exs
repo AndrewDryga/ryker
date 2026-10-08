@@ -506,7 +506,7 @@ defmodule Ryker.GitHub.RouterTest do
     assert {:ok, admitted} = Followups.admit_wakeup(claim.event.ref, claim.lease_ref)
     assert admitted.wakeup_state == :admitted
 
-    assert {:ok, resumed} = Ryker.Episodes.fetch_by_key(episode.key)
+    assert resumed = Ryker.Inspectors.episode(episode.key)
     assert resumed.id == episode.id
     assert resumed.state == :working
     assert resumed.owner_ref == "turn:publication-feedback:#{admitted.id}"
@@ -630,7 +630,7 @@ defmodule Ryker.GitHub.RouterTest do
 
       assert [receipt] = LearningSources.for_work_input(wake.payload["payload"])
       assert receipt["source_input_id"] == first.id
-      assert {:ok, resumed} = Ryker.Episodes.fetch_by_key(episode.key)
+      assert resumed = Ryker.Inspectors.episode(episode.key)
       assert resumed.owner_ref == "turn:publication-feedback:#{first.id}"
     end
   end

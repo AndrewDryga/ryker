@@ -68,10 +68,9 @@ defmodule Ryker.Embeddings do
 
   def embed(_texts, _options), do: {:error, :invalid_text}
 
-  @doc false
   # One POST, and its JSON answer or why there is none.
   @spec request(String.t(), iodata(), pos_integer()) :: {:ok, map()} | {:error, term()}
-  def request(url, body, timeout_ms) do
+  defp request(url, body, timeout_ms) do
     request =
       Delivery.HTTPClient.build(
         :post,

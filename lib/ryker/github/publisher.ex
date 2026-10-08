@@ -150,12 +150,16 @@ defmodule Ryker.GitHub.Publisher do
   # socket, an unreadable reply, a 5xx) may have landed, and only the marker
   # search on the next attempt can say.
   defp settle({:ok, message_id}), do: {:ok, message_id}
-  defp settle({:error, {:delivery_rate_limited, _delay, _error}} = error), do: error
-  defp settle({:error, {:invalid_github_api_request, _field}} = error), do: error
 
-  defp settle({:error, {:github_api_error, status, _body}} = error)
+  defp settle({:error, {:delivery_rate_limited, delay, error}}),
+    do: {:error, {:delivery_rate_limited, delay, error}}
+
+  defp settle({:error, {:invalid_github_api_request, field}}),
+    do: {:error, {:invalid_github_api_request, field}}
+
+  defp settle({:error, {:github_api_error, status, body}})
        when is_integer(status) and status < 500,
-       do: error
+       do: {:error, {:github_api_error, status, body}}
 
   defp settle({:error, reason}), do: {:error, {:delivery_uncertain, reason}}
 

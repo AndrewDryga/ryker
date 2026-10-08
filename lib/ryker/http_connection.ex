@@ -13,6 +13,11 @@ defmodule Ryker.HTTPConnection do
   """
   import Plug.Conn
 
+  @doc """
+  Marks a request that may carry a body to close its HTTP/1 connection when
+  it is refused with a 4xx or 5xx, so the client's next request starts on a
+  fresh one. `GET`, `HEAD` and HTTP/2 requests are left alone.
+  """
   @spec close_after_refusal(Plug.Conn.t()) :: Plug.Conn.t()
   def close_after_refusal(%Plug.Conn{method: method} = conn) when method in ["GET", "HEAD"],
     do: conn

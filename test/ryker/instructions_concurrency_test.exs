@@ -54,7 +54,7 @@ defmodule Ryker.InstructionsConcurrencyTest do
         assert saved.text in ["First editor", "Second editor"]
         assert saved.revision == 1
         assert current == saved
-        assert Instructions.get(scope) == saved
+        assert Instructions.get(scope) == {:ok, saved}
         assert Repo.aggregate(from(edit in Edit, where: edit.scope_ref == ^ref), :count) == 1
         assert Task.await(blocker, 5_000) == {:ok, :ok}
       after

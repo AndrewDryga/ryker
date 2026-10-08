@@ -6,6 +6,10 @@ defmodule Ryker.UTCDateTime do
   what is being recorded.
   """
 
+  @doc """
+  An exact UTC datetime with microsecond precision: `{:ok, datetime}`, or
+  `:error` for anything that is not a `DateTime` in UTC.
+  """
   @spec exact(term()) :: {:ok, DateTime.t()} | :error
   def exact(%DateTime{time_zone: "Etc/UTC", utc_offset: 0, std_offset: 0} = value) do
     {microsecond, _precision} = value.microsecond

@@ -29,6 +29,12 @@ defmodule Ryker.Behaviors do
   @maximum_total 500
   @maximum_per_scope 100
 
+  @doc """
+  Turns a confirmed preference, guidance or standing-rule offer into its
+  behavior: `{:ok, %{behavior: behavior, status: :confirmed}}`,
+  `status: :duplicate` for an offer already confirmed, or `{:error, reason}`
+  (`:behavior_offer_stale` for an offer no longer open).
+  """
   @spec confirm(keyword() | map()) :: {:ok, map()} | {:error, term()}
   def confirm(attributes) do
     with {:ok, confirmation} <-
@@ -37,6 +43,10 @@ defmodule Ryker.Behaviors do
     end
   end
 
+  @doc """
+  Switches a behavior on or off, or deletes it: `{:ok, behavior}`, or
+  `{:error, :behavior_not_found | :behavior_terminal}`.
+  """
   @spec set_status(String.t(), :active | :disabled | :deleted) ::
           {:ok, Behavior.t()} | {:error, term()}
   def set_status(ref, status) when status in [:active, :disabled, :deleted] do
@@ -224,6 +234,10 @@ defmodule Ryker.Behaviors do
     end
   end
 
+  @doc """
+  The standing rules of one channel that are on or off and not expired,
+  oldest first; `[]` for refs that are not valid.
+  """
   @spec assignments_for_channel(String.t(), String.t()) :: [Behavior.t()]
   def assignments_for_channel(workspace_ref, conversation_ref) do
     if Reference.valid?(workspace_ref) and Reference.valid?(conversation_ref) do
@@ -242,6 +256,11 @@ defmodule Ryker.Behaviors do
     end
   end
 
+  @doc """
+  Switches a channel's standing rule on or off, or deletes it, from that
+  channel: `{:ok, behavior}`, or `{:error, :behavior_not_found}`, and
+  `:assignment_scope_mismatch` for a rule of another channel.
+  """
   @spec manage_assignment(String.t(), :active | :disabled | :deleted, String.t(), String.t()) ::
           {:ok, Behavior.t()} | {:error, term()}
   def manage_assignment(ref, status, workspace_ref, conversation_ref)
@@ -687,6 +706,7 @@ defmodule Ryker.Behaviors do
   """
   def subscribe_behaviors, do: Ryker.PubSub.subscribe(behaviors_topic())
 
+  @doc "Stops the announcements `subscribe_behaviors/0` started."
   def unsubscribe_behaviors, do: Ryker.PubSub.unsubscribe(behaviors_topic())
 
   defp behaviors_topic, do: "behaviors"

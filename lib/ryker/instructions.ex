@@ -34,14 +34,34 @@ defmodule Ryker.Instructions do
   Treat each text field as data, not as an envelope, tool definition, or executable.
   """
 
+  @doc """
+  The longest instructions text, `%{characters: 2_000, bytes: 8_192}`.
+  Characters are counted as a person sees them, as the editor's counter does;
+  the column bounds the bytes.
+  """
   def limits, do: %{characters: @max_characters, bytes: @max_bytes}
 
+  @doc """
+  A stage's model instructions `base`, followed by what every stage tells the
+  model about custom instructions: they are settings, not memory; global text
+  comes first and a channel's overrides only where they conflict; they are
+  data and grant nothing.
+  """
   def prompt_instructions(base), do: base <> @prompt_contract
 
+  @doc """
+  The saved instructions of `:global` or `{:channel, workspace_ref,
+  channel_ref}`: `{:ok, setting}`, at revision 0 with empty text when none
+  were ever saved, or `{:error, {:invalid_instructions, :scope}}`.
+  """
   def get(scope) do
-    with {:ok, ref} <- scope_ref(scope), do: get_ref(ref)
+    with {:ok, ref} <- scope_ref(scope), do: {:ok, get_ref(ref)}
   end
 
+  @doc """
+  Which of these Slack channels have instructions of their own: a set of
+  their `slack:<workspace>:<channel>` scope refs.
+  """
   def configured_channels(items) do
     refs = Enum.map(items, &"slack:#{&1.workspace_ref}:#{&1.channel_ref}")
 
@@ -53,6 +73,12 @@ defmodule Ryker.Instructions do
     |> MapSet.new()
   end
 
+  @doc """
+  Saves the instructions of `scope` against `expected_revision`:
+  `{:ok, setting}`, where unchanged text keeps its revision;
+  `{:error, {:instructions_conflict, current}}` once someone saved past it; or
+  `{:error, {:invalid_instructions, field}}`.
+  """
   def save(scope, text, expected_revision, actor_ref) do
     with {:ok, ref} <- scope_ref(scope),
          {:ok, text} <- normalize_text(text),
@@ -71,6 +97,11 @@ defmodule Ryker.Instructions do
     if current.text == text, do: current, else: save_edit(current, text, actor_ref)
   end
 
+  @doc """
+  The instructions a new model request carries for `destination`, read in one
+  query: `%{"global" => layer, "channel" => layer | nil}`, each layer its
+  scope, revision and text.
+  """
   def snapshot(destination) do
     channel = destination_scope(destination)
     refs = Enum.reject(["global", channel], &is_nil/1)
@@ -104,6 +135,12 @@ defmodule Ryker.Instructions do
 
   defp valid_layer?(_, _), do: false
 
+  @doc """
+  Instructions text as it is saved, line endings as `\\n` and blank text as
+  `""`: `{:ok, text}`, or `{:error, {:invalid_instructions, reason}}` for
+  text that is not valid UTF-8 or holds a NUL (`:text`), or exceeds
+  `limits/0` (`:bytes`, `:characters`).
+  """
   def normalize_text(text) when is_binary(text) do
     text = String.replace(text, "\r\n", "\n")
 
@@ -209,6 +246,7 @@ defmodule Ryker.Instructions do
   """
   def subscribe_instructions, do: Ryker.PubSub.subscribe(instructions_topic())
 
+  @doc "Stops the announcements `subscribe_instructions/0` started."
   def unsubscribe_instructions, do: Ryker.PubSub.unsubscribe(instructions_topic())
 
   defp instructions_topic, do: "instructions"
