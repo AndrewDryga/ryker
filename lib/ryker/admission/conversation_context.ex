@@ -16,6 +16,7 @@ defmodule Ryker.Admission.ConversationContext do
   """
   alias Ryker.Admission.ConversationContext
   alias Ryker.CanonicalJSON
+  alias Ryker.ConversationRef
   alias Ryker.Ingress
   alias Ryker.Memories
   alias Ryker.Repo
@@ -317,10 +318,10 @@ defmodule Ryker.Admission.ConversationContext do
     end
   end
 
-  defp channel_ref(%Ingress.Inbox.Entry{destination_conversation_ref: "slack:" <> rest}) do
-    case String.split(rest, ":", parts: 2) do
-      [_workspace, channel_ref] when channel_ref != "" -> {:ok, channel_ref}
-      _invalid -> {:error, :conversation_ref}
+  defp channel_ref(%Ingress.Inbox.Entry{destination_conversation_ref: "slack:" <> _rest = ref}) do
+    case ConversationRef.parse_slack(ref) do
+      {:ok, _workspace, channel_ref} -> {:ok, channel_ref}
+      :error -> {:error, :conversation_ref}
     end
   end
 

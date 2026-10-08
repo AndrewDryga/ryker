@@ -15,6 +15,7 @@ defmodule Ryker.Slack.Runtime do
   alias Ryker.Artifacts
   alias Ryker.Behaviors
   alias Ryker.Config
+  alias Ryker.ConversationRef
   alias Ryker.Crypto
   alias Ryker.Delivery
   alias Ryker.Episodes
@@ -270,7 +271,11 @@ defmodule Ryker.Slack.Runtime do
       directory: Client,
       discard_workspace: &AppHomeActions.discard_workspace/5,
       forget_memory: fn ref, actor_ref, workspace_ref ->
-        Memories.forget_home(ref, "slack:user:#{actor_ref}", "slack:#{workspace_ref}")
+        Memories.forget_home(
+          ref,
+          "slack:user:#{actor_ref}",
+          ConversationRef.slack_workspace(workspace_ref)
+        )
       end,
       open_memory_review_editor: fn ref, trigger_ref, actor_ref, workspace_ref ->
         AppHomeEditor.open_memory_review(
@@ -299,7 +304,7 @@ defmodule Ryker.Slack.Runtime do
           ref,
           "slack:user:#{actor_ref}",
           action_ref,
-          %{conversation_prefix: "slack:#{workspace_ref}:", transport: "slack"},
+          %{conversation_prefix: ConversationRef.slack_prefix(workspace_ref), transport: "slack"},
           schedule_policy_resolver
         )
       end,
@@ -309,7 +314,7 @@ defmodule Ryker.Slack.Runtime do
           status,
           revision,
           "slack:user:#{actor_ref}",
-          "slack:#{workspace_ref}",
+          ConversationRef.slack_workspace(workspace_ref),
           action_ref
         )
       end,
@@ -321,7 +326,7 @@ defmodule Ryker.Slack.Runtime do
           "slack:user:#{actor_ref}",
           action_ref,
           %{
-            conversation_prefix: "slack:#{workspace_ref}:",
+            conversation_prefix: ConversationRef.slack_prefix(workspace_ref),
             transport: "slack"
           }
         )
@@ -438,7 +443,10 @@ defmodule Ryker.Slack.Runtime do
             revision,
             "slack:user:#{actor_ref}",
             action_ref,
-            %{conversation_prefix: "slack:#{workspace_ref}:", transport: "slack"}
+            %{
+              conversation_prefix: ConversationRef.slack_prefix(workspace_ref),
+              transport: "slack"
+            }
           )
         end,
         directory: Client,
@@ -602,9 +610,7 @@ defmodule Ryker.Slack.Runtime do
 
   defp effective_settings(default_participation) do
     fn workspace_ref, conversation_ref ->
-      channel_ref = conversation_ref |> String.split(":", parts: 3) |> List.last()
-
-      case IncidentRooms.channel_profile(workspace_ref, channel_ref) do
+      case room_profile(workspace_ref, ConversationRef.slack_channel(conversation_ref)) do
         {:ok, %{channel_state: :active, status: :ready}} ->
           %{
             proactive: %{source: :incident_room, value: true},
@@ -638,9 +644,9 @@ defmodule Ryker.Slack.Runtime do
 
   defp work_profile(default_environment, environments, fallback) do
     fn workspace_ref, conversation_ref ->
-      channel_ref = conversation_ref |> String.split(":", parts: 3) |> List.last()
+      channel_ref = ConversationRef.slack_channel(conversation_ref)
 
-      case IncidentRooms.channel_profile(workspace_ref, channel_ref) do
+      case room_profile(workspace_ref, channel_ref) do
         {:ok, room} ->
           work_profile =
             Map.merge(
@@ -727,6 +733,8 @@ defmodule Ryker.Slack.Runtime do
     end
   end
 
+  defp channel_environment(_workspace_ref, nil, default_environment), do: default_environment
+
   defp channel_environment(workspace_ref, channel_ref, default_environment) do
     case ChannelConfigurations.fetch_configuration(workspace_ref, channel_ref) do
       {:ok, %ChannelConfiguration{environment_ref: environment_ref}} -> environment_ref
@@ -739,15 +747,21 @@ defmodule Ryker.Slack.Runtime do
   # posts there are not the investigation's, and a room no longer active hears
   # no one.
   defp incident_actor_allowed(input) do
-    channel_ref =
-      input.destination.conversation_ref |> String.split(":", parts: 3) |> List.last()
+    channel_ref = ConversationRef.slack_channel(input.destination.conversation_ref)
 
-    case IncidentRooms.channel_profile(input.source.ref, channel_ref) do
+    case room_profile(input.source.ref, channel_ref) do
       :not_found -> {:ok, true}
       {:ok, %{channel_state: :active, status: :ready}} -> {:ok, input.actor.kind == :user}
       {:ok, _inactive_room} -> {:ok, false}
     end
   end
+
+  # The incident room a conversation's channel is, if it is one; a ref that
+  # names no channel is none.
+  defp room_profile(_workspace_ref, nil), do: :not_found
+
+  defp room_profile(workspace_ref, channel_ref),
+    do: IncidentRooms.channel_profile(workspace_ref, channel_ref)
 
   # The setup surfaces need the same override view as the gateway, keyed by
   # channel rather than conversation reference.
@@ -755,7 +769,7 @@ defmodule Ryker.Slack.Runtime do
     effective = effective_settings(default_participation)
 
     fn workspace_ref, channel_ref ->
-      effective.(workspace_ref, "slack:#{workspace_ref}:#{channel_ref}")
+      effective.(workspace_ref, ConversationRef.slack(workspace_ref, channel_ref))
     end
   end
 
@@ -774,8 +788,8 @@ defmodule Ryker.Slack.Runtime do
 
   defp setup_allowed do
     fn workspace_ref, conversation_ref ->
-      channel_ref = conversation_ref |> String.split(":", parts: 3) |> List.last()
-      {:ok, not IncidentRooms.managed_channel?(workspace_ref, channel_ref)}
+      channel_ref = ConversationRef.slack_channel(conversation_ref)
+      {:ok, is_nil(channel_ref) or not IncidentRooms.managed_channel?(workspace_ref, channel_ref)}
     end
   end
 

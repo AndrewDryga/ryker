@@ -6,6 +6,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   """
   import Ryker.ControlPlane.EpisodeTrace.Step
   alias Ryker.ControlPlane.ConsolePeople
+  alias Ryker.ConversationRef
   alias Ryker.Episodes
   alias Ryker.GitHub
   alias Ryker.Ingress
@@ -264,13 +265,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
     end
   end
 
-  defp slack_person(%{"destination" => %{"conversation_ref" => "slack:" <> rest}}, actor)
-       when is_binary(actor) do
-    case String.split(rest, ":") do
-      [workspace | _channel] -> Slack.Names.person(workspace, actor)
-      _other -> nil
-    end
-  end
+  defp slack_person(%{"destination" => %{"conversation_ref" => "slack:" <> _rest = ref}}, actor)
+       when is_binary(actor),
+       do: Slack.person(Slack.destination_workspace(ref), actor)
 
   defp slack_person(_payload, _actor), do: nil
 
@@ -462,22 +459,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   # own when it started no request.
   defp entry_source_link(
          %{
-           destination_conversation_ref: "slack:" <> conversation,
+           destination_conversation_ref: "slack:" <> _rest = conversation_ref,
            destination_thread_ref: thread
          },
          %Ingress.Inbox.Entry{source_item_ref: message_ref}
        ) do
-    with [_workspace, channel] <- String.split(conversation, ":", parts: 2),
-         true <- Slack.id?(channel),
-         true <- Slack.timestamp?(message_ref) do
-      stamp = "p" <> String.replace(message_ref, ".", "")
-      base = "https://slack.com/archives/#{channel}/#{stamp}"
-
-      href =
-        if Slack.timestamp?(thread) and thread != message_ref,
-          do: base <> "?" <> URI.encode_query(%{"cid" => channel, "thread_ts" => thread}),
-          else: base
-
+    with {:ok, _workspace, channel} <- ConversationRef.parse_slack(conversation_ref),
+         href when is_binary(href) <- Slack.archive_url(channel, message_ref, thread) do
       %{href: href, label: "Open in Slack", transport: "Slack"}
     else
       _invalid -> nil

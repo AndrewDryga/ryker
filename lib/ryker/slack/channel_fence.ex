@@ -11,6 +11,7 @@ defmodule Ryker.Slack.ChannelFence do
   whole of each other's transactions.
   """
   alias Ryker.AdvisoryLock
+  alias Ryker.ConversationRef
   alias Ryker.Repo
   alias Ryker.Slack.ChannelMembership
 
@@ -77,16 +78,11 @@ defmodule Ryker.Slack.ChannelFence do
     end
   end
 
-  defp slack_destination("slack:" <> rest) do
-    case String.split(rest, ":") do
-      [workspace_ref, "D" <> _direct] when workspace_ref != "" ->
-        :direct
-
-      [workspace_ref, channel_ref] when workspace_ref != "" and channel_ref != "" ->
-        {:channel, workspace_ref, channel_ref}
-
-      _invalid ->
-        :invalid
+  defp slack_destination("slack:" <> _rest = conversation_ref) do
+    case ConversationRef.parse_slack(conversation_ref) do
+      {:ok, _workspace_ref, "D" <> _direct} -> :direct
+      {:ok, workspace_ref, channel_ref} -> {:channel, workspace_ref, channel_ref}
+      :error -> :invalid
     end
   end
 

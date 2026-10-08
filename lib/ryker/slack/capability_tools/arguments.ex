@@ -4,6 +4,7 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
   provider document the host will send, refusing anything outside the
   published schema before a credential is touched.
   """
+  alias Ryker.ConversationRef
   alias Ryker.Maps
   alias Ryker.Slack.{Id, SourceRef}
 
@@ -302,12 +303,20 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
   @doc "The channel of a `slack:<workspace>:<channel>` conversation ref in this workspace."
   @spec conversation(term(), String.t()) :: {:ok, String.t()} | {:error, atom()}
   def conversation(value, workspace_ref) do
-    case String.split(value || "", ":", parts: 3) do
-      ["slack", ^workspace_ref, channel_ref] ->
+    case ConversationRef.parse_slack(value) do
+      {:ok, ^workspace_ref, channel_ref} ->
         if Id.valid?(channel_ref), do: {:ok, channel_ref}, else: {:error, :conversation}
 
-      _invalid ->
+      {:ok, _other_workspace, _channel_ref} ->
         {:error, :unauthorized}
+
+      # A ref in this workspace that names no channel is a bad argument; any
+      # other is a conversation the tool may not read.
+      :error ->
+        if is_binary(value) and
+             String.starts_with?(value, ConversationRef.slack_prefix(workspace_ref)),
+           do: {:error, :conversation},
+           else: {:error, :unauthorized}
     end
   end
 

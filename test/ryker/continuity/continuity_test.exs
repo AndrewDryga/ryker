@@ -489,9 +489,12 @@ defmodule Ryker.Continuity.ContinuityTest do
     {[workspace_ref: "slack:T:extra", conversation_ref: "slack:T:extra:CANY"], :conversation}
   end
 
+  # A ref with a part after its channel names no channel, so it keeps to its
+  # conversation, as every other reader and the channel fence read it. Until
+  # 2026-10-08 this one read "C:extra" as a channel and shared what it said.
   defp compaction_scope_changes(:colon_channel) do
     joined!("TANY", "C:extra")
-    {[workspace_ref: "slack:TANY", conversation_ref: "slack:TANY:C:extra"], :repository}
+    {[workspace_ref: "slack:TANY", conversation_ref: "slack:TANY:C:extra"], :conversation}
   end
 
   test "raw Work inputs establish source receipts even when admission learned no note" do

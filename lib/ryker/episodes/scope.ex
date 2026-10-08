@@ -5,6 +5,7 @@ defmodule Ryker.Episodes.Scope do
   Memory, guidance and automations are scoped to a Slack workspace or a GitHub
   binding; every other transport's conversation is its own workspace.
   """
+  alias Ryker.ConversationRef
   alias Ryker.Episodes.Episode
 
   @spec workspace_ref(Episode.t()) :: String.t()
@@ -13,9 +14,9 @@ defmodule Ryker.Episodes.Scope do
 
   @spec workspace_ref(String.t() | nil, String.t()) :: String.t()
   def workspace_ref("slack", conversation_ref) do
-    case String.split(conversation_ref, ":", parts: 3) do
-      ["slack", workspace_ref, _channel_ref] -> "slack:#{workspace_ref}"
-      _invalid -> conversation_ref
+    case ConversationRef.parse_slack(conversation_ref) do
+      {:ok, workspace_ref, _channel_ref} -> ConversationRef.slack_workspace(workspace_ref)
+      :error -> conversation_ref
     end
   end
 

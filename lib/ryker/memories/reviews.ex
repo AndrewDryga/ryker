@@ -19,6 +19,7 @@ defmodule Ryker.Memories.Reviews do
   alias Ryker.AdvisoryLock
   alias Ryker.Behaviors
   alias Ryker.CanonicalJSON
+  alias Ryker.ConversationRef
   alias Ryker.Memories
   alias Ryker.Memories.Forgetting
   alias Ryker.Memories.MemoryEntry
@@ -221,8 +222,8 @@ defmodule Ryker.Memories.Reviews do
       when is_binary(workspace_ref) and is_binary(channel_ref) do
     if Repo.in_transaction?() do
       lock_review_maintenance!()
-      conversation_ref = "slack:#{workspace_ref}:#{channel_ref}"
-      scoped_workspace_ref = "slack:#{workspace_ref}"
+      conversation_ref = ConversationRef.slack(workspace_ref, channel_ref)
+      scoped_workspace_ref = ConversationRef.slack_workspace(workspace_ref)
 
       delete_channel_facts(scoped_workspace_ref, conversation_ref)
 

@@ -15,6 +15,7 @@ defmodule Ryker.Continuity.Compaction do
   alias Ryker.Continuity.ConversationSummaryDraft
   alias Ryker.Continuity.ConversationSummaryState
   alias Ryker.Continuity.Scope
+  alias Ryker.ConversationRef
   alias Ryker.Knowledge
   alias Ryker.Learning
   alias Ryker.Repo
@@ -87,8 +88,8 @@ defmodule Ryker.Continuity.Compaction do
   end
 
   defp delete_slack_channel_locked(workspace_ref, channel_ref) do
-    conversation_ref = "slack:#{workspace_ref}:#{channel_ref}"
-    scoped_workspace_ref = "slack:#{workspace_ref}"
+    conversation_ref = ConversationRef.slack(workspace_ref, channel_ref)
+    scoped_workspace_ref = ConversationRef.slack_workspace(workspace_ref)
 
     delete_channel_summaries(scoped_workspace_ref, conversation_ref)
     delete_channel_drafts(conversation_ref)

@@ -10,6 +10,7 @@ defmodule Ryker.Slack.ThreadStatusProjection do
   worker narrated for that turn. Each kind of tool has one fixed phrase: the
   channel sees no tool argument, command, path, title or model text.
   """
+  alias Ryker.ConversationRef
   alias Ryker.Episodes
   alias Ryker.Ingress
   alias Ryker.Repo
@@ -318,9 +319,9 @@ defmodule Ryker.Slack.ThreadStatusProjection do
          },
          workspace_ref
        ) do
-    case String.split(conversation_ref || "", ":", parts: 3) do
-      ["slack", ^workspace_ref, channel_ref]
-      when byte_size(channel_ref) > 0 and is_binary(thread_ref) and byte_size(thread_ref) > 0 ->
+    case ConversationRef.parse_slack(conversation_ref) do
+      {:ok, ^workspace_ref, channel_ref}
+      when is_binary(thread_ref) and byte_size(thread_ref) > 0 ->
         if Id.valid?(channel_ref) and Timestamp.valid?(thread_ref) do
           {:ok, {channel_ref, thread_ref}}
         else

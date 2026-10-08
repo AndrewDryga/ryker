@@ -16,6 +16,7 @@ defmodule Ryker.Slack.Names do
   switching Slack on by doing so) keeps the names it knows.
   """
   use GenServer
+  alias Ryker.ConversationRef
   alias Ryker.InspectionRedactor
   alias Ryker.Slack.{Client, Permalink}
 
@@ -101,11 +102,10 @@ defmodule Ryker.Slack.Names do
     :exit, _not_running -> :ok
   end
 
-  def destination("slack:" <> rest) do
-    case String.split(rest, ":", parts: 3) do
-      [workspace, ref] -> name(workspace, ref)
-      [workspace, ref, _thread] -> name(workspace, ref) <> " · thread"
-      _ -> "Slack conversation"
+  def destination("slack:" <> _rest = destination) do
+    case ConversationRef.parse_slack(destination) do
+      {:ok, workspace, ref} -> name(workspace, ref)
+      :error -> "Slack conversation"
     end
   end
 
@@ -119,10 +119,10 @@ defmodule Ryker.Slack.Names do
   which made a display fallback an API: the moment that text carried the
   reference as well, the comparison silently stopped matching.
   """
-  def named?("slack:" <> rest) do
-    case String.split(rest, ":", parts: 3) do
-      [workspace, ref | _] -> resolved?(workspace, ref)
-      _ -> false
+  def named?("slack:" <> _rest = destination) do
+    case ConversationRef.parse_slack(destination) do
+      {:ok, workspace, ref} -> resolved?(workspace, ref)
+      :error -> false
     end
   end
 
@@ -162,7 +162,7 @@ defmodule Ryker.Slack.Names do
       for {{workspace, <<prefix, _::binary>> = ref}, label, _expires} <- names(),
           prefix in [?C, ?G] and is_binary(label),
           String.contains?(String.downcase(label), needle),
-          do: "slack:#{workspace}:#{ref}"
+          do: ConversationRef.slack(workspace, ref)
     end
   end
 

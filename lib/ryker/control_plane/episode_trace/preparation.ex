@@ -8,6 +8,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   import Ryker.ControlPlane.EpisodeTrace.Step
   alias Ryker.Behaviors
   alias Ryker.ControlPlane.{Activity, EpisodeTrace, Paths, RepositoryNames}
+  alias Ryker.ConversationRef
   alias Ryker.CoopFleet
   alias Ryker.Episodes
   alias Ryker.Ingress
@@ -984,10 +985,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   defp incident_room?(%Episodes.Episode{id: id, destination_conversation_ref: ref}),
     do: Repo.exists?(EpisodeTrace.Query.incident_rooms(id, slack_channel(ref)))
 
-  defp slack_channel("slack:" <> scope) do
-    case String.split(scope, ":", parts: 2) do
-      [workspace, channel] when workspace != "" and channel != "" -> {workspace, channel}
-      _other -> nil
+  defp slack_channel("slack:" <> _rest = scope) do
+    case ConversationRef.parse_slack(scope) do
+      {:ok, workspace, channel} -> {workspace, channel}
+      :error -> nil
     end
   end
 

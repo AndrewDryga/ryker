@@ -8,6 +8,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   alias Ryker.Config
   alias Ryker.ControlPlane.{Activity, Failure, LearningActivity, ProductReadiness}
   alias Ryker.ControlPlane.RepositoryNames
+  alias Ryker.ConversationRef
   alias Ryker.CoopFleet
   alias Ryker.Credentials
   alias Ryker.Episodes
@@ -467,7 +468,10 @@ defmodule Ryker.ControlPlane.FailureProjection do
       detail: Operator.FailureDetail.project(audit.last_error_detail),
       diagnosis: Operator.FailureDetail.facts(audit.last_error_detail),
       destination:
-        join_target("slack:#{audit.workspace_ref}:#{audit.channel_ref}", audit.thread_ref),
+        join_target(
+          ConversationRef.slack(audit.workspace_ref, audit.channel_ref),
+          audit.thread_ref
+        ),
       kind: "slack_interaction",
       action_id: audit.action_id,
       outcome: audit.outcome,
@@ -491,7 +495,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
       diagnosis: Operator.FailureDetail.facts(room.last_error_detail),
       destination:
         join_target(
-          "slack:#{room.workspace_ref}:#{room.source_channel_ref}",
+          ConversationRef.slack(room.workspace_ref, room.source_channel_ref),
           room.source_thread_ref
         ),
       automatic: String.starts_with?(room.confirmation_ref || "", "automatic-alert:"),
@@ -517,7 +521,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
       detail: Operator.FailureDetail.project(card.last_error_detail),
       diagnosis: Operator.FailureDetail.facts(card.last_error_detail),
       destination:
-        join_target("slack:#{card.workspace_ref}:#{card.channel_ref}", card.thread_ref),
+        join_target(ConversationRef.slack(card.workspace_ref, card.channel_ref), card.thread_ref),
       episode_id: card.episode_id,
       kind: "slack_task_card",
       provider_error: provider_error(card.last_error_detail),
@@ -539,7 +543,10 @@ defmodule Ryker.ControlPlane.FailureProjection do
       detail: Operator.FailureDetail.project(status.last_error_detail),
       diagnosis: Operator.FailureDetail.facts(status.last_error_detail),
       destination:
-        join_target("slack:#{status.workspace_ref}:#{status.channel_ref}", status.thread_ref),
+        join_target(
+          ConversationRef.slack(status.workspace_ref, status.channel_ref),
+          status.thread_ref
+        ),
       episode_id: if(status.origin_kind == "episode", do: status.origin_id),
       kind: "slack_thread_status",
       phase: status.phase,
@@ -801,7 +808,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
         is_nil(target) ->
           :in_room
 
-        target["conversation_ref"] == "slack:#{room.workspace_ref}:#{room.channel_ref}" ->
+        target["conversation_ref"] == ConversationRef.slack(room.workspace_ref, room.channel_ref) ->
           :in_room
 
         true ->
@@ -1076,9 +1083,9 @@ defmodule Ryker.ControlPlane.FailureProjection do
   def slack_channel(%{destination: "slack:" <> rest}) do
     [conversation | _thread] = String.split(rest, " / ", parts: 2)
 
-    case String.split(conversation, ":", parts: 2) do
-      [workspace, channel] -> {workspace, channel}
-      _other -> nil
+    case ConversationRef.parse_slack("slack:" <> conversation) do
+      {:ok, workspace, channel} -> {workspace, channel}
+      :error -> nil
     end
   end
 

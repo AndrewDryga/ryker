@@ -1,6 +1,7 @@
 defmodule Ryker.Records.RecordPayload do
   @moduledoc false
   alias Ryker.CanonicalJSON
+  alias Ryker.ConversationRef
   alias Ryker.Emisar
   alias Ryker.Records.InvestigationPayload
   alias Ryker.Reference
@@ -292,13 +293,9 @@ defmodule Ryker.Records.RecordPayload do
   defp slack_post_offer(_payload), do: {:error, {:invalid_state_record, :payload}}
 
   defp slack_conversation(value) when is_binary(value) do
-    case String.split(value, ":", parts: 3) do
-      ["slack", workspace_ref, channel_ref]
-      when workspace_ref != "" and channel_ref != "" ->
-        {:ok, workspace_ref, channel_ref}
-
-      _invalid ->
-        {:error, {:invalid_state_record, :conversation_ref}}
+    case ConversationRef.parse_slack(value) do
+      {:ok, workspace_ref, channel_ref} -> {:ok, workspace_ref, channel_ref}
+      :error -> {:error, {:invalid_state_record, :conversation_ref}}
     end
   end
 

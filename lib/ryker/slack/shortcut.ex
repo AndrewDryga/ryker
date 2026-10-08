@@ -6,6 +6,7 @@ defmodule Ryker.Slack.Shortcut do
   remains untrusted content and the exact source item for reply/reaction scope.
   """
   alias Ryker.CanonicalJSON
+  alias Ryker.ConversationRef
   alias Ryker.Ingress
   alias Ryker.Reference
   alias Ryker.Slack.Timestamp
@@ -49,7 +50,7 @@ defmodule Ryker.Slack.Shortcut do
              actor: %{kind: :user, ref: actor_ref},
              content: content,
              destination: %{
-               conversation_ref: "slack:#{workspace_ref}:#{channel_ref}",
+               conversation_ref: ConversationRef.slack(workspace_ref, channel_ref),
                thread_ref: thread_ref,
                transport: "slack"
              },

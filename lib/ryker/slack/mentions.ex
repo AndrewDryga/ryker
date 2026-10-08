@@ -7,6 +7,7 @@ defmodule Ryker.Slack.Mentions do
   channel link.
   """
   import Ryker.Slack.Renderer.Blocks, only: [escape: 1]
+  alias Ryker.ConversationRef
   alias Ryker.Episodes
   alias Ryker.Repo
   alias Ryker.Slack.Id
@@ -307,13 +308,13 @@ defmodule Ryker.Slack.Mentions do
   defp broadcasts(_values), do: {:error, :broadcasts}
 
   defp conversation(value) when is_binary(value) do
-    case String.split(value, ":") do
-      ["slack", workspace_ref, channel_ref] ->
+    case ConversationRef.parse_slack(value) do
+      {:ok, workspace_ref, channel_ref} ->
         with :ok <- slack_id(workspace_ref), :ok <- slack_id(channel_ref) do
           {:ok, workspace_ref, channel_ref}
         end
 
-      _invalid ->
+      :error ->
         {:error, :conversation}
     end
   end

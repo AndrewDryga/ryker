@@ -7,6 +7,7 @@ defmodule Ryker.Slack.Input do
   """
   @behaviour Ryker.Ingress.Adapter
   alias Ryker.CanonicalJSON
+  alias Ryker.ConversationRef
   alias Ryker.Ingress
 
   @fields [
@@ -79,7 +80,7 @@ defmodule Ryker.Slack.Input do
 
   defp destination(attributes) do
     %{
-      conversation_ref: "slack:#{attributes.workspace_ref}:#{attributes.channel_ref}",
+      conversation_ref: ConversationRef.slack(attributes.workspace_ref, attributes.channel_ref),
       thread_ref: attributes.thread_ref || attributes.message_ref,
       transport: "slack"
     }

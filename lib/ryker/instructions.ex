@@ -11,6 +11,7 @@ defmodule Ryker.Instructions do
   """
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
+  alias Ryker.ConversationRef
   alias Ryker.Instructions.{Edit, Setting}
   alias Ryker.Repo
 
@@ -63,7 +64,7 @@ defmodule Ryker.Instructions do
   their `slack:<workspace>:<channel>` scope refs.
   """
   def configured_channels(items) do
-    refs = Enum.map(items, &"slack:#{&1.workspace_ref}:#{&1.channel_ref}")
+    refs = Enum.map(items, &ConversationRef.slack(&1.workspace_ref, &1.channel_ref))
 
     refs
     |> Setting.Query.by_scope_refs()
@@ -202,8 +203,8 @@ defmodule Ryker.Instructions do
   end
 
   defp destination_scope(%{transport: "slack", conversation_ref: ref}) when is_binary(ref) do
-    case String.split(ref, ":") do
-      ["slack", workspace, channel] ->
+    case ConversationRef.parse_slack(ref) do
+      {:ok, workspace, channel} ->
         case scope_ref({:channel, workspace, channel}) do
           {:ok, ref} -> ref
           {:error, _} -> nil
@@ -221,7 +222,7 @@ defmodule Ryker.Instructions do
   defp scope_ref({:channel, workspace, channel})
        when is_binary(workspace) and is_binary(channel) do
     if Regex.match?(@slack_id, workspace) and Regex.match?(@slack_id, channel),
-      do: {:ok, "slack:#{workspace}:#{channel}"},
+      do: {:ok, ConversationRef.slack(workspace, channel)},
       else: {:error, {:invalid_instructions, :scope}}
   end
 

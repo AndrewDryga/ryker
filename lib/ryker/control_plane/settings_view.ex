@@ -14,6 +14,7 @@ defmodule Ryker.ControlPlane.SettingsView do
   alias Ryker.Config
   alias Ryker.ControlPlane.{ChannelDirectory, Environments, Integrations, PageRead}
   alias Ryker.ControlPlane.ProductReadiness
+  alias Ryker.ConversationRef
   alias Ryker.CoopFleet
   alias Ryker.Credentials
   alias Ryker.Episodes
@@ -225,7 +226,7 @@ defmodule Ryker.ControlPlane.SettingsView do
 
     successful_request =
       configured
-      |> Enum.map(&"slack:#{&1.workspace_ref}:#{&1.channel_ref}")
+      |> Enum.map(&ConversationRef.slack(&1.workspace_ref, &1.channel_ref))
       |> successful_channel_request?()
 
     steps = %{

@@ -6,6 +6,7 @@ defmodule Ryker.Slack.ReactionEvent do
   wake a model turn, or grant authority. Only a user reaction on a message
   authored by this exact configured bot identity is accepted.
   """
+  alias Ryker.ConversationRef
   alias Ryker.Reference
   alias Ryker.Slack.Timestamp
 
@@ -44,7 +45,7 @@ defmodule Ryker.Slack.ReactionEvent do
          occurred_at: occurred_at,
          source: %{kind: "slack", ref: workspace_ref},
          target: %{
-           conversation_ref: "slack:#{workspace_ref}:#{item.channel_ref}",
+           conversation_ref: ConversationRef.slack(workspace_ref, item.channel_ref),
            message_ref: item.message_ref,
            transport: "slack"
          }

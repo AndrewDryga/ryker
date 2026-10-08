@@ -16,6 +16,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
   """
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity
+  alias Ryker.ConversationRef
   alias Ryker.Memories
   alias Ryker.People
   alias Ryker.Reference
@@ -889,12 +890,12 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
     :ok =
       RoutingExamples.forget_conversation_in_transaction(
-        "slack:#{membership.workspace_ref}:#{membership.channel_ref}"
+        ConversationRef.slack(membership.workspace_ref, membership.channel_ref)
       )
 
     :ok =
       People.forget_conversation_in_transaction(
-        "slack:#{membership.workspace_ref}:#{membership.channel_ref}"
+        ConversationRef.slack(membership.workspace_ref, membership.channel_ref)
       )
 
     # The cases built from the channel's messages go after the lock every
@@ -903,7 +904,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
     :ok =
       Memories.Cases.withdraw_conversation_in_transaction(
         "slack",
-        "slack:#{membership.workspace_ref}:#{membership.channel_ref}"
+        ConversationRef.slack(membership.workspace_ref, membership.channel_ref)
       )
 
     Repo.delete_all(
@@ -1655,7 +1656,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
   defp channel_topic(conversation_ref), do: "slack:channel:#{conversation_ref}"
 
   defp conversation_ref(workspace_ref, channel_ref),
-    do: "slack:#{workspace_ref}:#{channel_ref}"
+    do: ConversationRef.slack(workspace_ref, channel_ref)
 
   defp locked_configuration(workspace_ref, channel_ref) do
     workspace_ref

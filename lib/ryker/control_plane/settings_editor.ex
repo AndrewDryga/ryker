@@ -31,6 +31,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   use Phoenix.LiveComponent
   alias Ryker.ControlPlane.{Components, FormDraft, Integrations, Kit, Paths, SettingsRows}
   alias Ryker.ControlPlane.{SettingsSections, SettingsView}
+  alias Ryker.ConversationRef
   alias Ryker.Settings
   alias Ryker.Slack
   alias Ryker.Wording
@@ -1428,8 +1429,8 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   # ID, so the choices do too.
   defp adapt(%{key: :report}, %{name: :channel_ref} = field, view, draft) do
     channels =
-      for {"slack:" <> ref, name} <- SettingsSections.options(%{options: :slack_channels}, view),
-          [_workspace, channel] <- [String.split(ref, ":", parts: 2)],
+      for {ref, name} <- SettingsSections.options(%{options: :slack_channels}, view),
+          {:ok, _workspace, channel} <- [ConversationRef.parse_slack(ref)],
           do: {channel, name}
 
     chosen = Map.get(draft, "channel_ref") || ""

@@ -6,7 +6,7 @@ defmodule Ryker.Knowledge do
   outermost commit (`subscribe_knowledge/0`).
   """
   alias Ryker.AdvisoryLock
-  alias Ryker.{CanonicalJSON, Repo, UTCDateTime}
+  alias Ryker.{CanonicalJSON, ConversationRef, Repo, UTCDateTime}
   alias Ryker.Crypto
   alias Ryker.Ingress
   alias Ryker.Knowledge.ConversationKnowledge
@@ -47,16 +47,11 @@ defmodule Ryker.Knowledge do
     end
   end
 
-  defp slack_channel(%{transport: "slack", conversation_ref: "slack:" <> rest}) do
-    case String.split(rest, ":", parts: 2) do
-      [_workspace, "D" <> _] ->
-        :local
-
-      [workspace, channel] when workspace != "" and channel != "" ->
-        {:channel, workspace, channel}
-
-      _ ->
-        :local
+  defp slack_channel(%{transport: "slack", conversation_ref: conversation_ref}) do
+    case ConversationRef.parse_slack(conversation_ref) do
+      {:ok, _workspace, "D" <> _direct} -> :local
+      {:ok, workspace, channel} -> {:channel, workspace, channel}
+      :error -> :local
     end
   end
 

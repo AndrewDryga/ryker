@@ -1,5 +1,6 @@
 defmodule Ryker.StateTools.LookupBoundary do
   @moduledoc false
+  alias Ryker.ConversationRef
   alias Ryker.Episodes
   alias Ryker.Repo
   alias Ryker.Slack
@@ -41,9 +42,9 @@ defmodule Ryker.StateTools.LookupBoundary do
          }
        })
        when is_binary(message) do
-    case String.split(conversation, ":", parts: 3) do
-      ["slack", workspace, channel] -> [Slack.SourceRef.message(workspace, channel, message)]
-      _ -> []
+    case ConversationRef.parse_slack(conversation) do
+      {:ok, workspace, channel} -> [Slack.SourceRef.message(workspace, channel, message)]
+      :error -> []
     end
   end
 

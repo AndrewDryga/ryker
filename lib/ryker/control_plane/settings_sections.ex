@@ -9,6 +9,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
   (a worker identity or a credential value) is not here.
   """
   alias Ryker.ControlPlane.Environments
+  alias Ryker.ConversationRef
   alias Ryker.Settings
   alias Ryker.Slack
   alias Ryker.Webhooks
@@ -905,7 +906,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
 
   def options(%{options: :slack_channels}, view) do
     for %{workspace_ref: workspace, channel_ref: channel} <- view.slack_channels,
-        do: {"slack:#{workspace}:#{channel}", Slack.Names.name(workspace, channel)}
+        do: {ConversationRef.slack(workspace, channel), Slack.Names.name(workspace, channel)}
   end
 
   def options(%{options: :webhook_secrets}, %{webhook_secret_names: names}) when is_list(names),

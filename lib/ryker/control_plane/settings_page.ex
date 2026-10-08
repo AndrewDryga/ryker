@@ -25,6 +25,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
   alias Ryker.ControlPlane.{RunningSystem, SettingsEditor, SettingsRows, SettingsSections}
   alias Ryker.ControlPlane.SetupPage
   alias Ryker.ControlPlane.{SlackMarkdown, WebhookPreview}
+  alias Ryker.ConversationRef
   alias Ryker.GitHub
   alias Ryker.Settings
   alias Ryker.Slack
@@ -318,7 +319,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
   defp report_channel(%{snapshot: %{report: %{channel_ref: channel}, slack: slack}})
        when is_binary(channel) do
     if slack.enabled and is_binary(slack.workspace_ref),
-      do: Slack.destination_name("slack:#{slack.workspace_ref}:#{channel}")
+      do: Slack.destination_name(ConversationRef.slack(slack.workspace_ref, channel))
   end
 
   defp report_channel(_view), do: nil
@@ -624,7 +625,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
   # Where the weekly report posts, once a channel is chosen.
   defp report_channel(%{workspace_ref: workspace}, %{channel_ref: channel})
        when is_binary(workspace) and is_binary(channel),
-       do: " in " <> Slack.destination_name("slack:#{workspace}:#{channel}")
+       do: " in " <> Slack.destination_name(ConversationRef.slack(workspace, channel))
 
   defp report_channel(_slack, _report), do: ""
 

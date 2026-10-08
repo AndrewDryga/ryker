@@ -7,6 +7,7 @@ defmodule Ryker.Slack.Collection.Query do
   """
   use Ryker, :query
   alias Ryker.Behaviors
+  alias Ryker.ConversationRef
   alias Ryker.Memories
   alias Ryker.Schedules
 
@@ -25,7 +26,7 @@ defmodule Ryker.Slack.Collection.Query do
     from(behavior in Behaviors.Behavior,
       where:
         behavior.kind == :standing_assignment and
-          behavior.workspace_ref == ^"slack:#{workspace_ref}" and
+          behavior.workspace_ref == ^ConversationRef.slack_workspace(workspace_ref) and
           behavior.scope_kind == :conversation and
           behavior.scope_ref in ^conversation_refs and
           behavior.status in [:active, :disabled] and

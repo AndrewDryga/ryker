@@ -13,6 +13,7 @@ defmodule Ryker.Slack.ChannelSetup do
   session offered when it started, and membership plus operator authority are
   rechecked for every action or conversational answer.
   """
+  alias Ryker.ConversationRef
   alias Ryker.Slack.{ChannelConfiguration, Collections, ConfigurationSession}
   alias Ryker.Slack.Client.Messages
   alias Ryker.Slack.{MembershipTransition, Operators}
@@ -1009,10 +1010,10 @@ defmodule Ryker.Slack.ChannelSetup do
     |> String.trim()
   end
 
-  defp destination("slack:" <> rest) do
-    case String.split(rest, ":", parts: 2) do
-      [workspace_ref, channel_ref] -> {:ok, workspace_ref, channel_ref}
-      _invalid -> :not_setup
+  defp destination("slack:" <> _rest = conversation_ref) do
+    case ConversationRef.parse_slack(conversation_ref) do
+      {:ok, workspace_ref, channel_ref} -> {:ok, workspace_ref, channel_ref}
+      :error -> :not_setup
     end
   end
 

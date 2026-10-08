@@ -8,6 +8,7 @@ defmodule Ryker.Records.InputRequests do
   envelopes stop here; the resulting inbox entry follows ordinary admission.
   """
   alias Ryker.CanonicalJSON
+  alias Ryker.ConversationRef
   alias Ryker.Episodes
   alias Ryker.Ingress
   alias Ryker.Records
@@ -284,9 +285,9 @@ defmodule Ryker.Records.InputRequests do
   end
 
   defp slack_destination(%{conversation_ref: conversation_ref, transport: "slack"}) do
-    case String.split(conversation_ref, ":", parts: 3) do
-      ["slack", workspace_ref, channel_ref] -> {:ok, workspace_ref, channel_ref}
-      _invalid -> {:error, :input_request_delivery_mismatch}
+    case ConversationRef.parse_slack(conversation_ref) do
+      {:ok, workspace_ref, channel_ref} -> {:ok, workspace_ref, channel_ref}
+      :error -> {:error, :input_request_delivery_mismatch}
     end
   end
 

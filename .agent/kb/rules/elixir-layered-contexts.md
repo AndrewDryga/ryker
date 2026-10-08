@@ -56,7 +56,8 @@ rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-08.
   `Slack.Timestamp.to_datetime/1`; the rule itself is written once.
 - The ones there are: `Ryker.Wording` (a count and its noun, plurals,
   numbers with separators, a list in a sentence, capitals),
-  `Ryker.Text` (text in the unit its limit counts), `Ryker.Reference`
+  `Ryker.Text` (text in the unit its limit counts), `Ryker.ConversationRef`
+  (a Slack conversation's ref, built and read one way), `Ryker.Reference`
   (reference strings, identifier tokens, UUIDs), `Ryker.Crypto.sha256_hex?/1`,
   `Ryker.UTCDateTime` (parsing, precision, UTC, ISO text, ages),
   `Ryker.Backoff` (the doubling wait and its bounds), `Ryker.Adapter` (a

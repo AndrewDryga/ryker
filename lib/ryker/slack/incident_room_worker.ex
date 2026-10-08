@@ -14,6 +14,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   """
   use Ryker.PollingWorker, lane: :slack_incidents, interval: :interval_ms
   alias Ryker.Backoff
+  alias Ryker.ConversationRef
   alias Ryker.Delivery
   alias Ryker.Episodes
   alias Ryker.ErrorDetail
@@ -365,7 +366,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
     case Work.Custody.redirect_delivery(
            episode.id,
            episode.key,
-           "slack:#{room.workspace_ref}:#{room.channel_ref}",
+           ConversationRef.slack(room.workspace_ref, room.channel_ref),
            IncidentRooms.alert_thread(room)
          ) do
       # The reply was posted since the request was read: the next pass closes
@@ -452,7 +453,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   # Fixed words, no model, in the room while Ryker can still post there.
   defp room_note(%{status: :ready, channel_state: :active} = room, mode) do
     %Delivery.HostNote{
-      conversation_ref: "slack:#{room.workspace_ref}:#{room.channel_ref}",
+      conversation_ref: ConversationRef.slack(room.workspace_ref, room.channel_ref),
       execution_mode: mode,
       message:
         "This incident room is closed. Ryker won't answer here anymore. " <>
@@ -851,7 +852,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   # is a typed one this message alone may name. Written into the text, it
   # showed as "<#C…>" (2026-10-04 review).
   defp handoff_message(room) do
-    conversation = "slack:#{room.workspace_ref}:#{room.channel_ref}"
+    conversation = ConversationRef.slack(room.workspace_ref, room.channel_ref)
 
     %{
       "message" =>

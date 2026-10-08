@@ -7,7 +7,7 @@ defmodule Ryker.Acceptance.Live do
   gateway. The already-running deployment owns Admission, Work, remote Coop execution,
   state tools, and Delivery. This process only observes their durable PostgreSQL custody.
   """
-  alias Ryker.{Bootstrap, Settings}
+  alias Ryker.{Bootstrap, ConversationRef, Settings}
   alias Ryker.CoopFleet
   alias Ryker.Delivery
   alias Ryker.Ingress
@@ -542,7 +542,7 @@ defmodule Ryker.Acceptance.Live do
   defp valid_worker_placement?(_placement), do: false
 
   defp exact_delivery(snapshot, settings, root_message_ref) do
-    expected_conversation = "slack:#{settings.workspace_ref}:#{settings.channel_ref}"
+    expected_conversation = ConversationRef.slack(settings.workspace_ref, settings.channel_ref)
     receipt = snapshot.external_receipt
 
     if receipt["transport"] == "slack" and

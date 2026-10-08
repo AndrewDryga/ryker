@@ -1,5 +1,6 @@
 defmodule Ryker.ControlPlane.InstructionSettings do
   @moduledoc "Instruction controls for a console person, never a model tool."
+  alias Ryker.ConversationRef
   alias Ryker.Episodes
   alias Ryker.Instructions
   alias Ryker.Repo
@@ -32,8 +33,8 @@ defmodule Ryker.ControlPlane.InstructionSettings do
     |> Instructions.Setting.Query.limit_to(@channel_limit)
     |> Repo.all()
     |> Enum.flat_map(fn setting ->
-      case String.split(setting.scope_ref, ":") do
-        ["slack", workspace, channel] ->
+      case ConversationRef.parse_slack(setting.scope_ref) do
+        {:ok, workspace, channel} ->
           [%{workspace_ref: workspace, channel_ref: channel, text: setting.text}]
 
         _other ->
@@ -78,7 +79,7 @@ defmodule Ryker.ControlPlane.InstructionSettings do
     Repo.exists?(Slack.ChannelConfiguration.Query.by_channel(workspace, channel)) or
       Repo.exists?(Slack.IncidentRoom.Query.by_channel(workspace, channel)) or
       Repo.exists?(
-        Episodes.Episode.Query.by_conversation("slack", "slack:#{workspace}:#{channel}")
+        Episodes.Episode.Query.by_conversation("slack", ConversationRef.slack(workspace, channel))
       )
   end
 end

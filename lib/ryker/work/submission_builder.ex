@@ -10,6 +10,7 @@ defmodule Ryker.Work.SubmissionBuilder do
   alias Ryker.Behaviors
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity
+  alias Ryker.ConversationRef
   alias Ryker.Episodes
   alias Ryker.GitHub
   alias Ryker.Ingress
@@ -717,14 +718,14 @@ defmodule Ryker.Work.SubmissionBuilder do
   defp put_source_ref(
          document,
          %{
-           "destination" => %{"conversation_ref" => "slack:" <> rest},
+           "destination" => %{"conversation_ref" => "slack:" <> _rest = conversation_ref},
            "source" => %{"kind" => "slack", "ref" => workspace_ref},
            "source_item_ref" => message_ref
          }
        )
        when is_binary(message_ref) do
-    case String.split(rest, ":", parts: 2) do
-      [^workspace_ref, channel_ref] ->
+    case ConversationRef.parse_slack(conversation_ref) do
+      {:ok, ^workspace_ref, channel_ref} ->
         Map.put(
           document,
           "source_ref",

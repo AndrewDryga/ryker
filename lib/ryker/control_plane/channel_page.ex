@@ -17,7 +17,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
   alias Ryker.{Behaviors, Continuity, Episodes, Instructions, Knowledge, Learning, Memories}
   alias Ryker.ControlPlane.{Activity, Actor, ChannelScope, ChannelsPage, Components, Kit, Paths}
   alias Ryker.ControlPlane.{ShortTime, Units}
-  alias Ryker.{Schedules, Settings}
+  alias Ryker.{ConversationRef, Schedules, Settings}
   alias Ryker.Slack
   alias Ryker.Wording
 
@@ -32,7 +32,8 @@ defmodule Ryker.ControlPlane.ChannelPage do
       when is_binary(workspace_ref) and is_binary(channel_ref) do
     [
       {Slack.ChannelConfigurations, :subscribe_channel, [workspace_ref, channel_ref]},
-      {Episodes, :subscribe_conversation, ["slack", "slack:#{workspace_ref}:#{channel_ref}"]},
+      {Episodes, :subscribe_conversation,
+       ["slack", ConversationRef.slack(workspace_ref, channel_ref)]},
       {Schedules, :subscribe_schedules, []},
       {Slack.IncidentRooms, :subscribe_rooms, []},
       {Continuity, :subscribe_continuity, []},
@@ -193,7 +194,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
   # The workspace by the name Slack gave it, or just "Slack" until it has:
   # the page never shows a workspace's ID outside Details.
   defp workspace_words(workspace) do
-    if Slack.named_destination?("slack:#{workspace}:#{workspace}"),
+    if Slack.named_destination?(ConversationRef.slack(workspace, workspace)),
       do: Slack.name(workspace, workspace),
       else: "Slack"
   end

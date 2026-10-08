@@ -6,6 +6,7 @@ defmodule Ryker.Slack.Renderer.Offers do
   """
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
+  alias Ryker.ConversationRef
   alias Ryker.Delivery
   alias Ryker.Schedules
 
@@ -295,10 +296,10 @@ defmodule Ryker.Slack.Renderer.Offers do
   defp lowercase_first(<<first::utf8, rest::binary>>),
     do: String.downcase(<<first::utf8>>) <> rest
 
-  defp channel("slack:" <> rest) do
-    case String.split(rest, ":") do
-      [_workspace, channel | _thread] -> %{"channel_ref" => channel}
-      _other -> nil
+  defp channel("slack:" <> _rest = conversation_ref) do
+    case ConversationRef.parse_slack(conversation_ref) do
+      {:ok, _workspace, channel} -> %{"channel_ref" => channel}
+      :error -> nil
     end
   end
 

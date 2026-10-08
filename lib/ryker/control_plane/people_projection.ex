@@ -5,6 +5,7 @@ defmodule Ryker.ControlPlane.PeopleProjection do
   and, for one person, what it learned and where they said it.
   """
   alias Ryker.ControlPlane.{ConsolePeople, Paths}
+  alias Ryker.ConversationRef
   alias Ryker.People
   alias Ryker.Slack
 
@@ -80,11 +81,11 @@ defmodule Ryker.ControlPlane.PeopleProjection do
   # Where it was said, by the channel's name, and so where Ryker uses it: the
   # page said "Said in a channel everyone can read" under every fact.
   defp where("slack:" <> _rest = conversation_ref, private) do
-    case String.split(conversation_ref, ":", parts: 3) do
-      ["slack", _workspace, "D" <> _direct] ->
+    case ConversationRef.parse_slack(conversation_ref) do
+      {:ok, _workspace, "D" <> _direct} ->
         "Said in a direct message, used only there"
 
-      ["slack", workspace, channel] ->
+      {:ok, workspace, channel} ->
         "Said in " <>
           Slack.Names.name(workspace, channel) <> if(private, do: ", used only there", else: "")
 

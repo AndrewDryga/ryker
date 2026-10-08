@@ -23,6 +23,7 @@ defmodule Ryker.WeeklyReport.Facts do
   """
   alias Ryker.Accounting
   alias Ryker.ControlPlane
+  alias Ryker.ConversationRef
   alias Ryker.Episodes
   alias Ryker.Feedback
   alias Ryker.Ingress
@@ -66,9 +67,9 @@ defmodule Ryker.WeeklyReport.Facts do
   # neither private nor shared with another organization. Only what came from
   # one is named in a report posted to a channel.
   @spec public?(String.t() | nil) :: boolean()
-  defp public?("slack:" <> rest) do
-    case String.split(rest, ":") do
-      [workspace, "C" <> _ = channel] ->
+  defp public?("slack:" <> _rest = conversation_ref) do
+    case ConversationRef.parse_slack(conversation_ref) do
+      {:ok, workspace, "C" <> _ = channel} ->
         workspace
         |> Slack.ChannelMembership.Query.by_channel(channel)
         |> Slack.ChannelMembership.Query.joined_public()

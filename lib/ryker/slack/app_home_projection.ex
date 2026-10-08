@@ -6,6 +6,7 @@ defmodule Ryker.Slack.AppHomeProjection do
   bounded request text from the exact Slack workspace, short operator-authored
   titles, counts, and the next host-owned action.
   """
+  alias Ryker.ConversationRef
   alias Ryker.Episodes
   alias Ryker.Memories
   alias Ryker.Publication
@@ -33,13 +34,13 @@ defmodule Ryker.Slack.AppHomeProjection do
 
       destination_refs =
         shared_conversations
-        |> Enum.map(&"slack:#{workspace_ref}:#{&1}")
+        |> Enum.map(&ConversationRef.slack(workspace_ref, &1))
         |> Enum.sort()
 
       channel_refs = shared_conversations |> MapSet.to_list() |> Enum.sort()
 
       actor_scope = "slack:user:#{actor_ref}"
-      workspace_scope = "slack:#{workspace_ref}"
+      workspace_scope = ConversationRef.slack_workspace(workspace_ref)
 
       memory_reviews =
         Memories.home_reviews(workspace_scope, actor_scope, limit: @maximum_memory_reviews)
@@ -64,7 +65,13 @@ defmodule Ryker.Slack.AppHomeProjection do
           ),
         counts: counts(workspace_ref, actor_scope, destination_refs, channel_refs, now),
         incidents: incidents(workspace_ref, channel_refs),
-        memories: memories("slack:#{workspace_ref}", workspace_ref, shared_conversations, now),
+        memories:
+          memories(
+            ConversationRef.slack_workspace(workspace_ref),
+            workspace_ref,
+            shared_conversations,
+            now
+          ),
         memory_review_count: memory_reviews.total,
         memory_reviews: memory_reviews.items,
         needs_attention: needs_attention(workspace_ref, destination_refs, channel_refs),
@@ -186,9 +193,10 @@ defmodule Ryker.Slack.AppHomeProjection do
 
   defp counts(workspace_ref, actor_ref, destination_refs, channel_refs, now) do
     %{
-      active_behaviors: active_behavior_count("slack:#{workspace_ref}", actor_ref, now),
+      active_behaviors:
+        active_behavior_count(ConversationRef.slack_workspace(workspace_ref), actor_ref, now),
       active_commitments: active_commitment_count(destination_refs),
-      active_memory: active_memory_count("slack:#{workspace_ref}", now),
+      active_memory: active_memory_count(ConversationRef.slack_workspace(workspace_ref), now),
       active_schedules: active_schedule_count(destination_refs, now),
       blocked_work: blocked_work_count(destination_refs),
       incident_history: incident_count(workspace_ref, channel_refs, :closed),
@@ -555,9 +563,9 @@ defmodule Ryker.Slack.AppHomeProjection do
   defp safe_unmerged_discard?(_session), do: false
 
   defp slack_url(workspace_ref, "slack:" <> _ = conversation_ref, thread_ref) do
-    case String.split(conversation_ref, ":", parts: 3) do
-      ["slack", ^workspace_ref, channel_ref] -> slack_url(workspace_ref, channel_ref, thread_ref)
-      _invalid -> nil
+    case ConversationRef.parse_slack(conversation_ref) do
+      {:ok, ^workspace_ref, channel_ref} -> slack_url(workspace_ref, channel_ref, thread_ref)
+      _other -> nil
     end
   end
 
@@ -582,9 +590,9 @@ defmodule Ryker.Slack.AppHomeProjection do
   end
 
   defp conversation_visible?(conversation_ref, workspace_ref, conversations) do
-    case String.split(to_string(conversation_ref), ":", parts: 3) do
-      ["slack", ^workspace_ref, channel_ref] -> MapSet.member?(conversations, channel_ref)
-      _invalid -> false
+    case ConversationRef.parse_slack(conversation_ref) do
+      {:ok, ^workspace_ref, channel_ref} -> MapSet.member?(conversations, channel_ref)
+      _other -> false
     end
   end
 

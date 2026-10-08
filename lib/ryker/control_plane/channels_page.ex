@@ -14,6 +14,7 @@ defmodule Ryker.ControlPlane.ChannelsPage do
   alias Ryker.ControlPlane.{Components, Integrations, Kit, PagedRelation, Paths, SettingsView}
   alias Ryker.ControlPlane.Search
   alias Ryker.ControlPlane.ShortTime
+  alias Ryker.ConversationRef
   alias Ryker.Episodes
   alias Ryker.Slack
 
@@ -42,7 +43,7 @@ defmodule Ryker.ControlPlane.ChannelsPage do
     given = if is_map(room), do: room[:channel_name]
 
     if is_binary(given) and given != "" and
-         not Slack.named_destination?("slack:#{workspace}:#{channel}"),
+         not Slack.named_destination?(ConversationRef.slack(workspace, channel)),
        do: "#" <> given,
        else: Slack.name(workspace, channel)
   end

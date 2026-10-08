@@ -6,6 +6,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   publication. Record projections are retained operator audit views only.
   """
   alias Ryker.CanonicalJSON
+  alias Ryker.ConversationRef
   alias Ryker.Episodes
   alias Ryker.GitHub
   alias Ryker.Publication
@@ -270,7 +271,8 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   defp same_destination?(card, episode) do
     episode.destination_transport == "slack" and
-      episode.destination_conversation_ref == "slack:#{card.workspace_ref}:#{card.channel_ref}"
+      episode.destination_conversation_ref ==
+        ConversationRef.slack(card.workspace_ref, card.channel_ref)
   end
 
   defp snapshot_documents(snapshot) do

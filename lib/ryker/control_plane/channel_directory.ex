@@ -6,6 +6,7 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
   channel's detail is `ChannelDetail`.
   """
   alias Ryker.ControlPlane.{ChannelDirectory, ChannelsPage, PagedRelation, Search}
+  alias Ryker.ConversationRef
   alias Ryker.Repo
   alias Ryker.Settings
   alias Ryker.Slack
@@ -141,7 +142,7 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
       &Map.put(
         &1,
         :custom_instructions,
-        MapSet.member?(configured, "slack:#{&1.workspace_ref}:#{&1.channel_ref}")
+        MapSet.member?(configured, ConversationRef.slack(&1.workspace_ref, &1.channel_ref))
       )
     )
   end
@@ -169,8 +170,8 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
     ChannelDirectory.Query.episode_counts()
     |> Repo.all()
     |> Enum.reduce(%{}, fn row, found ->
-      case String.split(row.conversation_ref, ":", parts: 3) do
-        ["slack", workspace_ref, channel_ref] ->
+      case ConversationRef.parse_slack(row.conversation_ref) do
+        {:ok, workspace_ref, channel_ref} ->
           Map.put(found, {workspace_ref, channel_ref}, Map.drop(row, [:conversation_ref]))
 
         _invalid ->

@@ -9,6 +9,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   alias Ryker.Continuity
   alias Ryker.ControlPlane.{Activity, Learned, LearningActivity, LearningRequests, Search}
   alias Ryker.ControlPlane.{PagedRelation, Paths, RepositoryNames}
+  alias Ryker.ConversationRef
   alias Ryker.Episodes
   alias Ryker.InspectionRedactor
   alias Ryker.Knowledge
@@ -580,14 +581,9 @@ defmodule Ryker.ControlPlane.ConversationMemory do
         source_message_ref: ref
       })
       when is_binary(conversation) and is_binary(ref) do
-    case String.split(conversation, ":", parts: 3) do
-      ["slack", _, channel] ->
-        if Regex.match?(~r/\A[CDG][A-Z0-9]+\z/, channel) and Regex.match?(~r/\A\d+\.\d+\z/, ref),
-          do: "https://slack.com/archives/#{channel}/p#{String.replace(ref, ".", "")}",
-          else: nil
-
-      _ ->
-        nil
+    case ConversationRef.parse_slack(conversation) do
+      {:ok, _workspace, channel} -> Slack.archive_url(channel, ref)
+      :error -> nil
     end
   end
 

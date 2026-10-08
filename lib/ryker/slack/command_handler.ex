@@ -5,6 +5,7 @@ defmodule Ryker.Slack.CommandHandler do
   This deliberately stays small. Product creation remains conversational and
   confirmation-backed; slash commands can inspect, quiet, shadow, or revoke.
   """
+  alias Ryker.ConversationRef
   alias Ryker.Slack.{Command, Operators, Renderer}
 
   @sources [:channel, :incident_room, :installation]
@@ -60,7 +61,7 @@ defmodule Ryker.Slack.CommandHandler do
          {:ok, _change} <-
            options.change_setting.(%{
              actor_ref: command.actor_ref,
-             conversation_ref: conversation_ref(command),
+             conversation_ref: ConversationRef.slack(command),
              event_ref: command.event_ref,
              occurred_at: command.occurred_at,
              scope: scope,
@@ -123,7 +124,7 @@ defmodule Ryker.Slack.CommandHandler do
     status = %{"pause" => :disabled, "resume" => :active, "delete" => :deleted}[verb]
 
     scope = %{
-      conversation_ref: conversation_ref(command),
+      conversation_ref: ConversationRef.slack(command),
       workspace_ref: command.workspace_ref
     }
 
@@ -144,7 +145,7 @@ defmodule Ryker.Slack.CommandHandler do
     do: {:ok, response(assignments_usage())}
 
   defp list_assignments(command, options) do
-    assignments = options.list_assignments.(command.workspace_ref, conversation_ref(command))
+    assignments = options.list_assignments.(command.workspace_ref, ConversationRef.slack(command))
 
     lines =
       case assignments do
@@ -164,7 +165,7 @@ defmodule Ryker.Slack.CommandHandler do
   end
 
   defp effective(command, options) do
-    case options.effective_settings.(command.workspace_ref, conversation_ref(command)) do
+    case options.effective_settings.(command.workspace_ref, ConversationRef.slack(command)) do
       %{proactive: %{source: source1, value: value1}, shadow: %{source: source2, value: value2}} =
           settings
       when source1 in @sources and source2 in @sources and is_boolean(value1) and
@@ -218,9 +219,6 @@ defmodule Ryker.Slack.CommandHandler do
         []
     end
   end
-
-  defp conversation_ref(command),
-    do: "slack:#{command.workspace_ref}:#{command.channel_ref}"
 
   defp response(text), do: %{"response_type" => "ephemeral", "text" => String.trim(text)}
 

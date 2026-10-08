@@ -1980,8 +1980,11 @@ defmodule Ryker.ControlPlane.FailureExplanation do
 
   defp room_path(%{channel_ref: channel} = row) when is_binary(channel) do
     case row[:destination] do
-      "slack:" <> rest -> Slack.app_redirect(rest |> String.split(":", parts: 2) |> hd(), channel)
-      _other -> nil
+      "slack:" <> _rest = destination ->
+        Slack.app_redirect(Slack.destination_workspace(destination), channel)
+
+      _other ->
+        nil
     end
   end
 

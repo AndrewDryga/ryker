@@ -1,6 +1,6 @@
 defmodule Ryker.Memories.MemorySourceLink do
   @moduledoc false
-  alias Ryker.{CanonicalJSON, Repo}
+  alias Ryker.{CanonicalJSON, ConversationRef, Repo}
   alias Ryker.Episodes
   alias Ryker.Slack
 
@@ -8,7 +8,7 @@ defmodule Ryker.Memories.MemorySourceLink do
   # The platform reader rechecks current source access when this is followed.
   def message("slack", conversation, message, thread)
       when is_binary(conversation) and is_binary(message) do
-    with ["slack", workspace, channel] <- String.split(conversation, ":"),
+    with {:ok, workspace, channel} <- ConversationRef.parse_slack(conversation),
          ref = "slack-source:v1:#{workspace}:#{channel}:message:#{message}",
          {:ok, _} <- Slack.SourceRef.parse(ref, workspace),
          {:ok, arguments} <- reader(ref, workspace, channel, thread) do
@@ -88,19 +88,16 @@ defmodule Ryker.Memories.MemorySourceLink do
         ],
         else: []
 
-    case String.split(conversation, ":", parts: 3) do
-      ["slack", workspace, _channel] ->
-        reads = Enum.flat_map(document["source_reads"] || [], &read_target(&1, workspace))
+    reads =
+      case ConversationRef.parse_slack(conversation) do
+        {:ok, workspace, _channel} ->
+          Enum.flat_map(document["source_reads"] || [], &read_target(&1, workspace))
 
-        Enum.uniq(direct ++ reads)
+        :error ->
+          lab_reads(conversation, document)
+      end
 
-      ["control-plane", "lab", _id] ->
-        reads = Enum.flat_map(document["source_reads"] || [], &lab_read_target(&1, conversation))
-        Enum.uniq(direct ++ reads)
-
-      _ ->
-        direct
-    end
+    Enum.uniq(direct ++ reads)
   end
 
   def context_targets(
@@ -125,6 +122,11 @@ defmodule Ryker.Memories.MemorySourceLink do
 
   def context_targets(_document), do: []
 
+  defp lab_reads("control-plane:lab:" <> _id = conversation, document),
+    do: Enum.flat_map(document["source_reads"] || [], &lab_read_target(&1, conversation))
+
+  defp lab_reads(_conversation, _document), do: []
+
   defp lab_read_target(
          %{"arguments" => %{"source_ref" => conversation, "anchor_ref" => anchor}},
          conversation
@@ -144,7 +146,7 @@ defmodule Ryker.Memories.MemorySourceLink do
       {:ok, %{kind: kind} = source} when kind in [:message, :thread] ->
         [
           %{
-            "conversation_ref" => "slack:#{workspace}:#{source.channel_ref}",
+            "conversation_ref" => ConversationRef.slack(workspace, source.channel_ref),
             "thread_ref" => if(kind == :thread, do: source.message_ref),
             "message_ref" => if(kind == :message, do: source.message_ref)
           }
@@ -177,10 +179,14 @@ defmodule Ryker.Memories.MemorySourceLink do
          %{episode: %{destination_transport: "slack", destination_conversation_ref: conversation}} =
            binding
        ) do
-    ["slack", workspace, _channel] = String.split(conversation, ":", parts: 3)
+    case ConversationRef.parse_slack(conversation) do
+      {:ok, workspace, _channel} ->
+        "read_slack_source" in Map.get(binding, :source_tools, []) and
+          match?({:ok, _}, Slack.SourceRef.parse(ref, workspace))
 
-    "read_slack_source" in Map.get(binding, :source_tools, []) and
-      match?({:ok, _}, Slack.SourceRef.parse(ref, workspace))
+      :error ->
+        false
+    end
   end
 
   defp available?(

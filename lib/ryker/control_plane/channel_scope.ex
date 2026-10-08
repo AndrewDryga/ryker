@@ -10,6 +10,7 @@ defmodule Ryker.ControlPlane.ChannelScope do
   summaries as "No durable records"; every query on the Channel detail now
   takes its refs from this value instead of rebuilding them by hand.
   """
+  alias Ryker.ConversationRef
 
   @enforce_keys [:workspace_ref, :channel_ref, :canonical_workspace_ref, :conversation_ref]
   defstruct [
@@ -43,8 +44,8 @@ defmodule Ryker.ControlPlane.ChannelScope do
        %__MODULE__{
          workspace_ref: workspace_ref,
          channel_ref: channel_ref,
-         canonical_workspace_ref: "slack:" <> workspace_ref,
-         conversation_ref: "slack:" <> workspace_ref <> ":" <> channel_ref
+         canonical_workspace_ref: ConversationRef.slack_workspace(workspace_ref),
+         conversation_ref: ConversationRef.slack(workspace_ref, channel_ref)
        }}
     else
       :error

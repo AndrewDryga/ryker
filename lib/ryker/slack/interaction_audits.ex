@@ -11,6 +11,7 @@ defmodule Ryker.Slack.InteractionAudits do
   after the outermost commit (`subscribe_interactions/0`).
   """
   alias Ryker.CanonicalJSON
+  alias Ryker.ConversationRef
   alias Ryker.Crypto
   alias Ryker.ErrorDetail
   alias Ryker.Ingress
@@ -48,8 +49,7 @@ defmodule Ryker.Slack.InteractionAudits do
     # InputRequests has already checked this delivered question and source. Keep
     # the real answer identity and distinguish typed replies from native choices.
     if Repo.in_transaction?() do
-      ["slack", workspace, channel] =
-        String.split(entry.destination_conversation_ref, ":", parts: 3)
+      {:ok, workspace, channel} = ConversationRef.parse_slack(entry.destination_conversation_ref)
 
       %{
         action_id: "#{kind}_question_answer",

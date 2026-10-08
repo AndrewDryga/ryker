@@ -13,6 +13,7 @@ defmodule Ryker.Slack.IncidentRooms do
   """
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
+  alias Ryker.ConversationRef
   alias Ryker.Crypto
   alias Ryker.Episodes
   alias Ryker.ErrorDetail
@@ -68,8 +69,9 @@ defmodule Ryker.Slack.IncidentRooms do
          {:ok, policy} <- policy(attributes.policy),
          true <- is_boolean(attributes.private),
          :ok <- reference(attributes.record_ref, :record_ref),
-         {:ok, target} <- target(attributes.target, attributes.workspace_ref),
-         :ok <- slack_id(attributes.workspace_ref, :workspace_ref) do
+         # The target is read against the workspace, so the workspace comes first.
+         :ok <- slack_id(attributes.workspace_ref, :workspace_ref),
+         {:ok, target} <- target(attributes.target, attributes.workspace_ref) do
       prepared = %{
         attributes
         | invite_user_refs: invite_users,
@@ -154,7 +156,7 @@ defmodule Ryker.Slack.IncidentRooms do
   @spec alert_thread(IncidentRoom.t()) :: map()
   def alert_thread(%IncidentRoom{} = room) do
     %{
-      "conversation_ref" => "slack:#{room.workspace_ref}:#{room.source_channel_ref}",
+      "conversation_ref" => ConversationRef.slack(room.workspace_ref, room.source_channel_ref),
       "thread_ref" => room.source_thread_ref || room.source_message_ref,
       "transport" => "slack"
     }
@@ -918,8 +920,8 @@ defmodule Ryker.Slack.IncidentRooms do
   end
 
   defp workspace_source?(episode, workspace_ref) do
-    case String.split(episode.destination_conversation_ref, ":", parts: 3) do
-      ["slack", ^workspace_ref, _channel_ref] -> :ok
+    case ConversationRef.parse_slack(episode.destination_conversation_ref) do
+      {:ok, ^workspace_ref, _channel_ref} -> :ok
       _other -> {:error, :incident_offer_workspace_mismatch}
     end
   end
@@ -1299,7 +1301,7 @@ defmodule Ryker.Slack.IncidentRooms do
     command = %Episodes.Command.AdmitInput{
       actor_ref: room.requested_by_actor_ref,
       destination: %{
-        conversation_ref: "slack:#{room.workspace_ref}:#{room.channel_ref}",
+        conversation_ref: ConversationRef.slack(room.workspace_ref, room.channel_ref),
         thread_ref: room.root_message_ref,
         transport: "slack"
       },
@@ -1464,8 +1466,8 @@ defmodule Ryker.Slack.IncidentRooms do
   defp target(_target, _workspace_ref), do: {:error, {:invalid_incident_room_request, :target}}
 
   defp slack_conversation(value, workspace_ref) when is_binary(value) do
-    case String.split(value, ":", parts: 3) do
-      ["slack", ^workspace_ref, channel_ref] ->
+    case ConversationRef.parse_slack(value) do
+      {:ok, ^workspace_ref, channel_ref} ->
         case slack_id(channel_ref, :channel_ref) do
           :ok -> {:ok, channel_ref}
           {:error, reason} -> {:error, reason}
@@ -1480,7 +1482,7 @@ defmodule Ryker.Slack.IncidentRooms do
     do: {:error, {:invalid_incident_room_request, :conversation_ref}}
 
   defp source_channel_ref!(conversation_ref) do
-    ["slack", _workspace_ref, channel_ref] = String.split(conversation_ref, ":", parts: 3)
+    {:ok, _workspace_ref, channel_ref} = ConversationRef.parse_slack(conversation_ref)
     channel_ref
   end
 

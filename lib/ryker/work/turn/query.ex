@@ -1,6 +1,7 @@
 defmodule Ryker.Work.Turn.Query do
   @moduledoc "Work turns, for every read of `episode_work_turns`."
   use Ryker, :query
+  alias Ryker.ConversationRef
   alias Ryker.Episodes
   alias Ryker.Work.{Session, Turn}
 
@@ -105,7 +106,7 @@ defmodule Ryker.Work.Turn.Query do
   (2026-10-04 review).
   """
   def delivered_slack_message(workspace_ref, channel_ref, message_ref, thread_ref) do
-    conversation_ref = "slack:#{workspace_ref}:#{channel_ref}"
+    conversation_ref = ConversationRef.slack(workspace_ref, channel_ref)
 
     from(t in all(),
       where:

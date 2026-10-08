@@ -1,6 +1,6 @@
 defmodule Ryker.StateTools.LookupContext do
   @moduledoc false
-  alias Ryker.{CanonicalJSON, Repo}
+  alias Ryker.{CanonicalJSON, ConversationRef, Repo}
   alias Ryker.Memories
   alias Ryker.Slack
   alias Ryker.StateTools.{ErrorCode, LookupBoundary, LookupOriginals}
@@ -80,28 +80,10 @@ defmodule Ryker.StateTools.LookupContext do
   defp targets(result, %{
          episode: %{destination_transport: "slack", destination_conversation_ref: conversation}
        }) do
-    ["slack", workspace, _channel] = String.split(conversation, ":", parts: 3)
-
-    result
-    |> anchors()
-    |> Enum.flat_map(fn anchor ->
-      case Slack.SourceRef.parse(anchor["source_ref"], workspace) do
-        {:ok, %{kind: :message} = source} ->
-          [
-            %{
-              "conversation_ref" => "slack:#{workspace}:#{source.channel_ref}",
-              "thread_ref" =>
-                anchor["thread_ts"] || thread_root(result, anchor, source, workspace),
-              "message_ref" => source.message_ref
-            }
-          ]
-
-        _ ->
-          []
-      end
-    end)
-    |> Enum.uniq()
-    |> Enum.take(20)
+    case ConversationRef.parse_slack(conversation) do
+      {:ok, workspace, _channel} -> slack_targets(result, workspace)
+      :error -> []
+    end
   end
 
   defp targets(result, %{
@@ -124,6 +106,29 @@ defmodule Ryker.StateTools.LookupContext do
   end
 
   defp targets(_result, _binding), do: []
+
+  defp slack_targets(result, workspace) do
+    result
+    |> anchors()
+    |> Enum.flat_map(fn anchor ->
+      case Slack.SourceRef.parse(anchor["source_ref"], workspace) do
+        {:ok, %{kind: :message} = source} ->
+          [
+            %{
+              "conversation_ref" => ConversationRef.slack(workspace, source.channel_ref),
+              "thread_ref" =>
+                anchor["thread_ts"] || thread_root(result, anchor, source, workspace),
+              "message_ref" => source.message_ref
+            }
+          ]
+
+        _ ->
+          []
+      end
+    end)
+    |> Enum.uniq()
+    |> Enum.take(20)
+  end
 
   defp anchors(result) do
     if result["anchor"],

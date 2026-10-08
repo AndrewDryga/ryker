@@ -36,6 +36,7 @@ defmodule Ryker.Improvement.Export do
   and the actors' `authority` (every person is an operator here). Files are
   not replayed: a world event is a message's text.
   """
+  alias Ryker.ConversationRef
   alias Ryker.Improvement.Candidate
   alias Ryker.Repo
   alias Ryker.UTCDateTime
@@ -354,21 +355,22 @@ defmodule Ryker.Improvement.Export do
   defp count(names, prefix),
     do: names |> Map.values() |> Enum.count(&String.starts_with?(&1, prefix))
 
-  defp channel("slack:" <> rest) do
-    case String.split(rest, ":", parts: 2) do
-      [_workspace, channel] -> channel
-      _other -> nil
+  defp channel(conversation_ref) do
+    case ConversationRef.parse_slack(conversation_ref) do
+      {:ok, _workspace, channel} -> channel
+      :error -> nil
     end
   end
 
-  defp channel(_conversation), do: nil
-
   defp rename(ref, names), do: Map.get(names, ref, ref)
 
-  defp rename_conversation("slack:" <> rest, names) do
-    case String.split(rest, ":", parts: 2) do
-      [workspace, channel] -> "slack:#{rename(workspace, names)}:#{rename(channel, names)}"
-      _other -> "slack:" <> rest
+  defp rename_conversation("slack:" <> _rest = conversation_ref, names) do
+    case ConversationRef.parse_slack(conversation_ref) do
+      {:ok, workspace, channel} ->
+        ConversationRef.slack(rename(workspace, names), rename(channel, names))
+
+      :error ->
+        conversation_ref
     end
   end
 

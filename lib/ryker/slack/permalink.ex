@@ -58,5 +58,26 @@ defmodule Ryker.Slack.Permalink do
       do: redirect(team: workspace_ref, channel: channel_ref, message_ts: message_ref)
   end
 
+  @doc """
+  Slack's link to one message through slack.com, opening a reply in its thread
+  when `thread_ref` is a different message; nil unless the channel is a
+  channel or a direct message and both timestamps are Slack's.
+  """
+  @spec archive_url(term(), term(), term()) :: String.t() | nil
+  def archive_url(channel_ref, message_ref, thread_ref \\ nil) do
+    if conversation_id?(channel_ref) and Timestamp.valid?(message_ref) do
+      base = "https://slack.com/archives/#{channel_ref}/p#{String.replace(message_ref, ".", "")}"
+
+      if Timestamp.valid?(thread_ref) and thread_ref != message_ref,
+        do: base <> "?" <> URI.encode_query(%{"cid" => channel_ref, "thread_ts" => thread_ref}),
+        else: base
+    end
+  end
+
+  defp conversation_id?(<<prefix, _rest::binary>> = ref) when prefix in [?C, ?D, ?G],
+    do: Id.valid?(ref)
+
+  defp conversation_id?(_ref), do: false
+
   defp redirect(parameters), do: "https://slack.com/app_redirect?" <> URI.encode_query(parameters)
 end

@@ -10,6 +10,7 @@ defmodule Ryker.Slack.SavedEntity do
   that the entity does not retain is invented.
   """
   alias Ryker.Behaviors
+  alias Ryker.ConversationRef
   alias Ryker.Delivery
   alias Ryker.Memories
   alias Ryker.Schedules
@@ -213,10 +214,10 @@ defmodule Ryker.Slack.SavedEntity do
 
   # A Slack destination is a typed channel reference so the renderer can emit
   # a real channel mention; anything else stays escaped text.
-  defp destination("slack:" <> rest) do
-    case String.split(rest, ":", parts: 2) do
-      [_workspace_ref, channel_ref] -> %{"channel_ref" => channel_ref}
-      _invalid -> rest
+  defp destination("slack:" <> rest = conversation_ref) do
+    case ConversationRef.parse_slack(conversation_ref) do
+      {:ok, _workspace_ref, channel_ref} -> %{"channel_ref" => channel_ref}
+      :error -> rest
     end
   end
 

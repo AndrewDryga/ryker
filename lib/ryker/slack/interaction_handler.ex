@@ -6,6 +6,7 @@ defmodule Ryker.Slack.InteractionHandler do
   delivered-message identity, and current record state are all re-read after
   the click. The button value alone grants nothing.
   """
+  alias Ryker.ConversationRef
   alias Ryker.Maps
   alias Ryker.Slack.{ControlValue, Interaction, Operators}
 
@@ -176,6 +177,9 @@ defmodule Ryker.Slack.InteractionHandler do
     end
   end
 
+  # Each passes the conversation the control was pressed in: a rule or fact
+  # kept to it can be changed there. Passing the workspace alone ran every one
+  # through the App Home gate, which refuses a channel's own (2026-10-04 review).
   defp remove_entity(%Interaction{action_id: "ryker_delete_schedule"} = interaction, options) do
     with {:ok, ref, revision} <- versioned_resource(interaction.action_value, "schedule"),
          {:ok, _result} <-
@@ -199,7 +203,7 @@ defmodule Ryker.Slack.InteractionHandler do
              ref,
              revision,
              interaction.actor_ref,
-             conversation_ref(interaction),
+             ConversationRef.slack(interaction),
              interaction.event_ref
            ) do
       {:ok, :resumed}
@@ -213,7 +217,7 @@ defmodule Ryker.Slack.InteractionHandler do
              ref,
              revision,
              interaction.actor_ref,
-             conversation_ref(interaction),
+             ConversationRef.slack(interaction),
              interaction.event_ref
            ) do
       {:ok, :deleted}
@@ -225,17 +229,11 @@ defmodule Ryker.Slack.InteractionHandler do
            options.forget_memory.(
              interaction.action_value,
              interaction.actor_ref,
-             conversation_ref(interaction)
+             ConversationRef.slack(interaction)
            ) do
       {:ok, :forgotten}
     end
   end
-
-  # The conversation a control was pressed in: a rule or fact kept to it can be
-  # changed there. Passing the workspace alone ran every one through the App
-  # Home gate, which refuses a channel's own (2026-10-04 review).
-  defp conversation_ref(interaction),
-    do: "slack:#{interaction.workspace_ref}:#{interaction.channel_ref}"
 
   defp versioned_resource(value, kind) do
     with :error <- ControlValue.decode(value, kind), do: {:error, :slack_action_mismatch}
@@ -797,7 +795,7 @@ defmodule Ryker.Slack.InteractionHandler do
 
   defp target(interaction) do
     %{
-      conversation_ref: "slack:#{interaction.workspace_ref}:#{interaction.channel_ref}",
+      conversation_ref: ConversationRef.slack(interaction.workspace_ref, interaction.channel_ref),
       message_ref: interaction.message_ref,
       thread_ref: interaction.thread_ref,
       transport: "slack"

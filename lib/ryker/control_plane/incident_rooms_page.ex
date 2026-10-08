@@ -18,6 +18,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   alias Ryker.ControlPlane.{ChannelsPage, Components, Kit, Paths, ShortTime, SlackMarkdown, Units}
   alias Ryker.ControlPlane.Search
   alias Ryker.ControlPlane.UsageProjection
+  alias Ryker.ConversationRef
   alias Ryker.Publication
   alias Ryker.Slack
   alias Ryker.UTCDateTime
@@ -686,9 +687,11 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
 
   defp source(room) do
     text =
-      if Slack.named_destination?("slack:#{room.workspace_ref}:#{room.source_channel_ref}"),
-        do: "The alert thread in " <> Slack.name(room.workspace_ref, room.source_channel_ref),
-        else: "The alert thread"
+      if Slack.named_destination?(
+           ConversationRef.slack(room.workspace_ref, room.source_channel_ref)
+         ),
+         do: "The alert thread in " <> Slack.name(room.workspace_ref, room.source_channel_ref),
+         else: "The alert thread"
 
     case room[:source_episode_id] do
       ref when is_binary(ref) -> anchor(%{href: Paths.request(ref), text: text})

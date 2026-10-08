@@ -29,6 +29,7 @@ defmodule Ryker.People do
   the ninety days conversation memory keeps.
   """
   alias Ryker.AdvisoryLock
+  alias Ryker.ConversationRef
   alias Ryker.Crypto
   alias Ryker.Ingress
   alias Ryker.People.PersonFact
@@ -225,15 +226,15 @@ defmodule Ryker.People do
   # used wherever that person asks. Said anywhere else, only there: a direct
   # message, a private channel, a channel shared with another organisation,
   # a pull request that may be in a private repository, or Chat.
-  defp private?("slack:" <> rest) do
-    case String.split(rest, ":", parts: 2) do
-      [workspace, channel] ->
+  defp private?("slack:" <> _rest = conversation_ref) do
+    case ConversationRef.parse_slack(conversation_ref) do
+      {:ok, workspace, channel} ->
         not (workspace
              |> Slack.ChannelMembership.Query.by_channel(channel)
              |> Slack.ChannelMembership.Query.joined_public()
              |> Repo.exists?())
 
-      _other ->
+      :error ->
         true
     end
   end

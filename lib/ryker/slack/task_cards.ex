@@ -10,6 +10,7 @@ defmodule Ryker.Slack.TaskCards do
   outermost commit (`subscribe_task_cards/0`), on its request's topics too.
   """
   alias Ryker.AdvisoryLock
+  alias Ryker.ConversationRef
   alias Ryker.Crypto
   alias Ryker.Delivery
   alias Ryker.Episodes
@@ -66,13 +67,13 @@ defmodule Ryker.Slack.TaskCards do
   review and pull request are that card's to show (`Ryker.Publication.Executor`).
   """
   @spec message_ref(Ecto.UUID.t() | nil, String.t() | nil, String.t() | nil) :: String.t() | nil
-  def message_ref(episode_id, "slack:" <> conversation, thread_ref)
+  def message_ref(episode_id, "slack:" <> _rest = conversation_ref, thread_ref)
       when is_binary(episode_id) and is_binary(thread_ref) do
-    case String.split(conversation, ":") do
-      [workspace, channel] ->
+    case ConversationRef.parse_slack(conversation_ref) do
+      {:ok, workspace, channel} ->
         Repo.one(TaskCard.Query.message_in_thread(episode_id, workspace, channel, thread_ref))
 
-      _other ->
+      :error ->
         nil
     end
   end
@@ -374,15 +375,15 @@ defmodule Ryker.Slack.TaskCards do
     end
   end
 
-  defp slack_conversation("slack:" <> rest) do
-    case String.split(rest, ":", parts: 2) do
-      [workspace_ref, channel_ref] ->
+  defp slack_conversation("slack:" <> _rest = conversation_ref) do
+    case ConversationRef.parse_slack(conversation_ref) do
+      {:ok, workspace_ref, channel_ref} ->
         with :ok <- reference(workspace_ref, :workspace_ref),
              :ok <- reference(channel_ref, :channel_ref) do
           {:ok, workspace_ref, channel_ref}
         end
 
-      _invalid ->
+      :error ->
         {:error, :task_card_destination_invalid}
     end
   end

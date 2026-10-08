@@ -41,6 +41,7 @@ defmodule Ryker.WeeklyReport do
   one still posts.
   """
   alias Ryker.Config
+  alias Ryker.ConversationRef
   alias Ryker.Repo
   alias Ryker.Settings
   alias Ryker.WeeklyReport.{Custody, Digest, Facts, Schedule}
@@ -162,7 +163,7 @@ defmodule Ryker.WeeklyReport do
            Repo.one(Settings.Slack.Query.select_connection()) do
       {:ok,
        %{
-         conversation_ref: "slack:#{workspace}:#{channel}",
+         conversation_ref: ConversationRef.slack(workspace, channel),
          enabled: report.weekly_self_report_enabled,
          saved_at: report.saved_at,
          schedule: %{

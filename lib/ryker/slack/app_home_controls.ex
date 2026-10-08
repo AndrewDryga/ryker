@@ -6,6 +6,7 @@ defmodule Ryker.Slack.AppHomeControls do
   authority, current lifecycle state, and the refreshed view are all resolved
   again by the host.
   """
+  alias Ryker.ConversationRef
   alias Ryker.Crypto
   alias Ryker.Slack.{Collections, ControlValue, HomeEvent, HomeInteraction, HomeSubmission}
   alias Ryker.Slack.Operators
@@ -326,7 +327,13 @@ defmodule Ryker.Slack.AppHomeControls do
        ) do
     case Map.get(options, :resolve_memory_review) do
       callback when is_function(callback, 5) ->
-        callback.(ref, review_action, actor_ref, "slack:#{workspace_ref}", replacement)
+        callback.(
+          ref,
+          review_action,
+          actor_ref,
+          ConversationRef.slack_workspace(workspace_ref),
+          replacement
+        )
         |> memory_review_result(review_action)
 
       _missing ->
@@ -355,7 +362,12 @@ defmodule Ryker.Slack.AppHomeControls do
   defp open_memory_review_editor(options, ref, trigger_ref, actor_ref, workspace_ref) do
     case Map.get(options, :open_memory_review_editor) do
       callback when is_function(callback, 4) and is_binary(trigger_ref) ->
-        case callback.(ref, trigger_ref, actor_ref, "slack:#{workspace_ref}") do
+        case callback.(
+               ref,
+               trigger_ref,
+               actor_ref,
+               ConversationRef.slack_workspace(workspace_ref)
+             ) do
           :ok ->
             {:ok, :editing}
 

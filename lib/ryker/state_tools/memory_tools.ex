@@ -1,6 +1,7 @@
 defmodule Ryker.StateTools.MemoryTools do
   @moduledoc false
   alias Ryker.Continuity
+  alias Ryker.ConversationRef
   alias Ryker.Memories
   alias Ryker.Repo
   alias Ryker.Slack
@@ -141,14 +142,14 @@ defmodule Ryker.StateTools.MemoryTools do
   defp effective_memory_scope(scope, _episode), do: scope
 
   defp public_slack_destination?(%{destination_conversation_ref: conversation_ref}) do
-    case String.split(conversation_ref, ":", parts: 3) do
-      ["slack", workspace_ref, channel_ref] ->
+    case ConversationRef.parse_slack(conversation_ref) do
+      {:ok, workspace_ref, channel_ref} ->
         workspace_ref
         |> Slack.ChannelMembership.Query.by_channel(channel_ref)
         |> Slack.ChannelMembership.Query.joined_public()
         |> Repo.exists?()
 
-      _invalid ->
+      :error ->
         false
     end
   end

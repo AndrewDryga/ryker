@@ -10,6 +10,7 @@ defmodule Ryker.Continuity.Scope do
   """
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity.ConversationSummary
+  alias Ryker.ConversationRef
   alias Ryker.Episodes
   alias Ryker.Repo
   alias Ryker.Slack
@@ -44,17 +45,17 @@ defmodule Ryker.Continuity.Scope do
 
   # The workspace is the plain `Ryker.Episodes.Scope` derivation. This also
   # validates the destination shape and resolves the Slack channel's visibility.
-  defp destination_scope("slack", "slack:" <> rest = conversation_ref) do
+  defp destination_scope("slack", "slack:" <> _rest = conversation_ref) do
     workspace_ref = Episodes.Scope.workspace_ref("slack", conversation_ref)
 
-    case String.split(rest, ":", parts: 2) do
-      [_workspace, "D" <> _channel] ->
+    case ConversationRef.parse_slack(conversation_ref) do
+      {:ok, _workspace, "D" <> _channel} ->
         {:ok, workspace_ref, :direct}
 
-      [workspace, channel_ref] ->
+      {:ok, workspace, channel_ref} ->
         {:ok, workspace_ref, slack_visibility(workspace, channel_ref)}
 
-      _invalid ->
+      :error ->
         {:ok, workspace_ref, :conversation}
     end
   end
@@ -132,8 +133,8 @@ defmodule Ryker.Continuity.Scope do
   The `{workspace_ref, channel_ref}` a Slack summary belongs to, or nil when it
   is not a Slack summary or its conversation does not sit inside its workspace.
 
-  The host writes a Slack conversation as `slack:<workspace>:<channel>`. A
-  channel ref may contain colons; a workspace ref never does.
+  The host writes a Slack conversation as `slack:<workspace>:<channel>`, and
+  neither part holds a colon (`Ryker.ConversationRef.parse_slack/1`).
   """
   @spec slack_channel(term()) :: {String.t(), String.t()} | nil
   def slack_channel(%{
@@ -141,9 +142,9 @@ defmodule Ryker.Continuity.Scope do
         workspace_ref: "slack:" <> workspace_ref,
         conversation_ref: conversation_ref
       }) do
-    case String.split(conversation_ref, ":", parts: 3) do
-      ["slack", ^workspace_ref, channel_ref] -> {workspace_ref, channel_ref}
-      _invalid -> nil
+    case ConversationRef.parse_slack(conversation_ref) do
+      {:ok, ^workspace_ref, channel_ref} -> {workspace_ref, channel_ref}
+      _other -> nil
     end
   end
 

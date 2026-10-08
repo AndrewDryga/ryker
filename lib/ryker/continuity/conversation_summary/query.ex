@@ -90,9 +90,10 @@ defmodule Ryker.Continuity.ConversationSummary.Query do
   defp repository_rollup_scope do
     memberships =
       from(membership in Slack.ChannelMembership,
-        # The host splits a conversation into exactly transport/workspace/channel.
-        # Colons can belong to the channel suffix, never the workspace component.
+        # The host writes a conversation as exactly transport/workspace/channel,
+        # neither part holding a colon, as `Ryker.Continuity.Scope` reads it.
         where: fragment("position(':' in ?) = 0", membership.workspace_ref),
+        where: fragment("position(':' in ?) = 0", membership.channel_ref),
         where:
           fragment(
             "? = 'slack:' || ?",

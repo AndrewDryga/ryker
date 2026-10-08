@@ -12,7 +12,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   it lists changes (`subscriptions/1`).
   """
   use Phoenix.Component
-  alias Ryker.{Behaviors, Instructions}
+  alias Ryker.{Behaviors, ConversationRef, Instructions}
   alias Ryker.ControlPlane.{Components, Kit, Paths, ShortTime}
   alias Ryker.Episodes
   alias Ryker.Slack
@@ -635,10 +635,10 @@ defmodule Ryker.ControlPlane.BehaviorPage do
     end
   end
 
-  def source_url(%{source_conversation_ref: "slack:" <> rest, source_message_ref: stamp}) do
-    case String.split(rest, ":") do
-      [team, channel] -> Slack.app_redirect(team, channel, stamp)
-      _other -> nil
+  def source_url(%{source_conversation_ref: "slack:" <> _rest = ref, source_message_ref: stamp}) do
+    case ConversationRef.parse_slack(ref) do
+      {:ok, team, channel} -> Slack.app_redirect(team, channel, stamp)
+      :error -> nil
     end
   end
 

@@ -45,6 +45,7 @@ defmodule Ryker.RoutingExamples do
   alias Ryker.Admission
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
+  alias Ryker.ConversationRef
   alias Ryker.Delivery
   alias Ryker.Episodes
   alias Ryker.Improvement
@@ -460,12 +461,10 @@ defmodule Ryker.RoutingExamples do
     end)
   end
 
-  # A Slack conversation is "slack:<workspace>:<channel>", as the channel
-  # fence reads it (`Ryker.Slack.ChannelFence`).
   defp deleted_channel?(conversations) do
     channels =
-      for "slack:" <> rest <- conversations,
-          [workspace, channel] <- [String.split(rest, ":", parts: 2)],
+      for conversation <- conversations,
+          {:ok, workspace, channel} <- [ConversationRef.parse_slack(conversation)],
           do: {workspace, channel}
 
     workspaces = channels |> Enum.map(&elem(&1, 0)) |> Enum.uniq()

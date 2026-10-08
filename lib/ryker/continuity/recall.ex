@@ -11,6 +11,7 @@ defmodule Ryker.Continuity.Recall do
   alias Ryker.Continuity.ConversationRollup
   alias Ryker.Continuity.ConversationSummary
   alias Ryker.Continuity.{Relevance, Scope}
+  alias Ryker.ConversationRef
   alias Ryker.Episodes
   alias Ryker.Knowledge
   alias Ryker.Learning
@@ -243,9 +244,9 @@ defmodule Ryker.Continuity.Recall do
          "workspace_ref" => workspace_ref
        }) do
     Scope.public_source_visible?(%ConversationSummary{
-      conversation_ref: "slack:#{workspace_ref}:#{channel_ref}",
+      conversation_ref: ConversationRef.slack(workspace_ref, channel_ref),
       transport: "slack",
-      workspace_ref: "slack:#{workspace_ref}"
+      workspace_ref: ConversationRef.slack_workspace(workspace_ref)
     })
   end
 

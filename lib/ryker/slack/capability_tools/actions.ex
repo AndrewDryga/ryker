@@ -6,6 +6,7 @@ defmodule Ryker.Slack.CapabilityTools.Actions do
   intent behind.
   """
   alias Ryker.CanonicalJSON
+  alias Ryker.ConversationRef
   alias Ryker.Records
   alias Ryker.Slack.SourceRef
 
@@ -49,7 +50,7 @@ defmodule Ryker.Slack.CapabilityTools.Actions do
   def removal_authorized("add", _binding, _source, _emoji_name, _options), do: :ok
 
   def removal_authorized("remove", binding, source, emoji_name, options) do
-    conversation_ref = "slack:#{source.workspace_ref}:#{source.channel_ref}"
+    conversation_ref = ConversationRef.slack(source.workspace_ref, source.channel_ref)
 
     if options.reaction_added.(
          binding.episode.id,
@@ -68,7 +69,8 @@ defmodule Ryker.Slack.CapabilityTools.Actions do
     instruction_ref = SourceRef.encode(instruction)
 
     %{
-      "conversation_ref" => "slack:#{destination.workspace_ref}:#{destination.channel_ref}",
+      "conversation_ref" =>
+        ConversationRef.slack(destination.workspace_ref, destination.channel_ref),
       "destination_ref" => destination_ref,
       "instruction_ref" => instruction_ref,
       "message" => message,

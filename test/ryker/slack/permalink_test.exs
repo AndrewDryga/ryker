@@ -61,4 +61,21 @@ defmodule Ryker.Slack.PermalinkTest do
     assert Permalink.app_redirect("T123", "C456", "12.3") == nil
     assert Permalink.app_redirect("T123", "C456", nil) == nil
   end
+
+  # The Memory page and the timeline each built this link by hand until
+  # 2026-10-08, one checking the channel's kind and the other any Slack id.
+  test "a message's archive link needs a channel or direct message and Slack's timestamps" do
+    assert Permalink.archive_url("C0BLU1GACKC", "1789161922.548889") ==
+             "https://slack.com/archives/C0BLU1GACKC/p1789161922548889"
+
+    assert Permalink.archive_url("D0BLU1GACKC", "1789161922.548889", "1789161900.000100") ==
+             "https://slack.com/archives/D0BLU1GACKC/p1789161922548889?cid=D0BLU1GACKC&thread_ts=1789161900.000100"
+
+    assert Permalink.archive_url("C0BLU1GACKC", "1789161922.548889", "1789161922.548889") ==
+             "https://slack.com/archives/C0BLU1GACKC/p1789161922548889"
+
+    assert Permalink.archive_url("U0123456789", "1789161922.548889") == nil
+    assert Permalink.archive_url("C0BLU1GACKC", "12.5") == nil
+    assert Permalink.archive_url(nil, "1789161922.548889") == nil
+  end
 end

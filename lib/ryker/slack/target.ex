@@ -1,5 +1,6 @@
 defmodule Ryker.Slack.Target do
   @moduledoc false
+  alias Ryker.ConversationRef
   alias Ryker.Delivery
   alias Ryker.Slack.{Id, Timestamp}
 
@@ -21,14 +22,11 @@ defmodule Ryker.Slack.Target do
   def parse(_request), do: {:error, {:invalid_slack_delivery_target, :transport}}
 
   defp conversation(value) do
-    case String.split(value, ":", parts: 3) do
-      ["slack", workspace_ref, channel_ref] ->
-        if Id.valid?(workspace_ref) and Id.valid?(channel_ref),
-          do: {:ok, workspace_ref, channel_ref},
-          else: {:error, {:invalid_slack_delivery_target, :conversation_ref}}
-
-      _invalid ->
-        {:error, {:invalid_slack_delivery_target, :conversation_ref}}
+    with {:ok, workspace_ref, channel_ref} <- ConversationRef.parse_slack(value),
+         true <- Id.valid?(workspace_ref) and Id.valid?(channel_ref) do
+      {:ok, workspace_ref, channel_ref}
+    else
+      _invalid -> {:error, {:invalid_slack_delivery_target, :conversation_ref}}
     end
   end
 

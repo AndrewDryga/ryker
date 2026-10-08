@@ -11,6 +11,7 @@ defmodule Ryker.Slack.ChannelSettings do
   installation default, whose write is authorized by saved operator membership.
   """
   alias Ryker.CanonicalJSON
+  alias Ryker.ConversationRef
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Settings
@@ -201,8 +202,11 @@ defmodule Ryker.Slack.ChannelSettings do
     workspace_ref |> ChannelConfiguration.Query.by_channel(channel_ref) |> Repo.one()
   end
 
-  defp channel_ref(conversation_ref),
-    do: conversation_ref |> String.split(":", parts: 3) |> List.last()
+  # Read only after `conversation/2` accepted the ref.
+  defp channel_ref(conversation_ref) do
+    {:ok, _workspace_ref, channel_ref} = ConversationRef.parse_slack(conversation_ref)
+    channel_ref
+  end
 
   defp fingerprint(attributes) do
     attributes
@@ -242,7 +246,7 @@ defmodule Ryker.Slack.ChannelSettings do
 
   defp conversation(workspace_ref, value) do
     with :ok <- reference(value, :conversation_ref),
-         ["slack", ^workspace_ref, channel] <- String.split(value, ":", parts: 3),
+         {:ok, ^workspace_ref, channel} <- ConversationRef.parse_slack(value),
          :ok <- reference(channel, :conversation_ref, 256) do
       :ok
     else

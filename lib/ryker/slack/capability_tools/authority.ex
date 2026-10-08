@@ -7,6 +7,7 @@ defmodule Ryker.Slack.CapabilityTools.Authority do
   an additional post and the event whose action token search checks out; and
   Slack's own conversation record decides whether a channel is visible.
   """
+  alias Ryker.ConversationRef
   alias Ryker.Episodes
   alias Ryker.Slack.CapabilityTools.Arguments
   alias Ryker.Slack.Mentions
@@ -100,7 +101,7 @@ defmodule Ryker.Slack.CapabilityTools.Authority do
   @doc "The active human input on exactly this message, which a reaction may answer."
   @spec current_slack_input(term(), map()) :: {:ok, map()} | {:error, :unauthorized}
   def current_slack_input(%{episode: %Episodes.Episode{} = episode}, source) do
-    conversation_ref = "slack:#{source.workspace_ref}:#{source.channel_ref}"
+    conversation_ref = ConversationRef.slack(source.workspace_ref, source.channel_ref)
 
     episode
     |> Episodes.active_input_events()
@@ -154,7 +155,7 @@ defmodule Ryker.Slack.CapabilityTools.Authority do
         source,
         destination_ref
       ) do
-    conversation_ref = "slack:#{source.workspace_ref}:#{source.channel_ref}"
+    conversation_ref = ConversationRef.slack(source.workspace_ref, source.channel_ref)
 
     episode
     |> Episodes.active_input_events()

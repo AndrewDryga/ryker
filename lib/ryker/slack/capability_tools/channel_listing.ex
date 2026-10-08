@@ -3,6 +3,7 @@ defmodule Ryker.Slack.CapabilityTools.ChannelListing do
   The channels a turn may list: public joined channels plus the current
   private one, each with its configuration and, when asked, its resources.
   """
+  alias Ryker.ConversationRef
   alias Ryker.Slack.CapabilityTools.Resources
   alias Ryker.Slack.{ChannelConfiguration, SourceRef}
 
@@ -142,7 +143,8 @@ defmodule Ryker.Slack.CapabilityTools.ChannelListing do
      %{
        "configured" => not is_nil(attributes.configured),
        "configured_environment_ref" => environment_ref(attributes.configured),
-       "conversation_ref" => "slack:#{attributes.workspace_ref}:#{attributes.channel_ref}",
+       "conversation_ref" =>
+         ConversationRef.slack(attributes.workspace_ref, attributes.channel_ref),
        "is_archived" => attributes.archived,
        "kind" => if(attributes.private, do: "private_channel", else: "public_channel"),
        "name" => attributes.name,

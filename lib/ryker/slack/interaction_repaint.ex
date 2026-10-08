@@ -7,6 +7,7 @@ defmodule Ryker.Slack.InteractionRepaint do
   action values are never interpreted as authority here.
   """
   alias Ryker.Adapter
+  alias Ryker.ConversationRef
   alias Ryker.Episodes
   alias Ryker.Records
   alias Ryker.Repo
@@ -154,7 +155,7 @@ defmodule Ryker.Slack.InteractionRepaint do
          true <- episode.destination_transport == "slack",
          true <-
            episode.destination_conversation_ref ==
-             "slack:#{audit.workspace_ref}:#{audit.channel_ref}",
+             ConversationRef.slack(audit.workspace_ref, audit.channel_ref),
          %Work.Session{episode_id: owner} = session <-
            Repo.one(Work.Session.Query.by_id(turn.session_id)),
          true <- owner == episode.id,

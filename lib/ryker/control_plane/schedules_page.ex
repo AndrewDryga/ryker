@@ -20,7 +20,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   use Phoenix.Component
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Components, Kit, Paths, ShortTime, Units}
-  alias Ryker.{Episodes, Schedules}
+  alias Ryker.{ConversationRef, Episodes, Schedules}
   alias Ryker.Slack
 
   @list_limit 100
@@ -427,9 +427,9 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   defp place(item), do: "in " <> Slack.destination_name(item.destination_conversation_ref)
 
   # Only a Slack channel has a page of its own here; a direct message has not.
-  defp channel_path("slack:" <> rest) do
-    case String.split(rest, ":") do
-      [workspace, <<prefix, _rest::binary>> = channel] when prefix in [?C, ?G] ->
+  defp channel_path("slack:" <> _rest = conversation_ref) do
+    case ConversationRef.parse_slack(conversation_ref) do
+      {:ok, workspace, <<prefix, _rest::binary>> = channel} when prefix in [?C, ?G] ->
         Paths.channel(workspace, channel)
 
       _other ->

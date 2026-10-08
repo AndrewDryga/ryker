@@ -6,6 +6,7 @@ defmodule Ryker.Slack.AppHomeActions do
   an opaque resource reference back to its exact workspace before invoking the
   existing generation-fenced publication and retention operators.
   """
+  alias Ryker.ConversationRef
   alias Ryker.Episodes
   alias Ryker.Operator
   alias Ryker.Publication
@@ -186,9 +187,9 @@ defmodule Ryker.Slack.AppHomeActions do
   defp schedule_destination(_ref), do: {:error, :app_home_resource_not_visible}
 
   defp destination_visible?("slack:" <> _ = destination_ref, workspace_ref, conversations) do
-    case String.split(destination_ref, ":", parts: 3) do
-      ["slack", ^workspace_ref, channel_ref] -> MapSet.member?(conversations, channel_ref)
-      _invalid -> false
+    case ConversationRef.parse_slack(destination_ref) do
+      {:ok, ^workspace_ref, channel_ref} -> MapSet.member?(conversations, channel_ref)
+      _other -> false
     end
   end
 
@@ -198,7 +199,7 @@ defmodule Ryker.Slack.AppHomeActions do
     resource.destination_transport == "slack" and
       String.starts_with?(
         resource.destination_conversation_ref,
-        "slack:#{workspace_ref}:"
+        ConversationRef.slack_prefix(workspace_ref)
       )
   end
 end

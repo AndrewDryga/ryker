@@ -1,5 +1,6 @@
 defmodule Ryker.Slack.WorkTarget do
   @moduledoc false
+  alias Ryker.ConversationRef
   alias Ryker.Episodes
   alias Ryker.Repo
   alias Ryker.Slack.{IncidentRoom, TaskCard}
@@ -68,7 +69,7 @@ defmodule Ryker.Slack.WorkTarget do
 
   defp exact_target(resolved, %{} = target, stored_thread_ref) do
     expected_conversation =
-      "slack:#{resolved.workspace_ref}:#{resolved.channel_ref}"
+      ConversationRef.slack(resolved.workspace_ref, resolved.channel_ref)
 
     if Map.keys(target) |> Enum.sort() ==
          Enum.sort([:conversation_ref, :message_ref, :thread_ref, :transport]) and

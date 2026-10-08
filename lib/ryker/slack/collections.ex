@@ -14,6 +14,7 @@ defmodule Ryker.Slack.Collections do
   the thread page was cut from rather than a second query with its own rules.
   """
   alias Ryker.Behaviors
+  alias Ryker.ConversationRef
   alias Ryker.Memories
   alias Ryker.Repo
   alias Ryker.Schedules
@@ -62,7 +63,9 @@ defmodule Ryker.Slack.Collections do
   def page(kind, scope, offset, limit)
       when kind in @kinds and is_integer(offset) and offset >= 0 and is_integer(limit) and
              limit > 0 do
-    conversation_refs = Enum.map(scope.channel_refs, &"slack:#{scope.workspace_ref}:#{&1}")
+    conversation_refs =
+      Enum.map(scope.channel_refs, &ConversationRef.slack(scope.workspace_ref, &1))
+
     now = Repo.now!()
     total = count(kind, scope.workspace_ref, conversation_refs, now)
     offset = bounded_offset(offset, total, limit)
@@ -169,7 +172,7 @@ defmodule Ryker.Slack.Collections do
   # Every page read the whole collection and cut it in memory, by the host's
   # clock (2026-10-04 review).
   defp count(:knowledge, workspace_ref, conversation_refs, now) do
-    slack_workspace = "slack:#{workspace_ref}"
+    slack_workspace = ConversationRef.slack_workspace(workspace_ref)
 
     behaviors = Collection.Query.knowledge_behaviors(slack_workspace, conversation_refs, now)
     memories = Collection.Query.knowledge_memories(slack_workspace, conversation_refs, now)
@@ -184,7 +187,7 @@ defmodule Ryker.Slack.Collections do
 
   defp entries(:knowledge, workspace_ref, conversation_refs, now, offset, limit) do
     rows =
-      "slack:#{workspace_ref}"
+      ConversationRef.slack_workspace(workspace_ref)
       |> Collection.Query.knowledge_page(conversation_refs, now, offset, limit)
       |> Repo.all()
 

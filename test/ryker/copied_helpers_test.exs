@@ -49,9 +49,7 @@ defmodule Ryker.CopiedHelpersTest do
     "unaddressable?/2" =>
       ~w(Ryker.Improvement.Executor Ryker.Learning.Executor Ryker.RepositoryKnowledge.Executor),
     "with_lease/2" =>
-      ~w(Ryker.Improvement.Analyses Ryker.Learning.Batches Ryker.RepositoryKnowledge.Custody),
-    # Built and parsed in one place by the conversation-ref change.
-    "conversation_ref/1" => ~w(Ryker.Slack.CommandHandler Ryker.Slack.InteractionHandler)
+      ~w(Ryker.Improvement.Analyses Ryker.Learning.Batches Ryker.RepositoryKnowledge.Custody)
   }
 
   @smallest 12
