@@ -587,20 +587,16 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     # Tenant's Traefik alert retained its payload but rendered an empty heading and message.
     {entry, episode} = admitted_input!()
 
-    Repo.update_all(from(i in Entry, where: i.id == ^entry.id),
-      set: [
-        content: %{
-          "text" => "",
-          "attachments" => [
-            %{
-              "title" => "[VA1 FIRING:1] WARNING | Traefik config reload frequency high",
-              "text" =>
-                "*FIRING - 1 alert*\n\n*Traefik completed more than 10 configuration reloads in 10 minutes*\nA normal app rollout should settle quickly. Sustained successful reloads can drive retained-memory growth even when every configuration applies successfully."
-            }
-          ]
+    content!(entry, %{
+      "text" => "",
+      "attachments" => [
+        %{
+          "title" => "[VA1 FIRING:1] WARNING | Traefik config reload frequency high",
+          "text" =>
+            "*FIRING - 1 alert*\n\n*Traefik completed more than 10 configuration reloads in 10 minutes*\nA normal app rollout should settle quickly. Sustained successful reloads can drive retained-memory growth even when every configuration applies successfully."
         }
       ]
-    )
+    })
 
     {:ok, detail} = EpisodeProjection.fetch(episode.key)
     assert detail.trace.case_file.title =~ "Traefik config reload frequency high"
@@ -626,7 +622,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
 
     content = fixture["context"]["inputs"]["items"] |> hd() |> get_in(["content", "content"])
     {entry, episode} = admitted_input!()
-    Repo.update_all(from(i in Entry, where: i.id == ^entry.id), set: [content: content])
+    content!(entry, content)
     {:ok, detail} = EpisodeProjection.fetch(episode.key)
     [message] = Enum.filter(detail.trace.case_file.conversation, &(&1.actor != "Ryker"))
     assert message.text =~ "45,840 errors over 2.0h"
@@ -644,9 +640,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     Names.name("TC9F5B40D364C", "U1")
     assert GenServer.call(Names, :refresh) == :ok
 
-    Repo.update_all(from(i in Entry, where: i.id == ^entry.id),
-      set: [content: %{"text" => "<@U1> is checkout healthy?"}]
-    )
+    content!(entry, %{"text" => "<@U1> is checkout healthy?"})
 
     assert {:ok, detail} = EpisodeProjection.fetch(episode.key)
     assert detail.trace.case_file.title == "@emisar is checkout healthy?"
@@ -684,7 +678,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
           %{"text" => "Check health", "attachments" => "not Slack attachments", "blocks" => nil},
           %{"text" => "Check health", "payload" => %{"result" => "ready"}}
         ] do
-      Repo.update_all(from(i in Entry, where: i.id == ^entry.id), set: [content: content])
+      content!(entry, content)
       assert {:ok, detail} = EpisodeProjection.fetch(episode.key)
       assert detail.trace.case_file.title == "Check health"
     end
@@ -910,9 +904,7 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     {entry, episode} = admitted_input!()
     text = "Investigate <script>steal()</script> token=ghp_abcdefghijklmnopqrstuvwxyz"
 
-    Repo.update_all(from(saved in Entry, where: saved.id == ^entry.id),
-      set: [content: %{"text" => text}]
-    )
+    content!(entry, %{"text" => text})
 
     assert {:ok, detail} = EpisodeProjection.fetch(episode.key)
     assert detail.trace.case_file.title =~ "Investigate"
@@ -959,6 +951,10 @@ defmodule Ryker.ControlPlane.EpisodeTraceTest do
     assert html =~ "&lt;script&gt;"
     refute html =~ "<script>bad()"
   end
+
+  # What the message said, as its source sent it.
+  defp content!(entry, content),
+    do: Repo.update_all(from(i in Entry, where: i.id == ^entry.id), set: [content: content])
 
   defp block_before_start!(turn, session, source) do
     # Only rebind the harvested receipt's host identity to this test's session.

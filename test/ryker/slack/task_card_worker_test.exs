@@ -225,9 +225,7 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
     finish!(card.episode.id)
     client = client!(:ok)
 
-    Repo.update_all(from(stored in TaskCard, where: stored.id == ^card.id),
-      set: [card_checked_at: Repo.now!()]
-    )
+    checked_at!([card.id], Repo.now!())
 
     worker = start_supervised!({TaskCardWorker, sleeping_options(client)})
     _state = :sys.get_state(worker)
@@ -245,9 +243,7 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
     card = card!("due")
     client = client!(:ok)
 
-    Repo.update_all(from(stored in TaskCard, where: stored.id == ^card.id),
-      set: [card_checked_at: Repo.now!()]
-    )
+    checked_at!([card.id], Repo.now!())
 
     start_supervised!({TaskCardWorker, sleeping_options(client)})
 
@@ -285,9 +281,7 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
     finish!(finished.episode.id)
     checked = DateTime.add(Repo.now!(), -10, :second)
 
-    Repo.update_all(from(stored in TaskCard, where: stored.id in ^[finished.id, working.id]),
-      set: [card_checked_at: checked]
-    )
+    checked_at!([finished.id, working.id], checked)
 
     assert {:ok, %TaskCard{id: claimed}} = TaskCards.claim_next("task-card-worker-test", 60, 1)
     assert claimed == working.id
@@ -306,18 +300,21 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
     card = card!("quiet")
     finish!(card.episode.id)
 
-    Repo.update_all(from(stored in TaskCard, where: stored.id == ^card.id),
-      set: [card_checked_at: DateTime.add(Repo.now!(), -599, :second)]
-    )
+    checked_at!([card.id], DateTime.add(Repo.now!(), -599, :second))
 
     assert TaskCards.claim_next("task-card-worker-test", 60, 1) == {:ok, nil}
 
-    Repo.update_all(from(stored in TaskCard, where: stored.id == ^card.id),
-      set: [card_checked_at: DateTime.add(Repo.now!(), -601, :second)]
-    )
+    checked_at!([card.id], DateTime.add(Repo.now!(), -601, :second))
 
     assert {:ok, %TaskCard{id: claimed}} = TaskCards.claim_next("task-card-worker-test", 60, 1)
     assert claimed == card.id
+  end
+
+  # When Ryker last checked the cards against Slack.
+  defp checked_at!(card_ids, at) do
+    Repo.update_all(from(stored in TaskCard, where: stored.id in ^card_ids),
+      set: [card_checked_at: at]
+    )
   end
 
   defp finish!(episode_id) do

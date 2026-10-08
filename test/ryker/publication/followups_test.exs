@@ -821,9 +821,7 @@ defmodule Ryker.Publication.FollowupsTest do
 
       {input, previous_source} =
         if unquote(route) == :reopened do
-          Repo.update_all(from(f in Followup, where: f.publication_id == ^publication.id),
-            set: [pr_state: :closed]
-          )
+          pr_state!(publication, :closed)
 
           assert Followups.observe_github_feedback(input) == {:ok, :unmatched}
 
@@ -833,9 +831,7 @@ defmodule Ryker.Publication.FollowupsTest do
           assert [receipt] = LearningSources.for_entry(inbox.entry)
           assert {:ok, scope} = Continuity.destination_context(inbox.entry, nil)
 
-          Repo.update_all(from(f in Followup, where: f.publication_id == ^publication.id),
-            set: [pr_state: :open]
-          )
+          pr_state!(publication, :open)
 
           {%{input | revision: input.revision + 1, event_ref: input.event_ref <> ":reopened"},
            {receipt, scope}}
@@ -903,9 +899,7 @@ defmodule Ryker.Publication.FollowupsTest do
         assert {:ok, %{event: replacement}} = Followups.observe_github_feedback(changed)
         assert replacement.id != event.id
       else
-        Repo.update_all(from(f in Followup, where: f.publication_id == ^publication.id),
-          set: [pr_state: :closed]
-        )
+        pr_state!(publication, :closed)
 
         assert Followups.observe_github_feedback(changed) == {:ok, :unmatched}
 
@@ -1377,10 +1371,7 @@ defmodule Ryker.Publication.FollowupsTest do
 
     assert Followups.claim_poll("publication-followup:re-review", 60) == {:ok, nil}
 
-    Repo.update_all(
-      from(followup in Followup, where: followup.publication_id == ^refreshed.id),
-      set: [pr_state: :open]
-    )
+    pr_state!(refreshed, :open)
 
     Repo.update_all(
       from(publication in Publication, where: publication.id == ^refreshed.id),
@@ -1596,6 +1587,13 @@ defmodule Ryker.Publication.FollowupsTest do
     assert deferred.pr_state == :open
     assert deferred.failure_count == 1
     assert DateTime.diff(deferred.next_poll_at, failed_after) in 120..121
+  end
+
+  # The pull request as GitHub last reported it.
+  defp pr_state!(publication, state) do
+    Repo.update_all(from(f in Followup, where: f.publication_id == ^publication.id),
+      set: [pr_state: state]
+    )
   end
 
   defp deliver_pending! do

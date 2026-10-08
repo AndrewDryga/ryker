@@ -454,18 +454,14 @@ defmodule Ryker.ControlPlane.ProjectionTest do
         }
       ]
 
-      Repo.update_all(from(t in Ryker.Work.Turn, where: t.id == ^measured.id),
-        set: [validation_history: history]
-      )
+      validation_history!(measured.id, history)
 
       {:ok, checked} = EpisodeProjection.fetch(episode_key!(measured.episode_id))
       validation = Enum.find(checked.trace.steps, &(&1.title == "Answer validated"))
       assert validation.band == band
     end
 
-    Repo.update_all(from(t in Ryker.Work.Turn, where: t.id == ^measured.id),
-      set: [validation_history: measured.validation_history]
-    )
+    validation_history!(measured.id, measured.validation_history)
 
     assert Enum.any?(detail.trace.steps, &(&1.title == "Answer validated"))
     assert Enum.any?(detail.trace.steps, &(&1.title == "Run 1 answer accepted"))
@@ -530,10 +526,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
       }
     ]
 
-    Repo.update_all(
-      from(saved in Ryker.Work.Turn, where: saved.id == ^measured.id),
-      set: [validation_history: validation_history]
-    )
+    validation_history!(measured.id, validation_history)
 
     assert {:ok, validation_detail} = EpisodeProjection.fetch(episode_key!(measured.episode_id))
     validation_steps = Enum.filter(validation_detail.trace.steps, &(&1.stage == "Validation"))
@@ -562,20 +555,14 @@ defmodule Ryker.ControlPlane.ProjectionTest do
         "Do not complete while the engineering workspace has 7 uncommitted or conflicted path(s). Commit the intended task changes and return the corrected final in this same turn."
       ])
 
-    Repo.update_all(
-      from(saved in Ryker.Work.Turn, where: saved.id == ^measured.id),
-      set: [validation_history: committed]
-    )
+    validation_history!(measured.id, committed)
 
     assert {:ok, committed_detail} = EpisodeProjection.fetch(episode_key!(measured.episode_id))
 
     assert Enum.find(committed_detail.trace.steps, &(&1.stage == "Validation")).summary ==
              "Ryker checks every answer before sending it. The model said it was done, but 7 changed files weren't committed yet, so Ryker sent it back to commit them. This is a routine check, not an error."
 
-    Repo.update_all(
-      from(saved in Ryker.Work.Turn, where: saved.id == ^measured.id),
-      set: [validation_history: validation_history]
-    )
+    validation_history!(measured.id, validation_history)
 
     assert {:ok, validation_detail} = EpisodeProjection.fetch(episode_key!(measured.episode_id))
     validation_steps = Enum.filter(validation_detail.trace.steps, &(&1.stage == "Validation"))
@@ -2350,9 +2337,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert row.measured == 1
     assert row.corrections == 0
 
-    Repo.update_all(from(t in Ryker.Work.Turn, where: t.id == ^measured.id),
-      set: [validation_history: [%{"candidate_attempt" => 1, "verdict" => "reject"}]]
-    )
+    validation_history!(measured.id, [%{"candidate_attempt" => 1, "verdict" => "reject"}])
 
     assert [%{corrections: 1}] = UsageProjection.page(%{"window" => "all"}).performance
     assert row.average_provider_ms == 5_000
@@ -2684,6 +2669,13 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert UsageProjection.page(%{"window" => "unknown"}).window == "7d"
     assert UsageProjection.page(%{"window" => "30d"}).window == "30d"
     assert UsageProjection.page(%{"window" => "all"}).window == "all"
+  end
+
+  # What a turn's validator recorded, as the test sets it.
+  defp validation_history!(turn_id, history) do
+    Repo.update_all(from(t in Ryker.Work.Turn, where: t.id == ^turn_id),
+      set: [validation_history: history]
+    )
   end
 
   defp waiting_episode!(key, secret) do

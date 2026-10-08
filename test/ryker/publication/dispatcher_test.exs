@@ -384,10 +384,7 @@ defmodule Ryker.Publication.DispatcherTest do
     assert deferred.pull_request_url == "https://github.com/acme/ryker/pull/91"
     assert deferred.publication_receipt == opened.publication_receipt
 
-    Repo.update_all(
-      from(saved in Publication, where: saved.id == ^publication.id),
-      set: [next_attempt_at: @now]
-    )
+    due_now!(publication.id)
 
     assert {:ok, {:executed, %{phase: :delivered}}} = Dispatcher.run_once(options)
 
@@ -595,10 +592,7 @@ defmodule Ryker.Publication.DispatcherTest do
     assert stored.lease_ref == nil
     assert [_request] = Agent.get(effects, & &1.publication_requests)
 
-    Repo.update_all(
-      from(saved in Publication, where: saved.id == ^publication.id),
-      set: [next_attempt_at: @now]
-    )
+    due_now!(publication.id)
 
     assert Dispatcher.run_once(options) == {:ok, :idle}
     assert [_request] = Agent.get(effects, & &1.publication_requests)
@@ -695,10 +689,7 @@ defmodule Ryker.Publication.DispatcherTest do
     assert parked.status == :publish_pending
     assert parked.last_error_code == "publication_authorization_revoked"
 
-    Repo.update_all(
-      from(saved in Publication, where: saved.id == ^publication.id),
-      set: [next_attempt_at: @now]
-    )
+    due_now!(publication.id)
 
     assert Dispatcher.run_once(options) == {:ok, :idle}
     assert length(Agent.get(effects, & &1.publication_requests)) == 2
@@ -746,10 +737,7 @@ defmodule Ryker.Publication.DispatcherTest do
     assert deferred.review_generation == 2
     assert deferred.review_expected_revision == nil
 
-    Repo.update_all(
-      from(saved in Publication, where: saved.id == ^publication.id),
-      set: [next_attempt_at: @now]
-    )
+    due_now!(publication.id)
 
     assert {:ok, {:executed, %{phase: :reviewed}}} = Dispatcher.run_once(options)
 
@@ -798,10 +786,7 @@ defmodule Ryker.Publication.DispatcherTest do
 
     assert Repo.get!(Publication, publication.id).review_generation == 2
 
-    Repo.update_all(
-      from(saved in Publication, where: saved.id == ^publication.id),
-      set: [next_attempt_at: @now]
-    )
+    due_now!(publication.id)
 
     assert {:ok, {:executed, %{phase: :reviewed}}} = Dispatcher.run_once(options)
 
@@ -891,10 +876,7 @@ defmodule Ryker.Publication.DispatcherTest do
     assert {:ok, %{summary: "coop_unavailable"}} =
              FailureProjection.fetch("publication", publication.ref)
 
-    Repo.update_all(
-      from(saved in Publication, where: saved.id == ^publication.id),
-      set: [next_attempt_at: @now]
-    )
+    due_now!(publication.id)
 
     assert {:ok, {:executed, %{phase: :reviewed}}} = Dispatcher.run_once(options)
     reviewed = Repo.get!(Publication, publication.id)
@@ -946,6 +928,13 @@ defmodule Ryker.Publication.DispatcherTest do
     assert ended.next_attempt_at == nil
     assert Agent.get(effects, & &1.delivery_requests) == []
     assert Dispatcher.run_once(options) == {:ok, :idle}
+  end
+
+  # A deferred phase waits for its retry; the test makes that time now.
+  defp due_now!(publication_id) do
+    Repo.update_all(from(saved in Publication, where: saved.id == ^publication_id),
+      set: [next_attempt_at: @now]
+    )
   end
 
   defp review_coop!(work_claim, state, options \\ []) do

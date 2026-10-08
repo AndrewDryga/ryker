@@ -350,9 +350,7 @@ defmodule Ryker.CoopFleet.RouterTest do
 
     assert {:ok, digest} = JobSpec.digest(job)
 
-    session
-    |> Ecto.Changeset.change(worker_job_document: job, worker_job_digest: digest)
-    |> Repo.update!()
+    pin_job!(session.id, job, digest)
 
     assert {:ok, _placement} =
              ControlPlane.place_session(
@@ -383,9 +381,7 @@ defmodule Ryker.CoopFleet.RouterTest do
 
     {:ok, source_digest} = JobSpec.digest(as_source)
 
-    Repo.get!(Session, session.id)
-    |> Ecto.Changeset.change(worker_job_document: as_source, worker_job_digest: source_digest)
-    |> Repo.update!()
+    pin_job!(session.id, as_source, source_digest)
 
     assert SourceGrants.source_grant(certificate, job_ref, public) ==
              {:error, :coop_worker_source_grant_not_authorized}
@@ -471,9 +467,7 @@ defmodule Ryker.CoopFleet.RouterTest do
 
     assert {:ok, digest} = JobSpec.digest(job)
 
-    session
-    |> Ecto.Changeset.change(worker_job_document: job, worker_job_digest: digest)
-    |> Repo.update!()
+    pin_job!(session.id, job, digest)
 
     assert {:ok, placement} =
              ControlPlane.place_session(
@@ -523,16 +517,12 @@ defmodule Ryker.CoopFleet.RouterTest do
     nested_job = Map.put(job, "source", parent)
     assert {:ok, nested_digest} = JobSpec.digest(nested_job)
 
-    Repo.get!(Session, session.id)
-    |> Ecto.Changeset.change(worker_job_document: nested_job, worker_job_digest: nested_digest)
-    |> Repo.update!()
+    pin_job!(session.id, nested_job, nested_digest)
 
     assert {:ok, %{name: "source-test", repository_id: 17, installation_id: 41}} =
              SourceGrants.source_grant_authority(certificate, job_ref, job_source)
 
-    Repo.get!(Session, session.id)
-    |> Ecto.Changeset.change(worker_job_document: job, worker_job_digest: digest)
-    |> Repo.update!()
+    pin_job!(session.id, job, digest)
 
     assert SourceGrants.source_grant_authority(
              certificate,
@@ -801,6 +791,14 @@ defmodule Ryker.CoopFleet.RouterTest do
 
     assert Checkpoints.capture(command.session_id, command.idempotency_key, changed, options) ==
              {:error, :checkpoint_not_authorized}
+  end
+
+  # The session holds the frozen job its worker runs, and that job's digest.
+  defp pin_job!(session_id, job, digest) do
+    Session
+    |> Repo.get!(session_id)
+    |> Ecto.Changeset.change(worker_job_document: job, worker_job_digest: digest)
+    |> Repo.update!()
   end
 
   defp assert_body_retention(root, live_id) do

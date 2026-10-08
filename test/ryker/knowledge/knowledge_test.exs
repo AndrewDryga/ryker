@@ -337,9 +337,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
              "cross-channel-write"
            ) == {:error, {:admission_rejected, :context_stale}}
 
-    Repo.update_all(from(m in ChannelMembership, where: m.channel_ref == "C1"),
-      set: [private: true]
-    )
+    private_channel!()
 
     assert Knowledge.context(target, "tenant-infra") == []
 
@@ -363,9 +361,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
       # A structurally valid result can copy supplied prose despite a prompt prohibition.
       learn!(copy, @firing, nil, knowledge: unquote(kind) == :knowledge)
 
-      Repo.update_all(from(m in ChannelMembership, where: m.channel_ref == "C1"),
-        set: [private: true]
-      )
+      private_channel!()
 
       assert Knowledge.context(copy, "tenant-infra") == []
 
@@ -610,9 +606,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     copy = input!(2, @resolved, channel: "C2")
     learn!(copy, @firing)
 
-    Repo.update_all(from(m in ChannelMembership, where: m.channel_ref == "C1"),
-      set: [private: true]
-    )
+    private_channel!()
 
     fresh = input!(3, @resolved, channel: "C2")
     assert context!(fresh).knowledge == []
@@ -700,9 +694,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
           end
         end)
 
-      Repo.update_all(from(m in ChannelMembership, where: m.channel_ref == "C1"),
-        set: [private: true]
-      )
+      private_channel!()
 
       module = if unquote(kind) == :knowledge, do: Knowledge, else: Observations
       assert [%{"summary" => summary}] = module.context(old, "tenant-infra", "", 1)
@@ -749,9 +741,7 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     copy = input!(2, @resolved, channel: "C2")
     learn!(copy, @resolved)
 
-    Repo.update_all(from(m in ChannelMembership, where: m.channel_ref == "C1"),
-      set: [private: true]
-    )
+    private_channel!()
 
     view = ConversationMemory.project(%{"kind" => "knowledge"})
 
@@ -964,6 +954,13 @@ defmodule Ryker.Knowledge.KnowledgeTest do
     # it did not copy or inherit the expired message's prose.
     assert Repo.get!(ConversationObservation, copy.id).note["summary"] == @resolved["summary"]
     assert Repo.aggregate(Inbox.Entry, :count) == 2
+  end
+
+  # The channel the knowledge came from turns private.
+  defp private_channel! do
+    Repo.update_all(from(m in ChannelMembership, where: m.channel_ref == "C1"),
+      set: [private: true]
+    )
   end
 
   defp learn!(entry, note, item \\ nil, options \\ []) do

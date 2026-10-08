@@ -707,9 +707,7 @@ defmodule Ryker.Work.ExecutorTest do
     }
 
     session =
-      claim.session
-      |> Ecto.Changeset.change(repository_ref: "ryker", workspace_task: workspace_task)
-      |> Repo.update!()
+      task_session!(claim.session, "ryker", workspace_task)
 
     claim = %{claim | session: session}
 
@@ -781,9 +779,7 @@ defmodule Ryker.Work.ExecutorTest do
     }
 
     session =
-      claim.session
-      |> Ecto.Changeset.change(repository_ref: "ryker", workspace_task: workspace_task)
-      |> Repo.update!()
+      task_session!(claim.session, "ryker", workspace_task)
 
     claim = %{claim | session: session}
 
@@ -835,9 +831,7 @@ defmodule Ryker.Work.ExecutorTest do
     }
 
     session =
-      claim.session
-      |> Ecto.Changeset.change(repository_ref: "ryker", workspace_task: workspace_task)
-      |> Repo.update!()
+      task_session!(claim.session, "ryker", workspace_task)
 
     claim = %{claim | session: session}
 
@@ -958,12 +952,7 @@ defmodule Ryker.Work.ExecutorTest do
       claim = claim_episode!("unbound-writable-#{System.unique_integer([:positive])}")
 
       session =
-        claim.session
-        |> Ecto.Changeset.change(
-          repository_ref: "emisar",
-          workspace_task: %{"offer_ref" => "record:task_offer:runner"}
-        )
-        |> Repo.update!()
+        task_session!(claim.session, "emisar", %{"offer_ref" => "record:task_offer:runner"})
 
       {:ok, fake} = fake_for(%{claim | session: session}, [reply("Must not run.")])
 
@@ -4399,6 +4388,13 @@ defmodule Ryker.Work.ExecutorTest do
              )
   end
 
+  # The session works on a confirmed task in `repository_ref`.
+  defp task_session!(session, repository_ref, workspace_task) do
+    session
+    |> Ecto.Changeset.change(repository_ref: repository_ref, workspace_task: workspace_task)
+    |> Repo.update!()
+  end
+
   defp retry_inspected_work(claim) do
     fingerprint = Repo.get!(Ryker.Work.Turn, claim.turn.id) |> Custody.recovery_fingerprint()
     Custody.retry_blocked(claim.episode.key, fingerprint)
@@ -4676,15 +4672,10 @@ defmodule Ryker.Work.ExecutorTest do
     sha256 = digest(candidate)
 
     session =
-      claim.session
-      |> Ecto.Changeset.change(
-        repository_ref: "emisar",
-        workspace_task: %{
-          "title" => "Bump hosted runner",
-          "offer_ref" => "record:task_offer:runner"
-        }
-      )
-      |> Repo.update!()
+      task_session!(claim.session, "emisar", %{
+        "title" => "Bump hosted runner",
+        "offer_ref" => "record:task_offer:runner"
+      })
 
     assert {:ok, _} =
              Custody.stage_candidate(

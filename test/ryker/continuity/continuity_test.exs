@@ -58,6 +58,15 @@ defmodule Ryker.Continuity.ContinuityTest do
     assert_received {:continuity_updated, ^conversation}
   end
 
+  # Every summary last changed at `at`. Compaction takes only summaries that
+  # have been quiet for its whole window.
+  defp summaries_changed_at!(at),
+    do: Repo.update_all(ConversationSummary, set: [updated_at: at])
+
+  # Every summary written and last changed at `at`.
+  defp summaries_written_at!(at),
+    do: Repo.update_all(ConversationSummary, set: [inserted_at: at, updated_at: at])
+
   defp assert_searchable_clock_continuity!(kind, existing?) do
     # Database-cutoff search must see a just-saved summary/rollup, even when
     # the application host runs ahead. Old snapshots still exclude new writes.
@@ -133,7 +142,7 @@ defmodule Ryker.Continuity.ContinuityTest do
   end
 
   defp compact_clock_summary!(old) do
-    Repo.update_all(ConversationSummary, set: [inserted_at: old, updated_at: old])
+    summaries_written_at!(old)
 
     assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end) ==
              {:ok, {:ok, 1}}
@@ -233,9 +242,7 @@ defmodule Ryker.Continuity.ContinuityTest do
       accept!(work, submission)
 
       if unquote(compact?) do
-        Repo.update_all(ConversationSummary,
-          set: [updated_at: DateTime.add(DateTime.utc_now(), -120)]
-        )
+        summaries_changed_at!(DateTime.add(DateTime.utc_now(), -120))
 
         assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end) ==
                  {:ok, {:ok, 1}}
@@ -1062,7 +1069,7 @@ defmodule Ryker.Continuity.ContinuityTest do
 
     assert {:ok, _} = Continuity.stage(healthy.state_token, state("Healthy maintenance"))
     accept!(healthy)
-    Repo.update_all(ConversationSummary, set: [updated_at: old])
+    summaries_changed_at!(old)
 
     assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end) ==
              {:ok, {:ok, 1}}
@@ -1086,9 +1093,7 @@ defmodule Ryker.Continuity.ContinuityTest do
     assert {:ok, _} = Continuity.stage(work.state_token, state(document["summary"]))
     accept!(work)
 
-    Repo.update_all(ConversationSummary,
-      set: [updated_at: DateTime.add(DateTime.utc_now(), -120)]
-    )
+    summaries_changed_at!(DateTime.add(DateTime.utc_now(), -120))
 
     summary = Repo.one!(ConversationSummary)
 
@@ -1194,9 +1199,7 @@ defmodule Ryker.Continuity.ContinuityTest do
       Repo.update!(Ecto.Changeset.change(summary, source_dependencies: dependencies))
 
       if unquote(compact?) do
-        Repo.update_all(ConversationSummary,
-          set: [updated_at: DateTime.add(DateTime.utc_now(), -120)]
-        )
+        summaries_changed_at!(DateTime.add(DateTime.utc_now(), -120))
 
         assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7200) end) ==
                  {:ok, {:ok, 1}}
@@ -1223,9 +1226,7 @@ defmodule Ryker.Continuity.ContinuityTest do
       accept!(work)
 
       if unquote(compact?) do
-        Repo.update_all(ConversationSummary,
-          set: [updated_at: DateTime.add(DateTime.utc_now(), -120)]
-        )
+        summaries_changed_at!(DateTime.add(DateTime.utc_now(), -120))
 
         assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 3600) end) ==
                  {:ok, {:ok, 1}}
@@ -1258,9 +1259,7 @@ defmodule Ryker.Continuity.ContinuityTest do
       accept!(work)
 
       if unquote(compact?) do
-        Repo.update_all(ConversationSummary,
-          set: [updated_at: DateTime.add(DateTime.utc_now(), -120)]
-        )
+        summaries_changed_at!(DateTime.add(DateTime.utc_now(), -120))
 
         assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 3600) end) ==
                  {:ok, {:ok, 1}}
@@ -1528,7 +1527,7 @@ defmodule Ryker.Continuity.ContinuityTest do
     assert context["related"] == []
 
     old = DateTime.add(DateTime.utc_now(), -120, :second)
-    Repo.update_all(ConversationSummary, set: [inserted_at: old, updated_at: old])
+    summaries_written_at!(old)
 
     assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 3_600) end) ==
              {:ok, {:ok, 1}}
@@ -1616,7 +1615,7 @@ defmodule Ryker.Continuity.ContinuityTest do
     accept!(work)
 
     old = DateTime.add(DateTime.utc_now(), -120, :second)
-    Repo.update_all(ConversationSummary, set: [inserted_at: old, updated_at: old])
+    summaries_written_at!(old)
 
     assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 3_600) end) ==
              {:ok, {:ok, 1}}
@@ -1668,7 +1667,7 @@ defmodule Ryker.Continuity.ContinuityTest do
     accept!(work)
 
     old = DateTime.add(DateTime.utc_now(), -120, :second)
-    Repo.update_all(ConversationSummary, set: [inserted_at: old, updated_at: old])
+    summaries_written_at!(old)
 
     assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 60) end) ==
              {:ok, {:ok, 1}}
@@ -1690,7 +1689,7 @@ defmodule Ryker.Continuity.ContinuityTest do
     # Anchor both in the preceding hour, with a horizon covering that hour.
     now = DateTime.from_unix!(div(DateTime.to_unix(DateTime.utc_now()), 3600) * 3600)
     first_time = %{DateTime.add(now, -180, :second) | microsecond: {900_000, 6}}
-    Repo.update_all(ConversationSummary, set: [inserted_at: first_time, updated_at: first_time])
+    summaries_written_at!(first_time)
 
     assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7_200) end) ==
              {:ok, {:ok, 1}}
@@ -1705,7 +1704,7 @@ defmodule Ryker.Continuity.ContinuityTest do
     accept!(second)
 
     second_time = %{DateTime.add(now, -120, :second) | microsecond: {100_000, 6}}
-    Repo.update_all(ConversationSummary, set: [inserted_at: second_time, updated_at: second_time])
+    summaries_written_at!(second_time)
 
     assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 7_200) end) ==
              {:ok, {:ok, 1}}
@@ -1954,7 +1953,7 @@ defmodule Ryker.Continuity.ContinuityTest do
     end
 
     old = DateTime.add(DateTime.utc_now(), -120, :second)
-    Repo.update_all(ConversationSummary, set: [inserted_at: old, updated_at: old])
+    summaries_written_at!(old)
 
     assert Repo.transaction(fn -> Compaction.compact_in_transaction(60, 3_600) end) ==
              {:ok, {:ok, 2}}

@@ -1270,9 +1270,7 @@ defmodule Ryker.CoopFleet.ClientTest do
                publication_body()
              )
 
-    Repo.get!(Placement, owner.placement_id)
-    |> Ecto.Changeset.change(state: :replaced, lease_expires_at: DateTime.add(Repo.now!(), -60))
-    |> Repo.update!()
+    replaced_placement!(owner.placement_id)
 
     Process.put(:publication_operation, response["operation"])
 
@@ -1672,9 +1670,7 @@ defmodule Ryker.CoopFleet.ClientTest do
     assert {:error, {:coop_worker_command_conflict, _key}} =
              Client.run_review(client, session.coop_session_id, command.idempotency_key, 4)
 
-    Repo.get!(Placement, command.placement_id)
-    |> Ecto.Changeset.change(state: :replaced, lease_expires_at: DateTime.add(Repo.now!(), -60))
-    |> Repo.update!()
+    replaced_placement!(command.placement_id)
 
     Repo.get!(Worker, command.worker_id)
     |> Ecto.Changeset.change(last_seen_at: DateTime.add(Repo.now!(), -300))
@@ -1700,9 +1696,7 @@ defmodule Ryker.CoopFleet.ClientTest do
     session = bind_session!(session, response["review"]["session_id"])
     command = uncertain_review!(session, "lapsed")
 
-    Repo.get!(Placement, command.placement_id)
-    |> Ecto.Changeset.change(state: :replaced, lease_expires_at: DateTime.add(Repo.now!(), -60))
-    |> Repo.update!()
+    replaced_placement!(command.placement_id)
 
     Process.put(:coop_fleet_await_result, {:ok, response})
 
@@ -2582,6 +2576,15 @@ defmodule Ryker.CoopFleet.ClientTest do
     refute_receive {:fleet_command, _, "fence_operation", _, _, _}
   end
 
+  # The worker gave the session up: its placement was replaced and its lease
+  # ran out a minute ago.
+  defp replaced_placement!(placement_id) do
+    Placement
+    |> Repo.get!(placement_id)
+    |> Ecto.Changeset.change(state: :replaced, lease_expires_at: DateTime.add(Repo.now!(), -60))
+    |> Repo.update!()
+  end
+
   defp session! do
     episode_id = Ecto.UUID.generate()
 
@@ -2700,9 +2703,7 @@ defmodule Ryker.CoopFleet.ClientTest do
       )
       |> complete_command!(:succeeded, %{"id" => "review-op"})
 
-    Repo.get!(Placement, review.placement_id)
-    |> Ecto.Changeset.change(state: :replaced, lease_expires_at: DateTime.add(Repo.now!(), -60))
-    |> Repo.update!()
+    replaced_placement!(review.placement_id)
 
     review
   end

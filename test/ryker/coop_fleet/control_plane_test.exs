@@ -827,11 +827,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     assert {:ok, placement} = ControlPlane.place_session(session.id, requirements, 60)
 
-    {1, nil} =
-      Repo.update_all(
-        from(value in Session, where: value.id == ^session.id),
-        set: [coop_session_id: "coop-cancel-placement-recovery"]
-      )
+    bind_coop_session!(session.id, "coop-cancel-placement-recovery")
 
     assert {:ok, claim} =
              Custody.claim_next("worker:cancel-placement-recovery", 60, :work)
@@ -882,11 +878,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     assert {:ok, placement} = ControlPlane.place_session(session.id, requirements, 60)
 
-    {1, nil} =
-      Repo.update_all(
-        from(value in Session, where: value.id == ^session.id),
-        set: [coop_session_id: "coop-bound-placement-recovery"]
-      )
+    bind_coop_session!(session.id, "coop-bound-placement-recovery")
 
     busy =
       poll("worker-a", "workspace-main", "poll:worker-a:busy")
@@ -1643,11 +1635,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     assert {:ok, _response} = ControlPlane.handle_poll_certificate("worker-a", coarse_poll)
 
-    {1, nil} =
-      Repo.update_all(
-        from(session in Session, where: session.id == ^placement.session_id),
-        set: [coop_session_id: coop_session_id]
-      )
+    bind_coop_session!(placement.session_id, coop_session_id)
 
     now = Repo.now!() |> DateTime.to_iso8601()
 
@@ -1709,11 +1697,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     placement = place!("redacted-model-progress")
     coop_session_id = "coop-redacted-model-progress"
 
-    {1, nil} =
-      Repo.update_all(
-        from(session in Session, where: session.id == ^placement.session_id),
-        set: [coop_session_id: coop_session_id]
-      )
+    bind_coop_session!(placement.session_id, coop_session_id)
 
     now = Repo.now!() |> DateTime.to_iso8601()
 
@@ -1815,11 +1799,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     # event cursor; conflating them left the whole service falsely unready.
     assert {:ok, %{event_cursor_lag: 0}} = Observability.fleet()
 
-    {1, nil} =
-      Repo.update_all(
-        from(session in Session, where: session.id == ^placement.session_id),
-        set: [coop_session_id: coop_session_id]
-      )
+    bind_coop_session!(placement.session_id, coop_session_id)
 
     assert {:ok, replay} =
              ControlPlane.handle_poll_certificate(
@@ -2067,11 +2047,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     placement = place!("late-bound-activity")
     coop_session_id = "coop-late-bound-activity"
 
-    {1, nil} =
-      Repo.update_all(
-        from(session in Session, where: session.id == ^placement.session_id),
-        set: [coop_session_id: coop_session_id]
-      )
+    bind_coop_session!(placement.session_id, coop_session_id)
 
     expired_at = Repo.now!() |> DateTime.add(-5, :second)
 
@@ -2125,11 +2101,7 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     placement = place!("terminal-discard-after-replacement")
     coop_session_id = "coop-terminal-discard-after-replacement"
 
-    {1, nil} =
-      Repo.update_all(
-        from(session in Session, where: session.id == ^placement.session_id),
-        set: [coop_session_id: coop_session_id]
-      )
+    bind_coop_session!(placement.session_id, coop_session_id)
 
     placement |> Ecto.Changeset.change(state: :replaced) |> Repo.update!()
 
@@ -2327,6 +2299,14 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
 
     assert ControlPlane.worker_available?(session, requirements)
     assert ControlPlane.portable_workspace(session, requirements, body_root!()) == nil
+  end
+
+  # The worker's create answered: the session holds the Coop session it made.
+  defp bind_coop_session!(session_id, coop_session_id) do
+    {1, nil} =
+      Repo.update_all(from(session in Session, where: session.id == ^session_id),
+        set: [coop_session_id: coop_session_id]
+      )
   end
 
   # A poll applies what it can. An item Ryker refuses is left unacknowledged,

@@ -400,6 +400,12 @@ Emisar's test rules Ryker follows (`elixir-layered-contexts.md` §7 there):
   nine describes moved their shared opening into setup; seven kept theirs,
   because one of their tests needs other rows or the opening is the thing
   under test.
+- State a test sets up rather than checks, written the same way by several
+  tests of a file, is a named rig there (`due_now!/1`, `private_channel!/0`,
+  `bind_coop_session!/2`); a write whose target or value is what the test is
+  about stays in the test. Thirteen rigs replaced 64 inline writes on
+  2026-10-08. Ryker's tests still write 1,297 times in 668 of 5,871 tests,
+  Emisar's 790 times in 457 of 8,963; what remains varies per test.
 - A changeset error is asserted by its message:
   `assert "is invalid" in errors_on(changeset).field` (`Ryker.DataCase`),
   never by matching `%Ecto.Changeset{}` or reading `changeset.errors`. A test
