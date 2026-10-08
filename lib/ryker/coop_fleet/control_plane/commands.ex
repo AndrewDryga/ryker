@@ -66,31 +66,6 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
 
   # Session -> key -> placement is the shared lock order for enqueue and fence.
   # Source preparation and waiting on the remote worker never hold these locks.
-  @doc """
-  Delivers `{:coop_command_settled, command_id}` once the command succeeds,
-  fails or turns uncertain, to an alias of the calling process
-  (`Ryker.PubSub.subscribe_alias/1`): a caller waits on its command and then
-  goes on, and a late message is dropped with the alias. The caller polled
-  the row every 250 ms, two queries a tick, and heard of a result up to a
-  tick late (2026-10-04 review).
-  """
-  @spec subscribe_settled(Ecto.UUID.t()) :: reference()
-  def subscribe_settled(command_id), do: Ryker.PubSub.subscribe_alias(settled_topic(command_id))
-
-  @spec unsubscribe_settled(Ecto.UUID.t(), reference()) :: :ok
-  def unsubscribe_settled(command_id, alias),
-    do: Ryker.PubSub.unsubscribe_alias(settled_topic(command_id), alias)
-
-  defp settled(%Command{id: id} = command) do
-    Repo.after_commit(fn ->
-      Ryker.PubSub.broadcast_to_aliases(settled_topic(id), {:coop_command_settled, id})
-    end)
-
-    command
-  end
-
-  defp settled_topic(command_id), do: "coop-command:" <> command_id
-
   @doc false
   def with_session_command(session_id, key, callback) do
     with :ok <- Shared.uuid(session_id, :session_id),
@@ -367,7 +342,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
     command
     |> Command.Changeset.fail(now, error, fingerprint)
     |> Repo.update!()
-    |> settled()
+    |> broadcast_command_settled()
   end
 
   @doc false
@@ -466,7 +441,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
         |> Command.Changeset.settle(attributes)
         |> Repo.update()
         |> Shared.unwrap_write()
-        |> settled()
+        |> broadcast_command_settled()
     end
 
     command.id
@@ -477,7 +452,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
     |> Command.Changeset.uncertain(now, result["operation_key"], fingerprint, error)
     |> Repo.update()
     |> Shared.unwrap_write()
-    |> settled()
+    |> broadcast_command_settled()
   end
 
   defp response_body_received?(id, root, result) do
@@ -654,5 +629,32 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
     if value in allowed,
       do: :ok,
       else: {:error, {:invalid_coop_worker_control_plane, field}}
+  end
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Delivers `{:coop_command_settled, command_id}` once the command succeeds,
+  fails or turns uncertain, to an alias of the calling process
+  (`Ryker.PubSub.subscribe_alias/1`): a caller waits on its command and then
+  goes on, and a late message is dropped with the alias. The caller polled
+  the row every 250 ms, two queries a tick, and heard of a result up to a
+  tick late (2026-10-04 review).
+  """
+  @spec subscribe_settled(Ecto.UUID.t()) :: reference()
+  def subscribe_settled(command_id), do: Ryker.PubSub.subscribe_alias(settled_topic(command_id))
+
+  @spec unsubscribe_settled(Ecto.UUID.t(), reference()) :: :ok
+  def unsubscribe_settled(command_id, alias),
+    do: Ryker.PubSub.unsubscribe_alias(settled_topic(command_id), alias)
+
+  defp settled_topic(command_id), do: "coop-command:" <> command_id
+
+  defp broadcast_command_settled(%Command{id: id} = command) do
+    Repo.after_commit(fn ->
+      Ryker.PubSub.broadcast_to_aliases(settled_topic(id), {:coop_command_settled, id})
+    end)
+
+    command
   end
 end

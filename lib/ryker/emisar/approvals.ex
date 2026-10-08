@@ -701,7 +701,7 @@ defmodule Ryker.Emisar.Approvals do
   defp fetch_and_lock_episode(id) do
     with {:ok, episode} <- fetch_approval_row(Episodes.Episode.Query.by_id(id)),
          :ok <-
-           Episodes.ConversationLock.lock(Repo, %{
+           Episodes.ConversationLock.lock(%{
              conversation_ref: episode.destination_conversation_ref,
              transport: episode.destination_transport
            }) do

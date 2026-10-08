@@ -131,6 +131,8 @@ defmodule Ryker.RepositoryKnowledge do
 
   defp cause(_reason), do: "Ryker could not finish reading the repository."
 
+  # -- PubSub ------------------------------------------------------------------
+
   @doc """
   Delivers `{:repository_knowledge_updated, ref}` after any change to a
   repository's knowledge entry or its runs commits.

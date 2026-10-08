@@ -16,7 +16,6 @@ defmodule Ryker.Ingress.Inbox do
   its commit on the topics this module owns (`subscribe_inputs/0`,
   `subscribe_input/1`).
   """
-  alias Ryker.AdvisoryLock
   alias Ryker.Artifacts
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
@@ -774,13 +773,6 @@ defmodule Ryker.Ingress.Inbox do
     end
   end
 
-  defp lock(dedupe_key) do
-    case AdvisoryLock.hold(dedupe_key) do
-      :ok -> :ok
-      {:error, reason} -> {:error, {:store_failed, :source_lock, reason}}
-    end
-  end
-
   defp lock_batch(inputs, settings) do
     inputs
     |> Enum.flat_map(fn input ->
@@ -794,7 +786,7 @@ defmodule Ryker.Ingress.Inbox do
     |> Enum.uniq()
     |> Enum.sort()
     |> Enum.reduce_while(:ok, fn key, :ok ->
-      case lock(key) do
+      case Episodes.lock_source(key) do
         :ok -> {:cont, :ok}
         {:error, reason} -> {:halt, {:error, reason}}
       end

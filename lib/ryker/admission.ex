@@ -919,7 +919,7 @@ defmodule Ryker.Admission do
   defp creates_episode?(_selection), do: false
 
   defp lock_conversation(input) do
-    Episodes.ConversationLock.lock(Repo, input.destination)
+    Episodes.ConversationLock.lock(input.destination)
   end
 
   defp same_input(entry, context) do

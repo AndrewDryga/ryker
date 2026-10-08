@@ -71,7 +71,7 @@ defmodule Ryker.Waits.EventWaits do
       # the same conversation could each wait for the other (2026-10-04
       # review).
       with {:ok, initial} <- fetch_wait_row(Episodes.Episode.Query.by_id(episode_id)),
-           :ok <- Episodes.ConversationLock.lock(Repo, destination(initial)),
+           :ok <- Episodes.ConversationLock.lock(destination(initial)),
            {:ok, snapshot} <- Episodes.fetch_and_lock_current_in_transaction(initial.key),
            {:ok, record} <- fetch_and_lock_record(record_id),
            {:ok, resolution_kind, subscription} <- resolution(record, now) do

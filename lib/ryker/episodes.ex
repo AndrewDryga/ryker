@@ -48,11 +48,11 @@ defmodule Ryker.Episodes do
           {:ok, [Transition.t()]} | {:error, term()}
   def apply_batch_in_transaction(commands, options \\ []) do
     with {:ok, commands} <- prepare_batch(commands),
-         :ok <- lock_input_conversations(Repo, commands),
+         :ok <- lock_input_conversations(commands),
          %{episode_key: episode_key} = hd(commands),
-         {:ok, :locked} <- lock_source(Repo, episode_key),
-         {:ok, episode} <- load_episode(Repo, episode_key) do
-      apply_prepared_batch(Repo, episode, commands, options)
+         :ok <- lock_source(episode_key) do
+      episode = peek_and_lock_episode(episode_key)
+      apply_prepared_batch(episode, commands, options)
     end
   end
 
@@ -65,16 +65,29 @@ defmodule Ryker.Episodes do
   """
   @spec fetch_and_lock_current_in_transaction(String.t()) :: {:ok, Episode.t()} | {:error, term()}
   def fetch_and_lock_current_in_transaction(episode_key) when is_binary(episode_key) do
-    with {:ok, :locked} <- lock_source(Repo, episode_key),
-         {:ok, %Episode{} = episode} <- load_episode(Repo, episode_key) do
-      {:ok, episode}
-    else
-      {:ok, nil} -> {:error, :episode_not_found}
-      {:error, reason} -> {:error, reason}
+    with :ok <- lock_source(episode_key) do
+      case peek_and_lock_episode(episode_key) do
+        %Episode{} = episode -> {:ok, episode}
+        nil -> {:error, :episode_not_found}
+      end
     end
   end
 
   def fetch_and_lock_current_in_transaction(_episode_key), do: {:error, :invalid_episode_key}
+
+  @doc """
+  Internal — holds the source lock `key` until the transaction ends, as every
+  command on an episode does: `:ok`, or `{:error, {:store_failed,
+  :source_lock, reason}}`. `Ryker.Ingress.Inbox` takes one for a message's
+  dedupe key before the message's row exists.
+  """
+  @spec lock_source(String.t()) :: :ok | {:error, term()}
+  def lock_source(key) do
+    case AdvisoryLock.hold(key) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:store_failed, :source_lock, reason}}
+    end
+  end
 
   @doc """
   The admitted input events `episode` still holds open (its
@@ -115,23 +128,23 @@ defmodule Ryker.Episodes do
       else: {:error, :mixed_episode_command_batch}
   end
 
-  defp lock_input_conversations(repo, commands) do
+  defp lock_input_conversations(commands) do
     destinations =
       Enum.flat_map(commands, fn
         %Command.AdmitInput{destination: destination} -> [destination]
         _command -> []
       end)
 
-    ConversationLock.lock_many(repo, destinations)
+    ConversationLock.lock_many(destinations)
   end
 
-  defp apply_prepared_batch(repo, episode, commands, options) do
+  defp apply_prepared_batch(episode, commands, options) do
     commands
     |> Enum.reduce_while({:ok, episode, []}, fn command, {:ok, stored, transitions} ->
-      with :ok <- guard_active_work_transition(repo, stored, command, options),
-           {:ok, event} <- load_existing_event(repo, stored, Command.dedupe_key(command)),
+      with :ok <- guard_active_work_transition(stored, command, options),
+           event = peek_event(stored, Command.dedupe_key(command)),
            {:ok, transition} <- Kernel.apply(stored, event, command),
-           {:ok, transition} <- persist(repo, stored, transition) do
+           {:ok, transition} <- persist(stored, transition) do
         {:cont, {:ok, transition.episode, [transition | transitions]}}
       else
         {:error, reason} -> {:halt, {:error, reason}}
@@ -144,7 +157,6 @@ defmodule Ryker.Episodes do
   end
 
   defp guard_active_work_transition(
-         repo,
          %Episode{} = episode,
          %{expected_owner: %{kind: :turn, ref: turn_ref}} = command,
          options
@@ -157,7 +169,7 @@ defmodule Ryker.Episodes do
       |> Work.Turn.Query.by_turn_ref(turn_ref)
       |> Work.Turn.Query.unsettled()
       |> Work.Turn.Query.select_ids()
-      |> repo.one()
+      |> Repo.one()
 
     case {bound_turn_id, Keyword.get(options, :settled_work_turn_id)} do
       {nil, _authorization} -> :ok
@@ -166,36 +178,29 @@ defmodule Ryker.Episodes do
     end
   end
 
-  defp guard_active_work_transition(_repo, _episode, _command, _options), do: :ok
+  defp guard_active_work_transition(_episode, _command, _options), do: :ok
 
-  defp lock_source(repo, episode_key) do
-    case AdvisoryLock.hold(episode_key, :exclusive, repo) do
-      :ok -> {:ok, :locked}
-      {:error, reason} -> {:error, {:store_failed, :source_lock, reason}}
-    end
+  # No episode yet is the answer for a command that starts one.
+  defp peek_and_lock_episode(episode_key),
+    do: episode_key |> Episode.Query.by_key() |> Episode.Query.lock_for_update() |> Repo.peek()
+
+  # The event a command already made, when it is applied again.
+  defp peek_event(nil, _dedupe_key), do: nil
+
+  defp peek_event(%Episode{} = episode, dedupe_key) do
+    episode.id
+    |> Event.Query.by_episode_id()
+    |> Event.Query.by_dedupe_key(dedupe_key)
+    |> Repo.peek()
   end
 
-  defp load_episode(repo, episode_key) do
-    {:ok, episode_key |> Episode.Query.by_key() |> Episode.Query.lock_for_update() |> repo.one()}
-  end
-
-  defp load_existing_event(_repo, nil, _dedupe_key), do: {:ok, nil}
-
-  defp load_existing_event(repo, %Episode{} = episode, dedupe_key) do
-    {:ok,
-     episode.id
-     |> Event.Query.by_episode_id()
-     |> Event.Query.by_dedupe_key(dedupe_key)
-     |> repo.one()}
-  end
-
-  defp persist(_repo, _stored, %Transition{status: :duplicate} = transition) do
+  defp persist(_stored, %Transition{status: :duplicate} = transition) do
     {:ok, transition}
   end
 
-  defp persist(repo, stored, %Transition{status: :applied} = transition) do
-    with {:ok, episode} <- persist_episode(repo, stored, transition.episode),
-         {:ok, event} <- persist_event(repo, transition.event, episode.id),
+  defp persist(stored, %Transition{status: :applied} = transition) do
+    with {:ok, episode} <- persist_episode(stored, transition.episode),
+         {:ok, event} <- persist_event(transition.event, episode.id),
          :ok <- Origins.record_in_transaction(episode, event),
          :ok <- release_occurrences(episode),
          :ok <- close_open_questions(episode),
@@ -226,24 +231,24 @@ defmodule Ryker.Episodes do
 
   defp close_open_questions(%Episode{}), do: :ok
 
-  defp persist_episode(repo, nil, episode) do
+  defp persist_episode(nil, episode) do
     episode
     |> Episode.Changeset.insert()
-    |> repo.insert()
+    |> Repo.insert()
     |> persistence_result(:episode)
   end
 
-  defp persist_episode(repo, stored, decided) do
+  defp persist_episode(stored, decided) do
     stored
     |> Episode.Changeset.advance(decided)
-    |> repo.update()
+    |> Repo.update()
     |> persistence_result(:episode)
   end
 
-  defp persist_event(repo, event, episode_id) do
+  defp persist_event(event, episode_id) do
     event
     |> Event.Changeset.insert(episode_id)
-    |> repo.insert()
+    |> Repo.insert()
     |> persistence_result(:event)
   end
 

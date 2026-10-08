@@ -111,7 +111,7 @@ defmodule Ryker.LocalRouting do
         conflict_target: [:input_id, :generation]
       )
 
-      broadcast(entry.id)
+      broadcast_comparison_updated(entry.id)
     end
 
     :ok
@@ -327,7 +327,7 @@ defmodule Ryker.LocalRouting do
 
     case Repo.update(changeset, stale_error_field: :id) do
       {:ok, settled} ->
-        broadcast(settled.input_id)
+        broadcast_comparison_updated(settled.input_id)
         settled
 
       {:error, _gone} ->
@@ -393,7 +393,7 @@ defmodule Ryker.LocalRouting do
   # An erased comparison is gone, never asked and never counted.
   defp erase(query) do
     {_count, input_ids} = query |> Comparison.Query.select_input_ids() |> Repo.delete_all()
-    input_ids |> Enum.uniq() |> Enum.each(&broadcast/1)
+    input_ids |> Enum.uniq() |> Enum.each(&broadcast_comparison_updated/1)
   end
 
   # -- PubSub ------------------------------------------------------------------
@@ -408,7 +408,7 @@ defmodule Ryker.LocalRouting do
   @doc "Stops the announcements `subscribe_comparisons/0` started."
   def unsubscribe_comparisons, do: Ryker.PubSub.unsubscribe(@topic)
 
-  defp broadcast(input_id) do
+  defp broadcast_comparison_updated(input_id) do
     Repo.after_commit(fn ->
       Ryker.PubSub.broadcast(@topic, {:local_routing_updated, input_id})
     end)

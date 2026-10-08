@@ -321,11 +321,6 @@ defmodule Ryker.Slack.Names do
     end
   end
 
-  defp broadcast_names_updated do
-    revision = :ets.update_counter(@table, :revision, 1, {:revision, 0})
-    Ryker.PubSub.broadcast(names_topic(), {:slack_names_updated, revision})
-  end
-
   defp clean(label), do: InspectionRedactor.artifact(label, max_bytes: 160).text
 
   defp valid_label?(label), do: is_binary(label) and byte_size(String.trim(label)) in 1..160
@@ -443,4 +438,9 @@ defmodule Ryker.Slack.Names do
   def unsubscribe_names, do: Ryker.PubSub.unsubscribe(names_topic())
 
   defp names_topic, do: "slack:names"
+
+  defp broadcast_names_updated do
+    revision = :ets.update_counter(@table, :revision, 1, {:revision, 0})
+    Ryker.PubSub.broadcast(names_topic(), {:slack_names_updated, revision})
+  end
 end

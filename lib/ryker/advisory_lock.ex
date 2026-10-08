@@ -6,7 +6,7 @@ defmodule Ryker.AdvisoryLock do
   key (`hashtextextended`), so callers agree on a name and never on a number;
   an integer is a key itself.
 
-  A transaction lock (`hold/3`, `hold!/3`) lasts until the transaction ends.
+  A transaction lock (`hold/2`, `hold!/2`) lasts until the transaction ends.
   A session lock (`try_session?/1`) lasts until `release_session/1`.
   """
   alias Ryker.Repo
@@ -15,16 +15,16 @@ defmodule Ryker.AdvisoryLock do
   @type mode :: :exclusive | :shared
 
   @doc "Holds `key` until the transaction ends, alone or `:shared` with other readers."
-  @spec hold!(key(), mode(), Ecto.Repo.t()) :: :ok
-  def hold!(key, mode \\ :exclusive, repo \\ Repo) do
-    repo.query!(statement(key, mode), [key])
+  @spec hold!(key(), mode()) :: :ok
+  def hold!(key, mode \\ :exclusive) do
+    Repo.query!(statement(key, mode), [key])
     :ok
   end
 
-  @doc "`hold!/3`, answering a refused statement instead of raising."
-  @spec hold(key(), mode(), Ecto.Repo.t()) :: :ok | {:error, term()}
-  def hold(key, mode \\ :exclusive, repo \\ Repo) do
-    case repo.query(statement(key, mode), [key]) do
+  @doc "`hold!/2`, answering a refused statement instead of raising."
+  @spec hold(key(), mode()) :: :ok | {:error, term()}
+  def hold(key, mode \\ :exclusive) do
+    case Repo.query(statement(key, mode), [key]) do
       {:ok, _result} -> :ok
       {:error, reason} -> {:error, reason}
     end

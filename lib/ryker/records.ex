@@ -1063,19 +1063,6 @@ defmodule Ryker.Records do
   defp persistence_result({:error, %Ecto.Changeset{} = changeset}),
     do: {:error, {:state_record_persistence_failed, changeset.errors}}
 
-  # -- PubSub ------------------------------------------------------------------
-
-  @doc """
-  Subscribes the caller to record changes: `{:record_updated, record_id}` once
-  something a request recorded (a finding, a question, an offer, a wait) is
-  created, answered, confirmed, superseded or dismissed, and that change has
-  committed.
-  """
-  def subscribe_records, do: Ryker.PubSub.subscribe(records_topic())
-
-  @doc "Stops the announcements `subscribe_records/0` started."
-  def unsubscribe_records, do: Ryker.PubSub.unsubscribe(records_topic())
-
   @doc """
   The offer or question `ref` of one of `kinds` with the episode and Work
   turn that made it, all three locked until the caller's transaction ends,
@@ -1108,6 +1095,19 @@ defmodule Ryker.Records do
       {:ok, confirmed}
     end
   end
+
+  # -- PubSub ------------------------------------------------------------------
+
+  @doc """
+  Subscribes the caller to record changes: `{:record_updated, record_id}` once
+  something a request recorded (a finding, a question, an offer, a wait) is
+  created, answered, confirmed, superseded or dismissed, and that change has
+  committed.
+  """
+  def subscribe_records, do: Ryker.PubSub.subscribe(records_topic())
+
+  @doc "Stops the announcements `subscribe_records/0` started."
+  def unsubscribe_records, do: Ryker.PubSub.unsubscribe(records_topic())
 
   @doc """
   Internal — announces, after the outermost commit, that `record` changed.

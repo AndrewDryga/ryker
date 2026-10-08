@@ -46,6 +46,14 @@ rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-08.
   module.
 - `DateTime.utc_now/1` takes the precision it needs instead of a
   `DateTime.truncate/2` after it.
+- A context publishes through one named function per event
+  (`broadcast_record_updated/1`), and its `subscribe_*`, `unsubscribe_*`,
+  topic and `broadcast_*` functions sit together under its
+  `# -- PubSub ----` header, so its topics and message shapes read in one
+  place (Emisar's README). On 2026-10-08 two broadcasts were named for no
+  event (`broadcast/1`, `settled/1`), two modules had no section, one kept
+  its broadcast outside the section and one kept two record writes inside
+  it; `InlineBroadcast` holds the names and the section.
 
 ## Shared helpers
 
@@ -465,6 +473,16 @@ Stored data (Emisar's `elixir-nil-is-not-an-empty-list`):
   text a query selected (`fragment("...::text")`); inside a query Ecto casts
   the string through the field's type.
 
+- A function inside a transaction calls `Ryker.Repo`; no function takes a
+  repository argument. Emisar passes a `Multi.run` callback's `repo` on as
+  an option (its README), where a dynamic `repo.one(...)` escapes the
+  compiler's arity check; Ryker's transactions are `Repo.transaction/1`
+  bodies, so there is no `repo` to pass. Until 2026-10-08 the episode
+  kernel threaded `Repo` through nine private functions, which also hid
+  two row reads from the read checks (now `Repo.peek`), and the advisory
+  and conversation locks took a repository only one test varied; that test
+  now has the database refuse the lock.
+
 Not adopted, measured 2026-10-08:
 
 - **`Ecto.Multi` with `Repo.commit_multi`, and `Repo.fetch_and_update/3`.**
@@ -638,6 +656,10 @@ Model-facing tools (Emisar's `elixir-model-authoring-validation-is-actionable`):
 - `WebNoNestedDomainCalls`: a web module calls a top-level context, never a
   module below one, in code or in a `~H` template.
 - `NoBoundTupleReturn`: no tuple bound only to be returned.
+- `InlineBroadcast` and `BroadcastEventAsData`: a publish happens in a
+  `broadcast_*` function named for its event, never with the event as data,
+  and a function that subscribes or publishes sits in its module's
+  `# -- PubSub` section.
 - `DispatchOnPattern` and `NoIfOnArgField`: a body that only dispatches on
   its argument is clause heads.
 - `TestAssertKnownResult`: a fully known result is asserted with `==`.

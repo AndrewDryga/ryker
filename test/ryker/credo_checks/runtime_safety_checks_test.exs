@@ -285,10 +285,69 @@ defmodule Ryker.CredoChecks.RuntimeSafetyChecksTest do
       assert issue.message =~ "named per-event broadcast_"
     end
 
-    test "allows a publish inside its own broadcast_* function" do
+    # A function named only `broadcast`, and a publish to aliases, passed:
+    # the check read any name starting "broadcast" and only `broadcast/2`.
+    test "flags a publish from a function the event does not name, aliases included" do
+      source = """
+      defmodule Ryker.Feedback do
+        # -- PubSub ------------------------------------------------------------
+
+        defp broadcast(id), do: Ryker.PubSub.broadcast(topic(), {:feedback_recorded, id})
+
+        defp settled(id),
+          do: Ryker.PubSub.broadcast_to_aliases(topic(), {:feedback_settled, id})
+      end
+      """
+
+      assert triggers(inline_broadcast(), source, "lib/ryker/feedback.ex") ==
+               ["PubSub.broadcast", "PubSub.broadcast_to_aliases"]
+    end
+
+    # Emisar keeps a context's topics and message shapes in one place. Four
+    # modules kept a broadcast or a subscription elsewhere in the file, and
+    # two had no section at all (2026-10-08).
+    test "flags a function that subscribes or publishes outside the PubSub section" do
+      source = """
+      defmodule Ryker.Feedback do
+        defp broadcast_feedback_recorded(id),
+          do: Ryker.PubSub.broadcast(topic(), {:feedback_recorded, id})
+
+        # -- PubSub ------------------------------------------------------------
+
+        def subscribe_feedback, do: Ryker.PubSub.subscribe(topic())
+
+        # -- Reading -----------------------------------------------------------
+
+        def unsubscribe_feedback, do: Ryker.PubSub.unsubscribe(topic())
+      end
+      """
+
+      assert triggers(inline_broadcast(), source, "lib/ryker/feedback.ex") ==
+               ["broadcast_feedback_recorded", "unsubscribe_feedback"]
+
+      unsectioned = """
+      defmodule Ryker.Feedback do
+        def subscribe_feedback, do: Ryker.PubSub.subscribe(topic())
+      end
+      """
+
+      assert [issue] = issues(inline_broadcast(), unsectioned, "lib/ryker/feedback.ex")
+      assert issue.message =~ "no `# -- PubSub` section"
+    end
+
+    test "allows a publish inside its own broadcast_* function in the PubSub section" do
       source = """
       defmodule Ryker.Feedback do
         def record(entry), do: broadcast_feedback_recorded(entry)
+
+        # A wait's own subscription is no PubSub topic.
+        def subscribe(wait), do: wait
+
+        # -- PubSub ------------------------------------------------------------
+
+        def subscribe_feedback, do: Ryker.PubSub.subscribe(topic())
+        def unsubscribe_feedback, do: Ryker.PubSub.unsubscribe(topic())
+        defp topic, do: "feedback"
 
         defp broadcast_feedback_recorded(entry) do
           Ryker.PubSub.broadcast(topic(entry), {:feedback_recorded, entry.id})
