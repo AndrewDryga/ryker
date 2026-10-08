@@ -74,8 +74,10 @@ defmodule Ryker.CoopFleet.BodyCrypto do
     {encryption, authentication, header}
   end
 
-  # RFC 5869 HKDF-SHA256, fixed at the two 32-byte keys used by this format.
-  @doc false
+  @doc """
+  RFC 5869 HKDF-SHA256 of `key`, fixed at the 64 bytes of this format's two
+  32-byte keys.
+  """
   def derive(key, salt, info) do
     extracted = :crypto.mac(:hmac, :sha256, salt, key)
     first = :crypto.mac(:hmac, :sha256, extracted, [info, <<1>>])

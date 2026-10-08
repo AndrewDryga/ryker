@@ -70,8 +70,7 @@ defmodule Ryker.Work.RepositorySource do
   def parse_optional(nil), do: {:ok, nil}
   def parse_optional(value), do: parse(value)
 
-  # The single remote ref a selector derives, or `nil` when it names no ref.
-  @doc false
+  @doc "The single remote ref a selector derives, or `nil` when it names no ref."
   @spec derived_ref(request()) :: String.t() | nil
   def derived_ref(%{"kind" => "branch", "name" => name}), do: "refs/heads/" <> name
   def derived_ref(%{"kind" => "pull_request", "number" => number}), do: "refs/pull/#{number}/head"

@@ -216,10 +216,13 @@ defmodule Ryker.Slack.ThreadStatusProjection do
   defp phrase_for(table, name),
     do: Enum.find_value(table, @working, fn {phrase, names} -> if name in names, do: phrase end)
 
-  # One status per thread, at most as many as one reconcile takes. Past that
-  # bound the live ones are kept: a finished thread left out is cleared anyway,
-  # while refusing the whole list stopped every status in the workspace.
-  @doc false
+  @doc """
+  The thread statuses `workspace_ref` shows for these inputs and episodes:
+  one per thread, at most as many as one reconcile takes.
+  """
+  # Past that bound the live ones are kept: a finished thread left out is
+  # cleared anyway, while refusing the whole list stopped every status in the
+  # workspace.
   @spec targets([Ingress.Inbox.Entry.t()], [Episodes.Episode.t()], map(), String.t()) :: [map()]
   def targets(entries, episodes, turns, workspace_ref)
       when is_list(entries) and is_list(episodes) and is_map(turns) and

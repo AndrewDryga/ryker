@@ -282,8 +282,10 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
     end
   end
 
-  # Tests read a session's recorded source exposures back through this.
-  @doc false
+  @doc """
+  The sources work in session `session_id` was shown, merged, or nil when
+  they are more than one context may carry.
+  """
   def session_sources(session_id) do
     sources =
       session_id

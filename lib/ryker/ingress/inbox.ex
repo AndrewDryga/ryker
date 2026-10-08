@@ -111,22 +111,6 @@ defmodule Ryker.Ingress.Inbox do
 
   def fetch(_ref), do: :error
 
-  # The pending input that currently keeps `entry` out of the claimable set, if
-  # any. This is the same lane predicate the dispatcher claims by: an earlier
-  # pending input in the same transport, conversation and execution mode, or
-  # one whose routing lease is still live. It is a current fact about the
-  # queue, not a history of what blocked the input earlier, and it says nothing
-  # once the input has left the queue. Recording names the predecessor in the
-  # saved transition; tests call this directly to check the lane rule.
-  @doc false
-  @spec fetch_queue_predecessor(Entry.t(), DateTime.t()) ::
-          {:ok, Entry.t()} | {:error, :not_found}
-  def fetch_queue_predecessor(%Entry{status: :pending} = entry, %DateTime{} = now) do
-    entry |> Entry.Query.queue_predecessor(now) |> Repo.fetch()
-  end
-
-  def fetch_queue_predecessor(%Entry{}, %DateTime{}), do: {:error, :not_found}
-
   @doc """
   Freezes one exact model-visible admission context for the current execution generation.
 
@@ -817,9 +801,10 @@ defmodule Ryker.Ingress.Inbox do
     end)
   end
 
-  @doc false
-  # The lock every event of one source item takes, so two copies of one
-  # message cannot both be recorded (InboxConcurrencyTest holds it).
+  @doc """
+  The advisory lock every event of one source item takes, so two copies of
+  one message cannot both be recorded.
+  """
   def revision_lock(input) do
     "ingress-revision:" <>
       CanonicalJSON.digest([input.source.kind, input.source.ref, input.native_input_id])
@@ -853,7 +838,11 @@ defmodule Ryker.Ingress.Inbox do
       {:ok, entry} ->
         append_transition!(entry, :saved, occurred_at: entry.inserted_at)
 
-        case fetch_queue_predecessor(entry, entry.inserted_at) do
+        # The pending input that keeps this one out of the claimable set, by
+        # the lane predicate the dispatcher claims by (`Entry.Query`).
+        predecessor = entry |> Entry.Query.queue_predecessor(entry.inserted_at) |> Repo.fetch()
+
+        case predecessor do
           {:ok, predecessor} ->
             append_transition!(entry, :waiting_predecessor,
               occurred_at: entry.inserted_at,

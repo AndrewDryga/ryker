@@ -400,7 +400,10 @@ defmodule Ryker.Memories do
               ),
               to: Reviews
 
-  @doc false
+  @doc """
+  Internal — removes what memory kept of a deleted Slack channel, inside its
+  removal (`Ryker.Slack.ChannelConfigurations`).
+  """
   defdelegate delete_slack_channel_in_transaction(workspace_ref, channel_ref), to: Reviews
 
   @doc """

@@ -193,7 +193,10 @@ defmodule Ryker.Slack.ReplyRecords do
 
   defp updated_automation(_ref), do: nil
 
-  @doc false
+  @doc """
+  The records a reply shows, each evidence record given the one link its
+  source's `receipts` agree on, and each wait the time it is due by `times`.
+  """
   def enrich(documents, receipts, times \\ %{}) do
     urls =
       receipts

@@ -305,6 +305,12 @@ Functions:
   comment. `Ryker.PublicFunctionsTest` holds it too; a Query module's `all/0`
   stays public as the layer's entry point. On 2026-10-08, 46 public functions
   only their own module called became private.
+- A function its doc keeps out of the contract (`@doc false`) is a helper, and
+  a helper stays private rather than public for a test to reach (Emisar's
+  README); the same test holds it. Of the 30 that tests reached on
+  2026-10-08, 26 were contracts their tests check (a socket URL's target, a
+  key derivation against RFC 5869's vectors, a grant's authority) and got the
+  doc they lacked; four went private, their tests through the public path.
 - A private function that only hands its arguments to another call is
   inlined (Emisar's rule: a wrapper earns a name only when it adds meaning
   the call site lacks).

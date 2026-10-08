@@ -246,9 +246,10 @@ defmodule Ryker.Feedback.Messages do
     all also too very really anything something what which whats
   )
 
-  @doc false
-  # The words a message uses, for comparing two messages: every word, and the
-  # meaningful ones.
+  @doc """
+  The words a message uses, for comparing two messages (`repeats?/2`): every
+  word, and the meaningful ones.
+  """
   @spec words(String.t()) :: %{tokens: [String.t()], meaningful: MapSet.t()}
   def words(text) when is_binary(text) do
     tokens =
@@ -263,8 +264,7 @@ defmodule Ryker.Feedback.Messages do
     %{tokens: tokens, meaningful: tokens |> Enum.reject(&(&1 in @small_words)) |> MapSet.new()}
   end
 
-  @doc false
-  # Whether the second message repeats the first, as the moduledoc says.
+  @doc "Whether the later message repeats the earlier, by their `words/1`, as the moduledoc says."
   @spec repeats?(map(), map()) :: boolean()
   def repeats?(%{tokens: same, meaningful: meaningful}, %{tokens: same})
       when same != [],

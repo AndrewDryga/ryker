@@ -53,9 +53,7 @@ defmodule Ryker.GitHub.DeliveryPoller do
     {:ok, state(options)}
   end
 
-  @doc false
-  @spec state(map()) :: map()
-  def state(options) do
+  defp state(options) do
     router = Map.fetch!(options, :router)
 
     %{

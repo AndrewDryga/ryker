@@ -1028,10 +1028,14 @@ defmodule Ryker.Ingress.InboxTest do
     )
   end
 
-  defp predecessor_id(entry, now) do
-    case Inbox.fetch_queue_predecessor(entry, now) do
+  # The input `entry` waits behind at `now`, by the lane predicate the
+  # dispatcher claims by; one that left the queue waits behind nothing.
+  defp predecessor_id(%Entry{status: :pending} = entry, now) do
+    case entry |> Entry.Query.queue_predecessor(now) |> Repo.fetch() do
       {:ok, predecessor} -> predecessor.id
       {:error, :not_found} -> nil
     end
   end
+
+  defp predecessor_id(%Entry{}, _now), do: nil
 end

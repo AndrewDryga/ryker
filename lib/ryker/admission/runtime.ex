@@ -130,7 +130,7 @@ defmodule Ryker.Admission.Runtime do
     raise ArgumentError, "admission decision_timeout_ms must fit within the durable lease window"
   end
 
-  @doc false
+  @doc "The fleet-session callbacks admission's executor runs with, by option name."
   @spec execution_callbacks() :: map()
   def execution_callbacks do
     %{

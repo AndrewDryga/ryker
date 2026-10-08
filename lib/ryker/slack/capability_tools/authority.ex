@@ -131,7 +131,10 @@ defmodule Ryker.Slack.CapabilityTools.Authority do
 
   def current_slack_input(_binding, _source), do: {:error, :unauthorized}
 
-  @doc false
+  @doc """
+  Whether `input`'s own ingress grant lets Ryker post to `destination_ref`;
+  what the message's text says never does.
+  """
   @spec authorized_post_instruction?(map(), String.t()) :: boolean()
   def authorized_post_instruction?(
         %{

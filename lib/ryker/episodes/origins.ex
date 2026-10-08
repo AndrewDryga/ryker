@@ -18,11 +18,8 @@ defmodule Ryker.Episodes.Origins do
         }
 
   # Derives the origin facts of one input document (the admitted command
-  # payload). Recording goes through `record_in_transaction/2`; tests call this
-  # directly to check how a root and a thread reply are told apart.
-  @doc false
-  @spec from_input_document(map()) :: map()
-  def from_input_document(%{"destination" => %{} = destination} = document) do
+  # payload).
+  defp from_input_document(%{"destination" => %{} = destination} = document) do
     source_kind = get_in(document, ["source", "kind"])
     source_item_ref = document["source_item_ref"]
     thread_ref = destination["thread_ref"]

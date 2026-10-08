@@ -74,20 +74,29 @@ defmodule Ryker.PublicFunctionsTest do
     assert Enum.sort(uncalled) == []
   end
 
-  # Every Query module starts its queries with `all/0`, the layer's entry
-  # point, whether or not another module starts one there.
-  test "a function only its own module calls is private unless a test checks it",
+  # Ryker's rule: a function is public when another module calls it, or a
+  # test checks it as part of its module's contract. One its doc keeps out of
+  # the contract (`@doc false`) is a helper, and Emisar's rule keeps a helper
+  # private rather than public for a test to reach. Every Query module starts
+  # its queries with `all/0`, the layer's entry point, whether or not another
+  # module starts one there.
+  test "a function only its own module calls is private unless a test checks its contract",
        %{graph: graph} do
     private =
       for {module, name} <- graph.functions,
           MapSet.member?(graph.production.own, {module, name}),
           not called_from_elsewhere?(graph, module, name),
           not Map.has_key?(@kept, "#{module}.#{name}"),
-          not MapSet.member?(graph.tests.others, {module, name}),
+          not tested_contract?(graph, module, name),
           not (String.ends_with?(module, ".Query") and name == "all"),
           do: "#{module}.#{name}"
 
     assert Enum.sort(private) == []
+  end
+
+  defp tested_contract?(graph, module, name) do
+    MapSet.member?(graph.tests.others, {module, name}) and
+      not MapSet.member?(graph.production.hidden, {module, name})
   end
 
   # A reason kept for a function that is gone, or that something now calls,
@@ -187,17 +196,20 @@ defmodule Ryker.PublicFunctionsTest do
     patterns
     |> Enum.flat_map(&Path.wildcard(Path.join(@root, &1)))
     |> Task.async_stream(&scan/1, ordered: false, timeout: :infinity)
-    |> Enum.reduce(%{calls: [], dynamic: [], values: [], defined: []}, fn {:ok, scan}, acc ->
+    |> Enum.reduce(%{calls: [], dynamic: [], values: [], defined: [], hidden: []}, fn {:ok, scan},
+                                                                                      acc ->
       %{
         calls: scan.calls ++ acc.calls,
         dynamic: scan.dynamic ++ acc.dynamic,
         values: scan.values ++ acc.values,
-        defined: scan.defined ++ acc.defined
+        defined: scan.defined ++ acc.defined,
+        hidden: scan.hidden ++ acc.hidden
       }
     end)
-    |> then(fn %{calls: calls, dynamic: dynamic, values: values, defined: defined} ->
+    |> then(fn %{calls: calls, dynamic: dynamic, values: values, defined: defined} = scans ->
       %{
         defined: MapSet.new(defined),
+        hidden: MapSet.new(scans.hidden),
         others:
           for(
             {caller, module, name} <- calls,
@@ -243,11 +255,13 @@ defmodule Ryker.PublicFunctionsTest do
       calls: [],
       dynamic: [],
       values: [],
-      defined: []
+      defined: [],
+      hidden: [],
+      doc_false: false
     }
 
     {_ast, acc} = Macro.traverse(ast, acc, &visit/2, &leave/2)
-    Map.take(acc, [:calls, :dynamic, :values, :defined])
+    Map.take(acc, [:calls, :dynamic, :values, :defined, :hidden])
   end
 
   defp visit({:defmodule, meta, [{:__aliases__, _, parts}, body]}, acc) do
@@ -311,12 +325,14 @@ defmodule Ryker.PublicFunctionsTest do
        when attribute in [:spec, :type, :typep, :opaque, :callback, :macrocallback, :behaviour],
        do: {:ok, acc}
 
+  defp visit({:@, _meta, [{:doc, _, [false]}]}, acc), do: {:ok, %{acc | doc_false: true}}
+
   defp visit({:@, meta, [{attribute, _, value}]}, acc) when is_atom(attribute) and is_list(value),
     do: {{:@, meta, value}, acc}
 
   defp visit({kind, meta, [head | rest]}, acc)
        when kind in [:def, :defp, :defmacro, :defmacrop] do
-    acc = if kind == :def, do: define(acc, head), else: acc
+    acc = if kind == :def, do: define(acc, head), else: %{acc | doc_false: false}
     {{kind, meta, [head_arguments(head) | rest]}, acc}
   end
 
@@ -360,6 +376,15 @@ defmodule Ryker.PublicFunctionsTest do
   defp visit({:&, _meta, [{:/, _, [{name, _, context}, _arity]}]} = node, acc)
        when is_atom(name) and is_atom(context),
        do: {node, local(acc, Atom.to_string(name))}
+
+  # `&__MODULE__.fun/1` is written to hand the function to another caller, a
+  # telemetry handler's or a task's, which calls it from outside the module.
+  defp visit({:&, _meta, [{:/, _, [{{:., _, [target, name]}, _, _}, _arity]}]} = node, acc)
+       when is_atom(name) do
+    if module?(target),
+      do: {node, named(acc, target, name)},
+      else: {node, acc}
+  end
 
   defp visit({:sigil_H, _meta, [{:<<>>, _, parts}, _modifiers]} = node, acc) do
     template = parts |> Enum.filter(&is_binary/1) |> Enum.join()
@@ -444,8 +469,12 @@ defmodule Ryker.PublicFunctionsTest do
 
   defp call(acc, module, name), do: %{acc | calls: [{hd(acc.modules), module, name} | acc.calls]}
 
-  defp define(acc, head),
-    do: %{acc | defined: [{hd(acc.modules), head |> name_of() |> Atom.to_string()} | acc.defined]}
+  # A function its `@doc false` keeps out of the contract is `hidden`.
+  defp define(acc, head) do
+    function = {hd(acc.modules), head |> name_of() |> Atom.to_string()}
+    hidden = if acc.doc_false, do: [function | acc.hidden], else: acc.hidden
+    %{acc | defined: [function | acc.defined], hidden: hidden, doc_false: false}
+  end
 
   defp put_alias(acc, as, full) do
     module = hd(acc.modules)

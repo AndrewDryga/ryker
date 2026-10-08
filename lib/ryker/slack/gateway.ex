@@ -864,7 +864,11 @@ defmodule Ryker.Slack.Gateway do
 
   defp acknowledge(_envelope, _outcome, state), do: {:ok, state}
 
-  @doc false
+  @doc """
+  The frame that acknowledges `envelope` after `outcome`: its envelope id, with
+  the response payload when Slack accepts one; an empty map when there is
+  nothing to acknowledge.
+  """
   def acknowledgement(
         %{"accepts_response_payload" => true, "envelope_id" => envelope_ref},
         {:ack, _outcome, %{} = payload}

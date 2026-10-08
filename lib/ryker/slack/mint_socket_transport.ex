@@ -65,7 +65,11 @@ defmodule Ryker.Slack.MintSocketTransport do
     http_module.close(conn)
   end
 
-  @doc false
+  @doc """
+  Where the Socket Mode URL Slack handed out connects: `{:ok, %{host:, path:,
+  port: 443}}` for a `wss` URL on a Slack socket host with no credentials or
+  fragment, or `{:error, {:invalid_slack_socket_url, :url}}`.
+  """
   @spec connection_target(String.t()) :: {:ok, map()} | {:error, term()}
   def connection_target(url) when is_binary(url) do
     case URI.parse(url) do

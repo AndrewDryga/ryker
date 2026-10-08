@@ -183,7 +183,10 @@ defmodule Ryker.Transcription.Service do
     end
   end
 
-  @doc false
+  @doc """
+  The multipart form one transcription request sends: each field, then the
+  recording as a WAV file.
+  """
   @spec multipart(String.t(), [{String.t(), String.t()}], binary()) :: iodata()
   def multipart(boundary, fields, audio) do
     [

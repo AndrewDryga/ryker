@@ -79,7 +79,12 @@ defmodule Ryker.CoopFleet.SourceGrants do
   defp token_for_now?({:http_status, status}), do: status >= 500 or status in [408, 429]
   defp token_for_now?(reason), do: reason not in [:binding, :purpose]
 
-  @doc false
+  @doc """
+  The GitHub binding that may grant `source`'s repository to the worker
+  holding `certificate` for the frozen job `job_ref`: `{:ok, binding}`,
+  `{:ok, :public}` for a public submodule the job vendors, or
+  `{:error, :coop_worker_source_grant_not_authorized}`.
+  """
   @spec source_grant_authority(binary(), String.t(), map()) ::
           {:ok, map() | :public} | {:error, term()}
   def source_grant_authority(certificate, job_ref, source)

@@ -286,11 +286,13 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   defp page_subscriptions(%{assigns: %{path: path, params: params} = assigns}),
     do: page_subscriptions(path, params, assigns.lab_draft_id)
 
-  # Each page declares its topics beside what it shows; the native pages are
-  # dispatched here as `load_page/3` loads them, every other page by `Pages`.
-  # `draft_id` is the identity an empty Chat draft will start.
-
-  @doc false
+  @doc """
+  The topics the page at `path` listens to, each a `{module, function,
+  arguments}` subscription its context offers. Each page declares its topics
+  beside what it shows; the native pages are dispatched here as `load_page/3`
+  loads them, every other page by `Pages`. `draft_id` is the identity an empty
+  Chat draft will start.
+  """
   def page_subscriptions(path, params, draft_id) do
     segments = String.split(path, "/", trim: true)
 

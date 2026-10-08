@@ -395,7 +395,15 @@ defmodule Ryker.Acceptance.Live do
     end
   end
 
-  @doc false
+  @doc """
+  Where the Slack message `event_ref` has got in a live acceptance run.
+
+  Returns `:pending` until routing decides it and a Work turn not in
+  `previous_turn_ids` settles, then `{:ok, snapshot}` with that turn's
+  delivery and worker placement. Returns `{:error, reason}` once routing
+  blocked or superseded the message, decided it without a request, or the
+  turn stopped.
+  """
   @spec observe(String.t(), [Ecto.UUID.t()]) :: :pending | {:ok, map()} | {:error, term()}
   def observe(event_ref, previous_turn_ids) do
     entry =

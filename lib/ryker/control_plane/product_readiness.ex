@@ -67,7 +67,13 @@ defmodule Ryker.ControlPlane.ProductReadiness do
       |> Enum.find_value(&Map.get(&1, :work_profile))
   end
 
-  @doc false
+  @doc """
+  Readiness from a settings `snapshot`, the worker fleet's report
+  (`Ryker.Observability.fleet/0`) and the running facts `current/1` gathers:
+  `:chat_profile`, `:slack_configured`, `:slack_connected` and
+  `:integrations_left_out`.
+  """
+  @spec from(Settings.snapshot(), term(), map()) :: t()
   def from(snapshot, fleet_result, runtime) do
     chat = chat_state(Map.get(runtime, :chat_profile), fleet_result)
 

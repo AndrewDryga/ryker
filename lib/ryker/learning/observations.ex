@@ -401,7 +401,10 @@ defmodule Ryker.Learning.Observations do
     |> Map.new()
   end
 
-  @doc false
+  @doc """
+  An observation as the source document work and recall are shown: its
+  original document, a link to read its message, and the thread it was in.
+  """
   def document(note) do
     Map.merge(original_document(note), %{
       "source_read" =>

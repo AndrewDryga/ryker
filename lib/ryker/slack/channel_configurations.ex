@@ -373,7 +373,11 @@ defmodule Ryker.Slack.ChannelConfigurations do
     end
   end
 
-  @doc false
+  @doc """
+  A channel's effective settings as one document: its saved `configuration`,
+  or the defaults without one, read against the environments in `catalog`
+  and with `overrides` applied.
+  """
   @spec settings_document(ChannelConfiguration.t() | nil, catalog(), map()) :: map()
   def settings_document(configuration, catalog, overrides) do
     participation = ChannelSettings.effective_participation(overrides)

@@ -59,7 +59,6 @@ defmodule Ryker.Slack.TaskCardWorkerTest do
     explanation = FailureExplanation.explain(row)
     assert explanation.title == "Updating a task's card stopped"
     assert explanation.outlook == :stuck
-    assert FailureExplanation.kind_name("slack_task_card") == "Task card update"
   end
 
   # Cards are created oldest offer first, before any refresh: one offer whose card could not

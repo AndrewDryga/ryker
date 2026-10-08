@@ -404,7 +404,11 @@ defmodule Ryker.Slack.CollectionsTest do
     )
   end
 
-  # The rows each query `fun` sends returns, in order.
+  # The rows each query `fun` sends returns, in order. The handler hears
+  # every test's queries, so it ignores any that is not this test's or did not
+  # succeed: a handler that raised on another test's failed insert was
+  # detached for everyone, and on 2026-10-08 this test then counted nothing
+  # and failed the gate.
   defp rows_read(fun) do
     parent = self()
     handler = "collection-rows-#{System.unique_integer([:positive])}"
@@ -413,8 +417,12 @@ defmodule Ryker.Slack.CollectionsTest do
       :telemetry.attach(
         handler,
         [:ryker, :repo, :query],
-        fn _event, _measurements, %{result: {:ok, result}}, _config ->
-          if self() == parent, do: send(parent, {:rows, result.num_rows})
+        fn
+          _event, _measurements, %{result: {:ok, result}}, _config ->
+            if self() == parent, do: send(parent, {:rows, result.num_rows})
+
+          _event, _measurements, _failed_or_foreign, _config ->
+            :ok
         end,
         nil
       )

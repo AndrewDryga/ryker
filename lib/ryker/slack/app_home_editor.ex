@@ -28,7 +28,11 @@ defmodule Ryker.Slack.AppHomeEditor do
   @spec callback_id() :: String.t()
   def callback_id, do: @callback_id
 
-  @doc false
+  @doc """
+  The edit view for memory review `review_ref`, or
+  `{:error, :memory_review_cannot_edit}` for a review that is not one stale
+  entry.
+  """
   @spec memory_review_view(String.t(), map()) :: {:ok, map()} | {:error, term()}
   def memory_review_view(review_ref, review) do
     with "memory-review:" <> _ <- review_ref,

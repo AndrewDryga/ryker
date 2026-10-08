@@ -75,11 +75,12 @@ defmodule Ryker.GitHub.Publisher do
   def publish_reaction(_request, _binding),
     do: {:error, {:invalid_github_delivery, :reaction}}
 
-  # The hidden marker a delivered comment carries, so a delivery tried again
-  # finds the comment it already posted instead of posting it twice. It used
-  # the product's old name until 2026-10-05; only a delivery in flight across
-  # that deploy could miss its comment.
-  @doc false
+  @doc """
+  The hidden marker a delivered comment carries, so a delivery tried again
+  finds the comment it already posted instead of posting it twice.
+  """
+  # It used the product's old name until 2026-10-05; only a delivery in flight
+  # across that deploy could miss its comment.
   @spec marker(String.t()) :: String.t()
   def marker(delivery_ref) when is_binary(delivery_ref) do
     digest = Crypto.sha256_hex(delivery_ref)

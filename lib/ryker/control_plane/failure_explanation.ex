@@ -245,20 +245,19 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp step(label, _stage, _phase, false),
     do: %{label: label, state: "pending", status: "Not reached"}
 
-  @doc false
-  def kind_name("admission"), do: "Reading a message"
-  def kind_name("delivery"), do: "Delivery"
-  def kind_name("emisar"), do: "Approval watch"
-  def kind_name("learning"), do: "Learning"
-  def kind_name("publication"), do: "Pull request"
-  def kind_name("retention"), do: "Cleanup"
-  def kind_name("slack_incident"), do: "Incident room setup"
-  def kind_name("slack_interaction"), do: "Slack message update"
-  def kind_name("slack_task_card"), do: "Task card update"
-  def kind_name("slack_thread_status"), do: "Thread status"
-  def kind_name("stopping"), do: "Stopping a task"
-  def kind_name("work"), do: "Task"
-  def kind_name(kind), do: Wording.label(kind)
+  defp kind_name("admission"), do: "Reading a message"
+  defp kind_name("delivery"), do: "Delivery"
+  defp kind_name("emisar"), do: "Approval watch"
+  defp kind_name("learning"), do: "Learning"
+  defp kind_name("publication"), do: "Pull request"
+  defp kind_name("retention"), do: "Cleanup"
+  defp kind_name("slack_incident"), do: "Incident room setup"
+  defp kind_name("slack_interaction"), do: "Slack message update"
+  defp kind_name("slack_task_card"), do: "Task card update"
+  defp kind_name("slack_thread_status"), do: "Thread status"
+  defp kind_name("stopping"), do: "Stopping a task"
+  defp kind_name("work"), do: "Task"
+  defp kind_name(kind), do: Wording.label(kind)
 
   # ---------------------------------------------------------------------------
   # Options

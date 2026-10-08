@@ -164,19 +164,25 @@ defmodule Ryker.GitHub.DeliveryPollerTest do
   defp state(deliveries, payloads, access \\ fn _binding, _payload -> :ok end),
     do: paged_state([deliveries], payloads, access)
 
+  # The poller's state as it starts, with its first poll an hour away so only
+  # the test polls.
   defp paged_state(pages, payloads, access \\ fn _binding, _payload -> :ok end) do
-    DeliveryPoller.state(%{
-      app_id: @app_id,
-      app_http: %{pages: pages, payloads: payloads, test: self()},
-      requester: GitHub,
-      clock: fn -> @now end,
-      router: [
-        bindings: %{"github-main" => binding!()},
-        bot_login: "ryker-test",
-        repository_access: access,
-        secret: Ryker.Secret.new(@secret)
-      ]
-    })
+    {:ok, state} =
+      DeliveryPoller.init(%{
+        app_id: @app_id,
+        app_http: %{pages: pages, payloads: payloads, test: self()},
+        requester: GitHub,
+        clock: fn -> @now end,
+        first_poll_ms: :timer.hours(1),
+        router: [
+          bindings: %{"github-main" => binding!()},
+          bot_login: "ryker-test",
+          repository_access: access,
+          secret: Ryker.Secret.new(@secret)
+        ]
+      })
+
+    state
   end
 
   defp delivery(id, guid, event, at),

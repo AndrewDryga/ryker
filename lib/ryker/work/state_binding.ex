@@ -75,8 +75,7 @@ defmodule Ryker.Work.StateBinding do
   def current_scope(%Session{}),
     do: {:error, {:invalid_work_state_tools_binding, :session}}
 
-  # Tests derive the local scope name to address a session's state tools.
-  @doc false
+  @doc "The scope a session's state tools are addressed by when it never had a fleet placement."
   @spec local_scope(Session.t() | String.t()) :: String.t()
   def local_scope(%Session{id: session_id}), do: local_scope(session_id)
   def local_scope(session_id) when is_binary(session_id), do: "local:" <> session_id

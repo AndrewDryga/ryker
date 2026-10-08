@@ -163,11 +163,10 @@ defmodule Ryker.Emisar.Approvals do
   @spec token_unavailable_codes() :: [String.t()]
   def token_unavailable_codes, do: @token_unavailable_codes
 
-  # What stopped a watch, as a code queries and the Failures page match on.
+  @doc "What stopped a watch, as the code queries and the Failures page match on."
   # They matched the printed term instead (`{:emisar_http_error, 401, ...`),
   # so a change to how a reason prints would have stopped them matching
   # (2026-10-04 review).
-  @doc false
   @spec error_code(term()) :: String.t()
   def error_code({:delivery_credentials_unavailable, reason})
       when reason in [:credential_missing, :credential_decryption_failed],

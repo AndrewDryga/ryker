@@ -89,7 +89,17 @@ defmodule Ryker.CoopFleet.ManagedSources do
 
   defp log_failure(result, _repository_ref, _step), do: result
 
-  @doc false
+  @doc """
+  Prepares the mirror and the source binding of `identity`'s repository from
+  `remote`, at `base_branch` or the `requested` source, resolving each
+  submodule's repository through `resolver`. `prepare/3` calls it with the
+  repository's GitHub remote and token.
+
+  Returns `{:ok, prepared}`, or `{:error, reason}`: `:invalid_coop_worker_source`
+  for inputs it refuses, `{:coop_worker_source_refused, repository, submodule}`
+  for a submodule Ryker was never given, and `:coop_worker_source_unavailable`
+  for anything a retry may fix.
+  """
   @spec prepare_from_remote(
           String.t(),
           map(),
@@ -172,7 +182,12 @@ defmodule Ryker.CoopFleet.ManagedSources do
     :ok
   end
 
-  @doc false
+  @doc """
+  Runs `operation` holding the lock on `repository_ref`'s mirror under
+  `storage_root`, on every connected node, and returns what it returns; or
+  `{:error, :source_mirror_busy}` when another holder keeps the lock past
+  `wait_ms`.
+  """
   def with_mirror_lock(storage_root, repository_ref, operation, wait_ms \\ @mirror_lock_wait_ms) do
     # :global identifies a lock by {resource, requester}, not {module, key}.
     lock = {{__MODULE__, Path.expand(storage_root), repository_ref}, self()}

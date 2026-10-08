@@ -228,7 +228,10 @@ defmodule Ryker.Retention.Dispatcher do
 
   defp describe(reason), do: ErrorDetail.describe(reason, :retention_failed)
 
-  @doc false
+  @doc """
+  The dispatcher's settings from `options`, or
+  `{:error, {:invalid_retention_dispatcher, field}}` naming what it refuses.
+  """
   @spec settings(keyword() | map()) :: {:ok, map()} | {:error, term()}
   def settings(options) when is_list(options) do
     if Keyword.keyword?(options) and Enum.uniq(Keyword.keys(options)) == Keyword.keys(options),

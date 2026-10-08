@@ -95,16 +95,27 @@ defmodule Ryker.Episodes.OriginsTest do
   test "a Slack root and a thread reply are told apart from the retained identities alone" do
     root = slack_input!(channel_ref: "CDEVOPS", message_ref: "1787832000.000100")
 
+    {:ok, home} = Episodes.apply(admit(root, episode_key: "routing:told-apart"))
+
     reply =
       slack_input!(
         channel_ref: "CDEVOPS",
         message_ref: "1787832001.000100",
-        thread_ref: "1787832000.000100"
+        thread_ref: "1787832000.000100",
+        occurred_at: DateTime.add(@now, 1, :second)
       )
 
-    assert Origins.from_input_document(Input.document(root)).origin_kind == :channel_root
-    assert Origins.from_input_document(Input.document(reply)).origin_kind == :thread_reply
-    assert Origins.from_input_document(Input.document(reply)).root_ref == "1787832000.000100"
+    {:ok, _joined} =
+      Episodes.apply(
+        admit(reply,
+          episode_key: "routing:told-apart",
+          destination: home_destination(home.episode)
+        )
+      )
+
+    assert [first, second] = Origins.for_episode(home.episode.id)
+    assert %{origin_kind: :channel_root, root_ref: "1787832000.000100"} = first
+    assert %{origin_kind: :thread_reply, root_ref: "1787832000.000100"} = second
   end
 
   defp home_destination(episode) do
