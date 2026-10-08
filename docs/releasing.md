@@ -25,6 +25,12 @@ newer patch of the pinned Erlang/OTP major or Elixir minor is out, and the sched
 releases workflow runs it every day. Ryker ran OTP 28.4.1 while 46 advisories were fixed after
 it, two of them TLS clients that skipped the server certificate check (bumped 2026-10-08).
 
+The bundled worker copies `Box.Dockerfile` into its own image, and builds the box Ryker's own
+repository runs `make dev-check` in from that copy. So a bump reaches the box only with the next
+worker image, swapped by hand ([`operations.md`](operations.md), "Upgrade"); until then
+`scripts/elixir-mix.sh` in the box refuses the older Elixir, and a review of Ryker's repository
+fails its gate.
+
 Commit first, then prove the exact Elixir artifact without touching the running deployment:
 
 ```bash
