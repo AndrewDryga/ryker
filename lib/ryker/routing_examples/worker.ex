@@ -14,7 +14,7 @@ defmodule Ryker.RoutingExamples.Worker do
   """
   use Ryker.PollingWorker, lane: :routing_examples, interval: :poll_interval_ms
   alias Ryker.{Episodes, Feedback, Options, PollingWorker, RoutingExamples, TrainingExamples}
-  alias Ryker.Ingress.Inbox
+  alias Ryker.Ingress
 
   @fields [:batch_size, :poll_interval_ms, :window_seconds]
 
@@ -33,7 +33,7 @@ defmodule Ryker.RoutingExamples.Worker do
   @impl PollingWorker
   def wake_on(_options),
     do: [
-      &Inbox.subscribe_inputs/0,
+      &Ingress.Inbox.subscribe_inputs/0,
       &Episodes.subscribe_episodes/0,
       &Feedback.subscribe_feedback/0
     ]

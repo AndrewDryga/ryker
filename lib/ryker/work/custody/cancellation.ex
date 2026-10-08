@@ -12,11 +12,9 @@ defmodule Ryker.Work.Custody.Cancellation do
   """
   import Ryker.Work.Custody.Locks
   alias Ryker.CanonicalJSON
-  alias Ryker.CoopFleet.ControlPlane, as: FleetControlPlane
-  alias Ryker.CoopFleet.{Placement, WorkspaceCheckpointTransfer}
+  alias Ryker.CoopFleet
   alias Ryker.Defaults
   alias Ryker.Episodes
-  alias Ryker.Episodes.Episode
   alias Ryker.Repo
   alias Ryker.Settings
   alias Ryker.Work.Cancellation, as: WorkCancellation
@@ -90,9 +88,9 @@ defmodule Ryker.Work.Custody.Cancellation do
   end
 
   @doc false
-  @spec resume_blocked_in_transaction(Episode.t(), String.t() | nil) ::
-          {:ok, Episode.t()} | {:error, term()}
-  def resume_blocked_in_transaction(%Episode{} = episode, required_input_ref) do
+  @spec resume_blocked_in_transaction(Episodes.Episode.t(), String.t() | nil) ::
+          {:ok, Episodes.Episode.t()} | {:error, term()}
+  def resume_blocked_in_transaction(%Episodes.Episode{} = episode, required_input_ref) do
     with :ok <- transaction_open(),
          :ok <- optional_reference(required_input_ref, :required_input_ref),
          {:ok, current} <- Episodes.lock_current_in_transaction(episode.key),
@@ -102,7 +100,7 @@ defmodule Ryker.Work.Custody.Cancellation do
   end
 
   @doc false
-  @spec retry_blocked(String.t(), String.t()) :: {:ok, Episode.t()} | {:error, term()}
+  @spec retry_blocked(String.t(), String.t()) :: {:ok, Episodes.Episode.t()} | {:error, term()}
   def retry_blocked(episode_key, expected_recovery) do
     with :ok <- reference(episode_key, :episode_key),
          :ok <- reference(expected_recovery, :expected_recovery) do
@@ -264,7 +262,7 @@ defmodule Ryker.Work.Custody.Cancellation do
   end
 
   defp resume_blocked_owner(
-         %Episode{state: :working, owner_kind: :turn} = episode,
+         %Episodes.Episode{state: :working, owner_kind: :turn} = episode,
          required_input_ref
        ) do
     case fetch_turn_identity(episode.id, episode.owner_ref) do
@@ -281,7 +279,8 @@ defmodule Ryker.Work.Custody.Cancellation do
     end
   end
 
-  defp resume_blocked_owner(%Episode{} = episode, _required_input_ref), do: {:ok, episode}
+  defp resume_blocked_owner(%Episodes.Episode{} = episode, _required_input_ref),
+    do: {:ok, episode}
 
   defp retry_blocked_locked(episode_key, expected_recovery) do
     with {:ok, episode} <- Episodes.lock_current_in_transaction(episode_key),
@@ -298,14 +297,14 @@ defmodule Ryker.Work.Custody.Cancellation do
   end
 
   # A request closed or delivered since the person saw it blocked has no turn left to try again.
-  defp lock_retry_owner(%Episode{state: :working, owner_kind: :turn} = episode),
+  defp lock_retry_owner(%Episodes.Episode{state: :working, owner_kind: :turn} = episode),
     do: lock_turn_after_episode(episode.id, episode.owner_ref)
 
-  defp lock_retry_owner(%Episode{}), do: {:error, :work_recovery_changed}
+  defp lock_retry_owner(%Episodes.Episode{}), do: {:error, :work_recovery_changed}
 
   # The turn is the episode's owner, already locked in this transaction.
   defp retry_blocked_episode(
-         %Episode{state: :working, owner_kind: :turn} = episode,
+         %Episodes.Episode{state: :working, owner_kind: :turn} = episode,
          %Turn{
            status: :blocked,
            completion_receipt: %{},
@@ -326,7 +325,7 @@ defmodule Ryker.Work.Custody.Cancellation do
   end
 
   defp retry_blocked_episode(
-         %Episode{state: :working, owner_kind: :turn} = episode,
+         %Episodes.Episode{state: :working, owner_kind: :turn} = episode,
          %Turn{status: :blocked, cancellation_intent: %{"action" => "block"}} = turn
        ) do
     case resume_blocked_identity(episode, turn, nil) do
@@ -335,7 +334,7 @@ defmodule Ryker.Work.Custody.Cancellation do
     end
   end
 
-  defp retry_blocked_episode(%Episode{}, %Turn{}), do: Repo.rollback(:work_not_blocked)
+  defp retry_blocked_episode(%Episodes.Episode{}, %Turn{}), do: Repo.rollback(:work_not_blocked)
 
   defp resume_blocked_identity(episode, identity, required_input_ref) do
     new_turn_ref = "turn:resume-blocked:#{identity.id}:v#{episode.semantic_version}"
@@ -366,7 +365,7 @@ defmodule Ryker.Work.Custody.Cancellation do
       when state in ["closed", "discarded"] do
     session = Repo.one!(Session.Query.by_id(turn.session_id))
     key = OperationKeys.checkpoint(turn)
-    saved = Repo.exists?(WorkspaceCheckpointTransfer.Query.saved_by(session.id, key))
+    saved = Repo.exists?(CoopFleet.WorkspaceCheckpointTransfer.Query.saved_by(session.id, key))
 
     if is_map(session.workspace_task) and not saved,
       do: {:error, :work_completed_workspace_recovery_required},
@@ -387,7 +386,7 @@ defmodule Ryker.Work.Custody.Cancellation do
          workspace_ref when is_binary(workspace_ref) <- Settings.worker_workspace_ref() do
       storage_root = Keyword.get_lazy(options, :storage_root, &Ryker.Bootstrap.storage_root!/0)
 
-      FleetControlPlane.portable_workspace(
+      CoopFleet.ControlPlane.portable_workspace(
         session,
         %{
           capability_names: Defaults.fetch!(:work).capability_names,
@@ -766,11 +765,11 @@ defmodule Ryker.Work.Custody.Cancellation do
   @spec removed_worker(Ecto.UUID.t()) :: {:ok, String.t()} | :none
   def removed_worker(session_id) do
     session_id
-    |> Placement.Query.by_session_id()
-    |> Placement.Query.with_joined_worker()
-    |> Placement.Query.ordered_by_generation_desc()
-    |> Placement.Query.limit_to(1)
-    |> Placement.Query.select_worker_standing()
+    |> CoopFleet.Placement.Query.by_session_id()
+    |> CoopFleet.Placement.Query.with_joined_worker()
+    |> CoopFleet.Placement.Query.ordered_by_generation_desc()
+    |> CoopFleet.Placement.Query.limit_to(1)
+    |> CoopFleet.Placement.Query.select_worker_standing()
     |> Repo.one()
     |> case do
       {worker_id, :revoked, _revoked_at} -> {:ok, worker_id}

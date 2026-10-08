@@ -2,7 +2,6 @@ defmodule Ryker.StateTools.RecordWriter do
   @moduledoc false
   alias Ryker.CanonicalJSON
   alias Ryker.Records
-  alias Ryker.Records.Record
 
   # The one place a state tool turns its arguments into a ledger record: the
   # host-owned operation identity, the per-tool idempotency slot, and the
@@ -12,7 +11,7 @@ defmodule Ryker.StateTools.RecordWriter do
 
   # Inspection uses the same host identity as creation, not matching prose. A
   # repeated call may refer to an existing citation; this does not name a creator.
-  defp citation_record?(%Record{kind: "evidence"} = record, turn, arguments)
+  defp citation_record?(%Records.Record{kind: "evidence"} = record, turn, arguments)
        when is_map(arguments) do
     record.episode_id == turn.episode_id && record.turn_id == turn.id &&
       record.operation_id ==
@@ -35,7 +34,8 @@ defmodule Ryker.StateTools.RecordWriter do
   def written_by?(record, turn, "cite_source", arguments),
     do: citation_record?(record, turn, arguments)
 
-  def written_by?(%Record{kind: kind} = record, turn, tool, arguments) when is_map(arguments) do
+  def written_by?(%Records.Record{kind: kind} = record, turn, tool, arguments)
+      when is_map(arguments) do
     Map.get(@written_kinds, tool) == kind and record.episode_id == turn.episode_id and
       record.turn_id == turn.id and
       record.operation_id ==

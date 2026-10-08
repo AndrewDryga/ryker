@@ -8,7 +8,7 @@ defmodule Ryker.Work.Cancellation do
   the run, permits the episode kernel to cancel or transfer ownership.
   """
   alias Ryker.CanonicalJSON
-  alias Ryker.Episodes.Command
+  alias Ryker.Episodes
 
   @intent_fields ~w(action cancel_ref new_turn_ref reason required_input_ref transfer_ref)
   @absent_receipt_fields ~w(close_operation_ref create_operation_ref kind remote_session_id session_state submit_operation_ref)
@@ -239,7 +239,7 @@ defmodule Ryker.Work.Cancellation do
 
   def prepare_receipt(_receipt), do: {:error, {:invalid_work_cancellation, :receipt}}
 
-  @spec command(intent(), map(), DateTime.t()) :: Command.t()
+  @spec command(intent(), map(), DateTime.t()) :: Episodes.Command.t()
   def command(
         %{
           "action" => "cancel",
@@ -249,7 +249,7 @@ defmodule Ryker.Work.Cancellation do
         episode,
         occurred_at
       ) do
-    %Command.CancelEpisode{
+    %Episodes.Command.CancelEpisode{
       cancel_ref: cancel_ref,
       episode_key: episode.key,
       expected_owner: %{kind: :turn, ref: episode.owner_ref},
@@ -270,7 +270,7 @@ defmodule Ryker.Work.Cancellation do
         episode,
         occurred_at
       ) do
-    %Command.TransferOwner{
+    %Episodes.Command.TransferOwner{
       episode_key: episode.key,
       expected_owner: %{kind: :turn, ref: episode.owner_ref},
       new_owner: %{kind: :turn, ref: new_turn_ref},

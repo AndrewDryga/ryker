@@ -1,13 +1,12 @@
 defmodule Ryker.Records.DerivedContext do
   @moduledoc "Source custody for model-facing episode records and historical answers."
   alias Ryker.{CanonicalJSON, Repo}
-  alias Ryker.Episodes.{Episode, Event}
-  alias Ryker.Knowledge.KnowledgeSnapshot
-  alias Ryker.Learning.LearningSources
-  alias Ryker.Learning.Observations
+  alias Ryker.Episodes
+  alias Ryker.Knowledge
+  alias Ryker.Learning
   alias Ryker.Records.Outcomes
   alias Ryker.Records.Record
-  alias Ryker.Work.{Session, Turn}
+  alias Ryker.Work
 
   @kinds ~w(episode_record episode_delivery episode_outcome)
   @stale {:error, :work_knowledge_context_stale}
@@ -25,7 +24,7 @@ defmodule Ryker.Records.DerivedContext do
   """
   def record_payload(payload), do: CanonicalJSON.bounded(payload, @record_bytes)
 
-  def delivery_document(%Turn{} = turn) do
+  def delivery_document(%Work.Turn{} = turn) do
     %{
       "delivery" => CanonicalJSON.bounded(turn.delivery_document, @delivery_bytes),
       "submission_ref" => turn.submission_fingerprint,
@@ -98,7 +97,7 @@ defmodule Ryker.Records.DerivedContext do
       Enum.map(sessions, fn {_, session} -> session.sources end) ++
         Enum.map(proofs, fn {_, proof} -> proof.sources end)
 
-    case LearningSources.merge(groups) do
+    case Learning.LearningSources.merge(groups) do
       sources when is_list(sources) ->
         {:ok, %{sources: sources, session_ids: Map.keys(sessions)}}
 
@@ -115,9 +114,9 @@ defmodule Ryker.Records.DerivedContext do
       |> Enum.flat_map(fn {_, proof} -> if proof, do: proof.turn_ids, else: [] end)
       |> Enum.uniq()
 
-    owners = ids |> Turn.Query.by_ids() |> Turn.Query.select_sessions() |> Repo.all()
+    owners = ids |> Work.Turn.Query.by_ids() |> Work.Turn.Query.select_sessions() |> Repo.all()
     session_ids = owners |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
-    sessions = session_ids |> Session.Query.by_ids() |> Repo.all()
+    sessions = session_ids |> Work.Session.Query.by_ids() |> Repo.all()
 
     contexts =
       Map.new(sessions, fn session ->
@@ -125,7 +124,10 @@ defmodule Ryker.Records.DerivedContext do
         # that union is conservative: later disclosures may invalidate an older
         # record, but must never make its old roots source-free or younger.
         sources =
-          KnowledgeSnapshot.producer_sources(destination, %{session | repository_ref: repository})
+          Knowledge.KnowledgeSnapshot.producer_sources(destination, %{
+            session
+            | repository_ref: repository
+          })
 
         turn_ids = for {id, sid} <- owners, sid == session.id, do: id
         {session.id, %{id: session.id, turn_ids: turn_ids, sources: sources}}
@@ -151,8 +153,8 @@ defmodule Ryker.Records.DerivedContext do
   defp valid_sources?([], _destination, _repository), do: true
 
   defp valid_sources?(sources, destination, repository) when is_list(sources) do
-    case Observations.locked_scope(destination, repository) do
-      {:ok, scope} -> LearningSources.valid?(sources, scope)
+    case Learning.Observations.locked_scope(destination, repository) do
+      {:ok, scope} -> Learning.LearningSources.valid?(sources, scope)
       _ -> false
     end
   end
@@ -170,8 +172,8 @@ defmodule Ryker.Records.DerivedContext do
   end
 
   defp proof(%{"kind" => "episode_delivery", "document" => document}, destination) do
-    with %Turn{operational_pruned_at: nil} = turn <-
-           get_uuid(&Turn.Query.by_id/1, document["source_turn_ref"]),
+    with %Work.Turn{operational_pruned_at: nil} = turn <-
+           get_uuid(&Work.Turn.Query.by_id/1, document["source_turn_ref"]),
          true <- turn.episode_id == destination.id,
          true <- not is_nil(turn.result_ref),
          true <- document == delivery_document(turn) do
@@ -182,14 +184,15 @@ defmodule Ryker.Records.DerivedContext do
   end
 
   defp proof(%{"kind" => "episode_outcome", "document" => document}, destination) do
-    with %Episode{} = episode <- get_uuid(&Episode.Query.by_id/1, document["episode_ref"]),
+    with %Episodes.Episode{} = episode <-
+           get_uuid(&Episodes.Episode.Query.by_id/1, document["episode_ref"]),
          true <- same_conversation?(episode, destination),
-         %Turn{episode_id: turn_episode_id, operational_pruned_at: nil} = turn <-
-           get_uuid(&Turn.Query.by_id/1, document["source_turn_ref"]),
+         %Work.Turn{episode_id: turn_episode_id, operational_pruned_at: nil} = turn <-
+           get_uuid(&Work.Turn.Query.by_id/1, document["source_turn_ref"]),
          true <- turn_episode_id == episode.id,
          true <- outcome_state?(turn, document["state"]),
-         %Event{episode_id: episode_id, kind: :input_admitted} = event <-
-           get_uuid(&Event.Query.by_id/1, document["source_event_ref"]),
+         %Episodes.Event{episode_id: episode_id, kind: :input_admitted} = event <-
+           get_uuid(&Episodes.Event.Query.by_id/1, document["source_event_ref"]),
          true <- episode_id == episode.id,
          records when is_list(records) and length(records) <= 12 <- document["records"],
          proofs <- Enum.map(records, &proof(record(&1), episode)),
@@ -197,7 +200,7 @@ defmodule Ryker.Records.DerivedContext do
          ^document <- Outcomes.projection(turn, event, records, document["state"]) do
       %{
         turn_ids: [document["source_turn_ref"] | Enum.flat_map(proofs, & &1.turn_ids)],
-        sources: LearningSources.for_work_input(event.payload["payload"])
+        sources: Learning.LearningSources.for_work_input(event.payload["payload"])
       }
     else
       _ -> nil
@@ -206,10 +209,10 @@ defmodule Ryker.Records.DerivedContext do
 
   defp proof(_, _), do: nil
 
-  defp outcome_state?(%Turn{result_ref: result}, "complete"), do: is_binary(result)
+  defp outcome_state?(%Work.Turn{result_ref: result}, "complete"), do: is_binary(result)
 
   defp outcome_state?(
-         %Turn{cancellation_intent: %{"action" => "block"}, cancellation_receipt: receipt},
+         %Work.Turn{cancellation_intent: %{"action" => "block"}, cancellation_receipt: receipt},
          "blocked"
        ),
        do: is_map(receipt)

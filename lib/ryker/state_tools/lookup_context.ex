@@ -1,8 +1,8 @@
 defmodule Ryker.StateTools.LookupContext do
   @moduledoc false
   alias Ryker.{CanonicalJSON, Repo}
-  alias Ryker.Memories.MemorySearch
-  alias Ryker.Slack.SourceRef
+  alias Ryker.Memories
+  alias Ryker.Slack
   alias Ryker.StateTools.{ErrorCode, LookupBoundary, LookupOriginals}
 
   @maximum_bytes 128 * 1_024
@@ -55,7 +55,7 @@ defmodule Ryker.StateTools.LookupContext do
     else
       binding = Map.put(binding, :source_tools, source_tools)
 
-      case MemorySearch.related(binding, targets, arguments["before"]) do
+      case Memories.MemorySearch.related(binding, targets, arguments["before"]) do
         {:ok, related} -> attach(result, related)
         {:error, :memory_search_budget_exceeded} -> without_memory(result)
         {:error, reason} -> {:error, reason}
@@ -85,7 +85,7 @@ defmodule Ryker.StateTools.LookupContext do
     result
     |> anchors()
     |> Enum.flat_map(fn anchor ->
-      case SourceRef.parse(anchor["source_ref"], workspace) do
+      case Slack.SourceRef.parse(anchor["source_ref"], workspace) do
         {:ok, %{kind: :message} = source} ->
           [
             %{
@@ -134,7 +134,7 @@ defmodule Ryker.StateTools.LookupContext do
   defp thread_root(result, anchor, source, workspace) do
     channel = source.channel_ref
 
-    case SourceRef.parse(anchor["thread_source_ref"] || result["source_ref"], workspace) do
+    case Slack.SourceRef.parse(anchor["thread_source_ref"] || result["source_ref"], workspace) do
       {:ok, %{kind: :thread, channel_ref: ^channel, message_ref: root}} -> root
       _ -> nil
     end

@@ -8,13 +8,12 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   import Ryker.ControlPlane.EpisodeTrace.Step
   alias Ryker.Behaviors
   alias Ryker.ControlPlane.{Activity, EpisodeTrace, Paths, RepositoryNames}
-  alias Ryker.CoopFleet.Placement
-  alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Ingress.InputCustodyTransition
+  alias Ryker.CoopFleet
+  alias Ryker.Episodes
+  alias Ryker.Ingress
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
-  alias Ryker.Work.{FailureCause, Session, Turn}
+  alias Ryker.Work
 
   @doc """
   Getting ready, per input and in the approved order: one Participation card,
@@ -71,8 +70,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     ids = Enum.map(input_rows, & &1.id)
 
     ids
-    |> InputCustodyTransition.Query.by_input_ids()
-    |> InputCustodyTransition.Query.ordered_by_input_and_sequence()
+    |> Ingress.InputCustodyTransition.Query.by_input_ids()
+    |> Ingress.InputCustodyTransition.Query.ordered_by_input_and_sequence()
     |> Repo.all()
     |> Enum.group_by(& &1.input_id)
   end
@@ -349,11 +348,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     ]
   end
 
-  defp queue_blocker_text(%InputCustodyTransition{detail: text})
+  defp queue_blocker_text(%Ingress.InputCustodyTransition{detail: text})
        when is_binary(text) and text != "",
        do: text
 
-  defp queue_blocker_text(%InputCustodyTransition{}), do: "Earlier input"
+  defp queue_blocker_text(%Ingress.InputCustodyTransition{}), do: "Earlier input"
 
   # A reader plans around the second a retry becomes eligible, not its microsecond.
   defp retry_time(%DateTime{} = at), do: "#{at.day} #{Calendar.strftime(at, "%b, %H:%M:%S UTC")}"
@@ -362,7 +361,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   # Why retrying stopped, in the words the failure explains itself with when
   # the saved detail names a cause; otherwise the recorded code.
   defp stop_reason(transition) do
-    case FailureCause.explain(transition.detail) do
+    case Work.FailureCause.explain(transition.detail) do
       %{cause: cause} -> " " <> cause
       nil -> error_reason(transition.error_code)
     end
@@ -687,8 +686,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     ids = Enum.map(sessions, & &1.id)
 
     ids
-    |> Placement.Query.by_session_ids()
-    |> Placement.Query.ordered_by_session_and_generation_desc()
+    |> CoopFleet.Placement.Query.by_session_ids()
+    |> CoopFleet.Placement.Query.ordered_by_session_and_generation_desc()
     |> Repo.all()
     |> Enum.uniq_by(& &1.session_id)
     |> Map.new(&{&1.session_id, &1})
@@ -703,7 +702,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   defp work_setup(turn, ordinal, session, earlier_turns, placement, now, context) do
     # Admission names each run after the input that started it.
     input = Map.get(context.inputs, turn.turn_ref)
-    edited? = match?(%Entry{event_kind: :edit}, input)
+    edited? = match?(%Ingress.Inbox.Entry{event_kind: :edit}, input)
     outcome = setup_outcome(turn, session, now)
     session_state = session_state(session, earlier_turns, edited?, outcome.kind)
     repositories = repositories(turn, session)
@@ -741,13 +740,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     }
   end
 
-  defp outcome_of(%Turn{status: :blocked, coop_turn_id: nil} = turn, _session, _now),
+  defp outcome_of(%Work.Turn{status: :blocked, coop_turn_id: nil} = turn, _session, _now),
     do: {:blocked, "Blocked", setup_failure(turn), :bad, nil}
 
   # A retry or a newer message replaced it, and the hand-over wrote over
   # whatever error it stopped on, so that is all there is to say.
   defp outcome_of(
-         %Turn{status: :superseded, coop_turn_id: nil, remote_queued_at: nil},
+         %Work.Turn{status: :superseded, coop_turn_id: nil, remote_queued_at: nil},
          _session,
          _now
        ) do
@@ -823,7 +822,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   # A run that stopped or was replaced before any worker session existed
   # continued nothing: the tenant retry of 2026-10-03 said the model "still has
   # what it saw in the previous round" when no model had seen anything.
-  defp session_state(%Session{coop_session_id: nil}, _earlier_turns, _edited?, kind)
+  defp session_state(%Work.Session{coop_session_id: nil}, _earlier_turns, _edited?, kind)
        when kind in [:blocked, :replaced],
        do: %{detail: "Not created · no worker started a session for this run"}
 
@@ -847,8 +846,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   # it, else what its code means in one sentence. A missing per-worker
   # breakdown stays missing: "no eligible capacity" is not "every worker was
   # busy", and the rows cannot say which it was.
-  defp setup_failure(%Turn{last_error_detail: detail, last_error_code: code}) do
-    case FailureCause.explain(detail) do
+  defp setup_failure(%Work.Turn{last_error_detail: detail, last_error_code: code}) do
+    case Work.FailureCause.explain(detail) do
       %{cause: cause} -> cause
       nil -> code_failure(code)
     end
@@ -866,12 +865,14 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   # The repository-backed task this session was pinned for, when there is one.
   # A pinned task is a binding, not proof of a Coop task timeline.
 
-  defp setup_worker(_session, %Placement{worker_id: worker}) when is_binary(worker), do: worker
-  defp setup_worker(%Session{coop_session_id: id}, nil) when is_binary(id), do: "Local Coop"
+  defp setup_worker(_session, %CoopFleet.Placement{worker_id: worker}) when is_binary(worker),
+    do: worker
+
+  defp setup_worker(%Work.Session{coop_session_id: id}, nil) when is_binary(id), do: "Local Coop"
   defp setup_worker(_session, _placement), do: nil
 
-  defp preparing_step(%Session{coop_session_id: nil}, _turn), do: "Creating worker session"
-  defp preparing_step(_session, %Turn{submission: nil}), do: "Preparing the briefing"
+  defp preparing_step(%Work.Session{coop_session_id: nil}, _turn), do: "Creating worker session"
+  defp preparing_step(_session, %Work.Turn{submission: nil}), do: "Preparing the briefing"
   defp preparing_step(_session, _turn), do: "Submitting the frozen briefing"
 
   # What the cards share: the names people know environments, repositories
@@ -890,7 +891,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     }
   end
 
-  defp linked_input?(%Entry{decision_document: %{"relation" => "history_only"}}), do: true
+  defp linked_input?(%Ingress.Inbox.Entry{decision_document: %{"relation" => "history_only"}}),
+    do: true
+
   defp linked_input?(_input), do: false
 
   defp setup_names do
@@ -909,10 +912,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     end
   end
 
-  defp linked_request(%Episode{linked_episode_id: nil}), do: nil
+  defp linked_request(%Episodes.Episode{linked_episode_id: nil}), do: nil
 
-  defp linked_request(%Episode{linked_episode_id: id}) do
-    key = id |> Episode.Query.by_id() |> Episode.Query.select_keys() |> Repo.one()
+  defp linked_request(%Episodes.Episode{linked_episode_id: id}) do
+    key =
+      id |> Episodes.Episode.Query.by_id() |> Episodes.Episode.Query.select_keys() |> Repo.one()
 
     case key do
       nil -> nil
@@ -923,7 +927,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   # Whether the message that started this run began the request or was added
   # to it, as routing decided for that message. A run no message started, a
   # retry or an automation's run, says nothing here.
-  defp request_words(%Entry{decision_document: %{} = decision}, linked) do
+  defp request_words(%Ingress.Inbox.Entry{decision_document: %{} = decision}, linked) do
     case {decision["action"], decision["relation"]} do
       {"continue_episode", _relation} ->
         "Continued · routing added this message to the work already under way"
@@ -959,12 +963,15 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     if incident_room?(episode), do: :incident_room, else: input_reason(first_input)
   end
 
-  defp input_reason(%Entry{source_kind: "slack", destination_conversation_ref: ref}),
-    do: if(direct_message?(ref), do: :default, else: :channel)
+  defp input_reason(%Ingress.Inbox.Entry{
+         source_kind: "slack",
+         destination_conversation_ref: ref
+       }),
+       do: if(direct_message?(ref), do: :default, else: :channel)
 
-  defp input_reason(%Entry{source_kind: "control_plane"}), do: :chat
-  defp input_reason(%Entry{source_kind: "github"}), do: :github
-  defp input_reason(%Entry{source_kind: "webhook"}), do: :webhook
+  defp input_reason(%Ingress.Inbox.Entry{source_kind: "control_plane"}), do: :chat
+  defp input_reason(%Ingress.Inbox.Entry{source_kind: "github"}), do: :github
+  defp input_reason(%Ingress.Inbox.Entry{source_kind: "webhook"}), do: :webhook
   defp input_reason(_input), do: nil
 
   defp direct_message?(ref) when is_binary(ref) do
@@ -974,7 +981,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   defp direct_message?(_ref), do: false
 
   # The room's own investigation, or a request that began in the room's channel.
-  defp incident_room?(%Episode{id: id, destination_conversation_ref: ref}),
+  defp incident_room?(%Episodes.Episode{id: id, destination_conversation_ref: ref}),
     do: Repo.exists?(EpisodeTrace.Query.incident_rooms(id, slack_channel(ref)))
 
   defp slack_channel("slack:" <> scope) do
@@ -988,10 +995,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
 
   defp environment_words(nil, _context), do: nil
 
-  defp environment_words(%Session{environment_ref: nil}, _context),
+  defp environment_words(%Work.Session{environment_ref: nil}, _context),
     do: "None · the work ran outside any environment"
 
-  defp environment_words(%Session{environment_ref: ref}, context) do
+  defp environment_words(%Work.Session{environment_ref: ref}, context) do
     name = Map.get(context.names.environments, ref, ref)
 
     case reason_words(context.reason) do
@@ -1017,9 +1024,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   # working copy read-only. A session without a repository still gets Coop's
   # empty scratch workspace, named "primary"; that is not a repository.
   defp repositories(_turn, nil), do: nil
-  defp repositories(_turn, %Session{repository_ref: nil}), do: []
+  defp repositories(_turn, %Work.Session{repository_ref: nil}), do: []
 
-  defp repositories(%Turn{operational_pruned_at: nil, submission: %{} = submission}, session) do
+  defp repositories(%Work.Turn{operational_pruned_at: nil, submission: %{} = submission}, session) do
     case get_in(submission, ["context", "workspace"]) do
       %{"primary" => %{} = primary} = workspace ->
         companions =
@@ -1036,7 +1043,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
 
   defp repositories(_turn, session), do: pinned_repositories(session)
 
-  defp pinned_repositories(%Session{
+  defp pinned_repositories(%Work.Session{
          repository_context: %{
            "primary_repository" => primary,
            "read_only_repositories" => read_only
@@ -1045,7 +1052,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
        when is_binary(primary) and is_list(read_only),
        do: [%{ref: primary, access: nil} | Enum.map(read_only, &%{ref: &1, access: :read})]
 
-  defp pinned_repositories(%Session{repository_ref: ref}), do: [%{ref: ref, access: nil}]
+  defp pinned_repositories(%Work.Session{repository_ref: ref}), do: [%{ref: ref, access: nil}]
 
   defp access(%{"read_only" => true}), do: :read
   defp access(%{"read_only" => false}), do: :change
@@ -1069,7 +1076,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     end)
   end
 
-  defp emisar_words(%Session{emisar_connection_ref: ref}, names) when is_binary(ref),
+  defp emisar_words(%Work.Session{emisar_connection_ref: ref}, names) when is_binary(ref),
     do: Map.get(names.emisar, ref, ref)
 
   defp emisar_words(_session, _names), do: nil

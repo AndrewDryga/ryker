@@ -25,7 +25,6 @@ defmodule Ryker.LocalRouting.Verdict do
   greetings in other words are the same decision.
   """
   alias Ryker.Admission
-  alias Ryker.Admission.{Context, Decision}
 
   @compared ~w(action episode_ref relation work_class repository repository_source reactions)
 
@@ -36,12 +35,13 @@ defmodule Ryker.LocalRouting.Verdict do
           invalid_reason: String.t() | nil
         }
 
-  @spec judge(String.t() | nil, String.t() | nil, Context.t(), map()) :: t()
-  def judge(content, finish_reason, %Context{} = context, provider) when is_map(provider) do
+  @spec judge(String.t() | nil, String.t() | nil, Admission.Context.t(), map()) :: t()
+  def judge(content, finish_reason, %Admission.Context{} = context, provider)
+      when is_map(provider) do
     with {:ok, document} <- decode(content, finish_reason),
-         {:ok, decision} <- Decision.parse(document),
+         {:ok, decision} <- Admission.Decision.parse(document),
          {:ok, %{decision: decision}} <- Admission.validate(context, decision) do
-      differing = differing(provider, Decision.document(decision))
+      differing = differing(provider, Admission.Decision.document(decision))
 
       %{
         valid: true,

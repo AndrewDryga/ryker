@@ -6,9 +6,9 @@ defmodule Ryker.ControlPlane.WorkingCopy.Query do
   Admission sessions are routing's, and no page lists them.
   """
   use Ryker, :query
-  alias Ryker.Episodes.Episode
-  alias Ryker.Learning.{Batch, LearningRun}
-  alias Ryker.Work.Session
+  alias Ryker.Episodes
+  alias Ryker.Learning
+  alias Ryker.Work
 
   @doc """
   Every session as `{session, episode_state, episode_key, learning_run,
@@ -16,13 +16,13 @@ defmodule Ryker.ControlPlane.WorkingCopy.Query do
   every learning session, and any blocked cleanup of one, off both pages.
   """
   def sessions do
-    from(session in Session,
+    from(session in Work.Session,
       as: :session,
-      left_join: episode in Episode,
+      left_join: episode in Episodes.Episode,
       on: episode.id == session.episode_id,
-      left_join: learning_run in LearningRun,
+      left_join: learning_run in Learning.LearningRun,
       on: learning_run.id == session.learning_run_id,
-      left_join: learning_batch in Batch,
+      left_join: learning_batch in Learning.Batch,
       on: learning_batch.id == learning_run.batch_id,
       select: {session, episode.state, episode.key, learning_run, learning_batch}
     )

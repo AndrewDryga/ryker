@@ -27,7 +27,7 @@ defmodule Ryker.Transcription.Service do
   """
   @behaviour Ryker.Transcription
   alias Ryker.Crypto
-  alias Ryker.Delivery.HTTPClient
+  alias Ryker.Delivery
   alias Ryker.Transcription
   alias Ryker.Transcription.{Languages, Local}
   require Logger
@@ -148,7 +148,7 @@ defmodule Ryker.Transcription.Service do
     boundary = "ryker-" <> Crypto.random_hex(12)
 
     request =
-      HTTPClient.build(
+      Delivery.HTTPClient.build(
         :post,
         url,
         [
@@ -161,7 +161,7 @@ defmodule Ryker.Transcription.Service do
     task =
       Task.async(fn ->
         try do
-          HTTPClient.stream(
+          Delivery.HTTPClient.stream(
             request,
             Ryker.CoopFinch,
             timeout_ms + 1_000,

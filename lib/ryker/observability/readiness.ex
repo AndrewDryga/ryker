@@ -12,7 +12,7 @@ defmodule Ryker.Observability.Readiness do
   alias Ryker.Config
   alias Ryker.Defaults
   alias Ryker.Observability.Fleet
-  alias Ryker.Runtime.Owner
+  alias Ryker.Runtime
   alias Ryker.Settings
 
   @type check :: %{
@@ -133,7 +133,7 @@ defmodule Ryker.Observability.Readiness do
     # The owner knows which setting started which process; several of its
     # children are plain listeners whose module is the web server's, so the
     # supervisor's own child list cannot answer that question.
-    running = Owner.running_keys()
+    running = Runtime.Owner.running_keys()
 
     # Keyed by configuration key; the process named beside it is the one a
     # runtime started outside the owner (the isolated test topology) registers.

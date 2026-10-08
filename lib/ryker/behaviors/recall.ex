@@ -10,24 +10,21 @@ defmodule Ryker.Behaviors.Recall do
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Behavior
   alias Ryker.Behaviors.StandingAssignmentRun
-  alias Ryker.Episodes.Episode
-  alias Ryker.Episodes.Scope
-  alias Ryker.Memories.MemorySearchPage
-  alias Ryker.Memories.MemorySourceLink
-  alias Ryker.Memories.SearchPage
+  alias Ryker.Episodes
+  alias Ryker.Memories
   alias Ryker.Reference
   alias Ryker.Repo
 
   @doc "Returns the bounded confirmed behavior context for one exact episode turn."
-  @spec model_context(Episode.t(), String.t(), String.t() | nil) :: map()
-  def model_context(%Episode{} = episode, operator_ref, repository)
+  @spec model_context(Episodes.Episode.t(), String.t(), String.t() | nil) :: map()
+  def model_context(%Episodes.Episode{} = episode, operator_ref, repository)
       when is_binary(operator_ref) and (is_binary(repository) or is_nil(repository)) do
     context = %{
       conversation_ref: episode.destination_conversation_ref,
       execution_mode: episode.execution_mode,
       operator_ref: operator_ref,
       repository: repository,
-      workspace_ref: Scope.workspace_ref(episode)
+      workspace_ref: Episodes.Scope.workspace_ref(episode)
     }
 
     %{
@@ -119,7 +116,7 @@ defmodule Ryker.Behaviors.Recall do
       "confirmed_at" => DateTime.to_iso8601(behavior.confirmed_at),
       "expires_at" => if(behavior.expires_at, do: DateTime.to_iso8601(behavior.expires_at)),
       "source_read" =>
-        MemorySourceLink.message(
+        Memories.MemorySourceLink.message(
           behavior.source_transport,
           behavior.source_conversation_ref,
           behavior.source_message_ref,
@@ -154,13 +151,13 @@ defmodule Ryker.Behaviors.Recall do
     |> Behavior.Query.unexpired()
     |> Behavior.Query.in_search_scope(context, page.scope)
     |> Behavior.Query.visible_to(:guidance, context)
-    |> SearchPage.Query.related_originals(
+    |> Memories.SearchPage.Query.related_originals(
       page,
       fields.conversation,
       fields.thread,
       fields.message
     )
-    |> MemorySearchPage.one(page, fields.text, fields.changed, fields.source)
+    |> Memories.MemorySearchPage.one(page, fields.text, fields.changed, fields.source)
     |> account_search_result(context)
   end
 

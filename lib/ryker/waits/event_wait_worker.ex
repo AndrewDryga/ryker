@@ -10,7 +10,7 @@ defmodule Ryker.Waits.EventWaitWorker do
   """
   use Ryker.PollingWorker, lane: :event_waits, interval: :interval_ms
   alias Ryker.Episodes
-  alias Ryker.Observability.Progress
+  alias Ryker.Observability
   alias Ryker.Options
   alias Ryker.PollingWorker
   alias Ryker.Waits.{EventSubscriptions, EventWaits}
@@ -46,7 +46,7 @@ defmodule Ryker.Waits.EventWaitWorker do
           state.interval_ms
       end
 
-    _ = Progress.beat(:event_waits)
+    _ = Observability.Progress.beat(:event_waits)
     delay
   end
 

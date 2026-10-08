@@ -4,7 +4,7 @@ defmodule Ryker.Slack.CapabilityTools.Search do
   reduced to what the turn may see, and hits missing their context are read
   again through the exact source reader.
   """
-  alias Ryker.Delivery.Retry
+  alias Ryker.Delivery
   alias Ryker.Slack.CapabilityTools.{Arguments, Authority, Resources, SourceReader}
   alias Ryker.Slack.SourceRef
 
@@ -113,7 +113,7 @@ defmodule Ryker.Slack.CapabilityTools.Search do
       # joined, leaves the hit with its context unread and why; a refusal that
       # can pass, such as a rate limit, fails the search for a later retry.
       {:error, {:slack_api_error, code} = reason} = error ->
-        if Retry.retryable?(reason),
+        if Delivery.Retry.retryable?(reason),
           do: error,
           else: {:ok, put_in(hit, ["context_coverage", "reason"], unread_reason(code)), remaining}
 

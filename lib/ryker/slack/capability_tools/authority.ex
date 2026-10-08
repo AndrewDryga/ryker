@@ -7,11 +7,11 @@ defmodule Ryker.Slack.CapabilityTools.Authority do
   an additional post and the event whose action token search checks out; and
   Slack's own conversation record decides whether a channel is visible.
   """
-  alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.Episodes
   alias Ryker.Repo
   alias Ryker.Slack.CapabilityTools.Arguments
   alias Ryker.Slack.Mentions
-  alias Ryker.Work.{Custody, Turn}
+  alias Ryker.Work
 
   # A post may only land in a joined, non-shared channel; a private one only
   # when it is the current channel.
@@ -64,11 +64,11 @@ defmodule Ryker.Slack.CapabilityTools.Authority do
   @spec binding(term(), String.t()) :: {:ok, String.t()} | {:error, :unauthorized}
   def binding(
         %{
-          episode: %Episode{
+          episode: %Episodes.Episode{
             destination_conversation_ref: "slack:" <> _rest = conversation_ref,
             destination_transport: "slack"
           },
-          turn: %Turn{id: turn_id}
+          turn: %Work.Turn{id: turn_id}
         },
         workspace_ref
       )
@@ -86,19 +86,21 @@ defmodule Ryker.Slack.CapabilityTools.Authority do
   goes to, so an update and the answer after it read in one place.
   """
   @spec update_destination(term()) :: {:ok, map()} | {:error, :unauthorized}
-  def update_destination(%{episode: %Episode{} = episode, turn: %Turn{} = turn}),
-    do: {:ok, Custody.answer_target(episode, turn)}
+  def update_destination(%{episode: %Episodes.Episode{} = episode, turn: %Work.Turn{} = turn}),
+    do: {:ok, Work.Custody.answer_target(episode, turn)}
 
   def update_destination(_binding), do: {:error, :unauthorized}
 
   @doc "The typed Slack entities a Work update may name: the ones its answer may."
   @spec mention_authority(term()) :: map() | nil
-  def mention_authority(%{episode: %Episode{} = episode}), do: Mentions.authority(episode)
+  def mention_authority(%{episode: %Episodes.Episode{} = episode}),
+    do: Mentions.authority(episode)
+
   def mention_authority(_binding), do: nil
 
   @doc "The active human input on exactly this message, which a reaction may answer."
   @spec current_slack_input(term(), map()) :: {:ok, map()} | {:error, :unauthorized}
-  def current_slack_input(%{episode: %Episode{} = episode}, source) do
+  def current_slack_input(%{episode: %Episodes.Episode{} = episode}, source) do
     conversation_ref = "slack:#{source.workspace_ref}:#{source.channel_ref}"
 
     episode
@@ -148,7 +150,11 @@ defmodule Ryker.Slack.CapabilityTools.Authority do
   @doc "The actor of the active human instruction that granted this exact destination."
   @spec current_slack_instruction(term(), map(), String.t()) ::
           {:ok, %{actor_ref: String.t()}} | {:error, :unauthorized}
-  def current_slack_instruction(%{episode: %Episode{} = episode}, source, destination_ref) do
+  def current_slack_instruction(
+        %{episode: %Episodes.Episode{} = episode},
+        source,
+        destination_ref
+      ) do
     conversation_ref = "slack:#{source.workspace_ref}:#{source.channel_ref}"
 
     episode
@@ -192,7 +198,7 @@ defmodule Ryker.Slack.CapabilityTools.Authority do
 
   @doc "The event whose process-local action token search may check out."
   @spec current_event_ref(term()) :: {:ok, String.t()} | {:error, atom()}
-  def current_event_ref(%{episode: %Episode{} = episode}) do
+  def current_event_ref(%{episode: %Episodes.Episode{} = episode}) do
     episode
     |> active_input_events()
     |> Enum.find_value({:error, :slack_action_token_unavailable}, fn event ->
@@ -206,7 +212,7 @@ defmodule Ryker.Slack.CapabilityTools.Authority do
   def current_event_ref(_binding), do: {:error, :slack_action_token_unavailable}
 
   @spec current_requester_ref(term()) :: {:ok, String.t()} | {:error, atom()}
-  def current_requester_ref(%{episode: %Episode{} = episode}) do
+  def current_requester_ref(%{episode: %Episodes.Episode{} = episode}) do
     episode
     |> active_input_events()
     |> Enum.find_value({:error, :slack_requester_unavailable}, fn event ->
@@ -225,16 +231,16 @@ defmodule Ryker.Slack.CapabilityTools.Authority do
 
   def current_requester_ref(_binding), do: {:error, :slack_requester_unavailable}
 
-  defp active_input_events(%Episode{id: episode_id, active_input_refs: refs}) do
+  defp active_input_events(%Episodes.Episode{id: episode_id, active_input_refs: refs}) do
     refs = Enum.uniq(refs)
 
     if refs == [] do
       []
     else
       episode_id
-      |> Event.Query.by_episode_id()
-      |> Event.Query.admitted_inputs(refs)
-      |> Event.Query.ordered_by_sequence_desc()
+      |> Episodes.Event.Query.by_episode_id()
+      |> Episodes.Event.Query.admitted_inputs(refs)
+      |> Episodes.Event.Query.ordered_by_sequence_desc()
       |> Repo.all()
     end
   end

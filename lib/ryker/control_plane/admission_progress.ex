@@ -1,11 +1,10 @@
 defmodule Ryker.ControlPlane.AdmissionProgress do
   @moduledoc "Observed admission state for the current conversation, without model bodies or private diagnostics."
   alias Ryker.ControlPlane.{Conversation, Paths}
-  alias Ryker.Ingress.Inbox
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
-  alias Ryker.Work.FailureCause
+  alias Ryker.Work
 
   @labels %{
     "context_prepared" => "Starting",
@@ -40,7 +39,7 @@ defmodule Ryker.ControlPlane.AdmissionProgress do
         claims: row.claims,
         retry_at: row.retry_at,
         href: Paths.request(row.id),
-        ref: Inbox.ref(%Entry{id: row.id}),
+        ref: Ingress.Inbox.ref(%Ingress.Inbox.Entry{id: row.id}),
         cause: stopped_cause(row)
       }
     end)
@@ -62,7 +61,7 @@ defmodule Ryker.ControlPlane.AdmissionProgress do
   # Only what a person in the conversation can act on; the failure's own
   # page carries the rest.
   defp stopped_cause(%{status: :blocked, error_detail: detail}) do
-    if FailureCause.account_problem?(detail), do: "the AI model account needs attention"
+    if Work.FailureCause.account_problem?(detail), do: "the AI model account needs attention"
   end
 
   defp stopped_cause(_row), do: nil

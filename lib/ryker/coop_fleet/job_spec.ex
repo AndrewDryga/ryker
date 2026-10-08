@@ -11,7 +11,7 @@ defmodule Ryker.CoopFleet.JobSpec do
   """
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.{JobCheck, JobTemplates, Protocol}
-  alias Ryker.Work.RepositorySource
+  alias Ryker.Work
 
   @maximum_bytes 256 * 1_024
   @root_fields ~w(version job_ref source companions targets mode repository_read_only egress limits environment check resources)
@@ -183,7 +183,7 @@ defmodule Ryker.CoopFleet.JobSpec do
   defp source?(%{} = source) do
     exact?(source, @source_fields) and
       repository_identity?(source) and
-      match?({:ok, _binding}, RepositorySource.parse_binding(source["binding"])) and
+      match?({:ok, _binding}, Work.RepositorySource.parse_binding(source["binding"])) and
       source["binding"]["remote_identity"] == "origin" and
       submodules?(source["submodules"], 0)
   end

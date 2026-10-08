@@ -1,7 +1,7 @@
 defmodule Ryker.Work.ActivityEvent.Query do
   @moduledoc "What a Work worker reported doing, for every read of `episode_work_activity`."
   use Ryker, :query
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress
   alias Ryker.Work.{ActivityEvent, Session, Turn}
 
   def all, do: from(events in ActivityEvent, as: :episode_work_activity)
@@ -26,7 +26,10 @@ defmodule Ryker.Work.ActivityEvent.Query do
 
   @doc "Episode `episode_id`'s events, and those of the messages it was routed from."
   def by_episode_id(episode_id) do
-    inputs = episode_id |> Entry.Query.by_episode_id() |> Entry.Query.select_ids()
+    inputs =
+      episode_id
+      |> Ingress.Inbox.Entry.Query.by_episode_id()
+      |> Ingress.Inbox.Entry.Query.select_ids()
 
     where(
       all(),
@@ -83,7 +86,7 @@ defmodule Ryker.Work.ActivityEvent.Query do
       from(t in Turn, where: not is_nil(t.operational_pruned_at), select: t.session_id)
 
     from(a in ActivityEvent,
-      left_join: i in Entry,
+      left_join: i in Ingress.Inbox.Entry,
       on: i.id == a.admission_input_id,
       join: s in Session,
       on: s.id == a.session_id,

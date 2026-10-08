@@ -1,11 +1,11 @@
 defmodule Ryker.Slack.Target do
   @moduledoc false
-  alias Ryker.Delivery.Request
+  alias Ryker.Delivery
 
   @id ~r/\A[A-Z0-9]+\z/
 
-  @spec parse(Request.t()) :: {:ok, map()} | {:error, term()}
-  def parse(%Request{transport: "slack"} = request) do
+  @spec parse(Delivery.Request.t()) :: {:ok, map()} | {:error, term()}
+  def parse(%Delivery.Request{transport: "slack"} = request) do
     with {:ok, workspace_ref, channel_ref} <- conversation(request.conversation_ref),
          :ok <- optional_timestamp(request.thread_ref),
          :ok <- source_target(request) do
@@ -33,9 +33,9 @@ defmodule Ryker.Slack.Target do
     end
   end
 
-  defp source_target(%Request{kind: :message, source_item_ref: nil}), do: :ok
+  defp source_target(%Delivery.Request{kind: :message, source_item_ref: nil}), do: :ok
 
-  defp source_target(%Request{kind: :reaction, source_item_ref: value}),
+  defp source_target(%Delivery.Request{kind: :reaction, source_item_ref: value}),
     do: timestamp(value, :source_item_ref)
 
   defp source_target(_request), do: {:error, {:invalid_slack_delivery_target, :source_item_ref}}

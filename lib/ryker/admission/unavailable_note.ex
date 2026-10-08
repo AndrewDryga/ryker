@@ -10,9 +10,9 @@ defmodule Ryker.Admission.UnavailableNote do
   message not meant for Ryker and any failure a retry may cure are left
   alone.
   """
-  alias Ryker.Delivery.HostNote
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Work.FailureCause
+  alias Ryker.Delivery
+  alias Ryker.Ingress
+  alias Ryker.Work
 
   @message "I can't reply right now: the AI model account I run on needs attention. " <>
              "The people who manage me can see this in Ryker, and once it's fixed they " <>
@@ -23,10 +23,10 @@ defmodule Ryker.Admission.UnavailableNote do
   nothing should be said. Its reference names the thread and the day, so the
   publisher finds a note it already posted there instead of posting another.
   """
-  @spec note(Entry.t(), String.t(), DateTime.t()) :: HostNote.t() | nil
-  def note(%Entry{} = entry, detail, %DateTime{} = now) do
-    if addressed_person?(entry) and FailureCause.account_problem?(detail) do
-      %HostNote{
+  @spec note(Ingress.Inbox.Entry.t(), String.t(), DateTime.t()) :: Delivery.HostNote.t() | nil
+  def note(%Ingress.Inbox.Entry{} = entry, detail, %DateTime{} = now) do
+    if addressed_person?(entry) and Work.FailureCause.account_problem?(detail) do
+      %Delivery.HostNote{
         conversation_ref: entry.destination_conversation_ref,
         execution_mode: entry.execution_mode,
         message: @message,
@@ -39,7 +39,7 @@ defmodule Ryker.Admission.UnavailableNote do
     end
   end
 
-  defp addressed_person?(%Entry{
+  defp addressed_person?(%Ingress.Inbox.Entry{
          source_kind: "slack",
          destination_transport: "slack",
          actor_kind: :user,

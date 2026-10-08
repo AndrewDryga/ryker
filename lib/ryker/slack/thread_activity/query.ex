@@ -5,16 +5,16 @@ defmodule Ryker.Slack.ThreadActivity.Query do
   the turns that own working episodes, and what each running turn last said.
   """
   use Ryker, :query
-  alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Work.{ActivityEvent, Turn}
+  alias Ryker.Episodes
+  alias Ryker.Ingress
+  alias Ryker.Work
 
   @doc """
   The `limit` latest live Slack messages of `workspace_ref` that are pending,
   blocked or changed since `cutoff`.
   """
   def recent_entries(workspace_ref, cutoff, limit) do
-    from(entry in Entry,
+    from(entry in Ingress.Inbox.Entry,
       where:
         entry.source_kind == "slack" and entry.source_ref == ^workspace_ref and
           entry.destination_transport == "slack" and entry.execution_mode == :live and
@@ -29,7 +29,7 @@ defmodule Ryker.Slack.ThreadActivity.Query do
   still under way or changed since `cutoff`.
   """
   def recent_episodes(workspace_ref, cutoff, limit) do
-    from(episode in Episode,
+    from(episode in Episodes.Episode,
       where:
         episode.destination_transport == "slack" and episode.execution_mode == :live and
           fragment(
@@ -50,7 +50,7 @@ defmodule Ryker.Slack.ThreadActivity.Query do
   status needs; the caller keeps only the exact pairs.
   """
   def owning_turns(episode_ids, turn_refs) do
-    from(turn in Turn,
+    from(turn in Work.Turn,
       where: turn.episode_id in ^episode_ids and turn.turn_ref in ^turn_refs,
       select: %{
         coop_turn_id: turn.coop_turn_id,
@@ -67,7 +67,7 @@ defmodule Ryker.Slack.ThreadActivity.Query do
   narration, as `{{session_id, coop_turn_id}, {kind, payload}}`.
   """
   def latest_steps(remote_turns, kinds) do
-    from(event in ActivityEvent,
+    from(event in Work.ActivityEvent,
       where: event.coop_turn_id in ^remote_turns and event.kind in ^kinds,
       distinct: [event.session_id, event.coop_turn_id],
       order_by: [desc: fragment("? = 'tool.started'", event.kind), desc: event.sequence],
@@ -80,7 +80,7 @@ defmodule Ryker.Slack.ThreadActivity.Query do
   `{{session_id, coop_turn_id}, occurred_at}`.
   """
   def last_heard(remote_turns, kinds) do
-    from(event in ActivityEvent,
+    from(event in Work.ActivityEvent,
       where: event.coop_turn_id in ^remote_turns and event.kind in ^kinds,
       group_by: [event.session_id, event.coop_turn_id],
       select: {{event.session_id, event.coop_turn_id}, max(event.occurred_at)}

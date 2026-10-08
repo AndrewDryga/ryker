@@ -20,14 +20,14 @@ defmodule Ryker.Publication.Followups.Polls do
   or has held the task for an hour. Then the pull request is checked at once,
   so a webhook or check request that came during the wait is not lost.
   """
-  alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.Episodes
   alias Ryker.ErrorDetail
   alias Ryker.Publication.Custody
   alias Ryker.Publication.Followups.{Leases, Store}
   alias Ryker.Publication.LifecycleStatus
   alias Ryker.Publication.Publication
   alias Ryker.Repo
-  alias Ryker.Work.Custody, as: WorkCustody
+  alias Ryker.Work
 
   # How often an open pull request is checked when no webhook arrives. Slow on
   # purpose: each check spends GitHub API calls, for up to 30 days.
@@ -335,10 +335,10 @@ defmodule Ryker.Publication.Followups.Polls do
   end
 
   defp still_working?(followup, now) do
-    case Repo.one(Episode.Query.by_id(followup.episode_id)) do
-      %Episode{state: :working, owner_kind: :turn, owner_ref: owner} ->
+    case Repo.one(Episodes.Episode.Query.by_id(followup.episode_id)) do
+      %Episodes.Episode{state: :working, owner_kind: :turn, owner_ref: owner} ->
         owner == followup.verification_turn_ref and within_wait?(followup, now) and
-          WorkCustody.turn_in_progress?(followup.episode_id, owner)
+          Work.Custody.turn_in_progress?(followup.episode_id, owner)
 
       _other ->
         false
@@ -349,9 +349,9 @@ defmodule Ryker.Publication.Followups.Polls do
   defp within_wait?(followup, now) do
     admitted_at =
       followup.episode_id
-      |> Event.Query.by_episode_id()
-      |> Event.Query.at_sequence(followup.verification_sequence)
-      |> Event.Query.select_inserted_at()
+      |> Episodes.Event.Query.by_episode_id()
+      |> Episodes.Event.Query.at_sequence(followup.verification_sequence)
+      |> Episodes.Event.Query.select_inserted_at()
       |> Repo.one()
 
     is_struct(admitted_at, DateTime) and DateTime.diff(now, admitted_at) < @task_wait_seconds
@@ -359,9 +359,9 @@ defmodule Ryker.Publication.Followups.Polls do
 
   defp verification_recorded?(followup) do
     followup.episode_id
-    |> Event.Query.by_episode_id()
-    |> Event.Query.after_sequence(followup.verification_sequence)
-    |> Event.Query.accepted_for_turn(followup.verification_turn_ref)
+    |> Episodes.Event.Query.by_episode_id()
+    |> Episodes.Event.Query.after_sequence(followup.verification_sequence)
+    |> Episodes.Event.Query.accepted_for_turn(followup.verification_turn_ref)
     |> Repo.exists?()
   end
 

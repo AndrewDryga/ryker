@@ -9,16 +9,16 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   `ConversationProjection` decides which rows are on a page; this module says
   what each row shows, with the sort key and cursor that place it.
   """
-  alias Ryker.Artifacts.OutputArtifact
+  alias Ryker.Artifacts
   alias Ryker.ControlPlane.{ConsolePeople, ConversationTranscript, Paths}
   alias Ryker.ControlPlane.{PublicationPosition, TranscriptCursor}
-  alias Ryker.Delivery.ChatCard
-  alias Ryker.Episodes.{Event, Reactions}
+  alias Ryker.Delivery
+  alias Ryker.Episodes
   alias Ryker.Feedback
-  alias Ryker.Publication.Publication
-  alias Ryker.Records.Record
+  alias Ryker.Publication
+  alias Ryker.Records
   alias Ryker.Repo
-  alias Ryker.Work.Turn
+  alias Ryker.Work
 
   @page_maximum 200
   @record_limit 64
@@ -59,7 +59,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
         cards(replies),
         output_artifacts(replies, conversation_id),
         reactions,
-        Reactions.current_for_episodes(Enum.uniq(Enum.map(replies, & &1.episode_id)))
+        Episodes.Reactions.current_for_episodes(Enum.uniq(Enum.map(replies, & &1.episode_id)))
       ) ++
         Enum.flat_map(actions, &action_message(&1, message_reactions)) ++
         publication_messages(publications) ++
@@ -189,9 +189,9 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   defp admission_events(refs_by_episode, refs) do
     refs_by_episode
     |> Map.keys()
-    |> Event.Query.by_episode_ids()
-    |> Event.Query.admitted_inputs(refs)
-    |> Event.Query.select_admissions()
+    |> Episodes.Event.Query.by_episode_ids()
+    |> Episodes.Event.Query.admitted_inputs(refs)
+    |> Episodes.Event.Query.select_admissions()
     |> Repo.all()
   end
 
@@ -231,9 +231,9 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   defp earlier_answer_turns(turn_ids) do
     turns =
       turn_ids
-      |> Turn.Query.by_ids()
-      |> Turn.Query.having_selected_inputs()
-      |> Turn.Query.select_selected_inputs()
+      |> Work.Turn.Query.by_ids()
+      |> Work.Turn.Query.having_selected_inputs()
+      |> Work.Turn.Query.select_selected_inputs()
       |> Repo.all()
 
     answered =
@@ -333,8 +333,12 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
 
   defp card_records([]), do: []
 
-  defp card_records(refs),
-    do: refs |> Record.Query.by_refs() |> Record.Query.limit_to(@record_limit) |> Repo.all()
+  defp card_records(refs) do
+    refs
+    |> Records.Record.Query.by_refs()
+    |> Records.Record.Query.limit_to(@record_limit)
+    |> Repo.all()
+  end
 
   defp put_card(record, cards, allowed) do
     key = {record.turn_id, record.ref}
@@ -345,7 +349,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   end
 
   defp put_projected_card(record, key, cards) do
-    case ChatCard.project(record) do
+    case Delivery.ChatCard.project(record) do
       {:ok, card} -> Map.put(cards, key, card)
       :ignore -> cards
     end
@@ -363,10 +367,10 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   # Names, types and sizes only: a file's bytes are read when someone opens it.
   defp project_output_artifacts(turn_ids, conversation_id) do
     turn_ids
-    |> OutputArtifact.Query.by_turn_ids()
-    |> OutputArtifact.Query.ordered_by_name()
-    |> OutputArtifact.Query.limit_to(@page_maximum * 5)
-    |> OutputArtifact.Query.select_listing()
+    |> Artifacts.OutputArtifact.Query.by_turn_ids()
+    |> Artifacts.OutputArtifact.Query.ordered_by_name()
+    |> Artifacts.OutputArtifact.Query.limit_to(@page_maximum * 5)
+    |> Artifacts.OutputArtifact.Query.select_listing()
     |> Repo.all()
     |> Map.new(&{{&1.turn_id, &1.ref}, output_artifact(&1, conversation_id)})
   end
@@ -633,7 +637,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   end
 
   defp publication_message(
-         {%Publication{status: status, review_delivery_receipt: receipt} = publication,
+         {%Publication.Publication{status: status, review_delivery_receipt: receipt} = publication,
           record_ref}
        )
        when status in [:reviewed, :blocked] and is_map(receipt) do
@@ -646,8 +650,8 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   end
 
   defp publication_message(
-         {%Publication{status: :published, published_delivery_receipt: receipt} = publication,
-          record_ref}
+         {%Publication.Publication{status: :published, published_delivery_receipt: receipt} =
+            publication, record_ref}
        )
        when is_map(receipt) do
     project_publication_message(
@@ -661,7 +665,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   defp publication_message(_not_delivered), do: []
 
   defp project_publication_message(publication, record_ref, receipt, message) do
-    case ChatCard.project_publication(publication, record_ref) do
+    case Delivery.ChatCard.project_publication(publication, record_ref) do
       {:ok, card} -> [build_publication_message(publication, receipt, card, message)]
       :ignore -> []
     end

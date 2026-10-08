@@ -1,9 +1,9 @@
 defmodule Ryker.Episodes.Episode.Query do
   @moduledoc "Requests (episodes), for every read of `episode_kernel_episodes`."
   use Ryker, :query
-  alias Ryker.Delivery.PlatformAction
+  alias Ryker.Delivery
   alias Ryker.Episodes.{Episode, Event, Origin}
-  alias Ryker.Work.Turn
+  alias Ryker.Work
 
   def all, do: from(episodes in Episode, as: :episode_kernel_episodes)
 
@@ -135,7 +135,7 @@ defmodule Ryker.Episodes.Episode.Query do
   """
   def answered_by_delivery(delivery_ref) do
     from(e in all(),
-      join: t in Turn,
+      join: t in Work.Turn,
       on: t.episode_id == e.id,
       where: t.delivery_ref == ^delivery_ref,
       select: {e, t.selected_input_refs}
@@ -148,7 +148,7 @@ defmodule Ryker.Episodes.Episode.Query do
   """
   def updated_by_slack_action(action_ref) do
     from(e in all(),
-      join: a in PlatformAction,
+      join: a in Delivery.PlatformAction,
       on: a.episode_id == e.id,
       where: a.action_ref == ^action_ref and a.tool == :post_slack_update,
       select: {e, e.active_input_refs}
@@ -162,7 +162,7 @@ defmodule Ryker.Episodes.Episode.Query do
   def working_on_turn(episode_id, turn_id, session_id, lease_ref) do
     episode_id
     |> by_id()
-    |> join(:inner, [episode_kernel_episodes: e], t in Turn,
+    |> join(:inner, [episode_kernel_episodes: e], t in Work.Turn,
       on: t.episode_id == e.id,
       as: :episode_work_turns
     )

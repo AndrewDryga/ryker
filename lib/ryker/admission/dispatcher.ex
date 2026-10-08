@@ -7,9 +7,9 @@ defmodule Ryker.Admission.Dispatcher do
   second model call.
   """
   alias Ryker.Admission.{Executor, LeaseRenewer, UnavailableNote}
-  alias Ryker.Delivery.HostNote
+  alias Ryker.Delivery
   alias Ryker.ErrorDetail
-  alias Ryker.Ingress.Inbox
+  alias Ryker.Ingress
   require Logger
 
   @maximum_attempts 8
@@ -24,7 +24,8 @@ defmodule Ryker.Admission.Dispatcher do
   def run_once(options) do
     with {:ok, settings} <- settings(options),
          now <- settings.now.(),
-         {:ok, claim} <- Inbox.claim_next(settings.worker_ref, now, settings.lease_seconds) do
+         {:ok, claim} <-
+           Ingress.Inbox.claim_next(settings.worker_ref, now, settings.lease_seconds) do
       execute_claim(claim, settings, now)
     end
   end
@@ -32,11 +33,11 @@ defmodule Ryker.Admission.Dispatcher do
   defp execute_claim(nil, _settings, _now), do: {:ok, :idle}
 
   defp execute_claim(claim, settings, claimed_at) do
-    input_ref = Inbox.ref(claim.entry)
+    input_ref = Ingress.Inbox.ref(claim.entry)
 
     renew_lease =
       LeaseRenewer.new(claimed_at, settings.lease_seconds, settings.now, fn renewed_at ->
-        case Inbox.renew(input_ref, claim.lease_ref, renewed_at, settings.lease_seconds) do
+        case Ingress.Inbox.renew(input_ref, claim.lease_ref, renewed_at, settings.lease_seconds) do
           {:ok, _entry} -> :ok
           {:error, reason} -> {:error, reason}
         end
@@ -92,7 +93,7 @@ defmodule Ryker.Admission.Dispatcher do
   defp tell_unavailable(entry, reason, settings) do
     {_code, detail} = describe_error(reason)
 
-    with %HostNote{} = note <- UnavailableNote.note(entry, detail, settings.now.()),
+    with %Delivery.HostNote{} = note <- UnavailableNote.note(entry, detail, settings.now.()),
          {:error, failure} <- settings.notify.(note) do
       Logger.warning("model-unavailable note not posted: #{inspect(failure, limit: 5)}")
     end
@@ -103,7 +104,7 @@ defmodule Ryker.Admission.Dispatcher do
   defp block(claim, input_ref, reason, generation \\ :same) do
     {error_code, error_detail} = describe_error(reason)
 
-    case Inbox.block(input_ref, claim.lease_ref, error_code, error_detail, generation) do
+    case Ingress.Inbox.block(input_ref, claim.lease_ref, error_code, error_detail, generation) do
       {:ok, _entry} ->
         {:ok, {:blocked, input_ref, reason}}
 
@@ -137,7 +138,7 @@ defmodule Ryker.Admission.Dispatcher do
   defp wait(claim, input_ref, reason, settings, now) do
     {error_code, error_detail} = describe_error(reason)
 
-    case Inbox.wait(
+    case Ingress.Inbox.wait(
            input_ref,
            claim.lease_ref,
            now,
@@ -161,15 +162,15 @@ defmodule Ryker.Admission.Dispatcher do
   defp retry_reason(reason), do: {reason, :same}
 
   defp defer_input(:execution, input_ref, lease_ref, now, delay_ms, code, detail) do
-    Inbox.defer_after_terminal(input_ref, lease_ref, now, delay_ms, code, detail)
+    Ingress.Inbox.defer_after_terminal(input_ref, lease_ref, now, delay_ms, code, detail)
   end
 
   defp defer_input(:validation, input_ref, lease_ref, now, delay_ms, code, detail) do
-    Inbox.defer_after_validation(input_ref, lease_ref, now, delay_ms, code, detail)
+    Ingress.Inbox.defer_after_validation(input_ref, lease_ref, now, delay_ms, code, detail)
   end
 
   defp defer_input(:same, input_ref, lease_ref, now, delay_ms, code, detail) do
-    Inbox.defer(input_ref, lease_ref, now, delay_ms, code, detail)
+    Ingress.Inbox.defer(input_ref, lease_ref, now, delay_ms, code, detail)
   end
 
   defp retry_delay(attempt_count, settings) do
@@ -201,7 +202,7 @@ defmodule Ryker.Admission.Dispatcher do
         executor: Keyword.get(options, :executor, Executor),
         executor_options: Keyword.fetch!(options, :executor_options),
         lease_seconds: Keyword.get(options, :lease_seconds, 300),
-        notify: Keyword.get(options, :notify, &HostNote.deliver/1),
+        notify: Keyword.get(options, :notify, &Delivery.HostNote.deliver/1),
         now: Keyword.get(options, :now, &DateTime.utc_now/0),
         retry_base_ms: Keyword.get(options, :retry_base_ms, 1_000),
         retry_max_ms: Keyword.get(options, :retry_max_ms, 60_000),

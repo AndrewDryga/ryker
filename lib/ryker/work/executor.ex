@@ -15,8 +15,8 @@ defmodule Ryker.Work.Executor do
   is the Coop call layer they all share.
   """
   alias Ryker.GitObject
-  alias Ryker.Knowledge.KnowledgeSnapshot
-  alias Ryker.StateTools.Capabilities
+  alias Ryker.Knowledge
+  alias Ryker.StateTools
   alias Ryker.Work.{Custody, PlatformTools, StateBinding, SubmissionBuilder}
   alias Ryker.Work.Executor.{Cancellation, Remote, Sessions, Turns, Validation, Workspace}
 
@@ -56,9 +56,9 @@ defmodule Ryker.Work.Executor do
   defp execute_turn(%{turn: %{completion_receipt: proof}} = claim, settings)
        when is_map(proof) do
     result =
-      with :ok <- KnowledgeSnapshot.authorize_session(claim.episode, claim.session),
+      with :ok <- Knowledge.KnowledgeSnapshot.authorize_session(claim.episode, claim.session),
            :ok <-
-             KnowledgeSnapshot.authorize_submission(
+             Knowledge.KnowledgeSnapshot.authorize_submission(
                claim.episode,
                claim.session.repository_ref,
                claim.turn.submission
@@ -86,7 +86,7 @@ defmodule Ryker.Work.Executor do
          :ok <- require_project_isolation(remote_session, settings),
          {:ok, claim} <- ensure_state_binding(claim, settings),
          {:ok, claim} <- ensure_submission(claim, remote_session, settings),
-         :ok <- KnowledgeSnapshot.authorize_session(claim.episode, claim.session),
+         :ok <- Knowledge.KnowledgeSnapshot.authorize_session(claim.episode, claim.session),
          {:ok, claim} <- authorize_or_rebuild(claim, remote_session, settings),
          {:ok, claim, remote_turn} <- Turns.ensure_turn(claim, settings) do
       Turns.await_turn(claim, remote_turn, settings, settings.max_polls)
@@ -100,7 +100,7 @@ defmodule Ryker.Work.Executor do
   # again from what is current, once; withdrawn knowledge never reaches the
   # model either way.
   defp authorize_or_rebuild(claim, remote_session, settings, rebuilt? \\ false) do
-    case KnowledgeSnapshot.authorize_submission(
+    case Knowledge.KnowledgeSnapshot.authorize_submission(
            claim.episode,
            claim.session.repository_ref,
            claim.turn.submission
@@ -284,7 +284,7 @@ defmodule Ryker.Work.Executor do
           Keyword.get(
             options,
             :state_tool_capabilities,
-            if(state_tools_endpoint, do: Capabilities.default(), else: nil)
+            if(state_tools_endpoint, do: StateTools.Capabilities.default(), else: nil)
           ),
         state_tools_endpoint: state_tools_endpoint,
         state_tools_secret: Keyword.get(options, :state_tools_secret),
@@ -375,7 +375,7 @@ defmodule Ryker.Work.Executor do
          state_tools_endpoint: endpoint
        })
        when is_binary(endpoint),
-       do: Capabilities.valid?(capabilities)
+       do: StateTools.Capabilities.valid?(capabilities)
 
   defp valid_state_tool_capabilities?(_settings), do: false
 

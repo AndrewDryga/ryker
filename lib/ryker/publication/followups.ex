@@ -25,7 +25,7 @@ defmodule Ryker.Publication.Followups do
 
   `Followups.Store` holds the follow-up and lifecycle-event rows they share.
   """
-  alias Ryker.Ingress.Input
+  alias Ryker.Ingress
   alias Ryker.Publication.Followups.{Delivery, Leases, Polls, Signals, Start}
   alias Ryker.Publication.LifecycleEvent
 
@@ -111,12 +111,12 @@ defmodule Ryker.Publication.Followups do
   the source engineering episode, while unmatched GitHub conversation remains
   eligible for ordinary admission.
   """
-  @spec observe_github_feedback(Input.t()) ::
+  @spec observe_github_feedback(Ingress.Input.t()) ::
           {:ok, :unmatched | %{event: LifecycleEvent.t(), status: :recorded | :duplicate}}
           | {:error, term()}
   defdelegate observe_github_feedback(input), to: Signals
 
   @doc "Records a trusted deployment or Terraform signal against each merged publication named."
-  @spec observe_input(Input.t()) :: {:ok, non_neg_integer()} | {:error, term()}
+  @spec observe_input(Ingress.Input.t()) :: {:ok, non_neg_integer()} | {:error, term()}
   defdelegate observe_input(input), to: Signals
 end

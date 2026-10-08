@@ -17,20 +17,19 @@ defmodule Ryker.Ingress.Inbox do
   `subscribe_input/1`).
   """
   alias Ryker.AdvisoryLock
-  alias Ryker.Artifacts.References, as: ArtifactReferences
+  alias Ryker.Artifacts
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
-  alias Ryker.Feedback.Messages, as: FeedbackMessages
+  alias Ryker.Feedback
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.Input
   alias Ryker.Ingress.InputCustodyTransition
   alias Ryker.Ingress.Projections
   alias Ryker.Ingress.WorkProfile
   alias Ryker.InspectionRedactor
-  alias Ryker.Learning.Observations
+  alias Ryker.Learning
   alias Ryker.Lease
   alias Ryker.Memories
-  alias Ryker.Memories.Cases
   alias Ryker.People
   alias Ryker.Reference
   alias Ryker.Repo
@@ -75,7 +74,7 @@ defmodule Ryker.Ingress.Inbox do
   # like the rule inventories: it is evidence about the message, never a
   # reason to refuse it. A duplicate delivery was read the first time.
   defp observe_feedback({:ok, receipts} = result) do
-    for %{status: :recorded, entry: entry} <- receipts, do: FeedbackMessages.observe(entry)
+    for %{status: :recorded, entry: entry} <- receipts, do: Feedback.Messages.observe(entry)
     result
   end
 
@@ -669,7 +668,7 @@ defmodule Ryker.Ingress.Inbox do
     if RoutingExamples.takes_back_words?(entry) do
       :ok = RoutingExamples.forget_message_in_transaction(entry)
       :ok = People.forget_message_in_transaction(entry.native_input_id)
-      Cases.withdraw_message_in_transaction(entry.native_input_id)
+      Memories.Cases.withdraw_message_in_transaction(entry.native_input_id)
     else
       :ok
     end
@@ -688,7 +687,7 @@ defmodule Ryker.Ingress.Inbox do
   defp revoke_answer_memory(_receipt), do: :ok
 
   defp receive_observation(%{status: :recorded, entry: entry}),
-    do: Observations.receive_in_transaction(entry)
+    do: Learning.Observations.receive_in_transaction(entry)
 
   defp receive_observation(_receipt), do: :ok
 
@@ -711,7 +710,7 @@ defmodule Ryker.Ingress.Inbox do
        do: :ok
 
   defp attach_artifacts(input, %{entry: %Entry{id: input_id}}),
-    do: ArtifactReferences.attach_input(input, input_id)
+    do: Artifacts.References.attach_input(input, input_id)
 
   # One message can reach Ryker as several source events: Slack sends a
   # message that mentions Ryker as app_mention and as a channel message, under

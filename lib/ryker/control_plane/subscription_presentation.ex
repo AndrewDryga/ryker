@@ -6,8 +6,7 @@ defmodule Ryker.ControlPlane.SubscriptionPresentation do
   """
   alias Ryker.ControlPlane.ShortTime
   alias Ryker.InspectionRedactor
-  alias Ryker.Slack.Names
-  alias Ryker.Slack.ReplyRecords
+  alias Ryker.Slack
 
   @doc """
   The follow-up's presentation fields: `title` (what it waits for),
@@ -102,7 +101,7 @@ defmodule Ryker.ControlPlane.SubscriptionPresentation do
   defp context(episode, true, secrets) do
     place =
       case episode.source do
-        "Slack" -> Names.destination(episode.conversation)
+        "Slack" -> Slack.Names.destination(episode.conversation)
         "Direct conversation" -> :direct
         _other -> nil
       end
@@ -116,10 +115,10 @@ defmodule Ryker.ControlPlane.SubscriptionPresentation do
   defp text(_, _), do: nil
 
   defp safe_url(value, secrets) do
-    if ReplyRecords.safe_url?(value) do
+    if Slack.ReplyRecords.safe_url?(value) do
       sanitized = InspectionRedactor.artifact(value, secrets: secrets, max_bytes: 2_000).text
 
-      if ReplyRecords.safe_url?(sanitized) && not String.contains?(sanitized, "[redacted]"),
+      if Slack.ReplyRecords.safe_url?(sanitized) && not String.contains?(sanitized, "[redacted]"),
         do: sanitized
     end
   end

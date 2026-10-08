@@ -2,11 +2,18 @@ defmodule Ryker.Delivery.RoutingResponse.Changeset do
   @moduledoc false
   use Ryker, :changeset
   alias Ryker.Delivery.RoutingResponse
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress
 
-  @spec insert(Entry.t(), Ecto.UUID.t(), pos_integer(), :reaction | :message, map(), String.t()) ::
+  @spec insert(
+          Ingress.Inbox.Entry.t(),
+          Ecto.UUID.t(),
+          pos_integer(),
+          :reaction | :message,
+          map(),
+          String.t()
+        ) ::
           Ecto.Changeset.t()
-  def insert(%Entry{} = entry, id, position, kind, document, document_fingerprint) do
+  def insert(%Ingress.Inbox.Entry{} = entry, id, position, kind, document, document_fingerprint) do
     attributes = %{
       attempt_count: 0,
       conversation_ref: entry.destination_conversation_ref,

@@ -7,7 +7,7 @@ defmodule Ryker.Work.Validator do
   durable wait that will resume it. It deliberately does not grade arbitrary
   prose, infer cause, or impose alert-specific checklists.
   """
-  alias Ryker.Slack.Mentions
+  alias Ryker.Slack
   alias Ryker.Work.{Final, Result}
 
   @context_fields ~w(artifact_delivery_supported artifact_metadata artifact_refs execution_mode open_required_goals records slack_mentions visible_reply_required workspace)
@@ -122,7 +122,7 @@ defmodule Ryker.Work.Validator do
   defp mention_violations(violations, %{message: nil}, _context), do: violations
 
   defp mention_violations(violations, %{message: message}, %{slack_mentions: authority}) do
-    Mentions.violations(message, authority) ++ violations
+    Slack.Mentions.violations(message, authority) ++ violations
   end
 
   defp open_goal_violations(violations, %{state: :complete}, %{open_required_goals: goals})
@@ -531,7 +531,7 @@ defmodule Ryker.Work.Validator do
            prepare_artifact_metadata(context["artifact_metadata"], artifacts),
          {:ok, goals} <- prepare_open_goals(context["open_required_goals"]),
          {:ok, records} <- prepare_records(context["records"]),
-         {:ok, _mentions} <- Mentions.prepare_authority(context["slack_mentions"]),
+         {:ok, _mentions} <- Slack.Mentions.prepare_authority(context["slack_mentions"]),
          {:ok, workspace} <- prepare_workspace(context["workspace"]) do
       {:ok,
        %{

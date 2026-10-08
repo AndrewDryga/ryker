@@ -13,7 +13,7 @@ defmodule Ryker.CoopFleet.Client do
   alias Ryker.CoopFleet.WorkspaceCheckpointTransfer
   alias Ryker.Crypto
   alias Ryker.Repo
-  alias Ryker.Work.{RepositorySource, Session}
+  alias Ryker.Work
 
   @fields [:bridge, :bridge_options, :source_root]
   @option_keys [
@@ -96,13 +96,13 @@ defmodule Ryker.CoopFleet.Client do
   # The fleet forwards only the authority Work custody persisted: a worker never
   # receives a policy or repository source other than the one pinned on the
   # session it is being asked to create.
-  defp exact_authority(%Session{} = session, policy, source) do
+  defp exact_authority(%Work.Session{} = session, policy, source) do
     with {:ok, source} <- repository_source(source) do
       cond do
         session.policy != policy ->
           {:error, {:coop_fleet_authority_mismatch, :policy}}
 
-        not RepositorySource.same?(session.repository_source, source) ->
+        not Work.RepositorySource.same?(session.repository_source, source) ->
           {:error, {:coop_fleet_authority_mismatch, :repository_source}}
 
         true ->
@@ -112,18 +112,18 @@ defmodule Ryker.CoopFleet.Client do
   end
 
   defp repository_source(source) do
-    case RepositorySource.parse_optional(source) do
+    case Work.RepositorySource.parse_optional(source) do
       {:ok, source} -> {:ok, source}
       {:error, _reason} -> {:error, {:invalid_coop_request, :repository_source}}
     end
   end
 
-  defp ensure_workspace(_client, %Session{workspace_task: nil}, remote, _create_key),
+  defp ensure_workspace(_client, %Work.Session{workspace_task: nil}, remote, _create_key),
     do: {:ok, remote}
 
   defp ensure_workspace(
          client,
-         %Session{workspace_task: task} = session,
+         %Work.Session{workspace_task: task} = session,
          %{"session" => remote},
          create_key
        )
@@ -192,7 +192,7 @@ defmodule Ryker.CoopFleet.Client do
   end
 
   @impl true
-  def accepts_session?(client, %Session{} = session),
+  def accepts_session?(client, %Work.Session{} = session),
     do: client.bridge.accepts?(session, client.bridge_options)
 
   @impl true
@@ -223,8 +223,13 @@ defmodule Ryker.CoopFleet.Client do
     end
   end
 
-  defp fence_create_payload(%Session{worker_job_document: nil, worker_job_digest: nil}, _, _, _),
-    do: {:ok, nil}
+  defp fence_create_payload(
+         %Work.Session{worker_job_document: nil, worker_job_digest: nil},
+         _,
+         _,
+         _
+       ),
+       do: {:ok, nil}
 
   defp fence_create_payload(session, policy, task, source),
     do: create_session_payload(session, policy, task, source)
@@ -300,7 +305,7 @@ defmodule Ryker.CoopFleet.Client do
   end
 
   @impl true
-  def capabilities(%__MODULE__{} = client, %Session{id: session_id} = session) do
+  def capabilities(%__MODULE__{} = client, %Work.Session{id: session_id} = session) do
     now = Repo.now!()
 
     current =
@@ -386,7 +391,7 @@ defmodule Ryker.CoopFleet.Client do
 
   @impl true
   def run_review(client, coop_session_id, key, expected_revision) do
-    with {:ok, %Session{id: session_id} = session} <- session_by_coop_id(coop_session_id) do
+    with {:ok, %Work.Session{id: session_id} = session} <- session_by_coop_id(coop_session_id) do
       payload = %{"coop_session_id" => coop_session_id, "expected_revision" => expected_revision}
 
       case Repo.one(Command.Query.by_idempotency_key(key)) do
@@ -518,7 +523,7 @@ defmodule Ryker.CoopFleet.Client do
 
   @impl true
   def publish_review(client, coop_session_id, review_key, review_id, key, body) do
-    with {:ok, %Session{id: session_id} = session} <- session_by_coop_id(coop_session_id),
+    with {:ok, %Work.Session{id: session_id} = session} <- session_by_coop_id(coop_session_id),
          %Command{
            session_id: ^session_id,
            kind: "run_review",
@@ -689,7 +694,7 @@ defmodule Ryker.CoopFleet.Client do
   # when OrbStack crashed on 30 Sep; a newer placement on the same worker reads it.
   defp publication_result(client, command, session_id, response)
        when response == :reconcile or is_map_key(response, "operation") do
-    with %Session{} = session <- Repo.one(Session.Query.by_id(command.session_id)),
+    with %Work.Session{} = session <- Repo.one(Work.Session.Query.by_id(command.session_id)),
          {:ok, placement} <- review_holder_placement(client, session, command),
          {:ok, lookup} <-
            ControlPlane.enqueue_command(
@@ -966,7 +971,7 @@ defmodule Ryker.CoopFleet.Client do
         {:ok, worker_rejected_operation(command)}
 
       %Command{} = command ->
-        with %Session{} = session <- Repo.one(Session.Query.by_id(command.session_id)),
+        with %Work.Session{} = session <- Repo.one(Work.Session.Query.by_id(command.session_id)),
              {:ok, result} <-
                execute_read(client, session, "reconcile_operation", %{"operation_key" => key}),
              {:ok, operation} <- operation_result(result),
@@ -1062,7 +1067,7 @@ defmodule Ryker.CoopFleet.Client do
   defp create_session_identity(key, task) do
     case Repo.one(Command.Query.by_idempotency_key(key)) do
       %Command{kind: "create_session", session_id: id} ->
-        exact_create_task(Repo.one(Session.Query.by_id(id)), task)
+        exact_create_task(Repo.one(Work.Session.Query.by_id(id)), task)
 
       nil ->
         new_create_identity(key, task)
@@ -1076,7 +1081,7 @@ defmodule Ryker.CoopFleet.Client do
     case Regex.run(~r/\Aryker:work:create:([0-9a-f-]{36}):g([1-9]\d*)\z/, key) do
       [_, id, generation] ->
         with {:ok, id} <- Ecto.UUID.cast(id),
-             %Session{} = session <- Repo.one(Session.Query.by_id(id)),
+             %Work.Session{} = session <- Repo.one(Work.Session.Query.by_id(id)),
              true <- Integer.to_string(session.create_generation) == generation do
           exact_create_task(session, task)
         else
@@ -1088,8 +1093,8 @@ defmodule Ryker.CoopFleet.Client do
     end
   end
 
-  defp exact_create_task(%Session{} = session, task) do
-    if task in [session.external_ref, Session.coop_task_ref(session)],
+  defp exact_create_task(%Work.Session{} = session, task) do
+    if task in [session.external_ref, Work.Session.coop_task_ref(session)],
       do: {:ok, session},
       else: {:error, {:coop_session_not_found, task}}
   end
@@ -1097,16 +1102,16 @@ defmodule Ryker.CoopFleet.Client do
   defp exact_create_task(_missing, task), do: {:error, {:coop_session_not_found, task}}
 
   defp session_by_task_ref(task_ref) do
-    case Repo.all(Session.Query.by_task_ref(task_ref)) do
-      [%Session{} = session] -> {:ok, session}
+    case Repo.all(Work.Session.Query.by_task_ref(task_ref)) do
+      [%Work.Session{} = session] -> {:ok, session}
       _missing_or_ambiguous -> {:error, {:coop_session_not_found, task_ref}}
     end
   end
 
-  defp restore_checkpoint(%Session{generation: 1}), do: {:ok, nil}
+  defp restore_checkpoint(%Work.Session{generation: 1}), do: {:ok, nil}
 
-  defp restore_checkpoint(%Session{} = session) do
-    previous = Repo.one(Session.Query.previous_generation(session))
+  defp restore_checkpoint(%Work.Session{} = session) do
+    previous = Repo.one(Work.Session.Query.previous_generation(session))
     checkpoint = Repo.one(WorkspaceCheckpointTransfer.Query.latest_for_replacement(session))
 
     case checkpoint do
@@ -1119,8 +1124,8 @@ defmodule Ryker.CoopFleet.Client do
   # may only seed a replacement pinned to the same repository source. Rotation
   # copies the selector verbatim; a mismatch is a custody violation, never a
   # reason to start from a different source.
-  defp checkpoint_document(checkpoint, %Session{} = source, %Session{} = session) do
-    if RepositorySource.same?(source.repository_source, session.repository_source) do
+  defp checkpoint_document(checkpoint, %Work.Session{} = source, %Work.Session{} = session) do
+    if Work.RepositorySource.same?(source.repository_source, session.repository_source) do
       {:ok,
        %{
          "byte_size" => checkpoint.bundle_byte_size,
@@ -1136,9 +1141,9 @@ defmodule Ryker.CoopFleet.Client do
   end
 
   defp missing_checkpoint(nil), do: {:ok, nil}
-  defp missing_checkpoint(%Session{coop_session_id: nil}), do: {:ok, nil}
+  defp missing_checkpoint(%Work.Session{coop_session_id: nil}), do: {:ok, nil}
 
-  defp missing_checkpoint(%Session{} = previous) do
+  defp missing_checkpoint(%Work.Session{} = previous) do
     if workspace_changes_possible?(previous.id),
       do: {:error, {:coop_workspace_checkpoint_required, previous.id, previous.generation}},
       else: {:ok, nil}
@@ -1162,26 +1167,26 @@ defmodule Ryker.CoopFleet.Client do
 
   defp session_by_coop_id(coop_session_id) do
     bound =
-      Session.Query.all()
-      |> Session.Query.by_coop_session_id(coop_session_id)
-      |> Session.Query.limit_to(1)
+      Work.Session.Query.all()
+      |> Work.Session.Query.by_coop_session_id(coop_session_id)
+      |> Work.Session.Query.limit_to(1)
 
     case Repo.one(bound) do
-      %Session{} = session -> {:ok, session}
+      %Work.Session{} = session -> {:ok, session}
       nil -> session_by_reconciled_coop_id(coop_session_id)
     end
   end
 
   defp session_by_reconciled_coop_id(coop_session_id) do
     case reconciled_sessions(coop_session_id) do
-      [%Session{} = session] -> {:ok, session}
+      [%Work.Session{} = session] -> {:ok, session}
       [] -> {:error, {:coop_session_not_found, coop_session_id}}
       [_first, _second] -> {:error, {:coop_session_identity_ambiguous, coop_session_id}}
     end
   end
 
   defp reconciled_sessions(coop_session_id),
-    do: Repo.all(Session.Query.reconciled_into(coop_session_id))
+    do: Repo.all(Work.Session.Query.reconciled_into(coop_session_id))
 
   defp operation_result(%{"operation" => operation}) when is_map(operation), do: {:ok, operation}
   defp operation_result(%{"id" => _id} = operation), do: {:ok, operation}
@@ -1200,7 +1205,7 @@ defmodule Ryker.CoopFleet.Client do
 
       :not_found ->
         with :ok <- Bridge.current_command_placement(command),
-             %Session{} = session <- Repo.one(Session.Query.by_id(command.session_id)),
+             %Work.Session{} = session <- Repo.one(Work.Session.Query.by_id(command.session_id)),
              {:ok, result} <-
                execute_read(client, session, "reconcile_operation", %{
                  "operation_key" => operation_key
@@ -1228,14 +1233,14 @@ defmodule Ryker.CoopFleet.Client do
          create_key
        )
        when is_binary(coop_session_id) do
-    case Repo.one(Session.Query.by_id(session_id)) do
+    case Repo.one(Work.Session.Query.by_id(session_id)) do
       nil ->
         {:error, {:coop_session_not_found, session_id}}
 
-      %Session{workspace_task: nil} ->
+      %Work.Session{workspace_task: nil} ->
         :ok
 
-      %Session{} = session ->
+      %Work.Session{} = session ->
         if durable_workspace_bound?(command, session, coop_session_id) do
           :ok
         else
@@ -1293,7 +1298,7 @@ defmodule Ryker.CoopFleet.Client do
 
   defp durable_workspace_bound?(
          %Command{session_id: session_id, placement_generation: placement_generation},
-         %Session{id: session_id} = session,
+         %Work.Session{id: session_id} = session,
          coop_session_id
        ) do
     match?(
@@ -1304,13 +1309,16 @@ defmodule Ryker.CoopFleet.Client do
 
   defp durable_workspace_bound?(_command, _session, _coop_session_id), do: false
 
-  defp durable_prebinding_session(%Session{coop_session_id: nil} = session, coop_session_id),
+  defp durable_prebinding_session(%Work.Session{coop_session_id: nil} = session, coop_session_id),
     do: durable_ensured_session(session, coop_session_id, nil)
 
   defp durable_prebinding_session(_session, _coop_session_id), do: :not_found
 
   defp durable_ensured_session(
-         %Session{id: session_id, workspace_task: %{"offer_ref" => offer_ref} = workspace_task},
+         %Work.Session{
+           id: session_id,
+           workspace_task: %{"offer_ref" => offer_ref} = workspace_task
+         },
          coop_session_id,
          placement_generation
        ) do
@@ -1406,7 +1414,7 @@ defmodule Ryker.CoopFleet.Client do
   end
 
   defp create_payload_for_authority(
-         %Session{worker_job_document: %{} = job, worker_job_digest: digest} = session,
+         %Work.Session{worker_job_document: %{} = job, worker_job_digest: digest} = session,
          _policy,
          task,
          _source

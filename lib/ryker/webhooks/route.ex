@@ -5,8 +5,8 @@ defmodule Ryker.Webhooks.Route do
   The route owns authentication, delivery destination, and resource bounds.
   None of those fields are read from a webhook payload.
   """
-  alias Ryker.Ingress.WorkProfile
-  alias Ryker.Publication.DeploymentSignal
+  alias Ryker.Ingress
+  alias Ryker.Publication
   alias Ryker.Reference
   alias Ryker.Secret
 
@@ -71,7 +71,7 @@ defmodule Ryker.Webhooks.Route do
           max_clock_skew_seconds: pos_integer(),
           name: String.t(),
           publication_lifecycle: publication_lifecycle() | nil,
-          work_profile: WorkProfile.t() | nil
+          work_profile: Ingress.WorkProfile.t() | nil
         }
 
   @doc "The fields a custom mapping may fill, the required ones first."
@@ -93,7 +93,7 @@ defmodule Ryker.Webhooks.Route do
          {:ok, publication_lifecycle} <-
            prepare_publication_lifecycle(Map.get(attributes, :publication_lifecycle)),
          {:ok, work_profile} <-
-           WorkProfile.prepare(Map.get(attributes, :work_profile)),
+           Ingress.WorkProfile.prepare(Map.get(attributes, :work_profile)),
          route =
            struct!(
              __MODULE__,
@@ -167,7 +167,7 @@ defmodule Ryker.Webhooks.Route do
   defp prepare_publication_lifecycle(%{} = scope) when map_size(scope) == 4 do
     with {:ok, environments} <- scope_list(scope[:environments]),
          {:ok, kinds} <- scope_list(scope[:kinds]),
-         true <- Enum.all?(kinds, &(&1 in DeploymentSignal.kinds())),
+         true <- Enum.all?(kinds, &(&1 in Publication.DeploymentSignal.kinds())),
          {:ok, repositories} <- scope_list(scope[:repositories]),
          {:ok, targets} <- scope_list(scope[:targets]) do
       {:ok,

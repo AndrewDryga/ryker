@@ -7,15 +7,14 @@ defmodule Ryker.Observability.Queues do
   its custody owner claims by, so a deliberate wait is never reported as a
   stall, and leases are counted apart so a stuck executor is still visible.
   """
-  alias Ryker.Delivery.RoutingResponse
-  alias Ryker.Emisar.Approval
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Delivery
+  alias Ryker.Emisar
+  alias Ryker.Ingress
   alias Ryker.Observability.{Projection, Reads}
-  alias Ryker.Publication.Custody, as: PublicationCustody
-  alias Ryker.Publication.{Followup, LifecycleEvent, Publication}
-  alias Ryker.Retention.Cleanup
-  alias Ryker.Schedules.Schedule
-  alias Ryker.Work.{OwningTurn, Turn}
+  alias Ryker.Publication
+  alias Ryker.Retention
+  alias Ryker.Schedules
+  alias Ryker.Work
 
   @type queue :: %{
           active_leases: non_neg_integer(),
@@ -30,14 +29,16 @@ defmodule Ryker.Observability.Queues do
   def snapshot(now) do
     [
       fn -> ingress(now) end,
-      fn -> status_queue(Turn.Query.all(), :work, [:pending], :inserted_at, now) end,
+      fn -> status_queue(Work.Turn.Query.all(), :work, [:pending], :inserted_at, now) end,
       fn ->
-        status_queue(Turn.Query.all(), :cancellation, [:cancel_pending], :updated_at, now)
+        status_queue(Work.Turn.Query.all(), :cancellation, [:cancel_pending], :updated_at, now)
       end,
-      fn -> status_queue(Turn.Query.all(), :delivery, [:delivery_pending], :accepted_at, now) end,
+      fn ->
+        status_queue(Work.Turn.Query.all(), :delivery, [:delivery_pending], :accepted_at, now)
+      end,
       fn ->
         status_queue(
-          RoutingResponse.Query.all(),
+          Delivery.RoutingResponse.Query.all(),
           :routing_delivery,
           [:pending],
           :inserted_at,
@@ -46,7 +47,7 @@ defmodule Ryker.Observability.Queues do
       end,
       fn ->
         status_queue(
-          Publication.Query.all(),
+          Publication.Publication.Query.all(),
           :publication,
           [:review_pending, :review_ready, :publish_pending, :published_ready],
           :updated_at,
@@ -82,8 +83,8 @@ defmodule Ryker.Observability.Queues do
 
   defp ingress(now) do
     projection(
-      Entry.Query.claimable_at(now),
-      Entry.Query.leased_at(now),
+      Ingress.Inbox.Entry.Query.claimable_at(now),
+      Ingress.Inbox.Entry.Query.leased_at(now),
       :ingress,
       :inserted_at,
       now
@@ -98,27 +99,27 @@ defmodule Ryker.Observability.Queues do
 
   defp due_schedule(now) do
     now
-    |> Schedule.Query.occurrence_due_at()
+    |> Schedules.Schedule.Query.occurrence_due_at()
     |> leased_queue(:schedule, :next_occurrence_at, now)
   end
 
   defp approval(now) do
-    Approval.Query.all()
-    |> Approval.Query.with_joined_origin()
-    |> Approval.Query.by_status(:monitoring)
-    |> Approval.Query.awaited()
-    |> Approval.Query.due_at(now)
+    Emisar.Approval.Query.all()
+    |> Emisar.Approval.Query.with_joined_origin()
+    |> Emisar.Approval.Query.by_status(:monitoring)
+    |> Emisar.Approval.Query.awaited()
+    |> Emisar.Approval.Query.due_at(now)
     |> leased_queue(:emisar_approval, :inserted_at, now)
   end
 
   defp publication_followup(now) do
-    Followup.Query.all()
-    |> Followup.Query.poll_due_at(now)
+    Publication.Followup.Query.all()
+    |> Publication.Followup.Query.poll_due_at(now)
     |> leased_queue(:publication_followup, :next_poll_at, now)
   end
 
   defp publication_lifecycle(now) do
-    LifecycleEvent.Query.pending()
+    Publication.LifecycleEvent.Query.pending()
     |> Projection.Query.retry_due_at(now)
     |> leased_queue(:publication_lifecycle, :inserted_at, now)
   end
@@ -127,14 +128,15 @@ defmodule Ryker.Observability.Queues do
   # learning backlog can never be counted differently by the two owners, and so
   # conversation plus grace time is never reported as cleanup stall.
   defp retention(now) do
-    base = Cleanup.Query.eligible(now)
-    claimable = Cleanup.Query.unleased_at(base, now)
-    active = Cleanup.Query.leased_at(base, now)
+    base = Retention.Cleanup.Query.eligible(now)
+    claimable = Retention.Cleanup.Query.unleased_at(base, now)
+    active = Retention.Cleanup.Query.leased_at(base, now)
 
     with {:ok, oldest_active} <- Reads.one(Projection.Query.select_oldest_update(active)),
          {:ok, active_leases} <- Reads.count(active),
          {:ok, claimable_count} <- Reads.count(claimable),
-         {:ok, oldest_claimable} <- Reads.one(Cleanup.Query.select_oldest_eligible_at(claimable)) do
+         {:ok, oldest_claimable} <-
+           Reads.one(Retention.Cleanup.Query.select_oldest_eligible_at(claimable)) do
       {:ok,
        %{
          active_leases: active_leases,
@@ -156,19 +158,24 @@ defmodule Ryker.Observability.Queues do
   # lease monitoring separate so a stuck executor is still visible.
   defp runnable(query, name, now) when name in [:work, :cancellation, :delivery] do
     phase = if name == :delivery, do: :delivery, else: :work
-    Projection.Query.by_episode_ids(query, OwningTurn.Query.claimable_episode_ids(now, phase))
+
+    Projection.Query.by_episode_ids(
+      query,
+      Work.OwningTurn.Query.claimable_episode_ids(now, phase)
+    )
   end
 
   # A routing response waits for every earlier one of its message to be
   # delivered; only the next in line is claimable.
-  defp runnable(query, :routing_delivery, _now), do: RoutingResponse.Query.in_order(query)
+  defp runnable(query, :routing_delivery, _now),
+    do: Delivery.RoutingResponse.Query.in_order(query)
 
   defp runnable(query, :publication, now),
-    do: Projection.Query.among(query, PublicationCustody.claimable(now))
+    do: Projection.Query.among(query, Publication.Custody.claimable(now))
 
   # A pull request's poll waits while the task's newer change is in review.
   defp runnable(query, :publication_followup, _now),
-    do: Projection.Query.among(query, Followup.Query.pollable())
+    do: Projection.Query.among(query, Publication.Followup.Query.pollable())
 
   defp runnable(query, _name, _now), do: query
 

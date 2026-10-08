@@ -10,9 +10,9 @@ defmodule Ryker.Work.Executor.Sessions do
   It returns the session as the worker last described it, so the checks
   before a turn's submit read it once instead of asking again each.
   """
-  alias Ryker.Coop.API
-  alias Ryker.CoopFleet.JobAuthority
-  alias Ryker.Knowledge.KnowledgeSnapshot
+  alias Ryker.Coop
+  alias Ryker.CoopFleet
+  alias Ryker.Knowledge
   alias Ryker.Work.{Custody, OperationKeys, Session}
   alias Ryker.Work.Executor.Remote
 
@@ -61,7 +61,7 @@ defmodule Ryker.Work.Executor.Sessions do
   # has since removed could only fail "fetch job source" on the worker, on
   # every attempt (2026-09-28). Its replacement gives that repository up.
   defp create_or_bind_session(claim, settings) do
-    if JobAuthority.removed_repositories?(claim.session),
+    if CoopFleet.JobAuthority.removed_repositories?(claim.session),
       do: replace_lost_session(claim, settings),
       else: create_or_bind_current_session(claim, settings)
   end
@@ -132,7 +132,7 @@ defmodule Ryker.Work.Executor.Sessions do
        do: {:ok, claim, remote}
 
   defp use_or_rotate_session(claim, %{"state" => "open"} = remote, settings) do
-    case KnowledgeSnapshot.authorize_session(claim.episode, claim.session) do
+    case Knowledge.KnowledgeSnapshot.authorize_session(claim.episode, claim.session) do
       :ok -> {:ok, claim, remote}
       {:error, :work_knowledge_context_stale} -> rotate_session(claim, settings)
     end
@@ -198,7 +198,7 @@ defmodule Ryker.Work.Executor.Sessions do
 
     # Pinning a repository's source can take minutes, longer than the lease.
     prepare = fn ->
-      API.prepare_create_session(
+      Coop.API.prepare_create_session(
         settings.api,
         settings.client,
         key,
@@ -212,7 +212,7 @@ defmodule Ryker.Work.Executor.Sessions do
     # prepared it, adopts that job before the worker's receipt is read against
     # it (`JobAuthority.prepared/1`).
     with :ok <- Remote.with_lease_heartbeat(settings, prepare),
-         {:ok, session} <- JobAuthority.prepared(claim.session) do
+         {:ok, session} <- CoopFleet.JobAuthority.prepared(claim.session) do
       create_prepared(%{claim | session: session}, key, task, settings)
     else
       error -> created(error, claim, key, settings)

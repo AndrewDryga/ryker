@@ -7,8 +7,7 @@ defmodule Ryker.Memories.Recall do
   exact still-active row that was selected, so a fact the operator revoked or
   edited while the read waited is neither disclosed nor counted.
   """
-  alias Ryker.Episodes.Episode
-  alias Ryker.Episodes.Scope
+  alias Ryker.Episodes
   alias Ryker.Memories
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Memories.MemorySearchPage
@@ -30,14 +29,14 @@ defmodule Ryker.Memories.Recall do
 
   def recall(_context, _limit), do: []
 
-  @spec model_context(Episode.t(), String.t() | nil) :: [map()]
-  def model_context(%Episode{} = episode, repository)
+  @spec model_context(Episodes.Episode.t(), String.t() | nil) :: [map()]
+  def model_context(%Episodes.Episode{} = episode, repository)
       when is_binary(repository) or is_nil(repository) do
     recall(%{
       conversation_ref: episode.destination_conversation_ref,
       execution_mode: episode.execution_mode,
       repository: repository,
-      workspace_ref: Scope.workspace_ref(episode)
+      workspace_ref: Episodes.Scope.workspace_ref(episode)
     })
   end
 

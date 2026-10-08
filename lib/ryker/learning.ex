@@ -9,11 +9,8 @@ defmodule Ryker.Learning do
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Ingress.RecallText
+  alias Ryker.Ingress
   alias Ryker.Knowledge
-  alias Ryker.Knowledge.KnowledgeAnchors
-  alias Ryker.Knowledge.KnowledgeUpdate
   alias Ryker.Learning.{Batches, Rebuilds}
   alias Ryker.Learning.LearningRun
   alias Ryker.Learning.LearningSources
@@ -22,7 +19,7 @@ defmodule Ryker.Learning do
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Text
-  alias Ryker.Work.Session
+  alias Ryker.Work
 
   @max_inputs 16
   @max_prompt 65_536
@@ -419,7 +416,7 @@ defmodule Ryker.Learning do
       when phase in [:create, :submit] do
     owned_transaction(id, claim, fn run ->
       method = if phase == :create, do: "CreateRemoteSession", else: "SubmitTurn"
-      session = Repo.one(Session.Query.by_learning_run_id(id))
+      session = Repo.one(Work.Session.Query.by_learning_run_id(id))
 
       unless session && is_nil(run.coop_turn_id) && Reference.valid?(operation_id) &&
                key == operation_key(run, phase) && operation["method"] == method &&
@@ -453,7 +450,7 @@ defmodule Ryker.Learning do
   """
   def record_uncreated_stop(id, claim) do
     owned_transaction(id, claim, fn run ->
-      session = Repo.one(Session.Query.by_learning_run_id(id))
+      session = Repo.one(Work.Session.Query.by_learning_run_id(id))
 
       unless run.status in [:stale, :rejected] and is_nil(run.submit_revision) and
                is_nil(run.coop_turn_id) and is_nil(session && session.coop_session_id),
@@ -485,7 +482,7 @@ defmodule Ryker.Learning do
                is_nil(run.coop_turn_id),
              do: Repo.rollback(:learning_absence_unconfirmed)
 
-      session = Repo.one(Session.Query.by_learning_run_id(id))
+      session = Repo.one(Work.Session.Query.by_learning_run_id(id))
 
       store_stop(run, %{
         "kind" => "never_submitted",
@@ -510,7 +507,7 @@ defmodule Ryker.Learning do
                DateTime.diff(Repo.now!(), run.started_at) >= closed_after_seconds,
              do: Repo.rollback(:learning_remote_unresolved)
 
-      session = Repo.one(Session.Query.by_learning_run_id(id))
+      session = Repo.one(Work.Session.Query.by_learning_run_id(id))
 
       store_stop(run, %{
         "kind" => "attempt_expired",
@@ -568,8 +565,8 @@ defmodule Ryker.Learning do
   defp owned_remote_session?(run, remote_id) do
     Reference.valid?(remote_id) and
       run.id
-      |> Session.Query.by_learning_run_id()
-      |> Session.Query.by_coop_session_id(remote_id)
+      |> Work.Session.Query.by_learning_run_id()
+      |> Work.Session.Query.by_coop_session_id(remote_id)
       |> Repo.exists?()
   end
 
@@ -832,7 +829,7 @@ defmodule Ryker.Learning do
 
   defp select_knowledge!(entries, settings) do
     entry = hd(entries)
-    search = KnowledgeAnchors.source_texts(entries)
+    search = Knowledge.KnowledgeAnchors.source_texts(entries)
 
     matches =
       Knowledge.context(
@@ -960,23 +957,23 @@ defmodule Ryker.Learning do
 
       earlier =
         first
-        |> Entry.Query.earlier_in_conversation(ids, before)
-        |> Entry.Query.lock_for_share()
+        |> Ingress.Inbox.Entry.Query.earlier_in_conversation(ids, before)
+        |> Ingress.Inbox.Entry.Query.lock_for_share()
 
       # The opening message is read on its own: taking the latest messages
       # alone lost it once a thread had more than five earlier replies
       # (2026-10-04 review).
       opening =
         earlier
-        |> Entry.Query.thread_openings(threads)
+        |> Ingress.Inbox.Entry.Query.thread_openings(threads)
         |> Repo.all()
         |> usable_context(first)
         |> Enum.take(1)
 
       replies =
         earlier
-        |> Entry.Query.thread_replies(threads)
-        |> Entry.Query.limit_to(@thread_context * 3)
+        |> Ingress.Inbox.Entry.Query.thread_replies(threads)
+        |> Ingress.Inbox.Entry.Query.limit_to(@thread_context * 3)
         |> Repo.all()
         |> usable_context(first)
         |> Enum.take(room - length(opening))
@@ -1014,9 +1011,9 @@ defmodule Ryker.Learning do
 
     entries =
       ids
-      |> Entry.Query.by_ids()
-      |> Entry.Query.ordered_by_occurred_at()
-      |> Entry.Query.lock_for_share()
+      |> Ingress.Inbox.Entry.Query.by_ids()
+      |> Ingress.Inbox.Entry.Query.ordered_by_occurred_at()
+      |> Ingress.Inbox.Entry.Query.lock_for_share()
       |> Repo.all()
 
     if Enum.map(entries, &manifest/1) == manifests and
@@ -1034,9 +1031,9 @@ defmodule Ryker.Learning do
 
     entries =
       ids
-      |> Entry.Query.by_ids()
-      |> Entry.Query.ordered_by_oldest()
-      |> Entry.Query.lock_for_share()
+      |> Ingress.Inbox.Entry.Query.by_ids()
+      |> Ingress.Inbox.Entry.Query.ordered_by_oldest()
+      |> Ingress.Inbox.Entry.Query.lock_for_share()
       |> Repo.all()
 
     unless length(entries) == length(ids) and valid_entries?(entries),
@@ -1072,7 +1069,7 @@ defmodule Ryker.Learning do
   end
 
   @doc false
-  @spec input_bytes(Entry.t()) :: non_neg_integer()
+  @spec input_bytes(Ingress.Inbox.Entry.t()) :: non_neg_integer()
   def input_bytes(entry), do: entry |> input_document() |> CanonicalJSON.encode!() |> byte_size()
 
   # A message as the model reads it among others: its own words once. Slack
@@ -1088,7 +1085,7 @@ defmodule Ryker.Learning do
         "conversation_ref" => entry.destination_conversation_ref,
         "thread_ref" => entry.destination_thread_ref
       },
-      "content" => %{"text" => RecallText.prose(entry.content)},
+      "content" => %{"text" => Ingress.RecallText.prose(entry.content)},
       "revision" => entry.revision,
       "actor" => %{"kind" => Atom.to_string(entry.actor_kind), "ref" => entry.actor_ref},
       "source" => %{"kind" => entry.source_kind, "ref" => entry.source_ref},
@@ -1192,7 +1189,7 @@ defmodule Ryker.Learning do
   end
 
   defp checked_updates(run) do
-    first = Repo.one(Entry.Query.by_id(hd(run.inputs)["source_input_id"]))
+    first = Repo.one(Ingress.Inbox.Entry.Query.by_id(hd(run.inputs)["source_input_id"]))
     unless first && is_binary(run.result), do: Repo.rollback(:learning_source_stale)
 
     with :ok <- lock_scope(first),
@@ -1257,7 +1254,10 @@ defmodule Ryker.Learning do
   defp valid_action?(%{"action" => action} = update) when action in ["create", "update"] do
     ((action == "create" and is_nil(update["target_ref"])) or
        (action == "update" and is_binary(update["target_ref"]))) and
-      match?({:ok, %{}}, KnowledgeUpdate.prepare(Map.drop(update, ~w(action source_input_ids))))
+      match?(
+        {:ok, %{}},
+        Knowledge.KnowledgeUpdate.prepare(Map.drop(update, ~w(action source_input_ids)))
+      )
   end
 
   defp valid_action?(_), do: false
@@ -1475,8 +1475,8 @@ defmodule Ryker.Learning do
 
   def forget_messages_in_transaction(messages) do
     messages
-    |> Entry.Query.by_messages()
-    |> Entry.Query.select_ids()
+    |> Ingress.Inbox.Entry.Query.by_messages()
+    |> Ingress.Inbox.Entry.Query.select_ids()
     |> Repo.all()
     |> erase_runs_reading()
   end
@@ -1485,8 +1485,8 @@ defmodule Ryker.Learning do
   @spec forget_conversation_in_transaction(String.t()) :: :ok
   def forget_conversation_in_transaction(conversation_ref) when is_binary(conversation_ref) do
     conversation_ref
-    |> Entry.Query.by_conversation()
-    |> Entry.Query.select_ids()
+    |> Ingress.Inbox.Entry.Query.by_conversation()
+    |> Ingress.Inbox.Entry.Query.select_ids()
     |> Repo.all()
     |> erase_runs_reading()
   end
@@ -1566,7 +1566,7 @@ defmodule Ryker.Learning do
     ids = Enum.map(entries ++ thread, & &1.id)
 
     item =
-      KnowledgeUpdate.json_schema()["anyOf"]
+      Knowledge.KnowledgeUpdate.json_schema()["anyOf"]
       |> Enum.find(&(&1["type"] == "object"))
 
     source_ids = %{

@@ -9,7 +9,7 @@ defmodule Ryker.ControlPlane.ContextSearch do
   what it found but left out. Searches recorded before 2026-09-24 kept only
   their counts, so their cards show counts without the words.
   """
-  alias Ryker.Slack.Names
+  alias Ryker.Slack
 
   @lanes [
     {"thread", "Same thread"},
@@ -93,7 +93,7 @@ defmodule Ryker.ControlPlane.ContextSearch do
   defp place("conversation", _receipt), do: "This conversation"
 
   defp place("workspace_public", receipt) do
-    names = receipt |> Map.get("conversation_refs", []) |> Enum.map(&Names.destination/1)
+    names = receipt |> Map.get("conversation_refs", []) |> Enum.map(&Slack.Names.destination/1)
     count = receipt["eligible_conversations"] || length(names)
 
     listed =

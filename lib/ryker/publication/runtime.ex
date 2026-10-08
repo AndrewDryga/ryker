@@ -6,7 +6,7 @@ defmodule Ryker.Publication.Runtime do
   the pool the outbound fleet client.
   """
   use Supervisor
-  alias Ryker.Delivery.Adapters
+  alias Ryker.Delivery
   alias Ryker.Options
   alias Ryker.Publication.{FollowupWorker, Worker}
 
@@ -110,7 +110,7 @@ defmodule Ryker.Publication.Runtime do
     {status_api, status_client} = status_source!(configuration)
 
     delivery_adapters =
-      case Adapters.new(Map.fetch!(configuration, :delivery_adapters)) do
+      case Delivery.Adapters.new(Map.fetch!(configuration, :delivery_adapters)) do
         {:ok, adapters} ->
           adapters
 

@@ -8,8 +8,7 @@ defmodule Ryker.Delivery.OfferWords do
   Each returns nil when there is nothing to say, so a card leaves the fact
   out instead of showing a blank or an internal value.
   """
-  alias Ryker.Schedules.ScheduleCadence
-  alias Ryker.Schedules.ScheduleRecurrence
+  alias Ryker.Schedules
 
   @doc "Who a saved memory, preference or guidance applies to."
   @spec applies_to(String.t() | nil, String.t() | nil) :: String.t() | nil
@@ -105,8 +104,8 @@ defmodule Ryker.Delivery.OfferWords do
   """
   @spec cadence(map() | nil) :: String.t() | nil
   def cadence(trigger) when is_map(trigger) do
-    case ScheduleRecurrence.from_trigger(trigger) do
-      {:ok, recurrence} -> ScheduleCadence.describe(recurrence, trigger["timezone"])
+    case Schedules.ScheduleRecurrence.from_trigger(trigger) do
+      {:ok, recurrence} -> Schedules.ScheduleCadence.describe(recurrence, trigger["timezone"])
       {:error, _reason} -> nil
     end
   end

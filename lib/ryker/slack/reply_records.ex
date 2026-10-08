@@ -10,17 +10,16 @@ defmodule Ryker.Slack.ReplyRecords do
   record our state server then read back — is not a receipt, and its source is
   omitted rather than linked.
   """
-  alias Ryker.Behaviors.Behavior
-  alias Ryker.Delivery.PlatformAction
-  alias Ryker.Memories.MemoryEntry
+  alias Ryker.Behaviors
+  alias Ryker.Delivery
+  alias Ryker.Memories
   alias Ryker.Records
-  alias Ryker.Records.SlackPostOffers
   alias Ryker.Repo
-  alias Ryker.Schedules.Schedule
+  alias Ryker.Schedules
   alias Ryker.Settings
   alias Ryker.Slack.{IncidentRoom, Permalink, SavedEntity}
-  alias Ryker.Waits.EventWaitTiming
-  alias Ryker.Work.ActivityEvent
+  alias Ryker.Waits
+  alias Ryker.Work
 
   @saved_offer_kinds ~w(guidance_offer memory_offer preference_offer schedule_offer standing_assignment_offer)
 
@@ -34,9 +33,9 @@ defmodule Ryker.Slack.ReplyRecords do
   def fetch(episode_id, refs) when is_binary(episode_id) and is_list(refs) do
     actions =
       episode_id
-      |> PlatformAction.Query.by_episode_id()
-      |> PlatformAction.Query.by_action_refs(Enum.filter(refs, &is_binary/1))
-      |> PlatformAction.Query.select_action_refs()
+      |> Delivery.PlatformAction.Query.by_episode_id()
+      |> Delivery.PlatformAction.Query.by_action_refs(Enum.filter(refs, &is_binary/1))
+      |> Delivery.PlatformAction.Query.select_action_refs()
       |> Repo.all()
 
     Records.fetch_for_episode(episode_id, Enum.reject(refs, &(&1 in actions)))
@@ -71,7 +70,7 @@ defmodule Ryker.Slack.ReplyRecords do
   # the receipt. Without a workspace origin there is no link, and the card says
   # what it always said.
   defp present_sent_post(document, %{status: :confirmed, kind: "slack_post_offer"} = record) do
-    with %PlatformAction{status: :delivered, conversation_ref: conversation} = action <-
+    with %Delivery.PlatformAction{status: :delivered, conversation_ref: conversation} = action <-
            sent_action(record),
          %{"message_ref" => message} <- action.external_receipt,
          url when is_binary(url) <-
@@ -85,7 +84,12 @@ defmodule Ryker.Slack.ReplyRecords do
   defp present_sent_post(document, _record), do: document
 
   defp sent_action(record) do
-    Repo.one(PlatformAction.Query.by_turn_slot(record.turn_id, SlackPostOffers.host_slot(record)))
+    Repo.one(
+      Delivery.PlatformAction.Query.by_turn_slot(
+        record.turn_id,
+        Records.SlackPostOffers.host_slot(record)
+      )
+    )
   end
 
   # A confirmed offer is shown as the entity it saved, with the entity's current
@@ -135,7 +139,7 @@ defmodule Ryker.Slack.ReplyRecords do
       nil ->
         document
 
-      %MemoryEntry{
+      %Memories.MemoryEntry{
         payload: %{"value" => value, "applicability" => applicability},
         subject: subject
       }
@@ -157,9 +161,9 @@ defmodule Ryker.Slack.ReplyRecords do
 
   defp remembered_answer(ref) do
     ref
-    |> MemoryEntry.Query.answering()
-    |> MemoryEntry.Query.active()
-    |> MemoryEntry.Query.limit_to(1)
+    |> Memories.MemoryEntry.Query.answering()
+    |> Memories.MemoryEntry.Query.active()
+    |> Memories.MemoryEntry.Query.limit_to(1)
     |> Repo.one()
   end
 
@@ -177,16 +181,20 @@ defmodule Ryker.Slack.ReplyRecords do
   defp room_url(_room), do: nil
 
   defp saved_entity("schedule_offer", record),
-    do: Repo.one(Schedule.Query.by_offer_record_id(record.id))
+    do: Repo.one(Schedules.Schedule.Query.by_offer_record_id(record.id))
 
   defp saved_entity("memory_offer", record),
-    do: Repo.one(MemoryEntry.Query.by_offer_record_id(record.id))
+    do: Repo.one(Memories.MemoryEntry.Query.by_offer_record_id(record.id))
 
   defp saved_entity(_behavior_offer, record),
-    do: Repo.one(Behavior.Query.by_offer_record_id(record.id))
+    do: Repo.one(Behaviors.Behavior.Query.by_offer_record_id(record.id))
 
-  defp updated_automation("schedule:" <> _rest = ref), do: Repo.one(Schedule.Query.by_ref(ref))
-  defp updated_automation("behavior:" <> _rest = ref), do: Repo.one(Behavior.Query.by_ref(ref))
+  defp updated_automation("schedule:" <> _rest = ref),
+    do: Repo.one(Schedules.Schedule.Query.by_ref(ref))
+
+  defp updated_automation("behavior:" <> _rest = ref),
+    do: Repo.one(Behaviors.Behavior.Query.by_ref(ref))
+
   defp updated_automation(_ref), do: nil
 
   @doc false
@@ -241,7 +249,7 @@ defmodule Ryker.Slack.ReplyRecords do
   defp enrich_record(%{"kind" => "event_wait", "payload" => payload} = record, _urls, times) do
     trigger = payload["event_matcher"]
 
-    case EventWaitTiming.due_at(trigger, times[record["ref"]]) do
+    case Waits.EventWaitTiming.due_at(trigger, times[record["ref"]]) do
       {:ok, at} ->
         Map.put(record, "presentation", %{"next_check_at" => DateTime.to_iso8601(at)})
 
@@ -277,7 +285,7 @@ defmodule Ryker.Slack.ReplyRecords do
     # Select only receipt identities, not stdout. Retired or foreign-episode evidence cannot
     # reappear as a clickable source during delivery or an interaction repaint.
     episode_id
-    |> ActivityEvent.Query.emisar_run_receipts(references)
+    |> Work.ActivityEvent.Query.emisar_run_receipts(references)
     |> Repo.all()
     |> Enum.flat_map(fn runs -> if is_list(runs), do: runs, else: [] end)
   end
@@ -291,7 +299,7 @@ defmodule Ryker.Slack.ReplyRecords do
     # hands back the saved records themselves, so reading them would certify every
     # source_id the model had just written.
     episode_id
-    |> ActivityEvent.Query.returned_urls(urls)
+    |> Work.ActivityEvent.Query.returned_urls(urls)
     |> Repo.all()
     |> Enum.flat_map(fn returned ->
       if is_list(returned), do: Enum.map(returned, &%{"url" => &1}), else: []

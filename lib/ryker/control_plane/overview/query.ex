@@ -5,15 +5,15 @@ defmodule Ryker.ControlPlane.Overview.Query do
   statuses are keeping up, and the latest things that need a person.
   """
   use Ryker, :query
-  alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Slack.{IncidentRoom, ThreadStatus}
-  alias Ryker.Work.Turn
+  alias Ryker.Episodes
+  alias Ryker.Ingress
+  alias Ryker.Slack
+  alias Ryker.Work
 
   @doc "Turns that own their working request and stopped."
   def blocked_work do
-    from([episode_work_turns: turn] in Turn.Query.all(),
-      join: episode in Episode,
+    from([episode_work_turns: turn] in Work.Turn.Query.all(),
+      join: episode in Episodes.Episode,
       as: :episode_kernel_episodes,
       on:
         episode.id == turn.episode_id and episode.owner_kind == :turn and
@@ -27,7 +27,7 @@ defmodule Ryker.ControlPlane.Overview.Query do
   retrying, and how long the oldest has waited.
   """
   def admission_progress do
-    from(entry in Entry,
+    from(entry in Ingress.Inbox.Entry,
       select: %{
         admitting:
           type(
@@ -82,7 +82,7 @@ defmodule Ryker.ControlPlane.Overview.Query do
 
   @doc "How Slack statuses keep up: how many wait to be written, and the oldest wait."
   def slack_status_progress do
-    from(status in ThreadStatus,
+    from(status in Slack.ThreadStatus,
       select: %{
         oldest_pending_ms:
           type(
@@ -104,7 +104,7 @@ defmodule Ryker.ControlPlane.Overview.Query do
 
   @doc "The `limit` latest requests waiting for a person, as the attention list shows them."
   def waiting_for_people(limit) do
-    from(episode in Episode,
+    from(episode in Episodes.Episode,
       where: episode.state == :waiting_for_input,
       order_by: [desc: episode.updated_at, desc: episode.id],
       limit: ^limit,
@@ -133,7 +133,7 @@ defmodule Ryker.ControlPlane.Overview.Query do
 
   @doc "The `limit` latest stopped incident rooms, as the attention list shows them."
   def stopped_rooms(limit) do
-    from(room in IncidentRoom,
+    from(room in Slack.IncidentRoom,
       where: room.status == :blocked,
       order_by: [desc: room.updated_at, desc: room.id],
       limit: ^limit,

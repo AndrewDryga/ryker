@@ -10,9 +10,9 @@ defmodule Ryker.Continuity.Scope do
   """
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity.ConversationSummary
-  alias Ryker.Episodes.Scope, as: WorkspaceScope
+  alias Ryker.Episodes
   alias Ryker.Repo
-  alias Ryker.Slack.ChannelMembership
+  alias Ryker.Slack
 
   @doc """
   The continuity scope of an episode's destination: its transport, conversation,
@@ -45,7 +45,7 @@ defmodule Ryker.Continuity.Scope do
   # The workspace is the plain `Ryker.Episodes.Scope` derivation. This also
   # validates the destination shape and resolves the Slack channel's visibility.
   defp destination_scope("slack", "slack:" <> rest = conversation_ref) do
-    workspace_ref = WorkspaceScope.workspace_ref("slack", conversation_ref)
+    workspace_ref = Episodes.Scope.workspace_ref("slack", conversation_ref)
 
     case String.split(rest, ":", parts: 2) do
       [_workspace, "D" <> _channel] ->
@@ -62,7 +62,7 @@ defmodule Ryker.Continuity.Scope do
   defp destination_scope("github", "github:" <> rest = conversation_ref) do
     case String.split(rest, ":", parts: 2) do
       [binding_ref, _conversation] when binding_ref != "" ->
-        {:ok, WorkspaceScope.workspace_ref("github", conversation_ref), :conversation}
+        {:ok, Episodes.Scope.workspace_ref("github", conversation_ref), :conversation}
 
       _invalid ->
         {:ok, conversation_ref, :conversation}
@@ -90,8 +90,8 @@ defmodule Ryker.Continuity.Scope do
     case slack_channel(summary) do
       {workspace_ref, channel_ref} ->
         workspace_ref
-        |> ChannelMembership.Query.by_channel(channel_ref)
-        |> ChannelMembership.Query.joined_public()
+        |> Slack.ChannelMembership.Query.by_channel(channel_ref)
+        |> Slack.ChannelMembership.Query.joined_public()
         |> Repo.exists?()
 
       nil ->
@@ -110,9 +110,9 @@ defmodule Ryker.Continuity.Scope do
   def slack_visibility(workspace_ref, channel_ref) do
     privacy =
       workspace_ref
-      |> ChannelMembership.Query.by_channel(channel_ref)
-      |> ChannelMembership.Query.joined()
-      |> ChannelMembership.Query.select_privacy()
+      |> Slack.ChannelMembership.Query.by_channel(channel_ref)
+      |> Slack.ChannelMembership.Query.joined()
+      |> Slack.ChannelMembership.Query.select_privacy()
       |> Repo.one()
 
     case privacy do

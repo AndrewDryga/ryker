@@ -7,7 +7,7 @@ defmodule Ryker.Slack.Input do
   """
   @behaviour Ryker.Ingress.Adapter
   alias Ryker.CanonicalJSON
-  alias Ryker.Ingress.Input
+  alias Ryker.Ingress
 
   @fields [
     :actor,
@@ -25,10 +25,10 @@ defmodule Ryker.Slack.Input do
   @required_keys Enum.sort(@fields)
   @all_keys Enum.sort(@fields ++ @optional_fields)
 
-  @spec new(keyword() | map()) :: {:ok, Input.t()} | {:error, term()}
+  @spec new(keyword() | map()) :: {:ok, Ingress.Input.t()} | {:error, term()}
   def new(attributes) do
     with {:ok, attributes} <- exact_attributes(attributes) do
-      Input.new(%{
+      Ingress.Input.new(%{
         actor: attributes.actor,
         content: attributes.content,
         destination: destination(attributes),

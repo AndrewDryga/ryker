@@ -9,17 +9,20 @@ defmodule Ryker.ControlPlane.ThreadContext do
   show all messages in thread too".
   """
   alias Ryker.ControlPlane.Activity
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress
   alias Ryker.Repo
 
   @doc """
   The link to every message of `entry`'s Slack thread, or nil when the
   message is not in a thread or is the only message there.
   """
-  @spec link(Entry.t()) :: %{href: String.t(), label: String.t()} | nil
-  def link(%Entry{destination_transport: "slack", destination_thread_ref: thread} = entry)
+  @spec link(Ingress.Inbox.Entry.t()) :: %{href: String.t(), label: String.t()} | nil
+  def link(
+        %Ingress.Inbox.Entry{destination_transport: "slack", destination_thread_ref: thread} =
+          entry
+      )
       when is_binary(thread) do
-    others? = Repo.exists?(Entry.Query.others_in_thread(entry))
+    others? = Repo.exists?(Ingress.Inbox.Entry.Query.others_in_thread(entry))
 
     if others?, do: thread_link("slack", entry.destination_conversation_ref, thread)
   end

@@ -15,7 +15,7 @@ defmodule Ryker.ControlPlane.WorkerLiveness do
   listen.
   """
   use GenServer
-  alias Ryker.CoopFleet.ControlPlane.Workers
+  alias Ryker.CoopFleet
   require Logger
 
   @interval_ms 10_000
@@ -30,7 +30,11 @@ defmodule Ryker.ControlPlane.WorkerLiveness do
 
   @impl true
   def handle_info(:check, state) do
-    {:noreply, schedule(%{state | reporting: Workers.announce_quiet(state.reporting)})}
+    {:noreply,
+     schedule(%{
+       state
+       | reporting: CoopFleet.ControlPlane.Workers.announce_quiet(state.reporting)
+     })}
   rescue
     # The database will answer again; the workers that went quiet meanwhile
     # are still missing from the set the next check compares against.

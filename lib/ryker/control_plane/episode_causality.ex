@@ -16,8 +16,8 @@ defmodule Ryker.ControlPlane.EpisodeCausality do
   Where the selection was never recorded, this module says so rather than
   guessing from proximity.
   """
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Work.{ActivityEvent, Turn}
+  alias Ryker.Ingress
+  alias Ryker.Work
 
   @type owner :: {:input, String.t()} | {:turn, String.t()} | :episode
 
@@ -37,7 +37,8 @@ defmodule Ryker.ControlPlane.EpisodeCausality do
   selection -- to input rows; without it a recorded selection cannot be
   resolved and is reported as unrecorded rather than guessed.
   """
-  @spec index([Entry.t()], [Turn.t()], [ActivityEvent.t()], keyword()) :: t()
+  @spec index([Ingress.Inbox.Entry.t()], [Work.Turn.t()], [Work.ActivityEvent.t()], keyword()) ::
+          t()
   def index(inputs, turns, activity_events \\ [], options \\ []) do
     inputs = Enum.sort_by(inputs, &{&1.occurred_at, &1.id}, &sort/2)
     turns = Enum.sort_by(turns, &{&1.inserted_at, &1.id}, &sort/2)
@@ -150,9 +151,9 @@ defmodule Ryker.ControlPlane.EpisodeCausality do
     end
   end
 
-  defp selected_input_ids(%Turn{selected_input_refs: nil}, _by_ref), do: :not_recorded
+  defp selected_input_ids(%Work.Turn{selected_input_refs: nil}, _by_ref), do: :not_recorded
 
-  defp selected_input_ids(%Turn{selected_input_refs: refs}, by_ref) do
+  defp selected_input_ids(%Work.Turn{selected_input_refs: refs}, by_ref) do
     Enum.flat_map(refs, fn ref ->
       case Map.fetch(by_ref, ref) do
         {:ok, id} -> [id]

@@ -12,25 +12,19 @@ defmodule Ryker.Admission do
   alias Ryker.Admission.{Candidate, CandidateSearch, Context, ConversationContext}
   alias Ryker.Admission.{ConversationSummaries, CorrelationScope, Decision, Occurrences, Prompt}
   alias Ryker.Admission.Ranking
-  alias Ryker.Behaviors.StandingRules
-  alias Ryker.Delivery.RoutingResponseCustody
+  alias Ryker.Behaviors
+  alias Ryker.Delivery
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, ConversationLock, CorrelationClaims, Episode}
-  alias Ryker.Episodes.{Event, Origins}
-  alias Ryker.Episodes.RoutingDigests
   alias Ryker.Feedback
-  alias Ryker.Ingress.{Inbox, Input, RecallText, WorkProfile}
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress
   alias Ryker.Knowledge
-  alias Ryker.Learning.LearningSources
-  alias Ryker.Learning.Observations
+  alias Ryker.Learning
   alias Ryker.LocalRouting
   alias Ryker.People
   alias Ryker.Records
-  alias Ryker.Records.InputRequests
   alias Ryker.Repo
-  alias Ryker.Settings.Repository
-  alias Ryker.Work.{Custody, Turn}
+  alias Ryker.Settings
+  alias Ryker.Work
   require Logger
 
   @active_states [:working, :waiting_for_input, :waiting_for_event]
@@ -38,7 +32,7 @@ defmodule Ryker.Admission do
   @spec context(String.t(), keyword()) :: {:ok, Context.t()} | {:error, term()}
   def context(input_ref, options) do
     with {:ok, settings} <- validate_options(options),
-         {:ok, entry} <- Inbox.fetch(input_ref),
+         {:ok, entry} <- Ingress.Inbox.fetch(input_ref),
          :ok <- pending(entry),
          :ok <- lease_owned(entry, settings.lease_ref),
          {:ok, input} <- input_from_entry(entry) do
@@ -47,8 +41,9 @@ defmodule Ryker.Admission do
   end
 
   @doc false
-  @spec restore_context(Entry.t(), String.t()) :: {:ok, Context.t()} | {:error, term()}
-  def restore_context(%Entry{} = entry, lease_ref) do
+  @spec restore_context(Ingress.Inbox.Entry.t(), String.t()) ::
+          {:ok, Context.t()} | {:error, term()}
+  def restore_context(%Ingress.Inbox.Entry{} = entry, lease_ref) do
     with :ok <- pending(entry),
          :ok <- lease_owned(entry, lease_ref) do
       restored_context(entry)
@@ -64,8 +59,8 @@ defmodule Ryker.Admission do
   the same prompt can be put through the same checks (`validate/2`) without
   routing it: `Ryker.LocalRouting` asks this of every comparison.
   """
-  @spec decided_context(Entry.t()) :: {:ok, Context.t()} | {:error, term()}
-  def decided_context(%Entry{status: :decided} = entry), do: restored_context(entry)
+  @spec decided_context(Ingress.Inbox.Entry.t()) :: {:ok, Context.t()} | {:error, term()}
+  def decided_context(%Ingress.Inbox.Entry{status: :decided} = entry), do: restored_context(entry)
 
   def decided_context(_entry), do: {:error, {:invalid_admission_context_snapshot, :entry}}
 
@@ -111,7 +106,7 @@ defmodule Ryker.Admission do
 
   # What the sender said about themselves, where it may be used, or nil.
   defp person_asking(input, entry) do
-    case People.about(Input.actor_ref(input), entry.destination_conversation_ref) do
+    case People.about(Ingress.Input.actor_ref(input), entry.destination_conversation_ref) do
       [] -> nil
       facts -> facts
     end
@@ -157,16 +152,16 @@ defmodule Ryker.Admission do
         repository_choices: repository_choices(entry),
         routing_receipt: routing_receipt,
         slack_addressing: slack_addressing(entry),
-        observations: Observations.context(entry, entry.repository_ref, "", 5),
+        observations: Learning.Observations.context(entry, entry.repository_ref, "", 5),
         knowledge:
           Knowledge.context(
             entry,
             entry.repository_ref,
-            {:related, RecallText.from(input.content)},
+            {:related, Ingress.RecallText.from(input.content)},
             8
           )
       }
-      |> LearningSources.freeze()
+      |> Learning.LearningSources.freeze()
       |> Prompt.fit()
     else
       {:error, reason} -> Repo.rollback(reason)
@@ -178,13 +173,13 @@ defmodule Ryker.Admission do
   # operator wrote about it so the model can tell which the event concerns.
   # Frozen with the context, the list is what the receipt shows even after
   # the environment changes.
-  defp repository_choices(%Entry{work_profile: %{} = document}) do
-    with {:ok, profile} <- WorkProfile.restore(document),
-         [_one, _another | _rest] = refs <- WorkProfile.repository_choices(profile) do
+  defp repository_choices(%Ingress.Inbox.Entry{work_profile: %{} = document}) do
+    with {:ok, profile} <- Ingress.WorkProfile.restore(document),
+         [_one, _another | _rest] = refs <- Ingress.WorkProfile.repository_choices(profile) do
       described =
         refs
-        |> Repository.Query.by_refs()
-        |> Repository.Query.select_descriptions()
+        |> Settings.Repository.Query.by_refs()
+        |> Settings.Repository.Query.select_descriptions()
         |> Repo.all()
         |> Map.new(fn {ref, description, display_name} -> {ref, description || display_name} end)
 
@@ -207,7 +202,7 @@ defmodule Ryker.Admission do
   # when a person writes a new message in Slack or Chat after one: an app, an
   # alert or an edit says nothing about how an answer landed.
   defp previous_answer(
-         %Input{actor: %{kind: :user}, event_kind: :message, source: %{kind: kind}},
+         %Ingress.Input{actor: %{kind: :user}, event_kind: :message, source: %{kind: kind}},
          captured
        )
        when kind in ["slack", "control_plane"],
@@ -224,9 +219,10 @@ defmodule Ryker.Admission do
     |> ConversationContext.with_thread_summary(ConversationSummaries.thread(entry, settings.now))
   end
 
-  defp slack_addressing(%Entry{slack_audience: nil, slack_bot_user_ref: nil}), do: nil
+  defp slack_addressing(%Ingress.Inbox.Entry{slack_audience: nil, slack_bot_user_ref: nil}),
+    do: nil
 
-  defp slack_addressing(%Entry{} = entry) do
+  defp slack_addressing(%Ingress.Inbox.Entry{} = entry) do
     %{
       "audience" => Atom.to_string(entry.slack_audience),
       "ryker_user_ref" => entry.slack_bot_user_ref
@@ -352,8 +348,8 @@ defmodule Ryker.Admission do
   end
 
   @type commit_result :: %{
-          entry: Entry.t(),
-          episode: Episode.t() | nil,
+          entry: Ingress.Inbox.Entry.t(),
+          episode: Episodes.Episode.t() | nil,
           status: :applied | :duplicate | :superseded,
           transitions: [Ryker.Episodes.Transition.t()]
         }
@@ -452,7 +448,7 @@ defmodule Ryker.Admission do
   defp meaning(_input, %{embedder: nil}), do: nil
 
   defp meaning(input, %{embedder: embed}) do
-    case RecallText.from(input.content) do
+    case Ingress.RecallText.from(input.content) do
       "" ->
         nil
 
@@ -524,12 +520,15 @@ defmodule Ryker.Admission do
        }),
        do: {:error, {:input_blocked, error_code, error_detail}}
 
-  defp lease_owned(%Entry{lease_ref: nil}, nil), do: :ok
-  defp lease_owned(%Entry{lease_ref: lease_ref}, lease_ref) when is_binary(lease_ref), do: :ok
+  defp lease_owned(%Ingress.Inbox.Entry{lease_ref: nil}, nil), do: :ok
+
+  defp lease_owned(%Ingress.Inbox.Entry{lease_ref: lease_ref}, lease_ref)
+       when is_binary(lease_ref), do: :ok
+
   defp lease_owned(_entry, _lease_ref), do: {:error, {:admission_rejected, :lease_lost}}
 
   defp input_from_entry(entry) do
-    Input.new(%{
+    Ingress.Input.new(%{
       actor: %{kind: entry.actor_kind, ref: entry.actor_ref},
       content: entry.content,
       destination: %{
@@ -550,7 +549,11 @@ defmodule Ryker.Admission do
   end
 
   defp load_entry(id) do
-    entry = id |> Entry.Query.by_id() |> Entry.Query.lock_for_update() |> Repo.fetch()
+    entry =
+      id
+      |> Ingress.Inbox.Entry.Query.by_id()
+      |> Ingress.Inbox.Entry.Query.lock_for_update()
+      |> Repo.fetch()
 
     case entry do
       {:ok, entry} -> {:ok, entry}
@@ -562,13 +565,13 @@ defmodule Ryker.Admission do
 
   defp episodes_by_id(ids) do
     ids
-    |> Episode.Query.by_ids()
+    |> Episodes.Episode.Query.by_ids()
     |> Repo.all()
     |> Map.new(&{&1.id, &1})
   end
 
   defp commit_locked(
-         %Entry{status: status} = entry,
+         %Ingress.Inbox.Entry{status: status} = entry,
          _context,
          decision,
          decision_ref,
@@ -589,7 +592,7 @@ defmodule Ryker.Admission do
     else
       {:error,
        {:decision_conflict,
-        input_ref: Inbox.ref(entry),
+        input_ref: Ingress.Inbox.ref(entry),
         stored_decision_ref: entry.decision_ref,
         submitted_decision_ref: decision_ref,
         stored_fingerprint: entry.decision_fingerprint,
@@ -598,7 +601,7 @@ defmodule Ryker.Admission do
   end
 
   defp commit_locked(
-         %Entry{
+         %Ingress.Inbox.Entry{
            status: :blocked,
            last_error_code: error_code,
            last_error_detail: error_detail
@@ -612,7 +615,7 @@ defmodule Ryker.Admission do
        do: {:error, {:input_blocked, error_code, error_detail}}
 
   defp commit_locked(
-         %Entry{status: :pending} = entry,
+         %Ingress.Inbox.Entry{status: :pending} = entry,
          context,
          decision,
          decision_ref,
@@ -654,7 +657,7 @@ defmodule Ryker.Admission do
 
         persist_superseded(entry, decision, decision_ref, episode, details)
 
-      {:ok, {%Episode{} = owner, _earlier_revision}} ->
+      {:ok, {%Episodes.Episode{} = owner, _earlier_revision}} ->
         if source_owner_matches_selection?(owner, selection) do
           apply_and_persist_current(
             context,
@@ -690,13 +693,13 @@ defmodule Ryker.Admission do
     end
   end
 
-  defp source_owner_routing_matches?(%Episode{state: :cancelled, id: id}, selection) do
-    match?(%Candidate{episode: %Episode{id: ^id}}, selection.candidate) and
+  defp source_owner_routing_matches?(%Episodes.Episode{state: :cancelled, id: id}, selection) do
+    match?(%Candidate{episode: %Episodes.Episode{id: ^id}}, selection.candidate) and
       selection.decision.relation == :history_only
   end
 
-  defp source_owner_routing_matches?(%Episode{id: id}, selection) do
-    match?(%Episode{id: ^id}, existing_episode(selection))
+  defp source_owner_routing_matches?(%Episodes.Episode{id: id}, selection) do
+    match?(%Episodes.Episode{id: ^id}, existing_episode(selection))
   end
 
   defp apply_and_persist_current(
@@ -709,12 +712,17 @@ defmodule Ryker.Admission do
        ) do
     case apply_episode(context, entry, selection) do
       {:ok, transitions, episode} ->
-        sources = LearningSources.authorize_context(context, entry)
+        sources = Learning.LearningSources.authorize_context(context, entry)
 
         if is_list(context.source_dependencies) and not is_list(sources),
           do: Repo.rollback({:admission_rejected, :context_stale})
 
-        with :ok <- Observations.reauthorize(entry, entry.repository_ref, context.observations),
+        with :ok <-
+               Learning.Observations.reauthorize(
+                 entry,
+                 entry.repository_ref,
+                 context.observations
+               ),
              :ok <-
                Knowledge.still_current(
                  entry,
@@ -727,7 +735,7 @@ defmodule Ryker.Admission do
                maybe_resume_blocked_episode(episode, admitted_input_ref(transitions)),
              {:ok, decided} <- persist_decision(entry, decision, decision_ref, episode),
              :ok <- keep_sentiment(context, decision, decided),
-             :ok <- Observations.record_excerpt_in_transaction(decided),
+             :ok <- Learning.Observations.record_excerpt_in_transaction(decided),
              :ok <-
                finalize_assignment_runs(entry, decision, decision_ref, episode, :decided) do
           {:ok, %{entry: decided, episode: episode, status: :applied, transitions: transitions}}
@@ -756,7 +764,7 @@ defmodule Ryker.Admission do
            note: reason,
            actor_ref: input.actor.ref,
            source: input.source.kind,
-           source_ref: Inbox.ref(decided),
+           source_ref: Ingress.Inbox.ref(decided),
            occurred_at: input.occurred_at,
            request: feedback_request(request)
          }) do
@@ -776,7 +784,7 @@ defmodule Ryker.Admission do
 
   defp supersede_stale_revision(entry, selection, decision, decision_ref, details, reason) do
     case existing_episode(selection) do
-      %Episode{} = episode ->
+      %Episodes.Episode{} = episode ->
         persist_superseded(entry, decision, decision_ref, episode, details)
 
       nil ->
@@ -796,8 +804,8 @@ defmodule Ryker.Admission do
     selected_episode =
       if decision.action in [:start_episode, :continue_episode, :reply], do: episode
 
-    StandingRules.finalize_assignment_runs_in_transaction(
-      Inbox.ref(entry),
+    Behaviors.StandingRules.finalize_assignment_runs_in_transaction(
+      Ingress.Inbox.ref(entry),
       decision.action,
       decision_ref,
       selected_episode,
@@ -806,7 +814,7 @@ defmodule Ryker.Admission do
   end
 
   @doc "The episode whose work owns this input's source message now."
-  @spec fetch_source_owner(Context.t()) :: {:ok, Episode.t()} | {:error, :not_found}
+  @spec fetch_source_owner(Context.t()) :: {:ok, Episodes.Episode.t()} | {:error, :not_found}
   def fetch_source_owner(%Context{} = context) do
     with {:ok, {episode, _revision}} <- fetch_current_source_owner(context), do: {:ok, episode}
   end
@@ -815,7 +823,7 @@ defmodule Ryker.Admission do
   # episode now lives in another conversation, so a revision can never be
   # reassigned by rank or split across two episodes.
   defp fetch_current_source_owner(context) do
-    Origins.fetch_current_owner(
+    Episodes.Origins.fetch_current_owner(
       context.input.native_input_id,
       context.input.destination.transport,
       context.input_entry.execution_mode
@@ -859,7 +867,7 @@ defmodule Ryker.Admission do
   defp refresh_selection(%{candidate: nil} = selection), do: selection
 
   defp refresh_selection(%{candidate: candidate} = selection) do
-    current = Repo.one(Episode.Query.by_id(candidate.episode.id))
+    current = Repo.one(Episodes.Episode.Query.by_id(candidate.episode.id))
 
     if current,
       do: %{selection | candidate: %{candidate | episode: current}},
@@ -879,7 +887,7 @@ defmodule Ryker.Admission do
   defp creates_episode?(_selection), do: false
 
   defp lock_conversation(input) do
-    ConversationLock.lock(Repo, input.destination)
+    Episodes.ConversationLock.lock(Repo, input.destination)
   end
 
   defp same_input(entry, context) do
@@ -892,7 +900,7 @@ defmodule Ryker.Admission do
       entry.event_fingerprint != expected.event_fingerprint ->
         {:error, {:admission_rejected, :input_changed}}
 
-      Input.fingerprint(context.input) != entry.event_fingerprint ->
+      Ingress.Input.fingerprint(context.input) != entry.event_fingerprint ->
         {:error, {:admission_rejected, :input_changed}}
 
       true ->
@@ -915,7 +923,7 @@ defmodule Ryker.Admission do
     end
   end
 
-  defp apply_admit(admit, %Episode{}), do: Episodes.apply_batch_in_transaction([admit])
+  defp apply_admit(admit, %Episodes.Episode{}), do: Episodes.apply_batch_in_transaction([admit])
 
   defp apply_admit(admit, nil), do: Episodes.apply_batch_in_transaction([admit])
 
@@ -924,8 +932,8 @@ defmodule Ryker.Admission do
     input = context.input
     turn_ref = "ingress-turn:#{entry.id}"
 
-    %Command.AdmitInput{
-      actor_ref: Input.actor_ref(input),
+    %Episodes.Command.AdmitInput{
+      actor_ref: Ingress.Input.actor_ref(input),
       destination: target_destination(input, existing),
       episode_id: if(existing, do: existing.id, else: entry.id),
       episode_key: if(existing, do: existing.key, else: "ingress-input:#{entry.id}"),
@@ -933,7 +941,7 @@ defmodule Ryker.Admission do
       linked_episode_id: linked_episode(selection, existing),
       native_input_id: routed_native_input_id(input, entry),
       occurred_at: input.occurred_at,
-      payload: Input.document(input),
+      payload: Ingress.Input.document(input),
       revision: input.revision,
       turn_ref: turn_ref
     }
@@ -945,15 +953,15 @@ defmodule Ryker.Admission do
     if existing && waiting?(current) &&
          Records.user_resumable_wait?(current.owner_ref, context.input) &&
          input_after_wait?(current, context.input.occurred_at) do
-      resume = %Command.ResumeWait{
+      resume = %Episodes.Command.ResumeWait{
         episode_key: current.key,
         expected_wait: %{kind: current.owner_kind, ref: current.owner_ref},
         occurred_at: context.input.occurred_at,
-        resolution_ref: Command.dedupe_key(admit),
+        resolution_ref: Episodes.Command.dedupe_key(admit),
         turn_ref: admit.turn_ref
       }
 
-      with :ok <- InputRequests.associate_in_transaction(current, context.input_entry),
+      with :ok <- Records.InputRequests.associate_in_transaction(current, context.input_entry),
            {:ok, transitions} <- Episodes.apply_batch_in_transaction([resume]),
            :ok <-
              Records.resolve_wait_in_transaction(current.owner_ref, context.input.event_kind) do
@@ -976,7 +984,7 @@ defmodule Ryker.Admission do
 
   defp existing_episode(_selection), do: nil
 
-  defp target_destination(_input, %Episode{} = episode) do
+  defp target_destination(_input, %Episodes.Episode{} = episode) do
     %{
       conversation_ref: episode.destination_conversation_ref,
       thread_ref: episode.destination_thread_ref,
@@ -986,7 +994,7 @@ defmodule Ryker.Admission do
 
   defp target_destination(input, nil), do: input.destination
 
-  defp linked_episode(_selection, %Episode{} = episode), do: episode.linked_episode_id
+  defp linked_episode(_selection, %Episodes.Episode{} = episode), do: episode.linked_episode_id
 
   defp linked_episode(%{candidate: %Candidate{} = candidate, decision: decision}, nil) do
     if decision.relation == :history_only or decision.relation == :same_work,
@@ -1001,18 +1009,19 @@ defmodule Ryker.Admission do
 
   defp routed_native_input_id(input, _entry), do: input.native_input_id
 
-  defp waiting?(%Episode{state: state}) when state in [:waiting_for_input, :waiting_for_event],
-    do: true
+  defp waiting?(%Episodes.Episode{state: state})
+       when state in [:waiting_for_input, :waiting_for_event],
+       do: true
 
   defp waiting?(_episode), do: false
 
-  defp input_after_wait?(%Episode{} = episode, occurred_at) do
+  defp input_after_wait?(%Episodes.Episode{} = episode, occurred_at) do
     wait_mark =
       episode.id
-      |> Event.Query.by_episode_id()
-      |> Event.Query.wait_marks(episode.owner_ref)
-      |> Event.Query.ordered_by_sequence_desc()
-      |> Event.Query.limit_to(1)
+      |> Episodes.Event.Query.by_episode_id()
+      |> Episodes.Event.Query.wait_marks(episode.owner_ref)
+      |> Episodes.Event.Query.ordered_by_sequence_desc()
+      |> Episodes.Event.Query.limit_to(1)
       |> Repo.one()
 
     case wait_mark do
@@ -1023,7 +1032,7 @@ defmodule Ryker.Admission do
 
   defp persist_decision(entry, decision, decision_ref, episode) do
     entry
-    |> Entry.Changeset.decide(decision, decision_ref, episode && episode.id)
+    |> Ingress.Inbox.Entry.Changeset.decide(decision, decision_ref, episode && episode.id)
     |> Repo.update()
     |> case do
       {:ok, decided} ->
@@ -1040,19 +1049,20 @@ defmodule Ryker.Admission do
     end
   end
 
-  defp maybe_enqueue_routing_response(%Entry{execution_mode: :shadow}), do: {:ok, nil}
+  defp maybe_enqueue_routing_response(%Ingress.Inbox.Entry{execution_mode: :shadow}),
+    do: {:ok, nil}
 
-  defp maybe_enqueue_routing_response(%Entry{} = entry),
-    do: RoutingResponseCustody.enqueue_in_transaction(entry)
+  defp maybe_enqueue_routing_response(%Ingress.Inbox.Entry{} = entry),
+    do: Delivery.RoutingResponseCustody.enqueue_in_transaction(entry)
 
   defp persist_superseded_decision(entry, decision, decision_ref, episode, details) do
     entry
-    |> Entry.Changeset.supersede(decision, decision_ref, episode.id, details)
+    |> Ingress.Inbox.Entry.Changeset.supersede(decision, decision_ref, episode.id, details)
     |> Repo.update()
     |> case do
       {:ok, decided} ->
         :ok =
-          Inbox.record_transition_in_transaction(decided, :superseded,
+          Ingress.Inbox.record_transition_in_transaction(decided, :superseded,
             detail: decided.last_error_detail
           )
 
@@ -1069,9 +1079,9 @@ defmodule Ryker.Admission do
   # work: the loser sees the winner's claim and classifies again against it.
   defp claim_occurrences(_context, nil), do: :ok
 
-  defp claim_occurrences(%Context{} = context, %Episode{} = episode) do
+  defp claim_occurrences(%Context{} = context, %Episodes.Episode{} = episode) do
     scope_ref = Occurrences.scope_ref(context.input)
-    input_ref = Inbox.ref(context.input_entry)
+    input_ref = Ingress.Inbox.ref(context.input_entry)
 
     context.input
     |> Occurrences.for_input()
@@ -1086,13 +1096,13 @@ defmodule Ryker.Admission do
         established_at: context.input.occurred_at
       }
 
-      attributes |> CorrelationClaims.claim_in_transaction() |> claimed(episode)
+      attributes |> Episodes.CorrelationClaims.claim_in_transaction() |> claimed(episode)
     end)
   end
 
   defp claimed({:ok, _claim}, _episode), do: {:cont, :ok}
 
-  defp claimed({:error, {:occurrence_claimed, owner}}, %Episode{id: id})
+  defp claimed({:error, {:occurrence_claimed, owner}}, %Episodes.Episode{id: id})
        when owner.episode_id == id,
        do: {:cont, :ok}
 
@@ -1105,11 +1115,11 @@ defmodule Ryker.Admission do
   defp maybe_pin_episode(_episode, nil, _decision), do: :ok
 
   defp maybe_pin_episode(
-         %Episode{id: episode_id},
+         %Episodes.Episode{id: episode_id},
          %{digest: policy_digest, name: policy} = work_policy,
          %Decision{} = decision
        ) do
-    case Custody.pin_episode_in_transaction(episode_id, policy, policy_digest,
+    case Work.Custody.pin_episode_in_transaction(episode_id, policy, policy_digest,
            authority_digest: Map.get(work_policy, :authority_digest),
            environment_ref: Map.get(work_policy, :environment_ref),
            repository_context: Map.get(work_policy, :repository_context),
@@ -1128,11 +1138,11 @@ defmodule Ryker.Admission do
 
   defp maybe_resume_blocked_episode(nil, _input_ref), do: {:ok, nil}
 
-  defp maybe_resume_blocked_episode(%Episode{} = episode, input_ref),
-    do: Custody.resume_blocked_in_transaction(episode, input_ref)
+  defp maybe_resume_blocked_episode(%Episodes.Episode{} = episode, input_ref),
+    do: Work.Custody.resume_blocked_in_transaction(episode, input_ref)
 
   defp load_decided_episode(nil), do: nil
-  defp load_decided_episode(id), do: Repo.one(Episode.Query.by_id(id))
+  defp load_decided_episode(id), do: Repo.one(Episodes.Episode.Query.by_id(id))
 
   # Retrieval is bounded, indexed and explainable: five lanes fill a pool of at
   # most 200 eligible episodes, the exact source item's owner is resolved
@@ -1146,8 +1156,8 @@ defmodule Ryker.Admission do
         scope: scope,
         transport: input.destination.transport,
         thread_ref: input.destination.thread_ref,
-        text: RecallText.from(input.content),
-        identifiers: RoutingDigests.input_identifiers(input.content),
+        text: Ingress.RecallText.from(input.content),
+        identifiers: Episodes.RoutingDigests.input_identifiers(input.content),
         native_input_id: input.native_input_id,
         execution_mode: entry.execution_mode,
         repository_ref: entry.repository_ref,
@@ -1174,7 +1184,7 @@ defmodule Ryker.Admission do
               pinned_repository: ranked.repository_ref,
               source_owner: ranked.source_owner
             }),
-          digest: RoutingDigests.document(ranked.digest),
+          digest: Episodes.RoutingDigests.document(ranked.digest),
           endpoints: Map.get(endpoints, ranked.episode.id, %{}),
           episode: ranked.episode,
           idle_minutes: max(div(DateTime.diff(arrived, ranked.episode.updated_at), 60), 0),
@@ -1191,8 +1201,10 @@ defmodule Ryker.Admission do
   # A Slack entry carries the channel's default repository before the model
   # selects the repository named in the message. That default cannot rule out
   # continuing work already pinned to a different repository in this channel.
-  defp candidate_input_repository(%Entry{source_kind: "slack"}), do: nil
-  defp candidate_input_repository(%Entry{repository_ref: repository_ref}), do: repository_ref
+  defp candidate_input_repository(%Ingress.Inbox.Entry{source_kind: "slack"}), do: nil
+
+  defp candidate_input_repository(%Ingress.Inbox.Entry{repository_ref: repository_ref}),
+    do: repository_ref
 
   # What each candidate last said or decided: routing chose between earlier
   # work it knew only by its opening message and the state "complete".
@@ -1202,7 +1214,7 @@ defmodule Ryker.Admission do
 
   defp candidate_outcomes(episode_ids) do
     episode_ids
-    |> Turn.Query.latest_accepted_outcomes()
+    |> Work.Turn.Query.latest_accepted_outcomes()
     |> Repo.all()
     |> Enum.flat_map(fn {episode_id, delivery, delivered_at, intent} ->
       case outcome(delivery, delivered_at, intent) do
@@ -1236,18 +1248,18 @@ defmodule Ryker.Admission do
     destination = input.destination
 
     destination.transport
-    |> Episode.Query.by_conversation(destination.conversation_ref)
-    |> Episode.Query.by_execution_mode(execution_mode)
+    |> Episodes.Episode.Query.by_conversation(destination.conversation_ref)
+    |> Episodes.Episode.Query.by_execution_mode(execution_mode)
     |> Repo.aggregate(:count)
   end
 
   defp current_active_episode_ids(destination, execution_mode) do
     destination.transport
-    |> Episode.Query.by_conversation(destination.conversation_ref)
-    |> Episode.Query.by_execution_mode(execution_mode)
-    |> Episode.Query.by_states(@active_states)
-    |> Episode.Query.ordered_by_id()
-    |> Episode.Query.select_ids()
+    |> Episodes.Episode.Query.by_conversation(destination.conversation_ref)
+    |> Episodes.Episode.Query.by_execution_mode(execution_mode)
+    |> Episodes.Episode.Query.by_states(@active_states)
+    |> Episodes.Episode.Query.ordered_by_id()
+    |> Episodes.Episode.Query.select_ids()
     |> Repo.all()
   end
 
@@ -1283,16 +1295,19 @@ defmodule Ryker.Admission do
   end
 
   defp endpoint_row(episode_id, position) do
-    admissions = episode_id |> Event.Query.by_episode_id() |> Event.Query.by_kind(:input_admitted)
+    admissions =
+      episode_id
+      |> Episodes.Event.Query.by_episode_id()
+      |> Episodes.Event.Query.by_kind(:input_admitted)
 
     ordered =
       if position == :first,
-        do: Event.Query.ordered_by_occurred_at(admissions),
-        else: Event.Query.ordered_by_occurred_at_desc(admissions)
+        do: Episodes.Event.Query.ordered_by_occurred_at(admissions),
+        else: Episodes.Event.Query.ordered_by_occurred_at_desc(admissions)
 
     ordered
-    |> Event.Query.limit_to(1)
-    |> Event.Query.select_endpoints()
+    |> Episodes.Event.Query.limit_to(1)
+    |> Episodes.Event.Query.select_endpoints()
     |> Repo.one()
   end
 
@@ -1306,7 +1321,7 @@ defmodule Ryker.Admission do
   end
 
   defp allowed_action(input, action) do
-    if action in Input.allowed_actions(input),
+    if action in Ingress.Input.allowed_actions(input),
       do: :ok,
       else: {:error, {:admission_rejected, :action_not_allowed, submitted: action}}
   end
@@ -1317,7 +1332,7 @@ defmodule Ryker.Admission do
   defp allowed_reactions(_input, %{reactions: nil}), do: :ok
 
   defp allowed_reactions(input, %{reactions: reactions}) do
-    case Input.reaction_names(input) do
+    case Ingress.Input.reaction_names(input) do
       :any ->
         :ok
 
@@ -1425,9 +1440,9 @@ defmodule Ryker.Admission do
   Internal — announces, after the outermost commit, that routing `entry` made
   progress. The message's own topics (`Ryker.Ingress.Inbox`) hear it too.
   """
-  @spec broadcast_routing_updated(Entry.t()) :: :ok
-  def broadcast_routing_updated(%Entry{id: input_id} = entry) do
-    Inbox.broadcast_input_updated(entry)
+  @spec broadcast_routing_updated(Ingress.Inbox.Entry.t()) :: :ok
+  def broadcast_routing_updated(%Ingress.Inbox.Entry{id: input_id} = entry) do
+    Ingress.Inbox.broadcast_input_updated(entry)
 
     Repo.after_commit(fn ->
       Ryker.PubSub.broadcast(routing_topic(), {:routing_updated, input_id})

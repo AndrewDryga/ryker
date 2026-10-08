@@ -1,7 +1,7 @@
 defmodule Ryker.Work.FinalPreflight do
   @moduledoc false
   alias Ryker.CanonicalJSON
-  alias Ryker.Delivery.PlatformActionCustody
+  alias Ryker.Delivery
   alias Ryker.Records
 
   # A missing title and a null one both keep the episode's name, so they are
@@ -26,7 +26,7 @@ defmodule Ryker.Work.FinalPreflight do
       "records" =>
         Map.merge(
           Records.validation_records(episode_id),
-          PlatformActionCustody.validation_records(episode_id, turn_id)
+          Delivery.PlatformActionCustody.validation_records(episode_id, turn_id)
         )
     })
   end

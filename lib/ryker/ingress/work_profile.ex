@@ -27,7 +27,7 @@ defmodule Ryker.Ingress.WorkProfile do
   carries none of those keys.
   """
   alias Ryker.Reference
-  alias Ryker.Work.RepositoryContext
+  alias Ryker.Work
 
   @work_classes [:conversational, :standard, :deep]
   @base_fields [:policy, :policy_digest, :repository_ref]
@@ -154,7 +154,7 @@ defmodule Ryker.Ingress.WorkProfile do
          |> placement(profile.environment_ref, chosen)
          |> Map.put(
            :repository_context,
-           RepositoryContext.document(repository_context(profile, chosen))
+           Work.RepositoryContext.document(repository_context(profile, chosen))
          )}
 
       :error ->
@@ -389,7 +389,7 @@ defmodule Ryker.Ingress.WorkProfile do
     if Enum.all?(writable, fn repository_ref ->
          match?(
            {:ok, _context},
-           RepositoryContext.prepare(
+           Work.RepositoryContext.prepare(
              repository_context(attributes, repository_ref),
              repository_ref
            )

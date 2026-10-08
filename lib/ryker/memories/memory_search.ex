@@ -1,19 +1,17 @@
 defmodule Ryker.Memories.MemorySearch do
   @moduledoc "Bounded, permission-rechecked keyset recall across existing memory owners."
-  alias Ryker.Behaviors.Recall, as: BehaviorRecall
+  alias Ryker.Behaviors
   alias Ryker.{CanonicalJSON, Repo}
-  alias Ryker.Continuity.Recall, as: ContinuityRecall
+  alias Ryker.Continuity
   alias Ryker.Crypto
-  alias Ryker.Episodes.Event
-  alias Ryker.Episodes.Scope
+  alias Ryker.Episodes
   alias Ryker.Knowledge
-  alias Ryker.Knowledge.KnowledgeSnapshot
-  alias Ryker.Learning.Observations
+  alias Ryker.Learning
   alias Ryker.Memories.Cases
   alias Ryker.Memories.MemorySearchPage
   alias Ryker.Memories.MemorySourceLink
   alias Ryker.Memories.Recall
-  alias Ryker.StateTools.Binding
+  alias Ryker.StateTools
 
   @continuity ~w(knowledge observation summary rollup)
   @maximum_bytes 65_536
@@ -51,7 +49,7 @@ defmodule Ryker.Memories.MemorySearch do
       {documents, state, _budget} =
         collect(page, initial(["fact", "guidance", "continuity"]), 8, &fetch(&1, binding, &2))
 
-      case KnowledgeSnapshot.expose(binding, documents) do
+      case Knowledge.KnowledgeSnapshot.expose(binding, documents) do
         :ok -> :ok
         {:error, reason} -> Repo.rollback(search_error(reason))
       end
@@ -96,7 +94,7 @@ defmodule Ryker.Memories.MemorySearch do
     {documents, state, budget} = collect(page, state, arguments["limit"], fetch)
     {related, coverage} = related_to_results(documents, page, binding, budget)
 
-    case KnowledgeSnapshot.expose(binding, documents ++ related) do
+    case Knowledge.KnowledgeSnapshot.expose(binding, documents ++ related) do
       :ok -> :ok
       {:error, reason} -> Repo.rollback(search_error(reason))
     end
@@ -164,14 +162,14 @@ defmodule Ryker.Memories.MemorySearch do
   end
 
   defp lock_scope(binding) do
-    case Observations.locked_scope(binding.episode, binding.session.repository_ref) do
+    case Learning.Observations.locked_scope(binding.episode, binding.session.repository_ref) do
       {:ok, _scope} -> :ok
       {:error, reason} -> Repo.rollback(search_error(reason))
     end
   end
 
   defp lock_binding(binding, arguments) do
-    case Binding.lock_current(binding) do
+    case StateTools.Binding.lock_current(binding) do
       {:ok, current} ->
         Map.put(current, :operator_ref, latest_operator_ref(current.episode))
 
@@ -313,21 +311,21 @@ defmodule Ryker.Memories.MemorySearch do
 
   defp fetch("guidance", binding, page) do
     context = context(binding) |> Map.put(:operator_ref, binding.operator_ref)
-    BehaviorRecall.search_page(context, page)
+    Behaviors.Recall.search_page(context, page)
   end
 
   defp fetch("knowledge", binding, page),
     do: Knowledge.search_page(binding.episode, binding.session.repository_ref, page)
 
   defp fetch("observation", binding, page),
-    do: Observations.search_page(binding.episode, binding.session.repository_ref, page)
+    do: Learning.Observations.search_page(binding.episode, binding.session.repository_ref, page)
 
   defp fetch("summary", binding, page) do
-    ContinuityRecall.search_page(:summary, binding.episode, binding.session.repository_ref, page)
+    Continuity.Recall.search_page(:summary, binding.episode, binding.session.repository_ref, page)
   end
 
   defp fetch("rollup", binding, page) do
-    ContinuityRecall.search_page(:rollup, binding.episode, binding.session.repository_ref, page)
+    Continuity.Recall.search_page(:rollup, binding.episode, binding.session.repository_ref, page)
   end
 
   defp context(binding) do
@@ -335,17 +333,17 @@ defmodule Ryker.Memories.MemorySearch do
       conversation_ref: binding.episode.destination_conversation_ref,
       execution_mode: binding.episode.execution_mode,
       repository: binding.session.repository_ref,
-      workspace_ref: Scope.workspace_ref(binding.episode)
+      workspace_ref: Episodes.Scope.workspace_ref(binding.episode)
     }
   end
 
   defp latest_operator_ref(episode) do
     episode.id
-    |> Event.Query.by_episode_id()
-    |> Event.Query.admitted_inputs(episode.active_input_refs)
-    |> Event.Query.ordered_by_sequence_desc()
-    |> Event.Query.limit_to(1)
-    |> Event.Query.select_actor_refs()
+    |> Episodes.Event.Query.by_episode_id()
+    |> Episodes.Event.Query.admitted_inputs(episode.active_input_refs)
+    |> Episodes.Event.Query.ordered_by_sequence_desc()
+    |> Episodes.Event.Query.limit_to(1)
+    |> Episodes.Event.Query.select_actor_refs()
     |> Repo.one()
   end
 

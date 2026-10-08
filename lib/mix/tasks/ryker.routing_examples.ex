@@ -11,8 +11,9 @@ defmodule Mix.Tasks.Ryker.RoutingExamples do
   """
   use Mix.Task
   alias Mix.Tasks.Ryker.OperatorSupport, as: Support
-  alias Ryker.RoutingExamples.Export
+  alias Ryker.RoutingExamples
 
   @impl Mix.Task
-  def run(arguments), do: Support.export_lines(arguments, "routing example", &Export.reduce/2)
+  def run(arguments),
+    do: Support.export_lines(arguments, "routing example", &RoutingExamples.Export.reduce/2)
 end

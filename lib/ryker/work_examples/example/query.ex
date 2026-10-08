@@ -1,7 +1,7 @@
 defmodule Ryker.WorkExamples.Example.Query do
   @moduledoc "Settled Work turns kept as examples, for every read of `work_examples`."
   use Ryker, :query
-  alias Ryker.Work.{OwningTurn, Turn}
+  alias Ryker.Work
   alias Ryker.WorkExamples.Example
 
   def all, do: from(examples in Example, as: :work_examples)
@@ -40,7 +40,7 @@ defmodule Ryker.WorkExamples.Example.Query do
   example yet, and nothing their request started still running.
   """
   def settled_turns(limit, window_seconds, skip) do
-    from(turn in Turn,
+    from(turn in Work.Turn,
       as: :episode_work_turns,
       where: turn.status == :settled and is_nil(turn.operational_pruned_at),
       where: turn.id not in ^skip,
@@ -57,7 +57,7 @@ defmodule Ryker.WorkExamples.Example.Query do
         ),
       where:
         not exists(
-          from(work in subquery(OwningTurn.Query.work_rest()),
+          from(work in subquery(Work.OwningTurn.Query.work_rest()),
             where: work.episode_id == parent_as(:episode_work_turns).episode_id and work.running
           )
         ),

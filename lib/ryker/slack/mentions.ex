@@ -7,7 +7,7 @@ defmodule Ryker.Slack.Mentions do
   channel link.
   """
   import Ryker.Slack.Renderer.Blocks, only: [escape: 1]
-  alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.Episodes
   alias Ryker.Repo
 
   @typed_link ~r/\[([^\]\r\n]{1,120})\]\((slack-(?:user|channel|usergroup|broadcast)):([A-Za-z0-9_.:-]{1,1024})\)/u
@@ -21,13 +21,13 @@ defmodule Ryker.Slack.Mentions do
   def typed?(message) when is_binary(message), do: Regex.match?(@typed_prefix, message)
   def typed?(_message), do: false
 
-  @spec authority(Episode.t()) :: map() | nil
-  def authority(%Episode{active_input_refs: active_refs} = episode),
+  @spec authority(Episodes.Episode.t()) :: map() | nil
+  def authority(%Episodes.Episode{active_input_refs: active_refs} = episode),
     do: authority(episode, active_refs)
 
   # Whom a message may name, from the inputs it answers.
   defp authority(
-         %Episode{
+         %Episodes.Episode{
            destination_conversation_ref: "slack:" <> _rest = conversation_ref,
            destination_transport: "slack",
            id: episode_id
@@ -47,7 +47,7 @@ defmodule Ryker.Slack.Mentions do
     end
   end
 
-  defp authority(%Episode{}, _input_refs), do: nil
+  defp authority(%Episodes.Episode{}, _input_refs), do: nil
 
   @doc """
   Resolves the Slack mention authority for one immutable delivery intent: a
@@ -67,11 +67,11 @@ defmodule Ryker.Slack.Mentions do
   def authority_for_delivery(delivery_ref)
       when is_binary(delivery_ref) and byte_size(delivery_ref) in 1..256 do
     answered =
-      Repo.one(Episode.Query.answered_by_delivery(delivery_ref)) ||
-        Repo.one(Episode.Query.updated_by_slack_action(delivery_ref))
+      Repo.one(Episodes.Episode.Query.answered_by_delivery(delivery_ref)) ||
+        Repo.one(Episodes.Episode.Query.updated_by_slack_action(delivery_ref))
 
     case answered do
-      {%Episode{} = episode, input_refs} ->
+      {%Episodes.Episode{} = episode, input_refs} ->
         case authority(episode, input_refs || []) do
           %{} = authority -> {:ok, authority}
           nil -> {:error, {:slack_mention_authority_unavailable, :episode}}
@@ -85,7 +85,7 @@ defmodule Ryker.Slack.Mentions do
   def authority_for_delivery(_delivery_ref),
     do: {:error, {:slack_mention_authority_unavailable, :delivery}}
 
-  @spec authority_from_events(String.t(), String.t(), [Event.t() | map()]) :: map()
+  @spec authority_from_events(String.t(), String.t(), [Episodes.Event.t() | map()]) :: map()
   defp authority_from_events(workspace_ref, conversation_ref, events)
        when is_binary(workspace_ref) and is_binary(conversation_ref) and is_list(events) do
     evidence = Enum.map_join(events, "\n", &event_evidence/1)
@@ -320,7 +320,7 @@ defmodule Ryker.Slack.Mentions do
 
   defp conversation(_value), do: {:error, :conversation}
 
-  defp event_actor(%Event{payload: payload}), do: event_actor(payload)
+  defp event_actor(%Episodes.Event{payload: payload}), do: event_actor(payload)
 
   defp event_actor(%{"actor_ref" => "slack:user:" <> user_ref}) do
     if slack_id(user_ref) == :ok, do: ["slack-user:" <> user_ref], else: []
@@ -332,16 +332,16 @@ defmodule Ryker.Slack.Mentions do
 
   defp active_events(episode_id, active_refs) do
     episode_id
-    |> Event.Query.by_episode_id()
-    |> Event.Query.admitted_inputs(Enum.uniq(active_refs))
-    |> Event.Query.ordered_by_sequence()
+    |> Episodes.Event.Query.by_episode_id()
+    |> Episodes.Event.Query.admitted_inputs(Enum.uniq(active_refs))
+    |> Episodes.Event.Query.ordered_by_sequence()
     |> Repo.all()
   end
 
   # Evidence is scanned for mention tokens, so key order is irrelevant. An
   # event without admitted content, or content JSON cannot carry, is no
   # evidence; a host error here is not swallowed into "no evidence".
-  defp event_evidence(%Event{payload: %{"payload" => %{"content" => content}}}) do
+  defp event_evidence(%Episodes.Event{payload: %{"payload" => %{"content" => content}}}) do
     case Jason.encode(content) do
       {:ok, encoded} -> encoded
       {:error, _reason} -> ""

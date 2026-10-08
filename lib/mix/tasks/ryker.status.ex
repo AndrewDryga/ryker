@@ -7,7 +7,7 @@ defmodule Mix.Tasks.Ryker.Status do
   """
   use Mix.Task
   alias Mix.Tasks.Ryker.OperatorSupport, as: Support
-  alias Ryker.Operator.Status
+  alias Ryker.Operator
 
   @impl Mix.Task
   def run(arguments) do
@@ -19,7 +19,7 @@ defmodule Mix.Tasks.Ryker.Status do
 
   defp snapshot do
     Support.with_configuration(
-      &Status.snapshot(configuration: &1, check_progress: false, check_runtimes: false)
+      &Operator.Status.snapshot(configuration: &1, check_progress: false, check_runtimes: false)
     )
   end
 

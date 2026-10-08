@@ -7,9 +7,9 @@ defmodule Ryker.ControlPlane.CasesProjection do
   before it (2026-10-04 review).
   """
   alias Ryker.ControlPlane.{PagedRelation, Search}
-  alias Ryker.Memories.CaseRecord
+  alias Ryker.Memories
   alias Ryker.Repo
-  alias Ryker.Slack.Names
+  alias Ryker.Slack
 
   @page_size 30
 
@@ -22,8 +22,10 @@ defmodule Ryker.ControlPlane.CasesProjection do
 
     cases =
       if text == "",
-        do: CaseRecord.Query.active(),
-        else: CaseRecord.Query.active() |> CaseRecord.Query.mentioning(Search.contains(text))
+        do: Memories.CaseRecord.Query.active(),
+        else:
+          Memories.CaseRecord.Query.active()
+          |> Memories.CaseRecord.Query.mentioning(Search.contains(text))
 
     page =
       PagedRelation.read(cases, [desc: :closed_at, desc: :id], "page", params,
@@ -46,14 +48,14 @@ defmodule Ryker.ControlPlane.CasesProjection do
   @spec fetch(String.t()) :: {:ok, map()} | :error
   def fetch(id) do
     with {:ok, id} <- Ecto.UUID.cast(id),
-         {:ok, record} <- Repo.fetch(CaseRecord.Query.by_case_ref("case:" <> id)) do
+         {:ok, record} <- Repo.fetch(Memories.CaseRecord.Query.by_case_ref("case:" <> id)) do
       {:ok, item(record)}
     else
       _missing -> :error
     end
   end
 
-  defp item(%CaseRecord{} = record) do
+  defp item(%Memories.CaseRecord{} = record) do
     %{
       id: record.episode_id,
       ref: record.case_ref,
@@ -62,7 +64,7 @@ defmodule Ryker.ControlPlane.CasesProjection do
       outcome: record.outcome,
       checked: record.attempted_actions,
       links: record.links,
-      where: Names.destination(record.conversation_ref),
+      where: Slack.Names.destination(record.conversation_ref),
       repository: record.repository_ref,
       shadow?: record.execution_mode == :shadow,
       forgotten?: record.status == :deleted,

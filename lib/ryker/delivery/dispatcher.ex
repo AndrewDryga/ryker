@@ -7,16 +7,16 @@ defmodule Ryker.Delivery.Dispatcher do
   routing authority. Any ambiguous provider result releases the exact intent
   for a bounded retry; a typed receipt is the only way to settle custody.
   """
-  alias Ryker.Artifacts.Outputs
+  alias Ryker.Artifacts
   alias Ryker.Defaults
   alias Ryker.Delivery.{Adapters, PlatformActionCustody, Request, Retry, RoutingResponseCustody}
   alias Ryker.Episodes
   alias Ryker.ErrorDetail
   alias Ryker.LeasedCall
   alias Ryker.Reference
-  alias Ryker.Slack.ReplyRecords
-  alias Ryker.WeeklyReport.Custody, as: ReportCustody
-  alias Ryker.Work.Custody
+  alias Ryker.Slack
+  alias Ryker.WeeklyReport
+  alias Ryker.Work
 
   @options ~w(adapters kind lease_seconds max_attempts retry_base_seconds retry_max_seconds worker_ref)a
 
@@ -46,7 +46,7 @@ defmodule Ryker.Delivery.Dispatcher do
   def subscriptions(:message), do: [&Episodes.subscribe_episodes/0]
   def subscriptions(:routing), do: [&RoutingResponseCustody.subscribe_routing_responses/0]
   def subscriptions(:action), do: [&PlatformActionCustody.subscribe_platform_actions/0]
-  def subscriptions(:report), do: [&ReportCustody.subscribe_reports/0]
+  def subscriptions(:report), do: [&WeeklyReport.Custody.subscribe_reports/0]
   def subscriptions(_kind), do: []
 
   @doc """
@@ -54,14 +54,14 @@ defmodule Ryker.Delivery.Dispatcher do
   claimable by the clock alone, or nil.
   """
   @spec next_due_at(atom(), DateTime.t()) :: DateTime.t() | nil
-  def next_due_at(:message, since), do: Custody.next_due_at(since, :delivery)
+  def next_due_at(:message, since), do: Work.Custody.next_due_at(since, :delivery)
   def next_due_at(:routing, since), do: RoutingResponseCustody.next_due_at(since)
   def next_due_at(:action, since), do: PlatformActionCustody.next_due_at(since)
-  def next_due_at(:report, since), do: ReportCustody.next_due_at(since)
+  def next_due_at(:report, since), do: WeeklyReport.Custody.next_due_at(since)
   def next_due_at(_kind, _since), do: nil
 
   defp claim_next(%{kind: :message} = settings) do
-    Custody.claim_next(settings.worker_ref, settings.lease_seconds, :delivery)
+    Work.Custody.claim_next(settings.worker_ref, settings.lease_seconds, :delivery)
   end
 
   defp claim_next(%{kind: :routing} = settings) do
@@ -73,7 +73,7 @@ defmodule Ryker.Delivery.Dispatcher do
   end
 
   defp claim_next(%{kind: :report} = settings) do
-    ReportCustody.claim_next(settings.worker_ref, settings.lease_seconds)
+    WeeklyReport.Custody.claim_next(settings.worker_ref, settings.lease_seconds)
   end
 
   defp execute(nil, _settings), do: {:ok, :idle}
@@ -103,10 +103,10 @@ defmodule Ryker.Delivery.Dispatcher do
       kind: :message,
       ref: turn.delivery_ref,
       renew: fn ->
-        Custody.renew(episode.id, turn.turn_ref, lease_ref, settings.lease_seconds)
+        Work.Custody.renew(episode.id, turn.turn_ref, lease_ref, settings.lease_seconds)
       end,
       defer: fn retry_seconds, code, detail, upload_refs ->
-        Custody.defer(
+        Work.Custody.defer(
           episode.id,
           turn.turn_ref,
           lease_ref,
@@ -117,7 +117,7 @@ defmodule Ryker.Delivery.Dispatcher do
         )
       end,
       block: fn code, detail ->
-        Custody.block_delivery(episode.id, turn.turn_ref, lease_ref, code, detail)
+        Work.Custody.block_delivery(episode.id, turn.turn_ref, lease_ref, code, detail)
       end
     }
   end
@@ -168,13 +168,13 @@ defmodule Ryker.Delivery.Dispatcher do
       kind: :report,
       ref: report.delivery_ref,
       renew: fn ->
-        ReportCustody.renew(report.delivery_ref, lease_ref, settings.lease_seconds)
+        WeeklyReport.Custody.renew(report.delivery_ref, lease_ref, settings.lease_seconds)
       end,
       defer: fn retry_seconds, code, detail, [] ->
-        ReportCustody.defer(report.delivery_ref, lease_ref, retry_seconds, code, detail)
+        WeeklyReport.Custody.defer(report.delivery_ref, lease_ref, retry_seconds, code, detail)
       end,
       block: fn code, detail ->
-        ReportCustody.block(report.delivery_ref, lease_ref, code, detail)
+        WeeklyReport.Custody.block(report.delivery_ref, lease_ref, code, detail)
       end
     }
   end
@@ -182,10 +182,10 @@ defmodule Ryker.Delivery.Dispatcher do
   defp request(claim, :message), do: message_request(claim)
   defp request(claim, :routing), do: RoutingResponseCustody.request(claim.response)
   defp request(claim, :action), do: PlatformActionCustody.request(claim.action)
-  defp request(claim, :report), do: ReportCustody.request(claim.report)
+  defp request(claim, :report), do: WeeklyReport.Custody.request(claim.report)
 
   defp confirm(claim, _request, receipt, :message) do
-    Custody.confirm_delivery(
+    Work.Custody.confirm_delivery(
       claim.episode.id,
       claim.episode.key,
       claim.turn.turn_ref,
@@ -201,27 +201,27 @@ defmodule Ryker.Delivery.Dispatcher do
     do: PlatformActionCustody.confirm_delivery(request.ref, claim.lease_ref, receipt)
 
   defp confirm(claim, request, receipt, :report),
-    do: ReportCustody.confirm_delivery(request.ref, claim.lease_ref, receipt)
+    do: WeeklyReport.Custody.confirm_delivery(request.ref, claim.lease_ref, receipt)
 
   defp message_request(claim) do
     with {:ok, message, record_refs, artifact_refs} <-
            delivery_message(claim.turn.delivery_document),
          {:ok, records} <- delivery_records(claim.episode.id, record_refs),
-         {:ok, artifacts} <- Outputs.fetch_many(claim.turn.id, artifact_refs) do
+         {:ok, artifacts} <- Artifacts.Outputs.fetch_many(claim.turn.id, artifact_refs) do
       document =
         if records == [],
           do: %{"message" => message},
           else: %{
             "message" => message,
             "records" =>
-              ReplyRecords.documents(
+              Slack.ReplyRecords.documents(
                 claim.episode.destination_transport,
                 claim.episode.id,
                 records
               )
           }
 
-      target = Custody.delivery_target(claim.episode, claim.turn)
+      target = Work.Custody.delivery_target(claim.episode, claim.turn)
 
       Request.new(%{
         artifacts: Enum.map(artifacts, &artifact_document/1),
@@ -263,7 +263,7 @@ defmodule Ryker.Delivery.Dispatcher do
   defp delivery_records(_episode_id, []), do: {:ok, []}
 
   defp delivery_records(episode_id, refs) do
-    case ReplyRecords.fetch(episode_id, refs) do
+    case Slack.ReplyRecords.fetch(episode_id, refs) do
       {:ok, records} -> {:ok, records}
       {:error, _reason} -> {:error, {:invalid_delivery_message, :record_refs}}
     end

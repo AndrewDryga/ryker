@@ -10,10 +10,10 @@ defmodule Ryker.Learning.Worker do
   """
   use Ryker.PollingWorker, lane: :learning, interval: :poll_interval_ms
   alias Ryker.Episodes
-  alias Ryker.Ingress.Inbox
+  alias Ryker.Ingress
   alias Ryker.Learning
   alias Ryker.Learning.{Batches, Dispatcher}
-  alias Ryker.Observability.Progress
+  alias Ryker.Observability
   alias Ryker.PollingWorker
   require Logger
 
@@ -22,7 +22,7 @@ defmodule Ryker.Learning.Worker do
   @impl PollingWorker
   def wake_on(_settings),
     do: [
-      &Inbox.subscribe_inputs/0,
+      &Ingress.Inbox.subscribe_inputs/0,
       &Episodes.subscribe_episodes/0,
       &Learning.subscribe_learning/0
     ]
@@ -31,7 +31,7 @@ defmodule Ryker.Learning.Worker do
   def poll(settings) do
     case Dispatcher.run_once(settings) do
       {:ok, :idle} ->
-        Progress.beat(:learning)
+        Observability.Progress.beat(:learning)
 
         PollingWorker.idle_delay(
           &Batches.next_due_at(&1, settings),
@@ -39,11 +39,11 @@ defmodule Ryker.Learning.Worker do
         )
 
       {:ok, _} ->
-        Progress.beat(:learning)
+        Observability.Progress.beat(:learning)
         0
 
       {:error, _reason} ->
-        Progress.beat(:learning, :error)
+        Observability.Progress.beat(:learning, :error)
         Logger.warning("learning dispatch deferred; inspect the durable learning receipt")
         settings.poll_interval_ms
     end

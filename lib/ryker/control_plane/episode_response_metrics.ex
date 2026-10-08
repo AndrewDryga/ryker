@@ -6,14 +6,20 @@ defmodule Ryker.ControlPlane.EpisodeResponseMetrics do
   A response exists only when a selected message reaches a delivered reply or an
   accepted result whose recorded delivery is intentionally silent.
   """
-  alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Work.Turn
+  alias Ryker.Episodes
+  alias Ryker.Ingress
+  alias Ryker.Work
 
   @terminal_states [:complete, :cancelled]
 
-  @spec project(Episode.t(), [Entry.t()], [Turn.t()], map(), keyword()) :: map()
-  def project(%Episode{} = episode, inputs, turns, input_by_ref, options \\ [])
+  @spec project(
+          Episodes.Episode.t(),
+          [Ingress.Inbox.Entry.t()],
+          [Work.Turn.t()],
+          map(),
+          keyword()
+        ) :: map()
+  def project(%Episodes.Episode{} = episode, inputs, turns, input_by_ref, options \\ [])
       when is_list(inputs) and is_list(turns) and is_map(input_by_ref) do
     now = Keyword.get(options, :now, DateTime.utc_now())
     inputs_by_id = Map.new(inputs, &{&1.id, &1})
@@ -50,7 +56,7 @@ defmodule Ryker.ControlPlane.EpisodeResponseMetrics do
     |> Map.values()
   end
 
-  defp measure_turn(%Turn{selected_input_refs: refs} = turn, measured, inputs, references)
+  defp measure_turn(%Work.Turn{selected_input_refs: refs} = turn, measured, inputs, references)
        when is_list(refs) do
     case outcome(turn) do
       [finished_at] ->
@@ -132,9 +138,9 @@ defmodule Ryker.ControlPlane.EpisodeResponseMetrics do
 
   defp unknown_wall(reason), do: %{state: :unknown, milliseconds: nil, reason: reason}
 
-  defp outcome(%Turn{delivered_at: %DateTime{} = at}), do: [at]
+  defp outcome(%Work.Turn{delivered_at: %DateTime{} = at}), do: [at]
 
-  defp outcome(%Turn{
+  defp outcome(%Work.Turn{
          accepted_at: %DateTime{} = at,
          delivery_document: %{"delivery" => "none"}
        }),
@@ -142,7 +148,7 @@ defmodule Ryker.ControlPlane.EpisodeResponseMetrics do
 
   defp outcome(_turn), do: []
 
-  defp sent_message?(%Turn{
+  defp sent_message?(%Work.Turn{
          delivered_at: %DateTime{},
          delivery_document: %{"delivery" => "reply", "message" => message}
        })

@@ -9,11 +9,11 @@ defmodule Ryker.Settings do
   receipt with a content fingerprint. A failed database read is never an
   absent setting: only a missing installation row means "not initialized".
   """
-  alias Ryker.Accounting.Pricing
+  alias Ryker.Accounting
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
-  alias Ryker.Emisar.Approval
+  alias Ryker.Emisar
   alias Ryker.Repo
   alias Ryker.Settings.{Edit, EmisarConnection}
   alias Ryker.Settings.Environment
@@ -22,11 +22,10 @@ defmodule Ryker.Settings do
   alias Ryker.Settings.PricingRate
   alias Ryker.Settings.{Publication, Report}
   alias Ryker.Settings.Repository
-  alias Ryker.Settings.{Retention, RetentionImpact, Slack}
+  alias Ryker.Settings.{Retention, RetentionImpact}
   alias Ryker.Settings.{Validation, WebhookSource}
-  alias Ryker.Settings.Work
-  alias Ryker.Slack.Operators
-  alias Ryker.Work.Session
+  alias Ryker.Slack
+  alias Ryker.Work
 
   @actor "control-plane:local"
   @tailnet_actor "control-plane:tailscale:"
@@ -60,8 +59,8 @@ defmodule Ryker.Settings do
   @type snapshot :: %{
           installation: Installation.t(),
           retention: Retention.t(),
-          slack: Slack.t(),
-          work: Work.t(),
+          slack: __MODULE__.Slack.t(),
+          work: __MODULE__.Work.t(),
           github: GitHub.t(),
           publication: Publication.t(),
           emisar_connections: [EmisarConnection.t()],
@@ -150,7 +149,7 @@ defmodule Ryker.Settings do
   needs rather than the whole settings snapshot.
   """
   @spec slack_workspace_url() :: String.t() | nil
-  def slack_workspace_url, do: Repo.one(Slack.Query.select_workspace_url())
+  def slack_workspace_url, do: Repo.one(__MODULE__.Slack.Query.select_workspace_url())
 
   @doc """
   The enrolled worker workspace Work runs in, or nil when none is selected.
@@ -160,7 +159,7 @@ defmodule Ryker.Settings do
   queries a row for it.
   """
   @spec worker_workspace_ref() :: String.t() | nil
-  def worker_workspace_ref, do: Repo.one(Work.Query.select_workspace_ref())
+  def worker_workspace_ref, do: Repo.one(__MODULE__.Work.Query.select_workspace_ref())
 
   @doc """
   The GitHub API the installation's App talks to.
@@ -388,8 +387,9 @@ defmodule Ryker.Settings do
 
   # Singleton domains ---------------------------------------------------------
 
-  def save_slack(attributes, expected_revision, actor_ref),
-    do: save_singleton(:slack, Slack.Changeset, attributes, expected_revision, actor_ref)
+  def save_slack(attributes, expected_revision, actor_ref) do
+    save_singleton(:slack, __MODULE__.Slack.Changeset, attributes, expected_revision, actor_ref)
+  end
 
   def save_github(attributes, expected_revision, actor_ref),
     do: save_singleton(:github, GitHub.Changeset, attributes, expected_revision, actor_ref)
@@ -405,7 +405,7 @@ defmodule Ryker.Settings do
     do: save_singleton(:learning, Learning.Changeset, attributes, expected_revision, actor_ref)
 
   def save_work(attributes, expected_revision, actor_ref),
-    do: save_singleton(:work, Work.Changeset, attributes, expected_revision, actor_ref)
+    do: save_singleton(:work, __MODULE__.Work.Changeset, attributes, expected_revision, actor_ref)
 
   @doc """
   Sets the installation-wide participation default from a Slack operator command.
@@ -420,7 +420,11 @@ defmodule Ryker.Settings do
       save(:slack, :current, actor_ref, fn snapshot ->
         write_changeset(
           snapshot.slack,
-          Slack.Changeset.update(snapshot.slack, %{default_participation: value}, snapshot)
+          __MODULE__.Slack.Changeset.update(
+            snapshot.slack,
+            %{default_participation: value},
+            snapshot
+          )
         )
       end)
     end
@@ -715,8 +719,8 @@ defmodule Ryker.Settings do
 
   def deletable(%EmisarConnection{ref: ref}, snapshot) do
     environments = Enum.count(snapshot.environments, &(&1.emisar_connection_ref == ref))
-    sessions = ref |> Session.Query.using_emisar_connection() |> Repo.aggregate(:count)
-    approvals = ref |> Approval.Query.by_connection() |> Repo.aggregate(:count)
+    sessions = ref |> Work.Session.Query.using_emisar_connection() |> Repo.aggregate(:count)
+    approvals = ref |> Emisar.Approval.Query.by_connection() |> Repo.aggregate(:count)
 
     if environments + sessions + approvals == 0 do
       :ok
@@ -819,13 +823,13 @@ defmodule Ryker.Settings do
 
     Repo.insert!(struct!(Retention, Map.put(@retention_defaults, :id, host_ref)))
 
-    for schema <- [Slack, GitHub, Publication, Report, Learning, Work] do
+    for schema <- [__MODULE__.Slack, GitHub, Publication, Report, Learning, __MODULE__.Work] do
       Repo.insert!(struct!(schema, id: host_ref))
     end
 
     prices =
       Enum.map(
-        Pricing.settings_defaults(),
+        Accounting.Pricing.settings_defaults(),
         &Map.merge(&1, %{id: Repo.generate_id(), revision: 1, inserted_at: now})
       )
 
@@ -849,14 +853,14 @@ defmodule Ryker.Settings do
     %{
       installation: installation,
       retention: Repo.one!(Retention.Query.by_id(host_ref)),
-      slack: Repo.one!(Slack.Query.by_id(host_ref)),
+      slack: Repo.one!(__MODULE__.Slack.Query.by_id(host_ref)),
       github: Repo.one!(GitHub.Query.by_id(host_ref)),
       publication: Repo.one!(Publication.Query.by_id(host_ref)),
       emisar_connections:
         Repo.all(EmisarConnection.Query.ordered_by_ref(EmisarConnection.Query.all())),
       report: Repo.one!(Report.Query.by_id(host_ref)),
       learning: Repo.one!(Learning.Query.by_id(host_ref)),
-      work: Repo.one!(Work.Query.by_id(host_ref)),
+      work: Repo.one!(__MODULE__.Work.Query.by_id(host_ref)),
       repositories: Repo.all(Repository.Query.ordered_by_ref(Repository.Query.all())),
       environments:
         Environment.Query.all()
@@ -954,11 +958,11 @@ defmodule Ryker.Settings do
   defp authorize("github:onboarding"), do: :ok
 
   defp authorize("slack:user:" <> user_ref) when byte_size(user_ref) in 1..255 do
-    saved = Repo.one(Slack.Query.select_operators())
+    saved = Repo.one(__MODULE__.Slack.Query.select_operators())
 
     with %{chosen: chosen} when is_list(chosen) <- saved,
-         operators = Operators.new(Map.to_list(saved)),
-         true <- Operators.operator?(operators, user_ref) do
+         operators = Slack.Operators.new(Map.to_list(saved)),
+         true <- Slack.Operators.operator?(operators, user_ref) do
       :ok
     else
       _not_an_operator -> {:error, :settings_forbidden}

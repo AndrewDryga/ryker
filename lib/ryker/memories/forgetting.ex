@@ -17,16 +17,11 @@ defmodule Ryker.Memories.Forgetting do
   learned by background learning from the same message, and a learned topic
   had no way to be forgotten at all.
   """
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress
   alias Ryker.Knowledge
-  alias Ryker.Knowledge.ConversationKnowledge
-  alias Ryker.Knowledge.KnowledgeRevision
-  alias Ryker.Knowledge.KnowledgeSource
   alias Ryker.Learning
-  alias Ryker.Learning.ConversationObservation
-  alias Ryker.Learning.Observations
   alias Ryker.Memories.MemoryEntry
-  alias Ryker.Records.Record
+  alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.RoutingExamples
 
@@ -48,16 +43,18 @@ defmodule Ryker.Memories.Forgetting do
 
   defp forget_topic_locked(id) do
     locked =
-      id |> ConversationKnowledge.Query.by_id() |> ConversationKnowledge.Query.lock_for_update()
+      id
+      |> Knowledge.ConversationKnowledge.Query.by_id()
+      |> Knowledge.ConversationKnowledge.Query.lock_for_update()
 
     case Repo.one(locked) do
       nil ->
         Repo.rollback(:knowledge_not_found)
 
-      %ConversationKnowledge{forgotten_at: %DateTime{}} ->
+      %Knowledge.ConversationKnowledge{forgotten_at: %DateTime{}} ->
         %{forgotten: [], relearn: []}
 
-      %ConversationKnowledge{} = topic ->
+      %Knowledge.ConversationKnowledge{} = topic ->
         outcome = forget_observations_in_transaction(topic_observations(topic.id))
         erase!([topic.id])
         %{outcome | forgotten: Enum.uniq([topic.id | outcome.forgotten])}
@@ -99,10 +96,10 @@ defmodule Ryker.Memories.Forgetting do
   defp forget_observations_in_transaction(ids) do
     observations =
       ids
-      |> ConversationObservation.Query.by_ids()
-      |> ConversationObservation.Query.not_forgotten()
-      |> ConversationObservation.Query.ordered_by_id()
-      |> ConversationObservation.Query.lock_for_update()
+      |> Learning.ConversationObservation.Query.by_ids()
+      |> Learning.ConversationObservation.Query.not_forgotten()
+      |> Learning.ConversationObservation.Query.ordered_by_id()
+      |> Learning.ConversationObservation.Query.lock_for_update()
       |> Repo.all()
 
     now = Repo.now!()
@@ -121,7 +118,7 @@ defmodule Ryker.Memories.Forgetting do
   # sent it, it just never learns from it again.
   defp quarantine!(observation, now) do
     observation.id
-    |> ConversationObservation.Query.by_id()
+    |> Learning.ConversationObservation.Query.by_id()
     |> Repo.update_all(set: [forgotten_at: now, note: nil])
 
     Learning.broadcast_learning_updated(observation.id)
@@ -133,8 +130,8 @@ defmodule Ryker.Memories.Forgetting do
   defp preview([]), do: %{forgotten: [], relearn: []}
 
   defp preview(ids) do
-    citing = Repo.all(ConversationKnowledge.Query.citing_observations(ids))
-    remaining = Repo.all(KnowledgeSource.Query.resting_elsewhere(citing, ids))
+    citing = Repo.all(Knowledge.ConversationKnowledge.Query.citing_observations(ids))
+    remaining = Repo.all(Knowledge.KnowledgeSource.Query.resting_elsewhere(citing, ids))
 
     %{forgotten: citing -- remaining, relearn: Enum.filter(citing, &(&1 in remaining))}
   end
@@ -144,12 +141,14 @@ defmodule Ryker.Memories.Forgetting do
   defp erase!(ids) do
     now = Repo.now!()
 
-    Repo.update_all(KnowledgeRevision.Query.by_knowledge_ids(ids), set: [state: @erased])
+    Repo.update_all(Knowledge.KnowledgeRevision.Query.by_knowledge_ids(ids),
+      set: [state: @erased]
+    )
 
     # Its key and anchors named what was forgotten until a later topic took
     # the subject (2026-10-04 review); they retire with it, as that topic
     # would retire them (`Ryker.Knowledge`).
-    Repo.update_all(ConversationKnowledge.Query.forget(ids, @erased, now), [])
+    Repo.update_all(Knowledge.ConversationKnowledge.Query.forget(ids, @erased, now), [])
 
     :ok = RoutingExamples.forget_topics_in_transaction(ids)
     Enum.each(ids, &Knowledge.broadcast_knowledge_updated/1)
@@ -157,8 +156,8 @@ defmodule Ryker.Memories.Forgetting do
 
   defp topic_observations(id) do
     id
-    |> KnowledgeSource.Query.by_knowledge_id()
-    |> KnowledgeSource.Query.select_distinct_observation_ids()
+    |> Knowledge.KnowledgeSource.Query.by_knowledge_id()
+    |> Knowledge.KnowledgeSource.Query.select_distinct_observation_ids()
     |> Repo.all()
   end
 
@@ -171,7 +170,8 @@ defmodule Ryker.Memories.Forgetting do
        do: entry_observations([id])
 
   defp fact_observations(%MemoryEntry{offer_record_id: record_id}) when is_binary(record_id) do
-    turn_ref = record_id |> Record.Query.by_id() |> Record.Query.select_turn_refs()
+    turn_ref =
+      record_id |> Records.Record.Query.by_id() |> Records.Record.Query.select_turn_refs()
 
     case Repo.one(turn_ref) do
       "ingress-turn:" <> id -> entry_observations([id])
@@ -185,13 +185,13 @@ defmodule Ryker.Memories.Forgetting do
     identities =
       ids
       |> Enum.filter(&match?({:ok, _}, Ecto.UUID.cast(&1)))
-      |> Entry.Query.by_ids()
+      |> Ingress.Inbox.Entry.Query.by_ids()
       |> Repo.all()
-      |> Enum.map(&Observations.source_identity/1)
+      |> Enum.map(&Learning.Observations.source_identity/1)
 
     identities
-    |> ConversationObservation.Query.by_identity_keys()
-    |> ConversationObservation.Query.select_ids()
+    |> Learning.ConversationObservation.Query.by_identity_keys()
+    |> Learning.ConversationObservation.Query.select_ids()
     |> Repo.all()
   end
 end

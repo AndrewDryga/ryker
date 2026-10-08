@@ -20,7 +20,7 @@ defmodule Ryker.ControlPlane.WorkerEvidence do
       later capture never rewrites an earlier one
   """
   alias Ryker.ControlPlane.Evidence
-  alias Ryker.CoopFleet.{SessionEvidence, SessionEvidences}
+  alias Ryker.CoopFleet
 
   @doc """
   The evidence for one episode, newest capture per session.
@@ -31,9 +31,9 @@ defmodule Ryker.ControlPlane.WorkerEvidence do
   @spec for_episode(Ecto.UUID.t()) :: [map()]
   def for_episode(episode_id) when is_binary(episode_id) do
     episode_id
-    |> SessionEvidences.latest_for_episode()
+    |> CoopFleet.SessionEvidences.latest_for_episode()
     |> Enum.flat_map(fn row ->
-      case SessionEvidences.document(row) do
+      case CoopFleet.SessionEvidences.document(row) do
         {:ok, document} -> [project(row, document)]
         # A stored row that no longer decodes is a real absence with a cause,
         # not a session without evidence.
@@ -45,7 +45,7 @@ defmodule Ryker.ControlPlane.WorkerEvidence do
   def for_episode(_episode_id), do: []
 
   @doc "Projects one already-decoded capture."
-  @spec project(SessionEvidence.t(), map()) :: map()
+  @spec project(CoopFleet.SessionEvidence.t(), map()) :: map()
   def project(row, %{} = document) do
     %{
       id: row.id,

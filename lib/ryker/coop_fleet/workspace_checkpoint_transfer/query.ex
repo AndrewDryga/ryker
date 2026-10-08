@@ -2,7 +2,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTransfer.Query do
   @moduledoc "Workspace checkpoints workers saved to Ryker, for every read of `coop_worker_workspace_checkpoints`."
   use Ryker, :query
   alias Ryker.CoopFleet.{Command, WorkspaceCheckpointTransfer}
-  alias Ryker.Work.Session
+  alias Ryker.Work
 
   def all,
     do: from(transfers in WorkspaceCheckpointTransfer, as: :coop_worker_workspace_checkpoints)
@@ -31,7 +31,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTransfer.Query do
     from(t in all(),
       join: c in Command,
       on: c.id == t.command_id,
-      join: source in Session,
+      join: source in Work.Session,
       on: source.id == c.session_id,
       where:
         source.episode_id == ^session.episode_id and source.generation < ^session.generation and
@@ -52,7 +52,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointTransfer.Query do
     from(t in all(),
       join: c in Command,
       on: c.id == t.command_id,
-      join: source in Session,
+      join: source in Work.Session,
       on: source.id == c.session_id,
       where:
         source.episode_id == ^session.episode_id and source.generation <= ^session.generation and

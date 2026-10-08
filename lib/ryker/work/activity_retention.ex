@@ -1,12 +1,16 @@
 defmodule Ryker.Work.ActivityRetention do
   @moduledoc "Operational evidence expires with its owner; immutable replay identity survives."
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress
   alias Ryker.Repo
   alias Ryker.Work.{ActivityEvent, Turn}
 
   def context(%{admission_input_id: id}) when is_binary(id),
     do: %{
-      all: id |> Entry.Query.by_id() |> Entry.Query.select_pruned_at() |> Repo.one(),
+      all:
+        id
+        |> Ingress.Inbox.Entry.Query.by_id()
+        |> Ingress.Inbox.Entry.Query.select_pruned_at()
+        |> Repo.one(),
       turns: %{}
     }
 

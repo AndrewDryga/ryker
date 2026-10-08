@@ -13,7 +13,7 @@ defmodule Ryker.ControlPlane.Environments do
   """
   alias Ryker.ControlPlane.Integrations
   alias Ryker.Repo
-  alias Ryker.Settings.Environment
+  alias Ryker.Settings
 
   @doc """
   How many Slack channels choose each environment, by environment ref, and
@@ -25,11 +25,11 @@ defmodule Ryker.ControlPlane.Environments do
   """
   @spec channel_counts() :: %{(String.t() | nil) => non_neg_integer()}
   def channel_counts do
-    Environment.Query.channel_counts() |> Repo.all() |> Map.new()
+    Settings.Environment.Query.channel_counts() |> Repo.all() |> Map.new()
   end
 
   @doc "The default first, then the rest by name, the way every list shows them."
-  @spec ordered([Environment.t()]) :: [Environment.t()]
+  @spec ordered([Settings.Environment.t()]) :: [Settings.Environment.t()]
   def ordered(environments),
     do: Enum.sort_by(environments, &{!&1.is_default, String.downcase(&1.display_name), &1.ref})
 
@@ -44,7 +44,7 @@ defmodule Ryker.ControlPlane.Environments do
   end
 
   @doc "The name of the Emisar account an environment uses, or nil when it has none."
-  @spec emisar_name(map(), Environment.t()) :: String.t() | nil
+  @spec emisar_name(map(), Settings.Environment.t()) :: String.t() | nil
   def emisar_name(_snapshot, %{emisar_connection_ref: nil}), do: nil
 
   def emisar_name(snapshot, %{emisar_connection_ref: ref}) do
@@ -55,22 +55,22 @@ defmodule Ryker.ControlPlane.Environments do
   end
 
   @doc "The environment a ref names in the snapshot, or nil."
-  @spec find(map(), String.t() | nil) :: Environment.t() | nil
+  @spec find(map(), String.t() | nil) :: Settings.Environment.t() | nil
   def find(_snapshot, nil), do: nil
   def find(snapshot, ref), do: Enum.find(snapshot.environments, &(&1.ref == ref))
 
   @doc "The environments that contain a repository, in list order."
-  @spec containing(map(), String.t()) :: [Environment.t()]
+  @spec containing(map(), String.t()) :: [Settings.Environment.t()]
   def containing(snapshot, repository_ref) do
     snapshot.environments
-    |> Enum.filter(&(repository_ref in Environment.repository_refs(&1)))
+    |> Enum.filter(&(repository_ref in Settings.Environment.repository_refs(&1)))
     |> ordered()
   end
 
   @doc ~s(How many repositories, then the default one: ["2 repositories", "default acme/api"].)
-  @spec repository_facts(map(), Environment.t()) :: [String.t()]
+  @spec repository_facts(map(), Settings.Environment.t()) :: [String.t()]
   def repository_facts(snapshot, environment) do
-    case Environment.repository_refs(environment) do
+    case Settings.Environment.repository_refs(environment) do
       [] ->
         ["No repositories"]
 
@@ -83,7 +83,7 @@ defmodule Ryker.ControlPlane.Environments do
   end
 
   @doc "The environment's Emisar account as one fact."
-  @spec emisar_fact(map(), Environment.t()) :: String.t()
+  @spec emisar_fact(map(), Settings.Environment.t()) :: String.t()
   def emisar_fact(snapshot, environment) do
     case emisar_name(snapshot, environment) do
       nil -> "No Emisar account"

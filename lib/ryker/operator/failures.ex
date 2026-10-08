@@ -5,18 +5,15 @@ defmodule Ryker.Operator.Failures do
   Semantic publication review is deliberately absent: a result judged
   non-publishable is a product decision, not failed infrastructure custody.
   """
-  alias Ryker.ControlPlane.FailureProjection
-  alias Ryker.Ingress.Inbox
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.ControlPlane
+  alias Ryker.Ingress
   alias Ryker.Operator.{Actions, RetentionAction}
   alias Ryker.Operator.Delivery, as: DeliveryOperator
   alias Ryker.Operator.Emisar, as: EmisarOperator
   alias Ryker.Operator.Retention, as: RetentionOperator
   alias Ryker.Reference
-  alias Ryker.Slack.{IncidentRoom, IncidentRooms, InteractionAudit, InteractionAudits, TaskCard}
-  alias Ryker.Slack.{TaskCards, ThreadStatus, ThreadStatuses}
-  alias Ryker.Work.Custody
-  alias Ryker.Work.Session
+  alias Ryker.Slack
+  alias Ryker.Work
 
   @kinds ~w(admission delivery emisar retention slack_incident slack_interaction slack_task_card slack_thread_status work)
   @spec list(map()) :: {:ok, [map()]} | {:error, term()}
@@ -25,7 +22,7 @@ defmodule Ryker.Operator.Failures do
   def kinds, do: @kinds
 
   def list(params \\ %{})
-  def list(params) when is_map(params), do: FailureProjection.list(params)
+  def list(params) when is_map(params), do: ControlPlane.FailureProjection.list(params)
   def list(_params), do: {:error, {:invalid_operator_failure, :params}}
 
   @spec retry(String.t(), String.t(), keyword()) :: {:ok, term()} | {:error, term()}
@@ -63,29 +60,29 @@ defmodule Ryker.Operator.Failures do
   end
 
   defp fetch_failure(kind, ref) do
-    case FailureProjection.fetch(kind, ref) do
+    case ControlPlane.FailureProjection.fetch(kind, ref) do
       {:ok, failure} -> {:ok, failure}
       :not_found -> {:error, :operator_failure_not_found}
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp retry_kind("admission", ref, _settings), do: Inbox.rearm(ref)
+  defp retry_kind("admission", ref, _settings), do: Ingress.Inbox.rearm(ref)
   defp retry_kind("delivery", ref, _settings), do: DeliveryOperator.rearm(ref)
   defp retry_kind("emisar", ref, _settings), do: EmisarOperator.rearm(ref)
-  defp retry_kind("slack_incident", ref, _settings), do: IncidentRooms.rearm(ref)
-  defp retry_kind("slack_interaction", ref, _settings), do: InteractionAudits.rearm(ref)
-  defp retry_kind("slack_task_card", ref, _settings), do: TaskCards.rearm(ref)
-  defp retry_kind("slack_thread_status", ref, _settings), do: ThreadStatuses.rearm(ref)
+  defp retry_kind("slack_incident", ref, _settings), do: Slack.IncidentRooms.rearm(ref)
+  defp retry_kind("slack_interaction", ref, _settings), do: Slack.InteractionAudits.rearm(ref)
+  defp retry_kind("slack_task_card", ref, _settings), do: Slack.TaskCards.rearm(ref)
+  defp retry_kind("slack_thread_status", ref, _settings), do: Slack.ThreadStatuses.rearm(ref)
 
   defp retry_kind("work", ref, settings),
-    do: Custody.retry_blocked(ref, settings.expected_recovery)
+    do: Work.Custody.retry_blocked(ref, settings.expected_recovery)
 
   defp retry_kind("retention", ref, settings) do
     RetentionOperator.rearm(ref, settings.actor_ref, settings.action_ref)
   end
 
-  defp outcome("admission", ref, %Entry{} = entry) do
+  defp outcome("admission", ref, %Ingress.Inbox.Entry{} = entry) do
     %{
       "attempt_count" => entry.attempt_count,
       "kind" => "admission",
@@ -116,7 +113,7 @@ defmodule Ryker.Operator.Failures do
   defp outcome("retention", ref, %{
          action: %RetentionAction{} = action,
          outcome: outcome,
-         session: %Session{} = session
+         session: %Work.Session{} = session
        }) do
     %{
       "retention_action_ref" => action.action_ref,
@@ -128,7 +125,7 @@ defmodule Ryker.Operator.Failures do
     }
   end
 
-  defp outcome("slack_incident", ref, %IncidentRoom{} = room) do
+  defp outcome("slack_incident", ref, %Slack.IncidentRoom{} = room) do
     %{
       "attempt_count" => room.attempt_count,
       "kind" => "slack_incident",
@@ -137,7 +134,7 @@ defmodule Ryker.Operator.Failures do
     }
   end
 
-  defp outcome("slack_interaction", ref, %InteractionAudit{} = audit) do
+  defp outcome("slack_interaction", ref, %Slack.InteractionAudit{} = audit) do
     %{
       "attempt_count" => audit.attempt_count,
       "kind" => "slack_interaction",
@@ -146,7 +143,7 @@ defmodule Ryker.Operator.Failures do
     }
   end
 
-  defp outcome("slack_task_card", ref, %TaskCard{} = card) do
+  defp outcome("slack_task_card", ref, %Slack.TaskCard{} = card) do
     %{
       "attempt_count" => card.attempt_count,
       "kind" => "slack_task_card",
@@ -155,7 +152,7 @@ defmodule Ryker.Operator.Failures do
     }
   end
 
-  defp outcome("slack_thread_status", ref, %ThreadStatus{} = status) do
+  defp outcome("slack_thread_status", ref, %Slack.ThreadStatus{} = status) do
     %{
       "attempt_count" => status.attempt_count,
       "kind" => "slack_thread_status",

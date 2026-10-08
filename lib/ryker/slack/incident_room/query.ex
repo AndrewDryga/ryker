@@ -1,10 +1,10 @@
 defmodule Ryker.Slack.IncidentRoom.Query do
   @moduledoc "Slack channels opened for incidents, for every read of `slack_incident_rooms`."
   use Ryker, :query
-  alias Ryker.Episodes.Episode
-  alias Ryker.Records.Record
+  alias Ryker.Episodes
+  alias Ryker.Records
   alias Ryker.Slack.{ChannelConfiguration, IncidentRoom}
-  alias Ryker.Work.Turn
+  alias Ryker.Work
 
   # A ready room's pinned card shows its investigation. While that works the
   # card moves, so it is checked every few seconds (`root_card_check_seconds`);
@@ -118,11 +118,11 @@ defmodule Ryker.Slack.IncidentRoom.Query do
   # Each offer with the turn that delivered it, its episode, the setup of the
   # channel it was delivered to in `workspace_ref`, and its room if it has one.
   defp offers_with_channel(workspace_ref) do
-    from([episode_state_records: record] in Record.Query.all(),
-      join: turn in Turn,
+    from([episode_state_records: record] in Records.Record.Query.all(),
+      join: turn in Work.Turn,
       as: :episode_work_turns,
       on: turn.id == record.turn_id and turn.episode_id == record.episode_id,
-      join: episode in Episode,
+      join: episode in Episodes.Episode,
       as: :episode_kernel_episodes,
       on: episode.id == record.episode_id,
       join: configuration in ChannelConfiguration,
@@ -241,9 +241,9 @@ defmodule Ryker.Slack.IncidentRoom.Query do
   """
   def next_orphaned_investigation do
     from(room in all(),
-      join: episode in Episode,
+      join: episode in Episodes.Episode,
       on: episode.id == room.episode_id,
-      left_join: turn in Turn,
+      left_join: turn in Work.Turn,
       on:
         turn.episode_id == episode.id and episode.owner_kind == :turn and
           turn.turn_ref == episode.owner_ref,
@@ -326,7 +326,7 @@ defmodule Ryker.Slack.IncidentRoom.Query do
     quiet_due_at = DateTime.add(now, -@quiet_root_card_seconds, :second)
 
     working =
-      from(episode in Episode,
+      from(episode in Episodes.Episode,
         where:
           episode.id == parent_as(:slack_incident_rooms).episode_id and
             episode.state == :working
@@ -368,6 +368,6 @@ defmodule Ryker.Slack.IncidentRoom.Query do
 
   @doc "Each room with its investigation's episode, as `{room, episode}`."
   def select_with_episode(queryable) do
-    from(r in queryable, join: e in Episode, on: e.id == r.episode_id, select: {r, e})
+    from(r in queryable, join: e in Episodes.Episode, on: e.id == r.episode_id, select: {r, e})
   end
 end

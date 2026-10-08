@@ -10,7 +10,7 @@ defmodule Ryker.Publication.Worker do
   """
   use Ryker.PollingWorker, lane: :publication, interval: :poll_interval_ms
   alias Ryker.Episodes
-  alias Ryker.Observability.Progress
+  alias Ryker.Observability
   alias Ryker.PollingWorker
   alias Ryker.Publication.{Custody, Dispatcher}
   require Logger
@@ -45,7 +45,7 @@ defmodule Ryker.Publication.Worker do
   @impl PollingWorker
   def poll(state) do
     delay = process_once(state)
-    _ = Progress.beat(:publication)
+    _ = Observability.Progress.beat(:publication)
     delay
   end
 

@@ -8,23 +8,17 @@ defmodule Ryker.ControlPlane.FailureProjection do
   alias Ryker.Config
   alias Ryker.ControlPlane.{Activity, Failure, LearningActivity, ProductReadiness}
   alias Ryker.ControlPlane.RepositoryNames
-  alias Ryker.CoopFleet.{JobAuthority, Worker}
+  alias Ryker.CoopFleet
   alias Ryker.Credentials
-  alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.Inbox
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Learning.Batch, as: LearningBatch
+  alias Ryker.Episodes
+  alias Ryker.Ingress
+  alias Ryker.Learning
   alias Ryker.Observability
-  alias Ryker.Operator.Delivery, as: DeliveryOperator
-  alias Ryker.Operator.Emisar, as: EmisarOperator
-  alias Ryker.Operator.FailureDetail
-  alias Ryker.Operator.FailureDismissals
-  alias Ryker.Publication.Publication
+  alias Ryker.Operator
+  alias Ryker.Publication
   alias Ryker.Repo
-  alias Ryker.Slack.{ChannelConfigurations, IncidentRoom, IncidentRooms}
-  alias Ryker.Slack.{InteractionAudit, Names}
-  alias Ryker.Slack.{TaskCard, ThreadStatus}
-  alias Ryker.Work.{Cancellation, FailureCause, Recovery, Session, Turn}
+  alias Ryker.Slack
+  alias Ryker.Work
 
   # The phases Ryker is still retrying. A recorded failure there is a stuck
   # publication; a reviewed change waiting for a person, a review verdict and a
@@ -74,7 +68,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
     # A failure someone left still comes back from its kind's query and is
     # dropped below, so each kind reads that many more: a hundred left ones
     # hid an older open one on every page.
-    left = FailureDismissals.counts()
+    left = Operator.FailureDismissals.counts()
     deep = &(fetch + Map.get(left, &1, 0))
 
     work =
@@ -84,9 +78,9 @@ defmodule Ryker.ControlPlane.FailureProjection do
       |> Enum.map(&work_item/1)
 
     admission =
-      Entry.Query.blocked()
-      |> Entry.Query.ordered_by_recently_updated()
-      |> Entry.Query.limit_to(deep.("admission"))
+      Ingress.Inbox.Entry.Query.blocked()
+      |> Ingress.Inbox.Entry.Query.ordered_by_recently_updated()
+      |> Ingress.Inbox.Entry.Query.limit_to(deep.("admission"))
       |> Repo.all()
       |> Enum.map(&admission_item/1)
 
@@ -102,23 +96,23 @@ defmodule Ryker.ControlPlane.FailureProjection do
     # worker's removal) proves a run stopped. One that never got that answer
     # read "stopping" forever and was listed nowhere.
     stopping =
-      Cancellation.stalled_after_attempts()
+      Work.Cancellation.stalled_after_attempts()
       |> Failure.Query.stalled_stops()
       |> Failure.Query.limit_to(deep.("stopping"))
       |> Repo.all()
       |> Enum.map(&stopping_item/1)
 
     interaction_feedback =
-      InteractionAudit.Query.repaint_blocked()
-      |> InteractionAudit.Query.ordered_by_recently_updated()
-      |> InteractionAudit.Query.limit_to(deep.("slack_interaction"))
+      Slack.InteractionAudit.Query.repaint_blocked()
+      |> Slack.InteractionAudit.Query.ordered_by_recently_updated()
+      |> Slack.InteractionAudit.Query.limit_to(deep.("slack_interaction"))
       |> Repo.all()
       |> Enum.map(&interaction_item/1)
 
     incident_rooms =
-      IncidentRoom.Query.blocked()
-      |> IncidentRoom.Query.ordered_by_recently_updated()
-      |> IncidentRoom.Query.limit_to(deep.("slack_incident"))
+      Slack.IncidentRoom.Query.blocked()
+      |> Slack.IncidentRoom.Query.ordered_by_recently_updated()
+      |> Slack.IncidentRoom.Query.limit_to(deep.("slack_incident"))
       |> Repo.all()
       |> Enum.map(&incident_item/1)
 
@@ -126,16 +120,16 @@ defmodule Ryker.ControlPlane.FailureProjection do
     # one Slack kept refusing was retried for as long as its task existed and
     # listed nowhere, so nobody learned the message or channel was gone.
     task_cards =
-      TaskCard.Query.blocked()
-      |> TaskCard.Query.ordered_by_recently_updated()
-      |> TaskCard.Query.limit_to(deep.("slack_task_card"))
+      Slack.TaskCard.Query.blocked()
+      |> Slack.TaskCard.Query.ordered_by_recently_updated()
+      |> Slack.TaskCard.Query.limit_to(deep.("slack_task_card"))
       |> Repo.all()
       |> Enum.map(&task_card_item/1)
 
     thread_statuses =
-      ThreadStatus.Query.blocked()
-      |> ThreadStatus.Query.ordered_by_recently_updated()
-      |> ThreadStatus.Query.limit_to(deep.("slack_thread_status"))
+      Slack.ThreadStatus.Query.blocked()
+      |> Slack.ThreadStatus.Query.ordered_by_recently_updated()
+      |> Slack.ThreadStatus.Query.limit_to(deep.("slack_thread_status"))
       |> Repo.all()
       |> Enum.map(&thread_status_item/1)
 
@@ -154,8 +148,8 @@ defmodule Ryker.ControlPlane.FailureProjection do
       |> Repo.all()
       |> Enum.map(&learning_item/1)
 
-    with {:ok, delivery_items} <- DeliveryOperator.list_blocked(deep.("delivery")),
-         {:ok, emisar_items} <- EmisarOperator.failures(deep.("emisar")) do
+    with {:ok, delivery_items} <- Operator.Delivery.list_blocked(deep.("delivery")),
+         {:ok, emisar_items} <- Operator.Emisar.failures(deep.("emisar")) do
       failures =
         work ++
           admission ++
@@ -172,7 +166,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
 
       open =
         failures
-        |> FailureDismissals.reject_left()
+        |> Operator.FailureDismissals.reject_left()
         |> Enum.map(&Map.put(&1, :left_at, nil))
         |> Enum.sort_by(&DateTime.to_unix(&1.updated_at, :microsecond), :desc)
 
@@ -230,7 +224,8 @@ defmodule Ryker.ControlPlane.FailureProjection do
   def fetch(kind, ref) do
     case failure_exact(kind, ref) do
       {:ok, item} ->
-        {:ok, item |> decorate_failure() |> Map.put(:left_at, FailureDismissals.left_at(item))}
+        {:ok,
+         item |> decorate_failure() |> Map.put(:left_at, Operator.FailureDismissals.left_at(item))}
 
       other ->
         other
@@ -260,7 +255,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
 
   defp failure_exact("stopping", ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
     found =
-      Cancellation.stalled_after_attempts()
+      Work.Cancellation.stalled_after_attempts()
       |> Failure.Query.stalled_stops()
       |> Failure.Query.by_episode_key(ref)
       |> Repo.one()
@@ -270,7 +265,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
 
   defp failure_exact("learning", ref) do
     with {:ok, id} <- Ecto.UUID.cast(ref),
-         %LearningBatch{} = batch <- Repo.one(Failure.Query.stalled_batch(id)) do
+         %Learning.Batch{} = batch <- Repo.one(Failure.Query.stalled_batch(id)) do
       {:ok, learning_item(batch)}
     else
       _missing -> :not_found
@@ -280,7 +275,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   defp failure_exact(_kind, _ref), do: :not_found
 
   def delivery(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    case DeliveryOperator.fetch(ref) do
+    case Operator.Delivery.fetch(ref) do
       {:ok, %{status: :blocked} = item} -> {:ok, delivery_item(item)}
       {:ok, _item} -> :not_found
       {:error, _reason} -> :not_found
@@ -290,8 +285,8 @@ defmodule Ryker.ControlPlane.FailureProjection do
   def delivery(_ref), do: :not_found
 
   def admission(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    case Inbox.fetch(ref) do
-      {:ok, %Entry{status: :blocked} = entry} -> {:ok, admission_item(entry)}
+    case Ingress.Inbox.fetch(ref) do
+      {:ok, %Ingress.Inbox.Entry{status: :blocked} = entry} -> {:ok, admission_item(entry)}
       _unavailable -> :not_found
     end
   end
@@ -311,7 +306,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   # a watching one only while a task waits for it and nothing can make
   # progress on it (`Ryker.Operator.Emisar.failures/1`).
   def emisar(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    case EmisarOperator.fetch(ref) do
+    case Operator.Emisar.fetch(ref) do
       {:ok, %{status: :blocked, wait: wait} = item} when wait != :ended ->
         {:ok, emisar_item(item)}
 
@@ -326,8 +321,8 @@ defmodule Ryker.ControlPlane.FailureProjection do
   def emisar(_ref), do: :not_found
 
   def slack_interaction(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    case Repo.one(InteractionAudit.Query.by_event_ref(ref)) do
-      %InteractionAudit{repaint_status: :blocked} = audit -> {:ok, interaction_item(audit)}
+    case Repo.one(Slack.InteractionAudit.Query.by_event_ref(ref)) do
+      %Slack.InteractionAudit{repaint_status: :blocked} = audit -> {:ok, interaction_item(audit)}
       _unavailable -> :not_found
     end
   end
@@ -335,8 +330,8 @@ defmodule Ryker.ControlPlane.FailureProjection do
   def slack_interaction(_ref), do: :not_found
 
   def slack_incident(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    case Repo.one(IncidentRoom.Query.by_ref(ref)) do
-      %IncidentRoom{status: :blocked} = room -> {:ok, incident_item(room)}
+    case Repo.one(Slack.IncidentRoom.Query.by_ref(ref)) do
+      %Slack.IncidentRoom{status: :blocked} = room -> {:ok, incident_item(room)}
       _unavailable -> :not_found
     end
   end
@@ -344,8 +339,8 @@ defmodule Ryker.ControlPlane.FailureProjection do
   def slack_incident(_ref), do: :not_found
 
   defp slack_task_card(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    case Repo.one(TaskCard.Query.by_ref(ref)) do
-      %TaskCard{status: :blocked} = card -> {:ok, task_card_item(card)}
+    case Repo.one(Slack.TaskCard.Query.by_ref(ref)) do
+      %Slack.TaskCard{status: :blocked} = card -> {:ok, task_card_item(card)}
       _unavailable -> :not_found
     end
   end
@@ -355,7 +350,8 @@ defmodule Ryker.ControlPlane.FailureProjection do
   # A thread status has no reference of its own beyond its row id.
   defp slack_thread_status(ref) when is_binary(ref) do
     with {:ok, id} <- Ecto.UUID.cast(ref),
-         %ThreadStatus{status: :blocked} = status <- Repo.one(ThreadStatus.Query.by_id(id)) do
+         %Slack.ThreadStatus{status: :blocked} = status <-
+           Repo.one(Slack.ThreadStatus.Query.by_id(id)) do
       {:ok, thread_status_item(status)}
     else
       _unavailable -> :not_found
@@ -372,8 +368,8 @@ defmodule Ryker.ControlPlane.FailureProjection do
       action: :rearm,
       attempt_count: item.attempt_count,
       destination: Map.get(item, :destination),
-      detail: FailureDetail.project(item.error_detail),
-      diagnosis: FailureDetail.facts(item.error_detail),
+      detail: Operator.FailureDetail.project(item.error_detail),
+      diagnosis: Operator.FailureDetail.facts(item.error_detail),
       episode_id: Map.get(item, :episode_id),
       delivery_kind: item.kind,
       held: Map.get(item, :held, 0),
@@ -388,17 +384,17 @@ defmodule Ryker.ControlPlane.FailureProjection do
     }
   end
 
-  defp admission_item(%Entry{} = entry) do
+  defp admission_item(%Ingress.Inbox.Entry{} = entry) do
     %{
       action: :rearm,
       attempt_count: entry.attempt_count,
-      detail: FailureDetail.project(entry.last_error_detail),
-      diagnosis: FailureDetail.facts(entry.last_error_detail),
+      detail: Operator.FailureDetail.project(entry.last_error_detail),
+      diagnosis: Operator.FailureDetail.facts(entry.last_error_detail),
       cause: explained_cause(entry.last_error_detail),
       destination: failure_destination(entry),
       episode_id: entry.episode_id,
       kind: "admission",
-      ref: Inbox.ref(entry),
+      ref: Ingress.Inbox.ref(entry),
       source: "#{entry.source_kind}:#{entry.source_ref} · #{entry.event_ref}",
       status: entry.status,
       summary: entry.last_error_code || "admission blocked",
@@ -414,12 +410,12 @@ defmodule Ryker.ControlPlane.FailureProjection do
   # and a question to the fleet) and its paused room are read for the rows the
   # page shows (`attach_work_recovery/1`), not for every row each kind fetched
   # to fill it (2026-10-04 review).
-  defp work_item({%Turn{} = turn, %Episode{} = episode}) do
+  defp work_item({%Work.Turn{} = turn, %Episodes.Episode{} = episode}) do
     %{
       action: nil,
       attempt_count: max(turn.work_attempt_count, turn.cancel_attempt_count),
-      detail: FailureDetail.project(turn.last_error_detail),
-      diagnosis: FailureDetail.facts(turn.last_error_detail),
+      detail: Operator.FailureDetail.project(turn.last_error_detail),
+      diagnosis: Operator.FailureDetail.facts(turn.last_error_detail),
       destination: failure_destination(episode),
       episode_id: episode.id,
       episode_ref: episode.key,
@@ -438,7 +434,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   defp attach_work_recovery(items) do
     Enum.map(items, fn
       %{kind: "work", work: {turn, episode}} = item ->
-        recovery = Recovery.brief(turn)
+        recovery = Work.Recovery.brief(turn)
         paused_room = paused_room(item.stop_code, episode)
 
         item
@@ -459,17 +455,17 @@ defmodule Ryker.ControlPlane.FailureProjection do
   # The incident room a paused task waits for. An archived room can become
   # active again and the task resumes; a deleted one never can, so its task
   # closes instead, and the page must not promise otherwise.
-  defp paused_room("destination_paused", %Episode{id: episode_id}),
+  defp paused_room("destination_paused", %Episodes.Episode{id: episode_id}),
     do: Repo.one(Failure.Query.room_of(episode_id))
 
   defp paused_room(_stop_code, _episode), do: nil
 
-  defp interaction_item(%InteractionAudit{} = audit) do
+  defp interaction_item(%Slack.InteractionAudit{} = audit) do
     %{
       action: :rearm,
       attempt_count: audit.attempt_count,
-      detail: FailureDetail.project(audit.last_error_detail),
-      diagnosis: FailureDetail.facts(audit.last_error_detail),
+      detail: Operator.FailureDetail.project(audit.last_error_detail),
+      diagnosis: Operator.FailureDetail.facts(audit.last_error_detail),
       destination:
         join_target("slack:#{audit.workspace_ref}:#{audit.channel_ref}", audit.thread_ref),
       kind: "slack_interaction",
@@ -479,7 +475,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
       ref: audit.event_ref,
       # Who pressed it is a person, shown as every person is; the control is
       # the source (until 2026-09-26 both were one raw "U… · action" line).
-      pressed_by: Names.person(audit.workspace_ref, audit.actor_ref),
+      pressed_by: Slack.Names.person(audit.workspace_ref, audit.actor_ref),
       source: audit.action_id,
       status: audit.repaint_status,
       summary: audit.last_error_code || "Slack repaint blocked",
@@ -487,12 +483,12 @@ defmodule Ryker.ControlPlane.FailureProjection do
     }
   end
 
-  defp incident_item(%IncidentRoom{} = room) do
+  defp incident_item(%Slack.IncidentRoom{} = room) do
     %{
       action: :rearm,
       attempt_count: room.attempt_count || 0,
-      detail: FailureDetail.project(room.last_error_detail),
-      diagnosis: FailureDetail.facts(room.last_error_detail),
+      detail: Operator.FailureDetail.project(room.last_error_detail),
+      diagnosis: Operator.FailureDetail.facts(room.last_error_detail),
       destination:
         join_target(
           "slack:#{room.workspace_ref}:#{room.source_channel_ref}",
@@ -514,12 +510,12 @@ defmodule Ryker.ControlPlane.FailureProjection do
     }
   end
 
-  defp task_card_item(%TaskCard{} = card) do
+  defp task_card_item(%Slack.TaskCard{} = card) do
     %{
       action: :rearm,
       attempt_count: card.attempt_count,
-      detail: FailureDetail.project(card.last_error_detail),
-      diagnosis: FailureDetail.facts(card.last_error_detail),
+      detail: Operator.FailureDetail.project(card.last_error_detail),
+      diagnosis: Operator.FailureDetail.facts(card.last_error_detail),
       destination:
         join_target("slack:#{card.workspace_ref}:#{card.channel_ref}", card.thread_ref),
       episode_id: card.episode_id,
@@ -535,13 +531,13 @@ defmodule Ryker.ControlPlane.FailureProjection do
 
   # The status belongs to the request that wanted it shown, when one did; a
   # status a message wanted before any request existed names no request.
-  defp thread_status_item(%ThreadStatus{} = status) do
+  defp thread_status_item(%Slack.ThreadStatus{} = status) do
     %{
       action: :rearm,
       attempt_count: status.attempt_count,
       desired_text: status.desired_text,
-      detail: FailureDetail.project(status.last_error_detail),
-      diagnosis: FailureDetail.facts(status.last_error_detail),
+      detail: Operator.FailureDetail.project(status.last_error_detail),
+      diagnosis: Operator.FailureDetail.facts(status.last_error_detail),
       destination:
         join_target("slack:#{status.workspace_ref}:#{status.channel_ref}", status.thread_ref),
       episode_id: if(status.origin_kind == "episode", do: status.origin_id),
@@ -563,8 +559,8 @@ defmodule Ryker.ControlPlane.FailureProjection do
     %{
       action: if(item.status == :blocked, do: :rearm),
       attempt_count: item.failure_count,
-      detail: FailureDetail.project(item.last_error),
-      diagnosis: FailureDetail.facts(item.last_error),
+      detail: Operator.FailureDetail.project(item.last_error),
+      diagnosis: Operator.FailureDetail.facts(item.last_error),
       action_id: item.action_id,
       approval_url: item.approval_url,
       connection_ref: item.connection_ref,
@@ -587,12 +583,12 @@ defmodule Ryker.ControlPlane.FailureProjection do
   defp emisar_stall_code(:token_unavailable), do: "emisar_token_unavailable"
   defp emisar_stall_code(nil), do: nil
 
-  defp retention_item({%Session{} = session, episode}) do
+  defp retention_item({%Work.Session{} = session, episode}) do
     %{
       action: :rearm,
       attempt_count: session.cleanup_attempt_count,
-      detail: FailureDetail.project(session.cleanup_last_error_detail),
-      diagnosis: FailureDetail.facts(session.cleanup_last_error_detail),
+      detail: Operator.FailureDetail.project(session.cleanup_last_error_detail),
+      diagnosis: Operator.FailureDetail.facts(session.cleanup_last_error_detail),
       cleanup_phase: session.cleanup_blocked_from,
       request_state: episode && episode.state,
       closed_at: session.closed_at,
@@ -615,12 +611,12 @@ defmodule Ryker.ControlPlane.FailureProjection do
 
   # No retry: Ryker is already retrying it. What a person can change is the
   # worker, which the explanation reads from the attached worker facts.
-  defp stopping_item({%Turn{} = turn, %Episode{} = episode}) do
+  defp stopping_item({%Work.Turn{} = turn, %Episodes.Episode{} = episode}) do
     %{
       action: nil,
       attempt_count: turn.cancel_attempt_count,
-      detail: FailureDetail.project(turn.last_error_detail),
-      diagnosis: FailureDetail.facts(turn.last_error_detail),
+      detail: Operator.FailureDetail.project(turn.last_error_detail),
+      diagnosis: Operator.FailureDetail.facts(turn.last_error_detail),
       destination: failure_destination(episode),
       episode_id: episode.id,
       episode_ref: episode.key,
@@ -643,12 +639,12 @@ defmodule Ryker.ControlPlane.FailureProjection do
   # A recorded failure is the same evidence custody already requires before it
   # offers recovery: a publication that is merely slow is not stuck. A closed
   # session no longer lands here: Ryker discards that publication itself.
-  defp publication_item({%Publication{} = publication, %Episode{} = episode}) do
+  defp publication_item({%Publication.Publication{} = publication, %Episodes.Episode{} = episode}) do
     %{
       action: nil,
       attempt_count: publication.attempt_count || 0,
-      detail: FailureDetail.project(publication.last_error_detail),
-      diagnosis: FailureDetail.facts(publication.last_error_detail),
+      detail: Operator.FailureDetail.project(publication.last_error_detail),
+      diagnosis: Operator.FailureDetail.facts(publication.last_error_detail),
       destination: failure_destination(episode),
       episode_id: episode.id,
       episode_ref: episode.key,
@@ -663,7 +659,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
 
   # No retry here: a start can be a model call, so it is granted on the
   # Learning page, next to why each earlier attempt stopped.
-  defp learning_item(%LearningBatch{} = batch) do
+  defp learning_item(%Learning.Batch{} = batch) do
     %{
       action: nil,
       attempt_count: batch.start_count,
@@ -795,7 +791,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
 
   # A reply without a frozen target posts to its request's home: the room.
   defp owed_room_reply(target, room) do
-    alert_thread = IncidentRooms.alert_thread(room)
+    alert_thread = Slack.IncidentRooms.alert_thread(room)
 
     reply =
       cond do
@@ -861,7 +857,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   defp session_worker(placement, _session, nil, _now),
     do: %{id: placement.worker_id, enrolled: false}
 
-  defp session_worker(placement, session, %Worker{} = worker, now) do
+  defp session_worker(placement, session, %CoopFleet.Worker{} = worker, now) do
     requirements = placement.requirements || %{}
 
     %{
@@ -870,7 +866,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
       draining: worker.state == :draining or not is_nil(worker.drain_requested_at),
       reporting: reporting?(worker, now),
       last_seen_at: worker.last_seen_at,
-      job_valid: match?({:ok, _session}, JobAuthority.validate(session)),
+      job_valid: match?({:ok, _session}, CoopFleet.JobAuthority.validate(session)),
       setup_current: setup_current?(worker, requirements),
       free_slot:
         Enum.all?(
@@ -892,10 +888,10 @@ defmodule Ryker.ControlPlane.FailureProjection do
       end)
   end
 
-  defp reporting?(%Worker{last_seen_at: %DateTime{} = seen} = worker, now) do
+  defp reporting?(%CoopFleet.Worker{last_seen_at: %DateTime{} = seen} = worker, now) do
     worker.state in [:eligible, :busy] and is_nil(worker.drain_requested_at) and
       is_nil(worker.revoked_at) and
-      DateTime.diff(now, seen, :second) <= Worker.heartbeat_seconds()
+      DateTime.diff(now, seen, :second) <= CoopFleet.Worker.heartbeat_seconds()
   end
 
   defp reporting?(_worker, _now), do: false
@@ -909,11 +905,12 @@ defmodule Ryker.ControlPlane.FailureProjection do
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
 
-    contexts = input_ids |> Entry.Query.by_ids() |> Repo.all() |> Map.new(&{&1.id, &1})
+    contexts =
+      input_ids |> Ingress.Inbox.Entry.Query.by_ids() |> Repo.all() |> Map.new(&{&1.id, &1})
 
     Enum.map(items, fn item ->
       case Map.get(contexts, Map.get(item, :input_id)) do
-        %Entry{} = entry ->
+        %Ingress.Inbox.Entry{} = entry ->
           item
           |> Map.put(:episode_id, entry.episode_id)
           |> Map.put(:destination, failure_destination(entry))
@@ -932,11 +929,12 @@ defmodule Ryker.ControlPlane.FailureProjection do
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
 
-    contexts = episode_ids |> Episode.Query.by_ids() |> Repo.all() |> Map.new(&{&1.id, &1})
+    contexts =
+      episode_ids |> Episodes.Episode.Query.by_ids() |> Repo.all() |> Map.new(&{&1.id, &1})
 
     Enum.map(items, fn item ->
       case Map.get(contexts, Map.get(item, :episode_id)) do
-        %Episode{} = episode ->
+        %Episodes.Episode{} = episode ->
           item
           |> put_if_nil(:episode_ref, episode.key)
           |> put_if_nil(:destination, failure_destination(episode))
@@ -956,8 +954,8 @@ defmodule Ryker.ControlPlane.FailureProjection do
   "work_execution_blocked" on the Failures page. A person's Stop saves
   operator_stop itself (`Ryker.Work.Cancellation.new_stop/2`).
   """
-  @spec stop_code(Turn.t()) :: String.t() | nil
-  def stop_code(%Turn{last_error_code: "work_execution_blocked", last_error_detail: detail})
+  @spec stop_code(Work.Turn.t()) :: String.t() | nil
+  def stop_code(%Work.Turn{last_error_code: "work_execution_blocked", last_error_detail: detail})
       when is_binary(detail) do
     cond do
       # A run paused for its incident room saves the pause's own reason.
@@ -979,7 +977,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
     end
   end
 
-  def stop_code(%Turn{last_error_code: code}), do: code
+  def stop_code(%Work.Turn{last_error_code: code}), do: code
 
   @provider_errors ~w(not_in_channel channel_not_found is_archived invalid_auth token_revoked
     token_expired account_inactive missing_scope not_authed no_permission restricted_action
@@ -1006,20 +1004,20 @@ defmodule Ryker.ControlPlane.FailureProjection do
   # A provider's own sentence, unescaped, redacted and bounded once by
   # FailureCause, for the saved errors it can read; nil otherwise.
   defp explained_cause(detail) do
-    case FailureCause.explain(detail) do
+    case Work.FailureCause.explain(detail) do
       %{cause: cause} -> cause
       nil -> nil
     end
   end
 
   # The first setup step without its receipt is where a room stopped.
-  defp setup_step(%IncidentRoom{channel_ref: nil}), do: :channel
-  defp setup_step(%IncidentRoom{root_message_ref: nil}), do: :root
-  defp setup_step(%IncidentRoom{audience_prepared_at: nil}), do: :audience
-  defp setup_step(%IncidentRoom{topic_prepared_at: nil}), do: :topic
-  defp setup_step(%IncidentRoom{root_pinned_at: nil}), do: :pin
-  defp setup_step(%IncidentRoom{handoff_message_ref: nil}), do: :handoff
-  defp setup_step(%IncidentRoom{}), do: :finalize
+  defp setup_step(%Slack.IncidentRoom{channel_ref: nil}), do: :channel
+  defp setup_step(%Slack.IncidentRoom{root_message_ref: nil}), do: :root
+  defp setup_step(%Slack.IncidentRoom{audience_prepared_at: nil}), do: :audience
+  defp setup_step(%Slack.IncidentRoom{topic_prepared_at: nil}), do: :topic
+  defp setup_step(%Slack.IncidentRoom{root_pinned_at: nil}), do: :pin
+  defp setup_step(%Slack.IncidentRoom{handoff_message_ref: nil}), do: :handoff
+  defp setup_step(%Slack.IncidentRoom{}), do: :finalize
 
   # Whether what stopped a failure has changed since: the Slack connection and
   # the bot's place in the channel for Slack work, and whether any worker is
@@ -1119,7 +1117,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
     |> Enum.uniq()
     |> Map.new(fn {workspace, channel} = key ->
       {key,
-       case ChannelConfigurations.fetch_membership(workspace, channel) do
+       case Slack.ChannelConfigurations.fetch_membership(workspace, channel) do
          {:ok, %{status: status}} -> status
          {:error, :not_found} -> nil
        end}

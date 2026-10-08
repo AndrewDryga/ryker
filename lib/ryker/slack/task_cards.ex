@@ -10,14 +10,14 @@ defmodule Ryker.Slack.TaskCards do
   outermost commit (`subscribe_task_cards/0`), on its request's topics too.
   """
   alias Ryker.AdvisoryLock
-  alias Ryker.Delivery.Request
-  alias Ryker.Episodes.Episode
+  alias Ryker.Delivery
+  alias Ryker.Episodes
   alias Ryker.ErrorDetail
-  alias Ryker.Records.Record
+  alias Ryker.Records
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Slack.TaskCard
-  alias Ryker.Work.{DeliveryReceipt, Turn}
+  alias Ryker.Work
 
   @doc """
   Makes the card of `episode_id` due at the next claim: something it shows was
@@ -89,15 +89,15 @@ defmodule Ryker.Slack.TaskCards do
   "it's bad to have spam that is not actionable by users, especially if last
   message is the task card we are updating anyways!"
   """
-  @spec card_receipt(Ecto.UUID.t() | nil, Request.t()) ::
-          {:ok, DeliveryReceipt.t()} | {:error, term()} | nil
-  def card_receipt(episode_id, %Request{} = request) do
+  @spec card_receipt(Ecto.UUID.t() | nil, Delivery.Request.t()) ::
+          {:ok, Work.DeliveryReceipt.t()} | {:error, term()} | nil
+  def card_receipt(episode_id, %Delivery.Request{} = request) do
     case message_ref(episode_id, request.conversation_ref, request.thread_ref) do
       nil ->
         nil
 
       message_ref ->
-        DeliveryReceipt.new(
+        Work.DeliveryReceipt.new(
           request.ref,
           request.transport,
           request.conversation_ref,
@@ -293,7 +293,7 @@ defmodule Ryker.Slack.TaskCards do
       nil ->
         nil
 
-      {%Record{} = record, %Turn{} = source_turn, %Episode{} = episode} ->
+      {%Records.Record{} = record, %Work.Turn{} = source_turn, %Episodes.Episode{} = episode} ->
         insert!(record, source_turn, episode)
     end
   end

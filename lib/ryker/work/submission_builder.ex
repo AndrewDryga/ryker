@@ -10,24 +10,17 @@ defmodule Ryker.Work.SubmissionBuilder do
   alias Ryker.Behaviors
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity
-  alias Ryker.Episodes.{CorrelationClaims, Episode, Event, Origins, Reactions}
-  alias Ryker.Episodes.RoutingDigests
-  alias Ryker.GitHub.SourceRef, as: GitHubSourceRef
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Ingress.RecallText
-  alias Ryker.Learning.LearningSources
+  alias Ryker.Episodes
+  alias Ryker.GitHub
+  alias Ryker.Ingress
+  alias Ryker.Learning
   alias Ryker.Memories
-  alias Ryker.Memories.Cases
   alias Ryker.People
   alias Ryker.Records
-  alias Ryker.Records.DerivedContext
-  alias Ryker.Records.Outcomes
   alias Ryker.Repo
   alias Ryker.RepositoryKnowledge
-  alias Ryker.Slack.SourceRef, as: SlackSourceRef
-  alias Ryker.StateTools.Capabilities
-  alias Ryker.StateTools.FixedTools
-  alias Ryker.StateTools.ToolVisibility
+  alias Ryker.Slack
+  alias Ryker.StateTools
   alias Ryker.Work.{Contract, PlatformTools, Prompt, Session, Submission, Turn}
 
   @maximum_inputs 40
@@ -42,7 +35,7 @@ defmodule Ryker.Work.SubmissionBuilder do
   additionally returns the selection ledger, which is evidence about the
   selection rather than part of it.
   """
-  @spec build(%{episode: Episode.t(), session: Session.t(), turn: Turn.t()}, keyword()) ::
+  @spec build(%{episode: Episodes.Episode.t(), session: Session.t(), turn: Turn.t()}, keyword()) ::
           {:ok, Submission.t()} | {:error, term()}
   def build(claim, options \\ []) do
     case prepare(claim, options) do
@@ -61,12 +54,16 @@ defmodule Ryker.Work.SubmissionBuilder do
   enters the submission, so the prompt bytes and their fingerprint are
   identical with or without it.
   """
-  @spec prepare(%{episode: Episode.t(), session: Session.t(), turn: Turn.t()}, keyword()) ::
+  @spec prepare(%{episode: Episodes.Episode.t(), session: Session.t(), turn: Turn.t()}, keyword()) ::
           {:ok, %{submission: Submission.t(), ledger: map()}} | {:error, term()}
   def prepare(claim, options \\ [])
 
   def prepare(
-        %{episode: %Episode{} = episode, session: %Session{} = session, turn: %Turn{} = turn},
+        %{
+          episode: %Episodes.Episode{} = episode,
+          session: %Session{} = session,
+          turn: %Turn{} = turn
+        },
         options
       )
       when is_list(options) do
@@ -181,8 +178,9 @@ defmodule Ryker.Work.SubmissionBuilder do
             transport: episode.destination_transport,
             conversation_ref: episode.destination_conversation_ref
           }),
-        "conversation_feedback" => Reactions.model_context(episode.id, episode.next_sequence),
-        "episode_title" => RoutingDigests.titles([episode.id])[episode.id],
+        "conversation_feedback" =>
+          Episodes.Reactions.model_context(episode.id, episode.next_sequence),
+        "episode_title" => Episodes.RoutingDigests.titles([episode.id])[episode.id],
         "controller_tools" => state_tools,
         "source_and_action_tools" => platform_tools
       }
@@ -241,7 +239,10 @@ defmodule Ryker.Work.SubmissionBuilder do
     case PlatformTools.names(Keyword.get(options, :platform_tools)) do
       {:ok, names} ->
         {:ok,
-         Enum.filter(names, &ToolVisibility.visible?(&1, episode.destination_transport, mode))}
+         Enum.filter(
+           names,
+           &StateTools.ToolVisibility.visible?(&1, episode.destination_transport, mode)
+         )}
 
       :error ->
         {:error, {:invalid_work_submission_builder, :platform_tools}}
@@ -315,7 +316,7 @@ defmodule Ryker.Work.SubmissionBuilder do
   # only the messages.
   defp fit_full_context(episode, session, snapshot, records, previous, metadata) do
     %{active: active, historical: historical} = snapshot
-    origins = Origins.for_episode(episode.id) |> Map.new(&{&1.input_ref, &1})
+    origins = Episodes.Origins.for_episode(episode.id) |> Map.new(&{&1.input_ref, &1})
     notes = routing_notes(episode)
 
     context =
@@ -324,7 +325,7 @@ defmodule Ryker.Work.SubmissionBuilder do
         "origins" => origin_summary(episode, origins),
         "signals" => signal_summary(episode),
         "conversation_context" => admission_backdrop(episode),
-        "retained_cases" => Cases.recall(episode, @retained_cases),
+        "retained_cases" => Memories.Cases.recall(episode, @retained_cases),
         "linked_history_ref" => episode.linked_episode_id,
         "mode" => "full",
         "operator_context" =>
@@ -336,7 +337,7 @@ defmodule Ryker.Work.SubmissionBuilder do
         "offer_confirmation_supported" => offer_confirmation_supported?(episode),
         "records" => Enum.map(records, &record_document/1),
         "repository_ref" => session.repository_ref,
-        "related_outcomes" => Outcomes.recall(episode, session.repository_ref)
+        "related_outcomes" => Records.Outcomes.recall(episode, session.repository_ref)
       }
       |> maybe_put_repository_knowledge(session.repository_ref)
       |> put_prior_outcome(previous, episode, session.repository_ref)
@@ -454,7 +455,7 @@ defmodule Ryker.Work.SubmissionBuilder do
               &input_document(
                 &1,
                 episode,
-                Map.new(Origins.for_episode(episode.id), fn origin ->
+                Map.new(Episodes.Origins.for_episode(episode.id), fn origin ->
                   {origin.input_ref, origin}
                 end),
                 routing_notes(episode)
@@ -516,17 +517,18 @@ defmodule Ryker.Work.SubmissionBuilder do
 
   defp collect_artifact_refs(_value), do: []
 
-  defp resume_cause(%Episode{active_input_refs: [_first | _rest]}, _previous), do: "new_input"
+  defp resume_cause(%Episodes.Episode{active_input_refs: [_first | _rest]}, _previous),
+    do: "new_input"
 
   defp resume_cause(
-         %Episode{active_input_refs: []},
+         %Episodes.Episode{active_input_refs: []},
          %Turn{continuation: %{"kind" => "wait", "wait_kind" => "event"}}
        ),
        do: "deadline_elapsed"
 
   defp resume_cause(_episode, _previous), do: "host_continuation"
 
-  defp offer_confirmation_supported?(%Episode{
+  defp offer_confirmation_supported?(%Episodes.Episode{
          destination_transport: transport,
          execution_mode: :live
        })
@@ -537,15 +539,15 @@ defmodule Ryker.Work.SubmissionBuilder do
 
   defp state_tool_names(episode, options) do
     capabilities =
-      Keyword.get(options, :state_tool_capabilities, Capabilities.default())
+      Keyword.get(options, :state_tool_capabilities, StateTools.Capabilities.default())
 
     cond do
       is_nil(capabilities) ->
         {:ok, []}
 
-      Capabilities.valid?(capabilities) ->
+      StateTools.Capabilities.valid?(capabilities) ->
         names =
-          FixedTools.list(capabilities: capabilities, binding: %{episode: episode})
+          StateTools.FixedTools.list(capabilities: capabilities, binding: %{episode: episode})
           |> Enum.map(& &1["name"])
           |> maybe_add_emisar_approval(capabilities, episode)
 
@@ -566,24 +568,26 @@ defmodule Ryker.Work.SubmissionBuilder do
   defp input_snapshot(episode) do
     base =
       episode.id
-      |> Event.Query.by_episode_id()
-      |> Event.Query.by_kind(:input_admitted)
-      |> Event.Query.before_sequence(episode.next_sequence)
+      |> Episodes.Event.Query.by_episode_id()
+      |> Episodes.Event.Query.by_kind(:input_admitted)
+      |> Episodes.Event.Query.before_sequence(episode.next_sequence)
 
     active_refs = Enum.uniq(episode.active_input_refs)
     queued_refs = Enum.uniq(episode.queued_input_refs)
     historical_slots = @maximum_inputs - length(active_refs)
 
     visible =
-      if queued_refs == [], do: base, else: Event.Query.excluding_dedupe_keys(base, queued_refs)
+      if queued_refs == [],
+        do: base,
+        else: Episodes.Event.Query.excluding_dedupe_keys(base, queued_refs)
 
     active =
       if active_refs == [] do
         []
       else
         visible
-        |> Event.Query.by_dedupe_keys(active_refs)
-        |> Event.Query.ordered_by_sequence()
+        |> Episodes.Event.Query.by_dedupe_keys(active_refs)
+        |> Episodes.Event.Query.ordered_by_sequence()
         |> Repo.all()
       end
 
@@ -594,11 +598,11 @@ defmodule Ryker.Work.SubmissionBuilder do
         query =
           if active_refs == [],
             do: visible,
-            else: Event.Query.excluding_dedupe_keys(visible, active_refs)
+            else: Episodes.Event.Query.excluding_dedupe_keys(visible, active_refs)
 
         query
-        |> Event.Query.ordered_by_sequence_desc()
-        |> Event.Query.limit_to(historical_slots)
+        |> Episodes.Event.Query.ordered_by_sequence_desc()
+        |> Episodes.Event.Query.limit_to(historical_slots)
         |> Repo.all()
         |> Enum.reverse()
       end
@@ -606,7 +610,10 @@ defmodule Ryker.Work.SubmissionBuilder do
     %{
       active: active,
       first:
-        visible |> Event.Query.ordered_by_sequence() |> Event.Query.limit_to(1) |> Repo.one(),
+        visible
+        |> Episodes.Event.Query.ordered_by_sequence()
+        |> Episodes.Event.Query.limit_to(1)
+        |> Repo.one(),
       historical: historical,
       total_count: Repo.aggregate(visible, :count)
     }
@@ -644,7 +651,7 @@ defmodule Ryker.Work.SubmissionBuilder do
   defp input_document(event, episode, origins, notes) do
     command = event.payload
     current = current_input?(event, episode)
-    sources = LearningSources.for_work_input(command["payload"])
+    sources = Learning.LearningSources.for_work_input(command["payload"])
     note = if current, do: Map.get(notes, routing_key(command["payload"]))
 
     document =
@@ -672,7 +679,7 @@ defmodule Ryker.Work.SubmissionBuilder do
   # is what the person says now. The older one's source moved to the edit, and
   # as current input it made every briefing stale: Andrew's edit stopped again
   # with each Retry (manual test, 2026-10-01). It is withdrawn instead.
-  defp current_input?(%Event{dedupe_key: ref, payload: command}, episode) do
+  defp current_input?(%Episodes.Event{dedupe_key: ref, payload: command}, episode) do
     ref in episode.active_input_refs and
       Map.get(episode.input_revisions, command["native_input_id"], 0) <= command["revision"]
   end
@@ -681,11 +688,11 @@ defmodule Ryker.Work.SubmissionBuilder do
   # chose, its reason and the kind of work. Andrew asked (2026-09-26) that Work
   # see it; it is a first look that checked nothing, and the prompt says so.
   # An admitted input and its routing entry share the source and event ids.
-  defp routing_notes(%Episode{id: episode_id}) do
+  defp routing_notes(%Episodes.Episode{id: episode_id}) do
     episode_id
-    |> Entry.Query.by_episode_id()
-    |> Entry.Query.having_decision_document()
-    |> Entry.Query.select_decisions()
+    |> Ingress.Inbox.Entry.Query.by_episode_id()
+    |> Ingress.Inbox.Entry.Query.having_decision_document()
+    |> Ingress.Inbox.Entry.Query.select_decisions()
     |> Repo.all()
     |> Enum.flat_map(fn {kind, ref, event_ref, decision} ->
       case routing_note(decision) do
@@ -721,7 +728,7 @@ defmodule Ryker.Work.SubmissionBuilder do
         Map.put(
           document,
           "source_ref",
-          SlackSourceRef.message(workspace_ref, channel_ref, message_ref)
+          Slack.SourceRef.message(workspace_ref, channel_ref, message_ref)
         )
 
       _invalid ->
@@ -744,7 +751,7 @@ defmodule Ryker.Work.SubmissionBuilder do
     case String.split(item, ":", parts: 2) do
       [kind, id] ->
         case Integer.parse(id) do
-          {id, ""} -> Map.put(document, "source_ref", GitHubSourceRef.item(binding, kind, id))
+          {id, ""} -> Map.put(document, "source_ref", GitHub.SourceRef.item(binding, kind, id))
           _invalid -> document
         end
 
@@ -761,7 +768,7 @@ defmodule Ryker.Work.SubmissionBuilder do
   # decision was made against, read back from that decision's frozen snapshot.
   # A replacement session rebuilds the identical bytes instead of fetching a
   # newer transcript, so a retry cannot silently widen what Work was told.
-  defp admission_backdrop(%Episode{} = episode) do
+  defp admission_backdrop(%Episodes.Episode{} = episode) do
     if routed_start?(episode),
       do: own_backdrop(episode),
       else: linked_backdrop(episode) || own_backdrop(episode)
@@ -769,32 +776,32 @@ defmodule Ryker.Work.SubmissionBuilder do
 
   defp own_backdrop(episode) do
     episode.id
-    |> Entry.Query.by_episode_id()
-    |> Entry.Query.having_admission_context()
-    |> Entry.Query.ordered_by_occurred_at()
-    |> Entry.Query.limit_to(1)
-    |> Entry.Query.select_admission_contexts()
+    |> Ingress.Inbox.Entry.Query.by_episode_id()
+    |> Ingress.Inbox.Entry.Query.having_admission_context()
+    |> Ingress.Inbox.Entry.Query.ordered_by_occurred_at()
+    |> Ingress.Inbox.Entry.Query.limit_to(1)
+    |> Ingress.Inbox.Entry.Query.select_admission_contexts()
     |> Repo.one()
     |> backdrop()
   end
 
   # Routing starts an episode under the id of the message it admitted. A task starts when a
   # person confirms an offer, and nothing routed it.
-  defp routed_start?(%Episode{id: id}),
-    do: Repo.exists?(Entry.Query.by_id(id))
+  defp routed_start?(%Episodes.Episode{id: id}),
+    do: Repo.exists?(Ingress.Inbox.Entry.Query.by_id(id))
 
   # A task's backdrop is the conversation it was offered in, as frozen when the latest message
   # that conversation had admitted before the task started arrived (Andrew, 2026-10-01: a task
   # "doesn't receive previous messages so it can lose important context"). Each admitted input
   # names its inbox entry; one admitted later, there or in the task, never changes it.
-  defp linked_backdrop(%Episode{linked_episode_id: linked, inserted_at: started})
+  defp linked_backdrop(%Episodes.Episode{linked_episode_id: linked, inserted_at: started})
        when is_binary(linked) and not is_nil(started) do
     entry_ids =
       linked
-      |> Event.Query.by_episode_id()
-      |> Event.Query.by_kind(:input_admitted)
-      |> Event.Query.inserted_by(started)
-      |> Event.Query.select_payloads()
+      |> Episodes.Event.Query.by_episode_id()
+      |> Episodes.Event.Query.by_kind(:input_admitted)
+      |> Episodes.Event.Query.inserted_by(started)
+      |> Episodes.Event.Query.select_payloads()
       |> Repo.all()
       |> Enum.flat_map(fn payload ->
         with %{"turn_ref" => "ingress-turn:" <> id} <- payload,
@@ -806,11 +813,11 @@ defmodule Ryker.Work.SubmissionBuilder do
       end)
 
     entry_ids
-    |> Entry.Query.by_ids()
-    |> Entry.Query.having_admission_context()
-    |> Entry.Query.ordered_by_occurred_at_desc()
-    |> Entry.Query.limit_to(1)
-    |> Entry.Query.select_admission_contexts()
+    |> Ingress.Inbox.Entry.Query.by_ids()
+    |> Ingress.Inbox.Entry.Query.having_admission_context()
+    |> Ingress.Inbox.Entry.Query.ordered_by_occurred_at_desc()
+    |> Ingress.Inbox.Entry.Query.limit_to(1)
+    |> Ingress.Inbox.Entry.Query.select_admission_contexts()
     |> Repo.one()
     |> backdrop()
   end
@@ -835,7 +842,7 @@ defmodule Ryker.Work.SubmissionBuilder do
   # One noisy conversation must not erase the material finding another one
   # contributed, so the briefing always states which conversations are in play.
   defp origin_summary(episode, origins) do
-    home = Origins.home(episode)
+    home = Episodes.Origins.home(episode)
 
     %{
       "home" => %{
@@ -855,13 +862,13 @@ defmodule Ryker.Work.SubmissionBuilder do
   # Alert lifecycles stay individually tracked: recovering one signal never
   # states that the incident itself is resolved.
   defp signal_summary(episode) do
-    claims = CorrelationClaims.for_episode(episode.id)
+    claims = Episodes.CorrelationClaims.for_episode(episode.id)
 
     %{
       "active" => Enum.count(claims, &(&1.status == :active and &1.lifecycle_state == :active)),
       "terminal" =>
         Enum.count(claims, &(&1.status == :active and &1.lifecycle_state == :terminal)),
-      "all_terminal" => claims != [] and CorrelationClaims.all_terminal?(episode.id)
+      "all_terminal" => claims != [] and Episodes.CorrelationClaims.all_terminal?(episode.id)
     }
   end
 
@@ -871,7 +878,7 @@ defmodule Ryker.Work.SubmissionBuilder do
   # shorter preview kept only a message's envelope: its sender and the start
   # of its block list, and none of its words.
   defp continuity_input(event) do
-    sources = LearningSources.for_work_input(event.payload["payload"])
+    sources = Learning.LearningSources.for_work_input(event.payload["payload"])
 
     document =
       %{
@@ -886,9 +893,9 @@ defmodule Ryker.Work.SubmissionBuilder do
   end
 
   defp source_linked_input(event, document, nil, historical?) do
-    case LearningSources.deleted_work_input(event, not historical?) do
+    case Learning.LearningSources.deleted_work_input(event, not historical?) do
       %{} = notice -> notice
-      nil when historical? -> LearningSources.withdrawn_work_input(event)
+      nil when historical? -> Learning.LearningSources.withdrawn_work_input(event)
       nil -> put_work_sources(event, document, nil)
     end
   end
@@ -920,7 +927,7 @@ defmodule Ryker.Work.SubmissionBuilder do
     input_texts =
       for event <- snapshot.active,
           current_input?(event, episode),
-          do: RecallText.from(event.payload["payload"])
+          do: Ingress.RecallText.from(event.payload["payload"])
 
     operator_ref = asker(snapshot)
 
@@ -941,8 +948,11 @@ defmodule Ryker.Work.SubmissionBuilder do
       events
       |> Enum.reverse()
       |> Enum.find_value(fn
-        %Event{payload: %{"actor_ref" => actor_ref}} when is_binary(actor_ref) -> actor_ref
-        _other -> nil
+        %Episodes.Event{payload: %{"actor_ref" => actor_ref}} when is_binary(actor_ref) ->
+          actor_ref
+
+        _other ->
+          nil
       end)
     end)
   end
@@ -962,7 +972,7 @@ defmodule Ryker.Work.SubmissionBuilder do
     |> Enum.find_value(&trusted_repository_from_event/1)
   end
 
-  defp trusted_repository_from_event(%Event{payload: %{"payload" => payload}})
+  defp trusted_repository_from_event(%Episodes.Event{payload: %{"payload" => payload}})
        when is_map(payload) do
     case payload do
       %{"task" => %{"repository" => repository}} when is_binary(repository) ->
@@ -1015,16 +1025,20 @@ defmodule Ryker.Work.SubmissionBuilder do
   defp record_document(record) do
     %{
       "kind" => record["kind"],
-      "payload" => DerivedContext.record_payload(record["payload"]),
+      "payload" => Records.DerivedContext.record_payload(record["payload"]),
       "ref" => record["ref"],
       "status" => record["status"]
     }
   end
 
   defp historical_delivery(turn, episode, repository) do
-    document = DerivedContext.delivery_document(turn)
+    document = Records.DerivedContext.delivery_document(turn)
 
-    case DerivedContext.filter([DerivedContext.delivery(document)], episode, repository) do
+    case Records.DerivedContext.filter(
+           [Records.DerivedContext.delivery(document)],
+           episode,
+           repository
+         ) do
       [_] -> document
       [] -> nil
     end

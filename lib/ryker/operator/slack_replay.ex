@@ -6,13 +6,12 @@ defmodule Ryker.Operator.SlackReplay do
   a fresh idempotent event identity and the host-owned shadow execution mode.
   """
   alias Ryker.CanonicalJSON
-  alias Ryker.Episodes.{Episode, Event}
-  alias Ryker.Ingress.{Inbox, Input, WorkProfile}
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Episodes
+  alias Ryker.Ingress
   alias Ryker.Operator.Actions
   alias Ryker.Reference
   alias Ryker.Repo
-  alias Ryker.Work.Turn
+  alias Ryker.Work
 
   @event_prefix "operator-slack-replay:"
 
@@ -39,17 +38,18 @@ defmodule Ryker.Operator.SlackReplay do
     with {:ok, source} <- source(source_input_ref),
          {:ok, profile} <- restore_profile(source),
          {:ok, input} <- replay_input(source, request_ref),
-         {:ok, receipt} <- Inbox.record(input, execution_mode: :shadow, work_profile: profile) do
+         {:ok, receipt} <-
+           Ingress.Inbox.record(input, execution_mode: :shadow, work_profile: profile) do
       {:ok,
        %{
          previous: %{
-           "source_input_ref" => Inbox.ref(source),
+           "source_input_ref" => Ingress.Inbox.ref(source),
            "source_status" => Atom.to_string(source.status),
            "work_profile_sha256" => CanonicalJSON.digest(source.work_profile)
          },
          outcome: %{
-           "replay_input_ref" => Inbox.ref(receipt.entry),
-           "source_input_ref" => Inbox.ref(source),
+           "replay_input_ref" => Ingress.Inbox.ref(receipt.entry),
+           "source_input_ref" => Ingress.Inbox.ref(source),
            "status" => Atom.to_string(receipt.status)
          }
        }}
@@ -58,10 +58,13 @@ defmodule Ryker.Operator.SlackReplay do
 
   @spec fetch(String.t()) :: {:ok, map()} | {:error, term()}
   def fetch(replay_input_ref) do
-    with {:ok, %Entry{execution_mode: :shadow} = entry} <- fetch_replay(replay_input_ref),
+    with {:ok, %Ingress.Inbox.Entry{execution_mode: :shadow} = entry} <-
+           fetch_replay(replay_input_ref),
          {:ok, source_id} <- source_id(entry.event_ref) do
       episode =
-        if entry.episode_id, do: Repo.one(Episode.Query.by_id(entry.episode_id)), else: nil
+        if entry.episode_id,
+          do: Repo.one(Episodes.Episode.Query.by_id(entry.episode_id)),
+          else: nil
 
       turn = latest_turn(entry.episode_id)
 
@@ -71,7 +74,7 @@ defmodule Ryker.Operator.SlackReplay do
          episode_ref: episode && episode.key,
          execution_mode: entry.execution_mode,
          outcome: replay_outcome(entry.episode_id),
-         replay_input_ref: Inbox.ref(entry),
+         replay_input_ref: Ingress.Inbox.ref(entry),
          source_input_ref: "ingress-input:#{source_id}",
          work_status: turn && turn.status
        }}
@@ -81,14 +84,16 @@ defmodule Ryker.Operator.SlackReplay do
   end
 
   defp source(source_input_ref) do
-    case Inbox.fetch(source_input_ref) do
-      {:ok, %Entry{operational_pruned_at: at}} when not is_nil(at) ->
+    case Ingress.Inbox.fetch(source_input_ref) do
+      {:ok, %Ingress.Inbox.Entry{operational_pruned_at: at}} when not is_nil(at) ->
         {:error, :slack_replay_source_pruned}
 
-      {:ok, %Entry{source_kind: "slack", event_kind: :message, execution_mode: :live} = entry} ->
+      {:ok,
+       %Ingress.Inbox.Entry{source_kind: "slack", event_kind: :message, execution_mode: :live} =
+           entry} ->
         {:ok, entry}
 
-      {:ok, %Entry{}} ->
+      {:ok, %Ingress.Inbox.Entry{}} ->
         {:error, :slack_replay_source_invalid}
 
       :error ->
@@ -96,11 +101,13 @@ defmodule Ryker.Operator.SlackReplay do
     end
   end
 
-  defp restore_profile(%Entry{work_profile: %{} = document}), do: WorkProfile.restore(document)
-  defp restore_profile(%Entry{}), do: {:error, :slack_replay_work_profile_missing}
+  defp restore_profile(%Ingress.Inbox.Entry{work_profile: %{} = document}),
+    do: Ingress.WorkProfile.restore(document)
+
+  defp restore_profile(%Ingress.Inbox.Entry{}), do: {:error, :slack_replay_work_profile_missing}
 
   defp replay_input(source, request_ref) do
-    Input.new(%{
+    Ingress.Input.new(%{
       actor: %{kind: source.actor_kind, ref: source.actor_ref},
       content: source.content,
       destination: %{
@@ -125,8 +132,8 @@ defmodule Ryker.Operator.SlackReplay do
   end
 
   defp fetch_replay(replay_input_ref) do
-    case Inbox.fetch(replay_input_ref) do
-      {:ok, %Entry{event_ref: @event_prefix <> _rest} = entry} -> {:ok, entry}
+    case Ingress.Inbox.fetch(replay_input_ref) do
+      {:ok, %Ingress.Inbox.Entry{event_ref: @event_prefix <> _rest} = entry} -> {:ok, entry}
       _unavailable -> :error
     end
   end
@@ -150,9 +157,9 @@ defmodule Ryker.Operator.SlackReplay do
 
   defp latest_turn(episode_id) do
     episode_id
-    |> Turn.Query.by_episode_id()
-    |> Turn.Query.ordered_by_recent()
-    |> Turn.Query.limit_to(1)
+    |> Work.Turn.Query.by_episode_id()
+    |> Work.Turn.Query.ordered_by_recent()
+    |> Work.Turn.Query.limit_to(1)
     |> Repo.one()
   end
 
@@ -161,18 +168,18 @@ defmodule Ryker.Operator.SlackReplay do
   defp replay_outcome(episode_id) do
     event =
       episode_id
-      |> Event.Query.by_episode_id()
-      |> Event.Query.by_kind(:result_accepted)
-      |> Event.Query.ordered_by_sequence_desc()
-      |> Event.Query.limit_to(1)
+      |> Episodes.Event.Query.by_episode_id()
+      |> Episodes.Event.Query.by_kind(:result_accepted)
+      |> Episodes.Event.Query.ordered_by_sequence_desc()
+      |> Episodes.Event.Query.limit_to(1)
       |> Repo.one()
 
     case event do
-      %Event{payload: %{"decision_reason" => reason, "delivery" => "none"}}
+      %Episodes.Event{payload: %{"decision_reason" => reason, "delivery" => "none"}}
       when is_binary(reason) and byte_size(reason) in 1..960 ->
         %{decision_reason: reason, delivery: :none, status: :accepted}
 
-      %Event{} ->
+      %Episodes.Event{} ->
         %{status: :invalid}
 
       nil ->

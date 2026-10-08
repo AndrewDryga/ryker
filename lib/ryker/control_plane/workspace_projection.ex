@@ -11,12 +11,11 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   """
   alias Ryker.Config
   alias Ryker.ControlPlane.{Activity, PagedRelation, RepositoryNames, WorkingCopy}
-  alias Ryker.CoopFleet.Worker, as: FleetWorker
-  alias Ryker.Learning.Batch, as: LearningBatch
-  alias Ryker.Learning.LearningRun
+  alias Ryker.CoopFleet
+  alias Ryker.Learning
   alias Ryker.Repo
-  alias Ryker.Retention.Custody, as: RetentionCustody
-  alias Ryker.Work.Session
+  alias Ryker.Retention
+  alias Ryker.Work
 
   @preview_limit 25
 
@@ -89,7 +88,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   @spec storage() :: map()
   def storage do
     now = Repo.now!()
-    {next, due} = RetentionCustody.eligible_copies(now, @preview_limit)
+    {next, due} = Retention.Custody.eligible_copies(now, @preview_limit)
     settings = Config.get_env(:retention, %{})
     names = RepositoryNames.all()
 
@@ -102,8 +101,8 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
       preview: Enum.map(next, &preview_item(&1, now, names)),
       preview_total: due,
       workers:
-        FleetWorker.Query.all()
-        |> FleetWorker.Query.ordered_by_id()
+        CoopFleet.Worker.Query.all()
+        |> CoopFleet.Worker.Query.ordered_by_id()
         |> Repo.all()
         |> Enum.map(&storage_item(&1, now))
     }
@@ -112,7 +111,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   defp safe_setting(settings, key) when is_map(settings), do: Map.get(settings, key)
   defp safe_setting(_settings, _key), do: nil
 
-  defp storage_item(%FleetWorker{} = worker, now) do
+  defp storage_item(%CoopFleet.Worker{} = worker, now) do
     storage = worker.storage
 
     %{
@@ -133,16 +132,16 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
     }
   end
 
-  defp measurement_state(%FleetWorker{storage: storage}, _now) when not is_map(storage),
+  defp measurement_state(%CoopFleet.Worker{storage: storage}, _now) when not is_map(storage),
     do: :unknown
 
-  defp measurement_state(%FleetWorker{last_seen_at: %DateTime{} = last_seen_at}, now) do
+  defp measurement_state(%CoopFleet.Worker{last_seen_at: %DateTime{} = last_seen_at}, now) do
     if DateTime.diff(now, last_seen_at, :second) <= 60, do: :fresh, else: :stale
   end
 
   defp measurement_state(_worker, _now), do: :stale
 
-  defp preview_item({%Session{} = session, eligible_at}, now, names) do
+  defp preview_item({%Work.Session{} = session, eligible_at}, now, names) do
     %{
       eligible_age_seconds: age_seconds(now, eligible_at),
       kind: session.execution_kind,
@@ -154,12 +153,13 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
     }
   end
 
-  defp workspace_label(%Session{execution_kind: :learning}, _names), do: "Background learning"
+  defp workspace_label(%Work.Session{execution_kind: :learning}, _names),
+    do: "Background learning"
 
-  defp workspace_label(%Session{repository_ref: ref}, names) when is_binary(ref),
+  defp workspace_label(%Work.Session{repository_ref: ref}, names) when is_binary(ref),
     do: Map.get(names, ref, ref)
 
-  defp workspace_label(%Session{}, _names), do: nil
+  defp workspace_label(%Work.Session{}, _names), do: nil
 
   # What cleanup does next, in the words a person reading the page uses.
   defp preview_reason(:active), do: "Keep it briefly for follow-up questions, then remove it"
@@ -178,7 +178,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   defp age_seconds(now, value), do: max(DateTime.diff(now, value, :second), 0)
 
   defp workspace_item(
-         {%Session{} = session, episode_state, episode_ref, learning_run, learning_batch},
+         {%Work.Session{} = session, episode_state, episode_ref, learning_run, learning_batch},
          names
        ) do
     %{
@@ -201,45 +201,45 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
     }
   end
 
-  defp learning_state(%Session{execution_kind: kind}, _run, _batch) when kind != :learning,
+  defp learning_state(%Work.Session{execution_kind: kind}, _run, _batch) when kind != :learning,
     do: nil
 
   defp learning_state(
-         %Session{execution_kind: :learning},
-         %LearningRun{remote_stopped_at: %DateTime{}},
+         %Work.Session{execution_kind: :learning},
+         %Learning.LearningRun{remote_stopped_at: %DateTime{}},
          _batch
        ),
        do: :cleanup_pending
 
   defp learning_state(
-         %Session{execution_kind: :learning},
-         %LearningRun{error_code: "learning_remote_unresolved"},
-         %LearningBatch{status: :deferred}
+         %Work.Session{execution_kind: :learning},
+         %Learning.LearningRun{error_code: "learning_remote_unresolved"},
+         %Learning.Batch{status: :deferred}
        ),
        do: :retry_scheduled
 
   defp learning_state(
-         %Session{execution_kind: :learning},
-         %LearningRun{error_code: "learning_remote_unresolved"},
+         %Work.Session{execution_kind: :learning},
+         %Learning.LearningRun{error_code: "learning_remote_unresolved"},
          _batch
        ),
        do: :checking_worker
 
-  defp learning_state(%Session{execution_kind: :learning}, _run, _batch), do: :active
+  defp learning_state(%Work.Session{execution_kind: :learning}, _run, _batch), do: :active
 
-  defp learning_retry_at(%LearningBatch{status: :deferred, next_attempt_at: retry_at}),
+  defp learning_retry_at(%Learning.Batch{status: :deferred, next_attempt_at: retry_at}),
     do: retry_at
 
   defp learning_retry_at(_batch), do: nil
 
-  defp workspace_action(%Session{
+  defp workspace_action(%Work.Session{
          cleanup_status: :blocked,
          cleanup_blocked_from: blocked_from
        })
        when blocked_from in [:close_pending, :plan_pending, :discard_pending],
        do: :rearm
 
-  defp workspace_action(%Session{
+  defp workspace_action(%Work.Session{
          cleanup_status: :retained,
          discard_plan: %{"workspace" => %{"dirty" => false, "unmerged" => true}},
          discard_plan_fingerprint: fingerprint,
@@ -248,5 +248,5 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
        when is_binary(fingerprint),
        do: :discard_unmerged
 
-  defp workspace_action(%Session{}), do: nil
+  defp workspace_action(%Work.Session{}), do: nil
 end

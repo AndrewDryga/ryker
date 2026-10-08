@@ -10,11 +10,11 @@ defmodule Ryker.ControlPlane.LearningActivity do
   alias Ryker.ControlPlane.{LearningActivity, LearningRequests, PagedRelation, Paths}
   alias Ryker.ControlPlane.RepositoryNames
   alias Ryker.InspectionRedactor
-  alias Ryker.Knowledge.ConversationKnowledge
-  alias Ryker.Learning.{Batch, Batches, LearningRun, Runtime}
+  alias Ryker.Knowledge
+  alias Ryker.Learning
   alias Ryker.Repo
-  alias Ryker.Settings.{Installation, Learning}
-  alias Ryker.Slack.Names
+  alias Ryker.Settings
+  alias Ryker.Slack
 
   @page_size 20
   @states ~w(queued running applied no_change deferred superseded dropped)a
@@ -39,7 +39,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
     {waiting_count, waiting_at} = waiting_inputs()
     secrets = InspectionRedactor.configured_secrets()
     enabled = not is_nil(Config.get_env(:learning))
-    worker_running = not is_nil(Process.whereis(Runtime))
+    worker_running = not is_nil(Process.whereis(Learning.Runtime))
     outcome = if List.keymember?(@outcomes, params["outcome"], 0), do: params["outcome"], else: ""
     selected = selected_batch(params, secrets)
 
@@ -83,23 +83,23 @@ defmodule Ryker.ControlPlane.LearningActivity do
   defp state(nil, false, _worker, _refused, _applying), do: :off
 
   # Whether the newest saved settings are still being applied to the runtime.
-  defp applying?, do: Repo.exists?(Installation.Query.applying())
+  defp applying?, do: Repo.exists?(Settings.Installation.Query.applying())
 
   # The worker gave a session of the configured policy more than an isolated
   # scratch, so learning holds every new attempt until the policy changes.
   defp policy_refused? do
-    case Runtime.configured_options() do
-      {:ok, settings} -> Batches.policy_refused?(settings)
+    case Learning.Runtime.configured_options() do
+      {:ok, settings} -> Learning.Batches.policy_refused?(settings)
       {:error, _reason} -> false
     end
   end
 
-  defp setting_enabled, do: Repo.one(Learning.Query.select_enabled())
+  defp setting_enabled, do: Repo.one(Settings.Learning.Query.select_enabled())
 
   defp batches(statuses, key, params, secrets) do
     page =
       statuses
-      |> Batch.Query.by_statuses()
+      |> Learning.Batch.Query.by_statuses()
       |> read(key, [desc: :inserted_at, desc: :id], params)
 
     context = context(page.items)
@@ -125,9 +125,9 @@ defmodule Ryker.ControlPlane.LearningActivity do
         do: MapSet.new(),
         else:
           stopped
-          |> LearningRun.Query.by_batch_ids()
-          |> LearningRun.Query.unstopped()
-          |> LearningRun.Query.select_batch_ids()
+          |> Learning.LearningRun.Query.by_batch_ids()
+          |> Learning.LearningRun.Query.unstopped()
+          |> Learning.LearningRun.Query.select_batch_ids()
           |> Repo.all()
           |> MapSet.new()
 
@@ -147,7 +147,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
 
   defp batch_counts do
     Map.new(@states, &{&1, 0})
-    |> Map.merge(Map.new(Repo.all(Batch.Query.counts_by_status())))
+    |> Map.merge(Map.new(Repo.all(Learning.Batch.Query.counts_by_status())))
   end
 
   defp waiting_inputs do
@@ -166,7 +166,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
 
   defp selected_batch(params, secrets) do
     with {:ok, id} <- Ecto.UUID.cast(params["batch"]),
-         %Batch{} = batch <- Repo.one(Batch.Query.by_id(id)) do
+         %Learning.Batch{} = batch <- Repo.one(Learning.Batch.Query.by_id(id)) do
       selected(batch, params, secrets)
     else
       _ -> nil
@@ -186,7 +186,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
       Enum.map(page.items, fn item ->
         %{
           turn_id: item.turn_id,
-          conversation: Names.destination(item.conversation),
+          conversation: Slack.Names.destination(item.conversation),
           at: item.accepted_at,
           explanation: handover_error(item.error_code),
           response_status: if(item.delivered_at, do: "Reply sent", else: "Reply not confirmed"),
@@ -215,7 +215,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
     relearn = if row.status == :deferred, do: relearn_topics(row), else: []
 
     {policy, configuration_error} =
-      case Runtime.configured_options() do
+      case Learning.Runtime.configured_options() do
         {:ok, settings} -> {settings.policy, nil}
         {:error, reason} -> {nil, error(reason)}
       end
@@ -244,12 +244,12 @@ defmodule Ryker.ControlPlane.LearningActivity do
   defp learned(row, secrets) do
     run =
       row.id
-      |> LearningRun.Query.by_batch_id()
-      |> LearningRun.Query.by_status(:applied)
-      |> LearningRun.Query.unpruned()
-      |> LearningRun.Query.ordered_by_recent()
-      |> LearningRun.Query.limit_to(1)
-      |> LearningRun.Query.select_results()
+      |> Learning.LearningRun.Query.by_batch_id()
+      |> Learning.LearningRun.Query.by_status(:applied)
+      |> Learning.LearningRun.Query.unpruned()
+      |> Learning.LearningRun.Query.ordered_by_recent()
+      |> Learning.LearningRun.Query.limit_to(1)
+      |> Learning.LearningRun.Query.select_results()
       |> Repo.one()
 
     with %{result: result} when is_binary(result) <- run,
@@ -303,8 +303,10 @@ defmodule Ryker.ControlPlane.LearningActivity do
   one more start can update it. A forgotten topic is gone for good, so it is
   never one of them.
   """
-  @spec relearn_topics(Batch.t()) :: [%{id: String.t(), title: String.t(), path: String.t()}]
-  def relearn_topics(%Batch{} = batch) do
+  @spec relearn_topics(Learning.Batch.t()) :: [
+          %{id: String.t(), title: String.t(), path: String.t()}
+        ]
+  def relearn_topics(%Learning.Batch{} = batch) do
     if cause_code(batch) == "knowledge_target_unavailable",
       do: stale_topics(batch),
       else: []
@@ -319,11 +321,11 @@ defmodule Ryker.ControlPlane.LearningActivity do
   (QA re-test, 2026-09-26: batch 96368bd7 still offered "Grant one more
   start"). The same rule applies to it, whatever date it has.
   """
-  @spec cause_code(Batch.t()) :: String.t() | nil
-  def cause_code(%Batch{error_code: "learning_retry_exhausted", id: id}),
+  @spec cause_code(Learning.Batch.t()) :: String.t() | nil
+  def cause_code(%Learning.Batch{error_code: "learning_retry_exhausted", id: id}),
     do: Map.get(stale_attempts([id]), id, "learning_retry_exhausted")
 
-  def cause_code(%Batch{error_code: code}), do: code
+  def cause_code(%Learning.Batch{error_code: code}), do: code
 
   # The stopped batches, of `ids`, whose latest attempt stopped on a topic that
   # lost its sources.
@@ -339,12 +341,15 @@ defmodule Ryker.ControlPlane.LearningActivity do
 
   defp stale_topics(batch) do
     topics =
-      ConversationKnowledge.Query.all()
-      |> ConversationKnowledge.Query.by_conversation(batch.transport, batch.conversation_ref)
-      |> ConversationKnowledge.Query.unforgotten()
-      |> ConversationKnowledge.Query.by_repository_ref(batch.repository_ref)
-      |> ConversationKnowledge.Query.ordered_by_recently_updated()
-      |> ConversationKnowledge.Query.limit_to(20)
+      Knowledge.ConversationKnowledge.Query.all()
+      |> Knowledge.ConversationKnowledge.Query.by_conversation(
+        batch.transport,
+        batch.conversation_ref
+      )
+      |> Knowledge.ConversationKnowledge.Query.unforgotten()
+      |> Knowledge.ConversationKnowledge.Query.by_repository_ref(batch.repository_ref)
+      |> Knowledge.ConversationKnowledge.Query.ordered_by_recently_updated()
+      |> Knowledge.ConversationKnowledge.Query.limit_to(20)
       |> Repo.all()
 
     available = ConversationMemory.available_ids(topics)
@@ -359,16 +364,16 @@ defmodule Ryker.ControlPlane.LearningActivity do
 
   defp outstanding_execution?(row) do
     row.scope_key
-    |> LearningRun.Query.by_scope()
-    |> LearningRun.Query.unstopped()
+    |> Learning.LearningRun.Query.by_scope()
+    |> Learning.LearningRun.Query.unstopped()
     |> Repo.exists?()
   end
 
   defp scope_busy?(row) do
     row.scope_key
-    |> Batch.Query.by_scope_key()
-    |> Batch.Query.excluding_id(row.id)
-    |> Batch.Query.active()
+    |> Learning.Batch.Query.by_scope_key()
+    |> Learning.Batch.Query.excluding_id(row.id)
+    |> Learning.Batch.Query.active()
     |> Repo.exists?()
   end
 
@@ -386,8 +391,8 @@ defmodule Ryker.ControlPlane.LearningActivity do
   defp attempts(row, params) do
     page =
       row.id
-      |> LearningRun.Query.by_batch_id()
-      |> LearningRun.Query.select_attempts()
+      |> Learning.LearningRun.Query.by_batch_id()
+      |> Learning.LearningRun.Query.select_attempts()
       |> read("attempt_page", [desc: :inserted_at, desc: :id], params)
 
     offset = (page.page - 1) * @page_size
@@ -462,12 +467,12 @@ defmodule Ryker.ControlPlane.LearningActivity do
   # one of them read "Direct conversation" on its own.
   defp conversation(%{transport: "control_plane", conversation_ref: ref}, titles) do
     case titles[ref] do
-      nil -> Names.destination(ref)
+      nil -> Slack.Names.destination(ref)
       title -> "Direct conversation · " <> title
     end
   end
 
-  defp conversation(row, _titles), do: Names.destination(row.conversation_ref)
+  defp conversation(row, _titles), do: Slack.Names.destination(row.conversation_ref)
 
   # When Ryker looks at the batch again, only while that is still ahead: a
   # queued batch waiting out its delay, or a stopped one whose model run it

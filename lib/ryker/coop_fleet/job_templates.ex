@@ -2,7 +2,7 @@ defmodule Ryker.CoopFleet.JobTemplates do
   @moduledoc "Controller-owned execution settings, independent of worker advertisements."
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.JobCheck
-  alias Ryker.Settings.{Environment, Work}
+  alias Ryker.Settings
 
   @installation [
     :admission,
@@ -73,9 +73,9 @@ defmodule Ryker.CoopFleet.JobTemplates do
     # repo?") is never a working copy: it is only ever such a companion.
     environment =
       for environment <- snapshot.environments,
-          refs = Environment.repository_refs(environment),
+          refs = Settings.Environment.repository_refs(environment),
           length(refs) > 1 and Enum.all?(refs, &MapSet.member?(available, &1)),
-          primary <- Environment.writable_refs(environment),
+          primary <- Settings.Environment.writable_refs(environment),
           purpose <- @environment do
         template(snapshot.work, purpose, :environment, environment.ref, primary, [
           primary | List.delete(refs, primary)
@@ -129,7 +129,7 @@ defmodule Ryker.CoopFleet.JobTemplates do
       update_in(document, ["execution"], fn execution ->
         execution
         |> Map.delete("targets")
-        |> Map.put("credentials", Enum.map(execution["targets"], &Work.account/1))
+        |> Map.put("credentials", Enum.map(execution["targets"], &Settings.Work.account/1))
       end)
 
     %{

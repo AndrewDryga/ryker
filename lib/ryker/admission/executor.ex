@@ -9,16 +9,15 @@ defmodule Ryker.Admission.Executor do
   """
   alias Ryker.Admission
   alias Ryker.Admission.{Attempts, Context, Decision, FleetSession, Prompt}
-  alias Ryker.Coop.API
-  alias Ryker.CoopFleet.JobAuthority
+  alias Ryker.Coop
+  alias Ryker.CoopFleet
   alias Ryker.Crypto
-  alias Ryker.Ingress.{Inbox, Input, WorkProfile}
+  alias Ryker.Ingress
   alias Ryker.Knowledge
-  alias Ryker.Learning.Observations
-  alias Ryker.Records.Record
+  alias Ryker.Learning
+  alias Ryker.Records
   alias Ryker.Repo
-  alias Ryker.Work.Activity
-  alias Ryker.Work.Session
+  alias Ryker.Work
   require Logger
 
   @retryable_terminal_turn_states ~w(failed)
@@ -31,7 +30,7 @@ defmodule Ryker.Admission.Executor do
     with {:ok, settings} <- settings(options),
          {:ok, settings} <- start_deadline(settings),
          :ok <- renew_lease(settings),
-         {:ok, entry} <- Inbox.fetch(input_ref),
+         {:ok, entry} <- Ingress.Inbox.fetch(input_ref),
          {:ok, entry, context} <- execution_context(input_ref, entry, settings) do
       case host_decision(context) do
         {kind, %Decision{} = decision} -> settle_host(entry, context, kind, decision, settings)
@@ -70,7 +69,7 @@ defmodule Ryker.Admission.Executor do
   # longer exists, could leave derived records in place by choosing to ignore
   # it, and while the model account was out it held every later message in the
   # conversation behind it (manual testing, 2026-09-26).
-  defp deletion_decision(%Context{input: %Input{event_kind: :delete}} = context) do
+  defp deletion_decision(%Context{input: %Ingress.Input{event_kind: :delete}} = context) do
     case Admission.fetch_source_owner(context) do
       {:error, :not_found} ->
         deletion(:ignore, nil, :unrelated, nil, "The person deleted a message no work was using.")
@@ -109,12 +108,14 @@ defmodule Ryker.Admission.Executor do
   # answer became a request of its own (2026-10-01). Only the button carries the question's ref; a
   # typed reply is still routed, since its words may be about something else.
   defp answer_decision(%Context{
-         input: %Input{content: %{"input_request_ref" => ref, "interaction_kind" => "button"}},
+         input: %Ingress.Input{
+           content: %{"input_request_ref" => ref, "interaction_kind" => "button"}
+         },
          candidates: candidates
        })
        when is_binary(ref) do
-    with %Record{kind: "input_request", episode_id: episode_id} <-
-           Repo.one(Record.Query.by_ref(ref)),
+    with %Records.Record{kind: "input_request", episode_id: episode_id} <-
+           Repo.one(Records.Record.Query.by_ref(ref)),
          %{ref: candidate_ref} <- Enum.find(candidates, &(&1.episode.id == episode_id)) do
       deletion(
         :continue_episode,
@@ -252,7 +253,8 @@ defmodule Ryker.Admission.Executor do
   end
 
   defp reauthorize_context(entry, context) do
-    with :ok <- Observations.reauthorize(entry, entry.repository_ref, context.observations),
+    with :ok <-
+           Learning.Observations.reauthorize(entry, entry.repository_ref, context.observations),
          do: Knowledge.still_current(entry, entry.repository_ref, context.knowledge)
   end
 
@@ -267,8 +269,8 @@ defmodule Ryker.Admission.Executor do
          _settings
        )
        when is_map(profile) do
-    case WorkProfile.restore(profile) do
-      {:ok, restored} -> WorkProfile.policy_for(restored, work_class, repository)
+    case Ingress.WorkProfile.restore(profile) do
+      {:ok, restored} -> Ingress.WorkProfile.policy_for(restored, work_class, repository)
       {:error, reason} -> {:error, reason}
     end
   end
@@ -299,7 +301,7 @@ defmodule Ryker.Admission.Executor do
   defp execution_context(input_ref, %{admission_context: nil}, settings) do
     with {:ok, context} <- admission_context(input_ref, settings),
          snapshot <- Context.snapshot(context),
-         {:ok, entry} <- Inbox.bind_context(input_ref, settings.lease_ref, snapshot) do
+         {:ok, entry} <- Ingress.Inbox.bind_context(input_ref, settings.lease_ref, snapshot) do
       {:ok, entry, %{context | input_entry: entry}}
     end
   end
@@ -344,7 +346,7 @@ defmodule Ryker.Admission.Executor do
     task = session_external_ref(entry)
 
     with :ok <-
-           API.prepare_create_session(
+           Coop.API.prepare_create_session(
              settings.api,
              settings.client,
              key,
@@ -420,8 +422,8 @@ defmodule Ryker.Admission.Executor do
 
     schema =
       Decision.json_schema(
-        Input.allowed_actions(context.input),
-        Input.reaction_names(context.input),
+        Ingress.Input.allowed_actions(context.input),
+        Ingress.Input.reaction_names(context.input),
         is_binary(entry.repository_ref),
         Enum.map(context.repository_choices, & &1["ref"]),
         Context.sentiment_offered?(context)
@@ -568,7 +570,7 @@ defmodule Ryker.Admission.Executor do
   defp await_decision(turn, context, entry, settings, left) do
     with :ok <- Attempts.observe_turn(entry, turn, settings) do
       # Telemetry has separate retry custody and must never reject a valid routing decision.
-      _ = Activity.sync_admission(entry, turn["session_id"], settings)
+      _ = Work.Activity.sync_admission(entry, turn["session_id"], settings)
       observed_decision(turn, context, entry, settings, left)
     end
   end
@@ -932,7 +934,7 @@ defmodule Ryker.Admission.Executor do
              :cleanup
            ),
          :ok <- close_current_session(current, entry, settings) do
-      _ = Activity.close_admission(entry, session["id"])
+      _ = Work.Activity.close_admission(entry, session["id"])
       settle_execution_session(entry, session["id"], settings)
     end
   end
@@ -1152,12 +1154,12 @@ defmodule Ryker.Admission.Executor do
     do: {:error, {:coop_protocol_error, :session_resource}}
 
   defp exact_job_receipt?(remote, settings, purpose) do
-    case Repo.one(Session.Query.by_external_ref(settings.session_external_ref)) do
-      %Session{policy: policy, policy_digest: digest} = saved
+    case Repo.one(Work.Session.Query.by_external_ref(settings.session_external_ref)) do
+      %Work.Session{policy: policy, policy_digest: digest} = saved
       when policy == settings.policy and digest == settings.policy_digest ->
         if purpose == :cleanup,
-          do: JobAuthority.exact_cleanup_receipt(saved, remote) == :ok,
-          else: JobAuthority.exact_receipt(saved, remote) == :ok
+          do: CoopFleet.JobAuthority.exact_cleanup_receipt(saved, remote) == :ok,
+          else: CoopFleet.JobAuthority.exact_receipt(saved, remote) == :ok
 
       _missing ->
         false

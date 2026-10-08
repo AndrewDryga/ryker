@@ -7,7 +7,7 @@ defmodule Ryker.Operator.Publication do
   reusing it for a different request fails closed.
   """
   alias Ryker.Operator.Actions
-  alias Ryker.Publication.{Custody, Publication}
+  alias Ryker.Publication
   alias Ryker.Reference
 
   @actions [:retry, :update, :discard]
@@ -41,12 +41,12 @@ defmodule Ryker.Operator.Publication do
 
   defp recover_publication(publication_ref, action, expected_generation) do
     with {:ok, %{previous: previous, publication: publication}} <-
-           Custody.recover(publication_ref, action, expected_generation) do
+           Publication.Custody.recover(publication_ref, action, expected_generation) do
       {:ok, %{previous: previous, outcome: outcome(publication)}}
     end
   end
 
-  defp outcome(%Publication{} = publication) do
+  defp outcome(%Publication.Publication{} = publication) do
     %{
       "publication_ref" => publication.ref,
       "recovery_generation" => publication.recovery_generation,

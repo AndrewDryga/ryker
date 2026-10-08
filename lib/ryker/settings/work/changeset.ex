@@ -2,7 +2,7 @@ defmodule Ryker.Settings.Work.Changeset do
   @moduledoc "Changes to where Work runs and on which models (`Ryker.Settings.Work`)."
   @behaviour Ryker.Settings.Section.Changeset
   use Ryker, :changeset
-  alias Ryker.LocalRouting.Endpoint
+  alias Ryker.LocalRouting
   alias Ryker.Settings.Work
 
   @target ~r/\A(codex|claude):[a-z0-9][a-z0-9._-]{0,63}\/(low|medium|high|xhigh)@[a-z0-9][a-z0-9_-]{0,63}\z/
@@ -45,7 +45,7 @@ defmodule Ryker.Settings.Work.Changeset do
       changeset
       |> validate_required([:local_routing_mode])
       |> validate_change(:local_routing_endpoint, fn field, endpoint ->
-        case Endpoint.check(endpoint) do
+        case LocalRouting.Endpoint.check(endpoint) do
           :ok -> []
           {:error, reason} -> [{field, {"is invalid", validation: reason}}]
         end

@@ -9,7 +9,7 @@ defmodule Ryker.WeeklyReport.Report do
   Settings is a row too, and never the week's report.
   """
   use Ryker, :schema
-  alias Ryker.CanonicalJSON.Type, as: CanonicalJSONType
+  alias Ryker.CanonicalJSON
 
   schema "weekly_reports" do
     field(:week, :date)
@@ -20,7 +20,7 @@ defmodule Ryker.WeeklyReport.Report do
     field(:delivery_ref, :string)
     field(:transport, :string)
     field(:conversation_ref, :string)
-    field(:document, CanonicalJSONType)
+    field(:document, CanonicalJSON.Type)
     field(:status, Ecto.Enum, values: [:pending, :blocked, :delivered], default: :pending)
     field(:attempt_count, :integer, default: 0)
     field(:retry_generation, :integer, default: 0)
@@ -30,7 +30,7 @@ defmodule Ryker.WeeklyReport.Report do
     field(:next_attempt_at, :utc_datetime_usec)
     field(:last_error_code, :string)
     field(:last_error_detail, :string)
-    field(:external_receipt, CanonicalJSONType)
+    field(:external_receipt, CanonicalJSON.Type)
     field(:external_receipt_fingerprint, :string)
     field(:delivered_at, :utc_datetime_usec)
     timestamps()

@@ -13,7 +13,7 @@ defmodule Mix.Tasks.Ryker.Replay do
   """
   use Mix.Task
   alias Mix.Tasks.Ryker.OperatorSupport, as: Support
-  alias Ryker.Operator.SlackReplay
+  alias Ryker.Operator
 
   @impl Mix.Task
   def run(arguments) do
@@ -28,13 +28,13 @@ defmodule Mix.Tasks.Ryker.Replay do
   # Reading a recorded replay mutates nothing and needs no operator identity, so
   # it does not require the installation to be configured.
   defp operation(["show", replay_input_ref], []),
-    do: Support.with_repo(fn -> SlackReplay.fetch(replay_input_ref) end)
+    do: Support.with_repo(fn -> Operator.SlackReplay.fetch(replay_input_ref) end)
 
   defp operation(["slack", source_input_ref, request_ref], options) do
     Support.with_configuration(fn _configuration ->
       with {:ok, actor_ref} <- Support.authorized_actor(options),
            {:ok, action_ref} <- Support.required_option(options, :action_ref) do
-        SlackReplay.enqueue(source_input_ref, request_ref,
+        Operator.SlackReplay.enqueue(source_input_ref, request_ref,
           action_ref: action_ref,
           actor_ref: actor_ref
         )

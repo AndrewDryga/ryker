@@ -17,7 +17,7 @@ defmodule Ryker.CoopFleet.ControlPlane do
   """
   alias Ryker.CoopFleet.{Command, Placement}
   alias Ryker.CoopFleet.ControlPlane.{Commands, Placements, Workers}
-  alias Ryker.Work.Session
+  alias Ryker.Work
 
   @spec handle_poll_certificate(binary(), map(), keyword()) ::
           {:ok, map()} | {:error, term()}
@@ -44,7 +44,7 @@ defmodule Ryker.CoopFleet.ControlPlane do
   workspace, capabilities, freshness and capacity — without taking a slot to
   find out. Retired policy and repository advertisements are not authority.
   """
-  @spec worker_available?(Session.t(), map()) :: boolean()
+  @spec worker_available?(Work.Session.t(), map()) :: boolean()
   defdelegate worker_available?(session, requirements), to: Placements
 
   @doc """
@@ -62,7 +62,7 @@ defmodule Ryker.CoopFleet.ControlPlane do
   means the offer is a promise the fleet cannot keep, and the operator would
   lose the working copy by accepting it.
   """
-  @spec portable_workspace(Session.t(), map(), String.t()) ::
+  @spec portable_workspace(Work.Session.t(), map(), String.t()) ::
           %{byte_size: pos_integer(), checkpoint_ref: String.t(), repository_ref: String.t()}
           | nil
   defdelegate portable_workspace(session, requirements, body_root), to: Placements

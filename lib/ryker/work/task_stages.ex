@@ -9,8 +9,8 @@ defmodule Ryker.Work.TaskStages do
   model's typed goal membership. Goals retained before typed membership existed
   stay in a separate unassigned row rather than being backfilled into a guess.
   """
-  alias Ryker.Episodes.Episode
-  alias Ryker.Publication.{Followup, Publication, Review}
+  alias Ryker.Episodes
+  alias Ryker.Publication
   alias Ryker.Work.{FailureCause, Session, Turn}
 
   @stages ~w(workspace_setup planning implementation self_review draft_pr ci review_and_merge)
@@ -22,10 +22,10 @@ defmodule Ryker.Work.TaskStages do
   @maximum_subtasks 6
 
   @type facts :: %{
-          episode: Episode.t(),
-          followup: Followup.t() | nil,
+          episode: Episodes.Episode.t(),
+          followup: Publication.Followup.t() | nil,
           plan: map(),
-          publication: Publication.t() | nil,
+          publication: Publication.Publication.t() | nil,
           publication_offer: map() | nil,
           session: Session.t() | nil,
           turn: Turn.t() | nil,
@@ -107,7 +107,7 @@ defmodule Ryker.Work.TaskStages do
     )
   end
 
-  defp workspace_setup(%{episode: %Episode{state: :cancelled}}),
+  defp workspace_setup(%{episode: %Episodes.Episode{state: :cancelled}}),
     do: row("workspace_setup", "stopped")
 
   defp workspace_setup(_facts),
@@ -161,7 +161,7 @@ defmodule Ryker.Work.TaskStages do
   # The host owns whether the changes were checked. Its readiness review, or a
   # completed result whose review never started, outranks the model's own
   # review goals; only without either does the plan describe this stage.
-  defp review_row(%{publication: %Publication{status: status}}, bucket)
+  defp review_row(%{publication: %Publication.Publication{status: status}}, bucket)
        when status in [:review_pending, :review_ready],
        do: row("self_review", "running", subtasks(bucket))
 
@@ -174,12 +174,12 @@ defmodule Ryker.Work.TaskStages do
   # a pull request whose CI has none, and the two rows say so alike (Andrew,
   # 2026-09-28: "! Self-review and checks" beside "− CI · no checks
   # configured" for the same case).
-  defp review_row(%{publication: %Publication{review_document: review}}, bucket) do
+  defp review_row(%{publication: %Publication.Publication{review_document: review}}, bucket) do
     cond do
-      Review.no_checks?(review) ->
+      Publication.Review.no_checks?(review) ->
         row("self_review", "skipped", [detail: @no_checks] ++ subtasks(bucket))
 
-      Review.gate_failure(review) ->
+      Publication.Review.gate_failure(review) ->
         row("self_review", "failed", [reason: gate_detail(review)] ++ subtasks(bucket))
 
       reason = incomplete_check(review) ->
@@ -201,7 +201,10 @@ defmodule Ryker.Work.TaskStages do
     end
   end
 
-  defp draft_pr(%{publication: %Publication{status: status} = publication} = facts, stale?)
+  defp draft_pr(
+         %{publication: %Publication.Publication{status: status} = publication} = facts,
+         stale?
+       )
        when status in @published_statuses do
     detail = "##{publication.pull_request_number}"
 
@@ -231,7 +234,8 @@ defmodule Ryker.Work.TaskStages do
   defp draft_pr(
          %{
            publication:
-             %Publication{status: :publish_pending, last_error_code: code} = publication
+             %Publication.Publication{status: :publish_pending, last_error_code: code} =
+               publication
          },
          _stale?
        )
@@ -248,7 +252,8 @@ defmodule Ryker.Work.TaskStages do
   defp draft_pr(
          %{
            publication:
-             %Publication{status: :publish_pending, pull_request_number: number} = publication
+             %Publication.Publication{status: :publish_pending, pull_request_number: number} =
+               publication
          },
          _stale?
        )
@@ -259,19 +264,19 @@ defmodule Ryker.Work.TaskStages do
     )
   end
 
-  defp draft_pr(%{publication: %Publication{status: :publish_pending}}, _stale?),
+  defp draft_pr(%{publication: %Publication.Publication{status: :publish_pending}}, _stale?),
     do: row("draft_pr", "running", detail: "creating the draft")
 
   # A safe snapshot whose checks could not run waits for a person only when no
   # task grant covers it; a granted one goes to the draft marked unverified. The
   # pull request a newer change belongs to is still the task's, so the row
   # keeps its number and link.
-  defp draft_pr(%{publication: %Publication{status: :blocked} = publication}, _stale?) do
+  defp draft_pr(%{publication: %Publication.Publication{status: :blocked} = publication}, _stale?) do
     cond do
       is_binary(publication.last_error_detail) ->
         row("draft_pr", "failed", reason: publication.last_error_detail)
 
-      Review.draft_shareable?(publication.review_document) and
+      Publication.Review.draft_shareable?(publication.review_document) and
           is_integer(publication.pull_request_number) ->
         row("draft_pr", "waiting",
           detail: "##{publication.pull_request_number} · the newer change waits for you",
@@ -279,7 +284,7 @@ defmodule Ryker.Work.TaskStages do
           your_turn: true
         )
 
-      Review.draft_shareable?(publication.review_document) ->
+      Publication.Review.draft_shareable?(publication.review_document) ->
         row("draft_pr", "waiting", detail: "waits for you", your_turn: true)
 
       # Why the pull request cannot be made is said once, on the publication
@@ -289,13 +294,14 @@ defmodule Ryker.Work.TaskStages do
     end
   end
 
-  defp draft_pr(%{publication: %Publication{status: :reviewed}}, _stale?),
+  defp draft_pr(%{publication: %Publication.Publication{status: :reviewed}}, _stale?),
     do: row("draft_pr", "waiting", detail: "the reviewed candidate is ready to publish")
 
-  defp draft_pr(%{publication: %Publication{status: :discarded}}, _stale?),
+  defp draft_pr(%{publication: %Publication.Publication{status: :discarded}}, _stale?),
     do: row("draft_pr", "skipped", detail: "candidate discarded")
 
-  defp draft_pr(%{publication: %Publication{}}, _stale?), do: row("draft_pr", "pending")
+  defp draft_pr(%{publication: %Publication.Publication{}}, _stale?),
+    do: row("draft_pr", "pending")
 
   defp draft_pr(%{publication_offer: %{"status" => "open"}}, _stale?),
     do: row("draft_pr", "pending")
@@ -306,7 +312,7 @@ defmodule Ryker.Work.TaskStages do
       else: row("draft_pr", "pending")
   end
 
-  defp ci(%{publication: %Publication{status: status}} = facts, stale?)
+  defp ci(%{publication: %Publication.Publication{status: status}} = facts, stale?)
        when status in @published_statuses do
     checks = checks_detail(facts.followup)
     # "CI · 6/6" is a row a person wants to open, and the followup has stored
@@ -327,31 +333,40 @@ defmodule Ryker.Work.TaskStages do
 
   defp ci_state(nil, _checks, _url), do: row("ci", "waiting", detail: "waiting for GitHub")
 
-  defp ci_state(%Followup{checks_state: :unknown}, _checks, _url),
+  defp ci_state(%Publication.Followup{checks_state: :unknown}, _checks, _url),
     do: row("ci", "waiting", detail: "waiting for GitHub")
 
-  defp ci_state(%Followup{pr_state: :merged}, checks, url),
+  defp ci_state(%Publication.Followup{pr_state: :merged}, checks, url),
     do: row("ci", "completed", detail: checks, url: url)
 
-  defp ci_state(%Followup{checks_state: :none}, _checks, _url),
+  defp ci_state(%Publication.Followup{checks_state: :none}, _checks, _url),
     do: row("ci", "skipped", detail: @no_checks)
 
-  defp ci_state(%Followup{checks_state: :failing}, checks, url),
+  defp ci_state(%Publication.Followup{checks_state: :failing}, checks, url),
     do: row("ci", "failed", detail: checks, url: url)
 
-  defp ci_state(%Followup{checks_state: :passing}, checks, url),
+  defp ci_state(%Publication.Followup{checks_state: :passing}, checks, url),
     do: row("ci", "completed", detail: checks, url: url)
 
-  defp ci_state(%Followup{}, checks, url), do: row("ci", "running", detail: checks, url: url)
+  defp ci_state(%Publication.Followup{}, checks, url),
+    do: row("ci", "running", detail: checks, url: url)
 
-  defp review_and_merge(%{followup: %Followup{pr_state: :merged}} = facts, _ci, _stale?) do
+  defp review_and_merge(
+         %{followup: %Publication.Followup{pr_state: :merged}} = facts,
+         _ci,
+         _stale?
+       ) do
     row("review_and_merge", "completed",
       detail: "merged",
       url: publication_url(facts[:publication])
     )
   end
 
-  defp review_and_merge(%{followup: %Followup{pr_state: :closed}} = facts, _ci, _stale?) do
+  defp review_and_merge(
+         %{followup: %Publication.Followup{pr_state: :closed}} = facts,
+         _ci,
+         _stale?
+       ) do
     row("review_and_merge", "stopped",
       detail: "closed without merging",
       url: publication_url(facts[:publication])
@@ -361,14 +376,22 @@ defmodule Ryker.Work.TaskStages do
   # Ryker stops following a pull request at its hard deadline, so what became
   # of it is unknown here; the row said "your turn" over a state nobody was
   # checking (2026-10-04 review).
-  defp review_and_merge(%{followup: %Followup{pr_state: :expired}} = facts, _ci, _stale?) do
+  defp review_and_merge(
+         %{followup: %Publication.Followup{pr_state: :expired}} = facts,
+         _ci,
+         _stale?
+       ) do
     row("review_and_merge", "unknown",
       detail: "no longer followed",
       url: publication_url(facts[:publication])
     )
   end
 
-  defp review_and_merge(%{publication: %Publication{status: status} = publication}, ci, stale?)
+  defp review_and_merge(
+         %{publication: %Publication.Publication{status: status} = publication},
+         ci,
+         stale?
+       )
        when status in @published_statuses do
     # A person reviews and merges once the draft reflects the current work and
     # its checks have settled; while the agent still owns a failing or
@@ -383,7 +406,7 @@ defmodule Ryker.Work.TaskStages do
 
   defp review_and_merge(_facts, _ci, _stale?), do: row("review_and_merge", "pending")
 
-  defp publication_url(%Publication{pull_request_url: url}), do: url
+  defp publication_url(%Publication.Publication{pull_request_url: url}), do: url
   defp publication_url(_publication), do: nil
 
   defp model_row(stage, facts, bucket, options \\ []) do
@@ -399,7 +422,7 @@ defmodule Ryker.Work.TaskStages do
 
   # Only a person's decision is their turn. An external verification wait is
   # the system's, and must not imply somebody is holding the task up.
-  defp your_turn?("waiting", %{episode: %Episode{state: :waiting_for_input}}), do: true
+  defp your_turn?("waiting", %{episode: %Episodes.Episode{state: :waiting_for_input}}), do: true
   defp your_turn?(_state, _facts), do: false
 
   # Finished work stays finished even when the episode later stops or blocks;
@@ -413,10 +436,10 @@ defmodule Ryker.Work.TaskStages do
       else: run_state(facts) || goal_state(goals, facts)
   end
 
-  defp run_state(%{episode: %Episode{state: :cancelled}}), do: "stopped"
+  defp run_state(%{episode: %Episodes.Episode{state: :cancelled}}), do: "stopped"
   defp run_state(%{turn: %Turn{status: :blocked}}), do: "failed"
 
-  defp run_state(%{episode: %Episode{state: state}})
+  defp run_state(%{episode: %Episodes.Episode{state: state}})
        when state in [:waiting_for_input, :waiting_for_event],
        do: "waiting"
 
@@ -502,7 +525,7 @@ defmodule Ryker.Work.TaskStages do
 
   # Repeated checks and a published draft describe the revision they ran
   # against. Implementation work recorded after them needs its own attempt.
-  defp stale_work?(%{plan: plan, publication: %Publication{} = publication}) do
+  defp stale_work?(%{plan: plan, publication: %Publication.Publication{} = publication}) do
     anchor = publication.reviewed_at || publication.published_at
     changed = plan["implementation"]["changed_at"]
 
@@ -513,12 +536,13 @@ defmodule Ryker.Work.TaskStages do
 
   # The card's publication line already says the checks failed; this row adds
   # only what the checks said, when they said anything.
-  defp gate_detail(review), do: if(Review.gate_error?(review), do: Review.gate_failure(review))
+  defp gate_detail(review),
+    do: if(Publication.Review.gate_error?(review), do: Publication.Review.gate_failure(review))
 
   # The one required check this review has no result for, in the same words the
   # publication card uses, or nil when every required check has an answer.
   defp incomplete_check(review) do
-    case Review.draft_verdict(review) do
+    case Publication.Review.draft_verdict(review) do
       %{"incomplete_checks" => [reason | _rest]} -> compact(reason, 200)
       _decided -> nil
     end
@@ -529,11 +553,14 @@ defmodule Ryker.Work.TaskStages do
   defp planned?(%{plan: plan}),
     do: Enum.any?(plan, fn {_stage, bucket} -> bucket["goals"] != [] end)
 
-  defp unrecorded?(%{episode: %Episode{state: :complete}} = facts), do: not planned?(facts)
+  defp unrecorded?(%{episode: %Episodes.Episode{state: :complete}} = facts),
+    do: not planned?(facts)
+
   defp unrecorded?(_facts), do: false
 
-  defp checks_detail(%Followup{checks_total: total, checks_passed: passed}) when total > 0,
-    do: "#{passed}/#{total}"
+  defp checks_detail(%Publication.Followup{checks_total: total, checks_passed: passed})
+       when total > 0,
+       do: "#{passed}/#{total}"
 
   defp checks_detail(_followup), do: nil
 

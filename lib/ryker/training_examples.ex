@@ -8,7 +8,7 @@ defmodule Ryker.TrainingExamples do
   from where, and what its line holds. The two had drifting copies of all of
   this (2026-10-04 review).
   """
-  alias Ryker.Accounting.Pricing
+  alias Ryker.Accounting
   alias Ryker.{Repo, RoutingExamples}
   require Logger
 
@@ -198,8 +198,11 @@ defmodule Ryker.TrainingExamples do
     }
 
     with true <- Enum.all?(Map.values(tokens), &(is_integer(&1) or is_nil(&1))),
-         {:ok, price} <- Pricing.fetch_in_effect(target, DateTime.to_date(at)) do
-      price |> Pricing.estimate(tokens) |> Decimal.normalize() |> Decimal.to_string(:normal)
+         {:ok, price} <- Accounting.Pricing.fetch_in_effect(target, DateTime.to_date(at)) do
+      price
+      |> Accounting.Pricing.estimate(tokens)
+      |> Decimal.normalize()
+      |> Decimal.to_string(:normal)
     else
       _unpriced -> nil
     end

@@ -6,7 +6,7 @@ defmodule Ryker.Publication.Request do
   credentials never pass through this value or Ryker's publication database.
   """
   alias Ryker.CanonicalJSON
-  alias Ryker.GitHub.InertText
+  alias Ryker.GitHub
   alias Ryker.GitObject
   alias Ryker.Publication.{Publication, Review}
 
@@ -159,7 +159,7 @@ defmodule Ryker.Publication.Request do
   defp safe_text(value) do
     value
     |> String.replace(~r/[\x00-\x1f\x7f]/u, " ")
-    |> InertText.inert()
+    |> GitHub.InertText.inert()
     |> String.split()
     |> Enum.join(" ")
   end
@@ -170,7 +170,7 @@ defmodule Ryker.Publication.Request do
     value
     |> String.replace("\r\n", "\n")
     |> String.replace(~r/[\x00-\x08\x0b-\x1f\x7f]/u, " ")
-    |> InertText.inert()
+    |> GitHub.InertText.inert()
     |> String.trim()
   end
 

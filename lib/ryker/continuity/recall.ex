@@ -11,14 +11,10 @@ defmodule Ryker.Continuity.Recall do
   alias Ryker.Continuity.ConversationRollup
   alias Ryker.Continuity.ConversationSummary
   alias Ryker.Continuity.{Relevance, Scope}
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes
   alias Ryker.Knowledge
-  alias Ryker.Learning.LearningSources
-  alias Ryker.Learning.Observations
-  alias Ryker.Learning.SourceDependency
-  alias Ryker.Memories.MemorySearchPage
-  alias Ryker.Memories.MemorySourceLink
-  alias Ryker.Memories.SearchPage
+  alias Ryker.Learning
+  alias Ryker.Memories
   alias Ryker.Repo
 
   @maximum_related 8
@@ -30,19 +26,19 @@ defmodule Ryker.Continuity.Recall do
   summary, related summaries, rollups, and any knowledge and observations that
   bear on the input texts. An unresolvable destination yields empty context.
   """
-  @spec model_context(Episode.t(), String.t() | nil, [String.t()]) :: map()
+  @spec model_context(Episodes.Episode.t(), String.t() | nil, [String.t()]) :: map()
   def model_context(episode, repository_ref, input_texts \\ [])
 
-  def model_context(%Episode{} = episode, repository_ref, input_texts)
+  def model_context(%Episodes.Episode{} = episode, repository_ref, input_texts)
       when (is_binary(repository_ref) or is_nil(repository_ref)) and is_list(input_texts) do
     case Scope.destination_context(episode, repository_ref) do
       {:ok, context} ->
-        context = LearningSources.with_input_boundary(context, episode)
+        context = Learning.LearningSources.with_input_boundary(context, episode)
         result = recall_context(context, Relevance.request(input_texts), counted?(episode))
         knowledge = Knowledge.context(episode, repository_ref, {:related, input_texts})
         result = if knowledge == [], do: result, else: Map.put(result, "knowledge", knowledge)
 
-        case Observations.related_context(episode, repository_ref, input_texts) do
+        case Learning.Observations.related_context(episode, repository_ref, input_texts) do
           [] -> result
           notes -> Map.put(result, "observations", notes)
         end
@@ -73,7 +69,7 @@ defmodule Ryker.Continuity.Recall do
   @spec search_page(:summary | :rollup, map(), String.t() | nil, map()) ::
           {:ok, map(), term()} | {:skip, term()} | :done
   def search_page(kind, episode, repository_ref, page) when kind in [:summary, :rollup] do
-    case Observations.locked_scope(episode, repository_ref) do
+    case Learning.Observations.locked_scope(episode, repository_ref) do
       {:ok, context} -> search_visible_page(kind, context, page, counted?(episode))
       _ -> :done
     end
@@ -90,7 +86,7 @@ defmodule Ryker.Continuity.Recall do
     # count is best effort, and the visibility recheck locks the observations.
     # A search dates a summary or a rollup by the latest message it learned
     # from, not by when maintenance last rewrote it.
-    source = SourceDependency.Query.latest_source_at()
+    source = Learning.SourceDependency.Query.latest_source_at()
 
     fields =
       if kind == :summary,
@@ -98,10 +94,10 @@ defmodule Ryker.Continuity.Recall do
         else: ConversationRollup.Query.search_fields(source)
 
     query
-    |> LearningSources.sourced()
-    |> LearningSources.eligible(context)
-    |> SearchPage.Query.related_sources(page)
-    |> MemorySearchPage.one(page, fields.text, fields.changed, fields.source)
+    |> Learning.LearningSources.sourced()
+    |> Learning.LearningSources.eligible(context)
+    |> Memories.SearchPage.Query.related_sources(page)
+    |> Memories.MemorySearchPage.one(page, fields.text, fields.changed, fields.source)
     |> account_search_result(kind, context, counted?)
   end
 
@@ -178,8 +174,8 @@ defmodule Ryker.Continuity.Recall do
       |> ConversationSummary.Query.excluding_identity_key(context.identity_key)
       |> ConversationSummary.Query.ordered_by_recently_updated()
       |> ConversationSummary.Query.limit_to(@maximum_candidates)
-      |> LearningSources.sourced()
-      |> LearningSources.eligible(context)
+      |> Learning.LearningSources.sourced()
+      |> Learning.LearningSources.eligible(context)
 
     # Rank small descriptors first. Loading 64 full 8 MiB dependency lists
     # makes a bounded result count a very unbounded application-memory cost.
@@ -200,8 +196,8 @@ defmodule Ryker.Continuity.Recall do
       |> ConversationRollup.Query.ordered_by_period_end_desc()
       |> ConversationRollup.Query.limit_to(@maximum_candidates)
       |> ConversationRollup.Query.visible_to(context)
-      |> LearningSources.sourced()
-      |> LearningSources.eligible(context)
+      |> Learning.LearningSources.sourced()
+      |> Learning.LearningSources.eligible(context)
 
     query
     |> ConversationRollup.Query.select_ids()
@@ -225,8 +221,8 @@ defmodule Ryker.Continuity.Recall do
     do: if(derived_sources_valid?(item, context), do: item)
 
   defp derived_sources_valid?(item, context) do
-    LearningSources.sourced?(item.source_dependencies) and
-      LearningSources.valid?(item.source_dependencies, context)
+    Learning.LearningSources.sourced?(item.source_dependencies) and
+      Learning.LearningSources.valid?(item.source_dependencies, context)
   end
 
   defp rollup_visible?(
@@ -284,7 +280,7 @@ defmodule Ryker.Continuity.Recall do
       "source_message_ref" => summary.source_message_ref,
       "repository_ref" => summary.repository_ref,
       "source_ref" => summary.ref,
-      "source_reads" => MemorySourceLink.sources(summary.source_dependencies),
+      "source_reads" => Memories.MemorySourceLink.sources(summary.source_dependencies),
       "state" => summary.state,
       "coverage" => %{"basis" => "derived_handover", "status" => "partial"},
       "updated_at" => DateTime.to_iso8601(summary.updated_at)
@@ -304,7 +300,7 @@ defmodule Ryker.Continuity.Recall do
       "source_count" => rollup.source_count,
       "source_ref" => rollup.ref,
       "source_refs" => rollup.source_refs,
-      "source_reads" => MemorySourceLink.sources(rollup.source_dependencies),
+      "source_reads" => Memories.MemorySourceLink.sources(rollup.source_dependencies),
       "coverage" => %{"basis" => "compacted_continuity", "status" => "partial"},
       "state" => rollup.state
     }

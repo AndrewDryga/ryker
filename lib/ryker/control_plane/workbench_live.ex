@@ -25,9 +25,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   alias Ryker.ControlPlane.{SettingsPage, SettingsView, UsageProjection, Viewer}
   alias Ryker.Crypto
   alias Ryker.{IntegrationSetup, RepositoryKnowledge, Settings}
-  alias Ryker.Retention.Data, as: RetentionData
+  alias Ryker.Retention
   alias Ryker.Slack
-  alias Ryker.Slack.Names
   require Logger
 
   @confirmed_settings_actions ~w(disconnect-slack disconnect-github delete-emisar delete-environment delete-webhook-credential turn-off-learning remove-repository leave-channel)
@@ -321,7 +320,10 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # Every page can show Slack names (`Kit`, `Components`) and history a
   # retention pass removes in bulk, and until setup is done the sidebar counts
   # its steps on every page.
-  @shell_subscriptions [{Names, :subscribe_names, []}, {RetentionData, :subscribe_pruning, []}]
+  @shell_subscriptions [
+    {Slack.Names, :subscribe_names, []},
+    {Retention.Data, :subscribe_pruning, []}
+  ]
 
   defp shell_subscriptions(%{assigns: %{setup_progress: nil}}), do: @shell_subscriptions
 

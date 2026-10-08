@@ -6,15 +6,15 @@ defmodule Ryker.ControlPlane.LearningRequests.Query do
   the topic revisions each wrote, and the request each message joined.
   """
   use Ryker, :query
-  alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Knowledge.KnowledgeRevision
-  alias Ryker.Learning.{Batch, InputMembership, LearningRun}
+  alias Ryker.Episodes
+  alias Ryker.Ingress
+  alias Ryker.Knowledge
+  alias Ryker.Learning
 
   @doc "Each of `input_ids` with the request it joined, as `{input_id, episode_id}`."
   def message_requests(input_ids) do
-    from(entry in Entry,
-      left_join: episode in Episode,
+    from(entry in Ingress.Inbox.Entry,
+      left_join: episode in Episodes.Episode,
       on: episode.id == entry.episode_id,
       where: entry.id in ^input_ids,
       select: {entry.id, episode.id}
@@ -23,7 +23,7 @@ defmodule Ryker.ControlPlane.LearningRequests.Query do
 
   @doc "The batches that hold any of `input_ids`, each once."
   def batches_holding(input_ids) do
-    from(membership in InputMembership,
+    from(membership in Learning.InputMembership,
       where: membership.input_id in ^input_ids,
       distinct: true,
       select: membership.batch_id
@@ -32,7 +32,7 @@ defmodule Ryker.ControlPlane.LearningRequests.Query do
 
   @doc "The relearning batches whose chosen messages match one of `patterns`."
   def rebuilds_selecting(patterns) do
-    from(batch in Batch,
+    from(batch in Learning.Batch,
       where: not is_nil(batch.rebuild_target_id),
       where: fragment("? LIKE ANY(?::text[])", batch.rebuild_selection, ^patterns),
       select: batch.id
@@ -44,7 +44,7 @@ defmodule Ryker.ControlPlane.LearningRequests.Query do
   batches whose own selection matches one of `patterns`.
   """
   def runs_of(batch_ids, patterns, limit) do
-    from(run in LearningRun,
+    from(run in Learning.LearningRun,
       where:
         run.batch_id in ^batch_ids or
           (is_nil(run.batch_id) and fragment("? LIKE ANY(?::text[])", run.inputs, ^patterns)),
@@ -55,7 +55,7 @@ defmodule Ryker.ControlPlane.LearningRequests.Query do
 
   @doc "Every attempt of `batch_ids` in the order it began, as `{batch_id, run_id}`."
   def attempts_in_order(batch_ids) do
-    from(run in LearningRun,
+    from(run in Learning.LearningRun,
       where: run.batch_id in ^batch_ids,
       order_by: [asc: run.batch_id, asc: run.inserted_at, asc: run.id],
       select: {run.batch_id, run.id}
@@ -64,7 +64,7 @@ defmodule Ryker.ControlPlane.LearningRequests.Query do
 
   @doc "The topic revisions the exact responses `result_refs` wrote, in the order they were written."
   def revisions_written(result_refs) do
-    from(revision in KnowledgeRevision,
+    from(revision in Knowledge.KnowledgeRevision,
       where: revision.source_result_ref in ^result_refs,
       order_by: [asc: revision.inserted_at, asc: revision.version]
     )

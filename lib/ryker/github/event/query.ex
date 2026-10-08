@@ -2,7 +2,7 @@ defmodule Ryker.GitHub.Event.Query do
   @moduledoc "GitHub's webhook deliveries, for every read of `github_repository_events`."
   use Ryker, :query
   alias Ryker.GitHub.Event
-  alias Ryker.Settings.GitHubBinding
+  alias Ryker.Settings
 
   def all, do: from(events in Event, as: :github_repository_events)
 
@@ -43,7 +43,7 @@ defmodule Ryker.GitHub.Event.Query do
   """
   def repository_health(repository_ref) do
     all()
-    |> join(:inner, [github_repository_events: e], b in GitHubBinding,
+    |> join(:inner, [github_repository_events: e], b in Settings.GitHubBinding,
       on: b.name == e.binding_ref,
       as: :github_binding_settings
     )

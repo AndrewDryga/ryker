@@ -6,19 +6,19 @@ defmodule Ryker.Slack.AppHome.Query do
   may see, `channel_refs` their channel ids.
   """
   use Ryker, :query
-  alias Ryker.Behaviors.Behavior
-  alias Ryker.Episodes.{Episode, Event}
-  alias Ryker.Memories.MemoryEntry
-  alias Ryker.Publication.Publication
-  alias Ryker.Schedules.Schedule
+  alias Ryker.Behaviors
+  alias Ryker.Episodes
+  alias Ryker.Memories
+  alias Ryker.Publication
+  alias Ryker.Schedules
   alias Ryker.Slack.IncidentRoom
-  alias Ryker.Work.{Session, Turn}
+  alias Ryker.Work
 
   @active_episode_states [:working, :waiting_for_input, :waiting_for_event]
 
   @doc "Active, unexpired behaviors of `workspace_ref` that `actor_ref` may see."
   def active_behaviors(workspace_ref, actor_ref, now) do
-    from([operator_behaviors: behavior] in Behavior.Query.all(),
+    from([operator_behaviors: behavior] in Behaviors.Behavior.Query.all(),
       where:
         behavior.workspace_ref == ^workspace_ref and behavior.status == :active and
           (is_nil(behavior.expires_at) or behavior.expires_at > ^now),
@@ -28,7 +28,7 @@ defmodule Ryker.Slack.AppHome.Query do
 
   @doc "The `limit` latest active or paused, unexpired behaviors `actor_ref` may see."
   def listed_behaviors(workspace_ref, actor_ref, now, limit) do
-    from([operator_behaviors: behavior] in Behavior.Query.all(),
+    from([operator_behaviors: behavior] in Behaviors.Behavior.Query.all(),
       where:
         behavior.workspace_ref == ^workspace_ref and behavior.status in [:active, :disabled] and
           (is_nil(behavior.expires_at) or behavior.expires_at > ^now),
@@ -70,7 +70,7 @@ defmodule Ryker.Slack.AppHome.Query do
 
   @doc "Episodes of the person's Slack conversations still under way."
   def active_commitments(destination_refs) do
-    from(episode in Episode,
+    from(episode in Episodes.Episode,
       where:
         episode.destination_transport == "slack" and
           episode.destination_conversation_ref in ^destination_refs and
@@ -80,7 +80,7 @@ defmodule Ryker.Slack.AppHome.Query do
 
   @doc "Active, unexpired facts of `workspace_ref` the whole workspace may see."
   def workspace_facts(workspace_ref, now) do
-    from(memory in MemoryEntry,
+    from(memory in Memories.MemoryEntry,
       where:
         memory.workspace_ref == ^workspace_ref and memory.status == :active and
           memory.expires_at > ^now and memory.visibility == :workspace and
@@ -99,7 +99,7 @@ defmodule Ryker.Slack.AppHome.Query do
 
   @doc "Active, unexpired schedules of the person's Slack conversations."
   def active_schedules(destination_refs, now) do
-    from(schedule in Schedule,
+    from(schedule in Schedules.Schedule,
       where:
         schedule.destination_transport == "slack" and
           schedule.destination_conversation_ref in ^destination_refs and
@@ -110,7 +110,7 @@ defmodule Ryker.Slack.AppHome.Query do
 
   @doc "The `limit` next schedules of the person's conversations, active, paused or done, unexpired."
   def listed_schedules(destination_refs, now, limit) do
-    from(schedule in Schedule,
+    from(schedule in Schedules.Schedule,
       where:
         schedule.destination_transport == "slack" and
           schedule.destination_conversation_ref in ^destination_refs and
@@ -123,8 +123,8 @@ defmodule Ryker.Slack.AppHome.Query do
 
   @doc "Working episodes of the person's conversations whose owning turn is blocked."
   def blocked_turns(destination_refs) do
-    from([episode_work_turns: turn] in Turn.Query.all(),
-      join: episode in Episode,
+    from([episode_work_turns: turn] in Work.Turn.Query.all(),
+      join: episode in Episodes.Episode,
       as: :episode_kernel_episodes,
       on:
         episode.id == turn.episode_id and episode.owner_kind == :turn and
@@ -188,7 +188,7 @@ defmodule Ryker.Slack.AppHome.Query do
 
   @doc "Publications of the person's conversations that went out."
   def published_work(destination_refs) do
-    from(publication in Publication,
+    from(publication in Publication.Publication,
       where:
         publication.destination_transport == "slack" and
           publication.destination_conversation_ref in ^destination_refs and
@@ -227,7 +227,7 @@ defmodule Ryker.Slack.AppHome.Query do
         p.status == :published and not is_nil(p.expected_remote_head_sha)
       )
 
-    from([episode_publications: p] in Publication.Query.all(),
+    from([episode_publications: p] in Publication.Publication.Query.all(),
       where:
         p.destination_transport == "slack" and
           p.destination_conversation_ref in ^destination_refs,
@@ -239,8 +239,8 @@ defmodule Ryker.Slack.AppHome.Query do
 
   @doc "Retained working copies of the person's conversations."
   def retained_workspaces(destination_refs) do
-    from([episode_work_sessions: session] in Session.Query.all(),
-      join: episode in Episode,
+    from([episode_work_sessions: session] in Work.Session.Query.all(),
+      join: episode in Episodes.Episode,
       as: :episode_kernel_episodes,
       on: episode.id == session.episode_id,
       where:
@@ -273,7 +273,7 @@ defmodule Ryker.Slack.AppHome.Query do
 
   @doc "The `limit` latest episodes of the person's conversations waiting for a person."
   def operator_waits(destination_refs, limit) do
-    from(episode in Episode,
+    from(episode in Episodes.Episode,
       where:
         episode.destination_transport == "slack" and
           episode.destination_conversation_ref in ^destination_refs and
@@ -291,7 +291,7 @@ defmodule Ryker.Slack.AppHome.Query do
   """
   def work(destination_refs, limit) do
     from(episode in active_commitments(destination_refs),
-      left_join: turn in Turn,
+      left_join: turn in Work.Turn,
       on:
         turn.episode_id == episode.id and episode.owner_kind == :turn and
           turn.turn_ref == episode.owner_ref,
@@ -303,7 +303,7 @@ defmodule Ryker.Slack.AppHome.Query do
 
   @doc "Each of `episode_ids`' latest session's task, as `{episode_id, workspace_task}`."
   def latest_tasks(episode_ids) do
-    from(session in Session,
+    from(session in Work.Session,
       where: session.episode_id in ^episode_ids,
       distinct: session.episode_id,
       order_by: [asc: session.episode_id, desc: session.generation, desc: session.id],
@@ -313,7 +313,7 @@ defmodule Ryker.Slack.AppHome.Query do
 
   @doc "Each of `episode_ids`' first admitted input, as `{episode_id, payload}`."
   def first_inputs(episode_ids) do
-    from(event in Event,
+    from(event in Episodes.Event,
       where: event.episode_id in ^episode_ids and event.kind == :input_admitted,
       distinct: event.episode_id,
       order_by: [asc: event.episode_id, asc: event.sequence],

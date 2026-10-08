@@ -12,7 +12,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   alias Ryker.ControlPlane.ShortTime
   alias Ryker.ControlPlane.SlackMarkdown
   alias Ryker.ControlPlane.SourceText
-  alias Ryker.Slack.Names
+  alias Ryker.Slack
 
   @sources %{
     "custom_instructions" =>
@@ -1245,7 +1245,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     if Regex.match?(~r/^[a-z]+(_[a-z]+)*$/, value), do: human(value), else: value
   end
 
-  defp place(ref) when is_binary(ref), do: Names.destination(ref)
+  defp place(ref) when is_binary(ref), do: Slack.Names.destination(ref)
   defp place(_ref), do: "None"
 
   defp other_fields_source([], _root, _prefix), do: []
@@ -1932,7 +1932,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     asked = trigger |> get_in(["content", "text"]) |> present()
     answer = answer_text(item["result"])
 
-    workspace = slack_workspace(trigger) || Names.workspace()
+    workspace = slack_workspace(trigger) || Slack.Names.workspace()
 
     [
       "<article class=\"context-candidate context-record context-outcome\"><header class=\"candidate-heading\"><h4>",
@@ -2067,7 +2067,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp analysis_items(_key, []), do: ["<p>None.</p>"]
 
   defp analysis_items(key, items) do
-    workspace = Names.workspace()
+    workspace = Slack.Names.workspace()
 
     [
       "<section class=\"context-candidates\">",
@@ -2327,7 +2327,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp note_text(item) do
     case present(item["summary"]) do
       nil -> "No summary was recorded."
-      summary -> SlackMarkdown.mentions(summary, slack_workspace(item) || Names.workspace())
+      summary -> SlackMarkdown.mentions(summary, slack_workspace(item) || Slack.Names.workspace())
     end
   end
 
@@ -2369,7 +2369,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       "<ul>",
       Enum.map(people, fn
         person when is_binary(person) ->
-          {:safe, html} = MemoryFormat.inline(person, Names.workspace())
+          {:safe, html} = MemoryFormat.inline(person, Slack.Names.workspace())
           ["<li><p>", html, "</p></li>"]
 
         other ->
@@ -2666,8 +2666,12 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     actor = actor_map(input)
     ref = actor_ref(input, actor)
 
-    if actor["kind"] in [nil, "user"] and Names.person_ref?(ref),
-      do: kept_name(Names.person(slack_workspace(input) || Names.workspace(), ref), actor)
+    if actor["kind"] in [nil, "user"] and Slack.Names.person_ref?(ref) do
+      kept_name(
+        Slack.Names.person(slack_workspace(input) || Slack.Names.workspace(), ref),
+        actor
+      )
+    end
   end
 
   defp actor_map(%{"actor" => actor}) when is_map(actor), do: actor
@@ -2720,7 +2724,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
     case {slack_workspace(input), ref} do
       {workspace, ref} when is_binary(workspace) and is_binary(ref) ->
-        Names.name(
+        Slack.Names.name(
           workspace,
           String.replace_prefix(ref, "slack:user:", "")
         )
@@ -2754,7 +2758,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp compact_slack_workspace(%{"source" => _source}, _body), do: nil
 
   defp compact_slack_workspace(_input, body) do
-    if Regex.match?(~r/<[@#][UWCGD][A-Z0-9]+(?:\|[^>]*)?>/, body), do: Names.workspace()
+    if Regex.match?(~r/<[@#][UWCGD][A-Z0-9]+(?:\|[^>]*)?>/, body), do: Slack.Names.workspace()
   end
 
   defp actor_name("slack:user:" <> _, _actor), do: "Slack user"

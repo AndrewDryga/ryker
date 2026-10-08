@@ -9,8 +9,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.EpisodeCausality
   alias Ryker.{InspectionRedactor, Repo}
-  alias Ryker.StateTools.{CallRecord, ErrorCode}
-  alias Ryker.Work.{ActivityEvent, ActivityPaths}
+  alias Ryker.StateTools
+  alias Ryker.Work
 
   @state_servers ["controller-tools", "responder-state"]
   # Ryker receives a state-tool call between the worker's start and completion
@@ -29,11 +29,15 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
   cannot hand its recording to the next one. A failed call without a
   recording says Ryker has no record of receiving it.
   """
-  @spec with_state_tool_calls([ActivityEvent.t()], [CallRecord.t()], EpisodeCausality.t()) ::
-          [ActivityEvent.t()]
+  @spec with_state_tool_calls(
+          [Work.ActivityEvent.t()],
+          [StateTools.CallRecord.t()],
+          EpisodeCausality.t()
+        ) ::
+          [Work.ActivityEvent.t()]
   def with_state_tool_calls(events, calls, causality) do
     completions =
-      for %ActivityEvent{kind: "tool.completed"} = event <- events,
+      for %Work.ActivityEvent{kind: "tool.completed"} = event <- events,
           into: %{},
           do: {activity_tool_key(event), event}
 
@@ -46,7 +50,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
   end
 
   defp join_state_call(
-         %ActivityEvent{
+         %Work.ActivityEvent{
            kind: "tool.started",
            payload: %{"input" => %{"server" => server, "tool" => tool}}
          } = started,
@@ -88,12 +92,14 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
     end
   end
 
-  defp join_call(%ActivityEvent{kind: "tool.started"} = event, %{call: %CallRecord{} = call})
+  defp join_call(%Work.ActivityEvent{kind: "tool.started"} = event, %{
+         call: %StateTools.CallRecord{} = call
+       })
        when not is_nil(call.arguments),
        do: update_in(event.payload["input"], &Map.put_new(&1, "arguments", call.arguments))
 
   defp join_call(
-         %ActivityEvent{kind: "tool.completed", payload: %{"status" => "failed"} = payload} =
+         %Work.ActivityEvent{kind: "tool.completed", payload: %{"status" => "failed"} = payload} =
            event,
          evidence
        )
@@ -102,13 +108,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
 
   defp join_call(event, _evidence), do: event
 
-  defp failed_call(payload, %{call: %CallRecord{status: "failed", error: error}}) do
+  defp failed_call(payload, %{call: %StateTools.CallRecord{status: "failed", error: error}}) do
     payload
     |> Map.put_new("error", error)
-    |> Map.put("ryker_summary", ErrorCode.explain(error))
+    |> Map.put("ryker_summary", StateTools.ErrorCode.explain(error))
   end
 
-  defp failed_call(payload, %{call: %CallRecord{}}) do
+  defp failed_call(payload, %{call: %StateTools.CallRecord{}}) do
     Map.put(
       payload,
       "ryker_summary",
@@ -172,7 +178,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
   # its completion arrived searched every step so far, so folding took time in
   # the square of a run's tool calls (2026-10-04 review).
   defp fold_activity(
-         %ActivityEvent{kind: "tool.started"} = event,
+         %Work.ActivityEvent{kind: "tool.started"} = event,
          {steps, open, replaced},
          disclosed
        ) do
@@ -181,7 +187,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
   end
 
   defp fold_activity(
-         %ActivityEvent{kind: "tool.completed"} = event,
+         %Work.ActivityEvent{kind: "tool.completed"} = event,
          {steps, open, replaced},
          disclosed
        ) do
@@ -199,10 +205,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
     do: {[activity_step(event, disclosed) | steps], open, replaced}
 
   # A worker older than 2026-09-29 sent a thought's time and no words.
-  defp hidden_activity?(%ActivityEvent{kind: "model.thought", payload: payload}),
+  defp hidden_activity?(%Work.ActivityEvent{kind: "model.thought", payload: payload}),
     do: blank?(payload["text"]) and not is_map(payload["withheld"])
 
-  defp hidden_activity?(%ActivityEvent{kind: "model.progress", payload: payload}) do
+  defp hidden_activity?(%Work.ActivityEvent{kind: "model.progress", payload: payload}) do
     case payload["text"] do
       text when is_binary(text) -> String.trim(text) == ""
       _other -> true
@@ -333,16 +339,16 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
   defp merge_withheld(first, second), do: Map.merge(first, second)
 
   defp safe_path_context(value) do
-    with %{} = paths <- ActivityPaths.sanitize(value),
+    with %{} = paths <- Work.ActivityPaths.sanitize(value),
          %{text: text, truncated: false} <- InspectionRedactor.artifact(paths, max_bytes: 16_384),
          {:ok, redacted} <- Jason.decode(text) do
-      ActivityPaths.sanitize(redacted)
+      Work.ActivityPaths.sanitize(redacted)
     else
       _ -> nil
     end
   end
 
-  defp activity_step(%ActivityEvent{kind: "model.progress"} = event, _disclosed) do
+  defp activity_step(%Work.ActivityEvent{kind: "model.progress"} = event, _disclosed) do
     step("activity-#{event.id}", :work, event.occurred_at, %{
       actor: "Model",
       details: [],
@@ -357,7 +363,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
   # at times a paragraph under it. A heading alone, "Selecting the reply
   # button", read as a step Ryker took (Andrew, 2026-10-01: "what does this
   # card mean in simple english, in practice?"); it is the model's own note.
-  defp activity_step(%ActivityEvent{kind: "model.thought"} = event, _disclosed) do
+  defp activity_step(%Work.ActivityEvent{kind: "model.thought"} = event, _disclosed) do
     {title, summary} =
       case event.payload["text"] do
         text when is_binary(text) -> thought_parts(text)
@@ -374,7 +380,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
     })
   end
 
-  defp activity_step(%ActivityEvent{kind: "model.plan"} = event, disclosed) do
+  defp activity_step(%Work.ActivityEvent{kind: "model.plan"} = event, disclosed) do
     count = event.payload["step_count"] || 0
 
     step(
@@ -394,7 +400,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
     )
   end
 
-  defp activity_step(%ActivityEvent{kind: "permission.decided"} = event, _disclosed) do
+  defp activity_step(%Work.ActivityEvent{kind: "permission.decided"} = event, _disclosed) do
     outcome = event.payload["outcome"] || "recorded"
 
     step(
@@ -417,7 +423,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
     )
   end
 
-  defp activity_step(%ActivityEvent{kind: "activity.elided"} = event, _disclosed) do
+  defp activity_step(%Work.ActivityEvent{kind: "activity.elided"} = event, _disclosed) do
     step(
       "activity-#{event.id}",
       :work,
@@ -435,7 +441,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
     )
   end
 
-  defp activity_step(%ActivityEvent{kind: "provider.backoff"} = event, _disclosed) do
+  defp activity_step(%Work.ActivityEvent{kind: "provider.backoff"} = event, _disclosed) do
     step(
       "activity-#{event.id}",
       :work,
@@ -451,7 +457,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
     )
   end
 
-  defp activity_step(%ActivityEvent{kind: "provider.alive"} = event, _disclosed) do
+  defp activity_step(%Work.ActivityEvent{kind: "provider.alive"} = event, _disclosed) do
     step(
       "activity-#{event.id}",
       :work,
@@ -530,9 +536,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
     with <<event_id::binary-size(36), "-", key::binary>> <- rest,
          true <- key in @lazy_tool_fields,
          {:ok, event_id} <- Ecto.UUID.cast(event_id),
-         %ActivityEvent{episode_id: ^episode_id, kind: kind, payload: %{} = payload}
+         %Work.ActivityEvent{episode_id: ^episode_id, kind: kind, payload: %{} = payload}
          when kind in ["tool.started", "tool.completed"] <-
-           Repo.one(ActivityEvent.Query.by_id(event_id)),
+           Repo.one(Work.ActivityEvent.Query.by_id(event_id)),
          {_label, value} when not is_nil(value) <- shown_artifact(payload, key, key),
          %{state: :retained, text: text} when is_binary(text) <-
            InspectionRedactor.artifact(value, max_bytes: 20_000, disclosed: true) do
@@ -544,7 +550,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
 
   def disclosed_body(_artifact_id, _episode_id), do: :error
 
-  defp tool_artifacts(%ActivityEvent{payload: payload, id: event_id}, disclosed) do
+  defp tool_artifacts(%Work.ActivityEvent{payload: payload, id: event_id}, disclosed) do
     for {key, label} <- [
           {"input", "Arguments"},
           {"output", "Response"},
@@ -588,7 +594,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
 
   defp shown_artifact(payload, key, label), do: {label, payload[key]}
 
-  defp plan_artifacts(%ActivityEvent{payload: %{"entries" => entries}, id: id}, disclosed)
+  defp plan_artifacts(%Work.ActivityEvent{payload: %{"entries" => entries}, id: id}, disclosed)
        when entries not in [nil, []] do
     artifact_id = "activity-#{id}-plan"
 

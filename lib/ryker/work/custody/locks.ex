@@ -14,7 +14,7 @@ defmodule Ryker.Work.Custody.Locks do
   own topics for a turn).
   """
   alias Ryker.Crypto
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes
   alias Ryker.Lease
   alias Ryker.Reference
   alias Ryker.Repo
@@ -113,12 +113,12 @@ defmodule Ryker.Work.Custody.Locks do
   def lock_episode_owner(episode_id, owner_kind, owner_ref) do
     locked =
       episode_id
-      |> Episode.Query.working_for(owner_kind, owner_ref)
-      |> Episode.Query.lock_for_update()
+      |> Episodes.Episode.Query.working_for(owner_kind, owner_ref)
+      |> Episodes.Episode.Query.lock_for_update()
 
     case Repo.one(locked) do
       nil -> {:error, :work_episode_owner_lost}
-      %Episode{} = episode -> {:ok, episode}
+      %Episodes.Episode{} = episode -> {:ok, episode}
     end
   end
 
@@ -163,14 +163,14 @@ defmodule Ryker.Work.Custody.Locks do
   end
 
   @doc false
-  def exact_episode(%Episode{id: episode_id}, episode_id), do: :ok
+  def exact_episode(%Episodes.Episode{id: episode_id}, episode_id), do: :ok
 
-  def exact_episode(%Episode{id: actual}, expected),
+  def exact_episode(%Episodes.Episode{id: actual}, expected),
     do: {:error, {:work_episode_identity_conflict, actual, expected}}
 
   @doc false
   def episode_for_result!(episode_key) do
-    Repo.one!(Episode.Query.by_key(episode_key))
+    Repo.one!(Episodes.Episode.Query.by_key(episode_key))
   end
 
   @doc false

@@ -11,16 +11,16 @@ defmodule Ryker.Publication.Followups.Signals do
   same delivery recorded twice is one event.
   """
   alias Ryker.CanonicalJSON
-  alias Ryker.Ingress.Input
-  alias Ryker.Learning.Observations
-  alias Ryker.Memories.Cases
+  alias Ryker.Ingress
+  alias Ryker.Learning
+  alias Ryker.Memories
   alias Ryker.Publication.{DeploymentSignal, Followup, LifecycleEvent}
   alias Ryker.Publication.Followups.Store
   alias Ryker.Publication.Publication
   alias Ryker.Repo
 
   def observe_input(
-        %Input{
+        %Ingress.Input{
           actor: %{kind: :system},
           source: %{kind: "webhook"},
           source_capabilities: %{"publication_lifecycle" => authority}
@@ -34,10 +34,10 @@ defmodule Ryker.Publication.Followups.Signals do
     end
   end
 
-  def observe_input(%Input{}), do: {:ok, 0}
+  def observe_input(%Ingress.Input{}), do: {:ok, 0}
   def observe_input(_input), do: {:error, {:invalid_publication_lifecycle_input, :input}}
 
-  def observe_github_feedback(%Input{} = input) do
+  def observe_github_feedback(%Ingress.Input{} = input) do
     case github_feedback_identity(input) do
       {:ok, repository, pull_request_number} ->
         Store.transaction(fn ->
@@ -147,7 +147,7 @@ defmodule Ryker.Publication.Followups.Signals do
 
   # --- GitHub review feedback -----------------------------------------------
 
-  defp github_feedback_identity(%Input{
+  defp github_feedback_identity(%Ingress.Input{
          source: %{kind: "github"},
          content: %{
            "event_name" => "issue_comment",
@@ -160,7 +160,7 @@ defmodule Ryker.Publication.Followups.Signals do
        when is_binary(repository) and is_integer(number) and number > 0,
        do: {:ok, repository, number}
 
-  defp github_feedback_identity(%Input{
+  defp github_feedback_identity(%Ingress.Input{
          source: %{kind: "github"},
          content: %{
            "event_name" => event_name,
@@ -174,7 +174,7 @@ defmodule Ryker.Publication.Followups.Signals do
               is_binary(repository) and is_integer(number) and number > 0,
        do: {:ok, repository, number}
 
-  defp github_feedback_identity(%Input{source: %{kind: "github"}}), do: :unmatched
+  defp github_feedback_identity(%Ingress.Input{source: %{kind: "github"}}), do: :unmatched
 
   defp github_feedback_identity(_input),
     do: {:error, {:invalid_publication_review_feedback, :source}}
@@ -189,7 +189,11 @@ defmodule Ryker.Publication.Followups.Signals do
       [%Publication{} = publication] ->
         {status, stored} = record_github_feedback(input, publication)
 
-        with :ok <- Observations.record_publication_feedback_in_transaction(stored, publication),
+        with :ok <-
+               Learning.Observations.record_publication_feedback_in_transaction(
+                 stored,
+                 publication
+               ),
              :ok <- withdraw_cases(input, status) do
           %{event: stored, status: if(status == :ok, do: :recorded, else: :duplicate)}
         else
@@ -207,14 +211,18 @@ defmodule Ryker.Publication.Followups.Signals do
   # (`Ryker.Memories.Cases`). GitHub reports an edit only when the words
   # change; a bot updating its own comment takes nothing back. A repeated
   # delivery withdrew them the first time.
-  defp withdraw_cases(%Input{event_kind: :delete, native_input_id: native_input_id}, :ok),
-    do: Cases.withdraw_message_in_transaction(native_input_id)
+  defp withdraw_cases(%Ingress.Input{event_kind: :delete, native_input_id: native_input_id}, :ok),
+    do: Memories.Cases.withdraw_message_in_transaction(native_input_id)
 
   defp withdraw_cases(
-         %Input{event_kind: :edit, actor: %{kind: :user}, native_input_id: native_input_id},
+         %Ingress.Input{
+           event_kind: :edit,
+           actor: %{kind: :user},
+           native_input_id: native_input_id
+         },
          :ok
        ),
-       do: Cases.withdraw_message_in_transaction(native_input_id)
+       do: Memories.Cases.withdraw_message_in_transaction(native_input_id)
 
   defp withdraw_cases(_input, _status), do: :ok
 
@@ -234,7 +242,7 @@ defmodule Ryker.Publication.Followups.Signals do
     # same native revision, nor replace the source receipt used by warm Work.
     # READ COMMITTED is required so the lookup after a lock wait sees the
     # preceding transaction's committed receipt.
-    document = input |> Input.document() |> feedback_document()
+    document = input |> Ingress.Input.document() |> feedback_document()
 
     existing =
       publication.id
@@ -278,7 +286,7 @@ defmodule Ryker.Publication.Followups.Signals do
     %{
       key: key,
       kind: :review_feedback,
-      observation: Input.document(input),
+      observation: Ingress.Input.document(input),
       occurred_at: input.occurred_at,
       source: %{
         conversation_ref: input.destination.conversation_ref,

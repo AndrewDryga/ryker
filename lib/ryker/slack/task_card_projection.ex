@@ -6,18 +6,14 @@ defmodule Ryker.Slack.TaskCardProjection do
   publication. Record projections are retained operator audit views only.
   """
   alias Ryker.CanonicalJSON
-  alias Ryker.Episodes.Episode
-  alias Ryker.Publication.{FixLoop, Followup, LifecycleEvent, Publication}
-  alias Ryker.Publication.Review
+  alias Ryker.Episodes
+  alias Ryker.Publication
   alias Ryker.Records
-  alias Ryker.Records.DerivedContext
-  alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Settings
-  alias Ryker.Settings.Repository
   alias Ryker.Slack.{Permalink, TaskCard}
-  alias Ryker.StateTools.TaskTools
-  alias Ryker.Work.{Custody, FailureCause, Recovery, Session, TaskStages, Turn}
+  alias Ryker.StateTools
+  alias Ryker.Work
 
   @ui_revision 6
   @publication_conflicts ~w(publication_branch_already_exists publication_branch_changed publication_existing_pull_request_changed publication_pull_request_mismatch)
@@ -47,19 +43,19 @@ defmodule Ryker.Slack.TaskCardProjection do
   end
 
   @doc false
-  @spec build(Record.t()) ::
+  @spec build(Records.Record.t()) ::
           {:ok, %{document: map(), fingerprint: String.t(), ui_revision: pos_integer()}}
           | {:error, term()}
   def build(
-        %Record{
+        %Records.Record{
           kind: "task_offer",
           status: :confirmed,
           confirmed_episode_id: episode_id
         } = record
       )
       when is_binary(episode_id) do
-    case Repo.one(Episode.Query.by_id(episode_id)) do
-      %Episode{} = episode -> project(record, episode, record.ref, snapshot(episode))
+    case Repo.one(Episodes.Episode.Query.by_id(episode_id)) do
+      %Episodes.Episode{} = episode -> project(record, episode, record.ref, snapshot(episode))
       nil -> {:error, :task_card_source_not_found}
     end
   end
@@ -71,14 +67,14 @@ defmodule Ryker.Slack.TaskCardProjection do
   with the causes the card says only where its sources may be shown, since
   the page is the operator's.
   """
-  @spec page(Record.t()) :: {:ok, map()} | {:error, term()}
+  @spec page(Records.Record.t()) :: {:ok, map()} | {:error, term()}
   def page(
-        %Record{kind: "task_offer", status: :confirmed, confirmed_episode_id: episode_id} =
+        %Records.Record{kind: "task_offer", status: :confirmed, confirmed_episode_id: episode_id} =
           record
       )
       when is_binary(episode_id) do
-    case Repo.one(Episode.Query.by_id(episode_id)) do
-      %Episode{} = episode ->
+    case Repo.one(Episodes.Episode.Query.by_id(episode_id)) do
+      %Episodes.Episode{} = episode ->
         snapshot = snapshot(episode)
         {:ok, projection} = project(record, episode, record.ref, snapshot)
         {:ok, public_errors(projection, snapshot)}
@@ -91,8 +87,8 @@ defmodule Ryker.Slack.TaskCardProjection do
   def page(_record), do: {:error, :invalid_task_card}
 
   defp build_public(card) do
-    with %Record{} = record <- Repo.one(Record.Query.by_id(card.record_id)),
-         %Episode{} = episode <- Repo.one(Episode.Query.by_id(card.episode_id)) do
+    with %Records.Record{} = record <- Repo.one(Records.Record.Query.by_id(card.record_id)),
+         %Episodes.Episode{} = episode <- Repo.one(Episodes.Episode.Query.by_id(card.episode_id)) do
       snapshot = snapshot(episode)
       {:ok, projection} = project(record, episode, card.ref, snapshot)
 
@@ -128,11 +124,11 @@ defmodule Ryker.Slack.TaskCardProjection do
       "controls" =>
         controls(record, episode, turn, session, publication, snapshot.workspace_hold),
       "publication" => publication(publication, snapshot.followup, fix),
-      "request" => record.payload["prompt"] |> TaskTools.request() |> compact(12_000),
+      "request" => record.payload["prompt"] |> StateTools.TaskTools.request() |> compact(12_000),
       "repository" => repository_name(record.payload["repository"]),
       "repository_url" => repository_url(publication),
       "stages" =>
-        TaskStages.build(%{
+        Work.TaskStages.build(%{
           episode: episode,
           followup: snapshot.followup,
           plan: Records.plan_from_records(snapshot.goal_records),
@@ -164,26 +160,26 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   defp snapshot(episode) do
     publication = latest_publication(episode.id)
-    turn = Repo.one(Turn.Query.current(episode))
+    turn = Repo.one(Work.Turn.Query.current(episode))
 
     %{
-      automatic_fix: FixLoop.progress(publication, episode),
+      automatic_fix: Publication.FixLoop.progress(publication, episode),
       turn: turn,
-      session: Repo.one(Session.Query.latest_of_episode(episode.id)),
+      session: Repo.one(Work.Session.Query.latest_of_episode(episode.id)),
       publication: publication,
       followup: followup(publication),
       records: Records.retained_records(episode.id),
       publication_offer: latest_publication_offer(episode.id),
       goal_records: goal_records(episode.id),
       progress_records: progress_records(episode.id),
-      workspace_hold: Recovery.workspace_hold(turn)
+      workspace_hold: Work.Recovery.workspace_hold(turn)
     }
   end
 
   defp followup(nil), do: nil
 
-  defp followup(%Publication{id: id}),
-    do: Repo.one(Followup.Query.by_publication_id(id))
+  defp followup(%Publication.Publication{id: id}),
+    do: Repo.one(Publication.Followup.Query.by_publication_id(id))
 
   # What the person asked for, as the task offer wrote it: the card showed
   # "Sources: slack-source:v1:…" once it stopped cutting the request at 600
@@ -196,8 +192,8 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp repository_name(ref) when is_binary(ref) do
     github_repository =
       ref
-      |> Repository.Query.by_ref()
-      |> Repository.Query.select_github_repositories()
+      |> Settings.Repository.Query.by_ref()
+      |> Settings.Repository.Query.select_github_repositories()
       |> Repo.one()
 
     github_repository || ref
@@ -207,28 +203,29 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   # A repository links out only from the trusted GitHub binding its own
   # publication receipt recorded; a display label never becomes a URL.
-  defp repository_url(%Publication{github_repository: repository}) when is_binary(repository),
-    do: "https://github.com/#{repository}"
+  defp repository_url(%Publication.Publication{github_repository: repository})
+       when is_binary(repository),
+       do: "https://github.com/#{repository}"
 
   defp repository_url(_publication), do: nil
 
   defp goal_records(episode_id) do
     episode_id
-    |> Record.Query.by_episode_id()
-    |> Record.Query.by_kinds(["goal", "goal_state"])
-    |> Record.Query.in_use()
-    |> Record.Query.ordered_by_sequence()
+    |> Records.Record.Query.by_episode_id()
+    |> Records.Record.Query.by_kinds(["goal", "goal_state"])
+    |> Records.Record.Query.in_use()
+    |> Records.Record.Query.ordered_by_sequence()
     |> Repo.all()
   end
 
   defp progress_records(episode_id) do
     episode_id
-    |> Record.Query.by_episode_id()
-    |> Record.Query.by_kind("progress")
-    |> Record.Query.in_use()
-    |> Record.Query.not_feedback_progress()
-    |> Record.Query.ordered_by_sequence_desc()
-    |> Record.Query.limit_to(4)
+    |> Records.Record.Query.by_episode_id()
+    |> Records.Record.Query.by_kind("progress")
+    |> Records.Record.Query.in_use()
+    |> Records.Record.Query.not_feedback_progress()
+    |> Records.Record.Query.ordered_by_sequence_desc()
+    |> Records.Record.Query.limit_to(4)
     |> Repo.all()
     |> Enum.reverse()
   end
@@ -247,14 +244,14 @@ defmodule Ryker.Slack.TaskCardProjection do
          {:ok, source_episode, source_session} <- offer_owner(record),
          true <- same_destination?(card, source_episode),
          {:ok, _} <-
-           DerivedContext.resolve(
-             [DerivedContext.record(record_document(record))],
+           Records.DerivedContext.resolve(
+             [Records.DerivedContext.record(record_document(record))],
              source_episode,
              source_session.repository_ref
            ),
-         %Session{} = session <- snapshot.session,
+         %Work.Session{} = session <- snapshot.session,
          {:ok, _} <-
-           DerivedContext.resolve(
+           Records.DerivedContext.resolve(
              snapshot_documents(snapshot),
              episode,
              session.repository_ref
@@ -266,10 +263,12 @@ defmodule Ryker.Slack.TaskCardProjection do
   end
 
   defp offer_owner(record) do
-    with %Episode{} = episode <- Repo.one(Episode.Query.by_id(record.episode_id)),
-         %Turn{episode_id: episode_id} = turn <- Repo.one(Turn.Query.by_id(record.turn_id)),
+    with %Episodes.Episode{} = episode <-
+           Repo.one(Episodes.Episode.Query.by_id(record.episode_id)),
+         %Work.Turn{episode_id: episode_id} = turn <-
+           Repo.one(Work.Turn.Query.by_id(record.turn_id)),
          true <- episode_id == episode.id,
-         %Session{} = session <- Repo.one(Session.Query.by_id(turn.session_id)) do
+         %Work.Session{} = session <- Repo.one(Work.Session.Query.by_id(turn.session_id)) do
       {:ok, episode, session}
     else
       _ -> {:error, :task_card_source_not_found}
@@ -286,7 +285,7 @@ defmodule Ryker.Slack.TaskCardProjection do
        Enum.map(snapshot.goal_records ++ snapshot.progress_records, &record_document/1) ++
        Enum.reject([snapshot.publication_offer], &is_nil/1))
     |> Enum.uniq_by(& &1["ref"])
-    |> Enum.map(&DerivedContext.record/1)
+    |> Enum.map(&Records.DerivedContext.record/1)
   end
 
   defp record_document(record),
@@ -307,7 +306,8 @@ defmodule Ryker.Slack.TaskCardProjection do
       # publication's own line above Review latest state and Discard (Andrew,
       # 2026-09-28: the card said "PR creation is blocked" with its buttons,
       # then the same again as Action needed).
-      match?(%Publication{status: :blocked}, attention) and is_map(task["publication"]) and
+      match?(%Publication.Publication{status: :blocked}, attention) and
+        is_map(task["publication"]) and
           is_nil(snapshot.workspace_hold) ->
         reason = fix_line(fix, :stopped) || blocked_cause(attention)
 
@@ -330,8 +330,8 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   # A review's refusal in the host's own words for Coop's codes; a refusal
   # the host has no words for names only its code, which is the host's own.
-  defp blocked_cause(%Publication{} = publication) do
-    case Review.refusal(publication.review_document) do
+  defp blocked_cause(%Publication.Publication{} = publication) do
+    case Publication.Review.refusal(publication.review_document) do
       [] -> blocked_code(publication.last_error_code)
       causes -> sentence_list(causes) <> "."
     end
@@ -347,17 +347,17 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp public_error(_publication, _turn, hold) when is_map(hold), do: nil
 
   defp public_error(
-         %Publication{last_error_code: "publication_authorization_revoked"},
+         %Publication.Publication{last_error_code: "publication_authorization_revoked"},
          _turn,
          _hold
        ),
        do: @refused_grant
 
-  defp public_error(%Publication{last_error_code: code}, _turn, _hold)
+  defp public_error(%Publication.Publication{last_error_code: code}, _turn, _hold)
        when code in @publication_conflicts,
        do: @changed_on_github
 
-  defp public_error(%Publication{last_error_code: code}, _turn, _hold)
+  defp public_error(%Publication.Publication{last_error_code: code}, _turn, _hold)
        when is_binary(code) and code not in @in_flight,
        do: attention("Making the draft pull request stopped and needs a person")
 
@@ -368,8 +368,8 @@ defmodule Ryker.Slack.TaskCardProjection do
   # term still never travels, and an error naming nothing keeps the notice.
   # The cause ends in a worker's own sentence, which owes the host no full stop,
   # so the step answering it starts its own line rather than running on.
-  defp public_error(_publication, %Turn{status: :blocked} = turn, _hold) do
-    case FailureCause.explain(turn.last_error_detail) do
+  defp public_error(_publication, %Work.Turn{status: :blocked} = turn, _hold) do
+    case Work.FailureCause.explain(turn.last_error_detail) do
       %{cause: cause, next_step: next_step} -> compact(cause <> "\n" <> next_step, 2_000)
       nil -> attention("Task work stopped and needs a person")
     end
@@ -406,7 +406,7 @@ defmodule Ryker.Slack.TaskCardProjection do
         "request" => nil,
         # The stage list survives, with every disposition withheld: an
         # unreadable source is unknown progress, not absent progress.
-        "stages" => TaskStages.unknown(),
+        "stages" => Work.TaskStages.unknown(),
         "publication" => nil,
         "controls" => Enum.filter(task["controls"], &(&1 in ~w(stop close timeline)))
       })
@@ -424,11 +424,11 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp updated_at(episode, publication) do
     progress =
       episode.id
-      |> Record.Query.by_episode_id()
-      |> Record.Query.by_kinds(["progress", "goal", "goal_state"])
-      |> Record.Query.in_use()
-      |> Record.Query.not_feedback_progress()
-      |> Record.Query.select_latest_insert()
+      |> Records.Record.Query.by_episode_id()
+      |> Records.Record.Query.by_kinds(["progress", "goal", "goal_state"])
+      |> Records.Record.Query.in_use()
+      |> Records.Record.Query.not_feedback_progress()
+      |> Records.Record.Query.select_latest_insert()
       |> Repo.one()
 
     [episode.updated_at, progress, github_moved_at(publication)]
@@ -436,10 +436,10 @@ defmodule Ryker.Slack.TaskCardProjection do
     |> Enum.max(DateTime)
   end
 
-  defp github_moved_at(%Publication{id: id}) do
+  defp github_moved_at(%Publication.Publication{id: id}) do
     id
-    |> LifecycleEvent.Query.by_publication_id()
-    |> LifecycleEvent.Query.select_latest_occurrence()
+    |> Publication.LifecycleEvent.Query.by_publication_id()
+    |> Publication.LifecycleEvent.Query.select_latest_occurrence()
     |> Repo.one()
   end
 
@@ -447,61 +447,67 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   defp latest_publication(episode_id) do
     episode_id
-    |> Publication.Query.by_episode_id()
-    |> Publication.Query.ordered_by_recent()
-    |> Publication.Query.limit_to(1)
+    |> Publication.Publication.Query.by_episode_id()
+    |> Publication.Publication.Query.ordered_by_recent()
+    |> Publication.Publication.Query.limit_to(1)
     |> Repo.one()
   end
 
-  defp status(%Episode{state: :working}, %Turn{status: :blocked}, _publication, _offer),
-    do: "action_required"
+  defp status(
+         %Episodes.Episode{state: :working},
+         %Work.Turn{status: :blocked},
+         _publication,
+         _offer
+       ),
+       do: "action_required"
 
   defp status(
          _episode,
          _turn,
-         %Publication{status: :published, expected_remote_head_sha: head_sha},
+         %Publication.Publication{status: :published, expected_remote_head_sha: head_sha},
          _offer
        )
        when is_binary(head_sha),
        do: "action_required"
 
-  defp status(_episode, _turn, %Publication{status: :published}, _offer), do: "published"
+  defp status(_episode, _turn, %Publication.Publication{status: :published}, _offer),
+    do: "published"
 
-  defp status(_episode, _turn, %Publication{last_error_code: code}, _offer)
+  defp status(_episode, _turn, %Publication.Publication{last_error_code: code}, _offer)
        when is_binary(code) and code not in @in_flight,
        do: "action_required"
 
-  defp status(_episode, _turn, %Publication{status: status}, _offer)
+  defp status(_episode, _turn, %Publication.Publication{status: status}, _offer)
        when status in [:review_pending, :review_ready, :publish_pending, :published_ready],
        do: "reviewing"
 
-  defp status(_episode, _turn, %Publication{status: :reviewed}, _offer),
+  defp status(_episode, _turn, %Publication.Publication{status: :reviewed}, _offer),
     do: "ready_to_publish"
 
-  defp status(_episode, _turn, %Publication{status: :blocked}, _offer),
+  defp status(_episode, _turn, %Publication.Publication{status: :blocked}, _offer),
     do: "action_required"
 
-  defp status(_episode, _turn, %Publication{status: :discarded}, _offer),
+  defp status(_episode, _turn, %Publication.Publication{status: :discarded}, _offer),
     do: "completed"
 
-  defp status(%Episode{state: :cancelled}, _turn, _publication, _offer), do: "cancelled"
+  defp status(%Episodes.Episode{state: :cancelled}, _turn, _publication, _offer), do: "cancelled"
 
-  defp status(%Episode{state: :complete}, _turn, nil, %{"status" => "open"}),
+  defp status(%Episodes.Episode{state: :complete}, _turn, nil, %{"status" => "open"}),
     do: "action_required"
 
-  defp status(%Episode{state: :complete}, _turn, _publication, _offer), do: "completed"
+  defp status(%Episodes.Episode{state: :complete}, _turn, _publication, _offer), do: "completed"
 
-  defp status(%Episode{state: :waiting_for_input}, _turn, _publication, _offer),
+  defp status(%Episodes.Episode{state: :waiting_for_input}, _turn, _publication, _offer),
     do: "waiting_for_input"
 
-  defp status(%Episode{state: :waiting_for_event}, _turn, _publication, _offer),
+  defp status(%Episodes.Episode{state: :waiting_for_event}, _turn, _publication, _offer),
     do: "waiting_for_event"
 
   # Between confirming a task and a worker being asked for anything there is no
   # turn at all, and the card said "Working" for it. Nothing was.
-  defp status(%Episode{state: :working}, nil, nil, _offer), do: "queued"
+  defp status(%Episodes.Episode{state: :working}, nil, nil, _offer), do: "queued"
 
-  defp status(_episode, %Turn{status: :cancel_pending}, _publication, _offer), do: "stopping"
+  defp status(_episode, %Work.Turn{status: :cancel_pending}, _publication, _offer), do: "stopping"
   defp status(_episode, _turn, _publication, _offer), do: "working"
 
   # The worker's answer and its unsaved working copy are what an operator can act
@@ -520,7 +526,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   # A pull request opened earlier stays reachable, but it predates the work the
   # host could not keep. Leaving "Draft PR created. Open it to review the
   # changes." as the only word about it offers an older snapshot as the current one.
-  defp held_draft(%Publication{status: status, pull_request_number: number})
+  defp held_draft(%Publication.Publication{status: status, pull_request_number: number})
        when status in [:published, :published_ready] and is_integer(number),
        do: "Draft PR ##{number} stays open, but it is an earlier snapshot without this work."
 
@@ -544,13 +550,18 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp held_report(report),
     do: "The worker's own report, which is not a check result: \"#{compact(report, 900)}\""
 
-  defp unstarted_review(%Episode{state: :complete}, nil, %{"status" => "open"}) do
+  defp unstarted_review(%Episodes.Episode{state: :complete}, nil, %{"status" => "open"}) do
     "Prepared changes are saved, but checks have not started. Open the request's timeline to review how to recover the working copy."
   end
 
   defp unstarted_review(_episode, _publication, _offer), do: nil
 
-  defp action_needed(_episode, _turn, _records, %Publication{status: :blocked} = publication) do
+  defp action_needed(
+         _episode,
+         _turn,
+         _records,
+         %Publication.Publication{status: :blocked} = publication
+       ) do
     compact(
       publication.last_error_detail || "Draft pull-request work needs operator attention.",
       500
@@ -561,7 +572,7 @@ defmodule Ryker.Slack.TaskCardProjection do
          _episode,
          _turn,
          _records,
-         %Publication{status: :published, expected_remote_head_sha: head_sha}
+         %Publication.Publication{status: :published, expected_remote_head_sha: head_sha}
        )
        when is_binary(head_sha) do
     "The draft pull-request head changed outside this reviewed publication. Review the latest state or discard publication custody."
@@ -571,11 +582,11 @@ defmodule Ryker.Slack.TaskCardProjection do
          _episode,
          _turn,
          _records,
-         %Publication{last_error_code: "publication_authorization_revoked"}
+         %Publication.Publication{last_error_code: "publication_authorization_revoked"}
        ),
        do: @refused_grant
 
-  defp action_needed(_episode, _turn, _records, %Publication{last_error_code: code})
+  defp action_needed(_episode, _turn, _records, %Publication.Publication{last_error_code: code})
        when code in @publication_conflicts,
        do: @changed_on_github
 
@@ -583,18 +594,18 @@ defmodule Ryker.Slack.TaskCardProjection do
          _episode,
          _turn,
          _records,
-         %Publication{last_error_code: code} = publication
+         %Publication.Publication{last_error_code: code} = publication
        )
        when is_binary(code) and code not in @in_flight,
        do: compact(publication.last_error_detail || code, 500)
 
-  defp action_needed(%Episode{state: :waiting_for_input}, _turn, records, _publication),
+  defp action_needed(%Episodes.Episode{state: :waiting_for_input}, _turn, records, _publication),
     do: wait_summary(records, "input_request", "An operator response is required.")
 
-  defp action_needed(%Episode{state: :waiting_for_event}, _turn, records, _publication),
+  defp action_needed(%Episodes.Episode{state: :waiting_for_event}, _turn, records, _publication),
     do: wait_summary(records, "event_wait", "The task is waiting for external verification.")
 
-  defp action_needed(_episode, %Turn{status: :blocked} = turn, _records, _publication) do
+  defp action_needed(_episode, %Work.Turn{status: :blocked} = turn, _records, _publication) do
     compact(turn.last_error_detail || "Task work is blocked and needs operator attention.", 500)
   end
 
@@ -604,11 +615,13 @@ defmodule Ryker.Slack.TaskCardProjection do
   # question: a Slack message link needs the workspace origin, and the host
   # stored every other part of it. With the origin unset this stays nil and the
   # card describes the question instead of linking nowhere.
-  defp question_url(%Episode{state: :waiting_for_input} = episode) do
+  defp question_url(%Episodes.Episode{state: :waiting_for_input} = episode) do
     with workspace_url when is_binary(workspace_url) <- Settings.slack_workspace_url(),
-         %Record{turn_id: turn_id} when not is_nil(turn_id) <- open_question(episode.id),
-         %Turn{external_receipt: %{"conversation_ref" => conversation, "message_ref" => message}} <-
-           Repo.one(Turn.Query.by_id(turn_id)) do
+         %Records.Record{turn_id: turn_id} when not is_nil(turn_id) <- open_question(episode.id),
+         %Work.Turn{
+           external_receipt: %{"conversation_ref" => conversation, "message_ref" => message}
+         } <-
+           Repo.one(Work.Turn.Query.by_id(turn_id)) do
       Permalink.message_url(workspace_url, conversation, message)
     else
       _unbuildable -> nil
@@ -619,11 +632,11 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   defp open_question(episode_id) do
     episode_id
-    |> Record.Query.by_episode_id()
-    |> Record.Query.by_kind("input_request")
-    |> Record.Query.open()
-    |> Record.Query.ordered_by_sequence_desc()
-    |> Record.Query.limit_to(1)
+    |> Records.Record.Query.by_episode_id()
+    |> Records.Record.Query.by_kind("input_request")
+    |> Records.Record.Query.open()
+    |> Records.Record.Query.ordered_by_sequence_desc()
+    |> Records.Record.Query.limit_to(1)
     |> Repo.one()
   end
 
@@ -641,13 +654,13 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp summary(record, progress) do
     case List.last(progress) do
       %{"summary" => summary} -> summary
-      _missing -> record.payload["prompt"] |> TaskTools.request() |> compact(500)
+      _missing -> record.payload["prompt"] |> StateTools.TaskTools.request() |> compact(500)
     end
   end
 
   defp publication(nil, _followup, _fix), do: nil
 
-  defp publication(%Publication{} = publication, followup, fix) do
+  defp publication(%Publication.Publication{} = publication, followup, fix) do
     %{
       "automatic_fix" => fix_line(fix, :fixing),
       "blocked_reason" => nil,
@@ -670,8 +683,9 @@ defmodule Ryker.Slack.TaskCardProjection do
   end
 
   # Only a person closes or merges a pull request on GitHub; its follow-up records which.
-  defp pull_request_state(%Followup{pr_state: state}) when state in [:closed, :merged],
-    do: Atom.to_string(state)
+  defp pull_request_state(%Publication.Followup{pr_state: state})
+       when state in [:closed, :merged],
+       do: Atom.to_string(state)
 
   defp pull_request_state(_followup), do: nil
 
@@ -696,7 +710,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   # Why Ryker ended a publication itself; nil for one a person discarded, which
   # the operator audit already names. The card said "PR preparation stopped"
   # for both, so a closed worker session read like somebody's decision.
-  defp discarded_reason(%Publication{status: :discarded, discarded_reason: reason})
+  defp discarded_reason(%Publication.Publication{status: :discarded, discarded_reason: reason})
        when is_atom(reason) and not is_nil(reason),
        do: Atom.to_string(reason)
 
@@ -706,9 +720,9 @@ defmodule Ryker.Slack.TaskCardProjection do
   # blocked candidate can only say that something is missing, which is how a
   # missing tool, a failed assertion and a policy finding read the same — and a
   # draft opened on that candidate then read as an ordinary checked pull request.
-  defp unverified(%Publication{status: status, review_document: review})
+  defp unverified(%Publication.Publication{status: status, review_document: review})
        when status in [:blocked, :publish_pending, :published_ready, :published] do
-    case Review.draft_verdict(review) do
+    case Publication.Review.draft_verdict(review) do
       %{"shareable" => true, "incomplete_checks" => [reason | _rest]} -> compact(reason, 500)
       _decided -> nil
     end
@@ -716,7 +730,7 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   defp unverified(_publication), do: nil
 
-  defp publication_controls(%Publication{
+  defp publication_controls(%Publication.Publication{
          status: status,
          last_error_code: code,
          expected_remote_head_sha: head_sha,
@@ -727,13 +741,16 @@ defmodule Ryker.Slack.TaskCardProjection do
               is_integer(number) and is_binary(url),
        do: ["open", "update", "discard"]
 
-  defp publication_controls(%Publication{status: :publish_pending, last_error_code: code})
+  defp publication_controls(%Publication.Publication{
+         status: :publish_pending,
+         last_error_code: code
+       })
        when code in @publication_conflicts,
        do: ["discard"]
 
   # A refused grant cannot be retried, since the worker finished that publish as refused; a fresh
   # review can (`Ryker.Publication.Custody`). The card offered Retry here until 2026-09-30.
-  defp publication_controls(%Publication{
+  defp publication_controls(%Publication.Publication{
          status: :publish_pending,
          last_error_code: "publication_authorization_revoked",
          pull_request_number: number,
@@ -746,11 +763,14 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   # A check takes minutes, and the card offered nothing while it ran (Andrew,
   # 2026-09-28): a person can always drop a change that is being checked.
-  defp publication_controls(%Publication{status: :review_pending, last_error_code: code}) do
+  defp publication_controls(%Publication.Publication{
+         status: :review_pending,
+         last_error_code: code
+       }) do
     if(is_binary(code) and code not in @in_flight, do: ["retry", "discard"], else: ["discard"])
   end
 
-  defp publication_controls(%Publication{status: status, last_error_code: code})
+  defp publication_controls(%Publication.Publication{status: status, last_error_code: code})
        when status in [:review_ready, :publish_pending, :published_ready] and is_binary(code) and
               code not in @in_flight,
        do: ["retry"]
@@ -758,7 +778,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   # A reviewed candidate only rests here when no task grant covers its draft,
   # so this is the genuinely unauthorized path; an authorized one is already
   # publishing and offers nothing to click.
-  defp publication_controls(%Publication{status: :reviewed}),
+  defp publication_controls(%Publication.Publication{status: :reviewed}),
     do: ["publish", "update", "discard"]
 
   # A safe snapshot whose checks could not run is a person's decision, not the
@@ -767,28 +787,31 @@ defmodule Ryker.Slack.TaskCardProjection do
   # finished run is reviewed without a click, so there a re-check could only
   # repeat itself (Andrew, 2026-09-30: "why do I even need to click to review
   # latest state?").
-  defp publication_controls(%Publication{status: :blocked, review_document: review}) do
+  defp publication_controls(%Publication.Publication{status: :blocked, review_document: review}) do
     cond do
-      not Review.draft_shareable?(review) -> ["update", "discard"]
-      Review.no_checks?(review) -> ["publish", "discard"]
+      not Publication.Review.draft_shareable?(review) -> ["update", "discard"]
+      Publication.Review.no_checks?(review) -> ["publish", "discard"]
       true -> ["publish", "update", "discard"]
     end
   end
 
-  defp publication_controls(%Publication{status: :published, expected_remote_head_sha: head_sha})
+  defp publication_controls(%Publication.Publication{
+         status: :published,
+         expected_remote_head_sha: head_sha
+       })
        when is_binary(head_sha),
        do: ["open", "update", "discard"]
 
   # Ryker looks at an open pull request every ten minutes and at once on each check, workflow or
   # pull request event, so the card has nothing to offer for refreshing it (Andrew, 2026-09-30, of
   # "Check delivery": "not clear wtf this button does?").
-  defp publication_controls(%Publication{status: :published}), do: ["open"]
-  defp publication_controls(%Publication{status: :published_ready}), do: ["open"]
+  defp publication_controls(%Publication.Publication{status: :published}), do: ["open"]
+  defp publication_controls(%Publication.Publication{status: :published_ready}), do: ["open"]
   defp publication_controls(_publication), do: []
 
   defp latest_publication_offer(episode_id) do
     episode_id
-    |> Record.Query.delivered_publication_offers()
+    |> Records.Record.Query.delivered_publication_offers()
     |> Repo.all()
     |> Enum.find_value(fn {record, delivery_document} ->
       record_refs = get_in(delivery_document || %{}, ["outcome", "record_refs"])
@@ -825,42 +848,48 @@ defmodule Ryker.Slack.TaskCardProjection do
   # button carries the recovery fingerprint the card was rendered against, which
   # is the same guard the control-plane action uses: a card that has gone stale
   # cannot resume a turn that has moved on.
-  defp resumable?(%Turn{status: :blocked, cancellation_intent: %{"action" => "block"}}), do: true
+  defp resumable?(%Work.Turn{status: :blocked, cancellation_intent: %{"action" => "block"}}),
+    do: true
+
   defp resumable?(_turn), do: false
 
-  defp resume_ref(task_ref, %Turn{} = turn, nil) do
-    if resumable?(turn), do: "#{task_ref}|#{Custody.recovery_fingerprint(turn)}"
+  defp resume_ref(task_ref, %Work.Turn{} = turn, nil) do
+    if resumable?(turn), do: "#{task_ref}|#{Work.Custody.recovery_fingerprint(turn)}"
   end
 
   defp resume_ref(_task_ref, _turn, _hold), do: nil
 
-  defp incident?(%Record{payload: %{"kind" => "incident"}}), do: true
+  defp incident?(%Records.Record{payload: %{"kind" => "incident"}}), do: true
   defp incident?(_record), do: false
 
-  defp stop_allowed?(%Episode{state: :working, owner_kind: :turn, owner_ref: turn_ref}, %Turn{
-         status: :pending,
-         turn_ref: turn_ref
-       }),
+  defp stop_allowed?(
+         %Episodes.Episode{state: :working, owner_kind: :turn, owner_ref: turn_ref},
+         %Work.Turn{
+           status: :pending,
+           turn_ref: turn_ref
+         }
+       ),
        do: true
 
   defp stop_allowed?(_episode, _turn), do: false
 
-  defp close_allowed?(%Episode{state: state}, _turn, _publication)
+  defp close_allowed?(%Episodes.Episode{state: state}, _turn, _publication)
        when state in [:complete, :cancelled],
        do: false
 
-  defp close_allowed?(_episode, %Turn{status: status}, _publication)
+  defp close_allowed?(_episode, %Work.Turn{status: status}, _publication)
        when status in [:cancel_pending, :delivery_pending],
        do: false
 
-  defp close_allowed?(_episode, _turn, %Publication{status: status})
+  defp close_allowed?(_episode, _turn, %Publication.Publication{status: status})
        when status in [:review_pending, :review_ready, :publish_pending, :published_ready],
        do: false
 
   defp close_allowed?(_episode, _turn, _publication), do: true
 
-  defp bound_session?(%Session{coop_session_id: value}) when is_binary(value) and value != "",
-    do: true
+  defp bound_session?(%Work.Session{coop_session_id: value})
+       when is_binary(value) and value != "",
+       do: true
 
   defp bound_session?(_session), do: false
 

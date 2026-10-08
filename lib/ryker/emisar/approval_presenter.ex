@@ -6,24 +6,24 @@ defmodule Ryker.Emisar.ApprovalPresenter do
   and delivery identity. Neither the Emisar response nor model content can
   redirect the update.
   """
-  alias Ryker.Delivery.{Adapters, Request, Retry}
+  alias Ryker.Delivery
   alias Ryker.Emisar.{Approval, ApprovalStatus, Review, RunState}
-  alias Ryker.Episodes.Episode
-  alias Ryker.Records.Record
+  alias Ryker.Episodes
+  alias Ryker.Records
   alias Ryker.Repo
-  alias Ryker.Work.{DeliveryReceipt, Turn}
+  alias Ryker.Work
 
   @spec publish(Approval.t(), RunState.t(), map()) :: :ok | {:error, term()}
   def publish(%Approval{} = approval, %RunState{} = state, adapters) when is_map(adapters) do
     if changed?(approval, state) do
       with {:ok, record, turn, episode} <- source(approval),
-           {:ok, receipt} <- DeliveryReceipt.prepare(turn.external_receipt),
+           {:ok, receipt} <- Work.DeliveryReceipt.prepare(turn.external_receipt),
            :ok <- exact_receipt(turn, episode, receipt),
            true <- record.status == :open,
            {:ok, request} <- request(turn, episode),
            {:ok, status} <- ApprovalStatus.new(approval, state),
            :ok <-
-             Adapters.update_message(
+             Delivery.Adapters.update_message(
                request,
                receipt["message_ref"],
                %{"emisar_approval_status" => status},
@@ -47,7 +47,7 @@ defmodule Ryker.Emisar.ApprovalPresenter do
   # and the task never resumed after its review (2026-10-04 review).
   @spec permanent?(term()) :: boolean()
   def permanent?({:emisar_approval_presentation_unavailable, _reason}), do: false
-  def permanent?(reason), do: not Retry.retryable?(reason)
+  def permanent?(reason), do: not Delivery.Retry.retryable?(reason)
 
   # A repaint costs an operator's attention, so it follows a change this card can
   # actually show. The card reports the REVIEW: a second reviewer arriving, a
@@ -65,13 +65,14 @@ defmodule Ryker.Emisar.ApprovalPresenter do
   end
 
   defp source(approval) do
-    record = Repo.one(Record.Query.by_id(approval.record_id))
-    turn = record && Repo.one(Turn.Query.by_id(record.turn_id))
-    episode = Repo.one(Episode.Query.by_id(approval.episode_id))
+    record = Repo.one(Records.Record.Query.by_id(approval.record_id))
+    turn = record && Repo.one(Work.Turn.Query.by_id(record.turn_id))
+    episode = Repo.one(Episodes.Episode.Query.by_id(approval.episode_id))
 
     case {record, turn, episode} do
-      {%Record{episode_id: episode_id, kind: "emisar_approval"} = record,
-       %Turn{episode_id: episode_id, status: :settled} = turn, %Episode{id: episode_id} = episode} ->
+      {%Records.Record{episode_id: episode_id, kind: "emisar_approval"} = record,
+       %Work.Turn{episode_id: episode_id, status: :settled} = turn,
+       %Episodes.Episode{id: episode_id} = episode} ->
         {:ok, record, turn, episode}
 
       _invalid ->
@@ -90,7 +91,7 @@ defmodule Ryker.Emisar.ApprovalPresenter do
   end
 
   defp request(turn, episode) do
-    Request.new(%{
+    Delivery.Request.new(%{
       conversation_ref: episode.destination_conversation_ref,
       document: %{"message" => "Host-owned governed action status."},
       kind: :message,

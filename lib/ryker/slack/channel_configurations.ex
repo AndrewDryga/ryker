@@ -17,12 +17,11 @@ defmodule Ryker.Slack.ChannelConfigurations do
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity
   alias Ryker.Memories
-  alias Ryker.Memories.Cases
   alias Ryker.People
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.RoutingExamples
-  alias Ryker.Settings.Environment
+  alias Ryker.Settings
   alias Ryker.Slack.ChannelConfiguration
   alias Ryker.Slack.{ChannelFence, ChannelMembership}
   alias Ryker.Slack.ChannelMembershipEvent
@@ -333,7 +332,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
   defp environment_saved?(nil), do: true
 
   defp environment_saved?(ref),
-    do: Repo.exists?(Environment.Query.by_ref(ref))
+    do: Repo.exists?(Settings.Environment.Query.by_ref(ref))
 
   # The environment's foreign key refuses one removed since it was checked or
   # offered; any other invalid write is a host defect and raises.
@@ -902,7 +901,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
     # forgetting takes, the order a message's own deletion takes them in
     # (`Ryker.Ingress.Inbox`).
     :ok =
-      Cases.withdraw_conversation_in_transaction(
+      Memories.Cases.withdraw_conversation_in_transaction(
         "slack",
         "slack:#{membership.workspace_ref}:#{membership.channel_ref}"
       )
@@ -1436,7 +1435,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
   defp catalog(%{default_environment: default, environments: environments} = catalog)
        when map_size(catalog) == 2 do
     with {:ok, environments} <- environment_choices(environments),
-         true <- is_nil(default) or Regex.match?(Environment.ref_pattern(), default) do
+         true <- is_nil(default) or Regex.match?(Settings.Environment.ref_pattern(), default) do
       {:ok, %{default_environment: default, environments: environments}}
     else
       false -> {:error, {:invalid_channel_configuration, :catalog}}
@@ -1466,7 +1465,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
               length(repositories) <= @maximum_environment_repositories do
     repository_refs = Enum.map(repositories, &Map.get(&1, :ref))
 
-    is_binary(ref) and Regex.match?(Environment.ref_pattern(), ref) and
+    is_binary(ref) and Regex.match?(Settings.Environment.ref_pattern(), ref) and
       reference(name, :name, 320) == :ok and String.length(name) <= 80 and
       Enum.all?(repositories, &repository_choice?/1) and
       Enum.uniq(repository_refs) == repository_refs

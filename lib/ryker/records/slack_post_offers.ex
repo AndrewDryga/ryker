@@ -7,7 +7,7 @@ defmodule Ryker.Records.SlackPostOffers do
   control on the exact delivered offer; that confirmation enqueues one
   idempotent outbox action.
   """
-  alias Ryker.Delivery.{PlatformAction, PlatformActionCustody}
+  alias Ryker.Delivery
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
@@ -48,7 +48,7 @@ defmodule Ryker.Records.SlackPostOffers do
 
   defp confirm_open(record, attributes) do
     with {:ok, %{action: action}} <-
-           PlatformActionCustody.enqueue_confirmed_record_in_transaction(
+           Delivery.PlatformActionCustody.enqueue_confirmed_record_in_transaction(
              record,
              platform_action_attributes(record)
            ),
@@ -60,8 +60,8 @@ defmodule Ryker.Records.SlackPostOffers do
   end
 
   defp confirmed(record) do
-    case Repo.one(PlatformAction.Query.by_turn_slot(record.turn_id, host_slot(record))) do
-      %PlatformAction{} = action ->
+    case Repo.one(Delivery.PlatformAction.Query.by_turn_slot(record.turn_id, host_slot(record))) do
+      %Delivery.PlatformAction{} = action ->
         %{action: action, record: record, status: :duplicate}
 
       nil ->

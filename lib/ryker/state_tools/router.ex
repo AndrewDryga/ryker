@@ -9,7 +9,7 @@ defmodule Ryker.StateTools.Router do
   @behaviour Plug
   import Plug.Conn
   alias Ryker.{CanonicalJSON, Secret}
-  alias Ryker.Emisar.Tools, as: EmisarTools
+  alias Ryker.Emisar
   alias Ryker.HTTPConnection
   alias Ryker.StateTools.{CallLog, Capabilities, LookupContext, Tools, ToolVisibility}
   require Logger
@@ -275,21 +275,21 @@ defmodule Ryker.StateTools.Router do
 
     Enum.filter(catalog.tools, fn tool ->
       not MapSet.member?(taken, tool["name"]) and
-        (not observe_only? or EmisarTools.read_only?(tool))
+        (not observe_only? or Emisar.Tools.read_only?(tool))
     end)
   end
 
   defp emisar_catalog(options) do
     with {:ok, pin} <- Tools.emisar_pin(options),
-         {:ok, catalog} <- EmisarTools.catalog(pin),
+         {:ok, catalog} <- Emisar.Tools.catalog(pin),
          do: {:ok, pin, catalog}
   end
 
   defp call_emisar(name, arguments, options) do
     with {:ok, pin} <- emisar_pin(options),
-         {:ok, catalog} <- EmisarTools.catalog(pin),
+         {:ok, catalog} <- Emisar.Tools.catalog(pin),
          %{} = tool <- Enum.find(visible_emisar_tools(catalog, options), &(&1["name"] == name)) do
-      pin |> EmisarTools.call(tool, arguments) |> emisar_answer()
+      pin |> Emisar.Tools.call(tool, arguments) |> emisar_answer()
     else
       :no_emisar -> {:error, "unknown_tool"}
       nil -> {:error, "unknown_tool"}

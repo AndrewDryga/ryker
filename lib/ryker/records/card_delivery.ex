@@ -10,8 +10,8 @@ defmodule Ryker.Records.CardDelivery do
   press is still the press of the card we delivered. Only the conversation is
   held to the episode, because no card is ever confirmable from another channel.
   """
-  alias Ryker.Episodes.Episode
-  alias Ryker.Work.Turn
+  alias Ryker.Episodes
+  alias Ryker.Work
 
   @type target :: %{
           conversation_ref: String.t(),
@@ -26,11 +26,11 @@ defmodule Ryker.Records.CardDelivery do
   Callers map `:mismatch` and `:not_delivered` onto their own vocabulary so the
   refusal a person reads names the control they pressed.
   """
-  @spec delivered_from?(Episode.t(), Turn.t(), target()) ::
+  @spec delivered_from?(Episodes.Episode.t(), Work.Turn.t(), target()) ::
           :ok | {:error, :mismatch | :not_delivered}
   def delivered_from?(
-        %Episode{} = episode,
-        %Turn{status: :settled, external_receipt: receipt},
+        %Episodes.Episode{} = episode,
+        %Work.Turn{status: :settled, external_receipt: receipt},
         target
       )
       when is_map(receipt) do

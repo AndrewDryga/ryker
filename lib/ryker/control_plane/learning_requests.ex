@@ -29,14 +29,14 @@ defmodule Ryker.ControlPlane.LearningRequests do
       timestamp: 1
     ]
 
-  alias Ryker.Accounting.Execution
+  alias Ryker.Accounting
   alias Ryker.ControlPlane.{BackgroundCards, CallRun, ConversationMemory, LearningActivity}
   alias Ryker.ControlPlane.{LearningRequests, Paths}
   alias Ryker.InspectionRedactor, as: Redactor
-  alias Ryker.Learning.LearningRun
+  alias Ryker.Learning
   alias Ryker.Repo
-  alias Ryker.Slack.Names
-  alias Ryker.Work.Session
+  alias Ryker.Slack
+  alias Ryker.Work
 
   @limit 50
 
@@ -134,12 +134,12 @@ defmodule Ryker.ControlPlane.LearningRequests do
       numbers: numbers(runs),
       executions:
         "learning"
-        |> Execution.Query.by_sources(ids)
+        |> Accounting.Execution.Query.by_sources(ids)
         |> Repo.all()
         |> Map.new(&{&1.source_id, &1}),
       sessions:
         ids
-        |> Session.Query.by_learning_run_ids()
+        |> Work.Session.Query.by_learning_run_ids()
         |> Repo.all()
         |> Map.new(&{&1.learning_run_id, &1}),
       changes: changes(runs, secrets)
@@ -285,7 +285,7 @@ defmodule Ryker.ControlPlane.LearningRequests do
       counts: %{},
       href: nil,
       # The briefing names Slack people while it is drawn; see `Names.revision/0`.
-      names: Names.revision()
+      names: Slack.Names.revision()
     }
   end
 
@@ -303,7 +303,7 @@ defmodule Ryker.ControlPlane.LearningRequests do
   # does; the reason is the Learning page's own sentence for it.
   defp retried_after(run, context) do
     with %{previous: previous} when is_binary(previous) <- context.numbers[run.id],
-         %LearningRun{} = earlier <- context.runs[previous],
+         %Learning.LearningRun{} = earlier <- context.runs[previous],
          error when is_binary(error) <- LearningActivity.attempt_error(earlier) do
       %{
         generation: context.numbers[previous].number,
@@ -336,10 +336,10 @@ defmodule Ryker.ControlPlane.LearningRequests do
 
   defp updates(_document), do: nil
 
-  defp outcome(%LearningRun{status: :applied}, _updates, [_ | _] = changes),
+  defp outcome(%Learning.LearningRun{status: :applied}, _updates, [_ | _] = changes),
     do: %{label: "Outcome", value: saved(length(changes))}
 
-  defp outcome(%LearningRun{status: :applied}, updates, []) when is_list(updates) do
+  defp outcome(%Learning.LearningRun{status: :applied}, updates, []) when is_list(updates) do
     case Enum.split_with(updates, &(&1["action"] == "defer")) do
       {[], []} ->
         %{label: "Outcome", value: "Nothing saved", note: "the model found nothing new to keep"}
@@ -352,13 +352,13 @@ defmodule Ryker.ControlPlane.LearningRequests do
     end
   end
 
-  defp outcome(%LearningRun{status: :applied}, nil, []), do: nil
+  defp outcome(%Learning.LearningRun{status: :applied}, nil, []), do: nil
 
-  defp outcome(%LearningRun{status: status} = run, _updates, _changes)
+  defp outcome(%Learning.LearningRun{status: status} = run, _updates, _changes)
        when status in [:rejected, :stale],
        do: %{label: "Outcome", value: "Nothing saved", note: LearningActivity.attempt_error(run)}
 
-  defp outcome(%LearningRun{status: :responded}, _updates, _changes),
+  defp outcome(%Learning.LearningRun{status: :responded}, _updates, _changes),
     do: %{label: "Outcome", value: "Ryker is checking the response"}
 
   defp outcome(_run, _updates, _changes), do: nil
@@ -377,7 +377,8 @@ defmodule Ryker.ControlPlane.LearningRequests do
 
   # An applied response whose topic revisions are no longer kept still says
   # which topics it wrote, from the response itself.
-  defp unlinked_saves(%LearningRun{status: :applied}, updates, []) when is_list(updates) do
+  defp unlinked_saves(%Learning.LearningRun{status: :applied}, updates, [])
+       when is_list(updates) do
     for %{"action" => action} = update when action in ["create", "update"] <- updates do
       %{
         label: if(action == "create", do: "Created topic", else: "Updated topic"),
@@ -389,7 +390,7 @@ defmodule Ryker.ControlPlane.LearningRequests do
   defp unlinked_saves(_run, _updates, _changes), do: []
 
   # A response that was not applied still says what it proposed.
-  defp proposals(%LearningRun{status: :applied}, _updates), do: []
+  defp proposals(%Learning.LearningRun{status: :applied}, _updates), do: []
   defp proposals(_run, nil), do: []
 
   defp proposals(_run, updates) do

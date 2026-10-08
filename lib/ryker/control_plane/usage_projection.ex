@@ -1,9 +1,9 @@
 defmodule Ryker.ControlPlane.UsageProjection do
   @moduledoc "Comparable usage breakdowns from the same deduplicated execution ledger."
-  alias Ryker.Accounting.{Execution, Pricing}
+  alias Ryker.Accounting
   alias Ryker.ControlPlane.{Activity, RepositoryNames, Usage}
   alias Ryker.Repo
-  alias Ryker.Work.Measurement
+  alias Ryker.Work
 
   @filters %{
     "usage_profile" => :profile,
@@ -39,7 +39,7 @@ defmodule Ryker.ControlPlane.UsageProjection do
 
     window
     |> since()
-    |> Execution.Query.ledger(mode)
+    |> Accounting.Execution.Query.ledger(mode)
     |> snapshot()
     |> Map.merge(%{mode: mode, window: window})
   end
@@ -59,7 +59,7 @@ defmodule Ryker.ControlPlane.UsageProjection do
       executions =
         window
         |> since()
-        |> Execution.Query.ledger(mode)
+        |> Accounting.Execution.Query.ledger(mode)
         |> Usage.Query.dimensions()
 
       selected =
@@ -88,7 +88,7 @@ defmodule Ryker.ControlPlane.UsageProjection do
   def since(_), do: DateTime.add(DateTime.utc_now(), -7, :day)
 
   def snapshot(query) do
-    prices = Pricing.used(query)
+    prices = Accounting.Pricing.used(query)
     query = Usage.Query.dimensions(query)
 
     targets =
@@ -96,7 +96,7 @@ defmodule Ryker.ControlPlane.UsageProjection do
       |> Enum.map(fn row ->
         row
         |> Map.put(:target, row.execution_target)
-        |> Map.merge(Measurement.target_parts(row.execution_target))
+        |> Map.merge(Work.Measurement.target_parts(row.execution_target))
       end)
 
     %{
@@ -124,7 +124,7 @@ defmodule Ryker.ControlPlane.UsageProjection do
 
   def filter_options do
     nil
-    |> Execution.Query.ledger("all")
+    |> Accounting.Execution.Query.ledger("all")
     |> Usage.Query.dimensions()
     |> Usage.Query.filter_options(500)
     |> Repo.all()

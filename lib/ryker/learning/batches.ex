@@ -10,7 +10,7 @@ defmodule Ryker.Learning.Batches do
   commit (`Ryker.Learning.subscribe_learning/0`), except a lease renewal.
   """
   alias Ryker.{AdvisoryLock, CanonicalJSON}
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress
   alias Ryker.Learning
   alias Ryker.Learning.{Batch, InputMembership}
   alias Ryker.Learning.{LearningInput, LearningRun, LearningSources}
@@ -426,9 +426,9 @@ defmodule Ryker.Learning.Batches do
 
     entries =
       ids
-      |> Entry.Query.by_ids()
-      |> Entry.Query.ordered_by_id()
-      |> Entry.Query.lock_for_share()
+      |> Ingress.Inbox.Entry.Query.by_ids()
+      |> Ingress.Inbox.Entry.Query.ordered_by_id()
+      |> Ingress.Inbox.Entry.Query.lock_for_share()
       |> Repo.all()
 
     valid_ids = entries |> Enum.filter(&learnable_entry?(&1, batch)) |> Enum.map(& &1.id)
@@ -582,9 +582,9 @@ defmodule Ryker.Learning.Batches do
     entries =
       pending
       |> LearningInput.Query.by_scope(scope)
-      |> Entry.Query.ordered_by_oldest()
-      |> Entry.Query.limit_to(settings.batch_size)
-      |> Entry.Query.lock_for_update()
+      |> Ingress.Inbox.Entry.Query.ordered_by_oldest()
+      |> Ingress.Inbox.Entry.Query.limit_to(settings.batch_size)
+      |> Ingress.Inbox.Entry.Query.lock_for_update()
       |> Repo.all()
 
     batch =
@@ -605,9 +605,9 @@ defmodule Ryker.Learning.Batches do
 
     current =
       ids
-      |> Entry.Query.by_ids()
+      |> Ingress.Inbox.Entry.Query.by_ids()
       |> processable(now)
-      |> Entry.Query.select_ids()
+      |> Ingress.Inbox.Entry.Query.select_ids()
       |> Repo.all()
       |> MapSet.new()
 

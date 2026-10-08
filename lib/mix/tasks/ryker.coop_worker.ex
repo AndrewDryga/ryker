@@ -14,25 +14,27 @@ defmodule Mix.Tasks.Ryker.CoopWorker do
   """
   use Mix.Task
   alias Mix.Tasks.Ryker.OperatorSupport, as: Support
-  alias Ryker.CoopFleet.{Enrollment, WorkerLifecycle}
+  alias Ryker.CoopFleet
 
   @impl Mix.Task
   def run(arguments) do
     case arguments do
       ["enroll", worker_id, workspace_ref, operator_ref] ->
-        with_repo(fn -> Enrollment.issue_token(worker_id, workspace_ref, operator_ref) end)
+        with_repo(fn ->
+          CoopFleet.Enrollment.issue_token(worker_id, workspace_ref, operator_ref)
+        end)
 
       ["enroll", worker_id, workspace_ref, operator_ref, ttl] ->
         enroll_with_ttl(worker_id, workspace_ref, operator_ref, Integer.parse(ttl))
 
       ["drain", worker_id, operator_ref] ->
-        lifecycle(fn -> WorkerLifecycle.drain(worker_id, operator_ref) end)
+        lifecycle(fn -> CoopFleet.WorkerLifecycle.drain(worker_id, operator_ref) end)
 
       ["resume", worker_id, operator_ref] ->
-        lifecycle(fn -> WorkerLifecycle.resume(worker_id, operator_ref) end)
+        lifecycle(fn -> CoopFleet.WorkerLifecycle.resume(worker_id, operator_ref) end)
 
       ["revoke", worker_id, operator_ref] ->
-        lifecycle(fn -> WorkerLifecycle.revoke(worker_id, operator_ref) end)
+        lifecycle(fn -> CoopFleet.WorkerLifecycle.revoke(worker_id, operator_ref) end)
 
       _invalid ->
         usage!()
@@ -40,7 +42,9 @@ defmodule Mix.Tasks.Ryker.CoopWorker do
   end
 
   defp enroll_with_ttl(worker_id, workspace_ref, operator_ref, {ttl, ""}) do
-    with_repo(fn -> Enrollment.issue_token(worker_id, workspace_ref, operator_ref, ttl) end)
+    with_repo(fn ->
+      CoopFleet.Enrollment.issue_token(worker_id, workspace_ref, operator_ref, ttl)
+    end)
   end
 
   defp enroll_with_ttl(_worker_id, _workspace_ref, _operator_ref, _invalid), do: usage!()

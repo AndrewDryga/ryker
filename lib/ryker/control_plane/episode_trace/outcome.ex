@@ -7,19 +7,19 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
   import Ryker.ControlPlane.EpisodeTrace.Step
   alias Ryker.ControlPlane.Emoji
   alias Ryker.ControlPlane.Paths
-  alias Ryker.Delivery.PlatformAction
+  alias Ryker.Delivery
   alias Ryker.InspectionRedactor
-  alias Ryker.Publication.Publication
+  alias Ryker.Publication
   alias Ryker.Repo
-  alias Ryker.Schedules.Schedule
-  alias Ryker.Slack.IncidentRoom
+  alias Ryker.Schedules
+  alias Ryker.Slack
 
   @doc "The episode's newest 200 platform actions, oldest first."
   def platform_actions(episode_id) do
     episode_id
-    |> PlatformAction.Query.by_episode_id()
-    |> PlatformAction.Query.ordered_by_recent()
-    |> PlatformAction.Query.limit_to(200)
+    |> Delivery.PlatformAction.Query.by_episode_id()
+    |> Delivery.PlatformAction.Query.ordered_by_recent()
+    |> Delivery.PlatformAction.Query.limit_to(200)
     |> Repo.all()
     |> Enum.reverse()
   end
@@ -77,7 +77,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
     end)
   end
 
-  defp platform_action_request(%PlatformAction{kind: :reaction, document: document}) do
+  defp platform_action_request(%Delivery.PlatformAction{kind: :reaction, document: document}) do
     case reaction(document) do
       {"remove", emoji} -> "remove #{emoji} from the message"
       {_add, emoji} -> "add #{emoji} to the message"
@@ -92,7 +92,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
   defp platform("github"), do: "GitHub"
   defp platform(transport), do: capitalize(transport)
 
-  defp platform_action_done(%PlatformAction{kind: :reaction, document: document}) do
+  defp platform_action_done(%Delivery.PlatformAction{kind: :reaction, document: document}) do
     case reaction(document) do
       {"remove", emoji} -> "removed #{emoji} from the message"
       {_add, emoji} -> "added #{emoji} to the message"
@@ -109,9 +109,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
   @doc "Incident rooms the episode requested or was opened from."
   def incident_steps(episode_id) do
     episode_id
-    |> IncidentRoom.Query.by_episode_or_source()
-    |> IncidentRoom.Query.ordered_by_requested_at_desc()
-    |> IncidentRoom.Query.limit_to(50)
+    |> Slack.IncidentRoom.Query.by_episode_or_source()
+    |> Slack.IncidentRoom.Query.ordered_by_requested_at_desc()
+    |> Slack.IncidentRoom.Query.limit_to(50)
     |> Repo.all()
     |> Enum.reverse()
     |> Enum.map(fn room ->
@@ -140,9 +140,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
   @doc "The episode's newest 50 publications, oldest first."
   def publications(episode_id) do
     episode_id
-    |> Publication.Query.by_episode_id()
-    |> Publication.Query.ordered_by_recent()
-    |> Publication.Query.limit_to(50)
+    |> Publication.Publication.Query.by_episode_id()
+    |> Publication.Publication.Query.ordered_by_recent()
+    |> Publication.Publication.Query.limit_to(50)
     |> Repo.all()
     |> Enum.reverse()
   end
@@ -234,9 +234,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Outcome do
   @doc "Schedules the episode created."
   def schedule_steps(episode_id) do
     episode_id
-    |> Schedule.Query.by_source_episode_id()
-    |> Schedule.Query.ordered_by_confirmed_at_desc()
-    |> Schedule.Query.limit_to(50)
+    |> Schedules.Schedule.Query.by_source_episode_id()
+    |> Schedules.Schedule.Query.ordered_by_confirmed_at_desc()
+    |> Schedules.Schedule.Query.limit_to(50)
     |> Repo.all()
     |> Enum.reverse()
     |> Enum.map(fn schedule ->

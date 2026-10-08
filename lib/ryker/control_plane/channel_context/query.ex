@@ -7,20 +7,20 @@ defmodule Ryker.ControlPlane.ChannelContext.Query do
   (`Ryker.ControlPlane.ChannelScope`).
   """
   use Ryker, :query
-  alias Ryker.Behaviors.Behavior
-  alias Ryker.Continuity.{ConversationSummary, ConversationSummaryDraft}
+  alias Ryker.Behaviors
+  alias Ryker.Continuity
   alias Ryker.ControlPlane.ChannelScope
-  alias Ryker.Episodes.Episode
-  alias Ryker.Knowledge.ConversationKnowledge
-  alias Ryker.Memories.MemoryEntry
-  alias Ryker.Work.Turn
+  alias Ryker.Episodes
+  alias Ryker.Knowledge
+  alias Ryker.Memories
+  alias Ryker.Work
 
   @doc """
   Standing rules that target exactly this conversation and are current,
   paused ones included.
   """
   def rules(scope) do
-    from(behavior in Behavior,
+    from(behavior in Behaviors.Behavior,
       where:
         behavior.kind == :standing_assignment and
           behavior.workspace_ref == ^scope.canonical_workspace_ref and
@@ -36,7 +36,7 @@ defmodule Ryker.ControlPlane.ChannelContext.Query do
   repository or workspace scope.
   """
   def effective_behaviors(kind, scope) do
-    from([operator_behaviors: behavior] in Behavior.Query.all(),
+    from([operator_behaviors: behavior] in Behaviors.Behavior.Query.all(),
       where:
         behavior.kind == ^kind and behavior.status == :active and
           behavior.workspace_ref == ^scope.canonical_workspace_ref and
@@ -66,7 +66,7 @@ defmodule Ryker.ControlPlane.ChannelContext.Query do
   conversation confirmed.
   """
   def memory(scope) do
-    from([operational_memory_entries: entry] in MemoryEntry.Query.all(),
+    from([operational_memory_entries: entry] in Memories.MemoryEntry.Query.all(),
       where:
         entry.status == :active and
           (is_nil(entry.expires_at) or entry.expires_at > fragment("clock_timestamp()")),
@@ -130,7 +130,7 @@ defmodule Ryker.ControlPlane.ChannelContext.Query do
 
   @doc "This conversation's durable summaries."
   def summaries(scope) do
-    from(summary in ConversationSummary,
+    from(summary in Continuity.ConversationSummary,
       where:
         summary.transport == "slack" and
           summary.workspace_ref == ^scope.canonical_workspace_ref and
@@ -140,8 +140,8 @@ defmodule Ryker.ControlPlane.ChannelContext.Query do
 
   @doc "Summary drafts of requests answered in this conversation."
   def summary_drafts(scope) do
-    from(draft in ConversationSummaryDraft,
-      join: episode in Episode,
+    from(draft in Continuity.ConversationSummaryDraft,
+      join: episode in Episodes.Episode,
       on: episode.id == draft.episode_id,
       where:
         episode.destination_transport == "slack" and
@@ -151,8 +151,8 @@ defmodule Ryker.ControlPlane.ChannelContext.Query do
 
   @doc "Accepted answers in this conversation whose summary could not be saved."
   def failed_handovers(scope) do
-    from(turn in Turn,
-      join: episode in Episode,
+    from(turn in Work.Turn,
+      join: episode in Episodes.Episode,
       on: episode.id == turn.episode_id,
       where:
         not is_nil(turn.summary_error_code) and episode.destination_transport == "slack" and
@@ -162,7 +162,7 @@ defmodule Ryker.ControlPlane.ChannelContext.Query do
 
   @doc "Topics learned in exactly this conversation."
   def knowledge(scope) do
-    from(item in ConversationKnowledge,
+    from(item in Knowledge.ConversationKnowledge,
       where:
         item.transport == "slack" and
           item.workspace_ref == ^scope.canonical_workspace_ref and

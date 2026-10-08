@@ -8,7 +8,7 @@ defmodule Ryker.Defaults do
   inside the total) are checked together by `validate!/0` rather than being
   independently settable into an inconsistent combination.
   """
-  alias Ryker.Admission.Runtime, as: AdmissionRuntime
+  alias Ryker.Admission
   alias Ryker.Config
 
   # A caller waiting on a worker command hears when it settles
@@ -199,7 +199,7 @@ defmodule Ryker.Defaults do
       # Admission talks to Coop through the Work fleet client. One call longer
       # than its heartbeat window, a third of its lease, could let another
       # worker claim the same input while the first is still waiting.
-      {@coop.receive_timeout_ms <= div(AdmissionRuntime.lease_seconds() * 1_000, 3),
+      {@coop.receive_timeout_ms <= div(Admission.Runtime.lease_seconds() * 1_000, 3),
        "a Coop call must fit inside the admission heartbeat window"}
     ]
 

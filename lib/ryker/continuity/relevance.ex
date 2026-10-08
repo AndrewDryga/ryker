@@ -10,7 +10,7 @@ defmodule Ryker.Continuity.Relevance do
   knowledge"). Ranking keeps each list's own order among texts that share nothing with the
   request, so nothing changes where the request says nothing to compare.
   """
-  alias Ryker.Episodes.RoutingDigests
+  alias Ryker.Episodes
 
   @identifier_weight 3
 
@@ -21,7 +21,7 @@ defmodule Ryker.Continuity.Relevance do
     texts = Enum.filter(texts, &is_binary/1)
 
     %{
-      identifiers: texts |> RoutingDigests.identifiers() |> MapSet.new(),
+      identifiers: texts |> Episodes.RoutingDigests.identifiers() |> MapSet.new(),
       words: texts |> Enum.map(&words/1) |> Enum.reduce(MapSet.new(), &MapSet.union/2)
     }
   end
@@ -45,7 +45,10 @@ defmodule Ryker.Continuity.Relevance do
   @spec score(String.t(), request()) :: non_neg_integer()
   def score(text, %{identifiers: identifiers, words: words}) when is_binary(text) do
     shared_identifiers =
-      [text] |> RoutingDigests.identifiers() |> MapSet.new() |> MapSet.intersection(identifiers)
+      [text]
+      |> Episodes.RoutingDigests.identifiers()
+      |> MapSet.new()
+      |> MapSet.intersection(identifiers)
 
     shared_words = text |> words() |> MapSet.intersection(words)
 

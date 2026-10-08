@@ -1,9 +1,9 @@
 defmodule Ryker.Improvement.Candidate.Query do
   @moduledoc "Requests feedback flagged for review, for every read of `improvement_candidates`."
   use Ryker, :query
-  alias Ryker.Delivery.RoutingResponse
+  alias Ryker.Delivery
   alias Ryker.Improvement.{AnalysisRun, Candidate}
-  alias Ryker.Work.OwningTurn
+  alias Ryker.Work
 
   def all, do: from(candidates in Candidate, as: :improvement_candidates)
 
@@ -94,12 +94,12 @@ defmodule Ryker.Improvement.Candidate.Query do
   # quick replies routing chose for the message were delivered or given up.
   defp at_rest do
     running_work =
-      from(work in subquery(OwningTurn.Query.work_rest()),
+      from(work in subquery(Work.OwningTurn.Query.work_rest()),
         where: work.episode_id == parent_as(:improvement_candidates).episode_id and work.running
       )
 
     pending_replies =
-      from(response in RoutingResponse,
+      from(response in Delivery.RoutingResponse,
         where:
           response.input_id == parent_as(:improvement_candidates).input_id and
             response.status == :pending

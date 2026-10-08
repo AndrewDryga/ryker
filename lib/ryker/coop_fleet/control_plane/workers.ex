@@ -22,7 +22,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
   alias Ryker.Crypto
   alias Ryker.Episodes
   alias Ryker.Repo
-  alias Ryker.Work.Session
+  alias Ryker.Work
 
   @spec handle_poll_certificate(binary(), map(), keyword()) ::
           {:ok, map()} | {:error, term()}
@@ -304,8 +304,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
 
       session_ids ->
         session_ids
-        |> Session.Query.by_ids()
-        |> Session.Query.select_episode_ids()
+        |> Work.Session.Query.by_ids()
+        |> Work.Session.Query.select_episode_ids()
         |> Repo.all()
         |> Enum.each(&Episodes.broadcast_episode_updated/1)
     end

@@ -10,14 +10,13 @@ defmodule Ryker.Publication.Followups.Delivery do
   for a cancelled task, or for an input the task already holds in a newer
   revision, is marked admitted without waking it.
   """
-  alias Ryker.Delivery.Request
+  alias Ryker.Delivery
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, Episode}
-  alias Ryker.Ingress.Input
+  alias Ryker.Ingress
   alias Ryker.Publication.Followups.{Leases, Store}
   alias Ryker.Publication.{LifecycleEvent, Publication}
   alias Ryker.Repo
-  alias Ryker.Work.{Custody, DeliveryReceipt}
+  alias Ryker.Work
 
   def admit_wakeup(event_ref, lease_ref) do
     with :ok <- Store.reference(event_ref, :event_ref),
@@ -38,7 +37,7 @@ defmodule Ryker.Publication.Followups.Delivery do
   def confirm_delivery(event_ref, lease_ref, receipt) do
     with :ok <- Store.reference(event_ref, :event_ref),
          :ok <- Store.reference(lease_ref, :lease_ref),
-         {:ok, receipt} <- DeliveryReceipt.prepare(receipt) do
+         {:ok, receipt} <- Work.DeliveryReceipt.prepare(receipt) do
       Store.transaction(fn -> confirm_delivery_locked(event_ref, lease_ref, receipt) end)
     end
   end
@@ -63,13 +62,13 @@ defmodule Ryker.Publication.Followups.Delivery do
 
   defp admit_wakeup_event(%LifecycleEvent{wakeup_state: :pending} = event, now) do
     publication = Repo.one!(Publication.Query.by_id(event.publication_id))
-    episode = Repo.one!(Episode.Query.by_id(event.episode_id))
+    episode = Repo.one!(Episodes.Episode.Query.by_id(event.episode_id))
     input = wakeup_input(publication, episode, event)
     command = admit_command(episode, input, event)
 
     case Episodes.apply_batch_in_transaction([command]) do
       {:ok, [transition]} ->
-        case Custody.resume_blocked_in_transaction(
+        case Work.Custody.resume_blocked_in_transaction(
                transition.episode,
                transition.event.dedupe_key
              ) do
@@ -116,7 +115,7 @@ defmodule Ryker.Publication.Followups.Delivery do
     observation = event.observation
 
     {:ok, input} =
-      Input.new(%{
+      Ingress.Input.new(%{
         actor: feedback_actor(observation),
         content: Map.fetch!(observation, "content"),
         # Answered where it was written. Andrew, 2026-09-28: GitHub feedback
@@ -141,7 +140,7 @@ defmodule Ryker.Publication.Followups.Delivery do
 
   defp wakeup_input(publication, episode, event) do
     {:ok, input} =
-      Input.new(%{
+      Ingress.Input.new(%{
         actor: %{kind: :system, ref: "publication-lifecycle"},
         content:
           Map.merge(
@@ -202,8 +201,8 @@ defmodule Ryker.Publication.Followups.Delivery do
   # The episode keeps its home destination; the input keeps its own, which is
   # where its answer goes (its origin, `Ryker.Episodes.Origins`).
   defp admit_command(episode, input, event) do
-    %Command.AdmitInput{
-      actor_ref: Input.actor_ref(input),
+    %Episodes.Command.AdmitInput{
+      actor_ref: Ingress.Input.actor_ref(input),
       destination: %{
         conversation_ref: episode.destination_conversation_ref,
         thread_ref: episode.destination_thread_ref,
@@ -214,7 +213,7 @@ defmodule Ryker.Publication.Followups.Delivery do
       linked_episode_id: episode.linked_episode_id,
       native_input_id: input.native_input_id,
       occurred_at: input.occurred_at,
-      payload: Input.document(input),
+      payload: Ingress.Input.document(input),
       revision: input.revision,
       turn_ref: publication_turn_ref(event)
     }
@@ -257,7 +256,7 @@ defmodule Ryker.Publication.Followups.Delivery do
   # --- the message and its receipt ------------------------------------------
 
   defp publication_delivery_request(publication, event) do
-    Request.new(%{
+    Delivery.Request.new(%{
       conversation_ref: publication.destination_conversation_ref,
       document: %{"message" => event.summary},
       kind: :message,
@@ -276,7 +275,7 @@ defmodule Ryker.Publication.Followups.Delivery do
         Repo.rollback(:publication_lifecycle_event_not_found)
 
       {:ok, %LifecycleEvent{delivery_state: :delivered} = event} ->
-        if event.delivery_receipt_fingerprint == DeliveryReceipt.fingerprint(receipt),
+        if event.delivery_receipt_fingerprint == Work.DeliveryReceipt.fingerprint(receipt),
           do: event,
           else: Repo.rollback(:publication_lifecycle_delivery_conflict)
 
@@ -289,7 +288,7 @@ defmodule Ryker.Publication.Followups.Delivery do
             event,
             %{
               delivery_receipt: receipt,
-              delivery_receipt_fingerprint: DeliveryReceipt.fingerprint(receipt),
+              delivery_receipt_fingerprint: Work.DeliveryReceipt.fingerprint(receipt),
               delivery_state: :delivered,
               lease_expires_at: nil,
               lease_owner: nil,

@@ -8,10 +8,8 @@ defmodule Ryker.Waits.EventWaits do
   """
   alias Ryker.Crypto
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, ConversationLock, Episode}
-  alias Ryker.Ingress.Input
+  alias Ryker.Ingress
   alias Ryker.Records
-  alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.UTCDateTime
   alias Ryker.Waits.EventSubscription
@@ -48,7 +46,7 @@ defmodule Ryker.Waits.EventWaits do
   @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since) do
     subscriptions = since |> EventSubscription.Query.select_next_due_after() |> Repo.one()
-    deadlines = since |> Episode.Query.next_event_deadline_after() |> Repo.one()
+    deadlines = since |> Episodes.Episode.Query.next_event_deadline_after() |> Repo.one()
 
     UTCDateTime.earliest([deadlines | subscriptions])
   end
@@ -72,10 +70,10 @@ defmodule Ryker.Waits.EventWaits do
       # Resuming locked them the other way round, so a resume and a message in
       # the same conversation could each wait for the other (2026-10-04
       # review).
-      with %Episode{} = initial <- Repo.one(Episode.Query.by_id(episode_id)),
-           :ok <- ConversationLock.lock(Repo, destination(initial)),
+      with %Episodes.Episode{} = initial <- Repo.one(Episodes.Episode.Query.by_id(episode_id)),
+           :ok <- Episodes.ConversationLock.lock(Repo, destination(initial)),
            {:ok, snapshot} <- Episodes.lock_current_in_transaction(initial.key),
-           %Record{} = record <- lock_record(record_id),
+           %Records.Record{} = record <- lock_record(record_id),
            {:ok, resolution_kind, subscription} <- resolution(snapshot, record, now) do
         resume_locked(snapshot, record, now, resolution_kind, subscription)
       else
@@ -87,7 +85,7 @@ defmodule Ryker.Waits.EventWaits do
   end
 
   defp lock_record(id),
-    do: id |> Record.Query.by_id() |> Record.Query.lock_for_update() |> Repo.one()
+    do: id |> Records.Record.Query.by_id() |> Records.Record.Query.lock_for_update() |> Repo.one()
 
   defp destination(episode),
     do: %{
@@ -131,8 +129,8 @@ defmodule Ryker.Waits.EventWaits do
          resume <- resume_command(snapshot, admit, record, now),
          {:ok, [_admitted, resumed]} <-
            Episodes.apply_batch_in_transaction([admit, resume]),
-         %Record{status: :open} = locked_record <- lock_record(record.id),
-         {:ok, record} <- Repo.update(Record.Changeset.answer_wait(locked_record)),
+         %Records.Record{status: :open} = locked_record <- lock_record(record.id),
+         {:ok, record} <- Repo.update(Records.Record.Changeset.answer_wait(locked_record)),
          :ok <- EventSubscriptions.resolve_wait_in_transaction(record.ref, resolution_kind) do
       Records.broadcast_record_updated(record)
       %{episode: resumed.episode, record: record}
@@ -140,19 +138,19 @@ defmodule Ryker.Waits.EventWaits do
       nil -> Repo.rollback(:event_wait_not_found)
       {:error, {:stale_wait, _details}} -> Repo.rollback(:event_wait_already_resumed)
       {:error, reason} -> Repo.rollback(reason)
-      %Record{} -> Repo.rollback(:event_wait_already_resumed)
+      %Records.Record{} -> Repo.rollback(:event_wait_already_resumed)
     end
   end
 
   defp due_snapshot(
-         %Episode{
+         %Episodes.Episode{
            id: episode_id,
            owner_deadline_at: %DateTime{} = deadline,
            owner_kind: :event,
            owner_ref: wait_ref,
            state: :waiting_for_event
          },
-         %Record{
+         %Records.Record{
            episode_id: episode_id,
            kind: "event_wait",
            ref: wait_ref,
@@ -170,14 +168,14 @@ defmodule Ryker.Waits.EventWaits do
   end
 
   defp due_snapshot(
-         %Episode{
+         %Episodes.Episode{
            id: episode_id,
            owner_deadline_at: deadline,
            owner_kind: :event,
            owner_ref: wait_ref,
            state: :waiting_for_event
          },
-         %Record{
+         %Records.Record{
            episode_id: episode_id,
            id: record_id,
            kind: "event_wait",
@@ -220,7 +218,7 @@ defmodule Ryker.Waits.EventWaits do
   defp due_snapshot(_episode, _record, _now, _kind, _subscription_id),
     do: {:error, :event_wait_already_resumed}
 
-  defp saved_deadline?(%Record{payload: %{"deadline_at" => value}}, deadline)
+  defp saved_deadline?(%Records.Record{payload: %{"deadline_at" => value}}, deadline)
        when is_binary(value) do
     case DateTime.from_iso8601(value) do
       {:ok, saved, 0} -> DateTime.compare(saved, deadline) == :eq
@@ -233,7 +231,7 @@ defmodule Ryker.Waits.EventWaits do
   defp wakeup_input(episode, record, now, resolution_kind) do
     trigger = record.payload["event_matcher"]
 
-    Input.new(%{
+    Ingress.Input.new(%{
       actor: %{kind: :system, ref: "event-wait-#{resolution_kind}"},
       content: %{
         "cursor" => trigger["cursor"],
@@ -265,26 +263,26 @@ defmodule Ryker.Waits.EventWaits do
   defp wakeup_kind(:deadline), do: "deadline_elapsed"
 
   defp admit_command(episode, input, record) do
-    %Command.AdmitInput{
-      actor_ref: Input.actor_ref(input),
+    %Episodes.Command.AdmitInput{
+      actor_ref: Ingress.Input.actor_ref(input),
       destination: input.destination,
       episode_id: episode.id,
       episode_key: episode.key,
       linked_episode_id: episode.linked_episode_id,
       native_input_id: input.native_input_id,
       occurred_at: input.occurred_at,
-      payload: Input.document(input),
+      payload: Ingress.Input.document(input),
       revision: input.revision,
       turn_ref: turn_ref(record.ref)
     }
   end
 
   defp resume_command(episode, admit, record, now) do
-    %Command.ResumeWait{
+    %Episodes.Command.ResumeWait{
       episode_key: episode.key,
       expected_wait: %{kind: :event, ref: record.ref},
       occurred_at: now,
-      resolution_ref: Command.dedupe_key(admit),
+      resolution_ref: Episodes.Command.dedupe_key(admit),
       turn_ref: admit.turn_ref
     }
   end

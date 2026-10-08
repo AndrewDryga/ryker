@@ -22,7 +22,7 @@ defmodule Ryker.Admission.Decision do
   keeps it only as feedback on that answer.
   """
   alias Ryker.Admission.Sentiment
-  alias Ryker.Work.RepositorySource
+  alias Ryker.Work
 
   @actions [:start_episode, :continue_episode, :reply, :quick_reply, :react, :ignore]
   @relations [:same_work, :history_only, :unrelated]
@@ -353,7 +353,7 @@ defmodule Ryker.Admission.Decision do
   defp repository_source_schema(false), do: %{"type" => "null"}
 
   defp repository_source_schema(true),
-    do: %{"anyOf" => [RepositorySource.json_schema(), %{"type" => "null"}]}
+    do: %{"anyOf" => [Work.RepositorySource.json_schema(), %{"type" => "null"}]}
 
   # Offered choices are required on the shapes that take them: a new episode
   # in an environment with several repositories always names one.
@@ -416,7 +416,7 @@ defmodule Ryker.Admission.Decision do
   defp parse_repository_source(_action, nil), do: {:ok, nil}
 
   defp parse_repository_source(:start_episode, value) do
-    case RepositorySource.parse(value) do
+    case Work.RepositorySource.parse(value) do
       {:ok, source} -> {:ok, source}
       {:error, _reason} -> invalid(:repository_source)
     end

@@ -8,9 +8,9 @@ defmodule Ryker.Release do
   release (`docs/operations.md`, "The schema baseline").
   """
   alias Ryker.{Bootstrap, Settings}
-  alias Ryker.CoopFleet.{Enrollment, WorkerLifecycle}
-  alias Ryker.Operator.{Actions, Preflight, SlackReplay}
-  alias Ryker.Runtime.Assembly
+  alias Ryker.CoopFleet
+  alias Ryker.Operator
+  alias Ryker.Runtime
 
   @app :ryker
   @fields [:log, :migrations_path, :pool_size, :prefix, :repo]
@@ -96,7 +96,7 @@ defmodule Ryker.Release do
 
     with_repo!(settings, fn _repo ->
       with {:ok, issued} <-
-             Enrollment.issue_token(worker_id, workspace_ref, operator_ref) do
+             CoopFleet.Enrollment.issue_token(worker_id, workspace_ref, operator_ref) do
         report(settings, issued)
         {:ok, issued}
       end
@@ -119,9 +119,9 @@ defmodule Ryker.Release do
     with_repo!(settings, fn _repo ->
       changed =
         case action do
-          :drain -> WorkerLifecycle.drain(worker_id, operator_ref)
-          :resume -> WorkerLifecycle.resume(worker_id, operator_ref)
-          :revoke -> WorkerLifecycle.revoke(worker_id, operator_ref)
+          :drain -> CoopFleet.WorkerLifecycle.drain(worker_id, operator_ref)
+          :resume -> CoopFleet.WorkerLifecycle.resume(worker_id, operator_ref)
+          :revoke -> CoopFleet.WorkerLifecycle.revoke(worker_id, operator_ref)
         end
 
       with {:ok, %{status: status, worker: worker}} <- changed do
@@ -157,9 +157,9 @@ defmodule Ryker.Release do
   end
 
   defp enqueue_replay(settings, source_input_ref, request_ref, operator, action_ref) do
-    with {:ok, actor_ref} <- Actions.operator_actor(operator),
+    with {:ok, actor_ref} <- Operator.Actions.operator_actor(operator),
          {:ok, replay} <-
-           SlackReplay.enqueue(source_input_ref, request_ref,
+           Operator.SlackReplay.enqueue(source_input_ref, request_ref,
              action_ref: action_ref,
              actor_ref: actor_ref
            ) do
@@ -177,7 +177,7 @@ defmodule Ryker.Release do
     settings = settings!(options)
 
     with_repo!(settings, fn _repo ->
-      with {:ok, replay} <- SlackReplay.fetch(replay_input_ref) do
+      with {:ok, replay} <- Operator.SlackReplay.fetch(replay_input_ref) do
         report(settings, replay)
         {:ok, replay}
       end
@@ -195,14 +195,19 @@ defmodule Ryker.Release do
 
     with_repo!(settings, fn _repo ->
       with {:ok, stored} <- Settings.fetch(),
-           {:ok, configuration} <- Assembly.build(Bootstrap.load!(), stored) do
+           {:ok, configuration} <- Runtime.Assembly.build(Bootstrap.load!(), stored) do
         configuration |> preflight() |> tap(&report_preflight(settings, &1))
       end
     end)
   end
 
-  defp preflight(configuration),
-    do: Preflight.run(configuration: configuration, check_progress: false, check_runtimes: false)
+  defp preflight(configuration) do
+    Operator.Preflight.run(
+      configuration: configuration,
+      check_progress: false,
+      check_runtimes: false
+    )
+  end
 
   defp report_preflight(settings, {_status, report}) when is_map(report),
     do: report(settings, report)

@@ -12,18 +12,17 @@ defmodule Ryker.Behaviors.StandingRules do
   alias Ryker.Behaviors.StandingAssignmentRun
   alias Ryker.Behaviors.StandingRuleInventory
   alias Ryker.CanonicalJSON
-  alias Ryker.Episodes.Episode
-  alias Ryker.Episodes.Scope
-  alias Ryker.Ingress.Input
+  alias Ryker.Episodes
+  alias Ryker.Ingress
   alias Ryker.Reference
   alias Ryker.Repo
-  alias Ryker.Waits.SourceEventMatcher
+  alias Ryker.Waits
 
   @runtime_candidate_limit 100
 
   @doc "Returns true only when an active channel assignment matches trusted source identity and event shape."
-  @spec standing_match?(Input.t()) :: boolean()
-  def standing_match?(%Input{} = input), do: matching_assignments(input, false) != []
+  @spec standing_match?(Ingress.Input.t()) :: boolean()
+  def standing_match?(%Ingress.Input{} = input), do: matching_assignments(input, false) != []
 
   def standing_match?(_input), do: false
 
@@ -42,9 +41,9 @@ defmodule Ryker.Behaviors.StandingRules do
   would lose the answer the operator asked for, so errors are swallowed and the
   absent row honestly reads as "not recorded".
   """
-  @spec record_rule_inventory(Input.t(), String.t()) ::
+  @spec record_rule_inventory(Ingress.Input.t(), String.t()) ::
           {:ok, StandingRuleInventory.t()} | {:error, term()}
-  def record_rule_inventory(%Input{} = input, input_ref) when is_binary(input_ref) do
+  def record_rule_inventory(%Ingress.Input{} = input, input_ref) when is_binary(input_ref) do
     with :ok <- reference(input_ref, :input_ref) do
       # Its own short transaction: in production a failure here rolls back
       # nothing else, and under a test sandbox it is a savepoint, so a poisoned
@@ -72,8 +71,9 @@ defmodule Ryker.Behaviors.StandingRules do
   end
 
   @doc false
-  @spec observe_input(Input.t(), String.t()) :: {:ok, non_neg_integer()} | {:error, term()}
-  def observe_input(%Input{} = input, input_ref) do
+  @spec observe_input(Ingress.Input.t(), String.t()) ::
+          {:ok, non_neg_integer()} | {:error, term()}
+  def observe_input(%Ingress.Input{} = input, input_ref) do
     with :ok <- reference(input_ref, :input_ref) do
       transaction(fn -> observe_input_locked(input, input_ref) end)
     end
@@ -86,7 +86,7 @@ defmodule Ryker.Behaviors.StandingRules do
           String.t(),
           :start_episode | :continue_episode | :reply | :quick_reply | :react | :ignore,
           String.t(),
-          Episode.t() | nil,
+          Episodes.Episode.t() | nil,
           :decided | :superseded
         ) :: :ok | {:error, term()}
   def finalize_assignment_runs_in_transaction(
@@ -122,7 +122,10 @@ defmodule Ryker.Behaviors.StandingRules do
     now = Repo.now!()
 
     workspace =
-      Scope.workspace_ref(input.destination.transport, input.destination.conversation_ref)
+      Episodes.Scope.workspace_ref(
+        input.destination.transport,
+        input.destination.conversation_ref
+      )
 
     rules = workspace_rules(workspace)
 
@@ -204,7 +207,7 @@ defmodule Ryker.Behaviors.StandingRules do
   # evaluated here even where the matcher itself stops at the first failure.
   defp assignment_evidence(payload, input),
     do: %{
-      "filter_matches" => SourceEventMatcher.matches?(payload["filter"], input.content),
+      "filter_matches" => Waits.SourceEventMatcher.matches?(payload["filter"], input.content),
       "source_kind" => input.source.kind,
       "source_matches" => payload["source_kind"] == input.source.kind
     }
@@ -268,7 +271,10 @@ defmodule Ryker.Behaviors.StandingRules do
   # window", never a second opinion about eligibility.
   defp runtime_candidates(input, now) do
     workspace =
-      Scope.workspace_ref(input.destination.transport, input.destination.conversation_ref)
+      Episodes.Scope.workspace_ref(
+        input.destination.transport,
+        input.destination.conversation_ref
+      )
 
     # Every standing rule is confirmed in a conversation and scoped to it.
     Behavior.Query.by_kind(:standing_assignment)
@@ -370,7 +376,7 @@ defmodule Ryker.Behaviors.StandingRules do
     Behaviors.broadcast_behavior_updated(assignment_id)
   end
 
-  defp valid_final_episode(action, %Episode{})
+  defp valid_final_episode(action, %Episodes.Episode{})
        when action in [:start_episode, :continue_episode, :reply],
        do: :ok
 
@@ -386,7 +392,7 @@ defmodule Ryker.Behaviors.StandingRules do
   end
 
   defp assignment_matches?(%{"source_kind" => source_kind, "filter" => filter}, input) do
-    source_kind == input.source.kind and SourceEventMatcher.matches?(filter, input.content)
+    source_kind == input.source.kind and Waits.SourceEventMatcher.matches?(filter, input.content)
   end
 
   defp reference(value, field),

@@ -18,13 +18,13 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   """
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery.{PlatformAction, Request}
-  alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.Episodes
   alias Ryker.Lease
-  alias Ryker.Records.Record
+  alias Ryker.Records
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.UTCDateTime
-  alias Ryker.Work.{DeliveryReceipt, Turn}
+  alias Ryker.Work
 
   @fields [
     :conversation_ref,
@@ -110,9 +110,9 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   defp with_numbered_slot(attributes), do: attributes
 
   @doc false
-  @spec enqueue_confirmed_record_in_transaction(Record.t(), map() | keyword()) ::
+  @spec enqueue_confirmed_record_in_transaction(Records.Record.t(), map() | keyword()) ::
           {:ok, %{action: PlatformAction.t(), status: :created | :duplicate}} | {:error, term()}
-  def enqueue_confirmed_record_in_transaction(%Record{} = record, attributes) do
+  def enqueue_confirmed_record_in_transaction(%Records.Record{} = record, attributes) do
     with true <- Repo.in_transaction?(),
          true <- record.kind == "slack_post_offer" and record.status == :open,
          {:ok, attributes} <- exact_attributes(attributes),
@@ -263,8 +263,8 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   def confirm_delivery(action_ref, lease_ref, receipt) do
     with :ok <- reference(action_ref, :action_ref),
          {:ok, lease_ref} <- uuid(lease_ref, :lease_ref),
-         {:ok, receipt} <- DeliveryReceipt.prepare(receipt) do
-      fingerprint = DeliveryReceipt.fingerprint(receipt)
+         {:ok, receipt} <- Work.DeliveryReceipt.prepare(receipt) do
+      fingerprint = Work.DeliveryReceipt.fingerprint(receipt)
 
       Repo.transaction(fn -> confirm_locked(action_ref, lease_ref, receipt, fingerprint) end)
     end
@@ -304,8 +304,8 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   defp platform_action_operation(%PlatformAction{}), do: nil
 
   defp current_human_inputs(episode_id) do
-    case Repo.one(Episode.Query.by_id(episode_id)) do
-      %Episode{active_input_refs: active_input_refs} ->
+    case Repo.one(Episodes.Episode.Query.by_id(episode_id)) do
+      %Episodes.Episode{active_input_refs: active_input_refs} ->
         episode_id
         |> active_input_events(active_input_refs)
         |> Enum.filter(&human_input?/1)
@@ -325,14 +325,15 @@ defmodule Ryker.Delivery.PlatformActionCustody do
 
   defp active_input_events(episode_id, active_input_refs) do
     episode_id
-    |> Event.Query.by_episode_id()
-    |> Event.Query.admitted_inputs(Enum.uniq(active_input_refs))
-    |> Event.Query.ordered_by_sequence()
+    |> Episodes.Event.Query.by_episode_id()
+    |> Episodes.Event.Query.admitted_inputs(Enum.uniq(active_input_refs))
+    |> Episodes.Event.Query.ordered_by_sequence()
     |> Repo.all()
   end
 
-  defp human_input?(%Event{payload: %{"actor_ref" => actor_ref}}) when is_binary(actor_ref),
-    do: String.contains?(actor_ref, ":user:")
+  defp human_input?(%Episodes.Event{payload: %{"actor_ref" => actor_ref}})
+       when is_binary(actor_ref),
+       do: String.contains?(actor_ref, ":user:")
 
   defp human_input?(_event), do: false
 
@@ -416,13 +417,16 @@ defmodule Ryker.Delivery.PlatformActionCustody do
 
   defp lock_binding(binding) do
     episode =
-      binding.episode.id |> Episode.Query.by_id() |> Episode.Query.lock_for_update() |> Repo.one()
+      binding.episode.id
+      |> Episodes.Episode.Query.by_id()
+      |> Episodes.Episode.Query.lock_for_update()
+      |> Repo.one()
 
     turn =
       binding.turn.id
-      |> Turn.Query.by_id()
-      |> Turn.Query.by_episode_id(binding.episode.id)
-      |> Turn.Query.lock_for_update()
+      |> Work.Turn.Query.by_id()
+      |> Work.Turn.Query.by_episode_id(binding.episode.id)
+      |> Work.Turn.Query.lock_for_update()
       |> Repo.one()
 
     {episode, turn}
@@ -565,17 +569,17 @@ defmodule Ryker.Delivery.PlatformActionCustody do
        else: {:error, :platform_action_receipt_mismatch}
   end
 
-  defp live_binding_shape(%{episode: %Episode{}, turn: %Turn{}}), do: :ok
+  defp live_binding_shape(%{episode: %Episodes.Episode{}, turn: %Work.Turn{}}), do: :ok
   defp live_binding_shape(_binding), do: {:error, :platform_action_not_authorized}
 
   defp live_binding(
-         %Episode{
+         %Episodes.Episode{
            execution_mode: :live,
            state: :working,
            owner_kind: :turn,
            owner_ref: owner_ref
          },
-         %Turn{status: :pending, turn_ref: owner_ref} = turn,
+         %Work.Turn{status: :pending, turn_ref: owner_ref} = turn,
          binding,
          now
        ) do

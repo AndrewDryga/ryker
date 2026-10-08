@@ -35,7 +35,7 @@ defmodule Ryker.RoutingExamples.Export do
   """
   alias Ryker.Repo
   alias Ryker.RoutingExamples.{Example, Feedback}
-  alias Ryker.Settings.Retention
+  alias Ryker.Settings
   alias Ryker.TrainingExamples
 
   @batch 100
@@ -52,7 +52,7 @@ defmodule Ryker.RoutingExamples.Export do
     TrainingExamples.reduce(&kept?/0, examples, @batch, feedback_order(), &line/1, acc, fun)
   end
 
-  defp kept?, do: Repo.one(Retention.Query.select_routing_examples_enabled()) == true
+  defp kept?, do: Repo.one(Settings.Retention.Query.select_routing_examples_enabled()) == true
 
   # One example as one line of JSON, newline included.
   defp line(%Example{forgotten_at: nil} = example),

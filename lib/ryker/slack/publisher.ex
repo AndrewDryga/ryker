@@ -10,22 +10,22 @@ defmodule Ryker.Slack.Publisher do
   @behaviour Ryker.Delivery.MessagePublisher
   @behaviour Ryker.Delivery.ReactionPublisher
   alias Ryker.Crypto
-  alias Ryker.Delivery.Request
+  alias Ryker.Delivery
   alias Ryker.Slack.Client.Messages
   alias Ryker.Slack.{Mentions, Target}
-  alias Ryker.Work.DeliveryReceipt
+  alias Ryker.Work
 
   @impl true
   def transport, do: "slack"
 
   @impl true
-  def publish_message(%Request{kind: :message} = request, binding) do
+  def publish_message(%Delivery.Request{kind: :message} = request, binding) do
     with {:ok, request} <- materialize_mentions(request, binding),
          {:ok, target} <- Target.parse(request),
          :ok <- destination_allowed(binding, target),
          {:ok, api, client} <- client(binding, target.workspace_ref),
          {:ok, message_ref} <- reconcile_message(api, client, request, target) do
-      DeliveryReceipt.new(
+      Work.DeliveryReceipt.new(
         request.ref,
         request.transport,
         request.conversation_ref,
@@ -39,7 +39,7 @@ defmodule Ryker.Slack.Publisher do
     do: {:error, {:invalid_slack_delivery, :message}}
 
   defp materialize_mentions(
-         %Request{document: %{"message" => message}} = request,
+         %Delivery.Request{document: %{"message" => message}} = request,
          binding
        ) do
     if Mentions.typed?(message) do
@@ -60,7 +60,7 @@ defmodule Ryker.Slack.Publisher do
   end
 
   @impl Ryker.Delivery.MessagePublisher
-  def update_message(%Request{kind: :message} = request, message_ref, document, binding) do
+  def update_message(%Delivery.Request{kind: :message} = request, message_ref, document, binding) do
     with {:ok, target} <- Target.parse(request),
          :ok <- destination_allowed(binding, target),
          {:ok, api, client} <- client(binding, target.workspace_ref) do
@@ -72,12 +72,12 @@ defmodule Ryker.Slack.Publisher do
     do: {:error, {:invalid_slack_delivery, :message_update}}
 
   @impl true
-  def publish_reaction(%Request{kind: :reaction} = request, binding) do
+  def publish_reaction(%Delivery.Request{kind: :reaction} = request, binding) do
     with {:ok, target} <- Target.parse(request),
          :ok <- destination_allowed(binding, target),
          {:ok, api, client} <- client(binding, target.workspace_ref),
          :ok <- publish_reaction_action(api, client, target, request.document) do
-      DeliveryReceipt.new(
+      Work.DeliveryReceipt.new(
         request.ref,
         request.transport,
         request.conversation_ref,
@@ -131,7 +131,12 @@ defmodule Ryker.Slack.Publisher do
   # A request its custody froze at a known moment cannot have been posted
   # before then, so the walk for an earlier copy starts an hour before it,
   # a margin for Slack's clock, instead of at the channel's first message.
-  defp find_message(api, client, %Request{frozen_at: %DateTime{} = frozen_at} = request, target) do
+  defp find_message(
+         api,
+         client,
+         %Delivery.Request{frozen_at: %DateTime{} = frozen_at} = request,
+         target
+       ) do
     if function_exported?(api, :find_message, 5) do
       api.find_message(
         client,

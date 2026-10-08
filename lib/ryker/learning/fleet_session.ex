@@ -2,7 +2,7 @@ defmodule Ryker.Learning.FleetSession do
   @moduledoc "A workspace-free execution session owned by one frozen learning judgment."
   alias Ryker.Learning.LearningRun
   alias Ryker.Repo
-  alias Ryker.Work.{Custody, Session}
+  alias Ryker.Work
 
   def external_ref(%LearningRun{id: id}), do: "ryker-learning:#{id}"
 
@@ -11,7 +11,7 @@ defmodule Ryker.Learning.FleetSession do
   without taking a slot. A transport that cannot say is not asked.
   """
   def placeable?(%{api: api, client: client, policy: policy, policy_digest: digest}) do
-    session = %Session{execution_kind: :learning, policy: policy, policy_digest: digest}
+    session = %Work.Session{execution_kind: :learning, policy: policy, policy_digest: digest}
 
     if Code.ensure_loaded?(api) and function_exported?(api, :accepts_session?, 2),
       do: api.accepts_session?(client, session),
@@ -29,7 +29,7 @@ defmodule Ryker.Learning.FleetSession do
         do: Repo.rollback(:learning_session_authority_conflict)
 
       Repo.insert!(
-        %Session{
+        %Work.Session{
           execution_kind: :learning,
           learning_run_id: run.id,
           policy: run.policy,
@@ -44,7 +44,7 @@ defmodule Ryker.Learning.FleetSession do
       unless session.policy == run.policy and session.policy_digest == run.policy_digest,
         do: Repo.rollback(:learning_session_authority_conflict)
 
-      Custody.broadcast_session_updated(session)
+      Work.Custody.broadcast_session_updated(session)
       session
     end)
   end
@@ -59,7 +59,7 @@ defmodule Ryker.Learning.FleetSession do
           session
           |> Ecto.Changeset.change(coop_session_id: remote_id)
           |> Repo.update!()
-          |> tap(&Custody.broadcast_session_updated/1)
+          |> tap(&Work.Custody.broadcast_session_updated/1)
 
         ^remote_id ->
           session
@@ -72,8 +72,8 @@ defmodule Ryker.Learning.FleetSession do
 
   defp locked(run) do
     run.id
-    |> Session.Query.by_learning_run_id()
-    |> Session.Query.lock_for_update()
+    |> Work.Session.Query.by_learning_run_id()
+    |> Work.Session.Query.lock_for_update()
     |> Repo.one!()
   end
 end

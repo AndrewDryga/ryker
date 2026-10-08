@@ -12,13 +12,13 @@ defmodule Mix.Tasks.Ryker.EvalCases do
   """
   use Mix.Task
   alias Mix.Tasks.Ryker.OperatorSupport, as: Support
-  alias Ryker.Improvement.Export
+  alias Ryker.Improvement
 
   @impl Mix.Task
   def run(arguments) do
     with {:ok, options, []} <- Support.parse(arguments, [output: :string], 0),
          {:ok, directory} <- Support.required_option(options, :output),
-         {:ok, count} <- Support.with_repo(fn -> Export.write(directory) end) do
+         {:ok, count} <- Support.with_repo(fn -> Improvement.Export.write(directory) end) do
       Mix.shell().info("Wrote #{count} eval cases to #{directory}")
     else
       {:error, reason} -> Support.fail("eval case export", reason)

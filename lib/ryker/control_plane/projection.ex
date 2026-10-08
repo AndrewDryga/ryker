@@ -18,10 +18,10 @@ defmodule Ryker.ControlPlane.Projection do
   alias Ryker.ControlPlane.{RepositoryProjection, RunningSystemProjection, ScheduleProjection}
   alias Ryker.ControlPlane.SettingsView
   alias Ryker.ControlPlane.{SubscriptionProjection, UsageProjection, WorkspaceProjection}
-  alias Ryker.Improvement.Export, as: EvalCases
-  alias Ryker.RoutingExamples.Export
+  alias Ryker.Improvement
+  alias Ryker.RoutingExamples
   alias Ryker.WeeklyReport
-  alias Ryker.WorkExamples.Export, as: WorkExamplesExport
+  alias Ryker.WorkExamples
 
   @spec callbacks() :: map()
   def callbacks do
@@ -37,7 +37,7 @@ defmodule Ryker.ControlPlane.Projection do
       request_id: &EpisodeProjection.key_id/1,
       failure: &FailureProjection.fetch/2,
       failures: &FailureProjection.page/1,
-      eval_cases: &EvalCases.zip/0,
+      eval_cases: &Improvement.Export.zip/0,
       feedback: &FeedbackProjection.page/1,
       findings: &FindingsProjection.list/1,
       finding: &FindingsProjection.fetch/1,
@@ -70,8 +70,8 @@ defmodule Ryker.ControlPlane.Projection do
       repositories: &RepositoryProjection.list/1,
       repository: &RepositoryProjection.fetch/1,
       repository_detail: &RepositoryProjection.detail/2,
-      routing_examples: &Export.reduce/2,
-      work_examples: &WorkExamplesExport.reduce/2,
+      routing_examples: &RoutingExamples.Export.reduce/2,
+      work_examples: &WorkExamples.Export.reduce/2,
       schedule: &ScheduleProjection.fetch/1,
       schedules: &ScheduleProjection.list/1,
       settings: &SettingsView.fetch/0,

@@ -8,19 +8,14 @@ defmodule Ryker.Knowledge do
   alias Ryker.AdvisoryLock
   alias Ryker.{CanonicalJSON, Repo}
   alias Ryker.Crypto
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeAnchors
   alias Ryker.Knowledge.KnowledgeRevision
   alias Ryker.Knowledge.KnowledgeSource
   alias Ryker.Knowledge.KnowledgeUpdate
-  alias Ryker.Learning.ConversationObservation
-  alias Ryker.Learning.LearningSources
-  alias Ryker.Learning.Observations
-  alias Ryker.Learning.Visibility
-  alias Ryker.Memories.MemorySearchPage
-  alias Ryker.Memories.MemorySourceLink
-  alias Ryker.Memories.SearchPage
+  alias Ryker.Learning
+  alias Ryker.Memories
 
   @stale {:error, {:admission_rejected, :context_stale}}
 
@@ -29,17 +24,17 @@ defmodule Ryker.Knowledge do
     # The conversation's topics, whatever repository each was learned with
     # (`scope_key/1`).
     base =
-      LearningSources.retention_seconds()
+      Learning.LearningSources.retention_seconds()
       |> ConversationKnowledge.Query.valid()
       |> ConversationKnowledge.Query.by_ids(ids)
       |> ConversationKnowledge.Query.by_conversation(scope.transport, scope.conversation_ref)
       |> ConversationKnowledge.Query.select_ids()
 
-    local = LearningSources.eligible(base, %{scope | visibility: :conversation})
+    local = Learning.LearningSources.eligible(base, %{scope | visibility: :conversation})
 
     case slack_channel(scope) do
       {:channel, workspace, channel} ->
-        inherited = LearningSources.eligible(base, %{scope | visibility: :public})
+        inherited = Learning.LearningSources.eligible(base, %{scope | visibility: :public})
         ConversationKnowledge.Query.available_in_channel(local, inherited, workspace, channel)
 
       :local ->
@@ -72,7 +67,7 @@ defmodule Ryker.Knowledge do
   end
 
   defp recall_locked(destination, repository_ref, search, limit, search_scope) do
-    case Observations.locked_scope(destination, repository_ref) do
+    case Learning.Observations.locked_scope(destination, repository_ref) do
       {:ok, scope} ->
         query =
           visible_query(scope)
@@ -80,7 +75,7 @@ defmodule Ryker.Knowledge do
           |> ConversationKnowledge.Query.matching(search)
 
         items = select_items(query, scope, search, min(max(limit, 1), 32))
-        documents(Observations.authorized_notes(items, scope), scope)
+        documents(Learning.Observations.authorized_notes(items, scope), scope)
 
       _ ->
         []
@@ -89,7 +84,7 @@ defmodule Ryker.Knowledge do
 
   @doc false
   def search_page(destination, repository_ref, page) do
-    case Observations.locked_scope(destination, repository_ref) do
+    case Learning.Observations.locked_scope(destination, repository_ref) do
       {:ok, scope} -> search_page_locked(scope, page)
       _ -> :done
     end
@@ -101,12 +96,12 @@ defmodule Ryker.Knowledge do
     query =
       visible_query(scope)
       |> within_scope(scope, page.scope)
-      |> SearchPage.Query.related_sources(page)
+      |> Memories.SearchPage.Query.related_sources(page)
       |> ConversationKnowledge.Query.lock_for_share()
 
-    case MemorySearchPage.one(query, page, fields.text, fields.changed, fields.source) do
+    case Memories.MemorySearchPage.one(query, page, fields.text, fields.changed, fields.source) do
       {:ok, item, position} ->
-        case documents(Observations.authorized_notes([item], scope), scope) do
+        case documents(Learning.Observations.authorized_notes([item], scope), scope) do
           [document] -> {:ok, document, position}
           [] -> {:skip, position}
         end
@@ -139,7 +134,7 @@ defmodule Ryker.Knowledge do
   def still_current(_, _, _), do: @stale
 
   defp still_current_locked(destination, repository_ref, frozen) do
-    with {:ok, scope} <- Observations.locked_scope(destination, repository_ref),
+    with {:ok, scope} <- Learning.Observations.locked_scope(destination, repository_ref),
          ids = Enum.map(frozen, &id(&1["source_ref"])),
          true <- Enum.all?(ids, &is_binary/1) do
       # Learning may update a reauthorized target later in this transaction.
@@ -153,7 +148,7 @@ defmodule Ryker.Knowledge do
         |> ConversationKnowledge.Query.lock_for_update()
         |> Repo.all()
 
-      current = documents(Observations.authorized_notes(items, scope), scope)
+      current = documents(Learning.Observations.authorized_notes(items, scope), scope)
       MapSet.new(current) == MapSet.new(frozen)
     else
       _ -> false
@@ -212,7 +207,11 @@ defmodule Ryker.Knowledge do
   defp rebuild_sources(_, _, _, _), do: {:error, :learning_source_stale}
 
   defp fresh_rebuild_sources?(entries, selected, dependencies) do
-    raw = selected |> Enum.map(&LearningSources.for_entry/1) |> LearningSources.merge()
+    raw =
+      selected
+      |> Enum.map(&Learning.LearningSources.for_entry/1)
+      |> Learning.LearningSources.merge()
+
     identities = MapSet.new(selected, &{&1.id, &1.revision, &1.event_fingerprint})
 
     dependencies == raw and Enum.all?(selected, &same_source_scope?(&1, hd(entries))) and
@@ -270,7 +269,7 @@ defmodule Ryker.Knowledge do
          true <- Enum.all?(entries, &same_source_scope?(&1, entry)),
          {:ok, proposal} when not is_nil(proposal) <- KnowledgeUpdate.prepare(proposal),
          :ok <- validate_anchors(entries, proposal, offered),
-         {:ok, scope} <- Observations.locked_scope(entry, entry.repository_ref),
+         {:ok, scope} <- Learning.Observations.locked_scope(entry, entry.repository_ref),
          {:ok, source} <- raw_sources(entries, dependencies, result_ref, scope, offered),
          :ok <- still_current(entry, entry.repository_ref, offered) do
       {:ok, scope, source, proposal}
@@ -295,7 +294,7 @@ defmodule Ryker.Knowledge do
   @doc false
   def lock_scope_in_transaction(destination, repository_ref) do
     with true <- Repo.in_transaction?(),
-         {:ok, scope} <- Observations.locked_scope(destination, repository_ref) do
+         {:ok, scope} <- Learning.Observations.locked_scope(destination, repository_ref) do
       lock_scope(scope_key(scope))
       :ok
     else
@@ -305,7 +304,7 @@ defmodule Ryker.Knowledge do
 
   @doc "Check proposed new subjects before accepting a different name as proof of novelty."
   def check_creates_in_transaction([entry | _] = entries, proposals, offered) do
-    with {:ok, scope} <- Observations.locked_scope(entry, entry.repository_ref),
+    with {:ok, scope} <- Learning.Observations.locked_scope(entry, entry.repository_ref),
          :ok <- known_create_targets(scope, proposals) do
       check_visible_creates(entries, proposals, offered)
     end
@@ -399,7 +398,10 @@ defmodule Ryker.Knowledge do
 
   # A topic is its conversation's (`scope_key/1`), so its sources may come
   # from messages whose work used different repositories.
-  defp same_source_scope?(%Entry{status: :decided} = source, %Entry{} = entry) do
+  defp same_source_scope?(
+         %Ingress.Inbox.Entry{status: :decided} = source,
+         %Ingress.Inbox.Entry{} = entry
+       ) do
     source.destination_transport == entry.destination_transport and
       source.destination_conversation_ref == entry.destination_conversation_ref
   end
@@ -410,14 +412,14 @@ defmodule Ryker.Knowledge do
     sources = entries |> Enum.sort_by(& &1.id) |> Enum.map(&current_source/1)
 
     roots =
-      LearningSources.merge(
-        Enum.map(entries, &LearningSources.for_entry/1) ++
-          Enum.map(offered, &LearningSources.document_sources/1)
+      Learning.LearningSources.merge(
+        Enum.map(entries, &Learning.LearningSources.for_entry/1) ++
+          Enum.map(offered, &Learning.LearningSources.document_sources/1)
       )
 
-    with true <- Enum.all?(sources, &match?(%ConversationObservation{}, &1)),
-         true <- LearningSources.valid?(dependencies, scope),
-         ^dependencies <- LearningSources.merge([dependencies, roots]) do
+    with true <- Enum.all?(sources, &match?(%Learning.ConversationObservation{}, &1)),
+         true <- Learning.LearningSources.valid?(dependencies, scope),
+         ^dependencies <- Learning.LearningSources.merge([dependencies, roots]) do
       primary =
         Enum.max_by(
           sources,
@@ -438,19 +440,20 @@ defmodule Ryker.Knowledge do
   @doc false
   def current_source_ids_query(scope) do
     valid_query()
-    |> LearningSources.eligible(scope)
+    |> Learning.LearningSources.eligible(scope)
     |> ConversationKnowledge.Query.select_id_generations()
     |> KnowledgeSource.Query.direct_observation_ids()
   end
 
   @doc false
-  def valid_query, do: ConversationKnowledge.Query.valid(LearningSources.retention_seconds())
+  def valid_query,
+    do: ConversationKnowledge.Query.valid(Learning.LearningSources.retention_seconds())
 
   defp visible_query(scope) do
     valid_query()
     |> ConversationKnowledge.Query.by_workspace_ref(scope.workspace_ref)
-    |> Visibility.Query.visible_from(scope)
-    |> LearningSources.eligible(scope)
+    |> Learning.Visibility.Query.visible_from(scope)
+    |> Learning.LearningSources.eligible(scope)
   end
 
   defp select_items(query, scope, {:related, text}, limit) when is_binary(text),
@@ -582,12 +585,12 @@ defmodule Ryker.Knowledge do
   end
 
   defp current_source(entry) do
-    identity = Observations.source_identity(entry)
+    identity = Learning.Observations.source_identity(entry)
 
     source =
       identity
-      |> ConversationObservation.Query.by_identity()
-      |> ConversationObservation.Query.lock_for_share()
+      |> Learning.ConversationObservation.Query.by_identity()
+      |> Learning.ConversationObservation.Query.lock_for_share()
       |> Repo.one()
 
     cond do
@@ -711,7 +714,7 @@ defmodule Ryker.Knowledge do
 
     version = if existing, do: existing.version + 1, else: 1
     previous = if existing && proposal["target_ref"], do: existing.source_dependencies, else: []
-    dependencies = LearningSources.merge([previous, source.source_dependencies])
+    dependencies = Learning.LearningSources.merge([previous, source.source_dependencies])
 
     if is_nil(dependencies) do
       {:error, :knowledge_capacity_exceeded}
@@ -745,8 +748,8 @@ defmodule Ryker.Knowledge do
     } = plan
 
     id = if existing, do: existing.id, else: Repo.generate_id()
-    roots = LearningSources.expand(dependencies)
-    reference = [LearningSources.knowledge_reference(id, generation, version)]
+    roots = Learning.LearningSources.expand(dependencies)
+    reference = [Learning.LearningSources.knowledge_reference(id, generation, version)]
     now = Repo.now!()
 
     attrs =
@@ -890,7 +893,8 @@ defmodule Ryker.Knowledge do
     items =
       Enum.flat_map(items, fn item ->
         with true <- MapSet.member?(valid_ids, item.id),
-             {:ok, roots} <- LearningSources.validated_roots(item.source_dependencies, scope) do
+             {:ok, roots} <-
+               Learning.LearningSources.validated_roots(item.source_dependencies, scope) do
           [{item, roots}]
         else
           _ -> []
@@ -905,7 +909,7 @@ defmodule Ryker.Knowledge do
         support
         |> Enum.sort_by(& &1.occurred_at, {:desc, DateTime})
         |> Stream.map(
-          &MemorySourceLink.message(
+          &Memories.MemorySourceLink.message(
             &1.transport,
             &1.conversation_ref,
             &1.source_message_ref,
@@ -917,14 +921,14 @@ defmodule Ryker.Knowledge do
         |> Enum.take(3)
 
       expires =
-        case LearningSources.retention_seconds() do
+        case Learning.LearningSources.retention_seconds() do
           nil ->
             nil
 
           seconds ->
             dates
             |> Enum.min_by(&DateTime.to_unix(&1, :microsecond))
-            |> then(&LearningSources.oldest(roots, &1))
+            |> then(&Learning.LearningSources.oldest(roots, &1))
             |> DateTime.add(seconds)
             |> DateTime.to_iso8601()
         end

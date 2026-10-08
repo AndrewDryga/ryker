@@ -1,9 +1,9 @@
 defmodule Ryker.CoopFleet.SourceGrants do
   @moduledoc false
   alias Ryker.CoopFleet.{ControlPlane, JobSpec}
-  alias Ryker.GitHub.InstallationTokens
+  alias Ryker.GitHub
   alias Ryker.{Repo, Settings}
-  alias Ryker.Work.Session
+  alias Ryker.Work
   require Logger
 
   @identity ~w(repository_ref github_repository github_repository_id)
@@ -18,7 +18,7 @@ defmodule Ryker.CoopFleet.SourceGrants do
   so (`"public"`), and the worker fetches it anonymously.
   """
   @spec source_grant(binary(), String.t(), map()) :: {:ok, map()} | {:error, term()}
-  def source_grant(certificate, job_ref, source, provider \\ InstallationTokens) do
+  def source_grant(certificate, job_ref, source, provider \\ GitHub.InstallationTokens) do
     case source_grant_authority(certificate, job_ref, source) do
       {:ok, :public, ^source} -> {:ok, public_grant(source)}
       authority -> minted_grant(authority, certificate, job_ref, source, provider)
@@ -40,7 +40,7 @@ defmodule Ryker.CoopFleet.SourceGrants do
   defp minted_grant(authority, certificate, job_ref, source, provider) do
     with {:ok, binding, ^source} <- authority,
          {:ok, %{token: token, expires_at: expires_at}} <-
-           InstallationTokens.fresh_source_token(
+           GitHub.InstallationTokens.fresh_source_token(
              provider,
              binding.name,
              Map.delete(binding, :name)
@@ -88,7 +88,7 @@ defmodule Ryker.CoopFleet.SourceGrants do
   def source_grant_authority(certificate, job_ref, source)
       when is_binary(job_ref) and byte_size(job_ref) in 1..256 and is_map(source) do
     with {:ok, worker_id} <- ControlPlane.authenticate_certificate(certificate),
-         [%Session{worker_job_document: job, worker_job_digest: digest}] <-
+         [%Work.Session{worker_job_document: job, worker_job_digest: digest}] <-
            leased_sessions(worker_id, job_ref),
          true <- job["job_ref"] == job_ref,
          {:ok, ^digest} <- JobSpec.digest(job),
@@ -160,6 +160,6 @@ defmodule Ryker.CoopFleet.SourceGrants do
 
     # Job references identify an execution generation, not its reusable task.
     # Refuse ambiguous authority even if two current sessions have the same ref.
-    Repo.all(Session.Query.placed_job(job_ref, worker_id, now))
+    Repo.all(Work.Session.Query.placed_job(job_ref, worker_id, now))
   end
 end

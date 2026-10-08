@@ -7,7 +7,7 @@ defmodule Ryker.GitHub.CapabilityTools do
   What a tool's arguments may be is `Ryker.GitHub.CapabilityTools.Arguments`;
   what a call may touch is `Ryker.GitHub.CapabilityTools.Authority`.
   """
-  alias Ryker.Delivery.PlatformActionCustody
+  alias Ryker.Delivery
   alias Ryker.GitHub.CapabilityTools.{Arguments, Authority}
   alias Ryker.{Options, Rescued}
 
@@ -278,7 +278,7 @@ defmodule Ryker.GitHub.CapabilityTools do
     {bindings, derived_clients} = prepare_bindings(options.bindings)
     clients = options |> Map.get(:clients, derived_clients) |> normalize_clients(bindings)
     current_input = Map.get(options, :current_input, &Authority.current_input/2)
-    enqueue_action = Map.get(options, :enqueue_action, &PlatformActionCustody.enqueue/2)
+    enqueue_action = Map.get(options, :enqueue_action, &Delivery.PlatformActionCustody.enqueue/2)
 
     unless valid_clients?(clients, bindings) and is_function(current_input, 2) and
              is_function(enqueue_action, 2),

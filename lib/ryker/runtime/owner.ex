@@ -27,8 +27,7 @@ defmodule Ryker.Runtime.Owner do
   alias Ryker.Config
   alias Ryker.Crypto
   alias Ryker.Runtime.{Assembly, Child}
-  alias Ryker.Slack.Client.Users, as: SlackUsers
-  alias Ryker.Slack.Names
+  alias Ryker.Slack
   require Logger
 
   @retry_ms 5_000
@@ -403,13 +402,13 @@ defmodule Ryker.Runtime.Owner do
   # it declined with `:ignore` for weeks in production, and nothing retries an
   # `:ignore`. It is its own child, not the console's, so no Slack setting but
   # the workspace and its token restarts it and empties it.
-  defp child_specs(:slack_names, Names, %{workspace: workspace, client: client} = names),
+  defp child_specs(:slack_names, Slack.Names, %{workspace: workspace, client: client} = names),
     do: [
-      {Names,
+      {Slack.Names,
        workspace: workspace,
        workspace_url: names.workspace_url,
        known: Map.get(names, :known, []),
-       fetch: &SlackUsers.directory_name(client, workspace, &1)}
+       fetch: &Slack.Client.Users.directory_name(client, workspace, &1)}
     ]
 
   defp child_specs(_key, module, configuration), do: [{module, configuration}]

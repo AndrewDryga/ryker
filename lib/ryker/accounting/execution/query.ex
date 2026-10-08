@@ -10,7 +10,7 @@ defmodule Ryker.Accounting.Execution.Query do
   """
   use Ryker, :query
   alias Ryker.Accounting.Execution
-  alias Ryker.Settings.PricingRate
+  alias Ryker.Settings
 
   @fields Execution.__schema__(:fields) -- [:inserted_at, :updated_at]
 
@@ -49,7 +49,7 @@ defmodule Ryker.Accounting.Execution.Query do
   # the model on that day.
   defp priced(queryable) do
     price =
-      PricingRate.Query.covering(
+      Settings.PricingRate.Query.covering(
         dynamic(parent_as(:execution_usage).execution_target),
         dynamic(fragment("(?)::date", parent_as(:execution_usage).recorded_at))
       )

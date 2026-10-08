@@ -11,7 +11,7 @@ defmodule Ryker.Accounting.Pricing do
   """
   alias Ryker.Accounting.Execution
   alias Ryker.Repo
-  alias Ryker.Settings.PricingRate
+  alias Ryker.Settings
 
   # The prices a new installation starts with; after that the saved prices
   # are the only ones any estimate reads.
@@ -44,12 +44,12 @@ defmodule Ryker.Accounting.Pricing do
   end
 
   @doc "The saved prices that made at least one estimate in an enriched ledger query."
-  @spec used(Ecto.Queryable.t()) :: [PricingRate.t()]
+  @spec used(Ecto.Queryable.t()) :: [Settings.PricingRate.t()]
   def used(ledger) do
     ledger
     |> Execution.Query.priced_rate_ids()
-    |> PricingRate.Query.by_ids()
-    |> PricingRate.Query.ordered_by_target()
+    |> Settings.PricingRate.Query.by_ids()
+    |> Settings.PricingRate.Query.ordered_by_target()
     |> Repo.all()
   end
 
@@ -57,17 +57,18 @@ defmodule Ryker.Accounting.Pricing do
   The saved price in effect for one call to `target` on `day`, by the same
   rule as the ledger, or `{:error, :not_found}` when no saved price covers it.
   """
-  @spec fetch_in_effect(String.t(), Date.t()) :: {:ok, PricingRate.t()} | {:error, :not_found}
+  @spec fetch_in_effect(String.t(), Date.t()) ::
+          {:ok, Settings.PricingRate.t()} | {:error, :not_found}
   def fetch_in_effect(target, %Date{} = day) when is_binary(target),
-    do: target |> PricingRate.Query.in_effect(day) |> Repo.fetch()
+    do: target |> Settings.PricingRate.Query.in_effect(day) |> Repo.fetch()
 
   @doc """
   What one call's tokens cost at a saved price, in US dollars, by the same
   arithmetic as the ledger: fresh input, cache reads and output at their
   prices, and reasoning only at a reasoning price of its own.
   """
-  @spec estimate(PricingRate.t(), map()) :: Decimal.t()
-  def estimate(%PricingRate{} = price, usage) do
+  @spec estimate(Settings.PricingRate.t(), map()) :: Decimal.t()
+  def estimate(%Settings.PricingRate{} = price, usage) do
     [
       {usage.input, price.input_usd_per_million},
       {usage.cached, price.cached_input_usd_per_million},

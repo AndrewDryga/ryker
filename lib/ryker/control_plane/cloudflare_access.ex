@@ -18,7 +18,7 @@ defmodule Ryker.ControlPlane.CloudflareAccess do
   reads them again, at most once a minute.
   """
   alias Ryker.ControlPlane.Viewer
-  alias Ryker.Delivery.HTTPClient
+  alias Ryker.Delivery
 
   @certs_path "/cdn-cgi/access/certs"
   @refresh_seconds 60
@@ -158,10 +158,10 @@ defmodule Ryker.ControlPlane.CloudflareAccess do
   defp rsa_key(_jwk), do: :error
 
   defp fetch_certs(team) do
-    request = HTTPClient.build(:get, "https://" <> team <> @certs_path)
+    request = Delivery.HTTPClient.build(:get, "https://" <> team <> @certs_path)
 
     with {:ok, %{status: 200, body: body}} <-
-           HTTPClient.stream(request, Ryker.CoopFinch, 5_000, @maximum_certs_bytes),
+           Delivery.HTTPClient.stream(request, Ryker.CoopFinch, 5_000, @maximum_certs_bytes),
          {:ok, %{} = certs} <- Jason.decode(body) do
       {:ok, certs}
     else

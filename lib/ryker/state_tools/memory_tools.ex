@@ -2,14 +2,13 @@ defmodule Ryker.StateTools.MemoryTools do
   @moduledoc false
   alias Ryker.Continuity
   alias Ryker.Memories
-  alias Ryker.Memories.MemorySearch
   alias Ryker.Repo
-  alias Ryker.Slack.ChannelMembership
+  alias Ryker.Slack
   alias Ryker.StateTools.RecordWriter
 
   @spec search_memory(map(), map()) :: {:ok, map()} | {:error, term()}
   def search_memory(arguments, binding) do
-    MemorySearch.search(binding, arguments, binding.cursor_secret)
+    Memories.MemorySearch.search(binding, arguments, binding.cursor_secret)
   end
 
   @spec remember_answer(map(), map()) :: {:ok, map()} | {:error, term()}
@@ -145,8 +144,8 @@ defmodule Ryker.StateTools.MemoryTools do
     case String.split(conversation_ref, ":", parts: 3) do
       ["slack", workspace_ref, channel_ref] ->
         workspace_ref
-        |> ChannelMembership.Query.by_channel(channel_ref)
-        |> ChannelMembership.Query.joined_public()
+        |> Slack.ChannelMembership.Query.by_channel(channel_ref)
+        |> Slack.ChannelMembership.Query.joined_public()
         |> Repo.exists?()
 
       _invalid ->

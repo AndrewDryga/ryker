@@ -1,8 +1,8 @@
 defmodule Ryker.StateTools.LookupBoundary do
   @moduledoc false
-  alias Ryker.Episodes.Event
+  alias Ryker.Episodes
   alias Ryker.Repo
-  alias Ryker.Slack.SourceRef
+  alias Ryker.Slack
   alias Ryker.StateTools.Binding
 
   def current(binding, result) do
@@ -24,9 +24,9 @@ defmodule Ryker.StateTools.LookupBoundary do
 
   defp queued_sources(%{destination_transport: "slack"} = episode, sequence) do
     episode.id
-    |> Event.Query.by_episode_id()
-    |> Event.Query.admitted_since_or_queued(sequence, episode.queued_input_refs)
-    |> Event.Query.select_payloads()
+    |> Episodes.Event.Query.by_episode_id()
+    |> Episodes.Event.Query.admitted_since_or_queued(sequence, episode.queued_input_refs)
+    |> Episodes.Event.Query.select_payloads()
     |> Repo.all()
     |> Enum.flat_map(&message_ref/1)
     |> MapSet.new()
@@ -42,7 +42,7 @@ defmodule Ryker.StateTools.LookupBoundary do
        })
        when is_binary(message) do
     case String.split(conversation, ":", parts: 3) do
-      ["slack", workspace, channel] -> [SourceRef.message(workspace, channel, message)]
+      ["slack", workspace, channel] -> [Slack.SourceRef.message(workspace, channel, message)]
       _ -> []
     end
   end

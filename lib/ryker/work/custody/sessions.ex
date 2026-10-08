@@ -8,10 +8,9 @@ defmodule Ryker.Work.Custody.Sessions do
   generation copies the pinned authority verbatim rather than resolving it again.
   """
   import Ryker.Work.Custody.Locks
-  alias Ryker.CoopFleet.JobAuthority
-  alias Ryker.CoopFleet.JobSpec
-  alias Ryker.Emisar.Connections, as: EmisarConnections
-  alias Ryker.Episodes.Episode
+  alias Ryker.CoopFleet
+  alias Ryker.Emisar
+  alias Ryker.Episodes
   alias Ryker.Repo
   alias Ryker.Work.Custody
   alias Ryker.Work.Custody.Turns
@@ -221,11 +220,12 @@ defmodule Ryker.Work.Custody.Sessions do
   end
 
   defp pin_episode_locked(episode_id, authority) do
-    locked = episode_id |> Episode.Query.by_id() |> Episode.Query.lock_for_update()
+    locked =
+      episode_id |> Episodes.Episode.Query.by_id() |> Episodes.Episode.Query.lock_for_update()
 
     case Repo.one(locked) do
       nil -> Repo.rollback(:episode_not_found)
-      %Episode{} = episode -> pin_session_locked(episode, authority)
+      %Episodes.Episode{} = episode -> pin_session_locked(episode, authority)
     end
   end
 
@@ -343,7 +343,7 @@ defmodule Ryker.Work.Custody.Sessions do
   end
 
   @doc false
-  def ensure_session_and_turn(%Episode{owner_kind: :turn} = episode) do
+  def ensure_session_and_turn(%Episodes.Episode{owner_kind: :turn} = episode) do
     case fetch_turn_identity(episode.id, episode.owner_ref) do
       {:error, :work_turn_not_found} ->
         with {:ok, session} <- current_session(episode),
@@ -360,7 +360,7 @@ defmodule Ryker.Work.Custody.Sessions do
     end
   end
 
-  def ensure_session_and_turn(%Episode{owner_kind: :delivery} = episode) do
+  def ensure_session_and_turn(%Episodes.Episode{owner_kind: :delivery} = episode) do
     delivery =
       episode.id |> Turn.Query.by_episode_id() |> Turn.Query.by_delivery_ref(episode.owner_ref)
 
@@ -465,14 +465,14 @@ defmodule Ryker.Work.Custody.Sessions do
     # digest and moves a version-1 job to version 2 first; the companions are
     # narrowed on the job that will run.
     with {:ok, job, job_digest} <-
-           JobSpec.rebind(
+           CoopFleet.JobSpec.rebind(
              Map.get(authority, :worker_job_document),
              Map.get(authority, :worker_job_digest),
              external_ref
            ),
          rebound =
            Map.merge(authority, %{worker_job_document: job, worker_job_digest: job_digest}),
-         {:ok, authority} <- JobAuthority.without_removed_repositories(rebound) do
+         {:ok, authority} <- CoopFleet.JobAuthority.without_removed_repositories(rebound) do
       job = authority.worker_job_document
       job_digest = authority.worker_job_digest
 
@@ -506,7 +506,7 @@ defmodule Ryker.Work.Custody.Sessions do
 
   defp emisar_pin(environment_ref) do
     with {:ok, settings} <- Ryker.Settings.fetch(),
-         {:ok, pin} <- EmisarConnections.resolve(settings, environment_ref) do
+         {:ok, pin} <- Emisar.Connections.resolve(settings, environment_ref) do
       pin
     else
       _unconfigured -> nil

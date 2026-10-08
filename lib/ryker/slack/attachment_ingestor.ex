@@ -13,8 +13,8 @@ defmodule Ryker.Slack.AttachmentIngestor do
   every later event behind this one.
   """
   alias Ryker.Artifacts
-  alias Ryker.Delivery.Retry
-  alias Ryker.Ingress.Input
+  alias Ryker.Delivery
+  alias Ryker.Ingress
   alias Ryker.Reference
   alias Ryker.Transcription
 
@@ -24,9 +24,9 @@ defmodule Ryker.Slack.AttachmentIngestor do
   @maximum_files 2
   @maximum_bytes 8 * 1_024 * 1_024
 
-  @spec ingest(%{audience: atom(), input: Input.t()}, map()) ::
-          {:ok, %{audience: atom(), input: Input.t()}} | {:error, term()}
-  def ingest(%{audience: audience, input: %Input{} = input} = normalized, settings)
+  @spec ingest(%{audience: atom(), input: Ingress.Input.t()}, map()) ::
+          {:ok, %{audience: atom(), input: Ingress.Input.t()}} | {:error, term()}
+  def ingest(%{audience: audience, input: %Ingress.Input{} = input} = normalized, settings)
       when is_map(settings) do
     with {:ok, options} <- options(settings),
          {:ok, descriptors} <- ingest_files(input, options) do
@@ -37,7 +37,8 @@ defmodule Ryker.Slack.AttachmentIngestor do
 
   def ingest(_normalized, _settings), do: {:error, {:invalid_slack_attachment_ingestor, :input}}
 
-  defp ingest_files(%Input{content: %{"files" => files}} = input, options) when is_list(files) do
+  defp ingest_files(%Ingress.Input{content: %{"files" => files}} = input, options)
+       when is_list(files) do
     files
     |> Enum.with_index()
     |> Enum.reduce_while({:ok, [], 0}, fn {file, index}, {:ok, descriptors, total} ->
@@ -128,10 +129,10 @@ defmodule Ryker.Slack.AttachmentIngestor do
   # the event for it lost the message's text after Slack's retries. A rate limit,
   # an outage or an unreadable answer is asked again.
   defp lasting?(code) when is_binary(code),
-    do: not Retry.retryable?({:slack_api_error, code})
+    do: not Delivery.Retry.retryable?({:slack_api_error, code})
 
   defp lasting?({status, body}) when is_integer(status),
-    do: status in 400..499 and not Retry.retryable?({:slack_http_error, status, body})
+    do: status in 400..499 and not Delivery.Retry.retryable?({:slack_http_error, status, body})
 
   defp lasting?(_answer), do: false
 
@@ -143,7 +144,7 @@ defmodule Ryker.Slack.AttachmentIngestor do
     end
   end
 
-  defp source_ref(%Input{source: %{ref: workspace_ref}}, %{"id" => file_ref}) do
+  defp source_ref(%Ingress.Input{source: %{ref: workspace_ref}}, %{"id" => file_ref}) do
     if Reference.valid?(workspace_ref, 256) and Reference.valid?(file_ref, 256),
       do: {:ok, workspace_ref <> ":" <> file_ref},
       else: {:error, {:slack_file_rejected, :metadata}}

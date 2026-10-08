@@ -15,13 +15,13 @@ defmodule Ryker.WeeklyReport.Custody do
   Each report queued, claimed, retried, blocked or delivered is announced
   after the outermost commit (`subscribe_reports/0`).
   """
-  alias Ryker.Delivery.Request
+  alias Ryker.Delivery
   alias Ryker.Lease
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.UTCDateTime
   alias Ryker.WeeklyReport.Report
-  alias Ryker.Work.DeliveryReceipt
+  alias Ryker.Work
 
   @type claim :: %{report: Report.t(), lease_ref: Ecto.UUID.t()}
 
@@ -111,7 +111,7 @@ defmodule Ryker.WeeklyReport.Custody do
   end
 
   @doc "The report's post as the one immutable message the publishers take."
-  @spec request(Report.t()) :: {:ok, Request.t()} | {:error, term()}
+  @spec request(Report.t()) :: {:ok, Delivery.Request.t()} | {:error, term()}
   def request(%Report{} = report), do: request_for(report)
 
   def request(_report), do: {:error, {:invalid_weekly_report, :request}}
@@ -120,7 +120,7 @@ defmodule Ryker.WeeklyReport.Custody do
   # the channel from before then, so the publisher's search for one starts
   # there rather than at the channel's first message.
   defp request_for(report) do
-    Request.new(%{
+    Delivery.Request.new(%{
       conversation_ref: report.conversation_ref,
       document: report.document,
       frozen_at: Map.get(report, :inserted_at),
@@ -189,8 +189,8 @@ defmodule Ryker.WeeklyReport.Custody do
   def confirm_delivery(delivery_ref, lease_ref, receipt) do
     with :ok <- reference(delivery_ref, :delivery_ref),
          {:ok, lease_ref} <- uuid(lease_ref),
-         {:ok, receipt} <- DeliveryReceipt.prepare(receipt) do
-      fingerprint = DeliveryReceipt.fingerprint(receipt)
+         {:ok, receipt} <- Work.DeliveryReceipt.prepare(receipt) do
+      fingerprint = Work.DeliveryReceipt.fingerprint(receipt)
       Repo.transaction(fn -> confirm_locked(delivery_ref, lease_ref, receipt, fingerprint) end)
     end
   end

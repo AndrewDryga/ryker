@@ -30,10 +30,10 @@ defmodule Ryker.People do
   """
   alias Ryker.AdvisoryLock
   alias Ryker.Crypto
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress
   alias Ryker.People.PersonFact
   alias Ryker.Repo
-  alias Ryker.Slack.ChannelMembership
+  alias Ryker.Slack
 
   @key ~r/\A[a-z][a-z0-9-]{0,47}\z/
   @maximum_fact 280
@@ -59,7 +59,7 @@ defmodule Ryker.People do
   whose author is not a person, or that does not fit is left out; within one
   pass the latest statement of a kind wins.
   """
-  @spec learn_in_transaction([map()], [Entry.t()]) :: :ok
+  @spec learn_in_transaction([map()], [Ingress.Inbox.Entry.t()]) :: :ok
   def learn_in_transaction(items, entries) when is_list(items) and is_list(entries) do
     by_id = Map.new(entries, &{&1.id, &1})
     now = Repo.now!()
@@ -75,7 +75,7 @@ defmodule Ryker.People do
 
   defp statement(%{"source_input_id" => id, "key" => key, "fact" => fact} = item, by_id)
        when map_size(item) == 3 do
-    with %Entry{} = entry <- by_id[id],
+    with %Ingress.Inbox.Entry{} = entry <- by_id[id],
          person when is_binary(person) <- person_ref(entry),
          true <- is_binary(key) and Regex.match?(@key, key),
          {:ok, fact} <- fact(fact) do
@@ -92,8 +92,8 @@ defmodule Ryker.People do
   (`Ryker.Ingress.Input.actor_ref/1`), or nil when an app, a bot or Ryker's
   own schedule wrote it.
   """
-  @spec person_ref(Entry.t()) :: String.t() | nil
-  def person_ref(%Entry{actor_kind: :user, source_kind: source, actor_ref: actor})
+  @spec person_ref(Ingress.Inbox.Entry.t()) :: String.t() | nil
+  def person_ref(%Ingress.Inbox.Entry{actor_kind: :user, source_kind: source, actor_ref: actor})
       when is_binary(source) and source != "" and is_binary(actor) and actor != "",
       do: "#{source}:user:#{actor}"
 
@@ -229,8 +229,8 @@ defmodule Ryker.People do
     case String.split(rest, ":", parts: 2) do
       [workspace, channel] ->
         not (workspace
-             |> ChannelMembership.Query.by_channel(channel)
-             |> ChannelMembership.Query.joined_public()
+             |> Slack.ChannelMembership.Query.by_channel(channel)
+             |> Slack.ChannelMembership.Query.joined_public()
              |> Repo.exists?())
 
       _other ->
@@ -277,8 +277,10 @@ defmodule Ryker.People do
   learning pass that reads them: it keeps kinds it already has and can take
   one back. Only what may be used in their conversation.
   """
-  @spec known_about_authors([Entry.t()]) :: [map()]
-  def known_about_authors([%Entry{destination_conversation_ref: conversation} | _] = entries) do
+  @spec known_about_authors([Ingress.Inbox.Entry.t()]) :: [map()]
+  def known_about_authors(
+        [%Ingress.Inbox.Entry{destination_conversation_ref: conversation} | _] = entries
+      ) do
     entries
     |> Enum.flat_map(fn entry ->
       case person_ref(entry) do

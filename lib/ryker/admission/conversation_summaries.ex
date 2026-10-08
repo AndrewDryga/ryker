@@ -12,9 +12,8 @@ defmodule Ryker.Admission.ConversationSummaries do
   manifest says so, and the actual recent messages carry the context.
   """
   alias Ryker.Continuity
-  alias Ryker.Continuity.ConversationSummary
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Learning.LearningSources
+  alias Ryker.Ingress
+  alias Ryker.Learning
   alias Ryker.Repo
 
   @freshness_window 24 * 60 * 60
@@ -22,10 +21,11 @@ defmodule Ryker.Admission.ConversationSummaries do
   @type selection :: map()
 
   @doc "The summary of this input's exact thread, or an explicit unavailability."
-  @spec thread(Entry.t(), DateTime.t()) :: selection()
-  def thread(%Entry{destination_thread_ref: nil}, _now), do: unavailable("not_applicable")
+  @spec thread(Ingress.Inbox.Entry.t(), DateTime.t()) :: selection()
+  def thread(%Ingress.Inbox.Entry{destination_thread_ref: nil}, _now),
+    do: unavailable("not_applicable")
 
-  def thread(%Entry{} = entry, now) do
+  def thread(%Ingress.Inbox.Entry{} = entry, now) do
     case Repo.transaction(fn -> selected_locked(entry, now) end) do
       {:ok, selection} -> selection
       {:error, _reason} -> unavailable("scope_unavailable")
@@ -36,12 +36,12 @@ defmodule Ryker.Admission.ConversationSummaries do
   # name the thread by the same identity key.
   defp selected_locked(entry, now) do
     with {:ok, scope} <- Continuity.destination_context(entry, entry.repository_ref),
-         %ConversationSummary{} = summary <- latest(scope.identity_key) do
+         %Continuity.ConversationSummary{} = summary <- latest(scope.identity_key) do
       cond do
         after_cutoff?(summary, entry) ->
           unavailable("after_cutoff")
 
-        not LearningSources.valid?(summary.source_dependencies, scope) ->
+        not Learning.LearningSources.valid?(summary.source_dependencies, scope) ->
           unavailable("source_withdrawn")
 
         true ->
@@ -55,9 +55,9 @@ defmodule Ryker.Admission.ConversationSummaries do
 
   defp latest(identity_key) do
     identity_key
-    |> ConversationSummary.Query.by_identity_key()
-    |> ConversationSummary.Query.ordered_by_recently_updated()
-    |> ConversationSummary.Query.limit_to(1)
+    |> Continuity.ConversationSummary.Query.by_identity_key()
+    |> Continuity.ConversationSummary.Query.ordered_by_recently_updated()
+    |> Continuity.ConversationSummary.Query.limit_to(1)
     |> Repo.one()
   end
 
@@ -65,9 +65,12 @@ defmodule Ryker.Admission.ConversationSummaries do
   # `source_message_ref` names the saving episode's newest input by episode key
   # ("admit_input:<digest>"), which neither orders against a Slack timestamp
   # nor covers what that work read for itself.
-  defp after_cutoff?(%ConversationSummary{updated_at: updated_at}, %Entry{
-         occurred_at: occurred_at
-       }),
+  defp after_cutoff?(
+         %Continuity.ConversationSummary{updated_at: updated_at},
+         %Ingress.Inbox.Entry{
+           occurred_at: occurred_at
+         }
+       ),
        do: DateTime.after?(updated_at, occurred_at)
 
   defp document(summary, now) do

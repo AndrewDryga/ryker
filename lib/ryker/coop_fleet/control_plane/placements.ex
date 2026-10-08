@@ -13,7 +13,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   alias Ryker.CoopFleet.ControlPlane.{Commands, Shared}
   alias Ryker.CoopFleet.{Worker, WorkspaceCheckpointTransfer}
   alias Ryker.Repo
-  alias Ryker.Work.{RepositorySource, Session, Turn}
+  alias Ryker.Work
 
   @creating_seconds 300
   @cleanup_phases [:close_pending, :plan_pending, :discard_pending]
@@ -50,8 +50,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   capacity. This is a preflight check; actual placement also validates the
   session's frozen job without consulting current settings.
   """
-  @spec worker_available?(Session.t(), map()) :: boolean()
-  def worker_available?(%Session{}, requirements) do
+  @spec worker_available?(Work.Session.t(), map()) :: boolean()
+  def worker_available?(%Work.Session{}, requirements) do
     case requirements(requirements) do
       {:ok, prepared} ->
         now = Repo.now!()
@@ -132,10 +132,10 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   means the offer is a promise the fleet cannot keep, and the operator would
   lose the working copy by accepting it.
   """
-  @spec portable_workspace(Session.t(), map(), String.t()) ::
+  @spec portable_workspace(Work.Session.t(), map(), String.t()) ::
           %{byte_size: pos_integer(), checkpoint_ref: String.t(), repository_ref: String.t()}
           | nil
-  def portable_workspace(%Session{} = session, requirements, body_root) do
+  def portable_workspace(%Work.Session{} = session, requirements, body_root) do
     if worker_available?(session, requirements), do: portable_checkpoint(session, body_root)
   end
 
@@ -146,9 +146,9 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   # pinned to the same repository source. Client.restore_checkpoint/1 selects by
   # the same rule, so the offer and the restore cannot disagree.
   # Recovery pages inspect only metadata and local file custody, not bundle bytes.
-  defp portable_checkpoint(%Session{repository_ref: nil}, _root), do: nil
+  defp portable_checkpoint(%Work.Session{repository_ref: nil}, _root), do: nil
 
-  defp portable_checkpoint(%Session{} = session, root) do
+  defp portable_checkpoint(%Work.Session{} = session, root) do
     session
     |> WorkspaceCheckpointTransfer.Query.latest_portable()
     |> Repo.one()
@@ -158,7 +158,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   defp checkpoint_offer(nil, _source, _root), do: nil
 
   defp checkpoint_offer({checkpoint, source}, expected_source, root) do
-    if RepositorySource.same?(source, expected_source) and
+    if Work.RepositorySource.same?(source, expected_source) and
          checkpoint_available?(root, checkpoint),
        do: Map.take(checkpoint, [:byte_size, :checkpoint_ref, :repository_ref])
   end
@@ -177,7 +177,10 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     lock_holding_workers(session_id)
 
     session =
-      session_id |> Session.Query.by_id() |> Session.Query.lock_for_no_key_update() |> Repo.one() ||
+      session_id
+      |> Work.Session.Query.by_id()
+      |> Work.Session.Query.lock_for_no_key_update()
+      |> Repo.one() ||
         Shared.rollback({:coop_session_not_found, session_id})
 
     validate_job_for_placement!(session)
@@ -249,7 +252,9 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
 
   def current?(%Placement{}, _now), do: false
 
-  defp bound_session?(%Session{coop_session_id: remote_id}) when is_binary(remote_id), do: true
+  defp bound_session?(%Work.Session{coop_session_id: remote_id}) when is_binary(remote_id),
+    do: true
+
   defp bound_session?(_session), do: false
 
   # A re-placement of a session the previous worker still holds goes back to
@@ -319,17 +324,20 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     |> Shared.unwrap_write()
   end
 
-  defp cancelling_bound_session?(%Session{id: session_id, coop_session_id: remote_id})
+  defp cancelling_bound_session?(%Work.Session{id: session_id, coop_session_id: remote_id})
        when is_binary(remote_id) do
-    session_id |> Turn.Query.by_session_id() |> Turn.Query.cancelling() |> Repo.exists?()
+    session_id
+    |> Work.Turn.Query.by_session_id()
+    |> Work.Turn.Query.cancelling()
+    |> Repo.exists?()
   end
 
   defp cancelling_bound_session?(_session), do: false
 
-  defp cleaning_bound_session?(%Session{cleanup_status: status} = session),
+  defp cleaning_bound_session?(%Work.Session{cleanup_status: status} = session),
     do: status in @cleanup_phases and bound_session?(session)
 
-  defp stopping_or_cleaning?(%Session{cleanup_status: status} = session),
+  defp stopping_or_cleaning?(%Work.Session{cleanup_status: status} = session),
     do: status in @cleanup_phases or cancelling_bound_session?(session)
 
   defp recover_cancellation_placement(session, previous, requirements, lease_seconds, now) do
@@ -554,7 +562,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
 
   defp storage_refusal(_worker), do: "allocation_refused"
 
-  defp fork_required?(%Session{repository_ref: repository_ref}), do: is_binary(repository_ref)
+  defp fork_required?(%Work.Session{repository_ref: repository_ref}),
+    do: is_binary(repository_ref)
 
   # A worker another placement has locked keeps that placement's choice and
   # is skipped, since several placements may arrive at once. Only when every

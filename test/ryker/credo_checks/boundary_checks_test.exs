@@ -782,6 +782,48 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
     end
   end
 
+  describe "Ryker.Checks.CrossContextDeepAlias" do
+    # Until 2026-10-08 lib held 1,533 aliases of other contexts' modules, so
+    # `Turn` could be anyone's turn until the reader found the alias.
+    test "flags an alias reaching into another context" do
+      source = """
+      defmodule Ryker.Sprockets.Spinner do
+        alias Ryker.Work.Turn
+        alias Ryker.Episodes.Episode, as: Request
+        alias Ryker.Slack.{Names, TaskCards}
+        alias Ryker.{CanonicalJSON, Settings.Environment}
+      end
+      """
+
+      assert triggers(deep_alias(), source, "lib/ryker/sprockets/spinner.ex") == [
+               "Ryker.Episodes",
+               "Ryker.Settings",
+               "Ryker.Slack",
+               "Ryker.Work"
+             ]
+    end
+
+    test "allows the own context's modules, top-level modules and Repo" do
+      source = """
+      defmodule Ryker.Sprockets.Spinner do
+        alias Ryker.Sprockets.{Gear, Tooth}
+        alias Ryker.Sprockets.Gear.Query
+        alias Ryker.{Repo, Work}
+        alias Ryker.Repo.Something
+        alias Ryker.Slack
+      end
+      """
+
+      assert issues(deep_alias(), source, "lib/ryker/sprockets/spinner.ex") == []
+
+      assert issues(
+               deep_alias(),
+               "defmodule Ryker.T do\n  alias Ryker.Work.Turn\nend\n",
+               "test/t.exs"
+             ) == []
+    end
+  end
+
   describe "Ryker.Checks.WebNoNestedDomainCalls" do
     # Until 2026-10-08 the console called 30 functions below a context 93
     # times, three of them channel writes made straight from a LiveView.
@@ -1014,4 +1056,5 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
   defp subscribe, do: check("SubscribeNeedsConnected")
   defp role, do: check("UseRykerRole")
   defp web_nested, do: check("WebNoNestedDomainCalls")
+  defp deep_alias, do: check("CrossContextDeepAlias")
 end

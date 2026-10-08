@@ -17,9 +17,8 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{ChannelsPage, Components, Kit, Paths, ShortTime, SlackMarkdown, Units}
   alias Ryker.ControlPlane.UsageProjection
-  alias Ryker.Publication.Custody, as: Publications
+  alias Ryker.Publication
   alias Ryker.Slack
-  alias Ryker.Slack.IncidentRooms
 
   @doc """
   The topics an open list of rooms listens to, as the context functions that
@@ -28,8 +27,8 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   """
   def subscriptions do
     [
-      {IncidentRooms, :subscribe_rooms, []},
-      {Publications, :subscribe_publications, []}
+      {Slack.IncidentRooms, :subscribe_rooms, []},
+      {Publication.Custody, :subscribe_publications, []}
     ]
   end
 

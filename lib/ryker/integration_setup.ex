@@ -9,15 +9,14 @@ defmodule Ryker.IntegrationSetup do
   """
   alias Ryker.{Bootstrap, Credentials}
   alias Ryker.Config
-  alias Ryker.CoopFleet.ManagedSources
+  alias Ryker.CoopFleet
   alias Ryker.Crypto
-  alias Ryker.Delivery.JSONClient
-  alias Ryker.Emisar.Approvals
-  alias Ryker.GitHub.AppJWT
+  alias Ryker.Delivery
+  alias Ryker.Emisar
+  alias Ryker.GitHub
   alias Ryker.Reference
   alias Ryker.Settings
-  alias Ryker.Settings.Environment
-  alias Ryker.Slack.Names
+  alias Ryker.Slack
   require Logger
 
   @minimum_signing_secret_bytes 32
@@ -100,7 +99,7 @@ defmodule Ryker.IntegrationSetup do
       :ok =
         people
         |> Enum.flat_map(&known_name/1)
-        |> Names.remember()
+        |> Slack.Names.remember()
 
       {:ok, people |> Enum.map(&slack_member/1) |> Enum.sort_by(&String.downcase(&1.name))}
     else
@@ -116,7 +115,7 @@ defmodule Ryker.IntegrationSetup do
     api_url = text(params, "api_url", "https://api.github.com")
 
     with {:ok, webhook_secret} <- signing_secret(params["webhook_secret"]),
-         {:ok, signer} <- AppJWT.new(app_id, private_key),
+         {:ok, signer} <- GitHub.AppJWT.new(app_id, private_key),
          {:ok, app_http} <- github_app_http(signer, api_url, options),
          {:ok, %{body: app, status: 200}} <- request(app_http, :get, "/app", nil, [], options),
          :ok <- exact_app(app, app_id),
@@ -159,7 +158,7 @@ defmodule Ryker.IntegrationSetup do
     with {:ok, snapshot} <- Settings.fetch(),
          app_id when is_integer(app_id) <- snapshot.github.app_id,
          {:ok, pem} <- Credentials.fetch(:github_private_key, "primary"),
-         {:ok, signer} <- AppJWT.new(app_id, pem),
+         {:ok, signer} <- GitHub.AppJWT.new(app_id, pem),
          {:ok, app_http} <- github_app_http(signer, snapshot.github.api_url, options),
          {:ok, %{body: installations, status: 200}} <-
            request(app_http, :get, "/app/installations?per_page=100", nil, [], options),
@@ -339,7 +338,7 @@ defmodule Ryker.IntegrationSetup do
              ),
            {:ok, _credential} <-
              Credentials.verify(:emisar, connection.ref, :verified, actor_ref),
-           {:ok, _watched_again} <- Approvals.token_replaced(connection.ref),
+           {:ok, _watched_again} <- Emisar.Approvals.token_replaced(connection.ref),
            do: serve_environments(connection.ref, actor_ref)
     end)
   end
@@ -378,7 +377,7 @@ defmodule Ryker.IntegrationSetup do
   # environment; when none is chosen, Ryker makes "Default" the default.
   defp ensure_default_environment(snapshot, actor_ref) do
     case Settings.default_environment(snapshot) do
-      %Environment{} = environment ->
+      %Settings.Environment{} = environment ->
         {:ok, snapshot, environment}
 
       nil ->
@@ -418,7 +417,7 @@ defmodule Ryker.IntegrationSetup do
   defp replace_emisar(ref, token, actor_ref) do
     with {:ok, _credential} <- Credentials.put(:emisar, ref, token, actor_ref),
          {:ok, _credential} <- Credentials.verify(:emisar, ref, :verified, actor_ref),
-         do: Approvals.token_replaced(ref)
+         do: Emisar.Approvals.token_replaced(ref)
   end
 
   @doc """
@@ -678,7 +677,7 @@ defmodule Ryker.IntegrationSetup do
     case Settings.atomically(fn -> remove_saved_repository(ref, actor_ref) end) do
       {:ok, removed} ->
         storage_root = Keyword.get_lazy(options, :storage_root, &Bootstrap.storage_root!/0)
-        :ok = ManagedSources.remove_mirror(storage_root, ref)
+        :ok = CoopFleet.ManagedSources.remove_mirror(storage_root, ref)
         {:ok, removed}
 
       {:error, reason} ->
@@ -707,7 +706,7 @@ defmodule Ryker.IntegrationSetup do
   # the person's choice, never Ryker's.
   defp leave_environments(snapshot, ref, actor_ref) do
     snapshot.environments
-    |> Enum.filter(&(ref in Environment.repository_refs(&1)))
+    |> Enum.filter(&(ref in Settings.Environment.repository_refs(&1)))
     |> each_write(&leave_environment(&1, ref, actor_ref))
   end
 
@@ -883,7 +882,7 @@ defmodule Ryker.IntegrationSetup do
       _missing ->
         with app_id when is_integer(app_id) <- snapshot.github.app_id,
              {:ok, pem} <- Credentials.fetch(:github_private_key, "primary"),
-             {:ok, signer} <- AppJWT.new(app_id, pem),
+             {:ok, signer} <- GitHub.AppJWT.new(app_id, pem),
              {:ok, app_http} <- github_app_http(signer, snapshot.github.api_url, options),
              {:ok, actor} <-
                github_actor(app_http, snapshot.github.api_url, snapshot.github.app_slug, options) do
@@ -924,7 +923,7 @@ defmodule Ryker.IntegrationSetup do
       Keyword.put_new(
         options,
         :requester,
-        Config.get_env(:emisar_requester, JSONClient)
+        Config.get_env(:emisar_requester, Delivery.JSONClient)
       )
 
     with {:ok, origin, path} <- rpc_endpoint(rpc_url),
@@ -1232,11 +1231,11 @@ defmodule Ryker.IntegrationSetup do
   end
 
   defp github_app_http(signer, api_url, options) do
-    with {:ok, token} <- AppJWT.token(signer), do: json_http(api_url, token, options)
+    with {:ok, token} <- GitHub.AppJWT.token(signer), do: json_http(api_url, token, options)
   end
 
   defp json_http(base_url, token, options) do
-    JSONClient.new(%{
+    Delivery.JSONClient.new(%{
       base_url: base_url,
       finch: Keyword.get(options, :finch, Ryker.CoopFinch),
       receive_timeout: Keyword.get(options, :receive_timeout, 30_000),
@@ -1245,7 +1244,13 @@ defmodule Ryker.IntegrationSetup do
   end
 
   defp request(client, method, path, body, headers, options) do
-    Keyword.get(options, :requester, JSONClient).request(client, method, path, body, headers)
+    Keyword.get(options, :requester, Delivery.JSONClient).request(
+      client,
+      method,
+      path,
+      body,
+      headers
+    )
   end
 
   defp rpc_endpoint(value) do

@@ -15,7 +15,7 @@ defmodule Ryker.Work.Custody.Claims do
   """
   import Ryker.Work.Custody.Locks
   alias Ryker.Lease
-  alias Ryker.Publication.Publication
+  alias Ryker.Publication
   alias Ryker.Repo
   alias Ryker.UTCDateTime
   alias Ryker.Work.Custody
@@ -160,7 +160,7 @@ defmodule Ryker.Work.Custody.Claims do
   end
 
   defp reviews_due(since, :work),
-    do: [Repo.one(Publication.Query.next_review_expiry_after(since))]
+    do: [Repo.one(Publication.Publication.Query.next_review_expiry_after(since))]
 
   defp reviews_due(_since, :delivery), do: []
 
@@ -209,8 +209,8 @@ defmodule Ryker.Work.Custody.Claims do
     # query may have started before the other claimant committed its lease.
     reviewing =
       session.id
-      |> Publication.Query.by_session_id()
-      |> Publication.Query.reviewing_at(Repo.now!())
+      |> Publication.Publication.Query.by_session_id()
+      |> Publication.Publication.Query.reviewing_at(Repo.now!())
 
     Repo.exists?(reviewing)
   end

@@ -26,7 +26,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   alias Ryker.RepositoryKnowledge.{Entry, FleetSession, Run}
   alias Ryker.Text
   alias Ryker.UTCDateTime
-  alias Ryker.Work.Session
+  alias Ryker.Work
   require Logger
 
   @terminal ~w(completed failed cancelled interrupted budget_exhausted)
@@ -939,8 +939,8 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   defp owned_session?(run, remote_id) do
     Reference.valid?(remote_id, 1_024) and
       run.id
-      |> Session.Query.by_knowledge_run_id()
-      |> Session.Query.by_coop_session_id(remote_id)
+      |> Work.Session.Query.by_knowledge_run_id()
+      |> Work.Session.Query.by_coop_session_id(remote_id)
       |> Repo.exists?()
   end
 

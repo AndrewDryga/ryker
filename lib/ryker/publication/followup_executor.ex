@@ -1,9 +1,9 @@
 defmodule Ryker.Publication.FollowupExecutor do
   @moduledoc false
-  alias Ryker.Delivery.Adapters
+  alias Ryker.Delivery
   alias Ryker.LeasedCall
   alias Ryker.Publication.Followups
-  alias Ryker.Slack.TaskCards
+  alias Ryker.Slack
 
   def run_poll(
         %{followup: followup, lease_ref: lease_ref, publication: publication} = claim,
@@ -32,10 +32,10 @@ defmodule Ryker.Publication.FollowupExecutor do
   # A lifecycle event of a task with a card in its thread is shown by that
   # card (`Ryker.Slack.TaskCards.card_receipt/2`); nothing new is posted.
   defp deliver(claim, event, request, settings) do
-    case TaskCards.card_receipt(event.episode_id, request) do
+    case Slack.TaskCards.card_receipt(event.episode_id, request) do
       nil ->
         leased_call(claim, :delivery, settings, fn ->
-          Adapters.publish(request, settings.adapters)
+          Delivery.Adapters.publish(request, settings.adapters)
         end)
 
       settled ->

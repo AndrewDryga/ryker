@@ -20,9 +20,9 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   alias Ryker.ControlPlane.{CallRun, Components, Environments, Integrations, Kit}
   alias Ryker.ControlPlane.{KnowledgeDocument, Paths, SettingsView, ShortTime, Units}
   alias Ryker.{Episodes, RepositoryKnowledge, Schedules}
-  alias Ryker.GitHub.Events, as: GitHubEvents
-  alias Ryker.Publication.Custody, as: Publications
-  alias Ryker.Work.Custody, as: WorkCustody
+  alias Ryker.GitHub
+  alias Ryker.Publication
+  alias Ryker.Work
 
   # The App permissions a repository cannot be set up or worked in without;
   # anything missing is named on the row and needs a person.
@@ -45,11 +45,11 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   def subscriptions do
     SettingsView.subscriptions() ++
       [
-        {GitHubEvents, :subscribe_deliveries, []},
+        {GitHub.Events, :subscribe_deliveries, []},
         {RepositoryKnowledge, :subscribe, []},
         {Schedules, :subscribe_schedules, []},
-        {WorkCustody, :subscribe_sessions, []},
-        {Publications, :subscribe_publications, []},
+        {Work.Custody, :subscribe_sessions, []},
+        {Publication.Custody, :subscribe_publications, []},
         {Episodes, :subscribe_episodes, []}
       ]
   end

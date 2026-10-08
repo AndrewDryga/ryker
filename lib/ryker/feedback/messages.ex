@@ -33,13 +33,12 @@ defmodule Ryker.Feedback.Messages do
   message that repeats it. Observing never fails the message it reads: it
   runs in a short transaction of its own, and a failure is logged.
   """
-  alias Ryker.Delivery.RoutingResponse
+  alias Ryker.Delivery
   alias Ryker.Feedback
-  alias Ryker.Ingress.Inbox
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress
   alias Ryker.Repo
   alias Ryker.RoutingExamples
-  alias Ryker.Work.Turn
+  alias Ryker.Work
   require Logger
 
   @people_sources ["slack", "control_plane"]
@@ -50,8 +49,8 @@ defmodule Ryker.Feedback.Messages do
   @question_limit 50
 
   @doc "Observes one newly received message, and records what it says about an earlier answer."
-  @spec observe(Entry.t()) :: :ok
-  def observe(%Entry{actor_kind: :user, source_kind: source} = entry)
+  @spec observe(Ingress.Inbox.Entry.t()) :: :ok
+  def observe(%Ingress.Inbox.Entry{actor_kind: :user, source_kind: source} = entry)
       when source in @people_sources do
     case Repo.transaction(fn -> observe_locked(entry) end) do
       {:ok, _outcome} -> :ok
@@ -66,11 +65,14 @@ defmodule Ryker.Feedback.Messages do
   # Only an edit that took the words back says something about the answer: a
   # link preview arriving as an edit counted as one and cost an analysis
   # (2026-10-04 review).
-  defp observe_locked(%Entry{event_kind: kind} = entry) when kind in [:edit, :delete] do
+  defp observe_locked(%Ingress.Inbox.Entry{event_kind: kind} = entry)
+       when kind in [:edit, :delete] do
     if RoutingExamples.takes_back_words?(entry), do: observe_revision(entry), else: :none
   end
 
-  defp observe_locked(%Entry{event_kind: :message} = entry), do: observe_reask(entry)
+  defp observe_locked(%Ingress.Inbox.Entry{event_kind: :message} = entry),
+    do: observe_reask(entry)
+
   defp observe_locked(_entry), do: :none
 
   defp log(reason) do
@@ -82,7 +84,8 @@ defmodule Ryker.Feedback.Messages do
 
   defp observe_revision(entry) do
     case earlier_revisions(entry) do
-      [%Entry{actor_ref: actor} = first | _later] = earlier when actor == entry.actor_ref ->
+      [%Ingress.Inbox.Entry{actor_ref: actor} = first | _later] = earlier
+      when actor == entry.actor_ref ->
         case answered(earlier, first.occurred_at, entry.occurred_at) do
           {:ok, request} -> record(entry, revision_kind(entry.event_kind), request)
           :none -> :none
@@ -96,7 +99,8 @@ defmodule Ryker.Feedback.Messages do
   defp revision_kind(:edit), do: :message_edited
   defp revision_kind(:delete), do: :message_deleted
 
-  defp earlier_revisions(entry), do: entry |> Entry.Query.earlier_revisions_of() |> Repo.all()
+  defp earlier_revisions(entry),
+    do: entry |> Ingress.Inbox.Entry.Query.earlier_revisions_of() |> Repo.all()
 
   # The request that answered the message: the latest request any of its
   # revisions joined, once one of its Work replies was delivered after the
@@ -119,22 +123,22 @@ defmodule Ryker.Feedback.Messages do
 
   defp work_reply_between?(episode_id, from, before) do
     episode_id
-    |> Turn.Query.by_episode_id()
-    |> Turn.Query.delivered()
-    |> Turn.Query.delivered_after(from)
-    |> Turn.Query.delivered_before(before)
+    |> Work.Turn.Query.by_episode_id()
+    |> Work.Turn.Query.delivered()
+    |> Work.Turn.Query.delivered_after(from)
+    |> Work.Turn.Query.delivered_before(before)
     |> Repo.exists?()
   end
 
   defp quick_replied(input_ids, from, before) do
     input_ids
-    |> RoutingResponse.Query.by_input_ids()
-    |> RoutingResponse.Query.delivered_messages()
-    |> RoutingResponse.Query.delivered_after(from)
-    |> RoutingResponse.Query.delivered_before(before)
-    |> RoutingResponse.Query.ordered_by_delivered_at_desc()
-    |> RoutingResponse.Query.limit_to(1)
-    |> RoutingResponse.Query.select_input_ids()
+    |> Delivery.RoutingResponse.Query.by_input_ids()
+    |> Delivery.RoutingResponse.Query.delivered_messages()
+    |> Delivery.RoutingResponse.Query.delivered_after(from)
+    |> Delivery.RoutingResponse.Query.delivered_before(before)
+    |> Delivery.RoutingResponse.Query.ordered_by_delivered_at_desc()
+    |> Delivery.RoutingResponse.Query.limit_to(1)
+    |> Delivery.RoutingResponse.Query.select_input_ids()
     |> Repo.one()
   end
 
@@ -160,7 +164,7 @@ defmodule Ryker.Feedback.Messages do
     since = DateTime.add(entry.occurred_at, -@question_lookback_seconds, :second)
 
     entry
-    |> Entry.Query.earlier_questions(since, @question_limit)
+    |> Ingress.Inbox.Entry.Query.earlier_questions(since, @question_limit)
     |> same_place(entry)
     |> Repo.all()
   end
@@ -168,12 +172,12 @@ defmodule Ryker.Feedback.Messages do
   defp same_place(query, entry) do
     if top_level?(entry),
       do: query,
-      else: Entry.Query.by_thread_ref(query, entry.destination_thread_ref)
+      else: Ingress.Inbox.Entry.Query.by_thread_ref(query, entry.destination_thread_ref)
   end
 
   # A Slack message binds its own timestamp as its thread when it starts one;
   # every Chat message shares its conversation's one thread.
-  defp top_level?(%Entry{source_kind: "slack"} = entry),
+  defp top_level?(%Ingress.Inbox.Entry{source_kind: "slack"} = entry),
     do: entry.source_item_ref == entry.destination_thread_ref
 
   defp top_level?(_entry), do: false
@@ -207,22 +211,22 @@ defmodule Ryker.Feedback.Messages do
 
   defp work_replies(episode_ids, from, before) do
     episode_ids
-    |> Turn.Query.by_episode_ids()
-    |> Turn.Query.delivered()
-    |> Turn.Query.delivered_since(from)
-    |> Turn.Query.delivered_before(before)
-    |> Turn.Query.select_episode_deliveries()
+    |> Work.Turn.Query.by_episode_ids()
+    |> Work.Turn.Query.delivered()
+    |> Work.Turn.Query.delivered_since(from)
+    |> Work.Turn.Query.delivered_before(before)
+    |> Work.Turn.Query.select_episode_deliveries()
     |> Repo.all()
     |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
   end
 
   defp quick_replies(input_ids, from, before) do
     input_ids
-    |> RoutingResponse.Query.by_input_ids()
-    |> RoutingResponse.Query.delivered_messages()
-    |> RoutingResponse.Query.delivered_since(from)
-    |> RoutingResponse.Query.delivered_before(before)
-    |> RoutingResponse.Query.select_input_deliveries()
+    |> Delivery.RoutingResponse.Query.by_input_ids()
+    |> Delivery.RoutingResponse.Query.delivered_messages()
+    |> Delivery.RoutingResponse.Query.delivered_since(from)
+    |> Delivery.RoutingResponse.Query.delivered_before(before)
+    |> Delivery.RoutingResponse.Query.select_input_deliveries()
     |> Repo.all()
     |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
   end
@@ -288,7 +292,7 @@ defmodule Ryker.Feedback.Messages do
            kind: kind,
            actor_ref: entry.actor_ref,
            source: entry.source_kind,
-           source_ref: Inbox.ref(entry),
+           source_ref: Ingress.Inbox.ref(entry),
            occurred_at: entry.occurred_at,
            request: request
          }) do

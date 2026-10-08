@@ -26,7 +26,7 @@ defmodule Ryker.Improvement.Analyses do
   alias Ryker.Repo
   alias Ryker.RoutingExamples
   alias Ryker.UTCDateTime
-  alias Ryker.Work.Session
+  alias Ryker.Work
 
   @contract_failures ~w(output_contract_failed invalid_improvement_result)
   # Causes another start would meet again: they end the analysis at once.
@@ -792,8 +792,8 @@ defmodule Ryker.Improvement.Analyses do
   defp owned_session?(run, remote_id) do
     Reference.valid?(remote_id, 1_024) and
       run.id
-      |> Session.Query.by_improvement_run_id()
-      |> Session.Query.by_coop_session_id(remote_id)
+      |> Work.Session.Query.by_improvement_run_id()
+      |> Work.Session.Query.by_coop_session_id(remote_id)
       |> Repo.exists?()
   end
 

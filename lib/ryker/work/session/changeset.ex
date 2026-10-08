@@ -1,7 +1,7 @@
 defmodule Ryker.Work.Session.Changeset do
   @moduledoc false
   use Ryker, :changeset
-  alias Ryker.CoopFleet.JobSpec
+  alias Ryker.CoopFleet
   alias Ryker.Work.{RepositoryContext, RepositorySource, Session}
 
   @admission_fields [
@@ -188,7 +188,7 @@ defmodule Ryker.Work.Session.Changeset do
         changeset
 
       {%{} = document, digest} when is_binary(digest) ->
-        case {JobSpec.digest(document),
+        case {CoopFleet.JobSpec.digest(document),
               document["job_ref"] == get_field(changeset, :external_ref)} do
           {{:ok, ^digest}, true} ->
             changeset

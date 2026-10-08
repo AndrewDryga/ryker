@@ -10,7 +10,7 @@ defmodule Ryker.Feedback.Answers do
   extra post the Work model sent belongs to its episode. Only a delivered
   message, found by the receipt its platform returned, is one Ryker sent.
   """
-  alias Ryker.Delivery.{PlatformAction, RoutingResponse}
+  alias Ryker.Delivery
   alias Ryker.Repo
 
   @type target :: %{transport: String.t(), conversation_ref: String.t(), message_ref: String.t()}
@@ -34,22 +34,22 @@ defmodule Ryker.Feedback.Answers do
   def message_request(_target), do: :error
 
   defp quick_reply(transport, conversation, ref) do
-    RoutingResponse.Query.delivered_messages()
-    |> RoutingResponse.Query.by_conversation(transport, conversation)
-    |> RoutingResponse.Query.by_receipt_message(ref)
-    |> RoutingResponse.Query.ordered_by_delivered_at_desc()
-    |> RoutingResponse.Query.limit_to(1)
-    |> RoutingResponse.Query.select_input_ids()
+    Delivery.RoutingResponse.Query.delivered_messages()
+    |> Delivery.RoutingResponse.Query.by_conversation(transport, conversation)
+    |> Delivery.RoutingResponse.Query.by_receipt_message(ref)
+    |> Delivery.RoutingResponse.Query.ordered_by_delivered_at_desc()
+    |> Delivery.RoutingResponse.Query.limit_to(1)
+    |> Delivery.RoutingResponse.Query.select_input_ids()
     |> Repo.one()
   end
 
   defp post(transport, conversation, ref) do
-    PlatformAction.Query.delivered_messages()
-    |> PlatformAction.Query.by_conversation(transport, conversation)
-    |> PlatformAction.Query.by_receipt_message(ref)
-    |> PlatformAction.Query.ordered_by_delivered_at_desc()
-    |> PlatformAction.Query.limit_to(1)
-    |> PlatformAction.Query.select_episode_ids()
+    Delivery.PlatformAction.Query.delivered_messages()
+    |> Delivery.PlatformAction.Query.by_conversation(transport, conversation)
+    |> Delivery.PlatformAction.Query.by_receipt_message(ref)
+    |> Delivery.PlatformAction.Query.ordered_by_delivered_at_desc()
+    |> Delivery.PlatformAction.Query.limit_to(1)
+    |> Delivery.PlatformAction.Query.select_episode_ids()
     |> Repo.one()
   end
 end

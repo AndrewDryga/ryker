@@ -14,7 +14,6 @@ defmodule Ryker.Slack.ChannelSettings do
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Settings
-  alias Ryker.Settings.Slack
   alias Ryker.Slack.ChannelConfiguration
   alias Ryker.Slack.ChannelConfigurations
   alias Ryker.Slack.ChannelSettingAudit
@@ -185,7 +184,7 @@ defmodule Ryker.Slack.ChannelSettings do
     do: effective(attributes.workspace_ref, attributes.conversation_ref, default)
 
   defp default_participation(nil, workspace_ref) do
-    case Repo.one(Slack.Query.select_default_participation()) do
+    case Repo.one(Settings.Slack.Query.select_default_participation()) do
       {^workspace_ref, default} -> {:ok, default}
       _other -> {:error, {:invalid_channel_setting, :workspace_ref}}
     end

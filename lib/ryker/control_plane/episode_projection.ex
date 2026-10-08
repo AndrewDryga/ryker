@@ -6,16 +6,14 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
   cross this boundary. An open page redraws when the request, its
   conversation or background learning changes (`subscriptions/1`).
   """
-  alias Ryker.Accounting.Execution
+  alias Ryker.Accounting
   alias Ryker.ControlPlane.{Activity, EpisodeTrace, FeedbackProjection}
   alias Ryker.ControlPlane.{ImprovementRequests, ModelRequests, Paths, TaskProgress}
   alias Ryker.ControlPlane.UsageProjection
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Episode, Event}
-  alias Ryker.Ingress.Inbox
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress
   alias Ryker.Learning
-  alias Ryker.Records.Record
+  alias Ryker.Records
   alias Ryker.Repo
 
   @record_limit 500
@@ -28,12 +26,14 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
   @spec key(Ecto.UUID.t() | nil) :: String.t() | nil
   def key(nil), do: nil
 
-  def key(id), do: id |> Episode.Query.by_id() |> Episode.Query.select_keys() |> Repo.one()
+  def key(id),
+    do: id |> Episodes.Episode.Query.by_id() |> Episodes.Episode.Query.select_keys() |> Repo.one()
 
   @doc "The id of the episode kept under `key`, or nil when there is none: `key/1` read back."
   @spec key_id(String.t() | nil) :: Ecto.UUID.t() | nil
-  def key_id(key) when is_binary(key) and byte_size(key) <= 1_024,
-    do: key |> Episode.Query.by_key() |> Episode.Query.select_ids() |> Repo.one()
+  def key_id(key) when is_binary(key) and byte_size(key) <= 1_024 do
+    key |> Episodes.Episode.Query.by_key() |> Episodes.Episode.Query.select_ids() |> Repo.one()
+  end
 
   def key_id(_key), do: nil
 
@@ -57,7 +57,7 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
   defp stored_request_key(id) do
     cond do
       key = key(id) -> {:ok, key}
-      Repo.exists?(Entry.Query.by_id(id)) -> {:ok, "ingress-input:" <> id}
+      Repo.exists?(Ingress.Inbox.Entry.Query.by_id(id)) -> {:ok, "ingress-input:" <> id}
       true -> :not_found
     end
   end
@@ -83,7 +83,11 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
   defp key_subscriptions("ingress-input:" <> id), do: input_subscriptions(id)
 
   defp key_subscriptions(key) do
-    found = key |> Episode.Query.by_key() |> Episode.Query.select_id_destinations() |> Repo.one()
+    found =
+      key
+      |> Episodes.Episode.Query.by_key()
+      |> Episodes.Episode.Query.select_id_destinations()
+      |> Repo.one()
 
     case found do
       {id, transport, conversation_ref} ->
@@ -96,18 +100,22 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
   end
 
   defp input_subscriptions(id) do
-    found = id |> Entry.Query.by_id() |> Entry.Query.select_episode_destinations() |> Repo.one()
+    found =
+      id
+      |> Ingress.Inbox.Entry.Query.by_id()
+      |> Ingress.Inbox.Entry.Query.select_episode_destinations()
+      |> Repo.one()
 
     case found do
       {episode_id, transport, conversation_ref} ->
         [
-          {Inbox, :subscribe_input, [id]},
+          {Ingress.Inbox, :subscribe_input, [id]},
           {Episodes, :subscribe_conversation, [transport, conversation_ref]},
           @learning
         ] ++ episode_subscriptions(episode_id)
 
       nil ->
-        [{Inbox, :subscribe_input, [id]}, @learning]
+        [{Ingress.Inbox, :subscribe_input, [id]}, @learning]
     end
   end
 
@@ -120,16 +128,16 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
   def fetch(ref, params) when is_binary(ref) and byte_size(ref) <= 1_024 and is_map(params) do
     ref = ModelRequests.episode_ref(ref)
 
-    case Repo.one(Episode.Query.by_key(ref)) do
+    case Repo.one(Episodes.Episode.Query.by_key(ref)) do
       nil ->
         :not_found
 
       episode ->
         event_records =
           episode.id
-          |> Event.Query.by_episode_id()
-          |> Event.Query.ordered_by_sequence_desc()
-          |> Event.Query.limit_to(500)
+          |> Episodes.Event.Query.by_episode_id()
+          |> Episodes.Event.Query.ordered_by_sequence_desc()
+          |> Episodes.Event.Query.limit_to(500)
           |> Repo.all()
           |> Enum.reverse()
 
@@ -144,9 +152,9 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
 
         record_records =
           episode.id
-          |> Record.Query.by_episode_id()
-          |> Record.Query.ordered_by_sequence_desc()
-          |> Record.Query.limit_to(@record_limit)
+          |> Records.Record.Query.by_episode_id()
+          |> Records.Record.Query.ordered_by_sequence_desc()
+          |> Records.Record.Query.limit_to(@record_limit)
           |> Repo.all()
           |> Enum.reverse()
 
@@ -167,8 +175,8 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
 
         accounting =
           nil
-          |> Execution.Query.ledger("all")
-          |> Execution.Query.by_episode_id(episode.id)
+          |> Accounting.Execution.Query.ledger("all")
+          |> Accounting.Execution.Query.by_episode_id(episode.id)
           |> UsageProjection.totals()
 
         {:ok,
@@ -256,6 +264,6 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
     kind |> Atom.to_string() |> String.replace("_", " ")
   end
 
-  defp record_summary(%Record{subject_ref: subject}) when is_binary(subject), do: subject
-  defp record_summary(%Record{operation_id: operation}), do: operation
+  defp record_summary(%Records.Record{subject_ref: subject}) when is_binary(subject), do: subject
+  defp record_summary(%Records.Record{operation_id: operation}), do: operation
 end

@@ -5,9 +5,9 @@ defmodule Ryker.ControlPlane.ScheduleDirectory.Query do
   with its times in its own zone, and its runs beside each run's latest turn.
   """
   use Ryker, :query
-  alias Ryker.Episodes.Episode
-  alias Ryker.Schedules.{Schedule, ScheduleOccurrence}
-  alias Ryker.Work.Turn
+  alias Ryker.Episodes
+  alias Ryker.Schedules
+  alias Ryker.Work
 
   # A stored UTC instant as the wall-clock time in `zone`.
   defmacrop local(zone, at) do
@@ -33,7 +33,7 @@ defmodule Ryker.ControlPlane.ScheduleDirectory.Query do
   paused, then the rest; soonest due first; newest), as its rows.
   """
   def directory(limit) do
-    from([episode_schedules: schedule] in Schedule.Query.all(),
+    from([episode_schedules: schedule] in Schedules.Schedule.Query.all(),
       order_by: [
         asc:
           fragment(
@@ -86,7 +86,7 @@ defmodule Ryker.ControlPlane.ScheduleDirectory.Query do
 
   @doc "Schedule `ref` with its times in its own zone, as `{schedule, local_times}`."
   def by_ref_with_local_times(ref) do
-    from(schedule in Schedule,
+    from(schedule in Schedules.Schedule,
       where: schedule.ref == ^ref,
       limit: 1,
       select:
@@ -107,7 +107,7 @@ defmodule Ryker.ControlPlane.ScheduleDirectory.Query do
   """
   def occurrences(schedule, limit) do
     latest_turn =
-      from(turn in Turn,
+      from(turn in Work.Turn,
         where: turn.episode_id == parent_as(:occurrence).child_episode_id,
         order_by: [desc: turn.inserted_at, desc: turn.id],
         limit: 1,
@@ -123,9 +123,9 @@ defmodule Ryker.ControlPlane.ScheduleDirectory.Query do
         }
       )
 
-    from(occurrence in ScheduleOccurrence,
+    from(occurrence in Schedules.ScheduleOccurrence,
       as: :occurrence,
-      left_join: episode in Episode,
+      left_join: episode in Episodes.Episode,
       on: episode.id == occurrence.child_episode_id,
       left_lateral_join: turn in subquery(latest_turn),
       on: true,

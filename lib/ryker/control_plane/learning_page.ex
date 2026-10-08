@@ -18,9 +18,9 @@ defmodule Ryker.ControlPlane.LearningPage do
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.Components
   alias Ryker.ControlPlane.{CSRF, Kit, LearningActivity, MemoryFormat, Paths}
-  alias Ryker.Ingress.Inbox
+  alias Ryker.Ingress
   alias Ryker.{Knowledge, Learning, Settings}
-  alias Ryker.Work.Custody, as: WorkCustody
+  alias Ryker.Work
 
   @doc """
   The topics an open Learning page listens to, as the context functions that
@@ -32,8 +32,8 @@ defmodule Ryker.ControlPlane.LearningPage do
     [
       {Learning, :subscribe_learning, []},
       {Knowledge, :subscribe_knowledge, []},
-      {Inbox, :subscribe_inputs, []},
-      {WorkCustody, :subscribe_sessions, []},
+      {Ingress.Inbox, :subscribe_inputs, []},
+      {Work.Custody, :subscribe_sessions, []},
       {Settings, :subscribe, []}
     ]
   end

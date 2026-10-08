@@ -10,7 +10,7 @@ defmodule Ryker.Emisar.ApprovalWorker do
   use Ryker.PollingWorker, lane: :emisar_approval, interval: :poll_interval_ms
   alias Ryker.Emisar.{ApprovalDispatcher, Approvals}
   alias Ryker.Episodes
-  alias Ryker.Observability.Progress
+  alias Ryker.Observability
   alias Ryker.PollingWorker
   require Logger
 
@@ -46,7 +46,7 @@ defmodule Ryker.Emisar.ApprovalWorker do
   @impl PollingWorker
   def poll(state) do
     delay = process_once(state)
-    _ = Progress.beat(:emisar_approval)
+    _ = Observability.Progress.beat(:emisar_approval)
     delay
   end
 

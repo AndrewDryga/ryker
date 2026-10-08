@@ -5,8 +5,7 @@ defmodule Ryker.CoopFleet.Router do
   alias Ryker.CoopFleet.{Bodies, ControlPlane, Enrollment, Protocol, PublicationGrants}
   alias Ryker.CoopFleet.SourceGrants
   alias Ryker.HTTPConnection
-  alias Ryker.StateTools.Binding
-  alias Ryker.StateTools.Router, as: StateToolsRouter
+  alias Ryker.StateTools
   require Logger
 
   @maximum_document_bytes 1_048_576
@@ -96,12 +95,12 @@ defmodule Ryker.CoopFleet.Router do
          options
        ) do
     with {:ok, token} <- bearer_token(conn),
-         {:ok, binding} <- Binding.resolve(token),
+         {:ok, binding} <- StateTools.Binding.resolve(token),
          {:ok, state_tools} <- Keyword.fetch(options, :state_tools_router) do
       conn
       |> Map.put(:path_info, ["mcp"])
       |> Map.put(:request_path, "/mcp")
-      |> StateToolsRouter.call(%{state_tools | binding: binding})
+      |> StateTools.Router.call(%{state_tools | binding: binding})
     else
       _unauthorized -> json_error(conn, 401, "unauthorized")
     end
@@ -267,7 +266,7 @@ defmodule Ryker.CoopFleet.Router do
     |> maybe_put(:additional_tools, Map.get(state_tools, :additional_tools))
     |> maybe_put(:additional_call, Map.get(state_tools, :additional_call))
     |> maybe_put(:answer_authorizer, Map.get(state_tools, :answer_authorizer))
-    |> StateToolsRouter.init()
+    |> StateTools.Router.init()
   end
 
   defp state_tools_router(_state_tools),

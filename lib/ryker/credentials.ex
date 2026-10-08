@@ -8,7 +8,6 @@ defmodule Ryker.Credentials do
   alias Ryker.AdvisoryLock
   alias Ryker.Config
   alias Ryker.Credential
-  alias Ryker.Credential.Event
   alias Ryker.Crypto
   alias Ryker.Repo
   require Logger
@@ -236,7 +235,7 @@ defmodule Ryker.Credentials do
   defp lock!(kind, name), do: AdvisoryLock.hold!("ryker-credential:#{kind}:#{name}")
 
   defp event!(credential, action, actor_ref, now) do
-    %Event{
+    %Credential.Event{
       id: Repo.generate_id(),
       credential_id: credential.id,
       kind: credential.kind,

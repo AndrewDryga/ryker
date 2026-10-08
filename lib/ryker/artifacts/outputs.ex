@@ -9,7 +9,7 @@ defmodule Ryker.Artifacts.Outputs do
   alias Ryker.Artifacts.OutputArtifact
   alias Ryker.Crypto
   alias Ryker.Repo
-  alias Ryker.Work.Custody
+  alias Ryker.Work
 
   @maximum_artifacts 5
   @maximum_bytes 8 * 1_024 * 1_024
@@ -49,7 +49,7 @@ defmodule Ryker.Artifacts.Outputs do
          {:ok, prepared} <- prepare_bodies(turn_id, values),
          true <- Enum.sum(Enum.map(prepared, & &1.byte_size)) <= @maximum_bytes do
       Repo.transaction(fn ->
-        Custody.broadcast_turn_updated(turn_id)
+        Work.Custody.broadcast_turn_updated(turn_id)
         Enum.map(prepared, &put_one!/1)
       end)
     else

@@ -6,8 +6,8 @@ defmodule Ryker.Slack.Renderer.Offers do
   """
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
-  alias Ryker.Delivery.OfferWords
-  alias Ryker.Schedules.ScheduleCadence
+  alias Ryker.Delivery
+  alias Ryker.Schedules
 
   # A task brief shows this many checks and limits, each cut to this length,
   # and counts the rest.
@@ -184,12 +184,12 @@ defmodule Ryker.Slack.Renderer.Offers do
   defp schedule_offer(ref, payload) do
     # The recurrence the confirmation saves, in the words every surface uses,
     # never the title or task the model wrote over it.
-    cadence = ScheduleCadence.describe(payload["recurrence"], payload["timezone"])
+    cadence = Schedules.ScheduleCadence.describe(payload["recurrence"], payload["timezone"])
 
     limits =
       [
-        ScheduleCadence.access(payload["authority"], payload["repository"]),
-        ScheduleCadence.ends(payload["expires_at"])
+        Schedules.ScheduleCadence.access(payload["authority"], payload["repository"]),
+        Schedules.ScheduleCadence.ends(payload["expires_at"])
       ]
       |> Enum.reject(&is_nil/1)
 
@@ -261,8 +261,8 @@ defmodule Ryker.Slack.Renderer.Offers do
     [
       change(
         "How often",
-        OfferWords.cadence(changed["trigger"]),
-        OfferWords.cadence(before["trigger"]),
+        Delivery.OfferWords.cadence(changed["trigger"]),
+        Delivery.OfferWords.cadence(before["trigger"]),
         :always
       ),
       change("Name", changed["title"], before["title"], :changed),
@@ -304,7 +304,7 @@ defmodule Ryker.Slack.Renderer.Offers do
 
   defp channel(_conversation), do: nil
 
-  defp stops(value) when is_binary(value), do: OfferWords.stamp(value)
+  defp stops(value) when is_binary(value), do: Delivery.OfferWords.stamp(value)
   defp stops(_never), do: "Never"
 
   # New instructions are shown whole, and the old ones under them, so a
@@ -393,8 +393,8 @@ defmodule Ryker.Slack.Renderer.Offers do
   defp behavior_offer("preference_offer", ref, payload) do
     summary =
       [
-        "*Preference · #{escape(OfferWords.humanize(payload["key"]))}*",
-        escape(OfferWords.humanize(payload["value"])),
+        "*Preference · #{escape(Delivery.OfferWords.humanize(payload["key"]))}*",
+        escape(Delivery.OfferWords.humanize(payload["value"])),
         "_Nothing changes until you confirm._"
       ]
       |> compact_lines()
@@ -402,8 +402,9 @@ defmodule Ryker.Slack.Renderer.Offers do
     (sections(summary) ++
        [
          facts([
-           {"Applies to", OfferWords.applies_to(payload["scope"], payload["repository"])},
-           {"Expires", OfferWords.duration(payload["expires_in"])}
+           {"Applies to",
+            Delivery.OfferWords.applies_to(payload["scope"], payload["repository"])},
+           {"Expires", Delivery.OfferWords.duration(payload["expires_in"])}
          ]),
          behavior_actions(ref, "Confirm preference")
        ])
@@ -422,9 +423,10 @@ defmodule Ryker.Slack.Renderer.Offers do
     (sections(summary) ++
        [
          facts([
-           {"Applies to", OfferWords.applies_to(payload["scope"], payload["repository"])},
-           {"Shown to", OfferWords.shown_to(payload["scope"], payload["visibility"])},
-           {"Expires", OfferWords.duration(payload["expires_in"])}
+           {"Applies to",
+            Delivery.OfferWords.applies_to(payload["scope"], payload["repository"])},
+           {"Shown to", Delivery.OfferWords.shown_to(payload["scope"], payload["visibility"])},
+           {"Expires", Delivery.OfferWords.duration(payload["expires_in"])}
          ]),
          behavior_actions(ref, "Remember this")
        ])
@@ -443,11 +445,11 @@ defmodule Ryker.Slack.Renderer.Offers do
     (sections(summary) ++
        [
          facts([
-           {"Listens to", OfferWords.listens_to(payload)},
-           {"Takes", OfferWords.only_when(payload["filter"])},
+           {"Listens to", Delivery.OfferWords.listens_to(payload)},
+           {"Takes", Delivery.OfferWords.only_when(payload["filter"])},
            {"Posts in", channel(payload["delivery_channel"])},
            {"Repository", payload["repository"]},
-           {"Stops", OfferWords.stamp(payload["expires_at"]) || "When you turn it off"}
+           {"Stops", Delivery.OfferWords.stamp(payload["expires_at"]) || "When you turn it off"}
          ]),
          behavior_actions(ref, "Enable automation")
        ])
@@ -466,9 +468,10 @@ defmodule Ryker.Slack.Renderer.Offers do
     (sections(summary) ++
        [
          facts([
-           {"Applies to", OfferWords.applies_to(payload["scope"], payload["repository"])},
-           {"Shown to", OfferWords.shown_to(payload["scope"], payload["visibility"])},
-           {"Expires", OfferWords.duration(payload["expires_in"])}
+           {"Applies to",
+            Delivery.OfferWords.applies_to(payload["scope"], payload["repository"])},
+           {"Shown to", Delivery.OfferWords.shown_to(payload["scope"], payload["visibility"])},
+           {"Expires", Delivery.OfferWords.duration(payload["expires_in"])}
          ]),
          actions(
            ref,

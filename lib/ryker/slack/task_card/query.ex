@@ -1,10 +1,10 @@
 defmodule Ryker.Slack.TaskCard.Query do
   @moduledoc "The Slack cards that show each task, for every read of `slack_task_cards`."
   use Ryker, :query
-  alias Ryker.Episodes.Episode
-  alias Ryker.Records.Record
+  alias Ryker.Episodes
+  alias Ryker.Records
   alias Ryker.Slack.TaskCard
-  alias Ryker.Work.Turn
+  alias Ryker.Work
 
   # A card shows its task. While the task works its progress moves, so the card
   # is checked every few seconds (`check_interval_seconds`); otherwise only a
@@ -65,7 +65,7 @@ defmodule Ryker.Slack.TaskCard.Query do
   def select_next_due_after(since, check_interval_seconds) do
     due =
       from(card in all(),
-        left_join: episode in Episode,
+        left_join: episode in Episodes.Episode,
         on: episode.id == card.episode_id,
         where: card.status == :active,
         select: %{
@@ -114,7 +114,7 @@ defmodule Ryker.Slack.TaskCard.Query do
     quiet_due_at = DateTime.add(now, -@quiet_check_seconds, :second)
 
     working =
-      from(episode in Episode,
+      from(episode in Episodes.Episode,
         where: episode.id == parent_as(:slack_task_cards).episode_id and episode.state == :working
       )
 
@@ -137,10 +137,10 @@ defmodule Ryker.Slack.TaskCard.Query do
   outside `skip`, as `{record, source_turn, episode}`.
   """
   def next_uncarded_offer(skip) do
-    from(record in Record,
-      join: source_turn in Turn,
+    from(record in Records.Record,
+      join: source_turn in Work.Turn,
       on: source_turn.id == record.turn_id and source_turn.episode_id == record.episode_id,
-      join: episode in Episode,
+      join: episode in Episodes.Episode,
       on: episode.id == record.confirmed_episode_id,
       left_join: card in TaskCard,
       on: card.record_id == record.id,
@@ -158,7 +158,7 @@ defmodule Ryker.Slack.TaskCard.Query do
   @doc "The title of the task card `ref` shows, as its offer recorded it."
   def task_title(ref) do
     from(card in by_ref(ref),
-      join: record in Record,
+      join: record in Records.Record,
       on: record.id == card.record_id,
       select: fragment("(?::jsonb)->>'title'", record.payload)
     )
@@ -168,6 +168,6 @@ defmodule Ryker.Slack.TaskCard.Query do
 
   @doc "Each card with its task's episode, as `{card, episode}`."
   def select_with_episode(queryable) do
-    from(c in queryable, join: e in Episode, on: e.id == c.episode_id, select: {c, e})
+    from(c in queryable, join: e in Episodes.Episode, on: e.id == c.episode_id, select: {c, e})
   end
 end

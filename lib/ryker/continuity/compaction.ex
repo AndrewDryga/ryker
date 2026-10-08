@@ -16,10 +16,7 @@ defmodule Ryker.Continuity.Compaction do
   alias Ryker.Continuity.ConversationSummaryState
   alias Ryker.Continuity.Scope
   alias Ryker.Knowledge
-  alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Learning
-  alias Ryker.Learning.ConversationObservation
-  alias Ryker.Learning.LearningSources
   alias Ryker.Repo
 
   @maximum_compaction 100
@@ -99,17 +96,17 @@ defmodule Ryker.Continuity.Compaction do
     Continuity.broadcast_continuity_updated(conversation_ref)
 
     {_count, topics} =
-      ConversationKnowledge.Query.all()
-      |> ConversationKnowledge.Query.by_workspace_ref(scoped_workspace_ref)
-      |> ConversationKnowledge.Query.by_conversation_ref(conversation_ref)
-      |> ConversationKnowledge.Query.select_ids()
+      Knowledge.ConversationKnowledge.Query.all()
+      |> Knowledge.ConversationKnowledge.Query.by_workspace_ref(scoped_workspace_ref)
+      |> Knowledge.ConversationKnowledge.Query.by_conversation_ref(conversation_ref)
+      |> Knowledge.ConversationKnowledge.Query.select_ids()
       |> Repo.delete_all()
 
     {_count, notes} =
       scoped_workspace_ref
-      |> ConversationObservation.Query.by_workspace_ref()
-      |> ConversationObservation.Query.by_conversation_ref(conversation_ref)
-      |> ConversationObservation.Query.select_ids()
+      |> Learning.ConversationObservation.Query.by_workspace_ref()
+      |> Learning.ConversationObservation.Query.by_conversation_ref(conversation_ref)
+      |> Learning.ConversationObservation.Query.select_ids()
       |> Repo.delete_all()
 
     Enum.each(topics, &Knowledge.broadcast_knowledge_updated/1)
@@ -178,7 +175,7 @@ defmodule Ryker.Continuity.Compaction do
     existing = locked_rollup(workspace_ref, scope_kind, scope_ref, period_start)
     retained = if existing && existing.state != %{"retention" => "pruned"}, do: existing
 
-    if retained && not LearningSources.sourced?(retained.source_dependencies) do
+    if retained && not Learning.LearningSources.sourced?(retained.source_dependencies) do
       # Preserve historical prose; a later sourced summary cannot retroactively attribute it.
       :skipped
     else
@@ -236,7 +233,7 @@ defmodule Ryker.Continuity.Compaction do
       source_refs: bounded_source_refs(rollup.source_refs, new_refs),
       source_scopes: merged_source_scopes(rollup.source_scopes, sources),
       source_dependencies:
-        LearningSources.merge([
+        Learning.LearningSources.merge([
           rollup.source_dependencies | Enum.map(sources, & &1.source_dependencies)
         ]),
       state: state,

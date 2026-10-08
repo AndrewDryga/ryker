@@ -4,10 +4,10 @@ defmodule Ryker.ControlPlane.OverviewProjection do
   operator, and how far admission and Slack status delivery are behind.
   """
   alias Ryker.ControlPlane.Overview
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes
   alias Ryker.Observability
   alias Ryker.Repo
-  alias Ryker.Work.Turn
+  alias Ryker.Work
 
   @active_states [:working, :waiting_for_input, :waiting_for_event]
 
@@ -17,7 +17,7 @@ defmodule Ryker.ControlPlane.OverviewProjection do
       counts: %{
         active: @active_states |> in_states() |> count(),
         blocked: count(Overview.Query.blocked_work()),
-        delivery_pending: :delivery_pending |> Turn.Query.by_status() |> count(),
+        delivery_pending: :delivery_pending |> Work.Turn.Query.by_status() |> count(),
         waiting: [:waiting_for_input, :waiting_for_event] |> in_states() |> count()
       },
       fleet: fleet(),
@@ -29,7 +29,8 @@ defmodule Ryker.ControlPlane.OverviewProjection do
     }
   end
 
-  defp in_states(states), do: Episode.Query.by_states(Episode.Query.all(), states)
+  defp in_states(states),
+    do: Episodes.Episode.Query.by_states(Episodes.Episode.Query.all(), states)
 
   @doc """
   The worker fleet's state, all the Activity page shows of the overview: it

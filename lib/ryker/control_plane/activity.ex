@@ -2,10 +2,10 @@ defmodule Ryker.ControlPlane.Activity do
   @moduledoc "A bounded conversation-first inbox, including work not yet admitted."
   alias Ryker.ControlPlane.{Activity, ConversationProjection, PagedRelation, Paths}
   alias Ryker.ControlPlane.{RepositoryNames, Search, ShortTime, SlackMarkdown, UsageProjection}
-  alias Ryker.Episodes.{Episode, Words}
+  alias Ryker.Episodes
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
-  alias Ryker.Slack.Names
+  alias Ryker.Slack
 
   @page_size 30
 
@@ -26,8 +26,8 @@ defmodule Ryker.ControlPlane.Activity do
       when is_binary(transport) and is_binary(conversation_ref) do
     count =
       transport
-      |> Episode.Query.by_conversation(conversation_ref)
-      |> Episode.Query.by_execution_mode(execution_mode)
+      |> Episodes.Episode.Query.by_conversation(conversation_ref)
+      |> Episodes.Episode.Query.by_execution_mode(execution_mode)
       |> Repo.aggregate(:count)
 
     if count > 1,
@@ -68,7 +68,7 @@ defmodule Ryker.ControlPlane.Activity do
       name =
         if row.source == "control_plane",
           do: chats[row.conversation] || present(row, secrets).title,
-          else: Names.destination(row.conversation)
+          else: Slack.Names.destination(row.conversation)
 
       {row, name}
     end)
@@ -92,7 +92,7 @@ defmodule Ryker.ControlPlane.Activity do
   defp source_word("control_plane"), do: "Chat"
   defp source_word("slack"), do: "Slack"
   defp source_word("github"), do: "GitHub"
-  defp source_word(source), do: Words.label(source)
+  defp source_word(source), do: Episodes.Words.label(source)
 
   # Chats often share a title ("What Ryker does"), and four identical entries
   # could not be told apart; each repeat carries the time of its latest
@@ -213,7 +213,7 @@ defmodule Ryker.ControlPlane.Activity do
         do: "Message text no longer available",
         else:
           text
-          |> SlackMarkdown.plain(Names.workspace_from_destination(row.conversation))
+          |> SlackMarkdown.plain(Slack.Names.workspace_from_destination(row.conversation))
           |> String.slice(0, 200)
 
     row
@@ -302,7 +302,7 @@ defmodule Ryker.ControlPlane.Activity do
       query,
       Search.contains(text),
       repositories_named(text),
-      Names.conversations_named(text)
+      Slack.Names.conversations_named(text)
     )
   end
 

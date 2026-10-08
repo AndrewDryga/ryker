@@ -26,13 +26,12 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
       timestamp: 1
     ]
 
-  alias Ryker.Accounting.Execution
+  alias Ryker.Accounting
   alias Ryker.ControlPlane.{BackgroundCards, CallRun, ImprovementPage, Paths}
   alias Ryker.Improvement
-  alias Ryker.Improvement.{AnalysisRun, Candidate}
   alias Ryker.InspectionRedactor, as: Redactor
   alias Ryker.Repo
-  alias Ryker.Work.Session
+  alias Ryker.Work
 
   @limit 20
 
@@ -51,14 +50,18 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
     end
   end
 
-  defp runs_for(episode_id: id) when is_binary(id), do: runs(AnalysisRun.Query.by_episode_id(id))
-  defp runs_for(input_id: id) when is_binary(id), do: runs(AnalysisRun.Query.by_input_id(id))
+  defp runs_for(episode_id: id) when is_binary(id),
+    do: runs(Improvement.AnalysisRun.Query.by_episode_id(id))
+
+  defp runs_for(input_id: id) when is_binary(id),
+    do: runs(Improvement.AnalysisRun.Query.by_input_id(id))
+
   defp runs_for(_owner), do: []
 
   defp runs(query) do
     query
-    |> AnalysisRun.Query.ordered_by_recent()
-    |> AnalysisRun.Query.limit_to(@limit)
+    |> Improvement.AnalysisRun.Query.ordered_by_recent()
+    |> Improvement.AnalysisRun.Query.limit_to(@limit)
     |> Repo.all()
     |> Enum.reverse()
   end
@@ -72,12 +75,12 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
       totals: Enum.frequencies_by(runs, & &1.candidate_id),
       executions:
         "improvement"
-        |> Execution.Query.by_sources(ids)
+        |> Accounting.Execution.Query.by_sources(ids)
         |> Repo.all()
         |> Map.new(&{&1.source_id, &1}),
       sessions:
         ids
-        |> Session.Query.by_improvement_run_ids()
+        |> Work.Session.Query.by_improvement_run_ids()
         |> Repo.all()
         |> Map.new(&{&1.improvement_run_id, &1})
     }
@@ -168,19 +171,21 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
   defp result_card?(%{status: :prepared, remote_stopped_at: nil}), do: false
   defp result_card?(_run), do: true
 
-  defp headline(%AnalysisRun{status: :applied}, document) do
+  defp headline(%Improvement.AnalysisRun{status: :applied}, document) do
     case category(document) do
       nil -> "Self-analysis"
       category -> Improvement.category_label(category)
     end
   end
 
-  defp headline(%AnalysisRun{status: :responded}, _document), do: "Ryker is checking the answer"
+  defp headline(%Improvement.AnalysisRun{status: :responded}, _document),
+    do: "Ryker is checking the answer"
+
   defp headline(_run, _document), do: "No usable answer"
 
   # What the analysis found, in the words the What to fix page uses, and how
   # sure it was; an attempt Ryker could not use says why instead.
-  defp facts(%AnalysisRun{status: status} = run, document)
+  defp facts(%Improvement.AnalysisRun{status: status} = run, document)
        when status in [:applied, :responded] do
     [
       category_fact(category(document)),
@@ -193,7 +198,7 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
     |> Enum.filter(&is_map/1)
   end
 
-  defp facts(%AnalysisRun{status: :rejected, result_sha256: digest}, _document)
+  defp facts(%Improvement.AnalysisRun{status: :rejected, result_sha256: digest}, _document)
        when is_binary(digest),
        do: [
          %{
@@ -203,12 +208,12 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
          }
        ]
 
-  defp facts(%AnalysisRun{status: :rejected}, _document),
+  defp facts(%Improvement.AnalysisRun{status: :rejected}, _document),
     do: [
       %{label: "Outcome", value: "No answer", note: "the attempt ended before the model answered"}
     ]
 
-  defp facts(%AnalysisRun{status: :stale}, _document),
+  defp facts(%Improvement.AnalysisRun{status: :stale}, _document),
     do: [%{label: "Outcome", value: "Never started"}]
 
   defp facts(_run, _document), do: []
@@ -219,7 +224,7 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
   end
 
   defp category(%{"category" => value}) when is_binary(value),
-    do: Enum.find(Candidate.categories(), &(Atom.to_string(&1) == value))
+    do: Enum.find(Improvement.Candidate.categories(), &(Atom.to_string(&1) == value))
 
   defp category(_document), do: nil
 

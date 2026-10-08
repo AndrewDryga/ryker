@@ -7,7 +7,7 @@ defmodule Ryker.Webhooks.Router do
   """
   @behaviour Plug
   alias Ryker.HTTPConnection
-  alias Ryker.Ingress.{Adapters, InboundHTTP, Inbox}
+  alias Ryker.Ingress
   alias Ryker.Webhooks.{Auth, Headers, Route, Transforms}
 
   @impl Plug
@@ -31,75 +31,76 @@ defmodule Ryker.Webhooks.Router do
   defp route(%Plug.Conn{method: "POST", path_info: ["v1", "hooks", route_name]} = conn, options) do
     case Map.fetch(options.routes, route_name) do
       {:ok, route} -> admit(conn, route, options.now.())
-      :error -> InboundHTTP.respond(conn, 404, %{"error" => "not_found"})
+      :error -> Ingress.InboundHTTP.respond(conn, 404, %{"error" => "not_found"})
     end
   end
 
-  defp route(conn, _options), do: InboundHTTP.respond(conn, 404, %{"error" => "not_found"})
+  defp route(conn, _options),
+    do: Ingress.InboundHTTP.respond(conn, 404, %{"error" => "not_found"})
 
   defp admit(conn, route, now) do
-    with :ok <- InboundHTTP.json_content_type(conn),
-         {:ok, body, conn} <- InboundHTTP.read_bounded_body(conn, route.max_body_bytes),
+    with :ok <- Ingress.InboundHTTP.json_content_type(conn),
+         {:ok, body, conn} <- Ingress.InboundHTTP.read_bounded_body(conn, route.max_body_bytes),
          :ok <- Auth.authorize(conn, route, body, now),
          {:ok, metadata} <- metadata(conn, now),
-         {:ok, payload} <- InboundHTTP.decode_json(body),
+         {:ok, payload} <- Ingress.InboundHTTP.decode_json(body),
          {:ok, transformed} <- normalize(route, payload, metadata),
          {:ok, receipts} <-
-           Inbox.record_many(transformed.inputs,
+           Ingress.Inbox.record_many(transformed.inputs,
              revision_ties: transformed.revision_ties,
              work_profile: route.work_profile
            ) do
       receipt = hd(receipts)
 
-      InboundHTTP.respond(conn, 202, %{
-        "input_ref" => Inbox.ref(receipt.entry),
-        "input_refs" => Enum.map(receipts, &Inbox.ref(&1.entry)),
+      Ingress.InboundHTTP.respond(conn, 202, %{
+        "input_ref" => Ingress.Inbox.ref(receipt.entry),
+        "input_refs" => Enum.map(receipts, &Ingress.Inbox.ref(&1.entry)),
         "count" => length(receipts),
         "status" => batch_status(receipts)
       })
     else
       {:error, :unsupported_media_type} ->
-        InboundHTTP.respond(conn, 415, %{"error" => "unsupported_media_type"})
+        Ingress.InboundHTTP.respond(conn, 415, %{"error" => "unsupported_media_type"})
 
       {:error, :too_large} ->
-        InboundHTTP.respond(conn, 413, %{"error" => "payload_too_large"})
+        Ingress.InboundHTTP.respond(conn, 413, %{"error" => "payload_too_large"})
 
       {:error, :unauthorized} ->
-        InboundHTTP.respond(conn, 401, %{"error" => "unauthorized"})
+        Ingress.InboundHTTP.respond(conn, 401, %{"error" => "unauthorized"})
 
       {:error, :event_id} ->
-        InboundHTTP.respond(conn, 400, %{"error" => "missing_event_id"})
+        Ingress.InboundHTTP.respond(conn, 400, %{"error" => "missing_event_id"})
 
       {:error, :metadata} ->
-        InboundHTTP.respond(conn, 400, %{"error" => "invalid_metadata"})
+        Ingress.InboundHTTP.respond(conn, 400, %{"error" => "invalid_metadata"})
 
       {:error, :json} ->
-        InboundHTTP.respond(conn, 400, %{"error" => "invalid_json"})
+        Ingress.InboundHTTP.respond(conn, 400, %{"error" => "invalid_json"})
 
       {:error, {:invalid_webhook_input, _field}} ->
-        InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
+        Ingress.InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
 
       {:error, {:invalid_webhook_transform, _field}} ->
-        InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
+        Ingress.InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
 
       {:error, {:invalid_input, _field}} ->
-        InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
+        Ingress.InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
 
       {:error, {:invalid_input, _field, _reason}} ->
-        InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
+        Ingress.InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
 
       {:error, {:input_conflict, _details}} ->
-        InboundHTTP.respond(conn, 409, %{"error" => "event_conflict"})
+        Ingress.InboundHTTP.respond(conn, 409, %{"error" => "event_conflict"})
 
       {:error, _reason} ->
-        InboundHTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
+        Ingress.InboundHTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
     end
   end
 
   defp normalize(%Route{adapter: %{kind: :universal}} = route, payload, metadata) do
     with event_id when is_binary(event_id) and event_id != "" <- metadata[:event_id],
          {:ok, input} <-
-           Adapters.normalize("webhook", %{metadata: metadata, payload: payload}, route) do
+           Ingress.Adapters.normalize("webhook", %{metadata: metadata, payload: payload}, route) do
       {:ok, %{inputs: [input], revision_ties: :exact}}
     else
       nil -> {:error, :event_id}

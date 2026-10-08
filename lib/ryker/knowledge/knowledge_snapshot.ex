@@ -4,16 +4,10 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
   alias Ryker.Knowledge.KnowledgeExposure
   alias Ryker.Knowledge.KnowledgeRevision
   alias Ryker.Knowledge.KnowledgeSource
-  alias Ryker.Learning.ConversationObservation
-  alias Ryker.Learning.LearningSources
-  alias Ryker.Learning.Observations
-  alias Ryker.Learning.SourceExposure
-  alias Ryker.Learning.Visibility
-  alias Ryker.Records.DerivedContext
-  alias Ryker.Records.Record
+  alias Ryker.Learning
+  alias Ryker.Records
   alias Ryker.Repo
-  alias Ryker.Work.Session
-  alias Ryker.Work.Turn
+  alias Ryker.Work
 
   @stale {:error, :work_knowledge_context_stale}
 
@@ -45,8 +39,8 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
     # Serialize tool disclosure with result acceptance and session replacement.
     current =
       session.id
-      |> Session.Query.by_id()
-      |> Session.Query.lock_for_update()
+      |> Work.Session.Query.by_id()
+      |> Work.Session.Query.lock_for_update()
       |> Repo.one!()
 
     unless exposure_counts_consistent?(current),
@@ -58,8 +52,9 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
     # Each search page is bounded, but all pages share one retained transcript.
     # Check its union under the same session lock before disclosing new text.
     # Re-reading an existing root costs no extra capacity or retained lifetime.
-    if is_list(sources) and is_nil(LearningSources.merge([session_sources(session.id), sources])),
-      do: Repo.rollback(:work_memory_source_capacity_exceeded)
+    if is_list(sources) and
+         is_nil(Learning.LearningSources.merge([session_sources(session.id), sources])),
+       do: Repo.rollback(:work_memory_source_capacity_exceeded)
 
     with true <- turn.session_id == session.id,
          true <- session_valid?(destination, session),
@@ -68,7 +63,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
          true <- sources_valid?(destination, session.repository_ref, sources) do
       Enum.each(references, &record_knowledge(&1, session, turn))
       record_inherited_knowledge(inherited, session, turn)
-      record_sources(LearningSources.expand(sources), session)
+      record_sources(Learning.LearningSources.expand(sources), session)
       attest_exposure_counts(current)
       # What a run was shown is part of its request's record.
       Ryker.Episodes.broadcast_episode_updated(session.episode_id)
@@ -88,13 +83,13 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
     # producer here: reciprocal historical reads must yield, not deadlock.
     current =
       session.id
-      |> Session.Query.by_id()
-      |> Session.Query.lock_for_share_skip_locked()
+      |> Work.Session.Query.by_id()
+      |> Work.Session.Query.lock_for_share_skip_locked()
       |> Repo.one()
 
     case current do
       nil ->
-        if Repo.exists?(Session.Query.by_id(session.id)),
+        if Repo.exists?(Work.Session.Query.by_id(session.id)),
           do: {:error, :work_derived_context_busy}
 
       current ->
@@ -124,7 +119,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
 
   defp exposure_counts(id) do
     {
-      Repo.aggregate(SourceExposure.Query.by_session_id(id), :count),
+      Repo.aggregate(Learning.SourceExposure.Query.by_session_id(id), :count),
       Repo.aggregate(KnowledgeExposure.Query.by_session_id(id), :count)
     }
   end
@@ -145,18 +140,18 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
   defp fresh_disclosure_custody?(session_id) do
     # A new read cannot retrospectively attest a pre-custody native transcript.
     # Fresh Work initializes this before submit; old sessions remain unproven.
-    begun = session_id |> Turn.Query.by_session_id() |> Turn.Query.begun()
-    not Repo.exists?(begun) and not Repo.exists?(Record.Query.by_session_id(session_id))
+    begun = session_id |> Work.Turn.Query.by_session_id() |> Work.Turn.Query.begun()
+    not Repo.exists?(begun) and not Repo.exists?(Records.Record.Query.by_session_id(session_id))
   end
 
   defp document_context!(destination, repository, documents) do
-    {derived, ordinary} = Enum.split_with(documents, &DerivedContext.derived?/1)
+    {derived, ordinary} = Enum.split_with(documents, &Records.DerivedContext.derived?/1)
 
-    case DerivedContext.resolve(derived, destination, repository) do
+    case Records.DerivedContext.resolve(derived, destination, repository) do
       {:ok, inherited} ->
         sources =
-          LearningSources.merge([
-            inherited.sources | Enum.map(ordinary, &LearningSources.document_sources/1)
+          Learning.LearningSources.merge([
+            inherited.sources | Enum.map(ordinary, &Learning.LearningSources.document_sources/1)
           ])
 
         knowledge =
@@ -242,8 +237,8 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
 
     existing =
       session.id
-      |> SourceExposure.Query.by_session_id()
-      |> SourceExposure.Query.by_observation_ids(ids)
+      |> Learning.SourceExposure.Query.by_session_id()
+      |> Learning.SourceExposure.Query.by_observation_ids(ids)
       |> Repo.all()
       |> Map.new(&{{&1.observation_id, &1.source_input_id}, &1.receipt})
 
@@ -271,7 +266,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
     rows
     |> Enum.chunk_every(500)
     |> Enum.each(fn chunk ->
-      Repo.insert_all(SourceExposure, chunk,
+      Repo.insert_all(Learning.SourceExposure, chunk,
         on_conflict: {:replace, [:receipt]},
         conflict_target: [:session_id, :observation_id, :source_input_id]
       )
@@ -281,7 +276,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
   defp earliest_receipt!(nil, receipt), do: receipt
 
   defp earliest_receipt!(previous, receipt) do
-    case LearningSources.merge([[previous], [receipt]]) do
+    case Learning.LearningSources.merge([[previous], [receipt]]) do
       [value] -> value
       _ -> Repo.rollback(:work_knowledge_context_stale)
     end
@@ -292,17 +287,17 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
   def session_sources(session_id) do
     sources =
       session_id
-      |> SourceExposure.Query.by_session_id()
-      |> SourceExposure.Query.select_receipts()
-      |> SourceExposure.Query.limit_to(10_001)
+      |> Learning.SourceExposure.Query.by_session_id()
+      |> Learning.SourceExposure.Query.select_receipts()
+      |> Learning.SourceExposure.Query.limit_to(10_001)
       |> Repo.all()
 
-    LearningSources.merge([sources])
+    Learning.LearningSources.merge([sources])
   end
 
   @doc "Retain a handover's exact raw and topic-generation custody within result acceptance."
   def summary_sources(session_id) do
-    session = Repo.one(Session.Query.by_id(session_id))
+    session = Repo.one(Work.Session.Query.by_id(session_id))
 
     if (Repo.in_transaction?() and session) && exposure_counts_attested?(session),
       do: retained_summary_sources(session_id),
@@ -312,12 +307,12 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
   defp retained_summary_sources(session_id) do
     with {:ok, references} <- summary_knowledge_references(session_id),
          raw when is_list(raw) <- session_sources(session_id),
-         covered when is_list(covered) <- LearningSources.expand(references),
+         covered when is_list(covered) <- Learning.LearningSources.expand(references),
          # Keep compact generations without charging identical raw roots twice.
          # An earlier raw lifetime is not identical and must remain explicit.
          covered = MapSet.new(covered),
          remaining = Enum.reject(raw, &MapSet.member?(covered, &1)),
-         sources when is_list(sources) <- LearningSources.merge([references, remaining]) do
+         sources when is_list(sources) <- Learning.LearningSources.merge([references, remaining]) do
       {:ok, sources}
     else
       {:error, reason} -> {:error, reason}
@@ -342,7 +337,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
       true ->
         {:ok,
          Enum.map(rows, fn {id, generation, version} ->
-           LearningSources.knowledge_reference(id, generation, version)
+           Learning.LearningSources.knowledge_reference(id, generation, version)
          end)}
     end
   end
@@ -359,7 +354,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
   end
 
   defp session_valid?(destination, session) do
-    current = Repo.one(Session.Query.by_id(session.id))
+    current = Repo.one(Work.Session.Query.by_id(session.id))
 
     if current && exposure_counts_consistent?(current),
       do: retained_session_valid?(destination, session),
@@ -374,13 +369,13 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
 
     empty? =
       not Repo.exists?(query) and
-        not Repo.exists?(SourceExposure.Query.by_session_id(session.id))
+        not Repo.exists?(Learning.SourceExposure.Query.by_session_id(session.id))
 
     if empty?, do: true, else: session_sources_valid?(destination, session, query)
   end
 
   defp session_sources_valid?(destination, session, query) do
-    case Observations.locked_scope(destination, session.repository_ref) do
+    case Learning.Observations.locked_scope(destination, session.repository_ref) do
       {:ok, scope} ->
         Enum.all?(Repo.stream(query, max_rows: 100), &valid_exposure?(&1, scope)) and
           source_exposures_valid?(session.id, scope)
@@ -392,14 +387,14 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
 
   defp source_exposures_valid?(session_id, scope) do
     session_id
-    |> SourceExposure.Query.by_session_id()
-    |> SourceExposure.Query.ordered_by_observation()
-    |> SourceExposure.Query.select_receipts()
+    |> Learning.SourceExposure.Query.by_session_id()
+    |> Learning.SourceExposure.Query.ordered_by_observation()
+    |> Learning.SourceExposure.Query.select_receipts()
     |> Repo.stream(max_rows: 500)
     # Even maximum-size receipts fit the 8 MiB validation budget in these batches.
     # Check the whole transcript without reverting to per-root round trips.
     |> Stream.chunk_every(500)
-    |> Enum.all?(&LearningSources.valid?(LearningSources.merge([&1]), scope))
+    |> Enum.all?(&Learning.LearningSources.valid?(Learning.LearningSources.merge([&1]), scope))
   end
 
   def authorize_submission(destination, repository, submission) do
@@ -421,8 +416,8 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
   defp sources_valid?(_destination, _repository, []), do: true
 
   defp sources_valid?(destination, repository, sources) do
-    case Observations.locked_scope(destination, repository) do
-      {:ok, scope} -> LearningSources.valid?(sources, scope)
+    case Learning.Observations.locked_scope(destination, repository) do
+      {:ok, scope} -> Learning.LearningSources.valid?(sources, scope)
       _ -> false
     end
   end
@@ -435,7 +430,8 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
       [context["current"]] ++
         Enum.flat_map(~w(related rollups knowledge observations), &(context[&1] || []))
 
-    (work_input_documents(briefing) ++ memory ++ DerivedContext.submission_documents(briefing))
+    (work_input_documents(briefing) ++
+       memory ++ Records.DerivedContext.submission_documents(briefing))
     |> Enum.reject(&is_nil/1)
   end
 
@@ -501,7 +497,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
   def still_valid(_, _, _), do: @stale
 
   defp still_valid_locked(destination, repository, documents) do
-    case Observations.locked_scope(destination, repository) do
+    case Learning.Observations.locked_scope(destination, repository) do
       {:ok, scope} -> Enum.all?(documents, &valid_document?(&1, scope))
       _ -> false
     end
@@ -514,12 +510,12 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
        when is_integer(version) and version > 0 do
     with {:ok, ^id} <- Ecto.UUID.cast(id),
          {:ok, head} <- Repo.fetch(visible_head(id, scope)),
-         [_] <- Observations.authorized_notes([head], scope),
+         [_] <- Learning.Observations.authorized_notes([head], scope),
          {:ok, revision} <- Repo.fetch(shared_revision(id, version)),
          true <- revision.source_generation == head.source_generation,
          true <- revision.state["retention"] != "pruned",
          true <- revision.state == Map.take(document, ~w(title summary topics anchors)),
-         true <- LearningSources.valid?(revision.source_dependencies, scope) do
+         true <- Learning.LearningSources.valid?(revision.source_dependencies, scope) do
       sources =
         id
         |> KnowledgeSource.Query.by_generation(revision.source_generation)
@@ -541,7 +537,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
     id
     |> ConversationKnowledge.Query.by_id()
     |> ConversationKnowledge.Query.by_workspace_ref(scope.workspace_ref)
-    |> Visibility.Query.visible_from(scope)
+    |> Learning.Visibility.Query.visible_from(scope)
     |> ConversationKnowledge.Query.lock_for_share()
   end
 
@@ -559,13 +555,13 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
 
     observations =
       ids
-      |> ConversationObservation.Query.by_ids()
-      |> ConversationObservation.Query.ordered_by_id()
-      |> ConversationObservation.Query.lock_for_share()
+      |> Learning.ConversationObservation.Query.by_ids()
+      |> Learning.ConversationObservation.Query.ordered_by_id()
+      |> Learning.ConversationObservation.Query.lock_for_share()
       |> Repo.all()
       |> Map.new(&{&1.id, &1})
 
-    cutoff = LearningSources.horizon_cutoff()
+    cutoff = Learning.LearningSources.horizon_cutoff()
 
     document["topic_key"] == head.topic_key and
       document["conversation_ref"] == head.conversation_ref and

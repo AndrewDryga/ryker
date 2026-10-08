@@ -14,7 +14,7 @@ defmodule Mix.Tasks.Ryker.Retry do
   """
   use Mix.Task
   alias Mix.Tasks.Ryker.OperatorSupport, as: Support
-  alias Ryker.Operator.Failures
+  alias Ryker.Operator
 
   @impl Mix.Task
   def run(arguments) do
@@ -34,7 +34,7 @@ defmodule Mix.Tasks.Ryker.Retry do
     Support.with_configuration(fn _configuration ->
       with {:ok, actor_ref} <- Support.authorized_actor(options),
            {:ok, action_ref} <- Support.required_option(options, :action_ref) do
-        Failures.retry(kind, ref,
+        Operator.Failures.retry(kind, ref,
           actor_ref: actor_ref,
           action_ref: action_ref,
           expected_recovery: Keyword.get(options, :expected_recovery)

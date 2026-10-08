@@ -7,13 +7,12 @@ defmodule Ryker.ControlPlane.ChannelDetail do
   model, Git, Coop or Emisar, never accounts a recall, and never rewrites a
   stored status: expiry and visibility are applied at read time instead.
   """
-  alias Ryker.Accounting.Execution
+  alias Ryker.Accounting
   alias Ryker.ControlPlane.{Activity, ChannelContext, ChannelDetail, ChannelScope}
   alias Ryker.ControlPlane.{Environments, PagedRelation, Paths, RepositoryNames, UsageProjection}
   alias Ryker.Repo
   alias Ryker.Settings
-  alias Ryker.Settings.Environment
-  alias Ryker.Slack.ChannelSettings
+  alias Ryker.Slack
 
   @type collection :: PagedRelation.t()
 
@@ -125,8 +124,8 @@ defmodule Ryker.ControlPlane.ChannelDetail do
 
     totals =
       UsageProjection.since(window)
-      |> Execution.Query.ledger(mode)
-      |> Execution.Query.by_conversation("slack", scope.conversation_ref)
+      |> Accounting.Execution.Query.ledger(mode)
+      |> Accounting.Execution.Query.by_conversation("slack", scope.conversation_ref)
       |> UsageProjection.totals()
 
     %{
@@ -188,7 +187,7 @@ defmodule Ryker.ControlPlane.ChannelDetail do
         %{none(source) | ref: ref, name: ref}
 
       environment ->
-        refs = Environment.repository_refs(environment)
+        refs = Settings.Environment.repository_refs(environment)
         access = Map.new(environment.repositories, &{&1.repository_ref, &1.access})
 
         %{
@@ -224,7 +223,7 @@ defmodule Ryker.ControlPlane.ChannelDetail do
 
   defp default_ref(settings) do
     case Settings.default_environment(settings) do
-      %Environment{ref: ref} -> ref
+      %Settings.Environment{ref: ref} -> ref
       nil -> nil
     end
   end
@@ -246,12 +245,12 @@ defmodule Ryker.ControlPlane.ChannelDetail do
   # own choice, or the installation default it inherits. There is no second
   # override store to reconcile.
   defp participation(scope, settings) do
-    case ChannelSettings.effective(
+    case Slack.ChannelSettings.effective(
            scope.workspace_ref,
            scope.conversation_ref,
            if(settings, do: settings.slack.default_participation, else: :mentions)
          ) do
-      %{} = effective -> ChannelSettings.effective_participation(effective)
+      %{} = effective -> Slack.ChannelSettings.effective_participation(effective)
       {:error, _reason} -> nil
     end
   end

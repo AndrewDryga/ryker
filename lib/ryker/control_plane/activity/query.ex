@@ -7,12 +7,12 @@ defmodule Ryker.ControlPlane.Activity.Query do
   """
   use Ryker, :query
   alias Ryker.ControlPlane.CurrentInput
-  alias Ryker.Episodes.{Episode, RoutingDigest}
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Operator.FailureDismissal
-  alias Ryker.Records.Record
-  alias Ryker.Schedules.{Schedule, ScheduleOccurrence}
-  alias Ryker.Work.{Session, Turn}
+  alias Ryker.Episodes
+  alias Ryker.Ingress
+  alias Ryker.Operator
+  alias Ryker.Records
+  alias Ryker.Schedules
+  alias Ryker.Work
   require Ryker.ControlPlane.CurrentInput.Query
 
   @doc "Every row of the list at `now`, unordered."
@@ -67,7 +67,7 @@ defmodule Ryker.ControlPlane.Activity.Query do
 
   @doc "What message `entry_id` reads as at `now`, as its Activity row says it."
   def input_state(entry_id, now) do
-    from(message in Entry,
+    from(message in Ingress.Inbox.Entry,
       where: message.id == ^entry_id,
       select: CurrentInput.Query.input_state(message, ^now)
     )
@@ -96,7 +96,7 @@ defmodule Ryker.ControlPlane.Activity.Query do
   # request alone.
   defp first_input do
     first =
-      from(entry in Entry,
+      from(entry in Ingress.Inbox.Entry,
         where: entry.episode_id == parent_as(:episode).id,
         order_by: [asc: entry.inserted_at, asc: entry.id],
         limit: 1
@@ -117,7 +117,7 @@ defmodule Ryker.ControlPlane.Activity.Query do
   end
 
   defp episode_rows do
-    from(episode in Episode,
+    from(episode in Episodes.Episode,
       as: :episode,
       left_lateral_join: input in subquery(first_input()),
       on: true,
@@ -125,14 +125,14 @@ defmodule Ryker.ControlPlane.Activity.Query do
       on: checkout.episode_id == episode.id,
       left_join: scheduled in subquery(scheduled_runs()),
       on: scheduled.episode_id == episode.id,
-      left_join: turn in Turn,
+      left_join: turn in Work.Turn,
       as: :turn,
       on: ^holding_turn(),
-      left_join: left in FailureDismissal,
+      left_join: left in Operator.FailureDismissal,
       on:
         left.kind == "delivery" and left.ref == turn.delivery_ref and
           left.failure_summary == coalesce(turn.last_error_code, "delivery blocked"),
-      left_join: digest in RoutingDigest,
+      left_join: digest in Episodes.RoutingDigest,
       on: digest.episode_id == episode.id,
       left_join: task in subquery(confirmed_tasks()),
       on: task.episode_id == episode.id,
@@ -195,11 +195,11 @@ defmodule Ryker.ControlPlane.Activity.Query do
   #
   # A stopped message a person left as it is on Failures needs nobody now.
   defp admission_rows(now) do
-    from(entry in Entry,
+    from(entry in Ingress.Inbox.Entry,
       as: :revision,
       inner_lateral_join: current in subquery(CurrentInput.Query.current()),
       on: true,
-      left_join: left in FailureDismissal,
+      left_join: left in Operator.FailureDismissal,
       on:
         left.kind == "admission" and
           left.ref == fragment("'ingress-input:' || ?::text", entry.id) and
@@ -245,7 +245,7 @@ defmodule Ryker.ControlPlane.Activity.Query do
   # The repository the latest working copy checked out, for work whose
   # message named none.
   defp checkouts do
-    from(session in Session,
+    from(session in Work.Session,
       where: not is_nil(session.episode_id) and not is_nil(session.repository_ref),
       distinct: session.episode_id,
       order_by: [asc: session.episode_id, desc: session.generation],
@@ -256,7 +256,7 @@ defmodule Ryker.ControlPlane.Activity.Query do
   # A task starts from its confirmation, not from a message: its row reads as the task, and says
   # what kind of task it is (Andrew, 2026-10-01).
   defp confirmed_tasks do
-    from(record in Record,
+    from(record in Records.Record,
       where:
         record.kind == "task_offer" and record.status == :confirmed and
           not is_nil(record.confirmed_episode_id),
@@ -270,8 +270,8 @@ defmodule Ryker.ControlPlane.Activity.Query do
 
   # A scheduled run starts from its schedule, not from a message.
   defp scheduled_runs do
-    from(occurrence in ScheduleOccurrence,
-      join: schedule in Schedule,
+    from(occurrence in Schedules.ScheduleOccurrence,
+      join: schedule in Schedules.Schedule,
       on: schedule.id == occurrence.schedule_id,
       where: not is_nil(occurrence.child_episode_id),
       distinct: occurrence.child_episode_id,

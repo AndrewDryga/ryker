@@ -1,8 +1,8 @@
 defmodule Ryker.Retention.Worker do
   @moduledoc "A small polling process for ownership cleanup and data pruning."
   use Ryker.PollingWorker, lane: :retention, interval: :poll_interval_ms
-  alias Ryker.CoopFleet.{Bodies, ControlPlane}
-  alias Ryker.Observability.Progress
+  alias Ryker.CoopFleet
+  alias Ryker.Observability
   alias Ryker.Repo
   alias Ryker.Retention.{Custody, Data, Dispatcher}
   require Logger
@@ -44,7 +44,7 @@ defmodule Ryker.Retention.Worker do
   @impl Ryker.PollingWorker
   def poll(state) do
     _result = process_once(state.dispatcher, state.dispatcher_options)
-    _ = Progress.beat(:retention)
+    _ = Observability.Progress.beat(:retention)
     _maintenance = maintain_once(state.maintenance, state.maintenance_options, state.body_root)
     _placements = retire_abandoned_placements(state.up_since)
     state.poll_interval_ms
@@ -87,7 +87,7 @@ defmodule Ryker.Retention.Worker do
   end
 
   defp prune_bodies(body_root) do
-    case Bodies.prune_orphans(body_root) do
+    case CoopFleet.Bodies.prune_orphans(body_root) do
       :ok -> :ok
       {:error, reason} -> Logger.error("retention body pruning failed: #{inspect(reason)}")
     end
@@ -96,7 +96,7 @@ defmodule Ryker.Retention.Worker do
   end
 
   defp retire_abandoned_placements(up_since) do
-    case ControlPlane.retire_abandoned_placements(Repo.now!(), up_since) do
+    case CoopFleet.ControlPlane.retire_abandoned_placements(Repo.now!(), up_since) do
       {:ok, 0} -> :ok
       {:ok, retired} -> Logger.info("retired #{retired} placements no worker will renew")
       {:error, reason} -> Logger.error("placement sweep failed: #{inspect(reason)}")

@@ -14,7 +14,7 @@ defmodule Ryker.LocalRouting.Worker do
   alias Ryker.LocalRouting
   alias Ryker.LocalRouting.Endpoint
   alias Ryker.PollingWorker
-  alias Ryker.Settings.Work
+  alias Ryker.Settings
   require Logger
 
   @fields [
@@ -63,7 +63,7 @@ defmodule Ryker.LocalRouting.Worker do
         raise ArgumentError, "local routing endpoint must be one http or https address"
     end
 
-    unless Work.local_model?(configuration.model),
+    unless Settings.Work.local_model?(configuration.model),
       do: raise(ArgumentError, "local routing model must name one model, without spaces")
 
     between!(configuration.timeout_ms, 1..@longest_timeout_ms, "timeout_ms")

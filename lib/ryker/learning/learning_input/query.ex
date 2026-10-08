@@ -5,16 +5,16 @@ defmodule Ryker.Learning.LearningInput.Query do
   batch. Each query starts from `Ryker.Ingress.Inbox.Entry.Query.all/0`.
   """
   use Ryker, :query
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress
   alias Ryker.Learning.{Batch, ConversationObservation, InputMembership}
-  alias Ryker.Work.OwningTurn
+  alias Ryker.Work
 
   @doc """
   Routed messages no batch holds yet, except one whose Work is still running:
   learned then, a request is learned from before Ryker has answered it.
   """
   def pending do
-    from(e in Entry.Query.all(),
+    from(e in Ingress.Inbox.Entry.Query.all(),
       where: e.status in [:decided, :superseded],
       where:
         not exists(
@@ -24,7 +24,7 @@ defmodule Ryker.Learning.LearningInput.Query do
         ),
       where:
         not exists(
-          from(work in subquery(OwningTurn.Query.work_rest()),
+          from(work in subquery(Work.OwningTurn.Query.work_rest()),
             where:
               work.episode_id == parent_as(:ingress_inbox_entries).episode_id and work.running
           )
@@ -62,7 +62,7 @@ defmodule Ryker.Learning.LearningInput.Query do
 
   @doc "Of `pending`'s messages, the ones `processable` leaves out."
   def unavailable(pending, processable) do
-    processable_ids = Entry.Query.select_ids(processable)
+    processable_ids = Ingress.Inbox.Entry.Query.select_ids(processable)
     from(e in pending, where: e.id not in subquery(processable_ids))
   end
 
@@ -79,7 +79,7 @@ defmodule Ryker.Learning.LearningInput.Query do
 
   @doc "The messages batch `batch_id` still learns from, oldest first."
   def held_by(batch_id) do
-    from(e in Entry.Query.all(),
+    from(e in Ingress.Inbox.Entry.Query.all(),
       join: m in InputMembership,
       on: m.input_id == e.id,
       where: m.batch_id == ^batch_id and is_nil(m.terminal_reason),
@@ -167,7 +167,7 @@ defmodule Ryker.Learning.LearningInput.Query do
   # answering it.
   defp ready(pending) do
     from(e in pending,
-      left_join: work in subquery(OwningTurn.Query.work_rest()),
+      left_join: work in subquery(Work.OwningTurn.Query.work_rest()),
       on: work.episode_id == e.episode_id,
       select: %{
         id: e.id,

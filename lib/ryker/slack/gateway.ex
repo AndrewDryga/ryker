@@ -17,7 +17,7 @@ defmodule Ryker.Slack.Gateway do
   says it.
   """
   use GenServer
-  alias Ryker.Ingress.Inbox
+  alias Ryker.Ingress
   alias Ryker.Options
   alias Ryker.Slack.{Command, Event, HomeEvent, HomeInteraction, HomeSubmission, Interaction}
   alias Ryker.Slack.{MembershipTransition, ReactionEvent, Shortcut}
@@ -361,7 +361,7 @@ defmodule Ryker.Slack.Gateway do
              work_profile: work_profile
            ),
          :ok <- remember_action_token(enriched, settings) do
-      {:ack, {receipt.status, Inbox.ref(receipt.entry)}}
+      {:ack, {receipt.status, Ingress.Inbox.ref(receipt.entry)}}
     else
       {:error, {:input_conflict, _details}} -> {:ack, {:ignored, :event_conflict}}
       {:error, reason} -> {:retry, reason}

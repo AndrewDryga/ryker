@@ -6,8 +6,8 @@ defmodule Ryker.ControlPlane.LocalRoutingReport.Query do
   tables count with each group's newest row.
   """
   use Ryker, :query
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.LocalRouting.Comparison
+  alias Ryker.Ingress
+  alias Ryker.LocalRouting
 
   # What a decision has Ryker do, as the kinds the page names
   # (`Ryker.ControlPlane.LocalRoutingProjection`).
@@ -51,7 +51,7 @@ defmodule Ryker.ControlPlane.LocalRoutingReport.Query do
   record.
   """
   def comparisons(since, scope, model) do
-    Comparison.Query.all() |> in_period(since) |> in_scope(scope) |> of_model(model)
+    LocalRouting.Comparison.Query.all() |> in_period(since) |> in_scope(scope) |> of_model(model)
   end
 
   defp in_period(queryable, nil), do: queryable
@@ -121,7 +121,7 @@ defmodule Ryker.ControlPlane.LocalRoutingReport.Query do
   """
   def compared(comparisons) do
     from(c in comparisons,
-      join: entry in Entry,
+      join: entry in Ingress.Inbox.Entry,
       on: entry.id == c.input_id,
       where: c.status == :compared,
       select: %{

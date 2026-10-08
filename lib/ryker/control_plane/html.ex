@@ -3,7 +3,7 @@ defmodule Ryker.ControlPlane.HTML do
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Emoji, Kit, Layouts, SlackMarkdown}
   alias Ryker.Crypto
-  alias Ryker.Delivery.ChatCard
+  alias Ryker.Delivery
 
   # The title and description are the shell's header, led by the way back
   # when the page belongs to another; the body owns the rest.
@@ -507,8 +507,12 @@ defmodule Ryker.ControlPlane.HTML do
       "\"><div class=\"lab-card-head\"><span>",
       escape(card.label),
       "</span>",
-      if(ChatCard.display_status(card),
-        do: ["<span class=\"lab-card-status\">", escape(ChatCard.display_status(card)), "</span>"],
+      if(Delivery.ChatCard.display_status(card),
+        do: [
+          "<span class=\"lab-card-status\">",
+          escape(Delivery.ChatCard.display_status(card)),
+          "</span>"
+        ],
         else: ""
       ),
       "</div>",

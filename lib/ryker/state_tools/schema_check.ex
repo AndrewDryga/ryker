@@ -1,6 +1,6 @@
 defmodule Ryker.StateTools.SchemaCheck do
   @moduledoc false
-  alias Ryker.Schedules.ScheduleRecurrence
+  alias Ryker.Schedules
   alias Ryker.StateTools.Catalog
   alias Ryker.Text
 
@@ -58,7 +58,7 @@ defmodule Ryker.StateTools.SchemaCheck do
   defp unsupported_automation_source?(_proposal), do: false
 
   defp unsupported_time_trigger?(%{"trigger" => %{"type" => "time"} = trigger}),
-    do: ScheduleRecurrence.from_trigger(trigger) == {:error, :invalid_schedule_trigger}
+    do: Schedules.ScheduleRecurrence.from_trigger(trigger) == {:error, :invalid_schedule_trigger}
 
   defp unsupported_time_trigger?(_proposal), do: false
 

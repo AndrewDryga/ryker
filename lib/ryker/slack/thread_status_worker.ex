@@ -9,10 +9,10 @@ defmodule Ryker.Slack.ThreadStatusWorker do
   that has gone quiet.
   """
   use Ryker.PollingWorker, lane: :slack_status, interval: :interval_ms
-  alias Ryker.Delivery.Retry
+  alias Ryker.Delivery
   alias Ryker.Episodes
-  alias Ryker.Ingress.Inbox
-  alias Ryker.Observability.Progress
+  alias Ryker.Ingress
+  alias Ryker.Observability
   alias Ryker.Options
   alias Ryker.PollingWorker
   alias Ryker.Slack.{ThreadStatuses, ThreadStatusReceipts}
@@ -35,7 +35,7 @@ defmodule Ryker.Slack.ThreadStatusWorker do
   @impl PollingWorker
   def wake_on(_options),
     do: [
-      &Inbox.subscribe_inputs/0,
+      &Ingress.Inbox.subscribe_inputs/0,
       &Episodes.subscribe_episodes/0,
       &ThreadStatuses.subscribe_thread_statuses/0
     ]
@@ -55,7 +55,12 @@ defmodule Ryker.Slack.ThreadStatusWorker do
           {%{failed: 1, written: 0}, options.interval_ms}
       end
 
-    _ = Progress.beat(:slack_status, if(outcome.failed == 0, do: :cycle, else: :error))
+    _ =
+      Observability.Progress.beat(
+        :slack_status,
+        if(outcome.failed == 0, do: :cycle, else: :error)
+      )
+
     delay
   end
 
@@ -153,7 +158,7 @@ defmodule Ryker.Slack.ThreadStatusWorker do
   # long as Slack asked, 30 seconds when it named no time, and keeps its
   # attempts.
   defp settle(status, reason, options) do
-    case Retry.rate_limited(reason) do
+    case Delivery.Retry.rate_limited(reason) do
       {:ok, seconds} ->
         ThreadStatuses.defer(
           status.id,

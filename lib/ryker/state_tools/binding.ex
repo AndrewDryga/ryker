@@ -1,29 +1,29 @@
 defmodule Ryker.StateTools.Binding do
   @moduledoc false
   alias Ryker.Crypto
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes
   alias Ryker.Records
   alias Ryker.Repo
-  alias Ryker.Work.{Session, StateBinding, Turn}
+  alias Ryker.Work
 
   @spec resolve(binary()) ::
           {:ok,
            %{
-             episode: Episode.t(),
-             session: Session.t(),
+             episode: Episodes.Episode.t(),
+             session: Work.Session.t(),
              state_token: String.t(),
-             turn: Turn.t()
+             turn: Work.Turn.t()
            }}
           | {:error, :state_tools_binding_not_authorized}
   def resolve(token) when is_binary(token) and byte_size(token) in 32..256 do
     token_sha256 = Crypto.sha256_hex(token)
 
-    binding = token_sha256 |> Session.Query.state_tools_binding() |> Repo.one()
+    binding = token_sha256 |> Work.Session.Query.state_tools_binding() |> Repo.one()
 
     case binding do
-      {%Session{} = session, %Episode{} = episode, %Turn{} = turn} ->
-        with {:ok, scope} <- StateBinding.current_scope(session),
-             true <- StateBinding.scope_matches?(token, scope) do
+      {%Work.Session{} = session, %Episodes.Episode{} = episode, %Work.Turn{} = turn} ->
+        with {:ok, scope} <- Work.StateBinding.current_scope(session),
+             true <- Work.StateBinding.scope_matches?(token, scope) do
           {:ok,
            %{
              episode: episode,
@@ -50,12 +50,12 @@ defmodule Ryker.StateTools.Binding do
 
     session =
       binding.session.id
-      |> Session.Query.by_id()
-      |> Session.Query.by_episode_id(binding.episode.id)
-      |> Session.Query.lock_for_update()
+      |> Work.Session.Query.by_id()
+      |> Work.Session.Query.by_episode_id(binding.episode.id)
+      |> Work.Session.Query.lock_for_update()
       |> Repo.one()
 
-    with %Session{cleanup_status: :active} <- session,
+    with %Work.Session{cleanup_status: :active} <- session,
          true <-
            same_fields?(session, binding.session, [
              :episode_id,
@@ -84,7 +84,7 @@ defmodule Ryker.StateTools.Binding do
   end
 
   defp working_on_turn(binding, session) do
-    Episode.Query.working_on_turn(
+    Episodes.Episode.Query.working_on_turn(
       binding.episode.id,
       binding.turn.id,
       session.id,

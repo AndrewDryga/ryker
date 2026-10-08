@@ -9,10 +9,10 @@ defmodule Ryker.ControlPlane.Server do
   """
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
   alias Ryker.Crypto
-  alias Ryker.Ingress.WorkProfile
+  alias Ryker.Ingress
   alias Ryker.Observability
-  alias Ryker.Schedules.ScheduleRuntime
-  alias Ryker.Work.RepositoryContext
+  alias Ryker.Schedules
+  alias Ryker.Work
 
   @loopback_v4 {127, 0, 0, 1}
   @loopback_v6 {0, 0, 0, 0, 0, 0, 0, 1}
@@ -141,7 +141,7 @@ defmodule Ryker.ControlPlane.Server do
     Map.new(environments, fn
       {ref, %{work_profile: attributes}} when is_binary(ref) ->
         case work_profile!(attributes) do
-          %WorkProfile{environment_ref: ^ref} = profile -> {ref, profile}
+          %Ingress.WorkProfile{environment_ref: ^ref} = profile -> {ref, profile}
           _elsewhere -> raise ArgumentError, "control-plane environments are invalid"
         end
 
@@ -154,7 +154,7 @@ defmodule Ryker.ControlPlane.Server do
     do: raise(ArgumentError, "control-plane environments are invalid")
 
   defp work_profile!(attributes) do
-    case WorkProfile.prepare(attributes) do
+    case Ingress.WorkProfile.prepare(attributes) do
       {:ok, profile} -> profile
       {:error, _reason} -> raise ArgumentError, "control-plane work profile is invalid"
     end
@@ -284,8 +284,12 @@ defmodule Ryker.ControlPlane.Server do
     repository_context = Map.get(policy, :repository_context)
 
     with {:ok, _profile} <-
-           WorkProfile.new(%{policy: name, policy_digest: digest, repository_ref: repository_ref}),
-         {:ok, _context} <- RepositoryContext.restore(repository_context, repository_ref) do
+           Ingress.WorkProfile.new(%{
+             policy: name,
+             policy_digest: digest,
+             repository_ref: repository_ref
+           }),
+         {:ok, _context} <- Work.RepositoryContext.restore(repository_context, repository_ref) do
       %{
         name: name,
         digest: digest,
@@ -305,7 +309,7 @@ defmodule Ryker.ControlPlane.Server do
 
   defp schedule_policy_resolver(configuration) do
     configuration
-    |> ScheduleRuntime.options!()
+    |> Schedules.ScheduleRuntime.options!()
     |> Map.fetch!(:dispatcher_options)
     |> Keyword.fetch!(:policy_resolver)
   end

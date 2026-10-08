@@ -1,8 +1,8 @@
 defmodule Ryker.Waits.EventSubscription.Query do
   @moduledoc "When each open wait is next looked at, for every read of `episode_event_subscriptions`."
   use Ryker, :query
-  alias Ryker.Episodes.Episode
-  alias Ryker.Records.Record
+  alias Ryker.Episodes
+  alias Ryker.Records
   alias Ryker.Waits.EventSubscription
 
   @deadline_matches_payload "CASE WHEN pg_input_is_valid(?::jsonb->>'deadline_at', 'timestamptz') THEN (?::jsonb->>'deadline_at')::timestamptz = ? ELSE false END"
@@ -24,9 +24,9 @@ defmodule Ryker.Waits.EventSubscription.Query do
   schedule before `retry_before` is taken again.
   """
   def unsubscribed_waits(retry_before, limit) do
-    from(episode in Episode,
+    from(episode in Episodes.Episode,
       as: :episode_kernel_episodes,
-      join: record in Record,
+      join: record in Records.Record,
       as: :episode_state_records,
       on: record.episode_id == episode.id,
       left_join: subscription in EventSubscription,
@@ -58,10 +58,10 @@ defmodule Ryker.Waits.EventSubscription.Query do
       )
 
     from(subscription in all(),
-      join: episode in Episode,
+      join: episode in Episodes.Episode,
       as: :episode_kernel_episodes,
       on: episode.id == subscription.episode_id,
-      join: record in Record,
+      join: record in Records.Record,
       as: :episode_state_records,
       on: record.id == subscription.record_id,
       where: subscription.status == :active,
@@ -84,9 +84,9 @@ defmodule Ryker.Waits.EventSubscription.Query do
   """
   def due(now, retry_before) do
     from(subscription in all(),
-      join: episode in Episode,
+      join: episode in Episodes.Episode,
       on: episode.id == subscription.episode_id,
-      join: record in Record,
+      join: record in Records.Record,
       on: record.id == subscription.record_id,
       where:
         subscription.status == :active and subscription.poll_after <= ^now and
@@ -121,8 +121,8 @@ defmodule Ryker.Waits.EventSubscription.Query do
   again.
   """
   def deadline_due(now, retry_before) do
-    from(episode in Episode,
-      join: record in Record,
+    from(episode in Episodes.Episode,
+      join: record in Records.Record,
       on: record.episode_id == episode.id and record.ref == episode.owner_ref,
       left_join: subscription in EventSubscription,
       on: subscription.record_id == record.id,
@@ -165,7 +165,7 @@ defmodule Ryker.Waits.EventSubscription.Query do
   """
   def resolving(wait_ref, status, resolution_kind, observation, now) do
     from(subscription in all(),
-      join: record in Record,
+      join: record in Records.Record,
       on: record.id == subscription.record_id,
       where: record.ref == ^wait_ref and subscription.status == :active,
       update: [
@@ -187,7 +187,7 @@ defmodule Ryker.Waits.EventSubscription.Query do
   # A wait holds its episode while the episode waits on it, or, for an
   # event-only watch, while the episode is parked in one of `parked_states`.
   defp retained_wait(parked_states) do
-    event_only = Record.Query.event_only_wait()
+    event_only = Records.Record.Query.event_only_wait()
 
     dynamic(
       [episode_kernel_episodes: episode, episode_state_records: record],

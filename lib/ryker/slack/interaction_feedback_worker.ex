@@ -7,8 +7,8 @@ defmodule Ryker.Slack.InteractionFeedbackWorker do
   for its safety-net interval.
   """
   use Ryker.PollingWorker, lane: :slack_interactions, interval: :interval_ms
-  alias Ryker.Delivery.Retry
-  alias Ryker.Observability.Progress
+  alias Ryker.Delivery
+  alias Ryker.Observability
   alias Ryker.Options
   alias Ryker.PollingWorker
   alias Ryker.Slack.{InteractionAudits, InteractionRepaint}
@@ -42,7 +42,7 @@ defmodule Ryker.Slack.InteractionFeedbackWorker do
           options.interval_ms
       end
 
-    _ = Progress.beat(:slack_interactions)
+    _ = Observability.Progress.beat(:slack_interactions)
     delay
   end
 
@@ -73,7 +73,7 @@ defmodule Ryker.Slack.InteractionFeedbackWorker do
   # long as Slack asked, 30 seconds when it named no time, and keeps its
   # attempts.
   defp settle(audit, reason, options) do
-    case Retry.rate_limited(reason) do
+    case Delivery.Retry.rate_limited(reason) do
       {:ok, seconds} ->
         with {:ok, deferred} <-
                InteractionAudits.defer(audit.id, audit.lease_ref, seconds || 30, reason,

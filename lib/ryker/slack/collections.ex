@@ -13,10 +13,10 @@ defmodule Ryker.Slack.Collections do
   of channels, so the complete list an operator opens in App Home is the list
   the thread page was cut from rather than a second query with its own rules.
   """
-  alias Ryker.Behaviors.Behavior
-  alias Ryker.Memories.MemoryEntry
+  alias Ryker.Behaviors
+  alias Ryker.Memories
   alias Ryker.Repo
-  alias Ryker.Schedules.Schedule
+  alias Ryker.Schedules
   alias Ryker.Slack.{Collection, SavedEntity}
 
   @page_size 5
@@ -31,7 +31,7 @@ defmodule Ryker.Slack.Collections do
         }
   @type scope :: %{channel_refs: [String.t()], workspace_ref: String.t()}
   @type page :: %{
-          entries: [Schedule.t() | Behavior.t() | MemoryEntry.t()],
+          entries: [Schedules.Schedule.t() | Behaviors.Behavior.t() | Memories.MemoryEntry.t()],
           offset: non_neg_integer(),
           total: non_neg_integer()
         }
@@ -188,8 +188,8 @@ defmodule Ryker.Slack.Collections do
       |> Collection.Query.knowledge_page(conversation_refs, now, offset, limit)
       |> Repo.all()
 
-    behaviors = rows |> ids("behavior") |> Behavior.Query.by_ids() |> Repo.all()
-    memories = rows |> ids("memory") |> MemoryEntry.Query.by_ids() |> Repo.all()
+    behaviors = rows |> ids("behavior") |> Behaviors.Behavior.Query.by_ids() |> Repo.all()
+    memories = rows |> ids("memory") |> Memories.MemoryEntry.Query.by_ids() |> Repo.all()
     loaded = Map.new(behaviors ++ memories, &{&1.id, &1})
     Enum.map(rows, &Map.fetch!(loaded, &1.id))
   end

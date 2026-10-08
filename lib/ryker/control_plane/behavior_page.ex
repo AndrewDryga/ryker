@@ -16,7 +16,6 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   alias Ryker.ControlPlane.{Components, Kit, Paths, ShortTime}
   alias Ryker.Episodes
   alias Ryker.Slack
-  alias Ryker.Slack.{ChannelConfigurations, IncidentRooms}
 
   @doc """
   The topics an open Rules or Instructions page listens to, as the context
@@ -30,8 +29,8 @@ defmodule Ryker.ControlPlane.BehaviorPage do
     [
       {Instructions, :subscribe_instructions, []},
       {Behaviors, :subscribe_behaviors, []},
-      {ChannelConfigurations, :subscribe_channels, []},
-      {IncidentRooms, :subscribe_rooms, []}
+      {Slack.ChannelConfigurations, :subscribe_channels, []},
+      {Slack.IncidentRooms, :subscribe_rooms, []}
     ]
   end
 

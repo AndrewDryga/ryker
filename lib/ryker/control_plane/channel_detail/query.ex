@@ -7,13 +7,13 @@ defmodule Ryker.ControlPlane.ChannelDetail.Query do
   (`Ryker.ControlPlane.ChannelScope`).
   """
   use Ryker, :query
-  alias Ryker.Episodes.Episode
-  alias Ryker.Schedules.Schedule
-  alias Ryker.Slack.{ChannelConfiguration, ChannelMembership, IncidentRoom}
+  alias Ryker.Episodes
+  alias Ryker.Schedules
+  alias Ryker.Slack
 
   @doc "The channel's setup, with the revision the page's choices are drawn from."
   def configuration(scope) do
-    from(configuration in ChannelConfiguration,
+    from(configuration in Slack.ChannelConfiguration,
       where:
         configuration.workspace_ref == ^scope.workspace_ref and
           configuration.channel_ref == ^scope.channel_ref,
@@ -34,7 +34,7 @@ defmodule Ryker.ControlPlane.ChannelDetail.Query do
 
   @doc "Ryker's membership of the channel."
   def membership(scope) do
-    from(membership in ChannelMembership,
+    from(membership in Slack.ChannelMembership,
       where:
         membership.workspace_ref == ^scope.workspace_ref and
           membership.channel_ref == ^scope.channel_ref,
@@ -54,8 +54,8 @@ defmodule Ryker.ControlPlane.ChannelDetail.Query do
 
   @doc "The incident room the channel is, if it is one, as its page names it."
   def incident_room(scope) do
-    from(room in IncidentRoom,
-      left_join: episode in Episode,
+    from(room in Slack.IncidentRoom,
+      left_join: episode in Episodes.Episode,
       on: episode.id == room.episode_id,
       where:
         room.workspace_ref == ^scope.workspace_ref and room.channel_ref == ^scope.channel_ref,
@@ -77,7 +77,7 @@ defmodule Ryker.ControlPlane.ChannelDetail.Query do
 
   @doc "The requests of the channel's conversation, as its page lists them."
   def episodes(scope) do
-    from(episode in Episode,
+    from(episode in Episodes.Episode,
       where:
         episode.destination_transport == "slack" and
           episode.destination_conversation_ref == ^scope.conversation_ref,
@@ -94,7 +94,7 @@ defmodule Ryker.ControlPlane.ChannelDetail.Query do
 
   @doc "The schedules that post to the channel's conversation, as its page lists them."
   def schedules(scope) do
-    from(schedule in Schedule,
+    from(schedule in Schedules.Schedule,
       where:
         schedule.destination_transport == "slack" and
           schedule.destination_conversation_ref == ^scope.conversation_ref,

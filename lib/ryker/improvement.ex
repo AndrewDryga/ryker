@@ -43,11 +43,10 @@ defmodule Ryker.Improvement do
   message, or forgetting a topic or a channel it quotes, erases what it holds
   (`forget_in_transaction/1`).
   """
-  alias Ryker.Episodes.Episode
-  alias Ryker.Feedback.Signal
+  alias Ryker.Episodes
+  alias Ryker.Feedback
   alias Ryker.Improvement.{AnalysisRun, Candidate, Evidence}
-  alias Ryker.Ingress.Inbox
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress
   alias Ryker.Repo
   alias Ryker.RoutingExamples
 
@@ -70,7 +69,7 @@ defmodule Ryker.Improvement do
   The kind of negative feedback `signal` is, or nil when it is not negative:
   `frustrated`, `reaction`, `asked_again`, `edited` or `rated`.
   """
-  @spec reason(Signal.t() | map()) :: String.t() | nil
+  @spec reason(Feedback.Signal.t() | map()) :: String.t() | nil
   def reason(%{kind: :sentiment, value: feeling}) when feeling in ["frustrated", "angry"],
     do: "frustrated"
 
@@ -94,12 +93,12 @@ defmodule Ryker.Improvement do
   that reactions alone made and none still stands for, before Ryker started
   on it. Anything else changes nothing.
   """
-  @spec note_in_transaction(Signal.t()) :: :ok
-  def note_in_transaction(%Signal{kind: :reaction_removed, value: emoji} = signal)
+  @spec note_in_transaction(Feedback.Signal.t()) :: :ok
+  def note_in_transaction(%Feedback.Signal{kind: :reaction_removed, value: emoji} = signal)
       when emoji in @negative_reactions,
       do: withdraw(signal)
 
-  def note_in_transaction(%Signal{} = signal) do
+  def note_in_transaction(%Feedback.Signal{} = signal) do
     case reason(signal) do
       nil -> :ok
       reason -> signal |> request_row(reason) |> upsert()
@@ -124,17 +123,17 @@ defmodule Ryker.Improvement do
     :ok
   end
 
-  defp request_candidate(%Signal{episode_id: id}) when is_binary(id),
+  defp request_candidate(%Feedback.Signal{episode_id: id}) when is_binary(id),
     do: Candidate.Query.by_episode_id(id)
 
-  defp request_candidate(%Signal{input_id: id}), do: Candidate.Query.by_input_id(id)
+  defp request_candidate(%Feedback.Signal{input_id: id}), do: Candidate.Query.by_input_id(id)
 
   defp negative_reaction_standing?(signal) do
     signal
     |> request_signals()
-    |> Signal.Query.reactions()
-    |> Signal.Query.ordered_by_occurred_at()
-    |> Signal.Query.select_reactions()
+    |> Feedback.Signal.Query.reactions()
+    |> Feedback.Signal.Query.ordered_by_occurred_at()
+    |> Feedback.Signal.Query.select_reactions()
     |> Repo.all()
     |> Enum.reduce(MapSet.new(), fn
       {message, :reaction_added, actor, emoji, _at}, standing ->
@@ -146,13 +145,17 @@ defmodule Ryker.Improvement do
     |> Enum.any?(fn {_message, _actor, emoji} -> emoji in @negative_reactions end)
   end
 
-  defp request_signals(%Signal{episode_id: id}) when is_binary(id),
-    do: Signal.Query.by_episode_id(id)
+  defp request_signals(%Feedback.Signal{episode_id: id}) when is_binary(id),
+    do: Feedback.Signal.Query.by_episode_id(id)
 
-  defp request_signals(%Signal{input_id: id}), do: Signal.Query.by_input_id(id)
+  defp request_signals(%Feedback.Signal{input_id: id}), do: Feedback.Signal.Query.by_input_id(id)
 
-  defp request_row(%Signal{episode_id: id} = signal, reason) when is_binary(id) do
-    episode = id |> Episode.Query.by_id() |> Episode.Query.select_request_fields() |> Repo.one!()
+  defp request_row(%Feedback.Signal{episode_id: id} = signal, reason) when is_binary(id) do
+    episode =
+      id
+      |> Episodes.Episode.Query.by_id()
+      |> Episodes.Episode.Query.select_request_fields()
+      |> Repo.one!()
 
     row(signal, reason, %{
       episode_id: id,
@@ -163,13 +166,17 @@ defmodule Ryker.Improvement do
     })
   end
 
-  defp request_row(%Signal{input_id: id} = signal, reason) when is_binary(id) do
-    entry = id |> Entry.Query.by_id() |> Entry.Query.select_destinations() |> Repo.one!()
+  defp request_row(%Feedback.Signal{input_id: id} = signal, reason) when is_binary(id) do
+    entry =
+      id
+      |> Ingress.Inbox.Entry.Query.by_id()
+      |> Ingress.Inbox.Entry.Query.select_destinations()
+      |> Repo.one!()
 
     row(signal, reason, %{
       episode_id: nil,
       input_id: id,
-      request_ref: Inbox.ref(entry),
+      request_ref: Ingress.Inbox.ref(entry),
       transport: entry.destination_transport,
       conversation_ref: entry.destination_conversation_ref
     })

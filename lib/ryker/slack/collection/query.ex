@@ -6,13 +6,13 @@ defmodule Ryker.Slack.Collection.Query do
   channel's Slack conversation refs.
   """
   use Ryker, :query
-  alias Ryker.Behaviors.Behavior
-  alias Ryker.Memories.MemoryEntry
-  alias Ryker.Schedules.Schedule
+  alias Ryker.Behaviors
+  alias Ryker.Memories
+  alias Ryker.Schedules
 
   @doc "Every item of collection `kind` (`:schedules` or `:standing_rules`) of the channel."
   def items(:schedules, _workspace_ref, conversation_refs, now) do
-    from(schedule in Schedule,
+    from(schedule in Schedules.Schedule,
       where:
         schedule.destination_transport == "slack" and
           schedule.destination_conversation_ref in ^conversation_refs and
@@ -22,7 +22,7 @@ defmodule Ryker.Slack.Collection.Query do
   end
 
   def items(:standing_rules, workspace_ref, conversation_refs, now) do
-    from(behavior in Behavior,
+    from(behavior in Behaviors.Behavior,
       where:
         behavior.kind == :standing_assignment and
           behavior.workspace_ref == ^"slack:#{workspace_ref}" and
@@ -56,7 +56,7 @@ defmodule Ryker.Slack.Collection.Query do
   to one person and is never listed for a channel.
   """
   def knowledge_behaviors(slack_workspace, conversation_refs, now) do
-    from(behavior in Behavior,
+    from(behavior in Behaviors.Behavior,
       where:
         behavior.kind in [:preference, :guidance] and
           behavior.workspace_ref == ^slack_workspace and
@@ -70,7 +70,7 @@ defmodule Ryker.Slack.Collection.Query do
 
   @doc "Facts the channel may see: its own, and those the whole workspace may see."
   def knowledge_memories(slack_workspace, conversation_refs, now) do
-    from(memory in MemoryEntry,
+    from(memory in Memories.MemoryEntry,
       where:
         memory.workspace_ref == ^slack_workspace and memory.status == :active and
           (is_nil(memory.expires_at) or memory.expires_at > ^now) and

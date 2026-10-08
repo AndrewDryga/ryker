@@ -7,26 +7,29 @@ defmodule Ryker.Delivery.Presentation do
   an external side effect.
   """
   alias Ryker.Delivery.ChatCard
-  alias Ryker.Episodes.Episode
-  alias Ryker.GitHub.Renderer, as: GitHubRenderer
-  alias Ryker.Slack.{Mentions, Renderer, ReplyRecords}
-  alias Ryker.Work.Custody.Delivery
-  alias Ryker.Work.{Final, Turn}
+  alias Ryker.Episodes
+  alias Ryker.GitHub
+  alias Ryker.Slack
+  alias Ryker.Work
 
   # Rendered for where the answer goes: the destination of the input the turn
   # answers, which is the episode's home unless that input came from elsewhere,
   # like a comment on a Slack task's pull request, answered on GitHub.
-  @spec validate(Episode.t(), Turn.t(), Final.t()) :: :ok | {:error, term()}
-  def validate(%Episode{}, _turn, %Final{delivery: :none}), do: :ok
+  @spec validate(Episodes.Episode.t(), Work.Turn.t(), Work.Final.t()) :: :ok | {:error, term()}
+  def validate(%Episodes.Episode{}, _turn, %Work.Final{delivery: :none}), do: :ok
 
-  def validate(%Episode{} = episode, %Turn{} = turn, %Final{delivery: :reply} = final) do
-    transport = Delivery.answer_target(episode, turn)["transport"]
+  def validate(
+        %Episodes.Episode{} = episode,
+        %Work.Turn{} = turn,
+        %Work.Final{delivery: :reply} = final
+      ) do
+    transport = Work.Custody.Delivery.answer_target(episode, turn)["transport"]
 
-    with {:ok, records} <- ReplyRecords.fetch(episode.id, final.record_refs),
+    with {:ok, records} <- Slack.ReplyRecords.fetch(episode.id, final.record_refs),
          :ok <- validate_native_records(transport, records) do
       render(transport, episode, %{
         "message" => final.message,
-        "records" => ReplyRecords.documents(transport, episode.id, records)
+        "records" => Slack.ReplyRecords.documents(transport, episode.id, records)
       })
     end
   end
@@ -35,14 +38,16 @@ defmodule Ryker.Delivery.Presentation do
     do: {:error, {:invalid_delivery_presentation, :document}}
 
   defp render("slack", episode, document) do
-    case Renderer.render(Map.put(document, "slack_mentions", Mentions.authority(episode))) do
+    case Slack.Renderer.render(
+           Map.put(document, "slack_mentions", Slack.Mentions.authority(episode))
+         ) do
       {:ok, _rendered} -> :ok
       {:error, reason} -> {:error, {:invalid_delivery_presentation, reason}}
     end
   end
 
   defp render("github", _episode, document) do
-    case GitHubRenderer.render(document) do
+    case GitHub.Renderer.render(document) do
       {:ok, _rendered} -> :ok
       {:error, reason} -> {:error, {:invalid_delivery_presentation, reason}}
     end

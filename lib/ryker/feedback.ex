@@ -30,11 +30,9 @@ defmodule Ryker.Feedback do
   (`Ryker.Retention.Data`), and with its request when that goes first.
   """
   alias Ryker.Episodes
-  alias Ryker.Episodes.Episode
   alias Ryker.Feedback.Signal
   alias Ryker.Improvement
-  alias Ryker.Ingress.Inbox
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress
   alias Ryker.Repo
 
   @type request :: {:episode, Ecto.UUID.t()} | {:input, Ecto.UUID.t()}
@@ -247,17 +245,17 @@ defmodule Ryker.Feedback do
   # ends, without blocking anything that only updates it.
   defp hold_request(%Signal{episode_id: id}) when is_binary(id) do
     id
-    |> Episode.Query.by_id()
-    |> Episode.Query.select_ids()
-    |> Episode.Query.lock_for_key_share()
+    |> Episodes.Episode.Query.by_id()
+    |> Episodes.Episode.Query.select_ids()
+    |> Episodes.Episode.Query.lock_for_key_share()
     |> held()
   end
 
   defp hold_request(%Signal{input_id: id}) when is_binary(id) do
     id
-    |> Entry.Query.by_id()
-    |> Entry.Query.select_ids()
-    |> Entry.Query.lock_for_key_share()
+    |> Ingress.Inbox.Entry.Query.by_id()
+    |> Ingress.Inbox.Entry.Query.select_ids()
+    |> Ingress.Inbox.Entry.Query.lock_for_key_share()
     |> held()
   end
 
@@ -319,7 +317,7 @@ defmodule Ryker.Feedback do
 
   defp broadcast_feedback_recorded(%Signal{id: id} = signal) do
     Episodes.broadcast_episode_updated(signal.episode_id)
-    if signal.input_id, do: Inbox.broadcast_input_updated(signal.input_id)
+    if signal.input_id, do: Ingress.Inbox.broadcast_input_updated(signal.input_id)
 
     Repo.after_commit(fn ->
       Ryker.PubSub.broadcast(feedback_topic(), {:feedback_recorded, id})

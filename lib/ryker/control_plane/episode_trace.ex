@@ -12,16 +12,17 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   """
   import Ryker.ControlPlane.EpisodeTrace.Step
   alias Ryker.ControlPlane.{EpisodeCausality, EpisodeResponseMetrics, Paths, RepositoryNames}
+  alias Ryker.ControlPlane.EpisodeTrace
   alias Ryker.ControlPlane.EpisodeTrace.{CaseFile, Input, Maintenance, Outcome, Preparation}
-  alias Ryker.ControlPlane.EpisodeTrace.{ToolActivity, Work}
+  alias Ryker.ControlPlane.EpisodeTrace.ToolActivity
   alias Ryker.ControlPlane.{SavedRecords, Units}
-  alias Ryker.Episodes.{Episode, Event}
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Operator.EpisodeReview
-  alias Ryker.Records.Record
+  alias Ryker.Episodes
+  alias Ryker.Ingress
+  alias Ryker.Operator
+  alias Ryker.Records
   alias Ryker.Repo
-  alias Ryker.StateTools.CallLog
-  alias Ryker.Work.{Activity, Recovery, Session, Turn}
+  alias Ryker.StateTools
+  alias Ryker.Work
 
   @chapters [
     {:input, "What came in", "The input, continuation, or trigger that opened this work."},
@@ -36,10 +37,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
      "What happened afterwards to the worker Ryker used and its working copy."}
   ]
 
-  @spec project(Episode.t(), [Event.t()], [Record.t()], keyword()) :: map()
+  @spec project(Episodes.Episode.t(), [Episodes.Event.t()], [Records.Record.t()], keyword()) ::
+          map()
   def project(episode, events, records, options \\ [])
 
-  def project(%Episode{} = episode, events, records, options)
+  def project(%Episodes.Episode{} = episode, events, records, options)
       when is_list(events) and is_list(records) do
     input_rows = Input.rows(episode.id)
     inputs = Input.inputs_by_ref(input_rows)
@@ -50,7 +52,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
     disclosed = Keyword.get(options, :disclosed) || MapSet.new()
 
     activity_page =
-      Activity.page_for_episode(episode.id, Keyword.get(options, :activity_pages, 1))
+      Work.Activity.page_for_episode(episode.id, Keyword.get(options, :activity_pages, 1))
 
     # A task's pull request feedback, a schedule's run or a wait's timer is an
     # input no inbox row holds; it is counted among the messages all the same.
@@ -84,7 +86,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
     # Only collapse an entirely unstarted task, never earlier work in a resumed episode.
     startup =
       if current_blocked_turn?(episode, current_turn) and length(turns) == 1 and
-           Recovery.not_started?(current_turn) and
+           Work.Recovery.not_started?(current_turn) and
            Enum.all?(sessions, &is_nil(&1.coop_session_id)),
          do: CaseFile.task_start(episode, current_turn)
 
@@ -107,11 +109,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
           inputs: inputs
         })
       )
-      |> Kernel.++(Work.turn_steps(turns, sessions))
+      |> Kernel.++(EpisodeTrace.Work.turn_steps(turns, sessions))
       |> Kernel.++(activity)
-      |> Kernel.++(Work.slack_status_steps(episode.id))
-      |> Kernel.++(Work.record_steps(records))
-      |> Kernel.++(Work.coop_steps(sessions))
+      |> Kernel.++(EpisodeTrace.Work.slack_status_steps(episode.id))
+      |> Kernel.++(EpisodeTrace.Work.record_steps(records))
+      |> Kernel.++(EpisodeTrace.Work.coop_steps(sessions))
       |> Kernel.++(Outcome.platform_action_steps(platform_actions))
       |> Kernel.++(Outcome.incident_steps(episode.id))
       |> Kernel.++(Outcome.publication_steps(publications))
@@ -181,8 +183,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
 
   defp name_repository(detail, _names), do: detail
 
-  defp page_state(%Episode{state: :working}, %{}), do: "blocked"
-  defp page_state(%Episode{state: state}, _stopped), do: to_string(state)
+  defp page_state(%Episodes.Episode{state: :working}, %{}), do: "blocked"
+  defp page_state(%Episodes.Episode{state: state}, _stopped), do: to_string(state)
 
   # Only offer another page when one exists and the bound has not been reached.
   defp next_activity_page(%{truncated: true}, pages) when pages < 10, do: pages + 1
@@ -194,44 +196,51 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   reads, so a message that never became work explains itself the same way as
   one that did.
   """
-  @spec input_preparation(Entry.t()) :: [map()]
-  def input_preparation(%Entry{} = input), do: Preparation.steps([input])
+  @spec input_preparation(Ingress.Inbox.Entry.t()) :: [map()]
+  def input_preparation(%Ingress.Inbox.Entry{} = input), do: Preparation.steps([input])
 
   # Only a call Ryker received inside the narration on this page can join it.
   defp state_tool_calls(_episode_id, []), do: []
 
-  defp state_tool_calls(episode_id, [oldest | _newer]),
-    do: CallLog.list_for_episode(episode_id, DateTime.add(oldest.occurred_at, -1, :minute))
+  defp state_tool_calls(episode_id, [oldest | _newer]) do
+    StateTools.CallLog.list_for_episode(
+      episode_id,
+      DateTime.add(oldest.occurred_at, -1, :minute)
+    )
+  end
 
   defp sessions(episode_id) do
     episode_id
-    |> Session.Query.by_episode_id()
-    |> Session.Query.ordered_by_recent()
-    |> Session.Query.limit_to(50)
+    |> Work.Session.Query.by_episode_id()
+    |> Work.Session.Query.ordered_by_recent()
+    |> Work.Session.Query.limit_to(50)
     |> Repo.all()
     |> Enum.reverse()
   end
 
   defp turns(episode_id) do
     episode_id
-    |> Turn.Query.by_episode_id()
-    |> Turn.Query.ordered_by_recent()
-    |> Turn.Query.limit_to(200)
+    |> Work.Turn.Query.by_episode_id()
+    |> Work.Turn.Query.ordered_by_recent()
+    |> Work.Turn.Query.limit_to(200)
     |> Repo.all()
     |> Enum.reverse()
   end
 
   defp totals(episode_id, events, records, sessions, turns) do
     turn_totals =
-      episode_id |> Turn.Query.by_episode_id() |> Turn.Query.select_usage_totals() |> Repo.one!()
+      episode_id
+      |> Work.Turn.Query.by_episode_id()
+      |> Work.Turn.Query.select_usage_totals()
+      |> Repo.one!()
 
     Map.merge(turn_totals, %{
       current_turn: List.last(turns),
-      events: episode_id |> Event.Query.by_episode_id() |> Repo.aggregate(:count),
+      events: episode_id |> Episodes.Event.Query.by_episode_id() |> Repo.aggregate(:count),
       events_shown: length(events),
-      records: episode_id |> Record.Query.by_episode_id() |> Repo.aggregate(:count),
+      records: episode_id |> Records.Record.Query.by_episode_id() |> Repo.aggregate(:count),
       records_shown: length(records),
-      sessions: episode_id |> Session.Query.by_episode_id() |> Repo.aggregate(:count),
+      sessions: episode_id |> Work.Session.Query.by_episode_id() |> Repo.aggregate(:count),
       sessions_shown: length(sessions),
       turns_shown: length(turns)
     })
@@ -319,7 +328,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
     ]
   end
 
-  defp stopped(%Episode{state: :waiting_for_input}, _turn) do
+  defp stopped(%Episodes.Episode{state: :waiting_for_input}, _turn) do
     %{
       action: "Answer the question in the conversation",
       attempted: [],
@@ -329,7 +338,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
     }
   end
 
-  defp stopped(%Episode{state: :waiting_for_event}, _turn) do
+  defp stopped(%Episodes.Episode{state: :waiting_for_event}, _turn) do
     %{
       action: "Nothing to do now",
       attempted: [],
@@ -340,7 +349,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
     }
   end
 
-  defp stopped(%Episode{state: :cancelled}, _turn) do
+  defp stopped(%Episodes.Episode{state: :cancelled}, _turn) do
     %{
       action: "No action is required",
       attempted: [],
@@ -350,7 +359,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
     }
   end
 
-  defp stopped(_episode, %Turn{status: :blocked, delivery_ref: ref}) when is_binary(ref) do
+  defp stopped(_episode, %Work.Turn{status: :blocked, delivery_ref: ref}) when is_binary(ref) do
     %{
       action:
         "Check why delivery failed and look at the conversation before sending the saved reply again.",
@@ -361,8 +370,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
     }
   end
 
-  defp stopped(episode, %Turn{status: :blocked} = turn) do
-    recovery = Recovery.brief(turn)
+  defp stopped(episode, %Work.Turn{status: :blocked} = turn) do
+    recovery = Work.Recovery.brief(turn)
 
     attempts =
       [
@@ -497,8 +506,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   # now: a request that continued after a rating ends again, and that ending
   # is rated on its own. What people said, ratings included, is the Feedback
   # chapter's to show.
-  defp rating_state(%Episode{} = episode, events) do
-    rated = Repo.exists?(EpisodeReview.Query.by_version(episode.id, episode.semantic_version))
+  defp rating_state(%Episodes.Episode{} = episode, events) do
+    rated =
+      Repo.exists?(Operator.EpisodeReview.Query.by_version(episode.id, episode.semantic_version))
 
     back = %{"back" => Paths.request(episode.id)}
 
@@ -515,7 +525,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   # or its chat task card, is not waiting for them to rate it; the timeline
   # asked them to the moment after. A stopped task's close settles later, so
   # it is read from the cancel itself rather than recorded when closing.
-  defp closed_here?(%Episode{state: :cancelled}, events) do
+  defp closed_here?(%Episodes.Episode{state: :cancelled}, events) do
     Enum.any?(events, fn event ->
       event.kind == :episode_cancelled and
         String.starts_with?(to_string(event.payload["cancel_ref"]), [
@@ -530,7 +540,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   defp operator_actions(episode, current_turn) do
     recovery =
       if current_blocked_turn?(episode, current_turn) and is_nil(current_turn.delivery_ref),
-        do: Recovery.brief(current_turn)
+        do: Work.Recovery.brief(current_turn)
 
     []
     |> maybe_action(
@@ -550,8 +560,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   end
 
   defp current_blocked_turn?(
-         %Episode{state: :working, owner_kind: :turn, owner_ref: ref},
-         %Turn{status: :blocked, turn_ref: ref}
+         %Episodes.Episode{state: :working, owner_kind: :turn, owner_ref: ref},
+         %Work.Turn{status: :blocked, turn_ref: ref}
        ),
        do: true
 
@@ -562,21 +572,23 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
 
   defp maybe_action(actions, false, _label, _href, _tone), do: actions
 
-  defp resolvable?(%Episode{state: state}, _turn)
+  defp resolvable?(%Episodes.Episode{state: state}, _turn)
        when state in [:waiting_for_input, :waiting_for_event],
        do: true
 
-  defp resolvable?(%Episode{state: :working, owner_kind: :turn}, %Turn{status: :blocked}),
-    do: true
+  defp resolvable?(%Episodes.Episode{state: :working, owner_kind: :turn}, %Work.Turn{
+         status: :blocked
+       }),
+       do: true
 
   defp resolvable?(_episode, _turn), do: false
 
-  defp next_action(%Episode{state: :waiting_for_input}, _turn), do: "operator input"
-  defp next_action(%Episode{state: :waiting_for_event}, _turn), do: "external event"
-  defp next_action(_episode, %Turn{status: :blocked}), do: "operator recovery"
-  defp next_action(%Episode{owner_kind: :delivery}, _turn), do: "deliver result"
-  defp next_action(%Episode{state: :complete}, _turn), do: "complete"
-  defp next_action(%Episode{state: :cancelled}, _turn), do: "cancelled"
+  defp next_action(%Episodes.Episode{state: :waiting_for_input}, _turn), do: "operator input"
+  defp next_action(%Episodes.Episode{state: :waiting_for_event}, _turn), do: "external event"
+  defp next_action(_episode, %Work.Turn{status: :blocked}), do: "operator recovery"
+  defp next_action(%Episodes.Episode{owner_kind: :delivery}, _turn), do: "deliver result"
+  defp next_action(%Episodes.Episode{state: :complete}, _turn), do: "complete"
+  defp next_action(%Episodes.Episode{state: :cancelled}, _turn), do: "cancelled"
   defp next_action(_episode, nil), do: "start work"
   defp next_action(_episode, _turn), do: "continue work"
 end

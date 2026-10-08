@@ -9,10 +9,9 @@ defmodule Ryker.Slack.Renderer.Records do
   """
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
-  alias Ryker.Delivery.OfferWords
-  alias Ryker.Publication.Card, as: PublicationCard
-  alias Ryker.Publication.Review
-  alias Ryker.Records.RecordPayload
+  alias Ryker.Delivery
+  alias Ryker.Publication
+  alias Ryker.Records
   alias Ryker.Slack.Renderer.{EmisarReview, Offers, SavedEntityCard}
   alias Ryker.Slack.ReplyRecords
 
@@ -84,7 +83,7 @@ defmodule Ryker.Slack.Renderer.Records do
 
   defp render_record(%{"kind" => kind} = record)
        when kind in ["publication_review", "publication_result"] do
-    case PublicationCard.prepare_record(record) do
+    case Publication.Card.prepare_record(record) do
       {:ok, payload} -> {:ok, publication_blocks(kind, record["ref"], payload)}
       _invalid -> {:error, {:invalid_slack_render, :record}}
     end
@@ -105,7 +104,7 @@ defmodule Ryker.Slack.Renderer.Records do
        when map_size(record) == 5 and map_size(presentation) == 1 and
               kind in @confirmation_kinds do
     with :ok <- reference(ref),
-         {:ok, _prepared} <- RecordPayload.prepare(kind, payload, ref),
+         {:ok, _prepared} <- Records.RecordPayload.prepare(kind, payload, ref),
          :ok <- SavedEntityCard.validate(entity) do
       {:ok, SavedEntityCard.blocks(entity)}
     else
@@ -121,7 +120,7 @@ defmodule Ryker.Slack.Renderer.Records do
        )
        when map_size(record) == 4 and kind in @confirmation_kinds do
     with :ok <- reference(ref),
-         {:ok, %{payload: prepared}} <- RecordPayload.prepare(kind, payload, ref) do
+         {:ok, %{payload: prepared}} <- Records.RecordPayload.prepare(kind, payload, ref) do
       {:ok,
        [context("*#{escape(saved_name(kind, prepared))}* was saved and has since been removed.")]}
     else
@@ -140,7 +139,7 @@ defmodule Ryker.Slack.Renderer.Records do
        when map_size(record) == 4 do
     with :ok <- reference(ref),
          {:ok, %{payload: prepared}} <-
-           RecordPayload.prepare("emisar_approval", payload, ref) do
+           Records.RecordPayload.prepare("emisar_approval", payload, ref) do
       {:ok, EmisarReview.approval_blocks(ref, prepared)}
     else
       _invalid -> {:error, {:invalid_slack_render, :record}}
@@ -152,7 +151,7 @@ defmodule Ryker.Slack.Renderer.Records do
        )
        when map_size(record) == 4 and kind in @offer_kinds do
     with :ok <- reference(ref),
-         {:ok, %{payload: prepared}} <- RecordPayload.prepare(kind, payload, ref) do
+         {:ok, %{payload: prepared}} <- Records.RecordPayload.prepare(kind, payload, ref) do
       {:ok, Offers.blocks(kind, ref, prepared)}
     else
       _invalid -> {:error, {:invalid_slack_render, :record}}
@@ -172,7 +171,7 @@ defmodule Ryker.Slack.Renderer.Records do
 
     with :ok <- reference(ref),
          :ok <- Offers.incident_room_presentation(presentation),
-         {:ok, %{payload: prepared}} <- RecordPayload.prepare("task_offer", payload, ref) do
+         {:ok, %{payload: prepared}} <- Records.RecordPayload.prepare("task_offer", payload, ref) do
       {:ok, Offers.confirmed_task_offer(prepared, presentation)}
     else
       _invalid -> {:error, {:invalid_slack_render, :record}}
@@ -196,7 +195,7 @@ defmodule Ryker.Slack.Renderer.Records do
          :ok <- reference(ref),
          :ok <- optional_https_url(url),
          {:ok, %{payload: prepared}} <-
-           RecordPayload.prepare("slack_post_offer", payload, ref) do
+           Records.RecordPayload.prepare("slack_post_offer", payload, ref) do
       {:ok, Offers.slack_post_offer(ref, Map.put(prepared, "message_url", url), status)}
     else
       _invalid -> {:error, {:invalid_slack_render, :record}}
@@ -209,7 +208,7 @@ defmodule Ryker.Slack.Renderer.Records do
        when map_size(record) == 4 and kind in @investigation_kinds and
               status in ["open", "confirmed", "superseded", "dismissed"] do
     with :ok <- reference(ref),
-         {:ok, _prepared} <- RecordPayload.prepare(kind, payload, ref) do
+         {:ok, _prepared} <- Records.RecordPayload.prepare(kind, payload, ref) do
       {:ok, []}
     else
       _invalid -> {:error, {:invalid_slack_render, :record}}
@@ -230,7 +229,8 @@ defmodule Ryker.Slack.Renderer.Records do
 
     with :ok <- reference(ref),
          :ok <- remembered_presentation(presentation),
-         {:ok, %{payload: prepared}} <- RecordPayload.prepare("input_request", payload, ref) do
+         {:ok, %{payload: prepared}} <-
+           Records.RecordPayload.prepare("input_request", payload, ref) do
       if status == "open" do
         {:ok, input_request_blocks(ref, prepared)}
       else
@@ -246,7 +246,7 @@ defmodule Ryker.Slack.Renderer.Records do
   defp event_wait(%{"payload" => payload, "ref" => ref, "status" => status}, next_check)
        when status in ["open", "answered", "superseded", "dismissed"] do
     with :ok <- reference(ref),
-         {:ok, %{payload: prepared}} <- RecordPayload.prepare("event_wait", payload, ref) do
+         {:ok, %{payload: prepared}} <- Records.RecordPayload.prepare("event_wait", payload, ref) do
       {:ok, if(status == "open", do: event_wait_blocks(prepared, next_check), else: [])}
     else
       _invalid -> {:error, {:invalid_slack_render, :record}}
@@ -324,7 +324,7 @@ defmodule Ryker.Slack.Renderer.Records do
 
   defp refusal(payload) do
     causes =
-      Review.refusal(%{
+      Publication.Review.refusal(%{
         "gate" => payload["gate"],
         "not_publishable_reasons" => payload["reasons"],
         "policy_findings" => payload["policy_findings"],
@@ -347,7 +347,7 @@ defmodule Ryker.Slack.Renderer.Records do
 
   # The findings clause comes last, so the files it counts follow it.
   defp flagged_files(findings) do
-    findings = Review.findings(findings)
+    findings = Publication.Review.findings(findings)
     lines = findings |> Enum.take(@findings_shown) |> Enum.map(&flagged_file/1)
 
     if length(findings) > @findings_shown,
@@ -564,5 +564,5 @@ defmodule Ryker.Slack.Renderer.Records do
   defp saved_name(kind, %{"subject" => subject}) when kind in ~w(guidance_offer memory_offer),
     do: subject
 
-  defp saved_name("preference_offer", %{"key" => key}), do: OfferWords.humanize(key)
+  defp saved_name("preference_offer", %{"key" => key}), do: Delivery.OfferWords.humanize(key)
 end

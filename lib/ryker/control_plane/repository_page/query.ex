@@ -5,7 +5,7 @@ defmodule Ryker.ControlPlane.RepositoryPage.Query do
   repository has, and the receipt of the code its tasks last recorded.
   """
   use Ryker, :query
-  alias Ryker.Work.{Session, Turn}
+  alias Ryker.Work
 
   @doc "How many rows of `queryable` name each of `refs` in `field`, as `{ref, count}`."
   def count_by(queryable, field, refs) do
@@ -28,8 +28,8 @@ defmodule Ryker.ControlPlane.RepositoryPage.Query do
     # prompt in turn and stops at the first with a receipt, instead of
     # reading every prompt before ordering them.
     newest_first =
-      from(turn in Turn,
-        join: session in Session,
+      from(turn in Work.Turn,
+        join: session in Work.Session,
         on: session.id == turn.session_id,
         where:
           session.repository_ref == parent_as(:repository).ref and not is_nil(turn.submission),

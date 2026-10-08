@@ -11,11 +11,10 @@ defmodule Ryker.Work.Custody.Delivery do
   """
   import Ryker.Work.Custody.Locks
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, Episode, Origin}
   alias Ryker.Lease
   alias Ryker.Repo
-  alias Ryker.Slack.Mentions
-  alias Ryker.Waits.EventSubscriptions
+  alias Ryker.Slack
+  alias Ryker.Waits
   alias Ryker.Work.Cancellation, as: WorkCancellation
   alias Ryker.Work.Custody
   alias Ryker.Work.Custody.{Cancellation, Sessions}
@@ -28,7 +27,7 @@ defmodule Ryker.Work.Custody.Delivery do
           String.t(),
           String.t(),
           map()
-        ) :: {:ok, %{episode: Episode.t(), turn: Turn.t()}} | {:error, term()}
+        ) :: {:ok, %{episode: Episodes.Episode.t(), turn: Turn.t()}} | {:error, term()}
   def confirm_delivery(episode_id, episode_key, turn_ref, lease_ref, external_receipt) do
     with {:ok, episode_id} <- uuid(episode_id, :episode_id),
          :ok <- reference(episode_key, :episode_key),
@@ -103,7 +102,7 @@ defmodule Ryker.Work.Custody.Delivery do
   end
 
   defp redirect_delivery_owner(
-         %Episode{state: :working, owner_kind: :delivery} = episode,
+         %Episodes.Episode{state: :working, owner_kind: :delivery} = episode,
          gone_conversation_ref,
          target
        ) do
@@ -119,7 +118,7 @@ defmodule Ryker.Work.Custody.Delivery do
     end
   end
 
-  defp redirect_delivery_owner(%Episode{} = episode, _gone_conversation_ref, _target),
+  defp redirect_delivery_owner(%Episodes.Episode{} = episode, _gone_conversation_ref, _target),
     do: %{episode: episode, status: :settled, turn: nil}
 
   # An attempt in flight finishes under its own lease, and the next call sees
@@ -248,7 +247,8 @@ defmodule Ryker.Work.Custody.Delivery do
              delivered_at
            ),
          {:ok, turn} <- persist_update(changeset, :work_delivery),
-         {:ok, _subscription} <- EventSubscriptions.ensure_in_transaction(transition.episode) do
+         {:ok, _subscription} <-
+           Waits.EventSubscriptions.ensure_in_transaction(transition.episode) do
       %{episode: transition.episode, turn: turn}
     else
       {:delivered, turn} -> %{episode: episode_for_result!(episode_key), turn: turn}
@@ -257,7 +257,7 @@ defmodule Ryker.Work.Custody.Delivery do
   end
 
   defp pause_destination_owner(
-         %Episode{state: :working, owner_kind: :turn} = episode,
+         %Episodes.Episode{state: :working, owner_kind: :turn} = episode,
          intent,
          fingerprint
        ) do
@@ -278,14 +278,14 @@ defmodule Ryker.Work.Custody.Delivery do
   end
 
   defp pause_destination_owner(
-         %Episode{state: :working, owner_kind: :delivery} = episode,
+         %Episodes.Episode{state: :working, owner_kind: :delivery} = episode,
          intent,
          _fingerprint
        ) do
     pause_destination_delivery(episode, intent)
   end
 
-  defp pause_destination_owner(%Episode{} = episode, _intent, _fingerprint),
+  defp pause_destination_owner(%Episodes.Episode{} = episode, _intent, _fingerprint),
     do: %{episode: episode, status: :settled, turn: nil}
 
   defp block_unsubmitted_destination_turn(episode, intent, fingerprint) do
@@ -373,7 +373,7 @@ defmodule Ryker.Work.Custody.Delivery do
   end
 
   defp resume_destination_owner(
-         %Episode{state: :working, owner_kind: :turn} = episode,
+         %Episodes.Episode{state: :working, owner_kind: :turn} = episode,
          reason
        ) do
     case fetch_turn_identity(episode.id, episode.owner_ref) do
@@ -386,7 +386,7 @@ defmodule Ryker.Work.Custody.Delivery do
   end
 
   defp resume_destination_owner(
-         %Episode{state: :working, owner_kind: :delivery} = episode,
+         %Episodes.Episode{state: :working, owner_kind: :delivery} = episode,
          reason
        ) do
     case lock_delivery_turn(episode.id, episode.owner_ref) do
@@ -415,7 +415,7 @@ defmodule Ryker.Work.Custody.Delivery do
     end
   end
 
-  defp resume_destination_owner(%Episode{} = episode, _reason),
+  defp resume_destination_owner(%Episodes.Episode{} = episode, _reason),
     do: %{episode: episode, status: :settled, turn: nil}
 
   defp resume_destination_turn(
@@ -611,14 +611,14 @@ defmodule Ryker.Work.Custody.Delivery do
   end
 
   @doc false
-  @spec delivery_target(Episode.t(), Turn.t()) :: map()
-  def delivery_target(%Episode{} = episode, %Turn{delivery_target: %{} = target}) do
+  @spec delivery_target(Episodes.Episode.t(), Turn.t()) :: map()
+  def delivery_target(%Episodes.Episode{} = episode, %Turn{delivery_target: %{} = target}) do
     Map.merge(home_target(episode), target)
   end
 
-  def delivery_target(%Episode{} = episode, _turn), do: home_target(episode)
+  def delivery_target(%Episodes.Episode{} = episode, _turn), do: home_target(episode)
 
-  defp home_target(%Episode{} = episode) do
+  defp home_target(%Episodes.Episode{} = episode) do
     %{
       "conversation_ref" => episode.destination_conversation_ref,
       "thread_ref" => episode.destination_thread_ref,
@@ -631,8 +631,8 @@ defmodule Ryker.Work.Custody.Delivery do
   conversation and thread of the input it answers, over the episode's home.
   A Work update posted before the answer goes to the same place.
   """
-  @spec answer_target(Episode.t(), Turn.t()) :: map()
-  def answer_target(%Episode{} = episode, %Turn{} = turn),
+  @spec answer_target(Episodes.Episode.t(), Turn.t()) :: map()
+  def answer_target(%Episodes.Episode{} = episode, %Turn{} = turn),
     do: Map.merge(home_target(episode), reply_target(episode, turn) || %{})
 
   @doc """
@@ -641,15 +641,15 @@ defmodule Ryker.Work.Custody.Delivery do
   Slack task's pull request answered on GitHub, where a Slack mention names
   nobody.
   """
-  @spec answer_mentions(Episode.t(), Turn.t()) :: map() | nil
-  def answer_mentions(%Episode{} = episode, %Turn{} = turn) do
+  @spec answer_mentions(Episodes.Episode.t(), Turn.t()) :: map() | nil
+  def answer_mentions(%Episodes.Episode{} = episode, %Turn{} = turn) do
     if answer_target(episode, turn)["transport"] == "slack",
-      do: Mentions.authority(episode)
+      do: Slack.Mentions.authority(episode)
   end
 
   @doc false
-  @spec reply_target(Episode.t(), Turn.t()) :: map() | nil
-  def reply_target(%Episode{} = episode, %Turn{} = turn) do
+  @spec reply_target(Episodes.Episode.t(), Turn.t()) :: map() | nil
+  def reply_target(%Episodes.Episode{} = episode, %Turn{} = turn) do
     episode
     |> answering_origin(turn)
     |> case do
@@ -665,20 +665,20 @@ defmodule Ryker.Work.Custody.Delivery do
     end
   end
 
-  defp answering_origin(%Episode{} = episode, %Turn{selected_input_refs: refs})
+  defp answering_origin(%Episodes.Episode{} = episode, %Turn{selected_input_refs: refs})
        when is_list(refs) and refs != [] do
     newest_origin(episode, refs)
   end
 
-  defp answering_origin(%Episode{} = episode, %Turn{selected_input_refs: nil} = turn),
+  defp answering_origin(%Episodes.Episode{} = episode, %Turn{selected_input_refs: nil} = turn),
     do: active_origin(episode, turn)
 
-  defp answering_origin(%Episode{} = episode, %Turn{selected_input_refs: []} = turn),
+  defp answering_origin(%Episodes.Episode{} = episode, %Turn{selected_input_refs: []} = turn),
     do: active_origin(episode, turn)
 
   defp answering_origin(_episode, _turn), do: nil
 
-  defp active_origin(%Episode{active_input_refs: [_ | _] = refs} = episode, _turn),
+  defp active_origin(%Episodes.Episode{active_input_refs: [_ | _] = refs} = episode, _turn),
     do: newest_origin(episode, refs)
 
   defp active_origin(_episode, _turn), do: nil
@@ -686,12 +686,12 @@ defmodule Ryker.Work.Custody.Delivery do
   # An episode may hold evidence from several conversations, so the input a
   # reply answers is the newest by occurrence, not by this episode's own
   # event sequence.
-  defp newest_origin(%Episode{} = episode, refs) do
+  defp newest_origin(%Episodes.Episode{} = episode, refs) do
     episode.id
-    |> Origin.Query.by_episode_id()
-    |> Origin.Query.by_input_refs(refs)
-    |> Origin.Query.ordered_by_occurred_at_desc()
-    |> Origin.Query.limit_to(1)
+    |> Episodes.Origin.Query.by_episode_id()
+    |> Episodes.Origin.Query.by_input_refs(refs)
+    |> Episodes.Origin.Query.ordered_by_occurred_at_desc()
+    |> Episodes.Origin.Query.limit_to(1)
     |> Repo.one()
   end
 
@@ -716,7 +716,7 @@ defmodule Ryker.Work.Custody.Delivery do
   defp build_delivery_confirmation(episode, turn, now) do
     {next_turn_ref, next_wait} = delivery_continuation(episode, turn, now)
 
-    command = %Command.ConfirmDelivery{
+    command = %Episodes.Command.ConfirmDelivery{
       episode_key: episode.key,
       expected_delivery_ref: turn.delivery_ref,
       next_turn_ref: next_turn_ref,
@@ -728,7 +728,7 @@ defmodule Ryker.Work.Custody.Delivery do
   end
 
   @doc false
-  def delivery_continuation(%Episode{queued_input_refs: [_first | _rest]}, turn, _now),
+  def delivery_continuation(%Episodes.Episode{queued_input_refs: [_first | _rest]}, turn, _now),
     do: {"turn:after:#{turn.id}", nil}
 
   def delivery_continuation(_episode, %{continuation: %{"kind" => "complete"}}, _now),

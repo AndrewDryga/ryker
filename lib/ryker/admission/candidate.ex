@@ -10,8 +10,8 @@ defmodule Ryker.Admission.Candidate do
   host-owned; the snapshot keeps the raw match for inspection.
   """
   alias Ryker.CanonicalJSON
-  alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.MessageText
+  alias Ryker.Episodes
+  alias Ryker.Ingress
 
   @preview_limit 4_096
   @relations [:same_work, :history_only]
@@ -33,7 +33,7 @@ defmodule Ryker.Admission.Candidate do
   @type t :: %__MODULE__{
           allowed_relations: [:same_work | :history_only],
           digest: map() | nil,
-          episode: Episode.t(),
+          episode: Episodes.Episode.t(),
           first_input_preview: map() | nil,
           latest_input_preview: map() | nil,
           match: map(),
@@ -54,7 +54,7 @@ defmodule Ryker.Admission.Candidate do
   digest is the episode's own maintained projection.
   """
   @spec new(map()) :: t()
-  def new(%{episode: %Episode{} = episode} = attributes) do
+  def new(%{episode: %Episodes.Episode{} = episode} = attributes) do
     endpoints = Map.get(attributes, :endpoints, %{})
 
     %__MODULE__{
@@ -84,10 +84,10 @@ defmodule Ryker.Admission.Candidate do
   exact source item's owner must remain selectable so a revision cannot be
   reassigned by rank.
   """
-  @spec allowed_relations(Episode.t(), map()) :: [:same_work | :history_only]
-  def allowed_relations(%Episode{state: :cancelled}, _context), do: [:history_only]
+  @spec allowed_relations(Episodes.Episode.t(), map()) :: [:same_work | :history_only]
+  def allowed_relations(%Episodes.Episode{state: :cancelled}, _context), do: [:history_only]
 
-  def allowed_relations(%Episode{} = episode, context) do
+  def allowed_relations(%Episodes.Episode{} = episode, context) do
     cond do
       Map.get(context, :source_owner, false) -> @relations
       not repository_compatible?(episode, context) -> [:history_only]
@@ -105,7 +105,10 @@ defmodule Ryker.Admission.Candidate do
 
   defp repository_compatible?(_episode, _context), do: true
 
-  defp continuable_completion?(%Episode{state: :complete, updated_at: updated_at}, context) do
+  defp continuable_completion?(
+         %Episodes.Episode{state: :complete, updated_at: updated_at},
+         context
+       ) do
     now = Map.fetch!(context, :now)
     window = Map.fetch!(context, :continuation_window)
     DateTime.diff(now, updated_at, :second) <= window
@@ -256,8 +259,8 @@ defmodule Ryker.Admission.Candidate do
   end
 
   @doc false
-  @spec restore(map(), Episode.t()) :: {:ok, t()} | {:error, term()}
-  def restore(%{} = snapshot, %Episode{} = episode) do
+  @spec restore(map(), Episodes.Episode.t()) :: {:ok, t()} | {:error, term()}
+  def restore(%{} = snapshot, %Episodes.Episode{} = episode) do
     fields =
       ~w(allowed_relations digest episode_id episode_ref first_input idle_minutes latest_input match outcome same_thread source_owner state)
 
@@ -352,7 +355,7 @@ defmodule Ryker.Admission.Candidate do
   # quotes cost tokens and the model read the text through them anyway.
   defp preview(%{occurred_at: occurred_at, payload: event_payload}) when is_map(event_payload) do
     payload = preview_payload(event_payload["payload"])
-    text = payload |> Map.get("content", payload) |> MessageText.from() |> model_text()
+    text = payload |> Map.get("content", payload) |> Ingress.MessageText.from() |> model_text()
 
     %{
       "actor" => actor(payload["actor"]),

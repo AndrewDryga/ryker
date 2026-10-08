@@ -6,34 +6,33 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   """
   import Ryker.ControlPlane.EpisodeTrace.Step
   alias Ryker.ControlPlane.ConsolePeople
-  alias Ryker.Episodes.{Episode, Origins}
-  alias Ryker.Episodes.Words
-  alias Ryker.GitHub.Input, as: GitHubInput
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Episodes
+  alias Ryker.GitHub
+  alias Ryker.Ingress
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
-  alias Ryker.Slack.Names
-  alias Ryker.StateTools.TaskTools
+  alias Ryker.Slack
+  alias Ryker.StateTools
 
   @doc """
   The episode's admitted inputs, oldest first: the one that started it and the
   newest 200. The oldest 200 left a long request's timeline stopping long
   before the request did (2026-10-04 review).
   """
-  @spec rows(Ecto.UUID.t()) :: [Entry.t()]
+  @spec rows(Ecto.UUID.t()) :: [Ingress.Inbox.Entry.t()]
   def rows(episode_id) do
-    in_episode = Entry.Query.by_episode_id(episode_id)
+    in_episode = Ingress.Inbox.Entry.Query.by_episode_id(episode_id)
 
     first =
       in_episode
-      |> Entry.Query.ordered_by_occurred_at()
-      |> Entry.Query.limit_to(1)
+      |> Ingress.Inbox.Entry.Query.ordered_by_occurred_at()
+      |> Ingress.Inbox.Entry.Query.limit_to(1)
       |> Repo.one()
 
     newest =
       in_episode
-      |> Entry.Query.ordered_by_occurred_at_desc()
-      |> Entry.Query.limit_to(200)
+      |> Ingress.Inbox.Entry.Query.ordered_by_occurred_at_desc()
+      |> Ingress.Inbox.Entry.Query.limit_to(200)
       |> Repo.all()
       |> Enum.reverse()
 
@@ -68,8 +67,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   def first_received_at(episode) do
     received_at =
       episode.id
-      |> Entry.Query.by_episode_id()
-      |> Entry.Query.select_earliest_insert()
+      |> Ingress.Inbox.Entry.Query.by_episode_id()
+      |> Ingress.Inbox.Entry.Query.select_earliest_insert()
       |> Repo.one()
 
     case received_at do
@@ -148,7 +147,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
       text:
         [
           present_text(task["title"]) && "**#{task["title"]}**",
-          present_text(TaskTools.request(task["prompt"]))
+          present_text(StateTools.TaskTools.request(task["prompt"]))
         ]
         |> Enum.reject(&is_nil/1)
         |> Enum.join("\n\n")
@@ -235,7 +234,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
 
   # What they wrote; a review without a word says what the review was.
   defp github_text(content, github) do
-    case present_text(GitHubInput.body(content)) do
+    case present_text(GitHub.Input.body(content)) do
       nil -> review_words(get_in(github, ["review", "state"]))
       body -> bounded_text(body)
     end
@@ -268,7 +267,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   defp slack_person(%{"destination" => %{"conversation_ref" => "slack:" <> rest}}, actor)
        when is_binary(actor) do
     case String.split(rest, ":") do
-      [workspace | _channel] -> Names.person(workspace, actor)
+      [workspace | _channel] -> Slack.Names.person(workspace, actor)
       _other -> nil
     end
   end
@@ -343,16 +342,18 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   # A wait an edit ended is not "what Ryker was waiting for arrived": the
   # edit replaced the question and started the work again (QA re-test,
   # 2026-09-26).
-  defp title(:wait_resumed, %Entry{event_kind: :edit}), do: "Picked up again after an edit"
-  defp title(kind, _input), do: Words.lifecycle_title(kind)
+  defp title(:wait_resumed, %Ingress.Inbox.Entry{event_kind: :edit}),
+    do: "Picked up again after an edit"
 
-  defp summary(:wait_resumed, %{"expected_wait" => %{"kind" => "input"}}, %Entry{
+  defp title(kind, _input), do: Episodes.Words.lifecycle_title(kind)
+
+  defp summary(:wait_resumed, %{"expected_wait" => %{"kind" => "input"}}, %Ingress.Inbox.Entry{
          event_kind: :edit
        }) do
     "The message was edited while Ryker waited, so the question it asked was replaced and the work started again from the new wording."
   end
 
-  defp summary(:wait_resumed, _payload, %Entry{event_kind: :edit}) do
+  defp summary(:wait_resumed, _payload, %Ingress.Inbox.Entry{event_kind: :edit}) do
     "The message was edited while Ryker waited, so the work started again from the new wording."
   end
 
@@ -411,8 +412,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   this trace has to see where its evidence actually came from, or an episode
   gathering evidence from three channels looks like one thread.
   """
-  def association_steps(%Episode{} = episode) do
-    origins = Origins.for_episode(episode.id)
+  def association_steps(%Episodes.Episode{} = episode) do
+    origins = Episodes.Origins.for_episode(episode.id)
     conversations = origins |> Enum.map(& &1.conversation_ref) |> Enum.uniq()
 
     gathered_steps(episode, origins, conversations)
@@ -444,7 +445,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
     events
     |> Enum.find_value(fn event ->
       case event_input(event, inputs) do
-        %Entry{} = input -> entry_source_link(episode, input)
+        %Ingress.Inbox.Entry{} = input -> entry_source_link(episode, input)
         nil -> nil
       end
     end)
@@ -454,8 +455,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   A link to one message where it was sent, for a message that has no request
   of its own: the Slack message in its thread, the Chat, or the GitHub comment.
   """
-  @spec message_link(Entry.t()) :: map() | nil
-  def message_link(%Entry{} = input), do: entry_source_link(input, input)
+  @spec message_link(Ingress.Inbox.Entry.t()) :: map() | nil
+  def message_link(%Ingress.Inbox.Entry{} = input), do: entry_source_link(input, input)
 
   # The destination is where the reply went: the episode's, or the message's
   # own when it started no request.
@@ -464,7 +465,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
            destination_conversation_ref: "slack:" <> conversation,
            destination_thread_ref: thread
          },
-         %Entry{source_item_ref: message_ref}
+         %Ingress.Inbox.Entry{source_item_ref: message_ref}
        ) do
     with [_workspace, channel] <- String.split(conversation, ":", parts: 2),
          true <- slack_ref?(channel),
@@ -502,7 +503,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
 
   defp entry_source_link(
          _episode,
-         %Entry{
+         %Ingress.Inbox.Entry{
            source_kind: "github",
            source_item_ref: source_item_ref,
            content: %{"payload" => payload}

@@ -5,16 +5,16 @@ defmodule Ryker.ControlPlane.FollowUp.Query do
   it waits for, still waiting first and soonest due first, then the newest.
   """
   use Ryker, :query
-  alias Ryker.Episodes.Episode
-  alias Ryker.Records.Record
-  alias Ryker.Waits.EventSubscription
+  alias Ryker.Episodes
+  alias Ryker.Records
+  alias Ryker.Waits
 
   @doc "The first `limit` follow-ups in the page's order."
   def follow_ups(limit) do
-    from([episode_event_subscriptions: subscription] in EventSubscription.Query.all(),
-      left_join: episode in Episode,
+    from([episode_event_subscriptions: subscription] in Waits.EventSubscription.Query.all(),
+      left_join: episode in Episodes.Episode,
       on: episode.id == subscription.episode_id,
-      join: record in Record,
+      join: record in Records.Record,
       on: record.id == subscription.record_id,
       order_by: [
         asc: fragment("CASE WHEN ? = 'active' THEN 0 ELSE 1 END", subscription.status),

@@ -14,16 +14,14 @@ defmodule Ryker.ControlPlane.SettingsView do
   alias Ryker.Config
   alias Ryker.ControlPlane.{ChannelDirectory, Environments, Integrations, PageRead}
   alias Ryker.ControlPlane.ProductReadiness
-  alias Ryker.CoopFleet.ControlPlane.Workers
-  alias Ryker.CoopFleet.Worker
+  alias Ryker.CoopFleet
   alias Ryker.Credentials
   alias Ryker.Episodes
-  alias Ryker.GitHub.AppJWT
-  alias Ryker.GitHub.Event, as: GitHubEvent
+  alias Ryker.GitHub
   alias Ryker.Repo
   alias Ryker.Settings
-  alias Ryker.Slack.{ChannelConfigurations, Gateway, Names}
-  alias Ryker.Work.Turn
+  alias Ryker.Slack
+  alias Ryker.Work
 
   @type t :: %{
           snapshot: Settings.snapshot(),
@@ -87,9 +85,9 @@ defmodule Ryker.ControlPlane.SettingsView do
       {Settings, :subscribe, []},
       {Settings, :subscribe_application, []},
       {Credentials, :subscribe, []},
-      {ChannelConfigurations, :subscribe_channels, []},
-      {Gateway, :subscribe_connection, []},
-      {Workers, :subscribe_workers, []}
+      {Slack.ChannelConfigurations, :subscribe_channels, []},
+      {Slack.Gateway, :subscribe_connection, []},
+      {CoopFleet.ControlPlane.Workers, :subscribe_workers, []}
     ]
   end
 
@@ -157,7 +155,7 @@ defmodule Ryker.ControlPlane.SettingsView do
       # rather than while the page is drawn, so a name Slack gives later
       # reaches the open page on its next refresh.
       slack_managers:
-        Enum.map(snapshot.slack.operators, &Names.person(snapshot.slack.workspace_ref, &1)),
+        Enum.map(snapshot.slack.operators, &Slack.Names.person(snapshot.slack.workspace_ref, &1)),
       github_callback_url: Config.fetch_env!(:github_public_url),
       github_events: github_events(),
       webhook_base_url: Config.fetch_env!(:webhook_public_url),
@@ -177,8 +175,8 @@ defmodule Ryker.ControlPlane.SettingsView do
 
     counts =
       since
-      |> GitHubEvent.Query.inserted_since()
-      |> GitHubEvent.Query.count_by_disposition()
+      |> GitHub.Event.Query.inserted_since()
+      |> GitHub.Event.Query.count_by_disposition()
       |> Repo.all()
       |> Map.new()
 
@@ -211,7 +209,7 @@ defmodule Ryker.ControlPlane.SettingsView do
     end
   end
 
-  defp worker_installs, do: Repo.all(Worker.Query.installs())
+  defp worker_installs, do: Repo.all(CoopFleet.Worker.Query.installs())
 
   defp registered_secret_names(credentials) do
     credentials
@@ -268,7 +266,7 @@ defmodule Ryker.ControlPlane.SettingsView do
       true ->
         with {:ok, private_key} <- Credentials.fetch(:github_private_key, "primary"),
              {:ok, _webhook} <- Credentials.fetch(:github_webhook, "primary"),
-             {:ok, _signer} <- AppJWT.new(snapshot.github.app_id, private_key) do
+             {:ok, _signer} <- GitHub.AppJWT.new(snapshot.github.app_id, private_key) do
           :ready
         else
           _error -> :invalid
@@ -289,7 +287,7 @@ defmodule Ryker.ControlPlane.SettingsView do
   # asked the person something waits for their answer, and the step stayed open on tenant while
   # it did (2026-10-04).
   defp successful_channel_request?(conversations) do
-    Repo.exists?(Turn.Query.delivered_in_conversations("slack", conversations))
+    Repo.exists?(Work.Turn.Query.delivered_in_conversations("slack", conversations))
   end
 
   defp verified?(credentials, kinds) do

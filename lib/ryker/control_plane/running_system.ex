@@ -15,7 +15,6 @@ defmodule Ryker.ControlPlane.RunningSystem do
   use Phoenix.Component
   alias Ryker.ControlPlane.{Kit, ShortTime, Units}
   alias Ryker.CoopFleet
-  alias Ryker.CoopFleet.Worker
 
   @doc """
   The card at the bottom of Settings › Advanced, from what
@@ -70,9 +69,9 @@ defmodule Ryker.ControlPlane.RunningSystem do
     ]
   end
 
-  defp state(%Worker{last_seen_at: nil}, _now), do: word(:off, "Never connected")
+  defp state(%CoopFleet.Worker{last_seen_at: nil}, _now), do: word(:off, "Never connected")
 
-  defp state(%Worker{state: state, last_seen_at: seen}, now) do
+  defp state(%CoopFleet.Worker{state: state, last_seen_at: seen}, now) do
     if DateTime.diff(now, seen) > CoopFleet.worker_heartbeat_seconds() do
       assigns = %{__changed__: nil, seen: seen, now: now}
 
@@ -109,7 +108,7 @@ defmodule Ryker.ControlPlane.RunningSystem do
 
   defp disk(_storage), do: "Not reported yet"
 
-  defp refused?(%Worker{storage: %{"allocation" => "refused"}}), do: true
+  defp refused?(%CoopFleet.Worker{storage: %{"allocation" => "refused"}}), do: true
   defp refused?(_worker), do: false
 
   defp refusal(%{"refusal_reason" => "reserve_exhausted"}),

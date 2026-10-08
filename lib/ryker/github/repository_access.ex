@@ -1,6 +1,6 @@
 defmodule Ryker.GitHub.RepositoryAccess do
   @moduledoc "Checks the webhook sender's effective access to the bound repository."
-  alias Ryker.Delivery.JSONClient
+  alias Ryker.Delivery
   alias Ryker.GitHub.Binding
 
   @headers [
@@ -12,7 +12,7 @@ defmodule Ryker.GitHub.RepositoryAccess do
   def authorize(binding, payload, http, options \\ [])
 
   def authorize(%Binding{} = binding, payload, http, options) when is_map(payload) do
-    requester = Keyword.get(options, :requester, JSONClient)
+    requester = Keyword.get(options, :requester, Delivery.JSONClient)
 
     with {:ok, login} <- sender_login(payload),
          path <- permission_path(binding.repository_full_name, login),

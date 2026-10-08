@@ -2,8 +2,8 @@ defmodule Ryker.Continuity.ConversationSummary.Query do
   @moduledoc "Summaries of earlier conversation, for every read of `conversation_summaries`."
   use Ryker, :query
   alias Ryker.Continuity.{ConversationRollup, ConversationSummary}
-  alias Ryker.Learning.{SourceDependency, Visibility}
-  alias Ryker.Slack.ChannelMembership
+  alias Ryker.Learning
+  alias Ryker.Slack
 
   def all, do: from(summaries in ConversationSummary, as: :conversation_summaries)
 
@@ -42,7 +42,7 @@ defmodule Ryker.Continuity.ConversationSummary.Query do
       [conversation_summaries: s],
       is_nil(s.compaction_retry_at) or s.compaction_retry_at <= fragment("clock_timestamp()")
     )
-    |> SourceDependency.Query.sourced()
+    |> Learning.SourceDependency.Query.sourced()
     |> without_unsourced_rollup()
     |> order_by([conversation_summaries: s], asc: s.updated_at, asc: s.id)
     |> limit(^count)
@@ -89,7 +89,7 @@ defmodule Ryker.Continuity.ConversationSummary.Query do
 
   defp repository_rollup_scope do
     memberships =
-      from(membership in ChannelMembership,
+      from(membership in Slack.ChannelMembership,
         # The host splits a conversation into exactly transport/workspace/channel.
         # Colons can belong to the channel suffix, never the workspace component.
         where: fragment("position(':' in ?) = 0", membership.workspace_ref),
@@ -126,7 +126,7 @@ defmodule Ryker.Continuity.ConversationSummary.Query do
   def searchable(context) do
     all()
     |> where([conversation_summaries: s], s.workspace_ref == ^context.workspace_ref)
-    |> Visibility.Query.visible_from(context)
+    |> Learning.Visibility.Query.visible_from(context)
     |> where(
       [conversation_summaries: s],
       s.conversation_ref == ^context.conversation_ref or s.transport == "slack"

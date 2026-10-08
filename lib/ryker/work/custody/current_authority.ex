@@ -16,17 +16,16 @@ defmodule Ryker.Work.Custody.CurrentAuthority do
   now. A session whose policy or working repository settings no longer have
   keeps what it had, and its retry says why.
   """
-  alias Ryker.CoopFleet.{JobAuthority, JobTemplates}
-  alias Ryker.Emisar.Connections, as: EmisarConnections
+  alias Ryker.CoopFleet
+  alias Ryker.Emisar
   alias Ryker.Repo
   alias Ryker.Settings
-  alias Ryker.Settings.Environment
   alias Ryker.Work.{RepositoryContext, Session}
 
   @doc "The session as current settings would admit it, saved; else the session as it was."
   @spec refresh_locked(Session.t()) :: Session.t()
   def refresh_locked(%Session{} = session) do
-    with true <- JobAuthority.unstarted?(session),
+    with true <- CoopFleet.JobAuthority.unstarted?(session),
          {:ok, snapshot} <- Settings.fetch(),
          {:ok, current} <- current(snapshot, session),
          true <- current != saved(session),
@@ -39,7 +38,10 @@ defmodule Ryker.Work.Custody.CurrentAuthority do
 
   defp current(snapshot, session) do
     with %{policy_digest: policy_digest, authority_digest: authority_digest} <-
-           Enum.find(JobTemplates.from_settings(snapshot), &(&1.policy_name == session.policy)),
+           Enum.find(
+             CoopFleet.JobTemplates.from_settings(snapshot),
+             &(&1.policy_name == session.policy)
+           ),
          {:ok, context} <- context(snapshot, session) do
       {:ok,
        %{
@@ -57,14 +59,15 @@ defmodule Ryker.Work.Custody.CurrentAuthority do
 
   defp context(snapshot, %Session{environment_ref: ref, repository_ref: primary})
        when is_binary(ref) do
-    with %Environment{} = environment <- Settings.environment(snapshot, ref),
-         true <- primary in Environment.writable_refs(environment) do
+    with %Settings.Environment{} = environment <- Settings.environment(snapshot, ref),
+         true <- primary in Settings.Environment.writable_refs(environment) do
       {:ok,
        RepositoryContext.document(%{
          context_ref: environment.ref,
          parallel_goal_limit: environment.parallel_goal_limit,
          primary_repository: primary,
-         read_only_repositories: List.delete(Environment.repository_refs(environment), primary)
+         read_only_repositories:
+           List.delete(Settings.Environment.repository_refs(environment), primary)
        })}
     else
       _gone -> :unavailable
@@ -74,7 +77,7 @@ defmodule Ryker.Work.Custody.CurrentAuthority do
   defp context(_snapshot, _session), do: :unavailable
 
   defp emisar(snapshot, environment_ref) do
-    case EmisarConnections.resolve(snapshot, environment_ref) do
+    case Emisar.Connections.resolve(snapshot, environment_ref) do
       {:ok, pin} -> pin
       {:error, _none} -> nil
     end

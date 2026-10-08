@@ -1,11 +1,10 @@
 defmodule Ryker.GitHub.Engagement do
   @moduledoc "Host-owned quiet-default eligibility for authenticated GitHub inputs."
   alias Ryker.Behaviors
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes
   alias Ryker.GitHub.Binding
   alias Ryker.GitHub.Input, as: GitHubInput
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Ingress.Input
+  alias Ryker.Ingress
   alias Ryker.Repo
 
   @active_states [:working, :waiting_for_input, :waiting_for_event]
@@ -16,9 +15,9 @@ defmodule Ryker.GitHub.Engagement do
   `:revision` is an edit of the exact item Ryker already took, and a
   `:standing_rule` is an event an operator chose to have handled.
   """
-  @spec eligible?(Input.t(), Binding.t(), String.t() | nil) ::
+  @spec eligible?(Ingress.Input.t(), Binding.t(), String.t() | nil) ::
           {:yes, :revision | :continuation | :standing_rule | :mention} | :metadata
-  def eligible?(%Input{} = input, %Binding{}, bot_login) do
+  def eligible?(%Ingress.Input{} = input, %Binding{}, bot_login) do
     cond do
       engaged_input?(input) -> {:yes, :revision}
       continuation?(input) -> {:yes, :continuation}
@@ -33,14 +32,17 @@ defmodule Ryker.GitHub.Engagement do
   # episode. This is deliberately limited to the exact source item.
   defp engaged_input?(input) do
     input.source.ref
-    |> Entry.Query.engaged_github_item(input.source_item_ref)
+    |> Ingress.Inbox.Entry.Query.engaged_github_item(input.source_item_ref)
     |> Repo.exists?()
   end
 
   defp continuation?(input) do
     "github"
-    |> Episode.Query.by_thread(input.destination.conversation_ref, input.destination.thread_ref)
-    |> Episode.Query.by_states(@active_states)
+    |> Episodes.Episode.Query.by_thread(
+      input.destination.conversation_ref,
+      input.destination.thread_ref
+    )
+    |> Episodes.Episode.Query.by_states(@active_states)
     |> Repo.exists?()
   end
 

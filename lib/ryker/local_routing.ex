@@ -40,15 +40,14 @@ defmodule Ryker.LocalRouting do
   Every comparison queued, settled or erased is announced after its commit
   (`subscribe_comparisons/0`).
   """
-  alias Ryker.Accounting.Execution
+  alias Ryker.Accounting
   alias Ryker.Admission
-  alias Ryker.Admission.Attempt
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Learning.Observations
+  alias Ryker.Ingress
+  alias Ryker.Learning
   alias Ryker.LocalRouting.{Client, Comparison, Verdict}
   alias Ryker.Repo
   alias Ryker.RoutingExamples
-  alias Ryker.Settings.Work
+  alias Ryker.Settings
   alias Ryker.UTCDateTime
 
   @topic "local_routing"
@@ -63,7 +62,8 @@ defmodule Ryker.LocalRouting do
   @doc "The saved setting; off before an installation has settings."
   @spec setting() :: setting()
   def setting do
-    Repo.one(Work.Query.select_local_routing()) || %{mode: :off, endpoint: nil, model: nil}
+    Repo.one(Settings.Work.Query.select_local_routing()) ||
+      %{mode: :off, endpoint: nil, model: nil}
   end
 
   @doc """
@@ -72,8 +72,8 @@ defmodule Ryker.LocalRouting do
   is in shadow and a model answered a prompt for it. A decision the host made
   without a model, such as a deleted message's, has nothing to compare.
   """
-  @spec queue_in_transaction(Entry.t()) :: :ok
-  def queue_in_transaction(%Entry{status: :decided} = entry) do
+  @spec queue_in_transaction(Ingress.Inbox.Entry.t()) :: :ok
+  def queue_in_transaction(%Ingress.Inbox.Entry{status: :decided} = entry) do
     with %{mode: :shadow, model: model} <- setting(),
          true <- prompted?(entry) do
       now = DateTime.utc_now()
@@ -91,7 +91,7 @@ defmodule Ryker.LocalRouting do
             attempt_count: 0,
             local_model: model,
             differing_fields: [],
-            source_identity: Observations.source_identity(entry),
+            source_identity: Learning.Observations.source_identity(entry),
             message_keys: quoted.keys,
             conversation_refs: quoted.conversations,
             inserted_at: now,
@@ -108,12 +108,12 @@ defmodule Ryker.LocalRouting do
     :ok
   end
 
-  def queue_in_transaction(%Entry{}), do: :ok
+  def queue_in_transaction(%Ingress.Inbox.Entry{}), do: :ok
 
   defp prompted?(entry) do
     entry.id
-    |> Attempt.Query.by_generation(entry.execution_generation)
-    |> Attempt.Query.prompted()
+    |> Admission.Attempt.Query.by_generation(entry.execution_generation)
+    |> Admission.Attempt.Query.prompted()
     |> Repo.exists?()
   end
 
@@ -221,11 +221,11 @@ defmodule Ryker.LocalRouting do
   # Read just before it is sent, and never sent once a person forgot or
   # deleted anything it quotes.
   defp material(comparison) do
-    with %Entry{status: :decided, operational_pruned_at: nil} = entry <-
-           Repo.one(Entry.Query.by_id(comparison.input_id)),
+    with %Ingress.Inbox.Entry{status: :decided, operational_pruned_at: nil} = entry <-
+           Repo.one(Ingress.Inbox.Entry.Query.by_id(comparison.input_id)),
          %{"action" => _action} = provider <- entry.decision_document,
-         %Attempt{operational_pruned_at: nil, submission: %{} = submission} <-
-           Repo.one(Attempt.Query.by_generation(entry.id, comparison.generation)),
+         %Admission.Attempt{operational_pruned_at: nil, submission: %{} = submission} <-
+           Repo.one(Admission.Attempt.Query.by_generation(entry.id, comparison.generation)),
          prompt when is_binary(prompt) <- submission["prompt"],
          schema when is_map(schema) <- submission["output_schema"],
          {:ok, context} <- Admission.decided_context(entry),
@@ -282,8 +282,8 @@ defmodule Ryker.LocalRouting do
     generation = Integer.to_string(comparison.generation)
 
     nil
-    |> Execution.Query.ledger("all")
-    |> Execution.Query.admission_call(comparison.input_id, generation)
+    |> Accounting.Execution.Query.ledger("all")
+    |> Accounting.Execution.Query.admission_call(comparison.input_id, generation)
     |> Repo.one()
     |> case do
       %{recorded: true, reported: %Decimal{} = cost} = call ->

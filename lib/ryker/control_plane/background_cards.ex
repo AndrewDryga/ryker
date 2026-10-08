@@ -5,7 +5,7 @@ defmodule Ryker.ControlPlane.BackgroundCards do
   a background attempt is read from its own frozen record, so both build
   their sections, identity facts and model the same way.
   """
-  alias Ryker.Accounting.Execution
+  alias Ryker.Accounting
   alias Ryker.InspectionRedactor, as: Redactor
 
   @max_bytes 2 * 1_024 * 1_024
@@ -59,8 +59,10 @@ defmodule Ryker.ControlPlane.BackgroundCards do
   The model and effort the worker ran, as its report named them; the
   attempt's own record keeps it only until retention.
   """
-  @spec target(map(), Execution.t() | nil) :: String.t() | nil
-  def target(_run, %Execution{execution_target: target}) when is_binary(target), do: target
+  @spec target(map(), Accounting.Execution.t() | nil) :: String.t() | nil
+  def target(_run, %Accounting.Execution{execution_target: target}) when is_binary(target),
+    do: target
+
   def target(run, _execution), do: get_in(run.producer || %{}, ["target"])
 
   @doc "The attempt's receipts exactly as recorded, redacted like every other artifact."

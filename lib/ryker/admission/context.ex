@@ -10,9 +10,8 @@ defmodule Ryker.Admission.Context do
   feedback on that request.
   """
   alias Ryker.Admission.Candidate
-  alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Ingress.Input
+  alias Ryker.Episodes
+  alias Ryker.Ingress
   alias Ryker.People
 
   @enforce_keys [
@@ -47,8 +46,8 @@ defmodule Ryker.Admission.Context do
           built_at: DateTime.t(),
           candidates: [Candidate.t()],
           conversation_episode_count: non_neg_integer(),
-          input: Input.t(),
-          input_entry: Entry.t()
+          input: Ingress.Input.t(),
+          input_entry: Ingress.Inbox.Entry.t()
         }
 
   # What the router reads. The frozen snapshot keeps each document's full
@@ -58,9 +57,10 @@ defmodule Ryker.Admission.Context do
   @spec for_model(t()) :: map()
   def for_model(%__MODULE__{} = context) do
     %{
-      "allowed_actions" => Enum.map(Input.allowed_actions(context.input), &Atom.to_string/1),
+      "allowed_actions" =>
+        Enum.map(Ingress.Input.allowed_actions(context.input), &Atom.to_string/1),
       "candidates" => Enum.map(context.candidates, &Candidate.for_model/1),
-      "input" => Input.model_document(context.input)
+      "input" => Ingress.Input.model_document(context.input)
     }
     |> put_model_conversation(context.conversation_context, context.context_manifest)
     |> put_observations(model_observations(context.observations, context.conversation_context))
@@ -232,9 +232,12 @@ defmodule Ryker.Admission.Context do
     do: {:error, {:invalid_admission_context_snapshot, :episode_ids}}
 
   @doc false
-  @spec restore(map(), Input.t(), Entry.t(), %{Ecto.UUID.t() => Episode.t()}) ::
+  @spec restore(map(), Ingress.Input.t(), Ingress.Inbox.Entry.t(), %{
+          Ecto.UUID.t() => Episodes.Episode.t()
+        }) ::
           {:ok, t()} | {:error, term()}
-  def restore(snapshot, %Input{} = input, %Entry{} = entry, episodes) when is_map(episodes) do
+  def restore(snapshot, %Ingress.Input{} = input, %Ingress.Inbox.Entry{} = entry, episodes)
+      when is_map(episodes) do
     fields =
       ~w(active_episode_fingerprint built_at candidates continuation_window conversation_episode_count)
 
@@ -513,7 +516,7 @@ defmodule Ryker.Admission.Context do
     candidates
     |> Enum.reduce_while({:ok, []}, fn snapshot, {:ok, restored} ->
       with {:ok, id} <- candidate_episode_id(snapshot),
-           %Episode{} = episode <- Map.get(episodes, id),
+           %Episodes.Episode{} = episode <- Map.get(episodes, id),
            {:ok, candidate} <- Candidate.restore(snapshot, episode) do
         {:cont, {:ok, [candidate | restored]}}
       else

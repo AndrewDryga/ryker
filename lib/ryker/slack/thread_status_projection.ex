@@ -10,8 +10,8 @@ defmodule Ryker.Slack.ThreadStatusProjection do
   worker narrated for that turn. Each kind of tool has one fixed phrase: the
   channel sees no tool argument, command, path, title or model text.
   """
-  alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Episodes
+  alias Ryker.Ingress
   alias Ryker.Repo
   alias Ryker.Slack.{ThreadActivity, ThreadStatuses}
 
@@ -127,7 +127,8 @@ defmodule Ryker.Slack.ThreadStatusProjection do
   # refreshing "is working…" every 90 seconds for work nobody is doing.
   defp owning_turns(episodes) do
     owners =
-      for %Episode{id: id, state: :working, owner_kind: :turn, owner_ref: ref} <- episodes,
+      for %Episodes.Episode{id: id, state: :working, owner_kind: :turn, owner_ref: ref} <-
+            episodes,
           is_binary(ref),
           into: MapSet.new(),
           do: {id, ref}
@@ -218,7 +219,7 @@ defmodule Ryker.Slack.ThreadStatusProjection do
   # bound the live ones are kept: a finished thread left out is cleared anyway,
   # while refusing the whole list stopped every status in the workspace.
   @doc false
-  @spec targets([Entry.t()], [Episode.t()], map(), String.t()) :: [map()]
+  @spec targets([Ingress.Inbox.Entry.t()], [Episodes.Episode.t()], map(), String.t()) :: [map()]
   def targets(entries, episodes, turns, workspace_ref)
       when is_list(entries) and is_list(episodes) and is_map(turns) and
              is_binary(workspace_ref) do
@@ -232,7 +233,7 @@ defmodule Ryker.Slack.ThreadStatusProjection do
     |> Enum.sort_by(&{&1.channel_ref, &1.thread_ref})
   end
 
-  defp entry_candidate(%Entry{execution_mode: :live} = entry, workspace_ref) do
+  defp entry_candidate(%Ingress.Inbox.Entry{execution_mode: :live} = entry, workspace_ref) do
     with {:ok, key} <- destination(entry, workspace_ref),
          {:ok, phase, status, priority} <- entry_status(entry) do
       [
@@ -248,7 +249,7 @@ defmodule Ryker.Slack.ThreadStatusProjection do
 
   defp entry_candidate(_entry, _workspace_ref), do: []
 
-  defp episode_candidate(%Episode{execution_mode: :live} = episode, turns, workspace_ref) do
+  defp episode_candidate(%Episodes.Episode{execution_mode: :live} = episode, turns, workspace_ref) do
     with {:ok, key} <- destination(episode, workspace_ref),
          {:ok, phase, status, priority} <- episode_status(episode, turns) do
       [
@@ -264,47 +265,48 @@ defmodule Ryker.Slack.ThreadStatusProjection do
 
   defp episode_candidate(_episode, _turns, _workspace_ref), do: []
 
-  defp entry_status(%Entry{status: :blocked}),
+  defp entry_status(%Ingress.Inbox.Entry{status: :blocked}),
     do: {:ok, :blocked, "", 110}
 
-  defp entry_status(%Entry{status: :pending, lease_ref: lease_ref})
+  defp entry_status(%Ingress.Inbox.Entry{status: :pending, lease_ref: lease_ref})
        when is_binary(lease_ref) and lease_ref != "",
        do: {:ok, :admitting, "is deciding how to respond…", 100}
 
-  defp entry_status(%Entry{status: :pending, next_attempt_at: %DateTime{}}),
+  defp entry_status(%Ingress.Inbox.Entry{status: :pending, next_attempt_at: %DateTime{}}),
     do: {:ok, :admission_retry, "is waiting to try again…", 90}
 
-  defp entry_status(%Entry{status: :pending}), do: {:ok, :queued, "is queued…", 80}
+  defp entry_status(%Ingress.Inbox.Entry{status: :pending}), do: {:ok, :queued, "is queued…", 80}
 
-  defp entry_status(%Entry{status: status}) when status in [:decided, :superseded],
+  defp entry_status(%Ingress.Inbox.Entry{status: status}) when status in [:decided, :superseded],
     do: {:ok, :clear, "", 10}
 
   defp entry_status(_entry), do: :ignore
 
-  defp episode_status(%Episode{state: :working, owner_kind: :delivery}, _turns),
+  defp episode_status(%Episodes.Episode{state: :working, owner_kind: :delivery}, _turns),
     do: {:ok, :delivery, "is posting the reply…", 75}
 
   # Below every entry phase, so a new message on the same thread still reports
   # itself rather than being silenced by the parked task it arrived beside.
   # Until Work creates the turn, the worker session is still starting.
-  defp episode_status(%Episode{state: :working, owner_kind: :turn} = episode, turns) do
+  defp episode_status(%Episodes.Episode{state: :working, owner_kind: :turn} = episode, turns) do
     case Map.get(turns, {episode.id, episode.owner_ref}, {:working, @getting_started}) do
       :parked -> {:ok, :blocked, "", 65}
       {:working, phrase} -> {:ok, :working, phrase, 70}
     end
   end
 
-  defp episode_status(%Episode{state: :working}, _turns),
+  defp episode_status(%Episodes.Episode{state: :working}, _turns),
     do: {:ok, :working, @working, 70}
 
-  defp episode_status(%Episode{state: :waiting_for_input}, _turns),
+  defp episode_status(%Episodes.Episode{state: :waiting_for_input}, _turns),
     do: {:ok, :waiting_for_input, "", 60}
 
-  defp episode_status(%Episode{state: :waiting_for_event}, _turns),
+  defp episode_status(%Episodes.Episode{state: :waiting_for_event}, _turns),
     do: {:ok, :waiting_for_event, "", 60}
 
-  defp episode_status(%Episode{state: state}, _turns) when state in [:complete, :cancelled],
-    do: {:ok, :clear, "", 20}
+  defp episode_status(%Episodes.Episode{state: state}, _turns)
+       when state in [:complete, :cancelled],
+       do: {:ok, :clear, "", 20}
 
   defp episode_status(_episode, _turns), do: :ignore
 

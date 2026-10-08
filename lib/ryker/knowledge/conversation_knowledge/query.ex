@@ -2,8 +2,8 @@ defmodule Ryker.Knowledge.ConversationKnowledge.Query do
   @moduledoc "Topics learned in conversations, for every read of `conversation_knowledge`."
   use Ryker, :query
   alias Ryker.Knowledge.{ConversationKnowledge, KnowledgeSource}
-  alias Ryker.Learning.ConversationObservation
-  alias Ryker.Slack.ChannelMembership
+  alias Ryker.Learning
+  alias Ryker.Slack
 
   def all, do: from(topics in ConversationKnowledge, as: :conversation_knowledge)
 
@@ -23,7 +23,7 @@ defmodule Ryker.Knowledge.ConversationKnowledge.Query do
     # 50 million pair comparisons for 10,000 roots. Keep every observation read
     # parameterized by its receipt; OFFSET 0 prevents flattening that lookup.
     observation =
-      from(o in ConversationObservation,
+      from(o in Learning.ConversationObservation,
         where: o.id == parent_as(:knowledge_membership).observation_id,
         offset: 0
       )
@@ -251,7 +251,7 @@ defmodule Ryker.Knowledge.ConversationKnowledge.Query do
   def supported_in_thread(queryable, scope_key, conversation_ref, reference) do
     direct_source =
       from(s in KnowledgeSource,
-        join: o in ConversationObservation,
+        join: o in Learning.ConversationObservation,
         on: o.id == s.observation_id,
         where:
           s.knowledge_id == parent_as(:conversation_knowledge).id and
@@ -276,7 +276,7 @@ defmodule Ryker.Knowledge.ConversationKnowledge.Query do
   """
   def available_in_channel(local, inherited, workspace, channel) do
     membership =
-      from([slack_channel_memberships: m] in ChannelMembership.Query.all(),
+      from([slack_channel_memberships: m] in Slack.ChannelMembership.Query.all(),
         where: m.workspace_ref == ^workspace and m.channel_ref == ^channel,
         select: 1
       )

@@ -2,8 +2,8 @@ defmodule Ryker.Emisar.Approval.Query do
   @moduledoc "Emisar approvals Ryker asked a person for, for every read of `episode_emisar_approvals`."
   use Ryker, :query
   alias Ryker.Emisar.Approval
-  alias Ryker.Episodes.Episode
-  alias Ryker.Records.Record
+  alias Ryker.Episodes
+  alias Ryker.Records
 
   def all, do: from(approvals in Approval, as: :episode_emisar_approvals)
 
@@ -40,11 +40,11 @@ defmodule Ryker.Emisar.Approval.Query do
   @doc "Each watch with the card that asked and its episode."
   def with_joined_origin(queryable) do
     queryable
-    |> join(:inner, [episode_emisar_approvals: a], r in Record,
+    |> join(:inner, [episode_emisar_approvals: a], r in Records.Record,
       on: r.id == a.record_id and r.episode_id == a.episode_id,
       as: :episode_state_records
     )
-    |> join(:inner, [episode_emisar_approvals: a], e in Episode,
+    |> join(:inner, [episode_emisar_approvals: a], e in Episodes.Episode,
       on: e.id == a.episode_id,
       as: :episode_kernel_episodes
     )

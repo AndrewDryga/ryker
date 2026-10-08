@@ -11,7 +11,7 @@ defmodule Ryker.StateTools.CallLog do
   """
   alias Ryker.Repo
   alias Ryker.StateTools.CallRecord
-  alias Ryker.Work.{Activity, Custody}
+  alias Ryker.Work
 
   @maximum_listed 5_000
 
@@ -26,14 +26,14 @@ defmodule Ryker.StateTools.CallLog do
     {status, error} =
       case result do
         {:ok, _answer} -> {"completed", nil}
-        {:error, error} -> {"failed", Activity.sanitize_evidence(error)}
+        {:error, error} -> {"failed", Work.Activity.sanitize_evidence(error)}
       end
 
     record = %CallRecord{
       turn_id: turn_id,
       tool: tool,
       status: status,
-      arguments: if(is_nil(arguments), do: nil, else: Activity.sanitize_evidence(arguments)),
+      arguments: if(is_nil(arguments), do: nil, else: Work.Activity.sanitize_evidence(arguments)),
       error: error,
       called_at: called_at
     }
@@ -41,7 +41,7 @@ defmodule Ryker.StateTools.CallLog do
     # The timeline hears of the call once its record is committed.
     _kept =
       Repo.transaction(fn ->
-        Custody.broadcast_turn_updated(turn_id)
+        Work.Custody.broadcast_turn_updated(turn_id)
         Repo.insert!(record)
       end)
 

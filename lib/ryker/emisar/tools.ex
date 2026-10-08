@@ -24,7 +24,7 @@ defmodule Ryker.Emisar.Tools do
   alias Ryker.Config
   alias Ryker.{Credentials, Rescued}
   alias Ryker.Crypto
-  alias Ryker.Delivery.JSONClient
+  alias Ryker.Delivery
   alias Ryker.Emisar.ToolCache
 
   @protocol_version "2025-11-25"
@@ -246,7 +246,7 @@ defmodule Ryker.Emisar.Tools do
   defp never_sent?({:invalid_delivery_json_request, _field}), do: true
   defp never_sent?(_reason), do: false
 
-  defp requester, do: Config.get_env(:emisar_requester, JSONClient)
+  defp requester, do: Config.get_env(:emisar_requester, Delivery.JSONClient)
 
   defp key(ref) do
     case Credentials.fetch(:emisar, ref) do
@@ -261,7 +261,7 @@ defmodule Ryker.Emisar.Tools do
          when is_binary(host) and host != "" and is_binary(path) and path != "" <- URI.parse(url),
          origin = uri |> Map.put(:path, nil) |> URI.to_string(),
          {:ok, http} <-
-           JSONClient.new(%{
+           Delivery.JSONClient.new(%{
              base_url: origin,
              finch: Ryker.CoopFinch,
              receive_timeout: timeout,

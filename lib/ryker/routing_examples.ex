@@ -42,24 +42,23 @@ defmodule Ryker.RoutingExamples do
   (`Ryker.Admission.Candidate.previewed_messages/1`). A decision routed before
   those were recorded (2026-09-28) names none, so its previews stay untraced.
   """
-  alias Ryker.Admission.{Attempt, Prompt}
+  alias Ryker.Admission
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
-  alias Ryker.Delivery.RoutingResponse
-  alias Ryker.Episodes.Episode
+  alias Ryker.Delivery
+  alias Ryker.Episodes
   alias Ryker.Improvement
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress
   alias Ryker.InspectionRedactor
-  alias Ryker.Knowledge.ConversationKnowledge
+  alias Ryker.Knowledge
   alias Ryker.Learning
-  alias Ryker.Learning.{ConversationObservation, Observations}
   alias Ryker.LocalRouting
   alias Ryker.Repo
   alias Ryker.RoutingExamples.{Example, Feedback}
-  alias Ryker.Settings.Retention
-  alias Ryker.Slack.ChannelMembership
+  alias Ryker.Settings
+  alias Ryker.Slack
   alias Ryker.TrainingExamples
-  alias Ryker.Work.Turn
+  alias Ryker.Work
   alias Ryker.WorkExamples
 
   @lock "ryker-routing-examples"
@@ -136,8 +135,8 @@ defmodule Ryker.RoutingExamples do
       # recording its revision takes them in, so the two cannot wait on each
       # other.
       with true <- enabled?(),
-           %Entry{} = entry <- held_input(input_id),
-           %Attempt{} = attempt <- committed_attempt(entry),
+           %Ingress.Inbox.Entry{} = entry <- held_input(input_id),
+           %Admission.Attempt{} = attempt <- committed_attempt(entry),
            :ok <- lock(:shared),
            false <- Repo.exists?(Example.Query.by_input_id(input_id)) do
         entry |> example(attempt, secrets) |> TrainingExamples.insert!([:input_id])
@@ -149,8 +148,8 @@ defmodule Ryker.RoutingExamples do
 
   defp enabled? do
     enabled =
-      Retention.Query.select_routing_examples_enabled()
-      |> Retention.Query.lock_for_share()
+      Settings.Retention.Query.select_routing_examples_enabled()
+      |> Settings.Retention.Query.lock_for_share()
       |> Repo.one()
 
     enabled == true
@@ -158,27 +157,28 @@ defmodule Ryker.RoutingExamples do
 
   defp held_input(input_id) do
     input_id
-    |> Entry.Query.by_id()
-    |> Entry.Query.decided_with_bodies()
-    |> Entry.Query.lock_for_share()
+    |> Ingress.Inbox.Entry.Query.by_id()
+    |> Ingress.Inbox.Entry.Query.decided_with_bodies()
+    |> Ingress.Inbox.Entry.Query.lock_for_share()
     |> Repo.one()
   end
 
-  defp committed_attempt(entry), do: entry |> Attempt.Query.committed_for() |> Repo.one()
+  defp committed_attempt(entry),
+    do: entry |> Admission.Attempt.Query.committed_for() |> Repo.one()
 
   defp example(entry, attempt, secrets) do
     now = Repo.now!()
     prompt = attempt.submission["prompt"]
     document = decoded(prompt)
     quoted = quoted(entry)
-    episode = entry.episode_id && Repo.one(Episode.Query.by_id(entry.episode_id))
+    episode = entry.episode_id && Repo.one(Episodes.Episode.Query.by_id(entry.episode_id))
 
     identity = %Example{
       id: Repo.generate_id(),
       input_id: entry.id,
       episode_id: entry.episode_id,
       episode_ref: episode && episode.key,
-      source_identity: Observations.source_identity(entry),
+      source_identity: Learning.Observations.source_identity(entry),
       message_keys: quoted.keys,
       conversation_refs: quoted.conversations,
       transport: entry.destination_transport,
@@ -211,7 +211,8 @@ defmodule Ryker.RoutingExamples do
   end
 
   # When routing committed the decision, as the attempt recorded it.
-  defp decided_at(%Attempt{milestones: %{"committed" => at}}, entry) when is_binary(at) do
+  defp decided_at(%Admission.Attempt{milestones: %{"committed" => at}}, entry)
+       when is_binary(at) do
     case DateTime.from_iso8601(at) do
       {:ok, %DateTime{microsecond: {microsecond, _precision}} = decided_at, _offset} ->
         %{decided_at | microsecond: {microsecond, 6}}
@@ -249,8 +250,9 @@ defmodule Ryker.RoutingExamples do
   # improvement candidates that quote the same prompt record the same keys
   # (`Ryker.Improvement`), as do the local routing comparisons of it
   # (`Ryker.LocalRouting`).
-  @spec quoted_keys(Entry.t()) :: %{keys: [String.t()], conversations: [String.t()]}
-  def quoted_keys(%Entry{} = entry), do: entry |> quoted() |> Map.take([:keys, :conversations])
+  @spec quoted_keys(Ingress.Inbox.Entry.t()) :: %{keys: [String.t()], conversations: [String.t()]}
+  def quoted_keys(%Ingress.Inbox.Entry{} = entry),
+    do: entry |> quoted() |> Map.take([:keys, :conversations])
 
   # The message itself; the thread root, the earlier messages and the current
   # one of its conversation; learned observations, with the conversation each
@@ -321,12 +323,12 @@ defmodule Ryker.RoutingExamples do
   # one. The analysis of a request people were unhappy with reads a routing
   # attempt's own prompt only when this says no (`Ryker.Improvement.Evidence`),
   # and the local routing model is sent one only then (`Ryker.LocalRouting`).
-  @spec quotes_forgotten?(Entry.t()) :: boolean()
-  def quotes_forgotten?(%Entry{} = entry) do
+  @spec quotes_forgotten?(Ingress.Inbox.Entry.t()) :: boolean()
+  def quotes_forgotten?(%Ingress.Inbox.Entry{} = entry) do
     quoted = quoted(entry)
 
     forgotten?(
-      %{source_identity: Observations.source_identity(entry), message_keys: quoted.keys},
+      %{source_identity: Learning.Observations.source_identity(entry), message_keys: quoted.keys},
       quoted
     )
   end
@@ -336,8 +338,8 @@ defmodule Ryker.RoutingExamples do
   # forgotten, or a Slack channel it came from deleted.
   defp forgotten?(example, quoted) do
     example.source_identity
-    |> ConversationObservation.Query.by_identity()
-    |> ConversationObservation.Query.forgotten()
+    |> Learning.ConversationObservation.Query.by_identity()
+    |> Learning.ConversationObservation.Query.forgotten()
     |> Repo.exists?() or
       forgotten_message?(quoted.messages) or
       deleted_message?(quoted.messages) or
@@ -351,8 +353,8 @@ defmodule Ryker.RoutingExamples do
 
     ids != [] and
       ids
-      |> ConversationKnowledge.Query.by_ids()
-      |> ConversationKnowledge.Query.forgotten()
+      |> Knowledge.ConversationKnowledge.Query.by_ids()
+      |> Knowledge.ConversationKnowledge.Query.forgotten()
       |> Repo.exists?()
   end
 
@@ -364,13 +366,15 @@ defmodule Ryker.RoutingExamples do
 
   defp forgotten_message?(messages) do
     messages
-    |> ConversationObservation.Query.by_messages()
-    |> ConversationObservation.Query.forgotten()
+    |> Learning.ConversationObservation.Query.by_messages()
+    |> Learning.ConversationObservation.Query.forgotten()
     |> Repo.exists?()
   end
 
   defp deleted_message?([]), do: false
-  defp deleted_message?(messages), do: messages |> Entry.Query.deletions_of() |> Repo.exists?()
+
+  defp deleted_message?(messages),
+    do: messages |> Ingress.Inbox.Entry.Query.deletions_of() |> Repo.exists?()
 
   # The messages among these whose words a person replaced by editing them.
   # A routing prompt quotes the revision it read, and a later prompt quotes
@@ -389,7 +393,7 @@ defmodule Ryker.RoutingExamples do
   # says something else. The analysis of a request people were unhappy with
   # leaves their words out, as it does a deleted message's
   # (`Ryker.Improvement.Evidence`).
-  @spec edited_revisions([Entry.t()]) :: MapSet.t(Ecto.UUID.t())
+  @spec edited_revisions([Ingress.Inbox.Entry.t()]) :: MapSet.t(Ecto.UUID.t())
   def edited_revisions(entries) when is_list(entries) do
     entries
     |> Enum.map(&own_message/1)
@@ -442,7 +446,7 @@ defmodule Ryker.RoutingExamples do
     wanted = MapSet.new(messages)
 
     conversations
-    |> Entry.Query.edit_histories(refs)
+    |> Ingress.Inbox.Entry.Query.edit_histories(refs)
     |> Repo.all()
     |> Enum.filter(&MapSet.member?(wanted, &1.message))
     |> Enum.group_by(& &1.message)
@@ -463,7 +467,7 @@ defmodule Ryker.RoutingExamples do
 
     channels != [] and
       workspaces
-      |> ChannelMembership.Query.deleted_in_workspaces()
+      |> Slack.ChannelMembership.Query.deleted_in_workspaces()
       |> Repo.all()
       |> Enum.any?(&(&1 in channels))
   end
@@ -494,7 +498,8 @@ defmodule Ryker.RoutingExamples do
   # The answers routing refused before the one it accepted, oldest first,
   # redacted as that one is, each with the code of why and the correction the
   # model was sent (`Ryker.Admission.Attempts.reject/3`).
-  defp rejected_answers(%Attempt{rejections: rejections}, secrets) when is_list(rejections) do
+  defp rejected_answers(%Admission.Attempt{rejections: rejections}, secrets)
+       when is_list(rejections) do
     for %{"answer" => answer, "reason" => reason} = rejection <- rejections,
         is_binary(answer) and is_binary(reason) do
       %{
@@ -510,7 +515,9 @@ defmodule Ryker.RoutingExamples do
 
   defp encoder(text, %{"instructions" => instructions, "context" => context} = document)
        when is_binary(instructions) and is_map(context) do
-    if Prompt.render(document) == text, do: &Prompt.render/1, else: &CanonicalJSON.encode!/1
+    if Admission.Prompt.render(document) == text,
+      do: &Admission.Prompt.render/1,
+      else: &CanonicalJSON.encode!/1
   end
 
   defp encoder(_text, _document), do: &CanonicalJSON.encode!/1
@@ -547,16 +554,16 @@ defmodule Ryker.RoutingExamples do
     turn =
       episode &&
         episode.id
-        |> Turn.Query.by_episode_id()
-        |> Turn.Query.ordered_by_recent()
-        |> Turn.Query.limit_to(1)
-        |> Turn.Query.select_statuses()
+        |> Work.Turn.Query.by_episode_id()
+        |> Work.Turn.Query.ordered_by_recent()
+        |> Work.Turn.Query.limit_to(1)
+        |> Work.Turn.Query.select_statuses()
         |> Repo.one()
 
     sent =
       entry.id
-      |> RoutingResponse.Query.by_input_id()
-      |> RoutingResponse.Query.count_by_status()
+      |> Delivery.RoutingResponse.Query.by_input_id()
+      |> Delivery.RoutingResponse.Query.count_by_status()
       |> Repo.all()
 
     %{
@@ -595,7 +602,7 @@ defmodule Ryker.RoutingExamples do
   Erases the examples that quote any of these observed messages, inside the
   transaction that forgets them.
   """
-  @spec forget_messages_in_transaction([ConversationObservation.t()]) :: :ok
+  @spec forget_messages_in_transaction([Learning.ConversationObservation.t()]) :: :ok
   def forget_messages_in_transaction([]), do: :ok
 
   def forget_messages_in_transaction(observations) do
@@ -626,26 +633,26 @@ defmodule Ryker.RoutingExamples do
   link's preview arriving, takes nothing back, and neither does an app or a
   bot updating its own message.
   """
-  @spec takes_back_words?(Entry.t()) :: boolean()
-  def takes_back_words?(%Entry{event_kind: :delete}), do: true
+  @spec takes_back_words?(Ingress.Inbox.Entry.t()) :: boolean()
+  def takes_back_words?(%Ingress.Inbox.Entry{event_kind: :delete}), do: true
 
-  def takes_back_words?(%Entry{event_kind: :edit, actor_kind: :user} = entry),
+  def takes_back_words?(%Ingress.Inbox.Entry{event_kind: :edit, actor_kind: :user} = entry),
     do: edited_messages([own_message(entry)]) != []
 
-  def takes_back_words?(%Entry{}), do: false
+  def takes_back_words?(%Ingress.Inbox.Entry{}), do: false
 
   @doc """
   Erases the examples that quote a message somebody took back
   (`takes_back_words?/1`), inside the transaction that records it (`entry`
   is that revision).
   """
-  @spec forget_message_in_transaction(Entry.t()) :: :ok
-  def forget_message_in_transaction(%Entry{} = entry) do
+  @spec forget_message_in_transaction(Ingress.Inbox.Entry.t()) :: :ok
+  def forget_message_in_transaction(%Ingress.Inbox.Entry{} = entry) do
     {conversation, message} = own_message(entry)
     :ok = Learning.forget_messages_in_transaction([{conversation, message}])
 
     erase_in_transaction(
-      [Observations.source_identity(entry)],
+      [Learning.Observations.source_identity(entry)],
       [message_key(conversation, message)]
     )
   end

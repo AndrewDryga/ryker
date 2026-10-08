@@ -1,19 +1,15 @@
 defmodule Ryker.Delivery.ChatCard do
   @moduledoc false
-  alias Ryker.Behaviors.Behavior
-  alias Ryker.ControlPlane.Paths
+  alias Ryker.Behaviors
+  alias Ryker.ControlPlane
   alias Ryker.Delivery.OfferWords
   alias Ryker.InspectionRedactor
-  alias Ryker.Memories.MemoryEntry
-  alias Ryker.Publication.Card, as: PublicationCard
-  alias Ryker.Publication.{Publication, Review}
-  alias Ryker.Records.Record
-  alias Ryker.Records.RecordPayload
-  alias Ryker.Records.Response
+  alias Ryker.Memories
+  alias Ryker.Publication
+  alias Ryker.Records
   alias Ryker.Repo
-  alias Ryker.Schedules.Schedule
-  alias Ryker.Schedules.ScheduleCadence
-  alias Ryker.Slack.TaskCardProjection
+  alias Ryker.Schedules
+  alias Ryker.Slack
 
   @doc "Only a lifecycle state that changes the card's meaning is shown."
   def display_status(%{status: status})
@@ -39,9 +35,9 @@ defmodule Ryker.Delivery.ChatCard do
   def display_status(%{status: status}),
     do: status |> to_string() |> String.replace("_", " ") |> String.capitalize()
 
-  @spec project(Record.t()) :: {:ok, map()} | :ignore
-  def project(%Record{} = record) do
-    case RecordPayload.prepare(record.kind, record.payload, record.ref) do
+  @spec project(Records.Record.t()) :: {:ok, map()} | :ignore
+  def project(%Records.Record{} = record) do
+    case Records.RecordPayload.prepare(record.kind, record.payload, record.ref) do
       {:ok, %{payload: payload}} ->
         case card(record, payload) do
           %{} = card -> {:ok, card}
@@ -53,7 +49,7 @@ defmodule Ryker.Delivery.ChatCard do
     end
   end
 
-  defp diagnostic_card(%Record{kind: "event_wait", wait_error: error} = record)
+  defp diagnostic_card(%Records.Record{kind: "event_wait", wait_error: error} = record)
        when error in ~w(deadline poll_after timer_deadline source_kind cursor schedule_failed
                         resume_failed) do
     deadline = diagnostic_deadline(record.payload)
@@ -83,24 +79,24 @@ defmodule Ryker.Delivery.ChatCard do
 
   defp diagnostic_deadline(_payload), do: nil
 
-  @spec project_publication(Publication.t(), String.t()) :: {:ok, map()} | :ignore
+  @spec project_publication(Publication.Publication.t(), String.t()) :: {:ok, map()} | :ignore
   # Only a candidate nobody granted a draft for rests in `:reviewed` or
   # `:blocked`; an authorized one is already publishing. So this surface always
   # projects the unauthorized verdict, and offers the same approval the Slack
   # card and publication custody agree on.
-  def project_publication(%Publication{status: status} = publication, record_ref)
+  def project_publication(%Publication.Publication{status: status} = publication, record_ref)
       when status in [:reviewed, :blocked] and is_binary(record_ref) do
     publication
-    |> PublicationCard.review(false)
-    |> PublicationCard.prepare_record()
+    |> Publication.Card.review(false)
+    |> Publication.Card.prepare_record()
     |> project_publication_review(status, record_ref, approvable?(publication))
   end
 
-  def project_publication(%Publication{status: :published} = publication, record_ref)
+  def project_publication(%Publication.Publication{status: :published} = publication, record_ref)
       when is_binary(record_ref) do
-    record = PublicationCard.published(publication)
+    record = Publication.Card.published(publication)
 
-    case PublicationCard.prepare_record(record) do
+    case Publication.Card.prepare_record(record) do
       {:ok, payload} ->
         {:ok,
          %{
@@ -156,11 +152,11 @@ defmodule Ryker.Delivery.ChatCard do
   # releasable only on the separate draft-shareability verdict. Publication
   # custody re-decides both, so this only keeps the surface from offering an
   # approval the host would refuse.
-  defp approvable?(%Publication{status: :reviewed, review_document: review}),
-    do: Review.publishable?(review)
+  defp approvable?(%Publication.Publication{status: :reviewed, review_document: review}),
+    do: Publication.Review.publishable?(review)
 
-  defp approvable?(%Publication{status: :blocked, review_document: review}),
-    do: Review.draft_shareable?(review)
+  defp approvable?(%Publication.Publication{status: :blocked, review_document: review}),
+    do: Publication.Review.draft_shareable?(review)
 
   defp publication_review_summary(%{"publishable" => true}) do
     "The exact candidate passed trusted review and is ready for explicit publication approval."
@@ -169,14 +165,14 @@ defmodule Ryker.Delivery.ChatCard do
   defp publication_review_summary(%{"reasons" => []}), do: "The candidate is not publishable."
   defp publication_review_summary(%{"reasons" => reasons}), do: Enum.join(reasons, "\n")
 
-  defp card(%Record{kind: "task_offer", status: :confirmed} = record, _payload) do
-    case TaskCardProjection.build(record) do
+  defp card(%Records.Record{kind: "task_offer", status: :confirmed} = record, _payload) do
+    case Slack.TaskCardProjection.build(record) do
       {:ok, %{document: %{"task_card" => task}}} -> confirmed_task(record, task)
       {:error, _reason} -> nil
     end
   end
 
-  defp card(%Record{kind: "task_offer"} = record, payload) do
+  defp card(%Records.Record{kind: "task_offer"} = record, payload) do
     details = optional_detail([], "Repository", payload["repository"])
 
     if payload["kind"] == "engineering" do
@@ -200,7 +196,7 @@ defmodule Ryker.Delivery.ChatCard do
     end
   end
 
-  defp card(%Record{kind: "publication_offer"} = record, payload) do
+  defp card(%Records.Record{kind: "publication_offer"} = record, payload) do
     common(
       record,
       "Publication review",
@@ -214,7 +210,7 @@ defmodule Ryker.Delivery.ChatCard do
   # The conversation it posts in is this one, which the title already says; its
   # stored reference is nothing a person can read.
   defp card(
-         %Record{kind: "slack_post_offer"} = record,
+         %Records.Record{kind: "slack_post_offer"} = record,
          %{"transport" => "control_plane"} = payload
        ) do
     common(
@@ -230,18 +226,20 @@ defmodule Ryker.Delivery.ChatCard do
   # How often comes from the recurrence the confirmation will save, never from
   # the title or task the model wrote: a card whose task said "Every weekday at
   # 09:00 UTC" offered, and on confirmation created, a Monday-only schedule.
-  defp card(%Record{kind: "schedule_offer"} = record, payload) do
+  defp card(%Records.Record{kind: "schedule_offer"} = record, payload) do
     details =
       [
-        {"How often", ScheduleCadence.describe(payload["recurrence"], payload["timezone"])},
-        {"What it may do", ScheduleCadence.access(payload["authority"], payload["repository"])}
+        {"How often",
+         Schedules.ScheduleCadence.describe(payload["recurrence"], payload["timezone"])},
+        {"What it may do",
+         Schedules.ScheduleCadence.access(payload["authority"], payload["repository"])}
       ]
       |> optional_detail("Stops", OfferWords.stamp(payload["expires_at"]))
 
     common(record, "Schedule", payload["title"], payload["task"], details, :confirm_schedule)
   end
 
-  defp card(%Record{kind: "automation_change_offer"} = record, payload) do
+  defp card(%Records.Record{kind: "automation_change_offer"} = record, payload) do
     details =
       []
       |> optional_detail("Automation", get_in(payload, ["after", "title"]))
@@ -257,7 +255,7 @@ defmodule Ryker.Delivery.ChatCard do
     )
   end
 
-  defp card(%Record{kind: "memory_offer"} = record, payload) do
+  defp card(%Records.Record{kind: "memory_offer"} = record, payload) do
     details =
       []
       |> optional_detail(
@@ -277,7 +275,7 @@ defmodule Ryker.Delivery.ChatCard do
     )
   end
 
-  defp card(%Record{kind: "preference_offer"} = record, payload) do
+  defp card(%Records.Record{kind: "preference_offer"} = record, payload) do
     details =
       []
       |> optional_detail(
@@ -296,7 +294,7 @@ defmodule Ryker.Delivery.ChatCard do
     )
   end
 
-  defp card(%Record{kind: "guidance_offer"} = record, payload) do
+  defp card(%Records.Record{kind: "guidance_offer"} = record, payload) do
     details =
       []
       |> optional_detail(
@@ -316,7 +314,7 @@ defmodule Ryker.Delivery.ChatCard do
     )
   end
 
-  defp card(%Record{kind: "standing_assignment_offer"} = record, payload) do
+  defp card(%Records.Record{kind: "standing_assignment_offer"} = record, payload) do
     details =
       []
       |> optional_detail("Listens to", OfferWords.listens_to(payload))
@@ -338,9 +336,9 @@ defmodule Ryker.Delivery.ChatCard do
   # answers gets a card holding only them. Every question card once said "Reply below or
   # choose one of the offered answers." whether it offered any or not, and went on saying it
   # after the answer came. An answered question asks for nothing.
-  defp card(%Record{kind: "input_request"}, %{"choices" => []}), do: nil
+  defp card(%Records.Record{kind: "input_request"}, %{"choices" => []}), do: nil
 
-  defp card(%Record{kind: "input_request"} = record, payload) do
+  defp card(%Records.Record{kind: "input_request"} = record, payload) do
     record
     |> common(
       "Input needed",
@@ -353,7 +351,7 @@ defmodule Ryker.Delivery.ChatCard do
     |> Map.put(:chosen, chosen(record, payload["choices"]))
   end
 
-  defp card(%Record{kind: "event_wait"} = record, payload) do
+  defp card(%Records.Record{kind: "event_wait"} = record, payload) do
     common(
       record,
       "Waiting for event",
@@ -367,7 +365,7 @@ defmodule Ryker.Delivery.ChatCard do
     |> Map.put(:wait_warning, wait_warning(record))
   end
 
-  defp card(%Record{kind: "emisar_approval"} = record, payload) do
+  defp card(%Records.Record{kind: "emisar_approval"} = record, payload) do
     record
     |> common(
       "Governed action",
@@ -383,7 +381,7 @@ defmodule Ryker.Delivery.ChatCard do
     |> Map.put(:url, payload["approval_url"])
   end
 
-  defp card(%Record{kind: "evidence"} = record, payload) do
+  defp card(%Records.Record{kind: "evidence"} = record, payload) do
     common(
       record,
       "Evidence",
@@ -394,7 +392,7 @@ defmodule Ryker.Delivery.ChatCard do
     )
   end
 
-  defp card(%Record{kind: "coverage"} = record, payload) do
+  defp card(%Records.Record{kind: "coverage"} = record, payload) do
     common(
       record,
       "Coverage",
@@ -405,7 +403,7 @@ defmodule Ryker.Delivery.ChatCard do
     )
   end
 
-  defp card(%Record{kind: "finding"} = record, payload) do
+  defp card(%Records.Record{kind: "finding"} = record, payload) do
     secrets = InspectionRedactor.configured_secrets()
 
     prose = &InspectionRedactor.artifact(&1, secrets: secrets).text
@@ -422,7 +420,7 @@ defmodule Ryker.Delivery.ChatCard do
     )
   end
 
-  defp card(%Record{kind: "progress"} = record, payload) do
+  defp card(%Records.Record{kind: "progress"} = record, payload) do
     common(
       record,
       "Progress",
@@ -433,7 +431,7 @@ defmodule Ryker.Delivery.ChatCard do
     )
   end
 
-  defp card(%Record{kind: "goal"} = record, payload) do
+  defp card(%Records.Record{kind: "goal"} = record, payload) do
     common(
       record,
       "Goal",
@@ -450,7 +448,7 @@ defmodule Ryker.Delivery.ChatCard do
     )
   end
 
-  defp card(%Record{kind: "goal_state"} = record, payload) do
+  defp card(%Records.Record{kind: "goal_state"} = record, payload) do
     common(
       record,
       "Goal updated",
@@ -462,7 +460,7 @@ defmodule Ryker.Delivery.ChatCard do
     )
   end
 
-  defp card(%Record{kind: "alert_assessment"} = record, payload) do
+  defp card(%Records.Record{kind: "alert_assessment"} = record, payload) do
     details =
       []
       |> optional_detail("Impact", payload["impact"])
@@ -482,16 +480,16 @@ defmodule Ryker.Delivery.ChatCard do
   defp card(_record, _payload), do: nil
 
   @doc false
-  def wait_warning(%Record{kind: "event_wait", wait_error: "deadline"}),
+  def wait_warning(%Records.Record{kind: "event_wait", wait_error: "deadline"}),
     do: "Wait scheduling failed: its saved deadline is invalid."
 
-  def wait_warning(%Record{kind: "event_wait", wait_error: "source_kind"}),
+  def wait_warning(%Records.Record{kind: "event_wait", wait_error: "source_kind"}),
     do: "Wait scheduling failed: the saved source identifier is invalid or exceeds 120 bytes."
 
-  def wait_warning(%Record{kind: "event_wait", wait_error: "cursor"}),
+  def wait_warning(%Records.Record{kind: "event_wait", wait_error: "cursor"}),
     do: "Wait scheduling failed: the saved cursor is invalid or exceeds 16 KiB."
 
-  def wait_warning(%Record{kind: "event_wait", wait_error: error} = record)
+  def wait_warning(%Records.Record{kind: "event_wait", wait_error: error} = record)
       when error in ~w(timer_deadline poll_after) do
     case diagnostic_deadline(record.payload) do
       nil -> wait_warning(%{record | wait_error: "deadline"})
@@ -501,11 +499,19 @@ defmodule Ryker.Delivery.ChatCard do
 
   # Ryker's own failures, which it tries again (`Ryker.Waits.EventSubscriptions.fail/2`); a
   # closed wait is no longer tried.
-  def wait_warning(%Record{kind: "event_wait", status: :open, wait_error: "schedule_failed"}),
-    do: "Ryker could not schedule this wait. It tries again every 10 minutes."
+  def wait_warning(%Records.Record{
+        kind: "event_wait",
+        status: :open,
+        wait_error: "schedule_failed"
+      }),
+      do: "Ryker could not schedule this wait. It tries again every 10 minutes."
 
-  def wait_warning(%Record{kind: "event_wait", status: :open, wait_error: "resume_failed"}),
-    do: "Ryker could not resume this wait. It tries again every 10 minutes."
+  def wait_warning(%Records.Record{
+        kind: "event_wait",
+        status: :open,
+        wait_error: "resume_failed"
+      }),
+      do: "Ryker could not resume this wait. It tries again every 10 minutes."
 
   def wait_warning(_record), do: nil
 
@@ -545,8 +551,8 @@ defmodule Ryker.Delivery.ChatCard do
   defp optional_card_ref(card, key, value) when is_binary(value), do: Map.put(card, key, value)
   defp optional_card_ref(card, _key, _value), do: card
 
-  defp task_label(%Record{payload: %{"kind" => "incident"}}), do: "Local incident"
-  defp task_label(%Record{}), do: "Engineering task"
+  defp task_label(%Records.Record{payload: %{"kind" => "incident"}}), do: "Local incident"
+  defp task_label(%Records.Record{}), do: "Engineering task"
 
   defp task_actions(controls, publication) when is_list(controls) do
     work_actions =
@@ -601,7 +607,7 @@ defmodule Ryker.Delivery.ChatCard do
   # "Schedule this" or "Remember this" the button went away and nothing said
   # it had worked, and a schedule card kept its offer's words over a schedule
   # that ran on a different day. The saved row says what is true now.
-  defp outcome(%Record{status: :confirmed, id: id} = record) when is_binary(id),
+  defp outcome(%Records.Record{status: :confirmed, id: id} = record) when is_binary(id),
     do: confirmed_outcome(record)
 
   defp outcome(_record), do: nil
@@ -621,37 +627,37 @@ defmodule Ryker.Delivery.ChatCard do
     end)
   end
 
-  defp confirmed_outcome(%Record{kind: "schedule_offer", id: id}) do
-    case Repo.one(Schedule.Query.by_offer_record_id(id)) do
-      %Schedule{} = schedule -> schedule_outcome(schedule)
+  defp confirmed_outcome(%Records.Record{kind: "schedule_offer", id: id}) do
+    case Repo.one(Schedules.Schedule.Query.by_offer_record_id(id)) do
+      %Schedules.Schedule{} = schedule -> schedule_outcome(schedule)
       nil -> nil
     end
   end
 
-  defp confirmed_outcome(%Record{kind: "memory_offer", id: id}) do
-    case Repo.one(MemoryEntry.Query.by_offer_record_id(id)) do
-      %MemoryEntry{} = memory -> memory_outcome(memory)
+  defp confirmed_outcome(%Records.Record{kind: "memory_offer", id: id}) do
+    case Repo.one(Memories.MemoryEntry.Query.by_offer_record_id(id)) do
+      %Memories.MemoryEntry{} = memory -> memory_outcome(memory)
       nil -> nil
     end
   end
 
-  defp confirmed_outcome(%Record{kind: kind, id: id})
+  defp confirmed_outcome(%Records.Record{kind: kind, id: id})
        when kind in ~w(preference_offer guidance_offer standing_assignment_offer) do
-    case Repo.one(Behavior.Query.by_offer_record_id(id)) do
-      %Behavior{} = behavior -> behavior_outcome(behavior)
+    case Repo.one(Behaviors.Behavior.Query.by_offer_record_id(id)) do
+      %Behaviors.Behavior{} = behavior -> behavior_outcome(behavior)
       nil -> nil
     end
   end
 
-  defp confirmed_outcome(%Record{kind: "automation_change_offer", payload: payload}) do
+  defp confirmed_outcome(%Records.Record{kind: "automation_change_offer", payload: payload}) do
     {link, href} = automation_link(payload["automation_id"])
     outcome_line(:on, "Change applied", link, href)
   end
 
   defp confirmed_outcome(_record), do: nil
 
-  defp schedule_outcome(%Schedule{status: :active} = schedule) do
-    cadence = ScheduleCadence.describe(schedule.recurrence, schedule.timezone)
+  defp schedule_outcome(%Schedules.Schedule{status: :active} = schedule) do
+    cadence = Schedules.ScheduleCadence.describe(schedule.recurrence, schedule.timezone)
     {link, href} = automation_link(schedule.ref)
 
     :on
@@ -659,7 +665,7 @@ defmodule Ryker.Delivery.ChatCard do
     |> Map.put(:details, [{"How often", cadence}])
   end
 
-  defp schedule_outcome(%Schedule{status: status} = schedule) do
+  defp schedule_outcome(%Schedules.Schedule{status: status} = schedule) do
     {link, href} = automation_link(schedule.ref)
     outcome_line(:off, "Schedule " <> schedule_state(status), link, href)
   end
@@ -669,19 +675,19 @@ defmodule Ryker.Delivery.ChatCard do
   defp schedule_state(:expired), do: "expired"
   defp schedule_state(:deleted), do: "deleted"
 
-  defp memory_outcome(%MemoryEntry{status: :active, ref: ref}),
+  defp memory_outcome(%Memories.MemoryEntry{status: :active, ref: ref}),
     do: outcome_line(:on, "Saved to memory", "Open facts", "/memory#" <> fact_id(ref))
 
-  defp memory_outcome(%MemoryEntry{status: :superseded}),
+  defp memory_outcome(%Memories.MemoryEntry{status: :superseded}),
     do: outcome_line(:off, "Memory replaced by a newer version", nil, nil)
 
-  defp memory_outcome(%MemoryEntry{status: :deleted}),
+  defp memory_outcome(%Memories.MemoryEntry{status: :deleted}),
     do: outcome_line(:off, "Memory forgotten", nil, nil)
 
-  defp memory_outcome(%MemoryEntry{status: :expired}),
+  defp memory_outcome(%Memories.MemoryEntry{status: :expired}),
     do: outcome_line(:off, "Memory expired", nil, nil)
 
-  defp behavior_outcome(%Behavior{kind: kind, status: status, ref: ref}) do
+  defp behavior_outcome(%Behaviors.Behavior{kind: kind, status: status, ref: ref}) do
     name = behavior_name(kind)
     {link, href} = behavior_link(kind, ref)
 
@@ -701,7 +707,8 @@ defmodule Ryker.Delivery.ChatCard do
   defp behavior_link(:standing_assignment, ref), do: {"Open rules", "/rules#behavior-" <> ref}
   defp behavior_link(_kind, ref), do: {"Open instructions", "/instructions#behavior-" <> ref}
 
-  defp automation_link("schedule:" <> _rest = ref), do: {"Open schedule", Paths.schedule(ref)}
+  defp automation_link("schedule:" <> _rest = ref),
+    do: {"Open schedule", ControlPlane.Paths.schedule(ref)}
 
   defp automation_link("behavior:" <> _rest = ref), do: {"Open rules", "/rules#behavior-" <> ref}
   defp automation_link(_ref), do: {nil, nil}
@@ -723,10 +730,10 @@ defmodule Ryker.Delivery.ChatCard do
   # Which offered answer the person chose, so the answered card can show it
   # (Andrew, 2026-10-01: "we need to highlight selected option"). A typed
   # reply that matched no option chose none.
-  defp chosen(%Record{status: :answered, id: id}, choices)
+  defp chosen(%Records.Record{status: :answered, id: id}, choices)
        when is_binary(id) and is_list(choices) do
     id
-    |> Response.Query.latest_choice()
+    |> Records.Response.Query.latest_choice()
     |> Repo.one()
     |> case do
       {index, _choice} when is_integer(index) -> index

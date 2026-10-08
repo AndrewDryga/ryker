@@ -8,11 +8,11 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   arbitrary external payloads, credentials, and unreleased model output remain
   private.
   """
-  alias Ryker.Artifacts.OutputArtifact
+  alias Ryker.Artifacts
   alias Ryker.ControlPlane.{AdmissionProgress, Conversation, ConversationLab}
   alias Ryker.ControlPlane.{ConversationTranscript, PublicationPosition, ShortTime}
   alias Ryker.ControlPlane.TranscriptCursor
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes
   alias Ryker.Feedback
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
@@ -173,7 +173,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
     with {:ok, conversation_id} <- Ecto.UUID.cast(conversation_id),
          {:ok, turn_id} <- Ecto.UUID.cast(turn_id),
          true <- Regex.match?(~r/\A[A-Za-z0-9_.:-]{1,256}\z/, artifact_ref),
-         %OutputArtifact{} = artifact <-
+         %Artifacts.OutputArtifact{} = artifact <-
            Repo.one(
              Conversation.Query.artifact(@prefix <> conversation_id, turn_id, artifact_ref)
            ) do
@@ -508,19 +508,24 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   defp conversation_id(@prefix <> id), do: Ecto.UUID.cast(id)
   defp conversation_id(_ref), do: :error
 
-  defp next_action(%Episode{state: :waiting_for_input}, _turn_status, _coop_turn_id),
+  defp next_action(%Episodes.Episode{state: :waiting_for_input}, _turn_status, _coop_turn_id),
     do: "operator_input"
 
-  defp next_action(%Episode{state: :waiting_for_event}, _turn_status, _coop_turn_id),
+  defp next_action(%Episodes.Episode{state: :waiting_for_event}, _turn_status, _coop_turn_id),
     do: "external_event"
 
-  defp next_action(%Episode{owner_kind: :delivery}, _turn_status, _coop_turn_id),
+  defp next_action(%Episodes.Episode{owner_kind: :delivery}, _turn_status, _coop_turn_id),
     do: "deliver_result"
 
   defp next_action(_episode, :blocked, _coop_turn_id), do: "operator_recovery"
   defp next_action(_episode, :cancel_pending, _coop_turn_id), do: "reconcile_stop"
-  defp next_action(%Episode{state: :complete}, _turn_status, _coop_turn_id), do: "complete"
-  defp next_action(%Episode{state: :cancelled}, _turn_status, _coop_turn_id), do: "cancelled"
+
+  defp next_action(%Episodes.Episode{state: :complete}, _turn_status, _coop_turn_id),
+    do: "complete"
+
+  defp next_action(%Episodes.Episode{state: :cancelled}, _turn_status, _coop_turn_id),
+    do: "cancelled"
+
   defp next_action(_episode, _turn_status, nil), do: "start_work"
   defp next_action(_episode, _turn_status, _coop_turn_id), do: "continue_work"
 end

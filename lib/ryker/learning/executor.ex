@@ -1,10 +1,10 @@
 defmodule Ryker.Learning.Executor do
   @moduledoc "One resumable, bounded learning step. All remote effects use the frozen run identity."
-  alias Ryker.Coop.API
-  alias Ryker.CoopFleet.JobAuthority
+  alias Ryker.Coop
+  alias Ryker.CoopFleet
   alias Ryker.{Learning, Repo}
   alias Ryker.Learning.{Batches, FleetSession, LearningRun}
-  alias Ryker.Work.Session
+  alias Ryker.Work
 
   @terminal ~w(completed failed cancelled interrupted budget_exhausted)
   @pending ~w(reserved running)
@@ -62,7 +62,7 @@ defmodule Ryker.Learning.Executor do
   # Binding needs only the session's exact identity, so a session this run owns
   # is bound even when its authority is unusable and cleanup can close it.
   defp remote_session(claim, run, settings, mode) do
-    local = Repo.one!(Session.Query.by_learning_run_id(run.id))
+    local = Repo.one!(Work.Session.Query.by_learning_run_id(run.id))
 
     if mode == :fence and is_nil(local.worker_job_document) and is_nil(local.worker_job_digest) and
          is_nil(local.coop_session_id) and is_nil(run.submit_revision) and
@@ -94,10 +94,10 @@ defmodule Ryker.Learning.Executor do
          when is_binary(id) and byte_size(id) in 1..1024 <- operation,
          {:ok, %{"id" => ^id, "state" => state, "revision" => revision} = remote} <-
            call(claim, settings, :get_session, [id]),
-         true <- remote["external_ref"] == Session.coop_task_ref(local),
+         true <- remote["external_ref"] == Work.Session.coop_task_ref(local),
          true <- valid_session_state?(state, revision),
          {:ok, saved} <- Batches.with_lease(claim, fn -> FleetSession.bind(run, id) end),
-         :ok <- JobAuthority.exact_cleanup_receipt(saved, remote) do
+         :ok <- CoopFleet.JobAuthority.exact_cleanup_receipt(saved, remote) do
       {:ok, remote}
     else
       {:error, reason} -> {:error, reason}
@@ -119,7 +119,7 @@ defmodule Ryker.Learning.Executor do
   # the attempt expires, cleanup still needs the exact create document to fence.
   defp prepare_session(claim, run, settings, :create) do
     with :ok <-
-           API.prepare_create_session(
+           Coop.API.prepare_create_session(
              settings.api,
              settings.client,
              Learning.operation_key(run, :create),
@@ -205,7 +205,7 @@ defmodule Ryker.Learning.Executor do
   # under its input lock.
   defp observe(claim, run, session, turn) do
     Batches.with_lease(claim, fn ->
-      local = Repo.one!(Session.Query.by_learning_run_id(run.id))
+      local = Repo.one!(Work.Session.Query.by_learning_run_id(run.id))
 
       Ryker.Accounting.observe_learning_in_transaction(
         claim.batch,
@@ -516,8 +516,8 @@ defmodule Ryker.Learning.Executor do
        ) do
     authority =
       if mode == :fence,
-        do: JobAuthority.exact_cleanup_receipt(local, remote),
-        else: JobAuthority.exact_receipt(local, remote)
+        do: CoopFleet.JobAuthority.exact_cleanup_receipt(local, remote),
+        else: CoopFleet.JobAuthority.exact_receipt(local, remote)
 
     if is_binary(id) and byte_size(id) in 1..1024 and local.coop_session_id in [nil, id] and
          authority == :ok and valid_session_state?(state, revision),

@@ -8,11 +8,11 @@ defmodule Ryker.Records.Outcomes do
   because its current kernel state no longer qualifies.
   """
   alias Ryker.CanonicalJSON
-  alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.Episodes
   alias Ryker.Records.DerivedContext
   alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.Work.Turn
+  alias Ryker.Work
 
   @maximum_candidates 24
   @maximum_outcomes 6
@@ -21,10 +21,10 @@ defmodule Ryker.Records.Outcomes do
   @result_bytes 4 * 1_024
   @record_bytes 2 * 1_024
 
-  @spec recall(Episode.t(), String.t() | nil) :: [map()]
+  @spec recall(Episodes.Episode.t(), String.t() | nil) :: [map()]
   def recall(current, repository \\ nil)
 
-  def recall(%Episode{} = current, repository) do
+  def recall(%Episodes.Episode{} = current, repository) do
     current
     |> candidate_episodes()
     |> Enum.flat_map(&build_outcome/1)
@@ -38,19 +38,19 @@ defmodule Ryker.Records.Outcomes do
   def recall(_episode, _repository), do: []
 
   defp candidate_episodes(current) do
-    current |> Episode.Query.recent_neighbors(@maximum_candidates) |> Repo.all()
+    current |> Episodes.Episode.Query.recent_neighbors(@maximum_candidates) |> Repo.all()
   end
 
-  defp build_outcome(%Episode{state: :complete} = episode) do
+  defp build_outcome(%Episodes.Episode{state: :complete} = episode) do
     case latest_settled_turn(episode.id) do
-      %Turn{} = turn -> [document(episode, turn, "complete")]
+      %Work.Turn{} = turn -> [document(episode, turn, "complete")]
       nil -> []
     end
   end
 
-  defp build_outcome(%Episode{state: :working, owner_kind: :turn} = episode) do
+  defp build_outcome(%Episodes.Episode{state: :working, owner_kind: :turn} = episode) do
     case blocked_owner_turn(episode.id, episode.owner_ref) do
-      %Turn{} = turn -> [document(episode, turn, "blocked")]
+      %Work.Turn{} = turn -> [document(episode, turn, "blocked")]
       nil -> []
     end
   end
@@ -58,10 +58,10 @@ defmodule Ryker.Records.Outcomes do
   defp build_outcome(_episode), do: []
 
   defp latest_settled_turn(episode_id),
-    do: episode_id |> Turn.Query.latest_settled_with_result() |> Repo.one()
+    do: episode_id |> Work.Turn.Query.latest_settled_with_result() |> Repo.one()
 
   defp blocked_owner_turn(episode_id, owner_ref),
-    do: episode_id |> Turn.Query.blocked_owner(owner_ref) |> Repo.one()
+    do: episode_id |> Work.Turn.Query.blocked_owner(owner_ref) |> Repo.one()
 
   defp document(episode, turn, state) do
     records = episode.id |> outcome_records() |> Enum.map(&record_document/1)
@@ -95,10 +95,10 @@ defmodule Ryker.Records.Outcomes do
 
   defp trigger_event(episode_id) do
     episode_id
-    |> Event.Query.by_episode_id()
-    |> Event.Query.by_kind(:input_admitted)
-    |> Event.Query.ordered_by_sequence()
-    |> Event.Query.limit_to(1)
+    |> Episodes.Event.Query.by_episode_id()
+    |> Episodes.Event.Query.by_kind(:input_admitted)
+    |> Episodes.Event.Query.ordered_by_sequence()
+    |> Episodes.Event.Query.limit_to(1)
     |> Repo.one()
   end
 

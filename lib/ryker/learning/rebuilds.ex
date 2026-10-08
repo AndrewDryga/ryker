@@ -1,9 +1,8 @@
 defmodule Ryker.Learning.Rebuilds do
   @moduledoc "Explicit, source-only repair of an unavailable topic under the existing learning budget."
   alias Ryker.Continuity
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress
   alias Ryker.Knowledge
-  alias Ryker.Knowledge.{ConversationKnowledge, KnowledgeSource}
   alias Ryker.Learning
   alias Ryker.Learning.{Batch, Batches, LearningSources, Observations}
   alias Ryker.Learning.{RebuildSource, Runtime}
@@ -14,7 +13,7 @@ defmodule Ryker.Learning.Rebuilds do
 
   def preview(id, options) do
     with {:ok, ^id} <- Ecto.UUID.cast(id),
-         {:ok, topic} <- Repo.fetch(ConversationKnowledge.Query.by_id(id)),
+         {:ok, topic} <- Repo.fetch(Knowledge.ConversationKnowledge.Query.by_id(id)),
          {:ok, scope} <- scope(topic) do
       query = source_query(topic)
       any_sources = Repo.exists?(query)
@@ -103,7 +102,7 @@ defmodule Ryker.Learning.Rebuilds do
   end
 
   defp suggested?(topic, observation),
-    do: Repo.exists?(KnowledgeSource.Query.direct_near(topic.id, observation))
+    do: Repo.exists?(Knowledge.KnowledgeSource.Query.direct_near(topic.id, observation))
 
   defp source_query(topic),
     do: RebuildSource.Query.by_topic(topic, LearningSources.retention_seconds())
@@ -214,7 +213,10 @@ defmodule Ryker.Learning.Rebuilds do
   end
 
   defp target!(id, version, generation) do
-    topic = Repo.one(ConversationKnowledge.Query.by_id(id)) || Repo.rollback(:knowledge_not_found)
+    topic =
+      Repo.one(Knowledge.ConversationKnowledge.Query.by_id(id)) ||
+        Repo.rollback(:knowledge_not_found)
+
     destination = destination(topic)
 
     unless Knowledge.lock_scope_in_transaction(destination, topic.repository_ref) == :ok,
@@ -222,8 +224,8 @@ defmodule Ryker.Learning.Rebuilds do
 
     topic =
       id
-      |> ConversationKnowledge.Query.by_id()
-      |> ConversationKnowledge.Query.lock_for_update()
+      |> Knowledge.ConversationKnowledge.Query.by_id()
+      |> Knowledge.ConversationKnowledge.Query.lock_for_update()
       |> Repo.one!()
 
     {:ok, scope} = scope(topic)
@@ -243,9 +245,9 @@ defmodule Ryker.Learning.Rebuilds do
 
     entries =
       ids
-      |> Entry.Query.by_ids()
-      |> Entry.Query.ordered_by_id()
-      |> Entry.Query.lock_for_share()
+      |> Ingress.Inbox.Entry.Query.by_ids()
+      |> Ingress.Inbox.Entry.Query.ordered_by_id()
+      |> Ingress.Inbox.Entry.Query.lock_for_share()
       |> Repo.all()
 
     current =
@@ -284,7 +286,7 @@ defmodule Ryker.Learning.Rebuilds do
   def inputs(%Batch{} = batch) do
     ids = Enum.map(batch.rebuild_selection, & &1["source_input_id"])
 
-    case Repo.one(ConversationKnowledge.Query.by_id(batch.rebuild_target_id)) do
+    case Repo.one(Knowledge.ConversationKnowledge.Query.by_id(batch.rebuild_target_id)) do
       nil ->
         []
 

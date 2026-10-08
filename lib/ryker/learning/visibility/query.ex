@@ -6,13 +6,13 @@ defmodule Ryker.Learning.Visibility.Query do
   compose this, by the first binding of the query they are given.
   """
   use Ryker, :query
-  alias Ryker.Slack.ChannelMembership
+  alias Ryker.Slack
 
   @doc "Rows readable from `scope`'s conversation."
   def visible_from(queryable, scope), do: where(queryable, ^condition(scope))
 
   defp condition(%{transport: "slack", visibility: :public} = scope) do
-    public = ChannelMembership.Query.public_conversation_refs(scope.workspace_ref)
+    public = Slack.ChannelMembership.Query.public_conversation_refs(scope.workspace_ref)
 
     dynamic(
       [row],

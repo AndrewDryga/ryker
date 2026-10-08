@@ -13,17 +13,15 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   interval.
   """
   use Ryker.PollingWorker, lane: :slack_incidents, interval: :interval_ms
-  alias Ryker.Delivery.HostNote
-  alias Ryker.Delivery.Retry
+  alias Ryker.Delivery
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, Episode}
   alias Ryker.ErrorDetail
-  alias Ryker.Observability.Progress
+  alias Ryker.Observability
   alias Ryker.Options
   alias Ryker.PollingWorker
   alias Ryker.Repo
   alias Ryker.Slack.{ChannelConfigurations, IncidentRoomCard, IncidentRooms}
-  alias Ryker.Work.{Custody, Turn}
+  alias Ryker.Work
   require Logger
 
   @default_interval_ms 1_000
@@ -74,7 +72,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
           options.interval_ms
       end
 
-    _ = Progress.beat(:slack_incidents)
+    _ = Observability.Progress.beat(:slack_incidents)
     delay
   end
 
@@ -265,7 +263,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   end
 
   defp reconcile_lifecycle(room, options) do
-    with %Episode{} = episode <- Repo.one(Episode.Query.by_id(room.episode_id)),
+    with %Episodes.Episode{} = episode <- Repo.one(Episodes.Episode.Query.by_id(room.episode_id)),
          {:ok, result} <- reconcile_episode_destination(room, episode),
          {:ok, outcome} <- settle_lifecycle_reconciliation(room, episode, result, options) do
       {:ok, outcome}
@@ -292,7 +290,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   end
 
   defp reconcile_episode_destination(%{channel_state: :active} = room, episode) do
-    Custody.resume_destination(episode.id, episode.key, destination_pause_ref(room))
+    Work.Custody.resume_destination(episode.id, episode.key, destination_pause_ref(room))
   end
 
   # Slack deletes a channel for good, so an investigation paused for its room
@@ -302,7 +300,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
 
   defp reconcile_episode_destination(%{channel_state: state} = room, episode)
        when state in [:archived, :unavailable] do
-    Custody.pause_destination(episode.id, episode.key, destination_pause_ref(room))
+    Work.Custody.pause_destination(episode.id, episode.key, destination_pause_ref(room))
   end
 
   # A person's Close request, made for them because they closed the room or
@@ -313,21 +311,31 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   # to a room someone is closing is posted there first, while people can read
   # it; one owed to a room Ryker cannot post in goes to the alert thread the
   # room was opened from, and the request closes after it.
-  defp close_investigation(_room, %Episode{state: state}, _cause)
+  defp close_investigation(_room, %Episodes.Episode{state: state}, _cause)
        when state in [:complete, :cancelled],
        do: {:ok, %{status: :settled}}
 
-  defp close_investigation(_room, %Episode{state: :working, owner_kind: :turn} = episode, cause) do
-    Custody.request_cancel(episode.id, episode.key, episode.owner_ref, cause.ref, cause.reason)
+  defp close_investigation(
+         _room,
+         %Episodes.Episode{state: :working, owner_kind: :turn} = episode,
+         cause
+       ) do
+    Work.Custody.request_cancel(
+      episode.id,
+      episode.key,
+      episode.owner_ref,
+      cause.ref,
+      cause.reason
+    )
   end
 
   defp close_investigation(
          _room,
-         %Episode{state: state, owner_kind: owner_kind} = episode,
+         %Episodes.Episode{state: state, owner_kind: owner_kind} = episode,
          cause
        )
        when state in [:waiting_for_input, :waiting_for_event] and owner_kind in [:input, :event] do
-    command = %Command.CancelEpisode{
+    command = %Episodes.Command.CancelEpisode{
       cancel_ref: cause.ref,
       episode_key: episode.key,
       expected_owner: %{kind: owner_kind, ref: episode.owner_ref},
@@ -343,17 +351,17 @@ defmodule Ryker.Slack.IncidentRoomWorker do
 
   defp close_investigation(
          %{channel_state: :active, close_requested_at: %DateTime{}},
-         %Episode{state: :working, owner_kind: :delivery},
+         %Episodes.Episode{state: :working, owner_kind: :delivery},
          _cause
        ),
        do: {:ok, %{status: :pending}}
 
   defp close_investigation(
          room,
-         %Episode{state: :working, owner_kind: :delivery} = episode,
+         %Episodes.Episode{state: :working, owner_kind: :delivery} = episode,
          _cause
        ) do
-    case Custody.redirect_delivery(
+    case Work.Custody.redirect_delivery(
            episode.id,
            episode.key,
            "slack:#{room.workspace_ref}:#{room.channel_ref}",
@@ -367,7 +375,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   end
 
   defp close_investigation(room, episode, _cause),
-    do: Custody.pause_destination(episode.id, episode.key, destination_pause_ref(room))
+    do: Work.Custody.pause_destination(episode.id, episode.key, destination_pause_ref(room))
 
   # A person asked to close the room (`IncidentRooms.request_close/2`). Its
   # investigation closes the way a deleted room's does. Then Ryker says so in
@@ -376,7 +384,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   # hold the room open, and neither does a reply the alert thread refused: it
   # stays owed, for a person to post from the Failures page.
   defp close_on_request(room, options) do
-    episode = room.episode_id && Repo.one(Episode.Query.by_id(room.episode_id))
+    episode = room.episode_id && Repo.one(Episodes.Episode.Query.by_id(room.episode_id))
 
     with {:ok, result} <- close_requested_investigation(room, episode),
          {:ok, outcome} <- settle_close(room, episode, result, options) do
@@ -417,13 +425,13 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   # right now is.
   defp note(nil), do: {:ok, :not_needed}
 
-  defp note(%HostNote{} = note) do
-    case HostNote.deliver(note) do
+  defp note(%Delivery.HostNote{} = note) do
+    case Delivery.HostNote.deliver(note) do
       {:ok, outcome} ->
         {:ok, outcome}
 
       {:error, reason} ->
-        if Retry.retryable?(reason),
+        if Delivery.Retry.retryable?(reason),
           do: {:error, {:incident_room_note_failed, reason}},
           else: {:ok, {:refused, reason}}
     end
@@ -431,18 +439,18 @@ defmodule Ryker.Slack.IncidentRoomWorker do
 
   # A room without its investigation yet is as live as the request it was
   # opened from.
-  defp execution_mode(_room, %Episode{execution_mode: mode}), do: mode
+  defp execution_mode(_room, %Episodes.Episode{execution_mode: mode}), do: mode
 
   defp execution_mode(room, nil) do
     room.source_episode_id
-    |> Episode.Query.by_id()
-    |> Episode.Query.select_execution_modes()
+    |> Episodes.Episode.Query.by_id()
+    |> Episodes.Episode.Query.select_execution_modes()
     |> Repo.one() || :live
   end
 
   # Fixed words, no model, in the room while Ryker can still post there.
   defp room_note(%{status: :ready, channel_state: :active} = room, mode) do
-    %HostNote{
+    %Delivery.HostNote{
       conversation_ref: "slack:#{room.workspace_ref}:#{room.channel_ref}",
       execution_mode: mode,
       message:
@@ -460,7 +468,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   defp closed_note(room, mode) do
     alert_thread = IncidentRooms.alert_thread(room)
 
-    %HostNote{
+    %Delivery.HostNote{
       conversation_ref: alert_thread["conversation_ref"],
       execution_mode: mode,
       message: closed_message(room),
@@ -525,12 +533,12 @@ defmodule Ryker.Slack.IncidentRoomWorker do
        when status in [:settled, :refused] do
     refused_reply = if status == :refused, do: result.turn
 
-    case HostNote.deliver(deletion_note(room, episode)) do
+    case Delivery.HostNote.deliver(deletion_note(room, episode)) do
       {:ok, note} ->
         close_deleted(room, note, refused_reply)
 
       {:error, reason} ->
-        if Retry.retryable?(reason),
+        if Delivery.Retry.retryable?(reason),
           do: handle_error(room, {:incident_room_note_failed, reason}, options),
           else: close_deleted(room, {:refused, reason}, refused_reply)
     end
@@ -562,7 +570,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   defp deletion_note(room, episode) do
     alert_thread = IncidentRooms.alert_thread(room)
 
-    %HostNote{
+    %Delivery.HostNote{
       conversation_ref: alert_thread["conversation_ref"],
       execution_mode: episode.execution_mode,
       message: "The incident room ##{room.channel_name} was deleted. Reply here to pick it up.",
@@ -604,14 +612,14 @@ defmodule Ryker.Slack.IncidentRoomWorker do
 
   defp reply_detail(nil), do: ""
 
-  defp reply_detail(%Turn{} = reply) do
+  defp reply_detail(%Work.Turn{} = reply) do
     " The investigation's finished reply could not be posted (#{reply_refusal(reply)}), " <>
       "so it waits on the Failures page."
   end
 
   # Slack's own word for the refusal when the error text the delivery lane
   # saved carries one, and the saved error code otherwise.
-  defp reply_refusal(%Turn{last_error_code: code, last_error_detail: detail}) do
+  defp reply_refusal(%Work.Turn{last_error_code: code, last_error_detail: detail}) do
     case Regex.run(~r/\{:slack_api_error, "([a-z_]{1,60})"\}/, detail || "") do
       [_error, slack_code] -> slack_code
       nil -> code || "an error"

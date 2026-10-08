@@ -9,7 +9,7 @@ defmodule Ryker.Accounting do
   alias Ryker.Accounting.Execution
   alias Ryker.Lease
   alias Ryker.Repo
-  alias Ryker.Work.{Measurement, Session, Turn}
+  alias Ryker.Work
 
   @terminal ~w(completed failed interrupted budget_exhausted cancelled)
   @states ~w(requested queued starting running awaiting_validation completed failed interrupted budget_exhausted cancelled)
@@ -24,8 +24,8 @@ defmodule Ryker.Accounting do
   def observe_work(claim, remote_turn, remote_session \\ %{}) do
     Repo.transaction(fn ->
       current =
-        Turn.Query.by_id(claim.turn.id)
-        |> Turn.Query.lock_for_update()
+        Work.Turn.Query.by_id(claim.turn.id)
+        |> Work.Turn.Query.lock_for_update()
         |> Repo.one()
 
       # The lease was written with the database's clock; only that clock can
@@ -33,8 +33,8 @@ defmodule Ryker.Accounting do
       now = Repo.now!()
 
       session_generation =
-        Session.Query.by_id(claim.session.id)
-        |> Session.Query.select_generation()
+        Work.Session.Query.by_id(claim.session.id)
+        |> Work.Session.Query.select_generation()
         |> Repo.one()
 
       if is_nil(current) or not Lease.held?(current, claim.lease_ref, now) or
@@ -47,7 +47,7 @@ defmodule Ryker.Accounting do
       record(
         work_identity(claim),
         remote_turn,
-        Measurement.prepare(remote_turn, remote_session),
+        Work.Measurement.prepare(remote_turn, remote_session),
         now
       )
     end)
@@ -79,11 +79,11 @@ defmodule Ryker.Accounting do
 
   @doc "The caller already owns the learning batch lease; one ledger row per frozen learning attempt."
   def observe_learning_in_transaction(batch, run, session_id, remote_turn, remote_session, now) do
-    measurement = Measurement.prepare(remote_turn, remote_session)
+    measurement = Work.Measurement.prepare(remote_turn, remote_session)
 
     measurement =
       if remote_turn["state"] == "completed",
-        do: Measurement.acceptance_attributes(measurement, now),
+        do: Work.Measurement.acceptance_attributes(measurement, now),
         else: measurement
 
     {:ok,
@@ -118,11 +118,11 @@ defmodule Ryker.Accounting do
         remote_session,
         now
       ) do
-    measurement = Measurement.prepare(remote_turn, remote_session)
+    measurement = Work.Measurement.prepare(remote_turn, remote_session)
 
     measurement =
       if remote_turn["state"] == "completed",
-        do: Measurement.acceptance_attributes(measurement, now),
+        do: Work.Measurement.acceptance_attributes(measurement, now),
         else: measurement
 
     {:ok,
@@ -150,11 +150,11 @@ defmodule Ryker.Accounting do
   no request, and counts under the repository's GitHub conversation.
   """
   def observe_knowledge_in_transaction(entry, run, session_id, remote_turn, remote_session, now) do
-    measurement = Measurement.prepare(remote_turn, remote_session)
+    measurement = Work.Measurement.prepare(remote_turn, remote_session)
 
     measurement =
       if remote_turn["state"] == "completed",
-        do: Measurement.acceptance_attributes(measurement, now),
+        do: Work.Measurement.acceptance_attributes(measurement, now),
         else: measurement
 
     {:ok,

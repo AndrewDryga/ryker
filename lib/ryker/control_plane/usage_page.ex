@@ -8,9 +8,9 @@ defmodule Ryker.ControlPlane.UsagePage do
   alias Ryker.{Accounting, Settings}
   alias Ryker.ControlPlane.{Components, ConsolePeople, Kit, Paths, SettingsRows, ShortTime, Units}
   alias Ryker.ControlPlane.UsageChart
-  alias Ryker.Episodes.Words
-  alias Ryker.Slack.Names
-  alias Ryker.Work.ExecutionTarget
+  alias Ryker.Episodes
+  alias Ryker.Slack
+  alias Ryker.Work
 
   # Every work type the projection can name; anything else is a missing identity.
   @work_kinds ~w(admission learning self_analysis repository_knowledge conversational standard deep continuation resumed task event_wait schedule publication approval)
@@ -337,7 +337,7 @@ defmodule Ryker.ControlPlane.UsagePage do
   # activity. Andrew, 2026-10-03, of "Slack" in the name's size and colour:
   # "style them properly, you can use an icon if you want".
   defp source_line(%{source: "slack", workspace: workspace, actor: actor} = row) do
-    case Names.person(workspace, actor) do
+    case Slack.Names.person(workspace, actor) do
       %{href: href} when is_binary(href) ->
         [
           "<span class=\"usage-secondary\"><a class=\"usage-source\" href=\"",
@@ -427,18 +427,18 @@ defmodule Ryker.ControlPlane.UsagePage do
   def kind_name("schedule"), do: "Scheduled run"
   def kind_name("publication"), do: "Publication follow-up"
   def kind_name("approval"), do: "Approval"
-  def kind_name(value), do: Words.label(value || "unclassified")
+  def kind_name(value), do: Episodes.Words.label(value || "unclassified")
 
   # By channel lists Slack channels; a row from anywhere else is named by its
   # own reference rather than passed off as a Slack channel.
   defp channel(%{transport: "slack", conversation_ref: ref}) do
-    Names.destination(if String.starts_with?(ref, "slack:"), do: ref, else: "slack:" <> ref)
+    Slack.Names.destination(if String.starts_with?(ref, "slack:"), do: ref, else: "slack:" <> ref)
   end
 
   defp channel(row), do: "#{row.transport}:#{row.conversation_ref}"
 
   defp user(%{source: "slack", workspace: workspace, actor: actor}),
-    do: Names.name(workspace, actor)
+    do: Slack.Names.name(workspace, actor)
 
   # Someone in Chat, by the name their sign-in gave them.
   defp user(%{source: "control_plane", actor: actor}),
@@ -451,7 +451,7 @@ defmodule Ryker.ControlPlane.UsagePage do
   defp source_name("control_plane"), do: "Chat"
   defp source_name("github"), do: "GitHub"
   defp source_name("webhook"), do: "Webhook"
-  defp source_name(source), do: Words.label(source)
+  defp source_name(source), do: Episodes.Words.label(source)
 
   defp timing(totals) do
     segments = [
@@ -569,7 +569,7 @@ defmodule Ryker.ControlPlane.UsagePage do
   end
 
   defp price_model(target) do
-    case ExecutionTarget.parts(target) do
+    case Work.ExecutionTarget.parts(target) do
       %{model: model} -> model
       nil -> target
     end

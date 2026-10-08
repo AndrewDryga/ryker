@@ -1,7 +1,6 @@
 defmodule Ryker.ControlPlane.Actions do
   @moduledoc false
   alias Ryker.Behaviors
-  alias Ryker.Behaviors.Automations
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.Actor
   alias Ryker.ControlPlane.ConversationLab
@@ -10,32 +9,19 @@ defmodule Ryker.ControlPlane.Actions do
   alias Ryker.ControlPlane.SettingsCommands
   alias Ryker.ControlPlane.WorkChanges
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, Episode}
   alias Ryker.Improvement
-  alias Ryker.Ingress.WorkProfile
+  alias Ryker.Ingress
   alias Ryker.IntegrationSetup
   alias Ryker.Memories
-  alias Ryker.Memories.{Cases, Forgetting, MemoryReviewItem}
-  alias Ryker.Operator.{EpisodeReviews, FailureDismissals, Failures}
-  alias Ryker.Operator.Learning, as: LearningOperator
-  alias Ryker.Operator.Publication, as: PublicationOperator
-  alias Ryker.Operator.Retention, as: RetentionOperator
+  alias Ryker.Operator
   alias Ryker.People
-  alias Ryker.Publication.Custody, as: PublicationCustody
-  alias Ryker.Publication.{Publication, Review}
-  alias Ryker.Records.Findings
-  alias Ryker.Records.InputRequests
-  alias Ryker.Records.Record
-  alias Ryker.Records.SlackPostOffers
-  alias Ryker.Records.TaskOffers
+  alias Ryker.Publication
+  alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Schedules
-  alias Ryker.Schedules.Schedule
-  alias Ryker.Slack.IncidentRooms
-  alias Ryker.Slack.Runtime, as: SlackRuntime
-  alias Ryker.Slack.WorkRecord
+  alias Ryker.Slack
   alias Ryker.WeeklyReport
-  alias Ryker.Work.{Custody, Session, Turn}
+  alias Ryker.Work
 
   @current {__MODULE__, :current}
 
@@ -75,7 +61,7 @@ defmodule Ryker.ControlPlane.Actions do
           ConversationLab.placements() | nil,
           map(),
           map(),
-          (Schedule.t() -> term()) | nil
+          (Schedules.Schedule.t() -> term()) | nil
         ) ::
           map()
   def callbacks(
@@ -93,14 +79,14 @@ defmodule Ryker.ControlPlane.Actions do
       edit_lab_message: lab_message_editor(placements),
       drop_learning: &drop_learning/3,
       forget_memory: &Memories.forget/1,
-      forget_knowledge: &Forgetting.forget_topic/1,
-      forget_finding: &Findings.forget/1,
-      forget_case: &Cases.delete/1,
+      forget_knowledge: &Memories.Forgetting.forget_topic/1,
+      forget_finding: &Records.Findings.forget/1,
+      forget_case: &Memories.Cases.delete/1,
       forget_person: &People.forget_person/1,
       forget_person_fact: &People.forget_fact/1,
       accept_improvement: &Improvement.accept(&1, Actor.of(&2)),
       dismiss_improvement: &Improvement.dismiss(&1, Actor.of(&2)),
-      mark_finding_explained: &Findings.mark_explained/1,
+      mark_finding_explained: &Records.Findings.mark_explained/1,
       resolve_episode: &resolve_episode/2,
       resolve_memory_review: &resolve_memory_review/4,
       rearm_admission: &retry_failure("admission", &1, &2),
@@ -108,21 +94,21 @@ defmodule Ryker.ControlPlane.Actions do
       rearm_emisar: &retry_failure("emisar", &1, &2),
       rearm_retention: &retry_failure("retention", &1, &2),
       rearm_slack_incident: &retry_failure("slack_incident", &1, &2),
-      close_incident_room: &IncidentRooms.request_close(&1, Actor.of(&2)),
+      close_incident_room: &Slack.IncidentRooms.request_close(&1, Actor.of(&2)),
       leave_failure: &leave_failure/3,
       rearm_slack_interaction: &retry_failure("slack_interaction", &1, &2),
       rearm_slack_task_card: &retry_failure("slack_task_card", &1, &2),
       rearm_slack_thread_status: &retry_failure("slack_thread_status", &1, &2),
       react_to_lab_message: &react_to_lab_message/5,
       retry_work: &retry_work/3,
-      rate_episode: &EpisodeReviews.review(&1, Actor.of(&3), &2),
+      rate_episode: &Operator.EpisodeReviews.review(&1, Actor.of(&3), &2),
       run_schedule: run_schedule(schedule_policy_resolver),
       send_lab_message: lab_sender(placements),
       set_behavior_status: &Behaviors.set_status/2,
       save_instructions: &InstructionSettings.save(&1, &2, &3, Actor.of(&4)),
       # The outcome comes back to the page that asked, as a message.
-      redraw_channel_welcome: &SlackRuntime.redraw_welcome(&1, &2, self()),
-      leave_channel: &SlackRuntime.leave_channel/2,
+      redraw_channel_welcome: &Slack.Runtime.redraw_welcome(&1, &2, self()),
+      leave_channel: &Slack.Runtime.leave_channel/2,
       # What the GitHub App reaches, for Add repositories; it asks GitHub.
       github_repositories: fn -> IntegrationSetup.github_repositories() end,
       initialize_settings: &SettingsCommands.initialize(Actor.of(&1)),
@@ -139,7 +125,7 @@ defmodule Ryker.ControlPlane.Actions do
 
   defp run_schedule(policy_resolver) when is_function(policy_resolver, 1) do
     fn schedule_ref, viewer ->
-      case Repo.one(Schedule.Query.by_ref(schedule_ref)) do
+      case Repo.one(Schedules.Schedule.Query.by_ref(schedule_ref)) do
         %{revision: revision} ->
           action_ref = "control-plane:run-schedule:#{schedule_ref}:#{revision}"
 
@@ -161,8 +147,8 @@ defmodule Ryker.ControlPlane.Actions do
   end
 
   defp resolve_memory_review(review_ref, action, replacement, viewer) do
-    case Repo.one(MemoryReviewItem.Query.by_ref(review_ref)) do
-      %MemoryReviewItem{workspace_ref: workspace_ref} ->
+    case Repo.one(Memories.MemoryReviewItem.Query.by_ref(review_ref)) do
+      %Memories.MemoryReviewItem{workspace_ref: workspace_ref} ->
         Memories.resolve_review(review_ref, action, Actor.of(viewer), workspace_ref, replacement)
 
       nil ->
@@ -171,7 +157,7 @@ defmodule Ryker.ControlPlane.Actions do
   end
 
   defp drop_learning(id, budget_version, viewer) do
-    LearningOperator.drop(
+    Operator.Learning.drop(
       id,
       budget_version,
       Actor.of(viewer),
@@ -183,7 +169,7 @@ defmodule Ryker.ControlPlane.Actions do
   defp leave_failure(kind, ref, viewer) do
     case FailureProjection.fetch(kind, ref) do
       {:ok, row} ->
-        FailureDismissals.leave(row.kind, row.ref, row.summary, Actor.of(viewer))
+        Operator.FailureDismissals.leave(row.kind, row.ref, row.summary, Actor.of(viewer))
 
       :not_found ->
         {:error, :failure_not_found}
@@ -194,14 +180,14 @@ defmodule Ryker.ControlPlane.Actions do
   end
 
   defp retry_failure(kind, ref, viewer) do
-    Failures.retry(kind, ref,
+    Operator.Failures.retry(kind, ref,
       action_ref: "control-plane:retry:#{Ecto.UUID.generate()}",
       actor_ref: Actor.of(viewer)
     )
   end
 
   defp retry_work(ref, expected_recovery, viewer) do
-    Failures.retry("work", ref,
+    Operator.Failures.retry("work", ref,
       action_ref: "control-plane:retry:#{Ecto.UUID.generate()}",
       actor_ref: Actor.of(viewer),
       expected_recovery: expected_recovery
@@ -210,28 +196,28 @@ defmodule Ryker.ControlPlane.Actions do
 
   defp resolve_episode(episode_key, viewer) do
     episode_key
-    |> Episode.Query.by_key()
+    |> Episodes.Episode.Query.by_key()
     |> Repo.one()
     |> resolve_episode_record("Closed by #{Actor.of(viewer)} as no longer needed.")
   end
 
   defp resolve_episode_record(
-         %Episode{state: :working, owner_kind: :turn, owner_ref: turn_ref} = episode,
+         %Episodes.Episode{state: :working, owner_kind: :turn, owner_ref: turn_ref} = episode,
          reason
        ) do
     episode.id
-    |> Turn.Query.by_episode_id()
-    |> Turn.Query.by_turn_ref(turn_ref)
+    |> Work.Turn.Query.by_episode_id()
+    |> Work.Turn.Query.by_turn_ref(turn_ref)
     |> Repo.one()
     |> resolve_blocked_episode(episode, turn_ref, reason)
   end
 
   defp resolve_episode_record(
-         %Episode{state: state, owner_kind: owner_kind, owner_ref: owner_ref} = episode,
+         %Episodes.Episode{state: state, owner_kind: owner_kind, owner_ref: owner_ref} = episode,
          reason
        )
        when state in [:waiting_for_input, :waiting_for_event] and owner_kind in [:input, :event] do
-    %Command.CancelEpisode{
+    %Episodes.Command.CancelEpisode{
       cancel_ref: resolve_action_ref(),
       episode_key: episode.key,
       expected_owner: %{kind: owner_kind, ref: owner_ref},
@@ -242,11 +228,12 @@ defmodule Ryker.ControlPlane.Actions do
     |> resolved_episode_result()
   end
 
-  defp resolve_episode_record(%Episode{}, _reason), do: {:error, :episode_not_resolvable}
+  defp resolve_episode_record(%Episodes.Episode{}, _reason), do: {:error, :episode_not_resolvable}
   defp resolve_episode_record(nil, _reason), do: {:error, :episode_not_found}
 
-  defp resolve_blocked_episode(%Turn{status: :blocked}, episode, turn_ref, reason),
-    do: Custody.request_cancel(episode.id, episode.key, turn_ref, resolve_action_ref(), reason)
+  defp resolve_blocked_episode(%Work.Turn{status: :blocked}, episode, turn_ref, reason) do
+    Work.Custody.request_cancel(episode.id, episode.key, turn_ref, resolve_action_ref(), reason)
+  end
 
   defp resolve_blocked_episode(_not_blocked, _episode, _turn_ref, _reason),
     do: {:error, :episode_not_resolvable}
@@ -259,11 +246,11 @@ defmodule Ryker.ControlPlane.Actions do
     fn conversation_id, record_ref, view, params ->
       with {:ok, conversation_ref} <- ConversationLab.conversation_ref(conversation_id),
            {:ok, record, target} <- lab_record_context(conversation_ref, record_ref),
-           %Record{kind: "task_offer", status: :confirmed} <- record,
+           %Records.Record{kind: "task_offer", status: :confirmed} <- record,
            {:ok, episode} <- task_episode(record, target) do
         build_lab_task_record(record, episode, view, params, work_view_options)
       else
-        %Record{} -> {:error, :conversation_lab_task_mismatch}
+        %Records.Record{} -> {:error, :conversation_lab_task_mismatch}
         {:error, reason} -> {:error, reason}
       end
     end
@@ -271,7 +258,7 @@ defmodule Ryker.ControlPlane.Actions do
 
   defp build_lab_task_record(record, episode, view, params, _options)
        when view in [:timeline, :evidence, :handoff, :postmortem] and params == %{} do
-    with {:ok, %{"message" => body}} <- WorkRecord.build_episode(record, episode, view) do
+    with {:ok, %{"message" => body}} <- Slack.WorkRecord.build_episode(record, episode, view) do
       {:ok,
        %{
          body: body,
@@ -285,7 +272,7 @@ defmodule Ryker.ControlPlane.Actions do
   defp build_lab_task_record(record, episode, :diff, params, options) do
     with {:ok, %{offset: offset, snapshot_digest: expected_digest}} <- diff_params(params),
          {:ok, coop_api, coop_client} <- work_view_options(options),
-         %Session{coop_session_id: session_id} when is_binary(session_id) <-
+         %Work.Session{coop_session_id: session_id} when is_binary(session_id) <-
            latest_bound_session(episode.id),
          {:ok, changes} <-
            coop_api.get_changes_page(coop_client, session_id, offset, WorkChanges.page_bytes()),
@@ -315,10 +302,10 @@ defmodule Ryker.ControlPlane.Actions do
 
   defp latest_bound_session(episode_id) do
     episode_id
-    |> Session.Query.by_episode_id()
-    |> Session.Query.bound()
-    |> Session.Query.ordered_by_generation_desc()
-    |> Session.Query.limit_to(1)
+    |> Work.Session.Query.by_episode_id()
+    |> Work.Session.Query.bound()
+    |> Work.Session.Query.ordered_by_generation_desc()
+    |> Work.Session.Query.limit_to(1)
     |> Repo.one()
   end
 
@@ -380,7 +367,7 @@ defmodule Ryker.ControlPlane.Actions do
   # has nothing to run on; the actions that need one say so themselves.
   defp conversation_work_profile(conversation_id, placements) do
     case ConversationLab.work_profile(conversation_id, placements) do
-      {:ok, %WorkProfile{} = work_profile} -> work_profile
+      {:ok, %Ingress.WorkProfile{} = work_profile} -> work_profile
       {:error, _reason} -> nil
     end
   end
@@ -408,8 +395,8 @@ defmodule Ryker.ControlPlane.Actions do
     end
   end
 
-  defp read_only_here?(%WorkProfile{} = profile, repository),
-    do: repository in WorkProfile.read_only_refs(profile)
+  defp read_only_here?(%Ingress.WorkProfile{} = profile, repository),
+    do: repository in Ingress.WorkProfile.read_only_refs(profile)
 
   defp read_only_here?(_outside, _repository), do: false
 
@@ -420,7 +407,7 @@ defmodule Ryker.ControlPlane.Actions do
     end
   end
 
-  defp own_task_policy(task_policies, %WorkProfile{environment_ref: ref}, repository)
+  defp own_task_policy(task_policies, %Ingress.WorkProfile{environment_ref: ref}, repository)
        when is_binary(ref) and is_binary(repository),
        do: get_in(task_policies, [ref, repository])
 
@@ -428,7 +415,7 @@ defmodule Ryker.ControlPlane.Actions do
 
   defp lab_record_context(conversation_ref, record_ref) do
     case fetch_lab_record(record_ref) do
-      {%Record{} = record, %Episode{} = episode, %Turn{} = turn} ->
+      {%Records.Record{} = record, %Episodes.Episode{} = episode, %Work.Turn{} = turn} ->
         lab_record_target(record, episode, turn, conversation_ref)
 
       nil ->
@@ -437,12 +424,12 @@ defmodule Ryker.ControlPlane.Actions do
   end
 
   defp fetch_lab_record(record_ref),
-    do: Repo.one(Record.Query.by_ref_with_origin_turn(record_ref))
+    do: Repo.one(Records.Record.Query.by_ref_with_origin_turn(record_ref))
 
   defp lab_record_target(
-         %Record{} = record,
-         %Episode{} = episode,
-         %Turn{
+         %Records.Record{} = record,
+         %Episodes.Episode{} = episode,
+         %Work.Turn{
            status: :settled,
            external_receipt: receipt,
            delivery_document: document
@@ -509,7 +496,8 @@ defmodule Ryker.ControlPlane.Actions do
     do: {:error, :conversation_lab_record_action_invalid}
 
   defp perform_lab_record_action(
-         %Record{kind: "task_offer", payload: %{"kind" => "engineering"} = payload} = record,
+         %Records.Record{kind: "task_offer", payload: %{"kind" => "engineering"} = payload} =
+           record,
          target,
          :confirm_task,
          nil,
@@ -517,7 +505,7 @@ defmodule Ryker.ControlPlane.Actions do
        ) do
     case task_policy(task_policies, work_profile, payload["repository"]) do
       {:ok, %{name: name, digest: digest} = policy} ->
-        TaskOffers.confirm(%{
+        Records.TaskOffers.confirm(%{
           actor_ref: Actor.of(request.viewer),
           confirmation_ref: request.ref,
           occurred_at: DateTime.utc_now(),
@@ -536,17 +524,17 @@ defmodule Ryker.ControlPlane.Actions do
   end
 
   defp perform_lab_record_action(
-         %Record{kind: "task_offer", payload: %{"kind" => "incident"} = payload} = record,
+         %Records.Record{kind: "task_offer", payload: %{"kind" => "incident"} = payload} = record,
          target,
          :open_incident,
          nil,
-         %{work_profile: %WorkProfile{} = work_profile} = request
+         %{work_profile: %Ingress.WorkProfile{} = work_profile} = request
        ) do
     # An incident names one repository of the conversation's environment, or
     # none for the default; it runs under that repository's conversation policy.
-    case WorkProfile.policy_for(work_profile, :conversational, payload["repository"]) do
+    case Ingress.WorkProfile.policy_for(work_profile, :conversational, payload["repository"]) do
       {:ok, policy} ->
-        TaskOffers.confirm(%{
+        Records.TaskOffers.confirm(%{
           actor_ref: Actor.of(request.viewer),
           confirmation_ref: request.ref,
           occurred_at: DateTime.utc_now(),
@@ -565,7 +553,7 @@ defmodule Ryker.ControlPlane.Actions do
   end
 
   defp perform_lab_record_action(
-         %Record{kind: "task_offer", payload: %{"kind" => "incident"}},
+         %Records.Record{kind: "task_offer", payload: %{"kind" => "incident"}},
          _target,
          :open_incident,
          nil,
@@ -574,7 +562,7 @@ defmodule Ryker.ControlPlane.Actions do
        do: {:error, :conversation_lab_not_configured}
 
   defp perform_lab_record_action(
-         %Record{kind: "memory_offer"} = record,
+         %Records.Record{kind: "memory_offer"} = record,
          target,
          :confirm_memory,
          nil,
@@ -583,7 +571,7 @@ defmodule Ryker.ControlPlane.Actions do
        do: confirm_record(Memories, record, target, request)
 
   defp perform_lab_record_action(
-         %Record{kind: kind} = record,
+         %Records.Record{kind: kind} = record,
          target,
          :confirm_behavior,
          nil,
@@ -593,7 +581,7 @@ defmodule Ryker.ControlPlane.Actions do
        do: confirm_behavior(record, target, request)
 
   defp perform_lab_record_action(
-         %Record{kind: "schedule_offer"} = record,
+         %Records.Record{kind: "schedule_offer"} = record,
          target,
          :confirm_schedule,
          nil,
@@ -602,22 +590,22 @@ defmodule Ryker.ControlPlane.Actions do
        do: confirm_record(Schedules, record, target, request)
 
   defp perform_lab_record_action(
-         %Record{kind: "automation_change_offer"} = record,
+         %Records.Record{kind: "automation_change_offer"} = record,
          target,
          :confirm_automation,
          nil,
          request
        ),
-       do: confirm_record(Automations, record, target, request)
+       do: confirm_record(Behaviors.Automations, record, target, request)
 
   defp perform_lab_record_action(
-         %Record{kind: "slack_post_offer"} = record,
+         %Records.Record{kind: "slack_post_offer"} = record,
          target,
          :confirm_post,
          nil,
          request
        ) do
-    SlackPostOffers.confirm(%{
+    Records.SlackPostOffers.confirm(%{
       actor_ref: Actor.person_ref(Actor.chat_ref(request.viewer)),
       confirmation_ref: request.ref,
       occurred_at: DateTime.utc_now(),
@@ -627,13 +615,13 @@ defmodule Ryker.ControlPlane.Actions do
   end
 
   defp perform_lab_record_action(
-         %Record{kind: "publication_offer"} = record,
+         %Records.Record{kind: "publication_offer"} = record,
          target,
          :review_publication,
          nil,
          request
        ) do
-    PublicationCustody.request_review(%{
+    Publication.Custody.request_review(%{
       actor_ref: Actor.of(request.viewer),
       occurred_at: DateTime.utc_now(),
       record_ref: record.ref,
@@ -643,13 +631,13 @@ defmodule Ryker.ControlPlane.Actions do
   end
 
   defp perform_lab_record_action(
-         %Record{kind: "input_request"} = record,
+         %Records.Record{kind: "input_request"} = record,
          target,
          :answer_input,
          choice_index,
          request
        ) do
-    InputRequests.answer(%{
+    Records.InputRequests.answer(%{
       actor_ref: Actor.chat_ref(request.viewer),
       choice_index: choice_index,
       occurred_at: DateTime.utc_now(),
@@ -660,7 +648,7 @@ defmodule Ryker.ControlPlane.Actions do
   end
 
   defp perform_lab_record_action(
-         %Record{kind: "task_offer", status: :confirmed} = record,
+         %Records.Record{kind: "task_offer", status: :confirmed} = record,
          target,
          :stop_task,
          nil,
@@ -669,7 +657,7 @@ defmodule Ryker.ControlPlane.Actions do
     with {:ok, episode} <- task_episode(record, target),
          true <- episode.state == :working and episode.owner_kind == :turn,
          {:ok, result} <-
-           Custody.request_stop(
+           Work.Custody.request_stop(
              episode.id,
              episode.key,
              episode.owner_ref,
@@ -684,7 +672,7 @@ defmodule Ryker.ControlPlane.Actions do
   end
 
   defp perform_lab_record_action(
-         %Record{kind: "task_offer", status: :confirmed} = record,
+         %Records.Record{kind: "task_offer", status: :confirmed} = record,
          target,
          action,
          %{generation: expected_generation, publication_ref: publication_ref},
@@ -703,8 +691,8 @@ defmodule Ryker.ControlPlane.Actions do
       end
 
     with {:ok, episode} <- task_episode(record, target),
-         %Publication{} = publication <- task_publication(episode.id, publication_ref) do
-      PublicationOperator.recover(publication.ref, recovery_action, expected_generation,
+         %Publication.Publication{} = publication <- task_publication(episode.id, publication_ref) do
+      Operator.Publication.recover(publication.ref, recovery_action, expected_generation,
         actor_ref: Actor.of(request.viewer),
         action_ref: request.ref
       )
@@ -715,7 +703,7 @@ defmodule Ryker.ControlPlane.Actions do
   end
 
   defp perform_lab_record_action(
-         %Record{kind: "publication_offer"} = record,
+         %Records.Record{kind: "publication_offer"} = record,
          target,
          :approve_publication,
          nil,
@@ -723,7 +711,7 @@ defmodule Ryker.ControlPlane.Actions do
        ) do
     with {:ok, publication, review_target} <-
            lab_publication(record, target, :reviewed, :review) do
-      PublicationCustody.approve(%{
+      Publication.Custody.approve(%{
         actor_ref: Actor.of(request.viewer),
         approval_ref: request.ref,
         occurred_at: DateTime.utc_now(),
@@ -734,7 +722,7 @@ defmodule Ryker.ControlPlane.Actions do
   end
 
   defp perform_lab_record_action(
-         %Record{kind: "task_offer", status: :confirmed} = record,
+         %Records.Record{kind: "task_offer", status: :confirmed} = record,
          target,
          :approve_task_publication,
          %{publication_ref: publication_ref},
@@ -743,7 +731,7 @@ defmodule Ryker.ControlPlane.Actions do
     with {:ok, episode} <- task_episode(record, target),
          {:ok, publication, review_target} <-
            approvable_lab_task_publication(episode.id, publication_ref, target) do
-      PublicationCustody.approve(%{
+      Publication.Custody.approve(%{
         actor_ref: Actor.of(request.viewer),
         approval_ref: request.ref,
         occurred_at: DateTime.utc_now(),
@@ -754,7 +742,7 @@ defmodule Ryker.ControlPlane.Actions do
   end
 
   defp perform_lab_record_action(
-         %Record{kind: "task_offer", status: :confirmed} = record,
+         %Records.Record{kind: "task_offer", status: :confirmed} = record,
          target,
          :close_task,
          nil,
@@ -791,7 +779,7 @@ defmodule Ryker.ControlPlane.Actions do
         # The person a personal preference or rule is for, in the form the
         # turns they start carry, so it applies to them and only they may
         # confirm it.
-        %Record{kind: kind, payload: %{"scope" => "operator"}}
+        %Records.Record{kind: kind, payload: %{"scope" => "operator"}}
         when kind in ["preference_offer", "guidance_offer"] ->
           Actor.person_ref(Actor.chat_ref(request.viewer))
 
@@ -808,9 +796,9 @@ defmodule Ryker.ControlPlane.Actions do
     })
   end
 
-  defp task_episode(%Record{} = record, target) do
-    case Repo.one(Episode.Query.by_id(record.confirmed_episode_id)) do
-      %Episode{} = episode ->
+  defp task_episode(%Records.Record{} = record, target) do
+    case Repo.one(Episodes.Episode.Query.by_id(record.confirmed_episode_id)) do
+      %Episodes.Episode{} = episode ->
         exact =
           episode.linked_episode_id == record.episode_id and
             episode.destination_transport == target.transport and
@@ -826,15 +814,15 @@ defmodule Ryker.ControlPlane.Actions do
     end
   end
 
-  defp close_task_episode(%Episode{state: state} = episode, _request)
+  defp close_task_episode(%Episodes.Episode{state: state} = episode, _request)
        when state in [:complete, :cancelled],
        do: {:ok, %{episode: episode, status: :settled}}
 
   defp close_task_episode(
-         %Episode{state: :working, owner_kind: :turn, owner_ref: turn_ref} = episode,
+         %Episodes.Episode{state: :working, owner_kind: :turn, owner_ref: turn_ref} = episode,
          request
        ) do
-    Custody.request_cancel(
+    Work.Custody.request_cancel(
       episode.id,
       episode.key,
       turn_ref,
@@ -844,11 +832,11 @@ defmodule Ryker.ControlPlane.Actions do
   end
 
   defp close_task_episode(
-         %Episode{state: state, owner_kind: owner_kind, owner_ref: owner_ref} = episode,
+         %Episodes.Episode{state: state, owner_kind: owner_kind, owner_ref: owner_ref} = episode,
          request
        )
        when state in [:waiting_for_input, :waiting_for_event] and owner_kind in [:input, :event] do
-    command = %Command.CancelEpisode{
+    command = %Episodes.Command.CancelEpisode{
       cancel_ref: request.ref,
       episode_key: episode.key,
       expected_owner: %{kind: owner_kind, ref: owner_ref},
@@ -873,11 +861,11 @@ defmodule Ryker.ControlPlane.Actions do
   defp stopper(nil), do: "Someone"
 
   defp lab_publication(record, source_target, expected_status, receipt_kind) do
-    case Repo.one(Publication.Query.by_record_id(record.id)) do
-      %Publication{status: ^expected_status} = publication ->
+    case Repo.one(Publication.Publication.Query.by_record_id(record.id)) do
+      %Publication.Publication{status: ^expected_status} = publication ->
         lab_publication_target(publication, source_target, receipt_kind)
 
-      %Publication{} ->
+      %Publication.Publication{} ->
         {:error, :conversation_lab_publication_not_ready}
 
       nil ->
@@ -895,10 +883,10 @@ defmodule Ryker.ControlPlane.Actions do
     publication = task_publication(episode_id, publication_ref)
 
     case publication do
-      %Publication{status: ^expected_status} ->
+      %Publication.Publication{status: ^expected_status} ->
         lab_publication_target(publication, source_target, receipt_kind)
 
-      %Publication{} ->
+      %Publication.Publication{} ->
         {:error, :conversation_lab_publication_not_ready}
 
       nil ->
@@ -911,8 +899,8 @@ defmodule Ryker.ControlPlane.Actions do
   # first while its card offered both (30 Sep: "Couldn't create the draft pull request").
   defp approvable_lab_task_publication(episode_id, publication_ref, target) do
     case task_publication(episode_id, publication_ref) do
-      %Publication{status: :blocked} = publication ->
-        if Review.draft_shareable?(publication.review_document),
+      %Publication.Publication{status: :blocked} = publication ->
+        if Publication.Review.draft_shareable?(publication.review_document),
           do: lab_publication_target(publication, target, :review),
           else: {:error, :conversation_lab_publication_not_ready}
 
@@ -923,8 +911,8 @@ defmodule Ryker.ControlPlane.Actions do
 
   defp task_publication(episode_id, publication_ref) do
     episode_id
-    |> Publication.Query.by_episode_id()
-    |> Publication.Query.by_ref(publication_ref)
+    |> Publication.Publication.Query.by_episode_id()
+    |> Publication.Publication.Query.by_ref(publication_ref)
     |> Repo.one()
   end
 
@@ -1030,7 +1018,7 @@ defmodule Ryker.ControlPlane.Actions do
   end
 
   defp discard_retention(ref, viewer) do
-    RetentionOperator.discard_unmerged(ref, Actor.of(viewer), action_ref(:discard_unmerged))
+    Operator.Retention.discard_unmerged(ref, Actor.of(viewer), action_ref(:discard_unmerged))
   end
 
   defp action_ref(action),

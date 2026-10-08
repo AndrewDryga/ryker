@@ -7,8 +7,8 @@ defmodule Ryker.Work.OwningTurn.Query do
   `:episode_kernel_episodes` and the turn as `:episode_work_turns`.
   """
   use Ryker, :query
-  alias Ryker.Episodes.Episode
-  alias Ryker.Publication.Publication
+  alias Ryker.Episodes
+  alias Ryker.Publication
   alias Ryker.Work.{Session, Turn}
 
   @doc """
@@ -16,7 +16,7 @@ defmodule Ryker.Work.OwningTurn.Query do
   `phase`, leaving out `skipped` and skipping any another worker holds.
   """
   def next_claimable_episode(now, phase, skipped) do
-    from(episode in Episode.Query.all(),
+    from(episode in Episodes.Episode.Query.all(),
       where: episode.id in subquery(claimable_episode_ids(now, phase)),
       where: episode.id not in ^skipped,
       order_by: [asc: episode.updated_at, asc: episode.id],
@@ -35,7 +35,7 @@ defmodule Ryker.Work.OwningTurn.Query do
     pinned_episode_ids = from(session in Session, select: session.episode_id)
 
     reviewing_episode_ids =
-      from(publication in Publication,
+      from(publication in Publication.Publication,
         where: publication.status == :review_pending and publication.lease_expires_at > ^now,
         select: publication.episode_id
       )
@@ -83,7 +83,7 @@ defmodule Ryker.Work.OwningTurn.Query do
   end
 
   defp owning_turns do
-    from(episode in Episode.Query.all(),
+    from(episode in Episodes.Episode.Query.all(),
       left_join: turn in Turn,
       as: :episode_work_turns,
       on:

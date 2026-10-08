@@ -2,7 +2,7 @@ defmodule Ryker.Behaviors.StandingAssignmentRun.Query do
   @moduledoc "Each input a standing assignment ran for, for every read of `standing_assignment_runs`."
   use Ryker, :query
   alias Ryker.Behaviors.{Behavior, StandingAssignmentRun}
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes
 
   def all, do: from(runs in StandingAssignmentRun, as: :standing_assignment_runs)
 
@@ -32,7 +32,7 @@ defmodule Ryker.Behaviors.StandingAssignmentRun.Query do
   def recent_for_assignment(assignment_id, limit) do
     assignment_id
     |> by_assignment_id()
-    |> join(:left, [standing_assignment_runs: r], e in Episode,
+    |> join(:left, [standing_assignment_runs: r], e in Episodes.Episode,
       on: e.id == r.episode_id,
       as: :episode_kernel_episodes
     )

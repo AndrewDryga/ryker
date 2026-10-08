@@ -13,7 +13,7 @@ defmodule Ryker.Learning.EmptyChat do
   answers, so it can settle a question worth keeping. Thanks in a thread
   still is.
   """
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress
 
   # Every word of an empty-chat message is one of these; one other word, such
   # as "deployed" in "got it, deployed", and the message is learned from.
@@ -28,13 +28,14 @@ defmodule Ryker.Learning.EmptyChat do
   @answers MapSet.new(~w(yes yep yeah yup no nope sure))
 
   @doc "Whether every message is empty chat; an empty list is not."
-  @spec all?([Entry.t()]) :: boolean()
+  @spec all?([Ingress.Inbox.Entry.t()]) :: boolean()
   def all?([_ | _] = entries), do: Enum.all?(entries, &message?/1)
   def all?(_entries), do: false
 
   @doc "Whether one message is a greeting, thanks or bare acknowledgement with nothing attached."
-  @spec message?(Entry.t()) :: boolean()
-  def message?(%Entry{content: %{"text" => text} = content} = entry) when is_binary(text) do
+  @spec message?(Ingress.Inbox.Entry.t()) :: boolean()
+  def message?(%Ingress.Inbox.Entry{content: %{"text" => text} = content} = entry)
+      when is_binary(text) do
     words = words(text)
 
     String.trim(text) != "" and plain?(content) and
@@ -44,7 +45,7 @@ defmodule Ryker.Learning.EmptyChat do
 
   def message?(_entry), do: false
 
-  defp reply?(%Entry{destination_thread_ref: thread, source_item_ref: message}),
+  defp reply?(%Ingress.Inbox.Entry{destination_thread_ref: thread, source_item_ref: message}),
     do: is_binary(thread) and thread != message
 
   # A person's own words and nothing else. An app's alert often has no text of

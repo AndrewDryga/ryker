@@ -6,7 +6,7 @@ defmodule Ryker.ControlPlane.PeopleProjection do
   """
   alias Ryker.ControlPlane.{ConsolePeople, Paths}
   alias Ryker.People
-  alias Ryker.Slack.Names
+  alias Ryker.Slack
 
   @doc "Everyone Ryker knows something about, most recently heard first."
   @spec list() :: %{people: [map()]}
@@ -86,7 +86,7 @@ defmodule Ryker.ControlPlane.PeopleProjection do
 
       ["slack", workspace, channel] ->
         "Said in " <>
-          Names.name(workspace, channel) <> if(private, do: ", used only there", else: "")
+          Slack.Names.name(workspace, channel) <> if(private, do: ", used only there", else: "")
 
       _other ->
         if private, do: "Used only where it was said"
@@ -101,9 +101,9 @@ defmodule Ryker.ControlPlane.PeopleProjection do
 
   # A person the way every page names them: "@Name" once Slack said it.
   defp name("slack:user:" <> _id = person_ref, conversation_ref) do
-    case Names.workspace_from_destination(conversation_ref) do
+    case Slack.Names.workspace_from_destination(conversation_ref) do
       nil -> "Slack user"
-      workspace -> Names.person(workspace, person_ref).name
+      workspace -> Slack.Names.person(workspace, person_ref).name
     end
   end
 

@@ -1,7 +1,7 @@
 defmodule Ryker.Publication.Followup.Query do
   @moduledoc "How each published pull request is followed up, for every read of `episode_publication_followups`."
   use Ryker, :query
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes
   alias Ryker.Publication.{Followup, Publication}
 
   def all, do: from(followups in Followup, as: :episode_publication_followups)
@@ -129,7 +129,7 @@ defmodule Ryker.Publication.Followup.Query do
     from(followup in all(),
       join: publication in Publication,
       on: publication.id == followup.publication_id,
-      join: episode in Episode,
+      join: episode in Episodes.Episode,
       on: episode.id == followup.episode_id and episode.execution_mode == :live,
       where:
         (followup.inserted_at >= ^from and followup.inserted_at < ^to) or

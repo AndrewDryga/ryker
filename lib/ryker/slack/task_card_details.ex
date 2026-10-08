@@ -13,10 +13,10 @@ defmodule Ryker.Slack.TaskCardDetails do
   import Ryker.Slack.Renderer.Blocks,
     only: [escape: 1, expanded_section: 1, link_label: 1, sections: 1, sections: 2, truncate: 2]
 
-  alias Ryker.Records.InvestigationPayload
-  alias Ryker.Work.TaskStages
+  alias Ryker.Records
+  alias Ryker.Work
 
-  @goal_states InvestigationPayload.goal_states()
+  @goal_states Records.InvestigationPayload.goal_states()
   @stage_states ~w(pending running waiting completed failed stale skipped stopped unknown)
   @stage_keys ~w(current detail reason stage state subtasks subtasks_total url your_turn)
   @subtask_keys ~w(current detail id outcome state)
@@ -101,7 +101,7 @@ defmodule Ryker.Slack.TaskCardDetails do
   # Slack bounds one section; text splits on whole lines so no line, and no
   # stage row, is ever cut in half.
   defp stages?(stages) when is_list(stages) do
-    Enum.map(stages, & &1["stage"]) == TaskStages.stages() and Enum.all?(stages, &stage?/1)
+    Enum.map(stages, & &1["stage"]) == Work.TaskStages.stages() and Enum.all?(stages, &stage?/1)
   end
 
   defp stages?(_stages), do: false

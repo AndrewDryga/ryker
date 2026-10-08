@@ -5,7 +5,7 @@ defmodule Ryker.GitHub.Binding do
   Signed webhook payloads identify the item inside this binding. They cannot
   move work to another installation or repository.
   """
-  alias Ryker.Ingress.WorkProfile
+  alias Ryker.Ingress
 
   # GitHub's own payloads, a pull request's description included, before
   # `Ryker.GitHub.Payload` cuts them to the input.
@@ -41,14 +41,14 @@ defmodule Ryker.GitHub.Binding do
           repository_full_name: String.t(),
           repository_id: pos_integer(),
           ryker_actor_id: pos_integer(),
-          work_profile: WorkProfile.t() | nil
+          work_profile: Ingress.WorkProfile.t() | nil
         }
 
   @spec new(keyword() | map()) :: {:ok, t()} | {:error, term()}
   def new(attributes) do
     with {:ok, attributes} <- normalize_attributes(attributes),
          {:ok, work_profile} <-
-           WorkProfile.prepare(Map.get(attributes, :work_profile)),
+           Ingress.WorkProfile.prepare(Map.get(attributes, :work_profile)),
          attributes <- Map.put(attributes, :work_profile, work_profile),
          binding <- struct!(__MODULE__, attributes),
          :ok <- validate(binding) do

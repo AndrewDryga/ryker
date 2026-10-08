@@ -2,7 +2,7 @@ defmodule Ryker.CoopFleet.Placement.Query do
   @moduledoc "Where each Coop session runs, for every read of `coop_session_placements`."
   use Ryker, :query
   alias Ryker.CoopFleet.{Command, Placement, Worker}
-  alias Ryker.Work.Session
+  alias Ryker.Work
 
   def all, do: from(placements in Placement, as: :coop_session_placements)
 
@@ -40,7 +40,7 @@ defmodule Ryker.CoopFleet.Placement.Query do
   """
   def unbound_since(worker_id, since) do
     from(p in all(),
-      join: s in Session,
+      join: s in Work.Session,
       on: s.id == p.session_id,
       where:
         p.worker_id == ^worker_id and p.state in ^Placement.current_states() and

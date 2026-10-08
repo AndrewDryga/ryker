@@ -14,12 +14,19 @@
       },
       requires: ["credo/checks/*.ex"],
       checks: %{
+        disabled: [
+          # The inverse of Emisar's alias rule, which Emisar disables too:
+          # another context's modules are named through its alias (Work.Turn,
+          # Work.Turn.Query), and this check would ask for the deep alias back.
+          {Credo.Check.Design.AliasUsage, []}
+        ],
         extra: [
           {Ryker.Checks.AcronymModuleCase, []},
           {Ryker.Checks.BroadcastEventAsData, []},
           {Ryker.Checks.ChangesetNoTruncate, []},
           {Ryker.Checks.ContextCryptoBoundary, []},
           {Ryker.Checks.ContextNoMapTakeDrop, []},
+          {Ryker.Checks.CrossContextDeepAlias, []},
           {Ryker.Checks.EnumOverValidateInclusion, []},
           {Ryker.Checks.IL01NoInlineEctoDsl, []},
           {Ryker.Checks.IL02NoRepoGet, []},

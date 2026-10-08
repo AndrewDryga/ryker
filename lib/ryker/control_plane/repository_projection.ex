@@ -8,16 +8,16 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
   Channels choose environments, not repositories, so a repository's channels
   are the channels whose environment holds it.
   """
-  alias Ryker.Accounting.Execution
+  alias Ryker.Accounting
   alias Ryker.ControlPlane.{CallRun, Environments, RepositoryPage, Search}
-  alias Ryker.GitHub.Events
+  alias Ryker.GitHub
   alias Ryker.InspectionRedactor, as: Redactor
-  alias Ryker.Publication.Publication
+  alias Ryker.Publication
   alias Ryker.{Repo, RepositoryKnowledge}
-  alias Ryker.RepositoryKnowledge.Run
-  alias Ryker.Schedules.Schedule
+  alias Ryker.RepositoryKnowledge
+  alias Ryker.Schedules
   alias Ryker.Settings
-  alias Ryker.Work.Session
+  alias Ryker.Work
 
   @list_limit 100
 
@@ -77,7 +77,7 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
   # Only the page shows GitHub's side, so only the page reads it: five queries
   # a repository read it for every row of the list (2026-10-04 review).
   defp with_github_health(%{github_bound: true} = configured, ref),
-    do: Map.put(configured, :github_health, Events.repository_health(ref))
+    do: Map.put(configured, :github_health, GitHub.Events.repository_health(ref))
 
   defp with_github_health(configured, _ref), do: configured
 
@@ -92,17 +92,17 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
   defp knowledge_runs(ref, disclosed) do
     runs =
       ref
-      |> Run.Query.by_repository()
-      |> Run.Query.ordered_by_recent()
-      |> Run.Query.limit_to(@knowledge_runs)
-      |> Run.Query.select_cards()
+      |> RepositoryKnowledge.Run.Query.by_repository()
+      |> RepositoryKnowledge.Run.Query.ordered_by_recent()
+      |> RepositoryKnowledge.Run.Query.limit_to(@knowledge_runs)
+      |> RepositoryKnowledge.Run.Query.select_cards()
       |> Repo.all()
 
     ids = Enum.map(runs, fn {run, _prompt, _result} -> run.id end)
 
     executions =
       "knowledge"
-      |> Execution.Query.by_sources(ids)
+      |> Accounting.Execution.Query.by_sources(ids)
       |> Repo.all()
       |> Map.new(&{&1.source_id, &1})
 
@@ -138,8 +138,8 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
 
       opened
       |> Enum.map(&elem(&1, 0))
-      |> Run.Query.by_ids()
-      |> Run.Query.select_texts()
+      |> RepositoryKnowledge.Run.Query.by_ids()
+      |> RepositoryKnowledge.Run.Query.select_texts()
       |> Repo.all()
       |> Enum.flat_map(fn {id, prompt, result} ->
         [{{id, "prompt"}, prompt}, {{id, "answer"}, result}]
@@ -174,11 +174,11 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
     channel_counts = Environments.channel_counts()
     freshness = repository_freshness(refs)
     knowledge = RepositoryKnowledge.entries(refs)
-    publications = grouped_count(Publication.Query.all(), :repository, refs)
-    schedules = grouped_count(Schedule.Query.all(), :repository, refs)
+    publications = grouped_count(Publication.Publication.Query.all(), :repository, refs)
+    schedules = grouped_count(Schedules.Schedule.Query.all(), :repository, refs)
     # The tasks people asked for: a session that read the repository for its
     # RYKER.md is none of them.
-    sessions = grouped_count(Session.Query.for_work(), :repository_ref, refs)
+    sessions = grouped_count(Work.Session.Query.for_work(), :repository_ref, refs)
 
     Enum.map(refs, fn ref ->
       environments = Environments.containing(settings, ref)

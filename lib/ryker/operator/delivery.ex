@@ -5,12 +5,10 @@ defmodule Ryker.Operator.Delivery do
   It exposes only routing identifiers, retry state, and bounded error detail;
   frozen model output and platform credentials never cross this boundary.
   """
-  alias Ryker.Delivery.{PlatformAction, PlatformActionCustody}
-  alias Ryker.Delivery.{RoutingResponse, RoutingResponseCustody}
+  alias Ryker.Delivery
   alias Ryker.{Reference, Repo}
-  alias Ryker.WeeklyReport.Custody, as: ReportCustody
-  alias Ryker.WeeklyReport.Report
-  alias Ryker.Work.{Custody, Turn}
+  alias Ryker.WeeklyReport
+  alias Ryker.Work
 
   # The Failures page reads as deep as the page it shows (a hundred a page).
   @maximum_list 10_001
@@ -26,26 +24,26 @@ defmodule Ryker.Operator.Delivery do
   def list_blocked(limit \\ 100) do
     if is_integer(limit) and limit > 0 and limit <= @maximum_list do
       messages =
-        Turn.Query.blocked_deliveries()
-        |> Turn.Query.ordered_by_recently_updated()
-        |> Turn.Query.limit_to(limit)
+        Work.Turn.Query.blocked_deliveries()
+        |> Work.Turn.Query.ordered_by_recently_updated()
+        |> Work.Turn.Query.limit_to(limit)
         |> Repo.all()
 
       responses =
-        RoutingResponse.Query.all()
-        |> RoutingResponse.Query.by_status(:blocked)
-        |> RoutingResponse.Query.ordered_by_recently_updated()
-        |> RoutingResponse.Query.limit_to(limit)
+        Delivery.RoutingResponse.Query.all()
+        |> Delivery.RoutingResponse.Query.by_status(:blocked)
+        |> Delivery.RoutingResponse.Query.ordered_by_recently_updated()
+        |> Delivery.RoutingResponse.Query.limit_to(limit)
         |> Repo.all()
 
       actions =
-        PlatformAction.Query.all()
-        |> PlatformAction.Query.by_status(:blocked)
-        |> PlatformAction.Query.ordered_by_recently_updated()
-        |> PlatformAction.Query.limit_to(limit)
+        Delivery.PlatformAction.Query.all()
+        |> Delivery.PlatformAction.Query.by_status(:blocked)
+        |> Delivery.PlatformAction.Query.ordered_by_recently_updated()
+        |> Delivery.PlatformAction.Query.limit_to(limit)
         |> Repo.all()
 
-      reports = ReportCustody.blocked(limit)
+      reports = WeeklyReport.Custody.blocked(limit)
 
       items =
         (Enum.map(messages, &message_item/1) ++
@@ -78,33 +76,37 @@ defmodule Ryker.Operator.Delivery do
   end
 
   defp lookup(delivery_ref) do
-    message = Repo.one(Turn.Query.by_delivery_ref(delivery_ref))
-    response = Repo.one(RoutingResponse.Query.by_delivery_ref(delivery_ref))
-    action = Repo.one(PlatformAction.Query.by_action_ref(delivery_ref))
-    report = Repo.one(Report.Query.by_delivery_ref(delivery_ref))
+    message = Repo.one(Work.Turn.Query.by_delivery_ref(delivery_ref))
+    response = Repo.one(Delivery.RoutingResponse.Query.by_delivery_ref(delivery_ref))
+    action = Repo.one(Delivery.PlatformAction.Query.by_action_ref(delivery_ref))
+    report = Repo.one(WeeklyReport.Report.Query.by_delivery_ref(delivery_ref))
 
     case {message, response, action, report} do
-      {%Turn{} = turn, nil, nil, nil} -> {:ok, {:message, turn}}
-      {nil, %RoutingResponse{} = response, nil, nil} -> {:ok, {:routing, response}}
-      {nil, nil, %PlatformAction{} = action, nil} -> {:ok, {:action, action}}
-      {nil, nil, nil, %Report{} = report} -> {:ok, {:report, report}}
+      {%Work.Turn{} = turn, nil, nil, nil} -> {:ok, {:message, turn}}
+      {nil, %Delivery.RoutingResponse{} = response, nil, nil} -> {:ok, {:routing, response}}
+      {nil, nil, %Delivery.PlatformAction{} = action, nil} -> {:ok, {:action, action}}
+      {nil, nil, nil, %WeeklyReport.Report{} = report} -> {:ok, {:report, report}}
       {nil, nil, nil, nil} -> {:error, :delivery_not_found}
       _ambiguous -> {:error, :delivery_ref_ambiguous}
     end
   end
 
   defp rearm_target({:message, turn}) do
-    Custody.retry_delivery(turn.episode_id, turn.turn_ref, turn.delivery_ref)
+    Work.Custody.retry_delivery(turn.episode_id, turn.turn_ref, turn.delivery_ref)
   end
 
-  defp rearm_target({:routing, response}), do: RoutingResponseCustody.retry(response.delivery_ref)
-  defp rearm_target({:action, action}), do: PlatformActionCustody.retry(action.action_ref)
-  defp rearm_target({:report, report}), do: ReportCustody.retry(report.delivery_ref)
+  defp rearm_target({:routing, response}),
+    do: Delivery.RoutingResponseCustody.retry(response.delivery_ref)
 
-  defp item(%Turn{} = turn), do: message_item(turn)
-  defp item(%RoutingResponse{} = response), do: response_item(response)
-  defp item(%PlatformAction{} = action), do: action_item(action)
-  defp item(%Report{} = report), do: report_item(report)
+  defp rearm_target({:action, action}),
+    do: Delivery.PlatformActionCustody.retry(action.action_ref)
+
+  defp rearm_target({:report, report}), do: WeeklyReport.Custody.retry(report.delivery_ref)
+
+  defp item(%Work.Turn{} = turn), do: message_item(turn)
+  defp item(%Delivery.RoutingResponse{} = response), do: response_item(response)
+  defp item(%Delivery.PlatformAction{} = action), do: action_item(action)
+  defp item(%WeeklyReport.Report{} = report), do: report_item(report)
 
   defp message_item(turn) do
     %{
@@ -127,7 +129,7 @@ defmodule Ryker.Operator.Delivery do
       delivery_ref: response.delivery_ref,
       error_code: response.last_error_code,
       error_detail: response.last_error_detail,
-      held: response |> RoutingResponse.Query.held_behind() |> Repo.aggregate(:count),
+      held: response |> Delivery.RoutingResponse.Query.held_behind() |> Repo.aggregate(:count),
       input_id: response.input_id,
       kind: if(response.kind == :message, do: :quick_reply, else: :reaction),
       retry_generation: response.retry_generation,
@@ -155,9 +157,9 @@ defmodule Ryker.Operator.Delivery do
 
   # A blocked reaction or update holds back the later ones of its kind in its
   # turn, which wait in order behind it; other actions hold back nothing.
-  defp held_behind(%PlatformAction{tool: tool} = action) do
-    if tool in PlatformActionCustody.numbered_tools(),
-      do: action |> PlatformAction.Query.held_behind() |> Repo.aggregate(:count),
+  defp held_behind(%Delivery.PlatformAction{tool: tool} = action) do
+    if tool in Delivery.PlatformActionCustody.numbered_tools(),
+      do: action |> Delivery.PlatformAction.Query.held_behind() |> Repo.aggregate(:count),
       else: 0
   end
 

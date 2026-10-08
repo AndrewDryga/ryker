@@ -4,10 +4,10 @@ defmodule Ryker.CoopFleet.JobAuthority do
   alias Ryker.Config
   alias Ryker.CoopFleet.{Command, JobCheck, JobSpec, JobTemplates, ManagedSources}
   alias Ryker.CoopFleet.Placement
-  alias Ryker.GitHub.RepositoryFiles
+  alias Ryker.GitHub
   alias Ryker.{Repo, Settings}
-  alias Ryker.Settings.{Environment, Installation}
-  alias Ryker.Work.{RepositoryContext, RepositorySource, Session}
+  alias Ryker.Settings
+  alias Ryker.Work
 
   @identity ~w(id execution_kind generation create_generation external_ref policy policy_digest authority_digest repository_ref repository_context repository_source environment_ref workspace_task)a
 
@@ -19,7 +19,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
       )
 
   def ensure_pinned(
-        %Session{worker_job_document: nil, worker_job_digest: nil} = session,
+        %Work.Session{worker_job_document: nil, worker_job_digest: nil} = session,
         root,
         prepare,
         reader
@@ -44,7 +44,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
   # with one but never created moves to version 2 with the same grant, and
   # gets its check below; a created one is replaced (`JobSpec.rebind/3`).
   def ensure_pinned(
-        %Session{worker_job_document: %{"version" => 1} = job} = session,
+        %Work.Session{worker_job_document: %{"version" => 1} = job} = session,
         root,
         prepare,
         reader
@@ -60,13 +60,13 @@ defmodule Ryker.CoopFleet.JobAuthority do
     end
   end
 
-  def ensure_pinned(%Session{} = session, root, prepare, reader) do
+  def ensure_pinned(%Work.Session{} = session, root, prepare, reader) do
     with {:ok, session} <- validate(session),
          {:ok, session} <- refresh_companions(session, root, prepare),
          do: refresh_check(session, reader)
   end
 
-  defp check_reader, do: Config.get_env(:job_check_reader, RepositoryFiles)
+  defp check_reader, do: Config.get_env(:job_check_reader, GitHub.RepositoryFiles)
 
   # A working copy's review runs the repository's gate as of the job's base
   # commit: Coop's job-setup:2 runs no other check. A read-only job reviews
@@ -97,7 +97,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
   # before its session is created, as a fresh pin does. A job that names a
   # check keeps it, and a read-only one reviews nothing.
   defp refresh_check(
-         %Session{
+         %Work.Session{
            worker_job_document:
              %{"repository_read_only" => false, "source" => %{}, "check" => %{"argv" => []}} = job
          } = session,
@@ -127,7 +127,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
   # context, so before a session is created each is resolved again and a
   # changed one is pinned anew. The task's own source stays as it began.
   defp refresh_companions(
-         %Session{worker_job_document: %{"companions" => [_ | _] = pinned} = job} = session,
+         %Work.Session{worker_job_document: %{"companions" => [_ | _] = pinned} = job} = session,
          root,
          prepare
        ) do
@@ -160,7 +160,10 @@ defmodule Ryker.CoopFleet.JobAuthority do
 
   defp repin_locked(original, job, digest) do
     session =
-      original.id |> Session.Query.by_id() |> Session.Query.lock_for_update() |> Repo.one()
+      original.id
+      |> Work.Session.Query.by_id()
+      |> Work.Session.Query.lock_for_update()
+      |> Repo.one()
 
     cond do
       is_nil(session) or Map.take(session, @identity) != Map.take(original, @identity) or
@@ -171,14 +174,14 @@ defmodule Ryker.CoopFleet.JobAuthority do
         session
 
       true ->
-        session |> Session.Changeset.pin_worker_job(job, digest) |> Repo.update!()
+        session |> Work.Session.Changeset.pin_worker_job(job, digest) |> Repo.update!()
     end
   end
 
   # No worker holds a copy of the job of a session none of whose creates got
   # anywhere: the placements its failed creates took do not bind it. That was
   # the woken task's case, placed eight times and created none.
-  defp uncreated(%Session{coop_session_id: nil, cleanup_status: :active} = session) do
+  defp uncreated(%Work.Session{coop_session_id: nil, cleanup_status: :active} = session) do
     live = Repo.exists?(Command.Query.live_creates(session.id))
 
     if live, do: {:error, :coop_worker_job_requires_new_session}, else: :ok
@@ -186,7 +189,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
 
   defp uncreated(_session), do: {:error, :coop_worker_job_requires_new_session}
 
-  def validate(%Session{worker_job_document: %{} = job, worker_job_digest: digest} = session) do
+  def validate(%Work.Session{worker_job_document: %{} = job, worker_job_digest: digest} = session) do
     with {:ok, ^digest} <- JobSpec.digest(job),
          true <- job["job_ref"] == session.external_ref,
          {:ok, refs} <- companion_refs(session),
@@ -243,8 +246,8 @@ defmodule Ryker.CoopFleet.JobAuthority do
   Whether the session's frozen job names a companion repository Ryker no longer
   has. Settings that cannot be read leave the session as it is.
   """
-  @spec removed_repositories?(Session.t()) :: boolean()
-  def removed_repositories?(%Session{
+  @spec removed_repositories?(Work.Session.t()) :: boolean()
+  def removed_repositories?(%Work.Session{
         worker_job_document: %{"companions" => [_ | _] = companions}
       }) do
     case available_repositories() do
@@ -284,10 +287,10 @@ defmodule Ryker.CoopFleet.JobAuthority do
   the create adopts the new job first; the woken task's first created session
   was closed as "session_authority" because it had not (2026-09-28).
   """
-  @spec prepared(Session.t()) :: {:ok, Session.t()} | {:error, term()}
-  def prepared(%Session{id: id} = expected) when is_binary(id) do
-    case Repo.one(Session.Query.by_id(id)) do
-      %Session{} = saved ->
+  @spec prepared(Work.Session.t()) :: {:ok, Work.Session.t()} | {:error, term()}
+  def prepared(%Work.Session{id: id} = expected) when is_binary(id) do
+    case Repo.one(Work.Session.Query.by_id(id)) do
+      %Work.Session{} = saved ->
         cond do
           Map.take(saved, @identity) != Map.take(expected, @identity) ->
             {:error, {:coop_fleet_authority_mismatch, :worker_job}}
@@ -309,10 +312,11 @@ defmodule Ryker.CoopFleet.JobAuthority do
 
   # Create preparation pins after callers take their claim snapshot. Reload only the
   # same execution identity; an already-pinned caller may never adopt another job.
-  def exact_receipt(%Session{id: id} = expected, remote) when is_binary(id) and is_map(remote) do
+  def exact_receipt(%Work.Session{id: id} = expected, remote)
+      when is_binary(id) and is_map(remote) do
     with {:ok, session} <- stored_session(expected),
          {:ok, session} <- validate(session),
-         true <- remote["external_ref"] == Session.coop_task_ref(session),
+         true <- remote["external_ref"] == Work.Session.coop_task_ref(session),
          true <- remote["job_ref"] == session.external_ref,
          true <- remote["job_digest"] == session.worker_job_digest do
       :ok
@@ -329,7 +333,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
   # the worker need only hold this session's exact job, whatever version it was
   # frozen in. Checking it as a job Ryker would grant today refused every
   # cleanup of a session created before version 2 (2026-10-04).
-  def exact_cleanup_receipt(%Session{id: id} = expected, remote)
+  def exact_cleanup_receipt(%Work.Session{id: id} = expected, remote)
       when is_binary(id) and is_map(remote) do
     with {:ok, session} <- stored_session(expected),
          true <- cleanup_receipt?(session, remote) do
@@ -343,16 +347,16 @@ defmodule Ryker.CoopFleet.JobAuthority do
     do: {:error, {:coop_protocol_error, :session_authority}}
 
   defp cleanup_receipt?(
-         %Session{worker_job_document: nil, worker_job_digest: nil} = session,
+         %Work.Session{worker_job_document: nil, worker_job_digest: nil} = session,
          remote
        ) do
     is_binary(session.coop_session_id) and remote["id"] == session.coop_session_id and
-      remote["external_ref"] == Session.coop_task_ref(session)
+      remote["external_ref"] == Work.Session.coop_task_ref(session)
   end
 
-  defp cleanup_receipt?(%Session{worker_job_document: %{} = job} = session, remote) do
+  defp cleanup_receipt?(%Work.Session{worker_job_document: %{} = job} = session, remote) do
     CanonicalJSON.worker_digest(job) == session.worker_job_digest and
-      remote["external_ref"] == Session.coop_task_ref(session) and
+      remote["external_ref"] == Work.Session.coop_task_ref(session) and
       remote["job_ref"] == session.external_ref and
       remote["job_digest"] == session.worker_job_digest
   end
@@ -360,8 +364,8 @@ defmodule Ryker.CoopFleet.JobAuthority do
   defp cleanup_receipt?(_session, _remote), do: false
 
   defp stored_session(expected) do
-    case Repo.one(Session.Query.by_id(expected.id)) do
-      %Session{} = saved ->
+    case Repo.one(Work.Session.Query.by_id(expected.id)) do
+      %Work.Session{} = saved ->
         if Map.take(saved, @identity) == Map.take(expected, @identity) and
              (is_nil(expected.worker_job_digest) or
                 expected.worker_job_digest == saved.worker_job_digest),
@@ -373,11 +377,12 @@ defmodule Ryker.CoopFleet.JobAuthority do
     end
   end
 
-  defp source_matches?(nil, %Session{repository_ref: nil, repository_source: nil}), do: true
+  defp source_matches?(nil, %Work.Session{repository_ref: nil, repository_source: nil}), do: true
 
   defp source_matches?(%{} = source, session) do
     source["repository_ref"] == session.repository_ref and
-      source["binding"]["requested"] == (session.repository_source || RepositorySource.default())
+      source["binding"]["requested"] ==
+        (session.repository_source || Work.RepositorySource.default())
   end
 
   defp source_matches?(_source, _session), do: false
@@ -433,10 +438,10 @@ defmodule Ryker.CoopFleet.JobAuthority do
 
   defp incident_environment_scope?(snapshot, environment_ref, primary, repositories, context?) do
     case Settings.environment(snapshot, environment_ref) do
-      %Environment{} = environment ->
-        refs = Environment.repository_refs(environment)
+      %Settings.Environment{} = environment ->
+        refs = Settings.Environment.repository_refs(environment)
 
-        primary in Environment.writable_refs(environment) and
+        primary in Settings.Environment.writable_refs(environment) and
           if context?,
             do: repositories == [primary | List.delete(refs, primary)],
             else: refs == [primary] and repositories == [primary]
@@ -457,7 +462,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
   defp scope_matches?(%{scope_kind: :installation}, session), do: is_nil(session.repository_ref)
 
   defp companion_refs(session) do
-    case RepositoryContext.restore(session.repository_context, session.repository_ref) do
+    case Work.RepositoryContext.restore(session.repository_context, session.repository_ref) do
       {:ok, nil} -> {:ok, []}
       {:ok, context} -> {:ok, context.read_only_repositories}
       _invalid -> {:error, :coop_worker_job_settings_unavailable}
@@ -474,7 +479,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
          true <-
            source["repository_ref"] == ref and source["github_repository"] == repository and
              source["github_repository_id"] == id,
-         true <- source["binding"]["requested"] == (requested || RepositorySource.default()) do
+         true <- source["binding"]["requested"] == (requested || Work.RepositorySource.default()) do
       {:ok, source}
     else
       {:error, {:coop_worker_source_refused, repository, submodule}} ->
@@ -520,10 +525,16 @@ defmodule Ryker.CoopFleet.JobAuthority do
     Repo.transaction(fn ->
       # Settings writers update this row in the same transaction as their
       # changes. A shared lock holds the checked revision through the pin.
-      installation = Installation.Query.all() |> Installation.Query.lock_for_share() |> Repo.one()
+      installation =
+        Settings.Installation.Query.all()
+        |> Settings.Installation.Query.lock_for_share()
+        |> Repo.one()
 
       session =
-        original.id |> Session.Query.by_id() |> Session.Query.lock_for_update() |> Repo.one()
+        original.id
+        |> Work.Session.Query.by_id()
+        |> Work.Session.Query.lock_for_update()
+        |> Repo.one()
 
       unless session && Map.take(session, @identity) == Map.take(original, @identity),
         do: Repo.rollback(:coop_worker_job_identity_changed)
@@ -533,7 +544,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
   end
 
   defp pin_locked(
-         %Session{worker_job_document: nil, worker_job_digest: nil} = session,
+         %Work.Session{worker_job_document: nil, worker_job_digest: nil} = session,
          installation,
          revision,
          job,
@@ -543,7 +554,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
       do: Repo.rollback(:coop_worker_job_settings_changed)
 
     case unplaced(session) do
-      :ok -> session |> Session.Changeset.pin_worker_job(job, digest) |> Repo.update!()
+      :ok -> session |> Work.Session.Changeset.pin_worker_job(job, digest) |> Repo.update!()
       {:error, reason} -> Repo.rollback(reason)
     end
   end
@@ -563,8 +574,8 @@ defmodule Ryker.CoopFleet.JobAuthority do
   Whether no worker ever took the session: it was never placed, so no worker
   holds its job and nothing ran under its authority.
   """
-  @spec unstarted?(Session.t()) :: boolean()
-  def unstarted?(%Session{coop_session_id: nil, cleanup_status: :active} = session),
+  @spec unstarted?(Work.Session.t()) :: boolean()
+  def unstarted?(%Work.Session{coop_session_id: nil, cleanup_status: :active} = session),
     do: not Repo.exists?(Placement.Query.by_session_id(session.id))
 
   def unstarted?(_session), do: false

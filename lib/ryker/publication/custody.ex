@@ -10,18 +10,17 @@ defmodule Ryker.Publication.Custody do
   announced after the outermost commit (`subscribe_publications/0`), on its
   request's topics too.
   """
-  alias Ryker.CoopFleet.WorkspaceCheckpointTransfer
-  alias Ryker.Delivery.Request
-  alias Ryker.Episodes.Episode
+  alias Ryker.CoopFleet
+  alias Ryker.Delivery
+  alias Ryker.Episodes
   alias Ryker.Lease
   alias Ryker.Publication.{Card, ConflictReceipt, FixLoop, Followup, Followups}
   alias Ryker.Publication.{GateOutput, Publication, Receipt, Review}
   alias Ryker.Records
-  alias Ryker.Records.{CardDelivery, Record}
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.UTCDateTime
-  alias Ryker.Work.{DeliveryReceipt, OperationKeys, Session, Turn}
+  alias Ryker.Work
 
   @claimable [:review_pending, :review_ready, :publish_pending, :published_ready]
   @checkpointed_candidate ~w(repository_ref base_revision committed_revision candidate_tree_sha256)
@@ -49,14 +48,15 @@ defmodule Ryker.Publication.Custody do
 
   @doc "Queue a confirmed task's ordinary checks inside accepted Work-result custody."
   def ensure_task_review_in_transaction(
-        %Episode{} = episode,
-        %Session{workspace_task: %{"offer_ref" => task_ref}, repository_ref: repository} = session,
-        %Turn{continuation: %{"kind" => "complete"}} = turn
+        %Episodes.Episode{} = episode,
+        %Work.Session{workspace_task: %{"offer_ref" => task_ref}, repository_ref: repository} =
+          session,
+        %Work.Turn{continuation: %{"kind" => "complete"}} = turn
       )
       when is_binary(repository) and is_binary(session.coop_session_id) do
     case confirmed_task_readiness(episode, turn, task_ref) do
-      {%Record{} = offer, %Record{} = task,
-       %Turn{external_receipt: %{"message_ref" => message} = receipt}} ->
+      {%Records.Record{} = offer, %Records.Record{} = task,
+       %Work.Turn{external_receipt: %{"message_ref" => message} = receipt}} ->
         # The original task confirmation authorizes its checks, not publication.
         # Retain that actor, source message and source thread; no new button
         # receipt is invented, and the checks report where the task was started.
@@ -87,7 +87,7 @@ defmodule Ryker.Publication.Custody do
   def ensure_task_review_in_transaction(_episode, _session, _turn), do: :ok
 
   defp confirmed_task_readiness(episode, turn, task_ref),
-    do: Repo.one(Record.Query.task_readiness(episode.id, turn.id, task_ref))
+    do: Repo.one(Records.Record.Query.task_readiness(episode.id, turn.id, task_ref))
 
   defp episode_publication(episode_id) do
     episode_id
@@ -183,10 +183,10 @@ defmodule Ryker.Publication.Custody do
   # generation's turn left it has nothing to publish.
   defp unchanged_since_published?(
          %Publication{status: :published, review_request_ref: "task-readiness:" <> armed_id},
-         %Turn{} = turn
+         %Work.Turn{} = turn
        ) do
     with {:ok, armed_id} <- Ecto.UUID.cast(armed_id),
-         %Turn{} = armed <- Repo.one(Turn.Query.by_id(armed_id)),
+         %Work.Turn{} = armed <- Repo.one(Work.Turn.Query.by_id(armed_id)),
          %{} = published <- checkpointed_candidate(armed) do
       published == checkpointed_candidate(turn)
     else
@@ -197,10 +197,10 @@ defmodule Ryker.Publication.Custody do
   defp unchanged_since_published?(_publication, _turn), do: false
 
   # Every completed task turn checkpoints its workspace before it is accepted.
-  defp checkpointed_candidate(%Turn{} = turn) do
+  defp checkpointed_candidate(%Work.Turn{} = turn) do
     turn
-    |> OperationKeys.checkpoint()
-    |> WorkspaceCheckpointTransfer.Query.latest_descriptor()
+    |> Work.OperationKeys.checkpoint()
+    |> CoopFleet.WorkspaceCheckpointTransfer.Query.latest_descriptor()
     |> Repo.one()
     |> case do
       %{} = descriptor ->
@@ -249,7 +249,7 @@ defmodule Ryker.Publication.Custody do
 
   @spec claim_next(String.t(), pos_integer()) ::
           {:ok,
-           nil | %{lease_ref: String.t(), publication: Publication.t(), session: Session.t()}}
+           nil | %{lease_ref: String.t(), publication: Publication.t(), session: Work.Session.t()}}
           | {:error, term()}
   def claim_next(worker_ref, lease_seconds) do
     with :ok <- reference(worker_ref, :worker_ref),
@@ -312,7 +312,7 @@ defmodule Ryker.Publication.Custody do
     end
   end
 
-  @spec delivery_request(Publication.t()) :: {:ok, Request.t()} | {:error, term()}
+  @spec delivery_request(Publication.t()) :: {:ok, Delivery.Request.t()} | {:error, term()}
   def delivery_request(%Publication{status: :review_ready} = publication) do
     authorized? =
       Review.publishable?(publication.review_document) and
@@ -367,7 +367,7 @@ defmodule Ryker.Publication.Custody do
   def confirm_delivery(publication_ref, lease_ref, external_receipt) do
     with :ok <- reference(publication_ref, :publication_ref),
          :ok <- reference(lease_ref, :lease_ref),
-         {:ok, receipt} <- DeliveryReceipt.prepare(external_receipt) do
+         {:ok, receipt} <- Work.DeliveryReceipt.prepare(external_receipt) do
       Repo.transaction(fn -> confirm_delivery_after_task(publication_ref, lease_ref, receipt) end)
       |> transaction_result()
     end
@@ -1022,9 +1022,9 @@ defmodule Ryker.Publication.Custody do
   end
 
   defp delivered_offer(record_ref) do
-    case Repo.one(Record.Query.publication_offer(record_ref)) do
-      {%Record{} = record, %Episode{} = episode, %Turn{status: :settled} = turn,
-       %Session{} = session} ->
+    case Repo.one(Records.Record.Query.publication_offer(record_ref)) do
+      {%Records.Record{} = record, %Episodes.Episode{} = episode,
+       %Work.Turn{status: :settled} = turn, %Work.Session{} = session} ->
         {:ok, record, episode, turn, session}
 
       nil ->
@@ -1036,7 +1036,7 @@ defmodule Ryker.Publication.Custody do
   end
 
   defp delivered_target(episode, turn, target) do
-    case CardDelivery.delivered_from?(episode, turn, target) do
+    case Records.CardDelivery.delivered_from?(episode, turn, target) do
       :ok -> :ok
       {:error, :mismatch} -> {:error, :publication_offer_delivery_mismatch}
       {:error, :not_delivered} -> {:error, :publication_offer_not_delivered}
@@ -1049,7 +1049,7 @@ defmodule Ryker.Publication.Custody do
   end
 
   defp record_was_delivered(
-         %Turn{delivery_document: %{"outcome" => %{"record_refs" => refs}}},
+         %Work.Turn{delivery_document: %{"outcome" => %{"record_refs" => refs}}},
          record_ref
        )
        when is_list(refs) do
@@ -1058,7 +1058,7 @@ defmodule Ryker.Publication.Custody do
 
   defp record_was_delivered(_turn, _record_ref), do: {:error, :publication_offer_not_delivered}
 
-  defp repository(%Session{repository_ref: repository, workspace_task: task}, _episode_id)
+  defp repository(%Work.Session{repository_ref: repository, workspace_task: task}, _episode_id)
        when is_binary(repository) and is_map(task),
        do: {:ok, repository}
 
@@ -1096,8 +1096,12 @@ defmodule Ryker.Publication.Custody do
   """
   def claimable(now), do: Publication.Query.claimable_at(now, @claimable, @publication_conflicts)
 
-  defp working_on_turn?(episode_id),
-    do: episode_id |> Episode.Query.by_id() |> Episode.Query.working_on_turns() |> Repo.exists?()
+  defp working_on_turn?(episode_id) do
+    episode_id
+    |> Episodes.Episode.Query.by_id()
+    |> Episodes.Episode.Query.working_on_turns()
+    |> Repo.exists?()
+  end
 
   defp lease_publication(publication, session, worker_ref, lease_seconds, now) do
     lease_ref = "publication-lease:#{Ecto.UUID.generate()}"
@@ -1120,7 +1124,7 @@ defmodule Ryker.Publication.Custody do
 
   defp confirm_delivery_locked(publication_ref, lease_ref, receipt) do
     publication = lock_publication(publication_ref)
-    fingerprint = DeliveryReceipt.fingerprint(receipt)
+    fingerprint = Work.DeliveryReceipt.fingerprint(receipt)
 
     cond do
       publication == nil ->
@@ -1255,7 +1259,7 @@ defmodule Ryker.Publication.Custody do
   # name a different repository and there is no authority left to carry.
   defp draft_grant(%Publication{episode_id: episode_id, repository: repository})
        when is_binary(episode_id) and is_binary(repository) do
-    Repo.one(Record.Query.task_grant(episode_id, repository))
+    Repo.one(Records.Record.Query.task_grant(episode_id, repository))
   end
 
   defp draft_grant(_publication), do: nil
@@ -1413,7 +1417,7 @@ defmodule Ryker.Publication.Custody do
     do: publication_message(publication, ref, %{"message" => message})
 
   defp publication_message(publication, ref, document) do
-    Request.new(%{
+    Delivery.Request.new(%{
       conversation_ref: publication.destination_conversation_ref,
       document: document,
       kind: :message,
@@ -1431,8 +1435,8 @@ defmodule Ryker.Publication.Custody do
     do: {:error, :publication_review_job_mismatch}
 
   defp session(session_id) do
-    case Repo.one(Session.Query.by_id(session_id)) do
-      %Session{coop_session_id: coop_session_id} = session when is_binary(coop_session_id) ->
+    case Repo.one(Work.Session.Query.by_id(session_id)) do
+      %Work.Session{coop_session_id: coop_session_id} = session when is_binary(coop_session_id) ->
         {:ok, session}
 
       _missing ->

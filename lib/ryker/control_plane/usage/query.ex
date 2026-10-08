@@ -5,8 +5,8 @@ defmodule Ryker.ControlPlane.Usage.Query do
   the page breaks it down by, the breakdowns, the days, and the totals.
   """
   use Ryker, :query
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Work.Turn
+  alias Ryker.Ingress
+  alias Ryker.Work
 
   # Each execution beside the message it answered: routing's names the
   # message itself, and a Work turn names the message that started it as
@@ -16,9 +16,9 @@ defmodule Ryker.ControlPlane.Usage.Query do
   # execution (2026-10-04 review).
   def dimensions(queryable) do
     from(e in queryable,
-      left_join: turn in Turn,
+      left_join: turn in Work.Turn,
       on: e.kind == "work" and turn.id == e.source_id,
-      left_join: entry in Entry,
+      left_join: entry in Ingress.Inbox.Entry,
       on:
         entry.id ==
           fragment(

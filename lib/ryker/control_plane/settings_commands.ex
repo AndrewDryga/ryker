@@ -11,7 +11,7 @@ defmodule Ryker.ControlPlane.SettingsCommands do
   alias Ryker.ControlPlane.SettingsSections
   alias Ryker.Credentials
   alias Ryker.Settings
-  alias Ryker.Webhooks.Preview
+  alias Ryker.Webhooks
 
   @type result :: {:ok, Settings.snapshot()} | {:error, term()}
 
@@ -57,7 +57,7 @@ defmodule Ryker.ControlPlane.SettingsCommands do
     with {:ok, snapshot} <- Settings.fetch() do
       case Enum.find(snapshot.webhook_sources, &(&1.name == name)) do
         nil -> {:error, :unknown_webhook_source}
-        source -> Preview.check(source, body)
+        source -> Webhooks.Preview.check(source, body)
       end
     end
   end

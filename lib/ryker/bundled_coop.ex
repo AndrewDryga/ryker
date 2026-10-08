@@ -6,7 +6,7 @@ defmodule Ryker.BundledCoop do
   enrollment state and the controller CA, never policies or repository checkouts.
   """
   alias Ryker.AdvisoryLock
-  alias Ryker.CoopFleet.{Enrollment, EnrollmentToken, Worker}
+  alias Ryker.CoopFleet
   alias Ryker.Crypto
   alias Ryker.{Repo, Settings}
 
@@ -68,7 +68,12 @@ defmodule Ryker.BundledCoop do
   end
 
   defp issue_token!(path, marker) do
-    case Enrollment.issue_token(configured_worker_id(), configured_workspace_ref(), @actor, 3_600) do
+    case CoopFleet.Enrollment.issue_token(
+           configured_worker_id(),
+           configured_workspace_ref(),
+           @actor,
+           3_600
+         ) do
       {:ok, issued} ->
         # A marker proves Coop persisted the identity, not merely that Ryker issued it.
         if File.exists?(marker),
@@ -80,9 +85,9 @@ defmodule Ryker.BundledCoop do
     end
   end
 
-  defp revoked?, do: match?(%Worker{state: :revoked}, configured_worker())
+  defp revoked?, do: match?(%CoopFleet.Worker{state: :revoked}, configured_worker())
 
-  defp configured_worker, do: Repo.one(Worker.Query.by_id(configured_worker_id()))
+  defp configured_worker, do: Repo.one(CoopFleet.Worker.Query.by_id(configured_worker_id()))
 
   defp retire_tokens!(path) do
     worker = configured_worker_id()
@@ -90,9 +95,9 @@ defmodule Ryker.BundledCoop do
     now = Repo.now!()
 
     worker
-    |> EnrollmentToken.Query.by_worker_id_and_workspace_ref(workspace)
-    |> EnrollmentToken.Query.by_operator(@actor)
-    |> EnrollmentToken.Query.usable_at(now)
+    |> CoopFleet.EnrollmentToken.Query.by_worker_id_and_workspace_ref(workspace)
+    |> CoopFleet.EnrollmentToken.Query.by_operator(@actor)
+    |> CoopFleet.EnrollmentToken.Query.usable_at(now)
     |> Repo.update_all(set: [expires_at: now])
 
     case File.rm(path) do
@@ -135,9 +140,9 @@ defmodule Ryker.BundledCoop do
     now = Repo.now!()
 
     digest
-    |> EnrollmentToken.Query.by_digest()
-    |> EnrollmentToken.Query.by_worker_id_and_workspace_ref(worker, workspace)
-    |> EnrollmentToken.Query.usable_at(now)
+    |> CoopFleet.EnrollmentToken.Query.by_digest()
+    |> CoopFleet.EnrollmentToken.Query.by_worker_id_and_workspace_ref(worker, workspace)
+    |> CoopFleet.EnrollmentToken.Query.usable_at(now)
     |> Repo.exists?()
   end
 
@@ -154,9 +159,10 @@ defmodule Ryker.BundledCoop do
   end
 
   defp worker_ready?(
-         %Worker{state: :eligible, protocol_version: "2", last_seen_at: %DateTime{}} = worker
+         %CoopFleet.Worker{state: :eligible, protocol_version: "2", last_seen_at: %DateTime{}} =
+           worker
        ) do
-    cutoff = DateTime.add(DateTime.utc_now(), -Worker.heartbeat_seconds(), :second)
+    cutoff = DateTime.add(DateTime.utc_now(), -CoopFleet.Worker.heartbeat_seconds(), :second)
     capacity = worker.capacity || %{}
 
     worker.workspace_ref == configured_workspace_ref() and

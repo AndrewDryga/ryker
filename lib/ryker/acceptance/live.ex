@@ -8,14 +8,14 @@ defmodule Ryker.Acceptance.Live do
   state tools, and Delivery. This process only observes their durable PostgreSQL custody.
   """
   alias Ryker.{Bootstrap, Settings}
-  alias Ryker.CoopFleet.Placement
-  alias Ryker.Delivery.HTTPClient
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.CoopFleet
+  alias Ryker.Delivery
+  alias Ryker.Ingress
   alias Ryker.Reference
   alias Ryker.Repo
-  alias Ryker.Runtime.Assembly
-  alias Ryker.Slack.{Client, Gateway, Runtime}
-  alias Ryker.Work.Turn
+  alias Ryker.Runtime
+  alias Ryker.Slack
+  alias Ryker.Work
 
   @default_timeout_ms 10 * 60 * 1_000
   @poll_interval_ms 500
@@ -111,13 +111,13 @@ defmodule Ryker.Acceptance.Live do
     # The harness observes the deployment that is already running, so it reads
     # the same durable settings that deployment applied.
     with {:ok, settings} <- Settings.fetch(),
-         {:ok, configuration} <- Assembly.build(Bootstrap.load!(), settings) do
+         {:ok, configuration} <- Runtime.Assembly.build(Bootstrap.load!(), settings) do
       with_finch(fn -> run(configuration, channel_ref, timeout_ms: timeout_ms) end)
     end
   end
 
   defp with_finch(function) do
-    case HTTPClient.with_pool(function) do
+    case Delivery.HTTPClient.with_pool(function) do
       {:error, {:http_pool_unavailable, reason}} ->
         {:error, {:live_acceptance_http_unavailable, reason}}
 
@@ -217,16 +217,16 @@ defmodule Ryker.Acceptance.Live do
   end
 
   defp operations(configuration, slack, nil) do
-    gateway = Runtime.options!(slack).handler_settings
+    gateway = Slack.Runtime.options!(slack).handler_settings
     client = gateway.client
 
     operations(configuration, slack, %{
       admit: &production_admit(&1, gateway),
-      conversation_info: &Client.conversation_info(client, &1),
+      conversation_info: &Slack.Client.conversation_info(client, &1),
       monotonic_ms: fn -> System.monotonic_time(:millisecond) end,
       now: &DateTime.utc_now/0,
       observe: &observe/2,
-      post_message: &Client.post_message(client, &1, &2, &3, &4),
+      post_message: &Slack.Client.post_message(client, &1, &2, &3, &4),
       ready: fn -> deployment_ready(configuration) end,
       sleep: &Process.sleep/1
     })
@@ -336,7 +336,7 @@ defmodule Ryker.Acceptance.Live do
   end
 
   defp production_admit(envelope, gateway) do
-    case Gateway.handle_envelope(envelope, gateway) do
+    case Slack.Gateway.handle_envelope(envelope, gateway) do
       {:ack, {:recorded, input_ref}} -> {:ok, input_ref}
       {:ack, {:duplicate, input_ref}} -> {:ok, input_ref}
       {:ack, outcome} -> {:error, {:live_acceptance_input_not_recorded, outcome}}
@@ -351,10 +351,10 @@ defmodule Ryker.Acceptance.Live do
        when is_tuple(ip) and is_integer(port) do
     host = ip |> :inet.ntoa() |> to_string()
     authority = if String.contains?(host, ":"), do: "[#{host}]", else: host
-    request = HTTPClient.build(:get, "http://#{authority}:#{port}/readyz")
+    request = Delivery.HTTPClient.build(:get, "http://#{authority}:#{port}/readyz")
     expected_version = release_version()
 
-    case HTTPClient.stream(request, Ryker.CoopFinch, 5_000, @maximum_ready_bytes) do
+    case Delivery.HTTPClient.stream(request, Ryker.CoopFinch, 5_000, @maximum_ready_bytes) do
       {:ok, %{headers: headers, status: 200}} ->
         case List.keyfind(headers, "x-ryker-version", 0) do
           {"x-ryker-version", ^expected_version} -> :ok
@@ -403,33 +403,36 @@ defmodule Ryker.Acceptance.Live do
   def observe(event_ref, previous_turn_ids) do
     entry =
       "slack"
-      |> Entry.Query.by_source_event(event_ref)
-      |> Entry.Query.ordered_by_recent()
-      |> Entry.Query.limit_to(1)
+      |> Ingress.Inbox.Entry.Query.by_source_event(event_ref)
+      |> Ingress.Inbox.Entry.Query.ordered_by_recent()
+      |> Ingress.Inbox.Entry.Query.limit_to(1)
       |> Repo.one()
 
     observe_entry(entry, previous_turn_ids)
   end
 
   defp observe_entry(nil, _previous_turn_ids), do: :pending
-  defp observe_entry(%Entry{status: :pending}, _previous_turn_ids), do: :pending
+  defp observe_entry(%Ingress.Inbox.Entry{status: :pending}, _previous_turn_ids), do: :pending
 
-  defp observe_entry(%Entry{status: :blocked} = entry, _previous_turn_ids),
+  defp observe_entry(%Ingress.Inbox.Entry{status: :blocked} = entry, _previous_turn_ids),
     do: {:error, {:live_acceptance_admission_blocked, entry.last_error_code}}
 
-  defp observe_entry(%Entry{status: :superseded}, _previous_turn_ids),
+  defp observe_entry(%Ingress.Inbox.Entry{status: :superseded}, _previous_turn_ids),
     do: {:error, :live_acceptance_input_superseded}
 
-  defp observe_entry(%Entry{status: :decided, episode_id: nil}, _previous_turn_ids),
+  defp observe_entry(%Ingress.Inbox.Entry{status: :decided, episode_id: nil}, _previous_turn_ids),
     do: {:error, :live_acceptance_input_created_no_episode}
 
-  defp observe_entry(%Entry{status: :decided, episode_id: episode_id}, previous_turn_ids) do
+  defp observe_entry(
+         %Ingress.Inbox.Entry{status: :decided, episode_id: episode_id},
+         previous_turn_ids
+       ) do
     turn =
       episode_id
-      |> Turn.Query.by_episode_id()
-      |> Turn.Query.excluding_ids(previous_turn_ids)
-      |> Turn.Query.ordered_by_recent()
-      |> Turn.Query.limit_to(1)
+      |> Work.Turn.Query.by_episode_id()
+      |> Work.Turn.Query.excluding_ids(previous_turn_ids)
+      |> Work.Turn.Query.ordered_by_recent()
+      |> Work.Turn.Query.limit_to(1)
       |> Repo.one()
 
     observe_turn(turn, episode_id)
@@ -437,11 +440,11 @@ defmodule Ryker.Acceptance.Live do
 
   defp observe_turn(nil, _episode_id), do: :pending
 
-  defp observe_turn(%Turn{status: status} = turn, _episode_id)
+  defp observe_turn(%Work.Turn{status: status} = turn, _episode_id)
        when status in [:blocked, :cancel_pending, :superseded],
        do: {:error, {:live_acceptance_work_failed, status, turn.last_error_code}}
 
-  defp observe_turn(%Turn{status: :settled} = turn, episode_id) do
+  defp observe_turn(%Work.Turn{status: :settled} = turn, episode_id) do
     {:ok,
      %{
        delivery_document: turn.delivery_document,
@@ -453,7 +456,7 @@ defmodule Ryker.Acceptance.Live do
      }}
   end
 
-  defp observe_turn(%Turn{}, _episode_id), do: :pending
+  defp observe_turn(%Work.Turn{}, _episode_id), do: :pending
 
   defp validate_snapshot(
          %{
@@ -511,13 +514,13 @@ defmodule Ryker.Acceptance.Live do
   defp worker_placement(session_id) do
     placement =
       session_id
-      |> Placement.Query.by_session_id()
-      |> Placement.Query.ordered_by_generation_desc()
-      |> Placement.Query.limit_to(1)
+      |> CoopFleet.Placement.Query.by_session_id()
+      |> CoopFleet.Placement.Query.ordered_by_generation_desc()
+      |> CoopFleet.Placement.Query.limit_to(1)
       |> Repo.one()
 
     case placement do
-      %Placement{} = placement ->
+      %CoopFleet.Placement{} = placement ->
         %{
           generation: placement.generation,
           state: placement.state,

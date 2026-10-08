@@ -11,8 +11,8 @@ defmodule Ryker.Admission.Worker do
   """
   use Ryker.PollingWorker, lane: :admission, interval: :poll_interval_ms
   alias Ryker.Admission.Dispatcher
-  alias Ryker.Ingress.Inbox
-  alias Ryker.Observability.Progress
+  alias Ryker.Ingress
+  alias Ryker.Observability
   alias Ryker.PollingWorker
   require Logger
 
@@ -42,19 +42,19 @@ defmodule Ryker.Admission.Worker do
   end
 
   @impl PollingWorker
-  def wake_on(_state), do: [&Inbox.subscribe_inputs/0]
+  def wake_on(_state), do: [&Ingress.Inbox.subscribe_inputs/0]
 
   @impl PollingWorker
   def poll(state) do
     delay = process_once(state)
-    _ = Progress.beat(:admission)
+    _ = Observability.Progress.beat(:admission)
     delay
   end
 
   defp process_once(state) do
     case Dispatcher.run_once(state.dispatcher_options) do
       {:ok, :idle} ->
-        PollingWorker.idle_delay(&Inbox.next_due_at/1, state.idle_interval_ms)
+        PollingWorker.idle_delay(&Ingress.Inbox.next_due_at/1, state.idle_interval_ms)
 
       {:ok, {:decided, _execution}} ->
         0

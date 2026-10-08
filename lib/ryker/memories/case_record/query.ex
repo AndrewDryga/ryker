@@ -2,7 +2,7 @@ defmodule Ryker.Memories.CaseRecord.Query do
   @moduledoc "Cases kept from finished work, for every read of `episode_case_records`."
   use Ryker, :query
   alias Ryker.Memories.CaseRecord
-  alias Ryker.Slack.ChannelMembership
+  alias Ryker.Slack
 
   def all, do: from(records in CaseRecord, as: :episode_case_records)
 
@@ -31,7 +31,7 @@ defmodule Ryker.Memories.CaseRecord.Query do
   # by workspace alone took work in a DM or a private channel into every public
   # and Slack Connect channel (2026-10-04 review).
   defp visible_to(queryable, %{transport: "slack", visibility: :public} = scope) do
-    public = ChannelMembership.Query.public_conversation_refs(scope.workspace_ref)
+    public = Slack.ChannelMembership.Query.public_conversation_refs(scope.workspace_ref)
 
     where(
       queryable,

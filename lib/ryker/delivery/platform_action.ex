@@ -1,7 +1,7 @@
 defmodule Ryker.Delivery.PlatformAction do
   @moduledoc false
   use Ryker, :schema
-  alias Ryker.CanonicalJSON.Type, as: CanonicalJSONType
+  alias Ryker.CanonicalJSON
 
   schema "platform_actions" do
     belongs_to(:episode, Ryker.Episodes.Episode)
@@ -18,7 +18,7 @@ defmodule Ryker.Delivery.PlatformAction do
     field(:conversation_ref, :string)
     field(:thread_ref, :string)
     field(:source_item_ref, :string)
-    field(:document, CanonicalJSONType)
+    field(:document, CanonicalJSON.Type)
     field(:intent_fingerprint, :string)
     field(:status, Ecto.Enum, values: [:pending, :blocked, :delivered], default: :pending)
     field(:attempt_count, :integer, default: 0)
@@ -29,7 +29,7 @@ defmodule Ryker.Delivery.PlatformAction do
     field(:next_attempt_at, :utc_datetime_usec)
     field(:last_error_code, :string)
     field(:last_error_detail, :string)
-    field(:external_receipt, CanonicalJSONType)
+    field(:external_receipt, CanonicalJSON.Type)
     field(:external_receipt_fingerprint, :string)
     field(:delivered_at, :utc_datetime_usec)
     timestamps()

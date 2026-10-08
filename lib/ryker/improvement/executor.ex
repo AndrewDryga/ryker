@@ -21,11 +21,11 @@ defmodule Ryker.Improvement.Executor do
   one) does local proof alone close it. So a lost answer never buys a second
   model call.
   """
-  alias Ryker.Coop.API
-  alias Ryker.CoopFleet.JobAuthority
+  alias Ryker.Coop
+  alias Ryker.CoopFleet
   alias Ryker.Improvement.{Analyses, FleetSession, Prompt}
   alias Ryker.Repo
-  alias Ryker.Work.Session
+  alias Ryker.Work
 
   @terminal ~w(completed failed cancelled interrupted budget_exhausted)
   @pending ~w(reserved running)
@@ -150,7 +150,7 @@ defmodule Ryker.Improvement.Executor do
 
         :not_found ->
           with :ok <-
-                 API.prepare_create_session(
+                 Coop.API.prepare_create_session(
                    settings.api,
                    settings.client,
                    key,
@@ -173,13 +173,13 @@ defmodule Ryker.Improvement.Executor do
     case operation(result, "CreateRemoteSession", "session") do
       {:ok, %{"id" => id} = session} when is_binary(id) ->
         with {:ok, _bound} <- bind(claim, run, id),
-             do: located_session({:ok, session}, Repo.one!(Session.Query.by_id(local.id)))
+             do: located_session({:ok, session}, Repo.one!(Work.Session.Query.by_id(local.id)))
 
       {:resource, id} ->
         with {:ok, _bound} <- bind(claim, run, id) do
           located_session(
             call(claim, settings, :get_session, [id]),
-            Repo.one!(Session.Query.by_id(local.id))
+            Repo.one!(Work.Session.Query.by_id(local.id))
           )
         end
 
@@ -200,7 +200,7 @@ defmodule Ryker.Improvement.Executor do
        )
        when is_binary(id) and is_integer(revision) and revision > 0 do
     if local.coop_session_id == id and state in ~w(open exhausted closed discarded) and
-         JobAuthority.exact_receipt(local, remote) == :ok,
+         CoopFleet.JobAuthority.exact_receipt(local, remote) == :ok,
        do: {:ok, remote},
        else: {:error, :improvement_session_authority_conflict}
   end

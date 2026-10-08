@@ -19,12 +19,12 @@ defmodule Ryker.Work.Custody do
   commit: sessions on this module's topic (`subscribe_sessions/0`), turns on
   their request's (`Ryker.Episodes.subscribe_episode/1`).
   """
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes
   alias Ryker.Work.Custody.{Cancellation, Claims, Delivery, Sessions, Turns}
   alias Ryker.Work.{Result, Session, Submission, Turn}
 
   @type claim :: %{
-          episode: Episode.t(),
+          episode: Episodes.Episode.t(),
           lease_ref: String.t(),
           session: Session.t(),
           turn: Turn.t()
@@ -330,7 +330,7 @@ defmodule Ryker.Work.Custody do
           pos_integer(),
           String.t(),
           map()
-        ) :: {:ok, %{episode: Episode.t(), turn: Turn.t()}} | {:error, term()}
+        ) :: {:ok, %{episode: Episodes.Episode.t(), turn: Turn.t()}} | {:error, term()}
   defdelegate accept_result(
                 episode_id,
                 episode_key,
@@ -352,7 +352,7 @@ defmodule Ryker.Work.Custody do
           String.t(),
           String.t(),
           map()
-        ) :: {:ok, %{episode: Episode.t(), turn: Turn.t()}} | {:error, term()}
+        ) :: {:ok, %{episode: Episodes.Episode.t(), turn: Turn.t()}} | {:error, term()}
   defdelegate confirm_delivery(episode_id, episode_key, turn_ref, lease_ref, external_receipt),
     to: Delivery
 
@@ -455,8 +455,8 @@ defmodule Ryker.Work.Custody do
     to: Delivery
 
   @doc false
-  @spec resume_blocked_in_transaction(Episode.t(), String.t() | nil) ::
-          {:ok, Episode.t()} | {:error, term()}
+  @spec resume_blocked_in_transaction(Episodes.Episode.t(), String.t() | nil) ::
+          {:ok, Episodes.Episode.t()} | {:error, term()}
   defdelegate resume_blocked_in_transaction(episode, required_input_ref), to: Cancellation
 
   @doc """
@@ -466,7 +466,7 @@ defmodule Ryker.Work.Custody do
   Otherwise the old Coop turn remains immutable: a proven stop and recoverable
   workspace are required before transferring ownership to a new logical turn.
   """
-  @spec retry_blocked(String.t(), String.t()) :: {:ok, Episode.t()} | {:error, term()}
+  @spec retry_blocked(String.t(), String.t()) :: {:ok, Episodes.Episode.t()} | {:error, term()}
   defdelegate retry_blocked(episode_key, expected_recovery), to: Cancellation
 
   @doc "Binds operator confirmation to the exact stopped turn and recovery mode."
@@ -640,7 +640,7 @@ defmodule Ryker.Work.Custody do
   was accepted with; later context can never move or erase it. Only a place
   deleted for good moves it (`redirect_delivery/4`).
   """
-  @spec delivery_target(Episode.t(), Turn.t()) :: map()
+  @spec delivery_target(Episodes.Episode.t(), Turn.t()) :: map()
   defdelegate delivery_target(episode, turn), to: Delivery
 
   @doc """
@@ -649,7 +649,7 @@ defmodule Ryker.Work.Custody do
   This is computed once, when the result is accepted, and then frozen on the
   turn. Later inputs cannot move an answer that has already been accepted.
   """
-  @spec reply_target(Episode.t(), Turn.t()) :: map() | nil
+  @spec reply_target(Episodes.Episode.t(), Turn.t()) :: map() | nil
   defdelegate reply_target(episode, turn), to: Delivery
 
   # -- PubSub ------------------------------------------------------------------
@@ -702,6 +702,6 @@ defmodule Ryker.Work.Custody do
   over the episode's home. A Work update posted mid-turn goes to the same
   place, so the update and the answer after it read in one thread.
   """
-  @spec answer_target(Episode.t(), Turn.t()) :: map()
+  @spec answer_target(Episodes.Episode.t(), Turn.t()) :: map()
   defdelegate answer_target(episode, turn), to: Delivery
 end

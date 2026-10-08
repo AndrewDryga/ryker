@@ -4,10 +4,10 @@ defmodule Ryker.Admission.Attempts do
   alias Ryker.Admission
   alias Ryker.Admission.Attempt
   alias Ryker.CanonicalJSON
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress
   alias Ryker.Lease
   alias Ryker.Repo
-  alias Ryker.Work.Measurement
+  alias Ryker.Work
 
   @phases ~w(context_prepared execution_requested request_frozen provider_queued provider_running response_received host_validation committed)
   # The most refused answers one attempt keeps, the latest: Coop gives a
@@ -26,7 +26,7 @@ defmodule Ryker.Admission.Attempts do
             Ryker.Accounting.observe_admission_in_transaction(
               entry,
               %{"state" => "requested"},
-              Measurement.prepare(%{}, %{"target" => settings[:execution_target]}),
+              Work.Measurement.prepare(%{}, %{"target" => settings[:execution_target]}),
               settings.now.()
             )
 
@@ -63,7 +63,7 @@ defmodule Ryker.Admission.Attempts do
   (`Ryker.Admission.refusal/1`) and the `correction` sent back. The same
   candidate again, as a retried validation sends it, is kept once.
   """
-  @spec reject(Entry.t(), map(), map()) :: :ok | {:error, term()}
+  @spec reject(Ingress.Inbox.Entry.t(), map(), map()) :: :ok | {:error, term()}
   def reject(entry, %{"attempt" => number, "sha256" => sha256} = rejection, settings) do
     locked(entry, settings, fn attempt ->
       kept = List.wrap(attempt.rejections)
@@ -97,7 +97,7 @@ defmodule Ryker.Admission.Attempts do
 
     # Measurement.prepare validates the provider's counters; malformed optional
     # telemetry is marked missing and cannot reject a valid admission decision.
-    measured = Measurement.prepare(turn, %{"target" => settings[:execution_target]})
+    measured = Work.Measurement.prepare(turn, %{"target" => settings[:execution_target]})
 
     locked(entry, settings, fn attempt ->
       {:ok, recorded} =
@@ -127,7 +127,7 @@ defmodule Ryker.Admission.Attempts do
   end
 
   @doc "Called inside the transaction which commits the input decision."
-  def committed(%Entry{} = entry) do
+  def committed(%Ingress.Inbox.Entry{} = entry) do
     :ok = Ryker.Accounting.attach_admission_in_transaction(entry)
 
     case Repo.one(query(entry)) do
@@ -142,7 +142,11 @@ defmodule Ryker.Admission.Attempts do
 
   defp locked(entry, settings, action) do
     Repo.transaction(fn ->
-      current = entry.id |> Entry.Query.by_id() |> Entry.Query.lock_for_update() |> Repo.one()
+      current =
+        entry.id
+        |> Ingress.Inbox.Entry.Query.by_id()
+        |> Ingress.Inbox.Entry.Query.lock_for_update()
+        |> Repo.one()
 
       if is_nil(current) or current.status != :pending or
            not Lease.held?(current, settings.lease_ref, settings.now.()) or

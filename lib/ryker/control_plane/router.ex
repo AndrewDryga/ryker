@@ -21,8 +21,8 @@ defmodule Ryker.ControlPlane.Router do
   alias Ryker.ControlPlane.{PathRef, Paths, PeoplePage, RelearnPanel, Viewer}
   alias Ryker.HTTPConnection
   alias Ryker.Observability
-  alias Ryker.Operator.Learning, as: LearningOperator
-  alias Ryker.Slack.Names
+  alias Ryker.Operator
+  alias Ryker.Slack
   require Logger
 
   @maximum_form_bytes 4_096
@@ -386,7 +386,7 @@ defmodule Ryker.ControlPlane.Router do
              form.token
            ),
          {:ok, _receipt} <-
-           LearningOperator.retry(
+           Operator.Learning.retry(
              id,
              form.version,
              Viewer.actor_ref(conn, options),
@@ -418,7 +418,7 @@ defmodule Ryker.ControlPlane.Router do
              form.token
            ),
          {:ok, %{outcome: %{"batch_id" => batch_id}}} <-
-           LearningOperator.rebuild(
+           Operator.Learning.rebuild(
              id,
              form.version,
              form.generation,
@@ -454,7 +454,7 @@ defmodule Ryker.ControlPlane.Router do
              form.token
            ),
          {:ok, %{outcome: %{"batch_id" => batch_id}}} <-
-           LearningOperator.reselect(
+           Operator.Learning.reselect(
              id,
              form.budget_version,
              %{version: form.version, generation: form.generation},
@@ -806,7 +806,7 @@ defmodule Ryker.ControlPlane.Router do
   defp confirmation("case", resource_ref, "forget", options) do
     case options.projection.case.(Paths.id("case", resource_ref)) do
       {:ok, %{forgotten?: false} = item} ->
-        {:ok, "Forget \"#{MemoryFormat.excerpt(item.problem, Names.workspace(), 90)}\"?",
+        {:ok, "Forget \"#{MemoryFormat.excerpt(item.problem, Slack.Names.workspace(), 90)}\"?",
          "Ryker erases this case's words, and later requests about the same problem no longer read it. That a case was kept stays, marked forgotten. You can't undo this.",
          "case:forget", :danger}
 

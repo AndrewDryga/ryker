@@ -12,7 +12,6 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
   """
   alias Ryker.ControlPlane.{FeedbackProjection, PagedRelation, PathRef}
   alias Ryker.Improvement
-  alias Ryker.Improvement.Candidate
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
 
@@ -30,29 +29,29 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
   """
   @spec page(map()) :: map()
   def page(params) when is_map(params) do
-    visible = Candidate.Query.kept()
+    visible = Improvement.Candidate.Query.kept()
 
     {status, category, in_status, listed} =
       case linked(visible, params["candidate"]) do
         {id, status} ->
-          {status, nil, Candidate.Query.by_status(visible, status),
-           Candidate.Query.by_id(visible, id)}
+          {status, nil, Improvement.Candidate.Query.by_status(visible, status),
+           Improvement.Candidate.Query.by_id(visible, id)}
 
         nil ->
           status = pick(params["status"], @statuses) || :open
-          category = pick(params["category"], Candidate.categories())
-          in_status = Candidate.Query.by_status(visible, status)
+          category = pick(params["category"], Improvement.Candidate.categories())
+          in_status = Improvement.Candidate.Query.by_status(visible, status)
 
           listed =
             if category,
-              do: Candidate.Query.by_category(in_status, category),
+              do: Improvement.Candidate.Query.by_category(in_status, category),
               else: in_status
 
           {status, category, in_status, listed}
       end
 
     paged =
-      PagedRelation.read(listed, Candidate.Query.review_order(), "page", params,
+      PagedRelation.read(listed, Improvement.Candidate.Query.review_order(), "page", params,
         page_size: @page_size
       )
 
@@ -76,11 +75,11 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
   """
   @spec summary() :: map()
   def summary do
-    visible = Candidate.Query.kept()
+    visible = Improvement.Candidate.Query.kept()
 
     %{
       counts: status_counts(visible),
-      categories: category_counts(Candidate.Query.by_status(visible, :open))
+      categories: category_counts(Improvement.Candidate.Query.by_status(visible, :open))
     }
   end
 
@@ -88,7 +87,8 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
   @spec fetch(String.t()) :: {:ok, map()} | :error
   def fetch(id) do
     with {:ok, id} <- PathRef.uuid(id),
-         %Candidate{forgotten_at: nil} = candidate <- Repo.one(Candidate.Query.by_id(id)) do
+         %Improvement.Candidate{forgotten_at: nil} = candidate <-
+           Repo.one(Improvement.Candidate.Query.by_id(id)) do
       [item] = present([candidate])
       {:ok, item}
     else
@@ -108,8 +108,12 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
     end
   end
 
-  defp candidate_status(visible, id),
-    do: visible |> Candidate.Query.by_id(id) |> Candidate.Query.select_statuses() |> Repo.one()
+  defp candidate_status(visible, id) do
+    visible
+    |> Improvement.Candidate.Query.by_id(id)
+    |> Improvement.Candidate.Query.select_statuses()
+    |> Repo.one()
+  end
 
   defp pick(value, allowed) when is_binary(value),
     do: Enum.find(allowed, &(Atom.to_string(&1) == value))
@@ -117,13 +121,13 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
   defp pick(_value, _allowed), do: nil
 
   defp status_counts(query) do
-    counts = query |> Candidate.Query.count_by_status() |> Repo.all() |> Map.new()
+    counts = query |> Improvement.Candidate.Query.count_by_status() |> Repo.all() |> Map.new()
 
     Map.new(@statuses, &{&1, Map.get(counts, &1, 0)})
   end
 
   defp category_counts(query),
-    do: query |> Candidate.Query.count_by_category() |> Repo.all() |> Map.new()
+    do: query |> Improvement.Candidate.Query.count_by_category() |> Repo.all() |> Map.new()
 
   # What the last seven days brought, by the database clock that stamps a
   # candidate and its decision: the candidates found, by what Ryker made of
@@ -134,7 +138,7 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
     Improvement.week(DateTime.add(now, -@week_seconds, :second), DateTime.add(now, 1, :second))
   end
 
-  defp exportable, do: Repo.aggregate(Candidate.Query.exportable_cases(), :count)
+  defp exportable, do: Repo.aggregate(Improvement.Candidate.Query.exportable_cases(), :count)
 
   # Each candidate with the request it is about, named as Activity names it.
   defp present([]), do: []
@@ -142,7 +146,7 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
   defp present(candidates) do
     requests = FeedbackProjection.requests(candidates)
 
-    Enum.map(candidates, fn %Candidate{} = candidate ->
+    Enum.map(candidates, fn %Improvement.Candidate{} = candidate ->
       %{
         id: candidate.id,
         at: candidate.last_signal_at,

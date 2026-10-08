@@ -9,14 +9,13 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   alias Ryker.Artifacts
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{Conversation, SourcePage}
-  alias Ryker.Delivery.PlatformActionCustody
-  alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.Delivery
+  alias Ryker.Episodes
   alias Ryker.Records
   alias Ryker.Repo
-  alias Ryker.Slack.CapabilityTools, as: SlackCapabilityTools
-  alias Ryker.Slack.CapabilityTools.Arguments, as: SlackArguments
-  alias Ryker.StateTools.Binding
-  alias Ryker.Work.Turn
+  alias Ryker.Slack
+  alias Ryker.StateTools
+  alias Ryker.Work
   require Logger
 
   @list_fields ~w(configured_only cursor include_archived include_resources kinds limit query)
@@ -40,7 +39,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
 
   @spec list() :: [map()]
   def list do
-    definitions = SlackCapabilityTools.definitions()
+    definitions = Slack.CapabilityTools.definitions()
     advertised_tools = Enum.map(definitions, & &1["name"])
 
     if advertised_tools == @implemented_tools do
@@ -86,7 +85,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   defp dispatch_current(name, arguments, context) do
     Repo.statement_timeout!(5_000)
 
-    case Binding.lock_current(context.binding) do
+    case StateTools.Binding.lock_current(context.binding) do
       {:ok, _current} -> dispatch(name, arguments, context)
       {:error, _reason} -> Repo.rollback(:unauthorized)
     end
@@ -233,7 +232,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
          {:ok, input} <- active_input(context, arguments["message_ref"]),
          :ok <- removal_authorized(action, context, input, emoji),
          {:ok, %{action: frozen}} <-
-           PlatformActionCustody.enqueue_in_turn(context.binding, %{
+           Delivery.PlatformActionCustody.enqueue_in_turn(context.binding, %{
              conversation_ref: context.conversation_ref,
              document: %{"action" => action, "emoji_name" => emoji},
              kind: :reaction,
@@ -245,7 +244,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
       {:ok, %{"action_ref" => frozen.action_ref, "status" => Atom.to_string(frozen.status)}}
     else
       {:error, reason} ->
-        {:error, SlackCapabilityTools.refusal_code(reason) || error_code(reason)}
+        {:error, Slack.CapabilityTools.refusal_code(reason) || error_code(reason)}
     end
   end
 
@@ -276,10 +275,10 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   # same bound, order and typed-entity rule as in Slack; a Chat answer names
   # no Slack entity.
   defp dispatch("post_slack_update", arguments, context) do
-    with {:ok, message} <- SlackArguments.update_message(arguments),
-         :ok <- SlackCapabilityTools.update_mentions(message, nil),
+    with {:ok, message} <- Slack.CapabilityTools.Arguments.update_message(arguments),
+         :ok <- Slack.CapabilityTools.update_mentions(message, nil),
          {:ok, %{action: frozen}} <-
-           PlatformActionCustody.enqueue_in_turn(context.binding, %{
+           Delivery.PlatformActionCustody.enqueue_in_turn(context.binding, %{
              conversation_ref: context.conversation_ref,
              document: %{"message" => message},
              kind: :message,
@@ -291,7 +290,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
       {:ok, %{"action_ref" => frozen.action_ref, "status" => Atom.to_string(frozen.status)}}
     else
       {:error, reason} ->
-        {:error, SlackCapabilityTools.refusal_code(reason) || error_code(reason)}
+        {:error, Slack.CapabilityTools.refusal_code(reason) || error_code(reason)}
     end
   end
 
@@ -363,7 +362,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   defp lab_binding(
          %{
            episode:
-             %Episode{
+             %Episodes.Episode{
                destination_conversation_ref: @lab_prefix <> conversation_id = conversation_ref,
                destination_thread_ref: conversation_ref,
                destination_transport: "control_plane",
@@ -373,7 +372,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
                state: :working
              } = episode,
            state_token: state_token,
-           turn: %Turn{
+           turn: %Work.Turn{
              episode_id: episode_id,
              id: turn_id,
              status: :pending,
@@ -476,7 +475,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   end
 
   defp reply_message(
-         %Turn{
+         %Work.Turn{
            accepted_at: accepted_at,
            delivery_document: %{"message" => message},
            delivery_ref: delivery_ref
@@ -713,13 +712,13 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   defp load_active_input(episode_id, source_ref) do
     admitted =
       episode_id
-      |> Event.Query.by_episode_id()
-      |> Event.Query.admitted_inputs([source_ref])
-      |> Event.Query.limit_to(1)
+      |> Episodes.Event.Query.by_episode_id()
+      |> Episodes.Event.Query.admitted_inputs([source_ref])
+      |> Episodes.Event.Query.limit_to(1)
       |> Repo.one()
 
     case admitted do
-      %Event{payload: %{"payload" => %{} = input}} -> {:ok, input}
+      %Episodes.Event{payload: %{"payload" => %{} = input}} -> {:ok, input}
       _missing -> {:error, :unauthorized}
     end
   end
@@ -727,7 +726,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   defp removal_authorized("add", _context, _input, _emoji), do: :ok
 
   defp removal_authorized("remove", context, input, emoji) do
-    if PlatformActionCustody.delivered_reaction_added?(
+    if Delivery.PlatformActionCustody.delivered_reaction_added?(
          context.episode.id,
          context.conversation_ref,
          input["source_item_ref"],
@@ -770,10 +769,10 @@ defmodule Ryker.ControlPlane.CapabilityTools do
     Enum.find(context.episode.active_input_refs, fn ref ->
       payload =
         context.episode.id
-        |> Event.Query.by_episode_id()
-        |> Event.Query.by_dedupe_key(ref)
-        |> Event.Query.select_payloads()
-        |> Event.Query.limit_to(1)
+        |> Episodes.Event.Query.by_episode_id()
+        |> Episodes.Event.Query.by_dedupe_key(ref)
+        |> Episodes.Event.Query.select_payloads()
+        |> Episodes.Event.Query.limit_to(1)
         |> Repo.one()
 
       match?(%{"payload" => ^input}, payload)

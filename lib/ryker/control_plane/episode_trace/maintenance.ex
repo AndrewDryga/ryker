@@ -14,11 +14,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
   """
   import Ryker.ControlPlane.EpisodeTrace.Step
   alias Ryker.ControlPlane.RepositoryNames
-  alias Ryker.CoopFleet.Placement
+  alias Ryker.CoopFleet
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
-  alias Ryker.Retention.Custody
-  alias Ryker.Work.Session
+  alias Ryker.Retention
+  alias Ryker.Work
 
   @doc """
   One card per worker session that ran: its close and what became of its
@@ -44,7 +44,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
   end
 
   # Only a session a worker knew has anything to close or remove.
-  defp ran?(%Session{coop_session_id: id}), do: is_binary(id) and id != ""
+  defp ran?(%Work.Session{coop_session_id: id}), do: is_binary(id) and id != ""
 
   @ordinals ~w(first second third fourth fifth sixth seventh eighth ninth tenth)
 
@@ -65,9 +65,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
     ids = Enum.map(sessions, & &1.id)
 
     ids
-    |> Placement.Query.by_session_ids()
-    |> Placement.Query.ordered_by_session_and_generation_desc()
-    |> Placement.Query.select_session_workers()
+    |> CoopFleet.Placement.Query.by_session_ids()
+    |> CoopFleet.Placement.Query.ordered_by_session_and_generation_desc()
+    |> CoopFleet.Placement.Query.select_session_workers()
     |> Repo.all()
     |> Enum.uniq_by(&elem(&1, 0))
     |> Map.new()
@@ -98,7 +98,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
 
   # A finished request's session stays open for a while in case the
   # conversation continues; until then it is waiting, not closed.
-  defp story(%Session{cleanup_status: :grace, closed_at: nil} = session) do
+  defp story(%Work.Session{cleanup_status: :grace, closed_at: nil} = session) do
     %{
       at: session.updated_at,
       state: "current",
@@ -111,7 +111,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
     }
   end
 
-  defp story(%Session{cleanup_status: :discarded} = session) do
+  defp story(%Work.Session{cleanup_status: :discarded} = session) do
     receipt = session.cleanup_receipt || %{}
     {title, summary} = cleanup_outcome(receipt["kind"], session)
 
@@ -133,7 +133,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
     }
   end
 
-  defp story(%Session{cleanup_status: :retained} = session) do
+  defp story(%Work.Session{cleanup_status: :retained} = session) do
     %{
       at: session.updated_at,
       state: "current",
@@ -149,7 +149,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
     }
   end
 
-  defp story(%Session{cleanup_status: :blocked} = session) do
+  defp story(%Work.Session{cleanup_status: :blocked} = session) do
     %{
       at: session.updated_at,
       state: "current",
@@ -170,7 +170,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
     }
   end
 
-  defp story(%Session{cleanup_status: status} = session)
+  defp story(%Work.Session{cleanup_status: status} = session)
        when status in [:close_pending, :plan_pending, :discard_pending] do
     %{
       at: session.updated_at,
@@ -190,7 +190,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
   end
 
   # Closed, and nothing has happened to its working copy yet.
-  defp story(%Session{closed_at: %DateTime{}} = session) do
+  defp story(%Work.Session{closed_at: %DateTime{}} = session) do
     %{
       at: session.closed_at,
       state: "session closed",
@@ -215,14 +215,14 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
 
   defp worker_name(worker, _session) when is_binary(worker), do: worker
 
-  defp worker_name(nil, %Session{coop_session_id: id}) when is_binary(id),
+  defp worker_name(nil, %Work.Session{coop_session_id: id}) when is_binary(id),
     do: "Ryker's own worker"
 
   defp worker_name(_worker, _session), do: nil
 
   # What the removal plan found in the working copy before anything was
   # removed or kept, with the fingerprints that bind the plan to it.
-  defp plan_details(%Session{discard_plan: %{"workspace" => workspace} = plan} = session)
+  defp plan_details(%Work.Session{discard_plan: %{"workspace" => workspace} = plan} = session)
        when is_map(workspace) do
     compact_details([
       {"Branch", workspace["branch"]},
@@ -239,7 +239,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
 
   defp plan_details(_session), do: []
 
-  defp error_details(%Session{cleanup_last_error_code: nil}), do: []
+  defp error_details(%Work.Session{cleanup_last_error_code: nil}), do: []
 
   defp error_details(session) do
     detail =
@@ -263,18 +263,18 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
   defp unpublished_words(_workspace), do: "None"
 
   # The close, as the sentence a session's story starts with.
-  defp closed_sentence(%Session{closed_at: nil}), do: ""
+  defp closed_sentence(%Work.Session{closed_at: nil}), do: ""
 
-  defp closed_sentence(%Session{repository_ref: nil, closed_at: at}) do
+  defp closed_sentence(%Work.Session{repository_ref: nil, closed_at: at}) do
     "After the request ended, Ryker closed its worker session, which worked without a repository, at #{clock(at)}. "
   end
 
-  defp closed_sentence(%Session{repository_ref: repository, closed_at: at}) do
+  defp closed_sentence(%Work.Session{repository_ref: repository, closed_at: at}) do
     "After the request ended, Ryker closed #{RepositoryNames.name(repository)}'s worker " <>
       "session at #{clock(at)}. "
   end
 
-  defp close_details(%Session{closed_at: nil}), do: []
+  defp close_details(%Work.Session{closed_at: nil}), do: []
 
   defp close_details(session) do
     compact_details([
@@ -285,8 +285,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
     ])
   end
 
-  defp close_request(%Session{close_expected_revision: nil}), do: nil
-  defp close_request(session), do: Custody.close_key(session)
+  defp close_request(%Work.Session{close_expected_revision: nil}), do: nil
+  defp close_request(session), do: Retention.Custody.close_key(session)
 
   # What the cleanup receipt proves, by the kind cleanup writes, read on after
   # the close. Only "discarded" is a removal this pass made.
@@ -354,13 +354,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
 
   # A copy with uncommitted changes is checked again later; one holding
   # unpublished commits stays until the work is published or discarded.
-  defp recheck(%Session{
+  defp recheck(%Work.Session{
          retained_reason: "dirty" <> _,
          cleanup_next_attempt_at: %DateTime{} = at
        }),
        do: " Ryker checks it again at #{clock(at)}."
 
-  defp recheck(%Session{retained_reason: "unpublished_unmerged"}),
+  defp recheck(%Work.Session{retained_reason: "unpublished_unmerged"}),
     do: " It stays until the work is published or someone discards it on Working copies."
 
   defp recheck(_session), do: ""

@@ -2,7 +2,7 @@ defmodule Ryker.Knowledge.KnowledgeSource.Query do
   @moduledoc "The observations each topic was learned from, for every read of `conversation_knowledge_sources`."
   use Ryker, :query
   alias Ryker.Knowledge.{ConversationKnowledge, KnowledgeSource}
-  alias Ryker.Learning.ConversationObservation
+  alias Ryker.Learning
 
   def all, do: from(sources in KnowledgeSource, as: :conversation_knowledge_sources)
 
@@ -29,7 +29,7 @@ defmodule Ryker.Knowledge.KnowledgeSource.Query do
     from(s in all(),
       join: k in ConversationKnowledge,
       on: k.id == s.knowledge_id and k.source_generation == s.generation,
-      join: o in ConversationObservation,
+      join: o in Learning.ConversationObservation,
       on: o.id == s.observation_id,
       where:
         s.knowledge_id in ^knowledge_ids and s.observation_id not in ^observation_ids and
@@ -84,7 +84,7 @@ defmodule Ryker.Knowledge.KnowledgeSource.Query do
     from(s in all(),
       join: k in ConversationKnowledge,
       on: k.id == s.knowledge_id and k.source_generation == s.generation,
-      join: o in ConversationObservation,
+      join: o in Learning.ConversationObservation,
       on: o.id == s.observation_id,
       where: s.knowledge_id in ^knowledge_ids and not is_nil(s.direct_support_version),
       order_by: [asc: o.id],
@@ -134,7 +134,7 @@ defmodule Ryker.Knowledge.KnowledgeSource.Query do
     connected = dynamic([conversation_observations: o], o.id == ^observation.id or ^thread)
 
     from(s in all(),
-      join: previous in ConversationObservation,
+      join: previous in Learning.ConversationObservation,
       as: :conversation_observations,
       on: previous.id == s.observation_id,
       where: s.knowledge_id == ^knowledge_id and not is_nil(s.direct_support_version),

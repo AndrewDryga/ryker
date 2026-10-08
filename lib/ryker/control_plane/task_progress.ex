@@ -11,18 +11,18 @@ defmodule Ryker.ControlPlane.TaskProgress do
   "Conversation span: Not measured", "Received 0", a follow-up status and a
   worker checklist saying "To do" beside "Completed".
   """
-  alias Ryker.Episodes.Episode
-  alias Ryker.Records.Record
+  alias Ryker.Episodes
+  alias Ryker.Records
   alias Ryker.Repo
-  alias Ryker.Slack.TaskCardProjection
+  alias Ryker.Slack
 
   @doc "The task a confirmed offer started as this episode, or nil for any other request."
-  @spec for_episode(Episode.t()) :: map() | nil
-  def for_episode(%Episode{id: id}) do
-    offer = id |> Record.Query.task_offer_confirming() |> Repo.one()
+  @spec for_episode(Episodes.Episode.t()) :: map() | nil
+  def for_episode(%Episodes.Episode{id: id}) do
+    offer = id |> Records.Record.Query.task_offer_confirming() |> Repo.one()
 
-    with %Record{} <- offer,
-         {:ok, %{document: %{"task_card" => task}}} <- TaskCardProjection.page(offer) do
+    with %Records.Record{} <- offer,
+         {:ok, %{document: %{"task_card" => task}}} <- Slack.TaskCardProjection.page(offer) do
       %{
         publication: task["publication"],
         repository: task["repository"],

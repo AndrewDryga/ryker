@@ -12,10 +12,10 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
   """
   alias Ryker.ControlPlane.{Activity, EpisodeProjection, RepositoryNames}
   alias Ryker.ControlPlane.{ScheduleDirectory, Search}
-  alias Ryker.Operator.FailureDetail
+  alias Ryker.Operator
   alias Ryker.Repo
-  alias Ryker.Schedules.Schedule
-  alias Ryker.Work.FailureCause
+  alias Ryker.Schedules
+  alias Ryker.Work
 
   @list_limit 100
   @detail_limit 200
@@ -68,7 +68,7 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
           destination_transport: schedule.destination_transport,
           expires_at: schedule.expires_at,
           failure_count: schedule.failure_count,
-          last_error: FailureDetail.project(schedule.last_error),
+          last_error: Operator.FailureDetail.project(schedule.last_error),
           next_occurrence_at: schedule.next_occurrence_at,
           recurrence: schedule.recurrence,
           ref: schedule.ref,
@@ -106,11 +106,11 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
 
   defp schedule_view(query, nil), do: query
 
-  defp schedule_view(query, statuses), do: Schedule.Query.by_statuses(query, statuses)
+  defp schedule_view(query, statuses), do: Schedules.Schedule.Query.by_statuses(query, statuses)
 
   defp schedule_status(query, nil), do: query
 
-  defp schedule_status(query, status), do: Schedule.Query.by_status(query, status)
+  defp schedule_status(query, status), do: Schedules.Schedule.Query.by_status(query, status)
 
   defp schedule_search(query, nil), do: query
 
@@ -121,13 +121,13 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
   # names in words, when it names one, and a digest for support otherwise.
   defp sanitize_occurrence(occurrence) do
     cause =
-      case FailureCause.explain(occurrence.failure_detail) do
+      case Work.FailureCause.explain(occurrence.failure_detail) do
         %{cause: cause} -> cause
         nil -> nil
       end
 
     occurrence
     |> Map.put(:failure_cause, cause)
-    |> Map.put(:failure_detail, FailureDetail.project(occurrence.failure_detail))
+    |> Map.put(:failure_detail, Operator.FailureDetail.project(occurrence.failure_detail))
   end
 end

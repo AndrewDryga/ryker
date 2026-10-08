@@ -11,8 +11,9 @@ defmodule Mix.Tasks.Ryker.WorkExamples do
   """
   use Mix.Task
   alias Mix.Tasks.Ryker.OperatorSupport, as: Support
-  alias Ryker.WorkExamples.Export
+  alias Ryker.WorkExamples
 
   @impl Mix.Task
-  def run(arguments), do: Support.export_lines(arguments, "work example", &Export.reduce/2)
+  def run(arguments),
+    do: Support.export_lines(arguments, "work example", &WorkExamples.Export.reduce/2)
 end

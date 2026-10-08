@@ -1,8 +1,8 @@
 defmodule Ryker.Work.Session.Query do
   @moduledoc "Work sessions, for every read of `episode_work_sessions`."
   use Ryker, :query
-  alias Ryker.CoopFleet.{Command, Placement}
-  alias Ryker.Episodes.Episode
+  alias Ryker.CoopFleet
+  alias Ryker.Episodes
   alias Ryker.Work.{Session, Turn}
 
   def all, do: from(sessions in Session, as: :episode_work_sessions)
@@ -230,9 +230,9 @@ defmodule Ryker.Work.Session.Query do
   """
   def reconciled_into(coop_session_id) do
     from(s in all(),
-      join: create in Command,
+      join: create in CoopFleet.Command,
       on: create.session_id == s.id and create.kind == "create_session",
-      join: reconciliation in Command,
+      join: reconciliation in CoopFleet.Command,
       on:
         reconciliation.session_id == s.id and reconciliation.kind == "reconcile_operation" and
           fragment(
@@ -272,7 +272,7 @@ defmodule Ryker.Work.Session.Query do
   """
   def placed_job(job_ref, worker_id, now) do
     from(s in all(),
-      join: p in Placement,
+      join: p in CoopFleet.Placement,
       on: p.session_id == s.id,
       where:
         s.external_ref == ^job_ref and p.worker_id == ^worker_id and p.state == :active and
@@ -319,7 +319,7 @@ defmodule Ryker.Work.Session.Query do
   """
   def state_tools_binding(token_sha256) do
     all()
-    |> join(:inner, [episode_work_sessions: s], e in Episode,
+    |> join(:inner, [episode_work_sessions: s], e in Episodes.Episode,
       on: e.id == s.episode_id,
       as: :episode_kernel_episodes
     )
@@ -327,7 +327,7 @@ defmodule Ryker.Work.Session.Query do
       on: t.session_id == s.id and t.episode_id == e.id,
       as: :episode_work_turns
     )
-    |> join(:left, [episode_work_sessions: s], p in Placement,
+    |> join(:left, [episode_work_sessions: s], p in CoopFleet.Placement,
       on: p.session_id == s.id,
       as: :coop_session_placements
     )
@@ -371,6 +371,6 @@ defmodule Ryker.Work.Session.Query do
 
   @doc "Each session with its episode, as `{session, episode}`."
   def select_with_episode(queryable) do
-    from(s in queryable, join: e in Episode, on: e.id == s.episode_id, select: {s, e})
+    from(s in queryable, join: e in Episodes.Episode, on: e.id == s.episode_id, select: {s, e})
   end
 end

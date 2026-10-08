@@ -9,16 +9,14 @@ defmodule Ryker.GitHub.Confirmations do
   services used by Slack and Chat.
   """
   alias Ryker.Behaviors
-  alias Ryker.Behaviors.Automations
-  alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.Input
+  alias Ryker.Episodes
+  alias Ryker.Ingress
   alias Ryker.Memories
   alias Ryker.Options
-  alias Ryker.Records.Record
-  alias Ryker.Records.TaskOffers
+  alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Schedules
-  alias Ryker.Work.Turn
+  alias Ryker.Work
   require Logger
 
   @command_prefix "/ryker confirm"
@@ -41,9 +39,9 @@ defmodule Ryker.GitHub.Confirmations do
     %{repositories: Map.new(repositories, &repository!/1)}
   end
 
-  @spec apply(Input.t(), options() | nil) ::
+  @spec apply(Ingress.Input.t(), options() | nil) ::
           {:ok, :not_confirmation | map()} | {:error, term()}
-  def apply(%Input{} = input, %{repositories: repositories}) when is_map(repositories) do
+  def apply(%Ingress.Input{} = input, %{repositories: repositories}) when is_map(repositories) do
     case command(input) do
       :not_confirmation ->
         {:ok, :not_confirmation}
@@ -66,7 +64,7 @@ defmodule Ryker.GitHub.Confirmations do
       {:error, :github_confirmation_unavailable}
   end
 
-  def apply(%Input{} = input, nil) do
+  def apply(%Ingress.Input{} = input, nil) do
     case command(input) do
       :not_confirmation -> {:ok, :not_confirmation}
       _confirmation_command -> invalid()
@@ -80,7 +78,7 @@ defmodule Ryker.GitHub.Confirmations do
 
   defp code(_error), do: ""
 
-  defp command(%Input{
+  defp command(%Ingress.Input{
          content: %{
            "event_name" => "issue_comment",
            "payload" => %{"comment" => %{"body" => body}}
@@ -96,7 +94,7 @@ defmodule Ryker.GitHub.Confirmations do
     end
   end
 
-  defp command(%Input{}), do: :not_confirmation
+  defp command(%Ingress.Input{}), do: :not_confirmation
 
   defp apply_record(input, record_ref, repositories) do
     with {:ok, record, episode, turn} <- offer(record_ref),
@@ -119,10 +117,11 @@ defmodule Ryker.GitHub.Confirmations do
   end
 
   defp offer(record_ref) do
-    query = record_ref |> Record.Query.by_ref() |> Record.Query.with_joined_origin()
+    query =
+      record_ref |> Records.Record.Query.by_ref() |> Records.Record.Query.with_joined_origin()
 
     case Repo.one(query) do
-      {%Record{} = record, %Episode{} = episode, %Turn{} = turn} ->
+      {%Records.Record{} = record, %Episodes.Episode{} = episode, %Work.Turn{} = turn} ->
         {:ok, record, episode, turn}
 
       nil ->
@@ -131,14 +130,14 @@ defmodule Ryker.GitHub.Confirmations do
   end
 
   defp exact_discussion(
-         %Input{
+         %Ingress.Input{
            destination: %{
              conversation_ref: conversation_ref,
              thread_ref: thread_ref,
              transport: "github"
            }
          },
-         %Episode{
+         %Episodes.Episode{
            destination_conversation_ref: conversation_ref,
            destination_thread_ref: thread_ref,
            destination_transport: "github"
@@ -149,8 +148,8 @@ defmodule Ryker.GitHub.Confirmations do
   defp exact_discussion(_input, _episode), do: {:error, :discussion_mismatch}
 
   defp delivered_target(
-         %Episode{} = episode,
-         %Turn{status: :settled, external_receipt: %{"message_ref" => message_ref} = receipt}
+         %Episodes.Episode{} = episode,
+         %Work.Turn{status: :settled, external_receipt: %{"message_ref" => message_ref} = receipt}
        )
        when is_binary(message_ref) do
     if receipt["conversation_ref"] == episode.destination_conversation_ref and
@@ -171,40 +170,46 @@ defmodule Ryker.GitHub.Confirmations do
   defp delivered_target(_episode, _turn), do: {:error, :not_delivered}
 
   defp confirm(
-         %Record{kind: "task_offer", payload: %{"kind" => "engineering"} = payload} = record,
+         %Records.Record{kind: "task_offer", payload: %{"kind" => "engineering"} = payload} =
+           record,
          input,
          target,
          repositories
        ) do
     with repository when is_binary(repository) <- payload["repository"],
          {:ok, policy} <- Map.fetch(repositories, repository) do
-      TaskOffers.confirm(attributes(record, input, target) |> Map.put(:policy, policy))
+      Records.TaskOffers.confirm(attributes(record, input, target) |> Map.put(:policy, policy))
     else
       _invalid -> {:error, :task_policy_not_configured}
     end
   end
 
-  defp confirm(%Record{kind: "task_offer"}, _input, _target, _repositories),
+  defp confirm(%Records.Record{kind: "task_offer"}, _input, _target, _repositories),
     do: {:error, :unsupported_task_offer}
 
-  defp confirm(%Record{kind: "memory_offer"} = record, input, target, _repositories),
+  defp confirm(%Records.Record{kind: "memory_offer"} = record, input, target, _repositories),
     do: Memories.confirm(attributes(record, input, target))
 
-  defp confirm(%Record{kind: kind} = record, input, target, _repositories)
+  defp confirm(%Records.Record{kind: kind} = record, input, target, _repositories)
        when kind in ["preference_offer", "guidance_offer", "standing_assignment_offer"],
        do: Behaviors.confirm(attributes(record, input, target))
 
-  defp confirm(%Record{kind: "schedule_offer"} = record, input, target, _repositories),
+  defp confirm(%Records.Record{kind: "schedule_offer"} = record, input, target, _repositories),
     do: Schedules.confirm(attributes(record, input, target))
 
-  defp confirm(%Record{kind: "automation_change_offer"} = record, input, target, _repositories),
-    do: Automations.confirm(attributes(record, input, target))
+  defp confirm(
+         %Records.Record{kind: "automation_change_offer"} = record,
+         input,
+         target,
+         _repositories
+       ),
+       do: Behaviors.Automations.confirm(attributes(record, input, target))
 
   defp confirm(_record, _input, _target, _repositories), do: {:error, :unsupported_offer}
 
   defp attributes(record, input, target) do
     %{
-      actor_ref: Input.actor_ref(input),
+      actor_ref: Ingress.Input.actor_ref(input),
       confirmation_ref: input.event_ref,
       occurred_at: input.occurred_at,
       record_ref: record.ref,
@@ -212,7 +217,7 @@ defmodule Ryker.GitHub.Confirmations do
     }
   end
 
-  defp resource(%{episode: %Episode{id: id}, status: status})
+  defp resource(%{episode: %Episodes.Episode{id: id}, status: status})
        when is_binary(id) and status in [:confirmed, :duplicate],
        do: {:ok, id, status}
 

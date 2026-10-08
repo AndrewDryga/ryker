@@ -18,7 +18,7 @@ defmodule Ryker.Slack.Client do
   """
   @behaviour Ryker.Slack.API
   @behaviour Ryker.Slack.MemberDirectory
-  alias Ryker.Delivery.JSONClient
+  alias Ryker.Delivery
   alias Ryker.Slack.Client.{Assistant, Conversations, Files, Messages, Reactions, Rooms, Users}
   alias Ryker.Slack.Client.Views
   alias Ryker.Slack.UploadClient
@@ -198,7 +198,8 @@ defmodule Ryker.Slack.Client do
   # Up to 8 MiB goes to Slack's file host in one request, which an API call's
   # 30-second wait cut short twice the day uploads began (2026-10-04 review).
   defp prepare_uploader(
-         %__MODULE__{http: %JSONClient{} = http, upload_http: nil, uploader: nil} = client
+         %__MODULE__{http: %Delivery.JSONClient{} = http, upload_http: nil, uploader: nil} =
+           client
        ) do
     case UploadClient.new(
            base_origin: "https://files.slack.com",

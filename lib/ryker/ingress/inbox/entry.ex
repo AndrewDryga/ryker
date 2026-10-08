@@ -9,8 +9,8 @@ defmodule Ryker.Ingress.Inbox.Entry do
   episode link exactly once in a later transaction.
   """
   use Ryker, :schema
-  alias Ryker.CanonicalJSON.Type, as: CanonicalJSONType
-  alias Ryker.Episodes.Episode
+  alias Ryker.CanonicalJSON
+  alias Ryker.Episodes
 
   schema "ingress_inbox_entries" do
     field(:dedupe_key, :string)
@@ -25,20 +25,20 @@ defmodule Ryker.Ingress.Inbox.Entry do
     field(:slack_bot_user_ref, :string)
     field(:actor_kind, Ecto.Enum, values: [:user, :app, :bot, :system])
     field(:actor_ref, :string)
-    field(:source_capabilities, CanonicalJSONType)
+    field(:source_capabilities, CanonicalJSON.Type)
     field(:destination_transport, :string)
     field(:destination_conversation_ref, :string)
     field(:destination_thread_ref, :string)
     field(:revision, :integer)
     field(:occurred_at, :utc_datetime_usec)
     field(:occurred_at_source, Ecto.Enum, values: [:source, :ingress])
-    field(:content, CanonicalJSONType)
-    field(:source_envelope, CanonicalJSONType)
-    field(:engagement_receipt, CanonicalJSONType)
-    field(:admission_context, CanonicalJSONType)
+    field(:content, CanonicalJSON.Type)
+    field(:source_envelope, CanonicalJSON.Type)
+    field(:engagement_receipt, CanonicalJSON.Type)
+    field(:admission_context, CanonicalJSON.Type)
     field(:admission_context_fingerprint, :string)
     field(:execution_mode, Ecto.Enum, values: [:live, :shadow], default: :live)
-    field(:work_profile, CanonicalJSONType)
+    field(:work_profile, CanonicalJSON.Type)
     field(:work_policy, :string)
     field(:work_policy_digest, :string)
     field(:repository_ref, :string)
@@ -55,7 +55,7 @@ defmodule Ryker.Ingress.Inbox.Entry do
       values: [:start_episode, :continue_episode, :reply, :quick_reply, :react, :ignore]
     )
 
-    field(:decision_document, CanonicalJSONType)
+    field(:decision_document, CanonicalJSON.Type)
     field(:attempt_count, :integer, default: 0)
     field(:execution_generation, :integer, default: 1)
     field(:validation_generation, :integer, default: 1)
@@ -67,7 +67,7 @@ defmodule Ryker.Ingress.Inbox.Entry do
     field(:last_error_code, :string)
     field(:last_error_detail, :string)
     field(:operational_pruned_at, :utc_datetime_usec)
-    belongs_to(:episode, Episode)
+    belongs_to(:episode, Episodes.Episode)
 
     timestamps()
   end

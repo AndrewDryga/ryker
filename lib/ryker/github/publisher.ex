@@ -11,19 +11,19 @@ defmodule Ryker.GitHub.Publisher do
   @behaviour Ryker.Delivery.MessagePublisher
   @behaviour Ryker.Delivery.ReactionPublisher
   alias Ryker.Crypto
-  alias Ryker.Delivery.Request
+  alias Ryker.Delivery
   alias Ryker.GitHub.{InertText, Renderer, Target}
-  alias Ryker.Work.DeliveryReceipt
+  alias Ryker.Work
 
   @impl true
   def transport, do: "github"
 
   @impl true
-  def publish_message(%Request{kind: :message} = request, binding) do
+  def publish_message(%Delivery.Request{kind: :message} = request, binding) do
     with {:ok, target} <- Target.parse(request),
          {:ok, api, client, repository} <- client(binding, target),
          {:ok, message_ref} <- reconcile_message(api, client, repository, request, target) do
-      DeliveryReceipt.new(
+      Work.DeliveryReceipt.new(
         request.ref,
         request.transport,
         request.conversation_ref,
@@ -37,7 +37,7 @@ defmodule Ryker.GitHub.Publisher do
     do: {:error, {:invalid_github_delivery, :message}}
 
   @impl Ryker.Delivery.MessagePublisher
-  def update_message(%Request{kind: :message} = request, message_ref, document, binding) do
+  def update_message(%Delivery.Request{kind: :message} = request, message_ref, document, binding) do
     with {:ok, target} <- Target.parse(request),
          {:ok, api, client, repository} <- client(binding, target),
          {:ok, kind, comment_id} <- message_identity(message_ref),
@@ -52,12 +52,12 @@ defmodule Ryker.GitHub.Publisher do
     do: {:error, {:invalid_github_delivery, :message_update}}
 
   @impl true
-  def publish_reaction(%Request{kind: :reaction} = request, binding) do
+  def publish_reaction(%Delivery.Request{kind: :reaction} = request, binding) do
     with true <- Map.get(request.document, "action", "add") == "add",
          {:ok, target} <- Target.parse(request),
          {:ok, api, client, repository} <- client(binding, target),
          :ok <- react(api, client, repository, target.source_item, request.document["emoji_name"]) do
-      DeliveryReceipt.new(
+      Work.DeliveryReceipt.new(
         request.ref,
         request.transport,
         request.conversation_ref,

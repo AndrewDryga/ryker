@@ -7,9 +7,9 @@ defmodule Ryker.GitHub.Renderer do
   command; governed Emisar and publication approvals stay on their existing
   authoritative surfaces.
   """
-  alias Ryker.Emisar.ApprovalStatus
-  alias Ryker.Records.RecordPayload
-  alias Ryker.Schedules.ScheduleCadence
+  alias Ryker.Emisar
+  alias Ryker.Records
+  alias Ryker.Schedules
 
   @maximum_records 64
   @investigation_kinds ~w(evidence coverage finding progress goal goal_state alert_assessment)
@@ -18,7 +18,7 @@ defmodule Ryker.GitHub.Renderer do
 
   @spec render(map()) :: {:ok, String.t()} | {:error, term()}
   def render(%{"emisar_approval_status" => status} = document) when map_size(document) == 1 do
-    case ApprovalStatus.prepare(status) do
+    case Emisar.ApprovalStatus.prepare(status) do
       {:ok, status} ->
         run =
           if status["run_url"],
@@ -27,7 +27,7 @@ defmodule Ryker.GitHub.Renderer do
 
         {:ok,
          """
-         ### Governed action — #{escape(ApprovalStatus.label(status["status"]))}
+         ### Governed action — #{escape(Emisar.ApprovalStatus.label(status["status"]))}
 
          `#{escape(status["action_id"])}` on `#{escape(status["runner_ref"])}`. Pack: `#{escape(status["pack_ref"])}`.
          #{review_markdown(status)}
@@ -63,7 +63,7 @@ defmodule Ryker.GitHub.Renderer do
   # The same review Slack reports, in Markdown: current status first, then the
   # decisions oldest first. A run no human reviewed states nothing here.
   defp review_markdown(status) do
-    case ApprovalStatus.review_summary(status) do
+    case Emisar.ApprovalStatus.review_summary(status) do
       nil ->
         ""
 
@@ -92,7 +92,7 @@ defmodule Ryker.GitHub.Renderer do
        )
        when map_size(record) == 4 and is_binary(kind) and is_map(payload) and is_binary(ref) and
               status in ["open", "confirmed"] do
-    case RecordPayload.prepare(kind, payload, ref) do
+    case Records.RecordPayload.prepare(kind, payload, ref) do
       {:ok, %{payload: prepared}} -> record_markdown(kind, prepared, ref, status)
       _invalid -> {:error, {:invalid_github_render, :record}}
     end
@@ -172,7 +172,7 @@ defmodule Ryker.GitHub.Renderer do
   # How often is the recurrence a confirmation saves, in the words every
   # surface uses; the title and task are the model's and may say otherwise.
   defp record_markdown("schedule_offer", payload, ref, "open") do
-    cadence = ScheduleCadence.describe(payload["recurrence"], payload["timezone"])
+    cadence = Schedules.ScheduleCadence.describe(payload["recurrence"], payload["timezone"])
 
     {:ok,
      "### Schedule offered\n\n**#{escape(payload["title"])}**\n\nWhen: #{escape(cadence)}\n\nThis is an inert offer.#{confirmation(ref)}"}

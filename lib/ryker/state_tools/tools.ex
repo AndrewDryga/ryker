@@ -1,10 +1,10 @@
 defmodule Ryker.StateTools.Tools do
   @moduledoc false
   alias Ryker.CanonicalJSON
-  alias Ryker.Emisar.ApprovalContract
+  alias Ryker.Emisar
   alias Ryker.Records
   alias Ryker.StateTools.{ErrorCode, FixedTools}
-  alias Ryker.Work.Contract
+  alias Ryker.Work
 
   @fixed_tool_names FixedTools.names()
 
@@ -21,7 +21,10 @@ defmodule Ryker.StateTools.Tools do
   # with Emisar: an evaluation run, which only observes, was offered one it
   # could never record (2026-10-04 review).
   defp approval_receipts?(options) do
-    Contract.fixed_tool_allowed?(FixedTools.execution_mode(options), "record_emisar_approval") and
+    Work.Contract.fixed_tool_allowed?(
+      FixedTools.execution_mode(options),
+      "record_emisar_approval"
+    ) and
       match?({:ok, _authority}, emisar_authority(options))
   end
 
@@ -37,7 +40,7 @@ defmodule Ryker.StateTools.Tools do
          {:ok, authority} <- emisar_authority(options),
          :ok <- exact_fields(arguments, payload_fields),
          {:ok, payload} <-
-           ApprovalContract.authorize(
+           Emisar.ApprovalContract.authorize(
              Map.take(arguments, payload_fields),
              authority.rpc_url,
              DateTime.utc_now()

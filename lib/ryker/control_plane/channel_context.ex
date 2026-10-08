@@ -10,7 +10,7 @@ defmodule Ryker.ControlPlane.ChannelContext do
   alias Ryker.Config
   alias Ryker.ControlPlane.{BehaviorLibrary, BehaviorPage, ChannelContext, ChannelScope}
   alias Ryker.ControlPlane.{ConversationMemory, LearningActivity, PagedRelation}
-  alias Ryker.Learning.Batch
+  alias Ryker.Learning
   alias Ryker.Repo
 
   @doc """
@@ -262,8 +262,8 @@ defmodule Ryker.ControlPlane.ChannelContext do
   def learning_status(scope) do
     needs_attention =
       "slack"
-      |> Batch.Query.by_conversation(scope.conversation_ref)
-      |> Batch.Query.by_statuses([:deferred])
+      |> Learning.Batch.Query.by_conversation(scope.conversation_ref)
+      |> Learning.Batch.Query.by_statuses([:deferred])
       |> Repo.aggregate(:count)
 
     %{

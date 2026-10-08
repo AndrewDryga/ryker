@@ -11,14 +11,14 @@ defmodule Ryker.Retention.Cleanup.Query do
   admission backlog can never be invisible to the surface that reports it.
   """
   use Ryker, :query
-  alias Ryker.CoopFleet.{Placement, Worker}
-  alias Ryker.Episodes.Episode
-  alias Ryker.Improvement.AnalysisRun
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Learning.LearningRun
-  alias Ryker.Publication.Publication
-  alias Ryker.RepositoryKnowledge.Run, as: KnowledgeRun
-  alias Ryker.Work.{Session, Turn}
+  alias Ryker.CoopFleet
+  alias Ryker.Episodes
+  alias Ryker.Improvement
+  alias Ryker.Ingress
+  alias Ryker.Learning
+  alias Ryker.Publication
+  alias Ryker.RepositoryKnowledge
+  alias Ryker.Work
 
   @pending_statuses [:close_pending, :plan_pending, :discard_pending]
   @terminal_episode_states [:complete, :cancelled]
@@ -96,20 +96,20 @@ defmodule Ryker.Retention.Cleanup.Query do
   on it, and its cleanup phase is due.
   """
   def eligible(now) do
-    from(session in Session.Query.all(),
-      left_join: episode in Episode,
+    from(session in Work.Session.Query.all(),
+      left_join: episode in Episodes.Episode,
       as: :episode_kernel_episodes,
       on: episode.id == session.episode_id,
-      left_join: learning in LearningRun,
+      left_join: learning in Learning.LearningRun,
       as: :conversation_learning_runs,
       on: learning.id == session.learning_run_id,
-      left_join: improvement in AnalysisRun,
+      left_join: improvement in Improvement.AnalysisRun,
       as: :improvement_analysis_runs,
       on: improvement.id == session.improvement_run_id,
-      left_join: knowledge in KnowledgeRun,
+      left_join: knowledge in RepositoryKnowledge.Run,
       as: :repository_knowledge_runs,
       on: knowledge.id == session.knowledge_run_id,
-      left_join: admission in Entry,
+      left_join: admission in Ingress.Inbox.Entry,
       as: :ingress_inbox_entries,
       on: admission.id == session.admission_input_id,
       where: ^owner_finished(),
@@ -222,7 +222,7 @@ defmodule Ryker.Retention.Cleanup.Query do
   # would make the hot path grow with fleet history.
   defp placed(now) do
     current =
-      from(placement in Placement,
+      from(placement in CoopFleet.Placement,
         where: placement.session_id == parent_as(:episode_work_sessions).id,
         order_by: [desc: placement.generation],
         limit: 1,
@@ -238,17 +238,17 @@ defmodule Ryker.Retention.Cleanup.Query do
 
   @doc "Session `session_id`'s owner, as `{execution_kind, owner_id}`."
   def owner_identity(session_id) do
-    from(session in Session.Query.by_id(session_id),
+    from(session in Work.Session.Query.by_id(session_id),
       select: {session.execution_kind, owner_id(session)}
     )
   end
 
   @doc "The row that owns a session of `kind`: its episode, run or routed message."
-  def owner(:work, episode_id), do: Episode.Query.by_id(episode_id)
-  def owner(:learning, run_id), do: LearningRun.Query.by_id(run_id)
-  def owner(:improvement, run_id), do: AnalysisRun.Query.by_id(run_id)
-  def owner(:knowledge, run_id), do: KnowledgeRun.Query.by_id(run_id)
-  def owner(:admission, input_id), do: Entry.Query.by_id(input_id)
+  def owner(:work, episode_id), do: Episodes.Episode.Query.by_id(episode_id)
+  def owner(:learning, run_id), do: Learning.LearningRun.Query.by_id(run_id)
+  def owner(:improvement, run_id), do: Improvement.AnalysisRun.Query.by_id(run_id)
+  def owner(:knowledge, run_id), do: RepositoryKnowledge.Run.Query.by_id(run_id)
+  def owner(:admission, input_id), do: Ingress.Inbox.Entry.Query.by_id(input_id)
 
   @doc "Locks an owner row, waiting for it or, with `:skip_locked`, passing it over when held."
   def lock_owner(queryable, :skip_locked), do: lock(queryable, "FOR UPDATE SKIP LOCKED")
@@ -257,7 +257,7 @@ defmodule Ryker.Retention.Cleanup.Query do
   @doc "The cleanup leases worker `worker_ref` holds on sessions in a pending phase."
   def leases_of(worker_ref) do
     where(
-      Session.Query.all(),
+      Work.Session.Query.all(),
       [episode_work_sessions: s],
       s.cleanup_lease_owner == ^worker_ref and not is_nil(s.cleanup_lease_ref) and
         s.cleanup_status in ^@pending_statuses
@@ -270,8 +270,8 @@ defmodule Ryker.Retention.Cleanup.Query do
   """
   def deferred_for_reconnected_workers(error_codes, cutoff) do
     reconnected =
-      from(placement in Placement,
-        join: worker in Worker,
+      from(placement in CoopFleet.Placement,
+        join: worker in CoopFleet.Worker,
         on: worker.id == placement.worker_id,
         where: placement.session_id == parent_as(:episode_work_sessions).id,
         where: worker.last_seen_at > parent_as(:episode_work_sessions).updated_at,
@@ -279,7 +279,7 @@ defmodule Ryker.Retention.Cleanup.Query do
         select: 1
       )
 
-    from(session in Session.Query.all(),
+    from(session in Work.Session.Query.all(),
       where: session.cleanup_status in ^@pending_statuses,
       where: not is_nil(session.cleanup_next_attempt_at),
       where: session.cleanup_last_error_code in ^error_codes,
@@ -288,14 +288,14 @@ defmodule Ryker.Retention.Cleanup.Query do
   end
 
   defp unfinished_session_ids do
-    from(turn in Turn,
+    from(turn in Work.Turn,
       where: turn.status in ^@unfinished_turn_statuses,
       select: turn.session_id
     )
   end
 
   defp unpublished_session_ids do
-    from(publication in Publication,
+    from(publication in Publication.Publication,
       where: publication.status != :published,
       select: publication.session_id
     )
@@ -318,7 +318,7 @@ defmodule Ryker.Retention.Cleanup.Query do
       session.execution_kind == :work and
         (episode.state in ^@terminal_episode_states or
            exists(
-             from(newer in Session,
+             from(newer in Work.Session,
                where:
                  newer.episode_id == parent_as(:episode_work_sessions).episode_id and
                    newer.execution_kind == :work and
@@ -393,7 +393,7 @@ defmodule Ryker.Retention.Cleanup.Query do
   # when its scheduled recheck falls due.
   defp retained_status_filter(now) do
     published_session_ids =
-      from(publication in Publication,
+      from(publication in Publication.Publication,
         where: publication.status == :published,
         select: publication.session_id
       )

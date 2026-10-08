@@ -13,13 +13,13 @@ defmodule Ryker.Slack.InteractionAudits do
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
   alias Ryker.ErrorDetail
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Records.Record
+  alias Ryker.Ingress
+  alias Ryker.Records
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Slack.{Interaction, InteractionAudit}
   alias Ryker.UTCDateTime
-  alias Ryker.Work.Turn
+  alias Ryker.Work
 
   @identity_fields ~w(action_id action_value_digest actor_ref channel_ref event_ref message_ref outcome thread_ref workspace_ref)a
 
@@ -39,9 +39,9 @@ defmodule Ryker.Slack.InteractionAudits do
 
   @doc false
   def record_answer_in_transaction(
-        %Entry{source_kind: "slack", actor_kind: :user} = entry,
-        %Record{} = record,
-        %Turn{external_receipt: receipt},
+        %Ingress.Inbox.Entry{source_kind: "slack", actor_kind: :user} = entry,
+        %Records.Record{} = record,
+        %Work.Turn{external_receipt: receipt},
         kind
       )
       when kind in [:typed, :choice] do

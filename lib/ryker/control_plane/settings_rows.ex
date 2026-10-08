@@ -5,8 +5,8 @@ defmodule Ryker.ControlPlane.SettingsRows do
   a sender posts to, when it has one.
   """
   alias Ryker.ControlPlane.{Integrations, SettingsSections, ShortTime}
-  alias Ryker.Slack.Names
-  alias Ryker.Work.ExecutionTarget
+  alias Ryker.Slack
+  alias Ryker.Work
 
   @type row :: %{
           icon: atom() | nil,
@@ -104,14 +104,14 @@ defmodule Ryker.ControlPlane.SettingsRows do
   end
 
   defp model_name(target) do
-    case ExecutionTarget.parts(target) do
+    case Work.ExecutionTarget.parts(target) do
       %{model: model} -> model
       nil -> target || "Unnamed model"
     end
   end
 
   defp provider(target) do
-    case ExecutionTarget.present(target) do
+    case Work.ExecutionTarget.present(target) do
       %{parts: %{provider: "codex"}} -> nil
       %{parts: %{provider: _provider}, meta: meta} -> meta
       _unparsed -> nil
@@ -151,7 +151,7 @@ defmodule Ryker.ControlPlane.SettingsRows do
   defp events(_universal), do: "Events"
 
   defp destination(%{destination_transport: "slack", destination_conversation_ref: ref}),
-    do: Names.destination(ref)
+    do: Slack.Names.destination(ref)
 
   defp destination(%{destination_transport: "control_plane"}), do: "a direct conversation"
 

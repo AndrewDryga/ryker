@@ -1,6 +1,6 @@
 defmodule Ryker.Slack.WorkTarget do
   @moduledoc false
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes
   alias Ryker.Repo
   alias Ryker.Slack.{IncidentRoom, TaskCard}
 
@@ -24,7 +24,7 @@ defmodule Ryker.Slack.WorkTarget do
       work_ref |> TaskCard.Query.by_ref() |> TaskCard.Query.select_with_episode() |> Repo.one()
 
     case found do
-      {%TaskCard{} = card, %Episode{} = episode} ->
+      {%TaskCard{} = card, %Episodes.Episode{} = episode} ->
         {:ok,
          %{
            card_message_ref: card.message_ref,
@@ -49,7 +49,7 @@ defmodule Ryker.Slack.WorkTarget do
       |> Repo.one()
 
     case found do
-      {%IncidentRoom{} = room, %Episode{} = episode} ->
+      {%IncidentRoom{} = room, %Episodes.Episode{} = episode} ->
         {:ok,
          %{
            card_message_ref: room.root_message_ref,

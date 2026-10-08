@@ -1,13 +1,13 @@
 defmodule Ryker.StateTools.Catalog do
   @moduledoc false
-  alias Ryker.Continuity.ConversationSummaryState
-  alias Ryker.Ingress.Adapters, as: IngressAdapters
-  alias Ryker.Records.InvestigationPayload
-  alias Ryker.Schedules.ScheduleRecurrence
-  alias Ryker.Work.{Final, RepositorySource}
+  alias Ryker.Continuity
+  alias Ryker.Ingress
+  alias Ryker.Records
+  alias Ryker.Schedules
+  alias Ryker.Work
 
   @maximum_automation_proposals 4
-  @source_kinds IngressAdapters.default() |> Map.keys() |> Enum.sort()
+  @source_kinds Ingress.Adapters.default() |> Map.keys() |> Enum.sort()
 
   @spec source_kinds() :: [String.t()]
   def source_kinds, do: @source_kinds
@@ -17,7 +17,7 @@ defmodule Ryker.StateTools.Catalog do
   def maximum_automation_proposals, do: @maximum_automation_proposals
 
   @spec tools([atom()], map()) :: [map()]
-  def tools(capabilities, final_schema \\ Final.json_schema()) do
+  def tools(capabilities, final_schema \\ Work.Final.json_schema()) do
     [
       get_work_state_tool(),
       cite_source_tool(),
@@ -249,7 +249,7 @@ defmodule Ryker.StateTools.Catalog do
             "Configured target: required (non-null) for engineering; null is allowed for incident. It may be any repository of this environment: work.repository_ref or the relevant supplied work.workspace.companions[].name, whichever the task changes. Never substitute generic primary, an unrelated companion, or an unoffered path/GitHub slug. Ask for configuration only if no matching supplied target exists."
           ),
         "repository_source" =>
-          nullable(RepositorySource.json_schema())
+          nullable(Work.RepositorySource.json_schema())
           |> describe(
             ~s(Optional source inside the task's repository that the new linked work starts from: {"kind":"default"}, {"kind":"branch","name":"<branch>"}, {"kind":"pull_request","number":<n>} or {"kind":"commit","sha":"<full lowercase object id>"}. Null means the configured default branch. It requires a non-null repository, never changes this session's workspace, and never authorizes pushing to the selected branch or pull request.)
           ),
@@ -275,7 +275,7 @@ defmodule Ryker.StateTools.Catalog do
         "read_only_repositories" => array(reference(256), 0, 20),
         "requested_outcome" => text(500),
         "required" => %{"type" => "boolean"},
-        "stage" => enum(InvestigationPayload.goal_stages()),
+        "stage" => enum(Records.InvestigationPayload.goal_stages()),
         "successor_of" => nullable(reference(120)),
         "writable_repository" => nullable(reference(256))
       },
@@ -383,7 +383,7 @@ defmodule Ryker.StateTools.Catalog do
     tool(
       "update_conversation_summary",
       "Stage a bounded derived situation summary. It becomes durable only if this turn's exact final candidate is accepted.",
-      %{"state" => ConversationSummaryState.json_schema()}
+      %{"state" => Continuity.ConversationSummaryState.json_schema()}
     )
   end
 
@@ -432,7 +432,7 @@ defmodule Ryker.StateTools.Catalog do
           ),
         "recurrence" =>
           describe(
-            enum(ScheduleRecurrence.kinds()),
+            enum(Schedules.ScheduleRecurrence.kinds()),
             "daily runs every day and weekdays runs Monday to Friday, both at time; weekly runs on one weekday at time. For any other set of days, propose one weekly schedule per day."
           ),
         "source_kind" =>

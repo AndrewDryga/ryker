@@ -10,7 +10,7 @@ defmodule Ryker.CoopFleet.JobCheck do
   check's own environment stays empty. A repository without a readable gate
   gets no check, and its review is not publishable, as before.
   """
-  alias Ryker.GitHub.RepositoryFiles
+  alias Ryker.GitHub
   require Logger
 
   @project_file ".agent/project.yaml"
@@ -19,7 +19,7 @@ defmodule Ryker.CoopFleet.JobCheck do
   def none, do: %{"argv" => [], "environment" => %{}}
 
   @spec resolve(map(), map(), String.t(), module()) :: {:ok, map()} | {:error, term()}
-  def resolve(binding, repository, commit, reader \\ RepositoryFiles) do
+  def resolve(binding, repository, commit, reader \\ GitHub.RepositoryFiles) do
     case reader.read(binding, repository, @project_file, commit) do
       {:ok, :not_found} -> {:ok, none()}
       {:ok, text} when is_binary(text) -> {:ok, check(gate(text, repository))}

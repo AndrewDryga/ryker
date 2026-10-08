@@ -1,7 +1,7 @@
 defmodule Ryker.Ingress.Inbox.Entry.Changeset do
   @moduledoc false
   use Ryker, :changeset
-  alias Ryker.Admission.Decision
+  alias Ryker.Admission
   alias Ryker.ErrorDetail
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.Input
@@ -150,15 +150,15 @@ defmodule Ryker.Ingress.Inbox.Entry.Changeset do
 
   defp bounded_receipt(_receipt), do: nil
 
-  @spec decide(Entry.t(), Decision.t(), String.t(), Ecto.UUID.t() | nil) ::
+  @spec decide(Entry.t(), Admission.Decision.t(), String.t(), Ecto.UUID.t() | nil) ::
           Ecto.Changeset.t()
-  def decide(%Entry{} = entry, %Decision{} = decision, decision_ref, episode_id) do
-    document = Decision.document(decision)
+  def decide(%Entry{} = entry, %Admission.Decision{} = decision, decision_ref, episode_id) do
+    document = Admission.Decision.document(decision)
 
     fields = %{
       decision_action: decision.action,
       decision_document: document,
-      decision_fingerprint: Decision.fingerprint(decision),
+      decision_fingerprint: Admission.Decision.fingerprint(decision),
       decision_ref: decision_ref,
       episode_id: episode_id,
       last_error_code: nil,
@@ -190,9 +190,15 @@ defmodule Ryker.Ingress.Inbox.Entry.Changeset do
     |> check_constraint(:status, name: :ingress_inbox_execution_custody_valid)
   end
 
-  @spec supersede(Entry.t(), Decision.t(), String.t(), Ecto.UUID.t(), keyword()) ::
+  @spec supersede(Entry.t(), Admission.Decision.t(), String.t(), Ecto.UUID.t(), keyword()) ::
           Ecto.Changeset.t()
-  def supersede(%Entry{} = entry, %Decision{} = decision, decision_ref, episode_id, details) do
+  def supersede(
+        %Entry{} = entry,
+        %Admission.Decision{} = decision,
+        decision_ref,
+        episode_id,
+        details
+      ) do
     entry
     |> decide(decision, decision_ref, episode_id)
     |> put_change(:status, :superseded)

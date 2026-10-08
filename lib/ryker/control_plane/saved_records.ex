@@ -12,7 +12,7 @@ defmodule Ryker.ControlPlane.SavedRecords do
   call. A call that failed, stopped, or saved nothing this timeline shows
   keeps its card.
   """
-  alias Ryker.StateTools.FixedTools
+  alias Ryker.StateTools
 
   # The calls whose records are told by their own cards.
   @writers ~w(cite_source record_finding plan_goal update_goal)
@@ -62,7 +62,7 @@ defmodule Ryker.ControlPlane.SavedRecords do
     with [turn] <- turns[{event.episode_id, event.session_id, event.coop_turn_id}],
          [record] <-
            Enum.filter(records[turn.id] || [], fn record ->
-             FixedTools.written_by?(record, turn, tool, args) &&
+             StateTools.FixedTools.written_by?(record, turn, tool, args) &&
                DateTime.compare(record.inserted_at, event.occurred_at) != :gt
            end) do
       record.id

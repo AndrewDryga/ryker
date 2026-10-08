@@ -7,9 +7,9 @@ defmodule Ryker.ControlPlane.Feedback.Query do
   """
   use Ryker, :query
   alias Ryker.ControlPlane.CurrentInput
-  alias Ryker.Episodes.RoutingDigest
-  alias Ryker.Feedback.Signal
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Episodes
+  alias Ryker.Feedback
+  alias Ryker.Ingress
   require Ryker.ControlPlane.CurrentInput.Query
 
   @doc """
@@ -19,9 +19,9 @@ defmodule Ryker.ControlPlane.Feedback.Query do
   """
   def matching(queryable, pattern) do
     from([answer_feedback: signal] in queryable,
-      left_join: digest in RoutingDigest,
+      left_join: digest in Episodes.RoutingDigest,
       on: digest.episode_id == signal.episode_id,
-      left_join: input in Entry,
+      left_join: input in Ingress.Inbox.Entry,
       on: input.id == signal.input_id,
       where:
         ilike(signal.note, ^pattern) or ilike(signal.value, ^pattern) or
@@ -44,7 +44,7 @@ defmodule Ryker.ControlPlane.Feedback.Query do
         }
       )
 
-    from(signal in Signal,
+    from(signal in Feedback.Signal,
       join: ranked in subquery(ranked),
       on: ranked.id == signal.id,
       where: ranked.rank <= ^count,
@@ -65,7 +65,7 @@ defmodule Ryker.ControlPlane.Feedback.Query do
   conversation_ref, preview}`.
   """
   def message_previews(input_ids) do
-    from(entry in Entry,
+    from(entry in Ingress.Inbox.Entry,
       where: entry.id in ^input_ids,
       select:
         {entry.id, entry.destination_transport, entry.destination_conversation_ref,

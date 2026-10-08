@@ -1,12 +1,13 @@
 defmodule Ryker.WorkExamples.Feedback.Query do
   @moduledoc "Feedback kept with Work examples, for every read of `work_example_feedback`."
   use Ryker, :query
-  alias Ryker.Delivery.PlatformAction
-  alias Ryker.Feedback.Signal
-  alias Ryker.Work.Turn
-  alias Ryker.WorkExamples.{Example, Feedback}
+  alias Ryker.Delivery
+  alias Ryker.Feedback
+  alias Ryker.Work
+  alias Ryker.WorkExamples
+  alias Ryker.WorkExamples.Example
 
-  def all, do: from(feedback in Feedback, as: :work_example_feedback)
+  def all, do: from(feedback in WorkExamples.Feedback, as: :work_example_feedback)
 
   @doc "The feedback on the examples `examples` selects."
   def by_examples(queryable \\ all(), examples) do
@@ -24,7 +25,7 @@ defmodule Ryker.WorkExamples.Feedback.Query do
   third turn's reply labelled every turn of the request (2026-10-04 review).
   """
   def copies_of_signals do
-    from(signal in Signal,
+    from(signal in Feedback.Signal,
       as: :answer_feedback,
       join: example in Example,
       as: :work_examples,
@@ -48,7 +49,7 @@ defmodule Ryker.WorkExamples.Feedback.Query do
   # or as an update it posted.
   defp sent_by_example_turn do
     replies =
-      from(turn in Turn,
+      from(turn in Work.Turn,
         where:
           turn.id == parent_as(:work_examples).turn_id and
             fragment("(?::jsonb)->>'message_ref'", turn.external_receipt) ==
@@ -56,7 +57,7 @@ defmodule Ryker.WorkExamples.Feedback.Query do
         select: 1
       )
 
-    from(action in PlatformAction,
+    from(action in Delivery.PlatformAction,
       where:
         action.turn_id == parent_as(:work_examples).turn_id and
           fragment("(?::jsonb)->>'message_ref'", action.external_receipt) ==

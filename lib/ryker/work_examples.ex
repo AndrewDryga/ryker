@@ -41,16 +41,16 @@ defmodule Ryker.WorkExamples do
   off.
   """
   alias Ryker.CanonicalJSON
-  alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Episodes
+  alias Ryker.Ingress
   alias Ryker.InspectionRedactor
-  alias Ryker.Learning.Observations
-  alias Ryker.Publication.Publication
+  alias Ryker.Learning
+  alias Ryker.Publication
   alias Ryker.Repo
   alias Ryker.RoutingExamples
-  alias Ryker.Settings.Retention
+  alias Ryker.Settings
   alias Ryker.TrainingExamples
-  alias Ryker.Work.{ActivityEvent, CandidateResponse, Turn}
+  alias Ryker.Work
   alias Ryker.WorkExamples.{Example, Feedback}
 
   # What the worker did, as training reads it: a tool call ends in
@@ -133,7 +133,7 @@ defmodule Ryker.WorkExamples do
   defp copy_in_transaction(turn_id, secrets) do
     Repo.transaction(fn ->
       with true <- enabled?(),
-           %Turn{} = turn <- held_turn(turn_id),
+           %Work.Turn{} = turn <- held_turn(turn_id),
            :ok <- RoutingExamples.copy_lock_in_transaction(),
            false <- Repo.exists?(Example.Query.by_turn_id(turn_id)) do
         turn |> example(secrets) |> TrainingExamples.insert!([:turn_id])
@@ -145,8 +145,8 @@ defmodule Ryker.WorkExamples do
 
   defp enabled? do
     enabled =
-      Retention.Query.select_work_examples_enabled()
-      |> Retention.Query.lock_for_share()
+      Settings.Retention.Query.select_work_examples_enabled()
+      |> Settings.Retention.Query.lock_for_share()
       |> Repo.one()
 
     enabled == true
@@ -154,15 +154,15 @@ defmodule Ryker.WorkExamples do
 
   defp held_turn(turn_id) do
     turn_id
-    |> Turn.Query.by_id()
-    |> Turn.Query.settled_with_bodies()
-    |> Turn.Query.lock_for_share()
+    |> Work.Turn.Query.by_id()
+    |> Work.Turn.Query.settled_with_bodies()
+    |> Work.Turn.Query.lock_for_share()
     |> Repo.one()
   end
 
   defp example(turn, secrets) do
     now = Repo.now!()
-    episode = Repo.one!(Episode.Query.by_id(turn.episode_id))
+    episode = Repo.one!(Episodes.Episode.Query.by_id(turn.episode_id))
     inputs = inputs(episode, turn)
     quoted = Enum.map(inputs, &RoutingExamples.quoted_keys/1)
     submission = turn.submission
@@ -173,7 +173,7 @@ defmodule Ryker.WorkExamples do
       turn_id: turn.id,
       episode_id: episode.id,
       episode_ref: episode.key,
-      source_identities: inputs |> Enum.map(&Observations.source_identity/1) |> sorted(),
+      source_identities: inputs |> Enum.map(&Learning.Observations.source_identity/1) |> sorted(),
       message_keys: quoted |> Enum.flat_map(& &1.keys) |> sorted(),
       conversation_refs:
         quoted
@@ -224,8 +224,8 @@ defmodule Ryker.WorkExamples do
   defp linked_inputs(_episode_id, _until, 0), do: []
 
   defp linked_inputs(episode_id, until, left) do
-    case Repo.one(Episode.Query.by_id(episode_id)) do
-      %Episode{} = source ->
+    case Repo.one(Episodes.Episode.Query.by_id(episode_id)) do
+      %Episodes.Episode{} = source ->
         admitted(source.id, until) ++
           linked_inputs(source.linked_episode_id, source.inserted_at, left - 1)
 
@@ -235,7 +235,7 @@ defmodule Ryker.WorkExamples do
   end
 
   defp admitted(episode_id, until),
-    do: episode_id |> Entry.Query.admitted_to(until) |> Repo.all()
+    do: episode_id |> Ingress.Inbox.Entry.Query.admitted_to(until) |> Repo.all()
 
   defp sorted(values), do: values |> Enum.reject(&is_nil/1) |> Enum.uniq() |> Enum.sort()
 
@@ -243,10 +243,10 @@ defmodule Ryker.WorkExamples do
 
   # What the worker did, oldest first, each event's payload redacted as the
   # briefing is.
-  defp trajectory(%Turn{coop_turn_id: coop_turn_id} = turn, secrets)
+  defp trajectory(%Work.Turn{coop_turn_id: coop_turn_id} = turn, secrets)
        when is_binary(coop_turn_id) do
     turn.episode_id
-    |> ActivityEvent.Query.trajectory(coop_turn_id, @trajectory_kinds)
+    |> Work.ActivityEvent.Query.trajectory(coop_turn_id, @trajectory_kinds)
     |> Repo.all()
     |> Enum.map(fn event ->
       %{
@@ -271,7 +271,7 @@ defmodule Ryker.WorkExamples do
           do: {attempt, verdict["violations"]}
 
     turn.id
-    |> CandidateResponse.Query.kept_for_turn()
+    |> Work.CandidateResponse.Query.kept_for_turn()
     |> Repo.all()
     |> Enum.filter(&Map.has_key?(verdicts, &1.candidate_attempt))
     |> Enum.map(fn response ->
@@ -307,10 +307,10 @@ defmodule Ryker.WorkExamples do
   defp outcome(turn, episode) do
     publication =
       episode.id
-      |> Publication.Query.by_episode_id()
-      |> Publication.Query.ordered_by_recent()
-      |> Publication.Query.limit_to(1)
-      |> Publication.Query.select_statuses()
+      |> Publication.Publication.Query.by_episode_id()
+      |> Publication.Publication.Query.ordered_by_recent()
+      |> Publication.Publication.Query.limit_to(1)
+      |> Publication.Publication.Query.select_statuses()
       |> Repo.one()
 
     %{

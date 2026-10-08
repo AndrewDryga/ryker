@@ -11,13 +11,12 @@ defmodule Ryker.Retention.Data do
   (`subscribe_pruning/0`).
   """
   alias Ryker.AdvisoryLock
-  alias Ryker.Continuity.Compaction
-  alias Ryker.Knowledge.KnowledgeRetention
+  alias Ryker.Continuity
+  alias Ryker.Knowledge
   alias Ryker.Learning
-  alias Ryker.Memories.Cases
-  alias Ryker.Memories.Reviews
+  alias Ryker.Memories
   alias Ryker.Repo
-  alias Ryker.Work.ActivityRetention
+  alias Ryker.Work
   require Logger
 
   @advisory_lock 7_152_019_552_843_111
@@ -116,7 +115,7 @@ defmodule Ryker.Retention.Data do
   # ones naming it are dismissed.
   defp prune_phase(:reviews, result, settings) do
     seconds = min(settings.conversation_memory_seconds, @memory_review_seconds)
-    with {:ok, _created} <- Reviews.refresh_all_reviews(seconds), do: {:ok, result}
+    with {:ok, _created} <- Memories.Reviews.refresh_all_reviews(seconds), do: {:ok, result}
   end
 
   defp prune_phase(:operational, result, settings), do: prune_operational(result, settings)
@@ -206,7 +205,7 @@ defmodule Ryker.Retention.Data do
     memory_seconds = settings.conversation_memory_seconds
 
     {:ok, compacted} =
-      Compaction.compact_in_transaction(
+      Continuity.Compaction.compact_in_transaction(
         min(memory_seconds, @summary_compaction_seconds),
         memory_seconds
       )
@@ -218,7 +217,7 @@ defmodule Ryker.Retention.Data do
     _ended_behaviors = prune_aged(@ended_behaviors, settings)
     _schedules = prune_aged(@finished_schedules, settings)
     observations = execute_count(@clear_observation_notes, [memory_seconds])
-    knowledge = KnowledgeRetention.prune_in_transaction(memory_seconds)
+    knowledge = Knowledge.KnowledgeRetention.prune_in_transaction(memory_seconds)
 
     %{result | conversation_memory: memory + compacted + rollups + observations + knowledge}
   end
@@ -727,7 +726,7 @@ defmodule Ryker.Retention.Data do
     _local_routing_comparisons = execute_count(@prune_local_routing_comparisons)
     _status_receipts = prune_aged(@finished_status_receipts, settings)
     operational_turns = execute_count(@prune_operational_turns, [@terminal_turn_states, cutoff])
-    _activity_evidence = ActivityRetention.prune()
+    _activity_evidence = Work.ActivityRetention.prune()
     _input_artifact_references = execute_count(@prune_input_artifact_references)
     _work_artifact_references = execute_count(@prune_work_artifact_references)
     _state_tool_calls = execute_count(@prune_state_tool_calls)
@@ -1000,7 +999,7 @@ defmodule Ryker.Retention.Data do
     # The compact case is written before its raw episode is reclaimed, so a
     # pending lesson review is never the reason the useful part of an incident
     # disappears at the history horizon.
-    _cases = Cases.capture_many(ids)
+    _cases = Memories.Cases.capture_many(ids)
 
     dispatched_schedule_runs = prune_history_ids(ids)
 

@@ -7,7 +7,7 @@ defmodule Ryker.ControlPlane.FindingsProjection do
   """
   alias Ryker.ControlPlane.{Findings, PagedRelation, Paths, Search}
   alias Ryker.InspectionRedactor
-  alias Ryker.Records.Record
+  alias Ryker.Records
   alias Ryker.Repo
 
   # The timeline shows an episode's newest records up to this bound, so a
@@ -68,7 +68,7 @@ defmodule Ryker.ControlPlane.FindingsProjection do
   @spec fetch(String.t()) :: {:ok, map()} | :error
   def fetch(id) do
     with {:ok, id} <- Ecto.UUID.cast(id),
-         {%Record{kind: "finding"} = record, episode_id} <-
+         {%Records.Record{kind: "finding"} = record, episode_id} <-
            Repo.one(Findings.Query.by_id_with_request(id)) do
       refs = Map.get(record.payload, "cause_evidence", [])
 

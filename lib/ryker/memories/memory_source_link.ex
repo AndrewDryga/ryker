@@ -1,8 +1,8 @@
 defmodule Ryker.Memories.MemorySourceLink do
   @moduledoc false
   alias Ryker.{CanonicalJSON, Repo}
-  alias Ryker.Episodes.Event
-  alias Ryker.Slack.SourceRef
+  alias Ryker.Episodes
+  alias Ryker.Slack
 
   # Return a usable existing reader invocation, not an invented original quote.
   # The platform reader rechecks current source access when this is followed.
@@ -10,7 +10,7 @@ defmodule Ryker.Memories.MemorySourceLink do
       when is_binary(conversation) and is_binary(message) do
     with ["slack", workspace, channel] <- String.split(conversation, ":"),
          ref = "slack-source:v1:#{workspace}:#{channel}:message:#{message}",
-         {:ok, _} <- SourceRef.parse(ref, workspace),
+         {:ok, _} <- Slack.SourceRef.parse(ref, workspace),
          {:ok, arguments} <- reader(ref, workspace, channel, thread) do
       %{
         "tool" => "read_slack_source",
@@ -72,7 +72,7 @@ defmodule Ryker.Memories.MemorySourceLink do
   defp lab_anchor(conversation, message) do
     # Observation receipts name the native source item; the Lab reader names
     # the admitted event. Resolve that durable relation, never invent a locator.
-    Repo.one(Event.Query.lab_admission_key(conversation, message))
+    Repo.one(Episodes.Event.Query.lab_admission_key(conversation, message))
   end
 
   def context_targets(%{"conversation_ref" => conversation} = document)
@@ -140,7 +140,7 @@ defmodule Ryker.Memories.MemorySourceLink do
   defp lab_read_target(_read, _conversation), do: []
 
   defp read_target(read, workspace) do
-    case SourceRef.parse(read["arguments"]["source_ref"], workspace) do
+    case Slack.SourceRef.parse(read["arguments"]["source_ref"], workspace) do
       {:ok, %{kind: kind} = source} when kind in [:message, :thread] ->
         [
           %{
@@ -180,7 +180,7 @@ defmodule Ryker.Memories.MemorySourceLink do
     ["slack", workspace, _channel] = String.split(conversation, ":", parts: 3)
 
     "read_slack_source" in Map.get(binding, :source_tools, []) and
-      match?({:ok, _}, SourceRef.parse(ref, workspace))
+      match?({:ok, _}, Slack.SourceRef.parse(ref, workspace))
   end
 
   defp available?(
@@ -198,7 +198,7 @@ defmodule Ryker.Memories.MemorySourceLink do
   defp reader(ref, workspace, channel, thread) when is_binary(thread) do
     thread_ref = "slack-source:v1:#{workspace}:#{channel}:thread:#{thread}"
 
-    with {:ok, _} <- SourceRef.parse(thread_ref, workspace) do
+    with {:ok, _} <- Slack.SourceRef.parse(thread_ref, workspace) do
       {:ok, %{"source_ref" => thread_ref, "anchor_ref" => ref, "view" => "thread", "limit" => 20}}
     end
   end

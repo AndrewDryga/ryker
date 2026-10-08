@@ -4,7 +4,7 @@ defmodule Ryker.WeeklyReport.Report.Changeset do
   through the lease custody of `Ryker.Delivery.Lease.Changeset`.
   """
   use Ryker, :changeset
-  alias Ryker.Delivery.Lease
+  alias Ryker.Delivery
   alias Ryker.WeeklyReport.Report
 
   @fields [
@@ -31,31 +31,33 @@ defmodule Ryker.WeeklyReport.Report.Changeset do
   @doc "See `Ryker.Delivery.Lease.Changeset.claim/5`."
   def claim(%Report{} = report, at, lease_seconds, owner, lease_ref) do
     report
-    |> Lease.Changeset.claim(at, lease_seconds, owner, lease_ref)
+    |> Delivery.Lease.Changeset.claim(at, lease_seconds, owner, lease_ref)
     |> report_constraints()
   end
 
   @doc "See `Ryker.Delivery.Lease.Changeset.renew/2`."
   def renew(%Report{} = report, expires_at),
-    do: report |> Lease.Changeset.renew(expires_at) |> report_constraints()
+    do: report |> Delivery.Lease.Changeset.renew(expires_at) |> report_constraints()
 
   @doc "See `Ryker.Delivery.Lease.Changeset.defer/4`."
   def defer(%Report{} = report, next_attempt_at, error_code, error_detail) do
     report
-    |> Lease.Changeset.defer(next_attempt_at, error_code, error_detail)
+    |> Delivery.Lease.Changeset.defer(next_attempt_at, error_code, error_detail)
     |> report_constraints()
   end
 
   @doc "See `Ryker.Delivery.Lease.Changeset.block/3`."
   def block(%Report{} = report, error_code, error_detail),
-    do: report |> Lease.Changeset.block(error_code, error_detail) |> report_constraints()
+    do: report |> Delivery.Lease.Changeset.block(error_code, error_detail) |> report_constraints()
 
   @doc "See `Ryker.Delivery.Lease.Changeset.retry/1`."
-  def retry(%Report{} = report), do: report |> Lease.Changeset.retry() |> report_constraints()
+  def retry(%Report{} = report),
+    do: report |> Delivery.Lease.Changeset.retry() |> report_constraints()
 
   @doc "See `Ryker.Delivery.Lease.Changeset.confirm/4`."
-  def confirm(%Report{} = report, at, receipt, fingerprint),
-    do: report |> Lease.Changeset.confirm(at, receipt, fingerprint) |> report_constraints()
+  def confirm(%Report{} = report, at, receipt, fingerprint) do
+    report |> Delivery.Lease.Changeset.confirm(at, receipt, fingerprint) |> report_constraints()
+  end
 
   defp report_constraints(changeset) do
     changeset

@@ -16,9 +16,8 @@ defmodule Ryker.Admission.ConversationContext do
   """
   alias Ryker.Admission.ConversationContext
   alias Ryker.CanonicalJSON
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Ingress.RecallText
-  alias Ryker.Memories.MemorySourceLink
+  alias Ryker.Ingress
+  alias Ryker.Memories
   alias Ryker.Repo
 
   @default_limit 20
@@ -34,8 +33,8 @@ defmodule Ryker.Admission.ConversationContext do
   """
   @type t :: %{bundle: map(), manifest: map(), previous_answer: map() | nil}
 
-  @spec capture(Entry.t(), keyword()) :: t()
-  def capture(%Entry{} = entry, options \\ []) do
+  @spec capture(Ingress.Inbox.Entry.t(), keyword()) :: t()
+  def capture(%Ingress.Inbox.Entry{} = entry, options \\ []) do
     limit = validated_limit(Keyword.get(options, :local_history_limit, @default_limit))
     reader = Keyword.get(options, :reader)
     kind = origin_kind(entry)
@@ -103,8 +102,8 @@ defmodule Ryker.Admission.ConversationContext do
   end
 
   @doc false
-  @spec origin_kind(Entry.t()) :: :thread_reply | :channel_root | :conversation
-  def origin_kind(%Entry{
+  @spec origin_kind(Ingress.Inbox.Entry.t()) :: :thread_reply | :channel_root | :conversation
+  def origin_kind(%Ingress.Inbox.Entry{
         source_kind: "slack",
         source_item_ref: item,
         destination_thread_ref: thread
@@ -177,7 +176,7 @@ defmodule Ryker.Admission.ConversationContext do
         "retained" => true,
         "source_message_ref" => message_ref,
         "source_read" =>
-          MemorySourceLink.message(
+          Memories.MemorySourceLink.message(
             entry.destination_transport,
             entry.destination_conversation_ref,
             message_ref,
@@ -280,13 +279,13 @@ defmodule Ryker.Admission.ConversationContext do
       [
         %{
           "actor_ref" => provider_actor(message),
-          "content" => %{"text" => message |> RecallText.prose() |> bounded_text()},
+          "content" => %{"text" => message |> Ingress.RecallText.prose() |> bounded_text()},
           "occurred_at" => provider_time(ts),
           "revision" => nil,
           "retained" => false,
           "source_message_ref" => ts,
           "source_read" =>
-            MemorySourceLink.message(
+            Memories.MemorySourceLink.message(
               entry.destination_transport,
               entry.destination_conversation_ref,
               ts,
@@ -318,7 +317,7 @@ defmodule Ryker.Admission.ConversationContext do
     end
   end
 
-  defp channel_ref(%Entry{destination_conversation_ref: "slack:" <> rest}) do
+  defp channel_ref(%Ingress.Inbox.Entry{destination_conversation_ref: "slack:" <> rest}) do
     case String.split(rest, ":", parts: 2) do
       [_workspace, channel_ref] when channel_ref != "" -> {:ok, channel_ref}
       _invalid -> {:error, :conversation_ref}
@@ -347,16 +346,18 @@ defmodule Ryker.Admission.ConversationContext do
   defp retained_root(entry, root_ref),
     do: Repo.one(ConversationContext.Query.retained_root(entry, root_ref))
 
-  defp message_document(%Entry{} = entry, origin) do
+  defp message_document(%Ingress.Inbox.Entry{} = entry, origin) do
     %{
       "actor_ref" => entry.actor_ref,
-      "content" => %{"text" => entry |> Map.get(:content) |> RecallText.prose() |> bounded_text()},
+      "content" => %{
+        "text" => entry |> Map.get(:content) |> Ingress.RecallText.prose() |> bounded_text()
+      },
       "occurred_at" => DateTime.to_iso8601(entry.occurred_at),
       "revision" => entry.revision,
       "retained" => origin != :provider,
       "source_message_ref" => entry.source_item_ref || entry.native_input_id,
       "source_read" =>
-        MemorySourceLink.message(
+        Memories.MemorySourceLink.message(
           entry.destination_transport,
           entry.destination_conversation_ref,
           entry.source_item_ref,

@@ -6,13 +6,13 @@ defmodule Ryker.ControlPlane.Findings.Query do
   request's timeline still shows.
   """
   use Ryker, :query
-  alias Ryker.Episodes.Episode
-  alias Ryker.Records.Record
+  alias Ryker.Episodes
+  alias Ryker.Records
 
   @doc "Every finding with its request's id, as `{record, episode_id}`."
   def findings do
-    from([episode_state_records: record] in Record.Query.all(),
-      join: episode in Episode,
+    from([episode_state_records: record] in Records.Record.Query.all(),
+      join: episode in Episodes.Episode,
       on: episode.id == record.episode_id,
       where: record.kind == "finding",
       select: {record, episode.id}
@@ -21,8 +21,8 @@ defmodule Ryker.ControlPlane.Findings.Query do
 
   @doc "Record `id` with its request's id, as `{record, episode_id}`."
   def by_id_with_request(id) do
-    from([episode_state_records: record] in Record.Query.all(),
-      join: episode in Episode,
+    from([episode_state_records: record] in Records.Record.Query.all(),
+      join: episode in Episodes.Episode,
       on: episode.id == record.episode_id,
       where: record.id == ^id,
       select: {record, episode.id}
@@ -76,7 +76,7 @@ defmodule Ryker.ControlPlane.Findings.Query do
 
   @doc "The evidence records `refs` of `episode_id`."
   def evidence(episode_id, refs) do
-    from(item in Record,
+    from(item in Records.Record,
       where: item.kind == "evidence" and item.ref in ^refs and item.episode_id == ^episode_id
     )
   end
@@ -84,7 +84,7 @@ defmodule Ryker.ControlPlane.Findings.Query do
   @doc "The ids of the newest `limit` records of each of `episode_ids`: the ones its timeline shows."
   def shown_on_timeline(episode_ids, limit) do
     ranked =
-      from(record in Record,
+      from(record in Records.Record,
         where: record.episode_id in ^episode_ids,
         select: %{
           id: record.id,

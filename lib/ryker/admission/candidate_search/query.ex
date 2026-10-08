@@ -5,7 +5,7 @@ defmodule Ryker.Admission.CandidateSearch.Query do
   and identifiers. Every lane reads only what `eligible/2` allows.
   """
   use Ryker, :query
-  alias Ryker.Episodes.{Episode, Origin, RoutingDigest}
+  alias Ryker.Episodes
 
   @active_states [:working, :waiting_for_input, :waiting_for_event]
 
@@ -16,7 +16,7 @@ defmodule Ryker.Admission.CandidateSearch.Query do
   the window only bounds how far completed history is offered.
   """
   def eligible(request, scope) do
-    from(episode in Episode.Query.all(),
+    from(episode in Episodes.Episode.Query.all(),
       where:
         episode.execution_mode == ^request.execution_mode and
           episode.destination_conversation_ref in ^scope.conversation_refs and
@@ -28,7 +28,7 @@ defmodule Ryker.Admission.CandidateSearch.Query do
   @doc "The `limit` eligible episodes that share the most of `anchors`, then the latest."
   def identity_lane(request, scope, anchors, limit) do
     from(episode in eligible(request, scope),
-      join: digest in RoutingDigest,
+      join: digest in Episodes.RoutingDigest,
       on: digest.episode_id == episode.id,
       where: fragment("? && ?::text[]", digest.anchor_keys, ^anchors),
       order_by: [
@@ -70,7 +70,7 @@ defmodule Ryker.Admission.CandidateSearch.Query do
 
   @doc "Up to `limit` episodes with an input posted in `request`'s exact thread."
   def thread_origin_ids(request, scope, limit) do
-    from(origin in Origin,
+    from(origin in Episodes.Origin,
       where:
         origin.transport == ^request.transport and
           origin.conversation_ref == ^scope.conversation_ref and
@@ -92,7 +92,7 @@ defmodule Ryker.Admission.CandidateSearch.Query do
 
   @doc "The routing digests of the episodes `request` may be offered."
   def searchable(request, scope) do
-    from(digest in RoutingDigest,
+    from(digest in Episodes.RoutingDigest,
       join: episode in subquery(eligible(request, scope)),
       on: episode.id == digest.episode_id
     )
@@ -135,7 +135,7 @@ defmodule Ryker.Admission.CandidateSearch.Query do
 
     scored =
       from(episode in eligible(request, scope),
-        join: digest in RoutingDigest,
+        join: digest in Episodes.RoutingDigest,
         on: digest.episode_id == episode.id,
         where: fragment("? @@ to_tsquery('simple', ?)", digest.search_vector, ^terms),
         select: %{
@@ -178,7 +178,7 @@ defmodule Ryker.Admission.CandidateSearch.Query do
   def meaning_lane(request, scope, model, vector, floor, limit) do
     scored =
       from(episode in eligible(request, scope),
-        join: digest in RoutingDigest,
+        join: digest in Episodes.RoutingDigest,
         on: digest.episode_id == episode.id,
         where: digest.embedding_model == ^model,
         select: %{
@@ -203,7 +203,7 @@ defmodule Ryker.Admission.CandidateSearch.Query do
 
   @doc "The similarity of each of `episode_ids` with a `model` vector to `vector`."
   def similarities(episode_ids, model, vector) do
-    from(digest in RoutingDigest,
+    from(digest in Episodes.RoutingDigest,
       where: digest.episode_id in ^episode_ids and digest.embedding_model == ^model,
       select:
         {digest.episode_id,

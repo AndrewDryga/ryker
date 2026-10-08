@@ -8,7 +8,7 @@ defmodule Ryker.GitHub.Input do
   @behaviour Ryker.Ingress.Adapter
   alias Ryker.CanonicalJSON
   alias Ryker.GitHub.{Binding, Payload}
-  alias Ryker.Ingress.Input
+  alias Ryker.Ingress
   alias Ryker.Reference
 
   @event_fields [:delivery_ref, :event_name, :event_ref, :payload]
@@ -139,7 +139,7 @@ defmodule Ryker.GitHub.Input do
   end
 
   defp input(event, binding, details, actor, occurred_at) do
-    Input.new(%{
+    Ingress.Input.new(%{
       actor: actor,
       content: %{
         "delivery_ref" => event.delivery_ref,

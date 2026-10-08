@@ -6,14 +6,13 @@ defmodule Ryker.Slack.WorkRecord do
   publication custody. They never ask a model to reconstruct history or fill
   missing impact, cause, ownership, or corrective-action facts.
   """
-  alias Ryker.Episodes.{Episode, Event}
-  alias Ryker.Episodes.Words
-  alias Ryker.Publication.{Followup, Publication}
-  alias Ryker.Records.{DerivedContext, Record}
+  alias Ryker.Episodes
+  alias Ryker.Publication
+  alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Slack.{IncidentRoom, TaskCard, TaskCardDetails, WorkTarget}
   alias Ryker.Slack.Renderer.Blocks
-  alias Ryker.Work.{Recovery, Session, Turn}
+  alias Ryker.Work
 
   @maximum_events 60
   @maximum_records 80
@@ -39,10 +38,11 @@ defmodule Ryker.Slack.WorkRecord do
   def build(_work_ref, _target, _kind), do: {:error, :work_record_not_available}
 
   @doc false
-  @spec build_episode(Record.t(), Episode.t(), kind()) :: {:ok, map()} | {:error, term()}
+  @spec build_episode(Records.Record.t(), Episodes.Episode.t(), kind()) ::
+          {:ok, map()} | {:error, term()}
   def build_episode(
-        %Record{kind: "task_offer", payload: %{"kind" => offered_kind}, ref: work_ref},
-        %Episode{} = episode,
+        %Records.Record{kind: "task_offer", payload: %{"kind" => offered_kind}, ref: work_ref},
+        %Episodes.Episode{} = episode,
         kind
       )
       when offered_kind in ["engineering", "incident"] and
@@ -67,25 +67,25 @@ defmodule Ryker.Slack.WorkRecord do
 
     events =
       episode_id
-      |> Event.Query.by_episode_id()
-      |> Event.Query.ordered_by_sequence_desc()
-      |> Event.Query.limit_to(@maximum_events)
+      |> Episodes.Event.Query.by_episode_id()
+      |> Episodes.Event.Query.ordered_by_sequence_desc()
+      |> Episodes.Event.Query.limit_to(@maximum_events)
       |> Repo.all()
       |> Enum.reverse()
 
     records =
       episode_id
-      |> Record.Query.by_episode_id()
-      |> Record.Query.ordered_by_sequence_desc()
-      |> Record.Query.limit_to(@maximum_records)
+      |> Records.Record.Query.by_episode_id()
+      |> Records.Record.Query.ordered_by_sequence_desc()
+      |> Records.Record.Query.limit_to(@maximum_records)
       |> Repo.all()
       |> Enum.reverse()
 
     publications =
       episode_id
-      |> Publication.Query.by_episode_id()
-      |> Publication.Query.ordered_by_recent()
-      |> Publication.Query.limit_to(@maximum_publications)
+      |> Publication.Publication.Query.by_episode_id()
+      |> Publication.Publication.Query.ordered_by_recent()
+      |> Publication.Publication.Query.limit_to(@maximum_publications)
       |> Repo.all()
       |> Enum.reverse()
 
@@ -94,8 +94,8 @@ defmodule Ryker.Slack.WorkRecord do
     pull_request_states =
       publications
       |> Enum.map(& &1.id)
-      |> Followup.Query.by_publication_ids()
-      |> Followup.Query.select_states()
+      |> Publication.Followup.Query.by_publication_ids()
+      |> Publication.Followup.Query.select_states()
       |> Repo.all()
       |> Map.new()
 
@@ -107,7 +107,7 @@ defmodule Ryker.Slack.WorkRecord do
       pull_request_states: pull_request_states,
       records: records,
       title: work_title(resolved.work_ref),
-      turn: Repo.one(Turn.Query.current(resolved.episode)),
+      turn: Repo.one(Work.Turn.Query.current(resolved.episode)),
       work_ref: resolved.work_ref
     }
   end
@@ -117,17 +117,24 @@ defmodule Ryker.Slack.WorkRecord do
   # anyone there can open, showed every record regardless (2026-10-04 review).
   # The control plane's copy (`build_episode/3`) is the operator's and keeps
   # them all, as the task's page does.
-  defp shown_in_channel(%{turn: %Turn{session_id: session_id}} = snapshot)
+  defp shown_in_channel(%{turn: %Work.Turn{session_id: session_id}} = snapshot)
        when is_binary(session_id) do
     repository =
-      session_id |> Session.Query.by_id() |> Session.Query.select_repository_refs() |> Repo.one()
+      session_id
+      |> Work.Session.Query.by_id()
+      |> Work.Session.Query.select_repository_refs()
+      |> Repo.one()
 
     shown =
       snapshot.records
       |> Enum.map(
-        &DerivedContext.record(%{"kind" => &1.kind, "payload" => &1.payload, "ref" => &1.ref})
+        &Records.DerivedContext.record(%{
+          "kind" => &1.kind,
+          "payload" => &1.payload,
+          "ref" => &1.ref
+        })
       )
-      |> DerivedContext.filter(snapshot.episode, repository)
+      |> Records.DerivedContext.filter(snapshot.episode, repository)
       |> MapSet.new(& &1["document"]["ref"])
 
     %{snapshot | records: Enum.filter(snapshot.records, &MapSet.member?(shown, &1.ref))}
@@ -140,7 +147,7 @@ defmodule Ryker.Slack.WorkRecord do
   defp work_title("task-card:" <> _rest = ref), do: Repo.one(TaskCard.Query.task_title(ref))
 
   defp work_title("record:task_offer:" <> _rest = ref),
-    do: ref |> Record.Query.by_ref() |> Record.Query.select_titles() |> Repo.one()
+    do: ref |> Records.Record.Query.by_ref() |> Records.Record.Query.select_titles() |> Repo.one()
 
   defp work_title("incident-room:" <> _rest = ref),
     do: ref |> IncidentRoom.Query.by_ref() |> IncidentRoom.Query.select_titles() |> Repo.one()
@@ -162,7 +169,7 @@ defmodule Ryker.Slack.WorkRecord do
 
     [
       heading("Timeline", snapshot),
-      "Now: #{Words.label(snapshot.episode.state)}",
+      "Now: #{Episodes.Words.label(snapshot.episode.state)}",
       if(entries == [], do: "Nothing has happened yet.", else: Enum.join(entries, "\n"))
     ]
     |> Enum.join("\n")
@@ -214,7 +221,7 @@ defmodule Ryker.Slack.WorkRecord do
 
     [
       heading("Where this stands", snapshot),
-      "#{Words.label(snapshot.episode.state)}. " <> progress_line(progress),
+      "#{Episodes.Words.label(snapshot.episode.state)}. " <> progress_line(progress),
       if(steps != [], do: "Steps:\n" <> Enum.join(steps, "\n")),
       Enum.map(waits, &wait_line/1),
       if(snapshot.kind == :task,
@@ -232,13 +239,13 @@ defmodule Ryker.Slack.WorkRecord do
   # an operator reading Slack and an operator reading the control plane act on
   # one set of facts, and the worker's own retained answer is attributed to it
   # rather than read as a check result.
-  defp render(:recovery, %{turn: %Turn{} = turn} = snapshot) do
-    case Recovery.workspace_hold(turn) do
+  defp render(:recovery, %{turn: %Work.Turn{} = turn} = snapshot) do
+    case Work.Recovery.workspace_hold(turn) do
       nil ->
         nil
 
       _held ->
-        brief = Recovery.brief(turn)
+        brief = Work.Recovery.brief(turn)
 
         [
           "Recovery for #{snapshot.work_ref}",
@@ -313,7 +320,7 @@ defmodule Ryker.Slack.WorkRecord do
   defp event_entry(event) do
     %{
       sort: {DateTime.to_unix(event.occurred_at, :microsecond), 0, event.sequence},
-      text: "• #{slack_time(event.occurred_at)}  #{Words.lifecycle_title(event.kind)}"
+      text: "• #{slack_time(event.occurred_at)}  #{Episodes.Words.lifecycle_title(event.kind)}"
     }
   end
 
@@ -361,7 +368,7 @@ defmodule Ryker.Slack.WorkRecord do
   defp goal_state_words("completed"), do: "done"
   defp goal_state_words("excluded"), do: "dropped"
   defp goal_state_words("blocked"), do: "blocked"
-  defp goal_state_words(state), do: state |> Words.label() |> String.downcase()
+  defp goal_state_words(state), do: state |> Episodes.Words.label() |> String.downcase()
 
   defp goal_outcomes(records) do
     for %{kind: "goal", payload: %{"id" => id} = payload} <- records,
@@ -435,7 +442,7 @@ defmodule Ryker.Slack.WorkRecord do
   defp goal_state_label("ready"), do: "not started"
   defp goal_state_label("working"), do: "in progress"
   defp goal_state_label("blocked"), do: "blocked"
-  defp goal_state_label(state), do: state |> Words.label() |> String.downcase()
+  defp goal_state_label(state), do: state |> Episodes.Words.label() |> String.downcase()
 
   defp corrective_actions(records) do
     records
@@ -452,10 +459,10 @@ defmodule Ryker.Slack.WorkRecord do
   defp progress_line(record),
     do: "Latest update: #{compact(String.trim(record.payload["summary"] || ""), 900)}"
 
-  defp wait_line(%Record{kind: "input_request", payload: payload}),
+  defp wait_line(%Records.Record{kind: "input_request", payload: payload}),
     do: "Waiting for an answer: #{compact(payload["question"], 700)}"
 
-  defp wait_line(%Record{kind: "event_wait", payload: payload}),
+  defp wait_line(%Records.Record{kind: "event_wait", payload: payload}),
     do: "Waiting for: #{compact(payload["verification"], 700)}"
 
   defp publication_line(nil, _states), do: "No draft PR yet."
@@ -464,12 +471,15 @@ defmodule Ryker.Slack.WorkRecord do
     do: publication_words(publication, states[publication.id])
 
   # Only a person merges or closes a pull request on GitHub, and that is the news.
-  defp publication_words(%Publication{pull_request_url: url, pull_request_number: number}, state)
+  defp publication_words(
+         %Publication.Publication{pull_request_url: url, pull_request_number: number},
+         state
+       )
        when is_binary(url) and is_integer(number) and state in [:merged, :closed],
        do: "PR <#{url}|##{number}> · #{settled_words(state)}"
 
   defp publication_words(
-         %Publication{pull_request_url: url, pull_request_number: number} = p,
+         %Publication.Publication{pull_request_url: url, pull_request_number: number} = p,
          _state
        )
        when is_binary(url) and is_integer(number),

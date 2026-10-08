@@ -5,9 +5,9 @@ defmodule Ryker.ControlPlane.BehaviorLibrary.Query do
   and search, and the latest runs of standing rules.
   """
   use Ryker, :query
-  alias Ryker.Behaviors.{Behavior, StandingAssignmentRun}
+  alias Ryker.Behaviors
   alias Ryker.ControlPlane.Search
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes
   require Ryker.ControlPlane.Search
 
   @doc """
@@ -15,7 +15,7 @@ defmodule Ryker.ControlPlane.BehaviorLibrary.Query do
   effective even before a maintenance pass updates the stored status.
   """
   def entries(now) do
-    from([operator_behaviors: b] in Behavior.Query.all(),
+    from([operator_behaviors: b] in Behaviors.Behavior.Query.all(),
       select: %{
         id: b.id,
         ref: b.ref,
@@ -68,10 +68,10 @@ defmodule Ryker.ControlPlane.BehaviorLibrary.Query do
 
   @doc "The `limit` latest runs of the standing rules `rule_ids`."
   def rule_runs(rule_ids, limit) do
-    from(r in StandingAssignmentRun,
-      left_join: e in Episode,
+    from(r in Behaviors.StandingAssignmentRun,
+      left_join: e in Episodes.Episode,
       on: e.id == r.episode_id,
-      join: b in Behavior,
+      join: b in Behaviors.Behavior,
       on: b.id == r.assignment_id,
       where: r.assignment_id in ^rule_ids,
       order_by: [desc: r.inserted_at, desc: r.id],

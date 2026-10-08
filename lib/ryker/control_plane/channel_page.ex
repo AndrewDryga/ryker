@@ -19,7 +19,6 @@ defmodule Ryker.ControlPlane.ChannelPage do
   alias Ryker.ControlPlane.{ShortTime, Units}
   alias Ryker.{Schedules, Settings}
   alias Ryker.Slack
-  alias Ryker.Slack.{ChannelConfigurations, IncidentRooms}
 
   @doc """
   The topics an open channel page listens to, as the context functions that
@@ -31,10 +30,10 @@ defmodule Ryker.ControlPlane.ChannelPage do
   def subscriptions(workspace_ref, channel_ref)
       when is_binary(workspace_ref) and is_binary(channel_ref) do
     [
-      {ChannelConfigurations, :subscribe_channel, [workspace_ref, channel_ref]},
+      {Slack.ChannelConfigurations, :subscribe_channel, [workspace_ref, channel_ref]},
       {Episodes, :subscribe_conversation, ["slack", "slack:#{workspace_ref}:#{channel_ref}"]},
       {Schedules, :subscribe_schedules, []},
-      {IncidentRooms, :subscribe_rooms, []},
+      {Slack.IncidentRooms, :subscribe_rooms, []},
       {Continuity, :subscribe_continuity, []},
       {Knowledge, :subscribe_knowledge, []},
       {Learning, :subscribe_learning, []},

@@ -1,13 +1,13 @@
 defmodule Ryker.Records.RecordPayload do
   @moduledoc false
   alias Ryker.CanonicalJSON
-  alias Ryker.Emisar.ApprovalContract
+  alias Ryker.Emisar
   alias Ryker.Records.InvestigationPayload
   alias Ryker.Reference
-  alias Ryker.Schedules.ScheduleRecurrence
-  alias Ryker.Slack.SourceRef
-  alias Ryker.Waits.EventWaitTiming
-  alias Ryker.Work.RepositorySource
+  alias Ryker.Schedules
+  alias Ryker.Slack
+  alias Ryker.Waits
+  alias Ryker.Work
 
   @maximum_payload_bytes 32 * 1_024
   @maximum_automation_change_bytes 64 * 1_024
@@ -34,7 +34,7 @@ defmodule Ryker.Records.RecordPayload do
   def prepare("slack_post_offer", payload, _ref), do: slack_post_offer(payload)
   def prepare("input_request", payload, ref), do: input_request(payload, ref)
   def prepare("event_wait", payload, ref), do: event_wait(payload, ref)
-  def prepare("emisar_approval", payload, ref), do: ApprovalContract.prepare(payload, ref)
+  def prepare("emisar_approval", payload, ref), do: Emisar.ApprovalContract.prepare(payload, ref)
 
   def prepare(kind, payload, _ref)
       when kind in ~w(evidence coverage finding progress goal goal_state alert_assessment) do
@@ -72,7 +72,7 @@ defmodule Ryker.Records.RecordPayload do
     do: {:error, {:invalid_state_record, :repository_source}}
 
   defp task_repository_source(_repository, source) do
-    case RepositorySource.parse(source) do
+    case Work.RepositorySource.parse(source) do
       {:ok, ^source} -> :ok
       _other -> {:error, {:invalid_state_record, :repository_source}}
     end
@@ -113,7 +113,7 @@ defmodule Ryker.Records.RecordPayload do
          :ok <- text(payload["task"], 12_000, :task),
          :ok <- text(payload["timezone"], 128, :timezone),
          :ok <- schedule_repository(payload["authority"], payload["repository"]),
-         {:ok, recurrence} <- ScheduleRecurrence.prepare_shape(payload["recurrence"]),
+         {:ok, recurrence} <- Schedules.ScheduleRecurrence.prepare_shape(payload["recurrence"]),
          {:ok, expires_at} <- optional_utc_datetime(payload["expires_at"]),
          prepared <- %{
            payload
@@ -240,13 +240,14 @@ defmodule Ryker.Records.RecordPayload do
            ),
          :ok <- enum(payload["transport"], ["slack"], :transport),
          {:ok, workspace_ref, channel_ref} <- slack_conversation(payload["conversation_ref"]),
-         {:ok, destination} <- SourceRef.parse(payload["destination_ref"], workspace_ref),
+         {:ok, destination} <- Slack.SourceRef.parse(payload["destination_ref"], workspace_ref),
          true <- destination.kind in [:channel, :thread],
          true <- destination.channel_ref == channel_ref,
          true <-
            payload["thread_ref"] ==
              if(destination.kind == :thread, do: destination.message_ref, else: nil),
-         {:ok, %{kind: :message}} <- SourceRef.parse(payload["instruction_ref"], workspace_ref),
+         {:ok, %{kind: :message}} <-
+           Slack.SourceRef.parse(payload["instruction_ref"], workspace_ref),
          :ok <- reference(payload["requested_by_actor_ref"], :requested_by_actor_ref),
          true <- String.starts_with?(payload["requested_by_actor_ref"], "slack:user:"),
          :ok <- text(payload["message"], 20_000, :message),
@@ -400,7 +401,7 @@ defmodule Ryker.Records.RecordPayload do
   defp event_wait_matcher(%{"type" => "after"} = trigger, _deadline) do
     with :ok <- exact_fields(trigger, ~w(delay on_timeout type)),
          :ok <- text(trigger["on_timeout"], 2_000, :event_matcher),
-         {:ok, _delay} <- EventWaitTiming.delay_microseconds(trigger["delay"]) do
+         {:ok, _delay} <- Waits.EventWaitTiming.delay_microseconds(trigger["delay"]) do
       :ok
     else
       _invalid -> {:error, {:invalid_state_record, :event_matcher}}

@@ -18,20 +18,18 @@ defmodule Ryker.Improvement.Evidence do
   `message_keys` and `conversation_refs` name every message, topic and
   conversation it quotes, as routing examples name them, for forgetting.
   """
-  alias Ryker.Admission.Attempt
-  alias Ryker.Delivery.{PlatformAction, RoutingResponse}
-  alias Ryker.Episodes.Episode
+  alias Ryker.Admission
+  alias Ryker.Delivery
+  alias Ryker.Episodes
   alias Ryker.Feedback
-  alias Ryker.GitHub.Input, as: GitHubInput
+  alias Ryker.GitHub
   alias Ryker.Improvement.Candidate
-  alias Ryker.Ingress.Inbox
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress
   alias Ryker.InspectionRedactor
-  alias Ryker.Records.Record
+  alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.RoutingExamples
-  alias Ryker.RoutingExamples.Example
-  alias Ryker.Work.{ActivityEvent, Turn}
+  alias Ryker.Work
 
   @message_limit 60
   @tool_limit 40
@@ -163,7 +161,7 @@ defmodule Ryker.Improvement.Evidence do
 
   # -- The request ------------------------------------------------------------------
 
-  defp episode({:episode, id}), do: Repo.one(Episode.Query.by_id(id))
+  defp episode({:episode, id}), do: Repo.one(Episodes.Episode.Query.by_id(id))
   defp episode(_input), do: nil
 
   # The person's messages of the request, every revision, oldest first: an
@@ -179,20 +177,20 @@ defmodule Ryker.Improvement.Evidence do
     episode_ids = [id | offering_episodes(id)]
 
     episode_ids
-    |> Entry.Query.by_episode_ids()
-    |> Entry.Query.ordered_by_occurred_at_and_revision_desc()
-    |> Entry.Query.limit_to(@message_limit)
+    |> Ingress.Inbox.Entry.Query.by_episode_ids()
+    |> Ingress.Inbox.Entry.Query.ordered_by_occurred_at_and_revision_desc()
+    |> Ingress.Inbox.Entry.Query.limit_to(@message_limit)
     |> Repo.all()
     |> Enum.reverse()
   end
 
-  defp entries({:input, id}), do: Repo.all(Entry.Query.by_id(id))
+  defp entries({:input, id}), do: Repo.all(Ingress.Inbox.Entry.Query.by_id(id))
 
   defp offering_episodes(task_episode_id) do
-    Record.Query.all()
-    |> Record.Query.by_kind("task_offer")
-    |> Record.Query.by_confirmed_episode_id(task_episode_id)
-    |> Record.Query.select_episode_ids()
+    Records.Record.Query.all()
+    |> Records.Record.Query.by_kind("task_offer")
+    |> Records.Record.Query.by_confirmed_episode_id(task_episode_id)
+    |> Records.Record.Query.select_episode_ids()
     |> Repo.all()
   end
 
@@ -205,10 +203,11 @@ defmodule Ryker.Improvement.Evidence do
     }
   end
 
-  defp request_state(%Episode{state: state}, _entries), do: Atom.to_string(state)
+  defp request_state(%Episodes.Episode{state: state}, _entries), do: Atom.to_string(state)
 
-  defp request_state(nil, [%Entry{decision_action: action} | _]) when not is_nil(action),
-    do: "answered by routing (#{action})"
+  defp request_state(nil, [%Ingress.Inbox.Entry{decision_action: action} | _])
+       when not is_nil(action),
+       do: "answered by routing (#{action})"
 
   defp request_state(nil, _entries), do: "unknown"
 
@@ -229,8 +228,8 @@ defmodule Ryker.Improvement.Evidence do
     ids = Enum.map(natives, &elem(&1, 2))
 
     ids
-    |> Entry.Query.deletions_of_items()
-    |> Entry.Query.select_source_items()
+    |> Ingress.Inbox.Entry.Query.deletions_of_items()
+    |> Ingress.Inbox.Entry.Query.select_source_items()
     |> Repo.all()
     |> Enum.filter(&(&1 in natives))
     |> MapSet.new()
@@ -241,7 +240,7 @@ defmodule Ryker.Improvement.Evidence do
 
   # `edited` holds the revisions whose words a later edit replaced
   # (`Ryker.RoutingExamples.edited_revisions/1`): the edit keeps its own.
-  defp message(%Entry{} = entry, deleted, edited, secrets) do
+  defp message(%Ingress.Inbox.Entry{} = entry, deleted, edited, secrets) do
     base = %{
       "at" => iso(entry.occurred_at),
       "from" => sender(entry.actor_kind),
@@ -294,10 +293,10 @@ defmodule Ryker.Improvement.Evidence do
   # A message's words: a GitHub comment's or review's body, as Ryker reads it
   # everywhere (`Ryker.GitHub.Input.body/1`); anything else's text, then what
   # was said in each voice message or video it carried.
-  defp words(%Entry{source_kind: "github", content: content}),
-    do: GitHubInput.body(content) || ""
+  defp words(%Ingress.Inbox.Entry{source_kind: "github", content: content}),
+    do: GitHub.Input.body(content) || ""
 
-  defp words(%Entry{content: %{} = content}) do
+  defp words(%Ingress.Inbox.Entry{content: %{} = content}) do
     text = if is_binary(content["text"]), do: content["text"], else: ""
 
     transcripts =
@@ -345,18 +344,18 @@ defmodule Ryker.Improvement.Evidence do
 
     replies =
       ids
-      |> Turn.Query.by_episode_ids()
-      |> Turn.Query.delivered()
-      |> Turn.Query.select_deliveries()
+      |> Work.Turn.Query.by_episode_ids()
+      |> Work.Turn.Query.delivered()
+      |> Work.Turn.Query.select_deliveries()
       |> Repo.all()
       |> Enum.map(fn {at, document} -> answer(at, "work_reply", document, secrets) end)
 
     posts =
       Enum.flat_map(ids, fn id ->
         id
-        |> PlatformAction.Query.by_episode_id()
-        |> PlatformAction.Query.delivered_messages()
-        |> PlatformAction.Query.select_deliveries()
+        |> Delivery.PlatformAction.Query.by_episode_id()
+        |> Delivery.PlatformAction.Query.delivered_messages()
+        |> Delivery.PlatformAction.Query.select_deliveries()
         |> Repo.all()
       end)
       |> Enum.map(fn {at, document} -> answer(at, "posted_update", document, secrets) end)
@@ -368,10 +367,10 @@ defmodule Ryker.Improvement.Evidence do
     ids = Enum.map(entries, & &1.id)
 
     ids
-    |> RoutingResponse.Query.by_input_ids()
-    |> RoutingResponse.Query.delivered()
-    |> RoutingResponse.Query.ordered_by_position()
-    |> RoutingResponse.Query.select_deliveries()
+    |> Delivery.RoutingResponse.Query.by_input_ids()
+    |> Delivery.RoutingResponse.Query.delivered()
+    |> Delivery.RoutingResponse.Query.ordered_by_position()
+    |> Delivery.RoutingResponse.Query.select_deliveries()
     |> Repo.all()
     |> Enum.map(fn
       {at, :message, document} -> answer(at, "quick_reply", document, secrets)
@@ -418,18 +417,18 @@ defmodule Ryker.Improvement.Evidence do
 
     examples =
       ids
-      |> Example.Query.by_input_ids()
+      |> RoutingExamples.Example.Query.by_input_ids()
       |> Repo.all()
       |> Map.new(&{&1.input_id, &1})
 
     decided
     |> Enum.map(fn entry ->
       case Map.get(examples, entry.id) do
-        %Example{forgotten_at: nil} = example ->
+        %RoutingExamples.Example{forgotten_at: nil} = example ->
           {routing_item(entry, example.prompt, example.answer, example.execution_target, "kept"),
            %{keys: example.message_keys, conversations: example.conversation_refs}}
 
-        %Example{} ->
+        %RoutingExamples.Example{} ->
           {routing_item(entry, nil, nil, nil, "forgotten"), %{keys: [], conversations: []}}
 
         nil ->
@@ -453,8 +452,11 @@ defmodule Ryker.Improvement.Evidence do
   end
 
   defp attempt_routing(entry, secrets) do
-    case Repo.one(Attempt.Query.committed_for(entry)) do
-      %Attempt{submission: %{"prompt" => prompt}, response: %{"assistant_message" => answer}} =
+    case Repo.one(Admission.Attempt.Query.committed_for(entry)) do
+      %Admission.Attempt{
+        submission: %{"prompt" => prompt},
+        response: %{"assistant_message" => answer}
+      } =
           attempt
       when is_binary(prompt) and is_binary(answer) ->
         {routing_item(
@@ -485,8 +487,9 @@ defmodule Ryker.Improvement.Evidence do
 
   defp work(nil, _secrets), do: []
 
-  defp work(%Episode{id: id}, secrets) do
-    turns = id |> Turn.Query.by_episode_id() |> Turn.Query.ordered_by_oldest() |> Repo.all()
+  defp work(%Episodes.Episode{id: id}, secrets) do
+    turns =
+      id |> Work.Turn.Query.by_episode_id() |> Work.Turn.Query.ordered_by_oldest() |> Repo.all()
 
     tools = tools(id)
 
@@ -509,7 +512,7 @@ defmodule Ryker.Improvement.Evidence do
   # server's tool by name, or what the worker was doing (such as starting a
   # tool server) when it names no tool.
   defp tools(episode_id) do
-    rows = Repo.all(ActivityEvent.Query.tool_events(episode_id))
+    rows = Repo.all(Work.ActivityEvent.Query.tool_events(episode_id))
 
     endings =
       for {_turn, "tool.completed", %{"tool_call_id" => call} = payload} <- rows,
@@ -574,9 +577,9 @@ defmodule Ryker.Improvement.Evidence do
           do: id
 
     ids
-    |> Entry.Query.by_ids()
+    |> Ingress.Inbox.Entry.Query.by_ids()
     |> Repo.all()
-    |> Map.new(&{Inbox.ref(&1), &1})
+    |> Map.new(&{Ingress.Inbox.ref(&1), &1})
   end
 
   defp by(%{kind: :reviewed}, _asker), do: "operator"
@@ -598,7 +601,8 @@ defmodule Ryker.Improvement.Evidence do
   # work show only as missing: a Work turn's answer and the tools it called,
   # and a quick reply routing sent by itself (2026-10-04 review).
   defp expired_answers({:episode, id}, _entries, _answers) do
-    expired = id |> Turn.Query.by_episode_id() |> Turn.Query.without_bodies() |> Repo.exists?()
+    expired =
+      id |> Work.Turn.Query.by_episode_id() |> Work.Turn.Query.without_bodies() |> Repo.exists?()
 
     if expired,
       do: ["Ryker's answers and the tools it called in Work turns older than Ryker keeps them."],

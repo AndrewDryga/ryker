@@ -9,20 +9,14 @@ defmodule Ryker.Behaviors.Automations do
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Behavior
   alias Ryker.Behaviors.StandingAssignmentRun
-  alias Ryker.Episodes.Episode
-  alias Ryker.Episodes.Scope
-  alias Ryker.Ingress.Adapters
-  alias Ryker.Operator.FailureDetail
+  alias Ryker.Episodes
+  alias Ryker.Ingress
+  alias Ryker.Operator
   alias Ryker.Records
-  alias Ryker.Records.CardDelivery
-  alias Ryker.Records.OfferConfirmation
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Schedules
-  alias Ryker.Schedules.Schedule
-  alias Ryker.Schedules.ScheduleOccurrence
-  alias Ryker.Schedules.ScheduleRecurrence
-  alias Ryker.Slack.ChannelFence
+  alias Ryker.Slack
   alias Ryker.UTCDateTime
 
   @actions ~w(update pause resume delete)
@@ -31,17 +25,17 @@ defmodule Ryker.Behaviors.Automations do
   @time_patch_fields ~w(expires_at prompt repository title trigger)
   @source_patch_fields @time_patch_fields ++ ["hold"]
 
-  @spec list_for_episode(Episode.t()) :: [map()]
-  def list_for_episode(%Episode{} = episode) do
-    workspace = Scope.workspace_ref(episode)
+  @spec list_for_episode(Episodes.Episode.t()) :: [map()]
+  def list_for_episode(%Episodes.Episode{} = episode) do
+    workspace = Episodes.Scope.workspace_ref(episode)
 
     schedules =
-      Schedule.Query.by_conversation(
+      Schedules.Schedule.Query.by_conversation(
         episode.destination_transport,
         episode.destination_conversation_ref
       )
-      |> Schedule.Query.not_deleted()
-      |> Schedule.Query.ordered_by_next_occurrence_at()
+      |> Schedules.Schedule.Query.not_deleted()
+      |> Schedules.Schedule.Query.ordered_by_next_occurrence_at()
       |> Repo.all()
 
     behaviors =
@@ -53,18 +47,20 @@ defmodule Ryker.Behaviors.Automations do
     Enum.map(schedules ++ behaviors, &document/1)
   end
 
-  @spec fetch_for_episode(Episode.t(), String.t()) :: {:ok, Schedule.t() | Behavior.t()} | :error
-  def fetch_for_episode(%Episode{} = episode, automation_id) when is_binary(automation_id) do
+  @spec fetch_for_episode(Episodes.Episode.t(), String.t()) ::
+          {:ok, Schedules.Schedule.t() | Behavior.t()} | :error
+  def fetch_for_episode(%Episodes.Episode{} = episode, automation_id)
+      when is_binary(automation_id) do
     case visible_schedule(episode, automation_id) do
-      %Schedule{} = schedule -> {:ok, schedule}
+      %Schedules.Schedule{} = schedule -> {:ok, schedule}
       nil -> visible_behavior_result(episode, automation_id)
     end
   end
 
   def fetch_for_episode(_episode, _automation_id), do: :error
 
-  @spec prepare_change(Episode.t(), map()) :: {:ok, map()} | {:error, term()}
-  def prepare_change(%Episode{} = episode, %{} = proposal) do
+  @spec prepare_change(Episodes.Episode.t(), map()) :: {:ok, map()} | {:error, term()}
+  def prepare_change(%Episodes.Episode{} = episode, %{} = proposal) do
     with action when action in @actions <- proposal["action"],
          automation_id when is_binary(automation_id) <- proposal["automation_id"],
          revision when is_integer(revision) and revision > 0 <- proposal["revision"],
@@ -96,13 +92,13 @@ defmodule Ryker.Behaviors.Automations do
   @spec confirm(keyword() | map()) :: {:ok, map()} | {:error, term()}
   def confirm(attributes) do
     with {:ok, confirmation} <-
-           OfferConfirmation.new(attributes, :invalid_automation_confirmation) do
+           Records.OfferConfirmation.new(attributes, :invalid_automation_confirmation) do
       Repo.transaction(fn -> confirm_locked(confirmation) end)
     end
   end
 
-  @spec document(Schedule.t() | Behavior.t()) :: map()
-  def document(%Schedule{} = schedule) do
+  @spec document(Schedules.Schedule.t() | Behavior.t()) :: map()
+  def document(%Schedules.Schedule{} = schedule) do
     %{
       "automation_id" => schedule.ref,
       "context_channel" => schedule.destination_conversation_ref,
@@ -142,11 +138,11 @@ defmodule Ryker.Behaviors.Automations do
     }
   end
 
-  @spec detail(Schedule.t() | Behavior.t(), pos_integer()) :: map()
-  def detail(%Schedule{} = schedule, limit) when is_integer(limit) and limit in 1..20 do
+  @spec detail(Schedules.Schedule.t() | Behavior.t(), pos_integer()) :: map()
+  def detail(%Schedules.Schedule{} = schedule, limit) when is_integer(limit) and limit in 1..20 do
     runs =
       schedule.id
-      |> ScheduleOccurrence.Query.recent_runs(limit)
+      |> Schedules.ScheduleOccurrence.Query.recent_runs(limit)
       |> Repo.all()
       |> Enum.map(&sanitize_run/1)
       |> Enum.map(&run_document/1)
@@ -167,7 +163,7 @@ defmodule Ryker.Behaviors.Automations do
   defp confirm_locked(attributes) do
     with {:ok, record, episode, turn} <- lock_offer(attributes.record_ref),
          :ok <-
-           ChannelFence.authorize_in_transaction(
+           Slack.ChannelFence.authorize_in_transaction(
              episode.destination_transport,
              episode.destination_conversation_ref
            ),
@@ -220,13 +216,15 @@ defmodule Ryker.Behaviors.Automations do
     end
   end
 
-  defp persist_change(%Schedule{} = schedule, payload, occurred_at) do
+  defp persist_change(%Schedules.Schedule{} = schedule, payload, occurred_at) do
     with :ok <- idle_schedule(schedule, occurred_at),
          {:ok, attributes} <- schedule_change(schedule, payload, occurred_at) do
       attributes = Map.merge(clear_schedule_lease(), attributes)
 
       schedule
-      |> Schedule.Changeset.update(Map.put(attributes, :revision, schedule.revision + 1))
+      |> Schedules.Schedule.Changeset.update(
+        Map.put(attributes, :revision, schedule.revision + 1)
+      )
       |> Repo.update()
       |> persistence_result(:automation_schedule)
     end
@@ -259,14 +257,24 @@ defmodule Ryker.Behaviors.Automations do
     end
   end
 
-  defp schedule_status(%Schedule{status: :active}, :paused), do: {:ok, %{status: :paused}}
-  defp schedule_status(%Schedule{status: :paused}, :deleted), do: {:ok, terminal_schedule()}
-  defp schedule_status(%Schedule{status: :active}, :deleted), do: {:ok, terminal_schedule()}
+  defp schedule_status(%Schedules.Schedule{status: :active}, :paused),
+    do: {:ok, %{status: :paused}}
+
+  defp schedule_status(%Schedules.Schedule{status: :paused}, :deleted),
+    do: {:ok, terminal_schedule()}
+
+  defp schedule_status(%Schedules.Schedule{status: :active}, :deleted),
+    do: {:ok, terminal_schedule()}
+
   defp schedule_status(_schedule, _status), do: {:error, :automation_status_conflict}
 
-  defp resume_schedule(%Schedule{status: :paused} = schedule, occurred_at) do
+  defp resume_schedule(%Schedules.Schedule{status: :paused} = schedule, occurred_at) do
     with {:ok, next_occurrence_at} <-
-           ScheduleRecurrence.next_after(schedule.recurrence, schedule.timezone, occurred_at),
+           Schedules.ScheduleRecurrence.next_after(
+             schedule.recurrence,
+             schedule.timezone,
+             occurred_at
+           ),
          :ok <- future_occurrence(next_occurrence_at, schedule.expires_at, occurred_at) do
       {:ok, %{next_occurrence_at: next_occurrence_at, status: :active}}
     end
@@ -279,9 +287,10 @@ defmodule Ryker.Behaviors.Automations do
     with :ok <- editable_status(schedule.status),
          {:ok, recurrence} <- recurrence_from_trigger(after_document["trigger"]),
          timezone <- after_document["trigger"]["timezone"],
-         {:ok, recurrence} <- ScheduleRecurrence.normalize(recurrence, timezone, occurred_at),
+         {:ok, recurrence} <-
+           Schedules.ScheduleRecurrence.normalize(recurrence, timezone, occurred_at),
          {:ok, next_occurrence_at} <-
-           ScheduleRecurrence.next_after(recurrence, timezone, occurred_at),
+           Schedules.ScheduleRecurrence.next_after(recurrence, timezone, occurred_at),
          {:ok, expires_at} <- optional_datetime(after_document["expires_at"]),
          :ok <- future_occurrence(next_occurrence_at, expires_at, occurred_at) do
       {:ok,
@@ -365,7 +374,7 @@ defmodule Ryker.Behaviors.Automations do
          action
        )
        when action in ~w(update resume) do
-    if Map.has_key?(Adapters.default(), source_kind),
+    if Map.has_key?(Ingress.Adapters.default(), source_kind),
       do: :ok,
       else: {:error, :invalid_automation_source}
   end
@@ -470,8 +479,8 @@ defmodule Ryker.Behaviors.Automations do
   # The same reading of a trigger as creation's, so an update can neither
   # narrow a set of days to one nor save a recurrence a new offer could not.
   defp recurrence_from_trigger(trigger) do
-    with {:ok, recurrence} <- ScheduleRecurrence.from_trigger(trigger) do
-      case ScheduleRecurrence.prepare_shape(recurrence) do
+    with {:ok, recurrence} <- Schedules.ScheduleRecurrence.from_trigger(trigger) do
+      case Schedules.ScheduleRecurrence.prepare_shape(recurrence) do
         {:ok, prepared} -> {:ok, prepared}
         {:error, _reason} -> {:error, :invalid_arguments}
       end
@@ -494,7 +503,7 @@ defmodule Ryker.Behaviors.Automations do
   end
 
   defp delivered_from?(episode, turn, target) do
-    case CardDelivery.delivered_from?(episode, turn, target) do
+    case Records.CardDelivery.delivered_from?(episode, turn, target) do
       :ok -> :ok
       {:error, :mismatch} -> {:error, :automation_change_offer_delivery_mismatch}
       {:error, :not_delivered} -> {:error, :automation_change_offer_not_delivered}
@@ -505,11 +514,11 @@ defmodule Ryker.Behaviors.Automations do
     schedule =
       episode
       |> visible_schedule_query(automation_id)
-      |> Schedule.Query.lock_for_update()
+      |> Schedules.Schedule.Query.lock_for_update()
       |> Repo.one()
 
     case schedule do
-      %Schedule{} = schedule -> {:ok, schedule}
+      %Schedules.Schedule{} = schedule -> {:ok, schedule}
       nil -> lock_visible_behavior(episode, automation_id)
     end
   end
@@ -534,12 +543,12 @@ defmodule Ryker.Behaviors.Automations do
   # gone from both, so it can be neither read nor changed.
   defp visible_schedule_query(episode, automation_id) do
     automation_id
-    |> Schedule.Query.by_ref()
-    |> Schedule.Query.by_conversation(
+    |> Schedules.Schedule.Query.by_ref()
+    |> Schedules.Schedule.Query.by_conversation(
       episode.destination_transport,
       episode.destination_conversation_ref
     )
-    |> Schedule.Query.not_deleted()
+    |> Schedules.Schedule.Query.not_deleted()
   end
 
   defp visible_behavior_result(episode, automation_id) do
@@ -551,7 +560,7 @@ defmodule Ryker.Behaviors.Automations do
 
   defp visible_behavior_query(episode, automation_id) do
     episode
-    |> Scope.workspace_ref()
+    |> Episodes.Scope.workspace_ref()
     |> conversation_assignments(episode)
     |> Behavior.Query.by_ref(automation_id)
   end
@@ -564,9 +573,9 @@ defmodule Ryker.Behaviors.Automations do
     |> Behavior.Query.by_status([:active, :disabled])
   end
 
-  defp idle_schedule(%Schedule{lease_ref: nil}, _occurred_at), do: :ok
+  defp idle_schedule(%Schedules.Schedule{lease_ref: nil}, _occurred_at), do: :ok
 
-  defp idle_schedule(%Schedule{lease_expires_at: %DateTime{} = expires_at}, occurred_at) do
+  defp idle_schedule(%Schedules.Schedule{lease_expires_at: %DateTime{} = expires_at}, occurred_at) do
     if DateTime.compare(expires_at, occurred_at) in [:lt, :eq],
       do: :ok,
       else: {:error, :automation_busy}
@@ -620,10 +629,10 @@ defmodule Ryker.Behaviors.Automations do
   end
 
   defp sanitize_run(run) do
-    Map.update!(run, "failure_detail", &FailureDetail.project/1)
+    Map.update!(run, "failure_detail", &Operator.FailureDetail.project/1)
   end
 
-  defp automation_kind(%Schedule{}), do: "time"
+  defp automation_kind(%Schedules.Schedule{}), do: "time"
   defp automation_kind(%Behavior{}), do: "source_event"
   defp automation_kind(%{"trigger" => %{"type" => type}}), do: type
 
@@ -680,6 +689,8 @@ defmodule Ryker.Behaviors.Automations do
 
   # The owning context announces each automation changed here; `Records`
   # announces the record that confirmed the change.
-  defp announce(%Schedule{} = schedule), do: Schedules.broadcast_schedule_updated(schedule)
+  defp announce(%Schedules.Schedule{} = schedule),
+    do: Schedules.broadcast_schedule_updated(schedule)
+
   defp announce(%Behavior{id: id}), do: Behaviors.broadcast_behavior_updated(id)
 end

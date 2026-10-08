@@ -1,7 +1,7 @@
 defmodule Ryker.Work.Turn.Query do
   @moduledoc "Work turns, for every read of `episode_work_turns`."
   use Ryker, :query
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes
   alias Ryker.Work.{Session, Turn}
 
   def all, do: from(turns in Turn, as: :episode_work_turns)
@@ -41,7 +41,7 @@ defmodule Ryker.Work.Turn.Query do
   @doc "Episode `episode_id`'s owning turn while it waits, unleased, to start."
   def waiting_owner(episode_id) do
     from(t in all(),
-      join: e in Episode,
+      join: e in Episodes.Episode,
       on: e.id == t.episode_id and t.turn_ref == e.owner_ref,
       where: t.episode_id == ^episode_id and t.status == :pending and is_nil(t.lease_ref)
     )
@@ -187,7 +187,7 @@ defmodule Ryker.Work.Turn.Query do
   """
   def delivered_as(target) do
     from(t in all(),
-      join: e in Episode,
+      join: e in Episodes.Episode,
       on: e.id == t.episode_id,
       where:
         t.status == :settled and not is_nil(t.delivered_at) and not is_nil(t.external_receipt) and
@@ -296,13 +296,14 @@ defmodule Ryker.Work.Turn.Query do
   The turn `episode` stands on: the one that owns it, the one delivering its
   answer, or else its latest.
   """
-  def current(%Episode{owner_kind: :turn, owner_ref: turn_ref, id: id}),
+  def current(%Episodes.Episode{owner_kind: :turn, owner_ref: turn_ref, id: id}),
     do: id |> by_episode_id() |> by_turn_ref(turn_ref)
 
-  def current(%Episode{owner_kind: :delivery, owner_ref: delivery_ref, id: id}),
+  def current(%Episodes.Episode{owner_kind: :delivery, owner_ref: delivery_ref, id: id}),
     do: id |> by_episode_id() |> by_delivery_ref(delivery_ref)
 
-  def current(%Episode{id: id}), do: id |> by_episode_id() |> ordered_by_recent() |> limit_to(1)
+  def current(%Episodes.Episode{id: id}),
+    do: id |> by_episode_id() |> ordered_by_recent() |> limit_to(1)
 
   @doc """
   The title each of `episode_id`'s accepted answers gave, in the order they
@@ -373,7 +374,7 @@ defmodule Ryker.Work.Turn.Query do
   @doc "Turns whose reply reached one of `conversations` on `transport`."
   def delivered_in_conversations(transport, conversations) do
     from(t in all(),
-      join: e in Episode,
+      join: e in Episodes.Episode,
       on: e.id == t.episode_id,
       where:
         e.destination_transport == ^transport and e.destination_conversation_ref in ^conversations and

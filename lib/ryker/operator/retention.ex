@@ -12,8 +12,8 @@ defmodule Ryker.Operator.Retention do
   alias Ryker.Operator.{Actions, RetentionAction}
   alias Ryker.Reference
   alias Ryker.Repo
-  alias Ryker.Retention.Custody
-  alias Ryker.Work.Session
+  alias Ryker.Retention
+  alias Ryker.Work
 
   @pending_statuses [:close_pending, :plan_pending, :discard_pending]
 
@@ -86,7 +86,7 @@ defmodule Ryker.Operator.Retention do
 
     case Repo.one(locked) do
       %RetentionAction{request_fingerprint: ^fingerprint} = entry ->
-        session = Repo.one!(Session.Query.by_id(entry.session_id))
+        session = Repo.one!(Work.Session.Query.by_id(entry.session_id))
         %{action: entry, outcome: :duplicate, session: session}
 
       %RetentionAction{} ->
@@ -95,8 +95,8 @@ defmodule Ryker.Operator.Retention do
       nil ->
         session =
           session_ref
-          |> Session.Query.by_external_ref()
-          |> Session.Query.lock_for_update()
+          |> Work.Session.Query.by_external_ref()
+          |> Work.Session.Query.lock_for_update()
           |> Repo.one() || Repo.rollback(:retention_session_not_found)
 
         {outcome, previous_status, previous_plan_fingerprint, updated} =
@@ -117,12 +117,12 @@ defmodule Ryker.Operator.Retention do
     end
   end
 
-  defp transition(:rearm, %Session{cleanup_status: :blocked} = session, nil)
+  defp transition(:rearm, %Work.Session{cleanup_status: :blocked} = session, nil)
        when session.cleanup_blocked_from in @pending_statuses do
     previous_status = session.cleanup_status
 
     updated =
-      Custody.persist(session, %{
+      Retention.Custody.persist(session, %{
         cleanup_attempt_count: 0,
         cleanup_blocked_from: nil,
         cleanup_last_error_code: nil,
@@ -138,18 +138,18 @@ defmodule Ryker.Operator.Retention do
     {:rearmed, previous_status, session.discard_plan_fingerprint, updated}
   end
 
-  defp transition(:rearm, %Session{cleanup_status: :blocked}, nil),
+  defp transition(:rearm, %Work.Session{cleanup_status: :blocked}, nil),
     do: Repo.rollback(:retention_blocked_phase_unknown)
 
-  defp transition(:rearm, %Session{}, nil),
+  defp transition(:rearm, %Work.Session{}, nil),
     do: Repo.rollback(:retention_cleanup_not_blocked)
 
-  defp transition(:discard_unmerged, %Session{retained_reason: "dirty"}, _expected),
+  defp transition(:discard_unmerged, %Work.Session{retained_reason: "dirty"}, _expected),
     do: Repo.rollback(:retention_dirty_workspace)
 
   defp transition(
          :discard_unmerged,
-         %Session{
+         %Work.Session{
            cleanup_status: :retained,
            discard_plan: %{"workspace" => workspace},
            discard_plan_fingerprint: fingerprint,
@@ -170,7 +170,7 @@ defmodule Ryker.Operator.Retention do
 
       true ->
         updated =
-          Custody.persist(session, %{
+          Retention.Custody.persist(session, %{
             cleanup_attempt_count: 0,
             cleanup_blocked_from: nil,
             cleanup_last_error_code: nil,
@@ -194,7 +194,7 @@ defmodule Ryker.Operator.Retention do
     end
   end
 
-  defp transition(:discard_unmerged, %Session{}, _expected_plan_fingerprint),
+  defp transition(:discard_unmerged, %Work.Session{}, _expected_plan_fingerprint),
     do: Repo.rollback(:retention_unmerged_discard_unavailable)
 
   defp insert_action!(

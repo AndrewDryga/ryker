@@ -7,10 +7,10 @@ defmodule Ryker.ControlPlane.IncidentReport.Query do
   """
   use Ryker, :query
   alias Ryker.ControlPlane.CurrentInput
-  alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Publication.Publication
-  alias Ryker.Work.Turn
+  alias Ryker.Episodes
+  alias Ryker.Ingress
+  alias Ryker.Publication
+  alias Ryker.Work
   require Ryker.ControlPlane.CurrentInput.Query
 
   @doc """
@@ -33,7 +33,7 @@ defmodule Ryker.ControlPlane.IncidentReport.Query do
   @doc "Each room as the directory lists it, with its latest publication."
   def directory(queryable) do
     latest_publications =
-      from(publication in Publication,
+      from(publication in Publication.Publication,
         distinct: publication.episode_id,
         order_by: [
           asc: publication.episode_id,
@@ -48,7 +48,7 @@ defmodule Ryker.ControlPlane.IncidentReport.Query do
       )
 
     from([slack_incident_rooms: room] in queryable,
-      left_join: episode in Episode,
+      left_join: episode in Episodes.Episode,
       on: episode.id == room.episode_id,
       left_join: publication in subquery(latest_publications),
       on: publication.episode_id == room.episode_id,
@@ -78,7 +78,7 @@ defmodule Ryker.ControlPlane.IncidentReport.Query do
   source_ref, text}`.
   """
   def messages(episode_id) do
-    from([ingress_inbox_entries: entry] in Entry.Query.all(),
+    from([ingress_inbox_entries: entry] in Ingress.Inbox.Entry.Query.all(),
       where: entry.episode_id == ^episode_id and entry.event_kind == :message,
       select: %{
         actor_kind: entry.actor_kind,
@@ -108,7 +108,7 @@ defmodule Ryker.ControlPlane.IncidentReport.Query do
 
   @doc "The `limit` latest replies Ryker delivered for `episode_id`, as `%{at, id, text}`."
   def replies(episode_id, limit) do
-    from(turn in Turn,
+    from(turn in Work.Turn,
       where:
         turn.episode_id == ^episode_id and not is_nil(turn.delivered_at) and
           fragment("?::jsonb->>'delivery' = 'reply'", turn.delivery_document),
@@ -124,7 +124,7 @@ defmodule Ryker.ControlPlane.IncidentReport.Query do
 
   @doc "What a report shows of `episode_id`'s latest publication."
   def latest_publication(episode_id) do
-    from(publication in Publication,
+    from(publication in Publication.Publication,
       where: publication.episode_id == ^episode_id,
       order_by: [desc: publication.updated_at, desc: publication.id],
       limit: 1,

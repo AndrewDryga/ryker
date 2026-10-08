@@ -15,12 +15,11 @@ defmodule Ryker.Continuity.Handover do
   alias Ryker.Continuity.ConversationSummaryState
   alias Ryker.Continuity.Scope
   alias Ryker.Episodes
-  alias Ryker.Episodes.Episode
-  alias Ryker.Knowledge.KnowledgeSnapshot
-  alias Ryker.Learning.LearningSources
+  alias Ryker.Knowledge
+  alias Ryker.Learning
   alias Ryker.Repo
-  alias Ryker.Slack.ChannelFence
-  alias Ryker.Work.{Session, Turn}
+  alias Ryker.Slack
+  alias Ryker.Work
 
   @doc """
   Stage a typed summary for the Work turn a state token names. Restaging the
@@ -45,17 +44,22 @@ defmodule Ryker.Continuity.Handover do
   the transaction that accepts it. A draft for another candidate, a deleted
   channel or an unsourced session is discarded without failing the acceptance.
   """
-  @spec accept_staged_in_transaction(Episode.t(), Session.t(), Turn.t(), String.t()) ::
+  @spec accept_staged_in_transaction(
+          Episodes.Episode.t(),
+          Work.Session.t(),
+          Work.Turn.t(),
+          String.t()
+        ) ::
           :ok | {:error, term()}
   def accept_staged_in_transaction(
-        %Episode{} = episode,
-        %Session{} = session,
-        %Turn{} = turn,
+        %Episodes.Episode{} = episode,
+        %Work.Session{} = session,
+        %Work.Turn{} = turn,
         result_ref
       )
       when is_binary(result_ref) do
     if Repo.in_transaction?() do
-      case ChannelFence.authorize_in_transaction(
+      case Slack.ChannelFence.authorize_in_transaction(
              episode.destination_transport,
              episode.destination_conversation_ref
            ) do
@@ -109,7 +113,7 @@ defmodule Ryker.Continuity.Handover do
           {:error, {:conversation_summary_unavailable, reason}} ->
             # Optional memory maintenance must not roll back an accepted reply.
             # Retain a visible failure on the exact turn, not unsourced prose.
-            Repo.update_all(Turn.Query.by_id(turn.id), set: [summary_error_code: reason])
+            Repo.update_all(Work.Turn.Query.by_id(turn.id), set: [summary_error_code: reason])
 
             Episodes.broadcast_episode_updated(turn.episode_id)
 
@@ -129,9 +133,9 @@ defmodule Ryker.Continuity.Handover do
   Bind the turn's draft to the candidate the host is validating. A draft bound
   to an earlier candidate is dropped so a replaced attempt cannot publish it.
   """
-  @spec candidate_staged_in_transaction(Turn.t(), String.t(), pos_integer()) ::
+  @spec candidate_staged_in_transaction(Work.Turn.t(), String.t(), pos_integer()) ::
           :ok | {:error, term()}
-  def candidate_staged_in_transaction(%Turn{} = turn, candidate_sha256, candidate_attempt)
+  def candidate_staged_in_transaction(%Work.Turn{} = turn, candidate_sha256, candidate_attempt)
       when is_binary(candidate_sha256) and is_integer(candidate_attempt) and candidate_attempt > 0 do
     if Repo.in_transaction?() do
       bind_candidate_draft(locked_draft(turn), candidate_sha256, candidate_attempt)
@@ -170,8 +174,8 @@ defmodule Ryker.Continuity.Handover do
   The fingerprint of the turn's staged draft, taken while the final preflight
   holds the turn locked so a summary changed after validation is detected.
   """
-  @spec preflight_fingerprint_in_transaction(Turn.t()) :: String.t() | no_return()
-  def preflight_fingerprint_in_transaction(%Turn{} = turn) do
+  @spec preflight_fingerprint_in_transaction(Work.Turn.t()) :: String.t() | no_return()
+  def preflight_fingerprint_in_transaction(%Work.Turn{} = turn) do
     if Repo.in_transaction?() do
       CanonicalJSON.digest(preflight_document(locked_draft(turn)))
     else
@@ -179,17 +183,22 @@ defmodule Ryker.Continuity.Handover do
     end
   end
 
-  defp locked_episode(id),
-    do: id |> Episode.Query.by_id() |> Episode.Query.lock_for_update() |> Repo.one()
+  defp locked_episode(id) do
+    id
+    |> Episodes.Episode.Query.by_id()
+    |> Episodes.Episode.Query.lock_for_update()
+    |> Repo.one()
+  end
 
-  defp locked_turn(id), do: id |> Turn.Query.by_id() |> Turn.Query.lock_for_update() |> Repo.one()
+  defp locked_turn(id),
+    do: id |> Work.Turn.Query.by_id() |> Work.Turn.Query.lock_for_update() |> Repo.one()
 
   defp stage_locked(turn_id, state) do
-    with %Turn{} = identity <- Repo.one(Turn.Query.by_id(turn_id)),
-         %Episode{} = episode <- locked_episode(identity.episode_id),
-         %Turn{} = turn <- locked_turn(turn_id),
+    with %Work.Turn{} = identity <- Repo.one(Work.Turn.Query.by_id(turn_id)),
+         %Episodes.Episode{} = episode <- locked_episode(identity.episode_id),
+         %Work.Turn{} = turn <- locked_turn(turn_id),
          :ok <-
-           ChannelFence.authorize_in_transaction(
+           Slack.ChannelFence.authorize_in_transaction(
              episode.destination_transport,
              episode.destination_conversation_ref
            ),
@@ -222,12 +231,12 @@ defmodule Ryker.Continuity.Handover do
   end
 
   defp stage_authorized(
-         %Episode{
+         %Episodes.Episode{
            owner_kind: :turn,
            owner_ref: owner_ref,
            state: :working
          },
-         %Turn{cancellation_intent: nil, status: :pending, turn_ref: owner_ref}
+         %Work.Turn{cancellation_intent: nil, status: :pending, turn_ref: owner_ref}
        ),
        do: :ok
 
@@ -337,7 +346,7 @@ defmodule Ryker.Continuity.Handover do
            candidate_sha256: sha256,
            candidate_attempt: attempt
          },
-         %Turn{candidate_sha256: sha256, candidate_attempt: attempt}
+         %Work.Turn{candidate_sha256: sha256, candidate_attempt: attempt}
        )
        when is_binary(sha256) and is_integer(attempt),
        do: :ok
@@ -345,7 +354,7 @@ defmodule Ryker.Continuity.Handover do
   defp exact_candidate(_draft, _turn), do: {:error, :conversation_summary_candidate_mismatch}
 
   defp upsert_summary(draft, episode, turn, result_ref, context) do
-    case KnowledgeSnapshot.summary_sources(turn.session_id) do
+    case Knowledge.KnowledgeSnapshot.summary_sources(turn.session_id) do
       {:ok, dependencies} ->
         persist_staged_summary(draft, episode, turn, result_ref, context, dependencies)
 
@@ -374,7 +383,7 @@ defmodule Ryker.Continuity.Handover do
       workspace_ref: context.workspace_ref
     }
 
-    if LearningSources.sourced?(attributes.source_dependencies) do
+    if Learning.LearningSources.sourced?(attributes.source_dependencies) do
       persist_summary(attributes)
     else
       {:error, {:conversation_summary_unavailable, "no_sources"}}

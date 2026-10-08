@@ -26,11 +26,11 @@ defmodule Ryker.Admission.ReadyPool do
   """
   use Ryker.PollingWorker, lane: :admission_ready, interval: :poll_interval_ms
   alias Ryker.Admission.ReadySessions
-  alias Ryker.Coop.API
-  alias Ryker.CoopFleet.JobAuthority
+  alias Ryker.Coop
+  alias Ryker.CoopFleet
   alias Ryker.{Options, Repo}
-  alias Ryker.Settings.Work
-  alias Ryker.Work.Session
+  alias Ryker.Settings
+  alias Ryker.Work
   require Logger
 
   @fields [
@@ -140,7 +140,7 @@ defmodule Ryker.Admission.ReadyPool do
 
     result =
       with :ok <-
-             API.prepare_create_session(
+             Coop.API.prepare_create_session(
                settings.api,
                settings.client,
                key,
@@ -208,7 +208,7 @@ defmodule Ryker.Admission.ReadyPool do
   defp open(session, %{"id" => coop_session_id} = remote, settings)
        when is_binary(coop_session_id) do
     exact? =
-      remote["state"] == "open" and JobAuthority.exact_receipt(session, remote) == :ok
+      remote["state"] == "open" and CoopFleet.JobAuthority.exact_receipt(session, remote) == :ok
 
     with true <- exact?,
          {:ok, _ready} <- ReadySessions.mark_ready(session, coop_session_id) do
@@ -309,14 +309,14 @@ defmodule Ryker.Admission.ReadyPool do
     0
   end
 
-  defp prepare_key(%Session{id: id}), do: "ryker:admission-ready:prepare:#{id}"
+  defp prepare_key(%Work.Session{id: id}), do: "ryker:admission-ready:prepare:#{id}"
 
   defp retry_due do
     case ReadySessions.failed_starts() do
       [] ->
         :ok
 
-      [%Session{updated_at: failed_at} | _earlier] = failures ->
+      [%Work.Session{updated_at: failed_at} | _earlier] = failures ->
         wait =
           min(@retry_base_seconds * Integer.pow(2, length(failures) - 1), @retry_max_seconds)
 
@@ -326,7 +326,7 @@ defmodule Ryker.Admission.ReadyPool do
     end
   end
 
-  defp create_key(%Session{id: id}), do: "ryker:admission-ready:create:#{id}"
+  defp create_key(%Work.Session{id: id}), do: "ryker:admission-ready:create:#{id}"
 
   defp settings(configuration) do
     options =
@@ -345,7 +345,7 @@ defmodule Ryker.Admission.ReadyPool do
   end
 
   defp checks do
-    maximum = Work.maximum_ready_routing_sessions()
+    maximum = Settings.Work.maximum_ready_routing_sessions()
 
     [
       {&coop_adapter?(&1.api), "need a trusted Coop adapter"},

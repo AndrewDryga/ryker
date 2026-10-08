@@ -1,8 +1,8 @@
 defmodule Mix.Tasks.Ryker.OperatorSupport do
   @moduledoc false
   alias Ryker.{Bootstrap, Repo, Settings}
-  alias Ryker.Operator.Actions
-  alias Ryker.Runtime.Assembly
+  alias Ryker.Operator
+  alias Ryker.Runtime
 
   def parse(arguments, switches, positional_count) do
     {options, positional, invalid} = OptionParser.parse(arguments, strict: switches)
@@ -25,8 +25,8 @@ defmodule Mix.Tasks.Ryker.OperatorSupport do
   """
   def configuration do
     with {:ok, settings} <- Settings.fetch(),
-         {:ok, configuration} <- Assembly.build(Bootstrap.load!(), settings) do
-      Assembly.publish(configuration)
+         {:ok, configuration} <- Runtime.Assembly.build(Bootstrap.load!(), settings) do
+      Runtime.Assembly.publish(configuration)
       {:ok, configuration}
     end
   rescue
@@ -57,7 +57,7 @@ defmodule Mix.Tasks.Ryker.OperatorSupport do
 
   @doc "Resolves `--operator` against the saved operator membership (`Actions.operator_actor/1`)."
   def authorized_actor(options) when is_list(options),
-    do: Actions.operator_actor(Keyword.get(options, :operator))
+    do: Operator.Actions.operator_actor(Keyword.get(options, :operator))
 
   def authorized_actor(_options), do: {:error, :configured_slack_operator_required}
 

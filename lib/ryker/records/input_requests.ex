@@ -8,19 +8,17 @@ defmodule Ryker.Records.InputRequests do
   envelopes stop here; the resulting inbox entry follows ordinary admission.
   """
   alias Ryker.CanonicalJSON
-  alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.{Inbox, Input}
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Episodes
+  alias Ryker.Ingress
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
   alias Ryker.Records.Response
   alias Ryker.Reference
   alias Ryker.Repo
-  alias Ryker.Slack.Input, as: SlackInput
-  alias Ryker.Slack.InteractionAudits
+  alias Ryker.Slack
   alias Ryker.UTCDateTime
-  alias Ryker.Work.Turn
+  alias Ryker.Work
 
   @fields [
     :actor_ref,
@@ -40,8 +38,9 @@ defmodule Ryker.Records.InputRequests do
   no choice is invented and nothing is automatically trusted as global memory.
   """
   def associate_in_transaction(
-        %Episode{state: :waiting_for_input, owner_kind: :input, owner_ref: ref},
-        %Entry{actor_kind: :user, event_kind: :message, content: %{"text" => text}} = entry
+        %Episodes.Episode{state: :waiting_for_input, owner_kind: :input, owner_ref: ref},
+        %Ingress.Inbox.Entry{actor_kind: :user, event_kind: :message, content: %{"text" => text}} =
+          entry
       )
       when is_binary(text) and text != "" do
     with true <- Repo.in_transaction?(),
@@ -71,14 +70,14 @@ defmodule Ryker.Records.InputRequests do
 
     case persist_response(record, entry, nil, attributes) do
       {:ok, _response} ->
-        InteractionAudits.record_answer_in_transaction(entry, record, turn, :typed)
+        Slack.InteractionAudits.record_answer_in_transaction(entry, record, turn, :typed)
 
       {:error, reason} ->
         {:error, reason}
     end
   end
 
-  defp typed_answer_source?(entry, episode, %Turn{external_receipt: receipt} = turn)
+  defp typed_answer_source?(entry, episode, %Work.Turn{external_receipt: receipt} = turn)
        when is_map(receipt) do
     target = %{
       transport: entry.destination_transport,
@@ -131,11 +130,11 @@ defmodule Ryker.Records.InputRequests do
     with :ok <- current_wait?(episode, record.ref),
          {:ok, choice} <- choice(record, attributes.choice_index),
          {:ok, input} <- input(record, choice, attributes),
-         {:ok, inbox_receipt} <- Inbox.record(input),
+         {:ok, inbox_receipt} <- Ingress.Inbox.record(input),
          {:ok, response} <- persist_response(record, inbox_receipt.entry, choice, attributes),
          {:ok, record} <- Repo.update(Record.Changeset.answer(record)),
          :ok <-
-           InteractionAudits.record_answer_in_transaction(
+           Slack.InteractionAudits.record_answer_in_transaction(
              inbox_receipt.entry,
              record,
              turn,
@@ -144,7 +143,7 @@ defmodule Ryker.Records.InputRequests do
       Records.broadcast_record_updated(record)
 
       %{
-        input_ref: Inbox.ref(inbox_receipt.entry),
+        input_ref: Ingress.Inbox.ref(inbox_receipt.entry),
         record: record,
         response: response,
         status: inbox_receipt.status
@@ -161,10 +160,10 @@ defmodule Ryker.Records.InputRequests do
     if response.response_ref == attributes.response_ref and
          response.actor_ref == attributes.actor_ref and
          response.choice_index == attributes.choice_index do
-      case Repo.one(Entry.Query.by_id(response.inbox_entry_id)) do
-        %Entry{} = entry ->
+      case Repo.one(Ingress.Inbox.Entry.Query.by_id(response.inbox_entry_id)) do
+        %Ingress.Inbox.Entry{} = entry ->
           %{
-            input_ref: Inbox.ref(entry),
+            input_ref: Ingress.Inbox.ref(entry),
             record: record,
             response: response,
             status: :duplicate
@@ -179,7 +178,7 @@ defmodule Ryker.Records.InputRequests do
   end
 
   defp current_wait?(
-         %Episode{state: :waiting_for_input, owner_kind: :input, owner_ref: ref},
+         %Episodes.Episode{state: :waiting_for_input, owner_kind: :input, owner_ref: ref},
          ref
        ),
        do: :ok
@@ -197,7 +196,7 @@ defmodule Ryker.Records.InputRequests do
 
   defp input(record, choice, %{target: %{transport: "slack"}} = attributes) do
     with {:ok, workspace_ref, channel_ref} <- slack_destination(attributes.target) do
-      SlackInput.new(%{
+      Slack.Input.new(%{
         actor: %{kind: :user, ref: attributes.actor_ref},
         channel_ref: channel_ref,
         content: %{
@@ -224,7 +223,7 @@ defmodule Ryker.Records.InputRequests do
        ) do
     if String.starts_with?(target.conversation_ref, "control-plane:lab:") and
          target.thread_ref == target.conversation_ref do
-      Input.new(%{
+      Ingress.Input.new(%{
         actor: %{kind: :user, ref: attributes.actor_ref},
         content: %{
           "choice" => choice,

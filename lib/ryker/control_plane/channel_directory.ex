@@ -7,9 +7,8 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
   """
   alias Ryker.ControlPlane.{ChannelDirectory, ChannelsPage, PagedRelation, Search}
   alias Ryker.Repo
-  alias Ryker.Settings.{Environment, Slack}
-  alias Ryker.Slack.{ChannelConfiguration, ChannelMembership}
-  alias Ryker.Slack.Names
+  alias Ryker.Settings
+  alias Ryker.Slack
 
   @doc """
   One page of `rows/1` under `params["page"]`, with how many channels match.
@@ -33,8 +32,8 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
   """
   @spec rows(map()) :: [map()]
   def rows(params) when is_map(params) do
-    configurations = Repo.all(ChannelConfiguration.Query.all())
-    memberships = Repo.all(ChannelMembership.Query.all())
+    configurations = Repo.all(Slack.ChannelConfiguration.Query.all())
+    memberships = Repo.all(Slack.ChannelMembership.Query.all())
 
     rooms = incident_rooms()
     episode_counts = slack_episode_counts()
@@ -148,7 +147,7 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
   end
 
   defp defaults do
-    environments = Repo.all(Environment.Query.select_names())
+    environments = Repo.all(Settings.Environment.Query.select_names())
 
     %{
       environment:
@@ -160,7 +159,7 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
 
   # How a channel takes part unless set otherwise: the installation's choice.
   defp default_participation do
-    case Repo.one(Slack.Query.select_default_participation()) do
+    case Repo.one(Settings.Slack.Query.select_default_participation()) do
       {_workspace_ref, participation} when not is_nil(participation) -> participation
       _unset -> :mentions
     end
@@ -194,7 +193,7 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
       Enum.any?(
         [
           ChannelsPage.channel_name(row.workspace_ref, row.channel_ref, row.incident_room),
-          Names.name(row.workspace_ref, row.workspace_ref),
+          Slack.Names.name(row.workspace_ref, row.workspace_ref),
           row.workspace_ref,
           row.channel_ref,
           row.environment_name,

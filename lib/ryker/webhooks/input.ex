@@ -7,7 +7,7 @@ defmodule Ryker.Webhooks.Input do
   """
   @behaviour Ryker.Ingress.Adapter
   alias Ryker.CanonicalJSON
-  alias Ryker.Ingress.Input
+  alias Ryker.Ingress
   alias Ryker.Reference
   alias Ryker.Webhooks.Route
 
@@ -21,11 +21,11 @@ defmodule Ryker.Webhooks.Input do
     :revision
   ]
 
-  @spec new(Route.t(), term(), keyword() | map()) :: {:ok, Input.t()} | {:error, term()}
+  @spec new(Route.t(), term(), keyword() | map()) :: {:ok, Ingress.Input.t()} | {:error, term()}
   def new(%Route{} = route, payload, metadata) do
     with {:ok, metadata} <- normalize_metadata(metadata),
          :ok <- validate_metadata(metadata) do
-      Input.new(%{
+      Ingress.Input.new(%{
         actor: %{kind: :system, ref: route.name},
         content: %{"event_type" => metadata.event_type, "payload" => payload},
         destination: route.destination,

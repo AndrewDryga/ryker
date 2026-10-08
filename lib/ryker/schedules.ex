@@ -11,13 +11,11 @@ defmodule Ryker.Schedules do
   `subscribe_schedule/1`), on the topics of the request that offered it too.
   """
   alias Ryker.Episodes
-  alias Ryker.Episodes.Command
   alias Ryker.ErrorDetail
-  alias Ryker.Ingress.Input
+  alias Ryker.Ingress
   alias Ryker.Lease
-  alias Ryker.Operator.Actions
+  alias Ryker.Operator
   alias Ryker.Records
-  alias Ryker.Records.CardDelivery
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Schedules.Schedule
@@ -25,7 +23,7 @@ defmodule Ryker.Schedules do
   alias Ryker.Schedules.ScheduleRecurrence
   alias Ryker.Settings
   alias Ryker.UTCDateTime
-  alias Ryker.Work.{Custody, Session, Turn}
+  alias Ryker.Work
 
   @confirmation_fields [:actor_ref, :confirmation_ref, :occurred_at, :record_ref, :target]
   @target_fields [:conversation_ref, :message_ref, :thread_ref, :transport]
@@ -136,7 +134,7 @@ defmodule Ryker.Schedules do
          :ok <- reference(actor_ref, :actor_ref),
          :ok <- reference(action_ref, :action_ref),
          {:ok, scope} <- status_scope(scope) do
-      Actions.run(
+      Operator.Actions.run(
         %{
           action: :update,
           action_ref: action_ref,
@@ -174,7 +172,7 @@ defmodule Ryker.Schedules do
          :ok <- reference(actor_ref, :actor_ref),
          :ok <- reference(action_ref, :action_ref),
          {:ok, scope} <- status_scope(scope) do
-      Actions.run(
+      Operator.Actions.run(
         %{
           action: :replay,
           action_ref: action_ref,
@@ -201,7 +199,7 @@ defmodule Ryker.Schedules do
     with :ok <- reference(schedule_ref, :schedule_ref),
          :ok <- reference(actor_ref, :actor_ref),
          :ok <- reference(action_ref, :action_ref) do
-      Actions.run(
+      Operator.Actions.run(
         %{
           action: :replay,
           action_ref: action_ref,
@@ -268,8 +266,11 @@ defmodule Ryker.Schedules do
 
   # The work that offered the schedule ran in its conversation's environment;
   # the schedule keeps running there.
-  defp source_session(%Turn{session_id: session_id}) do
-    session_id |> Session.Query.by_id() |> Session.Query.select_placement() |> Repo.one()
+  defp source_session(%Work.Turn{session_id: session_id}) do
+    session_id
+    |> Work.Session.Query.by_id()
+    |> Work.Session.Query.select_placement()
+    |> Repo.one()
   end
 
   # A schedule runs with write access to the repository it names, so it may
@@ -479,7 +480,10 @@ defmodule Ryker.Schedules do
          command <- schedule_command(schedule, episode_id, turn_ref, input),
          {:ok, [transition]} <- Episodes.apply_batch_in_transaction([command]),
          {:ok, _session} <-
-           Custody.pin_episode_in_transaction(transition.episode.id, policy.name, policy.digest,
+           Work.Custody.pin_episode_in_transaction(
+             transition.episode.id,
+             policy.name,
+             policy.digest,
              environment_ref: schedule.environment_ref,
              repository_ref: schedule.repository
            ),
@@ -499,7 +503,7 @@ defmodule Ryker.Schedules do
   end
 
   defp schedule_input(schedule, scheduled_for, event_ref) do
-    Input.new(%{
+    Ingress.Input.new(%{
       actor: %{kind: :system, ref: "schedule"},
       content: %{
         "kind" => "scheduled_task",
@@ -530,15 +534,15 @@ defmodule Ryker.Schedules do
   end
 
   defp schedule_command(schedule, episode_id, turn_ref, input) do
-    %Command.AdmitInput{
-      actor_ref: Input.actor_ref(input),
+    %Episodes.Command.AdmitInput{
+      actor_ref: Ingress.Input.actor_ref(input),
       destination: input.destination,
       episode_id: episode_id,
       episode_key: "schedule:#{schedule.id}:#{Ecto.UUID.generate()}",
       linked_episode_id: schedule.source_episode_id,
       native_input_id: input.native_input_id,
       occurred_at: input.occurred_at,
-      payload: Input.document(input),
+      payload: Ingress.Input.document(input),
       revision: input.revision,
       turn_ref: turn_ref
     }
@@ -637,7 +641,7 @@ defmodule Ryker.Schedules do
   end
 
   defp delivered_from?(episode, turn, target) do
-    case CardDelivery.delivered_from?(episode, turn, target) do
+    case Records.CardDelivery.delivered_from?(episode, turn, target) do
       :ok -> :ok
       {:error, :mismatch} -> {:error, :schedule_offer_delivery_mismatch}
       {:error, :not_delivered} -> {:error, :schedule_offer_not_delivered}

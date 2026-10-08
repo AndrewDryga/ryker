@@ -12,8 +12,8 @@ defmodule Ryker.Work.Executor.Remote do
   its mutation was keyed with.
   """
   alias Ryker.Artifacts
-  alias Ryker.CoopFleet.JobAuthority
-  alias Ryker.Knowledge.KnowledgeSnapshot
+  alias Ryker.CoopFleet
+  alias Ryker.Knowledge
   alias Ryker.Reference
   alias Ryker.Work.{Custody, Session, StateBinding}
 
@@ -57,7 +57,7 @@ defmodule Ryker.Work.Executor.Remote do
 
   @doc false
   def submit_frozen_turn(settings, claim, key, revision, artifacts) do
-    with :ok <- KnowledgeSnapshot.expose_submission(claim) do
+    with :ok <- Knowledge.KnowledgeSnapshot.expose_submission(claim) do
       settings.api.submit_frozen_turn(
         settings.client,
         claim.session.coop_session_id,
@@ -237,12 +237,12 @@ defmodule Ryker.Work.Executor.Remote do
   def exact_remote_session_state(expected, remote_session, allowed_states \\ @session_states)
 
   def exact_remote_session_state(expected, remote, allowed_states) do
-    with :ok <- JobAuthority.exact_receipt(expected, remote),
+    with :ok <- CoopFleet.JobAuthority.exact_receipt(expected, remote),
          do: exact_session_state(expected, remote, allowed_states)
   end
 
   def exact_cleanup_session(expected, remote, allowed_states \\ @session_states) do
-    with :ok <- JobAuthority.exact_cleanup_receipt(expected, remote),
+    with :ok <- CoopFleet.JobAuthority.exact_cleanup_receipt(expected, remote),
          do: exact_session_state(expected, remote, allowed_states)
   end
 

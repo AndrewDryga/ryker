@@ -8,7 +8,6 @@ defmodule Ryker.Emisar.Connections do
   one whose account is closed to new work has no Emisar authority.
   """
   alias Ryker.Settings
-  alias Ryker.Settings.Environment
 
   @type pin :: %{connection_ref: String.t(), account_ref: String.t(), rpc_url: String.t()}
 
@@ -17,7 +16,7 @@ defmodule Ryker.Emisar.Connections do
   def resolve(_snapshot, nil), do: {:error, :not_configured}
 
   def resolve(snapshot, environment_ref) when is_binary(environment_ref) do
-    with %Environment{emisar_connection_ref: ref} when is_binary(ref) <-
+    with %Settings.Environment{emisar_connection_ref: ref} when is_binary(ref) <-
            Settings.environment(snapshot, environment_ref),
          connection when not is_nil(connection) <-
            Enum.find(snapshot.emisar_connections, &(&1.ref == ref)),

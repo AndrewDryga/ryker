@@ -7,12 +7,11 @@ defmodule Ryker.Slack.IncidentRoomCard do
   worker retry an ambiguous Slack update against the same message.
   """
   alias Ryker.CanonicalJSON
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes
   alias Ryker.Records
-  alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Slack.IncidentRoom
-  alias Ryker.Work.{FailureCause, Session, Turn}
+  alias Ryker.Work
 
   # 3 since 2026-10-06: the card reads in words, without Ryker's ids and codes.
   @ui_revision 3
@@ -52,14 +51,14 @@ defmodule Ryker.Slack.IncidentRoomCard do
   end
 
   defp projection(%IncidentRoom{} = room) do
-    case Repo.one(Episode.Query.by_id(room.episode_id)) do
+    case Repo.one(Episodes.Episode.Query.by_id(room.episode_id)) do
       nil ->
         {:error, :incident_room_episode_not_found}
 
-      %Episode{} = episode ->
+      %Episodes.Episode{} = episode ->
         records = latest_records(episode.id)
-        turn = Repo.one(Turn.Query.current(episode))
-        session = Repo.one(Session.Query.latest_of_episode(episode.id))
+        turn = Repo.one(Work.Turn.Query.current(episode))
+        session = Repo.one(Work.Session.Query.latest_of_episode(episode.id))
 
         {:ok,
          base(room)
@@ -110,10 +109,10 @@ defmodule Ryker.Slack.IncidentRoomCard do
 
   defp latest_records(episode_id) do
     episode_id
-    |> Record.Query.by_episode_id()
-    |> Record.Query.by_kinds(@record_kinds)
-    |> Record.Query.in_use()
-    |> Record.Query.ordered_by_sequence()
+    |> Records.Record.Query.by_episode_id()
+    |> Records.Record.Query.by_kinds(@record_kinds)
+    |> Records.Record.Query.in_use()
+    |> Records.Record.Query.ordered_by_sequence()
     |> Repo.all()
     |> Enum.reduce(%{}, &Map.put(&2, &1.kind, &1))
   end
@@ -121,12 +120,12 @@ defmodule Ryker.Slack.IncidentRoomCard do
   defp status(%IncidentRoom{channel_state: state}, _episode, _turn) when state != :active,
     do: "paused"
 
-  defp status(_room, %Episode{state: :cancelled}, _turn), do: "cancelled"
-  defp status(_room, %Episode{state: :complete}, _turn), do: "resolved"
-  defp status(_room, %Episode{state: :waiting_for_input}, _turn), do: "waiting_for_input"
-  defp status(_room, %Episode{state: :waiting_for_event}, _turn), do: "waiting_for_event"
-  defp status(_room, _episode, %Turn{status: :blocked}), do: "action_required"
-  defp status(_room, _episode, %Turn{status: :cancel_pending}), do: "stopping"
+  defp status(_room, %Episodes.Episode{state: :cancelled}, _turn), do: "cancelled"
+  defp status(_room, %Episodes.Episode{state: :complete}, _turn), do: "resolved"
+  defp status(_room, %Episodes.Episode{state: :waiting_for_input}, _turn), do: "waiting_for_input"
+  defp status(_room, %Episodes.Episode{state: :waiting_for_event}, _turn), do: "waiting_for_event"
+  defp status(_room, _episode, %Work.Turn{status: :blocked}), do: "action_required"
+  defp status(_room, _episode, %Work.Turn{status: :cancel_pending}), do: "stopping"
   defp status(_room, _episode, _turn), do: "investigating"
 
   defp action_needed(%IncidentRoom{channel_state: :archived}, _episode, _records, _turn),
@@ -138,16 +137,16 @@ defmodule Ryker.Slack.IncidentRoomCard do
   defp action_needed(%IncidentRoom{channel_state: :deleted}, _episode, _records, _turn),
     do: "Slack says this room was deleted. Ryker keeps its investigation and history."
 
-  defp action_needed(_room, %Episode{state: :waiting_for_input}, records, _turn) do
+  defp action_needed(_room, %Episodes.Episode{state: :waiting_for_input}, records, _turn) do
     case records["input_request"] do
-      %Record{payload: %{"question" => question}} -> compact(question, 500)
+      %Records.Record{payload: %{"question" => question}} -> compact(question, 500)
       _missing -> "An operator response is required before the investigation can continue."
     end
   end
 
-  defp action_needed(_room, %Episode{state: :waiting_for_event}, records, _turn) do
+  defp action_needed(_room, %Episodes.Episode{state: :waiting_for_event}, records, _turn) do
     case records["event_wait"] do
-      %Record{payload: %{"verification" => verification}} -> compact(verification, 500)
+      %Records.Record{payload: %{"verification" => verification}} -> compact(verification, 500)
       _missing -> "Ryker is waiting for the configured verification event."
     end
   end
@@ -156,8 +155,8 @@ defmodule Ryker.Slack.IncidentRoomCard do
   # said; the pinned card printed it whole in the room everyone reads
   # (2026-10-04 review). It says in words what Ryker can tell of it, as a task
   # card does, and otherwise where the cause is written.
-  defp action_needed(_room, _episode, _records, %Turn{status: :blocked} = turn) do
-    case FailureCause.explain(turn.last_error_detail) do
+  defp action_needed(_room, _episode, _records, %Work.Turn{status: :blocked} = turn) do
+    case Work.FailureCause.explain(turn.last_error_detail) do
       %{cause: cause, next_step: next_step} ->
         compact(cause <> "\n" <> next_step, 500)
 
@@ -170,7 +169,7 @@ defmodule Ryker.Slack.IncidentRoomCard do
 
   defp alert(records) do
     case records["alert_assessment"] do
-      %Record{payload: payload} ->
+      %Records.Record{payload: payload} ->
         %{
           "impact" => compact(payload["impact"], 500),
           "verdict" => payload["verdict"]
@@ -183,10 +182,10 @@ defmodule Ryker.Slack.IncidentRoomCard do
 
   defp summary(room, records) do
     cond do
-      match?(%Record{}, records["progress"]) ->
+      match?(%Records.Record{}, records["progress"]) ->
         compact(records["progress"].payload["summary"], 500)
 
-      match?(%Record{}, records["alert_assessment"]) ->
+      match?(%Records.Record{}, records["alert_assessment"]) ->
         compact(records["alert_assessment"].payload["impact"], 500)
 
       true ->
@@ -202,25 +201,30 @@ defmodule Ryker.Slack.IncidentRoomCard do
     |> Kernel.++(~w(timeline evidence handoff postmortem))
   end
 
-  defp stop_allowed?(%Episode{state: :working, owner_kind: :turn, owner_ref: turn_ref}, %Turn{
-         status: :pending,
-         turn_ref: turn_ref
-       }),
+  defp stop_allowed?(
+         %Episodes.Episode{state: :working, owner_kind: :turn, owner_ref: turn_ref},
+         %Work.Turn{
+           status: :pending,
+           turn_ref: turn_ref
+         }
+       ),
        do: true
 
   defp stop_allowed?(_episode, _turn), do: false
 
-  defp close_allowed?(%Episode{state: state}, _turn) when state in [:complete, :cancelled],
-    do: false
+  defp close_allowed?(%Episodes.Episode{state: state}, _turn)
+       when state in [:complete, :cancelled],
+       do: false
 
-  defp close_allowed?(_episode, %Turn{status: status})
+  defp close_allowed?(_episode, %Work.Turn{status: status})
        when status in [:cancel_pending, :delivery_pending],
        do: false
 
   defp close_allowed?(_episode, _turn), do: true
 
-  defp bound_session?(%Session{coop_session_id: value}) when is_binary(value) and value != "",
-    do: true
+  defp bound_session?(%Work.Session{coop_session_id: value})
+       when is_binary(value) and value != "",
+       do: true
 
   defp bound_session?(_session), do: false
 

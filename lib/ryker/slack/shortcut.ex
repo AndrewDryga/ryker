@@ -6,7 +6,7 @@ defmodule Ryker.Slack.Shortcut do
   remains untrusted content and the exact source item for reply/reaction scope.
   """
   alias Ryker.CanonicalJSON
-  alias Ryker.Ingress.Input
+  alias Ryker.Ingress
   alias Ryker.Reference
 
   @callback_id "ryker_investigate_message"
@@ -15,7 +15,7 @@ defmodule Ryker.Slack.Shortcut do
   @type normalized :: %{
           action_token: nil,
           audience: :direct,
-          input: Input.t(),
+          input: Ingress.Input.t(),
           platform_thread_ref: String.t()
         }
 
@@ -45,7 +45,7 @@ defmodule Ryker.Slack.Shortcut do
          {:ok, thread_ref} <- thread_ref(message["thread_ts"], message_ref),
          {:ok, content} <- content(message),
          {:ok, input} <-
-           Input.new(%{
+           Ingress.Input.new(%{
              actor: %{kind: :user, ref: actor_ref},
              content: content,
              destination: %{

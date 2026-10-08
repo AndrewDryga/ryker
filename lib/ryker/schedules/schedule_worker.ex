@@ -8,7 +8,7 @@ defmodule Ryker.Schedules.ScheduleWorker do
   interval.
   """
   use Ryker.PollingWorker, lane: :schedule, interval: :poll_interval_ms
-  alias Ryker.Observability.Progress
+  alias Ryker.Observability
   alias Ryker.PollingWorker
   alias Ryker.Schedules
   alias Ryker.Schedules.ScheduleDispatcher
@@ -57,7 +57,7 @@ defmodule Ryker.Schedules.ScheduleWorker do
           state.poll_interval_ms
       end
 
-    _ = Progress.beat(:schedule)
+    _ = Observability.Progress.beat(:schedule)
     delay
   end
 end

@@ -16,19 +16,21 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
   """
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery.{Request, RoutingResponse}
-  alias Ryker.Ingress.Inbox
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress
   alias Ryker.Lease
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.UTCDateTime
-  alias Ryker.Work.DeliveryReceipt
+  alias Ryker.Work
 
   @type claim :: %{lease_ref: String.t(), response: RoutingResponse.t()}
 
   @doc false
-  @spec enqueue_in_transaction(Entry.t()) :: {:ok, [RoutingResponse.t()]} | {:error, term()}
-  def enqueue_in_transaction(%Entry{status: :decided, decision_action: action} = entry)
+  @spec enqueue_in_transaction(Ingress.Inbox.Entry.t()) ::
+          {:ok, [RoutingResponse.t()]} | {:error, term()}
+  def enqueue_in_transaction(
+        %Ingress.Inbox.Entry{status: :decided, decision_action: action} = entry
+      )
       when action in [:react, :quick_reply] do
     with :ok <- transaction_open(),
          {:ok, responses} <- decided_responses(entry.decision_document) do
@@ -42,7 +44,7 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
     end
   end
 
-  def enqueue_in_transaction(%Entry{status: :decided}), do: {:ok, []}
+  def enqueue_in_transaction(%Ingress.Inbox.Entry{status: :decided}), do: {:ok, []}
   def enqueue_in_transaction(_entry), do: {:error, {:invalid_routing_response, :entry}}
 
   defp insert_response(entry, {{kind, document}, position}, {:ok, inserted}) do
@@ -203,8 +205,8 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
   def confirm_delivery(delivery_ref, lease_ref, receipt) do
     with :ok <- reference(delivery_ref, :delivery_ref),
          :ok <- reference(lease_ref, :lease_ref),
-         {:ok, receipt} <- DeliveryReceipt.prepare(receipt) do
-      fingerprint = DeliveryReceipt.fingerprint(receipt)
+         {:ok, receipt} <- Work.DeliveryReceipt.prepare(receipt) do
+      fingerprint = Work.DeliveryReceipt.fingerprint(receipt)
 
       Repo.transaction(fn ->
         confirm_locked(delivery_ref, lease_ref, receipt, fingerprint)
@@ -401,7 +403,7 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
   defp routing_responses_topic, do: "delivery:routing_responses"
 
   defp broadcast_routing_response_updated(%RoutingResponse{id: id} = response) do
-    Inbox.broadcast_input_updated(response.input_id)
+    Ingress.Inbox.broadcast_input_updated(response.input_id)
 
     Repo.after_commit(fn ->
       Ryker.PubSub.broadcast(routing_responses_topic(), {:routing_response_updated, id})

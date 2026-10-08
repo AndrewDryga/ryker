@@ -18,7 +18,7 @@ defmodule Ryker.Transcription.Worker do
   """
   use Ryker.PollingWorker, lane: :transcription, interval: :poll_interval_ms
   alias Ryker.Artifacts
-  alias Ryker.Ingress.Inbox
+  alias Ryker.Ingress
   alias Ryker.PollingWorker
   alias Ryker.Transcription
   require Logger
@@ -40,7 +40,7 @@ defmodule Ryker.Transcription.Worker do
   end
 
   @impl PollingWorker
-  def wake_on(_state), do: [&Inbox.subscribe_inputs/0]
+  def wake_on(_state), do: [&Ingress.Inbox.subscribe_inputs/0]
 
   @impl PollingWorker
   def poll(state) do
@@ -66,7 +66,7 @@ defmodule Ryker.Transcription.Worker do
           :idle | {:ok, :transcribed | :released} | {:error, term()}
   def transcribe_next(options) do
     with {:ok, settings} <- settings(options) do
-      case Inbox.fetch_waiting_for_transcript() do
+      case Ingress.Inbox.fetch_waiting_for_transcript() do
         {:ok, entry} -> transcribe_entry(entry, settings)
         {:error, :not_found} -> :idle
       end
@@ -79,7 +79,7 @@ defmodule Ryker.Transcription.Worker do
       |> Transcription.pending_files()
       |> Map.new(fn file -> {file["artifact_ref"], transcribe(file, settings)} end)
 
-    Inbox.transcribed(Inbox.ref(entry), results)
+    Ingress.Inbox.transcribed(Ingress.Inbox.ref(entry), results)
   end
 
   defp transcribe(%{"artifact_ref" => ref}, settings) when is_binary(ref) do

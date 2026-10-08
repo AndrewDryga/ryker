@@ -5,11 +5,11 @@ defmodule Ryker.Slack.Renderer.WorkCards do
   """
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
-  alias Ryker.Records.InvestigationPayload
+  alias Ryker.Records
   alias Ryker.Slack.Renderer.TaskPublication
   alias Ryker.Slack.TaskCardDetails
 
-  @goal_states InvestigationPayload.goal_states()
+  @goal_states Records.InvestigationPayload.goal_states()
   # A room that set more goals than this is not asking a responder to read them
   # all on a phone; the projection sends the first eight, each compacted.
   @incident_goals 8

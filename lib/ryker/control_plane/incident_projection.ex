@@ -6,17 +6,16 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   projected through `FailureDetail`. A room's page redraws when the room or
   its investigation changes (`subscriptions/1`).
   """
-  alias Ryker.Accounting.Execution
+  alias Ryker.Accounting
   alias Ryker.ControlPlane.{ConsolePeople, Environments, IncidentReport, PagedRelation}
   alias Ryker.ControlPlane.{RepositoryNames, Search, UsageProjection}
-  alias Ryker.Delivery.ChatCard
+  alias Ryker.Delivery
+  alias Ryker.Episodes
   alias Ryker.{Episodes, InspectionRedactor, Settings}
-  alias Ryker.Episodes.Episode
-  alias Ryker.Operator.FailureDetail
-  alias Ryker.Records.Record
+  alias Ryker.Operator
+  alias Ryker.Records
   alias Ryker.Repo
-  alias Ryker.Slack.{IncidentRoom, IncidentRoomLifecycleEvent}
-  alias Ryker.Slack.{IncidentRooms, Names}
+  alias Ryker.Slack
 
   @detail_limit 200
   @statuses ~w(requested ready blocked closed)a
@@ -30,11 +29,14 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   """
   def subscriptions(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
     episode_id =
-      ref |> IncidentRoom.Query.by_ref() |> IncidentRoom.Query.select_episode_ids() |> Repo.one()
+      ref
+      |> Slack.IncidentRoom.Query.by_ref()
+      |> Slack.IncidentRoom.Query.select_episode_ids()
+      |> Repo.one()
 
     investigation = if episode_id, do: [{Episodes, :subscribe_episode, [episode_id]}], else: []
 
-    [{IncidentRooms, :subscribe_room, [ref]}, {Settings, :subscribe, []}] ++ investigation
+    [{Slack.IncidentRooms, :subscribe_room, [ref]}, {Settings, :subscribe, []}] ++ investigation
   end
 
   def subscriptions(_ref), do: []
@@ -48,7 +50,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   review).
   """
   def list(params) when is_map(params) do
-    searched = incident_search(IncidentRoom.Query.all(), Search.term(params["q"]))
+    searched = incident_search(Slack.IncidentRoom.Query.all(), Search.term(params["q"]))
     filtered = incident_status(searched, Search.one_of(params["status"], @statuses))
 
     page =
@@ -93,14 +95,18 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   Message text is redacted before it leaves here.
   """
   def fetch(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    found = ref |> IncidentRoom.Query.by_ref() |> IncidentRoom.Query.limit_to(1) |> Repo.one()
+    found =
+      ref
+      |> Slack.IncidentRoom.Query.by_ref()
+      |> Slack.IncidentRoom.Query.limit_to(1)
+      |> Repo.one()
 
     case found do
       nil ->
         :not_found
 
       room ->
-        episode = if room.episode_id, do: Repo.one(Episode.Query.by_id(room.episode_id))
+        episode = if room.episode_id, do: Repo.one(Episodes.Episode.Query.by_id(room.episode_id))
         names = RepositoryNames.all()
         secrets = InspectionRedactor.configured_secrets()
         alert = alert(room, secrets)
@@ -163,7 +169,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
 
   # The message the room was opened from: the alert, or what someone asked,
   # as the request in its thread first read it.
-  defp alert(%IncidentRoom{source_episode_id: nil}, _secrets), do: nil
+  defp alert(%Slack.IncidentRoom{source_episode_id: nil}, _secrets), do: nil
 
   defp alert(room, secrets) do
     room.source_episode_id
@@ -219,11 +225,13 @@ defmodule Ryker.ControlPlane.IncidentProjection do
 
   # Where it was said, by the name Slack gave it; never a channel's raw ID
   # while Slack has not named it yet.
-  defp place("slack:" <> _ = ref), do: if(Names.named?(ref), do: Names.destination(ref))
-  defp place(ref), do: Names.destination(ref)
+  defp place("slack:" <> _ = ref),
+    do: if(Slack.Names.named?(ref), do: Slack.Names.destination(ref))
+
+  defp place(ref), do: Slack.Names.destination(ref)
 
   defp sender(%{actor_kind: :user, source_kind: "slack"} = entry),
-    do: {:person, Names.person(entry.source_ref, entry.actor_ref)}
+    do: {:person, Slack.Names.person(entry.source_ref, entry.actor_ref)}
 
   # Someone in Chat: the person who signed in, or the local console's "You".
   defp sender(%{actor_kind: :user, source_kind: "control_plane", actor_ref: actor}) do
@@ -251,17 +259,17 @@ defmodule Ryker.ControlPlane.IncidentProjection do
 
   defp accounting(episode_id) do
     nil
-    |> Execution.Query.ledger("all")
-    |> Execution.Query.by_episode_id(episode_id)
+    |> Accounting.Execution.Query.ledger("all")
+    |> Accounting.Execution.Query.by_episode_id(episode_id)
     |> UsageProjection.totals()
   end
 
   defp lifecycle(room) do
     room.id
-    |> IncidentRoomLifecycleEvent.Query.by_room_id()
-    |> IncidentRoomLifecycleEvent.Query.ordered_by_occurred_at()
-    |> IncidentRoomLifecycleEvent.Query.limit_to(@detail_limit)
-    |> IncidentRoomLifecycleEvent.Query.select_timeline()
+    |> Slack.IncidentRoomLifecycleEvent.Query.by_room_id()
+    |> Slack.IncidentRoomLifecycleEvent.Query.ordered_by_occurred_at()
+    |> Slack.IncidentRoomLifecycleEvent.Query.limit_to(@detail_limit)
+    |> Slack.IncidentRoomLifecycleEvent.Query.select_timeline()
     |> Repo.all()
   end
 
@@ -271,9 +279,9 @@ defmodule Ryker.ControlPlane.IncidentProjection do
 
   defp records(episode_id) do
     episode_id
-    |> Record.Query.by_episode_id()
-    |> Record.Query.ordered_by_sequence_desc()
-    |> Record.Query.limit_to(@detail_limit)
+    |> Records.Record.Query.by_episode_id()
+    |> Records.Record.Query.ordered_by_sequence_desc()
+    |> Records.Record.Query.limit_to(@detail_limit)
     |> Repo.all()
     |> Enum.reverse()
     |> Enum.map(&record/1)
@@ -293,9 +301,9 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   # (an archive, a deletion, a check that found it changed) names the event
   # that made it and overwrites the time, so only an unchanged channel still
   # knows when it was created.
-  defp channel_created_at(%IncidentRoom{channel_ref: nil}), do: nil
+  defp channel_created_at(%Slack.IncidentRoom{channel_ref: nil}), do: nil
 
-  defp channel_created_at(%IncidentRoom{channel_state_event_ref: nil} = room),
+  defp channel_created_at(%Slack.IncidentRoom{channel_state_event_ref: nil} = room),
     do: room.channel_state_changed_at
 
   defp channel_created_at(_room), do: nil
@@ -304,7 +312,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   # person's request or because its channel was deleted, or archived or left
   # before setup finished, for whoever opens the room later: whether it said
   # so in Slack and where a reply it still owed waits.
-  defp closed_note(%IncidentRoom{status: :closed, last_error_code: code} = room)
+  defp closed_note(%Slack.IncidentRoom{status: :closed, last_error_code: code} = room)
        when code in [
               "incident_room_closed",
               "incident_room_deleted",
@@ -336,9 +344,9 @@ defmodule Ryker.ControlPlane.IncidentProjection do
 
   # A record in the words its timeline card uses — "Evidence", the claim and
   # what was observed — beside its identity for support.
-  defp record(%Record{} = record) do
+  defp record(%Records.Record{} = record) do
     card =
-      case ChatCard.project(record) do
+      case Delivery.ChatCard.project(record) do
         {:ok, card} -> card
         :ignore -> %{}
       end
@@ -367,6 +375,6 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   defp sanitize_publication(nil), do: nil
 
   defp sanitize_publication(publication) do
-    Map.put(publication, :last_error, FailureDetail.project(publication.last_error))
+    Map.put(publication, :last_error, Operator.FailureDetail.project(publication.last_error))
   end
 end

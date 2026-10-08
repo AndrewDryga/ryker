@@ -1,7 +1,7 @@
 defmodule Ryker.ControlPlane.CurrentInput.Query do
   @moduledoc "Current source revisions for conversation views; retained model artifacts stay immutable."
   use Ryker, :query
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress
 
   @doc """
   The text a current revision shows, as SQL: nothing once retention pruned it,
@@ -67,7 +67,7 @@ defmodule Ryker.ControlPlane.CurrentInput.Query do
   whole table on every page that showed a message (2026-10-04 review).
   """
   def current do
-    from(current in Entry,
+    from(current in Ingress.Inbox.Entry,
       where:
         current.native_input_id == parent_as(:revision).native_input_id and
           current.execution_mode == parent_as(:revision).execution_mode,
@@ -82,7 +82,7 @@ defmodule Ryker.ControlPlane.CurrentInput.Query do
   """
   def by_episode_id(id) do
     first_revisions =
-      from(seed in Entry,
+      from(seed in Ingress.Inbox.Entry,
         where: seed.episode_id == ^id,
         distinct: seed.native_input_id,
         order_by: [asc: seed.native_input_id, asc: seed.occurred_at, asc: seed.id]

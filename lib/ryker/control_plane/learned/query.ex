@@ -6,20 +6,20 @@ defmodule Ryker.ControlPlane.Learned.Query do
   update came from, and when a summary's sources were said.
   """
   use Ryker, :query
-  alias Ryker.Continuity.ConversationSummary
+  alias Ryker.Continuity
   alias Ryker.ControlPlane.Search
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Knowledge.{ConversationKnowledge, KnowledgeRevision, KnowledgeSource}
-  alias Ryker.Learning.ConversationObservation
+  alias Ryker.Ingress
+  alias Ryker.Knowledge
+  alias Ryker.Learning
   require Ryker.ControlPlane.Search
 
   @doc "Every row the page lists as `kind`, knowledge or context."
-  def items("knowledge"), do: from(item in ConversationKnowledge)
-  def items("context"), do: from(summary in ConversationSummary)
+  def items("knowledge"), do: from(item in Knowledge.ConversationKnowledge)
+  def items("context"), do: from(summary in Continuity.ConversationSummary)
 
   @doc "The source notes of `observation_ids` that still say something."
   def notes(observation_ids) do
-    from(source in ConversationObservation,
+    from(source in Learning.ConversationObservation,
       where: not is_nil(source.note) and source.id in ^observation_ids
     )
   end
@@ -54,8 +54,8 @@ defmodule Ryker.ControlPlane.Learned.Query do
   {count, direct, oldest_retained_at}}`.
   """
   def source_counts(knowledge_ids) do
-    from(s in KnowledgeSource,
-      join: k in ConversationKnowledge,
+    from(s in Knowledge.KnowledgeSource,
+      join: k in Knowledge.ConversationKnowledge,
       on: k.id == s.knowledge_id and k.source_generation == s.generation,
       where: k.id in ^knowledge_ids,
       group_by: k.id,
@@ -69,8 +69,8 @@ defmodule Ryker.ControlPlane.Learned.Query do
   was said, as `{revision, transport, conversation_ref, source_item_ref}`.
   """
   def history(knowledge_id) do
-    from(r in KnowledgeRevision,
-      left_join: entry in Entry,
+    from(r in Knowledge.KnowledgeRevision,
+      left_join: entry in Ingress.Inbox.Entry,
       on: entry.id == r.source_input_id,
       where: r.knowledge_id == ^knowledge_id,
       select:
@@ -85,7 +85,7 @@ defmodule Ryker.ControlPlane.Learned.Query do
   edited since must not substitute today's message time.
   """
   def latest_source_at(roots) do
-    from(o in ConversationObservation,
+    from(o in Learning.ConversationObservation,
       where:
         fragment(
           "EXISTS (SELECT 1 FROM ryker_learning_roots(?::text) r WHERE r->>'observation_id' = ?::text AND r->>'revision' = ?::text AND r->>'fingerprint' = ?)",

@@ -16,10 +16,9 @@ defmodule Ryker.Episodes.Reactions do
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Event}
   alias Ryker.Feedback
-  alias Ryker.Feedback.Answers
   alias Ryker.Reference
   alias Ryker.Repo
-  alias Ryker.Work.Turn
+  alias Ryker.Work
   require Logger
 
   @fields [:action, :actor_ref, :emoji_name, :event_ref, :occurred_at, :source, :target]
@@ -111,7 +110,7 @@ defmodule Ryker.Episodes.Reactions do
   end
 
   defp record_on_other_message(attributes) do
-    with {:ok, request} <- Answers.message_request(attributes.target),
+    with {:ok, request} <- Feedback.Answers.message_request(attributes.target),
          {:ok, %{status: status}} <- Feedback.record(feedback(attributes, request)) do
       {:ok, %{status: if(status == :recorded, do: :applied, else: :duplicate)}}
     else
@@ -240,7 +239,7 @@ defmodule Ryker.Episodes.Reactions do
   defp apply_model_event(_invalid, current), do: current
 
   defp resolve_target(target) do
-    candidates = target |> Turn.Query.delivered_as() |> Repo.all()
+    candidates = target |> Work.Turn.Query.delivered_as() |> Repo.all()
 
     case candidates do
       [] ->

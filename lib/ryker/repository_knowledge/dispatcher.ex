@@ -15,7 +15,7 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
   knowledge the moment it is written; a RYKER.md the repository holds is one
   more file the model may read.
   """
-  alias Ryker.CoopFleet.JobTemplates
+  alias Ryker.CoopFleet
   alias Ryker.RepositoryKnowledge.{Custody, Document, Executor, FleetSession, Prompt, Refresh}
   alias Ryker.RepositoryKnowledge.Run
   alias Ryker.Settings
@@ -185,7 +185,7 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
   # repository with tools is exactly that kind of task, and the policy mounts
   # the repository read-only already, so no new policy is needed.
   defp policy(snapshot, ref) do
-    Enum.find_value(JobTemplates.from_settings(snapshot), fn binding ->
+    Enum.find_value(CoopFleet.JobTemplates.from_settings(snapshot), fn binding ->
       if binding.purpose == :standard and binding.scope_kind == :repository and
            binding.scope_ref == ref,
          do: %{name: binding.policy_name, digest: binding.policy_digest}

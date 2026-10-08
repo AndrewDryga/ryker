@@ -17,10 +17,10 @@ defmodule Ryker.Episodes.RoutingDigests do
   """
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.{Episode, Event, Origins, RoutingDigest}
-  alias Ryker.Ingress.RecallText
-  alias Ryker.Knowledge.KnowledgeAnchors
+  alias Ryker.Ingress
+  alias Ryker.Knowledge
   alias Ryker.Repo
-  alias Ryker.Work.{CandidateResponse, Final, Turn}
+  alias Ryker.Work
 
   @objective_bytes 1_024
   @development_bytes 1_024
@@ -185,8 +185,8 @@ defmodule Ryker.Episodes.RoutingDigests do
   The accepted candidate's exact bytes are the source: a title of null keeps
   the current one, and an answer recorded before titles existed has none.
   """
-  @spec accept_title_in_transaction(Episode.t(), Turn.t()) :: :ok
-  def accept_title_in_transaction(%Episode{id: episode_id} = episode, %Turn{} = turn) do
+  @spec accept_title_in_transaction(Episode.t(), Work.Turn.t()) :: :ok
+  def accept_title_in_transaction(%Episode{id: episode_id} = episode, %Work.Turn{} = turn) do
     case accepted_title(turn) do
       nil ->
         :ok
@@ -214,11 +214,12 @@ defmodule Ryker.Episodes.RoutingDigests do
     end
   end
 
-  defp accepted_title(%Turn{id: turn_id, candidate_attempt: attempt}) when is_integer(attempt) do
-    with %CandidateResponse{body: body} when is_binary(body) <-
-           Repo.one(CandidateResponse.Query.by_attempt(turn_id, attempt)),
+  defp accepted_title(%Work.Turn{id: turn_id, candidate_attempt: attempt})
+       when is_integer(attempt) do
+    with %Work.CandidateResponse{body: body} when is_binary(body) <-
+           Repo.one(Work.CandidateResponse.Query.by_attempt(turn_id, attempt)),
          {:ok, %{} = document} <- Jason.decode(body),
-         {:ok, %Final{title: title}} <- Final.parse(document) do
+         {:ok, %Work.Final{title: title}} <- Work.Final.parse(document) do
       title
     else
       _unreadable -> nil
@@ -246,7 +247,7 @@ defmodule Ryker.Episodes.RoutingDigests do
   @spec anchor_keys([String.t()]) :: [String.t()]
   def anchor_keys(anchors) do
     anchors
-    |> Enum.map(&KnowledgeAnchors.normalize/1)
+    |> Enum.map(&Knowledge.KnowledgeAnchors.normalize/1)
     |> Enum.map(&CanonicalJSON.digest(%{"anchor" => &1}))
     |> Enum.uniq()
     |> Enum.sort()
@@ -309,9 +310,9 @@ defmodule Ryker.Episodes.RoutingDigests do
   def input_identifiers(nil), do: []
 
   def input_identifiers(content) do
-    %{links: links, labels: labels} = RecallText.references(content)
+    %{links: links, labels: labels} = Ingress.RecallText.references(content)
 
-    [RecallText.from(content), Enum.join(links, " ")]
+    [Ingress.RecallText.from(content), Enum.join(links, " ")]
     |> identifiers()
     |> Kernel.++(labels)
     |> Enum.uniq()
@@ -336,7 +337,7 @@ defmodule Ryker.Episodes.RoutingDigests do
   def identifiers(texts) do
     texts = texts |> Enum.filter(&is_binary/1) |> Enum.take(16)
 
-    (Enum.flat_map(KnowledgeAnchors.discover(texts), &link_forms/1) ++
+    (Enum.flat_map(Knowledge.KnowledgeAnchors.discover(texts), &link_forms/1) ++
        Enum.flat_map(texts, &names/1))
     |> Enum.uniq()
     |> Enum.take(64)
@@ -464,7 +465,7 @@ defmodule Ryker.Episodes.RoutingDigests do
   defp input_text(event) do
     case input_content(event) do
       nil -> ""
-      content -> RecallText.from(content)
+      content -> Ingress.RecallText.from(content)
     end
   end
 

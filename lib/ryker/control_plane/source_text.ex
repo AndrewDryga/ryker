@@ -1,6 +1,6 @@
 defmodule Ryker.ControlPlane.SourceText do
   @moduledoc "Plain source-message content shared by the timeline and request inspector."
-  alias Ryker.GitHub.Input, as: GitHubInput
+  alias Ryker.GitHub
 
   # An answer given with a question card's button carries the chosen option, not text
   # (Andrew, 2026-10-01: the timeline said "Source content not recorded or expired").
@@ -17,7 +17,7 @@ defmodule Ryker.ControlPlane.SourceText do
     |> Enum.filter(&present?/1)
     |> Enum.uniq()
     |> case do
-      [] -> GitHubInput.body(content)
+      [] -> GitHub.Input.body(content)
       parts -> Enum.join(parts, "\n\n")
     end
   end

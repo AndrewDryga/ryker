@@ -6,18 +6,18 @@ defmodule Ryker.ControlPlane.ConversationTranscript.Query do
   on messages.
   """
   use Ryker, :query
-  alias Ryker.Delivery.{PlatformAction, RoutingResponse}
-  alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Work.Turn
+  alias Ryker.Delivery
+  alias Ryker.Episodes
+  alias Ryker.Ingress
+  alias Ryker.Work
 
   @doc """
   Each of `episode_ids` as its messages show it, as `%{id, active_input_refs,
   state}`: the episode's state, or `"blocked"` while its owning turn is.
   """
   def executions(episode_ids) do
-    from(episode in Episode,
-      left_join: turn in Turn,
+    from(episode in Episodes.Episode,
+      left_join: turn in Work.Turn,
       on:
         turn.episode_id == episode.id and turn.turn_ref == episode.owner_ref and
           episode.owner_kind == :turn,
@@ -40,7 +40,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript.Query do
   `{native_input_id, {revision, event_kind}}`.
   """
   def current_revisions(native_input_ids) do
-    from(entry in Entry,
+    from(entry in Ingress.Inbox.Entry,
       where:
         entry.source_kind == "control_plane" and entry.source_ref == "local" and
           entry.native_input_id in ^native_input_ids,
@@ -60,7 +60,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript.Query do
   `limit` at most, as `%{delivery_ref, emoji_name, source_item_ref, status}`.
   """
   def routing_reactions(item_refs, limit) do
-    from(reaction in RoutingResponse,
+    from(reaction in Delivery.RoutingResponse,
       where:
         reaction.kind == :reaction and reaction.transport == "control_plane" and
           reaction.source_item_ref in ^item_refs,
@@ -80,7 +80,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript.Query do
   `limit` at most, as `%{action_ref, document, source_item_ref, status}`.
   """
   def work_reactions(item_refs, limit) do
-    from(action in PlatformAction,
+    from(action in Delivery.PlatformAction,
       where:
         action.transport == "control_plane" and action.kind == :reaction and
           action.source_item_ref in ^item_refs,

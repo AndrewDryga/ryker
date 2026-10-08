@@ -9,10 +9,10 @@ defmodule Ryker.Slack.TaskCardWorker do
   or for its safety-net interval.
   """
   use Ryker.PollingWorker, lane: :slack_task_cards, interval: :interval_ms
-  alias Ryker.Delivery.Retry
+  alias Ryker.Delivery
   alias Ryker.Episodes
   alias Ryker.ErrorDetail
-  alias Ryker.Observability.Progress
+  alias Ryker.Observability
   alias Ryker.Options
   alias Ryker.PollingWorker
   alias Ryker.Records
@@ -65,7 +65,7 @@ defmodule Ryker.Slack.TaskCardWorker do
           options.interval_ms
       end
 
-    _ = Progress.beat(:slack_task_cards)
+    _ = Observability.Progress.beat(:slack_task_cards)
     delay
   end
 
@@ -158,7 +158,7 @@ defmodule Ryker.Slack.TaskCardWorker do
   # Slack asking Ryker to slow down is no failed refresh: the card waits as long
   # as Slack asked, 30 seconds when it named no time, and keeps its attempts.
   defp settle(card, reason, options) do
-    case Retry.rate_limited(reason) do
+    case Delivery.Retry.rate_limited(reason) do
       {:ok, seconds} ->
         case TaskCards.defer(card.id, card.lease_ref, seconds || 30, reason, counted: false) do
           {:ok, deferred} -> {:ok, {:deferred, deferred.ref}}

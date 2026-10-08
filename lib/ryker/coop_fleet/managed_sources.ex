@@ -9,9 +9,9 @@ defmodule Ryker.CoopFleet.ManagedSources do
   alias Ryker.ChildEnvironment
   alias Ryker.CoopFleet.JobSpec
   alias Ryker.CoopFleet.Protocol
-  alias Ryker.GitHub.{InstallationTokens, PublicRepositories}
+  alias Ryker.GitHub
   alias Ryker.Settings
-  alias Ryker.Work.RepositorySource
+  alias Ryker.Work
   require Logger
 
   @commit ~r/\A[0-9a-f]{40}\z/
@@ -38,7 +38,7 @@ defmodule Ryker.CoopFleet.ManagedSources do
             is_binary(storage_root) and Path.type(storage_root) == :absolute and
               Protocol.reference?(repository_ref)},
          {:requested, {:ok, requested}} <-
-           {:requested, RepositorySource.parse_optional(requested)},
+           {:requested, Work.RepositorySource.parse_optional(requested)},
          {:settings, {:ok, snapshot}} <- {:settings, Settings.fetch()},
          {:repository,
           %{
@@ -50,7 +50,7 @@ defmodule Ryker.CoopFleet.ManagedSources do
          {:binding, %{name: binding_name, repository_id: repository_id}} <-
            {:binding, Enum.find(snapshot.github_bindings, &(&1.repository_ref == repository_ref))},
          {:token, {:ok, token}} <-
-           {:token, InstallationTokens.token(binding_name, :source_read)} do
+           {:token, GitHub.InstallationTokens.token(binding_name, :source_read)} do
       storage_root
       |> prepare_from_remote(
         %{
@@ -63,7 +63,7 @@ defmodule Ryker.CoopFleet.ManagedSources do
         base_branch,
         requested,
         &resolve_repository(snapshot, &1, fn slug ->
-          PublicRepositories.lookup(snapshot.github.api_url, slug, token)
+          GitHub.PublicRepositories.lookup(snapshot.github.api_url, slug, token)
         end)
       )
       |> log_failure(repository_ref, :fetch)
@@ -228,7 +228,7 @@ defmodule Ryker.CoopFleet.ManagedSources do
   defp valid_selection_inputs?(base_branch, requested) do
     is_binary(base_branch) and
       Regex.match?(~r/\A[A-Za-z0-9][A-Za-z0-9._\/-]*\z/, base_branch) and
-      match?({:ok, _}, RepositorySource.parse(requested || RepositorySource.default()))
+      match?({:ok, _}, Work.RepositorySource.parse(requested || Work.RepositorySource.default()))
   end
 
   defp private_mirror_root(storage_root) do
@@ -256,7 +256,7 @@ defmodule Ryker.CoopFleet.ManagedSources do
          requested
        ) do
     mirror = Path.join([storage_root, "coop-source-mirrors", repository_ref <> ".git"])
-    requested = requested || RepositorySource.default()
+    requested = requested || Work.RepositorySource.default()
 
     with :ok <- ensure_mirror(git, mirror, remote),
          :ok <- fetch_ref(git, mirror, "refs/heads/" <> base_branch, token),
@@ -423,7 +423,7 @@ defmodule Ryker.CoopFleet.ManagedSources do
     with [%{ref: ref, github_repository: repository, github_access: :available}] <- repositories,
          [%{name: name, repository_id: id}] <-
            Enum.filter(snapshot.github_bindings, &(&1.repository_ref == ref)) do
-      case InstallationTokens.token(name, :source_read) do
+      case GitHub.InstallationTokens.token(name, :source_read) do
         {:ok, token} ->
           {:ok,
            %{

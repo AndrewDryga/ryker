@@ -9,7 +9,7 @@ defmodule Ryker.Work.Runtime do
   """
   use Supervisor
   alias Ryker.Options
-  alias Ryker.StateTools.Capabilities
+  alias Ryker.StateTools
   alias Ryker.Work.{ActivitySyncWorker, Executor, Worker}
 
   @fields [
@@ -115,7 +115,7 @@ defmodule Ryker.Work.Runtime do
       Map.get(
         configuration,
         :state_tool_capabilities,
-        if(state_tools_endpoint, do: Capabilities.default(), else: nil)
+        if(state_tools_endpoint, do: StateTools.Capabilities.default(), else: nil)
       )
 
     validate_concurrency!(concurrency)

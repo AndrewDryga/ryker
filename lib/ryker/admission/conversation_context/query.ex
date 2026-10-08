@@ -8,10 +8,10 @@ defmodule Ryker.Admission.ConversationContext.Query do
   message's own occurrence and of its execution mode.
   """
   use Ryker, :query
-  alias Ryker.Delivery.{PlatformAction, RoutingResponse}
-  alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Work.Turn
+  alias Ryker.Delivery
+  alias Ryker.Episodes
+  alias Ryker.Ingress
+  alias Ryker.Work
 
   @doc """
   The `limit` latest kept messages before `entry` in its place, newest first.
@@ -19,7 +19,7 @@ defmodule Ryker.Admission.ConversationContext.Query do
   captured source item so two messages in the same Slack second stay ordered.
   """
   def retained_predecessors(entry, kind, limit) do
-    from(other in Entry.Query.all(),
+    from(other in Ingress.Inbox.Entry.Query.all(),
       where:
         other.destination_transport == ^entry.destination_transport and
           other.destination_conversation_ref == ^entry.destination_conversation_ref and
@@ -39,9 +39,9 @@ defmodule Ryker.Admission.ConversationContext.Query do
 
   # Two Slack messages can share a second. The captured item orders them, but
   # only when this source has one: a webhook occurrence has no item reference.
-  defp tie_break(queryable, %Entry{source_item_ref: nil}), do: queryable
+  defp tie_break(queryable, %Ingress.Inbox.Entry{source_item_ref: nil}), do: queryable
 
-  defp tie_break(queryable, %Entry{} = entry) do
+  defp tie_break(queryable, %Ingress.Inbox.Entry{} = entry) do
     from(other in queryable,
       or_where:
         other.destination_transport == ^entry.destination_transport and
@@ -67,7 +67,7 @@ defmodule Ryker.Admission.ConversationContext.Query do
 
   @doc "The latest kept revision of thread root `root_ref` in `entry`'s conversation."
   def retained_root(entry, root_ref) do
-    from(other in Entry.Query.all(),
+    from(other in Ingress.Inbox.Entry.Query.all(),
       where:
         other.destination_transport == ^entry.destination_transport and
           other.destination_conversation_ref == ^entry.destination_conversation_ref and
@@ -84,8 +84,8 @@ defmodule Ryker.Admission.ConversationContext.Query do
   each with its time, document, receipt and the episode it answered.
   """
   def delivered_replies(entry, kind, limit) do
-    from(turn in Turn.Query.all(),
-      join: episode in Episode,
+    from(turn in Work.Turn.Query.all(),
+      join: episode in Episodes.Episode,
       on: episode.id == turn.episode_id,
       where:
         not is_nil(turn.delivered_at) and turn.delivered_at < ^entry.occurred_at and
@@ -131,8 +131,8 @@ defmodule Ryker.Admission.ConversationContext.Query do
 
   @doc "The `limit` latest messages Work posted in `entry`'s place before it, as updates."
   def delivered_posts(entry, kind, limit) do
-    from(action in PlatformAction.Query.all(),
-      join: episode in Episode,
+    from(action in Delivery.PlatformAction.Query.all(),
+      join: episode in Episodes.Episode,
       on: episode.id == action.episode_id,
       where:
         action.kind == :message and action.status == :delivered and
@@ -157,8 +157,8 @@ defmodule Ryker.Admission.ConversationContext.Query do
   before it, each with the message it answered.
   """
   def delivered_quick_replies(entry, kind, limit) do
-    from(response in RoutingResponse.Query.all(),
-      join: input in Entry,
+    from(response in Delivery.RoutingResponse.Query.all(),
+      join: input in Ingress.Inbox.Entry,
       on: input.id == response.input_id,
       where:
         response.kind == :message and response.status == :delivered and

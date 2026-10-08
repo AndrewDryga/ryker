@@ -50,7 +50,13 @@ rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-08.
 ## Names
 
 - Alias the schema and call its modules: `alias Ryker.Work.Session`, then
-  `Session.Query.by_id/1` and `Session.Changeset.bind/2`.
+  `Session.Query.by_id/1` and `Session.Changeset.bind/2`, within its own
+  context. Another context's modules are named through that context's alias:
+  `alias Ryker.Work`, then `Work.Session.Query.by_id/1` and `%Work.Turn{}`
+  (`CrossContextDeepAlias`). A file's context is the second part of the first
+  module it defines. Where a context's name is also the name of one of the
+  file's own modules, the own one is named through its context
+  (`EpisodeTrace.Work`, `__MODULE__.Slack` inside `Ryker.Settings`).
 - `by_<field>` filters by a value. The name ends in `_id` when the argument
   is an id and has no suffix when it is a struct (`by_command(command)`).
 - A filter that takes no value is named for the state it keeps: `in_force`,
@@ -204,6 +210,8 @@ Not adopted yet (2026-10-08):
 - `IL08ChangesetPure`: changeset modules never call `Repo`.
 - `IL08ValidationInChangesets`: a module that calls `Repo` leaves `cast`,
   `validate_*`, constraint mappings and `add_error` to changeset modules.
+- `CrossContextDeepAlias`: no alias reaches into another context's modules.
+  Credo's own `AliasUsage` is off, as in Emisar: it asks for those aliases.
 - `UseRykerRole`: schema, Query and Changeset modules take their role from
   `use Ryker`, and no other module does.
 - `WebNoNestedDomainCalls`: a web module calls a top-level context, never a
@@ -237,9 +245,8 @@ names, and `Ryker.DataCase` fails an async test that saves settings.
   authorizer modules: Ryker is one installation. Writes check the actor where
   they happen (`Ryker.Settings` authorizes each save); there is no subject.
 - **Audit context checks**: Ryker has no audit context.
-- **CrossContextDeepAlias and CrossContextDeepCall**, not yet (2026-10-08):
-  1,533 aliases of other contexts' modules in 452 files and 1,227 calls into
-  other contexts' Query and Changeset modules in 167 files (647 targets).
+- **CrossContextDeepCall**, not yet (2026-10-08): 1,227 calls into other
+  contexts' Query and Changeset modules in 167 files (647 targets).
 - **NoIslandContainers**: the console uses its own CSS classes, not
   Tailwind's, so the class pattern it looks for never appears.
 - **No client-side draft store for an ordinary form**

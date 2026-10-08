@@ -10,10 +10,9 @@ defmodule Ryker.ControlPlane.SettingsSections do
   """
   alias Ryker.ControlPlane.Environments
   alias Ryker.Settings
-  alias Ryker.Settings.{Learning, PricingRate, Publication, Report, Slack, WebhookSource, Work}
-  alias Ryker.Slack.Names
-  alias Ryker.Webhooks.{Presets, Route}
-  alias Ryker.Work.ExecutionTarget
+  alias Ryker.Slack
+  alias Ryker.Webhooks
+  alias Ryker.Work
 
   @day 86_400
   @longest_days 3_650
@@ -60,8 +59,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
     {"github", "A GitHub issue or pull request"},
     {"control_plane", "A Chat conversation"}
   ]
-  @mapping_fields Enum.map(Route.mapping_fields(), &Atom.to_string/1)
-  @lifecycle_fields Enum.map(Route.lifecycle_fields(), &Atom.to_string/1)
+  @mapping_fields Enum.map(Webhooks.Route.mapping_fields(), &Atom.to_string/1)
+  @lifecycle_fields Enum.map(Webhooks.Route.lifecycle_fields(), &Atom.to_string/1)
   # A subfield's label, and for the deployment reports what goes in it.
   @subfield_labels %{
     "event_id" => "Event ID",
@@ -135,7 +134,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
       key: :new_channels,
       domain: :slack,
       kind: :singleton,
-      schema: Slack,
+      schema: Settings.Slack,
       anchor: "new-channels",
       title: "New channels",
       description:
@@ -154,7 +153,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
       key: :incident_rooms,
       domain: :slack,
       kind: :singleton,
-      schema: Slack,
+      schema: Settings.Slack,
       title: "Incident rooms",
       description: "Channels Ryker creates for an incident.",
       fields: [
@@ -179,7 +178,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
       key: :slack_admins,
       domain: :slack,
       kind: :singleton,
-      schema: Slack,
+      schema: Settings.Slack,
       title: "Workspace admins and owners",
       description: "Whether the workspace's admins and owners can manage Ryker.",
       fields: [
@@ -197,7 +196,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
       key: :publication,
       domain: :publication,
       kind: :singleton,
-      schema: Publication,
+      schema: Settings.Publication,
       title: "Pull requests",
       description:
         "Whether Ryker opens pull requests for code it changes, and how they are signed.",
@@ -226,7 +225,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
       key: :report,
       domain: :report,
       kind: :singleton,
-      schema: Report,
+      schema: Settings.Report,
       title: "When and where it posts",
       description:
         "Ryker posts its report in one Slack channel, once a week, at the day and time you " <>
@@ -255,7 +254,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
       key: :learning,
       domain: :learning,
       kind: :singleton,
-      schema: Learning,
+      schema: Settings.Learning,
       title: "Learning",
       description:
         "Ryker learns from conversations in the background with a model. Turning it off " <>
@@ -270,7 +269,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
       key: :webhooks,
       domain: :webhooks,
       kind: :collection,
-      schema: WebhookSource,
+      schema: Settings.WebhookSource,
       item_key: :name,
       item_label: "webhook source",
       title: "Webhook sources",
@@ -450,7 +449,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
       key: :request_models,
       domain: :work,
       kind: :singleton,
-      schema: Work,
+      schema: Settings.Work,
       title: "Requests",
       description:
         "A request can move between Conversation, Standard and Deep work, so these three " <>
@@ -502,7 +501,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
       key: :other_models,
       domain: :work,
       kind: :singleton,
-      schema: Work,
+      schema: Settings.Work,
       title: "Other work",
       description:
         "Code changes, schedules, incident rooms and learning each have their own models.",
@@ -558,7 +557,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
       key: :model_accounts,
       domain: :work,
       kind: :singleton,
-      schema: Work,
+      schema: Settings.Work,
       title: "Model accounts",
       description:
         "Ryker cannot see which accounts the worker has signed in, so list them here. " <>
@@ -594,7 +593,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
       key: :local_routing,
       domain: :work,
       kind: :singleton,
-      schema: Work,
+      schema: Settings.Work,
       anchor: "local-routing",
       title: "Local routing model",
       # How it compares is a page of its own, opened from the card's title.
@@ -657,7 +656,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
       key: :work,
       domain: :work,
       kind: :singleton,
-      schema: Work,
+      schema: Settings.Work,
       title: "Where work runs",
       description:
         "The worker install that runs Ryker's work, and how many routing sessions it keeps ready.",
@@ -677,13 +676,15 @@ defmodule Ryker.ControlPlane.SettingsSections do
           kind: :integer,
           label: "Routing sessions kept ready",
           min: 0,
-          max: Work.maximum_ready_routing_sessions(),
+          max: Settings.Work.maximum_ready_routing_sessions(),
           help:
             "Ryker starts this many routing sessions ahead of time so a new message is " <>
               "answered sooner. Each is used for one message only. 0 turns this off.",
           errors: %{
-            number: "Choose a whole number from 0 to #{Work.maximum_ready_routing_sessions()}.",
-            required: "Choose a whole number from 0 to #{Work.maximum_ready_routing_sessions()}."
+            number:
+              "Choose a whole number from 0 to #{Settings.Work.maximum_ready_routing_sessions()}.",
+            required:
+              "Choose a whole number from 0 to #{Settings.Work.maximum_ready_routing_sessions()}."
           }
         }
       ]
@@ -785,7 +786,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
       key: :pricing,
       domain: :pricing,
       kind: :collection,
-      schema: PricingRate,
+      schema: Settings.PricingRate,
       item_key: :id,
       item_label: "price",
       title: "Prices",
@@ -901,12 +902,16 @@ defmodule Ryker.ControlPlane.SettingsSections do
   def options(%{options: :environments}, view),
     do: Enum.map(Environments.ordered(view.snapshot.environments), &{&1.ref, &1.display_name})
 
-  def options(%{options: :webhook_presets}, _view),
-    do: Enum.map(Presets.all(), &{Atom.to_string(&1.adapter_kind), &1.title, &1.description})
+  def options(%{options: :webhook_presets}, _view) do
+    Enum.map(
+      Webhooks.Presets.all(),
+      &{Atom.to_string(&1.adapter_kind), &1.title, &1.description}
+    )
+  end
 
   def options(%{options: :slack_channels}, view) do
     for %{workspace_ref: workspace, channel_ref: channel} <- view.slack_channels,
-        do: {"slack:#{workspace}:#{channel}", Names.name(workspace, channel)}
+        do: {"slack:#{workspace}:#{channel}", Slack.Names.name(workspace, channel)}
   end
 
   def options(%{options: :webhook_secrets}, %{webhook_secret_names: names}) when is_list(names),
@@ -937,13 +942,13 @@ defmodule Ryker.ControlPlane.SettingsSections do
     kept =
       Enum.map(saved, &ladder_entry(&1)["model"]) ++ Enum.map(entries, & &1["model"])
 
-    (Enum.filter(priced, &(provider(&1) in Work.providers())) ++ kept)
+    (Enum.filter(priced, &(provider(&1) in Settings.Work.providers())) ++ kept)
     |> Enum.filter(&String.contains?(&1, ":"))
     |> Enum.uniq()
     |> Enum.group_by(&provider/1)
     |> Enum.sort_by(fn {provider, _models} -> provider_order(provider) end)
     |> Enum.map(fn {provider, models} ->
-      {ExecutionTarget.provider_name(provider),
+      {Work.ExecutionTarget.provider_name(provider),
        models
        |> Enum.sort()
        |> Enum.map(&{&1, model_name(&1) <> if(&1 in priced, do: "", else: " (no price)")})}
@@ -952,7 +957,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
 
   @doc "The reasoning efforts a model choice offers, in the words every page uses."
   @spec ladder_efforts() :: [{String.t(), String.t()}]
-  def ladder_efforts, do: Enum.map(Work.efforts(), &{&1, ExecutionTarget.effort_name(&1)})
+  def ladder_efforts,
+    do: Enum.map(Settings.Work.efforts(), &{&1, Work.ExecutionTarget.effort_name(&1)})
 
   @doc "The accounts listed under Model accounts for the provider of `model`."
   @spec ladder_accounts(map(), String.t()) :: [String.t()]
@@ -976,7 +982,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
   """
   @spec ladder_step([map()], String.t(), integer() | nil, map()) :: [map()]
   def ladder_step(entries, "add", _index, view) do
-    if length(entries) < Work.most_models(),
+    if length(entries) < Settings.Work.most_models(),
       do: entries ++ [next_entry(entries, view)],
       else: entries
   end
@@ -1029,7 +1035,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
   @spec account_step([String.t()], String.t(), integer() | nil, map()) ::
           {:ok, [String.t()]} | {:refused, String.t()}
   def account_step(entries, "add", _index, _view) do
-    if length(entries) < Work.most_accounts(),
+    if length(entries) < Settings.Work.most_accounts(),
       do: {:ok, entries ++ [""]},
       else: {:ok, entries}
   end
@@ -1058,9 +1064,9 @@ defmodule Ryker.ControlPlane.SettingsSections do
     uses =
       for field <- ladder_fields(),
           model <- Map.get(view.snapshot.work, field.name) || [],
-          account <- [Work.account(model)],
+          account <- [Settings.Work.account(model)],
           account in accounts,
-          do: {account, (ExecutionTarget.parts(model) || %{model: model}).model, field.label}
+          do: {account, (Work.ExecutionTarget.parts(model) || %{model: model}).model, field.label}
 
     if uses != [], do: stranded(uses)
   end
@@ -1130,10 +1136,10 @@ defmodule Ryker.ControlPlane.SettingsSections do
       value in Enum.map(earlier, &String.trim/1) ->
         "#{value} is listed above already. Remove one."
 
-      Work.account?(value) ->
+      Settings.Work.account?(value) ->
         nil
 
-      finished? or not Work.account_start?(value) ->
+      finished? or not Settings.Work.account_start?(value) ->
         account_shape(value)
 
       true ->
@@ -1144,8 +1150,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
   defp account_shape(value) do
     known? =
       case String.split(value, "@", parts: 2) do
-        [start] -> Enum.any?(Work.providers(), &String.starts_with?(&1, start))
-        [provider, _name] -> provider in Work.providers()
+        [start] -> Enum.any?(Settings.Work.providers(), &String.starts_with?(&1, start))
+        [provider, _name] -> provider in Settings.Work.providers()
       end
 
     if known? do
@@ -1160,7 +1166,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
   defp provider(_model), do: ""
 
   defp provider_order(provider) do
-    {Enum.find_index(Work.providers(), &(&1 == provider)) || length(Work.providers()), provider}
+    {Enum.find_index(Settings.Work.providers(), &(&1 == provider)) ||
+       length(Settings.Work.providers()), provider}
   end
 
   defp model_name(model), do: model |> String.split(":", parts: 2) |> List.last()
@@ -1168,7 +1175,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
   # A saved model as the form holds it: the provider and model together, as
   # its price names it, then its effort and its account.
   defp ladder_entry(target) do
-    case ExecutionTarget.parts(target) do
+    case Work.ExecutionTarget.parts(target) do
       %{provider: provider, model: model} = parts ->
         %{
           "model" => "#{provider}:#{model}",
@@ -1219,7 +1226,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
   @spec price_taken(%{String.t() => String.t()}, map()) :: String.t()
   def price_taken(draft, _view) do
     target = Map.get(draft, "execution_target", "")
-    model = (ExecutionTarget.parts(target) || %{model: target}).model
+    model = (Work.ExecutionTarget.parts(target) || %{model: target}).model
 
     day =
       case Date.from_iso8601(Map.get(draft, "effective_from", "")) do
@@ -1233,7 +1240,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
   @doc "Whether a token rate prices this model, so its cost can be estimated."
   @spec priced?(String.t(), map()) :: boolean()
   def priced?(target, view) do
-    case ExecutionTarget.parts(target) do
+    case Work.ExecutionTarget.parts(target) do
       %{provider: provider, model: model} ->
         Enum.any?(view.snapshot.pricing_rates, &(&1.execution_target == "#{provider}:#{model}"))
 
@@ -1480,7 +1487,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
     end
   end
 
-  def row_value(%{kind: :ladder}, models), do: ExecutionTarget.present(models || []).compact
+  def row_value(%{kind: :ladder}, models), do: Work.ExecutionTarget.present(models || []).compact
   def row_value(%{kind: :accounts}, accounts), do: Enum.join(accounts || [], ", ")
   def row_value(field, value), do: form_value(field, value)
 

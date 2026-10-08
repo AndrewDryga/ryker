@@ -18,7 +18,6 @@ defmodule Ryker.Memories.Reviews do
   """
   alias Ryker.AdvisoryLock
   alias Ryker.Behaviors
-  alias Ryker.Behaviors.Behavior
   alias Ryker.CanonicalJSON
   alias Ryker.Memories
   alias Ryker.Memories.Forgetting
@@ -84,9 +83,9 @@ defmodule Ryker.Memories.Reviews do
       |> Repo.all()
 
     guidance =
-      Behavior.Query.by_kind(:guidance)
-      |> Behavior.Query.by_status(:active)
-      |> Behavior.Query.select_distinct_workspace_refs()
+      Behaviors.Behavior.Query.by_kind(:guidance)
+      |> Behaviors.Behavior.Query.by_status(:active)
+      |> Behaviors.Behavior.Query.select_distinct_workspace_refs()
       |> Repo.all()
 
     reviews =
@@ -231,9 +230,9 @@ defmodule Ryker.Memories.Reviews do
       # rows were redacted, so a rule replaced or deleted before the channel
       # went kept its text past it (2026-10-04 review).
       scoped_workspace_ref
-      |> Behavior.Query.bound_to_conversation(conversation_ref)
-      |> Behavior.Query.ordered_by_ref()
-      |> Behavior.Query.lock_for_update()
+      |> Behaviors.Behavior.Query.bound_to_conversation(conversation_ref)
+      |> Behaviors.Behavior.Query.ordered_by_ref()
+      |> Behaviors.Behavior.Query.lock_for_update()
       |> Repo.all()
       |> Enum.reject(&Behaviors.redacted?(&1.payload))
       |> Enum.each(&redact_channel_behavior!/1)
@@ -273,12 +272,12 @@ defmodule Ryker.Memories.Reviews do
 
     guidance =
       workspace_ref
-      |> Behavior.Query.by_workspace()
-      |> Behavior.Query.by_kind(:guidance)
-      |> Behavior.Query.by_status(:active)
-      |> Behavior.Query.unexpired_at(now)
-      |> Behavior.Query.ordered_by_least_recently_updated()
-      |> Behavior.Query.limit_to(500)
+      |> Behaviors.Behavior.Query.by_workspace()
+      |> Behaviors.Behavior.Query.by_kind(:guidance)
+      |> Behaviors.Behavior.Query.by_status(:active)
+      |> Behaviors.Behavior.Query.unexpired_at(now)
+      |> Behaviors.Behavior.Query.ordered_by_least_recently_updated()
+      |> Behaviors.Behavior.Query.limit_to(500)
       |> Repo.all()
 
     guidance = Enum.map(guidance, &review_source_record(:guidance, &1))
@@ -442,7 +441,7 @@ defmodule Ryker.Memories.Reviews do
     guidance =
       entry_refs
       |> current_guidance(workspace_ref)
-      |> Behavior.Query.lock_for_update()
+      |> Behaviors.Behavior.Query.lock_for_update()
       |> Repo.all()
       |> Enum.map(&review_source_record(:guidance, &1))
 
@@ -461,12 +460,12 @@ defmodule Ryker.Memories.Reviews do
 
   defp current_guidance(entry_refs, workspace_ref) do
     entry_refs
-    |> Behavior.Query.by_refs()
-    |> Behavior.Query.by_workspace(workspace_ref)
-    |> Behavior.Query.by_kind(:guidance)
-    |> Behavior.Query.by_status(:active)
-    |> Behavior.Query.unexpired()
-    |> Behavior.Query.ordered_by_ref()
+    |> Behaviors.Behavior.Query.by_refs()
+    |> Behaviors.Behavior.Query.by_workspace(workspace_ref)
+    |> Behaviors.Behavior.Query.by_kind(:guidance)
+    |> Behaviors.Behavior.Query.by_status(:active)
+    |> Behaviors.Behavior.Query.unexpired()
+    |> Behaviors.Behavior.Query.ordered_by_ref()
   end
 
   defp review_entries_current(review, entries) do
@@ -635,8 +634,8 @@ defmodule Ryker.Memories.Reviews do
 
     guidance =
       entry_refs
-      |> Behavior.Query.by_refs()
-      |> Behavior.Query.ordered_by_ref()
+      |> Behaviors.Behavior.Query.by_refs()
+      |> Behaviors.Behavior.Query.ordered_by_ref()
       |> Repo.all()
       |> Enum.map(&review_source_record(:guidance, &1))
 
@@ -683,12 +682,18 @@ defmodule Ryker.Memories.Reviews do
       do: entry.visibility == :workspace and entry.scope_kind in [:repository, :workspace]
 
   def home_source_visible?(
-        %{type: :guidance, record: %Behavior{scope_kind: :operator, scope_ref: actor_ref}},
+        %{
+          type: :guidance,
+          record: %Behaviors.Behavior{scope_kind: :operator, scope_ref: actor_ref}
+        },
         actor_ref
       ),
       do: true
 
-  def home_source_visible?(%{type: :guidance, record: %Behavior{} = behavior}, _actor_ref) do
+  def home_source_visible?(
+        %{type: :guidance, record: %Behaviors.Behavior{} = behavior},
+        _actor_ref
+      ) do
     behavior.scope_kind in [:repository, :workspace] and
       behavior.payload["visibility"] == "workspace"
   end
@@ -705,10 +710,10 @@ defmodule Ryker.Memories.Reviews do
 
     guidance_query =
       entry_refs
-      |> Behavior.Query.by_refs()
-      |> Behavior.Query.by_workspace(workspace_ref)
-      |> Behavior.Query.ordered_by_ref()
-      |> Behavior.Query.lock_for_update()
+      |> Behaviors.Behavior.Query.by_refs()
+      |> Behaviors.Behavior.Query.by_workspace(workspace_ref)
+      |> Behaviors.Behavior.Query.ordered_by_ref()
+      |> Behaviors.Behavior.Query.lock_for_update()
 
     (Enum.map(Repo.all(memory_query), &review_source_record(:memory, &1)) ++
        Enum.map(Repo.all(guidance_query), &review_source_record(:guidance, &1)))
@@ -761,7 +766,7 @@ defmodule Ryker.Memories.Reviews do
     Behaviors.broadcast_behavior_updated(behavior.id)
 
     behavior
-    |> Behavior.Changeset.update(%{last_reviewed_at: now})
+    |> Behaviors.Behavior.Changeset.update(%{last_reviewed_at: now})
     |> Repo.update!()
   end
 
@@ -771,7 +776,7 @@ defmodule Ryker.Memories.Reviews do
   defp redact_review_source!(%{type: :guidance, record: behavior}, status, hash_field),
     do: Behaviors.redact!(behavior, status, hash_field)
 
-  defp redact_channel_behavior!(%Behavior{status: status} = behavior) do
+  defp redact_channel_behavior!(%Behaviors.Behavior{status: status} = behavior) do
     ended = if status in [:active, :disabled], do: :deleted, else: status
     Behaviors.redact!(behavior, ended, "channel_deleted_payload_sha256")
   end
@@ -812,7 +817,7 @@ defmodule Ryker.Memories.Reviews do
       |> Map.put("text", replacement["value"])
 
     behavior
-    |> Behavior.Changeset.update(%{
+    |> Behaviors.Behavior.Changeset.update(%{
       edited_at: now,
       edited_by_actor_ref: actor_ref,
       edit_review_ref: review.ref,
@@ -825,7 +830,9 @@ defmodule Ryker.Memories.Reviews do
     |> review_edit_result()
   end
 
-  defp review_edit_result({:ok, %Behavior{id: id}}), do: Behaviors.broadcast_behavior_updated(id)
+  defp review_edit_result({:ok, %Behaviors.Behavior{id: id}}),
+    do: Behaviors.broadcast_behavior_updated(id)
+
   defp review_edit_result({:ok, %MemoryEntry{id: id}}), do: Memories.broadcast_memory_updated(id)
 
   defp review_edit_result({:error, changeset}),

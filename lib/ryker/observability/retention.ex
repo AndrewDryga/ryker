@@ -8,21 +8,22 @@ defmodule Ryker.Observability.Retention do
   reported.
   """
   alias Ryker.Observability.Reads
-  alias Ryker.Retention.Cleanup
-  alias Ryker.Work.Session
+  alias Ryker.Retention
+  alias Ryker.Work
 
   @doc "Cleanup at the database clock reading `now`."
   @spec snapshot(DateTime.t()) :: {:ok, map()} | {:error, Reads.failure()}
   def snapshot(now) do
-    eligible = Cleanup.Query.eligible(now)
+    eligible = Retention.Cleanup.Query.eligible(now)
 
-    with {:ok, last_reclaimed} <- Reads.one(Session.Query.select_last_discarded()),
-         {:ok, blocked} <- Reads.count(Session.Query.by_cleanup_status(:blocked)),
+    with {:ok, last_reclaimed} <- Reads.one(Work.Session.Query.select_last_discarded()),
+         {:ok, blocked} <- Reads.count(Work.Session.Query.by_cleanup_status(:blocked)),
          {:ok, eligible_count} <- Reads.count(eligible),
-         {:ok, oldest_eligible} <- Reads.one(Cleanup.Query.select_oldest_eligible_at(eligible)),
-         {:ok, retained} <- Reads.all(Session.Query.retained_by_reason()),
-         {:ok, retrying} <- Reads.count(Session.Query.cleanup_retrying_after(now)),
-         {:ok, sessions} <- Reads.counts(Session.Query.all(), :cleanup_status) do
+         {:ok, oldest_eligible} <-
+           Reads.one(Retention.Cleanup.Query.select_oldest_eligible_at(eligible)),
+         {:ok, retained} <- Reads.all(Work.Session.Query.retained_by_reason()),
+         {:ok, retrying} <- Reads.count(Work.Session.Query.cleanup_retrying_after(now)),
+         {:ok, sessions} <- Reads.counts(Work.Session.Query.all(), :cleanup_status) do
       {:ok,
        %{
          blocked: blocked,

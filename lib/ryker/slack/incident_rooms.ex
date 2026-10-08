@@ -14,19 +14,15 @@ defmodule Ryker.Slack.IncidentRooms do
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, Episode}
   alias Ryker.ErrorDetail
   alias Ryker.Records
-  alias Ryker.Records.CardDelivery
-  alias Ryker.Records.Record
-  alias Ryker.Records.TaskOffers
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Slack.{ChannelConfiguration, IncidentRoom}
   alias Ryker.Slack.IncidentRoomLifecycleEvent
   alias Ryker.Slack.MembershipTransition
   alias Ryker.UTCDateTime
-  alias Ryker.Work.Custody
+  alias Ryker.Work
 
   @request_fields [
     :actor_ref,
@@ -95,7 +91,8 @@ defmodule Ryker.Slack.IncidentRooms do
   The offer owns both paths. The record lock serializes this with a room
   request, so concurrent opposite clicks start exactly one of them.
   """
-  @spec investigate(map() | keyword()) :: {:ok, TaskOffers.confirmation()} | {:error, term()}
+  @spec investigate(map() | keyword()) ::
+          {:ok, Records.TaskOffers.confirmation()} | {:error, term()}
   def investigate(attributes) do
     with {:ok, attributes} <- exact_map(attributes, @investigation_fields, :investigation),
          :ok <- reference(attributes.record_ref, :record_ref),
@@ -589,7 +586,7 @@ defmodule Ryker.Slack.IncidentRooms do
   stopped is left to its worker's answer, so a pass never repeats itself.
   """
   @spec fetch_next_orphaned_investigation() ::
-          {:ok, {IncidentRoom.t(), Episode.t()}} | {:error, :not_found}
+          {:ok, {IncidentRoom.t(), Episodes.Episode.t()}} | {:error, :not_found}
   def fetch_next_orphaned_investigation,
     do: Repo.fetch(IncidentRoom.Query.next_orphaned_investigation())
 
@@ -840,7 +837,7 @@ defmodule Ryker.Slack.IncidentRooms do
          :ok <- workspace_source?(source_episode, attributes.workspace_ref),
          :ok <- no_room_for(record),
          offer = attributes |> Map.delete(:workspace_ref) |> inherit_placement(session),
-         {:ok, confirmation} <- TaskOffers.confirm(offer) do
+         {:ok, confirmation} <- Records.TaskOffers.confirm(offer) do
       confirmation
     else
       {:error, :task_offer_stale} -> Repo.rollback(:incident_offer_stale)
@@ -911,7 +908,7 @@ defmodule Ryker.Slack.IncidentRooms do
   # turn and session are read, not locked: locking them made every write to
   # that conversation's work wait for the request (2026-10-04 review).
   defp lock_offer(record_ref) do
-    query = Record.Query.incident_offer(record_ref)
+    query = Records.Record.Query.incident_offer(record_ref)
 
     case Repo.one(query) do
       nil -> {:error, :incident_offer_not_found}
@@ -920,7 +917,7 @@ defmodule Ryker.Slack.IncidentRooms do
   end
 
   defp delivered_from?(episode, turn, target) do
-    case CardDelivery.delivered_from?(episode, turn, target) do
+    case Records.CardDelivery.delivered_from?(episode, turn, target) do
       :ok -> :ok
       {:error, :mismatch} -> {:error, :incident_offer_delivery_mismatch}
       {:error, :not_delivered} -> {:error, :incident_offer_not_delivered}
@@ -1307,7 +1304,7 @@ defmodule Ryker.Slack.IncidentRooms do
     episode_id = Repo.generate_id()
     episode_key = "incident-room:#{room.id}"
 
-    command = %Command.AdmitInput{
+    command = %Episodes.Command.AdmitInput{
       actor_ref: room.requested_by_actor_ref,
       destination: %{
         conversation_ref: "slack:#{room.workspace_ref}:#{room.channel_ref}",
@@ -1337,7 +1334,7 @@ defmodule Ryker.Slack.IncidentRooms do
 
     with {:ok, [transition]} <- Episodes.apply_batch_in_transaction([command]),
          {:ok, _session} <-
-           Custody.pin_episode_in_transaction(
+           Work.Custody.pin_episode_in_transaction(
              transition.episode.id,
              room.policy,
              room.policy_digest,
@@ -1345,7 +1342,7 @@ defmodule Ryker.Slack.IncidentRooms do
              repository_context: room.repository_context,
              repository_ref: room.repository_ref
            ),
-         %Record{} = record <- Repo.one(locked_record(room.record_id)),
+         %Records.Record{} = record <- Repo.one(locked_record(room.record_id)),
          :ok <- confirmable_record(record),
          {:ok, _record} <- confirm_record(record, transition.episode.id, room),
          changeset =
@@ -1377,16 +1374,16 @@ defmodule Ryker.Slack.IncidentRooms do
     end
   end
 
-  defp confirmable_record(%Record{status: :open}), do: :ok
+  defp confirmable_record(%Records.Record{status: :open}), do: :ok
 
-  defp confirmable_record(%Record{status: :confirmed}),
+  defp confirmable_record(%Records.Record{status: :confirmed}),
     do: {:error, :incident_offer_already_confirmed}
 
   defp confirmable_record(_record), do: {:error, :incident_offer_stale}
 
   defp confirm_record(record, episode_id, room) do
     record
-    |> Record.Changeset.confirm(%{
+    |> Records.Record.Changeset.confirm(%{
       confirmed_at: room.requested_at,
       confirmed_by_actor_ref: room.requested_by_actor_ref,
       confirmed_episode_id: episode_id,
@@ -1529,7 +1526,8 @@ defmodule Ryker.Slack.IncidentRooms do
   defp locked_room_of(record),
     do: record.id |> IncidentRoom.Query.by_record_id() |> IncidentRoom.Query.lock_for_update()
 
-  defp locked_record(id), do: id |> Record.Query.by_id() |> Record.Query.lock_for_update()
+  defp locked_record(id),
+    do: id |> Records.Record.Query.by_id() |> Records.Record.Query.lock_for_update()
 
   defp lock_workspace!(workspace_ref),
     do: AdvisoryLock.hold!("slack-incident-room:#{workspace_ref}")

@@ -19,7 +19,7 @@ defmodule Ryker.LocalRouting.Client do
   plain words with at most a short excerpt of what the server said; the
   prompt is never part of it.
   """
-  alias Ryker.Delivery.HTTPClient
+  alias Ryker.Delivery
   alias Ryker.LocalRouting.{Endpoint, Schema}
 
   @maximum_response_bytes 2 * 1_024 * 1_024
@@ -57,7 +57,7 @@ defmodule Ryker.LocalRouting.Client do
       })
 
     request =
-      HTTPClient.build(
+      Delivery.HTTPClient.build(
         :post,
         Endpoint.completions(endpoint),
         [{"accept", "application/json"}, {"content-type", "application/json"}],
@@ -81,7 +81,7 @@ defmodule Ryker.LocalRouting.Client do
   end
 
   defp exchange(request, finch, receive_timeout) do
-    HTTPClient.stream(request, finch, receive_timeout, @maximum_response_bytes)
+    Delivery.HTTPClient.stream(request, finch, receive_timeout, @maximum_response_bytes)
   rescue
     error -> {:error, {:delivery_transport_unavailable, error}}
   catch

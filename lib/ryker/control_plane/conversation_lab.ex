@@ -21,12 +21,10 @@ defmodule Ryker.ControlPlane.ConversationLab do
   alias Ryker.Artifacts
   alias Ryker.ControlPlane.{Actor, Conversation}
   alias Ryker.Episodes
-  alias Ryker.Episodes.Reactions
-  alias Ryker.Ingress.{Inbox, Input, WorkProfile}
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress
   alias Ryker.Reference
   alias Ryker.Repo
-  alias Ryker.Settings.Environment
+  alias Ryker.Settings
   alias Ryker.Transcription
 
   # Direct-conversation input enters the inbox directly; the Slack engagement
@@ -52,8 +50,8 @@ defmodule Ryker.ControlPlane.ConversationLab do
   any environment (nil before one is reviewed).
   """
   @type placements :: %{
-          environments: %{String.t() => WorkProfile.t()},
-          fallback_work_profile: WorkProfile.t() | nil
+          environments: %{String.t() => Ingress.WorkProfile.t()},
+          fallback_work_profile: Ingress.WorkProfile.t() | nil
         }
 
   @doc """
@@ -97,7 +95,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
     default =
       if Enum.all?(ids, &Map.has_key?(stored, &1)),
         do: nil,
-        else: Repo.one(Environment.Query.default_ref())
+        else: Repo.one(Settings.Environment.Query.default_ref())
 
     Map.new(ids, &{&1, Map.get(stored, &1, default)})
   end
@@ -107,12 +105,13 @@ defmodule Ryker.ControlPlane.ConversationLab do
   environment's while that environment can run work, otherwise the profile of
   work outside any environment.
   """
-  @spec work_profile(String.t(), placements()) :: {:ok, WorkProfile.t()} | {:error, term()}
+  @spec work_profile(String.t(), placements()) ::
+          {:ok, Ingress.WorkProfile.t()} | {:error, term()}
   def work_profile(conversation_id, %{environments: environments} = placements) do
     with {:ok, environment_ref} <- environment(conversation_id) do
       case (environment_ref && Map.get(environments, environment_ref)) ||
              Map.get(placements, :fallback_work_profile) do
-        %WorkProfile{} = profile -> {:ok, profile}
+        %Ingress.WorkProfile{} = profile -> {:ok, profile}
         nil -> {:error, :conversation_lab_not_configured}
       end
     end
@@ -125,11 +124,11 @@ defmodule Ryker.ControlPlane.ConversationLab do
   is refused with the reason, and one Ryker could not transcribe is sent
   saying so.
   """
-  @spec send_message(String.t(), String.t(), WorkProfile.t(), keyword()) ::
-          {:ok, Inbox.receipt()} | {:error, term()}
+  @spec send_message(String.t(), String.t(), Ingress.WorkProfile.t(), keyword()) ::
+          {:ok, Ingress.Inbox.receipt()} | {:error, term()}
   def send_message(conversation_id, message, work_profile, options \\ [])
 
-  def send_message(conversation_id, message, %WorkProfile{} = work_profile, options) do
+  def send_message(conversation_id, message, %Ingress.WorkProfile{} = work_profile, options) do
     with {:ok, conversation_id} <- conversation_id(conversation_id),
          {:ok, settings} <- options(options),
          :ok <- message(message, settings.attachments),
@@ -151,15 +150,15 @@ defmodule Ryker.ControlPlane.ConversationLab do
   The browser never updates transcript state directly. The revision enters the
   same Inbox and admission path as a Slack `message_changed` event.
   """
-  @spec edit_message(String.t(), String.t(), String.t(), WorkProfile.t(), keyword()) ::
-          {:ok, Inbox.receipt()} | {:error, term()}
+  @spec edit_message(String.t(), String.t(), String.t(), Ingress.WorkProfile.t(), keyword()) ::
+          {:ok, Ingress.Inbox.receipt()} | {:error, term()}
   def edit_message(conversation_id, item_id, message, work_profile, options \\ [])
 
   def edit_message(
         conversation_id,
         item_id,
         message,
-        %WorkProfile{} = work_profile,
+        %Ingress.WorkProfile{} = work_profile,
         options
       ) do
     with :ok <- message(message, []),
@@ -175,11 +174,11 @@ defmodule Ryker.ControlPlane.ConversationLab do
   Records deletion of one exact message as a new source revision, by its
   author only, as `edit_message/5` does.
   """
-  @spec delete_message(String.t(), String.t(), WorkProfile.t(), keyword()) ::
-          {:ok, Inbox.receipt()} | {:error, term()}
+  @spec delete_message(String.t(), String.t(), Ingress.WorkProfile.t(), keyword()) ::
+          {:ok, Ingress.Inbox.receipt()} | {:error, term()}
   def delete_message(conversation_id, item_id, work_profile, options \\ [])
 
-  def delete_message(conversation_id, item_id, %WorkProfile{} = work_profile, options) do
+  def delete_message(conversation_id, item_id, %Ingress.WorkProfile{} = work_profile, options) do
     with {:ok, settings} <- options(options) do
       revise_message(conversation_id, item_id, :delete, nil, work_profile, settings)
     end
@@ -209,7 +208,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
          {:ok, occurred_at} <- occurred_at(settings.now) do
       conversation_ref = ref(conversation_id)
 
-      Reactions.record(%{
+      Episodes.Reactions.record(%{
         action: action,
         actor_ref: Actor.person_ref(settings.actor),
         emoji_name: emoji_name,
@@ -240,7 +239,10 @@ defmodule Ryker.ControlPlane.ConversationLab do
          {:ok, input} <-
            lab_input(conversation_id, event_id, occurred_at, message, files, settings.actor),
          {:ok, receipt} <-
-           Inbox.record(input, work_profile: work_profile, engagement_receipt: @engagement) do
+           Ingress.Inbox.record(input,
+             work_profile: work_profile,
+             engagement_receipt: @engagement
+           ) do
       receipt
     else
       {:error, reason} -> Repo.rollback(reason)
@@ -289,7 +291,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
          :ok <- editable_message(current),
          {:ok, input} <- lifecycle_input(current, event_id, occurred_at, kind, message),
          {:ok, receipt} <-
-           Inbox.record(input,
+           Ingress.Inbox.record(input,
              revision_ties: :receipt_order,
              work_profile: work_profile,
              engagement_receipt: @engagement
@@ -309,18 +311,18 @@ defmodule Ryker.ControlPlane.ConversationLab do
       |> Repo.one()
 
     case current do
-      %Entry{} = entry -> {:ok, entry}
+      %Ingress.Inbox.Entry{} = entry -> {:ok, entry}
       nil -> {:error, {:invalid_conversation_lab, :message_not_found}}
     end
   end
 
-  defp editable_message(%Entry{event_kind: :delete}),
+  defp editable_message(%Ingress.Inbox.Entry{event_kind: :delete}),
     do: {:error, {:invalid_conversation_lab, :message_deleted}}
 
-  defp editable_message(%Entry{}), do: :ok
+  defp editable_message(%Ingress.Inbox.Entry{}), do: :ok
 
   defp lifecycle_input(current, event_id, occurred_at, kind, message) do
-    Input.new(%{
+    Ingress.Input.new(%{
       actor: %{kind: :user, ref: current.actor_ref},
       content: lifecycle_content(current.content, kind, message),
       destination: %{
@@ -366,7 +368,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
   defp lab_input(conversation_id, event_id, occurred_at, message, files, actor) do
     conversation_ref = ref(conversation_id)
 
-    Input.new(%{
+    Ingress.Input.new(%{
       actor: %{kind: :user, ref: actor},
       content: content(message, files),
       destination: destination(conversation_id),
@@ -413,8 +415,9 @@ defmodule Ryker.ControlPlane.ConversationLab do
   defp selectable_environment(nil), do: :ok
 
   defp selectable_environment(environment_ref) do
-    if is_binary(environment_ref) and Regex.match?(Environment.ref_pattern(), environment_ref) and
-         Repo.exists?(Environment.Query.by_ref(environment_ref)),
+    if is_binary(environment_ref) and
+         Regex.match?(Settings.Environment.ref_pattern(), environment_ref) and
+         Repo.exists?(Settings.Environment.Query.by_ref(environment_ref)),
        do: :ok,
        else: {:error, {:invalid_conversation_lab, :environment_ref}}
   end

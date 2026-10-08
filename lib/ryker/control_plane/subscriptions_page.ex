@@ -14,7 +14,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
   alias Ryker.ControlPlane.{Components, Kit, Paths, ShortTime}
   alias Ryker.ControlPlane.SubscriptionPresentation, as: Presentation
   alias Ryker.Records
-  alias Ryker.Waits.EventSubscriptions
+  alias Ryker.Waits
 
   @list_limit 100
 
@@ -25,7 +25,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
   """
   def subscriptions do
     [
-      {EventSubscriptions, :subscribe_follow_ups, []},
+      {Waits.EventSubscriptions, :subscribe_follow_ups, []},
       {Records, :subscribe_records, []}
     ]
   end

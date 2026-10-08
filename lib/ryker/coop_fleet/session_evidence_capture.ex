@@ -11,7 +11,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceCapture do
   """
   alias Ryker.CoopFleet.{Placement, SessionEvidences, Worker}
   alias Ryker.Repo
-  alias Ryker.Work.Session
+  alias Ryker.Work
 
   @capability "session-evidence"
   @version "1"
@@ -23,11 +23,11 @@ defmodule Ryker.CoopFleet.SessionEvidenceCapture do
   `{:error, reason}` otherwise. Callers discard the result; it is returned for
   tests and for the operator log, never to steer execution.
   """
-  @spec capture(Session.t(), module(), term()) ::
+  @spec capture(Work.Session.t(), module(), term()) ::
           {:ok, map()} | {:skipped, atom()} | {:error, term()}
   def capture(session, api, client)
 
-  def capture(%Session{coop_session_id: remote} = session, api, client)
+  def capture(%Work.Session{coop_session_id: remote} = session, api, client)
       when is_binary(remote) and is_atom(api) do
     with :ok <- exported?(api),
          {:ok, placement} <- current_placement(session.id),
@@ -49,7 +49,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceCapture do
     :exit, reason -> {:error, {:coop_session_evidence_capture, inspect(reason)}}
   end
 
-  def capture(%Session{}, _api, _client), do: {:skipped, :session_not_bound}
+  def capture(%Work.Session{}, _api, _client), do: {:skipped, :session_not_bound}
   def capture(_session, _api, _client), do: {:skipped, :session_not_bound}
 
   defp exported?(api) do

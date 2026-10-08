@@ -4,13 +4,13 @@ defmodule Ryker.Slack.Renderer.EmisarReview do
   the durable record and repainted from the authoritative poll.
   """
   import Ryker.Slack.Renderer.Blocks
-  alias Ryker.Emisar.ApprovalStatus
+  alias Ryker.Emisar
 
   @spec render(map()) :: {:ok, map()} | {:error, term()}
   def render(status) do
-    case ApprovalStatus.prepare(status) do
+    case Emisar.ApprovalStatus.prepare(status) do
       {:ok, status} ->
-        review = ApprovalStatus.review_summary(status)
+        review = Emisar.ApprovalStatus.review_summary(status)
 
         {:ok,
          %{
@@ -36,7 +36,7 @@ defmodule Ryker.Slack.Renderer.EmisarReview do
   def approval_blocks(ref, payload) do
     status = Map.merge(payload, %{"remote_error" => nil, "review" => nil, "run_url" => nil})
 
-    review_blocks(status, ApprovalStatus.review_summary(status), ref)
+    review_blocks(status, Emisar.ApprovalStatus.review_summary(status), ref)
   end
 
   # One governed-review message, whether it is being posted from the durable
@@ -107,7 +107,7 @@ defmodule Ryker.Slack.Renderer.EmisarReview do
   # Current status first, one blank line, then the decisions oldest first — one
   # event per line, with a terminal decision left where it happened.
   defp status_block(status, nil),
-    do: section("*Status*\n#{escape(ApprovalStatus.label(status["status"]))}")
+    do: section("*Status*\n#{escape(Emisar.ApprovalStatus.label(status["status"]))}")
 
   defp status_block(_status, %{summary: summary, history: history}) do
     section(
@@ -151,7 +151,7 @@ defmodule Ryker.Slack.Renderer.EmisarReview do
   defp pending_review?(%{"status" => status}), do: status == "pending_approval"
 
   defp review_text(status, nil) do
-    "Emisar review · #{escape(status["action_id"])} · #{ApprovalStatus.label(status["status"])}"
+    "Emisar review · #{escape(status["action_id"])} · #{Emisar.ApprovalStatus.label(status["status"])}"
   end
 
   defp review_text(status, %{summary: summary}),

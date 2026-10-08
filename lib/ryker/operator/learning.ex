@@ -1,6 +1,6 @@
 defmodule Ryker.Operator.Learning do
   @moduledoc "Explicit, audited recovery or dropping of a deferred learning batch without erasing its cost."
-  alias Ryker.Learning.{Batches, Rebuilds}
+  alias Ryker.Learning
   alias Ryker.Operator.Actions
 
   def retry(id, expected_version, actor_ref, action_ref)
@@ -16,7 +16,7 @@ defmodule Ryker.Operator.Learning do
             resource_ref: id,
             request: %{"expected_budget_version" => expected_version, "additional_starts" => 1}
           },
-          fn -> Batches.retry_in_transaction(id, expected_version) end
+          fn -> Learning.Batches.retry_in_transaction(id, expected_version) end
         )
 
       _ ->
@@ -40,7 +40,7 @@ defmodule Ryker.Operator.Learning do
             resource_ref: id,
             request: %{"expected_budget_version" => expected_version}
           },
-          fn -> Batches.drop_in_transaction(id, expected_version) end
+          fn -> Learning.Batches.drop_in_transaction(id, expected_version) end
         )
 
       _ ->
@@ -54,7 +54,7 @@ defmodule Ryker.Operator.Learning do
       when is_integer(version) and version in 1..9_223_372_036_854_775_807 and
              is_integer(generation) and generation in 1..9_223_372_036_854_775_807 do
     with {:ok, ^id} <- Ecto.UUID.cast(id),
-         {:ok, selections} <- Rebuilds.selections(selections) do
+         {:ok, selections} <- Learning.Rebuilds.selections(selections) do
       Actions.run(
         %{
           action: :update,
@@ -64,7 +64,7 @@ defmodule Ryker.Operator.Learning do
           resource_ref: id,
           request: %{"version" => version, "generation" => generation, "selections" => selections}
         },
-        fn -> Rebuilds.request_in_transaction(id, version, generation, selections) end
+        fn -> Learning.Rebuilds.request_in_transaction(id, version, generation, selections) end
       )
     else
       _ -> {:error, :invalid_learning_rebuild}
@@ -85,7 +85,7 @@ defmodule Ryker.Operator.Learning do
              target_version in 1..9_223_372_036_854_775_807 and is_integer(generation) and
              generation in 1..9_223_372_036_854_775_807 and map_size(target) == 2 do
     with {:ok, ^id} <- Ecto.UUID.cast(id),
-         {:ok, selections} <- Rebuilds.selections(selections) do
+         {:ok, selections} <- Learning.Rebuilds.selections(selections) do
       Actions.run(
         %{
           action: :retry,
@@ -100,7 +100,7 @@ defmodule Ryker.Operator.Learning do
             "additional_starts" => 1
           }
         },
-        fn -> Rebuilds.reselect_in_transaction(id, version, target, selections) end
+        fn -> Learning.Rebuilds.reselect_in_transaction(id, version, target, selections) end
       )
     else
       _ -> {:error, :invalid_learning_rebuild}

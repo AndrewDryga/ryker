@@ -15,30 +15,20 @@ defmodule Ryker.Runtime.Assembly do
   """
   alias Ryker.Bootstrap
   alias Ryker.Config
-  alias Ryker.ControlPlane.Actor, as: ControlPlaneActor
-  alias Ryker.ControlPlane.CapabilityTools, as: ControlPlaneCapabilityTools
-  alias Ryker.ControlPlane.ConversationLab
-  alias Ryker.CoopFleet.JobTemplates
+  alias Ryker.ControlPlane
+  alias Ryker.CoopFleet
   alias Ryker.Credentials
   alias Ryker.Defaults
-  alias Ryker.Delivery.{JSONClient, Request}
-  alias Ryker.Emisar.ApprovalRuntime
-  alias Ryker.GitHub.{AppJWT, Binding, Client, Confirmations, InstallationTokens, Publisher}
-  alias Ryker.GitHub.CapabilityTools, as: GitHubCapabilityTools
-  alias Ryker.GitHub.{RepositoryAccess, Target}
-  alias Ryker.Ingress.WorkProfile
-  alias Ryker.Publication.GitHubStatus
+  alias Ryker.Delivery
+  alias Ryker.Emisar
+  alias Ryker.GitHub
+  alias Ryker.Ingress
+  alias Ryker.Publication
   alias Ryker.Secret
   alias Ryker.Settings
-  alias Ryker.Settings.{EmisarConnection, Environment, GitHubBinding}
-  alias Ryker.Slack.ActionTokens
-  alias Ryker.Slack.CapabilityTools, as: SlackCapabilityTools
-  alias Ryker.Slack.Client, as: SlackClient
-  alias Ryker.Slack.Operators
-  alias Ryker.Slack.Runtime, as: SlackRuntime
-  alias Ryker.Slack.Target, as: SlackTarget
-  alias Ryker.Webhooks.Route, as: WebhookRoute
-  alias Ryker.Work.RepositoryContext
+  alias Ryker.Slack
+  alias Ryker.Webhooks
+  alias Ryker.Work
   require Logger
 
   # Every runtime the owner starts, in dependency order, with the module that
@@ -130,7 +120,7 @@ defmodule Ryker.Runtime.Assembly do
     # What every page and log redacts with; saving or removing a credential
     # applies settings again, so this follows each change.
     _values = Credentials.remember_redaction_values()
-    policies = index_policies(JobTemplates.from_settings(settings))
+    policies = index_policies(CoopFleet.JobTemplates.from_settings(settings))
     repositories = repositories(settings, policies)
     outside = outside_profile(policies)
     environments = environments(settings, repositories, policies, outside)
@@ -290,7 +280,7 @@ defmodule Ryker.Runtime.Assembly do
   end
 
   defp environment_entry(environment, repositories, policies, outside, github_repositories) do
-    case Environment.repository_refs(environment) do
+    case Settings.Environment.repository_refs(environment) do
       [] -> outside && workspace_free_entry(environment, outside)
       refs -> shared_entry(environment, refs, repositories, policies, github_repositories)
     end
@@ -301,7 +291,7 @@ defmodule Ryker.Runtime.Assembly do
   defp shared_entry(environment, refs, repositories, policies, github_repositories) do
     classes =
       environment
-      |> Environment.writable_refs()
+      |> Settings.Environment.writable_refs()
       |> Map.new(&{&1, repository_policies(environment, &1, refs, repositories, policies)})
 
     if Enum.all?(classes, fn {_ref, found} -> found end),
@@ -374,7 +364,7 @@ defmodule Ryker.Runtime.Assembly do
   end
 
   defp repository_context(environment, ref, refs) do
-    RepositoryContext.document(%{
+    Work.RepositoryContext.document(%{
       context_ref: environment.ref,
       parallel_goal_limit: environment.parallel_goal_limit,
       primary_repository: ref,
@@ -445,7 +435,7 @@ defmodule Ryker.Runtime.Assembly do
 
   defp saved_default_environment(settings) do
     case Settings.default_environment(settings) do
-      %Environment{ref: ref} -> ref
+      %Settings.Environment{ref: ref} -> ref
       nil -> nil
     end
   end
@@ -483,7 +473,7 @@ defmodule Ryker.Runtime.Assembly do
     usable = Enum.filter(settings.environments, &Map.has_key?(environments, &1.ref))
 
     case Settings.environment_for_repository(usable, repository_ref) do
-      %Environment{ref: ref} -> Map.fetch!(environments, ref)
+      %Settings.Environment{ref: ref} -> Map.fetch!(environments, ref)
       nil -> nil
     end
   end
@@ -811,7 +801,7 @@ defmodule Ryker.Runtime.Assembly do
   end
 
   defp app_signer(app_id, private_key) do
-    case AppJWT.new(app_id, decode_private_key(private_key)) do
+    case GitHub.AppJWT.new(app_id, decode_private_key(private_key)) do
       {:ok, signer} -> {:ok, signer}
       {:error, _reason} -> {:error, :private_key_unusable}
     end
@@ -823,7 +813,7 @@ defmodule Ryker.Runtime.Assembly do
     api_url = settings.github.api_url
 
     app_http =
-      json_client!(api_url, defaults.receive_timeout_ms, fn -> AppJWT.token(signer) end)
+      json_client!(api_url, defaults.receive_timeout_ms, fn -> GitHub.AppJWT.token(signer) end)
 
     prepared =
       Map.new(settings.github_bindings, fn binding ->
@@ -838,7 +828,7 @@ defmodule Ryker.Runtime.Assembly do
           nil
 
         policies ->
-          Confirmations.options!(%{
+          GitHub.Confirmations.options!(%{
             repositories:
               Map.new(policies, fn {ref, policy} -> {ref, %{contributor_policy: policy}} end)
           })
@@ -849,7 +839,7 @@ defmodule Ryker.Runtime.Assembly do
         Map.new(prepared, fn {name, item} ->
           {name,
            %{
-             api: Client,
+             api: GitHub.Client,
              client: item.client,
              ci_cancel_client: item.ci_cancel_client,
              ci_client: item.ci_client,
@@ -868,7 +858,7 @@ defmodule Ryker.Runtime.Assembly do
         Map.new(prepared, fn {name, item} ->
           {name,
            %{
-             api: Client,
+             api: GitHub.Client,
              client: item.delivery_client,
              repository_full_name: item.repository.github_repository,
              repository_id: item.trusted_binding.repository_id
@@ -878,7 +868,7 @@ defmodule Ryker.Runtime.Assembly do
 
     %{
       bindings: prepared,
-      capability_tools: GitHubCapabilityTools.options!(capability_binding),
+      capability_tools: GitHub.CapabilityTools.options!(capability_binding),
       delivery_binding: delivery_binding,
       receive_timeout_ms: defaults.receive_timeout_ms,
       runtime: %{
@@ -903,7 +893,7 @@ defmodule Ryker.Runtime.Assembly do
                  repository_id: item.trusted_binding.repository_id
                }}
             end),
-          requester: JSONClient
+          requester: Delivery.JSONClient
         }
       }
     }
@@ -926,7 +916,7 @@ defmodule Ryker.Runtime.Assembly do
     clients = Map.new(prepared, fn {name, item} -> {name, item.access_http} end)
 
     fn binding, payload ->
-      RepositoryAccess.authorize(binding, payload, Map.fetch!(clients, binding.name))
+      GitHub.RepositoryAccess.authorize(binding, payload, Map.fetch!(clients, binding.name))
     end
   end
 
@@ -937,45 +927,45 @@ defmodule Ryker.Runtime.Assembly do
 
     delivery_http =
       json_client!(api_url, defaults.receive_timeout_ms, fn ->
-        InstallationTokens.token(binding.name, :delivery)
+        GitHub.InstallationTokens.token(binding.name, :delivery)
       end)
 
     access_http =
       json_client!(api_url, defaults.receive_timeout_ms, fn ->
-        InstallationTokens.token(binding.name, :authorization)
+        GitHub.InstallationTokens.token(binding.name, :authorization)
       end)
 
     context_http =
       json_client!(api_url, defaults.receive_timeout_ms, fn ->
-        InstallationTokens.token(binding.name, :context)
+        GitHub.InstallationTokens.token(binding.name, :context)
       end)
 
     review_http =
       json_client!(api_url, defaults.receive_timeout_ms, fn ->
-        InstallationTokens.token(binding.name, :review)
+        GitHub.InstallationTokens.token(binding.name, :review)
       end)
 
     ci_rerun_http =
       json_client!(api_url, defaults.receive_timeout_ms, fn ->
-        InstallationTokens.token(binding.name, :ci_rerun)
+        GitHub.InstallationTokens.token(binding.name, :ci_rerun)
       end)
 
     ci_cancel_http =
       json_client!(api_url, defaults.receive_timeout_ms, fn ->
-        InstallationTokens.token(binding.name, :ci_cancel)
+        GitHub.InstallationTokens.token(binding.name, :ci_cancel)
       end)
 
     publication_http =
       json_client!(api_url, defaults.receive_timeout_ms, fn ->
-        InstallationTokens.token(binding.name, :publication)
+        GitHub.InstallationTokens.token(binding.name, :publication)
       end)
 
     {:ok, trusted_binding} =
-      Binding.new(%{
+      GitHub.Binding.new(%{
         installation_id: binding.installation_id,
         max_body_bytes: defaults.max_body_bytes,
         name: binding.name,
-        action_grants: GitHubBinding.grants(binding),
+        action_grants: Settings.GitHubBinding.grants(binding),
         repository_full_name: repository.github_repository,
         repository_id: binding.repository_id,
         ryker_actor_id: binding.ryker_actor_id,
@@ -1056,7 +1046,7 @@ defmodule Ryker.Runtime.Assembly do
         Credentials.provider(:slack_bot, "primary")
       )
 
-    {:ok, bot_client} = SlackClient.new(http: bot_http, requester: JSONClient)
+    {:ok, bot_client} = Slack.Client.new(http: bot_http, requester: Delivery.JSONClient)
     bot_client
   end
 
@@ -1102,13 +1092,13 @@ defmodule Ryker.Runtime.Assembly do
 
     %{
       capability_tools:
-        SlackCapabilityTools.options!(%{
-          action_tokens: {ActionTokens, ActionTokens},
-          api: SlackClient,
+        Slack.CapabilityTools.options!(%{
+          action_tokens: {Slack.ActionTokens, Slack.ActionTokens},
+          api: Slack.Client,
           client: bot_client,
           workspace_ref: settings.slack.workspace_ref
         }),
-      delivery_adapter: SlackRuntime.delivery_adapter!(runtime),
+      delivery_adapter: Slack.Runtime.delivery_adapter!(runtime),
       runtime: runtime
     }
   end
@@ -1158,8 +1148,8 @@ defmodule Ryker.Runtime.Assembly do
       github &&
         %{
           binding: github.delivery_binding,
-          message_publisher: Publisher,
-          reaction_publisher: Publisher
+          message_publisher: GitHub.Publisher,
+          reaction_publisher: GitHub.Publisher
         }
     )
   end
@@ -1210,7 +1200,7 @@ defmodule Ryker.Runtime.Assembly do
       coop_client: work.client,
       delivery_adapters: adapters,
       repositories: repositories,
-      status_api: GitHubStatus,
+      status_api: Publication.GitHubStatus,
       status_client: status_client,
       worker_ref: "#{settings.installation.host_ref}:publication"
     })
@@ -1225,7 +1215,7 @@ defmodule Ryker.Runtime.Assembly do
         [
           {ref,
            %{
-             api: Client,
+             api: GitHub.Client,
              base_branch: repository.base_branch,
              client: binding.publication_client,
              branch_prefix: settings.publication.branch_prefix,
@@ -1272,7 +1262,7 @@ defmodule Ryker.Runtime.Assembly do
         {:ok, client} =
           Ryker.Emisar.Client.new(%{
             http: http,
-            requester: JSONClient,
+            requester: Delivery.JSONClient,
             rpc_origin: endpoint.origin,
             rpc_path: endpoint.path
           })
@@ -1291,7 +1281,7 @@ defmodule Ryker.Runtime.Assembly do
           })
 
         # What the runtime checks of every watcher before it starts any.
-        ApprovalRuntime.options!(watcher)
+        Emisar.ApprovalRuntime.options!(watcher)
         watcher
       end)
     end
@@ -1378,7 +1368,7 @@ defmodule Ryker.Runtime.Assembly do
   end
 
   defp webhook_work_profile(environment) do
-    case WorkProfile.new(environment.work_profile) do
+    case Ingress.WorkProfile.new(environment.work_profile) do
       {:ok, profile} -> {:ok, profile}
       {:error, _reason} -> {:error, :environment_cannot_run_work}
     end
@@ -1388,7 +1378,7 @@ defmodule Ryker.Runtime.Assembly do
   # signing secret long enough for its kind, so a route it would refuse is
   # left out here rather than refusing the listener, and with it everything.
   defp listener_accepts(name, route) do
-    case WebhookRoute.new(Map.put(route, :name, name)) do
+    case Webhooks.Route.new(Map.put(route, :name, name)) do
       {:ok, _route} -> :ok
       {:error, {:invalid_webhook_route, :auth}} -> {:error, :secret_too_short}
       {:error, _refused} -> {:error, :route_invalid}
@@ -1396,7 +1386,7 @@ defmodule Ryker.Runtime.Assembly do
   end
 
   # A saved mapping's field names, each with the name the route gives it.
-  @mapping_fields Map.new(WebhookRoute.mapping_fields(), &{Atom.to_string(&1), &1})
+  @mapping_fields Map.new(Webhooks.Route.mapping_fields(), &{Atom.to_string(&1), &1})
 
   defp webhook_adapter(%{adapter_kind: :universal}), do: {:ok, %{kind: :universal}}
 
@@ -1424,7 +1414,7 @@ defmodule Ryker.Runtime.Assembly do
   defp webhook_lifecycle(%{publication_lifecycle: scope}, repositories) do
     if Enum.all?(scope["repositories"], &Map.has_key?(repositories, &1)) do
       {:ok,
-       Map.new(WebhookRoute.lifecycle_fields(), fn field ->
+       Map.new(Webhooks.Route.lifecycle_fields(), fn field ->
          {field, Enum.sort(scope[Atom.to_string(field)])}
        end)}
     else
@@ -1452,7 +1442,7 @@ defmodule Ryker.Runtime.Assembly do
   end
 
   defp probe(destination) do
-    case Request.new(%{
+    case Delivery.Request.new(%{
            conversation_ref: destination.conversation_ref,
            document: %{"message" => "configuration probe"},
            kind: :message,
@@ -1466,8 +1456,8 @@ defmodule Ryker.Runtime.Assembly do
     end
   end
 
-  defp served_target(%Request{transport: "slack"} = request, binding) do
-    with {:ok, target} <- SlackTarget.parse(request),
+  defp served_target(%Delivery.Request{transport: "slack"} = request, binding) do
+    with {:ok, target} <- Slack.Target.parse(request),
          true <-
            is_map(binding[:workspaces]) and
              Map.has_key?(binding.workspaces, target.workspace_ref) do
@@ -1477,8 +1467,8 @@ defmodule Ryker.Runtime.Assembly do
     end
   end
 
-  defp served_target(%Request{transport: "github"} = request, binding) do
-    with {:ok, target} <- Target.parse(request),
+  defp served_target(%Delivery.Request{transport: "github"} = request, binding) do
+    with {:ok, target} <- GitHub.Target.parse(request),
          {:ok, configured} <- Map.fetch(binding[:bindings] || %{}, target.binding),
          true <- configured.repository_id == target.repository_id do
       :ok
@@ -1488,20 +1478,20 @@ defmodule Ryker.Runtime.Assembly do
   end
 
   defp served_target(
-         %Request{
+         %Delivery.Request{
            transport: "control_plane",
            conversation_ref: "control-plane:lab:" <> conversation_id = conversation_ref,
            thread_ref: conversation_ref
          },
          _binding
        ) do
-    case ConversationLab.conversation_ref(conversation_id) do
+    case ControlPlane.ConversationLab.conversation_ref(conversation_id) do
       {:ok, ^conversation_ref} -> :ok
       {:error, _reason} -> {:error, :conversation_not_found}
     end
   end
 
-  defp served_target(%Request{}, _binding), do: {:error, :destination_not_served}
+  defp served_target(%Delivery.Request{}, _binding), do: {:error, :destination_not_served}
 
   # What a turn's tools are, served by the worker gateway at
   # `/v1/state-tools/mcp`. The machine secret signs each turn's token and
@@ -1522,18 +1512,18 @@ defmodule Ryker.Runtime.Assembly do
   # Clarification answers are authorized by who can manage Ryker now, the
   # same check every Slack surface makes.
   defp answer_authorizer(slack, control_plane) do
-    operators = slack && SlackRuntime.operators(slack.runtime)
+    operators = slack && Slack.Runtime.operators(slack.runtime)
 
     fn
       %{source_kind: "slack", source_ref: workspace, actor_kind: :user, actor_ref: actor} ->
         not is_nil(slack) and workspace == slack.runtime.identity.workspace_ref and
-          Operators.operator?(operators, actor)
+          Slack.Operators.operator?(operators, actor)
 
       # Whoever reaches the console may manage Ryker: the local console's
       # operator, or a person Tailscale Serve or Cloudflare Access named.
       %{source_kind: "control_plane", source_ref: "local", actor_kind: :user, actor_ref: actor} ->
         not is_nil(control_plane) and
-          (actor == "local-operator" or ControlPlaneActor.chat_ref?(actor))
+          (actor == "local-operator" or ControlPlane.Actor.chat_ref?(actor))
 
       _other ->
         false
@@ -1543,12 +1533,12 @@ defmodule Ryker.Runtime.Assembly do
   defp add_platform_capability_tools(configuration, slack, github, control_plane) do
     slack_tools =
       cond do
-        slack -> SlackCapabilityTools.list(slack.capability_tools)
-        control_plane -> ControlPlaneCapabilityTools.list()
+        slack -> Slack.CapabilityTools.list(slack.capability_tools)
+        control_plane -> ControlPlane.CapabilityTools.list()
         true -> []
       end
 
-    github_tools = if github, do: GitHubCapabilityTools.list(github.capability_tools), else: []
+    github_tools = if github, do: GitHub.CapabilityTools.list(github.capability_tools), else: []
     tools = slack_tools ++ github_tools
     names = Enum.map(tools, & &1["name"])
 
@@ -1577,15 +1567,15 @@ defmodule Ryker.Runtime.Assembly do
   defp call_platform_tool(slack_tools, github_tools, control_plane?, name, arguments, binding) do
     cond do
       not is_nil(github_tools) and
-          Enum.any?(GitHubCapabilityTools.list(github_tools), &(&1["name"] == name)) ->
-        call_platform_package(GitHubCapabilityTools, github_tools, name, arguments, binding)
+          Enum.any?(GitHub.CapabilityTools.list(github_tools), &(&1["name"] == name)) ->
+        call_platform_package(GitHub.CapabilityTools, github_tools, name, arguments, binding)
 
       binding_transport(binding) == "slack" and not is_nil(slack_tools) ->
-        call_platform_package(SlackCapabilityTools, slack_tools, name, arguments, binding)
+        call_platform_package(Slack.CapabilityTools, slack_tools, name, arguments, binding)
 
       binding_transport(binding) == "control_plane" and control_plane? ->
-        if Enum.any?(ControlPlaneCapabilityTools.list(), &(&1["name"] == name)),
-          do: ControlPlaneCapabilityTools.call(name, arguments, binding),
+        if Enum.any?(ControlPlane.CapabilityTools.list(), &(&1["name"] == name)),
+          do: ControlPlane.CapabilityTools.call(name, arguments, binding),
           else: {:error, "unknown_tool"}
 
       true ->
@@ -1653,7 +1643,7 @@ defmodule Ryker.Runtime.Assembly do
 
   defp json_client!(base_url, receive_timeout, token_provider) do
     {:ok, client} =
-      JSONClient.new(%{
+      Delivery.JSONClient.new(%{
         base_url: base_url,
         finch: Ryker.CoopFinch,
         receive_timeout: receive_timeout,
@@ -1664,7 +1654,7 @@ defmodule Ryker.Runtime.Assembly do
   end
 
   defp github_client!(http) do
-    {:ok, client} = Client.new(http: http, requester: JSONClient)
+    {:ok, client} = GitHub.Client.new(http: http, requester: Delivery.JSONClient)
     client
   end
 
@@ -1687,7 +1677,7 @@ defmodule Ryker.Runtime.Assembly do
   end
 
   defp rpc_endpoint(url) do
-    case EmisarConnection.endpoint(url) do
+    case Settings.EmisarConnection.endpoint(url) do
       {:ok, endpoint} -> {:ok, endpoint}
       :error -> {:error, :address_invalid}
     end

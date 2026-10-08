@@ -7,8 +7,8 @@ defmodule Ryker.Ingress.Input do
   cannot choose routing or authority by smuggling fields into that content.
   """
   alias Ryker.CanonicalJSON
-  alias Ryker.Episodes.Command
-  alias Ryker.Publication.DeploymentSignal
+  alias Ryker.Episodes
+  alias Ryker.Publication
   alias Ryker.Reference
   alias Ryker.Transcription
 
@@ -262,7 +262,7 @@ defmodule Ryker.Ingress.Input do
   defp validate_content(_content), do: {:error, {:invalid_input, :content}}
 
   defp validate_episode_envelope(input) do
-    command = %Command.AdmitInput{
+    command = %Episodes.Command.AdmitInput{
       actor_ref: actor_ref(input),
       destination: input.destination,
       episode_id: @envelope_episode_id,
@@ -275,7 +275,7 @@ defmodule Ryker.Ingress.Input do
       turn_ref: "ingress-input-envelope-turn"
     }
 
-    case Command.prepare(command) do
+    case Episodes.Command.prepare(command) do
       {:ok, _command} -> :ok
       {:error, {:invalid_command, field}} -> {:error, {:invalid_input, :episode_envelope, field}}
     end
@@ -374,7 +374,7 @@ defmodule Ryker.Ingress.Input do
          } = capability
        ) do
     map_size(capability) == 4 and scope_references?(environments) and scope_references?(kinds) and
-      Enum.all?(kinds, &(&1 in DeploymentSignal.kinds())) and
+      Enum.all?(kinds, &(&1 in Publication.DeploymentSignal.kinds())) and
       scope_references?(repositories) and scope_references?(targets)
   end
 

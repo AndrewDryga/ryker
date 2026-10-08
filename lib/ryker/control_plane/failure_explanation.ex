@@ -34,7 +34,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   alias Ryker.ControlPlane.LearningActivity
   alias Ryker.ControlPlane.Paths
   alias Ryker.ControlPlane.ShortTime
-  alias Ryker.Slack.Names
+  alias Ryker.Slack
 
   @type outlook :: :ready | :unknown | :fix_first | :stuck | :automatic
 
@@ -131,7 +131,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   def place(row) do
     case Map.get(row, :destination) do
       "slack:" <> _ = destination ->
-        destination |> String.split(" / ", parts: 2) |> hd() |> Names.destination()
+        destination |> String.split(" / ", parts: 2) |> hd() |> Slack.Names.destination()
 
       "control_plane:" <> _ ->
         "Direct conversation"

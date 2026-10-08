@@ -1,8 +1,8 @@
 defmodule Ryker.StateTools.AutomationTools do
   @moduledoc false
-  alias Ryker.Behaviors.Automations
+  alias Ryker.Behaviors
   alias Ryker.Repo
-  alias Ryker.Schedules.ScheduleRecurrence
+  alias Ryker.Schedules
   alias Ryker.Settings
   alias Ryker.StateTools.RecordWriter
 
@@ -11,7 +11,7 @@ defmodule Ryker.StateTools.AutomationTools do
     with :ok <- automation_list_channel(arguments["channel_ref"], binding) do
       matching =
         binding.episode
-        |> Automations.list_for_episode()
+        |> Behaviors.Automations.list_for_episode()
         |> filter_automations(arguments)
 
       limit = Map.get(arguments, "limit", 50)
@@ -24,9 +24,9 @@ defmodule Ryker.StateTools.AutomationTools do
 
   @spec get_automation(map(), map()) :: {:ok, map()} | {:error, term()}
   def get_automation(arguments, binding) do
-    case Automations.fetch_for_episode(binding.episode, arguments["automation_id"]) do
+    case Behaviors.Automations.fetch_for_episode(binding.episode, arguments["automation_id"]) do
       {:ok, automation} ->
-        {:ok, %{"automation" => Automations.detail(automation, arguments["run_limit"])}}
+        {:ok, %{"automation" => Behaviors.Automations.detail(automation, arguments["run_limit"])}}
 
       :error ->
         {:error, :not_found}
@@ -92,7 +92,7 @@ defmodule Ryker.StateTools.AutomationTools do
   defp automation_record(binding, %{"action" => "create"} = proposal) do
     with :ok <- automation_capability("time", binding),
          :ok <- automation_repository(proposal["repository"], binding),
-         {:ok, recurrence} <- ScheduleRecurrence.from_trigger(proposal["trigger"]) do
+         {:ok, recurrence} <- Schedules.ScheduleRecurrence.from_trigger(proposal["trigger"]) do
       payload = %{
         "authority" => if(proposal["repository"], do: "repository_write", else: "read_only"),
         "expires_at" => proposal["expires_at"],
@@ -116,7 +116,7 @@ defmodule Ryker.StateTools.AutomationTools do
 
   defp automation_record(binding, %{"action" => action} = proposal)
        when action in ~w(update pause resume delete) do
-    with {:ok, payload} <- Automations.prepare_change(binding.episode, proposal),
+    with {:ok, payload} <- Behaviors.Automations.prepare_change(binding.episode, proposal),
          :ok <- automation_capability(payload["automation_kind"], binding) do
       RecordWriter.create_public_record(
         binding,

@@ -15,18 +15,16 @@ defmodule Ryker.Records do
   """
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
-  alias Ryker.Emisar.Approvals
-  alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.Input
+  alias Ryker.Emisar
+  alias Ryker.Episodes
+  alias Ryker.Ingress
   alias Ryker.Records.DerivedContext
   alias Ryker.Records.InvestigationPayload
   alias Ryker.Records.Record
   alias Ryker.Records.RecordPayload
   alias Ryker.Repo
-  alias Ryker.Waits.EventSubscriptions
-  alias Ryker.Waits.EventWaitTiming
-  alias Ryker.Waits.SourceEventMatcher
-  alias Ryker.Work.Turn
+  alias Ryker.Waits
+  alias Ryker.Work
 
   @operation_id ~r/\A[A-Za-z0-9_.:-]{1,80}\z/
   @maximum_records_per_turn 64
@@ -40,8 +38,8 @@ defmodule Ryker.Records do
   @confirmation_offer_kinds ~w(task_offer publication_offer schedule_offer automation_change_offer memory_offer preference_offer guidance_offer standing_assignment_offer)
 
   @doc "The name `create/5` takes for the records of `turn`; see the moduledoc for who may build it."
-  @spec token(Turn.t()) :: String.t()
-  def token(%Turn{id: id}) when is_binary(id), do: "state:" <> id
+  @spec token(Work.Turn.t()) :: String.t()
+  def token(%Work.Turn{id: id}) when is_binary(id), do: "state:" <> id
 
   @spec create(String.t(), String.t(), String.t(), map()) ::
           {:ok, Record.t()} | {:error, term()}
@@ -102,7 +100,7 @@ defmodule Ryker.Records do
              reuse_open_source_wait?
            ),
          :ok <- validate_timer(record),
-         :ok <- Approvals.ensure_registered_in_transaction(record) do
+         :ok <- Emisar.Approvals.ensure_registered_in_transaction(record) do
       record
     else
       {:error, reason} -> Repo.rollback(reason)
@@ -117,7 +115,7 @@ defmodule Ryker.Records do
        when type in ["after", "at"] do
     # Use the saved record, including on idempotent retries. Anchoring a delay
     # to acceptance or reconciliation would silently move its promised wakeup.
-    with {:ok, due_at} <- EventWaitTiming.due_at(trigger, inserted_at),
+    with {:ok, due_at} <- Waits.EventWaitTiming.due_at(trigger, inserted_at),
          {:ok, deadline_at, 0} <- DateTime.from_iso8601(deadline),
          :lt <- DateTime.compare(due_at, deadline_at) do
       :ok
@@ -177,8 +175,8 @@ defmodule Ryker.Records do
     end)
   end
 
-  @spec model_records(Episode.t(), String.t() | nil) :: [map()]
-  def model_records(%Episode{} = destination, repository) do
+  @spec model_records(Episodes.Episode.t(), String.t() | nil) :: [map()]
+  def model_records(%Episodes.Episode{} = destination, repository) do
     destination.id
     |> retained_records()
     |> Enum.map(&DerivedContext.record/1)
@@ -328,7 +326,7 @@ defmodule Ryker.Records do
         |> Repo.update_all([])
 
       Enum.each(resolved, &broadcast_record_updated/1)
-      EventSubscriptions.resolve_wait_in_transaction(wait_ref, :input)
+      Waits.EventSubscriptions.resolve_wait_in_transaction(wait_ref, :input)
     else
       {:error, :state_record_transaction_required}
     end
@@ -373,8 +371,8 @@ defmodule Ryker.Records do
   def user_resumable_wait?(_wait_ref), do: false
 
   @doc false
-  @spec user_resumable_wait?(String.t(), Input.t()) :: boolean()
-  def user_resumable_wait?(wait_ref, %Input{} = input) when is_binary(wait_ref) do
+  @spec user_resumable_wait?(String.t(), Ingress.Input.t()) :: boolean()
+  def user_resumable_wait?(wait_ref, %Ingress.Input{} = input) when is_binary(wait_ref) do
     # A question owns its wait until admission resumes the episode, even after a
     # native choice already marked the record answered. Only a person may consume it.
     holder =
@@ -398,7 +396,7 @@ defmodule Ryker.Records do
 
   defp event_wait_matches?(%{"event_matcher" => %{"type" => "source_event"} = trigger}, input) do
     source_matches?(trigger["source_kind"], input.source.kind) and
-      SourceEventMatcher.matches?(trigger["match"], input.content)
+      Waits.SourceEventMatcher.matches?(trigger["match"], input.content)
   end
 
   defp event_wait_matches?(_timer_or_deadline_wait, _input), do: true
@@ -427,7 +425,8 @@ defmodule Ryker.Records do
   end
 
   defp episode_id(turn_id) do
-    episode_id = turn_id |> Turn.Query.by_id() |> Turn.Query.select_episode_ids() |> Repo.one()
+    episode_id =
+      turn_id |> Work.Turn.Query.by_id() |> Work.Turn.Query.select_episode_ids() |> Repo.one()
 
     case episode_id do
       nil -> {:error, :state_record_unauthorized}
@@ -436,7 +435,11 @@ defmodule Ryker.Records do
   end
 
   defp lock_episode(episode_id) do
-    episode = episode_id |> Episode.Query.by_id() |> Episode.Query.lock_for_update() |> Repo.one()
+    episode =
+      episode_id
+      |> Episodes.Episode.Query.by_id()
+      |> Episodes.Episode.Query.lock_for_update()
+      |> Repo.one()
 
     case episode do
       nil -> {:error, :state_record_unauthorized}
@@ -447,9 +450,9 @@ defmodule Ryker.Records do
   defp lock_turn(turn_id, episode_id) do
     turn =
       turn_id
-      |> Turn.Query.by_id()
-      |> Turn.Query.by_episode_id(episode_id)
-      |> Turn.Query.lock_for_update()
+      |> Work.Turn.Query.by_id()
+      |> Work.Turn.Query.by_episode_id(episode_id)
+      |> Work.Turn.Query.lock_for_update()
       |> Repo.one()
 
     case turn do
@@ -459,14 +462,14 @@ defmodule Ryker.Records do
   end
 
   defp authorize(
-         %Episode{
+         %Episodes.Episode{
            destination_transport: transport,
            execution_mode: execution_mode,
            owner_kind: :turn,
            owner_ref: owner_ref,
            state: :working
          },
-         %Turn{
+         %Work.Turn{
            cancellation_intent: nil,
            status: :pending,
            turn_ref: owner_ref
@@ -1075,7 +1078,7 @@ defmodule Ryker.Records do
   for its confirmation or answer. Seven cards kept a copy of this.
   """
   @spec lock_offer(String.t(), [String.t()]) ::
-          {:ok, Record.t(), Episode.t(), Turn.t()} | {:error, :not_found}
+          {:ok, Record.t(), Episodes.Episode.t(), Work.Turn.t()} | {:error, :not_found}
   def lock_offer(ref, kinds) do
     case Repo.fetch(Record.Query.offer_with_origin(ref, kinds)) do
       {:ok, {record, episode, turn}} -> {:ok, record, episode, turn}

@@ -14,21 +14,18 @@ defmodule Ryker.Retention.Custody do
   leases provide the fleet fence; remote calls never run in these transactions.
   """
   alias Ryker.CanonicalJSON
-  alias Ryker.CoopFleet.ControlPlane, as: FleetControlPlane
-  alias Ryker.CoopFleet.Placement
-  alias Ryker.CoopFleet.Worker, as: FleetWorker
-  alias Ryker.Episodes.Episode
-  alias Ryker.Improvement.AnalysisRun
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Learning.LearningRun
+  alias Ryker.CoopFleet
+  alias Ryker.Episodes
+  alias Ryker.Improvement
+  alias Ryker.Ingress
+  alias Ryker.Learning
   alias Ryker.Lease
-  alias Ryker.Publication.Publication
+  alias Ryker.Publication
   alias Ryker.Reference
   alias Ryker.Repo
-  alias Ryker.RepositoryKnowledge.Run, as: KnowledgeRun
+  alias Ryker.RepositoryKnowledge
   alias Ryker.Retention.{Cleanup, Plan}
-  alias Ryker.Work.Custody, as: WorkCustody
-  alias Ryker.Work.{Session, Turn}
+  alias Ryker.Work
 
   @pending_statuses [:close_pending, :plan_pending, :discard_pending]
   @terminal_episode_states [:complete, :cancelled]
@@ -37,14 +34,14 @@ defmodule Ryker.Retention.Custody do
 
   @type claim :: %{
           owner:
-            Episode.t()
-            | LearningRun.t()
-            | AnalysisRun.t()
-            | KnowledgeRun.t()
-            | Entry.t()
+            Episodes.Episode.t()
+            | Learning.LearningRun.t()
+            | Improvement.AnalysisRun.t()
+            | RepositoryKnowledge.Run.t()
+            | Ingress.Inbox.Entry.t()
             | :ready_pool,
           lease_ref: String.t(),
-          session: Session.t(),
+          session: Work.Session.t(),
           worker_id: String.t() | nil
         }
 
@@ -63,7 +60,7 @@ defmodule Ryker.Retention.Custody do
   fell due: at most `limit` of them, and how many are due. Read-only.
   """
   @spec eligible_copies(DateTime.t(), pos_integer()) ::
-          {[{Session.t(), DateTime.t()}], non_neg_integer()}
+          {[{Work.Session.t(), DateTime.t()}], non_neg_integer()}
   def eligible_copies(%DateTime{} = now, limit) when is_integer(limit) and limit > 0 do
     copies = Cleanup.Query.working_copies(now)
     next = copies |> Cleanup.Query.oldest_due_first(limit) |> Repo.all()
@@ -71,7 +68,7 @@ defmodule Ryker.Retention.Custody do
   end
 
   @spec freeze_close_revision(Ecto.UUID.t(), String.t(), pos_integer()) ::
-          {:ok, Session.t()} | {:error, term()}
+          {:ok, Work.Session.t()} | {:error, term()}
   def freeze_close_revision(session_id, lease_ref, revision) do
     with {:ok, session_id} <- uuid(session_id, :session_id),
          :ok <- reference(lease_ref, :lease_ref),
@@ -83,7 +80,7 @@ defmodule Ryker.Retention.Custody do
   end
 
   @spec begin_grace(Ecto.UUID.t(), String.t(), non_neg_integer()) ::
-          {:ok, Session.t()} | {:error, term()}
+          {:ok, Work.Session.t()} | {:error, term()}
   def begin_grace(session_id, lease_ref, grace_seconds) do
     with {:ok, session_id} <- uuid(session_id, :session_id),
          :ok <- reference(lease_ref, :lease_ref),
@@ -105,7 +102,7 @@ defmodule Ryker.Retention.Custody do
   end
 
   @spec mark_closed(Ecto.UUID.t(), String.t()) ::
-          {:ok, Session.t()} | {:error, term()}
+          {:ok, Work.Session.t()} | {:error, term()}
   def mark_closed(session_id, lease_ref) do
     with {:ok, session_id} <- uuid(session_id, :session_id),
          :ok <- reference(lease_ref, :lease_ref) do
@@ -126,7 +123,7 @@ defmodule Ryker.Retention.Custody do
   end
 
   @spec freeze_plan_revision(Ecto.UUID.t(), String.t(), pos_integer(), boolean()) ::
-          {:ok, Session.t()} | {:error, term()}
+          {:ok, Work.Session.t()} | {:error, term()}
   def freeze_plan_revision(session_id, lease_ref, revision, accept_unmerged) do
     with {:ok, session_id} <- uuid(session_id, :session_id),
          :ok <- reference(lease_ref, :lease_ref),
@@ -139,7 +136,7 @@ defmodule Ryker.Retention.Custody do
   end
 
   @spec store_plan(Ecto.UUID.t(), String.t(), map(), pos_integer()) ::
-          {:ok, Session.t()} | {:error, term()}
+          {:ok, Work.Session.t()} | {:error, term()}
   def store_plan(session_id, lease_ref, plan, retained_recheck_seconds) do
     with {:ok, session_id} <- uuid(session_id, :session_id),
          :ok <- reference(lease_ref, :lease_ref),
@@ -154,7 +151,7 @@ defmodule Ryker.Retention.Custody do
     end
   end
 
-  @spec settle_absent(Ecto.UUID.t(), String.t()) :: {:ok, Session.t()} | {:error, term()}
+  @spec settle_absent(Ecto.UUID.t(), String.t()) :: {:ok, Work.Session.t()} | {:error, term()}
   def settle_absent(session_id, lease_ref) do
     with {:ok, session_id} <- uuid(session_id, :session_id),
          :ok <- reference(lease_ref, :lease_ref) do
@@ -165,7 +162,7 @@ defmodule Ryker.Retention.Custody do
   end
 
   @spec settle_discard(Ecto.UUID.t(), String.t(), String.t(), String.t()) ::
-          {:ok, Session.t()} | {:error, term()}
+          {:ok, Work.Session.t()} | {:error, term()}
   def settle_discard(session_id, lease_ref, operation_key, remote_session_id) do
     with {:ok, session_id} <- uuid(session_id, :session_id),
          :ok <- reference(lease_ref, :lease_ref),
@@ -178,7 +175,7 @@ defmodule Ryker.Retention.Custody do
   end
 
   @spec settle_remote_discarded(Ecto.UUID.t(), String.t(), String.t()) ::
-          {:ok, Session.t()} | {:error, term()}
+          {:ok, Work.Session.t()} | {:error, term()}
   def settle_remote_discarded(session_id, lease_ref, remote_session_id) do
     with {:ok, session_id} <- uuid(session_id, :session_id),
          :ok <- reference(lease_ref, :lease_ref),
@@ -197,7 +194,7 @@ defmodule Ryker.Retention.Custody do
   Ryker removed it.
   """
   @spec settle_remote_absent(Ecto.UUID.t(), String.t(), String.t()) ::
-          {:ok, Session.t()} | {:error, term()}
+          {:ok, Work.Session.t()} | {:error, term()}
   def settle_remote_absent(session_id, lease_ref, remote_session_id) do
     with {:ok, session_id} <- uuid(session_id, :session_id),
          :ok <- reference(lease_ref, :lease_ref),
@@ -218,7 +215,7 @@ defmodule Ryker.Retention.Custody do
   retry, decided here under the lease rather than by the caller's reading.
   """
   @spec settle_worker_removed(Ecto.UUID.t(), String.t()) ::
-          {:ok, Session.t()} | {:error, term()}
+          {:ok, Work.Session.t()} | {:error, term()}
   def settle_worker_removed(session_id, lease_ref) do
     with {:ok, session_id} <- uuid(session_id, :session_id),
          :ok <- reference(lease_ref, :lease_ref) do
@@ -229,7 +226,7 @@ defmodule Ryker.Retention.Custody do
   end
 
   @spec defer(Ecto.UUID.t(), String.t(), pos_integer(), String.t(), String.t()) ::
-          {:ok, Session.t()} | {:error, term()}
+          {:ok, Work.Session.t()} | {:error, term()}
   def defer(session_id, lease_ref, retry_seconds, error_code, error_detail) do
     with {:ok, session_id} <- uuid(session_id, :session_id),
          :ok <- reference(lease_ref, :lease_ref),
@@ -250,7 +247,7 @@ defmodule Ryker.Retention.Custody do
   end
 
   @spec block(Ecto.UUID.t(), String.t(), String.t(), String.t()) ::
-          {:ok, Session.t()} | {:error, term()}
+          {:ok, Work.Session.t()} | {:error, term()}
   def block(session_id, lease_ref, error_code, error_detail) do
     with {:ok, session_id} <- uuid(session_id, :session_id),
          :ok <- reference(lease_ref, :lease_ref),
@@ -272,7 +269,7 @@ defmodule Ryker.Retention.Custody do
   end
 
   @spec advance_close(Ecto.UUID.t(), String.t(), pos_integer()) ::
-          {:ok, Session.t()} | {:error, term()}
+          {:ok, Work.Session.t()} | {:error, term()}
   def advance_close(session_id, lease_ref, generation) do
     advance_generation(session_id, lease_ref, :close_pending, :close_generation, generation, %{
       close_expected_revision: nil
@@ -280,7 +277,7 @@ defmodule Ryker.Retention.Custody do
   end
 
   @spec advance_plan(Ecto.UUID.t(), String.t(), pos_integer()) ::
-          {:ok, Session.t()} | {:error, term()}
+          {:ok, Work.Session.t()} | {:error, term()}
   def advance_plan(session_id, lease_ref, generation) do
     advance_generation(
       session_id,
@@ -297,16 +294,16 @@ defmodule Ryker.Retention.Custody do
     )
   end
 
-  @spec close_key(Session.t()) :: String.t()
-  def close_key(%Session{} = session),
+  @spec close_key(Work.Session.t()) :: String.t()
+  def close_key(%Work.Session{} = session),
     do: "ryker:retention:close:#{session.id}:g#{session.close_generation}"
 
-  @spec plan_key(Session.t()) :: String.t()
-  def plan_key(%Session{} = session),
+  @spec plan_key(Work.Session.t()) :: String.t()
+  def plan_key(%Work.Session{} = session),
     do: "ryker:retention:plan:#{session.id}:g#{session.discard_plan_generation}"
 
-  @spec discard_key(Session.t()) :: String.t()
-  def discard_key(%Session{} = session),
+  @spec discard_key(Work.Session.t()) :: String.t()
+  def discard_key(%Work.Session{} = session),
     do: "ryker:retention:discard:#{session.id}:g#{session.discard_generation}"
 
   @doc """
@@ -357,12 +354,12 @@ defmodule Ryker.Retention.Custody do
   def reconsider_reconnected_workers(_error_codes, _stale_seconds),
     do: {:error, {:invalid_retention_custody, :error_codes}}
 
-  @spec published?(Session.t()) :: boolean()
-  def published?(%Session{} = session) do
-    publications = Publication.Query.by_session_id(session.id)
+  @spec published?(Work.Session.t()) :: boolean()
+  def published?(%Work.Session{} = session) do
+    publications = Publication.Publication.Query.by_session_id(session.id)
 
-    Repo.exists?(Publication.Query.published(publications)) and
-      not Repo.exists?(Publication.Query.unpublished(publications))
+    Repo.exists?(Publication.Publication.Query.published(publications)) and
+      not Repo.exists?(Publication.Publication.Query.unpublished(publications))
   end
 
   # A candidate whose owner another transaction holds, or that stopped being
@@ -382,7 +379,7 @@ defmodule Ryker.Retention.Custody do
 
       {kind, owner_id, session_id, placed_worker_id} ->
         with owner when not is_nil(owner) <- lock_owner(kind, owner_id, :skip_locked),
-             %Session{} = session <- lock_session(session_id),
+             %Work.Session{} = session <- lock_session(session_id),
              true <- claimable?(owner, session, now) do
           session = prepare_phase(session)
           lease_ref = "retention-lease:#{Ecto.UUID.generate()}"
@@ -435,8 +432,12 @@ defmodule Ryker.Retention.Custody do
   defp lock_identity_owner({:admission, nil}), do: lock_owner(:admission, nil, :wait)
   defp lock_identity_owner(_identity), do: nil
 
-  defp lock_session(session_id),
-    do: session_id |> Session.Query.by_id() |> Session.Query.lock_for_update() |> Repo.one()
+  defp lock_session(session_id) do
+    session_id
+    |> Work.Session.Query.by_id()
+    |> Work.Session.Query.lock_for_update()
+    |> Repo.one()
+  end
 
   defp claimable?(owner, session, now) do
     owner_finished?(owner, session) and
@@ -446,56 +447,66 @@ defmodule Ryker.Retention.Custody do
       claimable_status?(session, now)
   end
 
-  defp owner_finished?(%Episode{state: state}, session),
+  defp owner_finished?(%Episodes.Episode{state: state}, session),
     do: state in @terminal_episode_states or replaced_work_session?(session)
 
-  defp owner_finished?(%LearningRun{remote_stopped_at: %DateTime{}}, _session), do: true
-  defp owner_finished?(%AnalysisRun{remote_stopped_at: %DateTime{}}, _session), do: true
-  defp owner_finished?(%KnowledgeRun{remote_stopped_at: %DateTime{}}, _session), do: true
+  defp owner_finished?(%Learning.LearningRun{remote_stopped_at: %DateTime{}}, _session), do: true
 
-  defp owner_finished?(%Entry{status: status}, _session)
+  defp owner_finished?(%Improvement.AnalysisRun{remote_stopped_at: %DateTime{}}, _session),
+    do: true
+
+  defp owner_finished?(%RepositoryKnowledge.Run{remote_stopped_at: %DateTime{}}, _session),
+    do: true
+
+  defp owner_finished?(%Ingress.Inbox.Entry{status: status}, _session)
        when status in [:decided, :superseded],
        do: true
 
-  defp owner_finished?(%Entry{execution_generation: current}, %Session{generation: generation}),
-    do: current > generation
+  defp owner_finished?(%Ingress.Inbox.Entry{execution_generation: current}, %Work.Session{
+         generation: generation
+       }),
+       do: current > generation
 
-  defp owner_finished?(:ready_pool, %Session{ready_state: :retired, admission_input_id: nil}),
-    do: true
+  defp owner_finished?(:ready_pool, %Work.Session{ready_state: :retired, admission_input_id: nil}),
+       do: true
 
   defp owner_finished?(_owner, _session), do: false
 
-  defp replaced_work_session?(%Session{execution_kind: :work} = session),
-    do: Repo.exists?(Session.Query.newer_work_sessions(session))
+  defp replaced_work_session?(%Work.Session{execution_kind: :work} = session),
+    do: Repo.exists?(Work.Session.Query.newer_work_sessions(session))
 
   defp replaced_work_session?(_session), do: false
 
-  defp lease_free?(%Session{cleanup_lease_ref: nil}, _now), do: true
+  defp lease_free?(%Work.Session{cleanup_lease_ref: nil}, _now), do: true
 
-  defp lease_free?(%Session{cleanup_lease_expires_at: %DateTime{} = at}, now),
+  defp lease_free?(%Work.Session{cleanup_lease_expires_at: %DateTime{} = at}, now),
     do: DateTime.compare(at, now) != :gt
 
   defp lease_free?(_session, _now), do: false
 
-  defp claimable_status?(%Session{cleanup_status: :active}, _now), do: true
+  defp claimable_status?(%Work.Session{cleanup_status: :active}, _now), do: true
 
-  defp claimable_status?(%Session{cleanup_status: status} = session, now)
+  defp claimable_status?(%Work.Session{cleanup_status: status} = session, now)
        when status in @pending_statuses do
     is_nil(session.cleanup_next_attempt_at) or
       DateTime.compare(session.cleanup_next_attempt_at, now) != :gt
   end
 
-  defp claimable_status?(%Session{cleanup_status: :grace, discard_after: %DateTime{} = at}, now),
-    do: DateTime.compare(at, now) != :gt
+  defp claimable_status?(
+         %Work.Session{cleanup_status: :grace, discard_after: %DateTime{} = at},
+         now
+       ),
+       do: DateTime.compare(at, now) != :gt
 
   defp claimable_status?(
-         %Session{cleanup_status: :retained, retained_reason: "unpublished_unmerged"} = session,
+         %Work.Session{cleanup_status: :retained, retained_reason: "unpublished_unmerged"} =
+           session,
          _now
        ),
        do: published?(session)
 
   defp claimable_status?(
-         %Session{
+         %Work.Session{
            cleanup_status: :retained,
            cleanup_next_attempt_at: %DateTime{} = at,
            retained_reason: "dirty"
@@ -506,13 +517,13 @@ defmodule Ryker.Retention.Custody do
 
   defp claimable_status?(_session, _now), do: false
 
-  defp prepare_phase(%Session{cleanup_status: :active} = session),
+  defp prepare_phase(%Work.Session{cleanup_status: :active} = session),
     do: persist(session, %{cleanup_status: :close_pending})
 
-  defp prepare_phase(%Session{cleanup_status: :grace} = session),
+  defp prepare_phase(%Work.Session{cleanup_status: :grace} = session),
     do: persist(session, %{cleanup_status: :close_pending})
 
-  defp prepare_phase(%Session{cleanup_status: :retained} = session) do
+  defp prepare_phase(%Work.Session{cleanup_status: :retained} = session) do
     persist(session, %{
       cleanup_status: :plan_pending,
       discard_plan: nil,
@@ -525,15 +536,19 @@ defmodule Ryker.Retention.Custody do
     })
   end
 
-  defp prepare_phase(%Session{} = session), do: session
+  defp prepare_phase(%Work.Session{} = session), do: session
 
-  defp unfinished_turn?(session_id),
-    do: session_id |> Turn.Query.by_session_id() |> Turn.Query.unfinished() |> Repo.exists?()
+  defp unfinished_turn?(session_id) do
+    session_id
+    |> Work.Turn.Query.by_session_id()
+    |> Work.Turn.Query.unfinished()
+    |> Repo.exists?()
+  end
 
   defp unpublished_publication?(session_id) do
     session_id
-    |> Publication.Query.by_session_id()
-    |> Publication.Query.unpublished()
+    |> Publication.Publication.Query.by_session_id()
+    |> Publication.Publication.Query.unpublished()
     |> Repo.exists?()
   end
 
@@ -584,7 +599,7 @@ defmodule Ryker.Retention.Custody do
   # A discarded session has nothing left on any worker, so its placement ends
   # with it; otherwise the worker renews it on every poll, for good.
   defp settle(session, receipt, now) do
-    :ok = FleetControlPlane.retire_session_placements(session.id, now)
+    :ok = CoopFleet.ControlPlane.retire_session_placements(session.id, now)
 
     persist(session, %{
       cleanup_attempt_count: 0,
@@ -602,17 +617,17 @@ defmodule Ryker.Retention.Custody do
     })
   end
 
-  defp freeze_close_locked(%Session{close_expected_revision: nil} = session, revision),
+  defp freeze_close_locked(%Work.Session{close_expected_revision: nil} = session, revision),
     do: persist(session, %{close_expected_revision: revision})
 
-  defp freeze_close_locked(%Session{close_expected_revision: revision} = session, revision),
+  defp freeze_close_locked(%Work.Session{close_expected_revision: revision} = session, revision),
     do: session
 
   defp freeze_close_locked(session, _revision),
     do: Repo.rollback({:retention_close_revision_conflict, session.close_expected_revision})
 
   defp freeze_plan_locked(
-         %Session{discard_plan_expected_revision: nil} = session,
+         %Work.Session{discard_plan_expected_revision: nil} = session,
          revision,
          accept_unmerged
        ) do
@@ -623,7 +638,7 @@ defmodule Ryker.Retention.Custody do
   end
 
   defp freeze_plan_locked(
-         %Session{
+         %Work.Session{
            discard_plan_accept_unmerged: accept_unmerged,
            discard_plan_expected_revision: revision
          } = session,
@@ -637,7 +652,7 @@ defmodule Ryker.Retention.Custody do
 
   # Ryker never learned a worker session for it, which is not proof the
   # worker made none: a create can succeed after its answer is lost.
-  defp settle_absent_locked(%Session{coop_session_id: nil} = session, now) do
+  defp settle_absent_locked(%Work.Session{coop_session_id: nil} = session, now) do
     receipt = %{
       "kind" => "never_bound",
       "local_session_id" => session.id,
@@ -673,7 +688,7 @@ defmodule Ryker.Retention.Custody do
   end
 
   defp settle_remote_discarded_locked(
-         %Session{coop_session_id: remote_session_id} = session,
+         %Work.Session{coop_session_id: remote_session_id} = session,
          remote_session_id,
          now
        ) do
@@ -691,7 +706,7 @@ defmodule Ryker.Retention.Custody do
     do: Repo.rollback(:retention_remote_session_mismatch)
 
   defp settle_remote_absent_locked(
-         %Session{coop_session_id: remote_session_id} = session,
+         %Work.Session{coop_session_id: remote_session_id} = session,
          remote_session_id,
          now
        ) do
@@ -710,7 +725,8 @@ defmodule Ryker.Retention.Custody do
 
   defp settle_worker_removed_locked(session, now) do
     case holding_worker(session.id) do
-      %FleetWorker{} = worker when worker.state == :revoked or not is_nil(worker.revoked_at) ->
+      %CoopFleet.Worker{} = worker
+      when worker.state == :revoked or not is_nil(worker.revoked_at) ->
         receipt = %{
           "kind" => "worker_removed",
           "local_session_id" => session.id,
@@ -721,7 +737,7 @@ defmodule Ryker.Retention.Custody do
 
         settle(session, receipt, now)
 
-      %FleetWorker{id: worker_id} ->
+      %CoopFleet.Worker{id: worker_id} ->
         Repo.rollback({:retention_worker_unavailable, worker_id})
 
       nil ->
@@ -733,11 +749,11 @@ defmodule Ryker.Retention.Custody do
   # session is never placed anywhere else.
   defp holding_worker(session_id) do
     session_id
-    |> Placement.Query.by_session_id()
-    |> Placement.Query.with_joined_worker()
-    |> Placement.Query.ordered_by_generation_desc()
-    |> Placement.Query.limit_to(1)
-    |> Placement.Query.select_workers()
+    |> CoopFleet.Placement.Query.by_session_id()
+    |> CoopFleet.Placement.Query.with_joined_worker()
+    |> CoopFleet.Placement.Query.ordered_by_generation_desc()
+    |> CoopFleet.Placement.Query.limit_to(1)
+    |> CoopFleet.Placement.Query.select_workers()
     |> Repo.one()
   end
 
@@ -774,7 +790,10 @@ defmodule Ryker.Retention.Custody do
     if is_nil(owner), do: Repo.rollback(:retention_session_not_found)
 
     session =
-      session_id |> Session.Query.by_id() |> Session.Query.lock_for_update() |> Repo.one!()
+      session_id
+      |> Work.Session.Query.by_id()
+      |> Work.Session.Query.lock_for_update()
+      |> Repo.one!()
 
     now = Repo.now!()
 
@@ -793,13 +812,13 @@ defmodule Ryker.Retention.Custody do
   report a few milliseconds later look older. An operator's rearm or discard
   (`Ryker.Operator.Retention`) is saved the same way.
   """
-  @spec persist(Session.t(), map()) :: Session.t()
+  @spec persist(Work.Session.t(), map()) :: Work.Session.t()
   def persist(session, attributes) do
     session
-    |> Session.Changeset.cleanup(Map.put_new(attributes, :updated_at, Repo.now!()))
+    |> Work.Session.Changeset.cleanup(Map.put_new(attributes, :updated_at, Repo.now!()))
     |> Repo.update()
     |> case do
-      {:ok, stored} -> tap(stored, &WorkCustody.broadcast_session_updated/1)
+      {:ok, stored} -> tap(stored, &Work.Custody.broadcast_session_updated/1)
       {:error, changeset} -> Repo.rollback({:retention_persistence_failed, changeset})
     end
   end

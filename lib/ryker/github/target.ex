@@ -1,9 +1,9 @@
 defmodule Ryker.GitHub.Target do
   @moduledoc false
-  alias Ryker.Delivery.Request
+  alias Ryker.Delivery
 
-  @spec parse(Request.t()) :: {:ok, map()} | {:error, term()}
-  def parse(%Request{transport: "github"} = request) do
+  @spec parse(Delivery.Request.t()) :: {:ok, map()} | {:error, term()}
+  def parse(%Delivery.Request{transport: "github"} = request) do
     with {:ok, binding, repository_id} <- conversation(request.conversation_ref),
          {:ok, thread} <- thread(request.thread_ref, binding),
          {:ok, source_item} <- source_item(request) do
@@ -58,9 +58,9 @@ defmodule Ryker.GitHub.Target do
     end
   end
 
-  defp source_item(%Request{kind: :message, source_item_ref: nil}), do: {:ok, nil}
+  defp source_item(%Delivery.Request{kind: :message, source_item_ref: nil}), do: {:ok, nil}
 
-  defp source_item(%Request{kind: :reaction, source_item_ref: value}) do
+  defp source_item(%Delivery.Request{kind: :reaction, source_item_ref: value}) do
     case String.split(value, ":", parts: 3) do
       ["github", kind, id]
       when kind in ["issue_comment", "pull_request_review_comment"] ->

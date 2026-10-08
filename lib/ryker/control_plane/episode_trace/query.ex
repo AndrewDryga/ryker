@@ -7,10 +7,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Query do
   """
   use Ryker, :query
   alias Ryker.ControlPlane.CurrentInput
-  alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Records.Record
-  alias Ryker.Slack.IncidentRoom
+  alias Ryker.Episodes
+  alias Ryker.Ingress
+  alias Ryker.Records
+  alias Ryker.Slack
 
   @doc "The messages of `episode_id`, each once, as they read now (`CurrentInput.Query.by_episode_id/1`)."
   def messages(episode_id),
@@ -30,7 +30,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Query do
   {current_id, current_event_kind}}`.
   """
   def revisions(episode_id, limit) do
-    from(entry in Entry,
+    from(entry in Ingress.Inbox.Entry,
       as: :revision,
       inner_lateral_join: current in subquery(CurrentInput.Query.current()),
       on: true,
@@ -45,9 +45,9 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Query do
   The confirmed offer `episode`'s task started from, made in the request it
   is linked to (or itself), as `%{inserted_at, confirmed_at, episode_id}`.
   """
-  def task_offer(%Episode{} = episode) do
-    from(record in Record,
-      join: source in Episode,
+  def task_offer(%Episodes.Episode{} = episode) do
+    from(record in Records.Record,
+      join: source in Episodes.Episode,
       on: source.id == record.episode_id,
       where: record.kind == "task_offer" and record.status == :confirmed,
       where: record.confirmed_episode_id == ^episode.id,
@@ -67,10 +67,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Query do
   channel}`, the rooms of that channel.
   """
   def incident_rooms(episode_id, nil),
-    do: from(room in IncidentRoom, where: room.episode_id == ^episode_id)
+    do: from(room in Slack.IncidentRoom, where: room.episode_id == ^episode_id)
 
   def incident_rooms(episode_id, {workspace, channel}) do
-    from(room in IncidentRoom,
+    from(room in Slack.IncidentRoom,
       where:
         room.episode_id == ^episode_id or
           (room.workspace_ref == ^workspace and room.channel_ref == ^channel)
@@ -81,8 +81,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Query do
   The requests of `episode`'s conversation linked to it, or that it is
   linked to, oldest first, `limit` at most.
   """
-  def related(%Episode{} = episode, limit) do
-    from(other in Episode,
+  def related(%Episodes.Episode{} = episode, limit) do
+    from(other in Episodes.Episode,
       where: other.destination_transport == ^episode.destination_transport,
       where: other.destination_conversation_ref == ^episode.destination_conversation_ref,
       where:

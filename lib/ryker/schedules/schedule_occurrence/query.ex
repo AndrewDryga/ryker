@@ -1,9 +1,9 @@
 defmodule Ryker.Schedules.ScheduleOccurrence.Query do
   @moduledoc "Each time a schedule fired or was missed, for every read of `episode_schedule_occurrences`."
   use Ryker, :query
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes
   alias Ryker.Schedules.ScheduleOccurrence
-  alias Ryker.Work.Turn
+  alias Ryker.Work
 
   def all, do: from(occurrences in ScheduleOccurrence, as: :episode_schedule_occurrences)
 
@@ -14,7 +14,7 @@ defmodule Ryker.Schedules.ScheduleOccurrence.Query do
   def running(schedule_id) do
     schedule_id
     |> by_schedule_id()
-    |> join(:inner, [episode_schedule_occurrences: o], e in Episode,
+    |> join(:inner, [episode_schedule_occurrences: o], e in Episodes.Episode,
       on: e.id == o.child_episode_id,
       as: :episode_kernel_episodes
     )
@@ -31,14 +31,14 @@ defmodule Ryker.Schedules.ScheduleOccurrence.Query do
   def recent_runs(schedule_id, limit) do
     schedule_id
     |> by_schedule_id()
-    |> join(:left, [episode_schedule_occurrences: o], e in Episode,
+    |> join(:left, [episode_schedule_occurrences: o], e in Episodes.Episode,
       on: e.id == o.child_episode_id,
       as: :episode_kernel_episodes
     )
     |> join(
       :left_lateral,
       [episode_schedule_occurrences: o],
-      t in subquery(Turn.Query.latest_of_occurrence()),
+      t in subquery(Work.Turn.Query.latest_of_occurrence()),
       on: true,
       as: :latest_turns
     )

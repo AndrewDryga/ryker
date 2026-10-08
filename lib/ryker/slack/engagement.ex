@@ -7,8 +7,8 @@ defmodule Ryker.Slack.Engagement do
   its channel is not configured for ambient watching. The model still decides
   how that input relates to the existing work.
   """
-  alias Ryker.Delivery.RoutingResponse
-  alias Ryker.Episodes.Episode
+  alias Ryker.Delivery
+  alias Ryker.Episodes
   alias Ryker.Repo
 
   @spec continuation?(map()) :: boolean()
@@ -22,9 +22,9 @@ defmodule Ryker.Slack.Engagement do
         }
       })
       when is_binary(conversation_ref) and is_binary(thread_ref) do
-    Repo.exists?(Episode.Query.by_thread("slack", conversation_ref, thread_ref)) or
+    Repo.exists?(Episodes.Episode.Query.by_thread("slack", conversation_ref, thread_ref)) or
       Repo.exists?(
-        RoutingResponse.Query.messages_in_thread("slack", conversation_ref, thread_ref)
+        Delivery.RoutingResponse.Query.messages_in_thread("slack", conversation_ref, thread_ref)
       )
   end
 

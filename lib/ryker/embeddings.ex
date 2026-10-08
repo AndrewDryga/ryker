@@ -17,7 +17,7 @@ defmodule Ryker.Embeddings do
   size of its answer, and every vector comes back normalized to length one,
   so a dot product is the cosine.
   """
-  alias Ryker.Delivery.HTTPClient
+  alias Ryker.Delivery
 
   @default_model "bge-m3"
   @maximum_texts 32
@@ -73,7 +73,7 @@ defmodule Ryker.Embeddings do
   @spec request(String.t(), iodata(), pos_integer()) :: {:ok, map()} | {:error, term()}
   def request(url, body, timeout_ms) do
     request =
-      HTTPClient.build(
+      Delivery.HTTPClient.build(
         :post,
         url,
         [{"content-type", "application/json"}, {"accept", "application/json"}],
@@ -83,7 +83,7 @@ defmodule Ryker.Embeddings do
     task =
       Task.async(fn ->
         try do
-          HTTPClient.stream(
+          Delivery.HTTPClient.stream(
             request,
             Ryker.CoopFinch,
             timeout_ms + 1_000,

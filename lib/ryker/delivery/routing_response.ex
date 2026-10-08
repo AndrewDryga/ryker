@@ -6,11 +6,11 @@ defmodule Ryker.Delivery.RoutingResponse do
   all frozen with the routing decision that chose them.
   """
   use Ryker, :schema
-  alias Ryker.CanonicalJSON.Type, as: CanonicalJSONType
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.CanonicalJSON
+  alias Ryker.Ingress
 
   schema "delivery_routing_responses" do
-    belongs_to(:input, Entry)
+    belongs_to(:input, Ingress.Inbox.Entry)
     field(:position, :integer)
     field(:kind, Ecto.Enum, values: [:reaction, :message])
     field(:decision_ref, :string)
@@ -19,7 +19,7 @@ defmodule Ryker.Delivery.RoutingResponse do
     field(:conversation_ref, :string)
     field(:thread_ref, :string)
     field(:source_item_ref, :string)
-    field(:document, CanonicalJSONType)
+    field(:document, CanonicalJSON.Type)
     field(:document_fingerprint, :string)
     field(:status, Ecto.Enum, values: [:pending, :blocked, :delivered], default: :pending)
     field(:attempt_count, :integer, default: 0)
@@ -30,7 +30,7 @@ defmodule Ryker.Delivery.RoutingResponse do
     field(:next_attempt_at, :utc_datetime_usec)
     field(:last_error_code, :string)
     field(:last_error_detail, :string)
-    field(:external_receipt, CanonicalJSONType)
+    field(:external_receipt, CanonicalJSON.Type)
     field(:external_receipt_fingerprint, :string)
     field(:delivered_at, :utc_datetime_usec)
 

@@ -6,13 +6,13 @@ defmodule Ryker.Slack.AppHomeProjection do
   bounded request text from the exact Slack workspace, short operator-authored
   titles, counts, and the next host-owned action.
   """
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes
   alias Ryker.Memories
-  alias Ryker.Publication.{Publication, Review}
+  alias Ryker.Publication
   alias Ryker.Repo
-  alias Ryker.Schedules.Schedule
+  alias Ryker.Schedules
   alias Ryker.Slack.{AppHome, Collections, SavedEntity}
-  alias Ryker.Work.Session
+  alias Ryker.Work
 
   @maximum_collection_rows 10
   @maximum_attention 8
@@ -173,7 +173,7 @@ defmodule Ryker.Slack.AppHomeProjection do
     }
   end
 
-  defp collection_url(%Schedule{} = schedule, workspace_ref, _shared_conversations) do
+  defp collection_url(%Schedules.Schedule{} = schedule, workspace_ref, _shared_conversations) do
     slack_url(
       workspace_ref,
       schedule.destination_conversation_ref,
@@ -462,7 +462,7 @@ defmodule Ryker.Slack.AppHomeProjection do
 
   defp episode_request(_task, input, episode), do: first_text([input, episode.key])
 
-  defp workspace_request(%Session{workspace_task: task}, request) when is_map(task),
+  defp workspace_request(%Work.Session{workspace_task: task}, request) when is_map(task),
     do: first_text([task["prompt"], task["title"], request])
 
   defp workspace_request(_session, request), do: request
@@ -501,7 +501,7 @@ defmodule Ryker.Slack.AppHomeProjection do
     end)
   end
 
-  defp publication_controls(%Publication{
+  defp publication_controls(%Publication.Publication{
          status: status,
          last_error_code: code,
          expected_remote_head_sha: head_sha
@@ -510,34 +510,42 @@ defmodule Ryker.Slack.AppHomeProjection do
               is_binary(head_sha),
        do: ["update", "discard"]
 
-  defp publication_controls(%Publication{status: :publish_pending, last_error_code: code})
+  defp publication_controls(%Publication.Publication{
+         status: :publish_pending,
+         last_error_code: code
+       })
        when code in @publication_conflicts,
        do: ["discard"]
 
-  defp publication_controls(%Publication{status: status, last_error_code: code})
+  defp publication_controls(%Publication.Publication{status: status, last_error_code: code})
        when status in [:review_pending, :review_ready, :publish_pending, :published_ready] and
               is_binary(code),
        do: ["retry"]
 
   # As on the task card: a change in a repository with no checks gets the same
   # answer from every review, so it is not offered one.
-  defp publication_controls(%Publication{status: :blocked, approval_ref: nil} = publication) do
-    if Review.draft_shareable?(publication.review_document) and
-         Review.no_checks?(publication.review_document),
+  defp publication_controls(
+         %Publication.Publication{status: :blocked, approval_ref: nil} = publication
+       ) do
+    if Publication.Review.draft_shareable?(publication.review_document) and
+         Publication.Review.no_checks?(publication.review_document),
        do: ["discard"],
        else: ["update", "discard"]
   end
 
-  defp publication_controls(%Publication{status: :reviewed, approval_ref: nil}),
+  defp publication_controls(%Publication.Publication{status: :reviewed, approval_ref: nil}),
     do: ["update", "discard"]
 
-  defp publication_controls(%Publication{status: :published, expected_remote_head_sha: head_sha})
+  defp publication_controls(%Publication.Publication{
+         status: :published,
+         expected_remote_head_sha: head_sha
+       })
        when is_binary(head_sha),
        do: ["update", "discard"]
 
   defp publication_controls(_publication), do: []
 
-  defp safe_unmerged_discard?(%Session{
+  defp safe_unmerged_discard?(%Work.Session{
          discard_plan: %{"workspace" => %{"dirty" => false, "unmerged" => true}},
          discard_plan_fingerprint: fingerprint,
          external_ref: external_ref
@@ -591,13 +599,13 @@ defmodule Ryker.Slack.AppHomeProjection do
     end
   end
 
-  defp next_action(%Episode{state: :waiting_for_input}, _turn_status, _coop_turn_id),
+  defp next_action(%Episodes.Episode{state: :waiting_for_input}, _turn_status, _coop_turn_id),
     do: "operator_input"
 
-  defp next_action(%Episode{state: :waiting_for_event}, _turn_status, _coop_turn_id),
+  defp next_action(%Episodes.Episode{state: :waiting_for_event}, _turn_status, _coop_turn_id),
     do: "external_event"
 
-  defp next_action(%Episode{owner_kind: :delivery}, _turn_status, _coop_turn_id),
+  defp next_action(%Episodes.Episode{owner_kind: :delivery}, _turn_status, _coop_turn_id),
     do: "deliver_result"
 
   defp next_action(_episode, :blocked, _coop_turn_id), do: "operator_recovery"

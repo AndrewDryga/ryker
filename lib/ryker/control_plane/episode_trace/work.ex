@@ -6,13 +6,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   Slack status updates that accompanied them.
   """
   import Ryker.ControlPlane.EpisodeTrace.Step
-  alias Ryker.CoopFleet.Event, as: CoopEvent
-  alias Ryker.Delivery.ChatCard
+  alias Ryker.CoopFleet
+  alias Ryker.Delivery
   alias Ryker.InspectionRedactor
-  alias Ryker.Records.Record
+  alias Ryker.Records
   alias Ryker.Repo
-  alias Ryker.Slack.ThreadStatusReceipts
-  alias Ryker.Work.Turn
+  alias Ryker.Slack
+  alias Ryker.Work
 
   @doc "Each Work turn from queueing through its result and delivery."
   def turn_steps(turns, sessions) do
@@ -53,7 +53,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
     end)
   end
 
-  defp work_step(%Turn{remote_finished_at: nil, accepted_at: nil}, _ordinal), do: nil
+  defp work_step(%Work.Turn{remote_finished_at: nil, accepted_at: nil}, _ordinal), do: nil
 
   # The request card says the model, tokens, cost and how long a run took, so a finished run is a
   # step of its own only when its timing or usage was not reported (Andrew, 2026-10-01, of
@@ -89,12 +89,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
     validations ++ Enum.reject([accepted], &is_nil/1)
   end
 
-  defp validation_steps(%Turn{validation_history: history} = turn, ordinal)
+  defp validation_steps(%Work.Turn{validation_history: history} = turn, ordinal)
        when is_list(history) and history != [] do
     Enum.map(history, &validation_history_step(turn, ordinal, &1))
   end
 
-  defp validation_steps(%Turn{validation_intent: nil, candidate_attempt: nil}, _ordinal), do: []
+  defp validation_steps(%Work.Turn{validation_intent: nil, candidate_attempt: nil}, _ordinal),
+    do: []
 
   defp validation_steps(turn, ordinal), do: [validation_step(turn, ordinal)]
 
@@ -167,7 +168,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   defp validation_presentation("accept"), do: {"Answer validated", :good}
   defp validation_presentation(_), do: {"Response recorded", nil}
 
-  defp accepted_step(%Turn{accepted_at: nil}, _ordinal), do: nil
+  defp accepted_step(%Work.Turn{accepted_at: nil}, _ordinal), do: nil
 
   defp accepted_step(turn, ordinal) do
     step(
@@ -196,7 +197,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   end
 
   defp delivery_step(
-         %Turn{delivery_ref: nil, delivered_at: nil, external_receipt: nil},
+         %Work.Turn{delivery_ref: nil, delivered_at: nil, external_receipt: nil},
          _ordinal
        ),
        do: []
@@ -223,7 +224,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
     [queued | confirmed_delivery_step(turn, ordinal)]
   end
 
-  defp confirmed_delivery_step(%Turn{delivered_at: nil}, _ordinal), do: []
+  defp confirmed_delivery_step(%Work.Turn{delivered_at: nil}, _ordinal), do: []
 
   defp confirmed_delivery_step(turn, _ordinal) do
     [
@@ -257,7 +258,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
     |> Enum.with_index(1)
     |> Enum.map(fn {record, index} ->
       card =
-        case ChatCard.project(%{
+        case Delivery.ChatCard.project(%{
                record
                | status: :open,
                  updated_at: record.inserted_at,
@@ -284,7 +285,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
           state: "",
           summary: record_summary(record, card),
           title: record_title(record, card),
-          current_warning: ChatCard.wait_warning(record),
+          current_warning: Delivery.ChatCard.wait_warning(record),
           tone: nil
         }
       )
@@ -298,10 +299,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
     session_ids = Enum.map(sessions, & &1.id)
 
     session_ids
-    |> CoopEvent.Query.by_session_ids()
-    |> CoopEvent.Query.excluding_kind("session_event")
-    |> CoopEvent.Query.ordered_by_inserted_at_and_sequence()
-    |> CoopEvent.Query.limit_to(500)
+    |> CoopFleet.Event.Query.by_session_ids()
+    |> CoopFleet.Event.Query.excluding_kind("session_event")
+    |> CoopFleet.Event.Query.ordered_by_inserted_at_and_sequence()
+    |> CoopFleet.Event.Query.limit_to(500)
     |> Repo.all()
     |> Enum.map(fn event ->
       step(
@@ -328,7 +329,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
 
   @doc "Every Slack working-status update sent for the episode, and any that failed."
   def slack_status_steps(episode_id) do
-    Enum.map(ThreadStatusReceipts.for_episode(episode_id), fn receipt ->
+    Enum.map(Slack.ThreadStatusReceipts.for_episode(episode_id), fn receipt ->
       clear = receipt.text == ""
 
       band = status_band(receipt)
@@ -364,27 +365,28 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   defp record_stage("event_wait"), do: "Wait"
   defp record_stage(_kind), do: "State record"
 
-  defp record_title(%Record{kind: "progress"}, %{title: title}), do: "Progress · #{title}"
-  defp record_title(%Record{kind: "input_request"}, _card), do: "Question prepared"
-  defp record_title(%Record{kind: "event_wait"}, _card), do: "Wait prepared"
+  defp record_title(%Records.Record{kind: "progress"}, %{title: title}), do: "Progress · #{title}"
+  defp record_title(%Records.Record{kind: "input_request"}, _card), do: "Question prepared"
+  defp record_title(%Records.Record{kind: "event_wait"}, _card), do: "Wait prepared"
 
-  defp record_title(%Record{kind: "evidence"}, %{title: title}),
+  defp record_title(%Records.Record{kind: "evidence"}, %{title: title}),
     do: "Evidence recorded · #{title}"
 
-  defp record_title(%Record{kind: "goal_state"}, %{title: title}), do: "Goal · #{title}"
+  defp record_title(%Records.Record{kind: "goal_state"}, %{title: title}), do: "Goal · #{title}"
 
   defp record_title(_record, %{label: label, title: title}) when is_binary(title),
     do: "#{label} · #{title}"
 
   defp record_title(record, _card), do: capitalize(human(record.kind)) <> " recorded"
 
-  defp record_summary(%Record{kind: "input_request", payload: payload}, _card),
+  defp record_summary(%Records.Record{kind: "input_request", payload: payload}, _card),
     do: payload["reason"] || "The model prepared a question for the reply."
 
   # A finding's reason is what makes it one, so it reads on the card with its
   # conclusion instead of folded into Details; since its call's own card went
   # (`SavedRecords`), this card is the finding's only one.
-  defp record_summary(%Record{kind: "finding"}, %{summary: what} = card) when is_binary(what) do
+  defp record_summary(%Records.Record{kind: "finding"}, %{summary: what} = card)
+       when is_binary(what) do
     case List.keyfind(card.details, "Why", 0) do
       {"Why", why} when is_binary(why) and why != "" -> what <> "\n\n" <> why
       _no_reason -> what
@@ -392,8 +394,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   end
 
   defp record_summary(_record, %{summary: summary}) when is_binary(summary), do: summary
-  defp record_summary(%Record{subject_ref: value}, _card) when is_binary(value), do: value
-  defp record_summary(%Record{operation_id: value}, _card), do: value
+  defp record_summary(%Records.Record{subject_ref: value}, _card) when is_binary(value), do: value
+  defp record_summary(%Records.Record{operation_id: value}, _card), do: value
 
   defp record_details(record, nil),
     do: [
@@ -410,13 +412,15 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
       shown_details(record, Map.get(card, :details, []))
   end
 
-  defp shown_details(%Record{kind: "finding"}, details), do: List.keydelete(details, "Why", 0)
+  defp shown_details(%Records.Record{kind: "finding"}, details),
+    do: List.keydelete(details, "Why", 0)
+
   defp shown_details(_record, details), do: details
 
   # A citation names its source by the reference a tool issued. The Chat card
   # leaves that out, since nobody can read or open it there; tracing it is what
   # the timeline is for.
-  defp cited_source(%Record{kind: "evidence", payload: %{"source_id" => source}})
+  defp cited_source(%Records.Record{kind: "evidence", payload: %{"source_id" => source}})
        when is_binary(source),
        do: [{"Source reference", source, identifier: true}]
 
@@ -440,15 +444,15 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   defp coop_tone(kind) when kind in ["candidate", "validation"], do: :good
   defp coop_tone(_kind), do: nil
 
-  defp measurement_issue(%Turn{measurement_error_code: code})
+  defp measurement_issue(%Work.Turn{measurement_error_code: code})
        when is_binary(code) and code != "",
        do: "Measurement failed: #{human(code)}."
 
-  defp measurement_issue(%Turn{timing_recorded: false, usage_recorded: false}),
+  defp measurement_issue(%Work.Turn{timing_recorded: false, usage_recorded: false}),
     do: "Timing and usage were not reported."
 
-  defp measurement_issue(%Turn{timing_recorded: false}), do: "Timing was not reported."
-  defp measurement_issue(%Turn{usage_recorded: false}), do: "Usage was not reported."
+  defp measurement_issue(%Work.Turn{timing_recorded: false}), do: "Timing was not reported."
+  defp measurement_issue(%Work.Turn{usage_recorded: false}), do: "Usage was not reported."
   defp measurement_issue(_turn), do: nil
 
   # The exact correction sent to the model is for inspection, under Details;

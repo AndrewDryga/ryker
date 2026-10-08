@@ -1,10 +1,10 @@
 defmodule Ryker.StateTools.FixedTools do
   @moduledoc false
-  alias Ryker.Episodes.Origins
+  alias Ryker.Episodes
   alias Ryker.Records
   alias Ryker.StateTools.{AutomationTools, Capabilities, Catalog, ErrorCode, EvidenceTools}
   alias Ryker.StateTools.{MemoryTools, RecordWriter, SchemaCheck, TaskTools, WorkStateTools}
-  alias Ryker.Work.{Contract, Final}
+  alias Ryker.Work
   require Logger
 
   @confirmation_tools ~w(propose_automation propose_memory propose_preference request_task)
@@ -40,9 +40,9 @@ defmodule Ryker.StateTools.FixedTools do
 
     options
     |> capabilities()
-    |> Catalog.tools(Final.json_schema(mode))
+    |> Catalog.tools(Work.Final.json_schema(mode))
     |> Enum.reject(fn tool ->
-      not Contract.fixed_tool_allowed?(mode, tool["name"]) or
+      not Work.Contract.fixed_tool_allowed?(mode, tool["name"]) or
         (tool["name"] in @confirmation_tools and not confirmation_surface?(options))
     end)
   end
@@ -86,7 +86,7 @@ defmodule Ryker.StateTools.FixedTools do
   end
 
   defp contract_capability_available(name, options) do
-    if Contract.fixed_tool_allowed?(execution_mode(options), name),
+    if Work.Contract.fixed_tool_allowed?(execution_mode(options), name),
       do: :ok,
       else: {:error, :unknown_tool}
   end
@@ -167,7 +167,7 @@ defmodule Ryker.StateTools.FixedTools do
         operation = RecordWriter.operation_id(binding, "request_input", arguments)
 
         cond do
-          not Origins.person_participated?(episode_id) -> {:error, :no_addressee}
+          not Episodes.Origins.person_participated?(episode_id) -> {:error, :no_addressee}
           Records.question_open?(episode_id, operation) -> {:error, :question_already_open}
           true -> :ok
         end

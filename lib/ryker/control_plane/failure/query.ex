@@ -7,13 +7,12 @@ defmodule Ryker.ControlPlane.Failure.Query do
   newest first; `limit_to/2` bounds it.
   """
   use Ryker, :query
-  alias Ryker.CoopFleet.{Placement, Worker}
-  alias Ryker.Episodes.Episode
-  alias Ryker.Learning.Batch
-  alias Ryker.Learning.LearningRun
-  alias Ryker.Publication.Publication
-  alias Ryker.Slack.IncidentRoom
-  alias Ryker.Work.{Session, Turn}
+  alias Ryker.CoopFleet
+  alias Ryker.Episodes
+  alias Ryker.Learning
+  alias Ryker.Publication
+  alias Ryker.Slack
+  alias Ryker.Work
 
   def limit_to(queryable, count), do: limit(queryable, ^count)
 
@@ -22,8 +21,8 @@ defmodule Ryker.ControlPlane.Failure.Query do
   episode}`, newest first.
   """
   def blocked_work do
-    from(turn in Turn,
-      join: episode in Episode,
+    from(turn in Work.Turn,
+      join: episode in Episodes.Episode,
       as: :episode,
       on:
         episode.id == turn.episode_id and episode.state == :working and
@@ -39,8 +38,8 @@ defmodule Ryker.ControlPlane.Failure.Query do
   stopped after `attempts` tries, as `{turn, episode}`, newest first.
   """
   def stalled_stops(attempts) do
-    from(turn in Turn,
-      join: episode in Episode,
+    from(turn in Work.Turn,
+      join: episode in Episodes.Episode,
       as: :episode,
       on:
         episode.id == turn.episode_id and episode.state == :working and
@@ -60,8 +59,8 @@ defmodule Ryker.ControlPlane.Failure.Query do
   inner join hid every blocked learning cleanup.
   """
   def blocked_cleanups do
-    from(session in Session,
-      left_join: episode in Episode,
+    from(session in Work.Session,
+      left_join: episode in Episodes.Episode,
       on: episode.id == session.episode_id,
       where: session.cleanup_status == :blocked,
       order_by: [desc: session.updated_at, desc: session.id],
@@ -78,8 +77,8 @@ defmodule Ryker.ControlPlane.Failure.Query do
   episode, as `{publication, episode}`, newest first.
   """
   def failing_publications(statuses) do
-    from(publication in Publication,
-      join: episode in Episode,
+    from(publication in Publication.Publication,
+      join: episode in Episodes.Episode,
       on: episode.id == publication.episode_id,
       where: publication.status in ^statuses and not is_nil(publication.last_error_code),
       order_by: [desc: publication.updated_at, desc: publication.id],
@@ -98,14 +97,14 @@ defmodule Ryker.ControlPlane.Failure.Query do
   """
   def stalled_learning do
     outstanding =
-      from(run in LearningRun,
+      from(run in Learning.LearningRun,
         where:
           run.batch_id == parent_as(:batch).id and not is_nil(run.started_at) and
             is_nil(run.remote_stopped_at),
         select: 1
       )
 
-    from(batch in Batch,
+    from(batch in Learning.Batch,
       as: :batch,
       where: batch.status == :deferred and not exists(outstanding),
       order_by: [desc: batch.updated_at, desc: batch.id]
@@ -117,7 +116,7 @@ defmodule Ryker.ControlPlane.Failure.Query do
 
   @doc "What the last attempt of batch `batch_id` that failed stopped on."
   def last_attempt_error(batch_id) do
-    from(run in LearningRun,
+    from(run in Learning.LearningRun,
       where: run.batch_id == ^batch_id and not is_nil(run.error_code),
       order_by: [desc: run.inserted_at, desc: run.id],
       limit: 1,
@@ -127,7 +126,7 @@ defmodule Ryker.ControlPlane.Failure.Query do
 
   @doc "The name and state of an incident room investigating `episode_id`."
   def room_of(episode_id) do
-    from(room in IncidentRoom,
+    from(room in Slack.IncidentRoom,
       where: room.episode_id == ^episode_id,
       select: %{channel_name: room.channel_name, channel_state: room.channel_state},
       limit: 1
@@ -139,8 +138,8 @@ defmodule Ryker.ControlPlane.Failure.Query do
   room was deleted, as `{delivery_ref, delivery_target, room}`.
   """
   def replies_to_deleted_rooms(delivery_refs) do
-    from(turn in Turn,
-      join: room in IncidentRoom,
+    from(turn in Work.Turn,
+      join: room in Slack.IncidentRoom,
       on: room.episode_id == turn.episode_id,
       where: turn.delivery_ref in ^delivery_refs and room.channel_state == :deleted,
       select: {turn.delivery_ref, turn.delivery_target, room}
@@ -154,7 +153,7 @@ defmodule Ryker.ControlPlane.Failure.Query do
   """
   def session_workers(session_ids) do
     latest =
-      from(placement in Placement,
+      from(placement in CoopFleet.Placement,
         where: placement.session_id in ^session_ids,
         distinct: placement.session_id,
         order_by: [asc: placement.session_id, desc: placement.generation],
@@ -166,9 +165,9 @@ defmodule Ryker.ControlPlane.Failure.Query do
       )
 
     from(placement in subquery(latest),
-      join: session in Session,
+      join: session in Work.Session,
       on: session.id == placement.session_id,
-      left_join: worker in Worker,
+      left_join: worker in CoopFleet.Worker,
       on: worker.id == placement.worker_id,
       select: {placement, session, worker}
     )

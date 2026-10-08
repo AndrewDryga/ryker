@@ -8,7 +8,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
   @behaviour Ryker.GitHub.Onboarding
   @behaviour Ryker.RepositoryKnowledge.Remote
   alias Ryker.Config
-  alias Ryker.Delivery.JSONClient
+  alias Ryker.Delivery
   alias Ryker.GitHub.Client.Transport
   alias Ryker.GitHub.InstallationTokens
 
@@ -197,7 +197,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
   defp client(binding_name) do
     defaults = Ryker.Defaults.fetch!(:github)
 
-    JSONClient.new(%{
+    Delivery.JSONClient.new(%{
       base_url: Ryker.Settings.github_api_url(),
       finch: Ryker.CoopFinch,
       receive_timeout: defaults.receive_timeout_ms,
@@ -209,7 +209,7 @@ defmodule Ryker.GitHub.RepositoryFiles do
   defp get(client, path), do: requester().request(client, :get, path, nil, @headers)
 
   # GitHub itself; in tests, the replies each test records (config/test.exs).
-  defp requester, do: Config.get_env(:github_files_requester, JSONClient)
+  defp requester, do: Config.get_env(:github_files_requester, Delivery.JSONClient)
 
   defp encode_ref(ref), do: URI.encode(ref, &URI.char_unreserved?/1)
 end

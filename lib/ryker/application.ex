@@ -9,12 +9,12 @@ defmodule Ryker.Application do
   """
   use Application
   alias Ryker.Config
-  alias Ryker.ControlPlane.PageCost
+  alias Ryker.ControlPlane
 
   @impl Application
   def start(_type, _args) do
     Ryker.Defaults.validate!()
-    PageCost.attach()
+    ControlPlane.PageCost.attach()
 
     children =
       [

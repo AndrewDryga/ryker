@@ -7,12 +7,12 @@ defmodule Mix.Tasks.Ryker.Failures do
   """
   use Mix.Task
   alias Mix.Tasks.Ryker.OperatorSupport, as: Support
-  alias Ryker.Operator.Failures
+  alias Ryker.Operator
 
   @impl Mix.Task
   def run(arguments) do
     case Support.parse(arguments, [], 0) do
-      {:ok, [], []} -> print_result(Support.with_repo(&Failures.list/0))
+      {:ok, [], []} -> print_result(Support.with_repo(&Operator.Failures.list/0))
       {:error, reason} -> Support.fail("operator failures", reason)
     end
   end

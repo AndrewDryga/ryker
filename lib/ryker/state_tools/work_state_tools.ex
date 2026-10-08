@@ -1,13 +1,12 @@
 defmodule Ryker.StateTools.WorkStateTools do
   @moduledoc false
-  alias Ryker.Artifacts.Outputs
+  alias Ryker.Artifacts
   alias Ryker.CanonicalJSON
-  alias Ryker.Delivery.{PlatformActionCustody, Presentation}
-  alias Ryker.Knowledge.KnowledgeSnapshot
+  alias Ryker.Delivery
+  alias Ryker.Knowledge
   alias Ryker.Records
-  alias Ryker.Records.DerivedContext
   alias Ryker.Repo
-  alias Ryker.Work.{Custody, Final, FinalPreflight, Validator}
+  alias Ryker.Work
 
   # The newest records within the limit: the oldest kept the latest evidence
   # and waits of a long episode out of reach (2026-10-04 review).
@@ -17,12 +16,12 @@ defmodule Ryker.StateTools.WorkStateTools do
       Records.model_records(binding.episode, binding.session.repository_ref)
       |> Enum.take(-limit)
 
-    platform_actions = PlatformActionCustody.model_actions(binding.episode.id)
+    platform_actions = Delivery.PlatformActionCustody.model_actions(binding.episode.id)
 
     with :ok <-
-           KnowledgeSnapshot.expose(
+           Knowledge.KnowledgeSnapshot.expose(
              binding,
-             Enum.map(records, &DerivedContext.record/1)
+             Enum.map(records, &Records.DerivedContext.record/1)
            ) do
       {:ok,
        %{
@@ -41,12 +40,12 @@ defmodule Ryker.StateTools.WorkStateTools do
   @spec validate_final(map(), map()) :: {:ok, map()} | {:error, term()}
   def validate_final(%{"candidate" => candidate}, binding) do
     candidate_json = CanonicalJSON.encode!(candidate)
-    candidate_sha256 = FinalPreflight.candidate_sha256(candidate)
+    candidate_sha256 = Work.FinalPreflight.candidate_sha256(candidate)
     artifact_refs = get_in(candidate, ["outcome", "artifact_refs"]) || []
     validation_context = validation_context(binding, artifact_refs)
 
     ledger_sha256 =
-      FinalPreflight.ledger_sha256(
+      Work.FinalPreflight.ledger_sha256(
         binding.episode.id,
         binding.episode.semantic_version,
         artifact_refs,
@@ -60,10 +59,10 @@ defmodule Ryker.StateTools.WorkStateTools do
     # then fetches and digest-checks the bytes before accepting the result or
     # creating delivery custody.
     with {:accept, %{final: final}} <-
-           Validator.validate(candidate_json, validation_context, Repo.now!()),
-         :ok <- Presentation.validate(binding.episode, binding.turn, final),
+           Work.Validator.validate(candidate_json, validation_context, Repo.now!()),
+         :ok <- Delivery.Presentation.validate(binding.episode, binding.turn, final),
          {:ok, _turn} <-
-           Custody.record_final_preflight(
+           Work.Custody.record_final_preflight(
              binding.episode.id,
              binding.turn.turn_ref,
              binding.turn.lease_ref,
@@ -74,7 +73,7 @@ defmodule Ryker.StateTools.WorkStateTools do
       {:ok,
        %{
          "accepted" => true,
-         "candidate" => Final.document(final),
+         "candidate" => Work.Final.document(final),
          "candidate_sha256" => candidate_sha256,
          "ledger_version" => binding.episode.semantic_version
        }}
@@ -100,13 +99,13 @@ defmodule Ryker.StateTools.WorkStateTools do
 
   defp validation_context(binding, artifact_refs) do
     %{
-      "artifact_delivery_supported" => Outputs.delivery_supported?(binding.episode),
+      "artifact_delivery_supported" => Artifacts.Outputs.delivery_supported?(binding.episode),
       "artifact_metadata" => Enum.map(artifact_refs, &%{"id" => &1, "name" => &1}),
       "artifact_refs" => artifact_refs,
       "execution_mode" => Atom.to_string(binding.episode.execution_mode),
       "open_required_goals" => Records.open_required_goals(binding.episode.id),
       "records" => validation_records(binding.episode.id, binding.turn.id),
-      "slack_mentions" => Custody.Delivery.answer_mentions(binding.episode, binding.turn),
+      "slack_mentions" => Work.Custody.Delivery.answer_mentions(binding.episode, binding.turn),
       "visible_reply_required" => true,
       "workspace" => nil
     }
@@ -115,7 +114,7 @@ defmodule Ryker.StateTools.WorkStateTools do
   defp validation_records(episode_id, turn_id) do
     Map.merge(
       Records.validation_records(episode_id),
-      PlatformActionCustody.validation_records(episode_id, turn_id)
+      Delivery.PlatformActionCustody.validation_records(episode_id, turn_id)
     )
   end
 end

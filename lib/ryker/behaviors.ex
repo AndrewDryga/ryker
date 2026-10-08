@@ -16,18 +16,14 @@ defmodule Ryker.Behaviors do
   alias Ryker.Behaviors.Recall
   alias Ryker.Behaviors.StandingRules
   alias Ryker.CanonicalJSON
-  alias Ryker.Episodes.Episode
-  alias Ryker.Episodes.Scope
-  alias Ryker.Memories.Reviews
-  alias Ryker.Operator.Actions
+  alias Ryker.Episodes
+  alias Ryker.Memories
+  alias Ryker.Operator
   alias Ryker.Records
-  alias Ryker.Records.CardDelivery
-  alias Ryker.Records.OfferConfirmation
-  alias Ryker.Records.Record
   alias Ryker.Reference
   alias Ryker.Repo
-  alias Ryker.Slack.ChannelFence
-  alias Ryker.Work.Turn
+  alias Ryker.Slack
+  alias Ryker.Work
 
   @offer_kinds ~w(preference_offer guidance_offer standing_assignment_offer)
   @maximum_total 500
@@ -35,7 +31,8 @@ defmodule Ryker.Behaviors do
 
   @spec confirm(keyword() | map()) :: {:ok, map()} | {:error, term()}
   def confirm(attributes) do
-    with {:ok, confirmation} <- OfferConfirmation.new(attributes, :invalid_behavior_confirmation) do
+    with {:ok, confirmation} <-
+           Records.OfferConfirmation.new(attributes, :invalid_behavior_confirmation) do
       Repo.transaction(reviewed(fn -> confirm_locked(confirmation) end))
     end
   end
@@ -66,7 +63,7 @@ defmodule Ryker.Behaviors do
          :ok <- reference(actor_ref, :actor_ref),
          :ok <- reference(workspace_ref, :workspace_ref),
          :ok <- reference(action_ref, :action_ref) do
-      Actions.run(
+      Operator.Actions.run(
         %{
           action: :update,
           action_ref: action_ref,
@@ -105,7 +102,7 @@ defmodule Ryker.Behaviors do
   # other (2026-10-04 review).
   defp reviewed(change) do
     fn ->
-      Reviews.lock_review_maintenance!()
+      Memories.Reviews.lock_review_maintenance!()
       change.()
     end
   end
@@ -113,7 +110,7 @@ defmodule Ryker.Behaviors do
   # Every behavior write checked every pending review in every workspace,
   # though only guidance is ever reviewed (2026-10-04 review).
   defp dismiss_moot_reviews(%{kind: :guidance, workspace_ref: workspace_ref}),
-    do: Reviews.dismiss_orphan_reviews("system:behavior-change", workspace_ref)
+    do: Memories.Reviews.dismiss_orphan_reviews("system:behavior-change", workspace_ref)
 
   defp dismiss_moot_reviews(_behavior), do: :ok
 
@@ -148,7 +145,7 @@ defmodule Ryker.Behaviors do
          :ok <- reference(workspace_ref, :workspace_ref),
          :ok <- reference(conversation_ref, :conversation_ref),
          :ok <- reference(action_ref, :action_ref) do
-      Actions.run(
+      Operator.Actions.run(
         %{
           action: :update,
           action_ref: action_ref,
@@ -304,7 +301,7 @@ defmodule Ryker.Behaviors do
   defp confirm_locked(attributes) do
     with {:ok, record, episode, turn} <- lock_offer(attributes.record_ref),
          :ok <-
-           ChannelFence.authorize_in_transaction(
+           Slack.ChannelFence.authorize_in_transaction(
              episode.destination_transport,
              episode.destination_conversation_ref
            ),
@@ -329,12 +326,12 @@ defmodule Ryker.Behaviors do
   # Guidance or a preference for a whole repository or workspace applies in
   # every channel, so it is confirmed only where everyone can see it asked.
   defp authorize_wide_offer(
-         %Record{kind: kind, payload: %{"scope" => scope}},
-         %Episode{destination_transport: "slack"} = episode
+         %Records.Record{kind: kind, payload: %{"scope" => scope}},
+         %Episodes.Episode{destination_transport: "slack"} = episode
        )
        when kind in ["guidance_offer", "preference_offer"] and
               scope in ["repository", "workspace"] do
-    ChannelFence.authorize_public_in_transaction(
+    Slack.ChannelFence.authorize_public_in_transaction(
       episode.destination_transport,
       episode.destination_conversation_ref
     )
@@ -347,8 +344,8 @@ defmodule Ryker.Behaviors do
   # went unchecked until 2026-09-30: anyone in the channel could confirm
   # someone else's rule and it became theirs.
   defp authorize_personal_offer(
-         %Record{kind: kind, payload: %{"scope" => "operator"}},
-         %Turn{submission: submission},
+         %Records.Record{kind: kind, payload: %{"scope" => "operator"}},
+         %Work.Turn{submission: submission},
          actor_ref
        )
        when kind in ["preference_offer", "guidance_offer"] do
@@ -398,20 +395,31 @@ defmodule Ryker.Behaviors do
     end
   end
 
-  defp prepare_behavior(%Record{kind: "preference_offer", payload: payload}, episode, attributes) do
+  defp prepare_behavior(
+         %Records.Record{kind: "preference_offer", payload: payload},
+         episode,
+         attributes
+       ) do
     prepare_scoped(:preference, payload["key"], payload, episode, attributes)
   end
 
-  defp prepare_behavior(%Record{kind: "guidance_offer", payload: payload}, episode, attributes) do
+  defp prepare_behavior(
+         %Records.Record{kind: "guidance_offer", payload: payload},
+         episode,
+         attributes
+       ) do
     prepare_scoped(:guidance, payload["subject"], payload, episode, attributes)
   end
 
   defp prepare_behavior(
-         %Record{kind: "standing_assignment_offer", payload: %{"source_kind" => _} = payload},
+         %Records.Record{
+           kind: "standing_assignment_offer",
+           payload: %{"source_kind" => _} = payload
+         },
          episode,
          attributes
        ) do
-    workspace = Scope.workspace_ref(episode)
+    workspace = Episodes.Scope.workspace_ref(episode)
 
     with {:ok, expires_at} <- source_event_expiry(payload["expires_at"], attributes.occurred_at) do
       {:ok,
@@ -428,7 +436,7 @@ defmodule Ryker.Behaviors do
   end
 
   defp prepare_scoped(kind, identity_key, payload, episode, attributes) do
-    workspace = Scope.workspace_ref(episode)
+    workspace = Episodes.Scope.workspace_ref(episode)
     scope_kind = scope_kind(payload["scope"])
 
     scope_ref =
@@ -441,7 +449,8 @@ defmodule Ryker.Behaviors do
 
     {:ok,
      %{
-       expires_at: OfferConfirmation.expires_at(attributes.occurred_at, payload["expires_in"]),
+       expires_at:
+         Records.OfferConfirmation.expires_at(attributes.occurred_at, payload["expires_in"]),
        identity_key: identity_key,
        kind: kind,
        payload: payload,
@@ -631,7 +640,7 @@ defmodule Ryker.Behaviors do
   end
 
   defp delivered_from?(episode, turn, target) do
-    case CardDelivery.delivered_from?(episode, turn, target) do
+    case Records.CardDelivery.delivered_from?(episode, turn, target) do
       :ok -> :ok
       {:error, :mismatch} -> {:error, :behavior_offer_delivery_mismatch}
       {:error, :not_delivered} -> {:error, :behavior_offer_not_delivered}

@@ -9,8 +9,8 @@ defmodule Ryker.Work.Executor.Validation do
   cleanup-failed responses against the remote turn. The validation context
   builders live here as well.
   """
-  alias Ryker.Artifacts.Outputs
-  alias Ryker.Delivery.{PlatformActionCustody, Presentation}
+  alias Ryker.Artifacts
+  alias Ryker.Delivery
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Work.{Custody, FinalPreflight, OperationKeys, StateBinding, Validator}
@@ -58,7 +58,7 @@ defmodule Ryker.Work.Executor.Validation do
   end
 
   defp prepare_accepted_validation(claim, message, sha256, attempt, artifacts, final, result) do
-    case Presentation.validate(claim.episode, claim.turn, final) do
+    case Delivery.Presentation.validate(claim.episode, claim.turn, final) do
       :ok ->
         ensure_final_preflight(claim, message, sha256, attempt, artifacts, result)
 
@@ -96,7 +96,7 @@ defmodule Ryker.Work.Executor.Validation do
              claim.turn.turn_ref,
              claim.lease_ref,
              candidate_sha256,
-             Outputs.refs(artifacts)
+             Artifacts.Outputs.refs(artifacts)
            ) do
       prepare_validation(claim, sha256, attempt, :accept, result)
     else
@@ -352,11 +352,11 @@ defmodule Ryker.Work.Executor.Validation do
       {:ok,
        context
        |> Map.put("artifact_metadata", Enum.map(artifacts, &Map.take(&1, ~w(id name))))
-       |> Map.put("artifact_refs", Outputs.refs(artifacts))
+       |> Map.put("artifact_refs", Artifacts.Outputs.refs(artifacts))
        |> Map.put("execution_mode", Atom.to_string(claim.episode.execution_mode))
        |> Map.put_new(
          "artifact_delivery_supported",
-         Outputs.delivery_supported?(claim.episode)
+         Artifacts.Outputs.delivery_supported?(claim.episode)
        )
        |> Map.put_new("open_required_goals", Records.open_required_goals(claim.episode.id))
        |> Map.put("slack_mentions", Custody.Delivery.answer_mentions(claim.episode, claim.turn))
@@ -369,7 +369,7 @@ defmodule Ryker.Work.Executor.Validation do
     context = claim.turn.submission["context"]
 
     %{
-      "artifact_delivery_supported" => Outputs.delivery_supported?(claim.episode),
+      "artifact_delivery_supported" => Artifacts.Outputs.delivery_supported?(claim.episode),
       "artifact_metadata" => [],
       "artifact_refs" => [],
       "execution_mode" => Atom.to_string(claim.episode.execution_mode),
@@ -385,7 +385,7 @@ defmodule Ryker.Work.Executor.Validation do
   defp validation_records(episode_id, turn_id) do
     Map.merge(
       Records.validation_records(episode_id),
-      PlatformActionCustody.validation_records(episode_id, turn_id)
+      Delivery.PlatformActionCustody.validation_records(episode_id, turn_id)
     )
   end
 

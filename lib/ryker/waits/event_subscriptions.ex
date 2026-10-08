@@ -20,10 +20,8 @@ defmodule Ryker.Waits.EventSubscriptions do
   over, then tried again ten minutes on: the earliest wait was taken again on
   every poll, and one that kept failing held up every other.
   """
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes
   alias Ryker.Records
-  alias Ryker.Records.Record
-  alias Ryker.Records.RecordPayload
   alias Ryker.Repo
   alias Ryker.Waits.EventSubscription
   alias Ryker.Waits.EventWaitTiming
@@ -35,9 +33,9 @@ defmodule Ryker.Waits.EventSubscriptions do
   # names saved data that trying again cannot change.
   @failure_retry_seconds 600
 
-  @spec ensure_in_transaction(Episode.t()) ::
+  @spec ensure_in_transaction(Episodes.Episode.t()) ::
           {:ok, :not_source_event | EventSubscription.t()} | {:error, term()}
-  def ensure_in_transaction(%Episode{} = episode) do
+  def ensure_in_transaction(%Episodes.Episode{} = episode) do
     if Repo.in_transaction?() do
       ensure_locked(episode)
     else
@@ -89,8 +87,8 @@ defmodule Ryker.Waits.EventSubscriptions do
   # fails again.
   defp subscribe_locked(episode, record_id) do
     record_id
-    |> Record.Query.by_id()
-    |> Record.Query.by_wait_error("schedule_failed")
+    |> Records.Record.Query.by_id()
+    |> Records.Record.Query.by_wait_error("schedule_failed")
     |> Repo.update_all(set: [wait_error: nil])
 
     case ensure_locked(episode) do
@@ -109,9 +107,9 @@ defmodule Ryker.Waits.EventSubscriptions do
   def fail(record_id, code) when is_binary(record_id) and is_binary(code) do
     {_count, failed} =
       record_id
-      |> Record.Query.by_id()
-      |> Record.Query.open()
-      |> Record.Query.select_rows()
+      |> Records.Record.Query.by_id()
+      |> Records.Record.Query.open()
+      |> Records.Record.Query.select_rows()
       |> Repo.update_all(set: [wait_error: code, updated_at: Repo.now!()])
 
     Enum.each(failed, &Records.broadcast_record_updated/1)
@@ -146,9 +144,9 @@ defmodule Ryker.Waits.EventSubscriptions do
 
       {_count, dismissed} =
         item.record_id
-        |> Record.Query.by_id()
-        |> Record.Query.open()
-        |> Record.Query.select_rows()
+        |> Records.Record.Query.by_id()
+        |> Records.Record.Query.open()
+        |> Records.Record.Query.select_rows()
         |> Repo.update_all(set: [status: :dismissed, updated_at: now])
 
       Enum.each(dismissed, &Records.broadcast_record_updated/1)
@@ -185,16 +183,17 @@ defmodule Ryker.Waits.EventSubscriptions do
     do: now |> EventSubscription.Query.due(failure_retried_before(now)) |> Repo.fetch()
 
   defp ensure_locked(
-         %Episode{owner_kind: :event, owner_ref: wait_ref, state: :waiting_for_event} = episode
+         %Episodes.Episode{owner_kind: :event, owner_ref: wait_ref, state: :waiting_for_event} =
+           episode
        ) do
     wait =
       episode.id
-      |> Record.Query.open_wait(wait_ref)
-      |> Record.Query.lock_for_update()
+      |> Records.Record.Query.open_wait(wait_ref)
+      |> Records.Record.Query.lock_for_update()
       |> Repo.one()
 
     case wait do
-      %Record{} = record -> ensure_record(episode, record)
+      %Records.Record{} = record -> ensure_record(episode, record)
       nil -> {:ok, :not_source_event}
     end
   end
@@ -202,35 +201,35 @@ defmodule Ryker.Waits.EventSubscriptions do
   # A question may leave event-only watches open beside it; production had two
   # (episode 0b0c3590, 2026-09-13). An episode keeps one active subscription, so
   # the watch that already holds it keeps it, and otherwise the oldest gets it.
-  defp ensure_locked(%Episode{state: :waiting_for_input, owner_kind: :input} = episode) do
+  defp ensure_locked(%Episodes.Episode{state: :waiting_for_input, owner_kind: :input} = episode) do
     records =
       episode.id
-      |> Record.Query.by_episode_id()
-      |> Record.Query.open()
-      |> Record.Query.event_only_waits()
-      |> Record.Query.ordered_by_oldest()
-      |> Record.Query.lock_for_update()
+      |> Records.Record.Query.by_episode_id()
+      |> Records.Record.Query.open()
+      |> Records.Record.Query.event_only_waits()
+      |> Records.Record.Query.ordered_by_oldest()
+      |> Records.Record.Query.lock_for_update()
       |> Repo.all()
 
     case Enum.find(records, &active_subscription?/1) || List.first(records) do
-      %Record{} = record -> ensure_record(episode, record)
+      %Records.Record{} = record -> ensure_record(episode, record)
       nil -> {:ok, :not_source_event}
     end
   end
 
-  defp ensure_locked(%Episode{}), do: {:ok, :not_source_event}
+  defp ensure_locked(%Episodes.Episode{}), do: {:ok, :not_source_event}
 
-  defp active_subscription?(%Record{id: record_id}) do
+  defp active_subscription?(%Records.Record{id: record_id}) do
     record_id
     |> EventSubscription.Query.by_record_id()
     |> EventSubscription.Query.active()
     |> Repo.exists?()
   end
 
-  defp ensure_record(_episode, %Record{wait_error: error}) when not is_nil(error),
+  defp ensure_record(_episode, %Records.Record{wait_error: error}) when not is_nil(error),
     do: {:ok, :not_source_event}
 
-  defp ensure_record(episode, %Record{payload: %{"event_matcher" => trigger}} = record) do
+  defp ensure_record(episode, %Records.Record{payload: %{"event_matcher" => trigger}} = record) do
     if trigger["type"] in ["source_event", "after", "at"] do
       case Repo.one(EventSubscription.Query.by_record_id(record.id)) do
         %EventSubscription{} = subscription ->
@@ -280,14 +279,14 @@ defmodule Ryker.Waits.EventSubscriptions do
   end
 
   defp source_bounds(trigger) do
-    case RecordPayload.source_wait_bounds(trigger) do
+    case Records.RecordPayload.source_wait_bounds(trigger) do
       :ok -> :ok
       {:error, field} -> {:error, {:invalid_event_subscription, field}}
     end
   end
 
   defp subscription_deadline(%{"deadline_at" => nil} = payload, %{"type" => "source_event"}) do
-    case RecordPayload.prepare("event_wait", payload, "subscription:validation") do
+    case Records.RecordPayload.prepare("event_wait", payload, "subscription:validation") do
       {:ok, _prepared} -> {:ok, nil}
       _invalid -> {:error, {:invalid_event_subscription, :deadline}}
     end

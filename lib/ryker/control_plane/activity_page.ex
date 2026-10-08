@@ -22,8 +22,8 @@ defmodule Ryker.ControlPlane.ActivityPage do
   alias Ryker.{Accounting, Episodes, Schedules, Settings}
   alias Ryker.ControlPlane.{Components, Kit, Paths, RequestFilters, SchedulesPage, SlackMarkdown}
   alias Ryker.ControlPlane.UsageProjection
-  alias Ryker.CoopFleet.ControlPlane.Workers
-  alias Ryker.Ingress.Inbox
+  alias Ryker.CoopFleet
+  alias Ryker.Ingress
   alias Ryker.Slack
 
   @views [
@@ -43,10 +43,10 @@ defmodule Ryker.ControlPlane.ActivityPage do
   def subscriptions do
     [
       {Episodes, :subscribe_episodes, []},
-      {Inbox, :subscribe_inputs, []},
+      {Ingress.Inbox, :subscribe_inputs, []},
       {Accounting, :subscribe_usage, []},
       {Schedules, :subscribe_schedules, []},
-      {Workers, :subscribe_workers, []},
+      {CoopFleet.ControlPlane.Workers, :subscribe_workers, []},
       {Settings, :subscribe, []}
     ]
   end

@@ -6,15 +6,15 @@ defmodule Ryker.Retention.Executor do
   A lost response therefore retries byte-for-byte, while crossed authority or
   an unsafe discard plan fails closed without touching another workspace.
   """
-  alias Ryker.CoopFleet.JobAuthority
+  alias Ryker.CoopFleet
   alias Ryker.Reference
   alias Ryker.Retention.{Custody, Plan}
-  alias Ryker.Work.Session
+  alias Ryker.Work
 
   @session_states ~w(open exhausted closed discarded)
 
   @spec run(map(), keyword() | map()) :: {:ok, map()} | {:error, term()}
-  def run(%{lease_ref: lease_ref, session: %Session{} = session}, options)
+  def run(%{lease_ref: lease_ref, session: %Work.Session{} = session}, options)
       when is_binary(lease_ref) do
     with {:ok, settings} <- settings(options) do
       case execute(session.cleanup_status, session, lease_ref, settings) do
@@ -70,7 +70,12 @@ defmodule Ryker.Retention.Executor do
 
   defp unreachable(result, _session, _lease_ref), do: result
 
-  defp execute(:close_pending, %Session{coop_session_id: nil} = session, lease_ref, _settings) do
+  defp execute(
+         :close_pending,
+         %Work.Session{coop_session_id: nil} = session,
+         lease_ref,
+         _settings
+       ) do
     with {:ok, settled} <- Custody.settle_absent(session.id, lease_ref) do
       {:ok, %{phase: :discarded, session: settled}}
     end
@@ -78,7 +83,7 @@ defmodule Ryker.Retention.Executor do
 
   defp execute(
          :close_pending,
-         %Session{
+         %Work.Session{
            execution_kind: :work,
            close_expected_revision: nil,
            discard_after: nil
@@ -371,7 +376,7 @@ defmodule Ryker.Retention.Executor do
       state not in allowed_states ->
         {:error, {:coop_protocol_error, :session_state}}
 
-      JobAuthority.exact_cleanup_receipt(expected, remote) != :ok ->
+      CoopFleet.JobAuthority.exact_cleanup_receipt(expected, remote) != :ok ->
         {:error, {:coop_protocol_error, :session_authority}}
 
       true ->

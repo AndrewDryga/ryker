@@ -1,9 +1,9 @@
 defmodule Ryker.Slack.IncidentRoom.Changeset do
   @moduledoc false
   use Ryker, :changeset
-  alias Ryker.Settings.Environment
+  alias Ryker.Settings
   alias Ryker.Slack.IncidentRoom
-  alias Ryker.Work.RepositoryContext
+  alias Ryker.Work
 
   @fields [
     :attempt_count,
@@ -110,7 +110,7 @@ defmodule Ryker.Slack.IncidentRoom.Changeset do
     |> validate_format(:policy_digest, ~r/\A[0-9a-f]{64}\z/)
     |> validate_length(:repository_ref, min: 1, max: 256)
     |> validate_repository_context()
-    |> validate_format(:environment_ref, Environment.ref_pattern())
+    |> validate_format(:environment_ref, Settings.Environment.ref_pattern())
     |> validate_length(:title, min: 1, max: 200)
     |> validate_length(:prompt, min: 1, max: 32_000)
     |> validate_length(:channel_name, min: 1, max: 80)
@@ -137,7 +137,7 @@ defmodule Ryker.Slack.IncidentRoom.Changeset do
 
   defp validate_repository_context(changeset) do
     validate_change(changeset, :repository_context, fn :repository_context, value ->
-      case RepositoryContext.restore(value, get_field(changeset, :repository_ref)) do
+      case Work.RepositoryContext.restore(value, get_field(changeset, :repository_ref)) do
         {:ok, _context} -> []
         {:error, :invalid} -> [repository_context: "is not a bounded repository set"]
       end

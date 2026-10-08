@@ -13,10 +13,9 @@ defmodule Ryker.Admission.CandidateSearch do
   (test/ryker/admission/search_benchmark_test.exs) measures all of it.
   """
   alias Ryker.Admission.{CandidateSearch, CorrelationScope, Ranking}
-  alias Ryker.Episodes.{CorrelationClaims, Episode, Origins, RoutingDigest}
-  alias Ryker.Episodes.RoutingDigests
+  alias Ryker.Episodes
   alias Ryker.Repo
-  alias Ryker.Work.Session
+  alias Ryker.Work
 
   @lane_limit 50
   @pool_limit 200
@@ -34,8 +33,8 @@ defmodule Ryker.Admission.CandidateSearch do
   @meaning_floor 0.4
 
   @type pooled :: %{
-          episode: Episode.t(),
-          digest: RoutingDigest.t() | nil,
+          episode: Episodes.Episode.t(),
+          digest: Episodes.RoutingDigest.t() | nil,
           lanes: [atom()],
           text_rank: float(),
           meaning: float(),
@@ -53,9 +52,9 @@ defmodule Ryker.Admission.CandidateSearch do
   @spec search(map()) :: %{selected: [pooled()], pool: [pooled()], receipt: map()}
   def search(request) do
     scope = request.scope
-    identifiers = request[:identifiers] || RoutingDigests.identifiers([request.text])
-    anchors = RoutingDigests.anchor_keys(identifiers)
-    words = RoutingDigests.search_words(request.text)
+    identifiers = request[:identifiers] || Episodes.RoutingDigests.identifiers([request.text])
+    anchors = Episodes.RoutingDigests.anchor_keys(identifiers)
+    words = Episodes.RoutingDigests.search_words(request.text)
     weights = word_weights(request, scope, words)
 
     ranked_text = text_lane(request, scope, weights)
@@ -129,8 +128,8 @@ defmodule Ryker.Admission.CandidateSearch do
          transport: transport,
          execution_mode: mode
        }) do
-    case Origins.fetch_current_owner(native_input_id, transport, mode) do
-      {:ok, {%Episode{} = episode, _revision}} -> episode
+    case Episodes.Origins.fetch_current_owner(native_input_id, transport, mode) do
+      {:ok, {%Episodes.Episode{} = episode, _revision}} -> episode
       {:error, :not_found} -> nil
     end
   end
@@ -222,7 +221,8 @@ defmodule Ryker.Admission.CandidateSearch do
     Enum.map(top, fn {id, matched} -> {Map.fetch!(episodes, id), min(matched / total, 1.0)} end)
   end
 
-  defp episodes(ids), do: ids |> Episode.Query.by_ids() |> Repo.all() |> Map.new(&{&1.id, &1})
+  defp episodes(ids),
+    do: ids |> Episodes.Episode.Query.by_ids() |> Repo.all() |> Map.new(&{&1.id, &1})
 
   defp quote_lexeme(lexeme), do: "'" <> String.replace(lexeme, "'", "''") <> "'"
 
@@ -283,13 +283,16 @@ defmodule Ryker.Admission.CandidateSearch do
 
     grouped =
       case owner do
-        nil -> grouped
-        %Episode{} = episode -> Map.put_new(grouped, episode.id, {episode, [:source_owner]})
+        nil ->
+          grouped
+
+        %Episodes.Episode{} = episode ->
+          Map.put_new(grouped, episode.id, {episode, [:source_owner]})
       end
 
     episodes = Enum.map(grouped, fn {_id, {episode, _lanes}} -> episode end)
-    digests = RoutingDigests.fetch_many(Enum.map(episodes, & &1.id))
-    claims = CorrelationClaims.active_by_episode(Enum.map(episodes, & &1.id))
+    digests = Episodes.RoutingDigests.fetch_many(Enum.map(episodes, & &1.id))
+    claims = Episodes.CorrelationClaims.active_by_episode(Enum.map(episodes, & &1.id))
     repositories = pinned_repositories(Enum.map(episodes, & &1.id))
     thread_origins = MapSet.new(thread_origin_ids(request, request.scope))
     similarities = similarities(request, Enum.map(episodes, & &1.id))
@@ -333,7 +336,7 @@ defmodule Ryker.Admission.CandidateSearch do
   defp pinned_repositories([]), do: %{}
 
   defp pinned_repositories(episode_ids),
-    do: episode_ids |> Session.Query.pinned_repositories() |> Repo.all() |> Map.new()
+    do: episode_ids |> Work.Session.Query.pinned_repositories() |> Repo.all() |> Map.new()
 
   # How rare each of the message's links and identifiers is where it could belong, weighed as
   # words are: 1 for one only a single request names, falling as more do, and 0 once more than a
@@ -365,7 +368,7 @@ defmodule Ryker.Admission.CandidateSearch do
 
   defp reference_weights(nil, _anchor_weights), do: []
 
-  defp reference_weights(%RoutingDigest{anchor_keys: keys}, anchor_weights) do
+  defp reference_weights(%Episodes.RoutingDigest{anchor_keys: keys}, anchor_weights) do
     keys
     |> Enum.uniq()
     |> Enum.flat_map(fn key ->
@@ -379,6 +382,6 @@ defmodule Ryker.Admission.CandidateSearch do
 
   defp anchor_overlap(nil, _anchors), do: 0
 
-  defp anchor_overlap(%RoutingDigest{anchor_keys: keys}, anchors),
+  defp anchor_overlap(%Episodes.RoutingDigest{anchor_keys: keys}, anchors),
     do: keys |> MapSet.new() |> MapSet.intersection(MapSet.new(anchors)) |> MapSet.size()
 end

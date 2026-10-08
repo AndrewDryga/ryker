@@ -10,8 +10,8 @@ defmodule Ryker.GitHub.PublicRepositories do
   token may read a public repository.
   """
   alias Ryker.Config
-  alias Ryker.CoopFleet.JobSpec
-  alias Ryker.Delivery.JSONClient
+  alias Ryker.CoopFleet
+  alias Ryker.Delivery
 
   @headers [
     {"accept", "application/vnd.github+json"},
@@ -29,9 +29,9 @@ defmodule Ryker.GitHub.PublicRepositories do
           | {:error, :not_public}
           | {:error, term()}
   def lookup(api_url, slug, token, requester \\ requester()) do
-    with true <- JobSpec.github_repository?(slug),
+    with true <- CoopFleet.JobSpec.github_repository?(slug),
          {:ok, client} <-
-           JSONClient.new(%{
+           Delivery.JSONClient.new(%{
              base_url: api_url,
              finch: Ryker.CoopFinch,
              receive_timeout: 30_000,
@@ -48,7 +48,7 @@ defmodule Ryker.GitHub.PublicRepositories do
 
   defp public(200, %{"full_name" => name, "id" => id, "private" => false})
        when is_binary(name) and is_integer(id) and id > 0 do
-    if JobSpec.github_repository?(name),
+    if CoopFleet.JobSpec.github_repository?(name),
       do: {:ok, %{full_name: name, id: id}},
       else: {:error, {:github_protocol_error, :repository}}
   end
@@ -57,5 +57,5 @@ defmodule Ryker.GitHub.PublicRepositories do
   defp public(status, _body), do: {:error, {:github_api_error, status}}
 
   # GitHub itself; in tests, the replies each test records.
-  defp requester, do: Config.get_env(:github_public_requester, JSONClient)
+  defp requester, do: Config.get_env(:github_public_requester, Delivery.JSONClient)
 end

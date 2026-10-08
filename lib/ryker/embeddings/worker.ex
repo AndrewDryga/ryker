@@ -15,7 +15,6 @@ defmodule Ryker.Embeddings.Worker do
   use Ryker.PollingWorker, lane: :embeddings, interval: :poll_interval_ms
   alias Ryker.Embeddings
   alias Ryker.Episodes
-  alias Ryker.Episodes.{RoutingDigest, RoutingDigests}
   alias Ryker.PollingWorker
   alias Ryker.Repo
   require Logger
@@ -85,9 +84,9 @@ defmodule Ryker.Embeddings.Worker do
     options = Map.new(options)
 
     digests =
-      RoutingDigest.Query.without_embedding()
-      |> RoutingDigest.Query.ordered_by_recently_updated()
-      |> RoutingDigest.Query.limit_to(@batch)
+      Episodes.RoutingDigest.Query.without_embedding()
+      |> Episodes.RoutingDigest.Query.ordered_by_recently_updated()
+      |> Episodes.RoutingDigest.Query.limit_to(@batch)
       |> Repo.all()
 
     case digests do
@@ -119,7 +118,7 @@ defmodule Ryker.Embeddings.Worker do
   # A digest with no words at all still gets a vector, so it is not asked
   # for again on every poll.
   defp text(digest) do
-    case RoutingDigests.embedding_text(digest) do
+    case Episodes.RoutingDigests.embedding_text(digest) do
       "" -> "(no text)"
       text -> text
     end
@@ -130,9 +129,9 @@ defmodule Ryker.Embeddings.Worker do
   defp write(digest, vector, model, now) do
     {count, _rows} =
       digest.episode_id
-      |> RoutingDigest.Query.by_episode_id()
-      |> RoutingDigest.Query.unchanged_since(digest)
-      |> RoutingDigest.Query.without_embedding()
+      |> Episodes.RoutingDigest.Query.by_episode_id()
+      |> Episodes.RoutingDigest.Query.unchanged_since(digest)
+      |> Episodes.RoutingDigest.Query.without_embedding()
       |> Repo.update_all(set: [embedding: vector, embedding_model: model, embedded_at: now])
 
     count

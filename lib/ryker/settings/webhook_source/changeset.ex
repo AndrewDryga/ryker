@@ -2,16 +2,18 @@ defmodule Ryker.Settings.WebhookSource.Changeset do
   @moduledoc "Adding a webhook source and changing a saved one (`Ryker.Settings.WebhookSource`)."
   @behaviour Ryker.Settings.Section.Changeset
   use Ryker, :changeset
-  alias Ryker.Publication.DeploymentSignal
+  alias Ryker.Publication
   alias Ryker.Settings.{Validation, WebhookSource}
-  alias Ryker.Webhooks.Route
+  alias Ryker.Webhooks
 
   @fields ~w(name enabled adapter_kind auth_kind secret_name destination_transport destination_conversation_ref destination_thread_ref environment_ref group_by_labels mapping publication_lifecycle)a
   # A saved source becomes a route (`Ryker.Webhooks.Route`), so it may name
   # only what a route takes, spelled as the saved map spells it.
-  @mapping_fields Enum.map(Route.mapping_fields(), &Atom.to_string/1)
-  @mapping_required Enum.map(Route.required_mapping_fields(), &Atom.to_string/1)
-  @lifecycle_fields Route.lifecycle_fields() |> Enum.map(&Atom.to_string/1) |> Enum.sort()
+  @mapping_fields Enum.map(Webhooks.Route.mapping_fields(), &Atom.to_string/1)
+  @mapping_required Enum.map(Webhooks.Route.required_mapping_fields(), &Atom.to_string/1)
+  @lifecycle_fields Webhooks.Route.lifecycle_fields()
+                    |> Enum.map(&Atom.to_string/1)
+                    |> Enum.sort()
 
   @impl true
   def fields, do: @fields
@@ -113,7 +115,7 @@ defmodule Ryker.Settings.WebhookSource.Changeset do
     valid =
       Map.keys(scope) |> Enum.sort() == @lifecycle_fields and
         Enum.all?(@lifecycle_fields, &bounded_scope?(scope[&1])) and
-        Enum.all?(scope["kinds"], &(&1 in DeploymentSignal.kinds())) and
+        Enum.all?(scope["kinds"], &(&1 in Publication.DeploymentSignal.kinds())) and
         Enum.all?(scope["repositories"], &(&1 in repositories))
 
     if valid,

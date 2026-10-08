@@ -21,17 +21,17 @@ defmodule Ryker.WeeklyReport.Facts do
   channel Ryker is in (`public?/1`). Anything from a direct message, a
   private channel, a shared channel, Chat or GitHub is counted, never named.
   """
-  alias Ryker.Accounting.Execution
-  alias Ryker.ControlPlane.{FailureExplanation, FailureProjection, Paths}
-  alias Ryker.Episodes.{Episode, RoutingDigests}
-  alias Ryker.Feedback.Signal
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Accounting
+  alias Ryker.ControlPlane
+  alias Ryker.Episodes
+  alias Ryker.Feedback
+  alias Ryker.Ingress
   alias Ryker.InspectionRedactor
-  alias Ryker.Knowledge.ConversationKnowledge
-  alias Ryker.Memories.MemoryEntry
-  alias Ryker.Publication.Followup
+  alias Ryker.Knowledge
+  alias Ryker.Memories
+  alias Ryker.Publication
   alias Ryker.Repo
-  alias Ryker.Slack.{ChannelMembership, Names}
+  alias Ryker.Slack
 
   @negative [:frustrated, :asked_again, :edited]
   # A message routing left alone was not handled; a reply or a reaction
@@ -70,8 +70,8 @@ defmodule Ryker.WeeklyReport.Facts do
     case String.split(rest, ":") do
       [workspace, "C" <> _ = channel] ->
         workspace
-        |> ChannelMembership.Query.by_channel(channel)
-        |> ChannelMembership.Query.joined_public()
+        |> Slack.ChannelMembership.Query.by_channel(channel)
+        |> Slack.ChannelMembership.Query.joined_public()
         |> Repo.exists?()
 
       _direct_or_thread ->
@@ -88,7 +88,7 @@ defmodule Ryker.WeeklyReport.Facts do
   # is stuck while one of its turns waits on Failures.
   defp requests(from, to) do
     from
-    |> Episode.Query.asked_or_answered_between(to)
+    |> Episodes.Episode.Query.asked_or_answered_between(to)
     |> Repo.all()
     |> Enum.map(&Map.put(&1, :standing, standing(&1)))
   end
@@ -103,7 +103,7 @@ defmodule Ryker.WeeklyReport.Facts do
   # The requests the report may name, newest first, one line per title in a
   # channel; how many there are, and how many are in private conversations.
   defp named(requests, limit) do
-    titles = requests |> Enum.map(& &1.id) |> RoutingDigests.titles()
+    titles = requests |> Enum.map(& &1.id) |> Episodes.RoutingDigests.titles()
     public = requests |> Enum.map(& &1.conversation) |> Enum.uniq() |> Enum.filter(&public?/1)
 
     shown =
@@ -112,8 +112,8 @@ defmodule Ryker.WeeklyReport.Facts do
       |> Enum.map(fn request ->
         %{
           title: titles[request.id],
-          where: Names.destination(request.conversation),
-          href: Paths.request(request.id),
+          where: Slack.Names.destination(request.conversation),
+          href: ControlPlane.Paths.request(request.id),
           rank: {unix(request.last_at), request.key}
         }
       end)
@@ -140,7 +140,7 @@ defmodule Ryker.WeeklyReport.Facts do
   defp messages(from, to) do
     counts =
       from
-      |> Entry.Query.decision_counts_between(to, @handled)
+      |> Ingress.Inbox.Entry.Query.decision_counts_between(to, @handled)
       |> Repo.all()
       |> Map.new()
 
@@ -196,9 +196,9 @@ defmodule Ryker.WeeklyReport.Facts do
   defp cost(from, to) do
     row =
       from
-      |> Execution.Query.ledger("live")
-      |> Execution.Query.recorded_before(to)
-      |> Execution.Query.select_cost_totals()
+      |> Accounting.Execution.Query.ledger("live")
+      |> Accounting.Execution.Query.recorded_before(to)
+      |> Accounting.Execution.Query.select_cost_totals()
       |> Repo.one!()
 
     %{
@@ -215,7 +215,7 @@ defmodule Ryker.WeeklyReport.Facts do
   # out, which is when its follow-up starts; a follow-up rearmed later keeps
   # that time.
   defp pull_requests(from, to) do
-    rows = from |> Followup.Query.pull_requests(to) |> Repo.all()
+    rows = from |> Publication.Followup.Query.pull_requests(to) |> Repo.all()
 
     this_week = Enum.filter(rows, &within?(&1.opened_at, from, to))
 
@@ -267,14 +267,17 @@ defmodule Ryker.WeeklyReport.Facts do
   # result, newest first, as the Failures page lists and explains them. A read
   # that failed is not "nothing is stuck".
   defp stuck(now) do
-    case FailureProjection.list(%{}) do
+    case ControlPlane.FailureProjection.list(%{}) do
       {:ok, rows} ->
         people =
           rows
-          |> Enum.map(&{&1, FailureExplanation.explain(&1, now)})
+          |> Enum.map(&{&1, ControlPlane.FailureExplanation.explain(&1, now)})
           |> Enum.filter(fn {_row, explanation} -> explanation.impact == :people end)
 
-        %{total: length(people), partial: length(rows) == FailureProjection.page_size()}
+        %{
+          total: length(people),
+          partial: length(rows) == ControlPlane.FailureProjection.page_size()
+        }
 
       {:error, :unavailable} ->
         :unavailable
@@ -286,8 +289,8 @@ defmodule Ryker.WeeklyReport.Facts do
   defp feedback(from, to) do
     counts =
       from
-      |> Signal.Query.occurred_between(to)
-      |> Signal.Query.count_by_category()
+      |> Feedback.Signal.Query.occurred_between(to)
+      |> Feedback.Signal.Query.count_by_category()
       |> Repo.all()
       |> Map.new()
 
@@ -301,11 +304,11 @@ defmodule Ryker.WeeklyReport.Facts do
   # the newest topic from a public channel, the one the report may name.
   defp learned(from, to) do
     facts =
-      MemoryEntry.Query.active()
-      |> MemoryEntry.Query.confirmed_between(from, to)
+      Memories.MemoryEntry.Query.active()
+      |> Memories.MemoryEntry.Query.confirmed_between(from, to)
       |> Repo.aggregate(:count)
 
-    topics = from |> ConversationKnowledge.Query.learned_between(to) |> Repo.all()
+    topics = from |> Knowledge.ConversationKnowledge.Query.learned_between(to) |> Repo.all()
 
     %{
       count: facts + length(topics),

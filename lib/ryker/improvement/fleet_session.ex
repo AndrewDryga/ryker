@@ -7,7 +7,7 @@ defmodule Ryker.Improvement.FleetSession do
   """
   alias Ryker.Improvement.AnalysisRun
   alias Ryker.Repo
-  alias Ryker.Work.{Custody, Session}
+  alias Ryker.Work
 
   @doc "The task reference Coop knows the run's session by."
   @spec external_ref(AnalysisRun.t()) :: String.t()
@@ -19,7 +19,7 @@ defmodule Ryker.Improvement.FleetSession do
   """
   @spec placeable?(map()) :: boolean()
   def placeable?(%{api: api, client: client, policy: policy, policy_digest: digest}) do
-    session = %Session{execution_kind: :improvement, policy: policy, policy_digest: digest}
+    session = %Work.Session{execution_kind: :improvement, policy: policy, policy_digest: digest}
 
     if Code.ensure_loaded?(api) and function_exported?(api, :accepts_session?, 2),
       do: api.accepts_session?(client, session),
@@ -34,7 +34,7 @@ defmodule Ryker.Improvement.FleetSession do
   page listing sessions redrew every two seconds while a run was out
   (2026-10-04 review).
   """
-  @spec ensure(AnalysisRun.t()) :: {:ok, Session.t()} | {:error, term()}
+  @spec ensure(AnalysisRun.t()) :: {:ok, Work.Session.t()} | {:error, term()}
   def ensure(%AnalysisRun{} = run) do
     Repo.transaction(fn ->
       session = existing(run) || create!(run)
@@ -48,7 +48,7 @@ defmodule Ryker.Improvement.FleetSession do
 
   defp create!(run) do
     Repo.insert!(
-      %Session{
+      %Work.Session{
         execution_kind: :improvement,
         improvement_run_id: run.id,
         policy: run.policy,
@@ -58,11 +58,11 @@ defmodule Ryker.Improvement.FleetSession do
       on_conflict: :nothing
     )
 
-    run |> locked() |> tap(&Custody.broadcast_session_updated/1)
+    run |> locked() |> tap(&Work.Custody.broadcast_session_updated/1)
   end
 
   @doc "Binds the run's session to the Coop session created for it, once."
-  @spec bind(AnalysisRun.t(), String.t()) :: {:ok, Session.t()} | {:error, term()}
+  @spec bind(AnalysisRun.t(), String.t()) :: {:ok, Work.Session.t()} | {:error, term()}
   def bind(%AnalysisRun{} = run, remote_id)
       when is_binary(remote_id) and byte_size(remote_id) in 1..1024 do
     Repo.transaction(fn ->
@@ -73,7 +73,7 @@ defmodule Ryker.Improvement.FleetSession do
           session
           |> Ecto.Changeset.change(coop_session_id: remote_id)
           |> Repo.update!()
-          |> tap(&Custody.broadcast_session_updated/1)
+          |> tap(&Work.Custody.broadcast_session_updated/1)
 
         ^remote_id ->
           session
@@ -87,21 +87,23 @@ defmodule Ryker.Improvement.FleetSession do
   def bind(_run, _remote_id), do: {:error, :improvement_session_identity_conflict}
 
   @doc "The run's session, which `ensure/1` makes."
-  @spec fetch_for_run(AnalysisRun.t()) :: {:ok, Session.t()} | {:error, :not_found}
-  def fetch_for_run(%AnalysisRun{id: id}), do: Repo.fetch(Session.Query.by_improvement_run_id(id))
+  @spec fetch_for_run(AnalysisRun.t()) :: {:ok, Work.Session.t()} | {:error, :not_found}
+  def fetch_for_run(%AnalysisRun{id: id}),
+    do: Repo.fetch(Work.Session.Query.by_improvement_run_id(id))
 
   @doc "The Coop session the run's session is bound to, or nil before it is."
   @spec coop_session_id(AnalysisRun.t()) :: String.t() | nil
   def coop_session_id(%AnalysisRun{id: id}) do
     id
-    |> Session.Query.by_improvement_run_id()
-    |> Session.Query.select_coop_session_ids()
+    |> Work.Session.Query.by_improvement_run_id()
+    |> Work.Session.Query.select_coop_session_ids()
     |> Repo.one()
   end
 
   defp existing(run), do: run |> run_session() |> Repo.one()
   defp locked(run), do: run |> run_session() |> Repo.one!()
 
-  defp run_session(run),
-    do: run.id |> Session.Query.by_improvement_run_id() |> Session.Query.lock_for_update()
+  defp run_session(run) do
+    run.id |> Work.Session.Query.by_improvement_run_id() |> Work.Session.Query.lock_for_update()
+  end
 end

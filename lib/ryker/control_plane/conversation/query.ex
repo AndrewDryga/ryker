@@ -12,16 +12,15 @@ defmodule Ryker.ControlPlane.Conversation.Query do
   source_item_refs}`, `{:replies, turn_ids, delivery_refs}`, or `:none`.
   """
   use Ryker, :query
-  alias Ryker.Admission.Attempt
-  alias Ryker.Artifacts.OutputArtifact
+  alias Ryker.Admission
+  alias Ryker.Artifacts
   alias Ryker.ControlPlane.{CurrentInput, PublicationPosition}
-  alias Ryker.Delivery.{PlatformAction, RoutingResponse}
-  alias Ryker.Episodes.{Episode, Event, RoutingDigest}
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Ingress.InputCustodyTransition
-  alias Ryker.Publication.Publication
-  alias Ryker.Records.Record
-  alias Ryker.Work.Turn
+  alias Ryker.Delivery
+  alias Ryker.Episodes
+  alias Ryker.Ingress
+  alias Ryker.Publication
+  alias Ryker.Records
+  alias Ryker.Work
   require Ryker.ControlPlane.CurrentInput.Query
   require Ryker.ControlPlane.PublicationPosition.Query
 
@@ -31,7 +30,7 @@ defmodule Ryker.ControlPlane.Conversation.Query do
   when its latest arrived.
   """
   def directory(prefix) do
-    from(entry in Entry,
+    from(entry in Ingress.Inbox.Entry,
       where:
         entry.destination_transport == "control_plane" and
           like(entry.destination_conversation_ref, ^"#{prefix}%") and
@@ -49,7 +48,7 @@ defmodule Ryker.ControlPlane.Conversation.Query do
   @doc "Each of `refs`' first message as it reads now, as `{ref, text}`."
   def opening_texts(refs) do
     first_messages =
-      from(entry in Entry,
+      from(entry in Ingress.Inbox.Entry,
         where:
           entry.destination_conversation_ref in ^refs and entry.source_kind == "control_plane",
         distinct: entry.destination_conversation_ref,
@@ -72,8 +71,8 @@ defmodule Ryker.ControlPlane.Conversation.Query do
 
   @doc "The name Ryker gave each of `refs`' latest named work, as `{ref, title}`."
   def work_titles(refs) do
-    from(entry in Entry,
-      join: digest in RoutingDigest,
+    from(entry in Ingress.Inbox.Entry,
+      join: digest in Episodes.RoutingDigest,
       on: digest.episode_id == entry.episode_id,
       where: entry.destination_conversation_ref in ^refs and not is_nil(digest.title),
       distinct: entry.destination_conversation_ref,
@@ -92,8 +91,8 @@ defmodule Ryker.ControlPlane.Conversation.Query do
   is still at it, it waits for the person, or it waits for an event.
   """
   def needs(refs) do
-    from(entry in Entry,
-      left_join: episode in Episode,
+    from(entry in Ingress.Inbox.Entry,
+      left_join: episode in Episodes.Episode,
       on: episode.id == entry.episode_id,
       where:
         entry.destination_transport == "control_plane" and
@@ -127,10 +126,10 @@ defmodule Ryker.ControlPlane.Conversation.Query do
   `ref`, while the reply is retained.
   """
   def artifact(ref, turn_id, artifact_ref) do
-    from(artifact in OutputArtifact,
-      join: turn in Turn,
+    from(artifact in Artifacts.OutputArtifact,
+      join: turn in Work.Turn,
       on: turn.id == artifact.turn_id,
-      join: episode in Episode,
+      join: episode in Episodes.Episode,
       on: episode.id == turn.episode_id,
       where:
         artifact.turn_id == ^turn_id and artifact.ref == ^artifact_ref and
@@ -159,7 +158,7 @@ defmodule Ryker.ControlPlane.Conversation.Query do
   sent in conversation `ref`, locked for its edit or deletion.
   """
   def current_message(ref, source_item_ref, actor) do
-    from(entry in Entry,
+    from(entry in Ingress.Inbox.Entry,
       where:
         entry.source_kind == "control_plane" and entry.source_ref == "local" and
           entry.actor_kind == :user and entry.actor_ref == ^actor and
@@ -178,8 +177,8 @@ defmodule Ryker.ControlPlane.Conversation.Query do
   reached it, the latest first.
   """
   def delivered_replies(ref, limit) do
-    from(turn in Turn,
-      join: episode in Episode,
+    from(turn in Work.Turn,
+      join: episode in Episodes.Episode,
       on: episode.id == turn.episode_id,
       where:
         episode.destination_transport == "control_plane" and
@@ -199,8 +198,8 @@ defmodule Ryker.ControlPlane.Conversation.Query do
   """
   def admitted_messages(ref, current, limit) do
     latest =
-      from(event in Event,
-        join: episode in Episode,
+      from(event in Episodes.Event,
+        join: episode in Episodes.Episode,
         on: episode.id == event.episode_id,
         where:
           episode.destination_transport == "control_plane" and
@@ -238,7 +237,7 @@ defmodule Ryker.ControlPlane.Conversation.Query do
 
   @doc "Every revision of every message of conversation `ref`."
   def messages(ref) do
-    from(entry in Entry,
+    from(entry in Ingress.Inbox.Entry,
       where:
         entry.destination_transport == "control_plane" and
           entry.destination_conversation_ref == ^ref and entry.destination_thread_ref == ^ref
@@ -247,7 +246,7 @@ defmodule Ryker.ControlPlane.Conversation.Query do
 
   @doc "The episodes of conversation `ref`."
   def episodes(ref) do
-    from(episode in Episode,
+    from(episode in Episodes.Episode,
       where:
         episode.destination_transport == "control_plane" and
           episode.destination_conversation_ref == ^ref and
@@ -261,7 +260,7 @@ defmodule Ryker.ControlPlane.Conversation.Query do
   """
   def latest_episodes(ref, limit) do
     from(episode in episodes(ref),
-      left_join: turn in Turn,
+      left_join: turn in Work.Turn,
       on:
         turn.episode_id == episode.id and episode.owner_kind == :turn and
           episode.owner_ref == turn.turn_ref,
@@ -277,11 +276,11 @@ defmodule Ryker.ControlPlane.Conversation.Query do
   generation, when it was last put back to wait, and its current text.
   """
   def waiting_messages(ref, limit) do
-    from(entry in Entry,
+    from(entry in Ingress.Inbox.Entry,
       as: :revision,
       inner_lateral_join: current in subquery(CurrentInput.Query.current()),
       on: true,
-      left_join: attempt in Attempt,
+      left_join: attempt in Admission.Attempt,
       on: attempt.input_id == entry.id and attempt.generation == entry.execution_generation,
       left_join: retried in subquery(latest_retries()),
       on: retried.input_id == entry.id,
@@ -318,7 +317,7 @@ defmodule Ryker.ControlPlane.Conversation.Query do
   # first arrived read "Routing your message 307m 29s" on the live install
   # (2026-09-26) for a message retried five hours after it stopped.
   defp latest_retries do
-    from(transition in InputCustodyTransition,
+    from(transition in Ingress.InputCustodyTransition,
       where: transition.kind == :rearmed,
       group_by: transition.input_id,
       select: %{input_id: transition.input_id, at: max(transition.occurred_at)}
@@ -341,7 +340,7 @@ defmodule Ryker.ControlPlane.Conversation.Query do
   message is not counted: the stopped one says so.
   """
   def response_counts(ref) do
-    from(response in RoutingResponse.Query.in_order(),
+    from(response in Delivery.RoutingResponse.Query.in_order(),
       where:
         response.transport == "control_plane" and response.conversation_ref == ^ref and
           response.thread_ref == ^ref,
@@ -354,7 +353,7 @@ defmodule Ryker.ControlPlane.Conversation.Query do
 
   @doc "Publications of conversation `ref` still being reviewed or published."
   def publications_under_way(ref) do
-    from(publication in Publication,
+    from(publication in Publication.Publication,
       where:
         publication.destination_transport == "control_plane" and
           publication.destination_conversation_ref == ^ref and
@@ -370,8 +369,8 @@ defmodule Ryker.ControlPlane.Conversation.Query do
 
   @doc "Replies of conversation `ref` accepted and waiting to be delivered."
   def replies_waiting(ref) do
-    from(turn in Turn,
-      join: episode in Episode,
+    from(turn in Work.Turn,
+      join: episode in Episodes.Episode,
       on: episode.id == turn.episode_id,
       where:
         episode.destination_transport == "control_plane" and
@@ -383,7 +382,7 @@ defmodule Ryker.ControlPlane.Conversation.Query do
 
   @doc "Platform actions of conversation `ref` in `status`."
   def actions_in_status(ref, status) do
-    from(action in PlatformAction,
+    from(action in Delivery.PlatformAction,
       where:
         action.transport == "control_plane" and action.conversation_ref == ^ref and
           action.status == ^status
@@ -490,8 +489,8 @@ defmodule Ryker.ControlPlane.Conversation.Query do
   only an unaccepted or invisible result is absent.
   """
   def replies(ref, filter, limit) do
-    from([episode_work_turns: turn] in Turn.Query.all(),
-      join: episode in Episode,
+    from([episode_work_turns: turn] in Work.Turn.Query.all(),
+      join: episode in Episodes.Episode,
       on: episode.id == turn.episode_id,
       where:
         episode.destination_transport == "control_plane" and
@@ -544,8 +543,8 @@ defmodule Ryker.ControlPlane.Conversation.Query do
   published; its position is the delivery it currently shows.
   """
   def publications(ref, filter, limit) do
-    from([episode_publications: publication] in Publication.Query.all(),
-      join: record in Record,
+    from([episode_publications: publication] in Publication.Publication.Query.all(),
+      join: record in Records.Record,
       on: record.id == publication.record_id and record.episode_id == publication.episode_id,
       where:
         publication.destination_transport == "control_plane" and
@@ -585,8 +584,8 @@ defmodule Ryker.ControlPlane.Conversation.Query do
   the latest first, `limit` at most.
   """
   def actions(ref, filter, limit) do
-    from([platform_actions: action] in PlatformAction.Query.all(),
-      join: episode in Episode,
+    from([platform_actions: action] in Delivery.PlatformAction.Query.all(),
+      join: episode in Episodes.Episode,
       on: episode.id == action.episode_id,
       where:
         action.transport == "control_plane" and action.conversation_ref == ^ref and
@@ -633,7 +632,7 @@ defmodule Ryker.ControlPlane.Conversation.Query do
   at delivery like a platform message, the latest first, `limit` at most.
   """
   def quick_replies(ref, filter, limit) do
-    from([delivery_routing_responses: response] in RoutingResponse.Query.all(),
+    from([delivery_routing_responses: response] in Delivery.RoutingResponse.Query.all(),
       where:
         response.kind == :message and response.transport == "control_plane" and
           response.conversation_ref == ^ref and response.thread_ref == ^ref and
@@ -684,7 +683,7 @@ defmodule Ryker.ControlPlane.Conversation.Query do
 
   @doc "Messages of conversation `ref` whose reaction from routing changed since `since`."
   def routing_reacted_items(ref, since, limit) do
-    from(reaction in RoutingResponse,
+    from(reaction in Delivery.RoutingResponse,
       where:
         reaction.kind == :reaction and reaction.transport == "control_plane" and
           reaction.conversation_ref == ^ref and reaction.updated_at >= ^since and
@@ -697,7 +696,7 @@ defmodule Ryker.ControlPlane.Conversation.Query do
 
   @doc "Messages of conversation `ref` whose reaction from Work changed since `since`."
   def work_reacted_items(ref, since, limit) do
-    from(action in PlatformAction,
+    from(action in Delivery.PlatformAction,
       where:
         action.transport == "control_plane" and action.conversation_ref == ^ref and
           action.kind == :reaction and action.updated_at >= ^since and
@@ -710,8 +709,8 @@ defmodule Ryker.ControlPlane.Conversation.Query do
 
   @doc "Turns of conversation `ref` updated since `since`, `limit` at most."
   def updated_turn_ids(ref, since, limit) do
-    from(turn in Turn,
-      join: episode in Episode,
+    from(turn in Work.Turn,
+      join: episode in Episodes.Episode,
       on: episode.id == turn.episode_id,
       where:
         episode.destination_transport == "control_plane" and
@@ -724,8 +723,8 @@ defmodule Ryker.ControlPlane.Conversation.Query do
 
   @doc "Turns of the episodes local messages `native_input_ids` started, `limit` at most."
   def answering_turn_ids(native_input_ids, limit) do
-    from(turn in Turn,
-      join: entry in Entry,
+    from(turn in Work.Turn,
+      join: entry in Ingress.Inbox.Entry,
       on: entry.episode_id == turn.episode_id,
       where:
         entry.source_kind == "control_plane" and entry.source_ref == "local" and
@@ -738,8 +737,8 @@ defmodule Ryker.ControlPlane.Conversation.Query do
 
   @doc "Turns whose records in conversation `ref` moved since `since`, `limit` at most."
   def moved_record_turn_ids(ref, since, limit) do
-    from(record in Record,
-      join: episode in Episode,
+    from(record in Records.Record,
+      join: episode in Episodes.Episode,
       on: episode.id == record.episode_id,
       where:
         episode.destination_transport == "control_plane" and
@@ -757,8 +756,8 @@ defmodule Ryker.ControlPlane.Conversation.Query do
   `limit` at most; a reaction that names none reads nil.
   """
   def reacted_delivery_refs(ref, since, limit) do
-    from(event in Event,
-      join: episode in Episode,
+    from(event in Episodes.Event,
+      join: episode in Episodes.Episode,
       on: episode.id == event.episode_id,
       where:
         episode.destination_transport == "control_plane" and
@@ -775,7 +774,7 @@ defmodule Ryker.ControlPlane.Conversation.Query do
   messages `reacted` names, `limit` at most.
   """
   def changed_action_ids(ref, since, reacted, limit) do
-    from(action in PlatformAction,
+    from(action in Delivery.PlatformAction,
       where:
         action.transport == "control_plane" and action.conversation_ref == ^ref and
           action.kind == :message,
@@ -789,7 +788,7 @@ defmodule Ryker.ControlPlane.Conversation.Query do
 
   @doc "Publications of conversation `ref` updated since `since`, `limit` at most."
   def changed_publication_ids(ref, since, limit) do
-    from(publication in Publication,
+    from(publication in Publication.Publication,
       where:
         publication.destination_transport == "control_plane" and
           publication.destination_conversation_ref == ^ref and
@@ -805,7 +804,7 @@ defmodule Ryker.ControlPlane.Conversation.Query do
   messages `reacted` names, `limit` at most.
   """
   def changed_quick_reply_ids(ref, since, reacted, limit) do
-    from(response in RoutingResponse,
+    from(response in Delivery.RoutingResponse,
       where:
         response.kind == :message and response.transport == "control_plane" and
           response.conversation_ref == ^ref,

@@ -15,7 +15,6 @@ defmodule Ryker.ControlPlane.ChannelsPage do
   alias Ryker.ControlPlane.ShortTime
   alias Ryker.Episodes
   alias Ryker.Slack
-  alias Ryker.Slack.IncidentRooms
 
   @doc """
   The topics an open Channels list listens to, as the context functions that
@@ -27,7 +26,7 @@ defmodule Ryker.ControlPlane.ChannelsPage do
   def subscriptions do
     SettingsView.subscriptions() ++
       [
-        {IncidentRooms, :subscribe_rooms, []},
+        {Slack.IncidentRooms, :subscribe_rooms, []},
         {Episodes, :subscribe_conversations, ["slack"]}
       ]
   end

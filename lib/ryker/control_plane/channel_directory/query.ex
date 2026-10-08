@@ -5,15 +5,15 @@ defmodule Ryker.ControlPlane.ChannelDirectory.Query do
   channel and how many requests each Slack conversation holds.
   """
   use Ryker, :query
-  alias Ryker.Episodes.Episode
-  alias Ryker.Slack.IncidentRoom
+  alias Ryker.Episodes
+  alias Ryker.Slack
 
   @doc """
   The newest incident room of each channel, as `{{workspace_ref,
   channel_ref}, status, channel_state, channel_name}`.
   """
   def latest_rooms do
-    from(room in IncidentRoom,
+    from(room in Slack.IncidentRoom,
       where: not is_nil(room.channel_ref),
       distinct: [room.workspace_ref, room.channel_ref],
       order_by: [
@@ -33,7 +33,7 @@ defmodule Ryker.ControlPlane.ChannelDirectory.Query do
   changed, as `%{conversation_ref, episodes, last_at}`.
   """
   def episode_counts do
-    from(episode in Episode,
+    from(episode in Episodes.Episode,
       where:
         episode.destination_transport == "slack" and
           like(episode.destination_conversation_ref, "slack:%"),

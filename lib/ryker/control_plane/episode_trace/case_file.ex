@@ -7,13 +7,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   import Ryker.ControlPlane.EpisodeTrace.Step
   alias Ryker.ControlPlane.{ConsolePeople, EpisodeTrace, Paths, ProviderMessage}
   alias Ryker.ControlPlane.{SlackMarkdown, SourceText}
-  alias Ryker.Delivery.PlatformAction
-  alias Ryker.Episodes.RoutingDigests
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Delivery
+  alias Ryker.Episodes
+  alias Ryker.Ingress
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
-  alias Ryker.Slack.Names
-  alias Ryker.Work.{Session, Turn}
+  alias Ryker.Slack
+  alias Ryker.Work
 
   @doc """
   The case file: the latest messages and replies in display order, the
@@ -101,12 +101,12 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   # every update is delivered.
   defp case_updates(episode_id, options) do
     episode_id
-    |> PlatformAction.Query.by_episode_id()
-    |> PlatformAction.Query.by_tool(:post_slack_update)
-    |> PlatformAction.Query.by_status(:delivered)
-    |> PlatformAction.Query.delivered()
-    |> PlatformAction.Query.ordered_by_delivered_at_desc()
-    |> PlatformAction.Query.limit_to(20)
+    |> Delivery.PlatformAction.Query.by_episode_id()
+    |> Delivery.PlatformAction.Query.by_tool(:post_slack_update)
+    |> Delivery.PlatformAction.Query.by_status(:delivered)
+    |> Delivery.PlatformAction.Query.delivered()
+    |> Delivery.PlatformAction.Query.ordered_by_delivered_at_desc()
+    |> Delivery.PlatformAction.Query.limit_to(20)
     |> Repo.all()
     |> Enum.reverse()
     |> Enum.map(fn action ->
@@ -147,19 +147,19 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
     end
   end
 
-  defp task_session(%Turn{operational_pruned_at: nil, session_id: id}, sessions),
+  defp task_session(%Work.Turn{operational_pruned_at: nil, session_id: id}, sessions),
     do: Enum.find(sessions, &(&1.id == id and is_map(&1.workspace_task)))
 
   defp task_session(_, _), do: nil
 
   defp episode_title(episode_id) do
-    case RoutingDigests.titles([episode_id]) do
+    case Episodes.RoutingDigests.titles([episode_id]) do
       %{^episode_id => title} -> InspectionRedactor.artifact(title, max_bytes: 240).text
       _untitled -> nil
     end
   end
 
-  defp task_title(%Session{workspace_task: %{"title" => title}}) when is_binary(title),
+  defp task_title(%Work.Session{workspace_task: %{"title" => title}}) when is_binary(title),
     do: InspectionRedactor.artifact(title, max_bytes: 240).text
 
   defp task_title(_), do: nil
@@ -174,8 +174,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   who sent it and when, its retained words and their provenance. `disclosed`
   names the bodies the reader opened.
   """
-  @spec input_message(Entry.t(), MapSet.t()) :: map()
-  def input_message(%Entry{} = input, disclosed) do
+  @spec input_message(Ingress.Inbox.Entry.t(), MapSet.t()) :: map()
+  def input_message(%Ingress.Inbox.Entry{} = input, disclosed) do
     case_message(input,
       secrets: InspectionRedactor.configured_secrets(),
       max_bytes: 12_000,
@@ -203,7 +203,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
     |> bounded(120)
   end
 
-  defp case_repository(%Session{repository_ref: ref}, _) when is_binary(ref), do: ref
+  defp case_repository(%Work.Session{repository_ref: ref}, _) when is_binary(ref), do: ref
   defp case_repository(_, first), do: first && first.repository
 
   @doc "The proposal, approval and failed start of a task that never ran, for a collapsed page."
@@ -283,10 +283,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
       person: slack_person(input),
       # People mentioned in the text are named while the card is drawn; the
       # names known then are part of the card, so a later one redraws it.
-      names: Names.revision(),
+      names: Slack.Names.revision(),
       display_actor:
         if(input.source_kind == "slack" and input.actor_kind != :user,
-          do: Names.name(input.source_ref, input.actor_ref)
+          do: Slack.Names.name(input.source_ref, input.actor_ref)
         ),
       actor_ref: input.actor_ref,
       workspace: if(input.source_kind == "slack", do: input.source_ref),
@@ -306,7 +306,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   end
 
   defp slack_person(%{actor_kind: :user, source_kind: "slack"} = input),
-    do: Names.person(input.source_ref, input.actor_ref)
+    do: Slack.Names.person(input.source_ref, input.actor_ref)
 
   defp slack_person(_input), do: nil
 

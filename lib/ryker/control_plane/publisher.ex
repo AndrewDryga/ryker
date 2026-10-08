@@ -11,7 +11,7 @@ defmodule Ryker.ControlPlane.Publisher do
   @behaviour Ryker.Delivery.MessagePublisher
   @behaviour Ryker.Delivery.ReactionPublisher
   alias Ryker.Crypto
-  alias Ryker.Work.DeliveryReceipt
+  alias Ryker.Work
 
   @impl true
   def transport, do: "control_plane"
@@ -28,7 +28,7 @@ defmodule Ryker.ControlPlane.Publisher do
 
   @impl true
   def publish_reaction(request, _binding) do
-    DeliveryReceipt.new(
+    Work.DeliveryReceipt.new(
       request.ref,
       request.transport,
       request.conversation_ref,
@@ -38,7 +38,7 @@ defmodule Ryker.ControlPlane.Publisher do
   end
 
   defp receipt(request) do
-    DeliveryReceipt.new(
+    Work.DeliveryReceipt.new(
       request.ref,
       request.transport,
       request.conversation_ref,

@@ -1,7 +1,7 @@
 defmodule Ryker.Knowledge.KnowledgeRetention do
   @moduledoc false
   alias Ryker.{CanonicalJSON, Repo}
-  alias Ryker.Learning.LearningSources
+  alias Ryker.Learning
 
   # An inherited-only root matters just as much as a direct citation. Withdraw
   # only revisions that actually inherited it; earlier revisions keep their history.
@@ -58,7 +58,7 @@ defmodule Ryker.Knowledge.KnowledgeRetention do
       UPDATE conversation_observations o SET note = NULL
       FROM candidates c WHERE o.id = c.id
       """,
-      [seconds, LearningSources.utc_timestamp_pattern()]
+      [seconds, Learning.LearningSources.utc_timestamp_pattern()]
     ).num_rows
   end
 
@@ -80,7 +80,7 @@ defmodule Ryker.Knowledge.KnowledgeRetention do
       """,
       [
         seconds,
-        LearningSources.utc_timestamp_pattern(),
+        Learning.LearningSources.utc_timestamp_pattern(),
         CanonicalJSON.digest(%{"retention" => "pruned"})
       ]
     ).num_rows

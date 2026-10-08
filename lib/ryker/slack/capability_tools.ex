@@ -15,7 +15,7 @@ defmodule Ryker.Slack.CapabilityTools do
   shape bookmarks, canvases and files, and `Actions` freeze a reaction, a Work
   update or an offered post into durable custody.
   """
-  alias Ryker.Delivery.{PlatformActionCustody, Retry}
+  alias Ryker.Delivery
   alias Ryker.{Options, Rescued}
   alias Ryker.Slack.CapabilityTools.{Actions, Arguments, Authority, ChannelListing, Search}
   alias Ryker.Slack.CapabilityTools.SourceReader
@@ -122,7 +122,7 @@ defmodule Ryker.Slack.CapabilityTools do
       },
       %{
         "description" =>
-          "Add or remove one deliberate reaction on an exact current human Slack message. Each call is one reaction: a turn makes at most #{PlatformActionCustody.maximum_per_turn()}, delivered in the order called, and the same call again is the same reaction. Removal is limited to a reaction previously added by Ryker.",
+          "Add or remove one deliberate reaction on an exact current human Slack message. Each call is one reaction: a turn makes at most #{Delivery.PlatformActionCustody.maximum_per_turn()}, delivered in the order called, and the same call again is the same reaction. Removal is limited to a reaction previously added by Ryker.",
         "inputSchema" => %{
           "additionalProperties" => false,
           "properties" => %{
@@ -170,7 +170,7 @@ defmodule Ryker.Slack.CapabilityTools do
       },
       %{
         "description" =>
-          "Post one short message in this conversation right away, before your final answer: an early acknowledgement when the work will take a while, a partial finding someone can act on now, or what you are doing next. It goes at once to the thread your answer goes to, at most #{PlatformActionCustody.maximum_per_turn()} per turn, in the order posted. It never replaces the final answer, and the final answer is accepted only once every update has been delivered.",
+          "Post one short message in this conversation right away, before your final answer: an early acknowledgement when the work will take a while, a partial finding someone can act on now, or what you are doing next. It goes at once to the thread your answer goes to, at most #{Delivery.PlatformActionCustody.maximum_per_turn()} per turn, in the order posted. It never replaces the final answer, and the final answer is accepted only once every update has been delivered.",
         "inputSchema" => %{
           "additionalProperties" => false,
           "properties" => %{
@@ -419,13 +419,19 @@ defmodule Ryker.Slack.CapabilityTools do
     current_instruction =
       Map.get(options, :current_instruction, &Authority.current_slack_instruction/3)
 
-    enqueue_action = Map.get(options, :enqueue_action, &PlatformActionCustody.enqueue_in_turn/2)
+    enqueue_action =
+      Map.get(options, :enqueue_action, &Delivery.PlatformActionCustody.enqueue_in_turn/2)
+
     mention_authority = Map.get(options, :mention_authority, &Authority.mention_authority/1)
     update_destination = Map.get(options, :update_destination, &Authority.update_destination/1)
     propose_post = Map.get(options, :propose_post, &Actions.propose_slack_post/2)
 
     reaction_added =
-      Map.get(options, :reaction_added, &PlatformActionCustody.delivered_reaction_added?/4)
+      Map.get(
+        options,
+        :reaction_added,
+        &Delivery.PlatformActionCustody.delivered_reaction_added?/4
+      )
 
     configuration =
       Map.get(options, :configuration, &ChannelConfigurations.fetch_configuration/2)
@@ -599,7 +605,7 @@ defmodule Ryker.Slack.CapabilityTools do
   # one Ryker is not in, is no outage: "temporarily_unavailable" had the model
   # retry it.
   defp error_code({:slack_api_error, code} = reason) when is_binary(code) do
-    if Retry.retryable?(reason) or not Regex.match?(~r/\A[a-z_]{1,64}\z/, code),
+    if Delivery.Retry.retryable?(reason) or not Regex.match?(~r/\A[a-z_]{1,64}\z/, code),
       do: "temporarily_unavailable",
       else:
         "slack_refused: Slack answered #{code} and will answer the same again. Do not retry this call."
@@ -617,11 +623,11 @@ defmodule Ryker.Slack.CapabilityTools do
     do: "invalid_arguments: " <> Enum.join(violations, " ") <> " Nothing was posted."
 
   def refusal_code(:update_limit_reached) do
-    "update_limit_reached: this turn has already posted its #{PlatformActionCustody.maximum_per_turn()} updates. Nothing was posted; say anything more in the final answer."
+    "update_limit_reached: this turn has already posted its #{Delivery.PlatformActionCustody.maximum_per_turn()} updates. Nothing was posted; say anything more in the final answer."
   end
 
   def refusal_code(:reaction_limit_reached) do
-    "reaction_limit_reached: at most #{PlatformActionCustody.maximum_per_turn()} reactions per turn, and this turn has made them. Nothing was changed; say anything more in the final answer."
+    "reaction_limit_reached: at most #{Delivery.PlatformActionCustody.maximum_per_turn()} reactions per turn, and this turn has made them. Nothing was changed; say anything more in the final answer."
   end
 
   def refusal_code(_reason), do: nil

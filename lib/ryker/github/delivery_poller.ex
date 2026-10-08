@@ -28,7 +28,7 @@ defmodule Ryker.GitHub.DeliveryPoller do
   """
   use GenServer
   alias Plug.Adapters.Test.Conn, as: RequestConn
-  alias Ryker.Delivery.JSONClient
+  alias Ryker.Delivery
   alias Ryker.GitHub.{Auth, Events, Router}
   alias Ryker.Secret
   require Logger
@@ -61,7 +61,7 @@ defmodule Ryker.GitHub.DeliveryPoller do
     %{
       app_id: Map.fetch!(options, :app_id),
       app_http: Map.fetch!(options, :app_http),
-      requester: Map.get(options, :requester, JSONClient),
+      requester: Map.get(options, :requester, Delivery.JSONClient),
       router: Router.init(router),
       secret: Keyword.fetch!(router, :secret),
       interval_ms: Map.get(options, :interval_ms, @interval_ms),

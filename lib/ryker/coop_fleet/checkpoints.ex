@@ -5,7 +5,7 @@ defmodule Ryker.CoopFleet.Checkpoints do
   alias Ryker.CoopFleet.WorkspaceCheckpointTransfer
   alias Ryker.{Credentials, Repo, Secret}
   alias Ryker.Crypto
-  alias Ryker.Work.{RepositorySource, Session}
+  alias Ryker.Work
 
   defp producer_command(key, session_id) do
     key
@@ -184,8 +184,8 @@ defmodule Ryker.CoopFleet.Checkpoints do
 
   defp restore_authority(command, transfer) do
     source_command = Repo.one(Command.Query.by_id(transfer.command_id))
-    source = source_command && Repo.one(Session.Query.by_id(source_command.session_id))
-    target = Repo.one(Session.Query.by_id(command.session_id))
+    source = source_command && Repo.one(Work.Session.Query.by_id(source_command.session_id))
+    target = Repo.one(Work.Session.Query.by_id(command.session_id))
     placement = Repo.one(Placement.Query.by_id(command.placement_id))
 
     if leased_placement?(placement, command) and same_source_sessions?(source, target) and
@@ -204,10 +204,10 @@ defmodule Ryker.CoopFleet.Checkpoints do
 
   defp leased_placement?(_placement, _command), do: false
 
-  defp same_source_sessions?(%Session{} = source, %Session{} = target) do
+  defp same_source_sessions?(%Work.Session{} = source, %Work.Session{} = target) do
     source.episode_id == target.episode_id and
       source.repository_ref == target.repository_ref and
-      RepositorySource.same?(source.repository_source, target.repository_source)
+      Work.RepositorySource.same?(source.repository_source, target.repository_source)
   end
 
   defp same_source_sessions?(_source, _target), do: false

@@ -22,8 +22,8 @@ defmodule Ryker.Feedback.Signal do
     request holds its updates beside its replies.
   """
   use Ryker, :schema
-  alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Episodes
+  alias Ryker.Ingress
 
   @kinds [
     :reaction_added,
@@ -46,8 +46,8 @@ defmodule Ryker.Feedback.Signal do
     field(:source_ref, :string)
     field(:occurred_at, :utc_datetime_usec)
     field(:message_ref, :string)
-    belongs_to(:episode, Episode)
-    belongs_to(:input, Entry)
+    belongs_to(:episode, Episodes.Episode)
+    belongs_to(:input, Ingress.Inbox.Entry)
     # When Ryker recorded it, by the database's clock; retention ages it.
     field(:inserted_at, :utc_datetime_usec, read_after_writes: true)
   end

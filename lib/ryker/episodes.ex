@@ -19,7 +19,7 @@ defmodule Ryker.Episodes do
   alias Ryker.Episodes.{RoutingDigests, Transition}
   alias Ryker.Records
   alias Ryker.Repo
-  alias Ryker.Work.Turn
+  alias Ryker.Work
 
   @spec apply(Command.t()) :: {:ok, Transition.t()} | {:error, term()}
   def apply(command) do
@@ -143,10 +143,10 @@ defmodule Ryker.Episodes do
               is_struct(command, Command.TransferOwner) do
     bound_turn_id =
       episode.id
-      |> Turn.Query.by_episode_id()
-      |> Turn.Query.by_turn_ref(turn_ref)
-      |> Turn.Query.unsettled()
-      |> Turn.Query.select_ids()
+      |> Work.Turn.Query.by_episode_id()
+      |> Work.Turn.Query.by_turn_ref(turn_ref)
+      |> Work.Turn.Query.unsettled()
+      |> Work.Turn.Query.select_ids()
       |> repo.one()
 
     case {bound_turn_id, Keyword.get(options, :settled_work_turn_id)} do

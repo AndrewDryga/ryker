@@ -22,31 +22,26 @@ defmodule Ryker.Memories do
   """
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
-  alias Ryker.Episodes.Episode
-  alias Ryker.Episodes.Scope
-  alias Ryker.Ingress.Inbox
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Episodes
+  alias Ryker.Ingress
   alias Ryker.Memories.Forgetting
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Memories.Recall
   alias Ryker.Memories.Reviews
   alias Ryker.Records
-  alias Ryker.Records.CardDelivery
-  alias Ryker.Records.OfferConfirmation
-  alias Ryker.Records.Record
-  alias Ryker.Records.Response
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.RoutingExamples
-  alias Ryker.Slack.ChannelFence
-  alias Ryker.StateTools.Binding
+  alias Ryker.Slack
+  alias Ryker.StateTools
 
   @maximum_total 1_000
   @maximum_per_scope 100
 
   @spec confirm(keyword() | map()) :: {:ok, map()} | {:error, term()}
   def confirm(attributes) do
-    with {:ok, confirmation} <- OfferConfirmation.new(attributes, :invalid_memory_confirmation) do
+    with {:ok, confirmation} <-
+           Records.OfferConfirmation.new(attributes, :invalid_memory_confirmation) do
       Repo.transaction(fn ->
         # Taken before the offer and channel locks, the order ingress uses;
         # superseding the previous fact closes the reviews that named it.
@@ -73,7 +68,7 @@ defmodule Ryker.Memories do
   # so the model could not tell a question it named wrongly from an answer it
   # may not save (2026-10-04 review).
   defp confirm_answer_locked(binding, record_ref, value, authorize) do
-    with {:ok, current} <- Binding.lock_current(binding),
+    with {:ok, current} <- StateTools.Binding.lock_current(binding),
          :ok <- live(current.episode),
          {:ok, record, response, entry} <- answer_confirmation(current, record_ref),
          :ok <- lock_answer_source!(entry),
@@ -100,8 +95,8 @@ defmodule Ryker.Memories do
   # or repository is (`authorize_wide_offer/2`). One given in a private channel
   # was recalled everywhere, its source hidden but its words not (2026-10-04
   # review).
-  defp public_source(%Entry{destination_transport: "slack"} = entry) do
-    case ChannelFence.authorize_public_in_transaction(
+  defp public_source(%Ingress.Inbox.Entry{destination_transport: "slack"} = entry) do
+    case Slack.ChannelFence.authorize_public_in_transaction(
            entry.destination_transport,
            entry.destination_conversation_ref
          ) do
@@ -112,7 +107,7 @@ defmodule Ryker.Memories do
 
   defp public_source(_entry), do: :ok
 
-  defp remember_intent(%Record{payload: %{"remember" => %{} = intent}}), do: {:ok, intent}
+  defp remember_intent(%Records.Record{payload: %{"remember" => %{} = intent}}), do: {:ok, intent}
   defp remember_intent(_record), do: {:error, :answer_memory_not_requested}
 
   defp unrevised(entry),
@@ -130,8 +125,11 @@ defmodule Ryker.Memories do
       else: {:error, :answer_memory_not_in_answer}
   end
 
-  defp answer_text(%Response{choice: choice}, _entry) when is_binary(choice), do: choice
-  defp answer_text(_response, %Entry{content: %{"text" => text}}) when is_binary(text), do: text
+  defp answer_text(%Records.Response{choice: choice}, _entry) when is_binary(choice), do: choice
+
+  defp answer_text(_response, %Ingress.Inbox.Entry{content: %{"text" => text}})
+       when is_binary(text), do: text
+
   defp answer_text(_response, _entry), do: ""
 
   defp words(text),
@@ -139,7 +137,7 @@ defmodule Ryker.Memories do
 
   defp answer_confirmation(binding, record_ref) do
     record_ref
-    |> Record.Query.answered_question(binding.episode.id)
+    |> Records.Record.Query.answered_question(binding.episode.id)
     |> Repo.one()
     |> answered()
   end
@@ -151,7 +149,7 @@ defmodule Ryker.Memories do
   # arriving as an edit kept the answer from being saved (2026-10-04 review).
   defp answer_revised?(entry) do
     entry
-    |> Entry.Query.later_revisions_of()
+    |> Ingress.Inbox.Entry.Query.later_revisions_of()
     |> Repo.all()
     |> Enum.any?(&RoutingExamples.takes_back_words?/1)
   end
@@ -168,7 +166,7 @@ defmodule Ryker.Memories do
   answer takes too, keeps the check from missing a save still in flight.
   """
   def revoke_answer_source_in_transaction(
-        %Entry{event_kind: kind, source_item_ref: source_ref} = entry
+        %Ingress.Inbox.Entry{event_kind: kind, source_item_ref: source_ref} = entry
       )
       when kind in [:edit, :delete] and is_binary(source_ref) do
     if Repo.in_transaction?() do
@@ -206,7 +204,7 @@ defmodule Ryker.Memories do
   # each take this before the review lock, so a save waits for a revision
   # still in flight and sees it, and a revision waits for a save and revokes
   # it.
-  defp lock_answer_source!(%Entry{} = entry) do
+  defp lock_answer_source!(%Ingress.Inbox.Entry{} = entry) do
     AdvisoryLock.hold!(
       "memory-answer-source:" <>
         CanonicalJSON.digest([
@@ -265,7 +263,7 @@ defmodule Ryker.Memories do
           "question_ref" => record.ref,
           "question_sha256" => record.payload_fingerprint,
           "answer_ref" => response.response_ref,
-          "input_ref" => Inbox.ref(entry),
+          "input_ref" => Ingress.Inbox.ref(entry),
           "source_revision" => entry.revision,
           "answer_sha256" => entry.event_fingerprint
         }
@@ -412,7 +410,7 @@ defmodule Ryker.Memories do
   defp confirm_locked(attributes) do
     with {:ok, record, episode, turn} <- lock_offer(attributes.record_ref),
          :ok <-
-           ChannelFence.authorize_in_transaction(
+           Slack.ChannelFence.authorize_in_transaction(
              episode.destination_transport,
              episode.destination_conversation_ref
            ),
@@ -434,11 +432,11 @@ defmodule Ryker.Memories do
   end
 
   defp authorize_wide_offer(
-         %Record{kind: "memory_offer", payload: %{"scope" => scope}},
-         %Episode{destination_transport: "slack"} = episode
+         %Records.Record{kind: "memory_offer", payload: %{"scope" => scope}},
+         %Episodes.Episode{destination_transport: "slack"} = episode
        )
        when scope in ["repository", "workspace"] do
-    ChannelFence.authorize_public_in_transaction(
+    Slack.ChannelFence.authorize_public_in_transaction(
       episode.destination_transport,
       episode.destination_conversation_ref
     )
@@ -460,7 +458,7 @@ defmodule Ryker.Memories do
   end
 
   defp prepare(payload, episode, attributes) do
-    workspace = Scope.workspace_ref(episode)
+    workspace = Episodes.Scope.workspace_ref(episode)
     scope_kind = String.to_existing_atom(payload["scope"])
 
     scope_ref =
@@ -471,7 +469,8 @@ defmodule Ryker.Memories do
       end
 
     %{
-      expires_at: OfferConfirmation.expires_at(attributes.occurred_at, payload["expires_in"]),
+      expires_at:
+        Records.OfferConfirmation.expires_at(attributes.occurred_at, payload["expires_in"]),
       kind: String.to_existing_atom(payload["kind"]),
       payload: payload,
       payload_fingerprint: CanonicalJSON.digest(payload),
@@ -593,7 +592,7 @@ defmodule Ryker.Memories do
   end
 
   defp delivered_from?(episode, turn, target) do
-    case CardDelivery.delivered_from?(episode, turn, target) do
+    case Records.CardDelivery.delivered_from?(episode, turn, target) do
       :ok -> :ok
       {:error, :mismatch} -> {:error, :memory_offer_delivery_mismatch}
       {:error, :not_delivered} -> {:error, :memory_offer_not_delivered}

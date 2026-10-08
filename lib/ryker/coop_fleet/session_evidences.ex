@@ -17,7 +17,7 @@ defmodule Ryker.CoopFleet.SessionEvidences do
   alias Ryker.CoopFleet.SessionEvidence
   alias Ryker.CoopFleet.SessionEvidenceDocument, as: Document
   alias Ryker.Repo
-  alias Ryker.Work.Session
+  alias Ryker.Work
 
   @doc """
   Records one validated export against its exact session, worker and placement.
@@ -65,18 +65,18 @@ defmodule Ryker.CoopFleet.SessionEvidences do
   defp unwrap!({:error, reason}), do: Repo.rollback(reason)
 
   defp insert_locked(session_id, evidence, worker_id, generation) do
-    case Repo.one(Session.Query.by_id(session_id)) do
+    case Repo.one(Work.Session.Query.by_id(session_id)) do
       nil ->
         {:error, :work_session_not_found}
 
-      %Session{coop_session_id: remote} when remote != nil ->
+      %Work.Session{coop_session_id: remote} when remote != nil ->
         if remote == evidence["session_id"] do
           upsert(session_id, evidence, worker_id, generation)
         else
           {:error, {:coop_session_evidence_session_conflict, evidence["session_id"]}}
         end
 
-      %Session{} ->
+      %Work.Session{} ->
         # An unbound local session has no remote identity to check the export
         # against, and binding it from the export would let a worker name the
         # session it is reporting on.
@@ -85,7 +85,7 @@ defmodule Ryker.CoopFleet.SessionEvidences do
   end
 
   defp upsert(session_id, evidence, worker_id, generation) do
-    session = Repo.one!(Session.Query.by_id(session_id))
+    session = Repo.one!(Work.Session.Query.by_id(session_id))
     fingerprint = Document.content_fingerprint(evidence)
     captured_at = captured_at(evidence)
 

@@ -28,11 +28,10 @@ defmodule Ryker.Publication.FixLoop do
   commit is reviewed afresh when it finishes.
   """
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, ConversationLock, Episode}
-  alias Ryker.Ingress.Input
+  alias Ryker.Ingress
   alias Ryker.Publication.{GateOutput, Publication, Review}
   alias Ryker.Repo
-  alias Ryker.Work.Session
+  alias Ryker.Work
 
   @rounds 3
   # A working copy still in use is usually free again within a minute.
@@ -80,10 +79,10 @@ defmodule Ryker.Publication.FixLoop do
   Whether a review's failed gate output is worth reading: a round could start
   on it, for a task whose rounds are not spent.
   """
-  @spec gate_output_wanted?(Publication.t(), Session.t(), map()) :: boolean()
+  @spec gate_output_wanted?(Publication.t(), Work.Session.t(), map()) :: boolean()
   def gate_output_wanted?(
         %Publication{fix_rounds: rounds},
-        %Session{workspace_task: %{}},
+        %Work.Session{workspace_task: %{}},
         %{"gate" => "failed"} = review
       )
       when rounds < @rounds,
@@ -125,9 +124,9 @@ defmodule Ryker.Publication.FixLoop do
   Where the loop stands for a task card: `{:fixing, line}` while a round runs,
   `{:stopped, line}` once every round is spent, nil otherwise.
   """
-  @spec progress(Publication.t() | nil, Episode.t()) ::
+  @spec progress(Publication.t() | nil, Episodes.Episode.t()) ::
           {:fixing, String.t()} | {:stopped, String.t()} | nil
-  def progress(%Publication{status: :blocked} = publication, %Episode{state: state}) do
+  def progress(%Publication{status: :blocked} = publication, %Episodes.Episode{state: state}) do
     cond do
       running?(publication) and state not in [:complete, :cancelled] ->
         [cause | _rest] = Review.fixable(publication.review_document)
@@ -156,8 +155,8 @@ defmodule Ryker.Publication.FixLoop do
   def lock_task_in_transaction(publication_ref) do
     with %Publication{status: :review_ready, episode_id: episode_id} <-
            Repo.one(Publication.Query.by_ref(publication_ref)),
-         %Episode{} = episode <- Repo.one(Episode.Query.by_id(episode_id)),
-         :ok <- ConversationLock.lock_many(Repo, [destination(episode)]),
+         %Episodes.Episode{} = episode <- Repo.one(Episodes.Episode.Query.by_id(episode_id)),
+         :ok <- Episodes.ConversationLock.lock_many(Repo, [destination(episode)]),
          {:ok, _episode} <- Episodes.lock_current_in_transaction(episode.key) do
       :ok
     else
@@ -173,11 +172,11 @@ defmodule Ryker.Publication.FixLoop do
   """
   @spec admit_in_transaction(Publication.t(), DateTime.t()) :: :ok | {:error, term()}
   def admit_in_transaction(%Publication{} = publication, now) do
-    episode = Repo.one!(Episode.Query.by_id(publication.episode_id))
+    episode = Repo.one!(Episodes.Episode.Query.by_id(publication.episode_id))
     identity = "#{@source}:#{publication.id}:g#{publication.review_generation}"
 
     with {:ok, input} <-
-           Input.new(%{
+           Ingress.Input.new(%{
              actor: %{kind: :system, ref: @source},
              content: content(publication),
              destination: destination(episode),
@@ -193,8 +192,8 @@ defmodule Ryker.Publication.FixLoop do
            }),
          {:ok, [_transition]} <-
            Episodes.apply_batch_in_transaction([
-             %Command.AdmitInput{
-               actor_ref: Input.actor_ref(input),
+             %Episodes.Command.AdmitInput{
+               actor_ref: Ingress.Input.actor_ref(input),
                destination: input.destination,
                episode_id: episode.id,
                episode_key: episode.key,
@@ -202,7 +201,7 @@ defmodule Ryker.Publication.FixLoop do
                linked_episode_id: episode.linked_episode_id,
                native_input_id: input.native_input_id,
                occurred_at: input.occurred_at,
-               payload: Input.document(input),
+               payload: Ingress.Input.document(input),
                revision: input.revision,
                turn_ref:
                  "turn:publication-fix:#{publication.id}:g#{publication.review_generation}"
@@ -317,11 +316,18 @@ defmodule Ryker.Publication.FixLoop do
   # (`Custody.ensure_task_review_in_transaction/3`); without that the fix would
   # never be reviewed.
   defp task_session?(publication) do
-    match?(%Session{workspace_task: %{}}, Repo.one(Session.Query.by_id(publication.session_id)))
+    match?(
+      %Work.Session{workspace_task: %{}},
+      Repo.one(Work.Session.Query.by_id(publication.session_id))
+    )
   end
 
-  defp at_rest?(publication),
-    do: match?(%Episode{state: :complete}, Repo.one(Episode.Query.by_id(publication.episode_id)))
+  defp at_rest?(publication) do
+    match?(
+      %Episodes.Episode{state: :complete},
+      Repo.one(Episodes.Episode.Query.by_id(publication.episode_id))
+    )
+  end
 
   defp destination(episode),
     do: %{

@@ -4,7 +4,7 @@ defmodule Ryker.Slack.Supervisor do
   alias Ryker.Slack.{ActionTokens, Gateway, IncidentRoomWorker, InteractionFeedbackWorker}
   alias Ryker.Slack.{MembershipReconciler, Runtime, TaskCardWorker, ThreadStatusWorker}
   alias Ryker.Slack.WorkspaceAdmins
-  alias Ryker.Transcription.Worker, as: TranscriptionWorker
+  alias Ryker.Transcription
 
   def start_link(options), do: Supervisor.start_link(__MODULE__, options, name: __MODULE__)
 
@@ -26,7 +26,7 @@ defmodule Ryker.Slack.Supervisor do
         # Before anything that hears Slack asks who can manage Ryker.
         {WorkspaceAdmins, workspace_admins},
         {Gateway, gateway},
-        {TranscriptionWorker, transcription_worker},
+        {Transcription.Worker, transcription_worker},
         {MembershipReconciler, reconciler},
         {IncidentRoomWorker, incident_worker},
         {InteractionFeedbackWorker, interaction_feedback_worker},

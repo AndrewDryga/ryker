@@ -12,13 +12,13 @@ defmodule Ryker.Observability do
   renders it. Every read answers a database failure as an error where it
   happens, so a probe reports it instead of crashing.
   """
-  alias Ryker.Delivery.RoutingResponse
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Delivery
+  alias Ryker.Ingress
   alias Ryker.Observability.{Fleet, Metrics, Progress, Queues, Readiness, Reads, Retention}
-  alias Ryker.Publication.Publication
-  alias Ryker.Schedules.Schedule
-  alias Ryker.Slack.{IncidentRoom, TaskCard}
-  alias Ryker.Work.Turn
+  alias Ryker.Publication
+  alias Ryker.Schedules
+  alias Ryker.Slack
+  alias Ryker.Work
 
   @default_stall_after_seconds 15 * 60
   @readiness_options [:check_progress, :check_runtimes, :stall_after_seconds]
@@ -100,13 +100,13 @@ defmodule Ryker.Observability do
     do: {:error, {:invalid_observability, :stall_after_seconds}}
 
   defp counts do
-    with {:ok, incidents} <- Reads.counts(IncidentRoom, :status),
-         {:ok, ingress} <- Reads.counts(Entry, :status),
-         {:ok, publications} <- Reads.counts(Publication, :status),
-         {:ok, routing_responses} <- Reads.counts(RoutingResponse, :status),
-         {:ok, schedules} <- Reads.counts(Schedule, :status),
-         {:ok, task_cards} <- Reads.count(TaskCard),
-         {:ok, work} <- Reads.counts(Turn, :status) do
+    with {:ok, incidents} <- Reads.counts(Slack.IncidentRoom, :status),
+         {:ok, ingress} <- Reads.counts(Ingress.Inbox.Entry, :status),
+         {:ok, publications} <- Reads.counts(Publication.Publication, :status),
+         {:ok, routing_responses} <- Reads.counts(Delivery.RoutingResponse, :status),
+         {:ok, schedules} <- Reads.counts(Schedules.Schedule, :status),
+         {:ok, task_cards} <- Reads.count(Slack.TaskCard),
+         {:ok, work} <- Reads.counts(Work.Turn, :status) do
       {:ok,
        %{
          incidents: incidents,

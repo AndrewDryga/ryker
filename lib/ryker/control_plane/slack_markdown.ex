@@ -1,7 +1,7 @@
 defmodule Ryker.ControlPlane.SlackMarkdown do
   @moduledoc "Small, HTML-inert renderer for the formatting used in Slack messages."
   alias Ryker.ControlPlane.Kit
-  alias Ryker.Slack.Names
+  alias Ryker.Slack
 
   @tokens ~r/(```[\s\S]*?```|`[^`\n]+`|\[[^\]\n]+\]\(https?:\/\/[^\s)]+\)|<!date\^[^>\n]+\|[^>\n]+>|<[@#][UWCGD][A-Z0-9]+(?:\|[^>\n]+)?>|<https?:\/\/[^>\n]+>|\*\*[^*\n]+\*\*|\*[^*\n]+\*|(?<![\p{L}\p{N}_])_[^_\n]+_(?![\p{L}\p{N}_])|~[^~\n]+~)/u
   @mentions ~r/(<[@#][UWCGD][A-Z0-9]+(?:\|[^>\n]+)?>)/u
@@ -21,7 +21,7 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
         String.starts_with?(part, "<@") ->
           [
             "<span class=\"slack-mention\">",
-            Plug.HTML.html_escape(Names.person(workspace, mention_ref(part)).name),
+            Plug.HTML.html_escape(Slack.Names.person(workspace, mention_ref(part)).name),
             "</span>"
           ]
 
@@ -36,7 +36,7 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
   "@emisar", "#test", or the descriptive fallback while a name is unresolved.
   For titles and other places that are not HTML.
   """
-  def plain(text, workspace \\ Names.workspace())
+  def plain(text, workspace \\ Slack.Names.workspace())
 
   # Without a workspace there is no directory to ask; the token stays as the
   # message wrote it rather than becoming a meaningless "Slack reference".
@@ -50,13 +50,13 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
     end)
   end
 
-  defp mention_name(token, workspace), do: Names.name(workspace, mention_ref(token))
+  defp mention_name(token, workspace), do: Slack.Names.name(workspace, mention_ref(token))
 
   # The reference inside `<@U…|label>` or `<#C…|name>`, without its label.
   defp mention_ref("<" <> <<_prefix, rest::binary>>),
     do: rest |> String.trim_trailing(">") |> String.split("|", parts: 2) |> hd()
 
-  def render(text, workspace \\ Names.workspace())
+  def render(text, workspace \\ Slack.Names.workspace())
       when is_binary(text) do
     @tokens
     |> Regex.split(text, include_captures: true)
@@ -68,7 +68,7 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
   end
 
   @doc "HTML-inert Markdown for human-facing answers and public progress."
-  def preview(text, workspace \\ Names.workspace()) when is_binary(text) do
+  def preview(text, workspace \\ Slack.Names.workspace()) when is_binary(text) do
     ~r/(```[\s\S]*?```)/u
     |> Regex.split(text, include_captures: true)
     |> Enum.map(fn
@@ -172,11 +172,11 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
   # their Slack profile, never a raw ID (Andrew, 2026-09-26). A channel keeps
   # its reference for a reader to hover.
   defp token("<@" <> _ = mention, workspace),
-    do: workspace |> Names.person(mention_ref(mention)) |> Kit.person_html("slack-mention")
+    do: workspace |> Slack.Names.person(mention_ref(mention)) |> Kit.person_html("slack-mention")
 
   defp token("<#" <> _ = mention, workspace) do
     ref = mention_ref(mention)
-    name = Names.name(workspace, ref)
+    name = Slack.Names.name(workspace, ref)
 
     [
       "<span class=\"slack-mention\" title=\"",

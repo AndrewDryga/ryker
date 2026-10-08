@@ -14,7 +14,7 @@ defmodule Ryker.ControlPlane.LabPage do
   import Ryker.ControlPlane.Components
   alias Ryker.ControlPlane.{ConsolePeople, ConversationLab, Environments, FailureExplanation}
   alias Ryker.ControlPlane.{HTML, Kit, Paths, ShortTime}
-  alias Ryker.CoopFleet.ControlPlane.Workers
+  alias Ryker.CoopFleet
   alias Ryker.{Episodes, Settings}
 
   @doc """
@@ -38,7 +38,7 @@ defmodule Ryker.ControlPlane.LabPage do
         {Episodes, :subscribe_conversations, ["control_plane"]},
         {Settings, :subscribe, []},
         {Settings, :subscribe_application, []},
-        {Workers, :subscribe_workers, []}
+        {CoopFleet.ControlPlane.Workers, :subscribe_workers, []}
       ]
   end
 

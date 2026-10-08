@@ -11,7 +11,7 @@ defmodule Ryker.CoopFleet.Bridge do
   alias Ryker.CoopFleet.{Bodies, Checkpoints, Command, ControlPlane, Placement}
   alias Ryker.CoopFleet.ControlPlane.Commands
   alias Ryker.Repo
-  alias Ryker.Work.Session
+  alias Ryker.Work
 
   @option_keys [
     :body_root,
@@ -25,9 +25,9 @@ defmodule Ryker.CoopFleet.Bridge do
     :workspace_ref
   ]
 
-  @spec execute(Session.t(), String.t(), map(), String.t(), keyword()) ::
+  @spec execute(Work.Session.t(), String.t(), map(), String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}
-  def execute(%Session{} = session, kind, payload, idempotency_key, options) do
+  def execute(%Work.Session{} = session, kind, payload, idempotency_key, options) do
     with {:ok, settings} <- settings(options),
          {:ok, command} <-
            enqueue(session, kind, payload, idempotency_key, settings),
@@ -95,8 +95,8 @@ defmodule Ryker.CoopFleet.Bridge do
   defp validate_new_create(_current, _original, _kind), do: :ok
 
   @doc "Whether a worker would take this session's placement now, without taking a slot."
-  @spec accepts?(Session.t(), keyword()) :: boolean()
-  def accepts?(%Session{} = session, options) do
+  @spec accepts?(Work.Session.t(), keyword()) :: boolean()
+  def accepts?(%Work.Session{} = session, options) do
     case settings(options) do
       {:ok, settings} -> ControlPlane.worker_available?(session, requirements(session, settings))
       {:error, _reason} -> false
@@ -107,8 +107,8 @@ defmodule Ryker.CoopFleet.Bridge do
   Places `session` as `execute/5` would, without enqueuing anything. A session bound to a
   worker session goes back to the worker holding it or nowhere.
   """
-  @spec place(Session.t(), keyword()) :: {:ok, Placement.t()} | {:error, term()}
-  def place(%Session{} = session, options) do
+  @spec place(Work.Session.t(), keyword()) :: {:ok, Placement.t()} | {:error, term()}
+  def place(%Work.Session{} = session, options) do
     with {:ok, settings} <- settings(options) do
       ControlPlane.place_session(
         session.id,

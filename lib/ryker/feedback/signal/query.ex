@@ -1,9 +1,9 @@
 defmodule Ryker.Feedback.Signal.Query do
   @moduledoc "Feedback people gave on Ryker's answers, for every read of `answer_feedback`."
   use Ryker, :query
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes
   alias Ryker.Feedback.Signal
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress
 
   def all, do: from(signals in Signal, as: :answer_feedback)
 
@@ -29,11 +29,11 @@ defmodule Ryker.Feedback.Signal.Query do
   """
   def reactions_in(conversation_ref) do
     all()
-    |> join(:left, [answer_feedback: s], i in Entry,
+    |> join(:left, [answer_feedback: s], i in Ingress.Inbox.Entry,
       on: i.id == s.input_id,
       as: :ingress_inbox_entries
     )
-    |> join(:left, [answer_feedback: s], e in Episode,
+    |> join(:left, [answer_feedback: s], e in Episodes.Episode,
       on: e.id == s.episode_id,
       as: :episode_kernel_episodes
     )

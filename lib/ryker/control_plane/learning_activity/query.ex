@@ -5,28 +5,29 @@ defmodule Ryker.ControlPlane.LearningActivity.Query do
   the topics an attempt wrote, and the attempts that stopped on a topic.
   """
   use Ryker, :query
-  alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Knowledge.{ConversationKnowledge, KnowledgeRevision}
-  alias Ryker.Learning.{Batch, InputMembership, LearningRun}
-  alias Ryker.Work.Turn
+  alias Ryker.Episodes
+  alias Ryker.Ingress
+  alias Ryker.Knowledge
+  alias Ryker.Learning
+  alias Ryker.Work
 
   @doc "The settled messages no batch holds yet."
   def unassigned_messages do
-    from(e in Entry,
+    from(e in Ingress.Inbox.Entry,
       as: :input,
       where: e.status in [:decided, :superseded],
-      where: not exists(from(m in InputMembership, where: m.input_id == parent_as(:input).id))
+      where:
+        not exists(from(m in Learning.InputMembership, where: m.input_id == parent_as(:input).id))
     )
   end
 
   @doc "The messages a batch holds that has not finished, unless their source went away."
   def assigned_messages do
-    from(e in Entry,
+    from(e in Ingress.Inbox.Entry,
       as: :input,
-      join: m in InputMembership,
+      join: m in Learning.InputMembership,
       on: m.input_id == e.id,
-      join: b in Batch,
+      join: b in Learning.Batch,
       on: b.id == m.batch_id,
       where:
         b.status in [:queued, :running, :deferred] and
@@ -50,8 +51,8 @@ defmodule Ryker.ControlPlane.LearningActivity.Query do
 
   @doc "Accepted answers whose conversation summary could not be saved, with their request."
   def failed_handovers do
-    from(t in Turn,
-      join: e in Episode,
+    from(t in Work.Turn,
+      join: e in Episodes.Episode,
       on: e.id == t.episode_id,
       where: not is_nil(t.summary_error_code),
       select: %{
@@ -71,8 +72,8 @@ defmodule Ryker.ControlPlane.LearningActivity.Query do
   digest>`).
   """
   def topics_written(run_id) do
-    from(revision in KnowledgeRevision,
-      join: knowledge in ConversationKnowledge,
+    from(revision in Knowledge.KnowledgeRevision,
+      join: knowledge in Knowledge.ConversationKnowledge,
       on: knowledge.id == revision.knowledge_id,
       where: like(revision.source_result_ref, ^"learning:#{run_id}:%"),
       select: {knowledge.topic_key, knowledge.id}
@@ -81,7 +82,7 @@ defmodule Ryker.ControlPlane.LearningActivity.Query do
 
   @doc "The error of each of `batch_ids`' latest failed attempt, as `{batch_id, error_code}`."
   def latest_errors(batch_ids) do
-    from(r in LearningRun,
+    from(r in Learning.LearningRun,
       where: r.batch_id in ^batch_ids and not is_nil(r.error_code),
       distinct: r.batch_id,
       order_by: [asc: r.batch_id, desc: r.inserted_at, desc: r.id],

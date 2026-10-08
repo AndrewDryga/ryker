@@ -2,12 +2,12 @@ defmodule Ryker.Learning.LearningSources do
   @moduledoc "Bounded, host-owned source receipts carried across derived conversation memory."
   alias Ryker.{CanonicalJSON, Repo}
   alias Ryker.Config
-  alias Ryker.Continuity.{ConversationRollup, ConversationSummary}
-  alias Ryker.Episodes.Event
-  alias Ryker.Ingress.Inbox.Entry
-  alias Ryker.Knowledge.KnowledgeRevision
+  alias Ryker.Continuity
+  alias Ryker.Episodes
+  alias Ryker.Ingress
+  alias Ryker.Knowledge
   alias Ryker.Learning.{ConversationObservation, Observations, SourceDependency}
-  alias Ryker.Publication.LifecycleEvent
+  alias Ryker.Publication
   alias Ryker.Reference
 
   @maximum_sources 10_000
@@ -146,8 +146,8 @@ defmodule Ryker.Learning.LearningSources do
   An input learning may still read: decided, not a deletion, its body neither
   pruned nor absent. Every learning step re-checks this on the exact rows.
   """
-  @spec current_entry?(Entry.t()) :: boolean()
-  def current_entry?(%Entry{} = entry) do
+  @spec current_entry?(Ingress.Inbox.Entry.t()) :: boolean()
+  def current_entry?(%Ingress.Inbox.Entry{} = entry) do
     entry.status == :decided and entry.event_kind != :delete and
       is_nil(entry.operational_pruned_at) and is_map(entry.content)
   end
@@ -336,8 +336,8 @@ defmodule Ryker.Learning.LearningSources do
          document,
          _content
        ) do
-    case get_uuid(&LifecycleEvent.Query.by_id/1, id) do
-      %LifecycleEvent{kind: :review_feedback, observation: observation} ->
+    case get_uuid(&Publication.LifecycleEvent.Query.by_id/1, id) do
+      %Publication.LifecycleEvent{kind: :review_feedback, observation: observation} ->
         fields = ~w(source native_input_id revision event_kind content)
         Map.take(observation, fields) == Map.take(document, fields)
 
@@ -353,8 +353,8 @@ defmodule Ryker.Learning.LearningSources do
     do: false
 
   defp source_payload_matches?(source, document, content) do
-    case Repo.one(Entry.Query.by_id(source.source_input_id)) do
-      %Entry{content: ^content, event_kind: kind} ->
+    case Repo.one(Ingress.Inbox.Entry.Query.by_id(source.source_input_id)) do
+      %Ingress.Inbox.Entry{content: ^content, event_kind: kind} ->
         Atom.to_string(kind) == document["event_kind"]
 
       _ ->
@@ -419,7 +419,7 @@ defmodule Ryker.Learning.LearningSources do
 
   @doc "An authenticated deletion discloses its current receipt and event pointer, never its body."
   def deleted_work_input(
-        %Event{
+        %Episodes.Event{
           kind: :input_admitted,
           payload: %{"payload" => %{"event_kind" => "delete"} = input}
         } =
@@ -461,7 +461,7 @@ defmodule Ryker.Learning.LearningSources do
   end
 
   @doc "A withdrawn historical input keeps an audit pointer, never its old prose."
-  def withdrawn_work_input(%Event{} = event) do
+  def withdrawn_work_input(%Episodes.Event{} = event) do
     %{
       "content" => %{"unavailable" => "source_not_current"},
       "current" => false,
@@ -474,8 +474,8 @@ defmodule Ryker.Learning.LearningSources do
   defp work_document_sources(
          %{"source_event_id" => id, "source_dependencies" => _sources} = document
        ) do
-    case get_uuid(&Event.Query.by_id/1, id) do
-      %Event{kind: :input_admitted} = event ->
+    case get_uuid(&Episodes.Event.Query.by_id/1, id) do
+      %Episodes.Event{kind: :input_admitted} = event ->
         exact_work_sources(document, event, for_work_input(event.payload["payload"]))
 
       _ ->
@@ -528,10 +528,13 @@ defmodule Ryker.Learning.LearningSources do
   end
 
   def document_sources(%{"source_ref" => "continuity:" <> id} = document),
-    do: summary_sources(get_uuid(&ConversationSummary.Query.by_id/1, id), document)
+    do: summary_sources(get_uuid(&Continuity.ConversationSummary.Query.by_id/1, id), document)
 
   def document_sources(%{"source_ref" => "continuity-rollup:" <> _} = document) do
-    summary_sources(Repo.one(ConversationRollup.Query.by_ref(document["source_ref"])), document)
+    summary_sources(
+      Repo.one(Continuity.ConversationRollup.Query.by_ref(document["source_ref"])),
+      document
+    )
   end
 
   # A new source-backed document must implement custody before it can be shown.
@@ -541,8 +544,8 @@ defmodule Ryker.Learning.LearningSources do
 
   defp knowledge_revision(id, version) do
     id
-    |> KnowledgeRevision.Query.by_knowledge_id()
-    |> KnowledgeRevision.Query.by_version(version)
+    |> Knowledge.KnowledgeRevision.Query.by_knowledge_id()
+    |> Knowledge.KnowledgeRevision.Query.by_version(version)
   end
 
   # The row `by_id` finds for `id`, or nil when there is none or `id` is no UUID.
@@ -589,7 +592,7 @@ defmodule Ryker.Learning.LearningSources do
     |> Enum.filter(&reference?/1)
     |> Enum.all?(fn reference ->
       reference["knowledge_id"]
-      |> KnowledgeRevision.Query.current_reference(
+      |> Knowledge.KnowledgeRevision.Query.current_reference(
         reference["generation"],
         reference["through_version"]
       )

@@ -1,9 +1,8 @@
 defmodule Ryker.StateTools.TaskTools do
   @moduledoc false
   alias Ryker.Records
-  alias Ryker.Records.Record
   alias Ryker.StateTools.RecordWriter
-  alias Ryker.Work.RepositorySource
+  alias Ryker.Work
 
   @spec request_task(map(), map()) :: {:ok, map()} | {:error, term()}
   def request_task(arguments, binding) do
@@ -57,7 +56,7 @@ defmodule Ryker.StateTools.TaskTools do
     case Records.fetch_for_episode(binding.episode.id, [record_ref]) do
       {:ok,
        [
-         %Record{
+         %Records.Record{
            kind: "task_offer",
            payload: %{
              "instruction_ref" => instruction_ref,
@@ -92,7 +91,7 @@ defmodule Ryker.StateTools.TaskTools do
   defp task_repository_source(nil, _source), do: {:error, :task_repository_source_unscoped}
 
   defp task_repository_source(_repository, source) do
-    case RepositorySource.parse(source) do
+    case Work.RepositorySource.parse(source) do
       {:ok, source} -> {:ok, source}
       {:error, _reason} -> {:error, :invalid_arguments}
     end

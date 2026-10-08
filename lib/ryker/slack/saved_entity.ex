@@ -10,26 +10,27 @@ defmodule Ryker.Slack.SavedEntity do
   that the entity does not retain is invented.
   """
   alias Ryker.Behaviors
-  alias Ryker.Behaviors.Behavior
-  alias Ryker.Delivery.OfferWords
-  alias Ryker.Memories.MemoryEntry
-  alias Ryker.Schedules.Schedule
-  alias Ryker.Schedules.ScheduleCadence
+  alias Ryker.Delivery
+  alias Ryker.Memories
+  alias Ryker.Schedules
 
   @shown_bytes 2_000
 
   @type event :: :saved | :updated | nil
 
-  @spec document(Schedule.t() | Behavior.t() | MemoryEntry.t(), event()) :: map()
+  @spec document(
+          Schedules.Schedule.t() | Behaviors.Behavior.t() | Memories.MemoryEntry.t(),
+          event()
+        ) :: map()
   def document(entity, event \\ nil)
 
-  def document(%Schedule{} = schedule, event) do
+  def document(%Schedules.Schedule{} = schedule, event) do
     status = Atom.to_string(schedule.status)
 
     %{
       "facts" =>
         facts([
-          {"When", ScheduleCadence.describe(schedule.recurrence, schedule.timezone)},
+          {"When", Schedules.ScheduleCadence.describe(schedule.recurrence, schedule.timezone)},
           {"Channel", destination(schedule.destination_conversation_ref)},
           {"Next run", next_run(schedule)},
           {"Expires", expiry(schedule.expires_at, "No expiry")},
@@ -50,13 +51,13 @@ defmodule Ryker.Slack.SavedEntity do
     }
   end
 
-  def document(%Behavior{} = behavior, event) do
+  def document(%Behaviors.Behavior{} = behavior, event) do
     if Behaviors.redacted?(behavior.payload),
       do: ended_document(behavior, event),
       else: kept_document(behavior, event)
   end
 
-  def document(%MemoryEntry{} = entry, event) do
+  def document(%Memories.MemoryEntry{} = entry, event) do
     status = Atom.to_string(entry.status)
 
     %{
@@ -85,7 +86,7 @@ defmodule Ryker.Slack.SavedEntity do
   # Deleted or replaced, a rule, preference or guidance keeps no words
   # (`Ryker.Behaviors.redact!/3`), so its card names only what it was and that
   # it is gone.
-  defp ended_document(%Behavior{kind: kind} = behavior, event) do
+  defp ended_document(%Behaviors.Behavior{kind: kind} = behavior, event) do
     {card, label} =
       case kind do
         :standing_assignment -> {"standing_rule", "Standing rule"}
@@ -96,7 +97,7 @@ defmodule Ryker.Slack.SavedEntity do
     behavior_document(behavior, card, label, label, nil, [], event)
   end
 
-  defp kept_document(%Behavior{kind: :standing_assignment} = behavior, event) do
+  defp kept_document(%Behaviors.Behavior{kind: :standing_assignment} = behavior, event) do
     payload = behavior.payload
 
     facts = [
@@ -119,7 +120,7 @@ defmodule Ryker.Slack.SavedEntity do
     )
   end
 
-  defp kept_document(%Behavior{kind: :preference} = behavior, event) do
+  defp kept_document(%Behaviors.Behavior{kind: :preference} = behavior, event) do
     payload = behavior.payload
 
     behavior_document(
@@ -137,7 +138,7 @@ defmodule Ryker.Slack.SavedEntity do
     )
   end
 
-  defp kept_document(%Behavior{kind: :guidance} = behavior, event) do
+  defp kept_document(%Behaviors.Behavior{kind: :guidance} = behavior, event) do
     payload = behavior.payload
 
     behavior_document(
@@ -201,7 +202,7 @@ defmodule Ryker.Slack.SavedEntity do
   defp notice(label, "deleted", _event), do: "#{label} deleted"
   defp notice(label, "superseded", _event), do: "#{label} replaced by a newer version"
 
-  defp next_run(%Schedule{status: :active, next_occurrence_at: %DateTime{} = at}),
+  defp next_run(%Schedules.Schedule{status: :active, next_occurrence_at: %DateTime{} = at}),
     do: time(at)
 
   defp next_run(_schedule), do: nil
@@ -227,7 +228,7 @@ defmodule Ryker.Slack.SavedEntity do
 
   # In the words the rule's offer used; the saved rule showed raw JSON
   # (2026-10-04 review).
-  defp event_filter(_source_kind, filter), do: OfferWords.only_when(filter)
+  defp event_filter(_source_kind, filter), do: Delivery.OfferWords.only_when(filter)
 
   defp source(%{source_transport: "slack", source_conversation_ref: conversation_ref})
        when is_binary(conversation_ref),

@@ -10,8 +10,8 @@ defmodule Ryker.GitHub.Router do
   alias Ryker.Crypto
   alias Ryker.GitHub.{Access, Auth, Binding, Confirmations, Engagement, Events}
   alias Ryker.HTTPConnection
-  alias Ryker.Ingress.{Adapters, InboundHTTP, Inbox}
-  alias Ryker.Publication.Followups
+  alias Ryker.Ingress
+  alias Ryker.Publication
   alias Ryker.Secret
 
   @lifecycle_events ~w(check_run check_suite pull_request status workflow_job workflow_run)
@@ -85,40 +85,42 @@ defmodule Ryker.GitHub.Router do
   defp route(%Plug.Conn{method: "POST", path_info: ["v1", "github"]} = conn, options),
     do: admit(conn, options)
 
-  defp route(conn, _options), do: InboundHTTP.respond(conn, 404, %{"error" => "not_found"})
+  defp route(conn, _options),
+    do: Ingress.InboundHTTP.respond(conn, 404, %{"error" => "not_found"})
 
   defp admit(conn, options) do
-    with :ok <- InboundHTTP.json_content_type(conn),
-         {:ok, body, conn} <- InboundHTTP.read_bounded_body(conn, options.max_body_bytes),
+    with :ok <- Ingress.InboundHTTP.json_content_type(conn),
+         {:ok, body, conn} <- Ingress.InboundHTTP.read_bounded_body(conn, options.max_body_bytes),
          :ok <- Auth.authorize(conn, Secret.reveal(options.secret), body),
          {:ok, delivery_ref} <-
-           InboundHTTP.required_header(conn, "x-github-delivery", :delivery_ref),
-         {:ok, event_name} <- InboundHTTP.required_header(conn, "x-github-event", :event_name),
-         {:ok, payload} <- InboundHTTP.decode_json(body, :object) do
+           Ingress.InboundHTTP.required_header(conn, "x-github-delivery", :delivery_ref),
+         {:ok, event_name} <-
+           Ingress.InboundHTTP.required_header(conn, "x-github-event", :event_name),
+         {:ok, payload} <- Ingress.InboundHTTP.decode_json(body, :object) do
       route_event(conn, options, body, delivery_ref, event_name, payload)
     else
       {:error, :unsupported_media_type} ->
-        InboundHTTP.respond(conn, 415, %{"error" => "unsupported_media_type"})
+        Ingress.InboundHTTP.respond(conn, 415, %{"error" => "unsupported_media_type"})
 
       {:error, :too_large} ->
-        InboundHTTP.respond(conn, 413, %{"error" => "payload_too_large"})
+        Ingress.InboundHTTP.respond(conn, 413, %{"error" => "payload_too_large"})
 
       {:error, :unauthorized} ->
-        InboundHTTP.respond(conn, 401, %{"error" => "unauthorized"})
+        Ingress.InboundHTTP.respond(conn, 401, %{"error" => "unauthorized"})
 
       {:error, field} when field in [:delivery_ref, :event_name] ->
-        InboundHTTP.respond(conn, 400, %{"error" => "invalid_metadata"})
+        Ingress.InboundHTTP.respond(conn, 400, %{"error" => "invalid_metadata"})
 
       {:error, :json} ->
-        InboundHTTP.respond(conn, 400, %{"error" => "invalid_json"})
+        Ingress.InboundHTTP.respond(conn, 400, %{"error" => "invalid_json"})
 
       {:error, :body} ->
-        InboundHTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
+        Ingress.InboundHTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
     end
   end
 
   defp route_event(conn, _options, _body, _delivery_ref, "ping", _payload),
-    do: InboundHTTP.respond(conn, 200, %{"status" => "ignored"})
+    do: Ingress.InboundHTTP.respond(conn, 200, %{"status" => "ignored"})
 
   defp route_event(conn, options, body, delivery_ref, event_name, payload)
        when event_name in @access_events do
@@ -130,16 +132,16 @@ defmodule Ryker.GitHub.Router do
 
     case access_step(receipts, bindings, event_name, payload) do
       :conflict ->
-        InboundHTTP.respond(conn, 409, %{"error" => "event_conflict"})
+        Ingress.InboundHTTP.respond(conn, 409, %{"error" => "event_conflict"})
 
       :unavailable ->
-        InboundHTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
+        Ingress.InboundHTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
 
       :ignored ->
-        InboundHTTP.respond(conn, 200, %{"status" => "ignored"})
+        Ingress.InboundHTTP.respond(conn, 200, %{"status" => "ignored"})
 
       :duplicate ->
-        InboundHTTP.respond(conn, 202, %{"status" => "duplicate"})
+        Ingress.InboundHTTP.respond(conn, 202, %{"status" => "duplicate"})
 
       :apply ->
         apply_access(conn, receipts, event_name, payload, options)
@@ -153,7 +155,7 @@ defmodule Ryker.GitHub.Router do
 
       case Events.record(binding, delivery_ref, event_ref, event_name, payload) do
         {:ok, :duplicate} ->
-          InboundHTTP.respond(conn, 202, %{"status" => "duplicate"})
+          Ingress.InboundHTTP.respond(conn, 202, %{"status" => "duplicate"})
 
         {:ok, receipt} ->
           response =
@@ -163,14 +165,14 @@ defmodule Ryker.GitHub.Router do
           response
 
         {:error, :github_event_conflict} ->
-          InboundHTTP.respond(conn, 409, %{"error" => "event_conflict"})
+          Ingress.InboundHTTP.respond(conn, 409, %{"error" => "event_conflict"})
 
         {:error, _reason} ->
-          InboundHTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
+          Ingress.InboundHTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
       end
     else
-      false -> InboundHTTP.respond(conn, 413, %{"error" => "payload_too_large"})
-      {:error, :binding} -> InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
+      false -> Ingress.InboundHTTP.respond(conn, 413, %{"error" => "payload_too_large"})
+      {:error, :binding} -> Ingress.InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
     end
   end
 
@@ -192,14 +194,14 @@ defmodule Ryker.GitHub.Router do
       {:ok, changed} ->
         complete_receipts(receipts, "metadata", "access_updated")
 
-        InboundHTTP.respond(conn, 202, %{
+        Ingress.InboundHTTP.respond(conn, 202, %{
           "repositories" => length(changed),
           "status" => "updated"
         })
 
       {:error, _reason} ->
         complete_receipts(receipts, "failed", "settings_update_failed")
-        InboundHTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
+        Ingress.InboundHTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
     end
   end
 
@@ -214,7 +216,7 @@ defmodule Ryker.GitHub.Router do
        when event_name in @lifecycle_events do
     with :ok <- Binding.authorize_payload(binding, payload),
          {:ok, outcome} <-
-           Followups.nudge_github_event(
+           Publication.Followups.nudge_github_event(
              binding.repository_full_name,
              event_name,
              event_ref,
@@ -232,10 +234,10 @@ defmodule Ryker.GitHub.Router do
       )
     else
       {:error, {:invalid_github_input, _field}} ->
-        InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
+        Ingress.InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
 
       {:error, _reason} ->
-        InboundHTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
+        Ingress.InboundHTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
     end
   end
 
@@ -282,7 +284,7 @@ defmodule Ryker.GitHub.Router do
          _confirmations,
          outcome
        ),
-       do: InboundHTTP.respond(conn, 202, %{"status" => Atom.to_string(outcome)})
+       do: Ingress.InboundHTTP.respond(conn, 202, %{"status" => Atom.to_string(outcome)})
 
   defp admit_generic_event(
          conn,
@@ -301,32 +303,32 @@ defmodule Ryker.GitHub.Router do
     }
 
     with :ok <- authorize_repository_actor(event_name, binding, payload, options),
-         {:ok, input} <- Adapters.normalize("github", event, binding) do
+         {:ok, input} <- Ingress.Adapters.normalize("github", event, binding) do
       confirm_or_record(conn, input, binding, options)
     else
       {:error, :actor_not_authorized} ->
-        InboundHTTP.respond(conn, 200, %{
+        Ingress.InboundHTTP.respond(conn, 200, %{
           "reason" => "repository_write_access_required",
           "status" => "ignored"
         })
 
       {:error, {:invalid_github_input, _field}} ->
-        InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
+        Ingress.InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
 
       {:error, {:invalid_input, _field}} ->
-        InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
+        Ingress.InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
 
       {:error, {:invalid_input, _field, _reason}} ->
-        InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
+        Ingress.InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
 
       {:error, {:github_input_ignored, _reason}} ->
-        InboundHTTP.respond(conn, 200, %{"status" => "ignored"})
+        Ingress.InboundHTTP.respond(conn, 200, %{"status" => "ignored"})
 
       {:error, {:input_conflict, _details}} ->
-        InboundHTTP.respond(conn, 409, %{"error" => "event_conflict"})
+        Ingress.InboundHTTP.respond(conn, 409, %{"error" => "event_conflict"})
 
       {:error, _reason} ->
-        InboundHTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
+        Ingress.InboundHTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
     end
   end
 
@@ -353,7 +355,7 @@ defmodule Ryker.GitHub.Router do
   defp authorize_engagement(_reason, _input, _binding, _options), do: :ok
 
   defp observe_and_record(conn, input, binding, options) do
-    case Followups.observe_github_feedback(input) do
+    case Publication.Followups.observe_github_feedback(input) do
       {:ok, subscription} -> record_or_subscribe(conn, input, binding, subscription, options)
       {:error, reason} -> route_record_error(conn, reason)
     end
@@ -365,24 +367,27 @@ defmodule Ryker.GitHub.Router do
         observe_and_record(conn, input, binding, options)
 
       {:ok, %{"status" => status} = confirmation} ->
-        InboundHTTP.respond(conn, 202, %{"confirmation" => confirmation, "status" => status})
+        Ingress.InboundHTTP.respond(conn, 202, %{
+          "confirmation" => confirmation,
+          "status" => status
+        })
 
       {:error, _reason} ->
-        InboundHTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
+        Ingress.InboundHTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
     end
   end
 
   defp record_or_subscribe(conn, input, binding, :unmatched, options) do
     with {:yes, reason} <- Engagement.eligible?(input, binding, options.bot_login),
          :ok <- authorize_engagement(reason, input, binding, options) do
-      case Inbox.record(input,
+      case Ingress.Inbox.record(input,
              engagement_receipt: %{"reason" => Atom.to_string(reason)},
              revision_ties: :receipt_order,
              work_profile: binding.work_profile
            ) do
         {:ok, receipt} ->
-          InboundHTTP.respond(conn, 202, %{
-            "input_ref" => Inbox.ref(receipt.entry),
+          Ingress.InboundHTTP.respond(conn, 202, %{
+            "input_ref" => Ingress.Inbox.ref(receipt.entry),
             "status" => Atom.to_string(receipt.status)
           })
 
@@ -391,37 +396,40 @@ defmodule Ryker.GitHub.Router do
       end
     else
       :metadata ->
-        InboundHTTP.respond(conn, 200, %{"status" => "ignored", "reason" => "no_request_or_rule"})
+        Ingress.InboundHTTP.respond(conn, 200, %{
+          "status" => "ignored",
+          "reason" => "no_request_or_rule"
+        })
 
       {:error, :actor_not_authorized} ->
-        InboundHTTP.respond(conn, 200, %{
+        Ingress.InboundHTTP.respond(conn, 200, %{
           "reason" => "repository_write_access_required",
           "status" => "ignored"
         })
 
       {:error, _reason} ->
-        InboundHTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
+        Ingress.InboundHTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
     end
   end
 
   defp record_or_subscribe(conn, _input, _binding, %{event: event, status: status}, _options) do
-    InboundHTTP.respond(conn, 202, %{
+    Ingress.InboundHTTP.respond(conn, 202, %{
       "publication_event_ref" => event.ref,
       "status" => Atom.to_string(status)
     })
   end
 
   defp route_record_error(conn, {:invalid_input, _field}),
-    do: InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
+    do: Ingress.InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
 
   defp route_record_error(conn, {:invalid_input, _field, _reason}),
-    do: InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
+    do: Ingress.InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
 
   defp route_record_error(conn, {:input_conflict, _details}),
-    do: InboundHTTP.respond(conn, 409, %{"error" => "event_conflict"})
+    do: Ingress.InboundHTTP.respond(conn, 409, %{"error" => "event_conflict"})
 
   defp route_record_error(conn, _reason),
-    do: InboundHTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
+    do: Ingress.InboundHTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
 
   defp valid_binding_entry?({name, %Binding{name: name}}) when is_binary(name), do: true
   defp valid_binding_entry?(_entry), do: false
@@ -462,7 +470,7 @@ defmodule Ryker.GitHub.Router do
   # From the document sent, never the sent body: under Bandit, which serves
   # GitHub's real deliveries, a sent response keeps no body.
   defp response_reason(conn) do
-    case InboundHTTP.response(conn) do
+    case Ingress.InboundHTTP.response(conn) do
       %{"reason" => reason} when is_binary(reason) -> reason
       %{"error" => reason} when is_binary(reason) -> reason
       _other -> nil

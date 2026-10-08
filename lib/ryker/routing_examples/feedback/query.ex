@@ -1,11 +1,12 @@
 defmodule Ryker.RoutingExamples.Feedback.Query do
   @moduledoc "Feedback kept with routing examples, for every read of `routing_example_feedback`."
   use Ryker, :query
-  alias Ryker.Delivery.RoutingResponse
-  alias Ryker.Feedback.Signal
-  alias Ryker.RoutingExamples.{Example, Feedback}
+  alias Ryker.Delivery
+  alias Ryker.Feedback
+  alias Ryker.RoutingExamples
+  alias Ryker.RoutingExamples.Example
 
-  def all, do: from(feedback in Feedback, as: :routing_example_feedback)
+  def all, do: from(feedback in RoutingExamples.Feedback, as: :routing_example_feedback)
 
   @doc "The feedback on the examples `examples` selects."
   def by_examples(queryable \\ all(), examples) do
@@ -24,7 +25,7 @@ defmodule Ryker.RoutingExamples.Feedback.Query do
   it (2026-10-04 review).
   """
   def copies_of_signals do
-    from(signal in Signal,
+    from(signal in Feedback.Signal,
       as: :answer_feedback,
       join: example in Example,
       as: :routing_examples,
@@ -47,7 +48,7 @@ defmodule Ryker.RoutingExamples.Feedback.Query do
 
   # Routing sent the message the signal names for the example's decision.
   defp sent_by_example_decision do
-    from(response in RoutingResponse,
+    from(response in Delivery.RoutingResponse,
       where:
         response.input_id == parent_as(:routing_examples).input_id and
           fragment("(?::jsonb)->>'message_ref'", response.external_receipt) ==

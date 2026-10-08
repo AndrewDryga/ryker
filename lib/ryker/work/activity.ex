@@ -7,11 +7,10 @@ defmodule Ryker.Work.Activity do
   the cursor so they cannot be fetched forever. Recording is independent from
   turn settlement, allowing the executor to treat narration as best effort.
   """
-  alias Ryker.Admission.FleetSession
+  alias Ryker.Admission
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
-  alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.Inbox
+  alias Ryker.Ingress
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
   alias Ryker.Work.{ActivityEvent, ActivityPaths}
@@ -44,11 +43,11 @@ defmodule Ryker.Work.Activity do
   def sync_admission(entry, remote_id, settings) do
     if function_exported?(settings.api, :list_events, 4) do
       with {:ok, _} <-
-             FleetSession.ensure(entry, %{
+             Admission.FleetSession.ensure(entry, %{
                name: settings.policy,
                digest: settings.policy_digest
              }),
-           {:ok, session} <- FleetSession.bind(entry, remote_id) do
+           {:ok, session} <- Admission.FleetSession.bind(entry, remote_id) do
         sync(session, settings.api, settings.client)
       end
     else
@@ -61,7 +60,7 @@ defmodule Ryker.Work.Activity do
     if Repo.exists?(
          Session.Query.by_admission_input_id_and_generation(entry.id, entry.execution_generation)
        ),
-       do: FleetSession.settle(entry, remote_id),
+       do: Admission.FleetSession.settle(entry, remote_id),
        else: :ok
   end
 
@@ -118,7 +117,10 @@ defmodule Ryker.Work.Activity do
   defp lock_activity_episode(episode_id) do
     # The activity insert needs this FK lock anyway. Take it before Session so
     # narration cannot deadlock Work's Episode -> Session ownership/preflight.
-    episode_id |> Episode.Query.by_id() |> Episode.Query.lock_for_key_share() |> Repo.one() ||
+    episode_id
+    |> Episodes.Episode.Query.by_id()
+    |> Episodes.Episode.Query.lock_for_key_share()
+    |> Repo.one() ||
       Repo.rollback(:work_session_not_found)
   end
 
@@ -413,7 +415,7 @@ defmodule Ryker.Work.Activity do
     Episodes.broadcast_episode_updated(session.episode_id)
 
     if session.admission_input_id,
-      do: Inbox.broadcast_input_updated(session.admission_input_id)
+      do: Ingress.Inbox.broadcast_input_updated(session.admission_input_id)
 
     result
   end

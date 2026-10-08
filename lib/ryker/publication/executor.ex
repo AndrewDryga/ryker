@@ -6,12 +6,12 @@ defmodule Ryker.Publication.Executor do
   retry reuses the frozen Coop review key/revision or the exact retained commit;
   an operator approval can therefore never drift to a newer workspace tree.
   """
-  alias Ryker.CoopFleet.JobAuthority
-  alias Ryker.Delivery.Adapters
+  alias Ryker.CoopFleet
+  alias Ryker.Delivery
   alias Ryker.LeasedCall
   alias Ryker.Publication.{Custody, FixLoop, GateOutput, Request}
-  alias Ryker.Slack.TaskCards
-  alias Ryker.Work.Session
+  alias Ryker.Slack
+  alias Ryker.Work
 
   @review_states ~w(open exhausted)
   @closed_session_states ~w(closed discarded)
@@ -97,9 +97,14 @@ defmodule Ryker.Publication.Executor do
   # A publication whose task has a card in its thread is delivered by that
   # card (`Ryker.Slack.TaskCards.card_receipt/2`); nothing new is posted.
   defp deliver_request(claim, request, settings) do
-    case TaskCards.card_receipt(claim.publication.episode_id, request) do
-      nil -> leased_call(claim, settings, fn -> Adapters.publish(request, settings.adapters) end)
-      settled -> settled
+    case Slack.TaskCards.card_receipt(claim.publication.episode_id, request) do
+      nil ->
+        leased_call(claim, settings, fn ->
+          Delivery.Adapters.publish(request, settings.adapters)
+        end)
+
+      settled ->
+        settled
     end
   end
 
@@ -168,10 +173,10 @@ defmodule Ryker.Publication.Executor do
   # Ryker records the close itself when it cleans a session up, and a closed
   # Coop session never reopens: asking the worker about it again would only
   # spend a command to learn what is already on record here.
-  defp review_session_open(%Session{discarded_at: %DateTime{}}),
+  defp review_session_open(%Work.Session{discarded_at: %DateTime{}}),
     do: {:error, {:publication_review_session_closed, "discarded"}}
 
-  defp review_session_open(%Session{closed_at: %DateTime{}}),
+  defp review_session_open(%Work.Session{closed_at: %DateTime{}}),
     do: {:error, {:publication_review_session_closed, "closed"}}
 
   defp review_session_open(_session), do: :ok
@@ -209,7 +214,7 @@ defmodule Ryker.Publication.Executor do
 
   defp same_review_session?(remote, session) do
     remote["id"] == session.coop_session_id and
-      JobAuthority.exact_receipt(session, remote) == :ok
+      CoopFleet.JobAuthority.exact_receipt(session, remote) == :ok
   end
 
   defp exact_review_response(

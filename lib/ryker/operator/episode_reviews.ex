@@ -15,7 +15,7 @@ defmodule Ryker.Operator.EpisodeReviews do
   announced after the outermost commit (`subscribe_reviews/0`), on the
   request's topics too.
   """
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes
   alias Ryker.Feedback
   alias Ryker.Operator.EpisodeReview
   alias Ryker.Reference
@@ -38,7 +38,10 @@ defmodule Ryker.Operator.EpisodeReviews do
 
   defp review_locked(episode_key, actor_ref, rating, note) do
     episode =
-      episode_key |> Episode.Query.by_key() |> Episode.Query.lock_for_update() |> Repo.one() ||
+      episode_key
+      |> Episodes.Episode.Query.by_key()
+      |> Episodes.Episode.Query.lock_for_update()
+      |> Repo.one() ||
         Repo.rollback(:episode_not_found)
 
     if episode.state not in [:complete, :cancelled], do: Repo.rollback(:episode_not_reviewable)
@@ -77,7 +80,7 @@ defmodule Ryker.Operator.EpisodeReviews do
 
   # The rating is the act; the feedback is what it says about the answer.
   # A signal that cannot be kept is logged and never undoes the rating.
-  defp record_feedback(%EpisodeReview{} = review, %Episode{} = episode) do
+  defp record_feedback(%EpisodeReview{} = review, %Episodes.Episode{} = episode) do
     case Feedback.record_in_transaction(%{
            kind: :reviewed,
            value: Atom.to_string(review.rating),

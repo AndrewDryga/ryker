@@ -11,15 +11,14 @@ defmodule Ryker.Work.Custody.Turns do
   blindly repeated.
   """
   import Ryker.Work.Custody.Locks
-  alias Ryker.Artifacts.References, as: ArtifactReferences
+  alias Ryker.Artifacts
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, Episode, RoutingDigests}
-  alias Ryker.Knowledge.KnowledgeSnapshot
-  alias Ryker.Publication.Custody, as: PublicationCustody
+  alias Ryker.Knowledge
+  alias Ryker.Publication
   alias Ryker.Repo
-  alias Ryker.Waits.EventSubscriptions
+  alias Ryker.Waits
   alias Ryker.Work.{CandidateResponse, FinalPreflight, Measurement}
   alias Ryker.Work.Custody.{Claims, Delivery}
   alias Ryker.Work.{OperationKeys, Result, Submission, Turn, ValidationIntent}
@@ -136,7 +135,7 @@ defmodule Ryker.Work.Custody.Turns do
          artifact_refs
        ) do
     {_, turn} = leased!(episode_id, turn_ref, lease_ref)
-    episode = Repo.one!(Episode.Query.by_id(episode_id))
+    episode = Repo.one!(Episodes.Episode.Query.by_id(episode_id))
 
     ledger_sha256 =
       FinalPreflight.ledger_sha256(
@@ -363,7 +362,7 @@ defmodule Ryker.Work.Custody.Turns do
           pos_integer(),
           String.t(),
           map()
-        ) :: {:ok, %{episode: Episode.t(), turn: Turn.t()}} | {:error, term()}
+        ) :: {:ok, %{episode: Episodes.Episode.t(), turn: Turn.t()}} | {:error, term()}
   def accept_result(
         episode_id,
         episode_key,
@@ -683,7 +682,7 @@ defmodule Ryker.Work.Custody.Turns do
   end
 
   defp attach_submission_artifacts(turn, submission) do
-    case ArtifactReferences.attach_turn(turn.id, submission["input_artifact_refs"]) do
+    case Artifacts.References.attach_turn(turn.id, submission["input_artifact_refs"]) do
       :ok -> turn
       {:error, reason} -> Repo.rollback(reason)
     end
@@ -997,9 +996,9 @@ defmodule Ryker.Work.Custody.Turns do
              result,
              measurement
            ),
-         :ok <- KnowledgeSnapshot.authorize_session(episode, session),
+         :ok <- Knowledge.KnowledgeSnapshot.authorize_session(episode, session),
          :ok <-
-           KnowledgeSnapshot.authorize_submission(
+           Knowledge.KnowledgeSnapshot.authorize_submission(
              episode,
              session.repository_ref,
              turn.submission
@@ -1008,15 +1007,16 @@ defmodule Ryker.Work.Custody.Turns do
          {:ok, turn} <-
            persist_update(Turn.Changeset.accept_result(turn, attributes), :work_result),
          :ok <-
-           PublicationCustody.ensure_task_review_in_transaction(
+           Publication.Custody.ensure_task_review_in_transaction(
              transition.episode,
              session,
              turn
            ),
          :ok <- Ryker.Accounting.accepted_in_transaction(episode, session, turn),
-         {:ok, _subscription} <- EventSubscriptions.ensure_in_transaction(transition.episode),
+         {:ok, _subscription} <-
+           Waits.EventSubscriptions.ensure_in_transaction(transition.episode),
          :ok <- Continuity.accept_staged_in_transaction(episode, session, turn, turn.result_ref),
-         :ok <- RoutingDigests.accept_title_in_transaction(episode, turn) do
+         :ok <- Episodes.RoutingDigests.accept_title_in_transaction(episode, turn) do
       %{episode: transition.episode, turn: turn}
     else
       {:accepted, turn} -> %{episode: episode_for_result!(episode_key), turn: turn}
@@ -1107,7 +1107,7 @@ defmodule Ryker.Work.Custody.Turns do
         {next_turn_ref(episode, result.delivery, turn.id), nil}
       end
 
-    command = %Command.AcceptResult{
+    command = %Episodes.Command.AcceptResult{
       decision_reason: result.decision_reason,
       delivery: result.delivery,
       delivery_ref: delivery_ref,
@@ -1152,7 +1152,7 @@ defmodule Ryker.Work.Custody.Turns do
     })
   end
 
-  defp next_turn_ref(%Episode{queued_input_refs: []}, _phase, _turn_id), do: nil
+  defp next_turn_ref(%Episodes.Episode{queued_input_refs: []}, _phase, _turn_id), do: nil
   defp next_turn_ref(_episode, :reply, _turn_id), do: nil
   defp next_turn_ref(_episode, _phase, turn_id), do: "turn:after:#{turn_id}"
 

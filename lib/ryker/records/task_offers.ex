@@ -7,23 +7,22 @@ defmodule Ryker.Records.TaskOffers do
   the exact message that carried the control.
   """
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, Episode}
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.UTCDateTime
-  alias Ryker.Work.{Custody, RepositoryContext, RepositorySource, Session}
+  alias Ryker.Work
 
   @fields [:actor_ref, :confirmation_ref, :occurred_at, :policy, :record_ref, :target]
   @policy_fields [:digest, :environment_ref, :name, :repository_context, :repository_ref]
   @target_fields [:conversation_ref, :message_ref, :thread_ref, :transport]
 
   @type confirmation :: %{
-          episode: Episode.t(),
+          episode: Episodes.Episode.t(),
           record: Record.t(),
-          session: Session.t(),
+          session: Work.Session.t(),
           status: :confirmed | :duplicate
         }
 
@@ -79,7 +78,7 @@ defmodule Ryker.Records.TaskOffers do
     episode_id = Repo.generate_id()
     turn_ref = "turn:task:#{Ecto.UUID.generate()}"
 
-    command = %Command.AdmitInput{
+    command = %Episodes.Command.AdmitInput{
       actor_ref: attributes.actor_ref,
       destination: %{
         conversation_ref: source_episode.destination_conversation_ref,
@@ -107,7 +106,7 @@ defmodule Ryker.Records.TaskOffers do
            task_repository_source(record.payload["repository_source"], repository_ref),
          {:ok, [transition]} <- Episodes.apply_batch_in_transaction([command]),
          {:ok, session} <-
-           Custody.pin_task_episode_in_transaction(
+           Work.Custody.pin_task_episode_in_transaction(
              transition.episode.id,
              attributes.policy.name,
              attributes.policy.digest,
@@ -153,7 +152,7 @@ defmodule Ryker.Records.TaskOffers do
     do: {:error, :task_offer_repository_source_mismatch}
 
   defp task_repository_source(source, _repository_ref) do
-    case RepositorySource.parse(source) do
+    case Work.RepositorySource.parse(source) do
       {:ok, source} -> {:ok, source}
       {:error, _reason} -> {:error, :task_offer_repository_source_mismatch}
     end
@@ -194,11 +193,12 @@ defmodule Ryker.Records.TaskOffers do
     end
   end
 
-  defp latest_session(episode_id), do: Repo.one(Session.Query.latest_of_episode(episode_id))
+  defp latest_session(episode_id), do: Repo.one(Work.Session.Query.latest_of_episode(episode_id))
 
   defp confirmed(record, status) do
-    with %Episode{} = episode <- Repo.one(Episode.Query.by_id(record.confirmed_episode_id)),
-         %Session{} = session <- latest_session(record.confirmed_episode_id) do
+    with %Episodes.Episode{} = episode <-
+           Repo.one(Episodes.Episode.Query.by_id(record.confirmed_episode_id)),
+         %Work.Session{} = session <- latest_session(record.confirmed_episode_id) do
       %{episode: episode, record: record, session: session, status: status}
     else
       _missing -> Repo.rollback(:task_offer_confirmation_incomplete)
@@ -256,7 +256,7 @@ defmodule Ryker.Records.TaskOffers do
   end
 
   defp repository_context(value, repository_ref) do
-    case RepositoryContext.restore(value, repository_ref) do
+    case Work.RepositoryContext.restore(value, repository_ref) do
       {:ok, _context} -> :ok
       {:error, :invalid} -> {:error, {:invalid_task_offer_confirmation, :repository_context}}
     end

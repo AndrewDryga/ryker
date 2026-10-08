@@ -8,7 +8,7 @@ defmodule Ryker.GitHub.CapabilityTools.Authority do
   repository's grants decide reviews and CI; and the episode's active inputs
   name the comment a reaction may answer.
   """
-  alias Ryker.Episodes.{Episode, Event}
+  alias Ryker.Episodes
   alias Ryker.GitHub.CapabilityTools.Arguments
   alias Ryker.Repo
 
@@ -17,7 +17,7 @@ defmodule Ryker.GitHub.CapabilityTools.Authority do
   the client configured for its repository.
   """
   @spec bound_target(map(), map()) :: {:ok, map(), map()} | {:error, atom()}
-  def bound_target(%{episode: %Episode{} = episode}, options) do
+  def bound_target(%{episode: %Episodes.Episode{} = episode}, options) do
     with {:ok, binding, repository_id} <- conversation(episode.destination_conversation_ref),
          true <- episode.destination_transport == "github",
          true <- MapSet.member?(options.bindings, binding),
@@ -73,17 +73,25 @@ defmodule Ryker.GitHub.CapabilityTools.Authority do
   """
   @spec number_authorized(map(), map() | nil, pos_integer()) :: :ok | {:error, :unauthorized}
   def number_authorized(
-        %{episode: %Episode{destination_transport: "github"}},
+        %{episode: %Episodes.Episode{destination_transport: "github"}},
         %{number: number},
         number
       ),
       do: :ok
 
-  def number_authorized(%{episode: %Episode{destination_transport: "github"}}, nil, _number),
-    do: :ok
+  def number_authorized(
+        %{episode: %Episodes.Episode{destination_transport: "github"}},
+        nil,
+        _number
+      ),
+      do: :ok
 
-  def number_authorized(%{episode: %Episode{destination_transport: "github"}}, _current, _number),
-    do: {:error, :unauthorized}
+  def number_authorized(
+        %{episode: %Episodes.Episode{destination_transport: "github"}},
+        _current,
+        _number
+      ),
+      do: {:error, :unauthorized}
 
   def number_authorized(_binding, _current, _number), do: :ok
 
@@ -130,7 +138,7 @@ defmodule Ryker.GitHub.CapabilityTools.Authority do
   reactions.
   """
   @spec current_input(map(), map()) :: {:ok, map()} | {:error, :unauthorized}
-  def current_input(%{episode: %Episode{} = episode}, source) do
+  def current_input(%{episode: %Episodes.Episode{} = episode}, source) do
     source_item_ref = "github:#{source.item_kind}:#{source.item_id}"
 
     episode
@@ -159,12 +167,15 @@ defmodule Ryker.GitHub.CapabilityTools.Authority do
 
   def current_input(_binding, _source), do: {:error, :unauthorized}
 
-  defp session_target(%{episode: %Episode{destination_transport: "github"}} = binding, options),
-    do: bound_target(binding, options)
+  defp session_target(
+         %{episode: %Episodes.Episode{destination_transport: "github"}} = binding,
+         options
+       ),
+       do: bound_target(binding, options)
 
   defp session_target(
          %{
-           episode: %Episode{destination_transport: transport},
+           episode: %Episodes.Episode{destination_transport: transport},
            session: %{repository_ref: repository_ref}
          },
          options
@@ -247,16 +258,16 @@ defmodule Ryker.GitHub.CapabilityTools.Authority do
     end
   end
 
-  defp active_input_events(%Episode{id: episode_id, active_input_refs: refs}) do
+  defp active_input_events(%Episodes.Episode{id: episode_id, active_input_refs: refs}) do
     refs = Enum.uniq(refs)
 
     if refs == [] do
       []
     else
       episode_id
-      |> Event.Query.by_episode_id()
-      |> Event.Query.admitted_inputs(refs)
-      |> Event.Query.ordered_by_sequence_desc()
+      |> Episodes.Event.Query.by_episode_id()
+      |> Episodes.Event.Query.admitted_inputs(refs)
+      |> Episodes.Event.Query.ordered_by_sequence_desc()
       |> Repo.all()
     end
   end

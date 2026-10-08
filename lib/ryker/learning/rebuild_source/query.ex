@@ -6,9 +6,9 @@ defmodule Ryker.Learning.RebuildSource.Query do
   and joins the entry as `:ingress_inbox_entries`.
   """
   use Ryker, :query
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Ingress
   alias Ryker.Learning.ConversationObservation
-  alias Ryker.Slack.ChannelMembership
+  alias Ryker.Slack
 
   @doc """
   The sources of `topic`, with observations kept no longer than
@@ -27,7 +27,7 @@ defmodule Ryker.Learning.RebuildSource.Query do
 
   defp scoped_originals(topic) do
     from(o in ConversationObservation.Query.all(),
-      join: e in Entry,
+      join: e in Ingress.Inbox.Entry,
       as: :ingress_inbox_entries,
       on: e.id == o.source_input_id,
       # The conversation's messages, whatever repository each one's work used:
@@ -65,7 +65,7 @@ defmodule Ryker.Learning.RebuildSource.Query do
 
   defp undeleted_destination(queryable, %{transport: "slack"} = topic) do
     deleted =
-      from(m in ChannelMembership,
+      from(m in Slack.ChannelMembership,
         where:
           m.status == :deleted and
             fragment("'slack:' || ? || ':' || ?", m.workspace_ref, m.channel_ref) ==

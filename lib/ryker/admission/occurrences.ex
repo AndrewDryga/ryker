@@ -9,8 +9,8 @@ defmodule Ryker.Admission.Occurrences do
   a service name, alert rule, URL or old incident id inside app text is a clue
   for ranking, never an exclusive claim — so this returns nothing for them.
   """
-  alias Ryker.Ingress.Input
-  alias Ryker.Publication.DeploymentSignal
+  alias Ryker.Ingress
+  alias Ryker.Publication
 
   @type occurrence :: %{
           namespace: String.t(),
@@ -18,8 +18,8 @@ defmodule Ryker.Admission.Occurrences do
           lifecycle_state: :active | :terminal
         }
 
-  @spec for_input(Input.t()) :: [occurrence()]
-  def for_input(%Input{
+  @spec for_input(Ingress.Input.t()) :: [occurrence()]
+  def for_input(%Ingress.Input{
         source: %{kind: "github", ref: binding},
         source_item_ref: "github:" <> _ = item
       })
@@ -28,14 +28,14 @@ defmodule Ryker.Admission.Occurrences do
   end
 
   def for_input(
-        %Input{
+        %Ingress.Input{
           actor: %{kind: :system},
           source: %{kind: "webhook"},
           source_capabilities: %{"publication_lifecycle" => authority}
         } = input
       ) do
-    with {:ok, signal} <- DeploymentSignal.prepare(input.content),
-         :ok <- DeploymentSignal.authorize(signal, authority) do
+    with {:ok, signal} <- Publication.DeploymentSignal.prepare(input.content),
+         :ok <- Publication.DeploymentSignal.authorize(signal, authority) do
       payload = signal["payload"]
 
       [
@@ -50,11 +50,11 @@ defmodule Ryker.Admission.Occurrences do
     end
   end
 
-  def for_input(%Input{}), do: []
+  def for_input(%Ingress.Input{}), do: []
 
   @doc "The security domain a claim is scoped to; identities never cross it."
-  @spec scope_ref(Input.t()) :: String.t()
-  def scope_ref(%Input{source: %{kind: kind, ref: ref}}), do: "#{kind}:#{ref}"
+  @spec scope_ref(Ingress.Input.t()) :: String.t()
+  def scope_ref(%Ingress.Input{source: %{kind: kind, ref: ref}}), do: "#{kind}:#{ref}"
 
   # Only the adapter's own vocabulary decides that a run is over. One run
   # finishing says nothing about the other signals of the same incident.

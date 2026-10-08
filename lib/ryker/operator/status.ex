@@ -2,7 +2,7 @@ defmodule Ryker.Operator.Status do
   @moduledoc """
   Shared read-only operator snapshot used by CLI and local control surfaces.
   """
-  alias Ryker.ControlPlane.{FailureProjection, OverviewProjection}
+  alias Ryker.ControlPlane
   alias Ryker.Observability
   alias Ryker.Operator.Preflight
 
@@ -16,12 +16,12 @@ defmodule Ryker.Operator.Status do
            Keyword.get(options, :stall_after_seconds, @default_stall_after_seconds),
          preflight <- preflight(options),
          {:ok, observability} <- Observability.snapshot(stall_after_seconds),
-         {:ok, failures} <- FailureProjection.list(%{}) do
+         {:ok, failures} <- ControlPlane.FailureProjection.list(%{}) do
       {:ok,
        %{
          failures: failure_summary(failures),
          observability: observability,
-         overview: OverviewProjection.overview(),
+         overview: ControlPlane.OverviewProjection.overview(),
          preflight: preflight,
          queues: observability.queues
        }}

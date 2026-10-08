@@ -1,10 +1,10 @@
 defmodule Ryker.Publication.Publication.Query do
   @moduledoc "Changes Work published, for every read of `episode_publications`."
   use Ryker, :query
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes
   alias Ryker.Publication.{Followup, Publication}
-  alias Ryker.Records.Record
-  alias Ryker.Work.Session
+  alias Ryker.Records
+  alias Ryker.Work
 
   def all, do: from(publications in Publication, as: :episode_publications)
 
@@ -23,7 +23,7 @@ defmodule Ryker.Publication.Publication.Query do
   @doc "The publication of the offer record `record_ref`."
   def by_record_ref(record_ref) do
     from(p in all(),
-      join: r in Record,
+      join: r in Records.Record,
       on: r.id == p.record_id,
       where: r.ref == ^record_ref,
       select: p
@@ -38,12 +38,14 @@ defmodule Ryker.Publication.Publication.Query do
   """
   def claimable_at(now, statuses, conflicts) do
     from(p in all(),
-      join: s in Session,
+      join: s in Work.Session,
       as: :episode_work_sessions,
       on: s.id == p.session_id and s.episode_id == p.episode_id,
       where:
         p.status != :review_pending or
-          p.episode_id not in subquery(Episode.Query.select_ids(Episode.Query.working_on_turns())),
+          p.episode_id not in subquery(
+            Episodes.Episode.Query.select_ids(Episodes.Episode.Query.working_on_turns())
+          ),
       where:
         p.status in ^statuses and
           (is_nil(p.last_error_code) or p.last_error_code not in ^conflicts) and

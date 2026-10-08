@@ -14,24 +14,17 @@ defmodule Ryker.Slack.Runtime do
   """
   alias Ryker.Artifacts
   alias Ryker.Behaviors
-  alias Ryker.Behaviors.Automations
   alias Ryker.Config
-  alias Ryker.Delivery.{BinaryClient, JSONClient}
-  alias Ryker.Episodes.Reactions
-  alias Ryker.Episodes.Scope, as: WorkspaceScope
+  alias Ryker.Delivery
+  alias Ryker.Episodes
   alias Ryker.ErrorDetail
-  alias Ryker.Ingress.Inbox
-  alias Ryker.Ingress.WorkProfile
+  alias Ryker.Ingress
   alias Ryker.Memories
   alias Ryker.Options
-  alias Ryker.Publication.Custody
+  alias Ryker.Publication
   alias Ryker.Records
-  alias Ryker.Records.InputRequests
-  alias Ryker.Records.SlackPostOffers
-  alias Ryker.Records.TaskOffers
   alias Ryker.Schedules
-  alias Ryker.Schedules.ScheduleRuntime
-  alias Ryker.Settings.Environment
+  alias Ryker.Settings
   alias Ryker.Slack.{ActionTokens, AppHome, AppHomeActions, AppHomeControls, AppHomeEditor}
   alias Ryker.Slack.{AppHomeProjection, AttachmentIngestor, ChannelConfiguration}
   alias Ryker.Slack.{ChannelConfigurations, ChannelSettings, ChannelSetup, Client, CommandHandler}
@@ -42,7 +35,6 @@ defmodule Ryker.Slack.Runtime do
   alias Ryker.Slack.Supervisor, as: SlackSupervisor
   alias Ryker.Slack.{ThreadStatusWorker, WorkControls}
   alias Ryker.Transcription
-  alias Ryker.Transcription.Worker, as: TranscriptionWorker
   require Logger
 
   @fields [
@@ -245,7 +237,7 @@ defmodule Ryker.Slack.Runtime do
       |> Map.get(:maximum_open_incidents, 25)
       |> bounded_integer!(:maximum_open_incidents, 1..1_000)
 
-    unless match?(%JSONClient{}, app_http),
+    unless match?(%Delivery.JSONClient{}, app_http),
       do: raise(ArgumentError, "Slack app_http must be a prepared JSONClient")
 
     unless match?(%Client{}, bot_client),
@@ -395,32 +387,32 @@ defmodule Ryker.Slack.Runtime do
       home_options: home_options,
       identity: identity,
       incident_lifecycle: &IncidentRooms.observe_lifecycle/1,
-      inbox: Inbox,
+      inbox: Ingress.Inbox,
       interaction_audit: &InteractionAudits.record/2,
-      reaction_feedback: &Reactions.record/1,
+      reaction_feedback: &Episodes.Reactions.record/1,
       interaction_feedback: &tell_presser(bot_client, &1, &2),
       interaction_handler: InteractionHandler,
       interaction_options: %{
-        answer_input_request: &InputRequests.answer/1,
-        approve_publication: &Custody.approve/1,
+        answer_input_request: &Records.InputRequests.answer/1,
+        approve_publication: &Publication.Custody.approve/1,
         approve_task_publication: &WorkControls.approve_publication/1,
         recover_task_publication: &WorkControls.recover_publication/2,
         client: bot_client,
         close_work: &WorkControls.close/1,
         configure_channel: &ChannelSetup.handle_interaction(&1, setup_options),
-        confirm_automation: &Automations.confirm/1,
+        confirm_automation: &Behaviors.Automations.confirm/1,
         confirm_behavior: &Behaviors.confirm/1,
         confirm_memory: &Memories.confirm/1,
         confirm_schedule: &Schedules.confirm/1,
-        confirm_slack_post: &SlackPostOffers.confirm/1,
-        confirm_task_offer: &TaskOffers.confirm/1,
+        confirm_slack_post: &Records.SlackPostOffers.confirm/1,
+        confirm_task_offer: &Records.TaskOffers.confirm/1,
         delete_behavior: fn ref, revision, actor_ref, conversation_ref, action_ref ->
           Behaviors.set_conversation_status(
             ref,
             :deleted,
             revision,
             "slack:user:#{actor_ref}",
-            WorkspaceScope.workspace_ref("slack", conversation_ref),
+            Episodes.Scope.workspace_ref("slack", conversation_ref),
             conversation_ref,
             action_ref
           )
@@ -431,7 +423,7 @@ defmodule Ryker.Slack.Runtime do
             :active,
             revision,
             "slack:user:#{actor_ref}",
-            WorkspaceScope.workspace_ref("slack", conversation_ref),
+            Episodes.Scope.workspace_ref("slack", conversation_ref),
             conversation_ref,
             action_ref
           )
@@ -451,7 +443,7 @@ defmodule Ryker.Slack.Runtime do
           Memories.forget_in_conversation(
             ref,
             "slack:user:#{actor_ref}",
-            WorkspaceScope.workspace_ref("slack", conversation_ref),
+            Episodes.Scope.workspace_ref("slack", conversation_ref),
             conversation_ref
           )
         end,
@@ -460,7 +452,7 @@ defmodule Ryker.Slack.Runtime do
         operators: operators,
         records: Records,
         request_incident_room: request_incident_room,
-        request_publication_review: &Custody.request_review/1,
+        request_publication_review: &Publication.Custody.request_review/1,
         conversation_environment: &conversation_environment(default_environment, &1, &2),
         environments: environments,
         show_work_record: &WorkControls.show_record(&1, work_record_options),
@@ -484,7 +476,7 @@ defmodule Ryker.Slack.Runtime do
         transport_options: %{
           handshake_timeout_ms: Map.get(configuration, :handshake_timeout_ms, 10_000),
           http: app_http,
-          requester: JSONClient
+          requester: Delivery.JSONClient
         }
       }
       |> Gateway.options!()
@@ -578,7 +570,7 @@ defmodule Ryker.Slack.Runtime do
       # The gateway records a voice message with its transcript pending and
       # acknowledges it; this worker transcribes it afterwards.
       transcription_worker: [
-        name: TranscriptionWorker,
+        name: Transcription.Worker,
         transcriber: Transcription.transcriber()
       ],
       workspace_admins: [
@@ -632,7 +624,7 @@ defmodule Ryker.Slack.Runtime do
     case Map.get(configuration, :schedule_policies) do
       %{} = policies ->
         policies
-        |> ScheduleRuntime.options!()
+        |> Schedules.ScheduleRuntime.options!()
         |> Map.fetch!(:dispatcher_options)
         |> Keyword.fetch!(:policy_resolver)
 
@@ -704,7 +696,7 @@ defmodule Ryker.Slack.Runtime do
 
   defp room_placement(%{environment_ref: environment_ref}, environments) do
     case Map.get(environments, environment_ref) do
-      %{work_profile: %WorkProfile{parallel_goal_limit: limit}} ->
+      %{work_profile: %Ingress.WorkProfile{parallel_goal_limit: limit}} ->
         %{environment_ref: environment_ref, parallel_goal_limit: limit}
 
       nil ->
@@ -858,15 +850,16 @@ defmodule Ryker.Slack.Runtime do
        } = environment}
       when map_size(environment) == 4 and is_binary(ref) and is_map(policies) and
              is_map(github_repositories) ->
-        unless Regex.match?(Environment.ref_pattern(), ref) and display_name?(display_name),
-          do: raise(ArgumentError, "Slack environments must name each environment")
+        unless Regex.match?(Settings.Environment.ref_pattern(), ref) and
+                 display_name?(display_name),
+               do: raise(ArgumentError, "Slack environments must name each environment")
 
         profile = environment_profile!(work_profile, ref)
 
         {ref,
          %{
            contributor_policies:
-             contributor_policies!(policies, WorkProfile.repository_refs(profile)),
+             contributor_policies!(policies, Ingress.WorkProfile.repository_refs(profile)),
            display_name: display_name,
            github_repositories: github_repositories!(github_repositories, profile.repositories),
            work_profile: profile
@@ -887,8 +880,8 @@ defmodule Ryker.Slack.Runtime do
   end
 
   defp environment_profile!(work_profile, ref) do
-    case WorkProfile.prepare(work_profile) do
-      {:ok, %WorkProfile{environment_ref: ^ref} = profile} ->
+    case Ingress.WorkProfile.prepare(work_profile) do
+      {:ok, %Ingress.WorkProfile{environment_ref: ^ref} = profile} ->
         profile
 
       _invalid ->
@@ -953,7 +946,8 @@ defmodule Ryker.Slack.Runtime do
       is_nil(environment_ref) ->
         nil
 
-      is_binary(environment_ref) and Regex.match?(Environment.ref_pattern(), environment_ref) ->
+      is_binary(environment_ref) and
+          Regex.match?(Settings.Environment.ref_pattern(), environment_ref) ->
         environment_ref
 
       true ->
@@ -964,15 +958,15 @@ defmodule Ryker.Slack.Runtime do
   defp optional_work_profile(nil), do: nil
 
   defp optional_work_profile(profile) do
-    case WorkProfile.prepare(profile) do
-      {:ok, %WorkProfile{} = prepared} -> prepared
+    case Ingress.WorkProfile.prepare(profile) do
+      {:ok, %Ingress.WorkProfile{} = prepared} -> prepared
       _invalid -> raise ArgumentError, "Slack fallback_work_profile must be a valid Work profile"
     end
   end
 
-  defp file_client!(%Client{http: %JSONClient{} = http, requester: requester}) do
+  defp file_client!(%Client{http: %Delivery.JSONClient{} = http, requester: requester}) do
     with {:ok, binary_http} <-
-           BinaryClient.new(%{
+           Delivery.BinaryClient.new(%{
              finch: http.finch,
              receive_timeout: http.receive_timeout,
              token_provider: http.token_provider
@@ -980,7 +974,7 @@ defmodule Ryker.Slack.Runtime do
          {:ok, file_client} <-
            FileClient.new(%{
              binary_http: binary_http,
-             binary_requester: BinaryClient,
+             binary_requester: Delivery.BinaryClient,
              json_http: http,
              json_requester: requester
            }) do

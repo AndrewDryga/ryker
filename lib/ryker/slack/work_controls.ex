@@ -7,13 +7,11 @@ defmodule Ryker.Slack.WorkControls do
   request. Copied and stale controls therefore grant no authority.
   """
   alias Ryker.Episodes
-  alias Ryker.Episodes.Command
-  alias Ryker.Operator.Publication, as: PublicationOperator
-  alias Ryker.Publication.Custody, as: PublicationCustody
-  alias Ryker.Publication.{Publication, Review}
+  alias Ryker.Operator
+  alias Ryker.Publication
   alias Ryker.Repo
   alias Ryker.Slack.{WorkRecord, WorkTarget}
-  alias Ryker.Work.{Custody, Turn}
+  alias Ryker.Work
 
   @control_fields [:actor_ref, :occurred_at, :request_ref, :target, :work_ref]
   @publication_fields @control_fields ++ [:publication_ref]
@@ -26,7 +24,7 @@ defmodule Ryker.Slack.WorkControls do
          {:ok, resolved} <- WorkTarget.resolve(attributes.work_ref, attributes.target),
          {:ok, turn_ref} <- stoppable_turn(resolved.episode),
          {:ok, result} <-
-           Custody.request_stop(
+           Work.Custody.request_stop(
              resolved.episode.id,
              resolved.episode.key,
              turn_ref,
@@ -53,7 +51,7 @@ defmodule Ryker.Slack.WorkControls do
     with {:ok, prepared} <-
            attributes(Map.delete(attributes, :expected_recovery), @control_fields),
          {:ok, resolved} <- WorkTarget.resolve(prepared.work_ref, prepared.target),
-         {:ok, episode} <- Custody.retry_blocked(resolved.episode.key, fingerprint) do
+         {:ok, episode} <- Work.Custody.retry_blocked(resolved.episode.key, fingerprint) do
       {:ok, %{outcome: :resumed, episode: episode, work_ref: resolved.work_ref}}
     end
   end
@@ -100,7 +98,7 @@ defmodule Ryker.Slack.WorkControls do
            approvable_publication(resolved.episode.id, attributes.publication_ref),
          {:ok, target} <- publication_review_target(publication),
          {:ok, approval} <-
-           PublicationCustody.approve(%{
+           Publication.Custody.approve(%{
              actor_ref: attributes.actor_ref,
              approval_ref: attributes.request_ref,
              occurred_at: attributes.occurred_at,
@@ -128,7 +126,7 @@ defmodule Ryker.Slack.WorkControls do
          {:ok, publication} <-
            publication(resolved.episode.id, attributes.publication_ref),
          {:ok, receipt} <-
-           PublicationOperator.recover(
+           Operator.Publication.recover(
              publication.ref,
              action,
              attributes.expected_generation,
@@ -163,7 +161,7 @@ defmodule Ryker.Slack.WorkControls do
          attributes
        ) do
     with {:ok, result} <-
-           Custody.request_cancel(
+           Work.Custody.request_cancel(
              episode.id,
              episode.key,
              turn_ref,
@@ -184,7 +182,7 @@ defmodule Ryker.Slack.WorkControls do
          attributes
        )
        when state in [:waiting_for_input, :waiting_for_event] and owner_kind in [:input, :event] do
-    command = %Command.CancelEpisode{
+    command = %Episodes.Command.CancelEpisode{
       cancel_ref: attributes.request_ref,
       episode_key: episode.key,
       expected_owner: %{kind: owner_kind, ref: owner_ref},
@@ -200,10 +198,11 @@ defmodule Ryker.Slack.WorkControls do
   defp close_resolved(_resolved, _attributes), do: {:error, :work_control_stale}
 
   defp stoppable_turn(%{state: :working, owner_kind: :turn, owner_ref: turn_ref, id: id}) do
-    turn = id |> Turn.Query.by_episode_id() |> Turn.Query.by_turn_ref(turn_ref) |> Repo.one()
+    turn =
+      id |> Work.Turn.Query.by_episode_id() |> Work.Turn.Query.by_turn_ref(turn_ref) |> Repo.one()
 
     case turn do
-      %Turn{status: :pending} -> {:ok, turn_ref}
+      %Work.Turn{status: :pending} -> {:ok, turn_ref}
       _stopping_parked_settled_or_gone -> {:error, :work_control_stale}
     end
   end
@@ -215,15 +214,15 @@ defmodule Ryker.Slack.WorkControls do
   # snapshot is safe. Custody re-decides both; this is the card's own fence.
   defp approvable_publication(episode_id, publication_ref) do
     case episode_publication(episode_id, publication_ref) do
-      %Publication{status: :reviewed} = publication ->
+      %Publication.Publication{status: :reviewed} = publication ->
         {:ok, publication}
 
-      %Publication{status: :blocked} = publication ->
-        if Review.draft_shareable?(publication.review_document),
+      %Publication.Publication{status: :blocked} = publication ->
+        if Publication.Review.draft_shareable?(publication.review_document),
           do: {:ok, publication},
           else: {:error, :task_publication_not_ready}
 
-      %Publication{} ->
+      %Publication.Publication{} ->
         {:error, :task_publication_not_ready}
 
       nil ->
@@ -233,19 +232,19 @@ defmodule Ryker.Slack.WorkControls do
 
   defp publication(episode_id, publication_ref) do
     case episode_publication(episode_id, publication_ref) do
-      %Publication{} = publication -> {:ok, publication}
+      %Publication.Publication{} = publication -> {:ok, publication}
       nil -> {:error, :task_publication_mismatch}
     end
   end
 
   defp episode_publication(episode_id, publication_ref) do
     episode_id
-    |> Publication.Query.by_episode_id()
-    |> Publication.Query.by_ref(publication_ref)
+    |> Publication.Publication.Query.by_episode_id()
+    |> Publication.Publication.Query.by_ref(publication_ref)
     |> Repo.one()
   end
 
-  defp publication_review_target(%Publication{review_delivery_receipt: receipt})
+  defp publication_review_target(%Publication.Publication{review_delivery_receipt: receipt})
        when is_map(receipt),
        do: publication_target(receipt)
 

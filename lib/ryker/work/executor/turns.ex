@@ -9,8 +9,8 @@ defmodule Ryker.Work.Executor.Turns do
   output artifacts are retained, a writable workspace is checkpointed, and the
   result is accepted.
   """
-  alias Ryker.Artifacts.Outputs
-  alias Ryker.CoopFleet.SessionEvidenceCapture
+  alias Ryker.Artifacts
+  alias Ryker.CoopFleet
   alias Ryker.Crypto
   alias Ryker.Records
   alias Ryker.Work.{Activity, Custody, Measurement, OperationKeys, StateBinding, ValidationIntent}
@@ -309,7 +309,9 @@ defmodule Ryker.Work.Executor.Turns do
   # What the worker recorded shows on the request's Timeline, so the request
   # hears that it arrived.
   defp capture_session_evidence(claim, settings) do
-    captured = SessionEvidenceCapture.capture(claim.session, settings.api, settings.client)
+    captured =
+      CoopFleet.SessionEvidenceCapture.capture(claim.session, settings.api, settings.client)
+
     Custody.broadcast_turn_updated(claim.turn)
     captured
   end
@@ -444,7 +446,7 @@ defmodule Ryker.Work.Executor.Turns do
   defp output_artifact_metadata(remote_turn) do
     remote_turn
     |> Map.get("output_artifacts", [])
-    |> Outputs.prepare_metadata()
+    |> Artifacts.Outputs.prepare_metadata()
   end
 
   defp retain_selected_artifacts(claim, metadata, settings) do
@@ -452,7 +454,7 @@ defmodule Ryker.Work.Executor.Turns do
          {:ok, selected} <- select_artifact_metadata(metadata, refs),
          selected <- lab_generated_artifacts(claim, metadata, selected),
          {:ok, fetched} <- fetch_output_artifacts(claim, selected, settings) do
-      Outputs.put_many(claim.turn.id, fetched)
+      Artifacts.Outputs.put_many(claim.turn.id, fetched)
     end
   end
 

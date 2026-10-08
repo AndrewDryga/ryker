@@ -13,7 +13,7 @@ defmodule Ryker.ControlPlane.ProductReadiness do
   alias Ryker.Config
   alias Ryker.Observability
   alias Ryker.Settings
-  alias Ryker.Slack.Gateway
+  alias Ryker.Slack
 
   @type t :: %{
           chat: map(),
@@ -46,7 +46,7 @@ defmodule Ryker.ControlPlane.ProductReadiness do
     runtime = %{
       chat_profile: if(is_map(control_plane), do: chat_profile(control_plane)),
       slack_configured: is_map(slack),
-      slack_connected: Gateway.connected?(),
+      slack_connected: Slack.Gateway.connected?(),
       integrations_left_out: Config.get_env(:integrations_left_out, %{})
     }
 

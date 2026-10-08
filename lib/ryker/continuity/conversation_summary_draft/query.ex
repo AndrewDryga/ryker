@@ -2,7 +2,7 @@ defmodule Ryker.Continuity.ConversationSummaryDraft.Query do
   @moduledoc "Summaries a Work turn staged before its answer is accepted, for every read of `conversation_summary_drafts`."
   use Ryker, :query
   alias Ryker.Continuity.ConversationSummaryDraft
-  alias Ryker.Episodes.Episode
+  alias Ryker.Episodes
 
   def all, do: from(drafts in ConversationSummaryDraft, as: :conversation_summary_drafts)
 
@@ -18,7 +18,7 @@ defmodule Ryker.Continuity.ConversationSummaryDraft.Query do
   @doc "Drafts of the episodes that answer in Slack conversation `conversation_ref`."
   def by_slack_conversation_ref(conversation_ref) do
     all()
-    |> join(:inner, [conversation_summary_drafts: d], e in Episode,
+    |> join(:inner, [conversation_summary_drafts: d], e in Episodes.Episode,
       on: e.id == d.episode_id,
       as: :episode_kernel_episodes
     )

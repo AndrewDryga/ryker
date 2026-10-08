@@ -6,14 +6,14 @@ defmodule Ryker.Slack.InteractionRepaint do
   incident, setup, Work, and record state is reloaded before `chat.update`;
   action values are never interpreted as authority here.
   """
-  alias Ryker.Episodes.Episode
-  alias Ryker.Records.DerivedContext
+  alias Ryker.Episodes
+  alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Slack.{ChannelSetup, ConfigurationSession}
   alias Ryker.Slack.{IncidentRoom, IncidentRoomCard}
   alias Ryker.Slack.{InteractionAudit, Mentions, ReplyRecords}
   alias Ryker.Slack.{TaskCard, TaskCardProjection}
-  alias Ryker.Work.{Session, Turn}
+  alias Ryker.Work
 
   @confirmation_kinds ~w(preference_offer guidance_offer standing_assignment_offer memory_offer schedule_offer automation_change_offer)
 
@@ -102,13 +102,13 @@ defmodule Ryker.Slack.InteractionRepaint do
 
   defp turn_document(audit) do
     case Repo.one(delivered_turn(audit)) do
-      %Turn{} = turn -> public_turn_document(turn, audit)
+      %Work.Turn{} = turn -> public_turn_document(turn, audit)
       nil -> :not_found
     end
   end
 
   defp delivered_turn(audit) do
-    Turn.Query.delivered_slack_message(
+    Work.Turn.Query.delivered_slack_message(
       audit.workspace_ref,
       audit.channel_ref,
       audit.message_ref,
@@ -149,15 +149,16 @@ defmodule Ryker.Slack.InteractionRepaint do
   end
 
   defp public_turn_sources(turn, audit, document) do
-    with %Episode{} = episode <- Repo.one(Episode.Query.by_id(turn.episode_id)),
+    with %Episodes.Episode{} = episode <- Repo.one(Episodes.Episode.Query.by_id(turn.episode_id)),
          true <- episode.destination_transport == "slack",
          true <-
            episode.destination_conversation_ref ==
              "slack:#{audit.workspace_ref}:#{audit.channel_ref}",
-         %Session{episode_id: owner} = session <- Repo.one(Session.Query.by_id(turn.session_id)),
+         %Work.Session{episode_id: owner} = session <-
+           Repo.one(Work.Session.Query.by_id(turn.session_id)),
          true <- owner == episode.id,
          {:ok, _} <-
-           DerivedContext.resolve(
+           Records.DerivedContext.resolve(
              repaint_sources(turn, document),
              episode,
              session.repository_ref
@@ -174,25 +175,25 @@ defmodule Ryker.Slack.InteractionRepaint do
 
   defp repaint_sources(turn, document) do
     [
-      DerivedContext.delivery(DerivedContext.delivery_document(turn))
+      Records.DerivedContext.delivery(Records.DerivedContext.delivery_document(turn))
       | Enum.map(
           document["records"] || [],
-          &(Map.delete(&1, "presentation") |> DerivedContext.record())
+          &(Map.delete(&1, "presentation") |> Records.DerivedContext.record())
         )
     ]
   end
 
-  defp rebuild_turn_document(%Turn{} = turn) do
+  defp rebuild_turn_document(%Work.Turn{} = turn) do
     with {:ok, document} <- reply_document(turn),
          {:ok, document} <- with_mentions(document, turn),
          do: {:ok, document, turn.delivery_ref}
   end
 
-  defp reply_document(%Turn{delivery_document: %{"message" => message}} = turn)
+  defp reply_document(%Work.Turn{delivery_document: %{"message" => message}} = turn)
        when map_size(turn.delivery_document) == 1 and is_binary(message),
        do: {:ok, %{"message" => message}}
 
-  defp reply_document(%Turn{} = turn) do
+  defp reply_document(%Work.Turn{} = turn) do
     case turn.delivery_document do
       %{
         "decision_reason" => nil,

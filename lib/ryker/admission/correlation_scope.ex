@@ -9,9 +9,9 @@ defmodule Ryker.Admission.CorrelationScope do
   stay inside their own conversation, so bot membership in two restricted
   channels never establishes a common audience.
   """
-  alias Ryker.Ingress.Input
+  alias Ryker.Ingress
   alias Ryker.Repo
-  alias Ryker.Slack.ChannelMembership
+  alias Ryker.Slack
 
   @maximum_conversations 500
 
@@ -23,8 +23,8 @@ defmodule Ryker.Admission.CorrelationScope do
           truncated: boolean()
         }
 
-  @spec for_input(Input.t()) :: t()
-  def for_input(%Input{destination: destination}), do: for_destination(destination)
+  @spec for_input(Ingress.Input.t()) :: t()
+  def for_input(%Ingress.Input{destination: destination}), do: for_destination(destination)
 
   @spec for_destination(map()) :: t()
   def for_destination(%{transport: "slack", conversation_ref: "slack:" <> rest} = destination) do
@@ -79,17 +79,17 @@ defmodule Ryker.Admission.CorrelationScope do
 
   defp membership(workspace_ref, channel_ref) do
     workspace_ref
-    |> ChannelMembership.Query.by_channel(channel_ref)
-    |> ChannelMembership.Query.select_audience()
+    |> Slack.ChannelMembership.Query.by_channel(channel_ref)
+    |> Slack.ChannelMembership.Query.select_audience()
     |> Repo.one()
   end
 
   defp public_conversation_refs(workspace_ref) do
     refs =
       "slack:#{workspace_ref}"
-      |> ChannelMembership.Query.public_conversation_refs()
-      |> ChannelMembership.Query.ordered_by_channel()
-      |> ChannelMembership.Query.limit_to(@maximum_conversations + 1)
+      |> Slack.ChannelMembership.Query.public_conversation_refs()
+      |> Slack.ChannelMembership.Query.ordered_by_channel()
+      |> Slack.ChannelMembership.Query.limit_to(@maximum_conversations + 1)
       |> Repo.all()
 
     {Enum.take(refs, @maximum_conversations), length(refs) > @maximum_conversations}

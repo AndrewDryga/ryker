@@ -1,10 +1,10 @@
 defmodule Ryker.Records.Record.Query do
   @moduledoc "Episode state records (findings, citations, offers), for every read of `episode_state_records`."
   use Ryker, :query
-  alias Ryker.Episodes.Episode
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Episodes
+  alias Ryker.Ingress
   alias Ryker.Records.{Record, Response}
-  alias Ryker.Work.{Session, Turn}
+  alias Ryker.Work
 
   def all, do: from(records in Record, as: :episode_state_records)
 
@@ -33,7 +33,7 @@ defmodule Ryker.Records.Record.Query do
   @doc "Records made by the Work turns of session `session_id`."
   def by_session_id(session_id) do
     from(r in all(),
-      join: t in Turn,
+      join: t in Work.Turn,
       on: t.id == r.turn_id,
       where: t.session_id == ^session_id
     )
@@ -89,7 +89,7 @@ defmodule Ryker.Records.Record.Query do
 
   @doc "The ref of the Work turn that made each record."
   def select_turn_refs(queryable),
-    do: from(r in queryable, join: t in Turn, on: t.id == r.turn_id, select: t.turn_ref)
+    do: from(r in queryable, join: t in Work.Turn, on: t.id == r.turn_id, select: t.turn_ref)
 
   def select_payloads(queryable), do: select(queryable, [episode_state_records: r], r.payload)
 
@@ -115,7 +115,7 @@ defmodule Ryker.Records.Record.Query do
   """
   def delivered_publication_offers(episode_id) do
     from(record in all(),
-      join: turn in Turn,
+      join: turn in Work.Turn,
       on: turn.id == record.turn_id and turn.episode_id == record.episode_id,
       where:
         record.episode_id == ^episode_id and record.kind == "publication_offer" and
@@ -137,9 +137,9 @@ defmodule Ryker.Records.Record.Query do
   @doc "Record `ref` with the episode and the Work turn that made it, as `{record, episode, turn}`."
   def by_ref_with_origin_turn(ref) do
     from(r in all(),
-      join: e in Episode,
+      join: e in Episodes.Episode,
       on: e.id == r.episode_id,
-      join: t in Turn,
+      join: t in Work.Turn,
       on: t.id == r.turn_id and t.episode_id == r.episode_id,
       where: r.ref == ^ref,
       select: {r, e, t}
@@ -229,7 +229,7 @@ defmodule Ryker.Records.Record.Query do
     from(record in all(),
       join: response in Response,
       on: response.record_id == record.id,
-      join: entry in Entry,
+      join: entry in Ingress.Inbox.Entry,
       on: entry.id == response.inbox_entry_id,
       where:
         record.ref == ^ref and record.kind == "input_request" and record.status == :answered and
@@ -247,7 +247,7 @@ defmodule Ryker.Records.Record.Query do
   """
   def awaited_approval(record_id, episode_id) do
     from(r in all(),
-      join: e in Episode,
+      join: e in Episodes.Episode,
       on: e.id == r.episode_id,
       where:
         r.id == ^record_id and r.episode_id == ^episode_id and r.kind == "emisar_approval" and
@@ -265,7 +265,7 @@ defmodule Ryker.Records.Record.Query do
     from(offer in all(),
       join: task in Record,
       on: task.ref == ^task_ref and task.confirmed_episode_id == ^episode_id,
-      join: source_turn in Turn,
+      join: source_turn in Work.Turn,
       on: source_turn.id == task.turn_id and source_turn.episode_id == task.episode_id,
       where:
         offer.episode_id == ^episode_id and offer.turn_id == ^turn_id and
@@ -283,11 +283,11 @@ defmodule Ryker.Records.Record.Query do
   """
   def publication_offer(record_ref) do
     from(record in all(),
-      join: episode in Episode,
+      join: episode in Episodes.Episode,
       on: episode.id == record.episode_id,
-      join: turn in Turn,
+      join: turn in Work.Turn,
       on: turn.id == record.turn_id and turn.episode_id == record.episode_id,
-      join: session in Session,
+      join: session in Work.Session,
       on: session.id == turn.session_id and session.episode_id == record.episode_id,
       where:
         record.ref == ^record_ref and record.kind == "publication_offer" and
@@ -321,11 +321,11 @@ defmodule Ryker.Records.Record.Query do
   """
   def incident_offer(record_ref) do
     from(record in all(),
-      join: episode in Episode,
+      join: episode in Episodes.Episode,
       on: episode.id == record.episode_id,
-      join: turn in Turn,
+      join: turn in Work.Turn,
       on: turn.id == record.turn_id and turn.episode_id == record.episode_id,
-      join: session in Session,
+      join: session in Work.Session,
       on: session.id == turn.session_id and session.episode_id == turn.episode_id,
       where:
         record.ref == ^record_ref and record.kind == "task_offer" and
@@ -338,11 +338,11 @@ defmodule Ryker.Records.Record.Query do
   @doc "Each record with the episode and the Work turn that made it."
   def with_joined_origin(queryable) do
     queryable
-    |> join(:inner, [episode_state_records: r], e in Episode,
+    |> join(:inner, [episode_state_records: r], e in Episodes.Episode,
       on: e.id == r.episode_id,
       as: :episode_kernel_episodes
     )
-    |> join(:inner, [episode_state_records: r], t in Turn,
+    |> join(:inner, [episode_state_records: r], t in Work.Turn,
       on: t.id == r.turn_id and t.episode_id == r.episode_id,
       as: :episode_work_turns
     )

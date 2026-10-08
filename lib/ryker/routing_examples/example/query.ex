@@ -1,11 +1,11 @@
 defmodule Ryker.RoutingExamples.Example.Query do
   @moduledoc "Routing decisions kept as examples, for every read of `routing_examples`."
   use Ryker, :query
-  alias Ryker.Admission.Attempt
-  alias Ryker.Delivery.RoutingResponse
-  alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Admission
+  alias Ryker.Delivery
+  alias Ryker.Ingress
   alias Ryker.RoutingExamples.Example
-  alias Ryker.Work.OwningTurn
+  alias Ryker.Work
 
   def all, do: from(examples in Example, as: :routing_examples)
 
@@ -49,9 +49,9 @@ defmodule Ryker.RoutingExamples.Example.Query do
   they started still running.
   """
   def settled_decisions(limit, window_seconds, skip) do
-    from(input in Entry,
+    from(input in Ingress.Inbox.Entry,
       as: :ingress_inbox_entries,
-      join: attempt in Attempt,
+      join: attempt in Admission.Attempt,
       on: attempt.input_id == input.id and attempt.generation == input.execution_generation,
       where: input.status == :decided and is_nil(input.operational_pruned_at),
       where: input.id not in ^skip,
@@ -74,14 +74,14 @@ defmodule Ryker.RoutingExamples.Example.Query do
         ),
       where:
         not exists(
-          from(work in subquery(OwningTurn.Query.work_rest()),
+          from(work in subquery(Work.OwningTurn.Query.work_rest()),
             where:
               work.episode_id == parent_as(:ingress_inbox_entries).episode_id and work.running
           )
         ),
       where:
         not exists(
-          from(response in RoutingResponse,
+          from(response in Delivery.RoutingResponse,
             where:
               response.input_id == parent_as(:ingress_inbox_entries).id and
                 response.status == :pending

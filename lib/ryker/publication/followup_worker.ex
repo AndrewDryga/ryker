@@ -8,7 +8,7 @@ defmodule Ryker.Publication.FollowupWorker do
   interval.
   """
   use Ryker.PollingWorker, lane: :publication_followup, interval: :poll_interval_ms
-  alias Ryker.Observability.Progress
+  alias Ryker.Observability
   alias Ryker.PollingWorker
   alias Ryker.Publication.{Custody, FollowupDispatcher}
   require Logger
@@ -59,7 +59,7 @@ defmodule Ryker.Publication.FollowupWorker do
           state.poll_interval_ms
       end
 
-    _ = Progress.beat(:publication_followup)
+    _ = Observability.Progress.beat(:publication_followup)
     delay
   end
 

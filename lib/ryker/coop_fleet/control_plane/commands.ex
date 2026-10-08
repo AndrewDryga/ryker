@@ -14,8 +14,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
   alias Ryker.CoopFleet.ControlPlane.{Placements, Shared}
   alias Ryker.CoopFleet.{Placement, Protocol, Requests}
   alias Ryker.Repo
-  alias Ryker.StateTools.Binding
-  alias Ryker.Work.{Session, StateBinding, Turn}
+  alias Ryker.StateTools
+  alias Ryker.Work
   require Logger
 
   @purposes ~w(
@@ -98,8 +98,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
       Repo.transaction(fn ->
         session =
           session_id
-          |> Session.Query.by_id()
-          |> Session.Query.lock_for_no_key_update()
+          |> Work.Session.Query.by_id()
+          |> Work.Session.Query.lock_for_no_key_update()
           |> Repo.one() ||
             Shared.rollback({:coop_session_not_found, session_id})
 
@@ -140,7 +140,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
   def local_fence?(_command), do: false
 
   @doc false
-  def fence_command(%Session{} = session, kind, intent, key)
+  def fence_command(%Work.Session{} = session, kind, intent, key)
       when kind in ~w(create_session submit_turn) do
     with_session_command(session.id, key, fn current, command ->
       unless create_intent(current) == create_intent(session),
@@ -279,8 +279,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
          payload
        ) do
     with {:ok, request} <- Requests.encode(kind, payload, placement),
-         %Session{coop_session_id: id} when is_binary(id) <-
-           Repo.one(Session.Query.by_id(placement.session_id)),
+         %Work.Session{coop_session_id: id} when is_binary(id) <-
+           Repo.one(Work.Session.Query.by_id(placement.session_id)),
          true <- cleanup_request?(request, id) do
       :ok
     else
@@ -603,28 +603,28 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
          state_tools_secret
        )
        when map_size(descriptor) == 2 and is_struct(state_tools_secret, Ryker.Secret) do
-    session = Repo.one(Session.Query.by_id(command.session_id))
+    session = Repo.one(Work.Session.Query.by_id(command.session_id))
 
     turn =
       command.session_id
-      |> Turn.Query.state_tools_bound(endpoint, token_sha256)
-      |> Turn.Query.limit_to(1)
-      |> Turn.Query.lock_for_update()
+      |> Work.Turn.Query.state_tools_bound(endpoint, token_sha256)
+      |> Work.Turn.Query.limit_to(1)
+      |> Work.Turn.Query.lock_for_update()
       |> Repo.one()
 
-    with %Session{} <- session,
-         %Turn{} <- turn,
+    with %Work.Session{} <- session,
+         %Work.Turn{} <- turn,
          {:ok, binding} <-
-           StateBinding.derive(
+           Work.StateBinding.derive(
              session,
              turn,
-             StateBinding.placement_scope(placement),
+             Work.StateBinding.placement_scope(placement),
              endpoint,
              state_tools_secret
            ),
          true <- binding.token_sha256 == token_sha256,
-         {:ok, _current} <- Binding.resolve(binding.token) do
-      {:ok, StateBinding.document(binding)}
+         {:ok, _current} <- StateTools.Binding.resolve(binding.token) do
+      {:ok, Work.StateBinding.document(binding)}
     else
       _invalid -> {:error, {:coop_worker_state_binding_not_current, command.id}}
     end

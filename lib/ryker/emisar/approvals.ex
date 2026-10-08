@@ -14,21 +14,20 @@ defmodule Ryker.Emisar.Approvals do
   alias Ryker.Crypto
   alias Ryker.Emisar.{Approval, Review, RunState}
   alias Ryker.Episodes
-  alias Ryker.Episodes.{Command, Episode}
   alias Ryker.ErrorDetail
-  alias Ryker.Ingress.Input
+  alias Ryker.Ingress
   alias Ryker.Records
-  alias Ryker.Records.Record
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.UTCDateTime
-  alias Ryker.Work.Turn
+  alias Ryker.Work
 
-  @spec ensure_registered_in_transaction(Record.t()) :: :ok | {:error, term()}
-  def ensure_registered_in_transaction(%Record{kind: kind}) when kind != "emisar_approval",
-    do: :ok
+  @spec ensure_registered_in_transaction(Records.Record.t()) :: :ok | {:error, term()}
+  def ensure_registered_in_transaction(%Records.Record{kind: kind})
+      when kind != "emisar_approval",
+      do: :ok
 
-  def ensure_registered_in_transaction(%Record{} = record) do
+  def ensure_registered_in_transaction(%Records.Record{} = record) do
     if Repo.in_transaction?() do
       ensure_registered(record)
     else
@@ -308,7 +307,7 @@ defmodule Ryker.Emisar.Approvals do
     |> Repo.all()
   end
 
-  defp ensure_registered(%Record{kind: "emisar_approval"} = record) do
+  defp ensure_registered(%Records.Record{kind: "emisar_approval"} = record) do
     with :ok <- exact_session_authority(record) do
       case Repo.one(Approval.Query.by_record_id(record.id)) do
         nil -> insert_approval(record)
@@ -319,7 +318,7 @@ defmodule Ryker.Emisar.Approvals do
 
   defp exact_session_authority(record) do
     result =
-      record.turn_id |> Turn.Query.session_emisar_authority(record.episode_id) |> Repo.one()
+      record.turn_id |> Work.Turn.Query.session_emisar_authority(record.episode_id) |> Repo.one()
 
     expected = {
       record.payload["connection_ref"],
@@ -473,18 +472,19 @@ defmodule Ryker.Emisar.Approvals do
 
     with %Approval{} = snapshot <- Repo.one(Approval.Query.by_request(connection_ref, request_id)),
          :ok <- exact_run(snapshot, state),
-         %Episode{} = episode <- Repo.one(Episode.Query.by_id(snapshot.episode_id)),
-         %Record{} = record <- Repo.one(Record.Query.by_id(snapshot.record_id)),
+         %Episodes.Episode{} = episode <-
+           Repo.one(Episodes.Episode.Query.by_id(snapshot.episode_id)),
+         %Records.Record{} = record <- Repo.one(Records.Record.Query.by_id(snapshot.record_id)),
          {:ok, input} <- terminal_input(episode, snapshot, state, now),
          admit <- admit_command(episode, input, snapshot),
          resume <- resume_command(episode, admit, record, snapshot, now),
          {:ok, [_admitted, resumed]} <- Episodes.apply_batch_in_transaction([admit, resume]),
-         %Record{} = locked_record <- lock_record(snapshot.record_id),
+         %Records.Record{} = locked_record <- lock_record(snapshot.record_id),
          %Approval{} = locked_approval <- lock_approval(snapshot.id),
          {:ok, _approval} <- live_lease(locked_approval, lease_ref, now),
          :ok <- exact_run(locked_approval, state),
          :ok <- exact_wait_record(locked_record, locked_approval, record.ref),
-         {:ok, answered_record} <- Repo.update(Record.Changeset.answer(locked_record)),
+         {:ok, answered_record} <- Repo.update(Records.Record.Changeset.answer(locked_record)),
          approval <-
            update!(locked_approval, %{
              failure_count: 0,
@@ -508,7 +508,7 @@ defmodule Ryker.Emisar.Approvals do
     else
       nil -> Repo.rollback(:emisar_approval_not_found)
       {:error, reason} -> Repo.rollback(reason)
-      %Record{} -> Repo.rollback(:emisar_approval_record_stale)
+      %Records.Record{} -> Repo.rollback(:emisar_approval_record_stale)
       %Approval{} -> Repo.rollback(:emisar_approval_lease_lost)
     end
   end
@@ -592,7 +592,7 @@ defmodule Ryker.Emisar.Approvals do
   end
 
   defp exact_wait_record(
-         %Record{
+         %Records.Record{
            episode_id: episode_id,
            id: record_id,
            kind: "emisar_approval",
@@ -608,7 +608,7 @@ defmodule Ryker.Emisar.Approvals do
     do: {:error, :emisar_approval_record_stale}
 
   defp terminal_input(episode, approval, state, now) do
-    Input.new(%{
+    Ingress.Input.new(%{
       actor: %{kind: :system, ref: "emisar-approval-monitor"},
       content: %{
         "action_id" => state.action_id,
@@ -643,8 +643,8 @@ defmodule Ryker.Emisar.Approvals do
   end
 
   defp admit_command(episode, input, approval) do
-    %Command.AdmitInput{
-      actor_ref: Input.actor_ref(input),
+    %Episodes.Command.AdmitInput{
+      actor_ref: Ingress.Input.actor_ref(input),
       destination: input.destination,
       episode_id: episode.id,
       episode_key: episode.key,
@@ -652,18 +652,18 @@ defmodule Ryker.Emisar.Approvals do
       linked_episode_id: episode.linked_episode_id,
       native_input_id: input.native_input_id,
       occurred_at: input.occurred_at,
-      payload: Input.document(input),
+      payload: Ingress.Input.document(input),
       revision: input.revision,
       turn_ref: turn_ref(approval.request_id)
     }
   end
 
   defp resume_command(episode, admit, record, approval, now) do
-    %Command.ResumeWait{
+    %Episodes.Command.ResumeWait{
       episode_key: episode.key,
       expected_wait: %{kind: :event, ref: record.ref},
       occurred_at: now,
-      resolution_ref: Command.dedupe_key(admit),
+      resolution_ref: Episodes.Command.dedupe_key(admit),
       turn_ref: turn_ref(approval.request_id)
     }
   end
@@ -674,7 +674,7 @@ defmodule Ryker.Emisar.Approvals do
   end
 
   defp lock_record(id),
-    do: id |> Record.Query.by_id() |> Record.Query.lock_for_update() |> Repo.one()
+    do: id |> Records.Record.Query.by_id() |> Records.Record.Query.lock_for_update() |> Repo.one()
 
   defp lock_approval(id),
     do: id |> Approval.Query.by_id() |> Approval.Query.lock_for_update() |> Repo.one()

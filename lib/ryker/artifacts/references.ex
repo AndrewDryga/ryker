@@ -9,11 +9,11 @@ defmodule Ryker.Artifacts.References do
   searching serialized JSON.
   """
   alias Ryker.Artifacts.{Artifact, IngressReference, WorkReference}
-  alias Ryker.Ingress.Input
+  alias Ryker.Ingress
   alias Ryker.Repo
 
-  @spec attach_input(Input.t(), Ecto.UUID.t()) :: :ok | {:error, term()}
-  def attach_input(%Input{} = input, input_id) when is_binary(input_id) do
+  @spec attach_input(Ingress.Input.t(), Ecto.UUID.t()) :: :ok | {:error, term()}
+  def attach_input(%Ingress.Input{} = input, input_id) when is_binary(input_id) do
     with :ok <- transaction_open(),
          {:ok, descriptors} <- descriptors(input.content),
          {:ok, artifacts} <- lock_artifacts(Map.keys(descriptors)),

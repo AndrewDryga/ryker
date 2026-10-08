@@ -9,8 +9,7 @@ defmodule Ryker.Observability.Fleet do
   is a stale measurement, and neither is folded into the live totals as zero.
   """
   alias Ryker.Config
-  alias Ryker.CoopFleet.{Command, Placement, Worker}
-  alias Ryker.CoopFleet.WorkspaceCheckpointTransfer
+  alias Ryker.CoopFleet
   alias Ryker.Defaults
   alias Ryker.Observability.Reads
 
@@ -42,24 +41,26 @@ defmodule Ryker.Observability.Fleet do
   @spec snapshot(DateTime.t()) :: {:ok, map()} | {:error, Reads.failure()}
   def snapshot(now) do
     settings = settings()
-    cutoff = DateTime.add(now, -Worker.heartbeat_seconds(), :second)
+    cutoff = DateTime.add(now, -CoopFleet.Worker.heartbeat_seconds(), :second)
 
-    current_placements = Placement.Query.current()
-    expired_placements = Placement.Query.lease_expired_at(current_placements, now)
-    transfers = WorkspaceCheckpointTransfer.Query.all()
+    current_placements = CoopFleet.Placement.Query.current()
+    expired_placements = CoopFleet.Placement.Query.lease_expired_at(current_placements, now)
+    transfers = CoopFleet.WorkspaceCheckpointTransfer.Query.all()
 
-    with {:ok, workers} <- Reads.all(Worker.Query.all()),
+    with {:ok, workers} <- Reads.all(CoopFleet.Worker.Query.all()),
          {:ok, oldest_queued_command} <-
-           Reads.one(Command.Query.select_oldest_insert(Command.Query.queued())),
+           Reads.one(
+             CoopFleet.Command.Query.select_oldest_insert(CoopFleet.Command.Query.queued())
+           ),
          {:ok, latest_checkpoint} <-
-           Reads.one(WorkspaceCheckpointTransfer.Query.select_latest_insert(transfers)),
+           Reads.one(CoopFleet.WorkspaceCheckpointTransfer.Query.select_latest_insert(transfers)),
          {:ok, checkpoints} <- Reads.count(transfers),
-         {:ok, commands} <- Reads.counts(Command.Query.all(), :status),
+         {:ok, commands} <- Reads.counts(CoopFleet.Command.Query.all(), :status),
          {:ok, current} <- Reads.count(current_placements),
          {:ok, event_cursor_lag} <- event_cursor_lag(),
          {:ok, expired} <- Reads.count(expired_placements),
-         {:ok, placements} <- Reads.counts(Placement.Query.all(), :state),
-         {:ok, worker_states} <- Reads.counts(Worker.Query.all(), :state) do
+         {:ok, placements} <- Reads.counts(CoopFleet.Placement.Query.all(), :state),
+         {:ok, worker_states} <- Reads.counts(CoopFleet.Worker.Query.all(), :state) do
       fresh = Enum.filter(workers, &fresh?(&1, cutoff))
       eligible = Enum.filter(fresh, &eligible?(&1, settings.workspace_ref, settings.capabilities))
 
@@ -184,7 +185,7 @@ defmodule Ryker.Observability.Fleet do
     end
   end
 
-  defp fresh?(%Worker{last_seen_at: %DateTime{} = last_seen_at}, cutoff) do
+  defp fresh?(%CoopFleet.Worker{last_seen_at: %DateTime{} = last_seen_at}, cutoff) do
     DateTime.compare(last_seen_at, cutoff) != :lt
   end
 
