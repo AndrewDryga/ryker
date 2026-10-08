@@ -208,6 +208,19 @@ defmodule Ryker.Slack.InteractionTest do
     assert interaction.action_value ==
              "incident-room:82208f8f-2ef4-4f1b-a011-626aabdc9342|postmortem"
 
+    # The incident card's Open evidence button, beside that menu in the same block.
+    evidence =
+      put_in(stop, ["payload", "actions"], [
+        %{
+          "action_id" => "ryker_open_evidence",
+          "type" => "button",
+          "value" => "incident-room:82208f8f-2ef4-4f1b-a011-626aabdc9342|evidence"
+        }
+      ])
+
+    assert {:ok, interaction} = Interaction.from_socket(evidence, "T123", @now)
+    assert interaction.action_id == "ryker_open_evidence"
+
     forged =
       put_in(
         record,

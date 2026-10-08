@@ -81,6 +81,9 @@ defmodule Ryker.Slack.InteractionHandler do
     :work_record_not_available
   ]
   @work_record_kinds ~w(timeline evidence handoff recovery postmortem)
+  # An incident card opens its evidence with a button beside the records menu, and Slack wants
+  # the action ids in one block to differ.
+  @work_record_actions ~w(ryker_open_evidence ryker_work_record)
 
   @entity_actions ~w(ryker_delete_schedule ryker_delete_behavior ryker_forget_memory ryker_resume_behavior)
   @settled_entity_errors [
@@ -325,12 +328,13 @@ defmodule Ryker.Slack.InteractionHandler do
   end
 
   defp dispatch_action(
-         %Interaction{action_id: "ryker_work_record"} = interaction,
+         %Interaction{action_id: action_id} = interaction,
          work_ref,
          record_kind,
          options
        )
-       when record_kind in [:timeline, :evidence, :handoff, :recovery, :postmortem] do
+       when action_id in @work_record_actions and
+              record_kind in [:timeline, :evidence, :handoff, :recovery, :postmortem] do
     attributes =
       interaction
       |> work_attributes(work_ref)
@@ -726,10 +730,8 @@ defmodule Ryker.Slack.InteractionHandler do
     end
   end
 
-  defp selection(%Interaction{
-         action_id: "ryker_work_record",
-         action_value: action_value
-       }) do
+  defp selection(%Interaction{action_id: action_id, action_value: action_value})
+       when action_id in @work_record_actions do
     case String.split(action_value, "|", parts: 2) do
       [work_ref, kind] when kind in @work_record_kinds ->
         {:ok, work_ref, String.to_existing_atom(kind)}

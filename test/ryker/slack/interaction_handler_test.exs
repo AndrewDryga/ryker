@@ -572,6 +572,18 @@ defmodule Ryker.Slack.InteractionHandlerTest do
              {:ok, %{outcome: :shown, record_kind: :timeline, work_ref: "task-card:abc123"}}
 
     assert_receive {:work_record_shown, %{request_ref: "interaction:record"}}
+
+    evidence = %{
+      record
+      | action_id: "ryker_open_evidence",
+        action_value: "task-card:abc123|evidence",
+        event_ref: "interaction:evidence"
+    }
+
+    assert InteractionHandler.handle(evidence, member_options) ==
+             {:ok, %{outcome: :shown, record_kind: :evidence, work_ref: "task-card:abc123"}}
+
+    assert_receive {:work_record_shown, %{request_ref: "interaction:evidence"}}
   end
 
   # A saved-entity card's Delete/Forget control names one exact resource and the

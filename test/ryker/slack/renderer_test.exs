@@ -3772,6 +3772,59 @@ defmodule Ryker.Slack.RendererTest do
     refute inspect(empty) =~ "What this investigation is establishing"
   end
 
+  # Slack wants the action ids in one block to differ, and the block ids in one message, and
+  # Block Kit Builder refuses a payload that repeats either. The incident card's Open evidence
+  # button and its records menu were both `ryker_work_record`, so the preview links Andrew opened
+  # on 2026-10-08 failed to load ("action_id ... already exists").
+  test "no card repeats a block id, and no block repeats an action id" do
+    incident = %{
+      incident_document("investigating")
+      | "controls" => ["stop", "close", "timeline", "evidence", "handoff"]
+    }
+
+    task = %{
+      task_document("working")
+      | "controls" => ["stop", "close", "timeline", "evidence", "handoff", "recovery"]
+    }
+
+    settings = settings_document()
+
+    documents = [
+      %{"incident_room" => incident},
+      %{"task_card" => task},
+      welcome_document(settings["configuration_ref"], settings),
+      %{
+        "channel_settings" => %{
+          "audience" => "thread",
+          "bot_user_ref" => "UBOT",
+          "configuration_ref" => settings["configuration_ref"],
+          "revision" => 3,
+          "settings" => settings
+        }
+      }
+    ]
+
+    for document <- documents do
+      assert {:ok, %{"blocks" => blocks}} = Renderer.render(document)
+      block_ids = Enum.flat_map(blocks, &List.wrap(&1["block_id"]))
+
+      assert block_ids == Enum.uniq(block_ids),
+             "#{inspect(Map.keys(document))}: #{inspect(block_ids)}"
+
+      for block <- blocks do
+        ids =
+          block
+          |> Map.get("elements", [])
+          |> Kernel.++(List.wrap(block["accessory"]))
+          |> Enum.flat_map(&List.wrap(&1["action_id"]))
+
+        assert ids == Enum.uniq(ids),
+               "#{inspect(Map.keys(document))} repeats an action id in #{block["block_id"]}: " <>
+                 inspect(ids)
+      end
+    end
+  end
+
   # Andrew, 2026-09-30, of a task card showing Discard candidate, Stop current run and Close task,
   # all red: "not too many red buttons in the same state?" Stopping a run and closing a task keep
   # the task, its notes and its working copy; only Discard throws work away.

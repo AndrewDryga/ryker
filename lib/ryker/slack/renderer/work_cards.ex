@@ -256,7 +256,7 @@ defmodule Ryker.Slack.Renderer.WorkCards do
 
   defp evidence_button(work_ref, controls, :incident) do
     if "evidence" in controls,
-      do: [plain_button("ryker_work_record", "Open evidence", "#{work_ref}|evidence")],
+      do: [plain_button("ryker_open_evidence", "Open evidence", "#{work_ref}|evidence")],
       else: []
   end
 
