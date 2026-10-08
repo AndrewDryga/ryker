@@ -257,41 +257,46 @@ defmodule Ryker.Memories.Cases do
   # A case is stamped by the database clock, the one a memory search takes its
   # cutoff from; the host clock running ahead of it hid a case captured a
   # moment before from the search that followed.
+  #
+  # It is read under the lock a forget takes before erasing it. Read unlocked,
+  # a forget that committed between the read and the rewrite came partly
+  # undone: every word that had changed since was written back into the
+  # forgotten case.
   defp persist(%Episodes.Episode{} = episode) do
     attributes = attributes(episode)
-    now = Repo.now!()
 
-    case Repo.one(CaseRecord.Query.by_case_ref(attributes.case_ref)) do
-      %CaseRecord{content_fingerprint: same} = record
-      when same == :erlang.map_get(:content_fingerprint, attributes) ->
-        {:ok, record}
+    Repo.transaction(fn ->
+      now = Repo.now!()
 
-      %CaseRecord{status: :deleted} = record ->
-        {:ok, record}
+      case locked(attributes.case_ref) do
+        %CaseRecord{content_fingerprint: same} = record
+        when same == :erlang.map_get(:content_fingerprint, attributes) ->
+          record
 
-      %CaseRecord{} = record ->
-        attributes = Map.put(attributes, :updated_at, now)
+        %CaseRecord{status: :deleted} = record ->
+          record
 
-        record
-        |> Ecto.Changeset.change(attributes)
-        |> Repo.update()
-        |> tap(&announce_case/1)
+        %CaseRecord{} = record ->
+          attributes = Map.put(attributes, :updated_at, now)
 
-      nil ->
-        attributes = Map.merge(attributes, %{inserted_at: now, updated_at: now})
+          record
+          |> Ecto.Changeset.change(attributes)
+          |> Repo.update!()
+          |> tap(&announce_case/1)
 
-        CaseRecord
-        |> struct!(attributes)
-        |> Repo.insert(on_conflict: :nothing, conflict_target: [:case_ref])
-        |> tap(&announce_case/1)
-    end
+        nil ->
+          attributes = Map.merge(attributes, %{inserted_at: now, updated_at: now})
+
+          CaseRecord
+          |> struct!(attributes)
+          |> Repo.insert!(on_conflict: :nothing, conflict_target: [:case_ref])
+          |> tap(&announce_case/1)
+      end
+    end)
   end
 
   # A remembered case shows on the memory pages and on the request it was
   # captured from.
-  defp announce_case({:ok, %CaseRecord{id: id} = record}) when is_binary(id),
-    do: announce_case(record)
-
   defp announce_case(%CaseRecord{id: id, episode_id: episode_id}) when is_binary(id) do
     Ryker.Episodes.broadcast_episode_updated(episode_id)
     Ryker.Memories.broadcast_memory_updated(id)

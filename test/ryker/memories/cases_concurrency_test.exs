@@ -20,7 +20,7 @@ defmodule Ryker.Memories.CasesConcurrencyTest do
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.ConversationObservation
-  alias Ryker.Memories.CaseRecord
+  alias Ryker.Memories.{CaseRecord, Cases}
   alias Ryker.Repo
   alias Ryker.Retention.Data
   alias Ryker.Slack.Input, as: SlackInput
@@ -95,6 +95,71 @@ defmodule Ryker.Memories.CasesConcurrencyTest do
     end)
   end
 
+  # A person forgets a case while a capture rewrites it. The capture read the
+  # case without a lock and wrote back every field that had changed since it
+  # was kept, so a forget that committed between the read and the write came
+  # partly undone: the person's erased words were written back into the
+  # forgotten case. Found on 2026-10-08 while checking Emisar's
+  # fetch-then-mutate rule against Ryker.
+  test "a case forgotten while a capture rewrites it stays forgotten" do
+    Sandbox.unboxed_run(Repo, fn ->
+      message_ref = unique_message_ref()
+      episode_id = Ecto.UUID.generate()
+      case_ref = "case:#{episode_id}"
+
+      try do
+        finished_work!(message_ref, episode_id)
+        assert {:ok, %CaseRecord{status: :active}} = Cases.capture(episode_id)
+        rewritable_case!(case_ref)
+        parent = self()
+
+        # The capture has read the case it is about to rewrite.
+        capturer =
+          unboxed_task(fn ->
+            pause!(parent, :case_read, &(&1 =~ ~s("episode_case_records")))
+
+            try do
+              Cases.capture(episode_id)
+            after
+              :telemetry.detach({__MODULE__, self()})
+            end
+          end)
+
+        assert_receive {:case_read, capturer_backend}, 5_000
+
+        forgetter =
+          unboxed_task(fn ->
+            send(parent, {:forgetting, backend_pid()})
+            Cases.delete(case_ref)
+          end)
+
+        assert_receive {:forgetting, forgetter_backend}, 5_000
+
+        try do
+          # The forget either finished at once or waits for the capture.
+          forgotten = finished_or_waiting(forgetter, forgetter_backend, capturer_backend)
+
+          send(capturer.pid, :resume)
+          assert {:ok, %CaseRecord{}} = Task.await(capturer, 10_000)
+
+          assert {:ok, %CaseRecord{status: :deleted}} =
+                   forgotten || Task.await(forgetter, 10_000)
+
+          record = Repo.get_by!(CaseRecord, case_ref: case_ref)
+
+          assert {record.status, record.problem, record.search_text} ==
+                   {:deleted, "(deleted)", ""},
+                 "the forgotten case came back: #{inspect(record.problem)}"
+        after
+          send(capturer.pid, :resume)
+          stop_tasks([capturer, forgetter])
+        end
+      after
+        clean!(message_ref, episode_id)
+      end
+    end)
+  end
+
   # Where a withdrawal looks: the work a message joined, or the cases kept.
   defp withdrawal_look?(query),
     do: query =~ ~s("episode_input_origins") or query =~ ~s("episode_case_records")
@@ -158,6 +223,42 @@ defmodule Ryker.Memories.CasesConcurrencyTest do
     Repo.update_all(from(episode in Episode, where: episode.id == ^episode_id),
       set: [updated_at: @old]
     )
+  end
+
+  # A kept case written before its work last changed, so the next capture
+  # rewrites its words.
+  defp rewritable_case!(case_ref) do
+    Repo.update_all(from(record in CaseRecord, where: record.case_ref == ^case_ref),
+      set: [
+        content_fingerprint: String.duplicate("0", 64),
+        problem: "An earlier summary of the outage",
+        search_text: "an earlier summary of the outage"
+      ]
+    )
+  end
+
+  # The task's result once it finished, or nil once it waits on `blocker`.
+  defp finished_or_waiting(task, backend, blocker) do
+    deadline = System.monotonic_time(:millisecond) + 5_000
+    finished_or_waiting(task, backend, blocker, deadline)
+  end
+
+  defp finished_or_waiting(task, backend, blocker, deadline) do
+    waiting = "SELECT $2::integer = ANY(pg_blocking_pids($1::integer))"
+
+    cond do
+      reply = Task.yield(task, 0) ->
+        elem(reply, 1)
+
+      Repo.query!(waiting, [backend, blocker]).rows == [[true]] ->
+        nil
+
+      System.monotonic_time(:millisecond) > deadline ->
+        flunk("the forget neither finished nor waited on the capture")
+
+      true ->
+        finished_or_waiting(task, backend, blocker, deadline)
+    end
   end
 
   defp settings do

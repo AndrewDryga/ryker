@@ -183,7 +183,10 @@ Emisar's write rules (`../emisar/portal/.agent/kb/rules/README.md`) that Ryker f
 
 - A function that reads a row and then writes it locks it first
   (`Schema.Query.lock_for_update/1` inside the transaction), so no write
-  lands between the read and the lock.
+  lands between the read and the lock. A case capture read its case
+  unlocked until 2026-10-08, and wrote a forgotten case's words back when a
+  person forgot it between the read and the write; a scan of every function
+  that reads and then updates found no other.
 - A row whose identity is a unique key is written with one upsert
   (`on_conflict: {:replace, fields}, conflict_target: key`), and a
   fetch-or-create inserts with `on_conflict: :nothing` and reads the winner.
