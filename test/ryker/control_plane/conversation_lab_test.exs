@@ -1793,11 +1793,12 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     assert List.last(older.messages).text == "Bounded transcript message 150"
 
     assert {:ok, oldest} =
-             Enum.reduce_while(1..10, older, fn _step, page ->
-               if page.exhausted,
-                 do: {:halt, {:ok, page}},
-                 else:
-                   {:cont, elem(ConversationProjection.history(@conversation_id, page.before), 1)}
+             Enum.reduce_while(1..10, older, fn
+               _step, %{exhausted: true} = page ->
+                 {:halt, {:ok, page}}
+
+               _step, page ->
+                 {:cont, elem(ConversationProjection.history(@conversation_id, page.before), 1)}
              end)
 
     assert hd(oldest.messages).text == "Bounded transcript message 0"

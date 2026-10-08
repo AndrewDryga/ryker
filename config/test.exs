@@ -16,9 +16,13 @@ repo_pool = if world_eval?, do: DBConnection.ConnectionPool, else: Ecto.Adapters
 # beside it (scripts/test-database.sh).
 repo_pool_size = if world_eval?, do: 10, else: 24
 
+# No query is logged: the test Logger level applies only once the application
+# starts, so an applied migration that reads rows printed its query into
+# every run on a fresh database.
 config :ryker, Ryker.Repo,
   database: System.get_env("PGDATABASE", "ryker_test"),
   hostname: System.get_env("PGHOST", "127.0.0.1"),
+  log: false,
   password: System.get_env("PGPASSWORD", "postgres"),
   pool: repo_pool,
   pool_size: repo_pool_size,

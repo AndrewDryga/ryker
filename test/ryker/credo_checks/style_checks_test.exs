@@ -481,6 +481,100 @@ defmodule Ryker.CredoChecks.StyleChecksTest do
     end
   end
 
+  describe "Ryker.Checks.DispatchOnPattern" do
+    # Until 2026-10-08, 18 functions held their dispatch in one inner `if` or
+    # `case` on their own argument, where the clause heads would have shown it.
+    test "flags a body that only tests its argument for nil, a literal or truthiness" do
+      source = """
+      defmodule Ryker.Sprockets do
+        defp wait(sprocket, now) do
+          if sprocket.state == :open, do: now, else: :never
+        end
+
+        defp fingerprint(value, labels) do
+          if is_nil(value), do: digest(labels), else: value
+        end
+
+        defp spin(sprocket) do
+          unless sprocket.stopped, do: :spinning, else: :still
+        end
+
+        def labels(sprockets) do
+          Enum.map(sprockets, fn sprocket ->
+            if sprocket.name == nil, do: "unnamed", else: sprocket.name
+          end)
+        end
+      end
+      """
+
+      assert sprocket_triggers(source) == [
+               "if sprocket.state == :open",
+               "if is_nil(value)",
+               "unless sprocket.stopped",
+               "if sprocket.name == nil"
+             ]
+    end
+
+    test "flags a body that is one case on an argument" do
+      source = """
+      defmodule Ryker.Sprockets do
+        def run(arguments) do
+          case arguments do
+            ["spin"] -> :spin
+            _other -> :usage
+          end
+        end
+      end
+      """
+
+      assert [issue] = issues(dispatch_on_pattern(), source, @context)
+      assert issue.check == dispatch_on_pattern()
+      assert issue.trigger == "case arguments"
+      assert issue.line_no == 2
+      assert issue.message =~ "clause heads"
+    end
+
+    test "allows clause heads, computed conditions, a case on anything else, and NoIfOnArgField's case" do
+      source = """
+      defmodule Ryker.Sprockets do
+        defp wait(%{state: :open}, now), do: now
+        defp wait(_sprocket, _now), do: :never
+
+        defp size(sprocket) do
+          if Enum.empty?(sprocket.tags), do: 0, else: length(sprocket.tags)
+        end
+
+        defp late?(sprocket, now) do
+          if DateTime.compare(sprocket.due, now) == :lt, do: true, else: false
+        end
+
+        defp read(sprocket) do
+          case Sprockets.fetch(sprocket.id) do
+            {:ok, found} -> found
+            {:error, _reason} -> nil
+          end
+        end
+
+        defp note(sprocket) do
+          if sprocket.note, do: sprocket.note
+        end
+
+        def names(sprockets), do: Enum.map(sprockets, fn s -> if s.name, do: s.name, else: "" end)
+      end
+      """
+
+      assert issues(dispatch_on_pattern(), source, @context) == []
+    end
+  end
+
+  defp sprocket_triggers(source) do
+    dispatch_on_pattern()
+    |> issues(source, @context)
+    |> Enum.sort_by(& &1.line_no)
+    |> Enum.map(& &1.trigger)
+  end
+
+  defp dispatch_on_pattern, do: check("DispatchOnPattern")
   defp if_on_arg_field, do: check("NoIfOnArgField")
   defp acronym, do: check("AcronymModuleCase")
   defp alias_group, do: check("MultilineAliasGroup")

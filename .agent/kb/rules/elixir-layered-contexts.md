@@ -139,12 +139,36 @@ Functions:
 - A module attribute holds configuration: a limit, a version, a prefix, a
   pattern, a path. A message or other literal read in one place is written
   there.
+- A function whose body is one `if` or `case` on its own argument, testing
+  whether it or a field of it is nil, a literal or truthy, is clause heads
+  instead (Emisar's `elixir-dispatch-on-pattern`): the heads show the cases
+  where a reader looks first. `if` stays for a computed condition, `case` for
+  anything that is not the argument (`DispatchOnPattern`, and Emisar's own
+  `NoIfOnArgField` for a closure). Eighteen moved on 2026-10-08.
 
 Results:
 
 - A clause never binds an `{:ok, _}` or `{:error, _}` tuple only to return
   it; it restates the tuple (`{:error, reason} -> {:halt, {:error, reason}}`)
   (`NoBoundTupleReturn`). A tuple handed on to a function keeps its name.
+
+Stored data (Emisar's `elixir-nil-is-not-an-empty-list`):
+
+- A list read from a map Ryker did not build in the same call (a stored
+  JSON column, a decoded request, a vendor's answer) is normalized once
+  where it enters, `value || []` bound to a name, before anything compares
+  or walks it. The checks a write made do not hold for rows saved under an
+  earlier shape.
+- A map Ryker's own constructor fills needs nothing, and neither does a
+  document validated where it is read: job documents (`JobSpec.digest/1`),
+  worker evidence (`SessionEvidences.document/1`), record payloads
+  (`RecordPayload.prepare/3`), Emisar statuses (`ApprovalStatus.prepare/1`)
+  and tool arguments, which are checked against an exact schema before a
+  handler runs.
+- Swept 2026-10-08: of 89 places that enumerate a subscript, two read stored
+  data unchecked, the improvement export's case snapshot and a webhook
+  source's lifecycle scope; both normalize now. Templates walk only what
+  projections built (`Ryker.ControlPlane.TemplateHygieneTest`).
 
 Not adopted, measured 2026-10-08:
 
@@ -247,6 +271,8 @@ Not adopted, because Ryker's own test rules (CLAUDE.md) differ:
 - `WebNoNestedDomainCalls`: a web module calls a top-level context, never a
   module below one, in code or in a `~H` template.
 - `NoBoundTupleReturn`: no tuple bound only to be returned.
+- `DispatchOnPattern` and `NoIfOnArgField`: a body that only dispatches on
+  its argument is clause heads.
 - `TestAssertKnownResult`: a fully known result is asserted with `==`.
 - `NoBlankBetweenDirectives` with Credo's `StrictModuleLayout`: the module
   header's order and one block; `UtcNowTruncate` and

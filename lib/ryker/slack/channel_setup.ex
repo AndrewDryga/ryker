@@ -746,21 +746,20 @@ defmodule Ryker.Slack.ChannelSetup do
 
   defp answer(_text, _session, _options), do: {:error, :configuration_answer_ambiguous}
 
-  defp answer_step(text, _original, %{step: :participation}) do
-    case text do
-      value when value in ["mentions", "mentions only", "mention only"] ->
-        {:ok, :participation, :mentions}
+  defp answer_step(text, _original, %{step: :participation})
+       when text in ["mentions", "mentions only", "mention only"],
+       do: {:ok, :participation, :mentions}
 
-      value when value in ["proactive", "be proactive"] ->
-        {:ok, :participation, :proactive}
+  defp answer_step(text, _original, %{step: :participation})
+       when text in ["proactive", "be proactive"],
+       do: {:ok, :participation, :proactive}
 
-      value when value in ["shadow", "observe", "observe only"] ->
-        {:ok, :participation, :shadow}
+  defp answer_step(text, _original, %{step: :participation})
+       when text in ["shadow", "observe", "observe only"],
+       do: {:ok, :participation, :shadow}
 
-      _other ->
-        {:error, :configuration_answer_ambiguous}
-    end
-  end
+  defp answer_step(_text, _original, %{step: :participation}),
+    do: {:error, :configuration_answer_ambiguous}
 
   # An environment is named by its display name or its ref; naming one wins
   # over the words for No environment, so an environment called "None" can
@@ -780,36 +779,33 @@ defmodule Ryker.Slack.ChannelSetup do
     end
   end
 
-  defp answer_step(text, _original, %{step: :alerts}) do
-    case text do
-      # Each card button's own label works typed, as well as the short forms.
-      value when value in ["investigate here", "investigate", "reply", "reply in place"] ->
-        {:ok, :alerts, :reply}
+  # Each card button's own label works typed, as well as the short forms.
+  defp answer_step(text, _original, %{step: :alerts})
+       when text in ["investigate here", "investigate", "reply", "reply in place"],
+       do: {:ok, :alerts, :reply}
 
-      value
-      when value in [
-             "offer a room",
-             "offer",
-             "offer a choice",
-             "offer incident",
-             "offer an incident"
-           ] ->
-        {:ok, :alerts, :offer}
+  defp answer_step(text, _original, %{step: :alerts})
+       when text in [
+              "offer a room",
+              "offer",
+              "offer a choice",
+              "offer incident",
+              "offer an incident"
+            ],
+       do: {:ok, :alerts, :offer}
 
-      value
-      when value in [
-             "always open a room",
-             "automatic",
-             "automatically create",
-             "create automatically",
-             "auto"
-           ] ->
-        {:ok, :alerts, :automatic}
+  defp answer_step(text, _original, %{step: :alerts})
+       when text in [
+              "always open a room",
+              "automatic",
+              "automatically create",
+              "create automatically",
+              "auto"
+            ],
+       do: {:ok, :alerts, :automatic}
 
-      _other ->
-        {:error, :configuration_answer_ambiguous}
-    end
-  end
+  defp answer_step(_text, _original, %{step: :alerts}),
+    do: {:error, :configuration_answer_ambiguous}
 
   defp answer_step(text, original, %{step: :audience}) do
     users = captures(@user_mention, original)
@@ -835,14 +831,17 @@ defmodule Ryker.Slack.ChannelSetup do
     end
   end
 
-  defp answer_step(text, _original, %{step: :confirm}) do
-    case text do
-      value when value in ["save", "save settings", "save configuration"] -> {:ok, :save, nil}
-      value when value in ["start over", "restart"] -> {:ok, :restart, nil}
-      "cancel" -> {:ok, :cancel, nil}
-      _other -> {:error, :configuration_answer_ambiguous}
-    end
-  end
+  defp answer_step(text, _original, %{step: :confirm})
+       when text in ["save", "save settings", "save configuration"],
+       do: {:ok, :save, nil}
+
+  defp answer_step(text, _original, %{step: :confirm}) when text in ["start over", "restart"],
+    do: {:ok, :restart, nil}
+
+  defp answer_step("cancel", _original, %{step: :confirm}), do: {:ok, :cancel, nil}
+
+  defp answer_step(_text, _original, %{step: :confirm}),
+    do: {:error, :configuration_answer_ambiguous}
 
   defp captures(regex, text) do
     regex

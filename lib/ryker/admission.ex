@@ -641,46 +641,48 @@ defmodule Ryker.Admission do
   defp apply_and_persist(
          context,
          entry,
+         _selection,
+         decision,
+         decision_ref,
+         {:ok, {episode, latest}},
+         _work_policy
+       )
+       when latest >= context.input.revision do
+    details = [
+      native_input_id: context.input.native_input_id,
+      submitted: context.input.revision,
+      latest: latest
+    ]
+
+    persist_superseded(entry, decision, decision_ref, episode, details)
+  end
+
+  defp apply_and_persist(
+         context,
+         entry,
          selection,
          decision,
          decision_ref,
-         source_owner,
+         {:ok, {%Episodes.Episode{} = owner, _earlier_revision}},
          work_policy
        ) do
-    case source_owner do
-      {:ok, {episode, latest}} when latest >= context.input.revision ->
-        details = [
-          native_input_id: context.input.native_input_id,
-          submitted: context.input.revision,
-          latest: latest
-        ]
-
-        persist_superseded(entry, decision, decision_ref, episode, details)
-
-      {:ok, {%Episodes.Episode{} = owner, _earlier_revision}} ->
-        if source_owner_matches_selection?(owner, selection) do
-          apply_and_persist_current(
-            context,
-            entry,
-            selection,
-            decision,
-            decision_ref,
-            work_policy
-          )
-        else
-          {:error, {:admission_rejected, :context_stale}}
-        end
-
-      {:error, :not_found} ->
-        apply_and_persist_current(
-          context,
-          entry,
-          selection,
-          decision,
-          decision_ref,
-          work_policy
-        )
+    if source_owner_matches_selection?(owner, selection) do
+      apply_and_persist_current(context, entry, selection, decision, decision_ref, work_policy)
+    else
+      {:error, {:admission_rejected, :context_stale}}
     end
+  end
+
+  defp apply_and_persist(
+         context,
+         entry,
+         selection,
+         decision,
+         decision_ref,
+         {:error, :not_found},
+         work_policy
+       ) do
+    apply_and_persist_current(context, entry, selection, decision, decision_ref, work_policy)
   end
 
   defp source_owner_matches_selection?(owner, selection) do

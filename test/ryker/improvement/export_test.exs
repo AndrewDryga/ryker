@@ -45,6 +45,29 @@ defmodule Ryker.Improvement.ExportTest do
     refute Export.case_id(first) == Export.case_id(second)
   end
 
+  # A kept case is read back from its stored snapshot, which the export only
+  # ever read: one written before a list existed, or holding it as null,
+  # raised in the export where three of its four lists already read as empty
+  # (Emisar's "nil is not an empty list", 2026-10-08).
+  test "a stored case missing one of its lists exports with that part empty" do
+    candidate = %Candidate{
+      id: Repo.generate_id(),
+      request_ref: "control_plane:local:request",
+      transport: "control_plane",
+      decided_at: ~U[2026-10-08 12:00:00.000000Z],
+      first_signal_at: ~U[2026-10-08 11:00:00.000000Z],
+      what_went_wrong: "It answered late.",
+      expected: "It answers on time.",
+      case_evidence: %{"version" => 1, "request" => %{}, "routing" => nil}
+    }
+
+    files = Map.new(Export.files(candidate), fn {path, body} -> {Path.basename(path), body} end)
+    scenario = files |> Map.fetch!("scenario.json") |> IO.iodata_to_binary() |> Jason.decode!()
+
+    assert scenario["events"] == []
+    assert files |> Map.fetch!("routing.json") |> IO.iodata_to_binary() |> Jason.decode!() == []
+  end
+
   test "an accepted case exports as a world scenario the eval runner loads" do
     {candidate, first} = harvested_request!()
     assert {:ok, accepted} = Improvement.accept(candidate.id, "control-plane:local")

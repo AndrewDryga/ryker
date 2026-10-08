@@ -42,19 +42,15 @@ defmodule Ryker.GitHub.Renderer do
     end
   end
 
-  def render(%{"message" => message} = document) when is_binary(message) do
-    case document do
-      %{"message" => ^message} when map_size(document) == 1 ->
-        {:ok, message}
+  def render(%{"message" => message} = document)
+      when is_binary(message) and map_size(document) == 1,
+      do: {:ok, message}
 
-      %{"message" => ^message, "records" => records}
-      when map_size(document) == 2 and is_list(records) and length(records) <= @maximum_records ->
-        with {:ok, sections} <- render_records(records) do
-          {:ok, Enum.join([message | sections], "\n\n")}
-        end
-
-      _invalid ->
-        {:error, {:invalid_github_render, :document}}
+  def render(%{"message" => message, "records" => records} = document)
+      when is_binary(message) and map_size(document) == 2 and is_list(records) and
+             length(records) <= @maximum_records do
+    with {:ok, sections} <- render_records(records) do
+      {:ok, Enum.join([message | sections], "\n\n")}
     end
   end
 

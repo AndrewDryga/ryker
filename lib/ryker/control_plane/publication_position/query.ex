@@ -24,10 +24,13 @@ defmodule Ryker.ControlPlane.PublicationPosition.Query do
     end
   end
 
-  @doc "The delivery a publication currently shows."
-  def at(publication) do
-    if publication.status == :published,
-      do: publication.published_at || publication.updated_at || publication.inserted_at,
-      else: publication.reviewed_at || publication.updated_at || publication.inserted_at
-  end
+  @doc """
+  The time of the delivery a publication currently shows: when it was
+  published, or reviewed before that, each falling back to its row's times.
+  """
+  def at(%{status: :published} = publication),
+    do: publication.published_at || publication.updated_at || publication.inserted_at
+
+  def at(publication),
+    do: publication.reviewed_at || publication.updated_at || publication.inserted_at
 end

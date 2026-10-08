@@ -1415,15 +1415,17 @@ defmodule Ryker.Runtime.Assembly do
 
   defp webhook_lifecycle(%{publication_lifecycle: nil}, _repositories), do: {:ok, nil}
 
+  # A stored scope is read as it was saved: a list it lacks is empty, which
+  # the route refuses, so an older shape leaves this one source out.
   defp webhook_lifecycle(%{publication_lifecycle: scope}, repositories) do
-    if Enum.all?(scope["repositories"], &Map.has_key?(repositories, &1)) do
-      {:ok,
-       Map.new(Webhooks.Route.lifecycle_fields(), fn field ->
-         {field, Enum.sort(scope[Atom.to_string(field)])}
-       end)}
-    else
-      {:error, :lifecycle_repository_unreviewed}
-    end
+    lifecycle =
+      Map.new(Webhooks.Route.lifecycle_fields(), fn field ->
+        {field, Enum.sort(scope[Atom.to_string(field)] || [])}
+      end)
+
+    if Enum.all?(lifecycle.repositories, &Map.has_key?(repositories, &1)),
+      do: {:ok, lifecycle},
+      else: {:error, :lifecycle_repository_unreviewed}
   end
 
   # Where a source posts must be a delivery target this configuration runs:

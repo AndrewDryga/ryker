@@ -594,18 +594,16 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     end
   end
 
-  defp admission_headline(candidate) do
-    case candidate do
-      %{"action" => "reply", "work_class" => "conversational"} -> "Conversational reply"
-      %{"action" => "reply"} -> "Reply requested"
-      %{"action" => "ignore"} -> "No reply needed"
-      %{"action" => "react"} -> "Reaction selected"
-      %{"action" => "quick_reply"} -> "Answered right away"
-      %{"action" => "start_episode"} -> "New work requested"
-      %{"action" => "continue_episode"} -> "Continue existing work"
-      _ -> "Routing result"
-    end
-  end
+  defp admission_headline(%{"action" => "reply", "work_class" => "conversational"}),
+    do: "Conversational reply"
+
+  defp admission_headline(%{"action" => "reply"}), do: "Reply requested"
+  defp admission_headline(%{"action" => "ignore"}), do: "No reply needed"
+  defp admission_headline(%{"action" => "react"}), do: "Reaction selected"
+  defp admission_headline(%{"action" => "quick_reply"}), do: "Answered right away"
+  defp admission_headline(%{"action" => "start_episode"}), do: "New work requested"
+  defp admission_headline(%{"action" => "continue_episode"}), do: "Continue existing work"
+  defp admission_headline(_candidate), do: "Routing result"
 
   # The routing card showed a paragraph of reasoning and two timings, while the
   # record behind it held the decision itself. These are the parts a person

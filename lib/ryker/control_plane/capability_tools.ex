@@ -736,20 +736,18 @@ defmodule Ryker.ControlPlane.CapabilityTools do
        else: {:error, :unauthorized}
   end
 
-  defp post_granted?(input, destination_ref) do
-    case input do
-      %{
-        "source_capabilities" => %{
-          "post_slack_message" => %{"destination_refs" => destinations}
-        }
-      }
-      when is_list(destinations) ->
-        destination_ref in destinations
+  defp post_granted?(
+         %{
+           "source_capabilities" => %{
+             "post_slack_message" => %{"destination_refs" => destinations}
+           }
+         },
+         destination_ref
+       )
+       when is_list(destinations),
+       do: destination_ref in destinations
 
-      _input ->
-        false
-    end
-  end
+  defp post_granted?(_input, _destination_ref), do: false
 
   # The person who asked, in the form a turn carries for them, is the one who
   # may confirm the post (`Ryker.Records.SlackPostOffers`).

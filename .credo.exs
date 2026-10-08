@@ -27,6 +27,7 @@
           {Ryker.Checks.ContextCryptoBoundary, []},
           {Ryker.Checks.ContextNoMapTakeDrop, []},
           {Ryker.Checks.CrossContextDeepAlias, []},
+          {Ryker.Checks.DispatchOnPattern, []},
           {Ryker.Checks.EnumOverValidateInclusion, []},
           {Ryker.Checks.IL01NoInlineEctoDsl, []},
           {Ryker.Checks.IL02NoRepoGet, []},

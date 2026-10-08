@@ -7,15 +7,26 @@ defmodule Ryker.TypespecsTest do
   # remote type a Ryker spec, type or callback names.
   use ExUnit.Case, async: true
 
+  # Each compiled module is read once, from its file. Through the code server
+  # it was read three times, and once more for every type it named, each read
+  # queued behind every other test in the VM: 1.2 s alone, past 60 s under the
+  # gate's load on 2026-10-08.
   test "every remote type a Ryker spec, type or callback names exists" do
-    modules = for module <- Application.spec(:ryker, :modules), ryker?(module), do: module
+    ebin = Application.app_dir(:ryker, "ebin")
+
+    beams =
+      for module <- Application.spec(:ryker, :modules), ryker?(module), into: %{} do
+        {module, File.read!(Path.join(ebin, "#{module}.beam"))}
+      end
+
+    types = Map.new(beams, fn {module, beam} -> {module, exported_types(beam)} end)
 
     missing =
-      for module <- modules,
+      for {module, beam} <- beams,
           {:remote_type, _, [{:atom, _, target}, {:atom, _, name}, arguments]} <-
-            remote_types(module),
+            remote_types(beam),
           ryker?(target),
-          not defined?(target, name, length(arguments)),
+          {name, length(arguments)} not in Map.get(types, target, []),
           uniq: true,
           do: "#{inspect(module)} names #{inspect(target)}.#{name}/#{length(arguments)}"
 
@@ -24,12 +35,12 @@ defmodule Ryker.TypespecsTest do
 
   defp ryker?(module), do: String.starts_with?(Atom.to_string(module), "Elixir.Ryker.")
 
-  defp remote_types(module) do
+  defp remote_types(beam) do
     specs =
-      [Code.Typespec.fetch_specs(module), Code.Typespec.fetch_callbacks(module)]
+      [Code.Typespec.fetch_specs(beam), Code.Typespec.fetch_callbacks(beam)]
       |> Enum.flat_map(&spec_forms/1)
 
-    Enum.flat_map(specs ++ type_forms(Code.Typespec.fetch_types(module)), &collect/1)
+    Enum.flat_map(specs ++ type_forms(Code.Typespec.fetch_types(beam)), &collect/1)
   end
 
   defp spec_forms({:ok, entries}), do: Enum.flat_map(entries, fn {_name, forms} -> forms end)
@@ -47,12 +58,15 @@ defmodule Ryker.TypespecsTest do
   defp collect(forms) when is_list(forms), do: Enum.flat_map(forms, &collect/1)
   defp collect(_leaf), do: []
 
-  defp defined?(module, name, arity),
-    do: {name, arity} in exported_types(Code.Typespec.fetch_types(module))
+  defp exported_types(beam) do
+    case Code.Typespec.fetch_types(beam) do
+      {:ok, types} ->
+        for {kind, {name, _form, vars}} <- types,
+            kind in [:type, :opaque],
+            do: {name, length(vars)}
 
-  defp exported_types({:ok, types}) do
-    for {kind, {name, _form, vars}} <- types, kind in [:type, :opaque], do: {name, length(vars)}
+      :error ->
+        []
+    end
   end
-
-  defp exported_types(:error), do: []
 end

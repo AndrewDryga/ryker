@@ -386,7 +386,6 @@ defmodule Ryker.Publication.Followups.Polls do
   # GitHub was not asked during the wait, so an open pull request is checked at
   # once: a webhook that came meanwhile gets its check, and the timer resumes
   # from there.
-  defp after_wait(followup, now) do
-    if followup.pr_state == :open, do: now, else: @far_future
-  end
+  defp after_wait(%{pr_state: :open}, now), do: now
+  defp after_wait(_followup, _now), do: @far_future
 end

@@ -12,14 +12,10 @@ defmodule Mix.Tasks.Ryker.Delivery do
   alias Ryker.Operator
 
   @impl Mix.Task
-  def run(arguments) do
-    case arguments do
-      ["list"] -> with_repo(&Operator.Delivery.list_blocked/0)
-      ["show", delivery_ref] -> with_repo(fn -> Operator.Delivery.fetch(delivery_ref) end)
-      ["rearm", delivery_ref] -> with_repo(fn -> Operator.Delivery.rearm(delivery_ref) end)
-      _invalid -> Mix.raise("usage: mix ryker.delivery list|show REF|rearm REF")
-    end
-  end
+  def run(["list"]), do: with_repo(&Operator.Delivery.list_blocked/0)
+  def run(["show", delivery_ref]), do: with_repo(fn -> Operator.Delivery.fetch(delivery_ref) end)
+  def run(["rearm", delivery_ref]), do: with_repo(fn -> Operator.Delivery.rearm(delivery_ref) end)
+  def run(_arguments), do: Mix.raise("usage: mix ryker.delivery list|show REF|rearm REF")
 
   defp with_repo(operation), do: operation |> Support.with_repo() |> print_result()
 

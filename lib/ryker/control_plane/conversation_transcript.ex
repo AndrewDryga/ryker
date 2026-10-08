@@ -394,79 +394,79 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
          reactions,
          feedback_reactions
        ) do
-    input_messages =
-      Enum.flat_map(inputs, fn input ->
-        case input do
-          %{pruned_at: %DateTime{}, source_kind: "control_plane", source_ref: "local"} ->
-            [expired_input_message(input)]
-
-          %{
-            content: %{"text" => text},
-            source_kind: "control_plane",
-            source_ref: "local"
-          }
-          when is_binary(text) ->
-            deleted = input.event_kind == :delete
-
-            [
-              input_identity(input, %{
-                actor: :operator,
-                attachments: if(deleted, do: [], else: input_attachments(input.content)),
-                cards: [],
-                editable: not deleted,
-                event_kind: input.event_kind,
-                item_id: item_id(input.source_item_ref),
-                reactions: Map.get(reactions, input.source_item_ref, []),
-                ref: input.ref,
-                retained: true,
-                revision: input.revision,
-                state: nil,
-                status: input.status,
-                text: if(deleted, do: "Message deleted", else: text)
-              })
-            ]
-
-          # An answer chosen on Ryker's question card is the person's reply.
-          # It read "Control plane local · event · revision 1" (Andrew,
-          # 2026-10-01), which said nothing to the person who chose it.
-          %{
-            content: %{"choice" => choice},
-            source_kind: "control_plane",
-            source_ref: "local"
-          }
-          when is_binary(choice) ->
-            [
-              input_identity(input, %{
-                actor: :operator,
-                attachments: [],
-                cards: [],
-                editable: false,
-                event_kind: input.event_kind,
-                item_id: nil,
-                reactions: Map.get(reactions, input.source_item_ref, []),
-                ref: input.ref,
-                retained: true,
-                revision: input.revision,
-                state: nil,
-                status: input.status,
-                text: choice
-              })
-            ]
-
-          %{source_kind: source_kind, source_ref: source_ref}
-          when is_binary(source_kind) and is_binary(source_ref) ->
-            [integration_message(input)]
-
-          _invalid_source ->
-            []
-        end
-      end)
+    input_messages = Enum.flat_map(inputs, &input_message(&1, reactions))
 
     reply_messages =
       Enum.flat_map(replies, &reply_message(&1, cards, artifacts, feedback_reactions))
 
     sort_messages(input_messages ++ reply_messages)
   end
+
+  defp input_message(
+         %{pruned_at: %DateTime{}, source_kind: "control_plane", source_ref: "local"} = input,
+         _reactions
+       ),
+       do: [expired_input_message(input)]
+
+  defp input_message(
+         %{content: %{"text" => text}, source_kind: "control_plane", source_ref: "local"} = input,
+         reactions
+       )
+       when is_binary(text) do
+    deleted = input.event_kind == :delete
+
+    [
+      input_identity(input, %{
+        actor: :operator,
+        attachments: if(deleted, do: [], else: input_attachments(input.content)),
+        cards: [],
+        editable: not deleted,
+        event_kind: input.event_kind,
+        item_id: item_id(input.source_item_ref),
+        reactions: Map.get(reactions, input.source_item_ref, []),
+        ref: input.ref,
+        retained: true,
+        revision: input.revision,
+        state: nil,
+        status: input.status,
+        text: if(deleted, do: "Message deleted", else: text)
+      })
+    ]
+  end
+
+  # An answer chosen on Ryker's question card is the person's reply.
+  # It read "Control plane local · event · revision 1" (Andrew,
+  # 2026-10-01), which said nothing to the person who chose it.
+  defp input_message(
+         %{content: %{"choice" => choice}, source_kind: "control_plane", source_ref: "local"} =
+           input,
+         reactions
+       )
+       when is_binary(choice) do
+    [
+      input_identity(input, %{
+        actor: :operator,
+        attachments: [],
+        cards: [],
+        editable: false,
+        event_kind: input.event_kind,
+        item_id: nil,
+        reactions: Map.get(reactions, input.source_item_ref, []),
+        ref: input.ref,
+        retained: true,
+        revision: input.revision,
+        state: nil,
+        status: input.status,
+        text: choice
+      })
+    ]
+  end
+
+  defp input_message(%{source_kind: source_kind, source_ref: source_ref} = input, _reactions)
+       when is_binary(source_kind) and is_binary(source_ref),
+       do: [integration_message(input)]
+
+  defp input_message(_input, _reactions), do: []
 
   # Position, identity and sort key of one logical input: where its first
   # revision entered the conversation, named by the durable input id.

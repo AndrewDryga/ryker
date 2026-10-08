@@ -227,24 +227,22 @@ defmodule Ryker.Work.Executor.Sessions do
     |> created(claim, key, settings)
   end
 
-  defp created(result, claim, key, settings) do
-    case result do
-      {:ok, %{"session" => remote_session}} when is_map(remote_session) ->
-        case bind_session(claim, remote_session) do
-          {:ok, _claim, _remote} = success -> success
-          {:error, reason} -> reconcile_create_response(claim, key, reason, settings)
-        end
-
-      {:ok, %{"operation" => operation}} when is_map(operation) ->
-        bind_session_from_operation(claim, operation, key, settings)
-
-      {:ok, _response} ->
-        reconcile_create_response(claim, key, :create_session_response, settings)
-
-      {:error, _reason} = error ->
-        reconcile_unreached_create(claim, key, settings, error)
+  defp created({:ok, %{"session" => remote_session}}, claim, key, settings)
+       when is_map(remote_session) do
+    case bind_session(claim, remote_session) do
+      {:ok, bound, remote} -> {:ok, bound, remote}
+      {:error, reason} -> reconcile_create_response(claim, key, reason, settings)
     end
   end
+
+  defp created({:ok, %{"operation" => operation}}, claim, key, settings) when is_map(operation),
+    do: bind_session_from_operation(claim, operation, key, settings)
+
+  defp created({:ok, _response}, claim, key, settings),
+    do: reconcile_create_response(claim, key, :create_session_response, settings)
+
+  defp created({:error, _reason} = error, claim, key, settings),
+    do: reconcile_unreached_create(claim, key, settings, error)
 
   # Found live 2026-09-12 — the fleet fails an unbound session whose placement is
   # gone closed before it enqueues anything, so a create was fenced on the turn and

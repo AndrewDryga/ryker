@@ -938,6 +938,32 @@ defmodule Ryker.Runtime.AssemblyTest do
            }
   end
 
+  # A source's lifecycle scope is a map stored as it was saved, and the runtime
+  # sorted each of its lists as read: a scope saved before one of its lists
+  # existed raised in the assembly, and every integration with it, where the
+  # route would have refused that one source (Emisar's "nil is not an empty
+  # list", 2026-10-08).
+  test "a stored lifecycle scope missing a list leaves its source out, not the runtime" do
+    settings = connected!()
+
+    {1, nil} =
+      Ryker.Repo.update_all(
+        from(source in "webhook_source_settings", where: source.name == "deploys"),
+        set: [
+          publication_lifecycle: %{
+            "environments" => ["production"],
+            "kinds" => ["deployment"],
+            "repositories" => ["ryker"]
+          }
+        ]
+      )
+
+    assert {:ok, configuration} = Assembly.build(bootstrap(), Settings.fetch!())
+    assert configuration.integrations_left_out.webhooks["deploys"] == :route_invalid
+    assert Map.has_key?(configuration.webhooks.routes, "alerts")
+    assert settings.installation.revision == Settings.fetch!().installation.revision
+  end
+
   test "unreviewed repositories can receive metadata but cannot start work" do
     # Metadata alone is insufficient: source identity and GitHub access are required.
     # Settings accepts each of these because the repository exists, and every

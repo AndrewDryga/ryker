@@ -229,12 +229,10 @@ defmodule Ryker.ControlPlane.PromptDocument do
       else: "[" <> Jason.encode!(decoded) <> "]"
   end
 
-  defp annotate(html, path, parts) do
-    case parts do
-      %{^path => index} -> [@open, Integer.to_string(index), @close, html, @done]
-      _ -> html
-    end
-  end
+  defp annotate(html, path, parts) when is_map_key(parts, path),
+    do: [@open, Integer.to_string(parts[path]), @close, html, @done]
+
+  defp annotate(html, _path, _parts), do: html
 
   # One row per line. Pretty-printed JSON starts and ends every part on its own
   # lines, so each line belongs to one part or to none, and a part becomes one

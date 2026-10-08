@@ -360,13 +360,11 @@ defmodule Ryker.Admission.Context do
     end
   end
 
-  defp request?(%{} = request) when map_size(request) == 1 do
-    case request do
-      %{"episode_id" => id} when is_binary(id) -> match?({:ok, _id}, Ecto.UUID.cast(id))
-      %{"input_id" => id} when is_binary(id) -> match?({:ok, _id}, Ecto.UUID.cast(id))
-      _other -> false
-    end
-  end
+  defp request?(%{"episode_id" => id} = request) when map_size(request) == 1 and is_binary(id),
+    do: match?({:ok, _id}, Ecto.UUID.cast(id))
+
+  defp request?(%{"input_id" => id} = request) when map_size(request) == 1 and is_binary(id),
+    do: match?({:ok, _id}, Ecto.UUID.cast(id))
 
   defp request?(_request), do: false
 

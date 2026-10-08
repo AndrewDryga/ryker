@@ -61,7 +61,8 @@ defmodule Ryker.Improvement.Export do
 
   @doc "The files of one accepted case, by path."
   @spec files(Candidate.t()) :: [{String.t(), iodata()}]
-  def files(%Candidate{case_evidence: %{} = snapshot} = candidate) do
+  def files(%Candidate{case_evidence: %{} = stored} = candidate) do
+    snapshot = lists(stored)
     id = case_id(candidate)
     names = names(snapshot, candidate)
 
@@ -75,6 +76,14 @@ defmodule Ryker.Improvement.Export do
   end
 
   def files(_candidate), do: []
+
+  # A kept snapshot is read as it was stored: a list it lacks, or holds as
+  # null, is empty, so an older shape exports instead of raising.
+  defp lists(snapshot) do
+    Enum.reduce(~w(events routing conversation feedback), snapshot, fn key, snapshot ->
+      Map.update(snapshot, key, [], &(&1 || []))
+    end)
+  end
 
   @doc "Writes every accepted case under `directory`, one directory each, and says how many."
   @spec write(Path.t()) :: {:ok, non_neg_integer()} | {:error, term()}
@@ -276,9 +285,9 @@ defmodule Ryker.Improvement.Export do
 
     texts =
       Enum.map(events, & &1["text"]) ++
-        Enum.flat_map(snapshot["routing"] || [], &[&1["prompt"], &1["answer"]]) ++
-        Enum.map(snapshot["conversation"] || [], & &1["text"]) ++
-        Enum.map(snapshot["feedback"] || [], & &1["note"]) ++
+        Enum.flat_map(snapshot["routing"], &[&1["prompt"], &1["answer"]]) ++
+        Enum.map(snapshot["conversation"], & &1["text"]) ++
+        Enum.map(snapshot["feedback"], & &1["note"]) ++
         [candidate.what_went_wrong, candidate.expected]
 
     found =
@@ -380,7 +389,7 @@ defmodule Ryker.Improvement.Export do
   # -- The rest of the case ------------------------------------------------------------
 
   defp routing(snapshot, names) do
-    for routing <- snapshot["routing"] || [], is_binary(routing["prompt"]) do
+    for routing <- snapshot["routing"], is_binary(routing["prompt"]) do
       routing
       |> Map.take(~w(message_at decision model prompt answer))
       |> Map.update!("prompt", &rename_text(&1, names))
@@ -391,11 +400,11 @@ defmodule Ryker.Improvement.Export do
   defp provenance(candidate, snapshot, names) do
     answers =
       for %{"from" => "ryker", "text" => text} when is_binary(text) <-
-            snapshot["conversation"] || [],
+            snapshot["conversation"],
           do: rename_text(text, names)
 
     feedback =
-      for signal <- snapshot["feedback"] || [] do
+      for signal <- snapshot["feedback"] do
         note = signal["note"] && "\"#{rename_text(signal["note"], names)}\""
         words = [signal["kind"], signal["value"], note]
         "- #{signal["at"]}: " <> (words |> Enum.reject(&is_nil/1) |> Enum.join(" "))

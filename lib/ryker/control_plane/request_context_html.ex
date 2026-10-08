@@ -1691,43 +1691,12 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
               "$.work.custom_instructions",
               "$.context.custom_instructions",
               "$.custom_instructions"
-            ] do
-    case key do
-      "global" ->
-        {"Global instructions", "policy", "Configured in Settings", nil}
-
-      "channel" ->
-        {"Channel instructions", "policy",
-         "Adds channel guidance; wins only when the two conflict", nil}
-
-      other ->
-        {human(other) <> " instructions", "policy", "Text at send time", nil}
-    end
-  end
+            ],
+       do: instructions_metadata(key)
 
   defp metadata(key, root)
-       when root in ["$.work.operator_context", "$.context.operator_context"] do
-    case key do
-      "continuity" ->
-        {"Conversation notes", "memory", "Selected notes, topics and earlier work",
-         "Notes, learned topics and conversation summaries chosen for this request, as Ryker knew them then."}
-
-      "preferences" ->
-        {"Preferences", "memory", "Confirmed behavior settings",
-         "The preferences in effect for this person and conversation."}
-
-      "guidance" ->
-        {"Guidance", "memory", "Scoped guidance records",
-         "Guidance a person confirmed for where this request ran. It can't give the model more access."}
-
-      "standing_assignments" ->
-        {"Rules", "memory", "Confirmed assignment records",
-         "Standing rules that applied to this request."}
-
-      _ ->
-        metadata(key, nil)
-    end
-  end
+       when root in ["$.work.operator_context", "$.context.operator_context"],
+       do: operator_context_metadata(key)
 
   # A learning pass's parts, at the top of its prompt.
   defp metadata("inputs", "$") do
@@ -1757,6 +1726,39 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
        "Part of the request this page has no section for."}
     )
   end
+
+  defp instructions_metadata("global"),
+    do: {"Global instructions", "policy", "Configured in Settings", nil}
+
+  defp instructions_metadata("channel") do
+    {"Channel instructions", "policy", "Adds channel guidance; wins only when the two conflict",
+     nil}
+  end
+
+  defp instructions_metadata(other),
+    do: {human(other) <> " instructions", "policy", "Text at send time", nil}
+
+  defp operator_context_metadata("continuity") do
+    {"Conversation notes", "memory", "Selected notes, topics and earlier work",
+     "Notes, learned topics and conversation summaries chosen for this request, as Ryker knew them then."}
+  end
+
+  defp operator_context_metadata("preferences") do
+    {"Preferences", "memory", "Confirmed behavior settings",
+     "The preferences in effect for this person and conversation."}
+  end
+
+  defp operator_context_metadata("guidance") do
+    {"Guidance", "memory", "Scoped guidance records",
+     "Guidance a person confirmed for where this request ran. It can't give the model more access."}
+  end
+
+  defp operator_context_metadata("standing_assignments") do
+    {"Rules", "memory", "Confirmed assignment records",
+     "Standing rules that applied to this request."}
+  end
+
+  defp operator_context_metadata(key), do: metadata(key, nil)
 
   defp source_metadata(key, parent) when key in ["global", "channel"] do
     if instruction_parent?(parent),

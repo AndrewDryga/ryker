@@ -460,12 +460,10 @@ defmodule Ryker.Webhooks.Transforms do
     end
   end
 
-  defp grafana_fingerprint(route, value, labels, starts_at) do
-    case value do
-      nil -> CanonicalJSON.digest([route.name, labels, encoded_time(starts_at)])
-      fingerprint -> fingerprint
-    end
-  end
+  defp grafana_fingerprint(route, nil, labels, starts_at),
+    do: CanonicalJSON.digest([route.name, labels, encoded_time(starts_at)])
+
+  defp grafana_fingerprint(_route, fingerprint, _labels, _starts_at), do: fingerprint
 
   defp grafana_url(values) do
     case first_nonempty(values) do
