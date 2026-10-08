@@ -798,7 +798,9 @@ and the runner, with **Review in Emisar** (later **Open in Emisar**) and **Open 
 GitHub the same request is a comment titled "Approval required in Emisar" with the action, runner,
 pack and expiry. Opening the link is navigation, not approval; no action has run, and the decision
 remains in Emisar's authenticated console and audit trail. Ryker watches that exact run and, when
-it finishes, continues the same conversation with its result.
+it finishes, continues the same conversation with its result. The card is the reply of the turn
+that asked for the approval; a turn that ended without one, a silent result or a turn that blocked
+and was retried, leaves no card, and Ryker watches the run all the same.
 There is no text spelling of a control. An unadvertised `!respond <verb>` router used to read every
 message in a thread carrying an incident and match eight verbs against it; it was removed on
 2026-08-15. The pinned card above the thread carries stop, publish and close as buttons that

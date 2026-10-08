@@ -16,22 +16,9 @@ defmodule Ryker.Emisar.ApprovalPresenter do
   @spec publish(Approval.t(), RunState.t(), map()) :: :ok | {:error, term()}
   def publish(%Approval{} = approval, %RunState{} = state, adapters) when is_map(adapters) do
     if changed?(approval, state) do
-      with {:ok, record, turn, episode} <- source(approval),
-           {:ok, receipt} <- Work.DeliveryReceipt.prepare(turn.external_receipt),
-           :ok <- exact_receipt(turn, episode, receipt),
-           true <- record.status == :open,
-           {:ok, request} <- request(turn, episode),
-           {:ok, status} <- ApprovalStatus.new(approval, state),
-           :ok <-
-             Delivery.Adapters.update_message(
-               request,
-               receipt["message_ref"],
-               %{"emisar_approval_status" => status},
-               adapters
-             ) do
-        :ok
-      else
-        false -> {:error, :emisar_approval_record_stale}
+      case source(approval) do
+        {:ok, record, turn, episode} -> repaint(approval, state, adapters, record, turn, episode)
+        :no_card -> :ok
         {:error, reason} -> {:error, reason}
       end
     else
@@ -47,6 +34,7 @@ defmodule Ryker.Emisar.ApprovalPresenter do
   # and the task never resumed after its review (2026-10-04 review).
   @spec permanent?(term()) :: boolean()
   def permanent?({:emisar_approval_presentation_unavailable, _reason}), do: false
+  def permanent?(:emisar_approval_delivery_pending), do: false
   def permanent?(reason), do: not Delivery.Retry.retryable?(reason)
 
   # A repaint costs an operator's attention, so it follows a change this card can
@@ -64,6 +52,13 @@ defmodule Ryker.Emisar.ApprovalPresenter do
       (is_nil(state.review) and approval.remote_status != state.status)
   end
 
+  # The card is the message the turn that asked for the approval delivered,
+  # and only that one: a repaint replaces the whole message. A turn still
+  # delivering shows it soon. One that ended without a message, a silent result
+  # or a turn that blocked and was retried, left no card, and the approval is
+  # watched without one. That ending was refused as permanent, which stopped
+  # the watch: two retried tasks waited on approvals nothing watched (episodes
+  # 8e0de29c and 01a11a2f, 2026-10-08).
   defp source(approval) do
     record = Repo.peek(Records.Record.Query.by_id(approval.record_id))
     turn = record && Repo.peek(Work.Turn.Query.by_id(record.turn_id))
@@ -71,12 +66,40 @@ defmodule Ryker.Emisar.ApprovalPresenter do
 
     case {record, turn, episode} do
       {%Records.Record{episode_id: episode_id, kind: "emisar_approval"} = record,
-       %Work.Turn{episode_id: episode_id, status: :settled} = turn,
-       %Episodes.Episode{id: episode_id} = episode} ->
-        {:ok, record, turn, episode}
+       %Work.Turn{episode_id: episode_id} = turn, %Episodes.Episode{id: episode_id} = episode} ->
+        card(record, turn, episode)
 
       _invalid ->
-        {:error, :emisar_approval_delivery_not_settled}
+        {:error, :emisar_approval_source_missing}
+    end
+  end
+
+  defp card(record, %Work.Turn{status: :settled, external_receipt: %{}} = turn, episode),
+    do: {:ok, record, turn, episode}
+
+  defp card(_record, %Work.Turn{status: status}, _episode)
+       when status in [:pending, :cancel_pending, :delivery_pending],
+       do: {:error, :emisar_approval_delivery_pending}
+
+  defp card(_record, _turn, _episode), do: :no_card
+
+  defp repaint(approval, state, adapters, record, turn, episode) do
+    with {:ok, receipt} <- Work.DeliveryReceipt.prepare(turn.external_receipt),
+         :ok <- exact_receipt(turn, episode, receipt),
+         true <- record.status == :open,
+         {:ok, request} <- request(turn, episode),
+         {:ok, status} <- ApprovalStatus.new(approval, state),
+         :ok <-
+           Delivery.Adapters.update_message(
+             request,
+             receipt["message_ref"],
+             %{"emisar_approval_status" => status},
+             adapters
+           ) do
+      :ok
+    else
+      false -> {:error, :emisar_approval_record_stale}
+      {:error, reason} -> {:error, reason}
     end
   end
 

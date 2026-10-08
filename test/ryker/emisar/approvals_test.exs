@@ -38,6 +38,16 @@ defmodule Ryker.Emisar.ApprovalsTest do
     def permanent?(_reason), do: false
   end
 
+  defmodule ObservedAPI do
+    @behaviour Ryker.Emisar.API
+
+    @impl true
+    def wait_for_run({test_pid, state}, run_id, _wait_seconds) do
+      send(test_pid, {:wait_for_run, run_id})
+      {:ok, state}
+    end
+  end
+
   # Emisar as it answers a replacement key (`Ryker.TestSupport.EmisarMCP`).
   defmodule SameAccountRequester do
     alias Ryker.TestSupport.EmisarMCP
@@ -318,6 +328,35 @@ defmodule Ryker.Emisar.ApprovalsTest do
     assert {:ok, _count} = EventSubscriptions.reconcile()
     assert Repo.get!(Record, watch.id).status == :open
     assert Repo.get_by!(EventSubscription, record_id: watch.id).status == :active
+  end
+
+  # Episodes 8e0de29c and 01a11a2f, 2026-10-08: each turn that asked for two
+  # approvals blocked before its reply went out, and a retry settled and waited
+  # on them. The card is the reply of the turn that asked, which never came,
+  # and that was refused as permanent: all four watches blocked at their first
+  # look, so neither a decision in Emisar nor the approvals' expiry would have
+  # resumed either task. A silent result leaves no card either.
+  for status <- [:superseded, :blocked, :settled] do
+    test "an approval whose asking turn left no message (#{status}) is still watched" do
+      suffix = "no-card-#{unquote(status)}"
+      %{claim: claim, record: approval} = registered!(suffix)
+      turn_status!(claim.turn, unquote(status))
+      assert {:ok, _waiting} = wait_on!(claim, approval)
+
+      assert ApprovalDispatcher.run_once(observer(suffix, "running")) ==
+               {:ok, {:monitoring, "apr-#{suffix}", "running"}}
+    end
+  end
+
+  test "an approval whose asking turn is still delivering is looked at again" do
+    %{claim: claim, record: approval} = registered!("card-pending")
+    turn_status!(claim.turn, :delivery_pending)
+    assert {:ok, _waiting} = wait_on!(claim, approval)
+
+    assert ApprovalDispatcher.run_once(observer("card-pending", "running")) ==
+             {:ok,
+              {:deferred, "apr-card-pending",
+               {:emisar_approval_presentation_unavailable, :emisar_approval_delivery_pending}}}
   end
 
   # Episode 8e0de29c, 2026-10-08: a timer can own a task's wait beside its
@@ -841,6 +880,58 @@ defmodule Ryker.Emisar.ApprovalsTest do
     page = Pages.page(["failures"], %{}, %{projection: Projection.callbacks()})
     assert page.status == 200
     page.body
+  end
+
+  # The dispatcher with the real presenter, reading the run of `apr-<suffix>`
+  # in `status`.
+  defp observer(suffix, status) do
+    Keyword.merge(dispatcher("approval-observer-#{suffix}"),
+      api: ObservedAPI,
+      client: {self(), run_state(suffix, status)},
+      presentation: %{},
+      presenter: Ryker.Emisar.ApprovalPresenter
+    )
+  end
+
+  # The asking turn as it ended, with the fields custody keeps for that end:
+  # retried after it blocked, blocked, settled without a reply, or accepted
+  # with its reply still going out.
+  defp turn_status!(turn, status) do
+    accepted = [
+      accepted_at: ~U[2026-08-29 12:00:00.000000Z],
+      candidate: "{}",
+      candidate_attempt: 1,
+      candidate_sha256: String.duplicate("c", 64),
+      continuation: %{"kind" => "complete"},
+      result_ref: "result:#{turn.id}",
+      validation_intent: %{"result" => nil, "verdict" => "accept"},
+      validation_intent_fingerprint: String.duplicate("d", 64),
+      validation_receipt: "validation:#{turn.id}"
+    ]
+
+    released = [lease_expires_at: nil, lease_owner: nil, lease_ref: nil, next_attempt_at: nil]
+
+    changes =
+      case status do
+        :delivery_pending ->
+          accepted ++
+            [
+              delivery_document: %{"message" => "The restart waits for approval."},
+              delivery_fingerprint: String.duplicate("e", 64),
+              delivery_ref: "delivery:#{turn.id}"
+            ]
+
+        :settled ->
+          accepted ++ released
+
+        _ended ->
+          released
+      end
+
+    Ryker.Work.Turn
+    |> Repo.get!(turn.id)
+    |> Ecto.Changeset.change([status: status] ++ changes)
+    |> Repo.update!()
   end
 
   defp dispatcher(worker_ref \\ "approval-closer") do

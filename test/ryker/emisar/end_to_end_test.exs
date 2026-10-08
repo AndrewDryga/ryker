@@ -178,7 +178,7 @@ defmodule Ryker.Emisar.EndToEndTest do
     }
 
     assert ApprovalPresenter.publish(orphan, terminal_run_state(), adapters) ==
-             {:error, :emisar_approval_delivery_not_settled}
+             {:error, :emisar_approval_source_missing}
 
     # A network blip, missing credentials or Slack's own rate limit while repainting the card were
     # permanent: the watch blocked, and the task never resumed after the review until a person
