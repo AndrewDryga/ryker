@@ -280,6 +280,8 @@ defmodule Ryker.CoopFleet.Enrollment do
 
   defp authority(_configuration), do: {:error, :invalid_coop_worker_certificate_authority}
 
+  # The path is the certificate authority file the operator configured.
+  # sobelow_skip ["Traversal.FileModule"]
   defp authority_pem(configuration, pem_key, file_key) do
     case {Map.get(configuration, pem_key), Map.get(configuration, file_key)} do
       {pem, nil} when is_binary(pem) and byte_size(pem) > 0 -> {:ok, pem}

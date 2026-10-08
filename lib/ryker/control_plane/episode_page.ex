@@ -249,7 +249,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
             {@snapshot.trace.stopped[:delivery]} This is the worker's report, not an independently verified check result.
           </p>
           <div class="recovery-model-output">
-            {Phoenix.HTML.raw(SlackMarkdown.preview(@snapshot.trace.stopped.model_output))}
+            {SlackMarkdown.html(@snapshot.trace.stopped.model_output)}
           </div>
         </.disclosure>
         <a
@@ -1677,9 +1677,9 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp message_text(%{available: false}), do: "Source content not recorded or expired"
 
   defp message_text(%{transport: "slack", workspace: workspace, text: text}) when is_binary(text),
-    do: text |> SlackMarkdown.preview(workspace) |> Phoenix.HTML.raw()
+    do: SlackMarkdown.html(text, workspace)
 
-  defp message_text(message), do: message.text |> SlackMarkdown.preview() |> Phoenix.HTML.raw()
+  defp message_text(message), do: SlackMarkdown.html(message.text)
 
   defp event(assigns) do
     ~H"""

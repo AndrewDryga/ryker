@@ -12,6 +12,8 @@ defmodule Ryker.ControlPlane.Layouts do
 
   # The shell for a confirmed action, a record view or an HTTP error: the same
   # sidebar and stylesheets as the live shell, without a socket.
+  # `@body` is markup the console's builders made for `HTML.page/5`, escaping every value.
+  # sobelow_skip ["XSS.Raw"]
   def static(assigns) do
     assigns =
       assigns

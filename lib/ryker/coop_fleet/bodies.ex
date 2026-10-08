@@ -117,6 +117,9 @@ defmodule Ryker.CoopFleet.Bodies do
     end
   end
 
+  # Every segment is the configured body root, a command id cast as a UUID, a fixed direction name
+  # or a generated one.
+  # sobelow_skip ["Traversal.FileModule"]
   defp prune_orphan(root, name, cutoff) do
     path = Path.join(root, name)
 
@@ -159,6 +162,9 @@ defmodule Ryker.CoopFleet.Bodies do
     end)
   end
 
+  # Every segment is the configured body root, a command id cast as a UUID, a fixed direction name
+  # or a generated one.
+  # sobelow_skip ["Traversal.FileModule"]
   defp store(root, command_id, direction, reference, key, write) do
     with true <- reference?(reference),
          {:ok, command_id} <- Ecto.UUID.cast(command_id),
@@ -224,6 +230,9 @@ defmodule Ryker.CoopFleet.Bodies do
   # Authenticate the complete immutable file before exposing plaintext. All
   # passes use this same descriptor; a path replacement cannot change the input.
   # The callback may enumerate stream.() repeatedly, but never concurrently.
+  # Every segment is the configured body root, a command id cast as a UUID, a fixed direction name
+  # or a generated one.
+  # sobelow_skip ["Traversal.FileModule"]
   def with_stream(body, key, consume) do
     with {:ok, ^body, _} <- fetch(body.root, body.command_id, body.direction, body.reference),
          {:ok, name} <- direction_name(body.direction),
@@ -312,6 +321,9 @@ defmodule Ryker.CoopFleet.Bodies do
 
   defp directory(_, _), do: {:error, :body_storage_unavailable}
 
+  # Every segment is the configured body root, a command id cast as a UUID, a fixed direction name
+  # or a generated one.
+  # sobelow_skip ["Traversal.FileModule"]
   defp private_directory(path) do
     with :ok <- File.mkdir_p(path),
          {:ok, %File.Stat{type: :directory}} <- File.lstat(path) do
@@ -404,6 +416,9 @@ defmodule Ryker.CoopFleet.Bodies do
          do: with_stream(body, key, fn _stream -> :ok end)
   end
 
+  # Every segment is the configured body root, a command id cast as a UUID, a fixed direction name
+  # or a generated one.
+  # sobelow_skip ["Traversal.FileModule"]
   defp identity(path) do
     with {:ok, %File.Stat{type: :directory}} <- File.lstat(path),
          receipt = Path.join(path, "receipt"),
@@ -419,6 +434,9 @@ defmodule Ryker.CoopFleet.Bodies do
     end
   end
 
+  # Every segment is the configured body root, a command id cast as a UUID, a fixed direction name
+  # or a generated one.
+  # sobelow_skip ["Traversal.FileModule"]
   defp write_receipt(directory, reference) do
     path = Path.join(directory, "receipt")
 

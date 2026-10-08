@@ -133,6 +133,8 @@ defmodule Ryker.Transcription.Service do
     end
   end
 
+  # The WAV `Ryker.Transcription.Local` wrote in its own temporary directory.
+  # sobelow_skip ["Traversal.FileModule"]
   defp read_file(path) do
     case File.read(path) do
       {:ok, audio} -> {:ok, audio}

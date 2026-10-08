@@ -99,6 +99,8 @@ defmodule Ryker.Settings.RetentionImpact do
   end
 
   # Table names and conditions come from the literals above, never from data.
+  # Table names and conditions come from the literals above; values are bound parameters.
+  # sobelow_skip ["SQL.Query"]
   defp count(label, sources, window) do
     sql =
       "SELECT " <>
@@ -112,6 +114,8 @@ defmodule Ryker.Settings.RetentionImpact do
     %{label: label, count: count}
   end
 
+  # The statement is one of the literal `@all_examples` queries.
+  # sobelow_skip ["SQL.Query"]
   defp turned_off(shorter, current, proposed, kind, label) do
     {enabled, seconds} = example_fields(kind)
 

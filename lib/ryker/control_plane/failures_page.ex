@@ -272,7 +272,7 @@ defmodule Ryker.ControlPlane.FailuresPage do
             The worker wrote this. Ryker has not checked the claims in it.
           </p>
           <div class="recovery-model-output">
-            {Phoenix.HTML.raw(SlackMarkdown.preview(@report))}
+            {SlackMarkdown.html(@report)}
           </div>
         </details>
       </Kit.section_card>

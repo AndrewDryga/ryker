@@ -308,7 +308,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
         Choose the report's channel above to send a preview there.
       </p>
       <div :if={@preview} id="weekly-report-text" class="markdown-preview weekly-report-preview">
-        {Phoenix.HTML.raw(SlackMarkdown.preview(@preview.text))}
+        {SlackMarkdown.html(@preview.text)}
       </div>
     </Kit.section_card>
     """

@@ -1,0 +1,18 @@
+# Sobelow, the security static analysis Emisar's gate runs, over all of lib:
+# Ryker has no separate web app. `exit: "Low"` fails the gate on any finding at
+# Low confidence or above. `skip: true` honors a per-site
+# `# sobelow_skip ["Check"]` annotation, each reviewed, with its reason at the
+# function it covers.
+#
+# Config.HTTPS is the one ignored check: the console listens on loopback or a
+# container network and is published through Tailscale Serve or Cloudflare
+# Access, which terminate TLS (docs/operations.md); the endpoint never serves
+# HTTPS itself.
+[
+  verbose: false,
+  private: false,
+  skip: true,
+  router: "lib/ryker/control_plane/web_router.ex",
+  ignore: ["Config.HTTPS"],
+  exit: "Low"
+]

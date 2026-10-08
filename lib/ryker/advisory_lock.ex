@@ -16,6 +16,8 @@ defmodule Ryker.AdvisoryLock do
 
   @doc "Holds `key` until the transaction ends, alone or `:shared` with other readers."
   @spec hold!(key(), mode()) :: :ok
+  # The statement is one of four fixed strings; the key is a bound parameter.
+  # sobelow_skip ["SQL.Query"]
   def hold!(key, mode \\ :exclusive) do
     Repo.query!(statement(key, mode), [key])
     :ok
@@ -23,6 +25,8 @@ defmodule Ryker.AdvisoryLock do
 
   @doc "`hold!/2`, answering a refused statement instead of raising."
   @spec hold(key(), mode()) :: :ok | {:error, term()}
+  # The statement is one of four fixed strings; the key is a bound parameter.
+  # sobelow_skip ["SQL.Query"]
   def hold(key, mode \\ :exclusive) do
     case Repo.query(statement(key, mode), [key]) do
       {:ok, _result} -> :ok

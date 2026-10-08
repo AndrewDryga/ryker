@@ -2600,6 +2600,9 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   end
 
   @impl true
+  # `@body_lead`, `@body` and `@page_action` are pages and actions the console's builders
+  # rendered, escaping every value.
+  # sobelow_skip ["XSS.Raw"]
   def render(assigns) do
     ~H"""
     <div

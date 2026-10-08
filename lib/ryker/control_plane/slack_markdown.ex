@@ -67,6 +67,18 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
     end)
   end
 
+  @doc """
+  `mentions/2` as markup a template renders as it stands. Every character the
+  renderer does not draw itself is escaped, so the mark that it is safe belongs
+  here, beside the escaping, rather than in a `raw/1` on each page.
+  """
+  @spec mentions_html(String.t(), String.t() | nil) :: Phoenix.HTML.safe()
+  def mentions_html(text, workspace), do: {:safe, mentions(text, workspace)}
+
+  @doc "`preview/2` as markup a template renders as it stands, as `mentions_html/2`."
+  @spec html(String.t(), String.t() | nil) :: Phoenix.HTML.safe()
+  def html(text, workspace \\ Slack.Names.workspace()), do: {:safe, preview(text, workspace)}
+
   @doc "HTML-inert Markdown for human-facing answers and public progress."
   def preview(text, workspace \\ Slack.Names.workspace()) when is_binary(text) do
     ~r/(```[\s\S]*?```)/u

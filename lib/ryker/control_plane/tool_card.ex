@@ -230,7 +230,7 @@ defmodule Ryker.ControlPlane.ToolCard do
         </div>
       </dl>
       <div :if={@action.text && @step.state != "started"} class="action-observation markdown-preview">
-        {Phoenix.HTML.raw(SlackMarkdown.preview(@action.text))}
+        {SlackMarkdown.html(@action.text)}
       </div>
       <section
         :for={{label, items} <- @action.groups}

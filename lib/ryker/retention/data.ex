@@ -1015,6 +1015,9 @@ defmodule Ryker.Retention.Data do
     }
   end
 
+  # Only literal statements, fixed table names and fragments are interpolated; values are bound
+  # parameters.
+  # sobelow_skip ["SQL.Query"]
   defp history_candidates(horizon) do
     @history_candidates
     |> Repo.query!([@terminal_episode_states, horizon, @terminal_turn_states])
@@ -1242,6 +1245,9 @@ defmodule Ryker.Retention.Data do
     %{result | work_examples: count}
   end
 
+  # Only literal statements, fixed table names and fragments are interpolated; values are bound
+  # parameters.
+  # sobelow_skip ["SQL.Query"]
   defp audit_candidates(horizon) do
     @audit_candidates
     |> Repo.query!([horizon])
@@ -1317,6 +1323,9 @@ defmodule Ryker.Retention.Data do
     end)
   end
 
+  # Callers build statements from the fixed plans `@history_rows` and `@audit_rows`; values are
+  # bound parameters.
+  # sobelow_skip ["SQL.Query"]
   defp execute_count(sql, params \\ []) do
     sql
     |> Repo.query!(params)

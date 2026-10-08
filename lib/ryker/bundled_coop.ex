@@ -43,6 +43,9 @@ defmodule Ryker.BundledCoop do
   or a raise naming why enrollment failed. The bundled worker's reconciler
   keeps it current.
   """
+  # The path is the installation's shared directory (RYKER_BUNDLED_COOP_SHARED_DIR) and a fixed
+  # file name.
+  # sobelow_skip ["Traversal.FileModule"]
   def ensure_enrollment_file! do
     shared = System.fetch_env!(@shared_env)
     File.mkdir_p!(shared)
@@ -99,6 +102,9 @@ defmodule Ryker.BundledCoop do
 
   defp configured_worker, do: Repo.peek(CoopFleet.Worker.Query.by_id(configured_worker_id()))
 
+  # The path is the installation's shared directory (RYKER_BUNDLED_COOP_SHARED_DIR) and a fixed
+  # file name.
+  # sobelow_skip ["Traversal.FileModule"]
   defp retire_tokens!(path) do
     worker = configured_worker_id()
     workspace = configured_workspace_ref()
@@ -122,6 +128,9 @@ defmodule Ryker.BundledCoop do
     end
   end
 
+  # The path is the installation's shared directory (RYKER_BUNDLED_COOP_SHARED_DIR) and a fixed
+  # file name.
+  # sobelow_skip ["Traversal.FileModule"]
   defp usable_token?(path) do
     case File.lstat(path) do
       {:error, :enoent} ->
@@ -190,6 +199,9 @@ defmodule Ryker.BundledCoop do
 
   defp worker_ready?(_worker), do: false
 
+  # The path is the installation's shared directory (RYKER_BUNDLED_COOP_SHARED_DIR) and a fixed
+  # file name.
+  # sobelow_skip ["Traversal.FileModule"]
   defp atomic_write!(path, content) do
     temporary = path <> ".#{System.unique_integer([:positive])}.tmp"
 

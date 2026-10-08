@@ -69,7 +69,9 @@ defmodule Ryker.MixProject do
       {:tz, "~> 0.28"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       # Known advisories for the locked Hex packages (`make deps-audit`).
-      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false}
+      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
+      # Security static analysis in the gate (`.sobelow-conf`), as Emisar's.
+      {:sobelow, "~> 0.16", only: [:dev, :test], runtime: false}
     ]
   end
 

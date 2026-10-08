@@ -47,6 +47,9 @@ defmodule Ryker.Knowledge.KnowledgeRetention do
       )
   end
 
+  # Only literal statements, fixed table names and fragments are interpolated; values are bound
+  # parameters.
+  # sobelow_skip ["SQL.Query"]
   defp prune_observations(seconds) do
     Repo.query!(
       """
@@ -62,6 +65,9 @@ defmodule Ryker.Knowledge.KnowledgeRetention do
     ).num_rows
   end
 
+  # Only literal statements, fixed table names and fragments are interpolated; values are bound
+  # parameters.
+  # sobelow_skip ["SQL.Query"]
   defp prune_summary(table, seconds) do
     # Only fixed table names from above enter this query. Preserve identity and
     # source fences; copied prose expires even when the summary itself is new.

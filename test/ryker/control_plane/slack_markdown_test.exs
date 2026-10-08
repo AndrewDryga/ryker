@@ -122,6 +122,24 @@ defmodule Ryker.ControlPlane.SlackMarkdownTest do
     refute html =~ "<script>"
   end
 
+  # Pages called `raw/1` on this renderer's output at twelve places (Sobelow,
+  # 2026-10-08). The safe mark now comes from the renderer, beside the
+  # escaping, and a page renders it as it stands.
+  test "a page renders the markup as it stands, and HTML in the text stays inert" do
+    text = "*Ready* <script>alert(1)</script>"
+
+    assert {:safe, markup} = SlackMarkdown.html(text, nil)
+    assert IO.iodata_to_binary(markup) == IO.iodata_to_binary(SlackMarkdown.preview(text, nil))
+
+    rendered = Phoenix.HTML.Safe.to_iodata({:safe, markup}) |> IO.iodata_to_binary()
+    assert rendered =~ "<strong>Ready</strong>"
+    assert rendered =~ "&lt;script&gt;"
+    refute rendered =~ "<script>"
+
+    assert {:safe, title} = SlackMarkdown.mentions_html("<b>Deploy</b>", nil)
+    assert IO.iodata_to_binary(title) == "&lt;b&gt;Deploy&lt;/b&gt;"
+  end
+
   test "code is never recursively interpreted and non-web URLs cannot become links" do
     html =
       SlackMarkdown.render(

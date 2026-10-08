@@ -690,6 +690,16 @@ called another page, and the endpoint and router compiling in plugs that reach t
 runtime. Plugs now initialize at runtime in development and tests, as in Emisar. `make check`
 runs `mix deps.audit` and `mix hex.audit` over the locked Hex packages, as Emisar's gate does.
 
+Sobelow runs in the same step with Emisar's settings (`.sobelow-conf`: any finding at Low
+confidence fails, HTTPS ignored because Tailscale Serve or Cloudflare Access terminate TLS). Its
+first run, on 2026-10-08, found 81 sites. Twelve were `raw/1` around the Slack Markdown
+renderer, which escapes everything it does not draw itself, so `SlackMarkdown.html/2` and
+`mentions_html/2` now return the safe tuple and no page calls `raw/1` on it. The other 68, in 47
+functions, were reviewed one by one, and each function carries `# sobelow_skip ["Check"]` with
+its reason: SQL that interpolates only literals, file paths from configured roots and fixed or
+generated names, a status code, and markup from builders that escape every value. None was a
+vulnerability.
+
 Tests hold the rest: `Ryker.TypespecsTest` resolves every remote type a spec
 names, `Ryker.ConstraintNamesTest` finds every constraint a changeset
 declares, `Ryker.CopiedHelpersTest` finds a function copied between modules,

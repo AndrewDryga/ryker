@@ -50,6 +50,8 @@ defmodule Ryker.Observability.Reads do
   """
   @spec sql(String.t(), [term()]) ::
           {:ok, Postgrex.Result.t()} | {:error, Exception.t() | failure()}
+  # Callers pass literal statements (`Ryker.Observability`).
+  # sobelow_skip ["SQL.Query"]
   def sql(statement, params \\ []) do
     with {:ok, answer} <- read(fn -> Repo.query(statement, params, log: false) end), do: answer
   end

@@ -327,6 +327,9 @@ defmodule Ryker.ControlPlane.Components do
   defp html_slot(_name, nil), do: []
   defp html_slot(_name, []), do: []
 
+  # Each `*_html` caller hands in markup it escaped itself, as their docs say
+  # (`RequestContextHTML`, `PromptDocument`, the tool body in `WorkbenchLive`).
+  # sobelow_skip ["XSS.Raw"]
   defp html_slot(name, content),
     do: [%{__slot__: name, inner_block: fn _, _ -> Phoenix.HTML.raw(content) end}]
 

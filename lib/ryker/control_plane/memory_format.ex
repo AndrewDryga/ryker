@@ -77,7 +77,7 @@ defmodule Ryker.ControlPlane.MemoryFormat do
   def markdown(nil, _workspace), do: nil
 
   def markdown(text, workspace),
-    do: {:safe, text |> people(workspace) |> SlackMarkdown.preview(workspace)}
+    do: text |> people(workspace) |> SlackMarkdown.html(workspace)
 
   @doc """
   One line of Slack Markdown as safe inline HTML, for a name or a single

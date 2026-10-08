@@ -90,6 +90,9 @@ defmodule Ryker.Improvement.Export do
 
   @doc "Writes every accepted case under `directory`, one directory each, and says how many."
   @spec write(Path.t()) :: {:ok, non_neg_integer()} | {:error, term()}
+  # The directory is the operator's; each path is `feedback-<date>-<hex>` from the row's own id
+  # and a fixed file name.
+  # sobelow_skip ["Traversal.FileModule"]
   def write(directory) when is_binary(directory) do
     cases = accepted()
 

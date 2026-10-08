@@ -46,8 +46,9 @@ make dev-check
 ```
 
 It checks formatting, compilation warnings, that no compile-time dependency cycle exists, Credo,
-migrations, and the ExUnit suite except slow capacity tests, plus the control-plane JavaScript
-tests and ShellCheck. Nothing in it calls a model. Plugs initialize at runtime in development and
+Sobelow's security checks, migrations, and the ExUnit suite except slow capacity tests, plus the
+control-plane JavaScript tests and ShellCheck. Sobelow fails on any finding; a reviewed false
+positive carries `# sobelow_skip ["Check"]` with its reason above the function (`.sobelow-conf`). Nothing in it calls a model. Plugs initialize at runtime in development and
 tests, as in Emisar, so the endpoint and router do not compile their plugs in; production keeps
 compile-time initialization. It is the gate for every commit and every deploy; `make check` also runs the slow capacity
 tests.

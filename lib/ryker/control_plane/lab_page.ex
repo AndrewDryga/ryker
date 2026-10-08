@@ -398,6 +398,8 @@ defmodule Ryker.ControlPlane.LabPage do
   attr(:progress, :map, required: true)
   attr(:conversation, :string, default: nil)
 
+  # `HTML.lab_message_*` escape every value they write.
+  # sobelow_skip ["XSS.Raw"]
   defp chat_message(assigns) do
     rows = Map.get(assigns.progress, assigns.message[:native_input_id], [])
     {stopped, live} = Enum.split_with(rows, &(&1.phase == "Needs attention"))
@@ -436,7 +438,7 @@ defmodule Ryker.ControlPlane.LabPage do
         >Timeline <span aria-hidden="true">↗</span><span class="sr-only"> (opens in a new tab)</span></a>
       </div>
       <div class="chat-message-text markdown-preview">
-        {Phoenix.HTML.raw(Ryker.ControlPlane.SlackMarkdown.preview(@message.text || ""))}
+        {Ryker.ControlPlane.SlackMarkdown.html(@message.text || "")}
       </div>
       {Phoenix.HTML.raw(HTML.lab_message_editor(@message))}
       <div class="chat-message-extras">{Phoenix.HTML.raw(HTML.lab_message_extras(@message))}</div>

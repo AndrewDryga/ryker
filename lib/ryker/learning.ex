@@ -1467,6 +1467,9 @@ defmodule Ryker.Learning do
   100 passes whose messages left the operational window or whose sources are
   older than `seconds`, and answers how many.
   """
+  # Only literal statements, fixed table names and fragments are interpolated; values are bound
+  # parameters.
+  # sobelow_skip ["SQL.Query"]
   def prune_in_transaction(seconds) do
     # Unknown receipt age is not permission to erase a retained attempt. Guard
     # both JSON shape and the shared UTC clock domain before casting so one
@@ -1573,6 +1576,9 @@ defmodule Ryker.Learning do
   end
 
   # The same erasure the retention prune makes, for the runs `condition` names.
+  # Only literal statements, fixed table names and fragments are interpolated; values are bound
+  # parameters.
+  # sobelow_skip ["SQL.Query"]
   defp erase_runs(condition, parameters) do
     %{rows: rows} =
       Repo.query!(

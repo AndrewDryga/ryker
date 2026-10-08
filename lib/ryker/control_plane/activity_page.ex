@@ -409,7 +409,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
 
   defp title(%{source: "Slack"} = item) do
     workspace = Slack.destination_workspace(item[:conversation])
-    item.title |> SlackMarkdown.mentions(workspace) |> Phoenix.HTML.raw()
+    SlackMarkdown.mentions_html(item.title, workspace)
   end
 
   defp title(item), do: item.title

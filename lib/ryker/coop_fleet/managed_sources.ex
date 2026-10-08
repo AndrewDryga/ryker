@@ -250,6 +250,8 @@ defmodule Ryker.CoopFleet.ManagedSources do
       match?({:ok, _}, Work.RepositorySource.parse(requested || Work.RepositorySource.default()))
   end
 
+  # The configured storage root and a fixed or generated file name.
+  # sobelow_skip ["Traversal.FileModule"]
   defp private_mirror_root(storage_root) do
     root = Path.join(storage_root, "coop-source-mirrors")
 
@@ -562,6 +564,8 @@ defmodule Ryker.CoopFleet.ManagedSources do
 
   # The primary tree can contain millions of ordinary files. Spool its metadata
   # while retaining only bounded gitlink declarations, never the full listing.
+  # The configured storage root and a fixed or generated file name.
+  # sobelow_skip ["Traversal.FileModule"]
   defp read_gitlinks(git, mirror, commit, token) do
     path = Path.join(mirror, ".coop-gitlinks-" <> Ecto.UUID.generate())
 

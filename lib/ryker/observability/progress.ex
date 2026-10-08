@@ -56,6 +56,8 @@ defmodule Ryker.Observability.Progress do
   end
 
   @spec record(atom(), atom()) :: :ok | {:error, term()}
+  # A literal statement with bound parameters.
+  # sobelow_skip ["SQL.Query"]
   def record(lane, outcome) when lane in @lanes and outcome in @outcomes do
     sql = """
     INSERT INTO ryker_runtime_progress

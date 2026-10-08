@@ -16,6 +16,9 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   # Their cards carry what they decided under `background`.
   @background_kinds [:learning, :improvement]
 
+  # `briefing/1` and `submitted/2` are `RequestContextHTML`'s markup, which escapes every value it
+  # writes.
+  # sobelow_skip ["XSS.Raw"]
   def render(assigns) do
     request = assigns.request
     archived = latest_archived_response(request.sections)
@@ -148,7 +151,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
       </section>
       <section :if={is_map(@response)} class="response-review">
         <Components.message_block :if={is_binary(@response["message"])} sender="Ryker">
-          {Phoenix.HTML.raw(Ryker.ControlPlane.SlackMarkdown.preview(@response["message"]))}
+          {Ryker.ControlPlane.SlackMarkdown.html(@response["message"])}
         </Components.message_block>
         <p :if={is_binary(@response["decision_reason"])}>{@response["decision_reason"]}</p>
         <Components.title_update :if={@request[:title_update]} title={@request.title_update} />
@@ -223,7 +226,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
           :if={@document && is_binary(@document["message"]) && !@sent}
           sender="Ryker"
         >
-          {Phoenix.HTML.raw(Ryker.ControlPlane.SlackMarkdown.preview(@document["message"]))}
+          {Ryker.ControlPlane.SlackMarkdown.html(@document["message"])}
         </Components.message_block>
         <p
           :if={@document && is_binary(@document["decision_reason"])}

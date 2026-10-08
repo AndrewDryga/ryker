@@ -98,6 +98,8 @@ defmodule Ryker.Transcription.Local do
     end
   end
 
+  # Paths are a randomly named directory under the temporary root and fixed file names.
+  # sobelow_skip ["Traversal.FileModule"]
   defp prepare(data, directory, settings, deadline) do
     recording = Path.join(directory, "recording")
     wav = Path.join(directory, "recording.wav")
@@ -114,6 +116,8 @@ defmodule Ryker.Transcription.Local do
   defp failure(_reason), do: :failed
 
   # Each part of the recording as a WAV file of its own, in order.
+  # Paths are a randomly named directory under the temporary root and fixed file names.
+  # sobelow_skip ["Traversal.FileModule"]
   defp write_parts(wav, directory) do
     with {:ok, bytes} <- File.read(wav),
          {:ok, pcm} <- samples(bytes) do
@@ -126,6 +130,8 @@ defmodule Ryker.Transcription.Local do
 
   defp write_each([], _pcm, _directory, written), do: {:ok, Enum.reverse(written)}
 
+  # Paths are a randomly named directory under the temporary root and fixed file names.
+  # sobelow_skip ["Traversal.FileModule"]
   defp write_each([{{offset, length}, index} | rest], pcm, directory, written) do
     path = Path.join(directory, "part-#{String.pad_leading("#{index}", 3, "0")}.wav")
 
@@ -144,6 +150,8 @@ defmodule Ryker.Transcription.Local do
 
   # whisper writes each part's words beside it; a part it heard nothing in
   # may leave an empty file.
+  # Paths are a randomly named directory under the temporary root and fixed file names.
+  # sobelow_skip ["Traversal.FileModule"]
   defp read_parts(parts) do
     Enum.reduce_while(parts, {:ok, []}, fn part, {:ok, texts} ->
       case File.read(part <> ".txt") do
@@ -251,6 +259,8 @@ defmodule Ryker.Transcription.Local do
     ChildProcess.close(port)
   end
 
+  # Paths are a randomly named directory under the temporary root and fixed file names.
+  # sobelow_skip ["Traversal.FileModule"]
   defp in_directory(base, function) do
     suffix = Base.encode32(Crypto.random_bytes(10), case: :lower)
     directory = Path.join(base, "ryker-transcription-" <> suffix)

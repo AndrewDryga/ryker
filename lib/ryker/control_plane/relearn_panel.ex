@@ -117,12 +117,12 @@ defmodule Ryker.ControlPlane.RelearnPanel do
                   "relearn-excerpt markdown-preview",
                   source.expanded && "relearn-excerpt-clipped"
                 ]}>
-                  {Phoenix.HTML.raw(source.html)}
+                  {source.html}
                 </div>
                 <details :if={source.expanded}>
                   <summary>Read full message</summary>
                   <div class="relearn-full-message markdown-preview">
-                    {Phoenix.HTML.raw(source.html)}
+                    {source.html}
                   </div>
                 </details>
                 <a
@@ -272,7 +272,7 @@ defmodule Ryker.ControlPlane.RelearnPanel do
           InspectionRedactor.artifact(actor(workspace, entry.actor_ref), secrets: secrets).text,
         mode: mode(Map.get(entry, :execution_mode)),
         suggested: entry.suggested?,
-        html: SlackMarkdown.preview(text, workspace),
+        html: SlackMarkdown.html(text, workspace),
         expanded: String.length(text) > 240,
         truncated: artifact.truncated
       }

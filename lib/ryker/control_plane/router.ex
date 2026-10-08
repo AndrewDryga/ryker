@@ -1353,6 +1353,8 @@ defmodule Ryker.ControlPlane.Router do
     |> halt()
   end
 
+  # `relearn_status` is an HTTP status code, not markup.
+  # sobelow_skip ["XSS.HTML"]
   defp relearn_route(conn, kind, id, back, options) do
     with {:ok, form, conn} <- learning_source_form(conn),
          {:ok, batch_id} <-
@@ -1381,6 +1383,8 @@ defmodule Ryker.ControlPlane.Router do
 
   # A retry has nothing typed to keep, so a refusal is the page that says why,
   # with the way back to the batch; it was a line of plain text before.
+  # `status` is an HTTP status code, not markup.
+  # sobelow_skip ["XSS.HTML"]
   defp retry_refused(conn, status, explanation, id) do
     html(conn, status, "Not done", HTML.action_refused(explanation, LearningActivity.path(id)))
   end
@@ -1459,6 +1463,8 @@ defmodule Ryker.ControlPlane.Router do
   defp lab_uploads([]), do: {:ok, []}
   defp lab_uploads(%Plug.Upload{} = upload), do: lab_uploads([upload])
 
+  # The path is the temporary file Plug's multipart parser wrote; the browser never names a path.
+  # sobelow_skip ["Traversal.FileModule"]
   defp lab_uploads(uploads) when is_list(uploads) and length(uploads) <= 2 do
     Enum.reduce_while(uploads, {:ok, []}, fn
       %Plug.Upload{content_type: media_type, filename: name, path: path}, {:ok, attachments}
@@ -1643,6 +1649,9 @@ defmodule Ryker.ControlPlane.Router do
   # A confirmed action or record view is a title and a body in the static
   # shell; the title is the page's only heading, led by the way back when the
   # page belongs to another, and the body owns the rest.
+  # `HTML.page/5` renders through the HEEx layout, which escapes the title; bodies are the
+  # builders' escaped markup.
+  # sobelow_skip ["XSS.SendResp"]
   defp html(conn, status, title, body, back \\ nil) do
     conn
     |> put_resp_content_type("text/html")
@@ -1657,6 +1666,9 @@ defmodule Ryker.ControlPlane.Router do
     |> halt()
   end
 
+  # An artifact has a media type `Ryker.Artifacts` allows, never HTML or SVG, and every response
+  # carries `script-src 'self'` and `nosniff` (`BrowserGuard`).
+  # sobelow_skip ["XSS.SendResp"]
   defp artifact(conn, artifact) do
     filename = URI.encode(artifact.name, &URI.char_unreserved?/1)
 

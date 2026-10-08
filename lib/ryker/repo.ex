@@ -210,6 +210,8 @@ defmodule Ryker.Repo do
   `milliseconds`, so a broad search fails rather than holding a worker.
   """
   @spec statement_timeout!(pos_integer()) :: :ok
+  # `milliseconds` is a guarded positive integer.
+  # sobelow_skip ["SQL.Query"]
   def statement_timeout!(milliseconds) when is_integer(milliseconds) and milliseconds > 0 do
     query!("SET LOCAL statement_timeout = '#{milliseconds}ms'")
     :ok
@@ -217,6 +219,8 @@ defmodule Ryker.Repo do
 
   @doc "Gives up on any lock the current transaction waits for longer than `milliseconds`."
   @spec lock_timeout!(pos_integer()) :: :ok
+  # `milliseconds` is a guarded positive integer.
+  # sobelow_skip ["SQL.Query"]
   def lock_timeout!(milliseconds) when is_integer(milliseconds) and milliseconds > 0 do
     query!("SET LOCAL lock_timeout = '#{milliseconds}ms'")
     :ok

@@ -79,6 +79,8 @@ defmodule Ryker.ControlPlane.Assets do
   # The compressed bytes are a representation of their own with a tag of their
   # own: one tag for both let a cache holding the compressed copy answer a
   # browser that cannot unpack it with a 304 (2026-10-04 review).
+  # The type and the bytes are a release file's, from the fixed asset table.
+  # sobelow_skip ["XSS.ContentType", "XSS.SendResp"]
   defp serve(conn, asset, file, type) do
     %{etag: etag, plain: plain, gzip: gzip} = prepared(file, type)
 
@@ -108,6 +110,8 @@ defmodule Ryker.ControlPlane.Assets do
 
   # A release's files never change while it runs, so each is read, tagged and
   # compressed once.
+  # `file` is an app_dir path from the fixed asset table, never the request's.
+  # sobelow_skip ["Traversal.FileModule"]
   defp prepared(file, type) do
     key = {__MODULE__, file}
 
