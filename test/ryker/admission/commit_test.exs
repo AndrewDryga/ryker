@@ -76,6 +76,150 @@ defmodule Ryker.Admission.CommitTest do
     assert Repo.aggregate(Ryker.Records.Response, :count) == 0
   end
 
+  # A watch may ride beside a question, and since 2026-10-08 beside approvals
+  # and timers as well (`Ryker.Work.Validator`). Its notification joined the
+  # task only as queued input and the watch stayed open, and an open wait
+  # keeps its task from finishing: the next turn had to name it again and
+  # wait for a notification that had already come.
+  test "a watch beside a question is answered by its own notification, and the question still holds the task" do
+    message = "testdata/slack/hcp-terraform-planning.json" |> File.read!() |> Jason.decode!()
+    original = create_episode!(thread_ref: "1787830000.000001")
+
+    assert {:ok, _} =
+             WorkSessions.pin_episode(original.id, "work-read-only", String.duplicate("a", 64))
+
+    assert {:ok, claim} = Custody.claim_next("watch-beside-question", 60, :work)
+    run = message["attachments"] |> hd() |> Map.take(["title", "title_link"])
+
+    assert {:ok, watch} =
+             Records.create(Records.token(claim.turn), "tfc-watch", "event_wait", %{
+               "kind" => "source_event",
+               "deadline_at" => nil,
+               "event_matcher" => %{
+                 "type" => "source_event",
+                 "source_kind" => "slack",
+                 "match" => %{"bot_id" => message["bot_id"], "attachments" => [run]},
+                 "poll_after" => nil,
+                 "on_timeout" => nil
+               },
+               "verification" => "Verify this exact run and report a material outcome."
+             })
+
+    assert {:ok, question} =
+             Records.create(Records.token(claim.turn), "project", "input_request", %{
+               "choices" => [],
+               "question" => "Which GCP project should I check?"
+             })
+
+    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
+
+    assert {:ok, _} =
+             Episodes.apply(%Command.StartWait{
+               episode_key: original.key,
+               expected_turn_ref: original.owner_ref,
+               kind: :input,
+               wait_ref: question.ref,
+               occurred_at: now
+             })
+
+    other_run =
+      update_in(message, ["attachments", Access.at(0), "title_link"], &(&1 <> "-other"))
+
+    for {content, occurred_at, suffix} <- [
+          {other_run, DateTime.add(now, 1), "other-run"},
+          {message, DateTime.add(watch.inserted_at, -1, :second), "before-watch"},
+          {message, DateTime.add(now, 2), "this-run"}
+        ] do
+      entry =
+        record_input!(
+          actor: %{kind: :bot, ref: message["bot_id"]},
+          content: content,
+          event_ref: "TFC-#{suffix}",
+          thread_ref: original.destination_thread_ref,
+          message_ref: "1787832000.00#{byte_size(suffix)}",
+          occurred_at: occurred_at
+        )
+
+      context = context!(entry)
+      candidate = candidate!(context, original.id)
+      decision = decision!(:continue_episode, candidate.ref, :same_work)
+      assert {:ok, result} = Admission.commit(context, decision, "tfc-#{suffix}")
+      assert result.episode.state == :waiting_for_input
+      assert result.episode.owner_ref == question.ref
+
+      assert Repo.get!(Ryker.Records.Record, watch.id).status ==
+               if(suffix == "this-run", do: :answered, else: :open)
+    end
+
+    assert Repo.get!(Ryker.Records.Record, question.id).status == :open
+  end
+
+  # Two watches with nothing else open had no valid answer ("exactly one durable event wait"),
+  # and naming one abandoned the other. The first now owns the wait and the other rides beside
+  # it (`Ryker.Work.Validator`), so an event for either has to wake the task, and the watch it
+  # waited on stays open for its next turn.
+  test "a task watching two runs wakes for either, and the watch it waited on stays open" do
+    message = "testdata/slack/hcp-terraform-planning.json" |> File.read!() |> Jason.decode!()
+    original = create_episode!(thread_ref: "1787830000.000001")
+
+    assert {:ok, _} =
+             WorkSessions.pin_episode(original.id, "work-read-only", String.duplicate("a", 64))
+
+    assert {:ok, claim} = Custody.claim_next("two-run-watches", 60, :work)
+    run = message["attachments"] |> hd() |> Map.take(["title", "title_link"])
+    other = %{run | "title_link" => run["title_link"] <> "-other"}
+
+    watch = fn name, attachment ->
+      assert {:ok, record} =
+               Records.create(Records.token(claim.turn), name, "event_wait", %{
+                 "kind" => "source_event",
+                 "deadline_at" => nil,
+                 "event_matcher" => %{
+                   "type" => "source_event",
+                   "source_kind" => "slack",
+                   "match" => %{"bot_id" => message["bot_id"], "attachments" => [attachment]},
+                   "poll_after" => nil,
+                   "on_timeout" => nil
+                 },
+                 "verification" => "Verify this exact run and report a material outcome."
+               })
+
+      record
+    end
+
+    owner = watch.("other-run-watch", other)
+    rider = watch.("this-run-watch", run)
+    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
+
+    assert {:ok, _} =
+             Episodes.apply(%Command.StartWait{
+               episode_key: original.key,
+               expected_turn_ref: original.owner_ref,
+               kind: :event,
+               wait_ref: owner.ref,
+               occurred_at: now
+             })
+
+    entry =
+      record_input!(
+        actor: %{kind: :bot, ref: message["bot_id"]},
+        content: message,
+        event_ref: "TFC-this-run",
+        thread_ref: original.destination_thread_ref,
+        message_ref: "1787832000.004000",
+        occurred_at: DateTime.add(now, 1)
+      )
+
+    context = context!(entry)
+    candidate = candidate!(context, original.id)
+    decision = decision!(:continue_episode, candidate.ref, :same_work)
+    assert {:ok, result} = Admission.commit(context, decision, "tfc-this-run")
+
+    assert result.episode.state == :working
+    assert Repo.get!(Ryker.Records.Record, rider.id).status == :answered
+    assert Repo.get!(Ryker.Records.Record, owner.id).status == :open
+  end
+
   for next_actor <- [:app, :bot, :user] do
     @next_actor next_actor
     test "an admitted #{@next_actor} input resumes the same event-only episode" do

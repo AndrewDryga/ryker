@@ -364,6 +364,23 @@ defmodule Ryker.Records do
   def resolve_wait_in_transaction(_wait_ref, _event_kind), do: {:error, :state_record_not_found}
 
   @doc """
+  Whether this episode waits on an open timer, or on a watch that times out,
+  whose deadline has not passed. A question holds its task's wait until it is
+  answered, and such a wait fires only while it holds it, so the two cannot be
+  open together (`Ryker.StateTools.FixedTools`).
+  """
+  @spec pending_timed_wait?(Ecto.UUID.t()) :: boolean()
+  def pending_timed_wait?(episode_id) when is_binary(episode_id) do
+    episode_id
+    |> Record.Query.by_episode_id()
+    |> Record.Query.open()
+    |> Record.Query.pending_by_clock(Repo.now!())
+    |> Repo.exists?()
+  end
+
+  def pending_timed_wait?(_episode_id), do: false
+
+  @doc """
   Internal — answers the event waits of `episode_id` whose deadline passed by
   `now` and comes before `until`, the deadline of the wait an accepted result
   hands its task (every such wait when it has none): `:ok`, or a reason. A
@@ -388,7 +405,7 @@ defmodule Ryker.Records do
         |> Record.Query.lock_for_update()
         |> Repo.all()
         |> Enum.filter(&elapsed_before?(&1, now, until))
-        |> Enum.reduce_while(:ok, &answer_elapsed_wait/2)
+        |> answer_waits(:deadline)
       else
         {:error, :state_record_transaction_required}
       end
@@ -418,14 +435,63 @@ defmodule Ryker.Records do
 
   defp elapsed_before?(_record, _now, _until), do: false
 
-  defp answer_elapsed_wait(record, :ok) do
-    with {:ok, answered} <- Repo.update(Record.Changeset.answer_wait(record)),
-         :ok <- Waits.EventSubscriptions.resolve_wait_in_transaction(record.ref, :deadline) do
-      broadcast_record_updated(answered)
-      {:cont, :ok}
+  @doc """
+  Internal — answers the open source watches of `episode` that `input` meets
+  and that were set before it occurred, other than the wait the episode waits
+  on, which admission resumes instead: `{:ok, refs}` of the watches answered,
+  or a reason. A watch riding beside another wait heard its event only as a
+  queued input and stayed open, and an open wait keeps its task from
+  finishing: the next turn had to name it again and wait for a notification
+  that had already come. Admission calls it as `input` joins the episode.
+  """
+  @spec answer_met_watches_in_transaction(Episodes.Episode.t(), Ingress.Input.t()) ::
+          {:ok, [String.t()]} | {:error, term()}
+  def answer_met_watches_in_transaction(%Episodes.Episode{} = episode, %Ingress.Input{} = input) do
+    if Repo.in_transaction?() do
+      met =
+        episode.id
+        |> Record.Query.by_episode_id()
+        |> Record.Query.by_kind("event_wait")
+        |> Record.Query.open()
+        |> Record.Query.lock_for_update()
+        |> Repo.all()
+        |> Enum.filter(&met_watch?(&1, episode.owner_ref, input))
+
+      with :ok <- answer_waits(met, :input), do: {:ok, Enum.map(met, & &1.ref)}
     else
-      {:error, reason} -> {:halt, {:error, reason}}
+      {:error, :state_record_transaction_required}
     end
+  end
+
+  @doc "Whether `wait_ref` is an open event wait of `episode_id`: a watch or a timer."
+  @spec open_event_wait?(Ecto.UUID.t(), String.t()) :: boolean()
+  def open_event_wait?(episode_id, wait_ref) when is_binary(episode_id) and is_binary(wait_ref),
+    do: episode_id |> Record.Query.open_wait(wait_ref) |> Repo.exists?()
+
+  def open_event_wait?(_episode_id, _wait_ref), do: false
+
+  defp met_watch?(
+         %Record{payload: %{"event_matcher" => %{"type" => "source_event"}}} = record,
+         owner_ref,
+         input
+       ) do
+    record.ref != owner_ref and event_wait_matches?(record.payload, input) and
+      DateTime.compare(input.occurred_at, record.inserted_at) == :gt
+  end
+
+  defp met_watch?(_record, _owner_ref, _input), do: false
+
+  defp answer_waits(records, resolution_kind) do
+    Enum.reduce_while(records, :ok, fn record, :ok ->
+      with {:ok, answered} <- Repo.update(Record.Changeset.answer_wait(record)),
+           :ok <-
+             Waits.EventSubscriptions.resolve_wait_in_transaction(record.ref, resolution_kind) do
+        broadcast_record_updated(answered)
+        {:cont, :ok}
+      else
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
   @doc """

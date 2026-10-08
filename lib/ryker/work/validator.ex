@@ -512,7 +512,9 @@ defmodule Ryker.Work.Validator do
   # their own and whichever settles first resumes the task
   # (`Ryker.Emisar.Approvals`), a later timer is waited on again then, and a
   # watch's event reaches the task with whatever resumes it. With no timed
-  # wait, the approval that expires first owns it.
+  # wait, the approval that expires first owns it; with only watches, the
+  # first owns it and an event for any of them wakes the task
+  # (`Ryker.Admission`).
   defp pending_primary(waits, :waiting_for_event) do
     {timed, riders} = Enum.split_with(waits, &timed_event_wait?/1)
     {approvals, watches} = Enum.split_with(riders, &(&1.kind == "emisar_approval"))
@@ -521,6 +523,7 @@ defmodule Ryker.Work.Validator do
       not Enum.all?(watches, &event_only_watch?/1) -> waits
       timed != [] -> [Enum.min_by(timed, &{expiry(&1), &1.ref})]
       approvals != [] -> [Enum.min_by(approvals, &{expiry(&1), &1.ref})]
+      watches != [] -> [Enum.min_by(watches, & &1.ref)]
       true -> waits
     end
   end

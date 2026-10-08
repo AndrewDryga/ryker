@@ -172,14 +172,19 @@ defmodule Ryker.Waits.EventSubscription.Query do
   end
 
   @doc """
-  The update that resolves the active subscription of wait `wait_ref` as
-  `status` by `resolution_kind`, with what was observed at `now`.
+  The update that resolves the subscription of wait `wait_ref` as `status` by
+  `resolution_kind`, with what was observed at `now`: the active one, or one
+  released to another wait of its episode, which its wait still held.
   """
   def resolving(wait_ref, status, resolution_kind, observation, now) do
     from(subscription in all(),
       join: record in Records.Record,
       on: record.id == subscription.record_id,
-      where: record.ref == ^wait_ref and subscription.status == :active,
+      where: record.ref == ^wait_ref,
+      where:
+        subscription.status == :active or
+          (subscription.status == :cancelled and
+             fragment("(?::jsonb ->> 'kind') = 'released'", subscription.last_observation)),
       update: [
         set: [
           status: ^status,

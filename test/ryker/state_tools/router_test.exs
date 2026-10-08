@@ -2459,6 +2459,50 @@ defmodule Ryker.StateTools.RouterTest do
     assert Records.question_open?(operator.episode.id, "operation:some-later-attempt")
   end
 
+  # After 2026-10-08's fixes, a question beside a timer was the one pair of open waits left with
+  # no valid answer: a question holds its task's wait until a person answers, and a timer fires
+  # only while it holds the wait. No task has hit it yet. Whichever of the two comes second is
+  # refused, as a second question is, and a watch without a deadline still rides beside either.
+  test "a question and a pending timer are never open together" do
+    timer = %{
+      "deadline" => "2099-01-01T00:10:00.000000Z",
+      "on_timeout" => "Check the rollout again.",
+      "trigger" => %{"delay" => "30m", "type" => "after"},
+      "verification" => "Check the rollout again."
+    }
+
+    watch = %{
+      "deadline" => nil,
+      "on_timeout" => nil,
+      "trigger" => %{
+        "match" => %{"run_id" => "run-P5vXq2Lm8RtY4wZa"},
+        "poll_after" => nil,
+        "source_kind" => "slack",
+        "type" => "source_event"
+      },
+      "verification" => "Read the run and say whether it finished."
+    }
+
+    timer_first =
+      bound_options(claim!("timer-then-question", %{actor_ref: "slack:user:U0BHTNFCW6S"}))
+
+    assert {:ok, %{"record_ref" => _timer}} = Tools.call("wait_for", timer, timer_first)
+
+    assert {:error, "question_beside_timer: " <> _} =
+             Tools.call("request_input", question_arguments(), timer_first)
+
+    question_first =
+      bound_options(claim!("question-then-timer", %{actor_ref: "slack:user:U0BHTNFCW6S"}))
+
+    assert {:ok, %{"record_ref" => _question}} =
+             Tools.call("request_input", question_arguments(), question_first)
+
+    assert {:error, "timer_beside_question: " <> _} =
+             Tools.call("wait_for", timer, question_first)
+
+    assert {:ok, %{"record_ref" => _watch}} = Tools.call("wait_for", watch, question_first)
+  end
+
   defp operator_question_operation(binding) do
     Repo.one!(
       from(record in Record,
@@ -2721,6 +2765,8 @@ defmodule Ryker.StateTools.RouterTest do
     assert get_in(Jason.decode!(question.resp_body), ["result", "structuredContent", "kind"]) ==
              "input_request"
 
+    # A wait with a deadline goes in a task of its own: beside a question it would never fire,
+    # and it is refused there (below).
     wait =
       rpc(
         "tools/call",
@@ -2739,7 +2785,7 @@ defmodule Ryker.StateTools.RouterTest do
           },
           "name" => "wait_for"
         },
-        options
+        bound_options(claim!("mcp-timed-wait"))
       )
 
     assert get_in(Jason.decode!(wait.resp_body), ["result", "structuredContent", "kind"]) ==

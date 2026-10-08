@@ -949,6 +949,40 @@ defmodule Ryker.Work.ValidatorTest do
              )
   end
 
+  # Two watches with nothing else open had no valid answer: naming both failed "exactly one
+  # durable event wait", and naming one failed "cannot be abandoned". The first owns the wait and
+  # an event for either wakes the task (`Ryker.Admission`).
+  test "a task may watch several runs at once" do
+    watch = fn ref ->
+      record("event_wait", %{
+        "deadline_at" => nil,
+        "kind" => "wait",
+        "wait_kind" => "event",
+        "wait_ref" => ref
+      })
+    end
+
+    records = %{
+      "record:run-b" => watch.("record:run-b"),
+      "record:run-a" => watch.("record:run-a")
+    }
+
+    outcome =
+      empty_outcome(%{
+        "record_refs" => ["record:run-b", "record:run-a"],
+        "state" => "waiting_for_event"
+      })
+
+    assert {:accept, accepted} =
+             Validator.validate(
+               candidate(outcome, "I am watching both runs."),
+               context(records: records),
+               @now
+             )
+
+    assert accepted.result.continuation == records["record:run-a"]["continuation"]
+  end
+
   test "waiting and complete outcomes name exactly one compatible durable wait" do
     input_wait = %{
       "deadline_at" => nil,

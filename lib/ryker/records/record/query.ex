@@ -196,6 +196,16 @@ defmodule Ryker.Records.Record.Query do
 
   def event_only_waits(queryable), do: where(queryable, ^event_only_wait())
 
+  @doc "Event waits whose deadline is after `now`: a timer, or a watch that times out."
+  def pending_by_clock(queryable, now) do
+    where(
+      queryable,
+      [episode_state_records: r],
+      r.kind == "event_wait" and
+        fragment("(?::jsonb->>'deadline_at')::timestamptz > ?", r.payload, ^now)
+    )
+  end
+
   def ordered_by_oldest(queryable),
     do: order_by(queryable, [episode_state_records: r], asc: r.inserted_at, asc: r.id)
 

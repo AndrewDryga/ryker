@@ -169,6 +169,7 @@ defmodule Ryker.StateTools.FixedTools do
         cond do
           not Episodes.Origins.person_participated?(episode_id) -> {:error, :no_addressee}
           Records.question_open?(episode_id, operation) -> {:error, :question_already_open}
+          Records.pending_timed_wait?(episode_id) -> {:error, :question_beside_timer}
           true -> :ok
         end
 
@@ -177,11 +178,27 @@ defmodule Ryker.StateTools.FixedTools do
     end
   end
 
-  defp capability_available("wait_for", _arguments, options) do
-    if :event_waits in capabilities(options), do: :ok, else: {:error, :not_configured}
+  # A question holds its task's wait until a person answers it, and a timer, or
+  # a watch that times out, fires only while it holds the wait: after
+  # 2026-10-08's fixes the pair was the one set of open waits left with no valid
+  # answer. Whichever of the two comes second is refused.
+  defp capability_available("wait_for", arguments, options) do
+    cond do
+      :event_waits not in capabilities(options) -> {:error, :not_configured}
+      is_nil(arguments["deadline"]) -> :ok
+      question_open?(options) -> {:error, :timer_beside_question}
+      true -> :ok
+    end
   end
 
   defp capability_available(_name, _arguments, _options), do: :ok
+
+  defp question_open?(options) do
+    case tool_binding(options) do
+      {:ok, %{episode: %{id: episode_id}}} -> Records.question_open?(episode_id)
+      _unbound -> false
+    end
+  end
 
   defp confirmation_surface?(options) when is_list(options) do
     if Keyword.keyword?(options), do: confirmation_surface?(Map.new(options)), else: true

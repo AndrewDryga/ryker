@@ -87,7 +87,10 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
     assert KnowledgeSnapshot.expose(work_claim, []) == :ok
 
     # The reported missing-project question must not discard the exact Terraform
-    # watch while the user supplies the fact. Use its retained run identity.
+    # watch while the user supplies the fact. The watch follows the workspace's
+    # next run, so the retained notification of the current run below reaches the
+    # task as context and leaves the watch open: a watch's own event answers it,
+    # even beside a question (`Ryker.Admission`).
     reported =
       "testdata/work/missing-project-clarification.json" |> File.read!() |> Jason.decode!()
 
@@ -95,7 +98,7 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
 
     matcher = %{
       "bot_id" => content["bot_id"],
-      "attachments" => [%{"title" => hd(content["attachments"])["title"]}]
+      "attachments" => [%{"title" => "Run run-P5vXq2Lm8RtY4wZa"}]
     }
 
     assert {:ok, watch} =

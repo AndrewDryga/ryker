@@ -11,7 +11,6 @@ defmodule Ryker.ControlPlane.SubscriptionProjection do
   alias Ryker.Repo
 
   @list_limit 100
-  @views %{"current" => [:active], "past" => [:resolved, :timed_out, :cancelled]}
 
   @doc """
   Every follow-up the host holds: the current view (still waiting, soonest
@@ -24,7 +23,7 @@ defmodule Ryker.ControlPlane.SubscriptionProjection do
     query =
       (@list_limit + 1)
       |> FollowUp.Query.follow_ups()
-      |> subscription_view(Map.get(@views, params["view"]))
+      |> subscription_view(params["view"])
 
     search = Search.term(params["q"])
     items = subscription_rows(query, search)
@@ -34,6 +33,7 @@ defmodule Ryker.ControlPlane.SubscriptionProjection do
     items
     |> Enum.map(fn item ->
       item
+      |> still_waiting()
       |> SubscriptionPresentation.project(episodes[item.episode_ref], secrets)
       |> sanitize_subscription()
     end)
@@ -49,9 +49,13 @@ defmodule Ryker.ControlPlane.SubscriptionProjection do
     if exact == [], do: Repo.all(query), else: exact
   end
 
-  defp subscription_view(query, nil), do: query
+  defp subscription_view(query, "current"), do: FollowUp.Query.waiting(query)
+  defp subscription_view(query, "past"), do: FollowUp.Query.ended(query)
+  defp subscription_view(query, _all), do: query
 
-  defp subscription_view(query, statuses), do: FollowUp.Query.by_statuses(query, statuses)
+  # A watch whose subscription a timer took still waits.
+  defp still_waiting(%{released: true} = item), do: %{item | status: :active, released: false}
+  defp still_waiting(item), do: item
 
   defp subscription_search(items, nil), do: items
 

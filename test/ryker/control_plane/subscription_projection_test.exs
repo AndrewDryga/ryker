@@ -169,6 +169,31 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
     assert Enum.all?(past, &(&1.status == :resolved))
   end
 
+  # A timer that owns its task's wait takes the episode's one subscription from a watch beside
+  # it, and the watch stays open and still wakes the task with its event (2026-10-08). The page
+  # listed it under Past as cancelled while it still waited. Its event ends it as any other.
+  test "a watch whose subscription a timer took still waits until its event comes",
+       %{record: record, subscription: subscription} do
+    Repo.update_all(from(row in EventSubscription, where: row.id == ^subscription.id),
+      set: [
+        last_observation: %{"event_wait_ref" => record.ref, "kind" => "released"},
+        last_observed_at: DateTime.utc_now(),
+        resolution_kind: :cancelled,
+        status: :cancelled
+      ]
+    )
+
+    assert [%{status: :active} = waiting] = SubscriptionProjection.list(%{"view" => "current"})
+    assert waiting.ref == subscription.ref
+    assert SubscriptionProjection.list(%{"view" => "past"}) == []
+
+    assert Repo.transaction(fn -> Records.resolve_wait_in_transaction(record.ref, :message) end) ==
+             {:ok, :ok}
+
+    assert SubscriptionProjection.list(%{"view" => "current"}) == []
+    assert [%{status: :resolved}] = SubscriptionProjection.list(%{"view" => "past"})
+  end
+
   test "exact follow-up references remain findable outside the bounded recent search window",
        %{episode: episode, record: record, subscription: subscription} do
     Repo.update_all(from(s in EventSubscription, where: s.id == ^subscription.id),

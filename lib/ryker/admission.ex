@@ -949,7 +949,8 @@ defmodule Ryker.Admission do
     existing = existing_episode(selection)
 
     with {:ok, [admitted]} <- apply_admit(admit, existing),
-         {:ok, resumed} <- maybe_resume_wait(context, selection, admit, admitted.episode) do
+         {:ok, met} <- answer_met_watches(existing, admitted.episode, context.input),
+         {:ok, resumed} <- maybe_resume_wait(context, selection, admit, admitted.episode, met) do
       transitions = [admitted | resumed]
       {:ok, transitions, transitions |> List.last() |> Map.fetch!(:episode)}
     end
@@ -958,6 +959,13 @@ defmodule Ryker.Admission do
   defp apply_admit(admit, %Episodes.Episode{}), do: Episodes.apply_batch_in_transaction([admit])
 
   defp apply_admit(admit, nil), do: Episodes.apply_batch_in_transaction([admit])
+
+  # A watch riding beside the wait an episode holds hears its event here; the
+  # wait itself is resumed by `maybe_resume_wait/5`.
+  defp answer_met_watches(nil, _episode, _input), do: {:ok, []}
+
+  defp answer_met_watches(%Episodes.Episode{}, episode, input),
+    do: Records.answer_met_watches_in_transaction(episode, input)
 
   defp admit_command(context, entry, selection) do
     existing = existing_episode(selection)
@@ -979,29 +987,43 @@ defmodule Ryker.Admission do
     }
   end
 
-  defp maybe_resume_wait(context, selection, admit, current) do
+  defp maybe_resume_wait(context, selection, admit, current, met) do
     existing = existing_episode(selection)
 
-    if existing && waiting?(current) &&
-         Records.user_resumable_wait?(current.owner_ref, context.input) &&
-         input_after_wait?(current, context.input.occurred_at) do
-      resume = %Episodes.Command.ResumeWait{
+    cond do
+      is_nil(existing) or not waiting?(current) or
+          not input_after_wait?(current, context.input.occurred_at) ->
+        {:ok, []}
+
+      Records.user_resumable_wait?(current.owner_ref, context.input) ->
+        with :ok <- Records.InputRequests.associate_in_transaction(current, context.input_entry),
+             {:ok, transitions} <- resume_wait(context, admit, current),
+             :ok <-
+               Records.resolve_wait_in_transaction(current.owner_ref, context.input.event_kind) do
+          {:ok, transitions}
+        end
+
+      # A watch beside the watch the task waits on heard its event: the task
+      # wakes as it would for its own, and the wait it held stays open for its
+      # next turn. Several watches may wait together (`Ryker.Work.Validator`).
+      met != [] and Records.open_event_wait?(current.id, current.owner_ref) ->
+        resume_wait(context, admit, current)
+
+      true ->
+        {:ok, []}
+    end
+  end
+
+  defp resume_wait(context, admit, current) do
+    Episodes.apply_batch_in_transaction([
+      %Episodes.Command.ResumeWait{
         episode_key: current.key,
         expected_wait: %{kind: current.owner_kind, ref: current.owner_ref},
         occurred_at: context.input.occurred_at,
         resolution_ref: Episodes.Command.dedupe_key(admit),
         turn_ref: admit.turn_ref
       }
-
-      with :ok <- Records.InputRequests.associate_in_transaction(current, context.input_entry),
-           {:ok, transitions} <- Episodes.apply_batch_in_transaction([resume]),
-           :ok <-
-             Records.resolve_wait_in_transaction(current.owner_ref, context.input.event_kind) do
-        {:ok, transitions}
-      end
-    else
-      {:ok, []}
-    end
+    ])
   end
 
   defp existing_episode(%{

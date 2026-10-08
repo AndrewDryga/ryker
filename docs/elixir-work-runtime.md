@@ -242,10 +242,16 @@ A question may keep event-only source watches and pending Emisar approvals open 
 result. The input request remains the sole continuation owner; source updates queue until its
 answer. Reconciliation keeps the original matcher through the question and resumed Work, including
 restoration of a missing subscription, and the oldest watch holds the episode's one subscription.
-The continuation can return to that same watch. A timer fires only while it owns its task's wait,
-so one that owns it takes the subscription from a watch beside it; the watch stays open and takes
-the subscription back when a question or an approval owns the wait again. An open wait stays open
-while its task runs, and only a finished task's waits are dismissed.
+The continuation can return to that same watch until its event comes. A watch is answered by the
+first matching event after it was set, whether it owns the wait or not: beside a question or an
+approval the event queues until the task resumes, and beside a watch the task waits on it wakes
+the task while that watch stays open. Several watches may wait together; the first owns the wait.
+A timer fires only while it owns its task's wait, so one that owns it takes the subscription from
+a watch beside it; the watch stays open, Follow-ups still lists it as waiting, and it takes the
+subscription back when a question or an approval owns the wait again. For the same reason a
+question and a timer, or a watch that times out, are never open together: whichever comes second
+is refused when it is created (`question_beside_timer`, `timer_beside_question`). An open wait stays open while its task runs, and only a finished
+task's waits are dismissed.
 
 ### One subject, several updates
 

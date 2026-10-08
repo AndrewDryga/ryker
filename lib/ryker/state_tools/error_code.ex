@@ -58,6 +58,14 @@ defmodule Ryker.StateTools.ErrorCode do
     "question_already_open: this episode already has an unanswered question. Wait for that answer, or supersede the open request instead of opening a second one."
   end
 
+  def code(:question_beside_timer) do
+    "question_beside_timer: this task waits on a timer, which wakes it only while it holds the task's wait, and a question would hold it instead. Ask in your reply without request_input: a person's answer wakes the task and ends the timer. Or ask once the timer has fired."
+  end
+
+  def code(:timer_beside_question) do
+    "timer_beside_question: this task waits on an unanswered question, which holds the task's wait until a person answers, so a timer or a deadline set now would never fire. Set it after the answer, or watch for the event without a deadline."
+  end
+
   def code(:no_addressee) do
     "no_addressee: nobody has spoken in this conversation, so a question would wait unanswered. Continue with the evidence you can gather, use wait_for when you are waiting on a system rather than a person, and say plainly in the reply what is unresolved and what would settle it."
   end
@@ -181,6 +189,12 @@ defmodule Ryker.StateTools.ErrorCode do
 
   defp explanation("question_already_open"),
     do: "Ryker refused a second question while the first one is still unanswered."
+
+  defp explanation("question_beside_timer"),
+    do: "Ryker refused the question because the task waits on a timer that would no longer fire."
+
+  defp explanation("timer_beside_question"),
+    do: "Ryker refused the timer because the task waits on a question, and it would never fire."
 
   defp explanation("no_addressee"),
     do: "Ryker refused the question because nobody has spoken in this conversation."
