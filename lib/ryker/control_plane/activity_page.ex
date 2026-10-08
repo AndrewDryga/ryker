@@ -53,9 +53,11 @@ defmodule Ryker.ControlPlane.ActivityPage do
   end
 
   def render(assigns) do
+    activity = Map.put_new(assigns.activity, :searchable, assigns.activity.total > 0)
+
     assigns =
       assigns
-      |> assign(:activity, Map.put_new(assigns.activity, :searchable, assigns.activity.total > 0))
+      |> assign(:activity, activity)
       |> assign_new(:filter_menu, fn -> nil end)
       |> assign_new(:filter_search, fn -> %{} end)
       |> assign_new(:filter_values, fn -> [] end)
@@ -359,34 +361,30 @@ defmodule Ryker.ControlPlane.ActivityPage do
   defp where(item), do: item.source
 
   defp filter_path(path, params, filter) do
-    path <>
-      "?" <>
-      Paths.encode_query(
-        Map.merge(
-          Map.take(
-            UsageProjection.link_params(params),
-            ~w(q mode repository state conversation thread transport) ++
-              UsageProjection.filter_keys()
-          ),
-          %{"filter" => filter}
-        )
-      )
+    kept =
+      ~w(q mode repository state conversation thread transport) ++ UsageProjection.filter_keys()
+
+    query =
+      params
+      |> UsageProjection.link_params()
+      |> Map.take(kept)
+      |> Map.put("filter", filter)
+
+    path <> "?" <> Paths.encode_query(query)
   end
 
   defp page_path(path, params, page) do
-    path <>
-      "?" <>
-      Paths.encode_query(
-        Map.put(
-          Map.take(
-            UsageProjection.link_params(params),
-            ~w(q mode filter repository state conversation thread transport) ++
-              UsageProjection.filter_keys()
-          ),
-          "page",
-          page
-        )
-      )
+    kept =
+      ~w(q mode filter repository state conversation thread transport) ++
+        UsageProjection.filter_keys()
+
+    query =
+      params
+      |> UsageProjection.link_params()
+      |> Map.take(kept)
+      |> Map.put("page", page)
+
+    path <> "?" <> Paths.encode_query(query)
   end
 
   defp filtered?(params) do

@@ -66,10 +66,12 @@ defmodule Ryker.Admission.ConversationContext do
   @doc "Merges the selected thread summary into a captured bundle and its manifest."
   @spec with_thread_summary(t(), map()) :: t()
   def with_thread_summary(%{bundle: bundle, manifest: manifest} = captured, thread_summary) do
+    {document, summary} = Map.pop(thread_summary, "document")
+
     %{
       captured
-      | bundle: Map.put(bundle, "thread_summary", thread_summary["document"]),
-        manifest: Map.put(manifest, "thread_summary", Map.delete(thread_summary, "document"))
+      | bundle: Map.put(bundle, "thread_summary", document),
+        manifest: Map.put(manifest, "thread_summary", summary)
     }
   end
 

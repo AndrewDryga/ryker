@@ -147,11 +147,13 @@ defmodule Ryker.Publication.Followups.Polls do
     do: followup.pr_state == :open and DateTime.compare(now, followup.deadline_at) != :lt
 
   defp expire(followup, publication, observation, attributes, now) do
+    attributes = Map.put(attributes, :pr_state, :expired)
+
     transition_poll(
       followup,
       publication,
       observation,
-      Map.put(attributes, :pr_state, :expired),
+      attributes,
       {:deadline, :failed, "Automatic pull-request tracking reached its hard deadline."},
       @far_future,
       now

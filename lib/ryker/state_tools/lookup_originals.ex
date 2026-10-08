@@ -152,14 +152,12 @@ defmodule Ryker.StateTools.LookupOriginals do
   defp trim_github_discussion(result), do: result
 
   defp trim_github_hit(%{"discussion_context" => %{"items" => [_ | _] = items} = context} = hit) do
-    hit =
-      Map.put(
-        hit,
-        "discussion_context",
-        context |> Map.put("items", Enum.drop(items, -1)) |> partial()
-      )
+    kept = Enum.drop(items, -1)
+    context = context |> Map.put("items", kept) |> partial()
 
-    put_in(hit, ["source_read", "arguments", "cursor"], nil)
+    hit
+    |> Map.put("discussion_context", context)
+    |> put_in(["source_read", "arguments", "cursor"], nil)
   end
 
   defp trim_github_hit(hit), do: hit

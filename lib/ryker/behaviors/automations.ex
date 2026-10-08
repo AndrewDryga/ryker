@@ -219,12 +219,13 @@ defmodule Ryker.Behaviors.Automations do
   defp persist_change(%Schedules.Schedule{} = schedule, payload, occurred_at) do
     with :ok <- idle_schedule(schedule, occurred_at),
          {:ok, attributes} <- schedule_change(schedule, payload, occurred_at) do
-      attributes = Map.merge(clear_schedule_lease(), attributes)
+      attributes =
+        clear_schedule_lease()
+        |> Map.merge(attributes)
+        |> Map.put(:revision, schedule.revision + 1)
 
       schedule
-      |> Schedules.Schedule.Changeset.update(
-        Map.put(attributes, :revision, schedule.revision + 1)
-      )
+      |> Schedules.Schedule.Changeset.update(attributes)
       |> Repo.update()
       |> persistence_result(:automation_schedule)
     end
@@ -237,9 +238,10 @@ defmodule Ryker.Behaviors.Automations do
 
       {:ok, attributes} ->
         :ok = Behaviors.supersede_namesakes_in_transaction(struct(behavior, attributes))
+        attributes = Map.put(attributes, :revision, behavior.revision + 1)
 
         behavior
-        |> Behavior.Changeset.update(Map.put(attributes, :revision, behavior.revision + 1))
+        |> Behavior.Changeset.update(attributes)
         |> Repo.update()
         |> persistence_result(:automation_behavior)
 

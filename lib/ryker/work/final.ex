@@ -37,7 +37,9 @@ defmodule Ryker.Work.Final do
 
   @spec parse(map()) :: {:ok, t()} | {:error, term()}
   def parse(%{} = document) do
-    with :ok <- exact_fields(Map.delete(document, "title"), @fields, :fields),
+    untitled = Map.delete(document, "title")
+
+    with :ok <- exact_fields(untitled, @fields, :fields),
          {:ok, delivery} <- enum(document["delivery"], @deliveries, :delivery),
          :ok <- delivery_shape(delivery, document["message"], document["decision_reason"]),
          {:ok, outcome} <- outcome(document["outcome"]),

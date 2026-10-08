@@ -149,12 +149,8 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpointBundle do
 
   defp finish_member(state, :manifest, _hash, scan, parts) do
     with :ok <- scan_result(CheckpointSecretScan.finish(scan)),
-         {:ok, manifest} <-
-           WorkspaceCheckpoint.decode_bundle_manifest(
-             parts
-             |> Enum.reverse()
-             |> IO.iodata_to_binary()
-           ),
+         encoded = parts |> Enum.reverse() |> IO.iodata_to_binary(),
+         {:ok, manifest} <- WorkspaceCheckpoint.decode_bundle_manifest(encoded),
          :ok <- WorkspaceCheckpoint.validate_pair(state.checkpoint, manifest) do
       [padding] = state.expected
 

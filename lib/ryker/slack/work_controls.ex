@@ -70,8 +70,9 @@ defmodule Ryker.Slack.WorkControls do
   """
   @spec resume(map()) :: {:ok, map()} | {:error, term()}
   def resume(%{expected_recovery: fingerprint} = attributes) when is_binary(fingerprint) do
-    with {:ok, prepared} <-
-           attributes(Map.delete(attributes, :expected_recovery), @control_fields),
+    attributes = Map.delete(attributes, :expected_recovery)
+
+    with {:ok, prepared} <- attributes(attributes, @control_fields),
          {:ok, resolved} <- WorkTarget.resolve(prepared.work_ref, prepared.target),
          {:ok, episode} <- Work.Custody.retry_blocked(resolved.episode.key, fingerprint) do
       {:ok, %{outcome: :resumed, episode: episode, work_ref: resolved.work_ref}}

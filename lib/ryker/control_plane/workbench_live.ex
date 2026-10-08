@@ -979,12 +979,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   def handle_event("ask-action", %{"path" => path} = params, socket) when is_binary(path) do
     case Router.question(path, Endpoint.config(:control_plane)) do
       {:ok, question} ->
-        {:noreply,
-         assign(
-           socket,
-           :action_question,
-           Map.put(question, :label, button_label(params["label"]))
-         )}
+        question = Map.put(question, :label, button_label(params["label"]))
+        {:noreply, assign(socket, :action_question, question)}
 
       {:error, :not_found} ->
         {:noreply, socket |> assign(:action_question, nil) |> refresh(true)}
@@ -1217,7 +1213,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     if MapSet.member?(socket.assigns.disclosed, id) do
       {:noreply, socket}
     else
-      disclosed = assign(socket, :disclosed, MapSet.put(socket.assigns.disclosed, id))
+      opened = MapSet.put(socket.assigns.disclosed, id)
+      disclosed = assign(socket, :disclosed, opened)
 
       case opened_tool_body(socket, id) do
         nil -> {:noreply, refresh(disclosed)}
@@ -1575,20 +1572,14 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # The address carries the request's id (`Paths.request/1`); the projections
   # read the request by the reference it resolves to.
   defp load_detail(socket, options, ["timeline", _id | _rest]) do
-    disclosed =
-      %{"disclosed" => MapSet.to_list(socket.assigns.disclosed)}
-      |> Map.merge(Map.take(socket.assigns.params, ["events"]))
+    events = Map.take(socket.assigns.params, ["events"])
+    disclosed = Map.merge(%{"disclosed" => MapSet.to_list(socket.assigns.disclosed)}, events)
+    calls = Map.take(socket.assigns.params, ["attempt", "responses_page", "calls"])
+    timeline_params = Map.merge(disclosed, calls)
 
     with {:ok, key} <- options.projection.request_key.(socket.assigns.params["id"]),
          {:ok, episode} <- options.projection.episode.(key, disclosed),
-         {:ok, timeline} <-
-           options.projection.model_timeline.(
-             key,
-             Map.merge(
-               disclosed,
-               Map.take(socket.assigns.params, ["attempt", "responses_page", "calls"])
-             )
-           ) do
+         {:ok, timeline} <- options.projection.model_timeline.(key, timeline_params) do
       assign(socket,
         native: :episode,
         page_title: "Timeline",
@@ -1674,8 +1665,10 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   defp load_detail(socket, options, ["conversations"]) do
     case LabControls.snapshot(socket.assigns.lab_draft_id, options) do
       {:ok, snapshot, token} ->
+        draft = Map.put(snapshot, :draft, true)
+
         socket
-        |> load_conversation(Map.put(snapshot, :draft, true), token, options)
+        |> load_conversation(draft, token, options)
         |> assign(lab_announcement: "")
 
       {:error, _} ->
@@ -1875,9 +1868,11 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     shown = params |> Map.get("shown", []) |> List.wrap() |> MapSet.new()
     ticked = params |> Map.get("operators", []) |> List.wrap() |> MapSet.new()
 
+    kept = MapSet.intersection(ticked, shown)
+
     people.chosen
     |> MapSet.difference(shown)
-    |> MapSet.union(MapSet.intersection(ticked, shown))
+    |> MapSet.union(kept)
     |> MapSet.intersection(ids)
   end
 
@@ -2297,14 +2292,10 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   defp load_unassigned_input(%{assigns: %{params: %{"id" => id}}} = socket, options)
        when is_binary(id) do
-    case options.projection.admission_request.(
-           id,
-           Map.put(
-             socket.assigns.params,
-             "disclosed",
-             MapSet.to_list(socket.assigns.disclosed)
-           )
-         ) do
+    opened = MapSet.to_list(socket.assigns.disclosed)
+    params = Map.put(socket.assigns.params, "disclosed", opened)
+
+    case options.projection.admission_request.(id, params) do
       {:ok, %{episode_ref: nil} = requests} ->
         assign(socket,
           native: :request,

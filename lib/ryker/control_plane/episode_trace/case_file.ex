@@ -261,16 +261,17 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   defp case_reply(_, _), do: []
 
   defp case_message(input, options) do
-    artifact =
-      InspectionRedactor.artifact(
-        if(is_nil(input.operational_pruned_at)) do
-          if(input.event_kind == :delete,
-            do: "Message deleted",
-            else: SourceText.from_content(input.content)
-          )
-        end,
-        Keyword.put(options, :expired, not is_nil(input.operational_pruned_at))
-      )
+    expired = not is_nil(input.operational_pruned_at)
+
+    text =
+      cond do
+        expired -> nil
+        input.event_kind == :delete -> "Message deleted"
+        true -> SourceText.from_content(input.content)
+      end
+
+    redaction = Keyword.put(options, :expired, expired)
+    artifact = InspectionRedactor.artifact(text, redaction)
 
     %{
       id: input.id,
@@ -333,6 +334,14 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
     disclosed = Keyword.get(options, :disclosed, MapSet.new())
     raw_id = "input-#{input.id}-raw"
     normalized_id = "input-#{input.id}-normalized"
+    normalized = unless(expired, do: input.content)
+
+    normalized_options =
+      Keyword.merge(options,
+        expired: expired,
+        max_bytes: 64 * 1_024,
+        disclosed: MapSet.member?(disclosed, normalized_id)
+      )
 
     %{
       metadata: input_metadata(input),
@@ -343,15 +352,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
       },
       normalized: %{
         artifact_id: normalized_id,
-        artifact:
-          InspectionRedactor.artifact(
-            unless(expired, do: input.content),
-            Keyword.merge(options,
-              expired: expired,
-              max_bytes: 64 * 1_024,
-              disclosed: MapSet.member?(disclosed, normalized_id)
-            )
-          )
+        artifact: InspectionRedactor.artifact(normalized, normalized_options)
       }
     }
   end
@@ -400,10 +401,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   end
 
   defp raw_envelope(%{source_envelope: envelope}, _expired, disclosed?, options) do
-    InspectionRedactor.artifact(
-      envelope,
-      Keyword.merge(options, max_bytes: 64 * 1_024, disclosed: disclosed?)
-    )
+    options = Keyword.merge(options, max_bytes: 64 * 1_024, disclosed: disclosed?)
+    InspectionRedactor.artifact(envelope, options)
   end
 
   defp case_reply_status(%{

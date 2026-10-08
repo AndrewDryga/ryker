@@ -43,7 +43,7 @@ defmodule Ryker.RoutingExamples.Worker do
   # hold back the copies after it (`Ryker.TrainingExamples.failures/2`).
   def poll(options) do
     skip = TrainingExamples.passed_over(options.failures)
-    {:ok, pass} = RoutingExamples.capture(Map.put(options, :skip, skip))
+    {:ok, pass} = options |> Map.put(:skip, skip) |> RoutingExamples.capture()
     failures = TrainingExamples.failures(options.failures, pass.failed)
 
     if pass.copied + pass.forgotten >= options.batch_size,

@@ -552,16 +552,18 @@ defmodule Ryker.ControlPlane.Integrations do
         )
 
       stopped != [] ->
-        :webhooks
-        |> state(if(stopped == enabled, do: :not_running, else: :partly_running), facts: facts)
-        |> Map.put(
-          :reason,
+        running = if stopped == enabled, do: :not_running, else: :partly_running
+
+        reason =
           Enum.map_join(
             stopped,
             " ",
             &"#{&1.name} is not taking events: #{why(&1, left_out[&1.name], view)}"
           )
-        )
+
+        :webhooks
+        |> state(running, facts: facts)
+        |> Map.put(:reason, reason)
 
       enabled != [] ->
         state(:webhooks, :on, facts: facts)

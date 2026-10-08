@@ -366,14 +366,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
           repository_ref: nil
       }
 
-      {:ok,
-       insert_placement_on_worker(
-         session,
-         worker,
-         Map.put(holder, :purpose, @holder_purpose),
-         lease_seconds,
-         now
-       )}
+      holder = Map.put(holder, :purpose, @holder_purpose)
+      {:ok, insert_placement_on_worker(session, worker, holder, lease_seconds, now)}
     else
       _gone_or_unreachable -> :unreachable
     end

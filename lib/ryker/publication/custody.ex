@@ -117,31 +117,28 @@ defmodule Ryker.Publication.Custody do
       rearmable?(publication, repository) ->
         now = Repo.now!()
 
-        _rearmed =
-          update!(
-            publication,
-            publication
-            |> fresh_review_attributes(now)
-            |> Map.merge(%{
-              approval_ref: nil,
-              approved_at: nil,
-              approved_by_actor_ref: nil,
-              publication_receipt: nil,
-              publication_receipt_fingerprint: nil,
-              published_at: nil,
-              published_delivery_receipt: nil,
-              published_delivery_receipt_fingerprint: nil,
-              discarded_reason: nil,
-              recovery_generation: publication.recovery_generation + 1,
-              review_request_ref: attributes.request_ref,
-              review_requested_at: attributes.occurred_at,
-              review_requested_by_actor_ref: attributes.actor_ref,
-              session_id: session.id
-            })
-            |> Map.merge(ended_pull_request(publication)),
-            now
-          )
+        changes =
+          publication
+          |> fresh_review_attributes(now)
+          |> Map.merge(%{
+            approval_ref: nil,
+            approved_at: nil,
+            approved_by_actor_ref: nil,
+            publication_receipt: nil,
+            publication_receipt_fingerprint: nil,
+            published_at: nil,
+            published_delivery_receipt: nil,
+            published_delivery_receipt_fingerprint: nil,
+            discarded_reason: nil,
+            recovery_generation: publication.recovery_generation + 1,
+            review_request_ref: attributes.request_ref,
+            review_requested_at: attributes.occurred_at,
+            review_requested_by_actor_ref: attributes.actor_ref,
+            session_id: session.id
+          })
+          |> Map.merge(ended_pull_request(publication))
 
+        _rearmed = update!(publication, changes, now)
         :ok
 
       true ->
@@ -1175,7 +1172,8 @@ defmodule Ryker.Publication.Custody do
         update!(publication, unverified_draft(publication, delivered, now), now)
 
       true ->
-        update!(publication, Map.put(delivered, :status, :blocked), now)
+        blocked = Map.put(delivered, :status, :blocked)
+        update!(publication, blocked, now)
     end
   end
 
@@ -1443,14 +1441,18 @@ defmodule Ryker.Publication.Custody do
   # A renewal only moves the lease's expiry, which no page shows.
   defp update!(publication, %{lease_expires_at: _expiry} = attributes, now)
        when map_size(attributes) == 1 do
+    attributes = Map.put(attributes, :updated_at, now)
+
     publication
-    |> Publication.Changeset.update(Map.put(attributes, :updated_at, now))
+    |> Publication.Changeset.update(attributes)
     |> Repo.update!()
   end
 
   defp update!(publication, attributes, now) do
+    attributes = Map.put(attributes, :updated_at, now)
+
     publication
-    |> Publication.Changeset.update(Map.put(attributes, :updated_at, now))
+    |> Publication.Changeset.update(attributes)
     |> Repo.update!()
     |> tap(&broadcast_publication_updated/1)
   end
@@ -1527,7 +1529,7 @@ defmodule Ryker.Publication.Custody do
   defp github_repository!(url) do
     web_host = GitHub.web_host()
     %URI{host: ^web_host, path: path} = URI.parse(url)
-    [owner, repository, "pull", _number] = String.split(String.trim_leading(path, "/"), "/")
+    [owner, repository, "pull", _number] = path |> String.trim_leading("/") |> String.split("/")
     "#{owner}/#{repository}"
   end
 

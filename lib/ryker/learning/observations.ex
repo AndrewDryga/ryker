@@ -110,26 +110,25 @@ defmodule Ryker.Learning.Observations do
 
       # Keep a revision tombstone even when an edit has nothing to remember. A
       # slower classifier for the previous revision must never resurrect it.
-      record =
-        struct!(
-          ConversationObservation,
-          Map.merge(scope, %{
-            id: entry.id,
-            identity_key: source_identity(entry),
-            source_input_id: entry.id,
-            source_episode_id: entry.episode_id,
-            source_message_ref: entry.source_item_ref || entry.native_input_id,
-            source_result_ref: result_ref,
-            source_fingerprint: entry.event_fingerprint,
-            actor_ref: entry.actor_ref,
-            execution_mode: entry.execution_mode,
-            revision: entry.revision,
-            occurred_at: entry.occurred_at,
-            note: if(entry.event_kind == :delete, do: nil, else: note),
-            inserted_at: now,
-            updated_at: now
-          })
-        )
+      attributes =
+        Map.merge(scope, %{
+          id: entry.id,
+          identity_key: source_identity(entry),
+          source_input_id: entry.id,
+          source_episode_id: entry.episode_id,
+          source_message_ref: entry.source_item_ref || entry.native_input_id,
+          source_result_ref: result_ref,
+          source_fingerprint: entry.event_fingerprint,
+          actor_ref: entry.actor_ref,
+          execution_mode: entry.execution_mode,
+          revision: entry.revision,
+          occurred_at: entry.occurred_at,
+          note: if(entry.event_kind == :delete, do: nil, else: note),
+          inserted_at: now,
+          updated_at: now
+        })
+
+      record = struct!(ConversationObservation, attributes)
 
       sources = if sources == :source_only, do: LearningSources.for_source(record), else: sources
 

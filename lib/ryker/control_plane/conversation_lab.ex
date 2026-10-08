@@ -592,12 +592,13 @@ defmodule Ryker.ControlPlane.ConversationLab do
     |> Enum.reduce_while({:ok, []}, fn {attachment, index}, {:ok, files} ->
       source_ref = "#{conversation_id}:#{event_id}:#{index}"
 
-      case Artifacts.put(
-             attachment
-             |> Map.take([:data, :media_type, :name])
-             |> Map.put(:source_kind, "control_plane")
-             |> Map.put(:source_ref, source_ref)
-           ) do
+      attributes =
+        attachment
+        |> Map.take([:data, :media_type, :name])
+        |> Map.put(:source_kind, "control_plane")
+        |> Map.put(:source_ref, source_ref)
+
+      case Artifacts.put(attributes) do
         {:ok, artifact} ->
           {:cont, {:ok, [artifact_descriptor(artifact, attachment[:transcription]) | files]}}
 

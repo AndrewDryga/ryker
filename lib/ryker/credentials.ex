@@ -173,6 +173,9 @@ defmodule Ryker.Credentials do
   defp put_locked(kind, name, actor_ref, sealed) do
     lock!(kind, name)
     now = Repo.now!()
+    # A new value has not been checked, whatever the one before it had.
+    unverified =
+      Map.merge(sealed, %{verification_status: :unverified, verified_at: nil, updated_at: now})
 
     case Repo.one(Credential.Query.by_identity(kind, name)) do
       nil ->
@@ -183,13 +186,7 @@ defmodule Ryker.Credentials do
             name: name,
             inserted_at: now
           }
-          |> Ecto.Changeset.change(
-            Map.merge(sealed, %{
-              verification_status: :unverified,
-              verified_at: nil,
-              updated_at: now
-            })
-          )
+          |> Ecto.Changeset.change(unverified)
           |> Repo.insert!()
 
         event!(credential, :created, actor_ref, now)
@@ -199,13 +196,7 @@ defmodule Ryker.Credentials do
       %Credential{} = credential ->
         credential =
           credential
-          |> Ecto.Changeset.change(
-            Map.merge(sealed, %{
-              verification_status: :unverified,
-              verified_at: nil,
-              updated_at: now
-            })
-          )
+          |> Ecto.Changeset.change(unverified)
           |> Repo.update!()
 
         event!(credential, :replaced, actor_ref, now)

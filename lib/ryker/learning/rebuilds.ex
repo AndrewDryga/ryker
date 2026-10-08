@@ -109,10 +109,11 @@ defmodule Ryker.Learning.Rebuilds do
     do: RebuildSource.Query.by_topic(topic, LearningSources.retention_seconds())
 
   def selections(value) when is_list(value) and length(value) in 1..16 do
-    if Enum.all?(value, &selection?/1) and
-         length(Enum.uniq_by(value, & &1["source_input_id"])) == length(value),
-       do: {:ok, Enum.sort_by(value, & &1["source_input_id"])},
-       else: {:error, :invalid_learning_rebuild}
+    unique = Enum.uniq_by(value, & &1["source_input_id"])
+
+    if Enum.all?(value, &selection?/1) and length(unique) == length(value),
+      do: {:ok, Enum.sort_by(value, & &1["source_input_id"])},
+      else: {:error, :invalid_learning_rebuild}
   end
 
   def selections(_), do: {:error, :invalid_learning_rebuild}
@@ -144,25 +145,22 @@ defmodule Ryker.Learning.Rebuilds do
       scope = batch_scope(topic, execution_mode)
       now = Repo.now!()
 
-      batch =
-        Repo.insert!(
-          struct!(
-            Batch,
-            Map.merge(scope, %{
-              scope_key: Batches.scope_key(scope),
-              policy: settings.policy,
-              policy_digest: settings.policy_digest,
-              status: :queued,
-              input_count: length(entries),
-              rebuild_target_id: topic.id,
-              rebuild_target_version: topic.version,
-              rebuild_target_generation: topic.source_generation,
-              rebuild_selection: selected,
-              inserted_at: now,
-              updated_at: now
-            })
-          )
-        )
+      attributes =
+        Map.merge(scope, %{
+          scope_key: Batches.scope_key(scope),
+          policy: settings.policy,
+          policy_digest: settings.policy_digest,
+          status: :queued,
+          input_count: length(entries),
+          rebuild_target_id: topic.id,
+          rebuild_target_version: topic.version,
+          rebuild_target_generation: topic.source_generation,
+          rebuild_selection: selected,
+          inserted_at: now,
+          updated_at: now
+        })
+
+      batch = Repo.insert!(struct!(Batch, attributes))
 
       Learning.broadcast_learning_updated(batch.id)
       {:ok, %{previous: %{}, outcome: outcome(batch)}}

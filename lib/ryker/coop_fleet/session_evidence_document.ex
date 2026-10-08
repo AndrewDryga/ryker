@@ -107,7 +107,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceDocument do
   """
   @spec content_fingerprint(map()) :: String.t()
   def content_fingerprint(%{} = evidence),
-    do: Ryker.CanonicalJSON.digest(Map.delete(evidence, "captured_at"))
+    do: evidence |> Map.delete("captured_at") |> Ryker.CanonicalJSON.digest()
 
   defp network(%{} = network) do
     with :ok <- exact_fields(network, ~w(mode fingerprint access observation receipt)),

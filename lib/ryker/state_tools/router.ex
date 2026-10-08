@@ -111,7 +111,8 @@ defmodule Ryker.StateTools.Router do
     # Emisar's own guidance for its tools, as Emisar gives it to any client.
     case emisar_catalog(options) do
       {:ok, _pin, %{instructions: text}} when is_binary(text) ->
-        rpc_result(conn, id, Map.put(result, "instructions", text))
+        result = Map.put(result, "instructions", text)
+        rpc_result(conn, id, result)
 
       _none ->
         rpc_result(conn, id, result)

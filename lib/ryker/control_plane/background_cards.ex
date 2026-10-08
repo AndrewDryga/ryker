@@ -32,21 +32,21 @@ defmodule Ryker.ControlPlane.BackgroundCards do
   what was opened.
   """
   @spec submitted(String.t() | nil, String.t(), atom(), map(), keyword()) :: map()
-  def submitted(prompt, artifact_id, source_kind, context, options),
-    do: %{
+  def submitted(prompt, artifact_id, source_kind, context, options) do
+    options =
+      Keyword.merge(options,
+        preserve_format: true,
+        disclosed: disclosed?(context.disclosed, artifact_id)
+      )
+
+    %{
       id: "request",
       title: "Submitted prompt",
       source_kind: source_kind,
       artifact_id: artifact_id,
-      artifact:
-        Redactor.artifact(
-          prompt,
-          Keyword.merge(options,
-            preserve_format: true,
-            disclosed: disclosed?(context.disclosed, artifact_id)
-          )
-        )
+      artifact: Redactor.artifact(prompt, options)
     }
+  end
 
   @doc "How an attempt's artifacts are read: redacted, bounded, and marked expired once pruned."
   @spec artifact_options(map(), map()) :: keyword()

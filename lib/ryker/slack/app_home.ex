@@ -559,27 +559,26 @@ defmodule Ryker.Slack.AppHome do
           nil
       end
 
-    [
-      section("#{title} · #{label(status)}; #{next}"),
-      actions(
-        [
-          button("ryker_home_run_schedule", "Run now", Map.get(row, :ref)),
-          status_button,
-          open_button(row, "Replace in chat"),
-          if status in [:active, :paused] do
-            button(
-              "ryker_home_delete_schedule",
-              "Delete",
-              versioned_control(:schedule, row),
-              destructive_confirm("Delete this schedule?", "Future occurrences will stop.")
-            )
-          else
-            nil
-          end
-        ]
-        |> Enum.reject(&is_nil/1)
-      )
-    ]
+    delete_button =
+      if status in [:active, :paused] do
+        button(
+          "ryker_home_delete_schedule",
+          "Delete",
+          versioned_control(:schedule, row),
+          destructive_confirm("Delete this schedule?", "Future occurrences will stop.")
+        )
+      end
+
+    buttons =
+      [
+        button("ryker_home_run_schedule", "Run now", Map.get(row, :ref)),
+        status_button,
+        open_button(row, "Replace in chat"),
+        delete_button
+      ]
+      |> Enum.reject(&is_nil/1)
+
+    [section("#{title} · #{label(status)}; #{next}"), actions(buttons)]
   end
 
   defp append_attention_controls(blocks, %{controls: controls} = row) when is_list(controls) do

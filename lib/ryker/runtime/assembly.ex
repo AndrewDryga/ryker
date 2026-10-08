@@ -1375,7 +1375,9 @@ defmodule Ryker.Runtime.Assembly do
   # signing secret long enough for its kind, so a route it would refuse is
   # left out here rather than refusing the listener, and with it everything.
   defp listener_accepts(name, route) do
-    case Webhooks.Route.new(Map.put(route, :name, name)) do
+    route = Map.put(route, :name, name)
+
+    case Webhooks.Route.new(route) do
       {:ok, _route} -> :ok
       {:error, {:invalid_webhook_route, :auth}} -> {:error, :secret_too_short}
       {:error, _refused} -> {:error, :route_invalid}

@@ -63,7 +63,8 @@ defmodule Ryker.Transcription.Service do
   defp fallback(data, options, settings, deadline) do
     case deadline - System.monotonic_time(:millisecond) do
       remaining when remaining > 0 ->
-        settings.fallback.transcribe(data, Keyword.put(options, :timeout_ms, remaining))
+        options = Keyword.put(options, :timeout_ms, remaining)
+        settings.fallback.transcribe(data, options)
 
       _spent ->
         {:error, :timeout}

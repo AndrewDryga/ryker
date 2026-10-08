@@ -296,11 +296,8 @@ defmodule Ryker.Slack.Gateway do
   defp handle_ingress_event(normalized, settings) do
     case engagement_mode(normalized, settings) do
       {:ok, execution_mode, receipt} ->
-        record_ingress(
-          Map.put(normalized, :engagement_receipt, receipt),
-          execution_mode,
-          settings
-        )
+        normalized = Map.put(normalized, :engagement_receipt, receipt)
+        record_ingress(normalized, execution_mode, settings)
 
       {:engaged, false} ->
         {:ack, {:ignored, :not_engaged}}
@@ -340,7 +337,8 @@ defmodule Ryker.Slack.Gateway do
         "execution_mode" => "live"
       }
 
-      record_ingress(Map.put(normalized, :engagement_receipt, receipt), :live, settings)
+      normalized = Map.put(normalized, :engagement_receipt, receipt)
+      record_ingress(normalized, :live, settings)
     else
       {:ok, false} -> {:ack, {:ignored, :actor_not_authorized}}
       {:error, reason} -> {:retry, reason}

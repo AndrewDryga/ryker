@@ -434,18 +434,19 @@ defmodule Ryker.Emisar.Approvals do
         run_url: state.run_url
       }
 
-      approval =
-        update!(
-          approval,
-          Map.merge(observed, %{
-            last_observed_at: now,
-            lease_expires_at: nil,
-            lease_owner: nil,
-            lease_ref: nil,
-            next_attempt_at: DateTime.add(now, poll_seconds, :second)
-          }),
-          if(Map.take(approval, Map.keys(observed)) == observed, do: :quiet, else: :announce)
-        )
+      changes =
+        Map.merge(observed, %{
+          last_observed_at: now,
+          lease_expires_at: nil,
+          lease_owner: nil,
+          lease_ref: nil,
+          next_attempt_at: DateTime.add(now, poll_seconds, :second)
+        })
+
+      announcement =
+        if Map.take(approval, Map.keys(observed)) == observed, do: :quiet, else: :announce
+
+      approval = update!(approval, changes, announcement)
 
       %{approval: approval, status: :monitoring}
     else

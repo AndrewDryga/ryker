@@ -587,19 +587,16 @@ defmodule Ryker.Learning.Batches do
       |> Ingress.Inbox.Entry.Query.lock_for_update()
       |> Repo.all()
 
-    batch =
-      Repo.insert!(
-        struct!(
-          Batch,
-          Map.merge(scope, %{
-            scope_key: scope_key(scope),
-            status: :queued,
-            input_count: length(entries),
-            policy: settings.policy,
-            policy_digest: settings.policy_digest
-          })
-        )
-      )
+    attributes =
+      Map.merge(scope, %{
+        scope_key: scope_key(scope),
+        status: :queued,
+        input_count: length(entries),
+        policy: settings.policy,
+        policy_digest: settings.policy_digest
+      })
+
+    batch = Repo.insert!(struct!(Batch, attributes))
 
     ids = Enum.map(entries, & &1.id)
 

@@ -172,7 +172,8 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
     |> Enum.reduce(%{}, fn row, found ->
       case ConversationRef.parse_slack(row.conversation_ref) do
         {:ok, workspace_ref, channel_ref} ->
-          Map.put(found, {workspace_ref, channel_ref}, Map.drop(row, [:conversation_ref]))
+          counts = Map.drop(row, [:conversation_ref])
+          Map.put(found, {workspace_ref, channel_ref}, counts)
 
         _invalid ->
           found

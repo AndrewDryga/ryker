@@ -222,7 +222,9 @@ defmodule Ryker.CoopFleet.Bridge do
     if json_body?(headers) do
       json_response(result, stored, key)
     else
-      with {:ok, nil} <- response(Map.delete(result, "body_ref")) do
+      bodiless = Map.delete(result, "body_ref")
+
+      with {:ok, nil} <- response(bodiless) do
         {:ok, %{stored_body: stored, body_ref: reference, headers: headers}}
       end
     end

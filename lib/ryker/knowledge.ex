@@ -808,7 +808,8 @@ defmodule Ryker.Knowledge do
         |> Ecto.Changeset.force_change(:updated_at, now)
         |> Repo.update!()
       else
-        Repo.insert!(struct!(ConversationKnowledge, Map.put(attrs, :id, id)))
+        attrs = Map.put(attrs, :id, id)
+        Repo.insert!(struct!(ConversationKnowledge, attrs))
       end
 
     persist_memberships(item, roots, source.direct_sources, version)
@@ -865,12 +866,12 @@ defmodule Ryker.Knowledge do
     rows |> Enum.chunk_every(500) |> Enum.each(&Repo.insert_all(KnowledgeSource, &1))
 
     if promotions != [] do
-      Repo.update_all(
+      query =
         item.id
         |> KnowledgeSource.Query.by_generation(item.source_generation)
-        |> KnowledgeSource.Query.indirect(promotions),
-        set: [direct_support_version: version]
-      )
+        |> KnowledgeSource.Query.indirect(promotions)
+
+      Repo.update_all(query, set: [direct_support_version: version])
     end
   end
 

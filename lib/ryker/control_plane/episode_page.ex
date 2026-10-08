@@ -862,7 +862,8 @@ defmodule Ryker.ControlPlane.EpisodePage do
     targets =
       for {%{kind: :event, step: %{stage: "Queue", input_id: input} = step}, index} <- indexed,
           match?("Reattached" <> _, step.queue.qualifier || ""),
-          %{id: id} <- [Enum.find(Enum.drop(entries, index + 1), &admission_result?(&1, input))],
+          later = Enum.drop(entries, index + 1),
+          %{id: id} <- [Enum.find(later, &admission_result?(&1, input))],
           into: %{},
           do: {index, id}
 
@@ -1934,12 +1935,11 @@ defmodule Ryker.ControlPlane.EpisodePage do
           do: {request.id, RequestContextHTML.candidate_links(request.sections, request.id)}
 
     Enum.map(requests, fn request ->
+      call_id = String.replace_suffix(request.id, "-result", "")
+
       request
       |> Map.put(:record_links, record_links)
-      |> Map.put(
-        :candidate_links,
-        candidate_links[String.replace_suffix(request.id, "-result", "")] || %{}
-      )
+      |> Map.put(:candidate_links, candidate_links[call_id] || %{})
     end)
   end
 

@@ -300,17 +300,18 @@ defmodule Ryker.Slack.TaskCardProjection do
           is_nil(snapshot.workspace_hold) ->
         reason = fix_line(fix, :stopped) || blocked_cause(attention)
 
-        replace_task(
-          projection,
+        task =
           task
           |> Map.put("action_needed", nil)
           |> put_in(["publication", "blocked_reason"], reason)
-        )
+
+        replace_task(projection, task)
 
       message =
           fix_line(fix, :stopped) ||
             public_error(attention, snapshot.turn, snapshot.workspace_hold) ->
-        replace_task(projection, Map.put(task, "action_needed", message))
+        task = Map.put(task, "action_needed", message)
+        replace_task(projection, task)
 
       true ->
         projection

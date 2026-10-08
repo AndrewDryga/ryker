@@ -308,9 +308,11 @@ defmodule Ryker.Slack.CapabilityTools.Search do
 
   defp compact_context_message(message) do
     # Search carries a small original excerpt, never arbitrary nested provider context.
+    excerpt = String.byte_slice(message["text"], 0, 4_096)
+
     message
     |> Map.take(~w(source_ref text ts thread_ts user user_id))
-    |> Map.put("text", String.byte_slice(message["text"], 0, 4_096))
+    |> Map.put("text", excerpt)
     |> Map.put("text_truncated", byte_size(message["text"]) > 4_096)
   end
 
@@ -338,14 +340,17 @@ defmodule Ryker.Slack.CapabilityTools.Search do
     }
 
     with {:ok, document} <- Resources.file_document(file, source) do
+      metadata = Map.drop(document, ["content", "content_complete"])
+      source_ref = SourceRef.encode(source)
+
       {:ok,
        result
-       |> Map.merge(Map.drop(document, ["content", "content_complete"]))
+       |> Map.merge(metadata)
        |> Map.put("channel_id", channel_ref)
-       |> Map.put("source_ref", SourceRef.encode(source))
+       |> Map.put("source_ref", source_ref)
        |> Map.put("source_read", %{
          "tool" => "read_slack_source",
-         "arguments" => %{"source_ref" => SourceRef.encode(source), "view" => "document"}
+         "arguments" => %{"source_ref" => source_ref, "view" => "document"}
        })}
     end
   rescue

@@ -136,8 +136,9 @@ defmodule Ryker.ControlPlane.Viewer do
   end
 
   defp unquote_word(word) do
-    ~r/=([0-9A-Fa-f]{2})/
-    |> Regex.replace(String.replace(word, "_", " "), fn _match, hex ->
+    spaced = String.replace(word, "_", " ")
+
+    Regex.replace(~r/=([0-9A-Fa-f]{2})/, spaced, fn _match, hex ->
       <<String.to_integer(hex, 16)>>
     end)
   end

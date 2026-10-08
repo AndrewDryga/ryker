@@ -94,15 +94,13 @@ defmodule Ryker.Webhooks.Route do
            prepare_publication_lifecycle(Map.get(attributes, :publication_lifecycle)),
          {:ok, work_profile} <-
            Ingress.WorkProfile.prepare(Map.get(attributes, :work_profile)),
-         route =
-           struct!(
-             __MODULE__,
-             Map.merge(attributes, %{
-               adapter: adapter,
-               publication_lifecycle: publication_lifecycle,
-               work_profile: work_profile
-             })
-           ),
+         attributes =
+           Map.merge(attributes, %{
+             adapter: adapter,
+             publication_lifecycle: publication_lifecycle,
+             work_profile: work_profile
+           }),
+         route = struct!(__MODULE__, attributes),
          :ok <- validate(route) do
       {:ok, route}
     end

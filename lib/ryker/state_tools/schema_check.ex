@@ -94,15 +94,21 @@ defmodule Ryker.StateTools.SchemaCheck do
     base_valid and Enum.count(schemas, &valid_schema_value?(&1, value)) == 1
   end
 
-  defp valid_schema_value?(%{"const" => expected} = schema, value),
-    do: value == expected and valid_schema_value?(Map.drop(schema, ["const"]), value)
+  defp valid_schema_value?(%{"const" => expected} = schema, value) do
+    rest = Map.delete(schema, "const")
+    value == expected and valid_schema_value?(rest, value)
+  end
 
-  defp valid_schema_value?(%{"enum" => values} = schema, value),
-    do: value in values and valid_schema_value?(Map.drop(schema, ["enum"]), value)
+  defp valid_schema_value?(%{"enum" => values} = schema, value) do
+    rest = Map.delete(schema, "enum")
+    value in values and valid_schema_value?(rest, value)
+  end
 
   defp valid_schema_value?(%{"properties" => _properties} = schema, value)
-       when is_map(value) and not is_map_key(schema, "type"),
-       do: valid_schema_value?(Map.put(schema, "type", "object"), value)
+       when is_map(value) and not is_map_key(schema, "type") do
+    object = Map.put(schema, "type", "object")
+    valid_schema_value?(object, value)
+  end
 
   defp valid_schema_value?(%{"type" => "object"} = schema, value) when is_map(value) do
     properties = Map.get(schema, "properties", %{})
@@ -171,19 +177,21 @@ defmodule Ryker.StateTools.SchemaCheck do
 
   defp issues(%{"const" => expected} = schema, value, path) do
     if value == expected,
-      do: issues(Map.drop(schema, ["const"]), value, path),
+      do: schema |> Map.delete("const") |> issues(value, path),
       else: [issue(path, "const", "must be #{Jason.encode!(expected)}")]
   end
 
   defp issues(%{"enum" => values} = schema, value, path) do
     if value in values,
-      do: issues(Map.drop(schema, ["enum"]), value, path),
+      do: schema |> Map.delete("enum") |> issues(value, path),
       else: [issue(path, "enum", "must be one of " <> choices(values))]
   end
 
   defp issues(%{"properties" => _properties} = schema, value, path)
-       when is_map(value) and not is_map_key(schema, "type"),
-       do: issues(Map.put(schema, "type", "object"), value, path)
+       when is_map(value) and not is_map_key(schema, "type") do
+    object = Map.put(schema, "type", "object")
+    issues(object, value, path)
+  end
 
   defp issues(%{"type" => "object"} = schema, value, path) when is_map(value) do
     properties = Map.get(schema, "properties", %{})

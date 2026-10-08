@@ -27,13 +27,8 @@ defmodule Ryker.Slack.Client.Assistant do
   def search_context(client, action_token, document) do
     with :ok <- action_token(action_token),
          :ok <- search_document(document),
-         {:ok, response} <-
-           Transport.request(
-             client,
-             :post,
-             "/assistant.search.context",
-             Map.put(document, "action_token", action_token)
-           ),
+         request = Map.put(document, "action_token", action_token),
+         {:ok, response} <- Transport.request(client, :post, "/assistant.search.context", request),
          {:ok, body} <- Transport.response(response) do
       search_response(body)
     end

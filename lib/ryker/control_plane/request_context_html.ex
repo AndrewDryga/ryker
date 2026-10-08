@@ -2036,19 +2036,19 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   # The request a self-analysis looked at, in words.
   defp analysis_request(value) do
+    reasons =
+      value["negative_feedback"]
+      |> List.wrap()
+      |> Enum.filter(&is_binary/1)
+      |> Enum.map(&human/1)
+      |> word_list()
+
     [
       "<dl class=\"context-rows\">",
       context_row("Kind", analysis_kind(value["kind"])),
       context_row("Where", present(value["channel"])),
       context_row("How it ended", value["state"] |> present() |> human_or_nil()),
-      context_row(
-        "Why it was analyzed",
-        value["negative_feedback"]
-        |> List.wrap()
-        |> Enum.filter(&is_binary/1)
-        |> Enum.map(&human/1)
-        |> word_list()
-      ),
+      context_row("Why it was analyzed", reasons),
       "</dl>"
     ]
   end
@@ -2705,10 +2705,8 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
     case {slack_workspace(input), ref} do
       {workspace, ref} when is_binary(workspace) and is_binary(ref) ->
-        Slack.Names.name(
-          workspace,
-          String.replace_prefix(ref, "slack:user:", "")
-        )
+        user = String.replace_prefix(ref, "slack:user:", "")
+        Slack.Names.name(workspace, user)
 
       _ ->
         actor_name(ref, actor)

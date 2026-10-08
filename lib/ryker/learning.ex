@@ -168,21 +168,22 @@ defmodule Ryker.Learning do
       thread = thread_context!(entries, settings.rebuild)
       settings = Map.put(settings, :thread, thread)
 
+      contract =
+        CanonicalJSON.digest(%{
+          "instructions" => instructions(settings.rebuild, thread),
+          "schema" => request_schema(entries, thread, settings.rebuild)
+        })
+
       key =
-        CanonicalJSON.digest(
-          %{
-            "inputs" => manifest,
-            "policy" => policy,
-            "policy_digest" => digest,
-            "contract" =>
-              CanonicalJSON.digest(%{
-                "instructions" => instructions(settings.rebuild, thread),
-                "schema" => request_schema(entries, thread, settings.rebuild)
-              })
-          }
-          |> request_identity(settings.rebuild)
-          |> thread_identity(thread)
-        )
+        %{
+          "inputs" => manifest,
+          "policy" => policy,
+          "policy_digest" => digest,
+          "contract" => contract
+        }
+        |> request_identity(settings.rebuild)
+        |> thread_identity(thread)
+        |> CanonicalJSON.digest()
 
       lock_batch(key)
 
@@ -1292,12 +1293,11 @@ defmodule Ryker.Learning do
   end
 
   defp valid_action?(%{"action" => action} = update) when action in ["create", "update"] do
+    change = Map.drop(update, ~w(action source_input_ids))
+
     ((action == "create" and is_nil(update["target_ref"])) or
        (action == "update" and is_binary(update["target_ref"]))) and
-      match?(
-        {:ok, %{}},
-        Knowledge.KnowledgeUpdate.prepare(Map.drop(update, ~w(action source_input_ids)))
-      )
+      match?({:ok, %{}}, Knowledge.KnowledgeUpdate.prepare(change))
   end
 
   defp valid_action?(_), do: false

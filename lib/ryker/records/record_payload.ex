@@ -313,7 +313,9 @@ defmodule Ryker.Records.RecordPayload do
     do: {:error, {:invalid_state_record, :conversation_ref}}
 
   defp input_request(%{} = payload, ref) do
-    with :ok <- exact_fields(Map.delete(payload, "remember"), ~w(choices question)),
+    request = Map.delete(payload, "remember")
+
+    with :ok <- exact_fields(request, ~w(choices question)),
          # Its context and up to three numbered questions, each as long as
          # request_input allows.
          :ok <- text(payload["question"], 8_100, :question),

@@ -181,8 +181,8 @@ defmodule Ryker.Admission.Attempts do
     phase = if rank(phase) > rank(attempt.phase), do: phase, else: attempt.phase
     milestones = Map.put_new(attempt.milestones, phase, DateTime.to_iso8601(at))
 
-    changeset =
-      Changeset.change(attempt, Map.merge(attributes, %{phase: phase, milestones: milestones}))
+    attributes = Map.merge(attributes, %{phase: phase, milestones: milestones})
+    changeset = Changeset.change(attempt, attributes)
 
     if changeset.changes == %{}, do: attempt, else: Repo.update!(changeset)
   end

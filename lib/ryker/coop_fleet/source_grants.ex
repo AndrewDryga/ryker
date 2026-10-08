@@ -20,7 +20,7 @@ defmodule Ryker.CoopFleet.SourceGrants do
   @spec source_grant(binary(), String.t(), map()) :: {:ok, map()} | {:error, term()}
   def source_grant(certificate, job_ref, source, provider \\ GitHub.InstallationTokens) do
     case source_grant_authority(certificate, job_ref, source) do
-      {:ok, :public, ^source} -> {:ok, public_grant(source)}
+      {:ok, :public} -> {:ok, public_grant(source)}
       authority -> minted_grant(authority, certificate, job_ref, source, provider)
     end
   end
@@ -38,16 +38,13 @@ defmodule Ryker.CoopFleet.SourceGrants do
   end
 
   defp minted_grant(authority, certificate, job_ref, source, provider) do
-    with {:ok, binding, ^source} <- authority,
+    with {:ok, binding} <- authority,
+         installation = Map.delete(binding, :name),
          {:ok, %{token: token, expires_at: expires_at}} <-
-           GitHub.InstallationTokens.fresh_source_token(
-             provider,
-             binding.name,
-             Map.delete(binding, :name)
-           ),
+           GitHub.InstallationTokens.fresh_source_token(provider, binding.name, installation),
          # Minting is external I/O. Revocation, replacement or settings changes during it
          # must not release a credential to a worker which no longer owns the job.
-         {:ok, ^binding, ^source} <- source_grant_authority(certificate, job_ref, source) do
+         {:ok, ^binding} <- source_grant_authority(certificate, job_ref, source) do
       {:ok,
        %{
          "repository_ref" => source["repository_ref"],
@@ -84,7 +81,7 @@ defmodule Ryker.CoopFleet.SourceGrants do
 
   @doc false
   @spec source_grant_authority(binary(), String.t(), map()) ::
-          {:ok, map(), map()} | {:error, term()}
+          {:ok, map() | :public} | {:error, term()}
   def source_grant_authority(certificate, job_ref, source)
       when is_binary(job_ref) and byte_size(job_ref) in 1..256 and is_map(source) do
     with {:ok, worker_id} <- ControlPlane.authenticate_certificate(certificate),
@@ -99,7 +96,7 @@ defmodule Ryker.CoopFleet.SourceGrants do
              &grants_repository?(&1, source)
            ),
          {:ok, binding} <- grant_binding(source) do
-      {:ok, binding, source}
+      {:ok, binding}
     else
       invalid ->
         Logger.warning(

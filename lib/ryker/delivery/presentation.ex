@@ -38,9 +38,10 @@ defmodule Ryker.Delivery.Presentation do
     do: {:error, {:invalid_delivery_presentation, :document}}
 
   defp render("slack", episode, document) do
-    case Slack.Renderer.render(
-           Map.put(document, "slack_mentions", Slack.Mentions.authority(episode))
-         ) do
+    mentions = Slack.Mentions.authority(episode)
+    document = Map.put(document, "slack_mentions", mentions)
+
+    case Slack.Renderer.render(document) do
       {:ok, _rendered} -> :ok
       {:error, reason} -> {:error, {:invalid_delivery_presentation, reason}}
     end

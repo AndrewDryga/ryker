@@ -464,16 +464,9 @@ defmodule Ryker.ControlPlane.FeedbackPage do
 
   defp tone_lede(:positive), do: "People who said or showed that an answer helped show here."
 
-  defp category_path(category, ""), do: "#{@path}?category=#{category}"
-
   defp category_path(category, search),
     do: Paths.query(@path, %{"category" => category, "q" => search})
 
-  defp page_path(view, page) do
-    "#{@path}?" <>
-      Paths.encode_query(
-        %{"category" => view.category, "page" => page}
-        |> Map.merge(if(view.q != "", do: %{"q" => view.q}, else: %{}))
-      )
-  end
+  defp page_path(view, page),
+    do: Paths.query(@path, %{"category" => view.category, "page" => page, "q" => view.q})
 end

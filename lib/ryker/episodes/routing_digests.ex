@@ -196,10 +196,12 @@ defmodule Ryker.Episodes.RoutingDigests do
         now = Repo.now!()
         Ryker.Episodes.broadcast_episode_updated(episode)
 
-        Repo.update_all(
+        query =
           episode_id
           |> RoutingDigest.Query.by_episode_id()
-          |> RoutingDigest.Query.without_title(title),
+          |> RoutingDigest.Query.without_title(title)
+
+        Repo.update_all(query,
           set: [
             title: title,
             title_turn_id: turn.id,

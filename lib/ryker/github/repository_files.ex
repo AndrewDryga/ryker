@@ -176,7 +176,9 @@ defmodule Ryker.GitHub.RepositoryFiles do
   end
 
   defp decode_file(content) do
-    with {:ok, decoded} <- Base.decode64(String.replace(content, "\n", "")),
+    joined = String.replace(content, "\n", "")
+
+    with {:ok, decoded} <- Base.decode64(joined),
          true <- byte_size(decoded) <= @maximum_source_bytes and String.valid?(decoded) do
       {:ok, decoded}
     else

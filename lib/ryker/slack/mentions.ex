@@ -179,20 +179,16 @@ defmodule Ryker.Slack.Mentions do
     matches = Regex.scan(@typed_link, message)
     stripped = Regex.replace(@typed_link, message, "")
 
-    []
-    |> maybe_violation(
-      Regex.match?(@typed_prefix, stripped),
-      "Fix the malformed typed Slack entity link before replying."
-    )
-    |> maybe_violation(
-      length(matches) > @maximum_mentions,
-      "Use at most #{@maximum_mentions} typed Slack entities in one reply."
-    )
-    |> maybe_violation(
-      matches != [] and String.length(message) > @maximum_markdown_characters,
-      "Keep a reply containing native Slack entities at or below 12,000 characters."
-    )
-    |> Kernel.++(
+    checks = [
+      {matches != [] and String.length(message) > @maximum_markdown_characters,
+       "Keep a reply containing native Slack entities at or below 12,000 characters."},
+      {length(matches) > @maximum_mentions,
+       "Use at most #{@maximum_mentions} typed Slack entities in one reply."},
+      {Regex.match?(@typed_prefix, stripped),
+       "Fix the malformed typed Slack entity link before replying."}
+    ]
+
+    unauthorized =
       matches
       |> Enum.flat_map(fn [_whole, _label, scheme, target] ->
         case native_entity(scheme, target, authority) do
@@ -201,7 +197,9 @@ defmodule Ryker.Slack.Mentions do
         end
       end)
       |> Enum.uniq()
-    )
+
+    violations = for {true, violation} <- checks, do: violation
+    violations ++ unauthorized
   end
 
   defp render_matches(message, nil), do: {:ok, escape(message)}
@@ -358,9 +356,6 @@ defmodule Ryker.Slack.Mentions do
   end
 
   defp unique(values), do: values |> Enum.uniq() |> Enum.sort()
-
-  defp maybe_violation(violations, true, violation), do: [violation | violations]
-  defp maybe_violation(violations, false, _violation), do: violations
 
   defp slack_id(value) do
     if Id.valid?(value),

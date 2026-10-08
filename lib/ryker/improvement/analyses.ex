@@ -448,8 +448,10 @@ defmodule Ryker.Improvement.Analyses do
         run
 
       run.status in [:prepared, :responded] ->
+        changes = Map.put(answer, :status, :responded)
+
         run
-        |> Ecto.Changeset.change(Map.put(answer, :status, :responded))
+        |> Ecto.Changeset.change(changes)
         |> Repo.update!()
 
       true ->

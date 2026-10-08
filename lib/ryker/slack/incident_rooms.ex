@@ -179,7 +179,9 @@ defmodule Ryker.Slack.IncidentRooms do
         {:ok, nil}
 
       {:ok, candidate} ->
-        case request(Map.merge(candidate, settings)) do
+        attributes = Map.merge(candidate, settings)
+
+        case request(attributes) do
           {:error, :incident_room_capacity} ->
             {:error, :incident_room_capacity}
 

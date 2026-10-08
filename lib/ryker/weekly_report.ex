@@ -82,7 +82,9 @@ defmodule Ryker.WeeklyReport do
         nil -> "Etc/UTC"
       end
 
-    compose(last_seven_days(now, zone), Keyword.put(options, :now, now))
+    week = last_seven_days(now, zone)
+    options = Keyword.put(options, :now, now)
+    compose(week, options)
   end
 
   @doc """
@@ -100,12 +102,8 @@ defmodule Ryker.WeeklyReport do
          zone = configured.schedule.timezone,
          {:ok, local} <- DateTime.shift_zone(now, zone, database) do
       week = last_seven_days(now, zone)
-
-      digest =
-        compose(
-          week,
-          Keyword.merge(options, now: now, time_zone_database: database, preview: true)
-        )
+      options = Keyword.merge(options, now: now, time_zone_database: database, preview: true)
+      digest = compose(week, options)
 
       Custody.enqueue(%{
         conversation_ref: configured.conversation_ref,
@@ -190,20 +188,20 @@ defmodule Ryker.WeeklyReport do
 
   defp queue(latest, configured, now, database, options, next) do
     with {:ok, previous} <- Schedule.previous(latest, configured.schedule, database) do
-      digest =
-        compose(
-          %{from: previous.at, to: latest.at, timezone: configured.schedule.timezone},
-          Keyword.merge(options, now: now, time_zone_database: database)
-        )
+      week = %{from: previous.at, to: latest.at, timezone: configured.schedule.timezone}
+      options = Keyword.merge(options, now: now, time_zone_database: database)
+      digest = compose(week, options)
 
-      case Custody.enqueue(%{
-             conversation_ref: configured.conversation_ref,
-             due_at: latest.at,
-             message: digest.text,
-             period_start: previous.at,
-             timezone: configured.schedule.timezone,
-             week: latest.week
-           }) do
+      report = %{
+        conversation_ref: configured.conversation_ref,
+        due_at: latest.at,
+        message: digest.text,
+        period_start: previous.at,
+        timezone: configured.schedule.timezone,
+        week: latest.week
+      }
+
+      case Custody.enqueue(report) do
         {:ok, :already_queued} -> {:ok, {:waiting, next.at}}
         {:ok, report} -> {:ok, {:queued, report, next.at}}
         {:error, reason} -> {:error, reason}

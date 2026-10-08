@@ -234,6 +234,21 @@ defmodule Ryker.Admission.Context do
   def episode_ids(_snapshot),
     do: {:error, {:invalid_admission_context_snapshot, :episode_ids}}
 
+  # The keys every snapshot carries, beside the ones it may.
+  defp exact_fields?(snapshot) do
+    required =
+      ~w(active_episode_fingerprint built_at candidates continuation_window conversation_episode_count)
+
+    optional = ~w(
+      conversation_observations conversation_knowledge conversation_context context_manifest
+      routing_receipt source_dependencies knowledge_omissions slack_addressing
+      custom_instructions person_asking repository_choices candidate_messages previous_answer
+    )
+
+    present = snapshot |> Map.drop(optional) |> Map.keys()
+    Enum.sort(present) == Enum.sort(required)
+  end
+
   @doc false
   @spec restore(map(), Ingress.Input.t(), Ingress.Inbox.Entry.t(), %{
           Ecto.UUID.t() => Episodes.Episode.t()
@@ -241,31 +256,7 @@ defmodule Ryker.Admission.Context do
           {:ok, t()} | {:error, term()}
   def restore(snapshot, %Ingress.Input{} = input, %Ingress.Inbox.Entry{} = entry, episodes)
       when is_map(episodes) do
-    fields =
-      ~w(active_episode_fingerprint built_at candidates continuation_window conversation_episode_count)
-
-    with true <-
-           is_map(snapshot) and
-             Enum.sort(
-               Map.keys(
-                 Map.drop(snapshot, [
-                   "conversation_observations",
-                   "conversation_knowledge",
-                   "conversation_context",
-                   "context_manifest",
-                   "routing_receipt",
-                   "source_dependencies",
-                   "knowledge_omissions",
-                   "slack_addressing",
-                   "custom_instructions",
-                   "person_asking",
-                   "repository_choices",
-                   "candidate_messages",
-                   "previous_answer"
-                 ])
-               )
-             ) ==
-               Enum.sort(fields),
+    with true <- is_map(snapshot) and exact_fields?(snapshot),
          {:ok, slack_addressing} <- restore_slack_addressing(snapshot, input),
          {:ok, custom_instructions} <- restore_custom_instructions(snapshot, input),
          {:ok, person_asking} <- restore_person_asking(snapshot),

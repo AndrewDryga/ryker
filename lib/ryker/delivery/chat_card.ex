@@ -408,14 +408,17 @@ defmodule Ryker.Delivery.ChatCard do
 
     prose = &InspectionRedactor.artifact(&1, secrets: secrets).text
 
+    details =
+      []
+      |> optional_detail("Why", prose.(payload["reason"]))
+      |> optional_detail("Scope", prose.(payload["scope"]))
+
     common(
       record,
       "Finding",
       OfferWords.humanize(payload["status"]),
       prose.(payload["what"]),
-      []
-      |> optional_detail("Why", prose.(payload["reason"]))
-      |> optional_detail("Scope", prose.(payload["scope"])),
+      details,
       nil
     )
   end
@@ -432,30 +435,35 @@ defmodule Ryker.Delivery.ChatCard do
   end
 
   defp card(%Records.Record{kind: "goal"} = record, payload) do
-    common(
-      record,
-      "Goal",
-      payload["requested_outcome"],
-      payload["completion_contract"],
+    details =
       [
         {"Kind", OfferWords.humanize(payload["kind"])},
         {"Authority", OfferWords.humanize(payload["authority"])},
         {"Required", if(payload["required"], do: "Yes", else: "No")}
       ]
       |> optional_detail("Stage", payload["stage"] && OfferWords.humanize(payload["stage"]))
-      |> optional_detail("Replaces attempt", payload["successor_of"]),
+      |> optional_detail("Replaces attempt", payload["successor_of"])
+
+    common(
+      record,
+      "Goal",
+      payload["requested_outcome"],
+      payload["completion_contract"],
+      details,
       nil
     )
   end
 
   defp card(%Records.Record{kind: "goal_state"} = record, payload) do
+    evidence = evidence_refs(payload["evidence_refs"])
+    details = optional_detail([{"Goal", payload["goal_id"]}], "Evidence", evidence)
+
     common(
       record,
       "Goal updated",
       OfferWords.humanize(payload["state"]),
       payload["detail"] || "Goal #{payload["goal_id"]}",
-      [{"Goal", payload["goal_id"]}]
-      |> optional_detail("Evidence", evidence_refs(payload["evidence_refs"])),
+      details,
       nil
     )
   end

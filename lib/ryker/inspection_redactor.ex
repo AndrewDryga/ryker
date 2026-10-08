@@ -276,7 +276,8 @@ defmodule Ryker.InspectionRedactor do
   defp unique_object?(_), do: true
 
   defp sensitive?(key) when is_atom(key) or is_binary(key) do
-    Regex.match?(@secret_key, String.replace(to_string(key), ~r/([a-z0-9])([A-Z])/, "\\1_\\2"))
+    snake_case = key |> to_string() |> String.replace(~r/([a-z0-9])([A-Z])/, "\\1_\\2")
+    Regex.match?(@secret_key, snake_case)
   end
 
   defp sensitive?(_key), do: false

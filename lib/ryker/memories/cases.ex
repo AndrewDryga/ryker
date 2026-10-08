@@ -270,13 +270,18 @@ defmodule Ryker.Memories.Cases do
         {:ok, record}
 
       %CaseRecord{} = record ->
+        attributes = Map.put(attributes, :updated_at, now)
+
         record
-        |> Ecto.Changeset.change(Map.put(attributes, :updated_at, now))
+        |> Ecto.Changeset.change(attributes)
         |> Repo.update()
         |> tap(&announce_case/1)
 
       nil ->
-        struct!(CaseRecord, Map.merge(attributes, %{inserted_at: now, updated_at: now}))
+        attributes = Map.merge(attributes, %{inserted_at: now, updated_at: now})
+
+        CaseRecord
+        |> struct!(attributes)
         |> Repo.insert(on_conflict: :nothing, conflict_target: [:case_ref])
         |> tap(&announce_case/1)
     end

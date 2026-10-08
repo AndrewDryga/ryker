@@ -224,8 +224,9 @@ defmodule Ryker.Slack.IncidentRoomWorker do
         )
 
         # The offers this worker has already logged as refused, so each is logged once.
+        refused = MapSet.put(refused, record_ref)
         # credo:disable-for-next-line Ryker.Checks.NoProcessDictionary
-        Process.put(@refused_offers, MapSet.put(refused, record_ref))
+        Process.put(@refused_offers, refused)
         {:ok, {:refused, record_ref}}
 
       {:error, reason} ->

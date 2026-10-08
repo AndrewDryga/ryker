@@ -232,7 +232,8 @@ defmodule Ryker.Slack.SourceWindow do
       limited = page["has_more"] == true or page["is_limited"] == true
 
       if remaining > 1 and cursor != "" and cursor != document["cursor"] do
-        pages(read, Map.put(document, "cursor", cursor), remaining - 1, collected, count + 1)
+        document = Map.put(document, "cursor", cursor)
+        pages(read, document, remaining - 1, collected, count + 1)
       else
         {:ok, collected, cursor, limited, count + 1}
       end

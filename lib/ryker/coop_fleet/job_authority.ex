@@ -134,9 +134,12 @@ defmodule Ryker.CoopFleet.JobAuthority do
     with :ok <- uncreated(session),
          {:ok, snapshot} <- Settings.fetch(),
          {:ok, current} <- companions(snapshot, Enum.map(pinned, & &1["name"]), root, prepare) do
-      if Enum.map(current, &source_commits/1) == Enum.map(pinned, &source_commits/1),
-        do: {:ok, session},
-        else: repin(session, Map.put(job, "companions", current))
+      if Enum.map(current, &source_commits/1) == Enum.map(pinned, &source_commits/1) do
+        {:ok, session}
+      else
+        repinned = Map.put(job, "companions", current)
+        repin(session, repinned)
+      end
     else
       # A placed session keeps the job the worker was already asked with.
       {:error, :coop_worker_job_requires_new_session} -> {:ok, session}
@@ -221,9 +224,12 @@ defmodule Ryker.CoopFleet.JobAuthority do
     with {:ok, available} <- available_repositories() do
       kept = Enum.filter(companions, &MapSet.member?(available, &1["source"]["repository_ref"]))
 
-      if length(kept) == length(companions),
-        do: {:ok, authority},
-        else: narrow(authority, Map.put(job, "companions", kept), available)
+      if length(kept) == length(companions) do
+        {:ok, authority}
+      else
+        narrowed = Map.put(job, "companions", kept)
+        narrow(authority, narrowed, available)
+      end
     end
   end
 

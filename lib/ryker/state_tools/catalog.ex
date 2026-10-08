@@ -330,20 +330,15 @@ defmodule Ryker.StateTools.Catalog do
   end
 
   defp propose_preference_tool do
-    common = %{
-      "expires_at" => JSONSchema.nullable(timestamp()),
-      "scope" => enum(~w(current_channel repository workspace mine))
-    }
-
     branch = fn key, values, scopes ->
-      object(
-        Map.merge(common, %{
-          "key" => const(key),
-          "scope" => enum(scopes),
-          "value" => enum(values)
-        }),
-        ~w(expires_at key scope value)
-      )
+      properties = %{
+        "expires_at" => JSONSchema.nullable(timestamp()),
+        "key" => const(key),
+        "scope" => enum(scopes),
+        "value" => enum(values)
+      }
+
+      object(properties, ~w(expires_at key scope value))
     end
 
     %{

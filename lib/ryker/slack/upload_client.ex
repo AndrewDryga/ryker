@@ -149,7 +149,9 @@ defmodule Ryker.Slack.UploadClient do
   defp upload_url(_client, _value), do: {:error, {:invalid_slack_upload, :url}}
 
   defp base_origin?(value) when is_binary(value) do
-    case URI.parse(String.trim_trailing(value, "/")) do
+    origin = String.trim_trailing(value, "/")
+
+    case URI.parse(origin) do
       %URI{fragment: nil, path: path, query: nil, userinfo: nil} = uri
       when path in [nil, ""] ->
         allowed_origin?(uri)

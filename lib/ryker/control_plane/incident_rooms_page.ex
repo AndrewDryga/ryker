@@ -415,6 +415,10 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   # about the channel, and how the room closed. A step without a time keeps
   # its place after the step before it.
   defp timeline(room, alert, conversation, records, lifecycle) do
+    said = Enum.map(conversation, &message_entry/1)
+    recorded = Enum.map(records, &record_entry/1)
+    reported = Enum.with_index(lifecycle, &lifecycle_entry/2)
+
     [
       alert && alert_entry(alert),
       %{
@@ -445,9 +449,9 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
       room[:stopped_at] &&
         %{id: "stopped", at: room.stopped_at, icon: :incident, name: "Setup stopped", tone: :warn}
     ]
-    |> Enum.concat(Enum.map(conversation, &message_entry/1))
-    |> Enum.concat(Enum.map(records, &record_entry/1))
-    |> Enum.concat(Enum.with_index(lifecycle, &lifecycle_entry/2))
+    |> Enum.concat(said)
+    |> Enum.concat(recorded)
+    |> Enum.concat(reported)
     |> Enum.concat([
       room[:closing] &&
         %{

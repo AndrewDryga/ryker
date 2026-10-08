@@ -164,7 +164,7 @@ defmodule Ryker.Delivery.Request do
 
   defp valid_record?(%{"presentation" => presentation} = record)
        when map_size(record) == 5 and is_map(presentation),
-       do: valid_record?(Map.delete(record, "presentation"))
+       do: record |> Map.delete("presentation") |> valid_record?()
 
   defp valid_record?(
          %{"kind" => kind, "payload" => payload, "ref" => ref, "status" => status} = record

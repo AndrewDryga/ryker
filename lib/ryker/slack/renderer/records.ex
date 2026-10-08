@@ -65,7 +65,7 @@ defmodule Ryker.Slack.Renderer.Records do
        )
        when map_size(record) == 5 and map_size(meta) == 1 do
     if ReplyRecords.safe_url?(url),
-      do: render_record(Map.delete(record, "presentation")),
+      do: record |> Map.delete("presentation") |> render_record(),
       else: {:error, {:invalid_slack_render, :record}}
   end
 
@@ -76,7 +76,7 @@ defmodule Ryker.Slack.Renderer.Records do
        )
        when map_size(record) == 5 and map_size(meta) == 1 and is_binary(at) do
     case UTCDateTime.parse(at) do
-      {:ok, _time} -> event_wait(Map.delete(record, "presentation"), at)
+      {:ok, _time} -> record |> Map.delete("presentation") |> event_wait(at)
       _invalid -> {:error, {:invalid_slack_render, :record}}
     end
   end
@@ -199,7 +199,8 @@ defmodule Ryker.Slack.Renderer.Records do
          :ok <- optional_https_url(url),
          {:ok, %{payload: prepared}} <-
            Records.RecordPayload.prepare("slack_post_offer", payload, ref) do
-      {:ok, Offers.slack_post_offer(ref, Map.put(prepared, "message_url", url), status)}
+      prepared = Map.put(prepared, "message_url", url)
+      {:ok, Offers.slack_post_offer(ref, prepared, status)}
     else
       _invalid -> {:error, {:invalid_slack_render, :record}}
     end
@@ -307,22 +308,20 @@ defmodule Ryker.Slack.Renderer.Records do
   end
 
   defp publication_blocks("publication_result", ref, payload) do
-    [
-      section(
-        [
-          "*Draft pull request published · #{escape(payload["title"])}*",
-          "Repository: `#{escape(payload["repository"])}`",
-          "PR: #{escape(payload["pull_request_url"])}",
-          "Commit: `#{payload["commit_sha"]}`"
-        ]
-        |> compact_lines()
-      ),
-      actions(ref, [
-        "ryker_open_publication"
-        |> url_button("Open PR", ref, payload["pull_request_url"])
-        |> maybe_button_style("primary")
+    summary =
+      compact_lines([
+        "*Draft pull request published · #{escape(payload["title"])}*",
+        "Repository: `#{escape(payload["repository"])}`",
+        "PR: #{escape(payload["pull_request_url"])}",
+        "Commit: `#{payload["commit_sha"]}`"
       ])
-    ]
+
+    open =
+      "ryker_open_publication"
+      |> url_button("Open PR", ref, payload["pull_request_url"])
+      |> maybe_button_style("primary")
+
+    [section(summary), actions(ref, [open])]
   end
 
   defp refusal(payload) do

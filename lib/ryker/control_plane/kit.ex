@@ -305,7 +305,8 @@ defmodule Ryker.ControlPlane.Kit do
     items = Enum.map(assigns.people, &{:person, &1}) ++ Enum.map(assigns.more, &{:words, &1})
     # Each item but the last carries its comma, so no space ever comes before one.
     commas = List.duplicate(",", max(length(items) - 1, 0)) ++ [""]
-    assigns = assign(assigns, :items, Enum.zip(items, commas))
+    with_commas = Enum.zip(items, commas)
+    assigns = assign(assigns, :items, with_commas)
 
     ~H"""
     <%= for {{kind, item}, comma} <- @items do %>

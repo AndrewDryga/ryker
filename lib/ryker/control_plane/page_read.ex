@@ -51,8 +51,9 @@ defmodule Ryker.ControlPlane.PageRead do
       :error ->
         value = read.()
         # A read can memo others of its own, so the scope is read again.
-        # credo:disable-for-next-line Ryker.Checks.NoProcessDictionary
-        Process.put(@scope, Map.put(Process.get(@scope), key, value))
+        # credo:disable-for-lines:2 Ryker.Checks.NoProcessDictionary
+        scope = @scope |> Process.get() |> Map.put(key, value)
+        Process.put(@scope, scope)
         value
     end
   end

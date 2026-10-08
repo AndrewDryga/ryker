@@ -579,8 +579,10 @@ defmodule Ryker.RepositoryKnowledge.Custody do
         run
 
       run.status in [:prepared, :responded] ->
+        changes = Map.merge(answer, %{status: :responded, document: nil})
+
         run
-        |> Ecto.Changeset.change(Map.merge(answer, %{status: :responded, document: nil}))
+        |> Ecto.Changeset.change(changes)
         |> Repo.update!()
 
       true ->

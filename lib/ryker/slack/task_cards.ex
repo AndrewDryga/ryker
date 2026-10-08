@@ -366,7 +366,8 @@ defmodule Ryker.Slack.TaskCards do
   defp check_announcement(_card, _fingerprint, _revision), do: :announce
 
   defp update!(card, attributes, now, announce \\ :announce) do
-    changeset = TaskCard.Changeset.update(card, Map.put(attributes, :updated_at, now))
+    attributes = Map.put(attributes, :updated_at, now)
+    changeset = TaskCard.Changeset.update(card, attributes)
 
     case Repo.update(changeset) do
       {:ok, card} when announce == :quiet -> card

@@ -769,8 +769,12 @@ defmodule Ryker.Retention.Custody do
 
   defp advance_generation_locked(session, field, generation, reset) do
     case Map.fetch!(session, field) do
-      ^generation -> persist(session, Map.merge(reset, %{field => generation + 1}))
-      current -> Repo.rollback({:retention_generation_conflict, current})
+      ^generation ->
+        attributes = Map.put(reset, field, generation + 1)
+        persist(session, attributes)
+
+      current ->
+        Repo.rollback({:retention_generation_conflict, current})
     end
   end
 
@@ -814,8 +818,10 @@ defmodule Ryker.Retention.Custody do
   """
   @spec persist(Work.Session.t(), map()) :: Work.Session.t()
   def persist(%Work.Session{} = session, attributes) do
+    attributes = Map.put(attributes, :updated_at, Repo.now!())
+
     session
-    |> Work.Session.Changeset.cleanup(Map.put_new(attributes, :updated_at, Repo.now!()))
+    |> Work.Session.Changeset.cleanup(attributes)
     |> Repo.update()
     |> case do
       {:ok, stored} -> tap(stored, &Work.Custody.broadcast_session_updated/1)

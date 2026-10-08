@@ -271,8 +271,8 @@ defmodule Ryker.Feedback.Messages do
       do: MapSet.size(meaningful) > 0
 
   def repeats?(%{meaningful: earlier}, %{meaningful: later}) do
-    shared = MapSet.size(MapSet.intersection(earlier, later))
-    union = MapSet.size(MapSet.union(earlier, later))
+    shared = earlier |> MapSet.intersection(later) |> MapSet.size()
+    union = earlier |> MapSet.union(later) |> MapSet.size()
 
     cond do
       MapSet.size(earlier) == 0 or MapSet.size(later) == 0 -> false

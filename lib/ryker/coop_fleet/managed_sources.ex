@@ -564,9 +564,10 @@ defmodule Ryker.CoopFleet.ManagedSources do
           |> Enum.reduce_while({:ok, [], ""}, fn chunk, {:ok, links, pending} ->
             entries = String.split(pending <> chunk, <<0>>)
             pending = List.last(entries)
+            complete = Enum.drop(entries, -1)
 
             with true <- byte_size(pending) <= 8192,
-                 {:ok, links} <- gitlinks(Enum.drop(entries, -1), links) do
+                 {:ok, links} <- gitlinks(complete, links) do
               {:cont, {:ok, links, pending}}
             else
               _invalid -> {:halt, {:error, :invalid_gitlink}}
@@ -648,9 +649,12 @@ defmodule Ryker.CoopFleet.ManagedSources do
       [_, name, field] ->
         fields = Map.get(modules, name, %{})
 
-        if Map.has_key?(fields, field),
-          do: {:halt, {:error, :duplicate_submodule_declaration}},
-          else: {:cont, {:ok, Map.put(modules, name, Map.put(fields, field, value))}}
+        if Map.has_key?(fields, field) do
+          {:halt, {:error, :duplicate_submodule_declaration}}
+        else
+          fields = Map.put(fields, field, value)
+          {:cont, {:ok, Map.put(modules, name, fields)}}
+        end
 
       _unrelated ->
         {:cont, {:ok, modules}}

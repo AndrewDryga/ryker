@@ -302,19 +302,20 @@ defmodule Ryker.Admission.Prompt do
 
     if messages != [] and not fits?(context) do
       remaining = Enum.drop(messages, 1)
+      conversation_context = Map.put(context.conversation_context, "messages", remaining)
 
-      context
-      |> Map.put(
-        :conversation_context,
-        Map.put(context.conversation_context, "messages", remaining)
-      )
-      |> Map.put(
-        :context_manifest,
+      manifest =
         context.context_manifest
         |> Map.put("included", length(remaining))
         |> Map.put("narrowed", true)
-      )
-      |> fit_conversation_context()
+
+      narrowed = %{
+        context
+        | conversation_context: conversation_context,
+          context_manifest: manifest
+      }
+
+      fit_conversation_context(narrowed)
     else
       context
     end
@@ -328,9 +329,12 @@ defmodule Ryker.Admission.Prompt do
   defp fit_context_memory(context, key) do
     notes = Map.fetch!(context, key)
 
-    if notes != [] and not fits?(context),
-      do: fit_context_memory(Map.put(context, key, Enum.drop(notes, -1)), key),
-      else: context
+    if notes != [] and not fits?(context) do
+      kept = Enum.drop(notes, -1)
+      context |> Map.put(key, kept) |> fit_context_memory(key)
+    else
+      context
+    end
   end
 
   defp with_previews(context, captured, limit),
@@ -353,8 +357,10 @@ defmodule Ryker.Admission.Prompt do
     notes = get_in(request, ["context", key]) || []
 
     if notes != [] and byte_size(CanonicalJSON.encode!(request)) > @max_encoded_bytes do
+      kept = Enum.drop(notes, -1)
+
       request
-      |> put_in(["context", key], Enum.drop(notes, -1))
+      |> put_in(["context", key], kept)
       |> fit_memory(key)
     else
       request

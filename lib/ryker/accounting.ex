@@ -240,7 +240,8 @@ defmodule Ryker.Accounting do
       |> Execution.Query.lock_for_update()
       |> Repo.one()
 
-    current = existing || struct!(Execution, Map.put(identity, :recorded_at, now))
+    recorded = Map.put(identity, :recorded_at, now)
+    current = existing || struct!(Execution, recorded)
 
     attributes =
       merge_measurement(current, measurement)
@@ -284,7 +285,9 @@ defmodule Ryker.Accounting do
   end
 
   defp merge_tokens(attributes, current, %{usage_recorded: true} = measurement) do
-    Enum.reduce(@token_fields, Map.put(attributes, :usage_recorded, true), fn key, acc ->
+    recorded = Map.put(attributes, :usage_recorded, true)
+
+    Enum.reduce(@token_fields, recorded, fn key, acc ->
       Map.put(acc, key, max(measurement[key] || 0, Map.get(current, key) || 0))
     end)
   end

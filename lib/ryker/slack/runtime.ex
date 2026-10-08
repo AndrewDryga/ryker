@@ -343,7 +343,9 @@ defmodule Ryker.Slack.Runtime do
       private: incident_private
     }
 
-    request_incident_room = &IncidentRooms.request(Map.merge(&1, room_settings))
+    request_incident_room = fn attributes ->
+      attributes |> Map.merge(room_settings) |> IncidentRooms.request()
+    end
 
     automatic_request =
       &IncidentRooms.request_automatic(identity.workspace_ref, room_settings, &1)
@@ -550,8 +552,10 @@ defmodule Ryker.Slack.Runtime do
         lease_seconds: 300,
         max_attempts: 8,
         name: InteractionFeedbackWorker,
-        repaint:
-          &InteractionRepaint.repaint(&1, Map.put(&2, :bot_user_ref, identity.bot_user_ref)),
+        repaint: fn audit, options ->
+          options = Map.put(options, :bot_user_ref, identity.bot_user_ref)
+          InteractionRepaint.repaint(audit, options)
+        end,
         retry_base_seconds: 1,
         worker_ref: "slack-interaction-feedback:#{identity.workspace_ref}"
       })

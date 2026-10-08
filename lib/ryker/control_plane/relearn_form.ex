@@ -131,11 +131,11 @@ defmodule Ryker.ControlPlane.RelearnForm do
 
   defp selection(values) when is_list(values) and length(values) in 1..16 do
     sources = Enum.map(values, &source/1)
+    unique = Enum.uniq_by(sources, & &1["source_input_id"])
 
-    if Enum.all?(sources, &is_map/1) and
-         length(Enum.uniq_by(sources, & &1["source_input_id"])) == length(sources),
-       do: {:ok, sources},
-       else: {:error, :form}
+    if Enum.all?(sources, &is_map/1) and length(unique) == length(sources),
+      do: {:ok, sources},
+      else: {:error, :form}
   end
 
   defp selection(_values), do: {:error, :form}

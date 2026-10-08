@@ -561,8 +561,8 @@ defmodule Ryker.Settings do
   @spec update_repository(String.t(), map(), String.t()) :: write_result()
   def update_repository(ref, attributes, actor_ref) when is_binary(ref) do
     with :ok <- authorize(actor_ref),
-         {:ok, attributes} <-
-           Validation.attributes(Map.put(attributes, :ref, ref), Repository.Changeset.fields()) do
+         attributes = Map.put(attributes, :ref, ref),
+         {:ok, attributes} <- Validation.attributes(attributes, Repository.Changeset.fields()) do
       save(:repositories, :current, actor_ref, &update_found_repository(&1, ref, attributes))
     end
   end
@@ -762,19 +762,17 @@ defmodule Ryker.Settings do
       {:ok, rows} ->
         Repo.delete_all(EnvironmentRepository.Query.by_environment(ref))
 
-        Repo.insert_all(
-          EnvironmentRepository,
-          rows
-          |> Enum.with_index()
-          |> Enum.map(fn {{repository_ref, access}, position} ->
+        entries =
+          for {{repository_ref, access}, position} <- Enum.with_index(rows) do
             %{
               access: access,
               environment_ref: ref,
               position: position,
               repository_ref: repository_ref
             }
-          end)
-        )
+          end
+
+        Repo.insert_all(EnvironmentRepository, entries)
 
         rows
 
@@ -936,7 +934,7 @@ defmodule Ryker.Settings do
       inserted_at: now
     })
 
-    Repo.insert!(struct!(Retention, Map.put(@retention_defaults, :id, host_ref)))
+    Repo.insert!(struct!(%Retention{id: host_ref}, @retention_defaults))
 
     for schema <- [__MODULE__.Slack, GitHub, Publication, Report, Learning, __MODULE__.Work] do
       Repo.insert!(struct!(schema, id: host_ref))

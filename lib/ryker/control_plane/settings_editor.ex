@@ -43,15 +43,8 @@ defmodule Ryker.ControlPlane.SettingsEditor do
     # one to the other starts again from what is saved.
     shown = Map.get(socket.assigns, :form, :none)
 
-    socket =
-      assign(
-        socket,
-        assigns
-        |> Map.put_new(:show_header, true)
-        |> Map.put_new(:frame, :card)
-        |> Map.put_new(:form, nil)
-        |> Map.put_new(:paths, nil)
-      )
+    assigns = Map.merge(%{show_header: true, frame: :card, form: nil, paths: nil}, assigns)
+    socket = assign(socket, assigns)
 
     cond do
       not Map.has_key?(socket.assigns, :draft) -> {:ok, reset(socket, form_key(socket))}

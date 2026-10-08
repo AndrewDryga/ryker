@@ -329,7 +329,8 @@ defmodule Ryker.Runtime.Owner do
           {:ok, Map.put(running, key, %{child | configuration: configuration})}
         else
           stop_child(state, running, key)
-          start_child(state, Map.delete(running, key), key, module, configuration)
+          running = Map.delete(running, key)
+          start_child(state, running, key, module, configuration)
         end
     end
   end

@@ -131,8 +131,10 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
   defp block([{head, _children} | _] = items, :numbered, workspace),
     do: [ordered_list_open(head), Enum.map(items, &item(&1, @numbered, workspace)), "</ol>"]
 
-  defp block(items, :text, workspace),
-    do: ["<p>", render(Enum.map_join(items, "\n", &elem(&1, 0)), workspace), "</p>"]
+  defp block(items, :text, workspace) do
+    text = Enum.map_join(items, "\n", &elem(&1, 0))
+    ["<p>", render(text, workspace), "</p>"]
+  end
 
   # The item's own words, the words that wrapped under it, then any points
   # indented under it as a list of their own.

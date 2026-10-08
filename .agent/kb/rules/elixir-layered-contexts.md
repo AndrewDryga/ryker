@@ -233,6 +233,14 @@ Functions:
   opened ids to the page and a boolean to the redactor. OTP and Plug `init/1`
   options and a worker's settings from its child spec keep their keyword
   shape.
+- An argument is a name, a literal or a field read. A value changed for one
+  call (`Map.put(attributes, :updated_at, now)`) or built by a pipe over
+  several lines is bound on its own line above the call and passed by name
+  (Emisar's README: no nested transform call and no multiline pipe as an
+  argument), and a pipe is never the head of a `with`, `case` or `for`
+  (`NoPipeInBranchHead`). 115 nested transforms and 18 multiline pipes were
+  rewritten on 2026-10-08. A module attribute's value is no argument and keeps its
+  expression.
 - A module attribute holds configuration: a limit, a version, a prefix, a
   pattern, a path. A message or other literal read in one place is written
   there.
@@ -266,6 +274,22 @@ Results:
   (`NoBoundTupleReturn`). That holds for a function clause's head too
   (`defp result({:error, reason}), do: {:error, reason}`; 37 moved on
   2026-10-08). A tuple handed on to a function keeps its name.
+- A function returns what its callers read (Emisar's README), and a clause
+  head that matches a value reads it. Of fifteen results with several values
+  on 2026-10-08, one handed back the argument it was given
+  (`SourceGrants.source_grant_authority/3`'s source, which callers then
+  pinned against itself) and lost it. `Episodes.Origins.fetch_current_owner/3`
+  looked like a second: no caller bound its revision, but the first clause
+  of `Ryker.Admission`'s `apply_and_persist/7` matches it to supersede a
+  stale edit, and three admission tests failed without it. A write hands
+  back the row it changed (`{:ok, row}`), as Emisar's do, whether or not a
+  caller reads it.
+- One public function does one job: an option that changes what it does
+  makes two functions (Emisar's README). Of the public functions that branch
+  on an option on 2026-10-08, two were Plug `init/1`s, one a mix task's
+  argument, and three choose how one result reads: an expired artifact's
+  placeholder, a release that does not count an attempt, a schedule written
+  in its own time zone.
 
 Stored data (Emisar's `elixir-nil-is-not-an-empty-list`):
 

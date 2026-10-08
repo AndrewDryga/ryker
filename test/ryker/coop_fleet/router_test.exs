@@ -486,7 +486,7 @@ defmodule Ryker.CoopFleet.RouterTest do
                60
              )
 
-    assert {:ok, %{name: "source-test", repository_id: 17, installation_id: 41}, ^job_source} =
+    assert {:ok, %{name: "source-test", repository_id: 17, installation_id: 41}} =
              SourceGrants.source_grant_authority(
                certificate,
                job_ref,
@@ -527,7 +527,7 @@ defmodule Ryker.CoopFleet.RouterTest do
     |> Ecto.Changeset.change(worker_job_document: nested_job, worker_job_digest: nested_digest)
     |> Repo.update!()
 
-    assert {:ok, _, ^job_source} =
+    assert {:ok, %{name: "source-test", repository_id: 17, installation_id: 41}} =
              SourceGrants.source_grant_authority(certificate, job_ref, job_source)
 
     Repo.get!(Session, session.id)
@@ -582,7 +582,7 @@ defmodule Ryker.CoopFleet.RouterTest do
       |> Ecto.Changeset.change(state: :active, lease_expires_at: placement.lease_expires_at)
       |> Repo.update!()
 
-      assert {:ok, %{name: "source-test", repository_id: 17, installation_id: 41}, ^job_source} =
+      assert {:ok, %{name: "source-test", repository_id: 17, installation_id: 41}} =
                SourceGrants.source_grant_authority(
                  certificate,
                  job_ref,

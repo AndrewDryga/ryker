@@ -40,8 +40,14 @@ defmodule Ryker.ControlPlane.Activity do
   def conversation_link(_transport, _conversation_ref, _execution_mode), do: nil
 
   def conversation_path(transport, conversation, thread \\ nil) do
-    params = %{"transport" => transport, "conversation" => conversation, "mode" => "all"}
-    Paths.query("/activity", Map.put(params, "thread", thread))
+    params = %{
+      "transport" => transport,
+      "conversation" => conversation,
+      "mode" => "all",
+      "thread" => thread
+    }
+
+    Paths.query("/activity", params)
   end
 
   @doc """

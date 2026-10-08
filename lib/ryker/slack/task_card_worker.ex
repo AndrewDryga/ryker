@@ -94,8 +94,9 @@ defmodule Ryker.Slack.TaskCardWorker do
         )
 
         # The records this worker has already logged as unbuildable, so each is logged once.
+        unbuildable = MapSet.put(unbuildable, record_id)
         # credo:disable-for-next-line Ryker.Checks.NoProcessDictionary
-        Process.put(@unbuildable, MapSet.put(unbuildable, record_id))
+        Process.put(@unbuildable, unbuildable)
         claim_and_refresh(options)
 
       {:error, reason} ->

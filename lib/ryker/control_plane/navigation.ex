@@ -147,19 +147,18 @@ defmodule Ryker.ControlPlane.Navigation do
   attr(:setup, :map, default: nil)
 
   def mobile(assigns) do
+    groups =
+      Enum.map(@secondary ++ @system, fn
+        {_icon, label, href} when is_binary(href) -> {label, [{label, href}]}
+        {_icon, label, links} -> {label, links}
+      end)
+
+    overflow = @primary |> Enum.drop(2) |> Enum.map(fn {_icon, label, href} -> {label, href} end)
+
     assigns =
-      assign(
-        assigns,
-        :groups,
-        Enum.map(@secondary ++ @system, fn
-          {_icon, label, href} when is_binary(href) -> {label, [{label, href}]}
-          {_icon, label, links} -> {label, links}
-        end)
-      )
-      |> assign(
-        :primary_overflow,
-        Enum.map(Enum.drop(@primary, 2), fn {_icon, label, href} -> {label, href} end)
-      )
+      assigns
+      |> assign(:groups, groups)
+      |> assign(:primary_overflow, overflow)
 
     ~H"""
     <.link
