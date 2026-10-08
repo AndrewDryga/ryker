@@ -607,6 +607,91 @@ defmodule Ryker.Work.ResultCustodyTest do
            } = Ryker.Repo.get_by!(EventSubscription, record_id: wait.id)
   end
 
+  # A timer fires only while its task waits on it. One set by a run that then stopped came due
+  # while the task waited on nothing, stayed open and held up every later answer: a retried task
+  # stopped again on 2026-10-08. The turn accepted after its time answers it, as firing would.
+  test "accepting a result answers a timer whose time passed while the task was stopped" do
+    work = bound_turn!("overdue-timer")
+
+    assert {:ok, timer} =
+             Records.create(Records.token(work.turn), "overdue-check", "event_wait", %{
+               "deadline_at" => "2099-08-28T12:15:00Z",
+               "event_matcher" => %{
+                 "type" => "after",
+                 "delay" => "10m",
+                 "on_timeout" => "Run the overdue health check."
+               },
+               "kind" => "after",
+               "verification" => "Run the overdue health check."
+             })
+
+    overdue = %{timer.continuation | "deadline_at" => "2026-08-28T11:00:00Z"}
+    Repo.update!(Ecto.Changeset.change(timer, continuation: overdue))
+
+    stage_candidate!(work)
+    assert {:ok, _accepted} = accept!(work, result!(:none, nil, "Checked it."))
+
+    assert Repo.get!(Records.Record, timer.id).status == :answered
+  end
+
+  # The same timer beside a wait the answer hands its task. A timer the answer named was
+  # pending when the answer was checked; if its deadline passes before the answer is accepted,
+  # it stays open for the task's next turn instead of being answered unseen.
+  test "accepting a waiting result answers the timers it left out, never one it named" do
+    work = bound_turn!("overdue-timer-beside-wait")
+
+    timer = fn name, deadline ->
+      assert {:ok, record} =
+               Records.create(Records.token(work.turn), name, "event_wait", %{
+                 "deadline_at" => "2099-08-28T12:15:00Z",
+                 "event_matcher" => %{
+                   "type" => "after",
+                   "delay" => "10m",
+                   "on_timeout" => "Run the overdue health check."
+                 },
+                 "kind" => "after",
+                 "verification" => "Run the overdue health check."
+               })
+
+      continuation = %{record.continuation | "deadline_at" => deadline}
+      Repo.update!(Ecto.Changeset.change(record, continuation: continuation))
+    end
+
+    overdue = timer.("overdue-check", "2026-08-28T11:00:00Z")
+    named = timer.("later-check", "2026-08-28T12:30:00Z")
+    stage_candidate!(work)
+
+    continuation = %{
+      "deadline_at" => ~U[2099-08-28 12:05:00.000000Z],
+      "kind" => "wait",
+      "wait_kind" => "event",
+      "wait_ref" => "verification:#{work.turn.id}"
+    }
+
+    assert {:ok, prepared} =
+             prepare_accept!(work, result!(:none, nil, "Checked it.", continuation))
+
+    # The answer was checked before 12:05, while its own wait and the named timer were
+    # pending, and both deadlines passed before it was accepted.
+    expired =
+      put_in(
+        prepared.validation_intent,
+        ["result", "continuation", "deadline_at"],
+        "2026-08-28T12:05:00Z"
+      )
+
+    prepared
+    |> Ecto.Changeset.change(
+      validation_intent: expired,
+      validation_intent_fingerprint: ValidationIntent.fingerprint(expired)
+    )
+    |> Repo.update!()
+
+    assert {:ok, _accepted} = accept_prepared!(work)
+    assert Repo.get!(Records.Record, overdue.id).status == :answered
+    assert Repo.get!(Records.Record, named.id).status == :open
+  end
+
   test "an event deadline elapsed during Slack delivery starts an immediate continuation" do
     work = bound_turn!("elapsed-event-wait")
     stage_candidate!(work)

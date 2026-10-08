@@ -779,13 +779,19 @@ defmodule Ryker.Work.ValidatorTest do
 
     assert accepted.result.continuation == records["record:approval-sooner"]["continuation"]
 
-    # A timed wait beside them still cannot ride along: somebody has to come
-    # back to it.
+    # A watch with a deadline beside them owns the wait instead: it times out
+    # only while it does, and the approvals are watched on their own.
     timed =
-      put_in(records, ["record:watch", "continuation", "deadline_at"], "2099-08-28T12:30:00Z")
+      put_in(
+        records,
+        ["record:watch", "continuation", "deadline_at"],
+        "2099-08-28T12:30:00.000000Z"
+      )
 
-    assert {:reject, _violations} =
+    assert {:accept, accepted} =
              Validator.validate(candidate(outcome, message), context(records: timed), @now)
+
+    assert accepted.result.continuation == timed["record:watch"]["continuation"]
   end
 
   # The same family: a task that asks a question while an Emisar approval is
@@ -851,6 +857,96 @@ defmodule Ryker.Work.ValidatorTest do
              )
 
     assert accepted.result.continuation == %{approval | "deadline_at" => nil}
+  end
+
+  # Episode 8e0de29c, 2026-10-08: a task stopped with two Emisar approvals
+  # pending and a timer set for a post-apply health check. The timer's time
+  # came while the task was stopped, so it never fired. The retry saw it
+  # overdue, set a one-second timer to run the check, and stopped again:
+  # naming all four waits failed "exactly one durable event wait", and naming
+  # the new timer alone failed "cannot be abandoned" for the approvals and the
+  # overdue timer. Three attempts, and the approvals expired the next morning.
+  # The deadlines are the production ones, moved to @now.
+  test "a timer holds the wait beside approvals, and a timer past its deadline is left out" do
+    wait = fn ref, deadline ->
+      %{"deadline_at" => deadline, "kind" => "wait", "wait_kind" => "event", "wait_ref" => ref}
+    end
+
+    timer = fn ref, deadline ->
+      %{"continuation" => wait.(ref, deadline), "kind" => "event_wait", "wait_mode" => "timer"}
+    end
+
+    records = %{
+      "record:approval-a" =>
+        record("emisar_approval", wait.("record:approval-a", "2026-08-29T00:04:40.034772Z")),
+      "record:approval-b" =>
+        record("emisar_approval", wait.("record:approval-b", "2026-08-29T00:04:40.092123Z")),
+      "record:overdue" => timer.("record:overdue", "2026-08-28T00:42:57.000000Z"),
+      "record:check" => timer.("record:check", "2026-08-28T12:09:34.000000Z")
+    }
+
+    waiting = fn refs ->
+      Jason.encode!(%{
+        "decision_reason" =>
+          "Post-apply findings are preserved; the overdue health follow-up remains pending.",
+        "delivery" => "none",
+        "message" => nil,
+        "outcome" => empty_outcome(%{"record_refs" => refs, "state" => "waiting_for_event"})
+      })
+    end
+
+    # The retry's first answer named all four.
+    assert {:reject, [due]} =
+             Validator.validate(waiting.(Map.keys(records)), context(records: records), @now)
+
+    assert due =~ ~s(deadlines passed: "record:overdue".)
+    assert due =~ "Leave them out of outcome.record_refs"
+
+    # Its second and third named the new timer alone.
+    assert {:reject, [abandoned]} =
+             Validator.validate(waiting.(["record:check"]), context(records: records), @now)
+
+    assert abandoned =~ ~s(abandoned: "record:approval-a", "record:approval-b".)
+
+    # The answer it needed: the timer owns the wait and the approvals ride along.
+    pending = ["record:approval-a", "record:approval-b", "record:check"]
+
+    assert {:accept, accepted} =
+             Validator.validate(waiting.(pending), context(records: records), @now)
+
+    assert accepted.result.continuation == records["record:check"]["continuation"]
+
+    # A later timer and a source watch ride along too.
+    beside =
+      Map.merge(records, %{
+        "record:later" => timer.("record:later", "2026-08-28T13:00:00.000000Z"),
+        "record:watch" => record("event_wait", wait.("record:watch", nil))
+      })
+
+    assert {:accept, accepted} =
+             Validator.validate(
+               waiting.(pending ++ ["record:later", "record:watch"]),
+               context(records: beside),
+               @now
+             )
+
+    assert accepted.result.continuation == records["record:check"]["continuation"]
+
+    # With only the overdue timer open, the task may finish.
+    finished =
+      Jason.encode!(%{
+        "decision_reason" => nil,
+        "delivery" => "reply",
+        "message" => "The health check ran: every replica is ready.",
+        "outcome" => empty_outcome()
+      })
+
+    assert {:accept, _accepted} =
+             Validator.validate(
+               finished,
+               context(records: Map.take(records, ["record:overdue"])),
+               @now
+             )
   end
 
   test "waiting and complete outcomes name exactly one compatible durable wait" do

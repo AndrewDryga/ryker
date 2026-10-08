@@ -93,7 +93,8 @@ defmodule Ryker.Work.Validator do
     |> unselected_artifact_violations(final, context)
     |> artifact_claim_violations(final)
     |> artifact_delivery_violations(final, context)
-    |> abandoned_wait_violations(final, context)
+    |> due_wait_violations(final, context, now)
+    |> abandoned_wait_violations(final, context, now)
     |> continuation_violations(final, context, now)
     |> workspace_violations(final, context)
     |> open_goal_violations(final, context)
@@ -369,16 +370,38 @@ defmodule Ryker.Work.Validator do
 
   defp artifact_delivery_violations(violations, _final, _context), do: violations
 
-  defp abandoned_wait_violations(violations, final, context) do
+  # A wait whose deadline passed can no longer resume its task, so an answer
+  # that names one counts on a wake-up that will not come. Left out, it is
+  # answered as the turn's result is accepted
+  # (`Ryker.Records.answer_elapsed_waits_in_transaction/3`).
+  defp due_wait_violations(violations, final, context, now) do
+    due = final |> referenced_waits(context) |> Enum.filter(&due?(&1, now))
+
+    case due do
+      [] ->
+        violations
+
+      due ->
+        refs = Enum.map_join(due, ", ", &inspect(&1.ref))
+
+        [
+          "These waits can no longer resume the task because their deadlines passed: #{refs}. Leave them out of outcome.record_refs, and either do now what each asks or set a new wait with wait_for and name that instead."
+          | violations
+        ]
+    end
+  end
+
+  defp abandoned_wait_violations(violations, final, context, now) do
     referenced = MapSet.new(final.record_refs)
 
     abandoned =
       context.records
       |> Enum.flat_map(fn
-        {ref, %{continuation: continuation}} when is_map(continuation) ->
-          if continuation_kind(continuation) && not MapSet.member?(referenced, ref),
-            do: [ref],
-            else: []
+        {ref, %{continuation: continuation} = record} when is_map(continuation) ->
+          if continuation_kind(continuation) != nil and not MapSet.member?(referenced, ref) and
+               not due?(record, now),
+             do: [ref],
+             else: []
 
         {_ref, _record} ->
           []
@@ -395,16 +418,24 @@ defmodule Ryker.Work.Validator do
         suffix = if remaining > 0, do: ", and #{remaining} more", else: ""
 
         [
-          "Open durable waits cannot be abandoned: #{shown}#{suffix}. Reference exactly one matching wait in outcome.record_refs and use its waiting state, or resolve that wait before completing."
+          "Open durable waits cannot be abandoned: #{shown}#{suffix}. Keep every open wait in outcome.record_refs, with outcome.state waiting_for_input when one of them is a question and waiting_for_event otherwise; a task cannot complete while a wait is open."
           | violations
         ]
     end
   end
 
   defp continuation_violations(violations, final, context, now) do
-    waits = final |> referenced_waits(context) |> primary_waits(final.state)
+    named = referenced_waits(final, context)
 
-    case {final.state, waits} do
+    case primary_waits(named, final.state, now) do
+      # Every wait it names is due, and `due_wait_violations/4` says what to do.
+      [] when named != [] -> violations
+      waits -> continuation_violations(violations, final.state, waits)
+    end
+  end
+
+  defp continuation_violations(violations, state, waits) do
+    case {state, waits} do
       {:complete, []} ->
         violations
 
@@ -415,10 +446,10 @@ defmodule Ryker.Work.Validator do
         ]
 
       {:waiting_for_input, [record]} ->
-        validate_wait(violations, record, :input, now)
+        validate_wait(violations, record, :input)
 
       {:waiting_for_event, [record]} ->
-        validate_wait(violations, record, :event, now)
+        validate_wait(violations, record, :event)
 
       {:waiting_for_input, []} ->
         [
@@ -446,6 +477,11 @@ defmodule Ryker.Work.Validator do
     end
   end
 
+  # The wait an outcome hands its task, of those it names. A due wait never
+  # holds one (`due_wait_violations/4`).
+  defp primary_waits(waits, state, now),
+    do: waits |> Enum.reject(&due?(&1, now)) |> pending_primary(state)
+
   # A question owns continuation while any number of event-only watches stay
   # armed beside it. This matched a two-element list, so an episode holding a
   # question and two open watches had no valid answer at all: referencing all
@@ -454,7 +490,7 @@ defmodule Ryker.Work.Validator do
   # episode 0b0c3590 and burned the turn's three attempts against itself.
   # Pending Emisar approvals ride beside a question the same way, and their
   # outcome waits for its answer (`Ryker.Emisar.Approvals`).
-  defp primary_waits(waits, :waiting_for_input) do
+  defp pending_primary(waits, :waiting_for_input) do
     case Enum.split_with(waits, &(continuation_kind(&1.continuation) == :input)) do
       {[question], riders} ->
         if Enum.all?(riders, &(event_only_watch?(&1) or &1.kind == "emisar_approval")),
@@ -469,25 +505,51 @@ defmodule Ryker.Work.Validator do
   # A task may wait on several Emisar approvals at once, with event-only
   # watches beside them: production ran two governed actions in one turn on
   # 2026-10-08, and with only "exactly one durable event wait" and "open
-  # durable waits cannot be abandoned" no answer was valid. The approval that
-  # expires first owns the wait; the others ride along, and whichever settles
-  # first resumes the task (`Ryker.Emisar.Approvals`).
-  defp primary_waits(waits, :waiting_for_event) do
-    case Enum.split_with(waits, &(&1.kind == "emisar_approval")) do
-      {[_first | _rest] = approvals, watches} ->
-        if Enum.all?(watches, &event_only_watch?/1),
-          do: [Enum.min_by(approvals, &{expiry(&1), &1.ref})],
-          else: waits
+  # durable waits cannot be abandoned" no answer was valid. The same task's
+  # retry then held a timer beside them, and stopped again (episode 8e0de29c).
+  # A timer fires only while it owns its task's wait, so the timed wait that
+  # falls due first owns it and the rest ride along: approvals are watched on
+  # their own and whichever settles first resumes the task
+  # (`Ryker.Emisar.Approvals`), a later timer is waited on again then, and a
+  # watch's event reaches the task with whatever resumes it. With no timed
+  # wait, the approval that expires first owns it.
+  defp pending_primary(waits, :waiting_for_event) do
+    {timed, riders} = Enum.split_with(waits, &timed_event_wait?/1)
+    {approvals, watches} = Enum.split_with(riders, &(&1.kind == "emisar_approval"))
 
-      _other ->
-        waits
+    cond do
+      not Enum.all?(watches, &event_only_watch?/1) -> waits
+      timed != [] -> [Enum.min_by(timed, &{expiry(&1), &1.ref})]
+      approvals != [] -> [Enum.min_by(approvals, &{expiry(&1), &1.ref})]
+      true -> waits
     end
   end
 
-  defp primary_waits(waits, _state), do: waits
+  defp pending_primary(waits, _state), do: waits
 
-  # An approval's deadline in microseconds; one without a readable deadline
-  # expires last.
+  # An event wait whose deadline has passed is due: it fired only if its task
+  # was waiting on it then, so one whose time came while the task worked or
+  # was stopped stays open and can no longer resume it.
+  defp due?(%{kind: "event_wait", continuation: %{"deadline_at" => deadline_at}}, now)
+       when is_binary(deadline_at) do
+    case UTCDateTime.parse(deadline_at) do
+      {:ok, deadline} -> DateTime.compare(deadline, now) != :gt
+      _unreadable -> false
+    end
+  end
+
+  defp due?(_wait, _now), do: false
+
+  defp timed_event_wait?(%{
+         kind: "event_wait",
+         continuation: %{"wait_kind" => "event", "deadline_at" => deadline_at}
+       }),
+       do: is_binary(deadline_at)
+
+  defp timed_event_wait?(_wait), do: false
+
+  # A wait's deadline in microseconds; one without a readable deadline comes
+  # last.
   defp expiry(%{continuation: %{"deadline_at" => deadline_at}}) do
     case UTCDateTime.parse(deadline_at) do
       {:ok, deadline} -> DateTime.to_unix(deadline, :microsecond)
@@ -495,8 +557,7 @@ defmodule Ryker.Work.Validator do
     end
   end
 
-  # A timed wait is a wait somebody must come back to, so it can never ride
-  # along silently; only a deadline-free source watch can.
+  # A deadline-free source watch never falls due, so it rides beside any wait.
   defp event_only_watch?(%{
          kind: "event_wait",
          continuation: %{"wait_kind" => "event", "deadline_at" => nil}
@@ -505,25 +566,18 @@ defmodule Ryker.Work.Validator do
 
   defp event_only_watch?(_wait), do: false
 
-  defp validate_wait(violations, %{continuation: continuation} = wait, expected_kind, now) do
-    actual_kind = continuation_kind(continuation)
+  # A due event wait never gets here (`primary_waits/3`), and an approval's
+  # wait ends with its run (`accepted_continuation/3`).
+  defp validate_wait(violations, %{continuation: continuation} = wait, expected_kind) do
+    case continuation_kind(continuation) do
+      ^expected_kind ->
+        violations
 
-    cond do
-      actual_kind != expected_kind ->
+      actual_kind ->
         [
           "outcome.state waiting_for_#{expected_kind} must reference an #{expected_kind} wait, but #{inspect(wait.ref)} is an #{actual_kind || :invalid} wait."
           | violations
         ]
-
-      # An approval's wait ends with its run (`accepted_continuation/3`).
-      expected_kind == :event and wait.kind != "emisar_approval" and elapsed?(continuation, now) ->
-        [
-          "The event wait #{inspect(wait.ref)} has an elapsed or invalid deadline; create a new wait with wait_for or finish the response now."
-          | violations
-        ]
-
-      true ->
-        violations
     end
   end
 
@@ -566,7 +620,7 @@ defmodule Ryker.Work.Validator do
   # before the answer was ready could neither be waited on nor left behind, so
   # its wait goes without the deadline instead.
   defp accepted_continuation(final, context, now) do
-    waits = final |> referenced_waits(context) |> primary_waits(final.state)
+    waits = final |> referenced_waits(context) |> primary_waits(final.state, now)
 
     case waits do
       [%{kind: "emisar_approval", continuation: continuation}] ->

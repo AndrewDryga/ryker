@@ -506,9 +506,13 @@ The model returns one small JSON document:
 
 `delivery` is `reply` or `none`. Silence requires a short audited `decision_reason`; a direct human
 request cannot silently disappear. `state` is `complete`, `waiting_for_input`, or
-`waiting_for_event`. A waiting result must reference exactly one already-durable wait record. The
-host validates identifiers, authority, pending state, destination, receipts, and exact bytes. It does
-not deterministically judge prose quality, root cause, or domain completeness.
+`waiting_for_event`. A waiting result names every open wait its task holds, and one of them owns the
+task's wait: the question for `waiting_for_input`, otherwise the timed wait that falls due first,
+else the approval that expires first. Approvals and event-only watches ride beside a question;
+approvals, later timed waits and event-only watches ride beside a timed owner. A wait whose deadline
+passed can no longer resume its task, so a result leaves it out and acceptance answers it. The host
+validates identifiers, authority, pending state, destination, receipts, and exact bytes. It does not
+deterministically judge prose quality, root cause, or domain completeness.
 
 ## What the fast tests prove
 

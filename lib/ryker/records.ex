@@ -364,6 +364,71 @@ defmodule Ryker.Records do
   def resolve_wait_in_transaction(_wait_ref, _event_kind), do: {:error, :state_record_not_found}
 
   @doc """
+  Internal — answers the event waits of `episode_id` whose deadline passed by
+  `now` and comes before `until`, the deadline of the wait an accepted result
+  hands its task (every such wait when it has none): `:ok`, or a reason. A
+  timer fires only while its task waits on it, so one whose time came while
+  the task was stopped never fired, stayed open, and held up every later
+  answer: a retried task stopped again on 2026-10-08. The turn saw it past its
+  time and left it out (`Ryker.Work.Validator`), so it is answered as a fired
+  timer is. A wait the result names never qualifies: it was pending when the
+  result was checked, and the wait the result hands its task falls due first.
+  `Ryker.Work.Custody.Turns` calls it.
+  """
+  @spec answer_elapsed_waits_in_transaction(Ecto.UUID.t(), DateTime.t(), String.t() | nil) ::
+          :ok | {:error, term()}
+  def answer_elapsed_waits_in_transaction(episode_id, %DateTime{} = now, until)
+      when is_binary(episode_id) do
+    with {:ok, until} <- wait_deadline(until) do
+      if Repo.in_transaction?() do
+        episode_id
+        |> Record.Query.by_episode_id()
+        |> Record.Query.by_kind("event_wait")
+        |> Record.Query.open()
+        |> Record.Query.lock_for_update()
+        |> Repo.all()
+        |> Enum.filter(&elapsed_before?(&1, now, until))
+        |> Enum.reduce_while(:ok, &answer_elapsed_wait/2)
+      else
+        {:error, :state_record_transaction_required}
+      end
+    end
+  end
+
+  defp wait_deadline(nil), do: {:ok, nil}
+
+  defp wait_deadline(deadline_at) do
+    case UTCDateTime.parse(deadline_at) do
+      {:ok, deadline} -> {:ok, deadline}
+      _unreadable -> {:error, {:invalid_state_record, :deadline_at}}
+    end
+  end
+
+  defp elapsed_before?(%Record{continuation: %{"deadline_at" => deadline_at}}, now, until)
+       when is_binary(deadline_at) do
+    case UTCDateTime.parse(deadline_at) do
+      {:ok, deadline} ->
+        DateTime.compare(deadline, now) != :gt and
+          (is_nil(until) or DateTime.compare(deadline, until) == :lt)
+
+      _unreadable ->
+        false
+    end
+  end
+
+  defp elapsed_before?(_record, _now, _until), do: false
+
+  defp answer_elapsed_wait(record, :ok) do
+    with {:ok, answered} <- Repo.update(Record.Changeset.answer_wait(record)),
+         :ok <- Waits.EventSubscriptions.resolve_wait_in_transaction(record.ref, :deadline) do
+      broadcast_record_updated(answered)
+      {:cont, :ok}
+    else
+      {:error, reason} -> {:halt, {:error, reason}}
+    end
+  end
+
+  @doc """
   Closes the questions an episode still holds open once its work has ended.
 
   A question belongs to the work that asked it: an answer resolves it through

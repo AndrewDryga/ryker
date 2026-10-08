@@ -17,6 +17,7 @@ defmodule Ryker.Work.Custody.Turns do
   alias Ryker.Episodes
   alias Ryker.Knowledge
   alias Ryker.Publication
+  alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Waits
   alias Ryker.Work.{CandidateResponse, FinalPreflight, Measurement}
@@ -1003,6 +1004,12 @@ defmodule Ryker.Work.Custody.Turns do
              turn.submission
            ),
          {:ok, [transition]} <- Episodes.apply_batch_in_transaction([command]),
+         :ok <-
+           Records.answer_elapsed_waits_in_transaction(
+             episode_id,
+             Repo.now!(),
+             result.continuation["deadline_at"]
+           ),
          {:ok, turn} <-
            persist_update(Turn.Changeset.accept_result(turn, attributes), :work_result),
          :ok <-
