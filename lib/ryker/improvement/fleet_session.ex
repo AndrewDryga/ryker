@@ -38,7 +38,7 @@ defmodule Ryker.Improvement.FleetSession do
   @spec ensure(AnalysisRun.t()) :: {:ok, Work.Session.t()} | {:error, term()}
   def ensure(%AnalysisRun{} = run) do
     Repo.transaction(fn ->
-      session = existing(run) || create!(run)
+      session = run |> run_session() |> Repo.one() || create!(run)
 
       unless session.policy == run.policy and session.policy_digest == run.policy_digest,
         do: Repo.rollback(:improvement_session_authority_conflict)
@@ -59,7 +59,7 @@ defmodule Ryker.Improvement.FleetSession do
       on_conflict: :nothing
     )
 
-    run |> locked() |> tap(&Work.Custody.broadcast_session_updated/1)
+    run |> run_session() |> Repo.one!() |> tap(&Work.Custody.broadcast_session_updated/1)
   end
 
   @doc "Binds the run's session to the Coop session created for it, once."
@@ -67,7 +67,7 @@ defmodule Ryker.Improvement.FleetSession do
   def bind(%AnalysisRun{} = run, remote_id)
       when is_binary(remote_id) and byte_size(remote_id) in 1..1024 do
     Repo.transaction(fn ->
-      session = locked(run)
+      session = run |> run_session() |> Repo.one!()
 
       case session.coop_session_id do
         nil ->
@@ -100,9 +100,6 @@ defmodule Ryker.Improvement.FleetSession do
     |> Work.Session.Query.select_coop_session_ids()
     |> Repo.one()
   end
-
-  defp existing(run), do: run |> run_session() |> Repo.one()
-  defp locked(run), do: run |> run_session() |> Repo.one!()
 
   defp run_session(run) do
     run.id |> Work.Session.Query.by_improvement_run_id() |> Work.Session.Query.lock_for_update()

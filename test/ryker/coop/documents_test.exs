@@ -56,4 +56,36 @@ defmodule Ryker.Coop.DocumentsTest do
 
     assert Documents.candidate(nil) == {:error, {:coop_protocol_error, :candidate}}
   end
+
+  # Self-analysis and repository reading each built these with a copy of their
+  # own until 2026-10-08; learning's and Work's stop proofs carry other fields.
+  test "a finished turn's stop proof keeps its identity, state and what ended it" do
+    turn = %{
+      "id" => "turn-1",
+      "session_id" => "session-1",
+      "state" => "completed",
+      "error_code" => nil,
+      "validation_attempt" => 2,
+      "finished_at" => "2026-10-08T09:00:00Z",
+      "candidate" => %{"message" => "kept out"}
+    }
+
+    assert Documents.terminal_receipt(turn) == %{
+             "kind" => "terminal_turn",
+             "id" => "turn-1",
+             "session_id" => "session-1",
+             "state" => "completed",
+             "error_code" => nil,
+             "validation_attempt" => 2
+           }
+
+    assert Documents.failure_receipt(%{turn | "state" => "failed"}) == %{
+             "kind" => "terminal_turn",
+             "id" => "turn-1",
+             "session_id" => "session-1",
+             "state" => "failed",
+             "error_code" => nil,
+             "finished_at" => "2026-10-08T09:00:00Z"
+           }
+  end
 end

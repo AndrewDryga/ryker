@@ -37,33 +37,40 @@ defmodule Ryker.RepositoryKnowledge.FleetSession do
       else: true
   end
 
-  @doc "The run's session, created once with the run's exact policy, repository and commit."
+  @doc """
+  The run's session, created once with the run's exact policy, repository and
+  commit, and announced when it is: every step asks for it, and each one
+  announced it, so every page listing sessions redrew while a run was out.
+  """
   @spec ensure(Run.t()) :: {:ok, Work.Session.t()} | {:error, term()}
   def ensure(%Run{} = run) do
     Repo.transaction(fn ->
-      Repo.insert!(
-        %Work.Session{
-          execution_kind: :knowledge,
-          knowledge_run_id: run.id,
-          policy: run.policy,
-          policy_digest: run.policy_digest,
-          repository_ref: run.repository_ref,
-          repository_source: source(run),
-          external_ref: external_ref(run)
-        },
-        on_conflict: :nothing
-      )
-
-      session = locked(run)
+      session = run |> run_session() |> Repo.one() || create!(run)
 
       unless session.policy == run.policy and session.policy_digest == run.policy_digest and
                session.repository_ref == run.repository_ref and
                session.repository_source == source(run),
              do: Repo.rollback(:repository_knowledge_session_authority_conflict)
 
-      Work.Custody.broadcast_session_updated(session)
       session
     end)
+  end
+
+  defp create!(run) do
+    Repo.insert!(
+      %Work.Session{
+        execution_kind: :knowledge,
+        knowledge_run_id: run.id,
+        policy: run.policy,
+        policy_digest: run.policy_digest,
+        repository_ref: run.repository_ref,
+        repository_source: source(run),
+        external_ref: external_ref(run)
+      },
+      on_conflict: :nothing
+    )
+
+    run |> run_session() |> Repo.one!() |> tap(&Work.Custody.broadcast_session_updated/1)
   end
 
   @doc "Binds the run's session to the Coop session created for it, once."
@@ -71,7 +78,7 @@ defmodule Ryker.RepositoryKnowledge.FleetSession do
   def bind(%Run{} = run, remote_id)
       when is_binary(remote_id) and byte_size(remote_id) in 1..1024 do
     Repo.transaction(fn ->
-      session = locked(run)
+      session = run |> run_session() |> Repo.one!()
 
       case session.coop_session_id do
         nil ->
@@ -104,10 +111,6 @@ defmodule Ryker.RepositoryKnowledge.FleetSession do
     |> Repo.one()
   end
 
-  defp locked(run) do
-    run.id
-    |> Work.Session.Query.by_knowledge_run_id()
-    |> Work.Session.Query.lock_for_update()
-    |> Repo.one!()
-  end
+  defp run_session(run),
+    do: run.id |> Work.Session.Query.by_knowledge_run_id() |> Work.Session.Query.lock_for_update()
 end

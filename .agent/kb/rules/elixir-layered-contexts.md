@@ -65,7 +65,9 @@ rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-08.
   `Ryker.JSONSchema` (nonblank text, nullable), `Repo.passed?/2` (a deadline
   by the database clock), `Ryker.Lease.attempts_after_release/2`,
   `Ryker.PromptDocument` (a model prompt's text and its fitting),
-  `Ryker.Coop.Documents` (a Coop session, turn and candidate answer),
+  `Ryker.Coop.Documents` (a Coop session, turn, candidate answer and stop proof),
+  `Ryker.Coop.RunStep` (one step of a background model run, for self-analysis
+  and repository reading, each a lane with its own store),
   `Ryker.Work.ValidationContext` (what the validator is told, for the
   preflight and the executor alike), `Ryker.GitHub.repository_name?/1` and
   `id?/1`, `Ryker.GitObject.branch_ref?/1`, `Ryker.Emisar.Fields` and

@@ -38,4 +38,27 @@ defmodule Ryker.Learning.FleetSessionTest do
     assert bound.cleanup_status == :active
     assert {:ok, ^bound} = FleetSession.ensure(run)
   end
+
+  # Each learning step makes sure of its session, and each one announced the
+  # session as changed, so every page that lists sessions redrew though
+  # nothing had, as self-analysis did until 2026-10-04 (fixed for learning
+  # 2026-10-08).
+  test "a learning run's session is announced when it is made, not each time a step finds it" do
+    entries = Fixtures.inputs!()
+
+    assert {:ok, run} =
+             Learning.prepare(Enum.map(entries, & &1.id), %{
+               policy: "recorded-read-only-policy",
+               policy_digest: String.duplicate("a", 64)
+             })
+
+    :ok = Ryker.Work.Custody.subscribe_sessions()
+
+    assert {:ok, session} = FleetSession.ensure(run)
+    session_id = session.id
+    assert_received {:work_session_updated, ^session_id}
+
+    assert {:ok, %{id: ^session_id}} = FleetSession.ensure(run)
+    refute_received {:work_session_updated, ^session_id}
+  end
 end

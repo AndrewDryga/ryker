@@ -2,7 +2,8 @@ defmodule Ryker.Coop.Documents do
   @moduledoc """
   Checks on the documents a Coop worker returns, shared by every lane that
   runs a model turn: whether a session is isolated, whether a turn is the one
-  expected, and a candidate answer whose digest matches its message.
+  expected, a candidate answer whose digest matches its message, and the stop
+  proof a finished turn leaves.
   """
   alias Ryker.Crypto
 
@@ -28,6 +29,28 @@ defmodule Ryker.Coop.Documents do
       do: true
 
   def exact_turn?(_turn, _session_id, _expected), do: false
+
+  @doc """
+  The stop proof a turn that finished leaves on its run: its id, session,
+  state, error code and validation attempt.
+  """
+  @spec terminal_receipt(map()) :: map()
+  def terminal_receipt(turn) do
+    turn
+    |> Map.take(~w(id session_id state error_code validation_attempt))
+    |> Map.put("kind", "terminal_turn")
+  end
+
+  @doc """
+  The stop proof a turn that ended without a usable answer leaves on its run:
+  its id, session, state, error code and when it finished.
+  """
+  @spec failure_receipt(map()) :: map()
+  def failure_receipt(turn) do
+    turn
+    |> Map.take(~w(id session_id state error_code finished_at))
+    |> Map.put("kind", "terminal_turn")
+  end
 
   @doc """
   The message, digest and attempt of a candidate answer whose SHA-256 matches

@@ -29,31 +29,36 @@ defmodule Ryker.Learning.FleetSession do
       unless current.policy == run.policy and current.policy_digest == run.policy_digest,
         do: Repo.rollback(:learning_session_authority_conflict)
 
-      Repo.insert!(
-        %Work.Session{
-          execution_kind: :learning,
-          learning_run_id: run.id,
-          policy: run.policy,
-          policy_digest: run.policy_digest,
-          external_ref: external_ref(run)
-        },
-        on_conflict: :nothing
-      )
-
-      session = locked(run)
+      session = run |> run_session() |> Repo.one() || create!(run)
 
       unless session.policy == run.policy and session.policy_digest == run.policy_digest,
         do: Repo.rollback(:learning_session_authority_conflict)
 
-      Work.Custody.broadcast_session_updated(session)
       session
     end)
+  end
+
+  # Announced when it is made: every step asks for it, and each one announced
+  # it, so every page listing sessions redrew while a batch was out.
+  defp create!(run) do
+    Repo.insert!(
+      %Work.Session{
+        execution_kind: :learning,
+        learning_run_id: run.id,
+        policy: run.policy,
+        policy_digest: run.policy_digest,
+        external_ref: external_ref(run)
+      },
+      on_conflict: :nothing
+    )
+
+    run |> run_session() |> Repo.one!() |> tap(&Work.Custody.broadcast_session_updated/1)
   end
 
   def bind(%LearningRun{} = run, remote_id)
       when is_binary(remote_id) and byte_size(remote_id) in 1..1024 do
     Repo.transaction(fn ->
-      session = locked(run)
+      session = run |> run_session() |> Repo.one!()
 
       case session.coop_session_id do
         nil ->
@@ -71,10 +76,6 @@ defmodule Ryker.Learning.FleetSession do
     end)
   end
 
-  defp locked(run) do
-    run.id
-    |> Work.Session.Query.by_learning_run_id()
-    |> Work.Session.Query.lock_for_update()
-    |> Repo.one!()
-  end
+  defp run_session(run),
+    do: run.id |> Work.Session.Query.by_learning_run_id() |> Work.Session.Query.lock_for_update()
 end

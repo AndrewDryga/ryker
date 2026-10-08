@@ -39,15 +39,10 @@ defmodule Ryker.CopiedHelpersTest do
     "source_limit/1" => ~w(Ryker.Slack.CapabilityTools.Arguments Ryker.Slack.Client.Messages),
     # The worker protocol fixes these two streaming hashes (Ryker.Crypto's note).
     "hex/1" => ~w(Ryker.CoopFleet.Bodies Ryker.CoopFleet.WorkspaceCheckpointBundle),
-    # The self-analysis and repository reading lanes run one protocol over
-    # their own tables; sharing it is the lane protocol's own change.
+    # The self-analysis and repository reading stores keep one protocol's
+    # records over their own tables (`Ryker.Coop.RunStep.Store`).
     "end_attempt/3" => ~w(Ryker.Improvement.Analyses Ryker.RepositoryKnowledge.Custody),
-    "ended?/1" => ~w(Ryker.Improvement.Executor Ryker.RepositoryKnowledge.Executor),
-    "remote_turn/4" => ~w(Ryker.Improvement.Executor Ryker.RepositoryKnowledge.Executor),
     "renew/2" => ~w(Ryker.Improvement.Analyses Ryker.RepositoryKnowledge.Custody),
-    "terminal_receipt/1" => ~w(Ryker.Improvement.Analyses Ryker.RepositoryKnowledge.Custody),
-    "unaddressable?/2" =>
-      ~w(Ryker.Improvement.Executor Ryker.Learning.Executor Ryker.RepositoryKnowledge.Executor),
     "with_lease/2" =>
       ~w(Ryker.Improvement.Analyses Ryker.Learning.Batches Ryker.RepositoryKnowledge.Custody)
   }

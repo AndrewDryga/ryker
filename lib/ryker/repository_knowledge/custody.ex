@@ -17,7 +17,9 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   Every change a page shows is announced after the outermost commit
   (`Ryker.RepositoryKnowledge.subscribe/0`); a lease renewal is not.
   """
+  @behaviour Ryker.Coop.RunStep.Store
   alias Ryker.CanonicalJSON
+  alias Ryker.Coop
   alias Ryker.Crypto
   alias Ryker.Lease
   alias Ryker.Reference
@@ -123,6 +125,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   end
 
   @doc "Extends the lease; nothing a page shows changes."
+  @impl true
   def renew(claim, seconds) do
     Repo.transaction(fn ->
       now = Repo.now!()
@@ -135,6 +138,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   end
 
   @doc "Fences local state changes with the lease. Never call GitHub or Coop inside `callback`."
+  @impl true
   def with_lease(claim, callback) do
     Repo.transaction(fn ->
       _entry = owned!(claim)
@@ -372,6 +376,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   end
 
   @doc "A run as it is stored now."
+  @impl true
   def current(run_id), do: Repo.one!(Run.Query.by_id(run_id))
 
   @doc "A repository's latest run."
@@ -493,10 +498,12 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   The Coop operation key of each remote step of a run: one create, one
   submit, and a cancel per session revision.
   """
+  @impl true
   def operation_key(%Run{id: id}, phase) when phase in [:create, :submit, :cancel],
     do: "ryker:knowledge:#{phase}:#{id}"
 
   @doc "Freezes the session revision the turn is submitted at, before it is sent."
+  @impl true
   def freeze_submit(claim, run_id, revision) when is_integer(revision) and revision > 0 do
     run_transaction(claim, run_id, fn run ->
       cond do
@@ -519,6 +526,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
     do: {:error, :invalid_repository_knowledge_revision}
 
   @doc "Binds the run to the Coop turn its submission became, once."
+  @impl true
   def bind_turn(claim, run_id, session_id, turn_id) do
     run_transaction(claim, run_id, fn run ->
       unless owned_session?(run, session_id) and Reference.valid?(turn_id, 1_024),
@@ -533,6 +541,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   end
 
   @doc "Stores the exact answer the turn offered, before anything is checked, acknowledged or applied."
+  @impl true
   def record_candidate(
         claim,
         run_id,
@@ -604,6 +613,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   end
 
   @doc "Keeps the proof that Coop accepted exactly this answer on exactly this turn."
+  @impl true
   def confirm_candidate(claim, run_id, turn) do
     run_transaction(claim, run_id, fn run ->
       receipt =
@@ -645,6 +655,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   that ends before it leaves the run outstanding and the next one reads the
   same finished turn instead of asking the model again.
   """
+  @impl true
   def apply_result(claim, run_id, %{"state" => "completed"} = turn) do
     Repo.transaction(fn ->
       entry = owned!(claim)
@@ -661,7 +672,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
         run
         |> Ecto.Changeset.change(status: :applied)
         |> Repo.update!()
-        |> store_stop(terminal_receipt(turn))
+        |> store_stop(Coop.Documents.terminal_receipt(turn))
 
       now = Repo.now!()
 
@@ -688,6 +699,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
     ]
 
   @doc "Ends an attempt that cannot write the document, without mistaking it for one that did."
+  @impl true
   def end_attempt(claim, run_id, reason) when is_atom(reason) do
     run_transaction(claim, run_id, fn run ->
       cond do
@@ -708,28 +720,24 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   end
 
   @doc "Keeps the terminal state of the run's turn as its stop proof."
+  @impl true
   def record_stop(claim, run_id, %{"state" => state, "id" => turn_id} = turn)
       when state in @terminal do
     run_transaction(claim, run_id, fn run ->
       unless run.coop_turn_id == turn_id and owned_session?(run, turn["session_id"]),
         do: Repo.rollback(:repository_knowledge_remote_identity_conflict)
 
-      store_stop(run, terminal_receipt(turn))
+      store_stop(run, Coop.Documents.terminal_receipt(turn))
     end)
   end
 
   def record_stop(_claim, _run_id, _turn), do: {:error, :repository_knowledge_remote_not_stopped}
 
-  defp terminal_receipt(turn) do
-    turn
-    |> Map.take(~w(id session_id state error_code validation_attempt))
-    |> Map.put("kind", "terminal_turn")
-  end
-
   @doc """
   Records a terminal turn that gave no usable answer: the model's output did
   not match the contract, or the provider failed. The turn is its own stop proof.
   """
+  @impl true
   def fail(claim, run_id, reason, %{"state" => state, "id" => turn_id} = turn)
       when reason in [:output_contract_failed, :repository_knowledge_provider_failed] and
              state in @terminal do
@@ -746,12 +754,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
           run
         end
 
-      store_stop(
-        run,
-        turn
-        |> Map.take(~w(id session_id state error_code finished_at))
-        |> Map.put("kind", "terminal_turn")
-      )
+      store_stop(run, Coop.Documents.failure_receipt(turn))
     end)
   end
 
@@ -759,6 +762,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   An ended run whose turn was never submitted stops on that proof: its
   session is bound, and Coop has no submit for its key (the caller asked).
   """
+  @impl true
   def record_unsubmitted_stop(claim, run_id, session_id) do
     run_transaction(claim, run_id, fn run ->
       unless run.status in [:stale, :rejected] and is_nil(run.coop_turn_id) and
@@ -778,6 +782,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   session can no longer be addressed: the submit revision is frozen before
   anything is sent, and none was.
   """
+  @impl true
   def record_unaddressable_stop(claim, run_id, reason) when is_binary(reason) do
     run_transaction(claim, run_id, fn run ->
       unless run.status in [:stale, :rejected] and is_nil(run.submit_revision) and
@@ -800,6 +805,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   session is not bound, and Coop has no create for its key (the caller
   asked).
   """
+  @impl true
   def record_uncreated_stop(claim, run_id) do
     run_transaction(claim, run_id, fn run ->
       session_id = FleetSession.coop_session_id(run)
@@ -816,6 +822,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   A create or submit that Coop reports failed started nothing: no session
   or no turn exists for that key, so the run stops on that proof.
   """
+  @impl true
   def record_failed_operation(
         claim,
         run_id,
@@ -863,6 +870,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   turn outlives a day, so the database clock decides. Whatever session the
   worker kept belongs to cleanup.
   """
+  @impl true
   def record_expired_stop(claim, run_id, closed_after_seconds)
       when is_integer(closed_after_seconds) and closed_after_seconds > 0 do
     run_transaction(claim, run_id, fn run ->
@@ -958,6 +966,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   end
 
   @doc false
+  @impl true
   def lock_owned_in_transaction!(claim), do: owned!(claim)
 
   defp unleased, do: [lease_ref: nil, lease_owner: nil, lease_expires_at: nil]

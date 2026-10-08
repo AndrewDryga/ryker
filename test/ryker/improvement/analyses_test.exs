@@ -76,6 +76,43 @@ defmodule Ryker.Improvement.AnalysesTest do
       do: Fake.validate_candidate(client, session_id, turn_id, key, sha256, verdict)
   end
 
+  # A session that takes longer than the lease to prepare. Halfway through, a
+  # rival worker tries to take the run.
+  defmodule SlowPreparationAPI do
+    alias Ryker.Improvement.Analyses
+    alias Ryker.Improvement.AnalysesTest.API
+
+    def prepare_create_session(client, key, policy, ref, source) do
+      # Longer than the test's one-second lease.
+      # credo:disable-for-next-line Ryker.Checks.TestNoProcessSleep
+      Process.sleep(1_600)
+
+      rival =
+        Analyses.claim("improvement-rival", %{
+          enabled: true,
+          quiet_seconds: 0,
+          lease_seconds: 60,
+          policy: policy,
+          policy_digest: String.duplicate("a", 64)
+        })
+
+      send(self(), {:rival_claim, rival})
+      API.prepare_create_session(client, key, policy, ref, source)
+    end
+
+    defdelegate create_session(client, key, policy, ref, source), to: API
+    defdelegate get_session(client, id), to: API
+    defdelegate get_turn(client, session_id, turn_id), to: API
+    defdelegate cancel_turn(client, session_id, turn_id, key, revision), to: API
+    defdelegate operation_by_key(client, key), to: API
+
+    defdelegate submit_frozen_turn(client, session_id, key, revision, submission, gate, extra),
+      to: API
+
+    defdelegate validate_frozen_candidate(client, session, turn, key, attempt, sha256, verdict),
+      to: API
+  end
+
   @diagnosis %{
     "category" => "prompt_bug",
     "step" => "work",
@@ -151,6 +188,21 @@ defmodule Ryker.Improvement.AnalysesTest do
 
     # Analyzed once: nothing is left to claim.
     assert Dispatcher.run_once(settings(coop)) == {:ok, :idle}
+  end
+
+  # Preparing a session can outlast the lease. Work and repository reading
+  # renew the lease meanwhile; self-analysis did not, because its sessions read
+  # no repository and usually prepare in milliseconds. Both lanes have run one
+  # protocol since 2026-10-08, and this test fails if self-analysis leaves it.
+  test "a session preparation that outlasts the lease keeps the run" do
+    request = unhappy_request!("1790100100.000150")
+    coop = coop!([Jason.encode!(@diagnosis)], turn_wait_polls: 2)
+
+    results = drain(%{settings(coop) | api: SlowPreparationAPI, lease_seconds: 1})
+
+    assert_received {:rival_claim, {:ok, :idle}}
+    assert {:ok, :analyzed} in results
+    assert Inspectors.improvement_candidate(request).analysis == :done
   end
 
   # Analyzing a request whose Work is still answering reads half a story, and
