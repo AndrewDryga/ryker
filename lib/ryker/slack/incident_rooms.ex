@@ -21,6 +21,7 @@ defmodule Ryker.Slack.IncidentRooms do
   alias Ryker.Slack.{ChannelConfiguration, IncidentRoom}
   alias Ryker.Slack.IncidentRoomLifecycleEvent
   alias Ryker.Slack.MembershipTransition
+  alias Ryker.Text
   alias Ryker.UTCDateTime
   alias Ryker.Work
 
@@ -1512,13 +1513,13 @@ defmodule Ryker.Slack.IncidentRooms do
     suffix = room_id |> String.replace("-", "") |> String.slice(-8, 8)
     fixed = "#{prefix}-#{date}-#{suffix}"
     title_bytes = max(80 - byte_size(fixed) - 1, 1)
-    slug = byte_slice(slug, title_bytes) |> String.trim("-")
+    slug = Text.bytes(slug, title_bytes) |> String.trim("-")
     "#{prefix}-#{date}-#{slug}-#{suffix}"
   end
 
   # The incident and who keeps the room, in words: the topic once led with
   # Ryker's own id and named Emisar (2026-10-04 review).
-  defp topic(title), do: byte_slice("#{title} · incident room opened by Ryker", 250)
+  defp topic(title), do: Text.bytes("#{title} · incident room opened by Ryker", 250)
 
   defp locked_room(room_ref),
     do: room_ref |> IncidentRoom.Query.by_ref() |> IncidentRoom.Query.lock_for_update()
@@ -1540,27 +1541,9 @@ defmodule Ryker.Slack.IncidentRooms do
         {value, _detail} when is_atom(value) -> Atom.to_string(value)
         _other -> "incident_room_error"
       end
-      |> byte_slice(120)
+      |> Text.bytes(120)
 
     {code, ErrorDetail.detail(reason)}
-  end
-
-  defp byte_slice(value, maximum) do
-    if byte_size(value) <= maximum do
-      value
-    else
-      value
-      |> String.graphemes()
-      |> Enum.reduce_while("", fn grapheme, output ->
-        append_grapheme(output, grapheme, maximum)
-      end)
-    end
-  end
-
-  defp append_grapheme(output, grapheme, maximum) do
-    if byte_size(output) + byte_size(grapheme) <= maximum,
-      do: {:cont, output <> grapheme},
-      else: {:halt, output}
   end
 
   defp slack_ids(values, field) when is_list(values) and length(values) <= 200 do

@@ -14,6 +14,7 @@ defmodule Ryker.Episodes.Command do
   """
   alias Ryker.CanonicalJSON
   alias Ryker.Reference
+  alias Ryker.UTCDateTime
 
   defmodule AdmitInput do
     @moduledoc false
@@ -462,7 +463,7 @@ defmodule Ryker.Episodes.Command do
       {valid_destination?(command.destination), :destination},
       {is_map(command.payload) and
          CanonicalJSON.validate(command.payload, max_bytes: 65_536) == :ok, :payload},
-      {utc_datetime?(command.occurred_at), :occurred_at}
+      {UTCDateTime.utc?(command.occurred_at), :occurred_at}
     ])
   end
 
@@ -473,7 +474,7 @@ defmodule Ryker.Episodes.Command do
       {valid_owner?(command.new_owner), :new_owner},
       {optional_ref?(command.required_input_ref), :required_input_ref},
       {reference?(command.transfer_ref), :transfer_ref},
-      {utc_datetime?(command.occurred_at), :occurred_at}
+      {UTCDateTime.utc?(command.occurred_at), :occurred_at}
     ])
   end
 
@@ -484,8 +485,8 @@ defmodule Ryker.Episodes.Command do
       {command.kind in [:input, :event], :kind},
       {reference?(command.wait_ref), :wait_ref},
       {command.kind != :input or is_nil(command.deadline_at), :deadline_at},
-      {is_nil(command.deadline_at) or utc_datetime?(command.deadline_at), :deadline_at},
-      {utc_datetime?(command.occurred_at), :occurred_at}
+      {is_nil(command.deadline_at) or UTCDateTime.utc?(command.deadline_at), :deadline_at},
+      {UTCDateTime.utc?(command.occurred_at), :occurred_at}
     ])
   end
 
@@ -495,7 +496,7 @@ defmodule Ryker.Episodes.Command do
       {valid_wait_owner?(command.expected_wait), :expected_wait},
       {reference?(command.resolution_ref), :resolution_ref},
       {reference?(command.turn_ref), :turn_ref},
-      {utc_datetime?(command.occurred_at), :occurred_at}
+      {UTCDateTime.utc?(command.occurred_at), :occurred_at}
     ])
   end
 
@@ -511,7 +512,7 @@ defmodule Ryker.Episodes.Command do
       {valid_next_wait?(command.next_wait), :next_wait},
       {is_nil(command.next_wait) or command.delivery == :none, :next_wait},
       {is_nil(command.next_turn_ref) or is_nil(command.next_wait), :continuation},
-      {utc_datetime?(command.occurred_at), :occurred_at}
+      {UTCDateTime.utc?(command.occurred_at), :occurred_at}
     ])
   end
 
@@ -522,7 +523,7 @@ defmodule Ryker.Episodes.Command do
       {optional_ref?(command.next_turn_ref), :next_turn_ref},
       {valid_next_wait?(command.next_wait), :next_wait},
       {is_nil(command.next_turn_ref) or is_nil(command.next_wait), :continuation},
-      {utc_datetime?(command.occurred_at), :occurred_at}
+      {UTCDateTime.utc?(command.occurred_at), :occurred_at}
     ])
   end
 
@@ -532,7 +533,7 @@ defmodule Ryker.Episodes.Command do
       {valid_owner?(command.expected_owner), :expected_owner},
       {reference?(command.cancel_ref), :cancel_ref},
       {bounded_text?(command.reason, 512), :reason},
-      {utc_datetime?(command.occurred_at), :occurred_at}
+      {UTCDateTime.utc?(command.occurred_at), :occurred_at}
     ])
   end
 
@@ -546,7 +547,7 @@ defmodule Ryker.Episodes.Command do
       {valid_reaction_source?(command.source), :source},
       {reference?(command.target_delivery_ref), :target_delivery_ref},
       {reference?(command.target_message_ref), :target_message_ref},
-      {utc_datetime?(command.occurred_at), :occurred_at}
+      {UTCDateTime.utc?(command.occurred_at), :occurred_at}
     ])
   end
 
@@ -628,7 +629,7 @@ defmodule Ryker.Episodes.Command do
 
   defp valid_next_wait?(%{kind: :event, ref: ref, deadline_at: %DateTime{} = deadline} = wait) do
     exact_keys?(wait, [:deadline_at, :kind, :ref]) and reference?(ref) and
-      utc_datetime?(deadline)
+      UTCDateTime.utc?(deadline)
   end
 
   defp valid_next_wait?(_wait), do: false
@@ -662,12 +663,6 @@ defmodule Ryker.Episodes.Command do
   defp bounded_unicode_text?(value, maximum_characters, maximum_bytes) do
     Reference.text?(value, maximum_characters) and byte_size(value) <= maximum_bytes
   end
-
-  defp utc_datetime?(%DateTime{} = value) do
-    value.time_zone == "Etc/UTC" and value.utc_offset == 0 and value.std_offset == 0
-  end
-
-  defp utc_datetime?(_value), do: false
 
   defp uuid?(value), do: match?({:ok, _uuid}, Ecto.UUID.cast(value))
 end

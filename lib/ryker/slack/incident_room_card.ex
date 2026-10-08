@@ -11,6 +11,7 @@ defmodule Ryker.Slack.IncidentRoomCard do
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Slack.IncidentRoom
+  alias Ryker.Slack.WorkControls
   alias Ryker.Work
 
   # 3 since 2026-10-06: the card reads in words, without Ryker's ids and codes.
@@ -195,22 +196,11 @@ defmodule Ryker.Slack.IncidentRoomCard do
 
   defp controls(episode, turn, session) do
     []
-    |> maybe_control(stop_allowed?(episode, turn), "stop")
+    |> maybe_control(WorkControls.stoppable?(episode, turn), "stop")
     |> maybe_control(bound_session?(session), "view_diff")
     |> maybe_control(close_allowed?(episode, turn), "close")
     |> Kernel.++(~w(timeline evidence handoff postmortem))
   end
-
-  defp stop_allowed?(
-         %Episodes.Episode{state: :working, owner_kind: :turn, owner_ref: turn_ref},
-         %Work.Turn{
-           status: :pending,
-           turn_ref: turn_ref
-         }
-       ),
-       do: true
-
-  defp stop_allowed?(_episode, _turn), do: false
 
   defp close_allowed?(%Episodes.Episode{state: state}, _turn)
        when state in [:complete, :cancelled],

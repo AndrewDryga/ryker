@@ -29,7 +29,7 @@ defmodule Ryker.Slack.Runtime do
   alias Ryker.Slack.{ActionTokens, AppHome, AppHomeActions, AppHomeControls, AppHomeEditor}
   alias Ryker.Slack.{AppHomeProjection, AttachmentIngestor, ChannelConfiguration}
   alias Ryker.Slack.{ChannelConfigurations, ChannelSettings, ChannelSetup, Client, CommandHandler}
-  alias Ryker.Slack.{Engagement, FileClient, Gateway, IncidentRooms, IncidentRoomWorker}
+  alias Ryker.Slack.{Engagement, FileClient, Gateway, Id, IncidentRooms, IncidentRoomWorker}
   alias Ryker.Slack.{InteractionAudits, InteractionFeedbackWorker, InteractionHandler}
   alias Ryker.Slack.{InteractionRepaint, MembershipReconciler, Mentions, MintSocketTransport}
   alias Ryker.Slack.{Operators, Publisher, TaskCardWorker, ThreadStatusProjection}
@@ -793,7 +793,7 @@ defmodule Ryker.Slack.Runtime do
     expected = [:bot_ref, :bot_user_ref, :workspace_ref]
 
     unless Map.keys(identity) |> Enum.sort() == Enum.sort(expected) and
-             Enum.all?(expected, &slack_ref?(Map.fetch!(identity, &1))) do
+             Enum.all?(expected, &Id.valid?(Map.fetch!(identity, &1))) do
       raise ArgumentError, "Slack identity must contain exact bounded Slack IDs"
     end
   end
@@ -803,7 +803,7 @@ defmodule Ryker.Slack.Runtime do
   end
 
   defp references!(values, field) when is_list(values) do
-    if Enum.uniq(values) == values and Enum.all?(values, &slack_ref?/1),
+    if Enum.uniq(values) == values and Enum.all?(values, &Id.valid?/1),
       do: MapSet.new(values),
       else: raise(ArgumentError, "Slack #{field} must contain unique Slack IDs")
   end
@@ -1015,8 +1015,4 @@ defmodule Ryker.Slack.Runtime do
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
-  defp slack_ref?(value) do
-    is_binary(value) and Regex.match?(~r/\A[A-Z0-9]+\z/, value) and byte_size(value) <= 256
-  end
 end

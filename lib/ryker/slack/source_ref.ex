@@ -1,9 +1,8 @@
 defmodule Ryker.Slack.SourceRef do
   @moduledoc false
+  alias Ryker.Slack.{Id, Timestamp}
 
-  @id ~r/\A[A-Z0-9]+\z/
   @resource_id ~r/\A[A-Za-z0-9]+\z/
-  @timestamp ~r/\A[0-9]{10,}\.[0-9]{1,6}\z/
 
   @spec channel(String.t(), String.t()) :: String.t()
   def channel(workspace_ref, channel_ref),
@@ -42,10 +41,6 @@ defmodule Ryker.Slack.SourceRef do
       when kind in [:bookmark, :canvas, :file],
       do: encode_resource(workspace_ref, channel_ref, Atom.to_string(kind), source.resource_ref)
 
-  @doc "A workspace, channel or user id as Slack issues them."
-  @spec slack_id?(term()) :: boolean()
-  def slack_id?(value), do: id?(value)
-
   @spec parse(String.t(), String.t()) :: {:ok, map()} | {:error, :invalid_slack_source_ref}
   def parse(value, expected_workspace_ref) when is_binary(value) do
     case String.split(value, ":") do
@@ -80,13 +75,13 @@ defmodule Ryker.Slack.SourceRef do
   def parse(_value, _expected_workspace_ref), do: {:error, :invalid_slack_source_ref}
 
   defp encode(workspace_ref, channel_ref, kind, nil) do
-    if id?(workspace_ref) and id?(channel_ref),
+    if Id.valid?(workspace_ref) and Id.valid?(channel_ref),
       do: Enum.join(["slack-source", "v1", workspace_ref, channel_ref, kind], ":"),
       else: raise(ArgumentError, "invalid Slack source identity")
   end
 
   defp encode(workspace_ref, channel_ref, kind, message_ref) do
-    if id?(workspace_ref) and id?(channel_ref) and timestamp?(message_ref) do
+    if Id.valid?(workspace_ref) and Id.valid?(channel_ref) and Timestamp.valid?(message_ref) do
       Enum.join(
         ["slack-source", "v1", workspace_ref, channel_ref, kind, message_ref],
         ":"
@@ -97,7 +92,7 @@ defmodule Ryker.Slack.SourceRef do
   end
 
   defp encode_resource(workspace_ref, channel_ref, kind, resource_ref) do
-    if id?(workspace_ref) and id?(channel_ref) and resource_id?(resource_ref) do
+    if Id.valid?(workspace_ref) and Id.valid?(channel_ref) and resource_id?(resource_ref) do
       Enum.join(
         ["slack-source", "v1", workspace_ref, channel_ref, kind, resource_ref],
         ":"
@@ -108,9 +103,10 @@ defmodule Ryker.Slack.SourceRef do
   end
 
   defp parsed(workspace_ref, channel_ref, kind, message_ref, expected_workspace_ref) do
-    valid_message = is_nil(message_ref) or timestamp?(message_ref)
+    valid_message = is_nil(message_ref) or Timestamp.valid?(message_ref)
 
-    if workspace_ref == expected_workspace_ref and id?(workspace_ref) and id?(channel_ref) and
+    if workspace_ref == expected_workspace_ref and Id.valid?(workspace_ref) and
+         Id.valid?(channel_ref) and
          valid_message do
       {:ok,
        %{
@@ -132,7 +128,8 @@ defmodule Ryker.Slack.SourceRef do
          resource_ref,
          expected_workspace_ref
        ) do
-    if workspace_ref == expected_workspace_ref and id?(workspace_ref) and id?(channel_ref) and
+    if workspace_ref == expected_workspace_ref and Id.valid?(workspace_ref) and
+         Id.valid?(channel_ref) and
          resource_id?(resource_ref) do
       {:ok,
        %{
@@ -147,7 +144,5 @@ defmodule Ryker.Slack.SourceRef do
     end
   end
 
-  defp id?(value), do: is_binary(value) and Regex.match?(@id, value)
   defp resource_id?(value), do: is_binary(value) and Regex.match?(@resource_id, value)
-  defp timestamp?(value), do: is_binary(value) and Regex.match?(@timestamp, value)
 end

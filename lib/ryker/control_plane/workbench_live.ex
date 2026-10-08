@@ -15,6 +15,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   """
   use Phoenix.LiveView, layout: false
   alias Phoenix.HTML.Safe
+  alias Ryker.Backoff
   alias Ryker.ControlPlane.{Activity, ActivityPage, Actor, BehaviorPage, ChannelDetail}
   alias Ryker.ControlPlane.{ChannelPage, Components, ConfigurationGuide, ConsolePeople}
   alias Ryker.ControlPlane.{ConversationLab, ConversationProjection, Endpoint, Environments}
@@ -1500,7 +1501,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     # read is tried again, backing off, until it can.
     socket
     |> assign(unavailable: true, refresh_failures: failures)
-    |> schedule_reload(min(250 * Integer.pow(2, failures), 15_000))
+    |> schedule_reload(Backoff.delay(failures, 500, 15_000))
   end
 
   defp load_page(%{assigns: %{path: path}} = socket, options, reset)

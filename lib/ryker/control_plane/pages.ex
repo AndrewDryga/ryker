@@ -15,7 +15,7 @@ defmodule Ryker.ControlPlane.Pages do
   alias Ryker.ControlPlane.{BehaviorPage, CasesPage, ChannelDetail, ChannelPage, ChannelsPage}
   alias Ryker.ControlPlane.{ConfigurationGuide, FactsPage, FailureExplanation, FailureProjection}
   alias Ryker.ControlPlane.{FailuresPage, FeedbackPage, FeedbackProjection, FindingsPage, HTML}
-  alias Ryker.ControlPlane.{ImprovementPage, ImprovementProjection, IncidentProjection}
+  alias Ryker.ControlPlane.{ImprovementPage, ImprovementProjection, IncidentProjection, Search}
   alias Ryker.ControlPlane.{IncidentRoomsPage, LearnedPage, LearningPage, LocalRoutingPage}
   alias Ryker.ControlPlane.{PathRef, PeoplePage, RepositoriesPage, SchedulesPage, SettingsView}
   alias Ryker.ControlPlane.{SubscriptionsPage, UsagePage, UsageProjection, WorkingCopiesPage}
@@ -71,7 +71,7 @@ defmodule Ryker.ControlPlane.Pages do
   end
 
   def page(["schedules"], params, options) do
-    params = SchedulesPage.params(params)
+    params = Search.current_or_past(params)
     items = options.projection.schedules.(params)
     ok("Schedules", SchedulesPage.description(), SchedulesPage.list(items, params))
   end
@@ -97,7 +97,7 @@ defmodule Ryker.ControlPlane.Pages do
   end
 
   def page(["follow-ups"], params, options) do
-    params = SubscriptionsPage.params(params)
+    params = Search.current_or_past(params)
     items = options.projection.subscriptions.(params)
     ok("Follow-ups", SubscriptionsPage.description(), SubscriptionsPage.list(items, params))
   end

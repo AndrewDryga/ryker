@@ -1,5 +1,6 @@
 defmodule Ryker.Learning.Dispatcher do
   @moduledoc "Dispatches exclusively assigned original inputs; replying is a separate decision."
+  alias Ryker.Backoff
   alias Ryker.Learning.{Batches, EmptyChat, Executor, FleetSession}
   require Logger
 
@@ -171,7 +172,7 @@ defmodule Ryker.Learning.Dispatcher do
       if run.reconcile_attempt_count >= @maximum_reconciliations do
         stop_unresolved(claim, run, settings)
       else
-        Batches.yield(claim, min(Integer.pow(2, min(run.reconcile_attempt_count, 6)), 60))
+        Batches.yield(claim, Backoff.delay(run.reconcile_attempt_count + 1, 1, 60))
       end
     end
   end

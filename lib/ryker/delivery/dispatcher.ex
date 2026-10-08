@@ -8,6 +8,7 @@ defmodule Ryker.Delivery.Dispatcher do
   for a bounded retry; a typed receipt is the only way to settle custody.
   """
   alias Ryker.Artifacts
+  alias Ryker.Backoff
   alias Ryker.Defaults
   alias Ryker.Delivery.{Adapters, PlatformActionCustody, Request, Retry, RoutingResponseCustody}
   alias Ryker.Episodes
@@ -337,17 +338,13 @@ defmodule Ryker.Delivery.Dispatcher do
   defp lease_error?(_reason), do: false
 
   defp retry_delay(reason, attempt_count, settings) do
-    backoff = backoff_delay(attempt_count, settings)
+    backoff =
+      Backoff.delay(attempt_count, settings.retry_base_seconds, settings.retry_max_seconds)
 
     case Retry.rate_limited(reason) do
       {:ok, delay} when is_integer(delay) -> max(delay, backoff)
       _none -> backoff
     end
-  end
-
-  defp backoff_delay(attempt_count, settings) do
-    exponent = min(max(attempt_count - 1, 0), 20)
-    min(settings.retry_base_seconds * Integer.pow(2, exponent), settings.retry_max_seconds)
   end
 
   defp describe_error(reason), do: ErrorDetail.describe(reason, :delivery_failed)

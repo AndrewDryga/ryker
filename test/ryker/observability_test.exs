@@ -154,7 +154,7 @@ defmodule Ryker.ObservabilityTest do
 
     # The inbox entry, the Work turn and the progress heartbeat are stored
     # without a zone, read back naive and aged by whole-second boundaries
-    # (`Reads.age_seconds/2`), so they are bracketed by the same rule. Bracketed
+    # (`UTCDateTime.age_seconds/2`), so they are bracketed by the same rule. Bracketed
     # as zoned times, a scrape that crossed a second boundary after the fixture
     # read one second older than the bracket allowed (gate, 2026-10-05). The
     # lower bound gives a second back: the database's clock runs in the Docker

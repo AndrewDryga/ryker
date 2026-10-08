@@ -9,6 +9,7 @@ defmodule Ryker.Slack.ThreadStatusWorker do
   that has gone quiet.
   """
   use Ryker.PollingWorker, lane: :slack_status, interval: :interval_ms
+  alias Ryker.Backoff
   alias Ryker.Delivery
   alias Ryker.Episodes
   alias Ryker.Ingress
@@ -182,7 +183,7 @@ defmodule Ryker.Slack.ThreadStatusWorker do
         status.id,
         status.lease_ref,
         status.generation,
-        retry_delay(status.attempt_count, options.retry_base_ms),
+        Backoff.delay(status.attempt_count, options.retry_base_ms, @maximum_backoff_ms, 8),
         reason
       )
     end
@@ -192,11 +193,6 @@ defmodule Ryker.Slack.ThreadStatusWorker do
 
   defp permanent?({:slack_api_error, code}), do: code in @permanent_refusals
   defp permanent?(_reason), do: false
-
-  defp retry_delay(attempt_count, base) do
-    exponent = max(attempt_count - 1, 0) |> min(8)
-    min(base * Integer.pow(2, exponent), @maximum_backoff_ms)
-  end
 
   @doc false
   def options!(options) do

@@ -33,12 +33,4 @@ defmodule Ryker.Slack.SourceRefTest do
 
     assert SourceRef.parse(nil, "T123") == {:error, :invalid_slack_source_ref}
   end
-
-  test "slack ids are upper-case alphanumerics only" do
-    assert SourceRef.slack_id?("C0BL6UCCBGR")
-    refute SourceRef.slack_id?("c0bl6uccbgr")
-    refute SourceRef.slack_id?("C0BL 6UC")
-    refute SourceRef.slack_id?("")
-    refute SourceRef.slack_id?(nil)
-  end
 end

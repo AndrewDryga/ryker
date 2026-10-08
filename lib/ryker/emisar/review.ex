@@ -14,7 +14,7 @@ defmodule Ryker.Emisar.Review do
   last receipt it could prove instead of showing a decision nobody made.
   """
   alias Ryker.CanonicalJSON
-  alias Ryker.Reference
+  alias Ryker.Emisar.Fields
 
   @statuses ~w(pending approved denied expired cancelled)
   @decisions ~w(approve deny)
@@ -43,16 +43,16 @@ defmodule Ryker.Emisar.Review do
 
   def prepare(%{} = review) do
     with :ok <- fields(review, @required, @optional),
-         :ok <- reference(review["request_id"], 80),
+         :ok <- Fields.reference(review["request_id"], 80),
          true <- review["status"] in @statuses,
          :ok <- count(review["required_approvals"], 1),
          :ok <- count(review["approved_count"], 0),
          true <- review["approved_count"] <= review["required_approvals"],
          :ok <- optional_count(review["argument_count"], 0),
          :ok <- optional_count(review["decisions_omitted"], 1),
-         :ok <- optional_text(review["reason"], @maximum_reason_bytes),
-         :ok <- optional_text(review["evidence"], @maximum_evidence_bytes),
-         :ok <- optional_text(review["expected"], @maximum_reason_bytes),
+         :ok <- Fields.optional_text(review["reason"], @maximum_reason_bytes),
+         :ok <- Fields.optional_text(review["evidence"], @maximum_evidence_bytes),
+         :ok <- Fields.optional_text(review["expected"], @maximum_reason_bytes),
          :ok <- cut(review, ~w(reason_truncated evidence_truncated expected_truncated)),
          :ok <- command(review["command"]),
          :ok <- decisions(review["decisions"]),
@@ -185,9 +185,9 @@ defmodule Ryker.Emisar.Review do
   defp decision(%{} = decision) do
     with :ok <- fields(decision, @decision_required, @decision_optional),
          true <- decision["decision"] in @decisions,
-         :ok <- timestamp(decision["decided_at"]),
-         :ok <- optional_text(decision["actor"], @maximum_actor_bytes),
-         :ok <- optional_text(decision["reason"], @maximum_reason_bytes),
+         :ok <- Fields.timestamp(decision["decided_at"]),
+         :ok <- Fields.optional_text(decision["actor"], @maximum_actor_bytes),
+         :ok <- Fields.optional_text(decision["reason"], @maximum_reason_bytes),
          :ok <- cut(decision, ~w(reason_truncated)) do
       :ok
     else
@@ -202,13 +202,13 @@ defmodule Ryker.Emisar.Review do
   defp override(%{} = override) do
     with :ok <- fields(override, @override_required, @override_optional),
          # An override without its mandatory reason is an unexplained release.
-         :ok <- reference(override["reason"], @maximum_reason_bytes),
+         :ok <- Fields.reference(override["reason"], @maximum_reason_bytes),
          :ok <- count(override["required_approvals"], 1),
          :ok <- count(override["approved_count"], 0),
          :ok <- count(override["waived_approvals"], 0),
-         :ok <- optional_text(override["actor"], @maximum_actor_bytes),
+         :ok <- Fields.optional_text(override["actor"], @maximum_actor_bytes),
          :ok <- cut(override, ~w(reason_truncated)),
-         :ok <- timestamp(override["decided_at"]) do
+         :ok <- Fields.timestamp(override["decided_at"]) do
       :ok
     else
       _invalid -> {:error, :override}
@@ -222,7 +222,7 @@ defmodule Ryker.Emisar.Review do
   defp command(%{} = command) do
     with :ok <- fields(command, @command_required, []),
          true <- command["kind"] in @command_kinds,
-         :ok <- reference(command["text"], @maximum_command_bytes),
+         :ok <- Fields.reference(command["text"], @maximum_command_bytes),
          true <- is_boolean(command["truncated"]) do
       :ok
     else
@@ -253,19 +253,4 @@ defmodule Ryker.Emisar.Review do
 
   defp optional_count(nil, _minimum), do: :ok
   defp optional_count(value, minimum), do: count(value, minimum)
-
-  defp timestamp(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, _datetime, 0} -> :ok
-      _invalid -> {:error, :timestamp}
-    end
-  end
-
-  defp timestamp(_value), do: {:error, :timestamp}
-
-  defp optional_text(nil, _maximum), do: :ok
-  defp optional_text(value, maximum), do: reference(value, maximum)
-
-  defp reference(value, maximum),
-    do: if(Reference.valid?(value, maximum), do: :ok, else: {:error, :reference})
 end

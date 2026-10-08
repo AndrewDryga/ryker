@@ -166,6 +166,16 @@ defmodule Ryker.Repo do
     now
   end
 
+  @doc """
+  Whether `seconds` have passed since `at` by the database's clock
+  (`now!/0`); never, for something that has not started.
+  """
+  @spec passed?(DateTime.t() | nil, integer()) :: boolean()
+  def passed?(nil, _seconds), do: false
+
+  def passed?(%DateTime{} = at, seconds) when is_integer(seconds),
+    do: DateTime.compare(DateTime.add(at, seconds, :second), now!()) != :gt
+
   @doc "`now!/0`, answering why the clock could not be read instead of raising."
   @spec now() :: {:ok, DateTime.t()} | {:error, term()}
   def now do

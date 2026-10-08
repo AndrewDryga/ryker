@@ -17,11 +17,12 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   """
   use Phoenix.Component
   alias Phoenix.HTML.Safe
-  alias Ryker.ControlPlane.{CallRun, Components, Environments, Integrations, Kit}
+  alias Ryker.ControlPlane.{CallRun, Components, Integrations, Kit, Search}
   alias Ryker.ControlPlane.{KnowledgeDocument, Paths, SettingsView, ShortTime, Units}
   alias Ryker.{Episodes, RepositoryKnowledge, Schedules}
   alias Ryker.GitHub
   alias Ryker.Publication
+  alias Ryker.Wording
   alias Ryker.Work
 
   # The App permissions a repository cannot be set up or worked in without;
@@ -57,7 +58,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   @doc "The search phrase from the page's query."
   @spec view(map()) :: %{q: String.t()}
   def view(params),
-    do: %{q: if(is_binary(params["q"]), do: String.trim(params["q"]), else: "")}
+    do: %{q: Search.term(params["q"]) || ""}
 
   @doc "The page body as HTML, as the route hands it to the shell."
   @spec html(map()) :: binary()
@@ -163,7 +164,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
     text =
       [
         item.environments != [] &&
-          "Work in #{Environments.sentence(item.environments)} can no longer use its code.",
+          "Work in #{Wording.list(item.environments)} can no longer use its code.",
         item.schedules > 0 && "Schedules that work in it stop running.",
         if(get_in(item, [:configured, :onboarding_state]) in @setting_up,
           do: "Its setup stops, and Ryker deletes the copy of its code it keeps.",
@@ -295,7 +296,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
         needed =
           missing
           |> Enum.map(&"#{String.capitalize(&1)} (#{permission_level(&1)})")
-          |> Environments.sentence()
+          |> Wording.list()
 
         "The Ryker GitHub App cannot use this repository without #{needed}. " <>
           "In GitHub, open Settings › Developer settings › GitHub Apps, choose the Ryker app, " <>
@@ -505,7 +506,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   end
 
   defp run_note(%{status: :applied, dropped: count}) when is_integer(count) and count > 0 do
-    "Ryker left out #{plural(count, "path or command", "paths or commands")} it could not find in the repository."
+    "Ryker left out #{Wording.count(count, "path or command", "paths or commands")} it could not find in the repository."
   end
 
   defp run_note(%{status: :rejected, result: %{}}),
@@ -522,14 +523,15 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
 
   defp used_in(%{channels: channels, schedules: schedules}) do
     places =
-      [plural(channels, "channel", "channels"), plural(schedules, "schedule", "schedules")]
-      |> Enum.reject(&is_nil/1)
+      for {count, noun} <- [{channels, "channel"}, {schedules, "schedule"}],
+          count > 0,
+          do: Wording.count(count, noun)
 
     if places != [], do: "used in " <> Enum.join(places, " and ")
   end
 
   defp tasks(0), do: nil
-  defp tasks(count), do: plural(count, "task", "tasks")
+  defp tasks(count), do: Wording.count(count, "task")
 
   defp code(nil, _now), do: nil
 
@@ -740,15 +742,15 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
                 <% end %>
               <% end %>
             </.fact>
-            <.fact label="Channels">{count(@item.channels, "channel", "channels")}</.fact>
-            <.fact label="Schedules">{count(@item.schedules, "schedule", "schedules")}</.fact>
+            <.fact label="Channels">{count(@item.channels, "channel")}</.fact>
+            <.fact label="Schedules">{count(@item.schedules, "schedule")}</.fact>
             <.fact label="Tasks">
-              {count(@item.sessions, "task", "tasks")}<span> · </span><a href={
+              {count(@item.sessions, "task")}<span> · </span><a href={
                 Paths.query("/activity", %{"repository" => @item.ref})
               }>See its requests</a>
             </.fact>
             <.fact :if={@item.publications > 0} label="Pull requests">
-              {plural(@item.publications, "pull request", "pull requests")} opened by Ryker
+              {Wording.count(@item.publications, "pull request")} opened by Ryker
             </.fact>
           </dl>
         </Kit.card_part>
@@ -867,8 +869,8 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   defp with_commas(items),
     do: Enum.zip(items, List.duplicate(",", max(length(items) - 1, 0)) ++ [""])
 
-  defp count(0, _one, _many), do: "None"
-  defp count(count, one, many), do: plural(count, one, many)
+  defp count(0, _noun), do: "None"
+  defp count(count, noun), do: Wording.count(count, noun)
 
   defp access(:available), do: "Available"
   defp access(:suspended), do: "Suspended in GitHub"
@@ -914,10 +916,6 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
     |> Enum.reject(&is_nil/1)
     |> Enum.join(" · ")
   end
-
-  defp plural(0, _one, _many), do: nil
-  defp plural(1, one, _many), do: "1 #{one}"
-  defp plural(count, _one, many), do: "#{count} #{many}"
 
   defp parse(%DateTime{} = at), do: at
 

@@ -17,6 +17,7 @@ defmodule Ryker.Slack.TaskCards do
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Slack.TaskCard
+  alias Ryker.Text
   alias Ryker.Work
 
   @doc """
@@ -402,27 +403,9 @@ defmodule Ryker.Slack.TaskCards do
         {value, _detail} when is_atom(value) -> Atom.to_string(value)
         _other -> "task_card_error"
       end
-      |> byte_slice(120)
+      |> Text.bytes(120)
 
     {code, ErrorDetail.detail(reason)}
-  end
-
-  defp byte_slice(value, maximum) do
-    if byte_size(value) <= maximum do
-      value
-    else
-      value
-      |> String.graphemes()
-      |> Enum.reduce_while("", fn grapheme, output ->
-        append_grapheme(output, grapheme, maximum)
-      end)
-    end
-  end
-
-  defp append_grapheme(output, grapheme, maximum) do
-    if byte_size(output) + byte_size(grapheme) <= maximum,
-      do: {:cont, output <> grapheme},
-      else: {:halt, output}
   end
 
   defp sha256(value, field) do

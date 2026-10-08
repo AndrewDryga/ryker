@@ -31,4 +31,22 @@ defmodule Ryker.Publication.CardTest do
     patched = put_in(card, ["payload", "patch_bytes"], 120)
     assert Card.prepare_record(patched) == {:error, {:invalid_publication_card, :review}}
   end
+
+  # A task's title is accepted at up to 120 characters, as the offer and the
+  # database count them, and its card measured the same title in bytes: a
+  # title written in Ukrainian passed the offer and then left the review card
+  # unreadable, so it was never shown (2026-10-08).
+  test "a card's title is measured in characters, as the task's title was accepted" do
+    title = String.duplicate("Виправити повтори", 6)
+    assert Ryker.Text.char_length(title) <= 120 and byte_size(title) > 120
+
+    card = %{
+      "kind" => "publication_review",
+      "payload" => %{@review | "title" => title},
+      "ref" => "publication:card-title",
+      "status" => "open"
+    }
+
+    assert Card.prepare_record(card) == {:ok, %{@review | "title" => title}}
+  end
 end

@@ -31,6 +31,7 @@ defmodule Ryker.Publication.FixLoop do
   alias Ryker.Ingress
   alias Ryker.Publication.{GateOutput, Publication, Review}
   alias Ryker.Repo
+  alias Ryker.Wording
   alias Ryker.Work
 
   @rounds 3
@@ -101,9 +102,9 @@ defmodule Ryker.Publication.FixLoop do
   @doc "What the thread hears instead of the refusal card when a round starts."
   @spec notice(Publication.t()) :: String.t()
   def notice(%Publication{} = publication) do
-    causes = publication.review_document |> Review.refusal() |> sentence_list()
+    causes = publication.review_document |> Review.refusal() |> Wording.list()
 
-    "#{capitalize(causes)}. I'm fixing it now, attempt #{publication.fix_rounds + 1} of #{@rounds}, and I'll check the new change when I'm done."
+    "#{Wording.capitalize(causes)}. I'm fixing it now, attempt #{publication.fix_rounds + 1} of #{@rounds}, and I'll check the new change when I'm done."
   end
 
   @doc "What the refusal says once every round is spent, or nil."
@@ -254,7 +255,7 @@ defmodule Ryker.Publication.FixLoop do
 
   defp request(review, output, attempt) do
     [
-      "Ryker's trusted review refused the committed change: #{sentence_list(Review.refusal(review))}."
+      "Ryker's trusted review refused the committed change: #{Wording.list(Review.refusal(review))}."
       | Enum.map(Review.fixable(review), &instruction(&1, review, output))
     ]
     |> Kernel.++([
@@ -335,13 +336,4 @@ defmodule Ryker.Publication.FixLoop do
       thread_ref: episode.destination_thread_ref,
       transport: episode.destination_transport
     }
-
-  defp capitalize(<<first::utf8, rest::binary>>), do: String.upcase(<<first::utf8>>) <> rest
-
-  defp sentence_list([only]), do: only
-
-  defp sentence_list(items) do
-    {leading, [last]} = Enum.split(items, -1)
-    Enum.join(leading, ", ") <> " and " <> last
-  end
 end

@@ -5,6 +5,7 @@ defmodule Ryker.Slack.Renderer.EmisarReview do
   """
   import Ryker.Slack.Renderer.Blocks
   alias Ryker.Emisar
+  alias Ryker.Wording
 
   @spec render(map()) :: {:ok, map()} | {:error, term()}
   def render(status) do
@@ -100,7 +101,7 @@ defmodule Ryker.Slack.Renderer.EmisarReview do
   end
 
   defp argument_note(count) when is_integer(count) and count > 0,
-    do: context("#{count} #{plural(count, "argument", "arguments")} in Emisar.")
+    do: context(Wording.count(count, "argument") <> " in Emisar.")
 
   defp argument_note(_count), do: nil
 

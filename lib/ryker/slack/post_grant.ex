@@ -1,11 +1,9 @@
 defmodule Ryker.Slack.PostGrant do
   @moduledoc false
-  alias Ryker.Slack.SourceRef
+  alias Ryker.Slack.{Id, SourceRef, Timestamp}
 
   @channel_target ~r/\A<#([A-Z0-9]+)(?:\|[^>\r\n]*)?>\z/u
   @permalink_path ~r/\A\/archives\/([A-Z0-9]+)\/p([0-9]{16,22})\z/u
-  # The same shape SourceRef accepts, so an accepted timestamp always encodes.
-  @timestamp ~r/\A[0-9]{10,}\.[0-9]{1,6}\z/u
 
   # A Unicode regex raises on invalid UTF-8 and SourceRef on an identity it
   # refuses; both are decided before encoding, so nothing here needs a rescue.
@@ -17,7 +15,7 @@ defmodule Ryker.Slack.PostGrant do
     pattern =
       ~r/\A[ \t]*(?:<@#{bot}>[ \t]+)?[Pp][Oo][Ss][Tt][ \t]+[Tt][Oo][ \t]+(?<target><#[A-Z0-9]+(?:\|[^>\r\n]*)?>|<https:\/\/[^>\r\n]+>)[ \t]*:[ \t]*\S/u
 
-    with true <- String.valid?(text) and SourceRef.slack_id?(workspace_ref),
+    with true <- String.valid?(text) and Id.valid?(workspace_ref),
          %{"target" => target} <- Regex.named_captures(pattern, text),
          {:ok, ref} <- destination_ref(target, workspace_ref) do
       [ref]
@@ -66,7 +64,8 @@ defmodule Ryker.Slack.PostGrant do
     valid_timestamp(seconds <> "." <> fraction)
   end
 
+  # The same check SourceRef makes, so an accepted timestamp always encodes.
   defp valid_timestamp(value) do
-    if Regex.match?(@timestamp, value), do: {:ok, value}, else: :error
+    if Timestamp.valid?(value), do: {:ok, value}, else: :error
   end
 end

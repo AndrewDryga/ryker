@@ -4,7 +4,7 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
   provider document the host will send, refusing anything outside the
   published schema before a credential is touched.
   """
-  alias Ryker.Slack.SourceRef
+  alias Ryker.Slack.{Id, SourceRef}
 
   @content_types ~w(messages files channels users)
   @search_fields ~w(after author_ref before content_types conversation_refs cursor limit query)
@@ -303,7 +303,7 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
   def conversation(value, workspace_ref) do
     case String.split(value || "", ":", parts: 3) do
       ["slack", ^workspace_ref, channel_ref] ->
-        if SourceRef.slack_id?(channel_ref), do: {:ok, channel_ref}, else: {:error, :conversation}
+        if Id.valid?(channel_ref), do: {:ok, channel_ref}, else: {:error, :conversation}
 
       _invalid ->
         {:error, :unauthorized}
@@ -313,7 +313,7 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
   defp author(nil), do: {:ok, nil}
 
   defp author("slack-user:" <> user_ref) do
-    if SourceRef.slack_id?(user_ref), do: {:ok, user_ref}, else: {:error, :author}
+    if Id.valid?(user_ref), do: {:ok, user_ref}, else: {:error, :author}
   end
 
   defp author(_value), do: {:error, :author}

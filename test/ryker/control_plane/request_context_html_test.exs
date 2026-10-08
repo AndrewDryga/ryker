@@ -1,6 +1,6 @@
 defmodule Ryker.ControlPlane.RequestContextHTMLTest do
   use ExUnit.Case, async: true
-  alias Ryker.ControlPlane.{CallRun, CapabilityTools, RequestContextHTML}
+  alias Ryker.ControlPlane.{CapabilityTools, RequestContextHTML}
   alias Ryker.InspectionRedactor
   alias Ryker.StateTools.FixedTools
 
@@ -1015,7 +1015,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     prompt =
       Jason.encode!(%{"instructions" => String.duplicate("Route. ", 60), "context" => %{}})
 
-    tokens = "≈ #{CallRun.delimit(ceil(byte_size(prompt) / 4))} tokens"
+    tokens = "≈ #{Ryker.Wording.number(ceil(byte_size(prompt) / 4))} tokens"
 
     for artifact <- [
           InspectionRedactor.artifact(prompt, disclosed: false),

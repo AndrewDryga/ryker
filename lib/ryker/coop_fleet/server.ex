@@ -76,7 +76,7 @@ defmodule Ryker.CoopFleet.Server do
   end
 
   defp validate_ip!(ip) do
-    unless valid_ip?(ip), do: raise(ArgumentError, "Coop worker gateway IP is invalid")
+    unless :inet.is_ip_address(ip), do: raise(ArgumentError, "Coop worker gateway IP is invalid")
   end
 
   defp validate_port!(port) do
@@ -110,14 +110,6 @@ defmodule Ryker.CoopFleet.Server do
       other: "Coop worker gateway configuration must be a map"
     )
   end
-
-  defp valid_ip?(ip) when is_tuple(ip) and tuple_size(ip) == 4,
-    do: ip |> Tuple.to_list() |> Enum.all?(&(is_integer(&1) and &1 >= 0 and &1 <= 255))
-
-  defp valid_ip?(ip) when is_tuple(ip) and tuple_size(ip) == 8,
-    do: ip |> Tuple.to_list() |> Enum.all?(&(is_integer(&1) and &1 >= 0 and &1 <= 65_535))
-
-  defp valid_ip?(_ip), do: false
 
   defp router_options(options) do
     [

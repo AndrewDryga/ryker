@@ -77,6 +77,21 @@ defmodule Ryker.Episodes do
 
   def lock_current_in_transaction(_episode_key), do: {:error, :invalid_episode_key}
 
+  @doc """
+  The admitted input events `episode` still holds open (its
+  `active_input_refs`), newest first.
+  """
+  @spec active_input_events(Episode.t()) :: [Event.t()]
+  def active_input_events(%Episode{active_input_refs: []}), do: []
+
+  def active_input_events(%Episode{id: episode_id, active_input_refs: refs}) do
+    episode_id
+    |> Event.Query.by_episode_id()
+    |> Event.Query.admitted_inputs(Enum.uniq(refs))
+    |> Event.Query.ordered_by_sequence_desc()
+    |> Repo.all()
+  end
+
   defp prepare_batch([]), do: {:error, :empty_command_batch}
 
   defp prepare_batch(commands) when is_list(commands) do

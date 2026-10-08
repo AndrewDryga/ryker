@@ -43,16 +43,6 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   @spec description() :: String.t()
   def description, do: "Tasks Ryker runs at a set time, once or on repeat."
 
-  @doc """
-  The list's query: the search, and whether it shows current schedules
-  (running or paused) or past ones (done, expired or deleted).
-  """
-  @spec params(map()) :: %{String.t() => String.t()}
-  def params(params) do
-    query = if is_binary(params["q"]), do: String.slice(params["q"], 0, 200), else: ""
-    %{"q" => query, "view" => if(params["view"] == "past", do: "past", else: "current")}
-  end
-
   @doc "The Schedules list: the toolbar and the rows. How to add one is the page's help."
   @spec list([map()], map()) :: iodata()
   def list(items, params) do

@@ -468,13 +468,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
          %Ingress.Inbox.Entry{source_item_ref: message_ref}
        ) do
     with [_workspace, channel] <- String.split(conversation, ":", parts: 2),
-         true <- slack_ref?(channel),
-         true <- slack_timestamp?(message_ref) do
+         true <- Slack.id?(channel),
+         true <- Slack.timestamp?(message_ref) do
       stamp = "p" <> String.replace(message_ref, ".", "")
       base = "https://slack.com/archives/#{channel}/#{stamp}"
 
       href =
-        if slack_timestamp?(thread) and thread != message_ref,
+        if Slack.timestamp?(thread) and thread != message_ref,
           do: base <> "?" <> URI.encode_query(%{"cid" => channel, "thread_ts" => thread}),
           else: base
 
@@ -520,11 +520,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   end
 
   defp entry_source_link(_episode, _input), do: nil
-
-  defp slack_ref?(value), do: is_binary(value) and Regex.match?(~r/\A[A-Z0-9]+\z/, value)
-
-  defp slack_timestamp?(value),
-    do: is_binary(value) and Regex.match?(~r/\A[0-9]{10,}\.[0-9]{1,6}\z/, value)
 
   defp github_repository?(value),
     do: is_binary(value) and Regex.match?(~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/, value)

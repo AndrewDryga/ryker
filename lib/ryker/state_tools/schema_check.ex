@@ -3,6 +3,7 @@ defmodule Ryker.StateTools.SchemaCheck do
   alias Ryker.Schedules
   alias Ryker.StateTools.Catalog
   alias Ryker.Text
+  alias Ryker.Wording
 
   # Validates tool arguments against the exact JSON-schema subset the catalog
   # emits (anyOf, oneOf, const, enum, object, array, string, integer, boolean,
@@ -219,10 +220,10 @@ defmodule Ryker.StateTools.SchemaCheck do
     bounds =
       cond do
         length < minimum ->
-          [issue(path, "min_items", "needs at least #{count(minimum, "item")}")]
+          [issue(path, "min_items", "needs at least #{Wording.count(minimum, "item")}")]
 
         length > maximum ->
-          [issue(path, "max_items", "takes at most #{count(maximum, "item")}")]
+          [issue(path, "max_items", "takes at most #{Wording.count(maximum, "item")}")]
 
         Map.get(schema, "uniqueItems", false) and Enum.uniq(value) != value ->
           [issue(path, "unique_items", "repeats an item")]
@@ -251,10 +252,10 @@ defmodule Ryker.StateTools.SchemaCheck do
         [issue(path, "invalid_text", "must be text without NUL bytes")]
 
       length < minimum ->
-        [issue(path, "min_length", "needs at least #{count(minimum, "character")}")]
+        [issue(path, "min_length", "needs at least #{Wording.count(minimum, "character")}")]
 
       length > maximum ->
-        [issue(path, "max_length", "takes at most #{count(maximum, "character")}")]
+        [issue(path, "max_length", "takes at most #{Wording.count(maximum, "character")}")]
 
       not valid_pattern?(value, schema["pattern"]) ->
         [issue(path, "pattern", "does not match its pattern")]
@@ -329,9 +330,6 @@ defmodule Ryker.StateTools.SchemaCheck do
   defp article("boolean"), do: "true or false"
   defp article("null"), do: "null"
   defp article(type), do: type
-
-  defp count(1, noun), do: "1 " <> noun
-  defp count(number, noun), do: "#{number} #{noun}s"
 
   # The allowed values, as the schema names them; a long list is cut.
   defp choices(values) when length(values) > 12,

@@ -12,6 +12,7 @@ defmodule Ryker.ControlPlane.ChannelsPage do
   use Phoenix.Component
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Components, Integrations, Kit, PagedRelation, Paths, SettingsView}
+  alias Ryker.ControlPlane.Search
   alias Ryker.ControlPlane.ShortTime
   alias Ryker.Episodes
   alias Ryker.Slack
@@ -49,7 +50,7 @@ defmodule Ryker.ControlPlane.ChannelsPage do
   @doc "The search phrase, which channels to show and the page, from the page's query."
   @spec view(map()) :: %{q: String.t(), show: String.t(), page: pos_integer()}
   def view(params) do
-    search = if is_binary(params["q"]), do: String.trim(params["q"]), else: ""
+    search = Search.term(params["q"]) || ""
 
     %{
       q: search,

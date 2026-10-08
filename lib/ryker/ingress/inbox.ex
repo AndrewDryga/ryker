@@ -34,6 +34,7 @@ defmodule Ryker.Ingress.Inbox do
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.RoutingExamples
+  alias Ryker.Slack
   alias Ryker.Transcription
   alias Ryker.UTCDateTime
 
@@ -1048,8 +1049,7 @@ defmodule Ryker.Ingress.Inbox do
     bot_user_ref = Keyword.get(options, :slack_bot_user_ref)
 
     if (is_nil(audience) and is_nil(bot_user_ref)) or
-         (audience in [:ambient, :direct, :mention] and is_binary(bot_user_ref) and
-            byte_size(bot_user_ref) <= 256 and Regex.match?(~r/\A[A-Z0-9]+\z/, bot_user_ref)) do
+         (audience in [:ambient, :direct, :mention] and Slack.id?(bot_user_ref)) do
       {:ok, %{audience: audience, bot_user_ref: bot_user_ref}}
     else
       {:error, {:invalid_ingress_execution, :slack_addressing}}

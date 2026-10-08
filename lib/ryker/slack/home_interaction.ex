@@ -1,5 +1,6 @@
 defmodule Ryker.Slack.HomeInteraction do
   @moduledoc false
+  alias Ryker.UTCDateTime
 
   @actions %{
     "ryker_home_delete_behavior" => {:delete_behavior, "behavior-control:"},
@@ -95,7 +96,7 @@ defmodule Ryker.Slack.HomeInteraction do
          true <- reference?(resource_ref),
          true <- resource?(resource_ref, prefix),
          true <- optional_reference?(payload["trigger_id"]),
-         true <- utc?(occurred_at) do
+         true <- UTCDateTime.utc?(occurred_at) do
       {:ok,
        %__MODULE__{
          action: action,
@@ -143,9 +144,6 @@ defmodule Ryker.Slack.HomeInteraction do
 
   defp resource?(value, :resource),
     do: Enum.any?(@resource_prefixes, &String.starts_with?(value, &1))
-
-  defp utc?(%DateTime{} = value),
-    do: value.time_zone == "Etc/UTC" and value.utc_offset == 0 and value.std_offset == 0
 
   defp normalize_datetime(%DateTime{microsecond: {microsecond, _precision}} = value),
     do: %{value | microsecond: {microsecond, 6}}

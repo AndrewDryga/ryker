@@ -36,6 +36,7 @@ defmodule Ryker.ControlPlane.LearningRequests do
   alias Ryker.Learning
   alias Ryker.Repo
   alias Ryker.Slack
+  alias Ryker.Wording
   alias Ryker.Work
 
   @limit 50
@@ -433,8 +434,8 @@ defmodule Ryker.ControlPlane.LearningRequests do
     value =
       cond do
         total == 0 -> nil
-        local == total -> plural(total, "message")
-        context.scope == :message -> "#{plural(total, "message")}, this one among them"
+        local == total -> Wording.count(total, "message")
+        context.scope == :message -> "#{Wording.count(total, "message")}, this one among them"
         true -> "#{local} of #{total} from this request"
       end
 
@@ -483,9 +484,6 @@ defmodule Ryker.ControlPlane.LearningRequests do
       record_label: "Validation and stop receipts (JSON)"
     }
   end
-
-  defp plural(1, noun), do: "1 #{noun}"
-  defp plural(count, noun), do: "#{count} #{noun}s"
 
   defp section(id, title, value, options),
     do: BackgroundCards.section(id, title, value, :learning, options)

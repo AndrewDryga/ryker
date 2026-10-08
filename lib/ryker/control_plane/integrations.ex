@@ -19,6 +19,7 @@ defmodule Ryker.ControlPlane.Integrations do
   use Phoenix.Component
   alias Ryker.ControlPlane.{Environments, Kit}
   alias Ryker.Slack
+  alias Ryker.Wording
 
   @type key :: :slack | :github | :emisar | :webhooks
   @type status :: :not_set_up | :off | :on | :broken
@@ -357,7 +358,7 @@ defmodule Ryker.ControlPlane.Integrations do
 
       :ready when github.enabled and view.snapshot.repositories != [] ->
         state(:github, :connected,
-          facts: facts([app, count(length(view.snapshot.repositories), "repository")])
+          facts: facts([app, Wording.count(length(view.snapshot.repositories), "repository")])
         )
 
       :ready ->
@@ -492,7 +493,7 @@ defmodule Ryker.ControlPlane.Integrations do
     do: "Ryker could not use its saved settings. Connect the account again."
 
   defp account_names([account]), do: account.display_name
-  defp account_names(accounts), do: count(length(accounts), "account")
+  defp account_names(accounts), do: Wording.count(length(accounts), "account")
 
   @doc """
   What connecting an account did, by the names of the environments that use
@@ -506,14 +507,14 @@ defmodule Ryker.ControlPlane.Integrations do
   end
 
   def emisar_connected([_one] = names),
-    do: "Emisar account is connected. #{Environments.sentence(names)} uses it now."
+    do: "Emisar account is connected. #{Wording.list(names)} uses it now."
 
   def emisar_connected(names),
-    do: "Emisar account is connected. #{Environments.sentence(names)} use it now."
+    do: "Emisar account is connected. #{Wording.list(names)} use it now."
 
   @doc "The environments whose work has no Emisar account, as one fact."
   @spec unassigned(pos_integer()) :: String.t()
-  def unassigned(count), do: count(count, "environment") <> " without an Emisar account"
+  def unassigned(count), do: Wording.count(count, "environment") <> " without an Emisar account"
 
   @doc """
   Webhooks: the senders set up to send Ryker events. A signing credential on
@@ -534,8 +535,8 @@ defmodule Ryker.ControlPlane.Integrations do
 
     facts =
       facts([
-        sources != [] && count(length(sources), "source"),
-        credentials > 0 && count(credentials, "signing credential")
+        sources != [] && Wording.count(length(sources), "source"),
+        credentials > 0 && Wording.count(credentials, "signing credential")
       ])
 
     cond do
@@ -755,19 +756,6 @@ defmodule Ryker.ControlPlane.Integrations do
     Enum.all?(kinds, fn kind ->
       Enum.any?(view.credentials, &(&1.kind == kind and &1.verification_status == :verified))
     end)
-  end
-
-  @doc "A count and its noun: 1 repository, 3 repositories."
-  @spec count(non_neg_integer(), String.t()) :: String.t()
-  def count(1, noun), do: "1 #{noun}"
-  def count(number, noun), do: "#{number} #{plural(noun)}"
-
-  defp plural(noun) do
-    cond do
-      String.ends_with?(noun, ~w(ay ey oy uy)) -> noun <> "s"
-      String.ends_with?(noun, "y") -> String.slice(noun, 0..-2//1) <> "ies"
-      true -> noun <> "s"
-    end
   end
 
   defp state(key, variant, facts: facts) do

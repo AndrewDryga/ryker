@@ -6,16 +6,11 @@ defmodule Ryker.Slack.Renderer.Fields do
   are the checks that do not belong to one card family. Each returns `:ok` or
   a reason the card folds into its own `{:invalid_slack_render, family}`.
   """
-
-  @spec text?(term()) :: boolean()
-  def text?(value) do
-    is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
-      String.trim(value) != ""
-  end
+  alias Ryker.Reference
 
   @spec bounded_text(term(), pos_integer()) :: :ok | {:error, :invalid_text}
   def bounded_text(value, maximum) do
-    if text?(value) and byte_size(value) <= maximum, do: :ok, else: {:error, :invalid_text}
+    if Reference.valid?(value, maximum), do: :ok, else: {:error, :invalid_text}
   end
 
   @spec optional_bounded_text(term(), pos_integer()) :: :ok | {:error, :invalid_text}

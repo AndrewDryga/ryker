@@ -4,6 +4,7 @@ defmodule Ryker.ControlPlane.HTML do
   alias Ryker.ControlPlane.{Emoji, Kit, Layouts, SlackMarkdown}
   alias Ryker.Crypto
   alias Ryker.Delivery
+  alias Ryker.Wording
 
   # The title and description are the shell's header, led by the way back
   # when the page belongs to another; the body owns the rest.
@@ -435,7 +436,7 @@ defmodule Ryker.ControlPlane.HTML do
     do: transcript_facts("Transcript", words)
 
   defp lab_transcript(%{transcript_unavailable: note}) when is_binary(note),
-    do: transcript_facts("No transcript", sentence(note))
+    do: transcript_facts("No transcript", Wording.sentence(note))
 
   defp lab_transcript(_attachment), do: ""
 
@@ -444,9 +445,6 @@ defmodule Ryker.ControlPlane.HTML do
     |> Kit.facts()
     |> Safe.to_iodata()
   end
-
-  defp sentence(<<first::utf8, rest::binary>>), do: String.upcase(<<first::utf8>>) <> rest <> "."
-  defp sentence(note), do: note
 
   # A title with several lines (a question listing what it needs) keeps its
   # paragraphs and numbered lists; one line stays a heading.

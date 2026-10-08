@@ -20,6 +20,7 @@ defmodule Ryker.ControlPlane.LearningPage do
   alias Ryker.ControlPlane.{CSRF, Kit, LearningActivity, MemoryFormat, Paths}
   alias Ryker.Ingress
   alias Ryker.{Knowledge, Learning, Settings}
+  alias Ryker.Wording
   alias Ryker.Work
 
   @doc """
@@ -96,7 +97,7 @@ defmodule Ryker.ControlPlane.LearningPage do
               text={batch.error}
               meta={[
                 batch.repository,
-                MemoryFormat.count(batch.input_count, "message", "messages"),
+                Wording.count(batch.input_count, "message"),
                 starts(batch),
                 MemoryFormat.time(batch.at),
                 MemoryFormat.time(batch[:next_check], "Next check ")
@@ -130,7 +131,7 @@ defmodule Ryker.ControlPlane.LearningPage do
               text={batch.error}
               meta={[
                 batch.repository,
-                MemoryFormat.count(batch.input_count, "message", "messages"),
+                Wording.count(batch.input_count, "message"),
                 MemoryFormat.time(batch.at)
               ]}
             />
@@ -240,7 +241,7 @@ defmodule Ryker.ControlPlane.LearningPage do
         oldest waiting {MemoryFormat.waited(@activity.oldest_waiting_at)}
       </span>
       <a :if={@activity.counts.deferred > 0} data-tone="warn" href="#needs-attention">
-        {MemoryFormat.count(@activity.counts.deferred, "needs attention", "need attention")}
+        {Wording.count(@activity.counts.deferred, "needs attention", "need attention")}
       </a>
     </Kit.status_line>
     <p :if={state_note(@activity.state)} class="memory-note memory-status-note">
@@ -431,7 +432,7 @@ defmodule Ryker.ControlPlane.LearningPage do
     [
       {"Conversation", MemoryFormat.link(batch.conversation, batch.conversation_path)},
       {"Repository", batch.repository},
-      {"Messages", MemoryFormat.count(batch.input_count, "message", "messages")},
+      {"Messages", Wording.count(batch.input_count, "message")},
       {"Model starts", starts(batch)},
       {"Mode", if(batch.mode == :shadow, do: "Shadow mode")},
       {"Queued", MemoryFormat.time(batch.at)}
@@ -513,19 +514,19 @@ defmodule Ryker.ControlPlane.LearningPage do
   defp state_note(_state), do: nil
 
   defp waiting(0), do: "No messages waiting"
-  defp waiting(count), do: MemoryFormat.count(count, "message", "messages") <> " waiting"
+  defp waiting(count), do: Wording.count(count, "message") <> " waiting"
 
   # How many model starts a batch used. The limit is part of it only while
   # the batch can still start: a stopped batch keeps none of the starts it
   # did not use, so "1 of 3" there promised two that would never run.
   defp starts(%{status: status} = batch) when status in [:queued, :running] do
-    "#{batch.start_count} of #{MemoryFormat.count(batch.start_limit, "model start", "model starts")} used"
+    "#{batch.start_count} of #{Wording.count(batch.start_limit, "model start")} used"
   end
 
   defp starts(%{start_count: 0}), do: "No model starts used"
 
   defp starts(batch),
-    do: MemoryFormat.count(batch.start_count, "model start", "model starts") <> " used"
+    do: Wording.count(batch.start_count, "model start") <> " used"
 
   defp state(:queued), do: {:off, LearningActivity.label(:queued)}
   defp state(:running), do: {:busy, LearningActivity.label(:running)}

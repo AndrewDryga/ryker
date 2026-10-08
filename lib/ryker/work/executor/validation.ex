@@ -10,11 +10,12 @@ defmodule Ryker.Work.Executor.Validation do
   builders live here as well.
   """
   alias Ryker.Artifacts
+  alias Ryker.Coop
   alias Ryker.Delivery
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Work.{Custody, FinalPreflight, OperationKeys, StateBinding, Validator}
-  alias Ryker.Work.Executor.{Remote, Turns}
+  alias Ryker.Work.Executor.Remote
 
   @terminal_turn_states Remote.terminal_turn_states()
   @turn_waiting_states Remote.turn_waiting_states()
@@ -259,7 +260,7 @@ defmodule Ryker.Work.Executor.Validation do
          reason
        )
        when is_map(candidate) do
-    recover_validation_candidate(Turns.candidate_fields(candidate), claim, reason)
+    recover_validation_candidate(Coop.Documents.candidate(candidate), claim, reason)
   end
 
   defp recover_validation_state(_remote_turn, _claim, reason),
@@ -296,7 +297,7 @@ defmodule Ryker.Work.Executor.Validation do
          reason
        )
        when is_map(candidate) do
-    uncertain_validation_candidate(Turns.candidate_fields(candidate), turn, claim, reason)
+    uncertain_validation_candidate(Coop.Documents.candidate(candidate), turn, claim, reason)
   end
 
   defp uncertain_validation_state(

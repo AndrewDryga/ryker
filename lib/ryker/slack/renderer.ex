@@ -19,8 +19,9 @@ defmodule Ryker.Slack.Renderer do
     * `Records` and `Offers` — the records attached to a reply
   """
   import Ryker.Slack.Renderer.Blocks, only: [escape: 1, message_blocks: 1]
+  alias Ryker.Reference
   alias Ryker.Slack.Mentions
-  alias Ryker.Slack.Renderer.{ChannelCards, ChannelSetup, EmisarReview, Fields, Records}
+  alias Ryker.Slack.Renderer.{ChannelCards, ChannelSetup, EmisarReview, Records}
   alias Ryker.Slack.Renderer.{SavedEntityCard, WorkCards}
 
   @maximum_message_characters 20_000
@@ -144,7 +145,7 @@ defmodule Ryker.Slack.Renderer do
   end
 
   defp message(value) do
-    if Fields.text?(value) and String.length(value) <= @maximum_message_characters,
+    if Reference.text?(value) and String.length(value) <= @maximum_message_characters,
       do: :ok,
       else: {:error, {:invalid_slack_render, :message}}
   end

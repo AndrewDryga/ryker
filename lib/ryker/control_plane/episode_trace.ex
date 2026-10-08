@@ -22,6 +22,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.StateTools
+  alias Ryker.Wording
   alias Ryker.Work
 
   @chapters [
@@ -290,7 +291,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
         elapsed(received_at, latest_time(steps, episode.updated_at)),
         "first input to latest change"
       ),
-      metric("Runs", totals.turns, plural(totals.work_claims, "start attempt")),
+      metric("Runs", totals.turns, Wording.count(totals.work_claims, "start attempt")),
       metric(
         "Repairs",
         totals.repairs,
@@ -299,7 +300,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
       ),
       metric(
         "Tokens",
-        if(totals.measured == 0, do: "unmeasured", else: format_integer(totals.tokens)),
+        if(totals.measured == 0, do: "unmeasured", else: Wording.number(totals.tokens)),
         "#{totals.measured}/#{totals.turns} measured"
       ),
       metric(
@@ -377,7 +378,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
       [
         started(turn.work_attempt_count || 0),
         turn.candidate_attempt &&
-          plural(turn.candidate_attempt, "answer checked", "answers checked"),
+          Wording.count(turn.candidate_attempt, "answer checked", "answers checked"),
         turn.coop_turn_id && "The worker began the task",
         turn.validation_intent && "Ryker checked an answer"
       ]

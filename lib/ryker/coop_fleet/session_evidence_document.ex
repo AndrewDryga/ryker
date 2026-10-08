@@ -18,6 +18,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceDocument do
     * a bound task carries its immutable identity even when its folder is gone
   """
   alias Ryker.CoopFleet.Protocol
+  alias Ryker.UTCDateTime
 
   @version 1
   @maximum_document_bytes 512 * 1_024
@@ -694,9 +695,9 @@ defmodule Ryker.CoopFleet.SessionEvidenceDocument do
   defp identity(_value, field), do: error(field)
 
   defp timestamp(value, field) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, %DateTime{} = datetime, 0} -> {:ok, DateTime.to_iso8601(datetime)}
-      _invalid -> error(field)
+    case UTCDateTime.parse(value) do
+      {:ok, datetime} -> {:ok, DateTime.to_iso8601(datetime)}
+      :error -> error(field)
     end
   end
 

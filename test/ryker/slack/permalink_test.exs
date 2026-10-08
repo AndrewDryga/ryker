@@ -46,4 +46,19 @@ defmodule Ryker.Slack.PermalinkTest do
       assert Permalink.message_url(origin, conversation, message) == nil
     end
   end
+
+  # Six modules built this link by hand until 2026-10-08, one with its query in
+  # a different order and one accepting any digits as a message.
+  test "Slack's redirect opens a channel or a message, and only from Slack's own ids" do
+    assert Permalink.app_redirect("T123", "C456") ==
+             "https://slack.com/app_redirect?team=T123&channel=C456"
+
+    assert Permalink.app_redirect("T123", "C456", "1787832000.000100") ==
+             "https://slack.com/app_redirect?team=T123&channel=C456&message_ts=1787832000.000100"
+
+    assert Permalink.app_redirect("T123", "c456") == nil
+    assert Permalink.app_redirect(nil, "C456") == nil
+    assert Permalink.app_redirect("T123", "C456", "12.3") == nil
+    assert Permalink.app_redirect("T123", "C456", nil) == nil
+  end
 end

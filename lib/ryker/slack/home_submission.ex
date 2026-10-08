@@ -1,6 +1,7 @@
 defmodule Ryker.Slack.HomeSubmission do
   @moduledoc false
   alias Ryker.Slack.AppHomeEditor
+  alias Ryker.UTCDateTime
 
   @reference ~r/\A[A-Za-z0-9_.:-]{1,256}\z/
 
@@ -50,7 +51,7 @@ defmodule Ryker.Slack.HomeSubmission do
          {:ok, "memory-review:" <> _ = review_ref} <- metadata(metadata),
          {:ok, subject, value} <- input_values(values),
          true <- Enum.all?([envelope_ref, actor_ref, workspace_ref, review_ref], &reference?/1),
-         true <- utc?(occurred_at) do
+         true <- UTCDateTime.utc?(occurred_at) do
       {:ok,
        %__MODULE__{
          action: :edit_memory_review,
@@ -124,9 +125,6 @@ defmodule Ryker.Slack.HomeSubmission do
   end
 
   defp reference?(value), do: is_binary(value) and Regex.match?(@reference, value)
-
-  defp utc?(%DateTime{} = value),
-    do: value.time_zone == "Etc/UTC" and value.utc_offset == 0 and value.std_offset == 0
 
   defp normalize_datetime(%DateTime{microsecond: {microsecond, _precision}} = value),
     do: %{value | microsecond: {microsecond, 6}}

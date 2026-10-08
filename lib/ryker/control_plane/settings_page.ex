@@ -28,6 +28,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
   alias Ryker.GitHub
   alias Ryker.Settings
   alias Ryker.Slack
+  alias Ryker.Wording
   alias Ryker.Work
 
   @weekdays ~w(Monday Tuesday Wednesday Thursday Friday Saturday Sunday)
@@ -550,10 +551,10 @@ defmodule Ryker.ControlPlane.SettingsPage do
         nil
 
       fallbacks == [] ->
-        "Uses " <> Environments.sentence(models)
+        "Uses " <> Wording.list(models)
 
       true ->
-        "Uses #{Environments.sentence(models)}, with fallbacks for #{Environments.sentence(fallbacks)}"
+        "Uses #{Wording.list(models)}, with fallbacks for #{Wording.list(fallbacks)}"
     end
   end
 
@@ -612,7 +613,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
   defp set_now(:pricing, %{snapshot: %{pricing_rates: []}}), do: "No prices yet"
 
   defp set_now(:pricing, %{snapshot: %{pricing_rates: rates}}),
-    do: Integrations.count(length(rates), "price")
+    do: Wording.count(length(rates), "price")
 
   defp set_now(:system, _view) do
     if BundledCoop.distribution?(),
@@ -887,10 +888,10 @@ defmodule Ryker.ControlPlane.SettingsPage do
   defp github_events(%{received: 0}), do: "No events in the last day."
 
   defp github_events(%{received: received, unreadable: 0}),
-    do: "#{Integrations.count(received, "event")} in the last day."
+    do: "#{Wording.count(received, "event")} in the last day."
 
   defp github_events(%{received: received, unreadable: unreadable}) do
-    "#{Integrations.count(received, "event")} in the last day, #{unreadable} couldn't be read."
+    "#{Wording.count(received, "event")} in the last day, #{unreadable} couldn't be read."
   end
 
   attr(:view, :map, required: true)
@@ -967,7 +968,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
         >{if @repositories == 0, do: "Add repositories", else: "Manage repositories"}</.link>
       </:actions>
       <p :if={@repositories > 0} class="settings-lede">
-        {Integrations.count(@repositories, "repository")} added.
+        {Wording.count(@repositories, "repository")} added.
       </p>
       <Kit.empty
         :if={@repositories == 0}
@@ -1565,7 +1566,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
         "No environment uses it yet"
 
       [_ | _] ->
-        "Used by " <> Environments.sentence(Enum.map(environments, & &1.display_name))
+        "Used by " <> Wording.list(Enum.map(environments, & &1.display_name))
     end
   end
 
@@ -1612,7 +1613,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
     if unpriced != [] do
       %{
         text:
-          "No price covers #{Environments.sentence(unpriced)}, so " <>
+          "No price covers #{Wording.list(unpriced)}, so " <>
             if(length(unpriced) == 1, do: "its", else: "their") <>
             " cost will show as not priced.",
         link: "Add a price",

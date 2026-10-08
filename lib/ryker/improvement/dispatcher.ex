@@ -4,6 +4,7 @@ defmodule Ryker.Improvement.Dispatcher do
   next candidate, resume the run it left outstanding or start a new one, and
   give the lease back with what happened.
   """
+  alias Ryker.Backoff
   alias Ryker.Improvement.{Analyses, Executor, FleetSession}
   require Logger
 
@@ -129,7 +130,7 @@ defmodule Ryker.Improvement.Dispatcher do
   defp unresolved(claim, run, reason) do
     with {:ok, run} <- Analyses.reconciliation_failed(claim, run.id) do
       log_unresolved(run, reason)
-      Analyses.yield(claim, min(Integer.pow(2, min(run.reconcile_attempt_count, 6)), 60))
+      Analyses.yield(claim, Backoff.delay(run.reconcile_attempt_count + 1, 1, 60))
     end
   end
 

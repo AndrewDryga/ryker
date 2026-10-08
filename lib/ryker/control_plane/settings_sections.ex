@@ -12,6 +12,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
   alias Ryker.Settings
   alias Ryker.Slack
   alias Ryker.Webhooks
+  alias Ryker.Wording
   alias Ryker.Work
 
   @day 86_400
@@ -883,15 +884,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
   def longest_days, do: @longest_days
 
   @spec fetch(atom() | String.t()) :: {:ok, map()} | :error
-  def fetch(key) when is_atom(key) do
-    case Enum.find(@sections, &(&1.key == key)) do
-      nil -> :error
-      section -> {:ok, section}
-    end
-  end
-
-  def fetch(key) when is_binary(key) do
-    case Enum.find(@sections, &(Atom.to_string(&1.key) == key)) do
+  def fetch(key) do
+    case Enum.find(@sections, &(&1.key == key or Atom.to_string(&1.key) == key)) do
       nil -> :error
       section -> {:ok, section}
     end
@@ -1104,7 +1098,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
     end
   end
 
-  defp run({model, labels}), do: "#{model} for #{Environments.sentence(labels)}"
+  defp run({model, labels}), do: "#{model} for #{Wording.list(labels)}"
 
   @doc """
   What a refused list of accounts says when a saved model still runs on an

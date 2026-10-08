@@ -11,14 +11,11 @@ defmodule Ryker.ControlPlane.MemoryFormat do
   use Phoenix.Component
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Kit, ShortTime, SlackMarkdown}
+  alias Ryker.Wording
 
   @excerpt_limit 280
+  @row_characters 160
   @protected ~r/(```[\s\S]*?```|`[^`\n]+`|<[^>\n]+>|\[[^\]\n]+\]\([^\s)]+\)|https?:\/\/[^\s<>]+)/u
-
-  @doc ~s(A count with its noun: "1 message" or "3 messages".)
-  @spec count(integer(), String.t(), String.t()) :: String.t()
-  def count(1, one, _many), do: "1 " <> one
-  def count(count, _one, many), do: "#{count} #{many}"
 
   @doc "A short time with its exact UTC instant in `datetime` and `title`; nil without one."
   def time(at, prefix \\ nil)
@@ -37,9 +34,9 @@ defmodule Ryker.ControlPlane.MemoryFormat do
     words =
       cond do
         seconds < 60 -> "under a minute"
-        seconds < 3_600 -> count(div(seconds, 60), "minute", "minutes")
-        seconds < 86_400 -> count(div(seconds, 3_600), "hour", "hours")
-        true -> count(div(seconds, 86_400), "day", "days")
+        seconds < 3_600 -> Wording.count(div(seconds, 60), "minute")
+        seconds < 86_400 -> Wording.count(div(seconds, 3_600), "hour")
+        true -> Wording.count(div(seconds, 86_400), "day")
       end
 
     {:safe,
@@ -88,6 +85,21 @@ defmodule Ryker.ControlPlane.MemoryFormat do
   sentence. Without a workspace it reads mentions in the connected one.
   """
   def inline(text), do: if(is_binary(text), do: {:safe, SlackMarkdown.render(text)})
+
+  @doc """
+  A list row's text as inline Markdown: the start of `text`, cut at a word
+  within 160 characters. The limit is in characters, as the cut is; counting
+  bytes cut short multi-byte text that fitted.
+  """
+  @spec row_text(String.t()) :: Phoenix.HTML.safe()
+  def row_text(text) when is_binary(text) do
+    if String.length(text) > @row_characters do
+      cut = text |> String.slice(0, @row_characters) |> String.replace(~r/\s+\S*$/u, "")
+      inline(cut <> "…")
+    else
+      inline(text)
+    end
+  end
 
   def inline(nil, _workspace), do: nil
 

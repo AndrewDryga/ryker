@@ -1,5 +1,6 @@
 defmodule Ryker.Work.Measurement do
   @moduledoc false
+  alias Ryker.UTCDateTime
   alias Ryker.Work.ExecutionTarget
 
   @maximum_target_bytes 512
@@ -177,13 +178,8 @@ defmodule Ryker.Work.Measurement do
   end
 
   defp timestamp(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, 0} ->
-        {:ok, DateTime.from_unix!(DateTime.to_unix(datetime, :microsecond), :microsecond)}
-
-      _invalid ->
-        :error
-    end
+    with {:ok, datetime} <- UTCDateTime.parse(value),
+         do: UTCDateTime.exact(datetime)
   end
 
   defp timestamp(_value), do: :error

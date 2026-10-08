@@ -9,10 +9,10 @@ defmodule Ryker.Slack.Mentions do
   import Ryker.Slack.Renderer.Blocks, only: [escape: 1]
   alias Ryker.Episodes
   alias Ryker.Repo
+  alias Ryker.Slack.Id
 
   @typed_link ~r/\[([^\]\r\n]{1,120})\]\((slack-(?:user|channel|usergroup|broadcast)):([A-Za-z0-9_.:-]{1,1024})\)/u
   @typed_prefix ~r/\]\(\s*slack-/u
-  @slack_id ~r/\A[A-Z0-9]+\z/
   @maximum_mentions 32
   @maximum_markdown_characters 12_000
   @authority_fields ~w(broadcasts channels user_groups users workspace_ref)
@@ -362,7 +362,7 @@ defmodule Ryker.Slack.Mentions do
   defp maybe_violation(violations, false, _violation), do: violations
 
   defp slack_id(value) do
-    if is_binary(value) and byte_size(value) in 1..256 and Regex.match?(@slack_id, value),
+    if Id.valid?(value),
       do: :ok,
       else: {:error, :slack_id}
   end

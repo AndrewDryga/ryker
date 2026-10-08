@@ -7,6 +7,7 @@ defmodule Ryker.Slack.InteractionFeedbackWorker do
   for its safety-net interval.
   """
   use Ryker.PollingWorker, lane: :slack_interactions, interval: :interval_ms
+  alias Ryker.Backoff
   alias Ryker.Delivery
   alias Ryker.Observability
   alias Ryker.Options
@@ -93,7 +94,7 @@ defmodule Ryker.Slack.InteractionFeedbackWorker do
         {:ok, {:blocked, blocked.event_ref}}
       end
     else
-      retry_seconds = retry_delay(audit.attempt_count, options.retry_base_seconds)
+      retry_seconds = Backoff.delay(audit.attempt_count, options.retry_base_seconds, 3_600, 8)
 
       with {:ok, deferred} <-
              InteractionAudits.defer(audit.id, audit.lease_ref, retry_seconds, reason),
@@ -139,11 +140,6 @@ defmodule Ryker.Slack.InteractionFeedbackWorker do
     )
 
     :ok
-  end
-
-  defp retry_delay(attempt_count, base) do
-    exponent = max(attempt_count - 1, 0) |> min(8)
-    min(base * Integer.pow(2, exponent), 3_600)
   end
 
   @doc false

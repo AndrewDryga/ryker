@@ -3,6 +3,7 @@ defmodule Ryker.Slack.FileClient do
   Resolves and downloads authenticated Slack file shares without persisting a
   private Slack URL or bot credential.
   """
+  alias Ryker.Slack.Id
 
   @fields [:binary_http, :binary_requester, :json_http, :json_requester]
 
@@ -143,10 +144,9 @@ defmodule Ryker.Slack.FileClient do
     do: is_atom(module) and function_exported?(module, function, arity)
 
   defp slack_ref(value) do
-    if is_binary(value) and byte_size(value) in 1..256 and
-         Regex.match?(~r/\A[A-Z0-9]+\z/, value),
-       do: :ok,
-       else: {:error, {:slack_file_rejected, :metadata}}
+    if Id.valid?(value),
+      do: :ok,
+      else: {:error, {:slack_file_rejected, :metadata}}
   end
 
   defp text(value, maximum) do

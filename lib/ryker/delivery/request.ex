@@ -18,6 +18,7 @@ defmodule Ryker.Delivery.Request do
   """
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
+  alias Ryker.Reference
 
   @enforce_keys [
     :conversation_ref,
@@ -111,7 +112,7 @@ defmodule Ryker.Delivery.Request do
        when map_size(document) in 1..2 do
     with :ok <- reference(source_item_ref, :source_item_ref),
          :ok <- reaction_document(document),
-         true <- text?(emoji_name) do
+         true <- Reference.text?(emoji_name) do
       :ok
     else
       {:error, reason} -> {:error, reason}
@@ -147,7 +148,7 @@ defmodule Ryker.Delivery.Request do
   defp message_document(_document), do: {:error, {:invalid_delivery_request, :document}}
 
   defp bounded_message(message) do
-    if text?(message) and String.length(message) <= @maximum_message_characters,
+    if Reference.text?(message) and String.length(message) <= @maximum_message_characters,
       do: :ok,
       else: {:error, {:invalid_delivery_request, :message}}
   end
@@ -168,8 +169,7 @@ defmodule Ryker.Delivery.Request do
          %{"kind" => kind, "payload" => payload, "ref" => ref, "status" => status} = record
        )
        when map_size(record) == 4 and is_map(payload) do
-    text?(kind) and byte_size(kind) <= 64 and text?(status) and byte_size(status) <= 64 and
-      text?(ref) and byte_size(ref) <= 256
+    Reference.valid?(kind, 64) and Reference.valid?(status, 64) and Reference.valid?(ref, 256)
   end
 
   defp valid_record?(_record), do: false
@@ -234,13 +234,13 @@ defmodule Ryker.Delivery.Request do
   end
 
   defp safe_name?(value) do
-    text?(value) and byte_size(value) <= 255 and value not in [".", ".."] and
+    Reference.valid?(value, 255) and value not in [".", ".."] and
       not String.contains?(value, ["/", "\\"]) and
       not Enum.any?(String.to_charlist(value), &(&1 < 32 or &1 == 127))
   end
 
   defp reference?(value),
-    do: text?(value) and byte_size(value) <= 256 and Regex.match?(~r/\A[A-Za-z0-9_.:-]+\z/, value)
+    do: Reference.valid?(value, 256) and Regex.match?(~r/\A[A-Za-z0-9_.:-]+\z/, value)
 
   defp media_matches?("image/png", <<137, 80, 78, 71, 13, 10, 26, 10, _::binary>>), do: true
   defp media_matches?("image/jpeg", <<255, 216, 255, _::binary>>), do: true
@@ -259,13 +259,8 @@ defmodule Ryker.Delivery.Request do
   defp optional_reference(value, field), do: reference(value, field)
 
   defp reference(value, field) do
-    if text?(value) and byte_size(value) <= 1_024,
+    if Reference.valid?(value),
       do: :ok,
       else: {:error, {:invalid_delivery_request, field}}
-  end
-
-  defp text?(value) do
-    is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
-      String.trim(value) != ""
   end
 end

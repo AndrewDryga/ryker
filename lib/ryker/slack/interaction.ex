@@ -5,6 +5,7 @@ defmodule Ryker.Slack.Interaction do
   Only host-issued action IDs are retained. Arbitrary model-authored Block Kit
   is never interpreted as a control.
   """
+  alias Ryker.UTCDateTime
 
   @actions ~w(ryker_answer_input ryker_close_work ryker_confirm_automation ryker_confirm_behavior ryker_confirm_memory ryker_confirm_schedule ryker_confirm_slack_post ryker_delete_behavior ryker_delete_schedule ryker_resume_behavior ryker_forget_memory ryker_investigate_incident ryker_open_incident ryker_open_publication ryker_publish_draft ryker_resume_work ryker_review_publication ryker_start_engineering_task ryker_stop_work ryker_task_discard_publication ryker_task_publish ryker_task_retry_publication ryker_task_update_publication ryker_work_record ryker_setup_alerts_automatic ryker_setup_alerts_offer ryker_setup_alerts_reply ryker_setup_audience_none ryker_setup_cancel ryker_setup_environment_none ryker_setup_participation_mentions ryker_setup_participation_proactive ryker_setup_participation_shadow ryker_setup_restart ryker_setup_save ryker_welcome_be_proactive ryker_welcome_configure ryker_welcome_mentions_only ryker_welcome_view_rules ryker_welcome_view_schedules)
   @environment_action ~r/\Aryker_setup_environment_[0-9]{1,3}\z/
@@ -105,7 +106,7 @@ defmodule Ryker.Slack.Interaction do
     # A control must be a known id with a well-formed value.
     if action_id?(action_id) and action_value?(action_id, action_value) and
          Enum.all?(values, &reference?/1) and
-         optional_reference?(thread_ref) and utc?(context.occurred_at) do
+         optional_reference?(thread_ref) and UTCDateTime.utc?(context.occurred_at) do
       {:ok,
        %__MODULE__{
          action_id: action_id,
@@ -226,9 +227,6 @@ defmodule Ryker.Slack.Interaction do
        do: {:ok, action_id, action_value}
 
   defp action(_action, _payload), do: :ignore
-
-  defp utc?(%DateTime{} = value),
-    do: value.time_zone == "Etc/UTC" and value.utc_offset == 0 and value.std_offset == 0
 
   defp normalize_datetime(%DateTime{microsecond: {microsecond, _precision}} = value),
     do: %{value | microsecond: {microsecond, 6}}

@@ -1,13 +1,18 @@
 defmodule Ryker.Slack.Permalink do
   @moduledoc """
-  Builds a Slack message link from parts the host already holds.
+  Builds Slack links from parts the host already holds.
 
   A permalink is the workspace origin, the channel and the message timestamp.
   The host stored every part but the origin, so a card that wanted to point at
   the exact question or the message it posted could only describe it. The origin
-  is one optional setting; without it this returns `nil` and the card says
-  nothing rather than linking nowhere.
+  is one optional setting; without it `message_url/3` returns `nil` and the card
+  says nothing rather than linking nowhere.
+
+  Slack's own redirect needs no origin: `app_redirect/2,3` opens a channel, a
+  person's messages or a message through slack.com, in the app when it is
+  installed.
   """
+  alias Ryker.Slack.{Id, Timestamp}
 
   # Public and private channels and direct messages: only public channels'
   # ids matched until 2026-10-06 (2026-10-04 review).
@@ -28,4 +33,26 @@ defmodule Ryker.Slack.Permalink do
   end
 
   def message_url(_workspace_url, _conversation_ref, _message_ref), do: nil
+
+  @doc """
+  Slack's redirect to a channel or a person in a workspace; nil unless both
+  ids are Slack's.
+  """
+  @spec app_redirect(term(), term()) :: String.t() | nil
+  def app_redirect(workspace_ref, channel_ref) do
+    if Id.valid?(workspace_ref) and Id.valid?(channel_ref),
+      do: redirect(team: workspace_ref, channel: channel_ref)
+  end
+
+  @doc """
+  Slack's redirect to one message in a channel; nil unless the ids and the
+  message's timestamp are Slack's.
+  """
+  @spec app_redirect(term(), term(), term()) :: String.t() | nil
+  def app_redirect(workspace_ref, channel_ref, message_ref) do
+    if Id.valid?(workspace_ref) and Id.valid?(channel_ref) and Timestamp.valid?(message_ref),
+      do: redirect(team: workspace_ref, channel: channel_ref, message_ts: message_ref)
+  end
+
+  defp redirect(parameters), do: "https://slack.com/app_redirect?" <> URI.encode_query(parameters)
 end

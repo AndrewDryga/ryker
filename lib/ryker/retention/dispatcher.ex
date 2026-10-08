@@ -7,6 +7,7 @@ defmodule Ryker.Retention.Dispatcher do
   already failed unreachably in the same pass, so one offline worker cannot
   consume the budget that the healthy ones need.
   """
+  alias Ryker.Backoff
   alias Ryker.ErrorDetail
   alias Ryker.Reference
   alias Ryker.Retention.{Custody, Executor}
@@ -171,7 +172,13 @@ defmodule Ryker.Retention.Dispatcher do
   defp execution_adapter(_execution_kind, settings), do: {settings.api, settings.client}
 
   defp defer(claim, reason, settings) do
-    retry_seconds = retry_delay(claim.session.cleanup_attempt_count, settings)
+    retry_seconds =
+      Backoff.delay(
+        claim.session.cleanup_attempt_count,
+        settings.retry_base_seconds,
+        settings.retry_max_seconds
+      )
+
     {code, detail} = describe(reason)
 
     case Custody.defer(claim.session.id, claim.lease_ref, retry_seconds, code, detail) do
@@ -217,11 +224,6 @@ defmodule Ryker.Retention.Dispatcher do
   # The durable error codes an outage leaves behind, for reconnect recovery.
   defp outage_error_codes do
     ~w(coop_unavailable coop_transport_error coop_worker_capacity_unavailable coop_worker_command_timeout coop_error coop_session_replacement_pending retention_worker_unavailable retention_database_unavailable)
-  end
-
-  defp retry_delay(attempt, settings) do
-    exponent = min(max(attempt - 1, 0), 20)
-    min(settings.retry_base_seconds * Integer.pow(2, exponent), settings.retry_max_seconds)
   end
 
   defp describe(reason), do: ErrorDetail.describe(reason, :retention_failed)

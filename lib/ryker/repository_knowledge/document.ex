@@ -15,6 +15,7 @@ defmodule Ryker.RepositoryKnowledge.Document do
   repository: the file list, marked as an outline, never an invented
   command.
   """
+  alias Ryker.Wording
 
   @vendored ~w(node_modules vendor deps _build third_party)
   @guidance_names ~w(AGENTS.md CLAUDE.md GEMINI.md)
@@ -514,14 +515,16 @@ defmodule Ryker.RepositoryKnowledge.Document do
 
   defp listed(title, items, shown, line) do
     case Enum.split(items, shown) do
-      {named, []} -> list(title, named, line)
-      {[], more} -> "## #{title}\n\nThere are #{number(length(more))} of them."
-      {named, more} -> list(title, named, line) <> "\n\n…and #{number(length(more))} more."
+      {named, []} ->
+        list(title, named, line)
+
+      {[], more} ->
+        "## #{title}\n\nThere are #{Wording.number(length(more))} of them."
+
+      {named, more} ->
+        list(title, named, line) <> "\n\n…and #{Wording.number(length(more))} more."
     end
   end
-
-  defp number(count),
-    do: count |> Integer.to_string() |> String.replace(~r/\B(?=(\d{3})+(?!\d))/, ",")
 
   # A plain relative link, the path in the repository: it never points at an
   # old commit.

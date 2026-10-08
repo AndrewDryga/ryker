@@ -16,6 +16,7 @@ defmodule Ryker.Admission.Executor do
   alias Ryker.Knowledge
   alias Ryker.Learning
   alias Ryker.Records
+  alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Work
   require Logger
@@ -482,7 +483,7 @@ defmodule Ryker.Admission.Executor do
          _settings,
          _left
        ) do
-    if operation["resource_type"] == type and valid_ref?(operation["resource_id"]),
+    if operation["resource_type"] == type and Reference.valid?(operation["resource_id"]),
       do: {:ok, operation["resource_id"]},
       else: {:error, {:coop_protocol_error, :operation_resource}}
   end
@@ -602,7 +603,7 @@ defmodule Ryker.Admission.Executor do
        when is_binary(message) and is_integer(validation_attempt) and validation_attempt > 0 and
               is_binary(candidate_sha256) and
               is_binary(validation_receipt) do
-    if valid_ref?(validation_receipt) and Crypto.sha256_hex(message) == candidate_sha256 do
+    if Reference.valid?(validation_receipt) and Crypto.sha256_hex(message) == candidate_sha256 do
       case parse_and_validate(message, context) do
         {:ok, decision} -> {:ok, decision, candidate_sha256}
         {:error, reason} -> generation_spent(reason)
@@ -659,7 +660,8 @@ defmodule Ryker.Admission.Executor do
   end
 
   defp candidate_decision(turn, candidate, context, entry, settings, left) do
-    with {:ok, message, candidate_sha256, candidate_attempt} <- candidate_fields(candidate),
+    with {:ok, message, candidate_sha256, candidate_attempt} <-
+           Coop.Documents.candidate(candidate),
          :ok <- Attempts.observe(entry, "host_validation", %{}, settings) do
       case parse_and_validate(message, context) do
         {:ok, decision} ->
@@ -817,20 +819,6 @@ defmodule Ryker.Admission.Executor do
       _other -> {:error, {:invalid_candidate, :json_object}}
     end
   end
-
-  defp candidate_fields(%{
-         "attempt" => candidate_attempt,
-         "message" => message,
-         "sha256" => candidate_sha256
-       })
-       when is_integer(candidate_attempt) and candidate_attempt > 0 and is_binary(message) and
-              is_binary(candidate_sha256) do
-    if Crypto.sha256_hex(message) == candidate_sha256,
-      do: {:ok, message, candidate_sha256, candidate_attempt},
-      else: {:error, {:coop_protocol_error, :candidate_digest}}
-  end
-
-  defp candidate_fields(_candidate), do: {:error, {:coop_protocol_error, :candidate}}
 
   defp violation({:admission_rejected, :action_not_allowed, details}) do
     "The action is unavailable for this source. Choose one of the supplied allowed_actions. Submitted: #{inspect(details[:submitted])}."
@@ -1045,14 +1033,14 @@ defmodule Ryker.Admission.Executor do
          :ok <- executor_value(is_function(settings.now, 0), :now),
          :ok <- executor_value(is_function(settings.renew_lease, 0), :renew_lease),
          :ok <- executor_value(is_function(settings.sleep, 1), :sleep),
-         :ok <- executor_value(valid_ref?(settings.policy), :policy),
+         :ok <- executor_value(Reference.valid?(settings.policy), :policy),
          :ok <- executor_value(valid_digest?(settings.policy_digest), :policy_digest),
          :ok <-
            executor_value(
              is_function(settings.prepare_execution_session, 2),
              :prepare_execution_session
            ),
-         :ok <- executor_value(valid_ref?(settings.lease_ref), :lease_ref),
+         :ok <- executor_value(Reference.valid?(settings.lease_ref), :lease_ref),
          :ok <- executor_value(positive?(settings.candidate_limit), :candidate_limit),
          :ok <- executor_value(positive?(settings.continuation_window), :continuation_window),
          :ok <- valid_history_window(settings),
@@ -1136,7 +1124,7 @@ defmodule Ryker.Admission.Executor do
          purpose
        ) do
     cond do
-      not valid_ref?(id) or (expected_id != nil and id != expected_id) ->
+      not Reference.valid?(id) or (expected_id != nil and id != expected_id) ->
         {:error, {:coop_protocol_error, :session_identity}}
 
       state not in allowed_states ->
@@ -1180,7 +1168,7 @@ defmodule Ryker.Admission.Executor do
          expected_turn_id
        ) do
     cond do
-      not valid_ref?(id) ->
+      not Reference.valid?(id) ->
         {:error, {:coop_protocol_error, :turn_identity}}
 
       session_id != expected_session_id ->
@@ -1263,11 +1251,6 @@ defmodule Ryker.Admission.Executor do
         {:error,
          {:admission_execution_blocked, {reason, {:session_cleanup_failed, cleanup_error}}}}
     end
-  end
-
-  defp valid_ref?(value) do
-    is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
-      String.trim(value) != "" and byte_size(value) <= 1_024
   end
 
   defp positive?(value), do: is_integer(value) and value > 0

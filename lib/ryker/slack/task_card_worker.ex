@@ -9,6 +9,7 @@ defmodule Ryker.Slack.TaskCardWorker do
   or for its safety-net interval.
   """
   use Ryker.PollingWorker, lane: :slack_task_cards, interval: :interval_ms
+  alias Ryker.Backoff
   alias Ryker.Delivery
   alias Ryker.Episodes
   alias Ryker.ErrorDetail
@@ -205,17 +206,12 @@ defmodule Ryker.Slack.TaskCardWorker do
   end
 
   defp defer(card, reason, options) do
-    retry_seconds = retry_delay(card.attempt_count, options.retry_base_seconds)
+    retry_seconds = Backoff.delay(card.attempt_count, options.retry_base_seconds, 3_600, 8)
 
     case TaskCards.defer(card.id, card.lease_ref, retry_seconds, reason) do
       {:ok, deferred} -> {:ok, {:deferred, deferred.ref}}
       {:error, reason} -> {:error, reason}
     end
-  end
-
-  defp retry_delay(attempt_count, base) do
-    exponent = max(attempt_count - 1, 0) |> min(8)
-    min(base * Integer.pow(2, exponent), 3_600)
   end
 
   @doc false

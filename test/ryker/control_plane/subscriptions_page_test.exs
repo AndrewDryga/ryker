@@ -193,7 +193,7 @@ defmodule Ryker.ControlPlane.SubscriptionsPageTest do
         listed <- [items, []] do
       text =
         listed
-        |> SubscriptionsPage.list(SubscriptionsPage.params(params), @now)
+        |> SubscriptionsPage.list(Ryker.ControlPlane.Search.current_or_past(params), @now)
         |> IO.iodata_to_binary()
         |> LazyHTML.from_fragment()
         |> LazyHTML.text()

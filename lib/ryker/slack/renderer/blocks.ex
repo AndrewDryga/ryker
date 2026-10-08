@@ -44,9 +44,6 @@ defmodule Ryker.Slack.Renderer.Blocks do
 
   def compact_lines(lines), do: lines |> Enum.reject(&is_nil/1) |> Enum.join("\n")
 
-  def plural(1, singular, _plural), do: singular
-  def plural(_count, _singular, plural), do: plural
-
   def display_time(value) do
     case DateTime.from_iso8601(value) do
       {:ok, at, _} -> Calendar.strftime(at, "%d %b, %H:%M UTC")

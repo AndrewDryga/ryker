@@ -13,6 +13,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   alias Ryker.ControlPlane.SlackMarkdown
   alias Ryker.ControlPlane.SourceText
   alias Ryker.Slack
+  alias Ryker.Wording
 
   @sources %{
     "custom_instructions" =>
@@ -1492,7 +1493,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp repository_row(name, words) when is_binary(name) do
     case join_words(words) do
       nil -> []
-      text -> context_row(name, capitalize_first(text))
+      text -> context_row(name, Wording.capitalize(text))
     end
   end
 
@@ -1504,8 +1505,6 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       words -> Enum.join(words, " · ")
     end
   end
-
-  defp capitalize_first(<<first::utf8, rest::binary>>), do: String.upcase(<<first::utf8>>) <> rest
 
   defp access(%{"read_only" => true}), do: "read only"
   defp access(%{"read_only" => false}), do: "can change"
@@ -2002,7 +2001,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       if(services == [],
         do: "Slack, GitHub and Emisar were not connected.",
         else:
-          escape(sentence(services)) <>
+          escape(Wording.list(services)) <>
             " " <> if(length(services) == 1, do: "was", else: "were") <> " connected."
       ),
       "</p>",
@@ -2207,12 +2206,6 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp analysis_omitted(items),
     do: ["<ul class=\"context-list\">", Enum.map(items, &["<li>", escape(&1), "</li>"]), "</ul>"]
-
-  defp sentence([only]), do: only
-  defp sentence([first, second]), do: first <> " and " <> second
-
-  defp sentence(items),
-    do: Enum.join(Enum.drop(items, -1), ", ") <> " and " <> List.last(items)
 
   defp reached_ryker("direct"), do: "A direct message to Ryker."
   defp reached_ryker("mention"), do: "The message mentions @Ryker."
@@ -2971,7 +2964,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   end
 
   defp count(value, noun) when is_integer(value) and value >= 0,
-    do: "#{value} #{noun}#{if value == 1, do: "", else: "s"}"
+    do: Wording.count(value, noun)
 
   defp count(_value, _noun), do: nil
 

@@ -15,6 +15,7 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
   knowledge the moment it is written; a RYKER.md the repository holds is one
   more file the model may read.
   """
+  alias Ryker.Backoff
   alias Ryker.CoopFleet
   alias Ryker.RepositoryKnowledge.{Custody, Document, Executor, FleetSession, Prompt, Refresh}
   alias Ryker.RepositoryKnowledge.Run
@@ -289,7 +290,7 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
   defp unresolved(claim, run, reason) do
     with {:ok, run} <- Custody.reconciliation_failed(claim, run.id) do
       log_unresolved(run, reason)
-      Custody.yield(claim, min(Integer.pow(2, min(run.reconcile_attempt_count, 6)), 60))
+      Custody.yield(claim, Backoff.delay(run.reconcile_attempt_count + 1, 1, 60))
     end
   end
 

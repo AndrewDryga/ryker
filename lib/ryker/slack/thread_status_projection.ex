@@ -13,7 +13,7 @@ defmodule Ryker.Slack.ThreadStatusProjection do
   alias Ryker.Episodes
   alias Ryker.Ingress
   alias Ryker.Repo
-  alias Ryker.Slack.{ThreadActivity, ThreadStatuses}
+  alias Ryker.Slack.{Id, ThreadActivity, ThreadStatuses, Timestamp}
 
   @recent_terminal_seconds 24 * 60 * 60
   @maximum_rows 1_000
@@ -321,8 +321,7 @@ defmodule Ryker.Slack.ThreadStatusProjection do
     case String.split(conversation_ref || "", ":", parts: 3) do
       ["slack", ^workspace_ref, channel_ref]
       when byte_size(channel_ref) > 0 and is_binary(thread_ref) and byte_size(thread_ref) > 0 ->
-        if Regex.match?(~r/\A[A-Z0-9]+\z/, channel_ref) and
-             Regex.match?(~r/\A[0-9]{10,}\.[0-9]{1,6}\z/, thread_ref) do
+        if Id.valid?(channel_ref) and Timestamp.valid?(thread_ref) do
           {:ok, {channel_ref, thread_ref}}
         else
           :error

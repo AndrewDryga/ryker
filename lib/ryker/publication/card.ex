@@ -2,6 +2,7 @@ defmodule Ryker.Publication.Card do
   @moduledoc false
   alias Ryker.GitObject
   alias Ryker.Publication.{Publication, Review}
+  alias Ryker.Reference
 
   @review_fields ~w(candidate_tree draft_authorized gate policy_findings publishable reasons rebase repository title)
   @result_fields ~w(branch_ref commit_sha pull_request_number pull_request_url repository title)
@@ -60,8 +61,8 @@ defmodule Ryker.Publication.Card do
       when map_size(record) == 4 do
     with true <- reference?(ref),
          true <- is_map(payload) and Map.keys(payload) |> Enum.sort() == @review_fields,
-         true <- bounded_text?(payload["title"], 120),
-         true <- bounded_text?(payload["repository"], 256),
+         true <- Reference.text?(payload["title"], 120),
+         true <- Reference.valid?(payload["repository"], 256),
          true <- GitObject.id?(payload["candidate_tree"]),
          true <- payload["gate"] in ~w(passed failed startup_error not_run none),
          true <- payload["rebase"] in ~w(clean conflict),
@@ -86,12 +87,12 @@ defmodule Ryker.Publication.Card do
       when map_size(record) == 4 do
     with true <- reference?(ref),
          true <- is_map(payload) and Map.keys(payload) |> Enum.sort() == @result_fields,
-         true <- bounded_text?(payload["title"], 120),
-         true <- bounded_text?(payload["repository"], 256),
-         true <- bounded_text?(payload["branch_ref"], 256),
+         true <- Reference.text?(payload["title"], 120),
+         true <- Reference.valid?(payload["repository"], 256),
+         true <- Reference.valid?(payload["branch_ref"], 256),
          true <- GitObject.id?(payload["commit_sha"]),
          true <- is_integer(payload["pull_request_number"]) and payload["pull_request_number"] > 0,
-         true <- bounded_text?(payload["pull_request_url"], 2_048) do
+         true <- Reference.valid?(payload["pull_request_url"], 2_048) do
       {:ok, payload}
     else
       false -> {:error, {:invalid_publication_card, :result}}
@@ -104,12 +105,7 @@ defmodule Ryker.Publication.Card do
     do: is_binary(value) and Regex.match?(~r/\Apublication:[A-Za-z0-9_.:-]{1,240}\z/, value)
 
   defp bounded_list?(values, count, bytes) when is_list(values) and length(values) <= count,
-    do: Enum.all?(values, &bounded_text?(&1, bytes))
+    do: Enum.all?(values, &Reference.valid?(&1, bytes))
 
   defp bounded_list?(_values, _count, _bytes), do: false
-
-  defp bounded_text?(value, maximum) do
-    is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and
-      :binary.match(value, <<0>>) == :nomatch and String.trim(value) != ""
-  end
 end

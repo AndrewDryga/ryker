@@ -8,9 +8,9 @@ defmodule Ryker.Slack.Shortcut do
   alias Ryker.CanonicalJSON
   alias Ryker.Ingress
   alias Ryker.Reference
+  alias Ryker.Slack.Timestamp
 
   @callback_id "ryker_investigate_message"
-  @timestamp ~r/\A[0-9]{10,}\.[0-9]{1,6}\z/
 
   @type normalized :: %{
           action_token: nil,
@@ -112,7 +112,7 @@ defmodule Ryker.Slack.Shortcut do
   defp thread_ref(value, _message_ref), do: timestamp(value, :thread_ref)
 
   defp timestamp(value, field) do
-    if is_binary(value) and Regex.match?(@timestamp, value),
+    if Timestamp.valid?(value),
       do: {:ok, value},
       else: {:error, {:invalid_slack_shortcut, field}}
   end

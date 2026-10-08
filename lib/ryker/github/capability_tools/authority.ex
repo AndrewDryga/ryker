@@ -10,7 +10,6 @@ defmodule Ryker.GitHub.CapabilityTools.Authority do
   """
   alias Ryker.Episodes
   alias Ryker.GitHub.CapabilityTools.Arguments
-  alias Ryker.Repo
 
   @doc """
   The issue or pull request a request that came from GitHub is bound to, and
@@ -142,7 +141,7 @@ defmodule Ryker.GitHub.CapabilityTools.Authority do
     source_item_ref = "github:#{source.item_kind}:#{source.item_id}"
 
     episode
-    |> active_input_events()
+    |> Episodes.active_input_events()
     |> Enum.find_value({:error, :unauthorized}, fn event ->
       case event.payload do
         %{
@@ -255,20 +254,6 @@ defmodule Ryker.GitHub.CapabilityTools.Authority do
 
       _invalid ->
         {:error, :unauthorized}
-    end
-  end
-
-  defp active_input_events(%Episodes.Episode{id: episode_id, active_input_refs: refs}) do
-    refs = Enum.uniq(refs)
-
-    if refs == [] do
-      []
-    else
-      episode_id
-      |> Episodes.Event.Query.by_episode_id()
-      |> Episodes.Event.Query.admitted_inputs(refs)
-      |> Episodes.Event.Query.ordered_by_sequence_desc()
-      |> Repo.all()
     end
   end
 end

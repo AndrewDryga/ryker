@@ -7,6 +7,7 @@ defmodule Ryker.CoopFleet.Protocol do
   command-bound transfers. Unknown fields and unsupported versions fail before
   any durable command or event mutation can occur.
   """
+  alias Ryker.UTCDateTime
 
   @version 2
   @maximum_document_bytes 1_048_576
@@ -487,9 +488,9 @@ defmodule Ryker.CoopFleet.Protocol do
   end
 
   defp timestamp(value, field) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, %DateTime{} = datetime, 0} -> {:ok, DateTime.to_iso8601(datetime)}
-      _invalid -> {:error, {:invalid_coop_worker_protocol, field}}
+    case UTCDateTime.parse(value) do
+      {:ok, datetime} -> {:ok, DateTime.to_iso8601(datetime)}
+      :error -> {:error, {:invalid_coop_worker_protocol, field}}
     end
   end
 

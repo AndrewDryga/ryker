@@ -1,6 +1,7 @@
 defmodule Ryker.ControlPlane.SourceText do
   @moduledoc "Plain source-message content shared by the timeline and request inspector."
   alias Ryker.GitHub
+  alias Ryker.Wording
 
   # An answer given with a question card's button carries the chosen option, not text
   # (Andrew, 2026-10-01: the timeline said "Source content not recorded or expired").
@@ -44,15 +45,13 @@ defmodule Ryker.ControlPlane.SourceText do
     do: ["#{recording(file["media_type"])} transcript: #{words}"]
 
   defp transcript(%{"transcript_unavailable" => note}) when is_binary(note),
-    do: [sentence(note)]
+    do: [Wording.sentence(note)]
 
   defp transcript(_), do: []
 
   defp recording("video/" <> _format), do: "Video"
   defp recording(_media_type), do: "Voice message"
 
-  defp sentence(<<first::utf8, rest::binary>>), do: String.upcase(<<first::utf8>>) <> rest <> "."
-  defp sentence(note), do: note
   defp block(%{"text" => %{"text" => text}}), do: [text]
   defp block(%{"text" => text}) when is_binary(text), do: [text]
 

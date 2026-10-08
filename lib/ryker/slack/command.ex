@@ -7,6 +7,7 @@ defmodule Ryker.Slack.Command do
   their deterministic host transition finishes.
   """
   alias Ryker.Reference
+  alias Ryker.UTCDateTime
 
   @fields [:actor_ref, :channel_ref, :event_ref, :occurred_at, :text, :workspace_ref]
   @enforce_keys @fields
@@ -40,7 +41,7 @@ defmodule Ryker.Slack.Command do
       ) do
     values = [actor_ref, channel_ref, envelope_ref, workspace_ref]
 
-    if Enum.all?(values, &Reference.valid?/1) and text?(text) and utc?(occurred_at) do
+    if Enum.all?(values, &Reference.valid?/1) and text?(text) and UTCDateTime.utc?(occurred_at) do
       {:ok,
        %__MODULE__{
          actor_ref: actor_ref,
@@ -61,9 +62,6 @@ defmodule Ryker.Slack.Command do
     is_binary(value) and String.valid?(value) and byte_size(value) <= 4_096 and
       :binary.match(value, <<0>>) == :nomatch
   end
-
-  defp utc?(%DateTime{} = value),
-    do: value.time_zone == "Etc/UTC" and value.utc_offset == 0 and value.std_offset == 0
 
   defp normalize_datetime(%DateTime{microsecond: {microsecond, _precision}} = value),
     do: %{value | microsecond: {microsecond, 6}}

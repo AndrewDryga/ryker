@@ -17,7 +17,7 @@ defmodule Ryker.Slack.Names do
   """
   use GenServer
   alias Ryker.InspectionRedactor
-  alias Ryker.Slack.Client
+  alias Ryker.Slack.{Client, Permalink}
 
   @table __MODULE__
   @ttl 900_000
@@ -360,7 +360,7 @@ defmodule Ryker.Slack.Names do
         url <> "/team/" <> ref
 
       _unknown ->
-        "https://slack.com/app_redirect?" <> URI.encode_query(team: workspace, channel: ref)
+        Permalink.app_redirect(workspace, ref)
     end
   end
 

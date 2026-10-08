@@ -46,7 +46,7 @@ defmodule Ryker.Improvement.Executor do
       not is_nil(run.remote_stopped_at) ->
         {:ok, :stopped}
 
-      expired?(run, @longest_turn_seconds + settings.execution_timeout_seconds) ->
+      Repo.passed?(run.started_at, @longest_turn_seconds + settings.execution_timeout_seconds) ->
         with {:ok, _run} <-
                Analyses.record_expired_stop(
                  claim,
@@ -89,7 +89,7 @@ defmodule Ryker.Improvement.Executor do
 
   defp session_step(claim, run, session, settings) do
     cond do
-      not isolated_session?(session) ->
+      not Coop.Documents.isolated_session?(session) ->
         stop(claim, run, session, :improvement_session_not_isolated, settings)
 
       # The worker closed or used up the session before its turn was sent:
@@ -209,11 +209,6 @@ defmodule Ryker.Improvement.Executor do
   defp located_session(other, _local), do: other
 
   # Retained messages go only to an isolated session, as learning's do.
-  defp isolated_session?(session) do
-    is_nil(session["controller_tools_digest"]) and is_nil(session["workspace_task"]) and
-      session["repository_read_only"] == true and session["project_env"] == false and
-      session["project_mcp"] == false and Map.get(session, "companions", []) == []
-  end
 
   # -- The turn ----------------------------------------------------------------------
 
@@ -358,7 +353,7 @@ defmodule Ryker.Improvement.Executor do
   end
 
   defp process_turn(claim, run, session, %{"state" => state}, settings) when state in @waiting do
-    if expired?(run, settings.execution_timeout_seconds),
+    if Repo.passed?(run.started_at, settings.execution_timeout_seconds),
       do: stop(claim, run, session, :improvement_execution_timeout, settings),
       else: {:ok, :waiting}
   end
@@ -479,12 +474,11 @@ defmodule Ryker.Improvement.Executor do
 
   defp operation_state(_operation, _method, _type), do: {:error, :improvement_remote_unresolved}
 
-  defp exact_turn(%{"id" => id, "session_id" => session_id}, session_id, expected)
-       when is_binary(id) and byte_size(id) in 1..1024 and (is_nil(expected) or expected == id),
-       do: :ok
-
-  defp exact_turn(_turn, _session_id, _expected),
-    do: {:error, :improvement_remote_identity_conflict}
+  defp exact_turn(turn, session_id, expected) do
+    if Coop.Documents.exact_turn?(turn, session_id, expected),
+      do: :ok,
+      else: {:error, :improvement_remote_identity_conflict}
+  end
 
   # Every observed turn is metered under the lease, as learning's are.
   defp observe(claim, run, session, turn) do
@@ -507,15 +501,5 @@ defmodule Ryker.Improvement.Executor do
     with {:ok, _renewed} <- Analyses.renew(claim, settings.lease_seconds) do
       apply(settings.api, operation, [settings.client | arguments])
     end
-  end
-
-  defp expired?(run, seconds) do
-    %{rows: [[expired]]} =
-      Repo.query!(
-        "SELECT $1::timestamptz + ($2 * interval '1 second') <= clock_timestamp()",
-        [run.started_at, seconds]
-      )
-
-    expired
   end
 end

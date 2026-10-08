@@ -12,6 +12,7 @@ defmodule Ryker.Observability.Fleet do
   alias Ryker.CoopFleet
   alias Ryker.Defaults
   alias Ryker.Observability.Reads
+  alias Ryker.UTCDateTime
 
   @slot_kinds ~w(session turn workspace)a
 
@@ -68,7 +69,7 @@ defmodule Ryker.Observability.Fleet do
        %{
          capacity: capacity(eligible),
          checkpoints: %{
-           latest_age_seconds: Reads.age_seconds(now, latest_checkpoint),
+           latest_age_seconds: UTCDateTime.age_seconds(now, latest_checkpoint),
            total: checkpoints
          },
          commands: commands,
@@ -77,7 +78,7 @@ defmodule Ryker.Observability.Fleet do
          event_cursor_lag: event_cursor_lag,
          expired_current_placements: expired,
          fresh_workers: length(fresh),
-         oldest_queued_command_age_seconds: Reads.age_seconds(now, oldest_queued_command),
+         oldest_queued_command_age_seconds: UTCDateTime.age_seconds(now, oldest_queued_command),
          placements: placements,
          provider_states: Enum.frequencies_by(fresh, &provider_state/1),
          required: settings.required,
@@ -140,7 +141,7 @@ defmodule Ryker.Observability.Fleet do
       oldest_measurement_age_seconds:
         if(measured_at == [],
           do: 0,
-          else: Reads.age_seconds(now, Enum.min(measured_at, DateTime))
+          else: UTCDateTime.age_seconds(now, Enum.min(measured_at, DateTime))
         ),
       reclaimed_bytes: Enum.sum(Enum.map(workers, & &1.storage_reclaimed_bytes)),
       refused: Enum.count(fresh, &(&1.storage["allocation"] == "refused")),

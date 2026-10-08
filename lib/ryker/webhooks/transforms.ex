@@ -7,6 +7,7 @@ defmodule Ryker.Webhooks.Transforms do
   module. Those remain part of the validated route.
   """
   alias Ryker.CanonicalJSON
+  alias Ryker.UTCDateTime
   alias Ryker.Webhooks.{Input, Route}
 
   @maximum_alerts 500
@@ -220,7 +221,7 @@ defmodule Ryker.Webhooks.Transforms do
       optional_reference?(metadata[:event_id], 1_024),
       optional_reference?(metadata[:event_type], 256),
       optional_reference?(metadata[:item_id], 1_024),
-      utc_datetime?(metadata[:occurred_at]),
+      UTCDateTime.utc?(metadata[:occurred_at]),
       metadata[:occurred_at_source] in [:source, :ingress],
       valid_revision?(metadata[:revision])
     ]
@@ -547,12 +548,6 @@ defmodule Ryker.Webhooks.Transforms do
   end
 
   defp optional_reference?(_value, _maximum), do: false
-
-  defp utc_datetime?(%DateTime{} = value) do
-    value.time_zone == "Etc/UTC" and value.utc_offset == 0 and value.std_offset == 0
-  end
-
-  defp utc_datetime?(_value), do: false
 
   defp valid_revision?(value),
     do: is_integer(value) and value > 0 and value <= @maximum_revision

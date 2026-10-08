@@ -19,7 +19,7 @@ defmodule Ryker.Slack.CapabilityTools do
   alias Ryker.{Options, Rescued}
   alias Ryker.Slack.CapabilityTools.{Actions, Arguments, Authority, ChannelListing, Search}
   alias Ryker.Slack.CapabilityTools.SourceReader
-  alias Ryker.Slack.{ChannelConfigurations, Mentions, SourceAudits, SourceRef}
+  alias Ryker.Slack.{ChannelConfigurations, Id, Mentions, SourceAudits, SourceRef}
 
   @spec list(map() | keyword()) :: [map()]
   def list(options) do
@@ -487,7 +487,7 @@ defmodule Ryker.Slack.CapabilityTools do
       is_function(callbacks.propose_post, 2),
       is_function(callbacks.reaction_added, 4),
       is_function(callbacks.configuration, 2),
-      SourceRef.slack_id?(workspace_ref)
+      Id.valid?(workspace_ref)
     ])
   end
 

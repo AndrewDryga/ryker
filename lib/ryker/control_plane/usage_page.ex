@@ -10,6 +10,7 @@ defmodule Ryker.ControlPlane.UsagePage do
   alias Ryker.ControlPlane.UsageChart
   alias Ryker.Episodes
   alias Ryker.Slack
+  alias Ryker.Wording
   alias Ryker.Work
 
   # Every work type the projection can name; anything else is a missing identity.
@@ -36,8 +37,8 @@ defmodule Ryker.ControlPlane.UsagePage do
       filters(snapshot),
       "<section class=\"usage-summary\" aria-label=\"Usage summary\"><div class=\"usage-headlines\">",
       stat("Cost", money(totals), "usage-cost"),
-      stat("Requests", number(value(totals, :requests))),
-      stat("Executions", number(totals.attempts)),
+      stat("Requests", Wording.number(value(totals, :requests))),
+      stat("Executions", Wording.number(totals.attempts)),
       stat("Total tokens", compact(value(totals, :tokens))),
       "</div><div class=\"usage-token-groups\"><div class=\"usage-token-group\"><span class=\"usage-group-label\">Input</span>",
       stat("Fresh input", compact(totals.input_tokens)),
@@ -94,11 +95,11 @@ defmodule Ryker.ControlPlane.UsagePage do
           "<br><small>",
           e(Enum.join(Enum.reject([row.provider, row.model, row.effort], &is_nil/1), " · ")),
           "</small></td><td>",
-          e(number(row.attempts)),
+          e(Wording.number(row.attempts)),
           "</td><td>",
-          e(number(row.unsuccessful)),
+          e(Wording.number(row.unsuccessful)),
           "</td><td>",
-          e(number(row.corrections)),
+          e(Wording.number(row.corrections)),
           "</td><td>",
           e(duration(row.average_provider_ms)),
           "</td></tr>"
@@ -160,7 +161,7 @@ defmodule Ryker.ControlPlane.UsagePage do
       "\"><div class=\"usage-section-heading\"><h2>",
       title,
       "</h2><span>",
-      if(length(rows) > 500, do: "500+", else: number(length(known))),
+      if(length(rows) > 500, do: "500+", else: Wording.number(length(known))),
       "</span></div>",
       if(known == [] and rows != [], do: "", else: breakdown(known, snapshot, kind)),
       truncation(rows),
@@ -181,7 +182,7 @@ defmodule Ryker.ControlPlane.UsagePage do
           "<tr><td class=\"usage-identity\">",
           identity(row, snapshot, :user),
           "</td><td>",
-          primary(number(value(row, :requests)), ""),
+          primary(Wording.number(value(row, :requests)), ""),
           "</td><td>",
           primary(tokens(row, :tokens), ""),
           "</td><td class=\"usage-money\">",
@@ -239,23 +240,20 @@ defmodule Ryker.ControlPlane.UsagePage do
   # belongs to no request, such as learning, leads with how many times it ran.
   defp usage(%{requests: requests} = row) when requests > 0 do
     [
-      primary(number(requests), plural(requests, " request", " requests")),
+      primary(Wording.number(requests), " " <> Wording.word(requests, "request")),
       secondary(executions(row) <> " · " <> tokens(row, :tokens) <> " tokens")
     ]
   end
 
   defp usage(row) do
     [
-      primary(number(row.attempts), plural(row.attempts, " execution", " executions")),
+      primary(Wording.number(row.attempts), " " <> Wording.word(row.attempts, "execution")),
       secondary(tokens(row, :tokens) <> " tokens")
     ]
   end
 
   defp executions(row),
-    do: number(row.attempts) <> plural(row.attempts, " execution", " executions")
-
-  defp plural(1, one, _many), do: one
-  defp plural(_count, _one, many), do: many
+    do: Wording.number(row.attempts) <> " " <> Wording.word(row.attempts, "execution")
 
   # What an empty breakdown means. Channels are Slack channels and users are
   # people in Slack or GitHub, so either is empty while Chat work ran; "No
@@ -600,8 +598,6 @@ defmodule Ryker.ControlPlane.UsagePage do
     )
   end
 
-  defp number(n), do: to_string(n) |> String.replace(~r/\B(?=(\d{3})+(?!\d))/, ",")
-
   defp compact(n) when n >= 1_000_000 do
     (:erlang.float_to_binary(n / 1_000_000, decimals: 2)
      |> String.trim_trailing("0")
@@ -609,7 +605,7 @@ defmodule Ryker.ControlPlane.UsagePage do
   end
 
   defp compact(n) when n >= 1000, do: decimal(n / 1000) <> "k"
-  defp compact(n), do: number(n)
+  defp compact(n), do: Wording.number(n)
   defp decimal(n), do: :erlang.float_to_binary(n * 1.0, decimals: 1) |> String.trim_trailing(".0")
   defp coordinate(n), do: :erlang.float_to_binary(n * 1.0, decimals: 3)
   defp percent(nil), do: "—"

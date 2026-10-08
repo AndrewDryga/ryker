@@ -13,7 +13,7 @@ defmodule Ryker.Learning.Executor do
     result =
       case Learning.authorize(run.id, claim) do
         {:ok, run} ->
-          if expired?(run, settings),
+          if Repo.passed?(run.started_at, settings.execution_timeout_seconds),
             do: stop(claim, run, :learning_execution_timeout, settings),
             else: execute(claim, run, settings)
 
@@ -137,7 +137,7 @@ defmodule Ryker.Learning.Executor do
   # authority when the session was created, so no retry of this attempt can
   # change it: stop the attempt before anything is disclosed.
   defp disclosable(claim, run, session, settings) do
-    if isolated_session?(session) do
+    if Coop.Documents.isolated_session?(session) do
       :ok
     else
       case stop(claim, run, :learning_session_not_isolated, settings) do
@@ -530,33 +530,16 @@ defmodule Ryker.Learning.Executor do
   defp valid_session_state?(state, revision),
     do: state in ~w(open exhausted closed discarded) and is_integer(revision) and revision > 0
 
-  defp isolated_session?(session) do
-    is_nil(session["controller_tools_digest"]) and is_nil(session["workspace_task"]) and
-      session["repository_read_only"] == true and
-      session["project_env"] == false and session["project_mcp"] == false and
-      Map.get(session, "companions", []) == []
+  defp exact_turn(turn, session_id, expected) do
+    if Coop.Documents.exact_turn?(turn, session_id, expected),
+      do: :ok,
+      else: {:error, :learning_remote_identity_conflict}
   end
-
-  defp exact_turn(%{"id" => id, "session_id" => sid}, sid, expected)
-       when is_binary(id) and byte_size(id) in 1..1024 and (is_nil(expected) or expected == id),
-       do: :ok
-
-  defp exact_turn(_, _, _), do: {:error, :learning_remote_identity_conflict}
 
   defp call(claim, settings, operation, arguments) do
     with {:ok, _} <- Batches.renew(claim, settings.lease_seconds) do
       apply(settings.api, operation, [settings.client | arguments])
     end
-  end
-
-  defp expired?(run, settings) do
-    %{rows: [[expired]]} =
-      Repo.query!(
-        "SELECT $1::timestamptz + ($2 * interval '1 second') <= clock_timestamp()",
-        [run.started_at, settings.execution_timeout_seconds]
-      )
-
-    expired
   end
 
   defp submission(run),

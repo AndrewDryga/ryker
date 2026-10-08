@@ -18,6 +18,19 @@ defmodule Ryker.Slack.WorkControls do
   @publication_recovery_fields @publication_fields ++ [:expected_generation]
   @record_fields @control_fields ++ [:record_kind]
 
+  @doc """
+  Whether a card offers Stop: its episode is working on exactly this turn,
+  and the turn has not begun stopping, parking or settling.
+  """
+  @spec stoppable?(term(), term()) :: boolean()
+  def stoppable?(
+        %Episodes.Episode{state: :working, owner_kind: :turn, owner_ref: turn_ref},
+        %Work.Turn{status: :pending, turn_ref: turn_ref}
+      ),
+      do: true
+
+  def stoppable?(_episode, _turn), do: false
+
   @spec stop(map()) :: {:ok, map()} | {:error, term()}
   def stop(attributes) do
     with {:ok, attributes} <- attributes(attributes, @control_fields),
@@ -197,14 +210,17 @@ defmodule Ryker.Slack.WorkControls do
 
   defp close_resolved(_resolved, _attributes), do: {:error, :work_control_stale}
 
-  defp stoppable_turn(%{state: :working, owner_kind: :turn, owner_ref: turn_ref, id: id}) do
+  # The card offered Stop by `stoppable?/2`; pressing it asks the same of the
+  # turn as it is now.
+  defp stoppable_turn(
+         %{state: :working, owner_kind: :turn, owner_ref: turn_ref, id: id} = episode
+       ) do
     turn =
       id |> Work.Turn.Query.by_episode_id() |> Work.Turn.Query.by_turn_ref(turn_ref) |> Repo.one()
 
-    case turn do
-      %Work.Turn{status: :pending} -> {:ok, turn_ref}
-      _stopping_parked_settled_or_gone -> {:error, :work_control_stale}
-    end
+    if stoppable?(episode, turn),
+      do: {:ok, turn_ref},
+      else: {:error, :work_control_stale}
   end
 
   defp stoppable_turn(_episode), do: {:error, :work_control_stale}

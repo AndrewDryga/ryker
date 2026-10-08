@@ -13,6 +13,7 @@ defmodule Ryker.Work.Activity do
   alias Ryker.Ingress
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
+  alias Ryker.UTCDateTime
   alias Ryker.Work.{ActivityEvent, ActivityPaths}
   alias Ryker.Work.ActivityRetention
   alias Ryker.Work.Session
@@ -452,9 +453,9 @@ defmodule Ryker.Work.Activity do
   defp positive(_value, field), do: {:error, {:invalid_coop_activity, field}}
 
   defp timestamp(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, 0} -> {:ok, datetime}
-      _invalid -> {:error, {:invalid_coop_activity, :occurred_at}}
+    case UTCDateTime.parse(value) do
+      {:ok, datetime} -> {:ok, datetime}
+      :error -> {:error, {:invalid_coop_activity, :occurred_at}}
     end
   end
 

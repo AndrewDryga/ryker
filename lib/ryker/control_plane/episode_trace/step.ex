@@ -117,18 +117,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Step do
     number <> suffix
   end
 
-  def format_integer(value) do
-    Integer.to_string(value)
-    |> String.reverse()
-    |> String.replace(~r/(\d{3})(?=\d)/, "\\1,")
-    |> String.reverse()
-  end
-
-  def plural(1, noun), do: "1 #{noun}"
-  def plural(value, noun), do: "#{value} #{noun}s"
-  def plural(1, noun, _plural), do: "1 #{noun}"
-  def plural(value, _noun, plural), do: "#{value} #{plural}"
-
   defp optional_human(nil), do: nil
   defp optional_human(value), do: human(value)
 

@@ -10,6 +10,7 @@ defmodule Ryker.ControlPlane.ContextSelection do
   message sent") said nothing, so the card carries no counter.
   """
   alias Ryker.ControlPlane.Units
+  alias Ryker.Wording
 
   @listed [
     {"observations", "Source notes"},
@@ -52,7 +53,7 @@ defmodule Ryker.ControlPlane.ContextSelection do
 
       earlier ->
         "The model was given only #{new_messages(new)}. This run continues the session, " <>
-          "which already has the #{plural(earlier, "earlier message")} of this request."
+          "which already has the #{Wording.count(earlier, "earlier message")} of this request."
     end
   end
 
@@ -71,7 +72,7 @@ defmodule Ryker.ControlPlane.ContextSelection do
 
         earlier > 0 ->
           "The model was given #{new_messages(new)} and the " <>
-            "#{plural(earlier, "earlier message")} of this request, " <> new_session()
+            "#{Wording.count(earlier, "earlier message")} of this request, " <> new_session()
 
         left_out > 0 ->
           "The model was given #{new_messages(new)} only."
@@ -106,7 +107,7 @@ defmodule Ryker.ControlPlane.ContextSelection do
       ]
       |> Enum.reject(&is_nil/1)
 
-    "#{plural(left_out, "earlier message")} #{were(left_out)} left out: " <>
+    "#{Wording.count(left_out, "earlier message")} #{were(left_out)} left out: " <>
       Enum.join(reasons, " and ") <> "."
   end
 
@@ -139,9 +140,6 @@ defmodule Ryker.ControlPlane.ContextSelection do
        do: "Up to #{inputs} messages · #{Units.bytes(bytes)} of context"
 
   defp limits(_limits), do: nil
-
-  defp plural(1, noun), do: "1 #{noun}"
-  defp plural(value, noun), do: "#{value} #{noun}s"
 
   defp were(1), do: "was"
   defp were(_count), do: "were"

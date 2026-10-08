@@ -17,6 +17,7 @@ defmodule Ryker.Slack.Gateway do
   says it.
   """
   use GenServer
+  alias Ryker.Backoff
   alias Ryker.Ingress
   alias Ryker.Options
   alias Ryker.Slack.{Command, Event, HomeEvent, HomeInteraction, HomeSubmission, Interaction}
@@ -929,8 +930,7 @@ defmodule Ryker.Slack.Gateway do
   defp schedule_reconnect(%{reconnect_timer: timer} = state) when is_reference(timer), do: state
 
   defp schedule_reconnect(state) do
-    doublings = min(max(state.reconnect_failures - 1, 0), 16)
-    delay = min(state.reconnect_ms * Integer.pow(2, doublings), @maximum_reconnect_ms)
+    delay = Backoff.delay(state.reconnect_failures, state.reconnect_ms, @maximum_reconnect_ms, 16)
     %{state | reconnect_timer: Process.send_after(self(), :connect, delay)}
   end
 

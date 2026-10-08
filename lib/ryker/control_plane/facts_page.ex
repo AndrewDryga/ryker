@@ -16,9 +16,10 @@ defmodule Ryker.ControlPlane.FactsPage do
 
   alias Phoenix.HTML.Safe
   alias Ryker.{Behaviors, Memories, Records}
-  alias Ryker.ControlPlane.{Kit, MemoryFormat, MemoryProjection, Paths}
+  alias Ryker.ControlPlane.{Kit, MemoryFormat, MemoryProjection, Paths, Search}
   alias Ryker.InspectionRedactor
   alias Ryker.Slack
+  alias Ryker.Wording
 
   @doc """
   The topics an open Facts page listens to, as the context functions that
@@ -193,7 +194,7 @@ defmodule Ryker.ControlPlane.FactsPage do
     reviews = Map.get(snapshot, :reviews, [])
 
     %{
-      q: Map.get(snapshot, :q) || search_text(params["q"]),
+      q: Map.get(snapshot, :q) || Search.term(params["q"]) || "",
       total: Map.get(snapshot, :memory_total, length(facts)),
       facts: Enum.map(facts, &fact/1),
       page: Map.get(snapshot, :facts_page, %{page: 1, pages: 1, total: length(facts)}),
@@ -242,7 +243,7 @@ defmodule Ryker.ControlPlane.FactsPage do
           name: subjects(entries),
           state: {:warn, "Saved more than once"},
           text: nil,
-          meta: [MemoryFormat.count(length(entries), "copy", "copies")],
+          meta: [Wording.count(length(entries), "copy")],
           entries: entries
         })
 
@@ -294,10 +295,7 @@ defmodule Ryker.ControlPlane.FactsPage do
   defp subjects([]), do: "Saved facts"
   defp subjects([entry]), do: entry.subject
 
-  defp subjects(entries) do
-    {rest, [last]} = Enum.split(Enum.map(entries, & &1.subject), -1)
-    Enum.join(rest, ", ") <> " and " <> last
-  end
+  defp subjects(entries), do: entries |> Enum.map(& &1.subject) |> Wording.list()
 
   @review_lede "Ryker has not used these in a while, or has the same fact saved more than once. Keep, change or forget each one."
 
@@ -321,8 +319,8 @@ defmodule Ryker.ControlPlane.FactsPage do
 
     noun =
       if Enum.all?(entries, &(&1["source_type"] in [nil, "memory"])),
-        do: MemoryFormat.count(count, "fact", "facts"),
-        else: MemoryFormat.count(count, "saved item", "saved items")
+        do: Wording.count(count, "fact"),
+        else: Wording.count(count, "saved item")
 
     problem =
       cond do
@@ -373,9 +371,6 @@ defmodule Ryker.ControlPlane.FactsPage do
 
   defp redact(nil, _secrets), do: nil
   defp redact(text, secrets), do: InspectionRedactor.artifact(text, secrets: secrets).text
-
-  defp search_text(value) when is_binary(value), do: String.slice(String.trim(value), 0, 200)
-  defp search_text(_value), do: ""
 
   defp dom_id(ref), do: String.replace(to_string(ref), ~r/[^A-Za-z0-9_-]/, "-")
 end

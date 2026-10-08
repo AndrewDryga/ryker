@@ -8,7 +8,6 @@ defmodule Ryker.Slack.CapabilityTools.Authority do
   Slack's own conversation record decides whether a channel is visible.
   """
   alias Ryker.Episodes
-  alias Ryker.Repo
   alias Ryker.Slack.CapabilityTools.Arguments
   alias Ryker.Slack.Mentions
   alias Ryker.Work
@@ -104,7 +103,7 @@ defmodule Ryker.Slack.CapabilityTools.Authority do
     conversation_ref = "slack:#{source.workspace_ref}:#{source.channel_ref}"
 
     episode
-    |> active_input_events()
+    |> Episodes.active_input_events()
     |> Enum.find_value({:error, :unauthorized}, fn event ->
       case event.payload do
         %{
@@ -158,7 +157,7 @@ defmodule Ryker.Slack.CapabilityTools.Authority do
     conversation_ref = "slack:#{source.workspace_ref}:#{source.channel_ref}"
 
     episode
-    |> active_input_events()
+    |> Episodes.active_input_events()
     |> Enum.find_value(
       {:error, :unauthorized},
       &post_instruction_authority(&1, source, conversation_ref, destination_ref)
@@ -200,7 +199,7 @@ defmodule Ryker.Slack.CapabilityTools.Authority do
   @spec current_event_ref(term()) :: {:ok, String.t()} | {:error, atom()}
   def current_event_ref(%{episode: %Episodes.Episode{} = episode}) do
     episode
-    |> active_input_events()
+    |> Episodes.active_input_events()
     |> Enum.find_value({:error, :slack_action_token_unavailable}, fn event ->
       input = get_in(event.payload, ["payload"])
 
@@ -214,7 +213,7 @@ defmodule Ryker.Slack.CapabilityTools.Authority do
   @spec current_requester_ref(term()) :: {:ok, String.t()} | {:error, atom()}
   def current_requester_ref(%{episode: %Episodes.Episode{} = episode}) do
     episode
-    |> active_input_events()
+    |> Episodes.active_input_events()
     |> Enum.find_value({:error, :slack_requester_unavailable}, fn event ->
       case event.payload do
         # Attribution is not authorization: channel visibility was checked
@@ -230,20 +229,6 @@ defmodule Ryker.Slack.CapabilityTools.Authority do
   end
 
   def current_requester_ref(_binding), do: {:error, :slack_requester_unavailable}
-
-  defp active_input_events(%Episodes.Episode{id: episode_id, active_input_refs: refs}) do
-    refs = Enum.uniq(refs)
-
-    if refs == [] do
-      []
-    else
-      episode_id
-      |> Episodes.Event.Query.by_episode_id()
-      |> Episodes.Event.Query.admitted_inputs(refs)
-      |> Episodes.Event.Query.ordered_by_sequence_desc()
-      |> Repo.all()
-    end
-  end
 
   # Search runs from a live, non-shared channel; private is fine here because
   # every result is then checked for public visibility on its own.

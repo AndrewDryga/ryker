@@ -1,5 +1,6 @@
 defmodule Ryker.Publication.FollowupDispatcher do
   @moduledoc false
+  alias Ryker.Backoff
   alias Ryker.Publication.{FollowupExecutor, Followups}
   alias Ryker.Reference
 
@@ -58,7 +59,12 @@ defmodule Ryker.Publication.FollowupDispatcher do
   end
 
   defp defer(:poll, claim, reason, settings) do
-    delay = backoff(claim.followup.failure_count + 1, settings)
+    delay =
+      Backoff.delay(
+        claim.followup.failure_count + 1,
+        settings.retry_base_seconds,
+        settings.retry_max_seconds
+      )
 
     case settings.custody.defer_poll(
            claim.publication.ref,
@@ -75,7 +81,12 @@ defmodule Ryker.Publication.FollowupDispatcher do
   end
 
   defp defer(:delivery, claim, reason, settings) do
-    delay = backoff(claim.event.attempt_count, settings)
+    delay =
+      Backoff.delay(
+        claim.event.attempt_count,
+        settings.retry_base_seconds,
+        settings.retry_max_seconds
+      )
 
     case settings.custody.defer_delivery(claim.event.ref, claim.lease_ref, delay, reason) do
       {:ok, _event} ->
@@ -84,11 +95,6 @@ defmodule Ryker.Publication.FollowupDispatcher do
       {:error, defer_reason} ->
         {:error, {:publication_followup_dispatch_failed, reason, defer_reason}}
     end
-  end
-
-  defp backoff(attempt, settings) do
-    exponent = min(max(attempt - 1, 0), 20)
-    min(settings.retry_base_seconds * Integer.pow(2, exponent), settings.retry_max_seconds)
   end
 
   defp settings(options) when is_list(options) do

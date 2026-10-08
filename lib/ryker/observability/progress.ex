@@ -8,6 +8,7 @@ defmodule Ryker.Observability.Progress do
   """
   alias Ryker.Observability.Reads
   alias Ryker.Repo
+  alias Ryker.UTCDateTime
 
   @lanes ~w(
     admission
@@ -103,7 +104,7 @@ defmodule Ryker.Observability.Progress do
 
   defp heartbeat([lane, outcome, cycle_count, observed_at], now) do
     %{
-      age_seconds: Reads.age_seconds(now, observed_at),
+      age_seconds: UTCDateTime.age_seconds(now, observed_at),
       cycle_count: cycle_count,
       lane: String.to_existing_atom(lane),
       outcome: String.to_existing_atom(outcome),

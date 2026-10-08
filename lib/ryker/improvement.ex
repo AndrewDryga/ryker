@@ -49,6 +49,7 @@ defmodule Ryker.Improvement do
   alias Ryker.Ingress
   alias Ryker.Repo
   alias Ryker.RoutingExamples
+  alias Ryker.Wording
 
   @reasons ~w(frustrated reaction asked_again edited rated)
 
@@ -284,7 +285,7 @@ defmodule Ryker.Improvement do
           &(&1 == false)
         )
 
-    "#{week.found} new: #{listed(kinds)}."
+    "#{week.found} new: #{Wording.list(kinds)}."
   end
 
   defp decided(%{accepted: 0, dismissed: 0}), do: "None accepted or dismissed."
@@ -296,12 +297,9 @@ defmodule Ryker.Improvement do
       week.dismissed > 0 && "#{week.dismissed} dismissed"
     ]
     |> Enum.reject(&(&1 == false))
-    |> listed()
+    |> Wording.list()
     |> Kernel.<>(".")
   end
-
-  defp listed([only]), do: only
-  defp listed(parts), do: Enum.join(Enum.drop(parts, -1), ", ") <> " and " <> List.last(parts)
 
   # -- Decisions -------------------------------------------------------------------
 

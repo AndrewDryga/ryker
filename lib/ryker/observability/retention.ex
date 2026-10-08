@@ -9,6 +9,7 @@ defmodule Ryker.Observability.Retention do
   """
   alias Ryker.Observability.Reads
   alias Ryker.Retention
+  alias Ryker.UTCDateTime
   alias Ryker.Work
 
   @doc "Cleanup at the database clock reading `now`."
@@ -28,8 +29,8 @@ defmodule Ryker.Observability.Retention do
        %{
          blocked: blocked,
          eligible: eligible_count,
-         last_reclaimed_age_seconds: Reads.age_seconds(now, last_reclaimed),
-         oldest_eligible_age_seconds: Reads.age_seconds(now, oldest_eligible),
+         last_reclaimed_age_seconds: UTCDateTime.age_seconds(now, last_reclaimed),
+         oldest_eligible_age_seconds: UTCDateTime.age_seconds(now, oldest_eligible),
          retained: Map.new(retained),
          retrying: retrying,
          sessions: sessions

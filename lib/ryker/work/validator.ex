@@ -7,6 +7,7 @@ defmodule Ryker.Work.Validator do
   durable wait that will resume it. It deliberately does not grade arbitrary
   prose, infer cause, or impose alert-specific checklists.
   """
+  alias Ryker.Reference
   alias Ryker.Slack
   alias Ryker.Work.{Final, Result}
 
@@ -632,7 +633,7 @@ defmodule Ryker.Work.Validator do
          } = goal
        )
        when map_size(goal) == 3 do
-    if reference?(id) and bounded_text?(requested_outcome, 500) and
+    if reference?(id) and Reference.text?(requested_outcome, 500) and
          state in ~w(ready working waiting blocked) do
       {:ok, %{id: id, requested_outcome: requested_outcome, state: state}}
     else
@@ -733,7 +734,7 @@ defmodule Ryker.Work.Validator do
 
   defp prepare_platform_action_identity(:reaction, action, source_item_ref)
        when action in ["add", "remove"] do
-    if bounded_text?(source_item_ref, 1_024),
+    if Reference.valid?(source_item_ref),
       do: {:ok, String.to_existing_atom(action), source_item_ref},
       else: {:error, :source_item_ref}
   end
@@ -768,7 +769,7 @@ defmodule Ryker.Work.Validator do
        )
        when map_size(input) == 2 do
     if reference?(input_ref) and
-         (is_nil(source_item_ref) or bounded_text?(source_item_ref, 1_024)) do
+         (is_nil(source_item_ref) or Reference.valid?(source_item_ref)) do
       {:ok, %{input_ref: input_ref, source_item_ref: source_item_ref}}
     else
       {:error, :current_human_input}
@@ -805,11 +806,11 @@ defmodule Ryker.Work.Validator do
 
     with true <- Map.keys(workspace) |> Enum.sort() == fields,
          true <-
-           Enum.all?(~w(base_commit fork_head fork_tree), &bounded_text?(workspace[&1], 256)),
+           Enum.all?(~w(base_commit fork_head fork_tree), &Reference.valid?(workspace[&1], 256)),
          true <-
            is_nil(workspace["admitted_source_tree"]) or
-             bounded_text?(workspace["admitted_source_tree"], 256),
-         true <- bounded_text?(workspace["repository"], 256),
+             Reference.valid?(workspace["admitted_source_tree"], 256),
+         true <- Reference.valid?(workspace["repository"], 256),
          true <- valid_goal_ids?(workspace["goal_ids"]),
          true <- valid_workspace_counts?(workspace) do
       {:ok, workspace}
@@ -899,9 +900,4 @@ defmodule Ryker.Work.Validator do
 
   defp reference?(value),
     do: is_binary(value) and String.valid?(value) and Regex.match?(@reference_regex, value)
-
-  defp bounded_text?(value, maximum) do
-    is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and
-      :binary.match(value, <<0>>) == :nomatch and String.trim(value) != ""
-  end
 end

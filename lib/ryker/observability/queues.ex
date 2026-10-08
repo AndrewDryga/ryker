@@ -14,6 +14,7 @@ defmodule Ryker.Observability.Queues do
   alias Ryker.Publication
   alias Ryker.Retention
   alias Ryker.Schedules
+  alias Ryker.UTCDateTime
   alias Ryker.Work
 
   @type queue :: %{
@@ -142,8 +143,8 @@ defmodule Ryker.Observability.Queues do
          active_leases: active_leases,
          claimable: claimable_count,
          name: :retention,
-         oldest_active_age_seconds: Reads.age_seconds(now, oldest_active),
-         oldest_age_seconds: Reads.age_seconds(now, oldest_claimable)
+         oldest_active_age_seconds: UTCDateTime.age_seconds(now, oldest_active),
+         oldest_age_seconds: UTCDateTime.age_seconds(now, oldest_claimable)
        }}
     end
   end
@@ -190,8 +191,8 @@ defmodule Ryker.Observability.Queues do
          active_leases: active_leases,
          claimable: claimable_count,
          name: name,
-         oldest_active_age_seconds: Reads.age_seconds(now, oldest_active),
-         oldest_age_seconds: Reads.age_seconds(now, oldest_claimable)
+         oldest_active_age_seconds: UTCDateTime.age_seconds(now, oldest_active),
+         oldest_age_seconds: UTCDateTime.age_seconds(now, oldest_claimable)
        }}
     end
   end

@@ -14,8 +14,10 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
   way first, then the lists, and each cut is named in `omitted`.
   """
   alias Ryker.CanonicalJSON
+  alias Ryker.PromptDocument
   alias Ryker.Reference
   alias Ryker.RepositoryKnowledge.Document
+  alias Ryker.Wording
 
   @contract_version "repository-knowledge-v1"
   @max_encoded_bytes 65_536
@@ -148,22 +150,7 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
 
   @doc "The prompt text: instructions first, then the context in reading order."
   @spec render(map()) :: String.t()
-  def render(%{"instructions" => instructions, "context" => context}) do
-    keys =
-      context
-      |> Map.keys()
-      |> Enum.sort_by(&{Enum.find_index(@context_order, fn key -> key == &1 end) || 99, &1})
-
-    IO.iodata_to_binary([
-      ~s({"instructions":),
-      CanonicalJSON.encode!(instructions),
-      ~s(,"context":{),
-      Enum.map_intersperse(keys, ",", fn key ->
-        [CanonicalJSON.encode!(key), ":", CanonicalJSON.encode!(context[key])]
-      end),
-      "}}"
-    ])
-  end
+  def render(prompt), do: PromptDocument.render(prompt, @context_order)
 
   @doc "The JSON Schema every knowledge answer follows."
   @spec output_schema() :: map()
@@ -398,7 +385,7 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
        when is_binary(text) and byte_size(text) > bytes do
     context
     |> Map.put("current_document", valid_prefix(binary_part(text, 0, bytes)) <> @marker)
-    |> note("The end of the current document, cut for length.")
+    |> PromptDocument.omit("The end of the current document, cut for length.")
   end
 
   defp shorten_document(context, _bytes), do: context
@@ -406,7 +393,7 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
   defp drop_document(%{"current_document" => text} = context) when is_binary(text) do
     context
     |> Map.put("current_document", nil)
-    |> note("The current document, left out for length.")
+    |> PromptDocument.omit("The current document, left out for length.")
   end
 
   defp drop_document(context), do: context
@@ -419,7 +406,7 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
         context
         |> Map.put(key, Enum.take(list, keep))
         |> Map.update!("omitted", &List.delete(&1, cut(key, length(list), totals[key])))
-        |> note(cut(key, keep, totals[key]))
+        |> PromptDocument.omit(cut(key, keep, totals[key]))
 
       _short ->
         context
@@ -429,24 +416,15 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
   @list_names %{"top_level" => "top-level entries", "key_files" => "key files"}
 
   defp cut(key, 0, total),
-    do: "None of the #{number(total)} #{@list_names[key]}, cut for length."
+    do: "None of the #{Wording.number(total)} #{@list_names[key]}, cut for length."
 
   defp cut(key, shown, total),
-    do: "Only the first #{shown} of #{number(total)} #{@list_names[key]}, cut for length."
-
-  defp number(count),
-    do: count |> Integer.to_string() |> String.replace(~r/\B(?=(\d{3})+(?!\d))/, ",")
+    do: "Only the first #{shown} of #{Wording.number(total)} #{@list_names[key]}, cut for length."
 
   # A cut never splits a character.
   defp valid_prefix(bytes) do
     if String.valid?(bytes),
       do: bytes,
       else: valid_prefix(binary_part(bytes, 0, byte_size(bytes) - 1))
-  end
-
-  defp note(context, text) do
-    if text in context["omitted"],
-      do: context,
-      else: Map.update!(context, "omitted", &(&1 ++ [text]))
   end
 end

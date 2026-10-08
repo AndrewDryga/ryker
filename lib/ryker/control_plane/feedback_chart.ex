@@ -9,6 +9,7 @@ defmodule Ryker.ControlPlane.FeedbackChart do
   table".
   """
   use Phoenix.Component
+  import Ryker.ControlPlane.ChartAxis, only: [coord: 1, date: 1, ticks: 1]
 
   @tones [
     negative: [:frustrated, :asked_again, :edited],
@@ -163,12 +164,6 @@ defmodule Ryker.ControlPlane.FeedbackChart do
   defp word(:neutral), do: "Neutral"
   defp word(:positive), do: "Positive"
 
-  defp ticks(count) when count <= 7, do: Enum.to_list(0..(count - 1))
-  defp ticks(count), do: Enum.uniq(Enum.map(0..6, &round(&1 * (count - 1) / 6)))
-
   defp span(day, day), do: date(day)
   defp span(first, last), do: date(first) <> " – " <> date(last)
-
-  defp date(date), do: Calendar.strftime(date, "%d %b")
-  defp coord(value), do: :erlang.float_to_binary(value * 1.0, decimals: 2)
 end

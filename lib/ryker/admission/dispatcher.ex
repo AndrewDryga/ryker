@@ -7,9 +7,11 @@ defmodule Ryker.Admission.Dispatcher do
   second model call.
   """
   alias Ryker.Admission.{Executor, LeaseRenewer, UnavailableNote}
+  alias Ryker.Backoff
   alias Ryker.Delivery
   alias Ryker.ErrorDetail
   alias Ryker.Ingress
+  alias Ryker.Reference
   require Logger
 
   @maximum_attempts 8
@@ -114,7 +116,9 @@ defmodule Ryker.Admission.Dispatcher do
   end
 
   defp defer(claim, input_ref, reason, settings, now) do
-    delay_ms = retry_delay(claim.entry.attempt_count, settings)
+    delay_ms =
+      Backoff.delay(claim.entry.attempt_count, settings.retry_base_ms, settings.retry_max_ms)
+
     {reported_reason, generation} = retry_reason(reason)
     {error_code, error_detail} = describe_error(reported_reason)
 
@@ -173,11 +177,6 @@ defmodule Ryker.Admission.Dispatcher do
     Ingress.Inbox.defer(input_ref, lease_ref, now, delay_ms, code, detail)
   end
 
-  defp retry_delay(attempt_count, settings) do
-    exponent = min(max(attempt_count - 1, 0), 20)
-    min(settings.retry_base_ms * Integer.pow(2, exponent), settings.retry_max_ms)
-  end
-
   defp describe_error({:coop_turn_failed, _state, code, _detail} = reason)
        when is_binary(code) and byte_size(code) in 1..120 do
     {code, ErrorDetail.detail(reason)}
@@ -225,7 +224,7 @@ defmodule Ryker.Admission.Dispatcher do
          :ok <- dispatcher_value(is_function(settings.now, 0), :now),
          :ok <- dispatcher_value(positive?(settings.retry_base_ms), :retry_base_ms),
          :ok <- valid_retry_max(settings),
-         :ok <- dispatcher_value(valid_ref?(settings.worker_ref), :worker_ref) do
+         :ok <- dispatcher_value(Reference.valid?(settings.worker_ref), :worker_ref) do
       {:ok, settings}
     end
   end
@@ -245,9 +244,4 @@ defmodule Ryker.Admission.Dispatcher do
   defp dispatcher_value(false, field), do: {:error, {:invalid_admission_dispatcher, field}}
 
   defp positive?(value), do: is_integer(value) and value > 0
-
-  defp valid_ref?(value) do
-    is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
-      String.trim(value) != "" and byte_size(value) <= 1_024
-  end
 end

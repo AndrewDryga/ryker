@@ -16,6 +16,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   use Phoenix.Component
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{ChannelsPage, Components, Kit, Paths, ShortTime, SlackMarkdown, Units}
+  alias Ryker.ControlPlane.Search
   alias Ryker.ControlPlane.UsageProjection
   alias Ryker.Publication
   alias Ryker.Slack
@@ -131,7 +132,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   @spec list(map(), map(), DateTime.t() | nil) :: iodata()
   def list(rooms, params, now \\ nil) do
     params = UsageProjection.link_params(params)
-    query = String.slice(params["q"] || "", 0, 200)
+    query = Search.term(params["q"]) || ""
     status = if params["status"] in @statuses, do: params["status"], else: ""
 
     %{

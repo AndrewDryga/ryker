@@ -16,6 +16,7 @@ defmodule Ryker.ControlPlane.CallRun do
   use Phoenix.Component
   alias Ryker.Accounting
   alias Ryker.ControlPlane.Units
+  alias Ryker.Wording
   alias Ryker.Work
 
   @type segment :: %{kind: :prepare | :model | :save, label: String.t(), ms: non_neg_integer()}
@@ -263,20 +264,10 @@ defmodule Ryker.ControlPlane.CallRun do
   @spec estimated_tokens(String.t() | {:bytes, non_neg_integer()}) :: String.t()
   def estimated_tokens({:bytes, bytes}) do
     count = ceil(bytes / 4)
-    "≈ #{delimit(count)} #{if count == 1, do: "token", else: "tokens"}"
+    "≈ #{Wording.number(count)} #{Wording.word(count, "token")}"
   end
 
   def estimated_tokens(text) when is_binary(text), do: estimated_tokens({:bytes, byte_size(text)})
-
-  @doc "A whole number with thousands separators."
-  @spec delimit(integer()) :: String.t()
-  def delimit(number) when is_integer(number) do
-    number
-    |> Integer.to_string()
-    |> String.reverse()
-    |> String.replace(~r/(\d{3})(?=\d)/, "\\1,")
-    |> String.reverse()
-  end
 
   defp segments(before, model, after_model, saving) do
     [
@@ -299,11 +290,11 @@ defmodule Ryker.ControlPlane.CallRun do
     read = input + cached
 
     [
-      "#{delimit(read)} in",
+      "#{Wording.number(read)} in",
       if(cached > 0 and read > 0, do: "#{round(cached * 100 / read)}% cached"),
-      "#{delimit(output)} out",
+      "#{Wording.number(output)} out",
       if(is_integer(usage.reasoning) and usage.reasoning > 0,
-        do: "#{delimit(usage.reasoning)} reasoning"
+        do: "#{Wording.number(usage.reasoning)} reasoning"
       )
     ]
     |> Enum.reject(&is_nil/1)

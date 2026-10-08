@@ -830,6 +830,26 @@ defmodule Ryker.Work.ValidatorTest do
     )
   end
 
+  # A goal was accepted with an outcome of up to 500 characters, as the tool
+  # schema counts them, and validation measured the same outcome in bytes: an
+  # outcome written in Ukrainian passed plan_goal and then made every final an
+  # invalid validation context, a correction the model could never satisfy
+  # (2026-10-08).
+  test "an open goal's outcome is measured in characters, as it was accepted" do
+    outcome = "Перевірити, що сервіс оплати відповідає після розгортання. " |> String.duplicate(5)
+    assert Ryker.Text.char_length(outcome) <= 500 and byte_size(outcome) > 500
+
+    goals = [%{"id" => "check-service", "requested_outcome" => outcome, "state" => "working"}]
+
+    complete =
+      candidate(%{"artifact_refs" => [], "record_refs" => [], "state" => "complete"}, "Done.")
+
+    assert {:reject, [violation]} =
+             Validator.validate(complete, context(open_required_goals: goals), @now)
+
+    assert violation =~ "check-service"
+  end
+
   defp context(overrides \\ []) do
     overrides = Map.new(overrides)
     artifacts = Map.get(overrides, :artifacts, [])

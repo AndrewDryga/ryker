@@ -5,7 +5,9 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
   """
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
+  alias Ryker.Reference
   alias Ryker.Slack.Renderer.ChannelCards
+  alias Ryker.Wording
 
   @setup_statuses ~w(asking confirming saved cancelled expired)
   @setup_steps ~w(participation environment alerts audience confirm)
@@ -229,18 +231,11 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
 
   # Work can read every repository; only read/write ones can be changed.
   defp environment_sentence(%{"repositories" => repositories, "emisar" => emisar}) do
-    "I'll work on #{repositories |> Enum.map(&code/1) |> names()}, " <>
+    "I'll work on #{repositories |> Enum.map(&code/1) |> Wording.list()}, " <>
       "changing only ones with read/write access#{if emisar, do: ", and use Emisar"}."
   end
 
   defp code(ref), do: "`#{escape(ref)}`"
-
-  defp names([name]), do: name
-
-  defp names(names) do
-    {others, [last]} = Enum.split(names, -1)
-    Enum.join(others, ", ") <> " and " <> last
-  end
 
   defp setup_confirmation(draft, session_ref, presentation) do
     text = "Here's how I'll work in this channel:"
@@ -330,8 +325,10 @@ defmodule Ryker.Slack.Renderer.ChannelSetup do
          %{"emisar" => emisar, "name" => name, "ref" => ref, "repositories" => repositories} =
            option
        )
-       when map_size(option) == 4 and is_boolean(emisar) and is_list(repositories),
-       do: text?(name) and text?(ref) and Enum.all?(repositories, &text?/1)
+       when map_size(option) == 4 and is_boolean(emisar) and is_list(repositories) do
+    Reference.text?(name) and Reference.text?(ref) and
+      Enum.all?(repositories, &Reference.text?/1)
+  end
 
   defp environment_option?(_option), do: false
 

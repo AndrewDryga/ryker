@@ -6,6 +6,7 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
   observation, and only an exact terminal identity can create the trusted
   continuation input.
   """
+  alias Ryker.Backoff
   alias Ryker.Emisar.Approvals
   alias Ryker.Reference
 
@@ -139,7 +140,12 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
         {:error, block_reason} -> custody_error(reason, block_reason)
       end
     else
-      delay = retry_delay(claim.approval.failure_count + 1, settings)
+      delay =
+        Backoff.delay(
+          claim.approval.failure_count + 1,
+          settings.retry_base_seconds,
+          settings.retry_max_seconds
+        )
 
       case Approvals.defer(
              settings.connection_ref,
@@ -165,11 +171,6 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
        do: true
 
   defp permanent?(_reason), do: false
-
-  defp retry_delay(attempt, settings) do
-    exponent = min(max(attempt - 1, 0), 20)
-    min(settings.retry_base_seconds * Integer.pow(2, exponent), settings.retry_max_seconds)
-  end
 
   defp custody_error(original, custody),
     do: {:error, {:emisar_approval_custody_failed, original, custody}}

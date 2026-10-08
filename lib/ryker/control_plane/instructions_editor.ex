@@ -8,6 +8,7 @@ defmodule Ryker.ControlPlane.InstructionsEditor do
   use Phoenix.LiveComponent
   alias Ryker.ControlPlane.{ChannelPage, Components, Kit, ShortTime}
   alias Ryker.Instructions
+  alias Ryker.Wording
 
   @impl true
   def update(assigns, socket) do
@@ -139,24 +140,14 @@ defmodule Ryker.ControlPlane.InstructionsEditor do
   defp character_count(text) do
     left =
       case 2_000 - String.length(text) do
-        remaining when remaining >= 0 -> "#{delimit(remaining)} characters left"
+        remaining when remaining >= 0 -> "#{Wording.number(remaining)} characters left"
         -1 -> "1 character over the limit"
-        over -> "#{delimit(-over)} characters over the limit"
+        over -> "#{Wording.number(-over)} characters over the limit"
       end
 
     if byte_size(text) > 6_144,
-      do: left <> " · #{delimit(byte_size(text))} of 8,192 bytes",
+      do: left <> " · #{Wording.number(byte_size(text))} of 8,192 bytes",
       else: left
-  end
-
-  defp delimit(number) do
-    number
-    |> Integer.to_string()
-    |> String.reverse()
-    |> String.graphemes()
-    |> Enum.chunk_every(3)
-    |> Enum.map_join(",", &Enum.join/1)
-    |> String.reverse()
   end
 
   defp label(:global), do: "Instructions for every conversation"

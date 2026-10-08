@@ -10,6 +10,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
   alias Ryker.ControlPlane.EpisodeCausality
   alias Ryker.{InspectionRedactor, Repo}
   alias Ryker.StateTools
+  alias Ryker.Wording
   alias Ryker.Work
 
   @state_servers ["controller-tools", "responder-state"]
@@ -393,7 +394,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
         details: compact_details([{"Plan steps", count}]),
         stage: "Plan",
         state: "updated",
-        summary: plural(count, "plan step"),
+        summary: plan_summary(count),
         title: "Model plan updated",
         tone: nil
       }
@@ -489,6 +490,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
       }
     )
   end
+
+  # A stored count is read as stored: one a worker wrote as anything but a
+  # number names no count.
+  defp plan_summary(count) when is_integer(count) and count >= 0,
+    do: Wording.count(count, "plan step")
+
+  defp plan_summary(_unreadable), do: "Plan updated"
 
   defp thought_parts(text) do
     case Regex.run(~r/\A\s*\*\*([^*\n]{1,200})\*\*\s*(.*)\z/s, text) do

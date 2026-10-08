@@ -2,6 +2,7 @@ defmodule Ryker.Slack.MembershipTransition do
   @moduledoc """
   Normalizes authenticated Slack bot membership events before generic message admission.
   """
+  alias Ryker.Slack.{Id, Timestamp}
 
   @enforce_keys [:actor_ref, :channel_ref, :event_ref, :kind, :occurred_at, :workspace_ref]
   defstruct @enforce_keys
@@ -88,28 +89,30 @@ defmodule Ryker.Slack.MembershipTransition do
   defp occurred_at(%{"event_ts" => timestamp}, _event_time) when is_binary(timestamp),
     do: slack_timestamp(timestamp)
 
-  defp occurred_at(_event, seconds) when is_integer(seconds), do: DateTime.from_unix(seconds)
+  defp occurred_at(_event, seconds) when is_integer(seconds),
+    do: seconds |> DateTime.from_unix() |> occurred_at_result()
+
   defp occurred_at(_event, _event_time), do: {:error, {:invalid_slack_membership, :occurred_at}}
 
   defp slack_timestamp(value) do
-    case Regex.run(~r/\A([0-9]{10,})\.([0-9]{1,6})\z/, value) do
-      [_whole, seconds, fraction] ->
-        microseconds =
-          String.to_integer(seconds) * 1_000_000 +
-            ((fraction <> String.duplicate("0", 6 - byte_size(fraction))) |> String.to_integer())
-
-        DateTime.from_unix(microseconds, :microsecond)
-
-      _invalid ->
-        {:error, {:invalid_slack_membership, :occurred_at}}
+    case Timestamp.to_datetime(value) do
+      {:ok, datetime} -> {:ok, datetime}
+      :error -> {:error, {:invalid_slack_membership, :occurred_at}}
     end
   end
+
+  # A time past the year 9999 is refused in the membership's own words, as a
+  # malformed one is.
+  defp occurred_at_result({:ok, datetime}), do: {:ok, datetime}
+
+  defp occurred_at_result({:error, _beyond}),
+    do: {:error, {:invalid_slack_membership, :occurred_at}}
 
   defp optional_reference(nil, _field), do: :ok
   defp optional_reference(value, field), do: reference(value, field)
 
   defp reference(value, field) do
-    if is_binary(value) and Regex.match?(~r/\A[A-Z0-9]+\z/, value) and byte_size(value) <= 256,
+    if Id.valid?(value),
       do: :ok,
       else: {:error, {:invalid_slack_membership, field}}
   end

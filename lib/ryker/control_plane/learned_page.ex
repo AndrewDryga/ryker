@@ -18,6 +18,7 @@ defmodule Ryker.ControlPlane.LearnedPage do
   import Ryker.ControlPlane.Components, only: [filter_toolbar: 1, pager: 1]
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{ConversationMemory, Kit, MemoryFormat, Paths, RelearnPanel}
+  alias Ryker.Wording
 
   @doc """
   The topics an open Learned page listens to, as the context functions that
@@ -219,7 +220,7 @@ defmodule Ryker.ControlPlane.LearnedPage do
         <Kit.status_line id="topic-status" state={topic_status(@item)}>
           <span>{MemoryFormat.time(@item.changed_at, "updated ")}</span>
           <a :if={@view.history != []} href="#history">
-            {MemoryFormat.count(@item.version, "update", "updates")}
+            {Wording.count(@item.version, "update")}
           </a>
         </Kit.status_line>
         <div class="memory-topic-text markdown-preview">
@@ -409,7 +410,7 @@ defmodule Ryker.ControlPlane.LearnedPage do
       MemoryFormat.time(item.changed_at, "Updated "),
       source_link(item),
       MemoryFormat.link(
-        MemoryFormat.count(item.version, "update", "updates"),
+        Wording.count(item.version, "update"),
         ConversationMemory.topic_path(item.id) <> "#history"
       )
     ]
@@ -435,12 +436,12 @@ defmodule Ryker.ControlPlane.LearnedPage do
   defp kept_until(_item), do: "No automatic expiry"
 
   defp source_link(%{source_path: path, source_count: count}) when is_binary(path),
-    do: MemoryFormat.link(MemoryFormat.count(count, "source", "sources"), path)
+    do: MemoryFormat.link(Wording.count(count, "source"), path)
 
   defp source_link(_item), do: nil
 
   defp messages_link(%{source_path: path, source_count: count}) when is_binary(path),
-    do: MemoryFormat.link(MemoryFormat.count(count, "message", "messages"), path)
+    do: MemoryFormat.link(Wording.count(count, "message"), path)
 
   defp messages_link(_item), do: nil
 

@@ -140,7 +140,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
 
     # Andrew, 2026-09-28: the channel's title opens it in Slack; "In Slack"
     # was a row of the settings card.
-    assert title_link(html) == "https://slack.com/app_redirect?channel=C456&team=T123"
+    assert title_link(html) == "https://slack.com/app_redirect?team=T123&channel=C456"
     refute "In Slack" in fact_labels(html)
   end
 

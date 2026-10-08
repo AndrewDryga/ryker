@@ -35,13 +35,6 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
   def description,
     do: "Work Ryker paused and will pick up again at a set time or when something happens."
 
-  @doc "The list's query: the search, and whether it shows current or past follow-ups."
-  @spec params(map()) :: %{String.t() => String.t()}
-  def params(params) do
-    query = if is_binary(params["q"]), do: String.slice(params["q"], 0, 200), else: ""
-    %{"q" => query, "view" => if(params["view"] == "past", do: "past", else: "current")}
-  end
-
   @doc "The Follow-ups list: the toolbar, the rows, and how follow-ups come to exist."
   @spec list([map()], map(), DateTime.t()) :: iodata()
   def list(items, params, now \\ DateTime.utc_now()) do

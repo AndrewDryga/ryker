@@ -7,7 +7,7 @@ defmodule Ryker.Slack.Event do
   Ryker's own messages before they can enter durable admission.
   """
   alias Ryker.Reference
-  alias Ryker.Slack.{Input, PostGrant}
+  alias Ryker.Slack.{Input, PostGrant, Timestamp}
 
   @supported_message_subtypes [nil, "bot_message", "file_share", "thread_broadcast"]
   @identity_fields [:bot_ref, :bot_user_ref, :workspace_ref]
@@ -240,19 +240,9 @@ defmodule Ryker.Slack.Event do
   defp audience(_details, _identity), do: :ambient
 
   defp timestamp(value) do
-    case Regex.run(~r/\A([0-9]{10,})\.([0-9]{1,6})\z/, value || "") do
-      [_whole, seconds, fraction] ->
-        microseconds =
-          String.to_integer(seconds) * 1_000_000 +
-            ((fraction <> String.duplicate("0", 6 - byte_size(fraction))) |> String.to_integer())
-
-        case DateTime.from_unix(microseconds, :microsecond) do
-          {:ok, datetime} -> {:ok, datetime, microseconds}
-          {:error, _reason} -> {:error, {:invalid_slack_event, :timestamp}}
-        end
-
-      _invalid ->
-        {:error, {:invalid_slack_event, :timestamp}}
+    case Timestamp.to_datetime(value) do
+      {:ok, datetime} -> {:ok, datetime, DateTime.to_unix(datetime, :microsecond)}
+      :error -> {:error, {:invalid_slack_event, :timestamp}}
     end
   end
 

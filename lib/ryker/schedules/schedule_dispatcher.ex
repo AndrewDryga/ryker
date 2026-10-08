@@ -1,5 +1,6 @@
 defmodule Ryker.Schedules.ScheduleDispatcher do
   @moduledoc false
+  alias Ryker.Backoff
   alias Ryker.Reference
   alias Ryker.Schedules
 
@@ -40,7 +41,12 @@ defmodule Ryker.Schedules.ScheduleDispatcher do
         {:ok, {:executed, result}}
 
       {:error, reason} ->
-        delay = backoff(claim.schedule.failure_count + 1, settings)
+        delay =
+          Backoff.delay(
+            claim.schedule.failure_count + 1,
+            settings.retry_base_seconds,
+            settings.retry_max_seconds
+          )
 
         case settings.custody.defer(claim.schedule.ref, claim.lease_ref, delay, reason) do
           {:ok, _schedule} -> {:ok, {:deferred, reason}}
@@ -93,11 +99,6 @@ defmodule Ryker.Schedules.ScheduleDispatcher do
   end
 
   defp settings(_options), do: {:error, {:invalid_schedule_dispatcher, :options}}
-
-  defp backoff(attempt, settings) do
-    exponent = min(max(attempt - 1, 0), 20)
-    min(settings.retry_base_seconds * Integer.pow(2, exponent), settings.retry_max_seconds)
-  end
 
   defp callback?(module, function, arity) do
     is_atom(module) and Code.ensure_loaded?(module) and

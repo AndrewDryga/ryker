@@ -35,6 +35,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   alias Ryker.ControlPlane.Paths
   alias Ryker.ControlPlane.ShortTime
   alias Ryker.Slack
+  alias Ryker.Wording
 
   @type outlook :: :ready | :unknown | :fix_first | :stuck | :automatic
 
@@ -154,7 +155,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   @spec attempts(map()) :: String.t() | nil
   def attempts(row) do
     case Map.get(row, :attempt_count, 0) do
-      count when is_integer(count) and count > 0 -> plural(count, "attempt", "attempts")
+      count when is_integer(count) and count > 0 -> Wording.count(count, "attempt")
       _none -> nil
     end
   end
@@ -212,7 +213,10 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp saved_error(_code), do: ""
 
   defp stopped_step(%{cleanup_phase: phase}) when not is_nil(phase), do: phase_name(phase)
-  defp stopped_step(%{setup_step: step}) when not is_nil(step), do: sentence(setup_step(step))
+
+  defp stopped_step(%{setup_step: step}) when not is_nil(step),
+    do: Wording.capitalize(setup_step(step))
+
   defp stopped_step(_row), do: nil
 
   @doc "The cleanup steps and how far this cleanup got, for What happened."
@@ -1132,7 +1136,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
           short,
           long,
           :ready,
-          "It should work: #{plural(count, "worker is", "workers are")} reporting now."
+          "It should work: #{Wording.count(count, "worker is", "workers are")} reporting now."
         )
 
       %{reporting: 0} ->
@@ -1668,15 +1672,8 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   # Slack's own link to a channel, which opens it in the Slack app.
   defp slack_url(row) do
     case FailureProjection.slack_channel(row) do
-      {workspace, channel} -> slack_channel_url(workspace, channel)
+      {workspace, channel} -> Slack.app_redirect(workspace, channel)
       nil -> nil
-    end
-  end
-
-  defp slack_channel_url(workspace, channel) do
-    if Regex.match?(~r/\A[A-Z0-9]+\z/, workspace) and Regex.match?(~r/\A[A-Z0-9]+\z/, channel) do
-      "https://slack.com/app_redirect?" <>
-        URI.encode_query(team: workspace, channel: channel)
     end
   end
 
@@ -1982,7 +1979,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
 
   defp room_path(%{channel_ref: channel} = row) when is_binary(channel) do
     case row[:destination] do
-      "slack:" <> rest -> slack_channel_url(rest |> String.split(":", parts: 2) |> hd(), channel)
+      "slack:" <> rest -> Slack.app_redirect(rest |> String.split(":", parts: 2) |> hd(), channel)
       _other -> nil
     end
   end
@@ -2354,7 +2351,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     else
       cause(
         "Pull requests are not set up for #{repository_words(row)}.",
-        "Ryker needs a connected GitHub App with access to the repository and pull requests turned on. #{sentence(repository_words(row))} is missing one of them.",
+        "Ryker needs a connected GitHub App with access to the repository and pull requests turned on. #{Wording.capitalize(repository_words(row))} is missing one of them.",
         :fix_first,
         "It goes through on its own once the repository is set up; nothing else is needed.",
         %{
@@ -2444,15 +2441,13 @@ defmodule Ryker.ControlPlane.FailureExplanation do
 
   defp repository_words(_row), do: "the repository"
 
-  defp sentence(<<first::utf8, rest::binary>>), do: String.upcase(<<first::utf8>>) <> rest
-
   # --- Learning --------------------------------------------------------------
 
   # Only a batch that nothing will move lands here; one still reconciling a
   # run moves on by itself and is not listed. Replies never wait on learning.
   defp learning(row, now) do
     cause = learning_cause(row)
-    messages = plural(row[:input_count] || 0, "message", "messages")
+    messages = Wording.count(row[:input_count] || 0, "message")
 
     %{
       title: "Learning from a conversation stopped",
@@ -2650,9 +2645,6 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp worker_now(_worker), do: "Not reporting"
 
   defp words(code), do: String.replace(code, "_", " ")
-
-  defp plural(1, one, _many), do: "1 #{one}"
-  defp plural(count, _one, many), do: "#{count} #{many}"
 
   defp utc(%DateTime{} = at), do: at
   defp utc(%NaiveDateTime{} = at), do: DateTime.from_naive!(at, "Etc/UTC")

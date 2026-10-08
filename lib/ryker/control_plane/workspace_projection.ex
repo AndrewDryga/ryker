@@ -15,6 +15,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   alias Ryker.Learning
   alias Ryker.Repo
   alias Ryker.Retention
+  alias Ryker.UTCDateTime
   alias Ryker.Work
 
   @preview_limit 25
@@ -143,7 +144,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
 
   defp preview_item({%Work.Session{} = session, eligible_at}, now, names) do
     %{
-      eligible_age_seconds: age_seconds(now, eligible_at),
+      eligible_age_seconds: UTCDateTime.age_seconds(now, eligible_at),
       kind: session.execution_kind,
       reason: preview_reason(session.cleanup_status),
       ref: session.external_ref,
@@ -169,13 +170,6 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   defp preview_reason(:discard_pending), do: "Remove the copy"
   defp preview_reason(:retained), do: "Check again whether the kept changes can be removed"
   defp preview_reason(status), do: Atom.to_string(status)
-
-  defp age_seconds(_now, nil), do: 0
-
-  defp age_seconds(%DateTime{} = now, %NaiveDateTime{} = value),
-    do: max(NaiveDateTime.diff(DateTime.to_naive(now), value, :second), 0)
-
-  defp age_seconds(now, value), do: max(DateTime.diff(now, value, :second), 0)
 
   defp workspace_item(
          {%Work.Session{} = session, episode_state, episode_ref, learning_run, learning_batch},

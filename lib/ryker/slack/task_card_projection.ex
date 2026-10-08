@@ -12,8 +12,9 @@ defmodule Ryker.Slack.TaskCardProjection do
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Settings
-  alias Ryker.Slack.{Permalink, TaskCard}
+  alias Ryker.Slack.{Permalink, TaskCard, WorkControls}
   alias Ryker.StateTools
+  alias Ryker.Wording
   alias Ryker.Work
 
   @ui_revision 6
@@ -334,7 +335,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp blocked_cause(%Publication.Publication{} = publication) do
     case Publication.Review.refusal(publication.review_document) do
       [] -> blocked_code(publication.last_error_code)
-      causes -> sentence_list(causes) <> "."
+      causes -> Wording.list(causes) <> "."
     end
   end
 
@@ -384,13 +385,6 @@ defmodule Ryker.Slack.TaskCardProjection do
   # and the card then printed Ryker's own error code, but a Slack card carries
   # no codes (Andrew, 2026-09-30): it says where the cause is written.
   defp attention(statement), do: "#{statement}. The cause is on Ryker's Failures page."
-
-  defp sentence_list([only]), do: only
-
-  defp sentence_list(items) do
-    {leading, [last]} = Enum.split(items, -1)
-    Enum.join(leading, ", ") <> " and " <> last
-  end
 
   defp neutral(projection) do
     task = projection.document["task_card"]
@@ -835,7 +829,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   # control would link to nothing; recovery is the control that state allows.
   defp controls(record, episode, turn, session, publication, hold) do
     []
-    |> maybe_control(stop_allowed?(episode, turn), "stop")
+    |> maybe_control(WorkControls.stoppable?(episode, turn), "stop")
     |> maybe_control(is_nil(hold) and resumable?(turn), "resume")
     |> maybe_control(is_nil(hold) and bound_session?(session), "view_diff")
     |> maybe_control(close_allowed?(episode, turn, publication), "close")
@@ -862,17 +856,6 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   defp incident?(%Records.Record{payload: %{"kind" => "incident"}}), do: true
   defp incident?(_record), do: false
-
-  defp stop_allowed?(
-         %Episodes.Episode{state: :working, owner_kind: :turn, owner_ref: turn_ref},
-         %Work.Turn{
-           status: :pending,
-           turn_ref: turn_ref
-         }
-       ),
-       do: true
-
-  defp stop_allowed?(_episode, _turn), do: false
 
   defp close_allowed?(%Episodes.Episode{state: state}, _turn, _publication)
        when state in [:complete, :cancelled],

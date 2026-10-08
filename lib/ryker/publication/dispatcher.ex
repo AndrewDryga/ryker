@@ -8,6 +8,7 @@ defmodule Ryker.Publication.Dispatcher do
   The one answer no retry can change, a review session that closed for good,
   ends the publication with that reason instead.
   """
+  alias Ryker.Backoff
   alias Ryker.ErrorDetail
   alias Ryker.Publication.{Custody, Executor}
   alias Ryker.Reference
@@ -48,7 +49,13 @@ defmodule Ryker.Publication.Dispatcher do
         {:ok, {:lease_lost, reason}}
 
       {:error, reason} ->
-        delay = retry_delay(claim.publication.attempt_count, settings)
+        delay =
+          Backoff.delay(
+            claim.publication.attempt_count,
+            settings.retry_base_seconds,
+            settings.retry_max_seconds
+          )
+
         {code, detail} = describe(reason)
 
         case Custody.defer(claim.publication.ref, claim.lease_ref, delay, code, detail) do
@@ -73,11 +80,6 @@ defmodule Ryker.Publication.Dispatcher do
       {:ok, _publication} -> {:ok, {:discarded, reason}}
       {:error, discard_reason} -> {:error, {:publication_dispatch_failed, reason, discard_reason}}
     end
-  end
-
-  defp retry_delay(attempt_count, settings) do
-    exponent = min(max(attempt_count - 1, 0), 20)
-    min(settings.retry_base_seconds * Integer.pow(2, exponent), settings.retry_max_seconds)
   end
 
   # A conflict is named by what it conflicted on.

@@ -1,8 +1,7 @@
 defmodule Ryker.Slack.Target do
   @moduledoc false
   alias Ryker.Delivery
-
-  @id ~r/\A[A-Z0-9]+\z/
+  alias Ryker.Slack.{Id, Timestamp}
 
   @spec parse(Delivery.Request.t()) :: {:ok, map()} | {:error, term()}
   def parse(%Delivery.Request{transport: "slack"} = request) do
@@ -24,7 +23,7 @@ defmodule Ryker.Slack.Target do
   defp conversation(value) do
     case String.split(value, ":", parts: 3) do
       ["slack", workspace_ref, channel_ref] ->
-        if id?(workspace_ref) and id?(channel_ref),
+        if Id.valid?(workspace_ref) and Id.valid?(channel_ref),
           do: {:ok, workspace_ref, channel_ref},
           else: {:error, {:invalid_slack_delivery_target, :conversation_ref}}
 
@@ -44,10 +43,8 @@ defmodule Ryker.Slack.Target do
   defp optional_timestamp(value), do: timestamp(value, :thread_ref)
 
   defp timestamp(value, field) do
-    if is_binary(value) and Regex.match?(~r/\A[0-9]{10,}\.[0-9]{6}\z/, value),
+    if Timestamp.valid?(value),
       do: :ok,
       else: {:error, {:invalid_slack_delivery_target, field}}
   end
-
-  defp id?(value), do: Regex.match?(@id, value)
 end

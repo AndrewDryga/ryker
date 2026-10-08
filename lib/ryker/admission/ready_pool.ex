@@ -26,9 +26,11 @@ defmodule Ryker.Admission.ReadyPool do
   """
   use Ryker.PollingWorker, lane: :admission_ready, interval: :poll_interval_ms
   alias Ryker.Admission.ReadySessions
+  alias Ryker.Backoff
   alias Ryker.Coop
   alias Ryker.CoopFleet
   alias Ryker.{Options, Repo}
+  alias Ryker.Reference
   alias Ryker.Settings
   alias Ryker.Work
   require Logger
@@ -317,12 +319,11 @@ defmodule Ryker.Admission.ReadyPool do
         :ok
 
       [%Work.Session{updated_at: failed_at} | _earlier] = failures ->
-        wait =
-          min(@retry_base_seconds * Integer.pow(2, length(failures) - 1), @retry_max_seconds)
+        wait = Backoff.delay(length(failures), @retry_base_seconds, @retry_max_seconds)
 
-        if DateTime.compare(DateTime.add(failed_at, wait, :second), Repo.now!()) == :gt,
-          do: :waiting,
-          else: :ok
+        if Repo.passed?(failed_at, wait),
+          do: :ok,
+          else: :waiting
     end
   end
 
@@ -350,7 +351,7 @@ defmodule Ryker.Admission.ReadyPool do
     [
       {&coop_adapter?(&1.api), "need a trusted Coop adapter"},
       {&(not is_nil(&1.client)), "need a Coop client"},
-      {&valid_ref?(&1.policy), "policy must be a bounded string"},
+      {&Reference.valid?(&1.policy), "policy must be a bounded string"},
       {&digest?(&1.policy_digest), "policy_digest must be a lowercase SHA-256 digest"},
       {&(is_integer(&1.target) and &1.target in 0..maximum),
        "target must be between 0 and #{maximum}"},
@@ -368,9 +369,4 @@ defmodule Ryker.Admission.ReadyPool do
   end
 
   defp digest?(value), do: is_binary(value) and Regex.match?(~r/\A[0-9a-f]{64}\z/, value)
-
-  defp valid_ref?(value) do
-    is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
-      String.trim(value) != "" and byte_size(value) <= 1_024
-  end
 end

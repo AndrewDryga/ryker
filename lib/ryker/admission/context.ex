@@ -13,6 +13,7 @@ defmodule Ryker.Admission.Context do
   alias Ryker.Episodes
   alias Ryker.Ingress
   alias Ryker.People
+  alias Ryker.Slack
 
   @enforce_keys [
     :active_episode_fingerprint,
@@ -485,9 +486,8 @@ defmodule Ryker.Admission.Context do
          %{"audience" => audience, "ryker_user_ref" => ref} = addressing,
          "slack"
        )
-       when map_size(addressing) == 2 and audience in ["ambient", "direct", "mention"] and
-              is_binary(ref) and byte_size(ref) <= 256 do
-    if Regex.match?(~r/\A[A-Z0-9]+\z/, ref),
+       when map_size(addressing) == 2 and audience in ["ambient", "direct", "mention"] do
+    if Slack.id?(ref),
       do: {:ok, addressing},
       else: {:error, {:invalid_admission_context_snapshot, :slack_addressing}}
   end

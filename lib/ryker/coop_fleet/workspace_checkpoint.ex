@@ -8,6 +8,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
   """
   alias Ryker.CoopFleet.Protocol
   alias Ryker.GitObject
+  alias Ryker.UTCDateTime
 
   @version 2
   @maximum_bundle_bytes 9_223_372_036_854_775_806
@@ -237,9 +238,9 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
   end
 
   defp timestamp(value, field) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, _datetime, 0} -> :ok
-      _invalid -> {:error, {:invalid_workspace_checkpoint, field}}
+    case UTCDateTime.parse(value) do
+      {:ok, _datetime} -> :ok
+      :error -> {:error, {:invalid_workspace_checkpoint, field}}
     end
   end
 

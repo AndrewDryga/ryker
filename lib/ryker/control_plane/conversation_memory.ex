@@ -7,7 +7,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   gone.
   """
   alias Ryker.Continuity
-  alias Ryker.ControlPlane.{Activity, Learned, LearningActivity, LearningRequests}
+  alias Ryker.ControlPlane.{Activity, Learned, LearningActivity, LearningRequests, Search}
   alias Ryker.ControlPlane.{PagedRelation, Paths, RepositoryNames}
   alias Ryker.Episodes
   alias Ryker.InspectionRedactor
@@ -100,14 +100,9 @@ defmodule Ryker.ControlPlane.ConversationMemory do
     }
 
     kind = selected_kind(params["kind"], source_parent)
-    search = search_text(params["q"])
-    query = kind |> kind_query(source_parent) |> search(kind, search)
+    search = Search.term(params["q"]) || ""
     selected = selected_id(params["item"])
-
-    query =
-      if selected && kind in ["knowledge", "context"],
-        do: Learned.Query.only(query, selected),
-        else: query
+    query = listed(kind, source_parent, search, selected)
 
     page =
       PagedRelation.read(
@@ -222,7 +217,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
     if not MapSet.member?(available_ids, id) and not forgotten?(id) do
       options = %{
         page: PagedRelation.requested(params, "rebuild_page"),
-        q: search_text(params["rebuild_q"])
+        q: Search.term(params["rebuild_q"]) || ""
       }
 
       case Learning.Rebuilds.preview(id, options) do
@@ -338,8 +333,15 @@ defmodule Ryker.ControlPlane.ConversationMemory do
   defp selected_kind("sources", %{}), do: "sources"
   defp selected_kind(_, _), do: "knowledge"
 
-  defp search_text(value) when is_binary(value), do: String.slice(String.trim(value), 0, 200)
-  defp search_text(_), do: ""
+  # The rows the page lists: one kind, searched, or only the selected item
+  # when one is open.
+  defp listed(kind, source_parent, search, selected) do
+    query = kind |> kind_query(source_parent) |> search(kind, search)
+
+    if selected && kind in ["knowledge", "context"],
+      do: Learned.Query.only(query, selected),
+      else: query
+  end
 
   defp kind_query("sources", %{source_ids: ids}), do: Learned.Query.notes(ids)
   defp kind_query(kind, _parent), do: Learned.Query.items(kind)

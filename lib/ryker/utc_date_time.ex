@@ -18,6 +18,11 @@ defmodule Ryker.UTCDateTime do
 
   def exact(_value), do: :error
 
+  @doc "Whether `value` is a `DateTime` in UTC, with no offset."
+  @spec utc?(term()) :: boolean()
+  def utc?(%DateTime{time_zone: "Etc/UTC", utc_offset: 0, std_offset: 0}), do: true
+  def utc?(_value), do: false
+
   @doc "An ISO 8601 string carrying an explicit zero offset, or an exact UTC datetime."
   @spec parse(term()) :: {:ok, DateTime.t()} | :error
   def parse(value) when is_binary(value) do
@@ -43,6 +48,20 @@ defmodule Ryker.UTCDateTime do
     |> Enum.map(&utc/1)
     |> Enum.min(DateTime, fn -> nil end)
   end
+
+  @doc """
+  Whole seconds from `at` to `now`, never negative; nothing to age is zero.
+
+  A timestamp stored without a zone comes back naive and is aged in naive
+  time, which counts the whole-second boundaries between the two readings.
+  """
+  @spec age_seconds(DateTime.t(), DateTime.t() | NaiveDateTime.t() | nil) :: non_neg_integer()
+  def age_seconds(_now, nil), do: 0
+
+  def age_seconds(%DateTime{} = now, %NaiveDateTime{} = at),
+    do: max(NaiveDateTime.diff(DateTime.to_naive(now), at, :second), 0)
+
+  def age_seconds(now, at), do: max(DateTime.diff(now, at, :second), 0)
 
   defp utc(%NaiveDateTime{} = value), do: DateTime.from_naive!(value, "Etc/UTC")
   defp utc(%DateTime{} = value), do: value

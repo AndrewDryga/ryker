@@ -903,7 +903,7 @@ defmodule Ryker.Memories.Reviews do
 
   defp review_replacement(:edit, %{"subject" => subject, "value" => value} = replacement)
        when map_size(replacement) == 2 do
-    if text?(subject, 120) and text?(value, 4_000),
+    if Reference.text?(subject, 120) and Reference.text?(value, 4_000),
       do: {:ok, replacement},
       else: {:error, {:invalid_memory_review, :replacement}}
   end
@@ -918,11 +918,6 @@ defmodule Ryker.Memories.Reviews do
 
   defp review_status(action) when action in [:keep], do: :kept
   defp review_status(action) when action in [:merge, :edit, :forget], do: :applied
-
-  defp text?(value, maximum) do
-    is_binary(value) and String.valid?(value) and String.length(value) in 1..maximum and
-      :binary.match(value, <<0>>) == :nomatch and String.trim(value) != ""
-  end
 
   @doc false
   def lock_review_maintenance!, do: AdvisoryLock.hold!(@review_advisory_lock)

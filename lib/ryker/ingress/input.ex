@@ -11,6 +11,7 @@ defmodule Ryker.Ingress.Input do
   alias Ryker.Publication
   alias Ryker.Reference
   alias Ryker.Transcription
+  alias Ryker.UTCDateTime
 
   @content_limit 49_152
   @maximum_revision 9_223_372_036_854_775_807
@@ -243,7 +244,7 @@ defmodule Ryker.Ingress.Input do
       {not Map.has_key?(input.source_capabilities, "publication_lifecycle") or
          (input.source.kind == "webhook" and input.actor.kind == :system), :source_capabilities},
       {post_capability_matches_source?(input), :source_capabilities},
-      {utc_datetime?(input.occurred_at), :occurred_at}
+      {UTCDateTime.utc?(input.occurred_at), :occurred_at}
     ]
 
     with :ok <- validate_fields(validations),
@@ -435,10 +436,4 @@ defmodule Ryker.Ingress.Input do
 
   defp optional_reference?(nil), do: true
   defp optional_reference?(value), do: Reference.valid?(value)
-
-  defp utc_datetime?(%DateTime{} = value) do
-    value.time_zone == "Etc/UTC" and value.utc_offset == 0 and value.std_offset == 0
-  end
-
-  defp utc_datetime?(_value), do: false
 end

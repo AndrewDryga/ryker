@@ -87,15 +87,8 @@ defmodule Ryker.Webhooks.Presets do
   def all, do: @presets
 
   @spec fetch(atom() | String.t()) :: {:ok, map()} | :error
-  def fetch(key) when is_atom(key) do
-    case Enum.find(@presets, &(&1.key == key)) do
-      nil -> :error
-      preset -> {:ok, preset}
-    end
-  end
-
-  def fetch(key) when is_binary(key) do
-    case Enum.find(@presets, &(Atom.to_string(&1.key) == key)) do
+  def fetch(key) do
+    case Enum.find(@presets, &(&1.key == key or Atom.to_string(&1.key) == key)) do
       nil -> :error
       preset -> {:ok, preset}
     end

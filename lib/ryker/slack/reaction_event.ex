@@ -7,6 +7,7 @@ defmodule Ryker.Slack.ReactionEvent do
   authored by this exact configured bot identity is accepted.
   """
   alias Ryker.Reference
+  alias Ryker.Slack.Timestamp
 
   @identity_fields [:bot_ref, :bot_user_ref, :workspace_ref]
   @emoji_name ~r/\A[a-z0-9_+\-]{1,100}\z/
@@ -77,19 +78,9 @@ defmodule Ryker.Slack.ReactionEvent do
   defp message_item(_item), do: {:error, {:invalid_slack_reaction_event, :item}}
 
   defp timestamp(value) do
-    case Regex.run(~r/\A([0-9]{10,})\.([0-9]{1,6})\z/, value || "") do
-      [_whole, seconds, fraction] ->
-        microseconds =
-          String.to_integer(seconds) * 1_000_000 +
-            ((fraction <> String.duplicate("0", 6 - byte_size(fraction))) |> String.to_integer())
-
-        case DateTime.from_unix(microseconds, :microsecond) do
-          {:ok, datetime} -> {:ok, datetime}
-          {:error, _reason} -> {:error, {:invalid_slack_reaction_event, :timestamp}}
-        end
-
-      _invalid ->
-        {:error, {:invalid_slack_reaction_event, :timestamp}}
+    case Timestamp.to_datetime(value) do
+      {:ok, datetime} -> {:ok, datetime}
+      :error -> {:error, {:invalid_slack_reaction_event, :timestamp}}
     end
   end
 

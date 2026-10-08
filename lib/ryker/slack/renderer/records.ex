@@ -14,6 +14,7 @@ defmodule Ryker.Slack.Renderer.Records do
   alias Ryker.Records
   alias Ryker.Slack.Renderer.{EmisarReview, Offers, SavedEntityCard}
   alias Ryker.Slack.ReplyRecords
+  alias Ryker.Wording
 
   @maximum_records 64
   # Investigation records render nothing; at most this many of the rest may
@@ -337,13 +338,10 @@ defmodule Ryker.Slack.Renderer.Records do
 
       causes ->
         compact_lines(
-          Enum.map(causes, &cause_sentence/1) ++ flagged_files(payload["policy_findings"])
+          Enum.map(causes, &Wording.sentence/1) ++ flagged_files(payload["policy_findings"])
         )
     end
   end
-
-  defp cause_sentence(<<first::utf8, rest::binary>>),
-    do: String.upcase(<<first::utf8>>) <> rest <> "."
 
   # The findings clause comes last, so the files it counts follow it.
   defp flagged_files(findings) do

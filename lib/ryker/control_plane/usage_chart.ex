@@ -1,6 +1,8 @@
 defmodule Ryker.ControlPlane.UsageChart do
   @moduledoc "An accessible daily series. Missing dates keep their position, not a false adjacency."
+  import Ryker.ControlPlane.ChartAxis, only: [coord: 1, date: 1, ticks: 1]
   alias Ryker.ControlPlane.Kit
+  alias Ryker.Wording
 
   def render([]) do
     Kit.empty_html(
@@ -36,7 +38,7 @@ defmodule Ryker.ControlPlane.UsageChart do
         []
       end,
       "<figure class=\"usage-chart\"><figcaption><strong>",
-      number(Enum.sum(Enum.map(days, & &1.tokens))),
+      Wording.number(Enum.sum(Enum.map(days, & &1.tokens))),
       "</strong> tokens · ",
       date(first),
       " – ",
@@ -96,13 +98,8 @@ defmodule Ryker.ControlPlane.UsageChart do
     ]
   end
 
-  defp day_label(day), do: date(day.date) <> ": " <> number(day.tokens) <> " tokens"
+  defp day_label(day), do: date(day.date) <> ": " <> Wording.number(day.tokens) <> " tokens"
 
-  defp date(date), do: Calendar.strftime(date, "%d %b")
-  defp ticks(count) when count <= 7, do: Enum.to_list(0..(count - 1))
-  defp ticks(count), do: Enum.uniq(Enum.map(0..6, &round(&1 * (count - 1) / 6)))
-  defp coord(value), do: :erlang.float_to_binary(value * 1.0, decimals: 2)
-  defp number(value), do: to_string(value) |> String.replace(~r/\B(?=(\d{3})+(?!\d))/, ",")
   defp compact(value) when value >= 1_000_000, do: coord(value / 1_000_000) <> "m"
   defp compact(value) when value >= 1000, do: coord(value / 1000) <> "k"
   defp compact(value), do: to_string(value)

@@ -6,6 +6,8 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
   """
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
+  alias Ryker.Reference
+  alias Ryker.Wording
 
   @greeting "Hey there, I'm your AI teammate. I'm here to help with work in this channel."
   @settings_sources ~w(channel incident_room installation)
@@ -143,11 +145,11 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
   # environment's welcome past a section and cut a link (2026-10-04 review).
   defp named_repositories(repositories) when length(repositories) > 10 do
     {named, rest} = Enum.split(repositories, 10)
-    join_names(Enum.map(named, &repository_link/1) ++ ["#{length(rest)} more"])
+    Wording.list(Enum.map(named, &repository_link/1) ++ ["#{length(rest)} more"])
   end
 
   defp named_repositories(repositories),
-    do: repositories |> Enum.map(&repository_link/1) |> join_names()
+    do: repositories |> Enum.map(&repository_link/1) |> Wording.list()
 
   # The control that opens the setup Q&A, named as the welcome shows it.
   defp configure_label(%{"participation" => %{"source" => "incident_room"}}),
@@ -250,10 +252,7 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
   # A fact starts with a capital letter. String.capitalize also lowercased every
   # invitee's Slack id, which Slack then could not resolve, so only the first
   # letter changes: a mention starts with "<" and is left exactly as it is.
-  defp invitations_fact(settings) do
-    <<first::utf8, rest::binary>> = audience_phrase(settings)
-    String.upcase(<<first::utf8>>) <> rest
-  end
+  defp invitations_fact(settings), do: Wording.capitalize(audience_phrase(settings))
 
   defp participation_summary(%{"observation" => %{"on" => true}}), do: "Observe without replying"
 
@@ -301,15 +300,8 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
 
     case chosen do
       [] -> "no one automatically; you can add people yourself"
-      chosen -> join_names(chosen)
+      chosen -> Wording.list(chosen)
     end
-  end
-
-  defp join_names([name]), do: name
-
-  defp join_names(names) do
-    {head, [last]} = Enum.split(names, -1)
-    Enum.join(head, ", ") <> " and " <> last
   end
 
   defp settings_context(settings) do
@@ -426,7 +418,7 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
        )
        when map_size(environment) == 5 and is_boolean(emisar) and is_boolean(ready) and
               is_list(repositories) and length(repositories) <= 33 do
-    text?(name) and String.length(name) <= 80 and bounded_text(ref, 64) == :ok and
+    Reference.text?(name) and String.length(name) <= 80 and bounded_text(ref, 64) == :ok and
       Enum.all?(repositories, &repository?/1)
   end
 
@@ -457,11 +449,15 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
   end
 
   defp optional_notice(notice) do
-    if text?(notice) and String.length(notice) <= 200, do: :ok, else: {:error, :invalid_notice}
+    if Reference.text?(notice) and String.length(notice) <= 200,
+      do: :ok,
+      else: {:error, :invalid_notice}
   end
 
-  defp repository?(%{"ref" => ref, "url" => url} = repository) when map_size(repository) == 2,
-    do: text?(ref) and byte_size(ref) <= 256 and (is_nil(url) or optional_https_url(url) == :ok)
+  defp repository?(%{"ref" => ref, "url" => url} = repository) when map_size(repository) == 2 do
+    Reference.text?(ref) and byte_size(ref) <= 256 and
+      (is_nil(url) or optional_https_url(url) == :ok)
+  end
 
   defp repository?(_repository), do: false
 end

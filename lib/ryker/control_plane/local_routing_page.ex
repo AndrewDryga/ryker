@@ -24,6 +24,7 @@ defmodule Ryker.ControlPlane.LocalRoutingPage do
   alias Ryker.ControlPlane.{Kit, Paths, ShortTime, Units}
   alias Ryker.LocalRouting
   alias Ryker.Settings
+  alias Ryker.Wording
 
   @setting "/settings/models#local-routing"
   @path "/settings/models/local-routing"
@@ -179,8 +180,8 @@ defmodule Ryker.ControlPlane.LocalRoutingPage do
   defp primary(figures) do
     [
       %{
-        value: number(figures.compared),
-        label: plural(figures.compared, "comparison", "comparisons")
+        value: Wording.number(figures.compared),
+        label: Wording.word(figures.compared, "comparison")
       },
       %{value: percent(figures.valid, figures.compared), label: "valid"},
       %{value: percent(figures.agreed, figures.compared), label: "agreed with the provider"},
@@ -201,17 +202,12 @@ defmodule Ryker.ControlPlane.LocalRoutingPage do
           value: money(figures.agreed_cost, figures.estimated),
           label: "of it on messages the local model agreed on"
         },
-      figures.waiting > 0 and %{value: number(figures.waiting), label: "waiting"},
+      figures.waiting > 0 and %{value: Wording.number(figures.waiting), label: "waiting"},
       figures.failed > 0 and
-        %{value: number(figures.failed), label: "could not be asked", tone: :warn}
+        %{value: Wording.number(figures.failed), label: "could not be asked", tone: :warn}
     ]
     |> Enum.filter(& &1)
   end
-
-  defp plural(1, one, _many), do: one
-  defp plural(_count, _one, many), do: many
-
-  defp number(n), do: n |> to_string() |> String.replace(~r/\B(?=(\d{3})+(?!\d))/, ",")
 
   defp percent(_part, 0), do: "—"
   defp percent(part, whole), do: decimal(part / whole * 100) <> "%"

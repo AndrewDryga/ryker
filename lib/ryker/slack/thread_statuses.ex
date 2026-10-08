@@ -14,7 +14,7 @@ defmodule Ryker.Slack.ThreadStatuses do
   alias Ryker.ErrorDetail
   alias Ryker.Reference
   alias Ryker.Repo
-  alias Ryker.Slack.ThreadStatus
+  alias Ryker.Slack.{Id, ThreadStatus, Timestamp}
   alias Ryker.UTCDateTime
 
   @maximum_targets 1_000
@@ -392,8 +392,7 @@ defmodule Ryker.Slack.ThreadStatuses do
 
   defp target?(%{channel_ref: channel, phase: phase, status: status, thread_ref: thread}) do
     phase in @phases and
-      is_binary(channel) and Regex.match?(~r/\A[A-Z0-9]+\z/, channel) and
-      is_binary(thread) and Regex.match?(~r/\A[0-9]{10,}\.[0-9]{1,6}\z/, thread) and
+      Id.valid?(channel) and Timestamp.valid?(thread) and
       is_binary(status) and String.valid?(status) and byte_size(status) <= 100 and
       :binary.match(status, <<0>>) == :nomatch
   end

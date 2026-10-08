@@ -7,6 +7,7 @@ defmodule Ryker.Admission.Prompt do
   """
   alias Ryker.Admission.{Candidate, Context, ConversationContext}
   alias Ryker.CanonicalJSON
+  alias Ryker.PromptDocument
 
   @max_encoded_bytes 65_536
   @max_snapshot_bytes 98_304
@@ -289,22 +290,7 @@ defmodule Ryker.Admission.Prompt do
 
   @doc "The prompt text: instructions first, then the context in reading order."
   @spec render(map()) :: String.t()
-  def render(%{"instructions" => instructions, "context" => context}) do
-    keys =
-      context
-      |> Map.keys()
-      |> Enum.sort_by(&{Enum.find_index(@context_order, fn key -> key == &1 end) || 99, &1})
-
-    IO.iodata_to_binary([
-      ~s({"instructions":),
-      CanonicalJSON.encode!(instructions),
-      ~s(,"context":{),
-      Enum.map_intersperse(keys, ",", fn key ->
-        [CanonicalJSON.encode!(key), ":", CanonicalJSON.encode!(context[key])]
-      end),
-      "}}"
-    ])
-  end
+  def render(prompt), do: PromptDocument.render(prompt, @context_order)
 
   # Bounded local history is narrowed from the oldest end when the budget is
   # tight. The current input, the thread root and the manifest always survive,

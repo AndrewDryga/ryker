@@ -9,6 +9,7 @@ defmodule Ryker.Webhooks.Input do
   alias Ryker.CanonicalJSON
   alias Ryker.Ingress
   alias Ryker.Reference
+  alias Ryker.UTCDateTime
   alias Ryker.Webhooks.Route
 
   @maximum_revision 9_223_372_036_854_775_807
@@ -78,7 +79,7 @@ defmodule Ryker.Webhooks.Input do
       {Reference.valid?(metadata.event_id, 1_024), :event_id},
       {is_nil(metadata.event_type) or Reference.valid?(metadata.event_type, 256), :event_type},
       {Reference.valid?(metadata.item_id, 1_024), :item_id},
-      {utc_datetime?(metadata.occurred_at), :occurred_at},
+      {UTCDateTime.utc?(metadata.occurred_at), :occurred_at},
       {metadata.occurred_at_source in [:source, :ingress], :occurred_at_source},
       {is_integer(metadata.revision) and metadata.revision > 0 and
          metadata.revision <= @maximum_revision, :revision}
@@ -106,10 +107,4 @@ defmodule Ryker.Webhooks.Input do
       }
     }
   end
-
-  defp utc_datetime?(%DateTime{} = value) do
-    value.time_zone == "Etc/UTC" and value.utc_offset == 0 and value.std_offset == 0
-  end
-
-  defp utc_datetime?(_value), do: false
 end

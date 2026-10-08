@@ -87,19 +87,4 @@ defmodule Ryker.Observability.Reads do
       {:error, reason} -> {:error, reason}
     end
   end
-
-  @doc """
-  Whole seconds from `datetime` to the database clock reading `now`, never
-  negative; nothing to age is zero.
-
-  A timestamp stored without a zone comes back naive and is aged in naive
-  time, which counts the whole-second boundaries between the two readings.
-  """
-  @spec age_seconds(DateTime.t(), DateTime.t() | NaiveDateTime.t() | nil) :: non_neg_integer()
-  def age_seconds(_now, nil), do: 0
-
-  def age_seconds(%DateTime{} = now, %NaiveDateTime{} = datetime),
-    do: max(NaiveDateTime.diff(DateTime.to_naive(now), datetime, :second), 0)
-
-  def age_seconds(now, datetime), do: max(DateTime.diff(now, datetime, :second), 0)
 end

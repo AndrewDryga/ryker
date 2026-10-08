@@ -23,6 +23,7 @@ defmodule Ryker.Runtime.Owner do
   and starts from the saved revision.
   """
   use GenServer
+  alias Ryker.Backoff
   alias Ryker.{Bootstrap, Credentials, Settings}
   alias Ryker.Config
   alias Ryker.Crypto
@@ -190,7 +191,7 @@ defmodule Ryker.Runtime.Owner do
   defp settled(state), do: %{state | retries: 0}
 
   defp schedule_retry(%{retry_timer: nil} = state) do
-    delay = min(state.retry_ms * Integer.pow(2, min(state.retries, 16)), @retry_max_ms)
+    delay = Backoff.delay(state.retries + 1, state.retry_ms, @retry_max_ms, 16)
     %{state | retry_timer: Process.send_after(self(), :retry, delay), retries: state.retries + 1}
   end
 

@@ -305,9 +305,10 @@ defmodule Ryker.Delivery.PlatformActionCustody do
 
   defp current_human_inputs(episode_id) do
     case Repo.one(Episodes.Episode.Query.by_id(episode_id)) do
-      %Episodes.Episode{active_input_refs: active_input_refs} ->
-        episode_id
-        |> active_input_events(active_input_refs)
+      %Episodes.Episode{} = episode ->
+        episode
+        |> Episodes.active_input_events()
+        |> Enum.reverse()
         |> Enum.filter(&human_input?/1)
         |> Enum.map(fn event ->
           %{
@@ -319,16 +320,6 @@ defmodule Ryker.Delivery.PlatformActionCustody do
       nil ->
         []
     end
-  end
-
-  defp active_input_events(_episode_id, []), do: []
-
-  defp active_input_events(episode_id, active_input_refs) do
-    episode_id
-    |> Episodes.Event.Query.by_episode_id()
-    |> Episodes.Event.Query.admitted_inputs(Enum.uniq(active_input_refs))
-    |> Episodes.Event.Query.ordered_by_sequence()
-    |> Repo.all()
   end
 
   defp human_input?(%Episodes.Event{payload: %{"actor_ref" => actor_ref}})

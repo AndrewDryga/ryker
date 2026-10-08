@@ -25,6 +25,23 @@ defmodule Ryker.Text do
   end
 
   @doc """
+  The start of `text` within `max_bytes`, never splitting what a reader sees as
+  one character, and with nothing added.
+  """
+  @spec bytes(String.t(), non_neg_integer()) :: String.t()
+  def bytes(text, max_bytes) when is_binary(text) and is_integer(max_bytes) and max_bytes >= 0 do
+    if byte_size(text) <= max_bytes,
+      do: text,
+      else: text |> String.graphemes() |> Enum.reduce_while("", &within(&1, &2, max_bytes))
+  end
+
+  defp within(grapheme, kept, max_bytes) do
+    if byte_size(kept) + byte_size(grapheme) <= max_bytes,
+      do: {:cont, kept <> grapheme},
+      else: {:halt, kept}
+  end
+
+  @doc """
   How many characters `text` has as JSON Schema's `maxLength` and PostgreSQL's
   `char_length` count them: code points.
   """

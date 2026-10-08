@@ -41,6 +41,7 @@ defmodule Ryker.WeeklyReport.Digest do
   request's title is kept to one bounded line and cannot become a link or a
   mention.
   """
+  alias Ryker.Wording
 
   @title_characters 160
   @day_seconds 86_400
@@ -119,14 +120,14 @@ defmodule Ryker.WeeklyReport.Digest do
        ) do
     they = if opened == 1, do: "it's", else: "they're"
 
-    ["I opened #{count(opened, "PR")} this week, and #{they} waiting for review:"] ++
+    ["I opened #{Wording.count(opened, "PR")} this week, and #{they} waiting for review:"] ++
       waiting_lines(pull_requests.waiting, now)
   end
 
   defp pull_requests(%{opened: opened, merged: merged, waiting: waiting}, now) do
     opened_lines =
       case merged.total do
-        0 -> ["I opened #{count(opened, "PR")} this week."]
+        0 -> ["I opened #{Wording.count(opened, "PR")} this week."]
         _merged -> [merged_sentence(opened, merged.total) | merged_lines(merged)]
       end
 
@@ -162,7 +163,7 @@ defmodule Ryker.WeeklyReport.Digest do
   defp age(opened_at, now) do
     case div(max(DateTime.diff(now, opened_at, :second), 0), @day_seconds) do
       0 -> "less than a day"
-      days -> count(days, "day")
+      days -> Wording.count(days, "day")
     end
   end
 
@@ -253,7 +254,7 @@ defmodule Ryker.WeeklyReport.Digest do
 
     cond do
       seconds < 1 -> "under a second"
-      seconds < 10 -> "about #{count(seconds, "second")}"
+      seconds < 10 -> "about #{Wording.count(seconds, "second")}"
       seconds < 58 -> "about #{round(seconds / 5) * 5} seconds"
       seconds < 55 * 60 -> minutes(round(seconds / 60))
       true -> hours(round(seconds / 3600))
@@ -378,9 +379,6 @@ defmodule Ryker.WeeklyReport.Digest do
 
   defp more(0), do: []
   defp more(count), do: ["- and #{count} more"]
-
-  defp count(1, noun), do: "1 #{noun}"
-  defp count(count, noun), do: "#{count} #{noun}s"
 
   # Words from a request or a topic as the report shows them: on one line,
   # bounded, with the brackets that would make Markdown a link turned into

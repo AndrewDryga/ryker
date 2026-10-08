@@ -11,8 +11,7 @@ defmodule Ryker.Emisar.ApprovalStatus do
   move together, which fails one test rather than every governed-review card.
   """
   alias Ryker.CanonicalJSON
-  alias Ryker.Emisar.{Approval, Review, RunState}
-  alias Ryker.Reference
+  alias Ryker.Emisar.{Approval, Fields, Review, RunState}
 
   @fields ~w(action_id approval_url expires_at operation_id pack_ref remote_error request_id review run_id run_url runner_ref status)
   # One receipt carries the rationale, the command, and up to twenty recorded
@@ -43,18 +42,18 @@ defmodule Ryker.Emisar.ApprovalStatus do
   @spec prepare(term()) :: {:ok, map()} | {:error, term()}
   def prepare(%{} = document) do
     with true <- Enum.sort(Map.keys(document)) == @fields,
-         :ok <- reference(document["action_id"], 200),
+         :ok <- Fields.reference(document["action_id"], 200),
          :ok <- https_url(document["approval_url"]),
-         :ok <- timestamp(document["expires_at"]),
-         :ok <- reference(document["operation_id"], 200),
-         :ok <- reference(document["pack_ref"], 300),
-         :ok <- optional_text(document["remote_error"], 1_000),
-         :ok <- reference(document["request_id"], 80),
+         :ok <- Fields.timestamp(document["expires_at"]),
+         :ok <- Fields.reference(document["operation_id"], 200),
+         :ok <- Fields.reference(document["pack_ref"], 300),
+         :ok <- Fields.optional_text(document["remote_error"], 1_000),
+         :ok <- Fields.reference(document["request_id"], 80),
          {:ok, _review} <- Review.prepare(document["review"]),
          :ok <- exact_hold(document),
-         :ok <- reference(document["run_id"], 200),
+         :ok <- Fields.reference(document["run_id"], 200),
          :ok <- optional_https_url(document["run_url"]),
-         :ok <- reference(document["runner_ref"], 300),
+         :ok <- Fields.reference(document["runner_ref"], 300),
          true <- document["status"] in RunState.statuses(),
          :ok <- canonical(document) do
       {:ok, document}
@@ -123,7 +122,7 @@ defmodule Ryker.Emisar.ApprovalStatus do
   defp https_url(value) when is_binary(value) do
     case URI.new(value) do
       {:ok, %URI{scheme: "https", host: host}} when is_binary(host) and host != "" ->
-        reference(value, 2_048)
+        Fields.reference(value, 2_048)
 
       _invalid ->
         {:error, :url}
@@ -134,19 +133,4 @@ defmodule Ryker.Emisar.ApprovalStatus do
 
   defp optional_https_url(nil), do: :ok
   defp optional_https_url(value), do: https_url(value)
-
-  defp timestamp(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, _datetime, 0} -> :ok
-      _invalid -> {:error, :timestamp}
-    end
-  end
-
-  defp timestamp(_value), do: {:error, :timestamp}
-
-  defp optional_text(nil, _maximum), do: :ok
-  defp optional_text(value, maximum), do: reference(value, maximum)
-
-  defp reference(value, maximum),
-    do: if(Reference.valid?(value, maximum), do: :ok, else: {:error, :reference})
 end

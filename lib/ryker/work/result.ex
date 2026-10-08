@@ -8,6 +8,7 @@ defmodule Ryker.Work.Result do
   """
   alias Ryker.CanonicalJSON
   alias Ryker.Reference
+  alias Ryker.UTCDateTime
 
   @enforce_keys [:continuation, :delivery]
   defstruct [:continuation, :delivery, :decision_reason, :delivery_document]
@@ -188,16 +189,11 @@ defmodule Ryker.Work.Result do
     Reference.text?(value, maximum_characters) and byte_size(value) <= maximum_bytes
   end
 
-  defp utc_datetime?(%DateTime{} = value),
-    do: value.time_zone == "Etc/UTC" and value.utc_offset == 0 and value.std_offset == 0
-
-  defp utc_datetime?(_value), do: false
-
   defp normalize_datetime(%DateTime{microsecond: {microsecond, _precision}} = value),
     do: %{value | microsecond: {microsecond, 6}}
 
   defp normalize_deadline(%DateTime{} = deadline_at) do
-    if utc_datetime?(deadline_at),
+    if UTCDateTime.utc?(deadline_at),
       do: {:ok, normalize_datetime(deadline_at)},
       else: :error
   end

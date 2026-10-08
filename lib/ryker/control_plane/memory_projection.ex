@@ -10,7 +10,7 @@ defmodule Ryker.ControlPlane.MemoryProjection do
   hundred facts used to be all the page showed, with nothing saying more
   existed (2026-10-04 review).
   """
-  alias Ryker.ControlPlane.{PagedRelation, RepositoryNames}
+  alias Ryker.ControlPlane.{PagedRelation, RepositoryNames, Search}
   alias Ryker.InspectionRedactor
   alias Ryker.Memories
   alias Ryker.Repo
@@ -23,7 +23,7 @@ defmodule Ryker.ControlPlane.MemoryProjection do
   @doc "Every collection the Facts page shows, expiry applied at read time."
   def fetch(params \\ %{}) do
     secrets = InspectionRedactor.configured_secrets()
-    search = search_text(params["q"])
+    search = Search.term(params["q"]) || ""
 
     facts =
       fact_rows()
@@ -101,9 +101,6 @@ defmodule Ryker.ControlPlane.MemoryProjection do
   defp search(query, ""), do: query
 
   defp search(query, text), do: Memories.MemoryEntry.Query.saying(query, text)
-
-  defp search_text(value) when is_binary(value), do: String.slice(String.trim(value), 0, 200)
-  defp search_text(_value), do: ""
 
   defp redact_fields(row, keys, secrets) do
     Enum.reduce(keys, row, fn key, row ->

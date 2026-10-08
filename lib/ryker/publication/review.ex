@@ -3,6 +3,7 @@ defmodule Ryker.Publication.Review do
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
   alias Ryker.GitObject
+  alias Ryker.Reference
 
   @required ~w(candidate_head candidate_retained candidate_tree creation_base gate job_digest not_publishable_reasons operation_id parent_head parent_tree patch_truncated policy_findings publishable rebase session_id session_revision source_head source_tree)
   @optional ~w(gate_error gate_output pull_request)
@@ -431,7 +432,7 @@ defmodule Ryker.Publication.Review do
 
   defp pull_request(%{"head_commit" => head, "number" => number, "ref" => ref} = pull_request)
        when map_size(pull_request) == 3 and is_binary(head) and is_integer(number) and number > 0 do
-    if GitObject.id?(head) and bounded_text?(ref, 256),
+    if GitObject.id?(head) and Reference.valid?(ref, 256),
       do: :ok,
       else: {:error, {:invalid_publication_review, :pull_request}}
   end
@@ -441,7 +442,7 @@ defmodule Ryker.Publication.Review do
 
   defp bounded_strings(values, maximum_count, maximum_bytes, _field)
        when is_list(values) and length(values) <= maximum_count do
-    if Enum.all?(values, &bounded_text?(&1, maximum_bytes)),
+    if Enum.all?(values, &Reference.valid?(&1, maximum_bytes)),
       do: :ok,
       else: {:error, {:invalid_publication_review, :text}}
   end
@@ -459,11 +460,6 @@ defmodule Ryker.Publication.Review do
     if is_binary(value) and Regex.match?(@reference, value),
       do: :ok,
       else: {:error, {:invalid_publication_review, field}}
-  end
-
-  defp bounded_text?(value, maximum) do
-    is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and
-      :binary.match(value, <<0>>) == :nomatch and String.trim(value) != ""
   end
 
   defp digest?(value), do: is_binary(value) and Regex.match?(~r/\A[a-f0-9]{64}\z/, value)

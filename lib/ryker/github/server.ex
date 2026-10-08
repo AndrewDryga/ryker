@@ -68,8 +68,12 @@ defmodule Ryker.GitHub.Server do
 
     secret = Map.fetch!(configuration, :secret)
 
-    unless valid_port?(port), do: raise(ArgumentError, "GitHub port must be between 1 and 65535")
-    unless valid_ip?(ip), do: raise(ArgumentError, "GitHub IP must be an IPv4 or IPv6 tuple")
+    unless is_integer(port) and port in 1..65_535,
+      do: raise(ArgumentError, "GitHub port must be between 1 and 65535")
+
+    unless :inet.is_ip_address(ip),
+      do: raise(ArgumentError, "GitHub IP must be an IPv4 or IPv6 tuple")
+
     unless valid_secret?(secret), do: raise(ArgumentError, "GitHub webhook secret is invalid")
     unless valid_bot_login?(bot_login), do: raise(ArgumentError, "GitHub bot login is invalid")
 
@@ -119,20 +123,6 @@ defmodule Ryker.GitHub.Server do
 
   defp normalize_bindings!(_bindings),
     do: raise(ArgumentError, "GitHub bindings must be a map")
-
-  defp valid_port?(port), do: is_integer(port) and port >= 1 and port <= 65_535
-
-  defp valid_ip?(ip) when is_tuple(ip) and tuple_size(ip) == 4,
-    do: valid_ip_parts?(ip, 255)
-
-  defp valid_ip?(ip) when is_tuple(ip) and tuple_size(ip) == 8,
-    do: valid_ip_parts?(ip, 65_535)
-
-  defp valid_ip?(_ip), do: false
-
-  defp valid_ip_parts?(ip, maximum) do
-    ip |> Tuple.to_list() |> Enum.all?(&(is_integer(&1) and &1 >= 0 and &1 <= maximum))
-  end
 
   defp valid_secret?(%Secret{value: secret}),
     do: is_binary(secret) and byte_size(secret) in 32..1_024

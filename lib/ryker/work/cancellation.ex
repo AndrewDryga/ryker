@@ -9,6 +9,7 @@ defmodule Ryker.Work.Cancellation do
   """
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
+  alias Ryker.Reference
 
   @intent_fields ~w(action cancel_ref new_turn_ref reason required_input_ref transfer_ref)
   @absent_receipt_fields ~w(close_operation_ref create_operation_ref kind remote_session_id session_state submit_operation_ref)
@@ -134,7 +135,7 @@ defmodule Ryker.Work.Cancellation do
       "session_state" => session_state
     }
 
-    if reference?(remote_session_id) and reference?(remote_turn_id) and
+    if Reference.valid?(remote_session_id) and Reference.valid?(remote_turn_id) and
          remote_state in @terminal_states and optional_reference?(cancel_operation_ref) and
          session_state in @session_states and optional_reference?(close_operation_ref),
        do: {:ok, receipt},
@@ -165,7 +166,7 @@ defmodule Ryker.Work.Cancellation do
       "submit_operation_ref" => submit_operation_ref
     }
 
-    if reference?(create_operation_ref) and optional_reference?(submit_operation_ref) and
+    if Reference.valid?(create_operation_ref) and optional_reference?(submit_operation_ref) and
          optional_session?(remote_session_id, session_state, close_operation_ref),
        do: {:ok, receipt},
        else: {:error, {:invalid_work_cancellation, :receipt}}
@@ -190,7 +191,7 @@ defmodule Ryker.Work.Cancellation do
     }
 
     if optional_reference?(remote_session_id) and optional_reference?(remote_turn_id) and
-         (is_nil(remote_turn_id) or is_binary(remote_session_id)) and reference?(worker_id),
+         (is_nil(remote_turn_id) or is_binary(remote_session_id)) and Reference.valid?(worker_id),
        do: {:ok, receipt},
        else: {:error, {:invalid_work_cancellation, :receipt}}
   end
@@ -290,7 +291,7 @@ defmodule Ryker.Work.Cancellation do
            "transfer_ref" => nil
          } = intent
        ) do
-    if reference?(cancel_ref) and bounded_text?(reason, 512),
+    if Reference.valid?(cancel_ref) and Reference.valid?(reason, 512),
       do: {:ok, intent},
       else: {:error, {:invalid_work_cancellation, :cancel}}
   end
@@ -305,7 +306,7 @@ defmodule Ryker.Work.Cancellation do
            "transfer_ref" => nil
          } = intent
        ) do
-    if optional_reference?(stop_ref) and bounded_text?(reason, 4_096),
+    if optional_reference?(stop_ref) and Reference.valid?(reason, 4_096),
       do: {:ok, intent},
       else: {:error, {:invalid_work_cancellation, :block}}
   end
@@ -320,27 +321,21 @@ defmodule Ryker.Work.Cancellation do
            "transfer_ref" => transfer_ref
          } = intent
        ) do
-    if reference?(new_turn_ref) and optional_reference?(required_input_ref) and
-         reference?(transfer_ref),
+    if Reference.valid?(new_turn_ref) and optional_reference?(required_input_ref) and
+         Reference.valid?(transfer_ref),
        do: {:ok, intent},
        else: {:error, {:invalid_work_cancellation, :transfer}}
   end
 
   defp prepare_shape(_intent), do: {:error, {:invalid_work_cancellation, :shape}}
 
-  defp reference?(value), do: bounded_text?(value, 1_024)
   defp optional_reference?(nil), do: true
-  defp optional_reference?(value), do: reference?(value)
+  defp optional_reference?(value), do: Reference.valid?(value)
 
   defp optional_session?(nil, nil, nil), do: true
 
   defp optional_session?(remote_session_id, session_state, close_operation_ref) do
-    reference?(remote_session_id) and session_state in @session_states and
+    Reference.valid?(remote_session_id) and session_state in @session_states and
       optional_reference?(close_operation_ref)
-  end
-
-  defp bounded_text?(value, maximum) do
-    is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and
-      :binary.match(value, <<0>>) == :nomatch and String.trim(value) != ""
   end
 end

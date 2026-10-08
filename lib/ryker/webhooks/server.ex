@@ -35,8 +35,11 @@ defmodule Ryker.Webhooks.Server do
     ip = Map.get(configuration, :ip, @default_ip)
     routes = configuration |> Map.fetch!(:routes) |> normalize_routes!()
 
-    unless valid_port?(port), do: raise(ArgumentError, "webhook port must be between 1 and 65535")
-    unless valid_ip?(ip), do: raise(ArgumentError, "webhook IP must be an IPv4 or IPv6 tuple")
+    unless is_integer(port) and port in 1..65_535,
+      do: raise(ArgumentError, "webhook port must be between 1 and 65535")
+
+    unless :inet.is_ip_address(ip),
+      do: raise(ArgumentError, "webhook IP must be an IPv4 or IPv6 tuple")
 
     %{ip: ip, port: port, routes: routes}
   end
@@ -72,18 +75,4 @@ defmodule Ryker.Webhooks.Server do
 
   defp normalize_routes!(_routes),
     do: raise(ArgumentError, "at least one webhook route is required")
-
-  defp valid_port?(port), do: is_integer(port) and port >= 1 and port <= 65_535
-
-  defp valid_ip?(ip) when is_tuple(ip) and tuple_size(ip) == 4,
-    do: valid_ip_parts?(ip, 255)
-
-  defp valid_ip?(ip) when is_tuple(ip) and tuple_size(ip) == 8,
-    do: valid_ip_parts?(ip, 65_535)
-
-  defp valid_ip?(_ip), do: false
-
-  defp valid_ip_parts?(ip, maximum) do
-    ip |> Tuple.to_list() |> Enum.all?(&(is_integer(&1) and &1 >= 0 and &1 <= maximum))
-  end
 end

@@ -13,6 +13,17 @@ defmodule Ryker.ControlPlane.Search do
 
   def term(_value), do: nil
 
+  @doc """
+  A list page's query: the search, and whether it shows current items or
+  past ones ("past" only when asked for).
+  """
+  @spec current_or_past(map()) :: %{String.t() => String.t()}
+  def current_or_past(params),
+    do: %{
+      "q" => term(params["q"]) || "",
+      "view" => if(params["view"] == "past", do: "past", else: "current")
+    }
+
   @doc "The one allowed status a filter names, or nil when it names none."
   @spec one_of(term(), [atom()]) :: atom() | nil
   def one_of(value, allowed) when is_binary(value) do

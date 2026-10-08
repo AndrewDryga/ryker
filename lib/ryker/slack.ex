@@ -1,13 +1,15 @@
 defmodule Ryker.Slack do
   @moduledoc """
-  What the console asks of the Slack context: the names Slack references read
-  as, the words and marks of a task card's phases, and the channel settings a
-  person changes from a channel's page. Each forwards to the module that owns
-  it (`Ryker.Slack.Names`, `Ryker.Slack.TaskCardDetails`,
+  What the console and other contexts ask of the Slack context: the names
+  Slack references read as, links into Slack, whether a value is a Slack id or
+  message timestamp, the words and marks of a task card's phases, and the
+  channel settings a person changes from a channel's page. Each forwards to
+  the module that owns it (`Ryker.Slack.Names`, `Ryker.Slack.Permalink`,
+  `Ryker.Slack.Id`, `Ryker.Slack.Timestamp`, `Ryker.Slack.TaskCardDetails`,
   `Ryker.Slack.ChannelConfigurations`), so the console never reaches below
   this one (`Ryker.Checks.WebNoNestedDomainCalls`).
   """
-  alias Ryker.Slack.{ChannelConfigurations, Names, TaskCardDetails}
+  alias Ryker.Slack.{ChannelConfigurations, Id, Names, Permalink, TaskCardDetails, Timestamp}
 
   @doc "A Slack reference's name in `workspace`, or a description of it when no name is known."
   @spec name(String.t(), String.t()) :: String.t()
@@ -31,6 +33,22 @@ defmodule Ryker.Slack do
   @doc "The workspace a Slack destination is in, or nil for any other destination."
   @spec destination_workspace(term()) :: String.t() | nil
   defdelegate destination_workspace(destination), to: Names, as: :workspace_from_destination
+
+  @doc "Slack's link to a channel or a person; see `Ryker.Slack.Permalink.app_redirect/2`."
+  @spec app_redirect(term(), term()) :: String.t() | nil
+  defdelegate app_redirect(workspace_ref, channel_ref), to: Permalink
+
+  @doc "Slack's link to one message; see `Ryker.Slack.Permalink.app_redirect/3`."
+  @spec app_redirect(term(), term(), term()) :: String.t() | nil
+  defdelegate app_redirect(workspace_ref, channel_ref, message_ref), to: Permalink
+
+  @doc "Whether `value` is a Slack id: a workspace, channel, person or bot."
+  @spec id?(term()) :: boolean()
+  defdelegate id?(value), to: Id, as: :valid?
+
+  @doc "Whether `value` is a Slack message timestamp."
+  @spec timestamp?(term()) :: boolean()
+  defdelegate timestamp?(value), to: Timestamp, as: :valid?
 
   @doc "The workspace whose names Ryker knows, or nil when Slack is off."
   @spec workspace() :: String.t() | nil

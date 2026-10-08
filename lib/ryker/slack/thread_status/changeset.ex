@@ -1,7 +1,7 @@
 defmodule Ryker.Slack.ThreadStatus.Changeset do
   @moduledoc false
   use Ryker, :changeset
-  alias Ryker.Slack.ThreadStatus
+  alias Ryker.Slack.{ThreadStatus, Timestamp}
 
   @fields [
     :attempt_count,
@@ -44,7 +44,7 @@ defmodule Ryker.Slack.ThreadStatus.Changeset do
     changeset
     |> validate_length(:workspace_ref, min: 1, max: 256)
     |> validate_length(:channel_ref, min: 1, max: 256)
-    |> validate_format(:thread_ref, ~r/\A[0-9]{10,}\.[0-9]{1,6}\z/)
+    |> validate_format(:thread_ref, Timestamp.pattern())
     |> validate_length(:desired_text, max: 100, count: :bytes)
     |> validate_number(:generation, greater_than_or_equal_to: 1)
     |> validate_number(:delivered_generation, greater_than_or_equal_to: 0)

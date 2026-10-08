@@ -23,7 +23,6 @@ defmodule Ryker.ControlPlane.FindingsPage do
 
   @path "/memory/findings"
   # A conclusion runs to a few hundred characters; a row shows its start.
-  @row_characters 160
 
   @doc """
   The topics an open Findings page listens to, as the context functions that
@@ -92,7 +91,7 @@ defmodule Ryker.ControlPlane.FindingsPage do
           :for={item <- @view.items}
           id={"finding-" <> item.id}
           icon={:search}
-          name={row_text(item.what)}
+          name={MemoryFormat.row_text(item.what)}
           href={path(item.id)}
           link_row
           state={state(item)}
@@ -246,19 +245,6 @@ defmodule Ryker.ControlPlane.FindingsPage do
 
   # Asking first, then back to this finding's page (`Ryker.ControlPlane.Router`).
   defp action_path(id, action), do: "/actions/finding/#{id}/#{action}"
-
-  defp row_text(what), do: short(what, @row_characters)
-
-  # The start of a conclusion, cut at a word. The limit is in characters, as
-  # the cut is; counting bytes cut short multi-byte text that fitted.
-  defp short(text, limit) when is_binary(text) do
-    if String.length(text) > limit do
-      cut = text |> String.slice(0, limit) |> String.replace(~r/\s+\S*$/u, "")
-      MemoryFormat.inline(cut <> "…")
-    else
-      MemoryFormat.inline(text)
-    end
-  end
 
   # What a person settled comes first; otherwise how Ryker classified it. Each
   # says what it means on hover and focus.

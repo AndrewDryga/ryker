@@ -13,6 +13,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   interval.
   """
   use Ryker.PollingWorker, lane: :slack_incidents, interval: :interval_ms
+  alias Ryker.Backoff
   alias Ryker.Delivery
   alias Ryker.Episodes
   alias Ryker.ErrorDetail
@@ -400,7 +401,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
     do: close_investigation(room, episode, closing(room))
 
   defp settle_close(room, _episode, %{status: :pending}, options) do
-    retry_seconds = retry_delay(room.attempt_count, options.retry_base_seconds)
+    retry_seconds = Backoff.delay(room.attempt_count, options.retry_base_seconds, 3_600, 8)
 
     case IncidentRooms.defer(room.id, room.lease_ref, retry_seconds, :incident_room_close_pending) do
       {:ok, deferred} -> {:ok, {:deferred, deferred.ref}}
@@ -506,7 +507,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   end
 
   defp settle_lifecycle_reconciliation(room, _episode, %{status: :pending}, options) do
-    retry_seconds = retry_delay(room.attempt_count, options.retry_base_seconds)
+    retry_seconds = Backoff.delay(room.attempt_count, options.retry_base_seconds, 3_600, 8)
 
     case IncidentRooms.defer(
            room.id,
@@ -873,7 +874,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
         {:error, reason} -> {:error, reason}
       end
     else
-      retry_seconds = retry_delay(room.attempt_count, options.retry_base_seconds)
+      retry_seconds = Backoff.delay(room.attempt_count, options.retry_base_seconds, 3_600, 8)
 
       case IncidentRooms.defer(room.id, room.lease_ref, retry_seconds, reason) do
         {:ok, deferred} -> {:ok, {:deferred, deferred.ref}}
@@ -883,7 +884,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   end
 
   defp handle_card_error(room, reason, options) do
-    retry_seconds = retry_delay(room.attempt_count, options.retry_base_seconds)
+    retry_seconds = Backoff.delay(room.attempt_count, options.retry_base_seconds, 3_600, 8)
 
     case IncidentRooms.defer(room.id, room.lease_ref, retry_seconds, reason) do
       {:ok, deferred} -> {:ok, {:deferred, deferred.ref}}
@@ -900,10 +901,5 @@ defmodule Ryker.Slack.IncidentRoomWorker do
       :incident_offer_workspace_mismatch,
       :incident_room_capacity
     ]
-  end
-
-  defp retry_delay(attempt_count, base) do
-    exponent = max(attempt_count - 1, 0) |> min(8)
-    min(base * Integer.pow(2, exponent), 3_600)
   end
 end

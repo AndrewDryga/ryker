@@ -10,6 +10,7 @@ defmodule Ryker.Work.Executor.Turns do
   result is accepted.
   """
   alias Ryker.Artifacts
+  alias Ryker.Coop
   alias Ryker.CoopFleet
   alias Ryker.Crypto
   alias Ryker.Records
@@ -208,7 +209,7 @@ defmodule Ryker.Work.Executor.Turns do
     do: {:error, {:coop_protocol_error, :turn_state}}
 
   defp handle_candidate(claim, candidate, artifacts, settings, left) do
-    with {:ok, message, sha256, attempt} <- candidate_fields(candidate),
+    with {:ok, message, sha256, attempt} <- Coop.Documents.candidate(candidate),
          {:ok, turn} <-
            Custody.stage_candidate(
              claim.episode.id,
@@ -531,20 +532,6 @@ defmodule Ryker.Work.Executor.Turns do
 
   defp verify_output_artifact(_expected, _result),
     do: {:error, {:coop_protocol_error, :output_artifact}}
-
-  @doc false
-  def candidate_fields(%{
-        "attempt" => attempt,
-        "message" => message,
-        "sha256" => sha256
-      })
-      when is_integer(attempt) and attempt > 0 and is_binary(message) and is_binary(sha256) do
-    if Crypto.sha256_hex(message) == sha256,
-      do: {:ok, message, sha256, attempt},
-      else: {:error, {:coop_protocol_error, :candidate_digest}}
-  end
-
-  def candidate_fields(_candidate), do: {:error, {:coop_protocol_error, :candidate}}
 
   defp completed_fields(%{
          "assistant_message" => message,

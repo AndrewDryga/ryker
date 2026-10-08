@@ -167,16 +167,8 @@ defmodule Ryker.Slack.ReplyRecords do
     |> Repo.one()
   end
 
-  defp room_url(%IncidentRoom{channel_ref: channel_ref, workspace_ref: workspace_ref})
-       when is_binary(channel_ref) and is_binary(workspace_ref) do
-    if Regex.match?(~r/\A[A-Z0-9]+\z/, channel_ref) and
-         Regex.match?(~r/\A[A-Z0-9]+\z/, workspace_ref) do
-      "https://slack.com/app_redirect?" <>
-        URI.encode_query(team: workspace_ref, channel: channel_ref)
-    else
-      nil
-    end
-  end
+  defp room_url(%IncidentRoom{channel_ref: channel_ref, workspace_ref: workspace_ref}),
+    do: Permalink.app_redirect(workspace_ref, channel_ref)
 
   defp room_url(_room), do: nil
 

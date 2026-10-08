@@ -9,6 +9,7 @@ defmodule Ryker.Slack.Client.Fields do
   """
   alias Ryker.CanonicalJSON
   alias Ryker.Reference
+  alias Ryker.Slack.{Id, Timestamp}
 
   @maximum_conversation_name_bytes 80
   @maximum_result_bytes 768 * 1_024
@@ -31,7 +32,7 @@ defmodule Ryker.Slack.Client.Fields do
 
   @spec slack_id(term()) :: :ok | {:error, {:invalid_slack_api_request, :id}}
   def slack_id(value) do
-    if is_binary(value) and Regex.match?(~r/\A[A-Z0-9]+\z/, value),
+    if Id.valid?(value),
       do: :ok,
       else: {:error, {:invalid_slack_api_request, :id}}
   end
@@ -47,7 +48,7 @@ defmodule Ryker.Slack.Client.Fields do
 
   @spec message_timestamp(term()) :: :ok | {:error, {:invalid_slack_api_request, :timestamp}}
   def message_timestamp(value) do
-    if is_binary(value) and Regex.match?(~r/\A[0-9]{10,}\.[0-9]{1,6}\z/, value),
+    if Timestamp.valid?(value),
       do: :ok,
       else: {:error, {:invalid_slack_api_request, :timestamp}}
   end

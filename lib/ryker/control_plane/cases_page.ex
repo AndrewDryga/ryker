@@ -17,7 +17,6 @@ defmodule Ryker.ControlPlane.CasesPage do
 
   @path "/memory/cases"
   # A problem runs to a few hundred characters; a row shows its start.
-  @row_characters 160
 
   @doc """
   The topics an open Cases page listens to, as the context functions that
@@ -74,7 +73,7 @@ defmodule Ryker.ControlPlane.CasesPage do
           :for={item <- @view.items}
           id={"case-" <> item.id}
           icon={:book}
-          name={row_text(item.problem)}
+          name={MemoryFormat.row_text(item.problem)}
           href={path(item.id)}
           link_row
           meta={meta(item)}
@@ -168,19 +167,6 @@ defmodule Ryker.ControlPlane.CasesPage do
     |> case do
       "" -> @path
       query -> @path <> "?" <> query
-    end
-  end
-
-  defp row_text(problem), do: short(problem, @row_characters)
-
-  # The start of a problem, cut at a word. The limit is in characters, as the
-  # cut is.
-  defp short(text, limit) when is_binary(text) do
-    if String.length(text) > limit do
-      cut = text |> String.slice(0, limit) |> String.replace(~r/\s+\S*$/u, "")
-      MemoryFormat.inline(cut <> "…")
-    else
-      MemoryFormat.inline(text)
     end
   end
 end

@@ -11,7 +11,7 @@ defmodule Ryker.Slack.AppHomeProjection do
   alias Ryker.Publication
   alias Ryker.Repo
   alias Ryker.Schedules
-  alias Ryker.Slack.{AppHome, Collections, SavedEntity}
+  alias Ryker.Slack.{AppHome, Collections, Id, Permalink, SavedEntity}
   alias Ryker.Work
 
   @maximum_collection_rows 10
@@ -27,7 +27,7 @@ defmodule Ryker.Slack.AppHomeProjection do
 
   @spec snapshot(String.t(), String.t(), MapSet.t(String.t())) :: map()
   def snapshot(workspace_ref, actor_ref, %MapSet{} = shared_conversations) do
-    if workspace_ref?(workspace_ref) and actor_ref?(actor_ref) and
+    if Id.valid?(workspace_ref) and Id.valid?(actor_ref) and
          shared_conversations?(shared_conversations) do
       now = Repo.now!()
 
@@ -127,7 +127,7 @@ defmodule Ryker.Slack.AppHomeProjection do
           map()
   def collection(kind, workspace_ref, shared_conversations, offset) do
     with true <- kind in Collections.kinds(),
-         true <- workspace_ref?(workspace_ref),
+         true <- Id.valid?(workspace_ref),
          %MapSet{} <- shared_conversations,
          true <- shared_conversations?(shared_conversations),
          true <- is_integer(offset) and offset >= 0,
@@ -561,22 +561,11 @@ defmodule Ryker.Slack.AppHomeProjection do
     end
   end
 
-  defp slack_url(workspace_ref, channel_ref, thread_ref)
-       when is_binary(workspace_ref) and is_binary(channel_ref) do
-    if Regex.match?(~r/\A[A-Z0-9]+\z/, workspace_ref) and
-         Regex.match?(~r/\A[A-Z0-9]+\z/, channel_ref) do
-      parameters = [team: workspace_ref, channel: channel_ref]
-
-      parameters =
-        if is_binary(thread_ref) and Regex.match?(~r/\A[0-9]{10,}\.[0-9]{1,6}\z/, thread_ref),
-          do: parameters ++ [message_ts: thread_ref],
-          else: parameters
-
-      "https://slack.com/app_redirect?" <> URI.encode_query(parameters)
-    end
+  # The thread when its timestamp is Slack's, otherwise the channel.
+  defp slack_url(workspace_ref, channel_ref, thread_ref) do
+    Permalink.app_redirect(workspace_ref, channel_ref, thread_ref) ||
+      Permalink.app_redirect(workspace_ref, channel_ref)
   end
-
-  defp slack_url(_workspace_ref, _channel_ref, _thread_ref), do: nil
 
   defp source_url(resource, workspace_ref, conversations) when is_map(resource) do
     transport = Map.get(resource, :source_transport, Map.get(resource, "source_transport"))
@@ -615,19 +604,7 @@ defmodule Ryker.Slack.AppHomeProjection do
 
   defp count(query), do: Repo.aggregate(query, :count, :id)
 
-  defp workspace_ref?(value) do
-    is_binary(value) and Regex.match?(~r/\A[A-Z0-9]+\z/, value) and byte_size(value) <= 256
-  end
-
-  defp actor_ref?(value) do
-    is_binary(value) and Regex.match?(~r/\A[A-Z0-9]+\z/, value) and byte_size(value) <= 256
-  end
-
   defp shared_conversations?(conversations) do
-    MapSet.size(conversations) <= 20_000 and Enum.all?(conversations, &channel_ref?/1)
-  end
-
-  defp channel_ref?(value) do
-    is_binary(value) and Regex.match?(~r/\A[A-Z0-9]+\z/, value) and byte_size(value) <= 256
+    MapSet.size(conversations) <= 20_000 and Enum.all?(conversations, &Id.valid?/1)
   end
 end

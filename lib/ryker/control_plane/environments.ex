@@ -11,9 +11,9 @@ defmodule Ryker.ControlPlane.Environments do
   from here, so an environment reads the same everywhere. Everything except
   the channel counts is derived from the settings snapshot.
   """
-  alias Ryker.ControlPlane.Integrations
   alias Ryker.Repo
   alias Ryker.Settings
+  alias Ryker.Wording
 
   @doc """
   How many Slack channels choose each environment, by environment ref, and
@@ -76,7 +76,7 @@ defmodule Ryker.ControlPlane.Environments do
 
       [default | _rest] = refs ->
         [
-          Integrations.count(length(refs), "repository"),
+          Wording.count(length(refs), "repository"),
           "default " <> repository_name(snapshot, default)
         ]
     end
@@ -109,18 +109,12 @@ defmodule Ryker.ControlPlane.Environments do
 
   defp users(channels, webhook_sources) do
     [
-      channels > 0 && Integrations.count(channels, "channel"),
-      webhook_sources > 0 && Integrations.count(webhook_sources, "webhook source")
+      channels > 0 && Wording.count(channels, "channel"),
+      webhook_sources > 0 && Wording.count(webhook_sources, "webhook source")
     ]
     |> Enum.filter(& &1)
     |> Enum.join(" and ")
   end
-
-  @doc ~s(Names in a sentence: "Production", "Production and Staging", "A, B and C".)
-  @spec sentence([String.t()]) :: String.t()
-  def sentence([one]), do: one
-  def sentence([first, second]), do: "#{first} and #{second}"
-  def sentence([first | rest]), do: first <> ", " <> sentence(rest)
 
   @doc """
   The ref a new environment gets from its name: lowercase words joined by

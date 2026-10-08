@@ -33,6 +33,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   alias Ryker.ControlPlane.{SettingsSections, SettingsView}
   alias Ryker.Settings
   alias Ryker.Slack
+  alias Ryker.Wording
   alias Ryker.Work
 
   @impl true
@@ -580,7 +581,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         noun: noun,
         notices: Enum.reject(notices(section, view), & &1[:blocks_add]),
         add_blocked: add_blocked(section, view),
-        total: Kit.list_total(length(rows), {noun, plural(noun)}, false)
+        total: Kit.list_total(length(rows), {noun, Wording.plural(noun)}, false)
       )
 
     ~H"""
@@ -1498,14 +1499,6 @@ defmodule Ryker.ControlPlane.SettingsEditor do
   defp noun(section), do: Map.get(section, :item_label, collection_item_label(section.key))
 
   defp collection_item_label(_key), do: "entry"
-
-  defp plural(noun) do
-    cond do
-      String.ends_with?(noun, ~w(ay ey oy uy)) -> noun <> "s"
-      String.ends_with?(noun, "y") -> String.slice(noun, 0..-2//1) <> "ies"
-      true -> noun <> "s"
-    end
-  end
 
   # What a webhook source needs that this installation does not have yet,
   # each with where to get it, before anyone fills in the form. A sender needs

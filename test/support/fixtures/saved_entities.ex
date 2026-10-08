@@ -120,8 +120,8 @@ defmodule Ryker.Fixtures.SavedEntities do
       confirmed_at: now,
       source_transport: "slack",
       source_conversation_ref: source_conversation_ref,
-      source_thread_ref: "1.000001",
-      source_message_ref: "1.000002",
+      source_thread_ref: "1787832000.000001",
+      source_message_ref: "1787832000.000002",
       expires_at: Keyword.get(overrides, :expires_at, DateTime.add(now, 30, :day)),
       inserted_at: now,
       updated_at: now
@@ -172,8 +172,8 @@ defmodule Ryker.Fixtures.SavedEntities do
       confirmed_at: now,
       source_transport: "slack",
       source_conversation_ref: Keyword.get(overrides, :source, source.conversation_ref),
-      source_thread_ref: "1.000001",
-      source_message_ref: "1.000002",
+      source_thread_ref: "1787832000.000001",
+      source_message_ref: "1787832000.000002",
       expires_at: DateTime.add(now, 30, :day),
       inserted_at: now,
       updated_at: now

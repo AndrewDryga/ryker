@@ -9,6 +9,7 @@ defmodule Ryker.Work.Dispatcher do
   an exception raised by the executor, named by its module, and a turn whose
   claims already used up its attempts.
   """
+  alias Ryker.Backoff
   alias Ryker.ErrorDetail
   alias Ryker.Reference
   alias Ryker.Work.{Custody, Executor}
@@ -159,7 +160,13 @@ defmodule Ryker.Work.Dispatcher do
   end
 
   defp defer(claim, reason, settings) do
-    retry_seconds = retry_delay(attempt_count(claim.turn), settings)
+    retry_seconds =
+      Backoff.delay(
+        attempt_count(claim.turn),
+        settings.retry_base_seconds,
+        settings.retry_max_seconds
+      )
+
     {error_code, error_detail} = describe_error(reason)
 
     case Custody.defer(
@@ -254,11 +261,6 @@ defmodule Ryker.Work.Dispatcher do
 
   defp reported_reason({:work_generation_spent, _phase, reason}), do: reason
   defp reported_reason(reason), do: reason
-
-  defp retry_delay(attempt_count, settings) do
-    exponent = min(max(attempt_count - 1, 0), 20)
-    min(settings.retry_base_seconds * Integer.pow(2, exponent), settings.retry_max_seconds)
-  end
 
   defp describe_error(reason), do: ErrorDetail.describe(reason, :work_execution_failed)
 

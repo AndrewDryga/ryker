@@ -26,6 +26,7 @@ defmodule Ryker.ControlPlane.SetupPage do
   """
   use Phoenix.Component
   alias Ryker.ControlPlane.{Components, Integrations, Kit, Paths}
+  alias Ryker.Wording
 
   @type status :: :done | :current | :later | :skipped
 
@@ -481,12 +482,12 @@ defmodule Ryker.ControlPlane.SetupPage do
   end
 
   defp invited(%{invited_channels: count}, name) when is_binary(name) and count > 1,
-    do: "Ryker is in #{name} and #{Integrations.count(count - 1, "other channel")}"
+    do: "Ryker is in #{name} and #{Wording.count(count - 1, "other channel")}"
 
   defp invited(_setup, name) when is_binary(name), do: "Ryker is in #{name}"
 
   defp invited(%{invited_channels: count}, _name),
-    do: "Ryker is in #{Integrations.count(count, "channel")}"
+    do: "Ryker is in #{Wording.count(count, "channel")}"
 
   defp channel_name(view) do
     case Map.get(view.setup, :channel) do

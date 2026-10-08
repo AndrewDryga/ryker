@@ -24,6 +24,7 @@ defmodule Ryker.Admission do
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Settings
+  alias Ryker.UTCDateTime
   alias Ryker.Work
   require Logger
 
@@ -439,7 +440,7 @@ defmodule Ryker.Admission do
     embedder = Keyword.get_lazy(options, :embedder, &default_embedder/0)
 
     with :ok <- context_option_keys(options),
-         :ok <- context_value(utc_datetime?(now), :now),
+         :ok <- context_value(UTCDateTime.utc?(now), :now),
          :ok <- context_value(positive_integer?(continuation_window), :continuation_window),
          :ok <- valid_history_window(history_window, continuation_window),
          :ok <- valid_candidate_limit(candidate_limit),
@@ -1451,12 +1452,6 @@ defmodule Ryker.Admission do
 
   defp transaction_result({:ok, result}), do: {:ok, result}
   defp transaction_result({:error, reason}), do: {:error, reason}
-
-  defp utc_datetime?(%DateTime{} = value) do
-    value.time_zone == "Etc/UTC" and value.utc_offset == 0 and value.std_offset == 0
-  end
-
-  defp utc_datetime?(_value), do: false
 
   # -- PubSub ------------------------------------------------------------------
 

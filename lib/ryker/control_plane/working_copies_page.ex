@@ -16,6 +16,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Components, Kit, Paths, ShortTime, SlackMarkdown, Units}
   alias Ryker.Slack
+  alias Ryker.Wording
 
   @doc """
   The topics an open Working copies page listens to, as the context functions
@@ -304,19 +305,16 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
   defp size(_unmeasured), do: "unknown"
 
   defp duration(seconds) when is_integer(seconds) and seconds < 60,
-    do: plural(seconds, "second")
+    do: Wording.count(seconds, "second")
 
   defp duration(seconds) when is_integer(seconds) and seconds < 3_600,
-    do: plural(div(seconds, 60), "minute")
+    do: Wording.count(div(seconds, 60), "minute")
 
   defp duration(seconds) when is_integer(seconds) and seconds < 86_400,
-    do: plural(div(seconds, 3_600), "hour")
+    do: Wording.count(div(seconds, 3_600), "hour")
 
-  defp duration(seconds) when is_integer(seconds), do: plural(div(seconds, 86_400), "day")
+  defp duration(seconds) when is_integer(seconds), do: Wording.count(div(seconds, 86_400), "day")
   defp duration(_unknown), do: "an unknown time"
-
-  defp plural(1, unit), do: "1 #{unit}"
-  defp plural(count, unit), do: "#{count} #{unit}s"
 
   defp space_in_use?(workers) do
     Enum.any?(workers, fn worker ->

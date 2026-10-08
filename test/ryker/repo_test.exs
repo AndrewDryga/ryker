@@ -22,6 +22,17 @@ defmodule Ryker.RepoTest do
     GenServer.stop(connection)
   end
 
+  # Three lanes asked PostgreSQL this with a query of their own and the ready
+  # pool compared against its clock by hand (until 2026-10-08).
+  test "a deadline has passed by the database's clock, and never for what has not started" do
+    :ok = Sandbox.checkout(Repo)
+    now = Repo.now!()
+
+    assert Repo.passed?(DateTime.add(now, -120), 60)
+    refute Repo.passed?(DateTime.add(now, 3_600), 60)
+    refute Repo.passed?(nil, 60)
+  end
+
   test "a lost concurrent transaction is a conflict and an exhausted budget, a timeout only the latter" do
     for code <- [:serialization_failure, :deadlock_detected] do
       assert Repo.conflict?(postgres_error(code))

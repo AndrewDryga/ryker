@@ -38,10 +38,17 @@ defmodule Ryker.Reference do
   that the schema had allowed (2026-10-04 review).
   """
   @spec text?(term(), pos_integer()) :: boolean()
-  def text?(value, maximum) when is_binary(value) do
-    String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
-      String.trim(value) != "" and Text.char_length(value) <= maximum
-  end
+  def text?(value, maximum) when is_binary(value),
+    do: text?(value) and Text.char_length(value) <= maximum
 
   def text?(_value, _maximum), do: false
+
+  @doc "Text of any length: valid UTF-8 with no NUL byte, not blank."
+  @spec text?(term()) :: boolean()
+  def text?(value) when is_binary(value) do
+    String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
+      String.trim(value) != ""
+  end
+
+  def text?(_value), do: false
 end

@@ -47,6 +47,29 @@ rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-08.
 - `DateTime.utc_now/1` takes the precision it needs instead of a
   `DateTime.truncate/2` after it.
 
+## Shared helpers
+
+- A pure helper used in more than one module is its own small module with
+  unit tests, and its callers differ only in the arguments they pass
+  (Emisar's README). A boundary keeps its own error tag around the shared
+  check, as `Ryker.Slack.MembershipTransition` does around
+  `Slack.Timestamp.to_datetime/1`; the rule itself is written once.
+- The ones there are: `Ryker.Wording` (a count and its noun, plurals,
+  numbers with separators, a list in a sentence, capitals),
+  `Ryker.Text` and `Ryker.Reference` (text in the unit its limit counts),
+  `Ryker.UTCDateTime` (times, and ages), `Ryker.Backoff` (the doubling wait),
+  `Repo.passed?/2` (a deadline by the database clock),
+  `Ryker.PromptDocument` (a model prompt's text), `Ryker.Coop.Documents` (a
+  Coop session, turn and candidate answer), `Ryker.Emisar.Fields` and
+  `Ryker.Slack.Client.Fields` (a boundary's field checks),
+  `Ryker.Slack.Id`, `Ryker.Slack.Timestamp` and `Ryker.Slack.Permalink`
+  (other contexts and the console reach them through `Ryker.Slack`), and in
+  the console `Search`, `MemoryFormat` and `ChartAxis`. A standard library
+  function beats a copy: `:inet.is_ip_address/1` checks a listener's address.
+- Not helpers: the shapes a layer requires (OTP callbacks, a page's
+  `html/1`, a custody's `claim_next/2`, a Query module's own select), and a
+  two-line read composed where it is used.
+
 ## Names
 
 - Alias the schema and call its modules: `alias Ryker.Work.Session`, then
@@ -327,7 +350,8 @@ Model-facing tools (Emisar's `elixir-model-authoring-validation-is-actionable`):
 
 Tests hold the rest: `Ryker.TypespecsTest` resolves every remote type a spec
 names, `Ryker.ConstraintNamesTest` finds every constraint a changeset
-declares, `Ryker.ControlPlane.TemplateHygieneTest` keeps templates off raw
+declares, `Ryker.CopiedHelpersTest` finds a function copied between modules,
+`Ryker.ControlPlane.TemplateHygieneTest` keeps templates off raw
 subscripts, and `Ryker.DataCase` fails an async test that saves settings.
 
 ## Ryker conventions Emisar does not have

@@ -6,6 +6,7 @@ defmodule Ryker.Slack.Renderer.SavedEntityCard do
   """
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
+  alias Ryker.Reference
 
   @saved_entity_kinds ~w(schedule standing_rule preference guidance memory)
   @saved_entity_statuses ~w(active paused disabled completed expired deleted superseded)
@@ -153,10 +154,11 @@ defmodule Ryker.Slack.Renderer.SavedEntityCard do
   def validate(_entity), do: {:error, :invalid_saved_entity}
 
   defp texts?(title, instructions, notice, saved_by) do
-    text?(title) and String.length(title) <= @maximum_title_characters and
+    Reference.text?(title) and String.length(title) <= @maximum_title_characters and
       (is_nil(instructions) or
-         (text?(instructions) and String.length(instructions) <= @maximum_instructions_characters)) and
-      text?(notice) and text?(saved_by)
+         (Reference.text?(instructions) and
+            String.length(instructions) <= @maximum_instructions_characters)) and
+      Reference.text?(notice) and Reference.text?(saved_by)
   end
 
   defp ref?("memory", "memory:" <> _rest = ref, nil), do: entity_ref?(ref)
@@ -175,10 +177,11 @@ defmodule Ryker.Slack.Renderer.SavedEntityCard do
   defp facts?(facts) when is_list(facts) and length(facts) <= @maximum_facts do
     Enum.all?(facts, fn
       [label, %{"channel_ref" => channel_ref} = value] when map_size(value) == 1 ->
-        text?(label) and is_binary(channel_ref)
+        Reference.text?(label) and is_binary(channel_ref)
 
       [label, value] ->
-        text?(label) and text?(value) and String.length(value) <= @maximum_fact_characters
+        Reference.text?(label) and Reference.text?(value) and
+          String.length(value) <= @maximum_fact_characters
 
       _other ->
         false

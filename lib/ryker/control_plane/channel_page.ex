@@ -19,6 +19,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
   alias Ryker.ControlPlane.{ShortTime, Units}
   alias Ryker.{Schedules, Settings}
   alias Ryker.Slack
+  alias Ryker.Wording
 
   @doc """
   The topics an open channel page listens to, as the context functions that
@@ -508,10 +509,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
   # Slack's own page for the channel, in the app when it is installed. The
   # page shows no Slack IDs (Andrew, 2026-09-28): whether a channel is private
   # or shared is in the description under the title.
-  defp slack_link(scope) do
-    "https://slack.com/app_redirect?" <>
-      URI.encode_query(%{"team" => scope.workspace_ref, "channel" => scope.channel_ref})
-  end
+  defp slack_link(scope), do: Slack.app_redirect(scope.workspace_ref, scope.channel_ref)
 
   attr(:configuration, :map, default: nil)
   attr(:workspace, :string, required: true)
@@ -756,16 +754,16 @@ defmodule Ryker.ControlPlane.ChannelPage do
     >
       <span :if={!@learning.enabled}>Learning is off</span>
       <span :if={@learning.waiting > 0}>
-        {count(@learning.waiting, "message", "messages")} waiting to be learned from
+        {Wording.count(@learning.waiting, "message")} waiting to be learned from
       </span>
       <a :if={@learning.needs_attention > 0} href="/memory/learning">
-        {count(@learning.needs_attention, "learning batch needs", "learning batches need")} attention
+        {Wording.count(@learning.needs_attention, "learning batch needs", "learning batches need")} attention
       </a>
       <span :if={@continuity.drafts > 0}>
-        {count(@continuity.drafts, "conversation update", "conversation updates")} being saved
+        {Wording.count(@continuity.drafts, "conversation update")} being saved
       </span>
       <a :if={@continuity.handover_failures > 0} href="/memory/learning#context-not-saved">
-        {count(@continuity.handover_failures, "conversation update", "conversation updates")} could not be saved
+        {Wording.count(@continuity.handover_failures, "conversation update")} could not be saved
       </a>
     </p>
     """
@@ -908,7 +906,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
       />
       <%= if @view.usage.executions > 0 do %>
         <p class="channel-usage">
-          <span>{count(@view.usage.executions, "run", "runs")}</span>
+          <span>{Wording.count(@view.usage.executions, "run")}</span>
           <span :if={@view.usage.measured > 0}>
             {number(@view.usage.input_tokens)} input, {number(@view.usage.cached_input_tokens)} cached, {number(
               @view.usage.output_tokens
@@ -1050,9 +1048,6 @@ defmodule Ryker.ControlPlane.ChannelPage do
   defp expiry(at, now),
     do: ShortTime.time(%{__changed__: nil, at: at, now: now, prefix: "expires "})
 
-  defp count(1, one, _many), do: "1 #{one}"
-  defp count(total, _one, many), do: "#{total} #{many}"
-
   defp window("24h"), do: "Last 24 hours"
   defp window("30d"), do: "Last 30 days"
   defp window("all"), do: "All time"
@@ -1062,8 +1057,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
   defp mode("shadow"), do: "evaluation runs only"
   defp mode(_all), do: "live work and evaluation runs"
 
-  defp number(value) when is_integer(value),
-    do: value |> Integer.to_string() |> String.replace(~r/\B(?=(\d{3})+(?!\d))/, ",")
+  defp number(value) when is_integer(value), do: Wording.number(value)
 
   defp number(_missing), do: "0"
 

@@ -13,6 +13,7 @@ defmodule Ryker.Improvement.Prompt do
   """
   alias Ryker.CanonicalJSON
   alias Ryker.Improvement.Candidate
+  alias Ryker.PromptDocument
   alias Ryker.Reference
 
   @contract_version "improvement-analysis-v1"
@@ -117,22 +118,7 @@ defmodule Ryker.Improvement.Prompt do
 
   @doc "The prompt text: instructions first, then the context in reading order."
   @spec render(map()) :: String.t()
-  def render(%{"instructions" => instructions, "context" => context}) do
-    keys =
-      context
-      |> Map.keys()
-      |> Enum.sort_by(&{Enum.find_index(@context_order, fn key -> key == &1 end) || 99, &1})
-
-    IO.iodata_to_binary([
-      ~s({"instructions":),
-      CanonicalJSON.encode!(instructions),
-      ~s(,"context":{),
-      Enum.map_intersperse(keys, ",", fn key ->
-        [CanonicalJSON.encode!(key), ":", CanonicalJSON.encode!(context[key])]
-      end),
-      "}}"
-    ])
-  end
+  def render(prompt), do: PromptDocument.render(prompt, @context_order)
 
   @doc "The JSON Schema every analysis answer follows."
   @spec output_schema() :: map()
@@ -260,7 +246,7 @@ defmodule Ryker.Improvement.Prompt do
 
         context
         |> Map.put("routing", routing)
-        |> note("Older routing prompts, left out for length.")
+        |> PromptDocument.omit("Older routing prompts, left out for length.")
     end
   end
 
@@ -278,7 +264,7 @@ defmodule Ryker.Improvement.Prompt do
 
     if shortened == context,
       do: context,
-      else: note(shortened, "The end of long texts, cut for length.")
+      else: PromptDocument.omit(shortened, "The end of long texts, cut for length.")
   end
 
   @marker " …[cut]"
@@ -304,7 +290,7 @@ defmodule Ryker.Improvement.Prompt do
     if Enum.any?(context["work"], &(&1["tools"] != [])) do
       context
       |> Map.update!("work", fn turns -> Enum.map(turns, &Map.put(&1, "tools", [])) end)
-      |> note("The tools each Work turn called, left out for length.")
+      |> PromptDocument.omit("The tools each Work turn called, left out for length.")
     else
       context
     end
@@ -313,7 +299,7 @@ defmodule Ryker.Improvement.Prompt do
   defp drop_oldest_message(%{"conversation" => [_oldest | rest]} = context) when rest != [] do
     context
     |> Map.put("conversation", rest)
-    |> note("The oldest messages, left out for length.")
+    |> PromptDocument.omit("The oldest messages, left out for length.")
   end
 
   defp drop_oldest_message(context), do: context
@@ -321,15 +307,12 @@ defmodule Ryker.Improvement.Prompt do
   # Each keeps its newest item.
   defp drop_oldest(context, key, text) do
     case context[key] do
-      [_oldest | rest] when rest != [] -> context |> Map.put(key, rest) |> note(text)
-      _one_or_none -> context
-    end
-  end
+      [_oldest | rest] when rest != [] ->
+        context |> Map.put(key, rest) |> PromptDocument.omit(text)
 
-  defp note(context, text) do
-    if text in context["omitted"],
-      do: context,
-      else: Map.update!(context, "omitted", &(&1 ++ [text]))
+      _one_or_none ->
+        context
+    end
   end
 
   @doc "The largest request `build/2` returns, in encoded bytes."

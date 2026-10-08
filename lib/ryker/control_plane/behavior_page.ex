@@ -16,6 +16,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   alias Ryker.ControlPlane.{Components, Kit, Paths, ShortTime}
   alias Ryker.Episodes
   alias Ryker.Slack
+  alias Ryker.Wording
 
   @doc """
   The topics an open Rules or Instructions page listens to, as the context
@@ -85,7 +86,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
         pages={@view.pages}
         path={&rules_url(@view, page: &1)}
         label="Rule pages"
-        summary={count(@view.total, "rule", "rules")}
+        summary={Wording.count(@view.total, "rule")}
       />
       <section :if={@view.items != []} class="behavior-matches" aria-labelledby="rule-matches">
         <Kit.section_head
@@ -208,7 +209,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
           pages={@saved.pages}
           path={&saved_url(@saved, page: &1)}
           label="Saved entry pages"
-          summary={count(@saved.total, "entry", "entries")}
+          summary={Wording.count(@saved.total, "entry")}
         />
       </Kit.section_card>
     </div>
@@ -562,9 +563,6 @@ defmodule Ryker.ControlPlane.BehaviorPage do
     if query == "", do: path <> fragment, else: path <> "?" <> query <> fragment
   end
 
-  defp count(1, one, _many), do: "1 " <> one
-  defp count(total, _one, many), do: "#{total} " <> many
-
   defp channel_rows(channels) do
     channels
     |> Enum.map(fn channel ->
@@ -638,14 +636,9 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   end
 
   def source_url(%{source_conversation_ref: "slack:" <> rest, source_message_ref: stamp}) do
-    with [team, channel] <- String.split(rest, ":"),
-         true <- Regex.match?(~r/\A[A-Z0-9]+\z/, team),
-         true <- Regex.match?(~r/\A[A-Z0-9]+\z/, channel),
-         true <- is_binary(stamp) && Regex.match?(~r/\A[0-9]+\.[0-9]+\z/, stamp) do
-      "https://slack.com/app_redirect?" <>
-        URI.encode_query(team: team, channel: channel, message_ts: stamp)
-    else
-      _ -> nil
+    case String.split(rest, ":") do
+      [team, channel] -> Slack.app_redirect(team, channel, stamp)
+      _other -> nil
     end
   end
 
