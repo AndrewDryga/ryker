@@ -106,6 +106,57 @@ defmodule Ryker.Evals.TestDatabaseIsolationTest do
     end
   end
 
+  test "a gate whose tests pass is red when a log line escaped every test's capture" do
+    # Emisar's rule: test output stays boring. Each test captures its logs and
+    # a failing one prints them, so a line in a passing run came from a process
+    # still running after its test ended. Ryker's runs were quiet by 2026-10-04,
+    # when DBConnection's report of a stopped client was filtered out; since
+    # 2026-10-08 a new line turns the gate red instead of joining the noise.
+    root = Path.join(System.tmp_dir!(), "test-output-noise-#{Ecto.UUID.generate()}")
+    File.mkdir_p!(Path.join(root, "scripts"))
+    File.mkdir_p!(Path.join(root, "bin"))
+    File.mkdir_p!(Path.join(root, "test/ryker"))
+    on_exit(fn -> File.rm_rf!(root) end)
+    stage_scripts!(root)
+
+    File.write!(
+      Path.join(root, "test/ryker/a_test.exs"),
+      "defmodule T do\n  use ExUnit.Case, async: true\nend\n"
+    )
+
+    executable!(root, "bin/docker", """
+    #!/bin/bash
+    case "$*" in
+      *'up --detach --wait episode-db') ;;
+      *'port episode-db 5432') echo 127.0.0.1:5432 ;;
+      *) exit 91 ;;
+    esac
+    """)
+
+    executable!(root, "scripts/elixir-mix.sh", """
+    #!/bin/bash
+    case "$*" in
+      *'+ test '*) echo '12:00:00.000 [warning] a worker outlived its test' ;;
+    esac
+    exit 0
+    """)
+
+    {output, status} =
+      System.cmd("bash", ["scripts/elixir-test.sh", "--check"],
+        cd: root,
+        stderr_to_stdout: true,
+        env: [
+          {"PATH", Path.join(root, "bin") <> ":" <> System.fetch_env!("PATH")},
+          {"RYKER_TEST_ISOLATED", "0"},
+          {"RYKER_TEST_PARTITIONS", "1"}
+        ]
+      )
+
+    assert status == 1
+    assert output =~ "these lines escaped every test's log capture"
+    assert output =~ "== red partitions: 0"
+  end
+
   test "a Coop box without Docker tests against the sidecar its PGHOST names" do
     # On 2026-10-01 a box agent could not run one test all evening: this script
     # started the database with Docker, and a Coop box has none. Coop starts

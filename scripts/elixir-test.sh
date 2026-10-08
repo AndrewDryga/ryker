@@ -90,7 +90,12 @@ fi
 # per three cores, so a small CI runner keeps one.
 test_partitions() {
   local count=${RYKER_TEST_PARTITIONS:-$(($(getconf _NPROCESSORS_ONLN) / 3))}
-  local logs partition file dealt=0 status=0 red=""
+  local logs partition file dealt=0 status=0 red="" noisy=""
+  # Emisar's rule: test output stays boring. Logs are captured per test, and a
+  # failing test prints what it captured, so a passing VM that printed a log
+  # line let one escape every test: a defect, or a process still running
+  # after its test ended.
+  local noise='^[[:space:]]*[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3} [[](warning|error)[]]'
   local pids=()
   ((count >= 1)) || count=1
   logs=$(mktemp -d "${TMPDIR:-/tmp}/ryker-test-partitions.XXXXXX")
@@ -119,10 +124,16 @@ test_partitions() {
   for ((partition = 0; partition <= count; partition++)); do
     [[ -s $logs/$partition.files ]] || continue
 
-    wait "${pids[partition]}" || {
+    if wait "${pids[partition]}"; then
+      if grep -E -q "$noise" "$logs/$partition.log"; then
+        ((status != 0)) || status=1
+        red="$red $partition"
+        noisy="$noisy $partition"
+      fi
+    else
       status=$?
       red="$red $partition"
-    }
+    fi
 
     if ((partition == 0)); then
       echo "== async files"
@@ -131,6 +142,11 @@ test_partitions() {
     fi
 
     cat "$logs/$partition.log"
+
+    if [[ " $noisy " == *" $partition "* ]]; then
+      echo "== partition $partition passed, but these lines escaped every test's log capture:"
+      grep -E "$noise" "$logs/$partition.log"
+    fi
   done
 
   echo "== red partitions:${red:- none}"

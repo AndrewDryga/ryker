@@ -267,6 +267,9 @@ Functions:
 - A module attribute holds configuration: a limit, a version, a prefix, a
   pattern, a path. A message or other literal read in one place is written
   there.
+- A pipeline whose `fn` steps mix one-line and wrapped bodies is left as
+  the formatter writes it: Ryker has 36 such pipelines and Emisar, whose
+  README asks to hand-wrap the short ones, 32 (measured 2026-10-08).
 - A function whose body is one `if` or `case` on its own argument, testing
   whether it or a field of it is nil, a literal or truthy, is clause heads
   instead (Emisar's `elixir-dispatch-on-pattern`): the heads show the cases
@@ -410,6 +413,18 @@ Emisar's test rules Ryker follows (`elixir-layered-contexts.md` §7 there):
   `assert "is invalid" in errors_on(changeset).field` (`Ryker.DataCase`),
   never by matching `%Ecto.Changeset{}` or reading `changeset.errors`. A test
   of which database constraint caught a write reads the constraint's name.
+- A passing run prints no log line: each test captures its own, and a
+  failing test prints what it captured, so a line in a passing VM's output
+  escaped every test, from a process still running after its test ended.
+  `scripts/elixir-test.sh --check` turns that VM red and names the lines
+  (Emisar's "test output stays boring"); DBConnection's report of a stopped
+  client is filtered out (`Ryker.TestSupport.LogFilters`).
+- A LiveView's async work settles with one `render_async/2`: the console's
+  two `handle_async/3` completions start nothing further, the case where
+  Emisar settles to quiescence instead.
+- Tests read the database catalog only where no domain call can say the same:
+  constraint names, a retention plan for every foreign key, planner
+  statistics, a shadowed clock, and migrations.
 - Measured against Emisar's test taste on 2026-10-08 and kept as Emisar
   writes it: multi-line map arguments in test bodies (Ryker 1,398, Emisar
   1,205) and parts of a fixture's result a test discards (Ryker 209, Emisar
