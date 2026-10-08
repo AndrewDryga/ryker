@@ -802,6 +802,9 @@ grace period, fetches an exact discard plan, and then:
 - retains dirty or unpublished work for an operator; and
 - blocks on crossed session identity, authority, or ambiguous cleanup instead of guessing.
 
+A publication someone discarded is finished: cleanup and history retention wait only for one that
+may still publish. Commits it never published keep its workspace retained, as any others do.
+
 Each step goes to the worker that holds the session under whatever policy version and setup that
 worker runs now: close, discard planning and discard do no policy work, and Coop's worker forwards
 them without one. A worker that is away is waited for like any outage. A session whose worker was

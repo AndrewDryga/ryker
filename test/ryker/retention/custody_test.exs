@@ -537,6 +537,22 @@ defmodule Ryker.Retention.CustodyTest do
     assert Repo.get!(Session, unpublished.id).cleanup_status == :active
   end
 
+  # Discard ends a publication for good, and cleanup still read it as work
+  # waiting to publish: two finished tasks kept their worker sessions open, and
+  # their workspaces with them, from 2026-09-30 with nothing left to wait for.
+  test "a discarded publication no longer keeps its finished session open" do
+    discarded = terminal_session!("discarded-publication")
+    reviewing = terminal_session!("reviewing-publication")
+    insert_unpublished_publication!(discarded, "discarded")
+    insert_unpublished_publication!(reviewing)
+
+    assert {:ok, %{session: claimed}} = Custody.claim_next("cleanup:discarded", 60)
+    assert claimed.id == discarded.id
+    assert claimed.cleanup_status == :close_pending
+    assert Custody.claim_next("cleanup:reviewing", 60) == {:ok, nil}
+    assert Repo.get!(Session, reviewing.id).cleanup_status == :active
+  end
+
   test "cleanup intent makes a reopened episode rotate to a fresh immutable session" do
     session = completed_session!("reopen")
     assert {:ok, _claim} = Ryker.Retention.Custody.claim_next("cleanup:a", 60)
@@ -717,7 +733,7 @@ defmodule Ryker.Retention.CustodyTest do
     )
   end
 
-  defp insert_unpublished_publication!(session) do
+  defp insert_unpublished_publication!(session, status \\ "review_pending") do
     insert_open_record!(session.episode_id)
 
     {record_id, turn_id} =
@@ -743,7 +759,7 @@ defmodule Ryker.Retention.CustodyTest do
          offer_message_ref, review_request_ref, review_requested_by_actor_ref,
          review_requested_at, review_generation, attempt_count, inserted_at, updated_at)
       VALUES ($1, $2, $3, $4, $5, 'ryker', 'Review', 'Review this change.',
-              'review_pending', 'slack', 'C-retention', 'thread-retention', $6, $7,
+              $8, 'slack', 'C-retention', 'thread-retention', $6, $7,
               'slack:user:operator', clock_timestamp(), 1, 0,
               clock_timestamp(), clock_timestamp())
       """,
@@ -754,7 +770,8 @@ defmodule Ryker.Retention.CustodyTest do
         uuid!(record_id),
         uuid!(session.id),
         "message:offer:#{session.id}",
-        "interaction:review:#{turn_id}"
+        "interaction:review:#{turn_id}",
+        status
       ]
     )
   end

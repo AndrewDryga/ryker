@@ -114,7 +114,7 @@ defmodule Ryker.Retention.Cleanup.Query do
       on: admission.id == session.admission_input_id,
       where: ^owner_finished(),
       where: session.id not in subquery(unfinished_session_ids()),
-      where: session.id not in subquery(unpublished_session_ids()),
+      where: session.id not in subquery(pending_publication_session_ids()),
       where: ^cleanup_status_filter(now)
     )
   end
@@ -294,11 +294,11 @@ defmodule Ryker.Retention.Cleanup.Query do
     )
   end
 
-  defp unpublished_session_ids do
-    from(publication in Publication.Publication,
-      where: publication.status != :published,
-      select: publication.session_id
-    )
+  # Discard ends a publication for good: read as pending, it kept two finished
+  # tasks' sessions open on their worker from 2026-09-30.
+  defp pending_publication_session_ids do
+    Publication.Publication.Query.pending()
+    |> select([episode_publications: publication], publication.session_id)
   end
 
   defp owner_finished do

@@ -7,8 +7,8 @@ defmodule Ryker.Retention.Custody do
   run has exact remote stop proof, an
   admission input has finished or advanced past that session generation, or a
   routing session started ahead of time was retired before any message
-  claimed it (`Ryker.Admission.ReadySessions`); no unpublished publication may
-  still depend on the session.
+  claimed it (`Ryker.Admission.ReadySessions`); no publication that may still
+  publish depends on the session.
   Durable state records and episode history may outlive the remote workspace;
   their independent retention rules preserve them. PostgreSQL time and opaque
   leases provide the fleet fence; remote calls never run in these transactions.
@@ -359,7 +359,7 @@ defmodule Ryker.Retention.Custody do
     publications = Publication.Publication.Query.by_session_id(session.id)
 
     Repo.exists?(Publication.Publication.Query.published(publications)) and
-      not Repo.exists?(Publication.Publication.Query.unpublished(publications))
+      not Repo.exists?(Publication.Publication.Query.pending(publications))
   end
 
   # A candidate whose owner another transaction holds, or that stopped being
@@ -442,7 +442,7 @@ defmodule Ryker.Retention.Custody do
   defp claimable?(owner, session, now) do
     owner_finished?(owner, session) and
       not unfinished_turn?(session.id) and
-      not unpublished_publication?(session.id) and
+      not pending_publication?(session.id) and
       lease_free?(session, now) and
       claimable_status?(session, now)
   end
@@ -545,10 +545,10 @@ defmodule Ryker.Retention.Custody do
     |> Repo.exists?()
   end
 
-  defp unpublished_publication?(session_id) do
+  defp pending_publication?(session_id) do
     session_id
     |> Publication.Publication.Query.by_session_id()
-    |> Publication.Publication.Query.unpublished()
+    |> Publication.Publication.Query.pending()
     |> Repo.exists?()
   end
 

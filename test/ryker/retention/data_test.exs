@@ -1052,6 +1052,25 @@ defmodule Ryker.Retention.DataTest do
            ) == 1
   end
 
+  # The history guard kept every publication but a published one, so a task
+  # whose publication someone discarded kept its history past the horizon for
+  # good, beside the worker session cleanup also left open for it.
+  test "a discarded publication lets its task's history expire, one still in review pins it" do
+    discarded = settled_work!("publication-discarded") |> discard_session!()
+    reviewing = settled_work!("publication-reviewing") |> discard_session!()
+    insert_publication!(discarded, "discarded")
+    insert_publication!(reviewing, "review_pending")
+    backdate_history!(discarded, 120)
+    backdate_history!(reviewing, 120)
+
+    assert {:ok, result} =
+             Data.prune(settings(episode_history_seconds: 60, audit_data_seconds: 600))
+
+    assert result.episode_histories == 1
+    assert %DateTime{} = Repo.get!(Ryker.Episodes.Episode, discarded.episode.id).history_pruned_at
+    assert Repo.get!(Ryker.Episodes.Episode, reviewing.episode.id).history_pruned_at == nil
+  end
+
   test "routine cleanup reclaims the transcript and leaves the retained case standing" do
     # A matching incident a year later has to start from what was learned, but
     # the raw transcript, the Coop workspace and the episode rows it came from
@@ -1941,6 +1960,54 @@ defmodule Ryker.Retention.DataTest do
       Repo.update_all(from(session in Session, where: session.id == ^work.session.id),
         set: [updated_at: @old]
       )
+
+    work
+  end
+
+  defp insert_publication!(work, status) do
+    record_id = Ecto.UUID.generate()
+
+    Repo.query!(
+      """
+      INSERT INTO episode_state_records
+        (id, episode_id, turn_id, ref, operation_id, kind, status, payload,
+         payload_fingerprint, sequence, inserted_at, updated_at)
+      VALUES ($1, $2, $3, $4, 'offer', 'publication_offer', 'dismissed', '{}', $5, $6, $7, $7)
+      """,
+      [
+        uuid!(record_id),
+        uuid!(work.episode.id),
+        uuid!(work.turn.id),
+        "record:publication:#{work.turn.id}",
+        String.duplicate("c", 64),
+        System.unique_integer([:positive]),
+        @old
+      ]
+    )
+
+    Repo.query!(
+      """
+      INSERT INTO episode_publications
+        (id, ref, episode_id, record_id, session_id, repository, title, body, status,
+         destination_transport, destination_conversation_ref, destination_thread_ref,
+         offer_message_ref, review_request_ref, review_requested_by_actor_ref,
+         review_requested_at, review_generation, attempt_count, inserted_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, 'ryker', 'Review', 'Review this change.', $6,
+              'slack', 'C-retention', 'thread-retention', $7, $8, 'slack:user:operator',
+              $9, 1, 0, $9, $9)
+      """,
+      [
+        uuid!(Ecto.UUID.generate()),
+        "publication:#{work.session.id}",
+        uuid!(work.episode.id),
+        uuid!(record_id),
+        uuid!(work.session.id),
+        status,
+        "message:offer:#{work.session.id}",
+        "interaction:review:#{work.turn.id}",
+        @old
+      ]
+    )
 
     work
   end

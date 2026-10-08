@@ -905,7 +905,7 @@ defmodule Ryker.Retention.Data do
       SELECT 1 FROM episode_publications publication
       WHERE publication.episode_id = episode.id
         AND (
-          publication.status <> 'published'
+          publication.status NOT IN ('published', 'discarded')
           OR publication.updated_at >= clock_timestamp() - ($2 * interval '1 second')
         )
     )
@@ -973,7 +973,8 @@ defmodule Ryker.Retention.Data do
   # The history of each chosen episode, removed as one unit. The episode row,
   # its sessions, turns and inputs stay until the audit horizon.
   @history_rows [
-    {"episode_publications", "episode_id IN #{@episode_ids} AND status = 'published'"},
+    {"episode_publications",
+     "episode_id IN #{@episode_ids} AND status IN ('published', 'discarded')"},
     {"episode_emisar_approvals",
      "episode_id IN #{@episode_ids} AND status IN ('resumed', 'closed')"},
     {"slack_task_cards", "episode_id IN #{@episode_ids}"},

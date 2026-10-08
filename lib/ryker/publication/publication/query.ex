@@ -123,8 +123,12 @@ defmodule Ryker.Publication.Publication.Query do
   def published(queryable),
     do: where(queryable, [episode_publications: p], p.status == :published)
 
-  def unpublished(queryable),
-    do: where(queryable, [episode_publications: p], p.status != :published)
+  @doc """
+  Publications that may still publish: neither published nor discarded. A
+  blocked one waits for someone to recover it from its session's workspace.
+  """
+  def pending(queryable \\ all()),
+    do: where(queryable, [episode_publications: p], p.status not in [:published, :discarded])
 
   @doc "Readiness reviews whose lease is held at `now`."
   def reviewing_at(queryable \\ all(), now) do
