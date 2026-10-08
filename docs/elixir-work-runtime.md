@@ -238,11 +238,14 @@ Missing selections and selections for another question are rejected. A typed thr
 an alternative. Both paths retire the original controls through the existing durable Slack
 repaint queue while retaining the question and the separate human answer.
 
-A question may retain one independent event-only source watch in the same result. The input
-request remains the sole continuation owner; source updates queue until its answer. Reconciliation
-keeps the original matcher through the question and resumed Work, including restoration of a
-missing subscription. The continuation can return to that same watch. Timers and deadline-bound
-waits retain their existing single-owner semantics.
+A question may keep event-only source watches and pending Emisar approvals open in the same
+result. The input request remains the sole continuation owner; source updates queue until its
+answer. Reconciliation keeps the original matcher through the question and resumed Work, including
+restoration of a missing subscription, and the oldest watch holds the episode's one subscription.
+The continuation can return to that same watch. A timer fires only while it owns its task's wait,
+so one that owns it takes the subscription from a watch beside it; the watch stays open and takes
+the subscription back when a question or an approval owns the wait again. An open wait stays open
+while its task runs, and only a finished task's waits are dismissed.
 
 ### One subject, several updates
 

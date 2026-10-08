@@ -13,6 +13,11 @@ defmodule Ryker.Waits.EventSubscriptions do
   Reconciliation preserves the subscribed watch's exact matcher during the
   question and Work turn; with more than one watch, the oldest is subscribed.
 
+  An open wait stays open while its task runs. The wait that should hold the
+  episode's subscription takes it from any other, which keeps its record and
+  is subscribed again once it holds the subscription again. Only a finished
+  task's waits are dismissed.
+
   A follow-up started, resolved or cancelled is announced after the outermost
   commit (`subscribe_follow_ups/0`), on its request's topics too.
 
@@ -121,39 +126,54 @@ defmodule Ryker.Waits.EventSubscriptions do
   def failure_retried_before(%DateTime{} = now),
     do: DateTime.add(now, -@failure_retry_seconds, :second)
 
+  # A wait that no longer holds its running task's subscription is released and
+  # stays open: the sweep dismissed it, so a watch riding beside an approval
+  # vanished minutes after it was set (2026-10-08), and so did a timer whose
+  # task an approval resumed. A finished task's waits are dismissed.
   defp cancel_stale_in_transaction do
     stale = @reconcile_limit |> EventSubscription.Query.stale() |> Repo.all()
 
     now = Repo.now!()
 
     Enum.each(stale, fn item ->
-      broadcast_follow_up_updated(item.subscription_id, item.episode_id)
-
-      item.subscription_id
-      |> EventSubscription.Query.by_id()
-      |> EventSubscription.Query.active()
-      |> Repo.update_all(
-        set: [
-          last_observation: %{"event_wait_ref" => item.ref, "kind" => "cancelled"},
-          last_observed_at: now,
-          resolution_kind: :cancelled,
-          status: :cancelled,
-          updated_at: now
-        ],
-        inc: [revision: 1]
-      )
-
-      {_count, dismissed} =
-        item.record_id
-        |> Records.Record.Query.by_id()
-        |> Records.Record.Query.open()
-        |> Records.Record.Query.select_rows()
-        |> Repo.update_all(set: [status: :dismissed, updated_at: now])
-
-      Enum.each(dismissed, &Records.broadcast_record_updated/1)
+      if item.record_status == :open and item.episode_state not in [:complete, :cancelled] do
+        cancel(item, "released", now)
+      else
+        cancel(item, "cancelled", now)
+        dismiss(item.record_id, now)
+      end
     end)
 
     length(stale)
+  end
+
+  defp cancel(item, kind, now) do
+    broadcast_follow_up_updated(item.subscription_id, item.episode_id)
+
+    item.subscription_id
+    |> EventSubscription.Query.by_id()
+    |> EventSubscription.Query.active()
+    |> Repo.update_all(
+      set: [
+        last_observation: %{"event_wait_ref" => item.ref, "kind" => kind},
+        last_observed_at: now,
+        resolution_kind: :cancelled,
+        status: :cancelled,
+        updated_at: now
+      ],
+      inc: [revision: 1]
+    )
+  end
+
+  defp dismiss(record_id, now) do
+    {_count, dismissed} =
+      record_id
+      |> Records.Record.Query.by_id()
+      |> Records.Record.Query.open()
+      |> Records.Record.Query.select_rows()
+      |> Repo.update_all(set: [status: :dismissed, updated_at: now])
+
+    Enum.each(dismissed, &Records.broadcast_record_updated/1)
   end
 
   @doc false
@@ -194,7 +214,7 @@ defmodule Ryker.Waits.EventSubscriptions do
       |> Repo.fetch()
 
     case wait do
-      {:ok, %Records.Record{} = record} -> ensure_record(episode, record)
+      {:ok, %Records.Record{} = record} -> hold(episode, record)
       # An approval owns the wait, and a watch beside it keeps the subscription.
       {:error, :not_found} -> ensure_watch(episode)
     end
@@ -221,9 +241,24 @@ defmodule Ryker.Waits.EventSubscriptions do
       |> Repo.all()
 
     case Enum.find(records, &active_subscription?/1) || List.first(records) do
-      %Records.Record{} = record -> ensure_record(episode, record)
+      %Records.Record{} = record -> hold(episode, record)
       nil -> {:ok, :not_source_event}
     end
+  end
+
+  # A timer that owns the wait takes the subscription from a watch beside it,
+  # and the watch takes it back when a question or an approval owns the wait
+  # again. Either way the other wait stays open.
+  defp hold(episode, record) do
+    now = Repo.now!()
+
+    episode.id
+    |> EventSubscription.Query.active_in_episode()
+    |> Repo.all()
+    |> Enum.reject(&(&1.record_id == record.id))
+    |> Enum.each(&cancel(Map.put(&1, :episode_id, episode.id), "released", now))
+
+    ensure_record(episode, record)
   end
 
   defp active_subscription?(%Records.Record{id: record_id}) do
@@ -239,6 +274,9 @@ defmodule Ryker.Waits.EventSubscriptions do
   defp ensure_record(episode, %Records.Record{payload: %{"event_matcher" => trigger}} = record) do
     if trigger["type"] in ["source_event", "after", "at"] do
       case Repo.fetch(EventSubscription.Query.by_record_id(record.id)) do
+        {:ok, %EventSubscription{status: :cancelled} = released} ->
+          reactivate(released, record, trigger)
+
         {:ok, %EventSubscription{} = subscription} ->
           {:ok, subscription}
 
@@ -253,37 +291,54 @@ defmodule Ryker.Waits.EventSubscriptions do
   defp ensure_record(_episode, _record), do: {:ok, :not_source_event}
 
   defp insert(episode, record, trigger) do
-    with :ok <- source_bounds(trigger),
-         {:ok, deadline} <- subscription_deadline(record.payload, trigger),
-         {:ok, poll_after} <- wakeup_at(record, trigger, deadline),
-         :ok <- ordered(poll_after, deadline) do
+    with {:ok, schedule} <- schedule(record, trigger) do
       id = Repo.generate_id()
 
-      %{
+      schedule
+      |> Map.merge(%{
         cursor: Map.get(trigger, "cursor"),
-        deadline_at: deadline,
         episode_id: episode.id,
         id: id,
         matcher: Map.get(trigger, "match", %{}),
-        poll_after: poll_after,
         record_id: record.id,
         ref: "event-subscription:#{id}",
         revision: 1,
         source_kind: trigger["source_kind"],
         status: :active
-      }
+      })
       |> EventSubscription.Changeset.insert()
       |> Repo.insert()
-      |> case do
-        {:ok, subscription} ->
-          broadcast_follow_up_updated(subscription.id, subscription.episode_id)
-          {:ok, subscription}
-
-        {:error, changeset} ->
-          {:error, {:event_subscription_persistence_failed, changeset.errors}}
-      end
+      |> persisted()
     end
   end
+
+  # A released timer is scheduled from its record again, so one whose time came
+  # while it was released fires as soon as its task waits on it.
+  defp reactivate(subscription, record, trigger) do
+    with {:ok, schedule} <- schedule(record, trigger) do
+      subscription
+      |> EventSubscription.Changeset.reactivate(schedule)
+      |> Repo.update()
+      |> persisted()
+    end
+  end
+
+  defp schedule(record, trigger) do
+    with :ok <- source_bounds(trigger),
+         {:ok, deadline} <- subscription_deadline(record.payload, trigger),
+         {:ok, poll_after} <- wakeup_at(record, trigger, deadline),
+         :ok <- ordered(poll_after, deadline) do
+      {:ok, %{deadline_at: deadline, poll_after: poll_after}}
+    end
+  end
+
+  defp persisted({:ok, subscription}) do
+    broadcast_follow_up_updated(subscription.id, subscription.episode_id)
+    {:ok, subscription}
+  end
+
+  defp persisted({:error, changeset}),
+    do: {:error, {:event_subscription_persistence_failed, changeset.errors}}
 
   defp source_bounds(trigger) do
     case Records.RecordPayload.source_wait_bounds(trigger) do

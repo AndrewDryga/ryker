@@ -13,7 +13,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Settings
-  alias Ryker.Waits.{EventSubscription, EventSubscriptions}
+  alias Ryker.Waits.{EventSubscription, EventSubscriptions, EventWaits}
   alias Ryker.Work.Custody
 
   @actor "control-plane:local"
@@ -304,35 +304,80 @@ defmodule Ryker.Emisar.ApprovalsTest do
 
   # The same tasks watched a Terraform run beside their approvals. A watch
   # keeps the episode's one subscription while a question owns the wait; an
-  # approval owning it left the watch unsubscribed.
-  test "a source watch beside a pending approval keeps its subscription" do
+  # approval owning it left the watch unsubscribed. Once subscribed, the sweep
+  # took it for a wait its task had left and dismissed it: episode 01a11a2f's
+  # watch went two minutes after its retry, 2026-10-08.
+  test "a source watch beside a pending approval keeps its subscription and stays open" do
     %{claim: claim, record: approval} = registered!("beside-watch")
-
-    assert {:ok, watch} =
-             Records.create(Records.token(claim.turn), "watch-beside-approval", "event_wait", %{
-               "deadline_at" => nil,
-               "event_matcher" => %{
-                 "type" => "source_event",
-                 "source_kind" => "slack",
-                 "match" => %{"attachments" => [%{"title" => "Run beside"}]},
-                 "poll_after" => nil,
-                 "on_timeout" => nil
-               },
-               "kind" => "source_event",
-               "verification" => "Read the run and say whether it finished."
-             })
+    watch = watch!(claim, "beside-watch")
 
     assert {:ok, %{episode: waiting}} = wait_on!(claim, approval)
-
-    assert {:ok, %EventSubscription{record_id: record_id, status: :active}} =
-             Repo.transaction(fn ->
-               case EventSubscriptions.ensure_in_transaction(waiting) do
-                 {:ok, value} -> value
-                 {:error, reason} -> Repo.rollback(reason)
-               end
-             end)
-
+    assert %EventSubscription{record_id: record_id, status: :active} = ensure!(waiting)
     assert record_id == watch.id
+
+    assert {:ok, _count} = EventSubscriptions.reconcile()
+    assert Repo.get!(Record, watch.id).status == :open
+    assert Repo.get_by!(EventSubscription, record_id: watch.id).status == :active
+  end
+
+  # Episode 8e0de29c, 2026-10-08: a timer can own a task's wait beside its
+  # approvals (`Ryker.Work.Validator`). An approval that settles resumes the
+  # task through the timer, and the sweep then dismissed the timer, so the
+  # task's next turn never saw it. It stays open, and a timer whose time came
+  # meanwhile fires as soon as the task waits on it again.
+  test "a timer an approval's outcome woke stays open and fires when its task waits on it again" do
+    %{claim: claim, record: approval} = registered!("beside-timer")
+    timer = timer!(claim, "beside-timer")
+
+    assert {:ok, %{episode: waiting}} = wait_on!(claim, timer)
+    assert %EventSubscription{status: :active} = ensure!(waiting)
+    resumed = settle!("beside-timer", approval)
+
+    assert {:ok, _count} = EventSubscriptions.reconcile()
+    assert Repo.get!(Record, timer.id).status == :open
+
+    assert %EventSubscription{status: :cancelled, last_observation: %{"kind" => "released"}} =
+             Repo.get_by!(EventSubscription, record_id: timer.id)
+
+    assert {:ok, %{episode: waiting}} = wait_again!(resumed, timer)
+    assert %EventSubscription{status: :active, record_id: timer_id} = ensure!(waiting)
+    assert timer_id == timer.id
+
+    assert {:ok, %{record: %Record{status: :answered, ref: fired}}} = EventWaits.resume_due()
+    assert fired == timer.ref
+  end
+
+  # A timer owning the wait needs the episode's one subscription, and a watch
+  # beside it may hold it. Taking it failed on the index that keeps one per
+  # episode; the watch gives it up, stays open, and takes it back once an
+  # approval owns the wait again.
+  test "a timer takes the subscription from a watch beside it, and the watch gets it back" do
+    %{claim: claim, record: first} = registered!("watch-timer")
+    watch = watch!(claim, "watch-timer")
+    timer = timer!(claim, "watch-timer")
+
+    assert {:ok, second} =
+             Records.create(
+               Records.token(claim.turn),
+               "op-watch-timer-second",
+               "emisar_approval",
+               approval_payload("watch-timer-second")
+             )
+
+    assert {:ok, %{episode: waiting}} = wait_on!(claim, first)
+    assert %EventSubscription{record_id: watch_id} = ensure!(waiting)
+    assert watch_id == watch.id
+    resumed = settle!("watch-timer", first)
+
+    assert {:ok, %{episode: waiting}} = wait_again!(resumed, timer)
+    assert %EventSubscription{record_id: timer_id, status: :active} = ensure!(waiting)
+    assert timer_id == timer.id
+    assert Repo.get!(Record, watch.id).status == :open
+    assert Repo.get_by!(EventSubscription, record_id: watch.id).status == :cancelled
+
+    assert {:ok, %{episode: resumed}} = EventWaits.resume_due()
+    assert {:ok, %{episode: waiting}} = wait_again!(resumed, second)
+    assert %EventSubscription{record_id: ^watch_id, status: :active} = ensure!(waiting)
   end
 
   test "identity mismatches block no episode transition and transient failures retain durable custody" do
@@ -612,6 +657,94 @@ defmodule Ryker.Emisar.ApprovalsTest do
     assert {:ok, %{episode: %{owner_ref: owner_ref}}} = wait_on!(claim, owner)
     assert owner_ref == owner.ref
     %{claim: claim, rider: "apr-#{suffix}"}
+  end
+
+  defp watch!(claim, suffix) do
+    assert {:ok, watch} =
+             Records.create(Records.token(claim.turn), "watch-#{suffix}", "event_wait", %{
+               "deadline_at" => nil,
+               "event_matcher" => %{
+                 "type" => "source_event",
+                 "source_kind" => "slack",
+                 "match" => %{"attachments" => [%{"title" => "Run #{suffix}"}]},
+                 "poll_after" => nil,
+                 "on_timeout" => nil
+               },
+               "kind" => "source_event",
+               "verification" => "Read the run and say whether it finished."
+             })
+
+    watch
+  end
+
+  # A timer whose time has come, with the hard deadline `wait_on!/2` and
+  # `wait_again!/2` start the wait with.
+  defp timer!(claim, suffix) do
+    assert {:ok, timer} =
+             Records.create(Records.token(claim.turn), "check-#{suffix}", "event_wait", %{
+               "deadline_at" => "2099-08-29T12:00:00Z",
+               "event_matcher" => %{
+                 "type" => "at",
+                 "at" => "2026-08-29T12:00:00Z",
+                 "on_timeout" => "Run the post-apply health check."
+               },
+               "kind" => "at",
+               "verification" => "Run the post-apply health check."
+             })
+
+    timer
+  end
+
+  defp ensure!(episode) do
+    assert {:ok, subscription} =
+             Repo.transaction(fn ->
+               case EventSubscriptions.ensure_in_transaction(episode) do
+                 {:ok, value} -> value
+                 {:error, reason} -> Repo.rollback(reason)
+               end
+             end)
+
+    subscription
+  end
+
+  # The approval `record` (request `apr-<suffix>`) succeeds, which resumes its
+  # task; the resumed episode.
+  defp settle!(suffix, record) do
+    request_id = record.payload["request_id"]
+
+    lease_ref =
+      Enum.find_value(1..4, fn attempt ->
+        case Approvals.claim_next(@connection_ref, "approval-worker-#{attempt}", 60) do
+          {:ok, %{approval: %{request_id: ^request_id}, lease_ref: lease_ref}} -> lease_ref
+          {:ok, _other} -> nil
+        end
+      end)
+
+    assert {:ok, %{episode: resumed, status: :resumed}} =
+             Approvals.observe(
+               @connection_ref,
+               request_id,
+               lease_ref,
+               run_state(suffix, "success"),
+               5
+             )
+
+    assert resumed.state == :working
+    resumed
+  end
+
+  # The resumed turn's silent result starts the episode's wait on `record`
+  # again, as a turn's accepted result does.
+  defp wait_again!(episode, record) do
+    Episodes.apply(%Command.AcceptResult{
+      decision_reason: "Waiting on #{record.ref} again.",
+      delivery: :none,
+      episode_key: episode.key,
+      expected_turn_ref: episode.owner_ref,
+      next_wait: %{deadline_at: ~U[2099-08-29 12:00:00.000000Z], kind: :event, ref: record.ref},
+      occurred_at: ~U[2026-08-29 12:00:02.000000Z],
+      result_ref: "result:#{episode.owner_ref}"
+    })
   end
 
   # The claimed turn's delivered result starts the episode's wait on `record`.

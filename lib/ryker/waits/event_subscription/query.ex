@@ -18,6 +18,16 @@ defmodule Ryker.Waits.EventSubscription.Query do
   def active(queryable \\ all()),
     do: where(queryable, [episode_event_subscriptions: s], s.status == :active)
 
+  @doc "The active subscriptions of `episode_id`'s own waits, each with the wait's id and ref."
+  def active_in_episode(episode_id) do
+    from(subscription in active(),
+      join: record in Records.Record,
+      on: record.id == subscription.record_id,
+      where: subscription.episode_id == ^episode_id and record.episode_id == ^episode_id,
+      select: %{record_id: record.id, ref: record.ref, subscription_id: subscription.id}
+    )
+  end
+
   @doc """
   Open waits with no subscription yet, the earliest deadline first and at
   most `limit`: each with the episode it belongs to. A wait Ryker failed to
@@ -70,7 +80,9 @@ defmodule Ryker.Waits.EventSubscription.Query do
       limit: ^limit,
       select: %{
         episode_id: subscription.episode_id,
+        episode_state: episode.state,
         record_id: record.id,
+        record_status: record.status,
         ref: record.ref,
         subscription_id: subscription.id
       }
@@ -184,16 +196,40 @@ defmodule Ryker.Waits.EventSubscription.Query do
 
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
 
-  # A wait holds its episode while the episode waits on it, or, for an
-  # event-only watch, while the episode is parked in one of `parked_states`.
+  # A wait holds its episode while the episode waits on it. An event-only
+  # watch holds it while the episode is parked in one of `parked_states`, or
+  # waits on an approval (`Ryker.Waits.EventSubscriptions`).
   defp retained_wait(parked_states) do
     event_only = Records.Record.Query.event_only_wait()
 
     dynamic(
+      [episode_kernel_episodes: episode],
+      ^waited_on() or
+        (^event_only and (episode.state in ^parked_states or ^waiting_on_approval()))
+    )
+  end
+
+  defp waited_on do
+    dynamic(
       [episode_kernel_episodes: episode, episode_state_records: record],
-      (episode.state == :waiting_for_event and episode.owner_kind == :event and
-         episode.owner_ref == record.ref) or
-        (episode.state in ^parked_states and ^event_only)
+      episode.state == :waiting_for_event and episode.owner_kind == :event and
+        episode.owner_ref == record.ref
+    )
+  end
+
+  # No event wait of the episode's own owns the wait it waits on.
+  defp waiting_on_approval do
+    dynamic(
+      [episode_kernel_episodes: episode],
+      episode.state == :waiting_for_event and
+        not exists(
+          from(owner in Records.Record,
+            where:
+              owner.episode_id == parent_as(:episode_kernel_episodes).id and
+                owner.ref == parent_as(:episode_kernel_episodes).owner_ref and
+                owner.kind == "event_wait" and owner.status == :open
+          )
+        )
     )
   end
 end

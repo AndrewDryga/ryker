@@ -44,4 +44,25 @@ defmodule Ryker.Waits.EventSubscription.Changeset do
     |> check_constraint(:status, name: :episode_event_subscription_valid)
     |> check_constraint(:poll_after, name: :event_subscription_schedule_valid)
   end
+
+  @doc """
+  A released subscription its wait takes up again, scheduled anew from the
+  wait's `deadline_at` and `poll_after`.
+  """
+  def reactivate(%EventSubscription{status: :cancelled} = subscription, attributes) do
+    subscription
+    |> cast(attributes, [:deadline_at, :poll_after])
+    |> change(
+      last_observation: nil,
+      last_observed_at: nil,
+      resolution_kind: nil,
+      revision: subscription.revision + 1,
+      status: :active
+    )
+    |> unique_constraint(:episode_id,
+      name: :episode_event_subscriptions_one_active_episode_index
+    )
+    |> check_constraint(:status, name: :episode_event_subscription_valid)
+    |> check_constraint(:poll_after, name: :event_subscription_schedule_valid)
+  end
 end
