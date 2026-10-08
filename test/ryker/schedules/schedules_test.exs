@@ -7,6 +7,7 @@ defmodule Ryker.Schedules.SchedulesTest do
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkSessions
+  alias Ryker.Inspectors
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Repo
@@ -16,7 +17,7 @@ defmodule Ryker.Schedules.SchedulesTest do
   alias Ryker.Schedules.ScheduleRecurrence
   alias Ryker.Schedules.ScheduleWorker
   alias Ryker.Slack.{AppHomeProjection, Renderer, ReplyRecords}
-  alias Ryker.Work.{Custody, DeliveryReceipt, Result, Session, Submission, SubmissionBuilder}
+  alias Ryker.Work.{Custody, DeliveryReceipt, Result, Session, Submission}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
   @policy %{digest: String.duplicate("c", 64), name: "ryker-scheduled-read"}
@@ -114,7 +115,7 @@ defmodule Ryker.Schedules.SchedulesTest do
 
     assert {:ok, scheduled_work} = Custody.claim_next("schedule-instructions-proof", 60, :work)
     assert scheduled_work.episode.id == dispatched.episode.id
-    assert {:ok, submission} = SubmissionBuilder.build(scheduled_work)
+    assert {:ok, submission} = Inspectors.submission(scheduled_work)
 
     assert submission["context"]["custom_instructions"]["global"]["text"] ==
              "Global schedule default"

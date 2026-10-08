@@ -80,7 +80,7 @@ defmodule Ryker.Work.ActivityTest do
     assert {:ok, %{inserted: 3}} = Activity.ingest(session.id, events)
 
     assert Enum.all?(
-             Activity.list_for_episode(started.episode.id),
+             Activity.page_for_episode(started.episode.id).events,
              &(inspect(&1.payload) =~ secret)
            )
 
@@ -103,7 +103,7 @@ defmodule Ryker.Work.ActivityTest do
     end
 
     assert Enum.all?(
-             Activity.list_for_episode(started.episode.id),
+             Activity.page_for_episode(started.episode.id).events,
              &(inspect(&1.payload) =~ secret)
            )
   end
@@ -148,7 +148,10 @@ defmodule Ryker.Work.ActivityTest do
     ]
 
     assert {:ok, %{inserted: 4}} = Activity.ingest(session.id, events)
-    assert [start, finish, progress, thought] = Activity.list_for_episode(started.episode.id)
+
+    assert [start, finish, progress, thought] =
+             Activity.page_for_episode(started.episode.id).events
+
     assert start.payload["input"]["arguments"]["read_only_repositories"] == ["emisar"]
     assert start.payload["input"]["arguments"]["token"] == "[redacted]"
     assert finish.payload["output"] == %{"error" => "unauthorized"}
@@ -164,7 +167,7 @@ defmodule Ryker.Work.ActivityTest do
     assert {:ok, %{inserted: 1}} = Activity.ingest(session.id, [secret_event])
     Config.put_override(:activity_test_secret, "rotated-private-value")
     assert {:ok, %{inserted: 0}} = Activity.ingest(session.id, [secret_event])
-    refute inspect(Activity.list_for_episode(started.episode.id)) =~ "opaque-private-value"
+    refute inspect(Activity.page_for_episode(started.episode.id).events) =~ "opaque-private-value"
     changed = put_in(secret_event, ["payload", "text"], "different text")
     assert Activity.ingest(session.id, [changed]) == {:error, {:coop_activity_replay_conflict, 5}}
 
@@ -180,7 +183,7 @@ defmodule Ryker.Work.ActivityTest do
                event(session, 6, "model.progress", %{"text" => long_text})
              ])
 
-    last = Activity.list_for_episode(started.episode.id) |> List.last()
+    last = Activity.page_for_episode(started.episode.id).events |> List.last()
     assert last.payload["text"] =~ "[redacted]"
     refute last.payload["text"] =~ "opaque-configured-secret"
 
@@ -306,7 +309,7 @@ defmodule Ryker.Work.ActivityTest do
     assert {:ok, %{cursor: 4, inserted: 3}} = Activity.ingest(session.id, events)
     assert {:ok, %{cursor: 4, inserted: 0}} = Activity.ingest(session.id, events)
 
-    assert [thought, started_tool, completed_tool] = Activity.list_for_episode(episode_id)
+    assert [thought, started_tool, completed_tool] = Activity.page_for_episode(episode_id).events
     assert thought.kind == "model.thought"
 
     assert thought.payload == %{
@@ -372,7 +375,7 @@ defmodule Ryker.Work.ActivityTest do
     assert {:ok, %{cursor: 12, inserted: 8}} = Activity.ingest(session.id, public_events)
 
     assert [plan, permission, elided, backoff, alive, empty_plan, filtered_backoff, tool] =
-             Activity.list_for_episode(episode_id) |> Enum.take(-8)
+             Activity.page_for_episode(episode_id).events |> Enum.take(-8)
 
     assert plan.payload["step_count"] == 1
     assert plan.payload["entries"] == [%{"text" => "private plan text"}]
@@ -434,7 +437,7 @@ defmodule Ryker.Work.ActivityTest do
              {:error, {:coop_activity_session_conflict, "another-session"}}
 
     assert Activity.ingest(Ecto.UUID.generate(), []) == {:error, :work_session_not_found}
-    assert Activity.list_for_episode(nil) == []
+    assert Activity.page_for_episode(nil).events == []
 
     assert Activity.page_for_episode(nil) == %{
              events: [],
@@ -579,7 +582,7 @@ defmodule Ryker.Work.ActivityTest do
     assert {:ok, %{inserted: 1}} =
              Activity.ingest(session.id, [event(session, 1, "network", payload)])
 
-    assert [stored] = Activity.list_for_episode(started.episode.id)
+    assert [stored] = Activity.page_for_episode(started.episode.id).events
     assert stored.kind == "network"
     assert stored.payload["run_id"] == "run-7f3a"
     assert stored.payload["omitted_destinations"] == 4

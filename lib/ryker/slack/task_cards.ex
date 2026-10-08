@@ -61,14 +61,11 @@ defmodule Ryker.Slack.TaskCards do
     |> Repo.one()
   end
 
-  @doc """
-  The message of the card that shows `episode_id`'s task in exactly this
-  Slack conversation and thread, or nil when there is none. A publication's
-  review and pull request are that card's to show (`Ryker.Publication.Executor`).
-  """
-  @spec message_ref(Ecto.UUID.t() | nil, String.t() | nil, String.t() | nil) :: String.t() | nil
-  def message_ref(episode_id, "slack:" <> _rest = conversation_ref, thread_ref)
-      when is_binary(episode_id) and is_binary(thread_ref) do
+  # The message of the card that shows `episode_id`'s task in exactly this
+  # Slack conversation and thread, or nil when there is none. A publication's
+  # review and pull request are that card's to show (`Ryker.Publication.Executor`).
+  defp message_ref(episode_id, "slack:" <> _rest = conversation_ref, thread_ref)
+       when is_binary(episode_id) and is_binary(thread_ref) do
     case ConversationRef.parse_slack(conversation_ref) do
       {:ok, workspace, channel} ->
         Repo.peek(TaskCard.Query.message_in_thread(episode_id, workspace, channel, thread_ref))
@@ -78,7 +75,7 @@ defmodule Ryker.Slack.TaskCards do
     end
   end
 
-  def message_ref(_episode_id, _conversation_ref, _thread_ref), do: nil
+  defp message_ref(_episode_id, _conversation_ref, _thread_ref), do: nil
 
   @doc """
   Settles `request` by the card that shows `episode_id`'s task in the same

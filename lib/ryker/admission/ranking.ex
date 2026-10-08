@@ -43,10 +43,6 @@ defmodule Ryker.Admission.Ranking do
 
   @type scored :: map()
 
-  @doc "The weights ranking uses unless a request names others."
-  @spec weights() :: map()
-  def weights, do: @weights
-
   @spec select([map()], map()) :: %{selected: [scored()], cutoff: String.t()}
   def select(pool, request) do
     weights = Map.merge(@weights, Map.get(request, :weights, %{}))
@@ -128,9 +124,7 @@ defmodule Ryker.Admission.Ranking do
 
   defp ordering(candidate), do: {-candidate.score, candidate.episode.id}
 
-  @doc false
-  @spec score(map(), map(), map()) :: scored()
-  def score(entry, request, weights \\ @weights) do
+  defp score(entry, request, weights) do
     features = features(entry, request, weights)
 
     score =

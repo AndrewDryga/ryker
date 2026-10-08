@@ -22,7 +22,6 @@ defmodule Ryker.Work.ExecutorTest do
   alias Ryker.TestSupport.FakeWorkCoopAPI, as: FakeAPI
   alias Ryker.Work.{Activity, Cancellation, Custody, DeliveryReceipt, Dispatcher, Executor, Final}
   alias Ryker.Work.{FinalPreflight, OperationKeys, Result, Session, StateBinding}
-  alias Ryker.Work.SubmissionBuilder
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
@@ -193,7 +192,7 @@ defmodule Ryker.Work.ExecutorTest do
     # The early check passed, then the remote revision read raced source deletion.
     claim = claim_with_bound_empty_session!("late-knowledge-revocation-draft-ai-suggestions")
     {source, _document} = KnowledgeFixtures.learn!(claim.episode)
-    {:ok, submission} = SubmissionBuilder.build(claim)
+    {:ok, submission} = Inspectors.submission(claim)
     assert [_] = get_in(submission, ["context", "operator_context", "continuity", "knowledge"])
 
     {:ok, turn} =
@@ -228,7 +227,7 @@ defmodule Ryker.Work.ExecutorTest do
   # Coop has not seen is built again from what is current.
   test "a turn whose frozen knowledge was withdrawn before Coop saw it is rebuilt without it" do
     claim = claim_with_bound_empty_session!("withdrawn-knowledge")
-    {:ok, submission} = SubmissionBuilder.build(claim)
+    {:ok, submission} = Inspectors.submission(claim)
     withdrawn = "knowledge:#{Ecto.UUID.generate()}"
 
     context =
@@ -636,7 +635,7 @@ defmodule Ryker.Work.ExecutorTest do
     refute state.submissions |> hd() |> Map.fetch!(:prompt) =~ ~s("$schema")
     assert [{^session_id, 0, 1_000} | _rest] = state.activity_requests
 
-    assert [%{kind: "model.thought"}] = Activity.list_for_episode(claim.episode.id)
+    assert [%{kind: "model.thought"}] = Activity.page_for_episode(claim.episode.id).events
   end
 
   test "the Timeline shows a Work turn the exact prompt Coop received" do
@@ -691,7 +690,7 @@ defmodule Ryker.Work.ExecutorTest do
 
     session_id = FakeAPI.state(fake).session["id"]
     assert [{^session_id, 0, 1_000} | _rest] = FakeAPI.state(fake).activity_requests
-    assert Activity.list_for_episode(claim.episode.id) == []
+    assert Activity.page_for_episode(claim.episode.id).events == []
   end
 
   test "accepted writable work is checkpointed before local delivery custody is released" do
@@ -889,7 +888,7 @@ defmodule Ryker.Work.ExecutorTest do
       reference = accepted_turn_without_evidence!()
       claim = claim_episode!("evidence-noninterference-#{System.unique_integer([:positive])}")
 
-      assert {:ok, submission} = SubmissionBuilder.build(claim)
+      assert {:ok, submission} = Inspectors.submission(claim)
 
       assert {:ok, frozen} =
                Custody.freeze_submission(
@@ -1077,7 +1076,7 @@ defmodule Ryker.Work.ExecutorTest do
 
     FakeAPI.update(fake, &Map.put(&1, :activity_events, [event]))
     assert {:ok, %{status: :accepted}} = Executor.run(claim, options(fake))
-    assert [%{kind: "tool.completed"}] = Activity.list_for_episode(claim.episode.id)
+    assert [%{kind: "tool.completed"}] = Activity.page_for_episode(claim.episode.id).events
     assert FakeAPI.state(fake).submit_count == 0
   end
 
@@ -1363,7 +1362,7 @@ defmodule Ryker.Work.ExecutorTest do
     }
 
     assert {:ok, submission} =
-             SubmissionBuilder.build(%{claim | session: session},
+             Inspectors.submission(%{claim | session: session},
                connected: %{github: true, slack: false}
              )
 
@@ -4534,7 +4533,7 @@ defmodule Ryker.Work.ExecutorTest do
   defp bound_turn!(suffix) do
     claim = claim_episode!(suffix)
 
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
 
     assert {:ok, turn} =
              Custody.freeze_submission(
@@ -4569,7 +4568,7 @@ defmodule Ryker.Work.ExecutorTest do
 
   defp claim_with_bound_session!(suffix) do
     claim = claim_episode!(suffix)
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
 
     assert {:ok, turn} =
              Custody.freeze_submission(

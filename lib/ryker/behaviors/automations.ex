@@ -98,8 +98,7 @@ defmodule Ryker.Behaviors.Automations do
     end
   end
 
-  @spec document(Schedules.Schedule.t() | Behavior.t()) :: map()
-  def document(%Schedules.Schedule{} = schedule) do
+  defp document(%Schedules.Schedule{} = schedule) do
     %{
       "automation_id" => schedule.ref,
       "context_channel" => schedule.destination_conversation_ref,
@@ -116,7 +115,7 @@ defmodule Ryker.Behaviors.Automations do
     }
   end
 
-  def document(%Behavior{} = behavior) do
+  defp document(%Behavior{} = behavior) do
     payload = behavior.payload
 
     %{

@@ -11,12 +11,13 @@ defmodule Ryker.Slack.IncidentRoomsConcurrencyTest do
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.Input
+  alias Ryker.Inspectors
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Slack.{IncidentRoom, IncidentRooms}
-  alias Ryker.Work.{Custody, DeliveryReceipt, Result, Session, SubmissionBuilder, Turn}
+  alias Ryker.Work.{Custody, DeliveryReceipt, Result, Session, Turn}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
   @policy_digest String.duplicate("b", 64)
@@ -208,7 +209,7 @@ defmodule Ryker.Slack.IncidentRoomsConcurrencyTest do
                })
              )
 
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
 
     assert {:ok, frozen_turn} =
              Custody.freeze_submission(

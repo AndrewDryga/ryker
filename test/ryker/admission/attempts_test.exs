@@ -97,15 +97,13 @@ defmodule Ryker.Admission.AttemptsTest do
     settings: settings
   } do
     id = entry.id
-    :ok = Ryker.Admission.subscribe_routing()
     :ok = Inbox.subscribe_input(id)
 
     assert {:ok, _attempt} = Attempts.prepare(entry, settings)
-    assert_received {:routing_updated, ^id}
     assert_received {:input_updated, ^id}
 
     assert Attempts.observe(entry, "provider_running", %{}, settings) == :ok
-    assert_received {:routing_updated, ^id}
+    assert_received {:input_updated, ^id}
   end
 
   defp claimed_input! do

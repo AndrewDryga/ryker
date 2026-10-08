@@ -66,7 +66,7 @@ defmodule Ryker.Retention.DataTest do
     assert {:ok, _} = Data.prune(settings())
     activity = Repo.one!(ActivityEvent)
     refute inspect(activity.payload) =~ "source-content"
-    assert Activity.list_for_episode(work.episode.id) == []
+    assert Activity.page_for_episode(work.episode.id).events == []
     assert {:ok, %{inserted: 0}} = Activity.ingest(work.session.id, [event])
 
     assert {:ok, _} =
@@ -75,7 +75,7 @@ defmodule Ryker.Retention.DataTest do
              ])
 
     refute inspect(Repo.all(ActivityEvent)) =~ "source-content"
-    assert Activity.list_for_episode(work.episode.id) == []
+    assert Activity.page_for_episode(work.episode.id).events == []
   end
 
   # Every page that lists history drops what a pass removed. Until 2026-09-26
@@ -108,7 +108,7 @@ defmodule Ryker.Retention.DataTest do
   test "an operator action reaches the pages that show who acted" do
     :ok = Actions.subscribe_actions()
     insert_operator_action!("announced")
-    assert {:ok, %{id: id}} = Actions.fetch("operator-action:announced")
+    assert %{id: id} = Inspectors.operator_action("operator-action:announced")
     assert_received {:operator_action_recorded, ^id}
   end
 
@@ -1156,7 +1156,7 @@ defmodule Ryker.Retention.DataTest do
     assert Repo.get!(Ryker.Delivery.RoutingResponse, blocked).status == :blocked
     assert result.audit_rows == 5
     assert Repo.get(Ryker.Credential.Event, credential_event_id) == nil
-    assert Actions.fetch("operator-action:old-operator-action") == :error
+    assert Inspectors.operator_action("operator-action:old-operator-action") == nil
   end
 
   # The retention audit, 2026-09-26: the policy called GitHub deliveries

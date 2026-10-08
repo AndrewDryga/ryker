@@ -72,9 +72,8 @@ defmodule Ryker.ControlPlane.SetupPage do
     |> Enum.any?(&Map.fetch!(done, &1))
   end
 
-  @doc "How far the required steps are: done, how many there are, and about how many minutes are left."
-  @spec progress([map()]) :: %{done: non_neg_integer(), total: pos_integer(), minutes: integer()}
-  def progress(steps) do
+  # How far the required steps are: done, how many there are, and about how many minutes are left.
+  defp progress(steps) do
     required = Enum.reject(steps, & &1.optional)
     open = Enum.reject(required, &(&1.status == :done))
 

@@ -7,9 +7,10 @@ defmodule Ryker.Work.AdmissionBackdropTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Inspectors
   alias Ryker.Repo
   alias Ryker.Slack.Input, as: SlackInput
-  alias Ryker.Work.{Session, SubmissionBuilder, Turn}
+  alias Ryker.Work.{Session, Turn}
 
   @moduletag isolation: "REPEATABLE READ"
 
@@ -219,7 +220,7 @@ defmodule Ryker.Work.AdmissionBackdropTest do
         status: :pending
       })
 
-    SubmissionBuilder.build(%{episode: episode, session: session, turn: turn})
+    Inspectors.submission(%{episode: episode, session: session, turn: turn})
   end
 
   defp record!(text, options) do

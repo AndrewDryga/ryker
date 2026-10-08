@@ -6,10 +6,10 @@ defmodule Ryker.Retention.PolicyTest do
   alias Ryker.Learning
   alias Ryker.Learning.{Batch, Batches, InputMembership}
   alias Ryker.Learning.LearningRun
-  alias Ryker.Retention.Policy
+  alias Ryker.RetentionPolicies
 
   test "every migrated table has one explained retention owner" do
-    policies = Policy.all()
+    policies = RetentionPolicies.all()
     policy_tables = Enum.map(policies, & &1.table)
 
     assert policy_tables == Enum.uniq(policy_tables)
@@ -52,7 +52,9 @@ defmodule Ryker.Retention.PolicyTest do
 
     assert pruned != []
 
-    kept = for table <- pruned, {:ok, %{class: :kept}} <- [Policy.fetch(table)], do: table
+    kept =
+      for table <- pruned, {:ok, %{class: :kept}} <- [RetentionPolicies.fetch(table)], do: table
+
     assert kept == [], "retention prunes tables registered as kept: #{Enum.join(kept, ", ")}"
   end
 
@@ -63,12 +65,6 @@ defmodule Ryker.Retention.PolicyTest do
     Repo.query!("CREATE TABLE retention_coverage_probe (id uuid PRIMARY KEY)")
 
     assert coverage_gaps() == %{unowned: ["retention_coverage_probe"], stale: []}
-  end
-
-  test "lookup never invents a policy" do
-    assert {:ok, %{class: :operational}} = Policy.fetch("ingress_inbox_entries")
-    assert Policy.fetch("missing_table") == :error
-    assert Policy.fetch(nil) == :error
   end
 
   test "expiring a learning prompt cannot erase spent starts or permit its inputs to be assigned again" do
@@ -103,11 +99,11 @@ defmodule Ryker.Retention.PolicyTest do
     assert Repo.get!(Batch, claim.batch.id) == before_batch
     assert Repo.all(from(m in InputMembership, order_by: m.input_id)) == before_assignments
     assert Batches.claim("after-retention", settings) == {:ok, :idle}
-    assert {:ok, %{class: :kept}} = Policy.fetch("conversation_learning_batches")
+    assert {:ok, %{class: :kept}} = RetentionPolicies.fetch("conversation_learning_batches")
   end
 
   test "learning input assignment has real source and batch cascade owners" do
-    assert {:ok, %{class: :cascade}} = Policy.fetch("conversation_learning_inputs")
+    assert {:ok, %{class: :cascade}} = RetentionPolicies.fetch("conversation_learning_inputs")
 
     assert %{
              rows: [
@@ -140,7 +136,7 @@ defmodule Ryker.Retention.PolicyTest do
       |> Map.fetch!(:rows)
       |> List.flatten()
 
-    policy_tables = Enum.map(Policy.all(), & &1.table)
+    policy_tables = Enum.map(RetentionPolicies.all(), & &1.table)
     %{unowned: tables -- policy_tables, stale: Enum.sort(policy_tables -- tables)}
   end
 end

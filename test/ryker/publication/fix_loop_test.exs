@@ -18,6 +18,7 @@ defmodule Ryker.Publication.FixLoopTest do
   alias Ryker.Fixtures.TaskOffer
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.Fixtures.WorkSessions
+  alias Ryker.Inspectors
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Publication.{GateOutput, Publication}
@@ -25,7 +26,6 @@ defmodule Ryker.Publication.FixLoopTest do
   alias Ryker.Records.Record
   alias Ryker.Slack.{Renderer, TaskCardProjection}
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Session, Submission}
-  alias Ryker.Work.SubmissionBuilder
 
   @now ~U[2026-09-28 12:00:00.000000Z]
 
@@ -80,7 +80,7 @@ defmodule Ryker.Publication.FixLoopTest do
     assert {:ok, fix} = Custody.claim_next("work:checks-fail:fix", 60, :work)
     assert fix.episode.id == claim.episode.id
     assert fix.session.id == work.session.id
-    assert {:ok, submission} = SubmissionBuilder.build(fix)
+    assert {:ok, submission} = Inspectors.submission(fix)
     assert [current] = submission["context"]["current_inputs"]["items"]
     assert current["content"]["content"] == content
 
@@ -136,7 +136,7 @@ defmodule Ryker.Publication.FixLoopTest do
 
     # The file travels with the fix turn itself.
     assert {:ok, fix} = Custody.claim_next("work:gate-output:fix", 60, :work)
-    assert {:ok, submission} = SubmissionBuilder.build(fix)
+    assert {:ok, submission} = Inspectors.submission(fix)
     assert submission["input_artifact_refs"] == [file["artifact_ref"]]
   end
 

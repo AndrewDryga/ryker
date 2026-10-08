@@ -5,7 +5,6 @@ defmodule Ryker.Ingress.Adapters do
   Source identifiers stay bounded strings. No event-controlled value is ever
   converted to an atom or used to resolve a module dynamically.
   """
-  alias Ryker.Adapter
   alias Ryker.Ingress.Input
 
   @default %{
@@ -16,21 +15,6 @@ defmodule Ryker.Ingress.Adapters do
 
   @spec default() :: %{String.t() => module()}
   def default, do: @default
-
-  @spec prepare(term()) :: {:ok, %{String.t() => module()}} | {:error, term()}
-  def prepare(%{} = adapters) do
-    adapters
-    |> Enum.sort_by(&elem(&1, 0))
-    |> Enum.reduce_while({:ok, %{}}, fn {kind, adapter}, {:ok, prepared} ->
-      if valid_adapter?(kind, adapter) do
-        {:cont, {:ok, Map.put(prepared, kind, adapter)}}
-      else
-        {:halt, {:error, {:invalid_ingress_adapter, kind}}}
-      end
-    end)
-  end
-
-  def prepare(_adapters), do: {:error, {:invalid_ingress_adapters, :registry}}
 
   @spec normalize(String.t(), term(), term(), %{String.t() => module()}) ::
           {:ok, Input.t()} | {:error, term()}
@@ -60,10 +44,5 @@ defmodule Ryker.Ingress.Adapters do
       _other ->
         {:error, {:invalid_ingress_adapter_output, kind, :result}}
     end
-  end
-
-  defp valid_adapter?(kind, adapter) do
-    is_binary(kind) and Adapter.implements?(adapter, source_kind: 0, normalize: 2) and
-      adapter.source_kind() == kind
   end
 end

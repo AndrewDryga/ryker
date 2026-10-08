@@ -13,7 +13,7 @@ defmodule Ryker.StateTools.EmisarToolsTest do
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.StateTools.Router
-  alias Ryker.Work.{Custody, SubmissionBuilder}
+  alias Ryker.Work.Custody
 
   @actor "control-plane:local"
   @cursor_secret "host-owned-memory-cursor-secret"
@@ -196,7 +196,7 @@ defmodule Ryker.StateTools.EmisarToolsTest do
           ],
           do: rpc("tools/call", %{"arguments" => arguments, "name" => name}, options).resp_body
 
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
 
     for sent <- [initialize, listed, Jason.encode!(submission) | called],
         do: refute(sent =~ key)

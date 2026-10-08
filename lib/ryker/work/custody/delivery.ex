@@ -646,7 +646,12 @@ defmodule Ryker.Work.Custody.Delivery do
       do: Slack.Mentions.authority(episode)
   end
 
-  @doc false
+  @doc """
+  The origin a reply from this turn answers, or nil when there is nothing to answer.
+
+  This is computed once, when the result is accepted, and then frozen on the
+  turn. Later inputs cannot move an answer that has already been accepted.
+  """
   @spec reply_target(Episodes.Episode.t(), Turn.t()) :: map() | nil
   def reply_target(%Episodes.Episode{} = episode, %Turn{} = turn) do
     episode

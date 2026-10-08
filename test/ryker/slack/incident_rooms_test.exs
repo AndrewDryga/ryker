@@ -23,7 +23,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
   alias Ryker.Slack.{IncidentRoomWorker, MembershipTransition, Renderer, Runtime, WorkRecord}
   alias Ryker.Slack.WorkTarget
   alias Ryker.Work.{Cancellation, Custody, DeliveryReceipt, Result, Session, Submission}
-  alias Ryker.Work.{SubmissionBuilder, Turn}
+  alias Ryker.Work.Turn
 
   @now ~U[2026-08-28 12:00:00.000000Z]
   @policy_digest String.duplicate("b", 64)
@@ -455,7 +455,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
                "operator:test"
              )
 
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
     # As the room's live Work turn records, so its records may be shown there.
     assert KnowledgeSnapshot.expose(claim, []) == :ok
     instructions = submission["context"]["custom_instructions"]
@@ -2841,7 +2841,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     assert {:ok, record} =
              Records.create(Records.token(claim.turn), "incident-offer", "task_offer", payload)
 
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
 
     assert {:ok, frozen_turn} =
              Custody.freeze_submission(

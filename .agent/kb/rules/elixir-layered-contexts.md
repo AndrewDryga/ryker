@@ -191,7 +191,18 @@ rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-08.
   metadata to return beside them.
 - No context function exists only for tests. A read only tests make is in
   `Ryker.Inspectors` (`test/support/inspectors.ex`); tests may read rows
-  through Query modules directly.
+  through Query modules directly. `Ryker.PublicFunctionsTest` holds it (the
+  caller half of Emisar's context coverage test): every public function in
+  `lib` has a caller outside the tests, found by name with aliases, imports,
+  `defdelegate`, `{Mod, :fun}` references, quoted code and `~H` templates
+  resolved. On 2026-10-08 it found ten functions nothing called, two
+  announcements no page heard, and 24 functions only tests called, among
+  them a submission builder's `build/2` 30 test files used; the retention
+  policy list, read only by its coverage test, moved to `test/support`.
+  Fifteen are kept, each with its reason in the test: an operator's release
+  shell, Ecto or Phoenix calling by name, a list a test walks so a later entry
+  is covered, and two general cases production reaches only through narrower
+  doors.
 
 ## Writes
 
@@ -291,7 +302,9 @@ Functions:
 
 - A function is public only when another module calls it, or a test of its
   module's own contract; otherwise it is `defp`, and its `@doc` becomes a
-  comment.
+  comment. `Ryker.PublicFunctionsTest` holds it too; a Query module's `all/0`
+  stays public as the layer's entry point. On 2026-10-08, 46 public functions
+  only their own module called became private.
 - A private function that only hands its arguments to another call is
   inlined (Emisar's rule: a wrapper earns a name only when it adds meaning
   the call site lacks).
@@ -521,9 +534,11 @@ Emisar's test rules Ryker follows (`elixir-layered-contexts.md` §7 there):
 
 Not adopted, because Ryker's own test rules (CLAUDE.md) differ:
 
-- **A `describe "fun/arity"` per public function, in module order, with a
-  coverage test.** Ryker names each test after the invariant it holds and
-  groups tests by behaviour, which usually crosses several functions.
+- **A `describe "fun/arity"` per public function, in module order.** Ryker
+  names each test after the invariant it holds and groups tests by
+  behaviour, which usually crosses several functions. The other half of
+  Emisar's coverage test, a caller for every public function, is held by
+  `Ryker.PublicFunctionsTest`.
 - **No narrative comments in a test body.** Ryker asks every regression test
   to record what it is holding shut and what the defect cost, so a reader
   does not delete it as redundant.
@@ -597,7 +612,9 @@ Tests hold the rest: `Ryker.TypespecsTest` resolves every remote type a spec
 names, `Ryker.ConstraintNamesTest` finds every constraint a changeset
 declares, `Ryker.CopiedHelpersTest` finds a function copied between modules,
 `Ryker.ControlPlane.TemplateHygieneTest` keeps templates off raw
-subscripts, and `Ryker.DataCase` fails an async test that saves settings.
+subscripts, `Ryker.PublicFunctionsTest` finds a public function with no caller
+outside the tests or one only its own module calls, and `Ryker.DataCase`
+fails an async test that saves settings.
 
 ## Ryker conventions Emisar does not have
 

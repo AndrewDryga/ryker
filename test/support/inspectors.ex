@@ -14,9 +14,28 @@ defmodule Ryker.Inspectors do
   alias Ryker.Knowledge.KnowledgeRevision
   alias Ryker.Memories
   alias Ryker.Memories.MemoryReviewItem
+  alias Ryker.Operator.Action
   alias Ryker.Repo
   alias Ryker.RepositoryKnowledge.Entry
-  alias Ryker.Slack.{ChannelConfiguration, ChannelMembership}
+  alias Ryker.Slack.{ChannelConfiguration, ChannelMembership, ThreadStatusReceipt}
+  alias Ryker.Work.SubmissionBuilder
+
+  @doc "The exact submission Work would send for `claim`, without its selection ledger."
+  def submission(claim, options \\ []) do
+    with {:ok, %{submission: submission}} <- SubmissionBuilder.prepare(claim, options),
+         do: {:ok, submission}
+  end
+
+  @doc "The receipts of a Slack thread's status, in acknowledgement order."
+  def thread_status_receipts(workspace_ref, channel_ref, thread_ref) do
+    workspace_ref
+    |> ThreadStatusReceipt.Query.by_thread(channel_ref, thread_ref)
+    |> ThreadStatusReceipt.Query.ordered_by_oldest()
+    |> Repo.all()
+  end
+
+  @doc "The operator action recorded as `action_ref`, or nil."
+  def operator_action(action_ref), do: Repo.peek(Action.Query.by_action_ref(action_ref))
 
   @doc "The episode with `key`, or nil. Production reads go through the kernel's own loads."
   def episode(key), do: key |> Episode.Query.by_key() |> Repo.one()

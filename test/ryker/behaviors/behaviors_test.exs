@@ -1598,7 +1598,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     assert {:ok, delivery_claim} =
              Custody.claim_next("delivery:behavior:#{suffix}", 60, :delivery)
 
-    # Where this turn's reply goes, exactly as `Custody.reply_target/2` freezes
+    # Where this turn's reply goes, exactly as `Custody.Delivery.reply_target/2` freezes
     # it at acceptance: the answering input's own origin, which routing can join
     # into this episode from a thread other than its bound home.
     Repo.get_by!(Turn, episode_id: episode.id, turn_ref: turn.turn_ref)

@@ -6,6 +6,7 @@ defmodule Ryker.Records.DerivedContextTest do
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Fixtures.WorkSessions
+  alias Ryker.Inspectors
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Learning.ConversationObservation
@@ -15,7 +16,7 @@ defmodule Ryker.Records.DerivedContextTest do
   alias Ryker.Records.DerivedContext
   alias Ryker.Records.Outcomes
   alias Ryker.StateTools.FixedTools
-  alias Ryker.Work.{Custody, Final, Result, Session, Submission, SubmissionBuilder, Turn}
+  alias Ryker.Work.{Custody, Final, Result, Session, Submission, Turn}
 
   @captured "testdata/learning/recorded-private-source-citation.json"
   @source "testdata/learning/retained-haproxy-lifecycle.json"
@@ -56,7 +57,7 @@ defmodule Ryker.Records.DerivedContextTest do
 
     assert {:ok, state} = work_state(recipient)
     refute Enum.any?(state["records"], &(&1["ref"] == record.ref))
-    assert {:ok, submission} = SubmissionBuilder.build(recipient)
+    assert {:ok, submission} = Inspectors.submission(recipient)
     refute submission["prompt"] =~ captured()["arguments"]["observation"]
 
     assert Repo.get!(Ryker.Records.Record, record.id).payload["observation"] ==
@@ -82,7 +83,7 @@ defmodule Ryker.Records.DerivedContextTest do
     KnowledgeFixtures.revoke!(source)
 
     assert Outcomes.recall(recipient.episode) == []
-    assert {:ok, submission} = SubmissionBuilder.build(recipient)
+    assert {:ok, submission} = Inspectors.submission(recipient)
     refute submission["prompt"] =~ captured()["candidate"]["message"]
   end
 
@@ -123,7 +124,7 @@ defmodule Ryker.Records.DerivedContextTest do
   test "an unchanged citation survives a fresh briefing with its exact source custody" do
     {producer, _source, record} = cited_source!()
     recipient = replacement!(producer)
-    assert {:ok, submission} = SubmissionBuilder.build(recipient)
+    assert {:ok, submission} = Inspectors.submission(recipient)
     assert Enum.any?(submission["context"]["records"], &(&1["ref"] == record.ref))
 
     assert KnowledgeSnapshot.authorize_submission(recipient.episode, "tenant-infra", submission) ==
@@ -141,7 +142,7 @@ defmodule Ryker.Records.DerivedContextTest do
   test "an owned record reference cannot authorize changed projection text or another episode" do
     {producer, _source, _record} = cited_source!()
     recipient = replacement!(producer)
-    assert {:ok, submission} = SubmissionBuilder.build(recipient)
+    assert {:ok, submission} = Inspectors.submission(recipient)
 
     forged =
       put_in(

@@ -44,9 +44,8 @@ defmodule Ryker.ControlPlane.WorkerEvidence do
 
   def for_episode(_episode_id), do: []
 
-  @doc "Projects one already-decoded capture."
-  @spec project(CoopFleet.SessionEvidence.t(), map()) :: map()
-  def project(%CoopFleet.SessionEvidence{} = row, %{} = document) do
+  # Projects one already-decoded capture.
+  defp project(%CoopFleet.SessionEvidence{} = row, %{} = document) do
     %{
       id: row.id,
       session_id: row.session_id,

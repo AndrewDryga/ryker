@@ -95,8 +95,7 @@ defmodule Ryker.Work.Cancellation do
     prepare(intent)
   end
 
-  @spec prepare(term()) :: {:ok, intent()} | {:error, term()}
-  def prepare(%{} = intent) do
+  defp prepare(%{} = intent) do
     if Maps.exact_keys?(intent, @intent_fields) do
       prepare_shape(intent)
     else
@@ -104,7 +103,7 @@ defmodule Ryker.Work.Cancellation do
     end
   end
 
-  def prepare(_intent), do: {:error, {:invalid_work_cancellation, :document}}
+  defp prepare(_intent), do: {:error, {:invalid_work_cancellation, :document}}
 
   @spec fingerprint(intent() | receipt()) :: String.t()
   def fingerprint(document), do: CanonicalJSON.digest(document)

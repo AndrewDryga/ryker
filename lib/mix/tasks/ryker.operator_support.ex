@@ -16,14 +16,12 @@ defmodule Mix.Tasks.Ryker.OperatorSupport do
     if valid, do: {:ok, options, positional}, else: {:error, :invalid_arguments}
   end
 
-  @doc """
-  The same durable settings the release applies, assembled for this Mix process.
-
-  Operator commands read the installation's saved settings; there is no
-  configuration path to point them somewhere else, and an uninitialized or
-  unreadable database is reported rather than replaced with defaults.
-  """
-  def configuration do
+  # The same durable settings the release applies, assembled for this Mix process.
+  #
+  # Operator commands read the installation's saved settings; there is no
+  # configuration path to point them somewhere else, and an uninitialized or
+  # unreadable database is reported rather than replaced with defaults.
+  defp configuration do
     with {:ok, settings} <- Settings.fetch(),
          {:ok, configuration} <- Runtime.Assembly.build(Bootstrap.load!(), settings) do
       Runtime.Assembly.publish(configuration)

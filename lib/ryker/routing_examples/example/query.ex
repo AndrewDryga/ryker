@@ -40,8 +40,6 @@ defmodule Ryker.RoutingExamples.Example.Query do
   def ordered_by_decided_at(queryable),
     do: order_by(queryable, [routing_examples: x], asc: x.decided_at, asc: x.id)
 
-  def select_ids(queryable), do: select(queryable, [routing_examples: x], x.id)
-
   @doc """
   The ids of messages ready to be copied, oldest first and at most `limit`:
   decided within the last `window_seconds`, their routing turn completed

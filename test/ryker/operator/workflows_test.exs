@@ -9,6 +9,7 @@ defmodule Ryker.Operator.WorkflowsTest do
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.WorkProfile
+  alias Ryker.Inspectors
   alias Ryker.Operator.{Actions, FailureDetail, Failures, Preflight, SlackReplay, Status}
   alias Ryker.Release
   alias Ryker.Settings
@@ -102,7 +103,6 @@ defmodule Ryker.Operator.WorkflowsTest do
     identity = [actor_ref: "slack:user:U123", action_ref: "operator-action:validation"]
 
     assert Failures.list([]) == {:error, {:invalid_operator_failure, :params}}
-    assert Actions.fetch(nil) == :error
     assert Actions.run([], operation) == {:error, {:invalid_operator_action, :arguments}}
     assert Actions.run(%{}, operation) == {:error, {:invalid_operator_action, :attributes}}
 
@@ -184,7 +184,7 @@ defmodule Ryker.Operator.WorkflowsTest do
     assert {:ok, %{status: :duplicate}} =
              Failures.retry("admission", Inbox.ref(entry), options)
 
-    assert {:ok, action} = Actions.fetch("operator-action:retry-admission")
+    assert action = Inspectors.operator_action("operator-action:retry-admission")
     assert action.previous["summary"] == "model_contract"
     assert action.previous["detail"] =~ "stored diagnostic sha256:"
     refute inspect(action) =~ "inspect this failure"
@@ -322,7 +322,7 @@ defmodule Ryker.Operator.WorkflowsTest do
     assert duplicate.status == :duplicate
     assert duplicate.outcome == first.outcome
 
-    assert {:ok, replay_action} = Actions.fetch("operator-action:replay-slack")
+    assert replay_action = Inspectors.operator_action("operator-action:replay-slack")
     refute inspect(replay_action) =~ "Investigate checkout latency"
     refute inspect(replay_action) =~ "evidence.txt"
 
@@ -471,8 +471,8 @@ defmodule Ryker.Operator.WorkflowsTest do
            ) == {:error, :slack_replay_source_pruned}
 
     assert Repo.aggregate(Entry, :count) == 2
-    assert Actions.fetch("operator-action:missing-replay") == :error
-    assert Actions.fetch("operator-action:pruned-replay") == :error
+    assert Inspectors.operator_action("operator-action:missing-replay") == nil
+    assert Inspectors.operator_action("operator-action:pruned-replay") == nil
   end
 
   test "private replay requires the frozen Work profile that governed the source" do
@@ -484,7 +484,7 @@ defmodule Ryker.Operator.WorkflowsTest do
              action_ref: "operator-action:profileless-replay"
            ) == {:error, :slack_replay_work_profile_missing}
 
-    assert Actions.fetch("operator-action:profileless-replay") == :error
+    assert Inspectors.operator_action("operator-action:profileless-replay") == nil
   end
 
   defp slack_input(event_ref, message_ref) do

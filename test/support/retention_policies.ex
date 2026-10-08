@@ -1,10 +1,11 @@
-defmodule Ryker.Retention.Policy do
+defmodule Ryker.RetentionPolicies do
   @moduledoc """
   Reviewable retention ownership for every PostgreSQL table Ryker creates.
 
-  A schema-coverage test compares this list with the migrated database. New
-  tables therefore cannot silently become permanent merely because a pruning
-  query was forgotten.
+  A schema-coverage test (`Ryker.Retention.PolicyTest`) compares this list
+  with the migrated database. New tables therefore cannot silently become
+  permanent merely because a pruning query was forgotten. Only tests read it,
+  so it lives with them; the pruning itself is `Ryker.Retention.Data`'s.
   """
 
   @type class ::
@@ -644,12 +645,10 @@ defmodule Ryker.Retention.Policy do
   def all, do: @policies
 
   @spec fetch(String.t()) :: {:ok, policy()} | :error
-  def fetch(table) when is_binary(table) do
+  def fetch(table) do
     case Enum.find(@policies, &(&1.table == table)) do
       nil -> :error
       policy -> {:ok, policy}
     end
   end
-
-  def fetch(_table), do: :error
 end

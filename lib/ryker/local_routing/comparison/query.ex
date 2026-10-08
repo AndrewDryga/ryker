@@ -8,7 +8,7 @@ defmodule Ryker.LocalRouting.Comparison.Query do
   def by_id(queryable \\ all(), id),
     do: where(queryable, [local_routing_comparisons: c], c.id == ^id)
 
-  def pending(queryable \\ all()),
+  defp pending(queryable \\ all()),
     do: where(queryable, [local_routing_comparisons: c], c.status == :pending)
 
   @doc "Pending, with no retry backoff or attempt fence left at `now`."

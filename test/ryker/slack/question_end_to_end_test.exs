@@ -9,6 +9,7 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
   alias Ryker.Admission.Dispatcher, as: AdmissionDispatcher
   alias Ryker.Delivery.{Adapters, Dispatcher}
   alias Ryker.Ingress.Inbox
+  alias Ryker.Inspectors
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Memories
   alias Ryker.Memories.MemoryEntry
@@ -24,7 +25,7 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
   alias Ryker.TestSupport.{FakeCoopAPI, FakeSlackAPI, FakeWorkCoopAPI}
   alias Ryker.Waits.EventSubscription
   alias Ryker.Waits.EventSubscriptions
-  alias Ryker.Work.{Custody, Executor, Session, SubmissionBuilder, Turn}
+  alias Ryker.Work.{Custody, Executor, Session, Turn}
 
   # A suite-owned workspace keeps conversation locks out of other fixtures.
 
@@ -476,7 +477,7 @@ defmodule Ryker.Slack.QuestionEndToEndTest do
 
     # The later conversation does not have to ask: the remembered answer is
     # already in the submission the model receives, still without its source.
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
     assert [fact] = get_in(submission, ["context", "operator_context", "memory"])
     assert fact["memory_ref"] == memory.ref
     assert fact["value"] == "one percent"

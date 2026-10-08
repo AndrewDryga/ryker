@@ -8,12 +8,13 @@ defmodule Ryker.GitHub.EndToEndTest do
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.GitHub.{Auth, Binding, Client, Publisher, Router}
   alias Ryker.Ingress.Inbox
+  alias Ryker.Inspectors
   alias Ryker.Publication.{FollowupDispatcher, LifecycleEvent}
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Slack.Publisher, as: SlackPublisher
   alias Ryker.TestSupport.{FakeCoopAPI, FakeSlackAPI, FakeWorkCoopAPI, GitHubRequester}
-  alias Ryker.Work.{Custody, Dispatcher, Executor, Final, Session, SubmissionBuilder, Turn}
+  alias Ryker.Work.{Custody, Dispatcher, Executor, Final, Session, Turn}
 
   @moduletag isolation: "REPEATABLE READ"
 
@@ -228,7 +229,7 @@ defmodule Ryker.GitHub.EndToEndTest do
     assert work_claim.episode.id == episode.id
     assert work_claim.session.id == session.id
 
-    assert {:ok, submission} = SubmissionBuilder.build(work_claim)
+    assert {:ok, submission} = Inspectors.submission(work_claim)
 
     assert {:ok, frozen_turn} =
              Custody.freeze_submission(

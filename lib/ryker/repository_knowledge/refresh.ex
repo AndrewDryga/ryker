@@ -85,8 +85,4 @@ defmodule Ryker.RepositoryKnowledge.Refresh do
 
   defp week_old?(%{at: %DateTime{} = at}, now), do: DateTime.diff(now, at) >= @stale_after_seconds
   defp week_old?(_written, _now), do: true
-
-  @doc "How long a week is, for the rules and the tests that hold them."
-  @spec stale_after_seconds() :: pos_integer()
-  def stale_after_seconds, do: @stale_after_seconds
 end

@@ -4,7 +4,7 @@ defmodule Ryker.Slack.CapabilityToolsTest do
   alias Ryker.Delivery.PlatformAction
   alias Ryker.Episodes.Episode
   alias Ryker.Slack.{CapabilityTools, ChannelConfiguration, SourceRef}
-  alias Ryker.Slack.CapabilityTools.{Resources, SourceReader}
+  alias Ryker.Slack.CapabilityTools.{Authority, Resources, SourceReader}
   alias Ryker.StateTools.ErrorCode
   alias Ryker.Work.Turn
 
@@ -1887,14 +1887,14 @@ defmodule Ryker.Slack.CapabilityToolsTest do
       }
     }
 
-    assert CapabilityTools.authorized_post_instruction?(granted, destination_ref)
+    assert Authority.authorized_post_instruction?(granted, destination_ref)
 
-    refute CapabilityTools.authorized_post_instruction?(
+    refute Authority.authorized_post_instruction?(
              granted,
              SourceRef.channel("T123", "C789")
            )
 
-    refute CapabilityTools.authorized_post_instruction?(
+    refute Authority.authorized_post_instruction?(
              %{
                "content" => %{
                  "text" => "post to <#C456>: this arbitrary prose is not authority"

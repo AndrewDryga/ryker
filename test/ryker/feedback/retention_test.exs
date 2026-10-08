@@ -1,6 +1,6 @@
 defmodule Ryker.Feedback.RetentionTest do
   @moduledoc """
-  Feedback on Ryker's answers is operational data (`Ryker.Retention.Policy`):
+  Feedback on Ryker's answers is operational data (`Ryker.RetentionPolicies`):
   it expires at the operational horizon, and with its request when that goes
   first. The migration that adds its table refuses to roll back while any
   feedback is kept.
@@ -11,7 +11,8 @@ defmodule Ryker.Feedback.RetentionTest do
   alias Ryker.Feedback
   alias Ryker.Feedback.Signal
   alias Ryker.Ingress.Inbox
-  alias Ryker.Retention.{Data, Policy}
+  alias Ryker.Retention.Data
+  alias Ryker.RetentionPolicies
   alias Ryker.Slack.Input, as: SlackInput
 
   @now ~U[2026-09-27 12:00:00.000000Z]
@@ -23,7 +24,7 @@ defmodule Ryker.Feedback.RetentionTest do
   @message_ref_version 20_260_927_193_000
 
   test "feedback expires at the operational horizon, and with its request" do
-    assert {:ok, %{class: :operational}} = Policy.fetch("answer_feedback")
+    assert {:ok, %{class: :operational}} = RetentionPolicies.fetch("answer_feedback")
 
     input = input!("1790001000.000100")
     old = signal!(input, "slack-event:Ev-old")

@@ -18,7 +18,7 @@ defmodule Ryker.Delivery.RoutingResponse.Query do
     )
   end
 
-  def pending(queryable \\ all()),
+  defp pending(queryable \\ all()),
     do: where(queryable, [delivery_routing_responses: r], r.status == :pending)
 
   @doc """

@@ -427,17 +427,14 @@ defmodule Ryker.ControlPlane.SettingsPage do
     """
   end
 
-  @doc """
-  Where each list section of these pages lives: its list, and the address its
-  rows' forms are under (`/new` adds one, `/<key>/edit` edits one).
-  """
-  @spec paths(atom()) :: %{list: String.t(), items: String.t()}
-  def paths(:pricing), do: %{list: "/settings/prices", items: "/settings/prices"}
+  # Where each list section of these pages lives: its list, and the address its
+  # rows' forms are under (`/new` adds one, `/<key>/edit` edits one).
+  defp paths(:pricing), do: %{list: "/settings/prices", items: "/settings/prices"}
 
-  def paths(:webhooks),
+  defp paths(:webhooks),
     do: %{list: "/integrations/webhooks", items: "/integrations/webhooks/sources"}
 
-  def paths(_singleton), do: nil
+  defp paths(_singleton), do: nil
 
   # Integrations overview ----------------------------------------------------
 

@@ -53,6 +53,5 @@ defmodule Ryker.ControlPlane.ChannelScopeTest do
     assert PagedRelation.requested(%{"episode_page" => %{"a" => "2"}}, "episode_page") == 1
     assert PagedRelation.requested(%{"episode_page" => "99999999999"}, "episode_page") == 10_000
     assert PagedRelation.requested(:invalid, "episode_page") == 1
-    assert PagedRelation.page_size() == 25
   end
 end

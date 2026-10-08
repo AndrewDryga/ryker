@@ -8,6 +8,7 @@ defmodule Ryker.Publication.FollowupsTest do
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Inspectors
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningSources
@@ -18,7 +19,6 @@ defmodule Ryker.Publication.FollowupsTest do
   alias Ryker.Work.Cancellation
   alias Ryker.Work.Custody, as: WorkCustody
   alias Ryker.Work.DeliveryReceipt
-  alias Ryker.Work.SubmissionBuilder
 
   # A GitHub that reports the status it was given and says it was asked.
   defmodule GitHubReports do
@@ -873,7 +873,7 @@ defmodule Ryker.Publication.FollowupsTest do
       assert {:ok, delivery} = Followups.claim_delivery("review-lineage", 60)
       assert {:ok, _} = Followups.admit_wakeup(event.ref, delivery.lease_ref)
       assert {:ok, claim} = WorkCustody.claim_next("review-lineage", 60, :work)
-      assert {:ok, submission} = SubmissionBuilder.build(claim)
+      assert {:ok, submission} = Inspectors.submission(claim)
       claim = %{claim | turn: %{claim.turn | submission: submission}}
       assert KnowledgeSnapshot.expose_submission(claim) == :ok
       assert [receipt] = KnowledgeSnapshot.session_sources(claim.session.id)

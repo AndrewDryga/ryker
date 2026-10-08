@@ -21,7 +21,7 @@ defmodule Ryker.Delivery.PlatformAction.Query do
 
   def select_action_refs(queryable), do: select(queryable, [platform_actions: a], a.action_ref)
 
-  def pending(queryable \\ all()),
+  defp pending(queryable \\ all()),
     do: where(queryable, [platform_actions: a], a.status == :pending)
 
   @doc "The next retry and the next lease expiry after `since` among pending actions."

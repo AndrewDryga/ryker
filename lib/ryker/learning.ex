@@ -314,7 +314,7 @@ defmodule Ryker.Learning do
 
   defp check_candidate!(run) do
     with {:ok, _entries, readable, updates} <- checked_updates(run),
-         :ok <- apply_updates(updates, readable, run, :check_sources_in_transaction) do
+         :ok <- apply_updates(updates, readable, run, :check) do
       run
     else
       {:error, reason} -> Repo.rollback(reason)
@@ -1213,7 +1213,7 @@ defmodule Ryker.Learning do
       run
     else
       with {:ok, entries, readable, updates} <- checked_updates(run),
-           :ok <- apply_updates(updates, readable, run, :record_sources_in_transaction),
+           :ok <- apply_updates(updates, readable, run, :record),
            :ok <- learn_people(run, entries) do
         Repo.update!(
           Ecto.Changeset.change(run,
@@ -1316,14 +1316,16 @@ defmodule Ryker.Learning do
 
   defp learn_people(_run, _entries), do: :ok
 
-  defp apply_updates(updates, entries, run, operation) do
+  defp apply_updates(updates, entries, run, mode) do
+    operation = knowledge_operation(mode, run)
+
     context = %{
       result_ref: "learning:#{run.id}:#{run.result_sha256}",
       source_dependencies: run.source_dependencies,
       omissions: run.omissions
     }
 
-    {operation, context} = application_context(run, operation, context, entries)
+    context = application_context(run, context, entries)
     # What the run read of the thread is a source of every topic it writes,
     # named or not, so a person forgetting a thread message reaches it.
     thread = Enum.map(run.context_inputs || [], & &1["source_input_id"])
@@ -1345,12 +1347,9 @@ defmodule Ryker.Learning do
               (&1.id in thread and not MapSet.member?(known, &1.id)))
         )
 
-      case apply(Knowledge, operation, [
-             sources,
-             Map.drop(update, ~w(action source_input_ids)),
-             target,
-             context
-           ]) do
+      proposal = Map.drop(update, ~w(action source_input_ids))
+
+      case operation.(sources, proposal, target, context) do
         :ok ->
           {:cont, :ok}
 
@@ -1379,23 +1378,26 @@ defmodule Ryker.Learning do
     |> MapSet.new(& &1["source_input_id"])
   end
 
-  defp application_context(%{rebuild: nil}, operation, context, _entries),
-    do: {operation, context}
+  # A run that rebuilds a topic checks and writes it through the rebuild's own
+  # pair.
+  defp knowledge_operation(:check, %{rebuild: nil}), do: &Knowledge.check_sources_in_transaction/4
 
-  defp application_context(%{rebuild: target}, operation, context, entries) do
-    operation =
-      case operation do
-        :check_sources_in_transaction -> :check_rebuild_sources_in_transaction
-        :record_sources_in_transaction -> :rebuild_sources_in_transaction
-      end
+  defp knowledge_operation(:record, %{rebuild: nil}),
+    do: &Knowledge.record_sources_in_transaction/4
 
+  defp knowledge_operation(:check, _run), do: &Knowledge.check_rebuild_sources_in_transaction/4
+  defp knowledge_operation(:record, _run), do: &Knowledge.rebuild_sources_in_transaction/4
+
+  defp application_context(%{rebuild: nil}, context, _entries), do: context
+
+  defp application_context(%{rebuild: target}, context, entries) do
     target = %{
       topic_id: target["topic_id"],
       version: target["version"],
       generation: target["generation"]
     }
 
-    {operation, Map.merge(context, %{rebuild: target, rebuild_source_entries: entries})}
+    Map.merge(context, %{rebuild: target, rebuild_source_entries: entries})
   end
 
   defp mark_failed(id, reason, claim) do

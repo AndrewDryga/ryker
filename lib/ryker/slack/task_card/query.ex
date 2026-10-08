@@ -21,9 +21,6 @@ defmodule Ryker.Slack.TaskCard.Query do
   def by_id(queryable \\ all(), id), do: where(queryable, [slack_task_cards: c], c.id == ^id)
   def by_ref(queryable \\ all(), ref), do: where(queryable, [slack_task_cards: c], c.ref == ^ref)
 
-  def by_episode_id(queryable \\ all(), episode_id),
-    do: where(queryable, [slack_task_cards: c], c.episode_id == ^episode_id)
-
   @doc "The card posted as message `message_ref` in a channel, and in `thread_ref` when given."
   def by_message(workspace_ref, channel_ref, message_ref, thread_ref) do
     query =

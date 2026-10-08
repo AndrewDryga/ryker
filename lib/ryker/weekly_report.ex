@@ -214,9 +214,8 @@ defmodule Ryker.WeeklyReport do
   defp after_last_save?(_at, nil), do: true
   defp after_last_save?(at, saved_at), do: DateTime.after?(at, saved_at)
 
-  @doc "The console's address the report's links start with."
-  @spec base_url() :: String.t()
-  def base_url, do: Config.get_env(:control_public_url, "http://127.0.0.1:4321")
+  # The console's address the report's links start with.
+  defp base_url, do: Config.get_env(:control_public_url, "http://127.0.0.1:4321")
 
   defp database(options),
     do: Keyword.get_lazy(options, :time_zone_database, &Calendar.get_time_zone_database/0)

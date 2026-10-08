@@ -52,7 +52,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
   attr(:now, :any, default: nil)
   attr(:view, :string, default: "current", doc: "current, or removed for removed copies")
 
-  def render(assigns) do
+  defp render(assigns) do
     %{current: current, removed: removed} = assigns.copies
     ready = assigns.storage.preview
     ready_total = Map.get(assigns.storage, :preview_total, length(ready))

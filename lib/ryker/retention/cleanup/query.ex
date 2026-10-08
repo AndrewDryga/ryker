@@ -119,8 +119,8 @@ defmodule Ryker.Retention.Cleanup.Query do
     )
   end
 
-  @doc "Eligible sessions no other worker holds a live cleanup lease on."
-  def claimable(now), do: now |> eligible() |> unleased_at(now)
+  # Eligible sessions no other worker holds a live cleanup lease on.
+  defp claimable(now), do: now |> eligible() |> unleased_at(now)
 
   @doc "Sessions with no cleanup lease, or one that ran out by `now`."
   def unleased_at(queryable, now) do

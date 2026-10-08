@@ -1,15 +1,14 @@
 defmodule Ryker.Slack do
   @moduledoc """
   What the console and other contexts ask of the Slack context: the names
-  Slack references read as, links into Slack, whether a value is a Slack id or
-  message timestamp, the words and marks of a task card's phases, and the
-  channel settings a person changes from a channel's page. Each forwards to
-  the module that owns it (`Ryker.Slack.Names`, `Ryker.Slack.Permalink`,
-  `Ryker.Slack.ID`, `Ryker.Slack.Timestamp`, `Ryker.Slack.TaskCardDetails`,
-  `Ryker.Slack.ChannelConfigurations`), so the console never reaches below
-  this one (`Ryker.Checks.WebNoNestedDomainCalls`).
+  Slack references read as, links into Slack, whether a value is a Slack id,
+  the words and marks of a task card's phases, and the channel settings a
+  person changes from a channel's page. Each forwards to the module that owns
+  it (`Ryker.Slack.Names`, `Ryker.Slack.Permalink`, `Ryker.Slack.ID`,
+  `Ryker.Slack.TaskCardDetails`, `Ryker.Slack.ChannelConfigurations`), so the
+  console never reaches below this one (`Ryker.Checks.WebNoNestedDomainCalls`).
   """
-  alias Ryker.Slack.{ChannelConfigurations, ID, Names, Permalink, TaskCardDetails, Timestamp}
+  alias Ryker.Slack.{ChannelConfigurations, ID, Names, Permalink, TaskCardDetails}
 
   @doc "A Slack reference's name in `workspace`, or a description of it when no name is known."
   @spec name(String.t(), String.t()) :: String.t()
@@ -49,10 +48,6 @@ defmodule Ryker.Slack do
   @doc "Whether `value` is a Slack id: a workspace, channel, person or bot."
   @spec id?(term()) :: boolean()
   defdelegate id?(value), to: ID, as: :valid?
-
-  @doc "Whether `value` is a Slack message timestamp."
-  @spec timestamp?(term()) :: boolean()
-  defdelegate timestamp?(value), to: Timestamp, as: :valid?
 
   @doc "The workspace whose names Ryker knows, or nil when Slack is off."
   @spec workspace() :: String.t() | nil

@@ -9,13 +9,11 @@ defmodule Ryker.Admission.CandidateSearch.Query do
 
   @active_states [:working, :waiting_for_input, :waiting_for_event]
 
-  @doc """
-  The episodes `request` may be offered in correlation `scope`: of its
-  execution mode, in a conversation the scope allows, with history kept.
-  Active long-running work stays eligible whatever the history window says;
-  the window only bounds how far completed history is offered.
-  """
-  def eligible(request, scope) do
+  # The episodes `request` may be offered in correlation `scope`: of its
+  # execution mode, in a conversation the scope allows, with history kept.
+  # Active long-running work stays eligible whatever the history window says;
+  # the window only bounds how far completed history is offered.
+  defp eligible(request, scope) do
     from(episode in Episodes.Episode.Query.all(),
       where:
         episode.execution_mode == ^request.execution_mode and

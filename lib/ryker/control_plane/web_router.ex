@@ -77,8 +77,7 @@ defmodule Ryker.ControlPlane.WebRouter do
   # A record that does not exist answers 404 on the server-rendered load, with
   # the page the browser shows for it. The page's assigns reach the response
   # just before it is sent; live navigation afterwards makes no HTTP request.
-  @doc false
-  def answer_missing_records(conn, _options) do
+  defp answer_missing_records(conn, _options) do
     Plug.Conn.register_before_send(conn, fn conn ->
       if conn.assigns[:page_status] == 404, do: Plug.Conn.put_status(conn, 404), else: conn
     end)

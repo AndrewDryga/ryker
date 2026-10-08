@@ -13,13 +13,14 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.WorkProfile
+  alias Ryker.Inspectors
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Retention.Dispatcher, as: RetentionDispatcher
   alias Ryker.StateTools.WorkStateTools
   alias Ryker.TestSupport.{FakeCoopAPI, FakeWorkCoopAPI}
-  alias Ryker.Work.{ActivityEvent, Custody, Executor, Result, Session, SubmissionBuilder, Turn}
+  alias Ryker.Work.{ActivityEvent, Custody, Executor, Result, Session, Turn}
 
   @moduletag isolation: "REPEATABLE READ"
 
@@ -593,7 +594,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     assert {:ok, {:delivered, :action, ^reaction_ref}} =
              Ryker.Delivery.Dispatcher.run_once(delivery_options("capability-reaction", :action))
 
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
 
     assert {:ok, _turn} =
              Custody.freeze_submission(
@@ -1502,7 +1503,7 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
   # Freezes, binds and accepts one reply on a manually claimed turn, the way
   # the Work executor does once Coop returns the candidate.
   defp accept_reply!(claim, document, suffix) do
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
 
     assert {:ok, _turn} =
              Custody.freeze_submission(

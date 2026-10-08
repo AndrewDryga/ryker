@@ -103,7 +103,7 @@ defmodule Ryker.Ingress.Inbox.Entry.Query do
   def ordered_by_recently_updated(queryable),
     do: order_by(queryable, [ingress_inbox_entries: e], desc: e.updated_at, desc: e.id)
 
-  def pending(queryable \\ all()),
+  defp pending(queryable \\ all()),
     do: where(queryable, [ingress_inbox_entries: e], e.status == :pending)
 
   @doc """

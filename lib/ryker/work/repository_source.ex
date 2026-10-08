@@ -90,14 +90,6 @@ defmodule Ryker.Work.RepositorySource do
   def same?(_source, nil), do: false
   def same?(source, other), do: source == other
 
-  @doc "A compact human-readable identity used in prompts and operator surfaces."
-  @spec describe(request() | nil) :: String.t() | nil
-  def describe(nil), do: nil
-  def describe(%{"kind" => "default"}), do: "default"
-  def describe(%{"kind" => "branch", "name" => name}), do: "branch #{name}"
-  def describe(%{"kind" => "pull_request", "number" => number}), do: "pull request ##{number}"
-  def describe(%{"kind" => "commit", "sha" => sha}), do: "commit #{sha}"
-
   # Validates the version-1 immutable binding Coop resolved and journaled.
   #
   # Every field is checked against the request it claims to answer: the derived
@@ -204,21 +196,6 @@ defmodule Ryker.Work.RepositorySource do
       ],
       "type" => "object"
     }
-  end
-
-  @doc "The prose the model reads beside the schema, so facts are not read as authority."
-  @spec instructions() :: String.t()
-  def instructions do
-    """
-    repository_source selects which source inside the already authorized repository a new
-    repository-backed episode starts from. Use null unless the event names one. Choose
-    {"kind":"default"} for the configured default branch, {"kind":"branch","name":"<branch>"} for a
-    named branch, {"kind":"pull_request","number":<n>} for a pull request, or
-    {"kind":"commit","sha":"<full 40 or 64 character lowercase object id>"} for one exact commit.
-    You cannot choose a repository, remote, URL, path, tag, or raw ref, and selecting a human branch
-    or pull request never authorizes pushing to it. Only a new repository-backed episode may choose;
-    continuing, replying, reacting, and ignoring keep whatever source their work already pinned.
-    """
   end
 
   defp parse_kind("default", _value), do: {:ok, %{"kind" => "default"}}

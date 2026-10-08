@@ -1049,13 +1049,10 @@ defmodule Ryker.ControlPlane.SettingsSections do
 
   def account_step(entries, _action, _index, _view), do: {:ok, entries}
 
-  @doc """
-  What removing `accounts` would strand, as one sentence: each of them a
-  saved model still runs on, those models and the kinds of work they are for,
-  and what to do first. Nil when no saved model runs on any of them.
-  """
-  @spec in_use(map(), [String.t()]) :: String.t() | nil
-  def in_use(view, accounts) do
+  # What removing `accounts` would strand, as one sentence: each of them a
+  # saved model still runs on, those models and the kinds of work they are for,
+  # and what to do first. Nil when no saved model runs on any of them.
+  defp in_use(view, accounts) do
     uses =
       for field <- ladder_fields(),
           model <- Map.get(view.snapshot.work, field.name) || [],

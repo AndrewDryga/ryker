@@ -19,15 +19,6 @@ defmodule Ryker.ControlPlane.LiveUpdatesTest do
 
   @root Path.expand("../../..", __DIR__)
 
-  # Announced on a topic no page needs, because what a page shows of it is
-  # also announced on a topic pages do listen to.
-  @not_for_pages %{
-    # Routing progress is announced on the message's own topics.
-    routing_updated: "Ryker.Ingress.Inbox",
-    # A review is announced on the reviewed request's topics.
-    episode_reviewed: "Ryker.Episodes"
-  }
-
   test "every page listens to topics its contexts let it join and leave" do
     command = EpisodeFixtures.admit_input()
     assert {:ok, %{episode: episode}} = Episodes.apply(command)
@@ -70,11 +61,9 @@ defmodule Ryker.ControlPlane.LiveUpdatesTest do
   test "every change a context announces redraws the pages listening for it" do
     announced = announced_events()
     heard = MapSet.new(WorkbenchLive.page_events())
-    not_for_pages = @not_for_pages |> Map.keys() |> MapSet.new()
 
-    assert MapSet.difference(announced, MapSet.union(heard, not_for_pages)) == MapSet.new()
+    assert MapSet.difference(announced, heard) == MapSet.new()
     assert MapSet.difference(heard, announced) == MapSet.new()
-    assert MapSet.intersection(heard, not_for_pages) == MapSet.new()
   end
 
   test "nothing re-reads an open page on a timer" do

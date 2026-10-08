@@ -23,16 +23,6 @@ defmodule Ryker.Slack.ThreadStatusReceipts do
     |> tap(fn _receipt -> ThreadStatuses.broadcast_thread_status_updated(status) end)
   end
 
-  # Tests read the receipts of one thread back, in acknowledgement order.
-  @doc false
-  def for_thread(workspace, channel, thread) do
-    workspace
-    |> ThreadStatusReceipt.Query.by_thread(channel, thread)
-    |> ThreadStatusReceipt.Query.ordered_by_oldest()
-    |> ThreadStatusReceipt.Query.limit_to(1_000)
-    |> Repo.all()
-  end
-
   def for_episode(episode_id) do
     episode_id
     |> ThreadStatusReceipt.Query.by_episode_id()

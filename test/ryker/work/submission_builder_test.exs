@@ -12,6 +12,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
   alias Ryker.Fixtures.TaskOffer
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.GitHub.SourceRef, as: GitHubSourceRef
+  alias Ryker.Inspectors
   alias Ryker.Instructions
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Memories
@@ -44,7 +45,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
       {_source, topic} =
         KnowledgeFixtures.learn!(claim.episode, claim.session.repository_ref)
 
-      assert {:ok, submission} = SubmissionBuilder.build(claim)
+      assert {:ok, submission} = Inspectors.submission(claim)
 
       knowledge =
         get_in(submission, ["context", "operator_context", "continuity", "knowledge"]) || []
@@ -65,7 +66,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
 
     current = claim_episode!("retained-case-current", "#{outage} again this morning")
 
-    assert {:ok, submission} = SubmissionBuilder.build(current)
+    assert {:ok, submission} = Inspectors.submission(current)
     assert [recalled] = submission["context"]["retained_cases"]
     assert recalled["case_ref"] == record.case_ref
     assert recalled["problem"] =~ "pgsql-prod-01"
@@ -74,7 +75,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
   test "Work sees the episode's current name so it revises it only when the work changes" do
     claim = claim_episode!("titled-briefing", "Checkout returns 502 after the deploy")
 
-    assert {:ok, unnamed} = SubmissionBuilder.build(claim)
+    assert {:ok, unnamed} = Inspectors.submission(claim)
     assert Map.fetch!(unnamed["context"], "episode_title") == nil
 
     Repo.update_all(
@@ -86,7 +87,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
       ]
     )
 
-    assert {:ok, named} = SubmissionBuilder.build(claim)
+    assert {:ok, named} = Inspectors.submission(claim)
     assert named["context"]["episode_title"] == "Investigate checkout 502s"
   end
 
@@ -94,7 +95,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     initial = String.duplicate("a", 1_500) <> " ORIGINAL_REQUEST_MARKER"
     claim = claim_episode!("full-briefing", initial)
 
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
     assert submission["context"]["mode"] == "full"
     assert submission["context"]["inputs"]["omitted_count"] == 0
     assert [current] = submission["context"]["inputs"]["items"]
@@ -114,7 +115,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
       )
 
     assert shadow.episode.execution_mode == :shadow
-    assert {:ok, shadow_submission} = SubmissionBuilder.build(shadow)
+    assert {:ok, shadow_submission} = Inspectors.submission(shadow)
 
     assert shadow_submission["contract_version"] == "work-final-shadow-v3"
     assert shadow_submission["output_schema"] == Final.json_schema(:shadow)
@@ -135,7 +136,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
              )
 
     live = claim_episode!("live-contract", "Reply with the result.")
-    assert {:ok, live_submission} = SubmissionBuilder.build(live)
+    assert {:ok, live_submission} = Inspectors.submission(live)
     assert live_submission["contract_version"] == "work-final-live-v3"
     assert live_submission["output_schema"] == Final.json_schema(:live)
     assert live_submission["prompt"] =~ "This is live work"
@@ -207,7 +208,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
         }
       )
 
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
     assert [input] = submission["context"]["inputs"]["items"]
 
     assert input["source_ref"] ==
@@ -248,7 +249,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
         }
       )
 
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
     assert [input] = submission["context"]["inputs"]["items"]
 
     assert input["source_ref"] == GitHubSourceRef.item("github-main", "issue_comment", 9_001)
@@ -274,7 +275,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
         }
       )
 
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
     names = submission["context"]["controller_tools"]
 
     assert submission["context"]["offer_confirmation_supported"]
@@ -351,7 +352,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
              )
 
     assert {:ok, claim} = Custody.claim_next("worker:reaction-feedback", 60)
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
 
     added = %{
       "action" => "add",
@@ -395,8 +396,8 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     # would have turned an ordinary retry into a submission conflict.
     claim = claim_episode!("replayed-submission", "Verify the deployment and report.")
 
-    assert {:ok, first} = SubmissionBuilder.build(claim)
-    assert {:ok, second} = SubmissionBuilder.build(claim)
+    assert {:ok, first} = Inspectors.submission(claim)
+    assert {:ok, second} = Inspectors.submission(claim)
 
     assert second == first
     assert second["prompt"] == first["prompt"]
@@ -419,7 +420,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
                })
              )
 
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
 
     assert submission["context"]["conversation_feedback"] == %{
              "current" => [],
@@ -456,7 +457,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
              )
 
     assert {:ok, claim} = Custody.claim_next("worker:trusted-repository", 60)
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
     assert submission["context"]["repository_ref"] == "owner/trusted"
     assert submission["prompt"] =~ "host owns destination, identity, repository scope"
   end
@@ -520,7 +521,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
              )
 
     assert {:ok, claim} = Custody.claim_next("worker:repository-knowledge", 60)
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
 
     # The document, the commit it was written from and its digest: no path
     # in the repository, since the repository holds no copy of it.
@@ -535,7 +536,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
 
   test "the briefing names the fixed state tools without exposing the session binding" do
     claim = claim_episode!("state-tools", "Please prepare an engineering task.")
-    assert {:ok, initial} = SubmissionBuilder.build(claim)
+    assert {:ok, initial} = Inspectors.submission(claim)
 
     assert KnowledgeSnapshot.expose_submission(%{
              claim
@@ -555,7 +556,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
                })
              )
 
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
 
     assert submission["context"]["controller_tools"] ==
              ~w(get_work_state cite_source record_finding request_input wait_for list_automations get_automation propose_automation plan_goal update_goal request_task search_memory propose_memory propose_preference remember_answer update_conversation_summary record_feedback validate_final)
@@ -575,12 +576,12 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     claim = claim_episode!("state-tool-capabilities", "Check the current state safely.")
 
     assert {:ok, unbound} =
-             SubmissionBuilder.build(claim, state_tool_capabilities: nil)
+             Inspectors.submission(claim, state_tool_capabilities: nil)
 
     assert unbound["context"]["controller_tools"] == []
 
     assert {:ok, schedule_only} =
-             SubmissionBuilder.build(claim, state_tool_capabilities: [:schedules])
+             Inspectors.submission(claim, state_tool_capabilities: [:schedules])
 
     names = schedule_only["context"]["controller_tools"]
     refute "wait_for" in names
@@ -588,7 +589,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert "validate_final" in names
 
     assert {:ok, governed} =
-             SubmissionBuilder.build(claim,
+             Inspectors.submission(claim,
                state_tool_capabilities: [:emisar_approvals, :event_waits]
              )
 
@@ -601,7 +602,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
         execution_mode: :shadow
       )
 
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
     names = submission["context"]["controller_tools"]
 
     refute submission["context"]["offer_confirmation_supported"]
@@ -625,7 +626,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
       )
 
     assert {:ok, submission} =
-             SubmissionBuilder.build(claim,
+             Inspectors.submission(claim,
                platform_tools: [
                  %{"name" => "list_slack_channels"},
                  %{"name" => "search_slack"},
@@ -646,7 +647,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     claim = claim_episode!("platform-tools", "Find the earlier deploy and summarize it here.")
 
     assert {:ok, submission} =
-             SubmissionBuilder.build(claim,
+             Inspectors.submission(claim,
                platform_tools: [
                  %{"name" => "list_slack_channels"},
                  %{"name" => "search_slack"},
@@ -682,7 +683,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
       )
 
     assert {:ok, submission} =
-             SubmissionBuilder.build(claim,
+             Inspectors.submission(claim,
                platform_tools: [
                  "list_runners",
                  %{"name" => "list_slack_channels"},
@@ -728,7 +729,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
 
     next = next_claim!(claim, ["The apply finished. Verify infrastructure health and backups."])
     assert next.session.id == claim.session.id
-    assert {:ok, submission} = SubmissionBuilder.build(next)
+    assert {:ok, submission} = Inspectors.submission(next)
 
     assert [mapping] = get_in(submission, ["context", "operator_context", "memory"])
     assert mapping["memory_ref"] == memory.ref
@@ -747,7 +748,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
 
     # Forgetting is not advice the next turn may ignore.
     assert {:ok, _} = Memories.forget(memory.ref)
-    assert {:ok, revoked} = SubmissionBuilder.build(next)
+    assert {:ok, revoked} = Inspectors.submission(next)
     assert get_in(revoked, ["context", "operator_context", "memory"]) == []
     refute revoked["prompt"] =~ "emisar-project-qa"
   end
@@ -798,7 +799,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
 
     insert_memory!(memory_offer, claim.episode)
 
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
 
     assert submission["context"]["operator_context"]["preferences"]["response_detail"] == %{
              "behavior_ref" => "behavior:preference",
@@ -827,7 +828,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     person_fact!("slack:user:U1", "birthday", "Birthday is 12 March.")
     person_fact!("slack:user:U2", "favourite-tv-show", "Favourite TV show is Severance.")
 
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
 
     assert %{"said_about_themselves" => ["Birthday is 12 March."], "use" => use} =
              submission["context"]["operator_context"]["person_asking"]
@@ -845,7 +846,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     person_fact!("slack:user:U2", "favourite-tv-show", "Favourite TV show is Severance.")
 
     follow_up = next_claim!(first, ["And the staging plan too?"], "slack:user:U2")
-    assert {:ok, submission} = SubmissionBuilder.build(follow_up)
+    assert {:ok, submission} = Inspectors.submission(follow_up)
 
     assert %{"said_about_themselves" => ["Favourite TV show is Severance."]} =
              submission["context"]["operator_context"]["person_asking"]
@@ -902,7 +903,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
              )
 
     reloaded = Ryker.Repo.get!(Ryker.Episodes.Episode, first.episode.id)
-    assert {:ok, submission} = SubmissionBuilder.build(%{first | episode: reloaded})
+    assert {:ok, submission} = Inspectors.submission(%{first | episode: reloaded})
     assert submission["input_artifact_refs"] == [current_artifact.ref]
     refute submission["prompt"] =~ queued_artifact.ref
   end
@@ -939,7 +940,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
         "text" => ""
       })
 
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
     assert submission["input_artifact_refs"] == []
     assert submission["prompt"] =~ "Please audit the checkout service"
   end
@@ -948,7 +949,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert {:ok, _} = Instructions.save(:global, "Explain assumptions.", 0, "operator:test")
     initial = String.duplicate("a", 1_500) <> " ORIGINAL_REQUEST_MARKER"
     first = claim_episode!("delta-continuation", initial)
-    assert {:ok, first_submission} = SubmissionBuilder.build(first)
+    assert {:ok, first_submission} = Inspectors.submission(first)
 
     assert first_submission["context"]["custom_instructions"] ==
              Instructions.snapshot(destination(first))
@@ -1016,7 +1017,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert {:ok, second} = Custody.claim_next("worker:delta-second", 60)
     assert second.session.id == first.session.id
 
-    assert {:ok, delta} = SubmissionBuilder.build(second)
+    assert {:ok, delta} = Inspectors.submission(second)
     assert delta["context"]["mode"] == "continuation"
     refute Map.has_key?(delta["context"], "execution_mode")
 
@@ -1053,7 +1054,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
              )
 
     replacement = %{second | session: rotated.session, turn: rotated.turn}
-    assert {:ok, replacement_submission} = SubmissionBuilder.build(replacement)
+    assert {:ok, replacement_submission} = Inspectors.submission(replacement)
     assert replacement_submission["context"]["mode"] == "full"
     assert replacement_submission["prompt"] =~ "ORIGINAL_REQUEST_MARKER"
     assert replacement_submission["prompt"] =~ "NEW_INPUT_MARKER"
@@ -1109,14 +1110,14 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     claim = claim_episode_payload!("first-input-words", first)
     next = next_claim!(claim, ["You have pretty much all possible access via emisar mcp"])
 
-    assert {:ok, delta} = SubmissionBuilder.build(next)
+    assert {:ok, delta} = Inspectors.submission(next)
     assert delta["context"]["mode"] == "continuation"
     reminder = delta["context"]["continuity"]["first_input"]["content"]
     assert get_in(reminder, ["content", "text"]) == "<@URYKER> check health of our infra"
   end
 
   test "the builder rejects a value that is not a complete leased claim" do
-    assert SubmissionBuilder.build(%{}) ==
+    assert Inspectors.submission(%{}) ==
              {:error, {:invalid_work_submission_builder, :claim}}
   end
 
@@ -1172,7 +1173,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
 
     workspace = %{"description" => String.duplicate("w", 15_000)}
 
-    assert {:ok, submission} = SubmissionBuilder.build(claim, workspace: workspace)
+    assert {:ok, submission} = Inspectors.submission(claim, workspace: workspace)
     context = submission["context"]
     assert context["mode"] == "full"
     assert context["custom_instructions"]["global"]["text"] == global
@@ -1226,7 +1227,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     fact =
       SavedEntities.memory!(source, "staging-account", "Staging is acme-stg.")
 
-    assert {:ok, submission} = SubmissionBuilder.build(claim, workspace: workspace)
+    assert {:ok, submission} = Inspectors.submission(claim, workspace: workspace)
     assert submission["context"]["inputs"]["omitted_count"] > 1
     assert [%{"memory_ref" => ref}] = submission["context"]["operator_context"]["memory"]
     assert ref == fact.ref
@@ -1243,7 +1244,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     workspace = %{"description" => String.duplicate("w", 15_000)}
 
     {result, encodes} =
-      briefing_encodes(fn -> SubmissionBuilder.build(claim, workspace: workspace) end)
+      briefing_encodes(fn -> Inspectors.submission(claim, workspace: workspace) end)
 
     assert {:ok, submission} = result
     context = submission["context"]
@@ -1257,7 +1258,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     claim = long_conversation!("fit-fewest", "slack:TFITFEWEST:CFIT")
     workspace = %{"description" => String.duplicate("w", 15_000)}
 
-    assert {:ok, submission} = SubmissionBuilder.build(claim, workspace: workspace)
+    assert {:ok, submission} = Inspectors.submission(claim, workspace: workspace)
     context = submission["context"]
     [first_kept | _] = earlier = Enum.reject(context["inputs"]["items"], & &1["current"])
 
@@ -1274,7 +1275,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert {:ok, _} =
              Ryker.Instructions.save(:global, String.duplicate("🌱", 2_000), 0, "operator:test")
 
-    assert {:ok, submission} = SubmissionBuilder.build(claim, workspace: workspace)
+    assert {:ok, submission} = Inspectors.submission(claim, workspace: workspace)
     context = submission["context"]
     path = ["operator_context", "continuity", "observations"]
     [note | _] = notes = get_in(context, path)
@@ -1349,7 +1350,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
 
   test "optional learned notes leave room for the current continuation and final workspace metadata" do
     first = claim_episode!("notes-continuation-budget", "initial")
-    {:ok, submission} = SubmissionBuilder.build(first)
+    {:ok, submission} = Inspectors.submission(first)
     bind_remote_turn!(first, submission)
     text = String.duplicate("CURRENT_REQUEST ", 4_000)
 
@@ -1416,7 +1417,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert {:ok, _} = Ryker.Instructions.save(:global, instructions, 0, "operator:test")
 
     assert {:ok, submission} =
-             SubmissionBuilder.build(claim,
+             Inspectors.submission(claim,
                workspace: %{"description" => String.duplicate("w", 15_000)}
              )
 
@@ -1463,7 +1464,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
                })
              )
 
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
     assert submission["prompt"] =~ "FIRST_TURN_ONLY"
     refute submission["prompt"] =~ "NEXT_TURN_ONLY"
   end
@@ -1490,7 +1491,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     end)
 
     reloaded = Ryker.Repo.get!(Ryker.Episodes.Episode, first.episode.id)
-    assert {:ok, submission} = SubmissionBuilder.build(%{first | episode: reloaded})
+    assert {:ok, submission} = Inspectors.submission(%{first | episode: reloaded})
 
     items = submission["context"]["inputs"]["items"]
     assert [current] = items
@@ -1504,7 +1505,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
 
   test "a continuation advances a large exact pair without losing the remainder" do
     first = claim_episode!("active-input-overflow", "initial")
-    assert {:ok, first_submission} = SubmissionBuilder.build(first)
+    assert {:ok, first_submission} = Inspectors.submission(first)
     bind_remote_turn!(first, first_submission)
 
     Enum.each(1..41, fn index ->
@@ -1525,7 +1526,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     end)
 
     before_delivery = Ryker.Repo.get!(Ryker.Episodes.Episode, first.episode.id)
-    assert {:ok, still_first} = SubmissionBuilder.build(%{first | episode: before_delivery})
+    assert {:ok, still_first} = Inspectors.submission(%{first | episode: before_delivery})
     assert still_first["context"]["inputs"]["omitted_count"] == 0
     refute still_first["prompt"] =~ "CURRENT_INSTRUCTION_1_"
 
@@ -1592,7 +1593,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert length(delivered.episode.queued_input_refs) == 39
     assert {:ok, continuation} = Custody.claim_next("worker:active-overflow-next", 60, :work)
 
-    assert {:ok, submission} = SubmissionBuilder.build(continuation)
+    assert {:ok, submission} = Inspectors.submission(continuation)
     items = submission["context"]["current_inputs"]["items"]
     assert length(items) == 2
     assert Enum.all?(items, & &1["current"])
@@ -1609,7 +1610,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     # their fingerprint stay identical; a fingerprint change would make every
     # in-flight turn look like a conflicting resubmission.
     claim = claim_episode!("selection-neutral", "Investigate the alert")
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
     refs = Enum.uniq(claim.episode.active_input_refs)
     assert refs != []
 
@@ -1636,7 +1637,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     # turn still has to run: losing a diagnosis is cheap, losing the answer the
     # operator asked for is not.
     claim = claim_episode!("selection-invalid", "Investigate the alert")
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
 
     assert {:ok, turn} =
              Custody.freeze_submission(
@@ -1704,12 +1705,12 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert ledger["limits"]["max_inputs"] == 40
 
     # Recording the ledger changes nothing the model receives.
-    assert {:ok, ^submission} = SubmissionBuilder.build(claim)
+    assert {:ok, ^submission} = Inspectors.submission(claim)
   end
 
   test "a continuation ledger counts current messages and never calls earlier ones omitted" do
     first = claim_episode!("ledger-continuation", "initial")
-    assert {:ok, first_submission} = SubmissionBuilder.build(first)
+    assert {:ok, first_submission} = Inspectors.submission(first)
     bind_remote_turn!(first, first_submission)
     next = next_claim!(first, ["follow-up one", "follow-up two"])
 
@@ -1737,7 +1738,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert turn.submission_fingerprint == Submission.fingerprint(submission)
 
     other = claim_episode!("ledger-invalid", "Investigate the alert")
-    assert {:ok, other_submission} = SubmissionBuilder.build(other)
+    assert {:ok, other_submission} = Inspectors.submission(other)
 
     assert {:ok, other_turn} =
              Custody.freeze_submission(
@@ -1789,7 +1790,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
                )
     end
 
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
     bind_remote_turn!(claim, submission)
     candidate = ~s({"delivery":"none","message":null})
     hash = digest(candidate)

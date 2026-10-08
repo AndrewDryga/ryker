@@ -6,7 +6,7 @@ defmodule Ryker.ControlPlane.SetupPageTest do
   """
   use ExUnit.Case, async: true
   import Phoenix.LiveViewTest
-  alias Ryker.ControlPlane.{Integrations, SettingsPage, SettingsView, SetupPage}
+  alias Ryker.ControlPlane.{Integrations, SettingsPage, SetupPage}
 
   @steps [:slack, :github, :repositories, :invited, :channel_environment, :request]
 
@@ -171,8 +171,6 @@ defmodule Ryker.ControlPlane.SetupPageTest do
   test "the step that adds repositories says to choose them in an environment" do
     # An added repository joins no environment (Andrew, 2026-10-03: "envs should not include
     # all repos by default"), so the step that adds them says where work gets to use them.
-    assert SettingsView.setup_steps() == @steps
-
     current =
       render_setup(view(done: [:slack, :github])) |> LazyHTML.query("li[aria-current=step]")
 
@@ -186,9 +184,8 @@ defmodule Ryker.ControlPlane.SetupPageTest do
   # to connect it"), so in its turn it is the open step, with Connect as its primary button and a
   # way past it, and it never counts toward ready.
   test "Emisar is optional step 4: it opens after the repositories, can be skipped, and never blocks ready" do
-    refute :emisar in SettingsView.setup_steps()
     keys = view(done: []) |> SetupPage.steps() |> Enum.map(& &1.key)
-    assert keys -- [:emisar] == SettingsView.setup_steps()
+    assert keys -- [:emisar] == @steps
 
     started = render_setup(view(done: []))
     assert Enum.empty?(LazyHTML.query(started, ".setup-aside, .setup-emisar"))

@@ -76,8 +76,8 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   attr(:now, :any, default: nil)
   attr(:connected, :boolean, default: true)
 
-  @doc "The list body: search, then one row per repository or what would put one here."
-  def render(assigns) do
+  # The list body: search, then one row per repository or what would put one here.
+  defp render(assigns) do
     assigns =
       assigns
       |> assign_new(:now, fn -> nil end)

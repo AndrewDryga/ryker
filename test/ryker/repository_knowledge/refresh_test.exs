@@ -51,7 +51,7 @@ defmodule Ryker.RepositoryKnowledge.RefreshTest do
 
   test "code alone waits a week after the last write" do
     six_days = written(DateTime.add(@now, -6 * 86_400))
-    seven_days = written(DateTime.add(@now, -Refresh.stale_after_seconds()))
+    seven_days = written(DateTime.add(@now, -7 * 86_400))
 
     assert Refresh.decide(six_days, @head, changes(["lib/a.ex"]), @now) == :current
 

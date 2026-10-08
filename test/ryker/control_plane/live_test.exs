@@ -17,12 +17,30 @@ defmodule Ryker.ControlPlane.LiveTest do
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.WorkProfile
-  alias Ryker.Work.{Custody, DeliveryReceipt, Result, SubmissionBuilder}
+  alias Ryker.Inspectors
+  alias Ryker.Work.{Custody, DeliveryReceipt, Result}
 
   # Activity's in-progress count: the number in the count that opens In progress.
   @active_count ".kit-count[href$='?filter=running'] b"
 
   @endpoint Endpoint
+
+  # Andrew approved these ten strings on 2026-09-09, in the order the page
+  # groups them since 2026-09-19: Investigate, Build, Remember. They are UI
+  # copy, not model fixtures: a generated or paraphrased eleventh example, or a
+  # missing one, changes what an operator is invited to type.
+  @examples [
+    "Investigate why this service keeps restarting.",
+    "Summarize the attached log and identify likely causes.",
+    "Ask me three questions to clarify this investigation.",
+    "Review this change for bugs and missing tests.",
+    "Help me turn this issue into an engineering task.",
+    "Compare these two approaches and explain the trade-offs.",
+    "Generate a small illustration of a rocket launch.",
+    "Remind me tomorrow at 9:00 to check the deployment.",
+    "Remember that I prefer concise incident updates.",
+    "Show the automations active in this conversation."
+  ]
 
   setup do
     observer = self()
@@ -861,7 +879,6 @@ defmodule Ryker.ControlPlane.LiveTest do
         composer = LazyHTML.query(document, "form.lab-native-composer")
 
         assert composer_placeholder(page) == "Write a message to Ryker"
-        refute composer_placeholder(page) in LabPage.examples()
         assert composer_value(page) == ""
 
         assert composer |> LazyHTML.query("button[type=submit][disabled]") |> Enum.count() == 1
@@ -880,6 +897,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     # bar while a new conversation's page stood empty. They now fill that empty
     # space, between the transcript and the composer, so the composer keeps the
     # place it has in an open conversation. Each one only fills the composer.
+
     conn = build_conn() |> Map.put(:host, "localhost")
     {:ok, draft, _} = live(conn, "/conversations")
     html = render(draft)
@@ -889,8 +907,8 @@ defmodule Ryker.ControlPlane.LiveTest do
       |> LazyHTML.from_document()
       |> LazyHTML.query(".lab-column > #lab-examples li > button.lab-example[type=button]")
 
-    assert LazyHTML.attribute(examples, "data-example") == LabPage.examples()
-    assert Enum.map(examples, &(LazyHTML.text(&1) |> String.trim())) == LabPage.examples()
+    assert LazyHTML.attribute(examples, "data-example") == @examples
+    assert Enum.map(examples, &(LazyHTML.text(&1) |> String.trim())) == @examples
     refute has_element?(draft, "#lab-examples form, #lab-examples a, #lab-examples details")
     refute has_element?(draft, "#lab-examples button[type=submit]")
 
@@ -929,7 +947,7 @@ defmodule Ryker.ControlPlane.LiveTest do
         &LazyHTML.attribute(LazyHTML.query(&1, "button.lab-example"), "data-example")
       )
 
-    assert Enum.sort(grouped) == Enum.sort(LabPage.examples())
+    assert grouped == @examples
     assert length(Enum.uniq(grouped)) == 10
   end
 
@@ -2557,7 +2575,7 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     {:ok, _session} = WorkSessions.pin_episode(episode.id, profile.policy, profile.policy_digest)
     {:ok, claim} = Custody.claim_next("live-test:#{episode_id}", 60, :work)
-    {:ok, submission} = SubmissionBuilder.build(claim)
+    {:ok, submission} = Inspectors.submission(claim)
 
     {:ok, _turn} =
       Custody.freeze_submission(episode.id, claim.turn.turn_ref, claim.lease_ref, submission)
@@ -2662,7 +2680,7 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     {:ok, _session} = WorkSessions.pin_episode(episode.id, profile.policy, profile.policy_digest)
     {:ok, claim} = Custody.claim_next("live-test:#{episode_id}", 60, :work)
-    {:ok, submission} = SubmissionBuilder.build(claim)
+    {:ok, submission} = Inspectors.submission(claim)
 
     {:ok, _turn} =
       Custody.freeze_submission(episode.id, claim.turn.turn_ref, claim.lease_ref, submission)

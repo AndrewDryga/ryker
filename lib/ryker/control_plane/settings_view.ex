@@ -184,10 +184,6 @@ defmodule Ryker.ControlPlane.SettingsView do
     %{received: counts |> Map.values() |> Enum.sum(), unreadable: Map.get(counts, "failed", 0)}
   end
 
-  @doc "The required setup steps, in order."
-  @spec setup_steps() :: [atom()]
-  def setup_steps, do: @setup_steps
-
   @doc """
   How far the required setup is, for the sidebar's way back into it: nil once
   every step is done. Settings that could not be read keep the way back open

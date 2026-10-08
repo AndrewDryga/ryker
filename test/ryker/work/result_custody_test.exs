@@ -6,9 +6,10 @@ defmodule Ryker.Work.ResultCustodyTest do
   alias Ryker.Episodes.{RoutingDigest, RoutingDigests}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkSessions
+  alias Ryker.Inspectors
   alias Ryker.Records
   alias Ryker.Waits.EventSubscription
-  alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission, SubmissionBuilder, Turn}
+  alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission, Turn}
   alias Ryker.Work.ValidationIntent
 
   @now ~U[2026-08-28 12:00:00.000000Z]
@@ -650,7 +651,7 @@ defmodule Ryker.Work.ResultCustodyTest do
     assert delivered.episode.active_input_refs == []
 
     assert {:ok, resumed} = Custody.claim_next("worker:elapsed-event-resume", 60, :work)
-    assert {:ok, submission} = SubmissionBuilder.build(resumed)
+    assert {:ok, submission} = Inspectors.submission(resumed)
 
     host_continuation = submission["context"]["continuity"]["host_continuation"]
     assert host_continuation["resume_cause"] == "deadline_elapsed"
@@ -696,7 +697,7 @@ defmodule Ryker.Work.ResultCustodyTest do
     assert accepted.episode.owner_ref == "turn:after:#{work.turn.id}"
     assert accepted.episode.active_input_refs == []
     assert {:ok, resumed} = Custody.claim_next("worker:silent-expired-resume", 60, :work)
-    assert {:ok, submission} = SubmissionBuilder.build(resumed)
+    assert {:ok, submission} = Inspectors.submission(resumed)
 
     assert submission["context"]["continuity"]["host_continuation"]["resume_cause"] ==
              "deadline_elapsed"

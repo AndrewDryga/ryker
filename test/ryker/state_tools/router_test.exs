@@ -12,6 +12,7 @@ defmodule Ryker.StateTools.RouterTest do
   alias Ryker.Episodes.{Episode, Scope}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkSessions
+  alias Ryker.Inspectors
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Records
   alias Ryker.Records.Record
@@ -20,7 +21,7 @@ defmodule Ryker.StateTools.RouterTest do
   alias Ryker.Settings
   alias Ryker.Slack.ChannelMembership
   alias Ryker.StateTools.{FixedTools, Router, Tools, ToolVisibility}
-  alias Ryker.Work.{Custody, Final, FinalPreflight, Prompt, SubmissionBuilder}
+  alias Ryker.Work.{Custody, Final, FinalPreflight, Prompt}
 
   @options Router.init(cursor_secret: Ryker.Secret.new("trusted-state-tools-token"))
   @wait_only_options Router.init(
@@ -919,7 +920,7 @@ defmodule Ryker.StateTools.RouterTest do
   # found it, and a change to it could still be offered (2026-10-04 review).
   test "a deleted automation can be neither read nor changed" do
     claim = claim!("deleted-automation")
-    assert {:ok, initial} = SubmissionBuilder.build(claim)
+    assert {:ok, initial} = Inspectors.submission(claim)
 
     assert KnowledgeSnapshot.expose_submission(%{
              claim
@@ -1010,7 +1011,7 @@ defmodule Ryker.StateTools.RouterTest do
 
   test "the fixed protocol reads work and creates each durable proposal kind" do
     claim = claim!("fixed-product-surface")
-    assert {:ok, initial} = SubmissionBuilder.build(claim)
+    assert {:ok, initial} = Inspectors.submission(claim)
 
     assert KnowledgeSnapshot.expose_submission(%{
              claim
@@ -1267,7 +1268,7 @@ defmodule Ryker.StateTools.RouterTest do
   # alone and keeps the newest records, oldest first.
   test "work state within its limit is the newest records" do
     claim = claim!("work-state-newest")
-    assert {:ok, initial} = SubmissionBuilder.build(claim)
+    assert {:ok, initial} = Inspectors.submission(claim)
 
     assert KnowledgeSnapshot.expose_submission(%{
              claim

@@ -19,9 +19,10 @@ defmodule Ryker.ControlPlane.EpisodeCausalityTest do
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Inspectors
   alias Ryker.Records
   alias Ryker.Slack.Input
-  alias Ryker.Work.{ActivityEvent, Custody, SubmissionBuilder, Turn}
+  alias Ryker.Work.{ActivityEvent, Custody, Turn}
 
   @now ~U[2026-09-04 22:51:44.000000Z]
 
@@ -222,7 +223,7 @@ defmodule Ryker.ControlPlane.EpisodeCausalityTest do
 
     {:ok, session} = WorkSessions.pin_episode(episode.id, "causality", String.duplicate("a", 64))
     {:ok, claim} = Custody.claim_next("causality", 60, :work)
-    {:ok, submission} = SubmissionBuilder.build(claim)
+    {:ok, submission} = Inspectors.submission(claim)
 
     {:ok, turn} =
       Custody.freeze_submission(

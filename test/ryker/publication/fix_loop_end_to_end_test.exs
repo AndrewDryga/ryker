@@ -16,6 +16,7 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
   alias Ryker.Fixtures.TaskOffer
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.WorkProfile
+  alias Ryker.Inspectors
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Publication.{Dispatcher, Publication}
   alias Ryker.Records
@@ -23,7 +24,7 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
   alias Ryker.Repo
   alias Ryker.Slack.{Gateway, InteractionHandler, Operators, Publisher, WorkControls}
   alias Ryker.TestSupport.{FakeSlackAPI, FakeWorkCoopAPI}
-  alias Ryker.Work.{Custody, Executor, Session, SubmissionBuilder}
+  alias Ryker.Work.{Custody, Executor, Session}
 
   @now ~U[2026-09-28 13:00:00.000000Z]
   @read_policy_digest String.duplicate("a", 64)
@@ -155,7 +156,7 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
       %{state | session: remote_session, submit_count: 1, turn: nil}
     end)
 
-    assert {:ok, submission} = SubmissionBuilder.build(fix_claim)
+    assert {:ok, submission} = Inspectors.submission(fix_claim)
 
     assert {:ok, frozen} =
              Custody.freeze_submission(

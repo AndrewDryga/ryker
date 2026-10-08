@@ -12,8 +12,7 @@ defmodule Ryker.Operator.EpisodeReviews do
   A later semantic ending is rateable again. The same rating given again
   returns the existing receipt; a different one for the same ending is
   refused rather than rewriting who rated it and how. A rating recorded is
-  announced after the outermost commit (`subscribe_reviews/0`), on the
-  request's topics too.
+  announced on the request's topics after the outermost commit.
   """
   alias Ryker.Episodes
   alias Ryker.Feedback
@@ -67,7 +66,7 @@ defmodule Ryker.Operator.EpisodeReviews do
 
         case Repo.insert(changeset) do
           {:ok, review} ->
-            broadcast_review_recorded(review)
+            Episodes.broadcast_episode_updated(review.episode_id)
             record_feedback(review, episode)
             %{review: review, status: :recorded}
 
@@ -111,22 +110,4 @@ defmodule Ryker.Operator.EpisodeReviews do
   end
 
   defp note(_value), do: {:error, {:invalid_episode_review, :note}}
-
-  # -- PubSub ------------------------------------------------------------------
-
-  @doc """
-  Subscribes the caller to request ratings: `{:episode_reviewed, review_id}`
-  once a person rates how a finished request went, and that change has
-  committed.
-  """
-  def subscribe_reviews, do: Ryker.PubSub.subscribe(reviews_topic())
-
-  def unsubscribe_reviews, do: Ryker.PubSub.unsubscribe(reviews_topic())
-
-  defp reviews_topic, do: "operator:reviews"
-
-  defp broadcast_review_recorded(%EpisodeReview{id: id, episode_id: episode_id}) do
-    Ryker.Episodes.broadcast_episode_updated(episode_id)
-    Repo.after_commit(fn -> Ryker.PubSub.broadcast(reviews_topic(), {:episode_reviewed, id}) end)
-  end
 end

@@ -257,24 +257,12 @@ defmodule Ryker.Records do
   def goals(_episode_id), do: []
 
   @doc """
-  The current plan, grouped by the lifecycle stage each goal belongs to.
-
-  Counts only current logical leaves: a parent heading, a superseded attempt
-  and another stage's goals are never counted in a stage's subtask total.
-  """
-  @spec plan(Ecto.UUID.t()) :: map()
-  def plan(episode_id) when is_binary(episode_id) do
-    episode_id
-    |> goal_records()
-    |> plan_from_records()
-  end
-
-  def plan(_episode_id), do: plan_from_records([])
-
-  @doc """
   Internal — a task's plan from its goal records: the current goals of each
   stage with their leaves and counts. `Ryker.Slack.TaskCardProjection`
   builds the task card's stages from it.
+
+  Counts only current logical leaves: a parent heading, a superseded attempt
+  and another stage's goals are never counted in a stage's subtask total.
   """
   @spec plan_from_records([Record.t()]) :: map()
   def plan_from_records(records) do

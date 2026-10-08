@@ -23,9 +23,10 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.WorkProfile
+  alias Ryker.Inspectors
   alias Ryker.Records
   alias Ryker.Repo
-  alias Ryker.Work.{Custody, DeliveryReceipt, Result, SubmissionBuilder, Turn}
+  alias Ryker.Work.{Custody, DeliveryReceipt, Result, Turn}
 
   @moduletag isolation: "REPEATABLE READ"
 
@@ -685,7 +686,7 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
              )
 
     assert {:ok, claim} = Custody.claim_next("conversation-history", 60, :work)
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
 
     assert {:ok, _turn} =
              Custody.freeze_submission(

@@ -812,7 +812,7 @@ defmodule Ryker.Records.RecordsTest do
                "state" => "completed"
              })
 
-    plan = Records.plan(claim.episode.id)
+    plan = Records.plan_from_records(Records.goal_records(claim.episode.id))
 
     assert %{"completed" => 1, "excluded" => 0, "total" => 2} =
              Map.take(plan["implementation"], ~w(completed excluded total))
@@ -838,7 +838,9 @@ defmodule Ryker.Records.RecordsTest do
 
     assert %{"completed" => 1, "excluded" => 1, "total" => 1} =
              Map.take(
-               Records.plan(claim.episode.id)["implementation"],
+               Records.plan_from_records(Records.goal_records(claim.episode.id))[
+                 "implementation"
+               ],
                ~w(completed excluded total)
              )
   end
@@ -903,7 +905,7 @@ defmodule Ryker.Records.RecordsTest do
              "state" => "working"
            }) == {:error, {:invalid_state_record, :goal_state}}
 
-    plan = Records.plan(claim.episode.id)["self_review"]
+    plan = Records.plan_from_records(Records.goal_records(claim.episode.id))["self_review"]
     assert Enum.map(plan["goals"], & &1["id"]) == ["run-checks-2"]
     assert %{"completed" => 0, "total" => 1} = Map.take(plan, ~w(completed total))
   end

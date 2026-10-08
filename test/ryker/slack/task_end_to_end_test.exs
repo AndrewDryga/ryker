@@ -13,6 +13,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
   alias Ryker.GitHub.Client, as: GitHubClient
   alias Ryker.GitHub.Publisher, as: GitHubPublisher
   alias Ryker.Ingress.WorkProfile
+  alias Ryker.Inspectors
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Publication.{Dispatcher, FollowupDispatcher, LifecycleEvent, Publication}
   alias Ryker.Records
@@ -22,7 +23,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
   alias Ryker.Slack.{Gateway, InteractionHandler, Operators, Publisher, Renderer, TaskCard}
   alias Ryker.Slack.{TaskCardProjection, TaskCardWorker, WorkControls}
   alias Ryker.TestSupport.{FakeSlackAPI, FakeWorkCoopAPI, GitHubRequester}
-  alias Ryker.Work.{Custody, Executor, Session, SubmissionBuilder, Turn}
+  alias Ryker.Work.{Custody, Executor, Session, Turn}
 
   @now ~U[2026-08-31 13:00:00.000000Z]
   @github_secret String.duplicate("s", 32)
@@ -495,7 +496,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
       %{state | session: remote_session, submit_count: 1, turn: nil}
     end)
 
-    assert {:ok, correction_submission} = SubmissionBuilder.build(correction_claim)
+    assert {:ok, correction_submission} = Inspectors.submission(correction_claim)
 
     assert {:ok, correction_turn} =
              Custody.freeze_submission(

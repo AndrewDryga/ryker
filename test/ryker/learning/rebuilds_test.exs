@@ -6,6 +6,7 @@ defmodule Ryker.Learning.RebuildsTest do
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Ingress.RecallText
+  alias Ryker.Inspectors
   alias Ryker.Knowledge
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Knowledge.KnowledgeRevision
@@ -14,7 +15,6 @@ defmodule Ryker.Learning.RebuildsTest do
   alias Ryker.Learning.LearningRun
   alias Ryker.Learning.LearningSources
   alias Ryker.Memories.Forgetting
-  alias Ryker.Operator.Actions
   alias Ryker.Operator.Learning, as: LearningOperator
 
   @settings %{
@@ -234,7 +234,7 @@ defmodule Ryker.Learning.RebuildsTest do
     assert changed.policy_digest == configuration.policy_digest
     assert {changed.start_count, changed.start_limit, changed.budget_version} == {1, 2, 1}
     assert receipt.outcome["policy"] == configuration.policy
-    assert {:ok, audit} = Actions.fetch("rebuild:new-policy")
+    assert audit = Inspectors.operator_action("rebuild:new-policy")
     assert audit.previous["policy"] == @settings.policy
     assert Repo.get!(LearningRun, first.id) == previous
     assert Batches.fetch_latest(claim.batch.id) == {:error, :not_found}

@@ -30,9 +30,6 @@ defmodule Ryker.ControlPlane.LocalRoutingPage do
   @path "/settings/models/local-routing"
   @windows [{"24h", "24 hours"}, {"7d", "7 days"}, {"30d", "30 days"}, {"all", "All time"}]
 
-  @doc "Where the page is."
-  def path, do: @path
-
   @doc "The sentence under the page's title."
   def description do
     "How the small model you run yourself would have routed live messages, compared with " <>

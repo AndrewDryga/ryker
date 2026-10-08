@@ -34,8 +34,8 @@ defmodule Ryker.Operator.EpisodeReviewsTest do
 
   # Activity and a request's Timeline say whether a finished request was
   # rated. Until 2026-09-26 they heard of a review from a trigger's NOTIFY and
-  # a five-second poll; the rating is now announced, on the request's topic
-  # too, once it commits.
+  # a five-second poll; the rating is now announced on the request's topic
+  # once it commits.
   test "a recorded rating reaches the rated request's pages" do
     episode_id = Ecto.UUID.generate()
     episode_key = "review-announced:#{episode_id}"
@@ -61,13 +61,11 @@ defmodule Ryker.Operator.EpisodeReviewsTest do
                reason: "No longer needed"
              })
 
-    :ok = EpisodeReviews.subscribe_reviews()
     :ok = Episodes.subscribe_episode(episode_id)
 
-    assert {:ok, %{review: %{id: id}, status: :recorded}} =
+    assert {:ok, %{status: :recorded}} =
              EpisodeReviews.review(episode_key, "control-plane:local", :good)
 
-    assert_received {:episode_reviewed, ^id}
     assert_received {:episode_updated, ^episode_id}
   end
 

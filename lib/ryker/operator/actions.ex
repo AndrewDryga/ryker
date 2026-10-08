@@ -48,16 +48,6 @@ defmodule Ryker.Operator.Actions do
 
   def operator_actor(_operator), do: {:error, :configured_slack_operator_required}
 
-  @spec fetch(String.t()) :: {:ok, Action.t()} | :error
-  def fetch(action_ref) do
-    with :ok <- Reference.check(action_ref, :action_ref, :invalid_operator_action),
-         {:ok, %Action{} = action} <- Repo.fetch(Action.Query.by_action_ref(action_ref)) do
-      {:ok, action}
-    else
-      _unavailable -> :error
-    end
-  end
-
   defp run_locked(attributes, fingerprint, operation) do
     AdvisoryLock.hold!(attributes.action_ref)
 

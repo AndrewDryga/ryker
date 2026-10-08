@@ -249,9 +249,8 @@ defmodule Ryker.ControlPlane.Integrations do
     ]
   }
 
-  @doc "Every integration, in the order the pages list them."
-  @spec all(map()) :: [t()]
-  def all(view), do: [slack(view), github(view), emisar(view), webhooks(view)]
+  # Every integration, in the order the pages list them.
+  defp all(view), do: [slack(view), github(view), emisar(view), webhooks(view)]
 
   @doc """
   One integration's state from the settings a page read: settings that were

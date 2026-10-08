@@ -55,9 +55,8 @@ defmodule Ryker.LocalRouting.Verdict do
     end
   end
 
-  @doc "The compared fields in which two decision documents differ."
-  @spec differing(map(), map()) :: [String.t()]
-  def differing(provider, local) do
+  # The compared fields in which two decision documents differ.
+  defp differing(provider, local) do
     Enum.reject(@compared, &(same(&1, provider[&1]) == same(&1, local[&1])))
   end
 

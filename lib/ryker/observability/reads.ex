@@ -17,9 +17,8 @@ defmodule Ryker.Observability.Reads do
           {:observability_query_failed, String.t()}
           | {:observability_query_failed, :exit, String.t()}
 
-  @doc "Runs one read that raises on a database failure, answering with the failure instead."
-  @spec read((-> value)) :: {:ok, value} | {:error, failure()} when value: term()
-  def read(read) do
+  # Runs one read that raises on a database failure, answering with the failure instead.
+  defp read(read) do
     {:ok, read.()}
   rescue
     error in [DBConnection.ConnectionError, Postgrex.Error] ->

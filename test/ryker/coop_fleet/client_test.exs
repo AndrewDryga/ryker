@@ -12,8 +12,9 @@ defmodule Ryker.CoopFleet.ClientTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Fixtures.WorkspaceCheckpoint, as: WorkspaceCheckpointFixture
+  alias Ryker.Inspectors
   alias Ryker.Repo
-  alias Ryker.Work.{Custody, Session, SubmissionBuilder}
+  alias Ryker.Work.{Custody, Session}
 
   @authority_digest String.duplicate("d", 64)
   @policy "work-read-only"
@@ -1052,7 +1053,7 @@ defmodule Ryker.CoopFleet.ClientTest do
     assert {:ok, _} = Instructions.save(:global, "Keep replies concise.", 0, "operator:test")
     assert {:ok, claim} = Custody.claim_next("fleet-instructions", 300)
     assert claim.episode.id == session.episode_id
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
 
     assert {:ok, frozen} =
              Custody.freeze_submission(

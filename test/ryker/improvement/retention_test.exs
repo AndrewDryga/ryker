@@ -1,7 +1,7 @@
 defmodule Ryker.Improvement.RetentionTest do
   @moduledoc """
   What Ryker keeps about requests people were unhappy with follows the data
-  it came from (`Ryker.Retention.Policy`): a candidate expires at the
+  it came from (`Ryker.RetentionPolicies`): a candidate expires at the
   operational horizon after its last change, an accepted case lasts as long
   as training data is kept, an analysis's exact prompt and answer lose their
   words at the operational horizon, and a person forgetting a message wins
@@ -16,7 +16,8 @@ defmodule Ryker.Improvement.RetentionTest do
   alias Ryker.Improvement
   alias Ryker.Improvement.{AnalysisRun, Candidate}
   alias Ryker.Inspectors
-  alias Ryker.Retention.{Data, Policy}
+  alias Ryker.Retention.Data
+  alias Ryker.RetentionPolicies
   alias Ryker.Work.Session
 
   @workspace "TIMPROVERETENTION"
@@ -26,8 +27,8 @@ defmodule Ryker.Improvement.RetentionTest do
   @version 20_260_927_200_000
 
   test "a candidate expires at the operational horizon, and an accepted case lasts as long as training data" do
-    assert {:ok, %{class: :operational}} = Policy.fetch("improvement_candidates")
-    assert {:ok, %{class: :cascade}} = Policy.fetch("improvement_analysis_runs")
+    assert {:ok, %{class: :operational}} = RetentionPolicies.fetch("improvement_candidates")
+    assert {:ok, %{class: :cascade}} = RetentionPolicies.fetch("improvement_analysis_runs")
 
     old_open = candidate!("1790400100.000100")
     fresh_open = candidate!("1790400200.000100")

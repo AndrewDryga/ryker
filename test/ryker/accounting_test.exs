@@ -5,8 +5,8 @@ defmodule Ryker.AccountingTest do
   alias Ryker.Accounting.Execution
   alias Ryker.Fixtures.Episodes, as: Fixtures
   alias Ryker.Fixtures.WorkSessions
+  alias Ryker.Inspectors
   alias Ryker.Work.Custody
-  alias Ryker.Work.SubmissionBuilder
 
   setup do
     %{claim: claim!()}
@@ -80,7 +80,7 @@ defmodule Ryker.AccountingTest do
              )
 
     claim = %{claim | session: session}
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
 
     assert {:ok, frozen} =
              Custody.freeze_submission(

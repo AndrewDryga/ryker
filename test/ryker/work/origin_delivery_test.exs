@@ -24,7 +24,7 @@ defmodule Ryker.Work.OriginDeliveryTest do
 
     turn = turn!(episode, [question])
 
-    assert Custody.reply_target(episode, turn) == %{
+    assert Custody.Delivery.reply_target(episode, turn) == %{
              "conversation_ref" => "slack:TDELIVERY:CENGINEERING",
              "thread_ref" => "1789004000.000100",
              "transport" => "slack"
@@ -53,7 +53,7 @@ defmodule Ryker.Work.OriginDeliveryTest do
     episode = Ryker.Inspectors.episode(episode.key)
     turn = turn!(episode, [])
 
-    assert is_nil(Custody.reply_target(episode, turn))
+    assert is_nil(Custody.Delivery.reply_target(episode, turn))
 
     assert Custody.delivery_target(episode, turn) == %{
              "conversation_ref" => "slack:TDELIVERY:CDEVOPS",

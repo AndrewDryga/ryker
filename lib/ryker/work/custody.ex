@@ -643,15 +643,6 @@ defmodule Ryker.Work.Custody do
   @spec delivery_target(Episodes.Episode.t(), Turn.t()) :: map()
   defdelegate delivery_target(episode, turn), to: Delivery
 
-  @doc """
-  The origin a reply from this turn answers, or nil when there is nothing to answer.
-
-  This is computed once, when the result is accepted, and then frozen on the
-  turn. Later inputs cannot move an answer that has already been accepted.
-  """
-  @spec reply_target(Episodes.Episode.t(), Turn.t()) :: map() | nil
-  defdelegate reply_target(episode, turn), to: Delivery
-
   # -- PubSub ------------------------------------------------------------------
 
   @doc """

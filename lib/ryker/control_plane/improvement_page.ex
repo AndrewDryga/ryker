@@ -65,7 +65,7 @@ defmodule Ryker.ControlPlane.ImprovementPage do
   @spec html(map()) :: iodata()
   def html(view), do: %{__changed__: nil, view: view} |> render() |> Safe.to_iodata()
 
-  def render(assigns) do
+  defp render(assigns) do
     assigns =
       assign(assigns, :groups, Kit.day_groups(assigns.view.items, & &1.at, DateTime.utc_now()))
 
@@ -188,9 +188,8 @@ defmodule Ryker.ControlPlane.ImprovementPage do
 
   def category_hint(:unclear), do: "The evidence does not show what went wrong."
 
-  @doc "A candidate's state: its diagnosis, or where its analysis stands."
-  @spec state(map()) :: {atom(), String.t(), String.t()}
-  def state(%{analysis: :done, category: category}) do
+  # A candidate's state: its diagnosis, or where its analysis stands.
+  defp state(%{analysis: :done, category: category}) do
     tone =
       case category do
         :host_bug -> :bad
@@ -201,16 +200,16 @@ defmodule Ryker.ControlPlane.ImprovementPage do
     {tone, Improvement.category_label(category), category_hint(category)}
   end
 
-  def state(%{analysis: :running}),
+  defp state(%{analysis: :running}),
     do: {:busy, "Analyzing", "Ryker is asking the learning models what went wrong."}
 
-  def state(%{analysis: :failed, error_code: code}),
+  defp state(%{analysis: :failed, error_code: code}),
     do: {:warn, "Not analyzed", failure(code)}
 
-  def state(%{status: :dismissed}),
+  defp state(%{status: :dismissed}),
     do: {:off, "Not analyzed", "It was dismissed before Ryker analyzed it."}
 
-  def state(%{analysis: :pending}) do
+  defp state(%{analysis: :pending}) do
     {:off, "Waiting",
      "Ryker analyzes it once the request is done and a few minutes pass without new feedback, while learning is on."}
   end
@@ -267,11 +266,10 @@ defmodule Ryker.ControlPlane.ImprovementPage do
   defp step(:delivery), do: "At delivery"
   defp step(nil), do: nil
 
-  @doc "What people did, in words: Frustrated, asked again, …"
-  @spec reasons([String.t()]) :: String.t() | nil
-  def reasons([]), do: nil
+  # What people did, in words: Frustrated, asked again, …
+  defp reasons([]), do: nil
 
-  def reasons(reasons) do
+  defp reasons(reasons) do
     reasons
     |> Enum.sort_by(&Enum.find_index(Ryker.Improvement.reasons(), fn reason -> reason == &1 end))
     |> Enum.map_join(", ", &reason/1)

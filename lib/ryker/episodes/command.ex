@@ -182,15 +182,12 @@ defmodule Ryker.Episodes.Command do
           | CancelEpisode.t()
           | RecordReaction.t()
 
-  @doc """
-  Normalizes valid timestamps to the precision required by durable storage.
-
-  Elixir DateTimes preserve the precision of their input text, so the same
-  instant may arrive as either whole seconds or six-digit microseconds. The
-  kernel uses one representation for fingerprints, replay, and Postgres.
-  """
-  @spec normalize(t()) :: t()
-  def normalize(%StartWait{} = command) do
+  # Normalizes valid timestamps to the precision required by durable storage.
+  #
+  # Elixir DateTimes preserve the precision of their input text, so the same
+  # instant may arrive as either whole seconds or six-digit microseconds. The
+  # kernel uses one representation for fingerprints, replay, and Postgres.
+  defp normalize(%StartWait{} = command) do
     %{
       command
       | deadline_at: normalize_datetime(command.deadline_at),
@@ -198,7 +195,7 @@ defmodule Ryker.Episodes.Command do
     }
   end
 
-  def normalize(%AdmitInput{} = command) do
+  defp normalize(%AdmitInput{} = command) do
     %{
       command
       | episode_id: normalize_uuid(command.episode_id),
@@ -207,15 +204,15 @@ defmodule Ryker.Episodes.Command do
     }
   end
 
-  def normalize(%TransferOwner{} = command) do
+  defp normalize(%TransferOwner{} = command) do
     %{command | occurred_at: normalize_datetime(command.occurred_at)}
   end
 
-  def normalize(%ResumeWait{} = command) do
+  defp normalize(%ResumeWait{} = command) do
     %{command | occurred_at: normalize_datetime(command.occurred_at)}
   end
 
-  def normalize(%AcceptResult{} = command) do
+  defp normalize(%AcceptResult{} = command) do
     %{
       command
       | next_wait: normalize_wait(command.next_wait),
@@ -223,7 +220,7 @@ defmodule Ryker.Episodes.Command do
     }
   end
 
-  def normalize(%ConfirmDelivery{} = command) do
+  defp normalize(%ConfirmDelivery{} = command) do
     %{
       command
       | next_wait: normalize_wait(command.next_wait),
@@ -231,15 +228,15 @@ defmodule Ryker.Episodes.Command do
     }
   end
 
-  def normalize(%CancelEpisode{} = command) do
+  defp normalize(%CancelEpisode{} = command) do
     %{command | occurred_at: normalize_datetime(command.occurred_at)}
   end
 
-  def normalize(%RecordReaction{} = command) do
+  defp normalize(%RecordReaction{} = command) do
     %{command | occurred_at: normalize_datetime(command.occurred_at)}
   end
 
-  def normalize(command), do: command
+  defp normalize(command), do: command
 
   @doc false
   @spec bind_episode(t(), map() | nil) :: t()

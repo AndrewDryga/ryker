@@ -104,18 +104,16 @@ defmodule Ryker.Admission.ConversationContext do
     end
   end
 
-  @doc false
-  @spec origin_kind(Ingress.Inbox.Entry.t()) :: :thread_reply | :channel_root | :conversation
-  def origin_kind(%Ingress.Inbox.Entry{
-        source_kind: "slack",
-        source_item_ref: item,
-        destination_thread_ref: thread
-      })
-      when is_binary(item) and is_binary(thread) do
+  defp origin_kind(%Ingress.Inbox.Entry{
+         source_kind: "slack",
+         source_item_ref: item,
+         destination_thread_ref: thread
+       })
+       when is_binary(item) and is_binary(thread) do
     if item == thread, do: :channel_root, else: :thread_reply
   end
 
-  def origin_kind(_entry), do: :conversation
+  defp origin_kind(_entry), do: :conversation
 
   defp validated_limit(limit)
        when is_integer(limit) and limit >= @minimum_limit and limit <= @default_limit,

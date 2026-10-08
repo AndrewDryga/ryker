@@ -100,18 +100,6 @@ defmodule Ryker.PollingWorker do
   end
 
   @doc """
-  Asks a polling worker to poll now instead of at its next timer.
-
-  The early poll replaces the timer that was waiting, so asking again and
-  again never leaves more than one poll pending.
-  """
-  @spec poll_now(pid() | atom()) :: :ok
-  def poll_now(worker) do
-    send(worker, :poll)
-    :ok
-  end
-
-  @doc """
   The safety-net interval of a worker that wakes on announcements: how long it
   sleeps when nothing woke it and nothing falls due sooner.
   """

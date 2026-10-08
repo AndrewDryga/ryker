@@ -10,7 +10,6 @@ defmodule Ryker.Work.ValidationIntentTest do
     assert intent["violations"] == []
     assert {:ok, ^result} = ValidationIntent.result(intent)
     assert byte_size(ValidationIntent.fingerprint(intent)) == 64
-    assert ValidationIntent.prepare(intent) == {:ok, intent}
   end
 
   test "reject matches Coop's one-to-twenty and combined 4096-byte violation bound" do
@@ -20,7 +19,6 @@ defmodule Ryker.Work.ValidationIntentTest do
     assert intent["verdict"] == "reject"
     assert intent["violations"] == violations
     assert ValidationIntent.result(intent) == {:ok, nil}
-    assert ValidationIntent.prepare(intent) == {:ok, intent}
 
     assert {:ok, boundary} =
              ValidationIntent.new(
@@ -53,10 +51,6 @@ defmodule Ryker.Work.ValidationIntentTest do
 
     assert byte_size(cut) <= 4_095
     assert String.ends_with?(cut, "…")
-
-    for {:ok, intent} <- [ValidationIntent.new({:reject, many}, nil)] do
-      assert ValidationIntent.prepare(intent) == {:ok, intent}
-    end
   end
 
   test "accept and reject shapes cannot be mixed" do
@@ -74,27 +68,14 @@ defmodule Ryker.Work.ValidationIntentTest do
              {:error, {:invalid_work_validation_intent, :result}}
   end
 
-  test "a frozen intent has one exact durable shape" do
+  test "a frozen intent reads back only in the shape of its own verdict" do
     assert {:ok, result} = Result.new(:reply, %{"message" => "Done."})
     assert {:ok, intent} = ValidationIntent.new(:accept, result)
 
-    cases = [
-      {Map.put(intent, "extra", true), :fields},
-      {%{intent | "result" => %{}}, :result},
-      {%{intent | "verdict" => "reject"}, :shape},
-      {%{intent | "violations" => ["unexpected"]}, :shape}
-    ]
-
-    Enum.each(cases, fn {document, field} ->
-      assert ValidationIntent.prepare(document) ==
-               {:error, {:invalid_work_validation_intent, field}}
-    end)
-
-    assert ValidationIntent.prepare([]) ==
-             {:error, {:invalid_work_validation_intent, :document}}
-
-    assert ValidationIntent.result(%{}) ==
-             {:error, {:invalid_work_validation_intent, :result}}
+    for document <- [%{}, %{intent | "verdict" => "reject"}] do
+      assert ValidationIntent.result(document) ==
+               {:error, {:invalid_work_validation_intent, :result}}
+    end
 
     assert ValidationIntent.new(:later, nil) ==
              {:error, {:invalid_work_validation_intent, :verdict}}

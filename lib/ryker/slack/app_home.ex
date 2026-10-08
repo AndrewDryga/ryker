@@ -62,12 +62,6 @@ defmodule Ryker.Slack.AppHome do
   def publish_collection(_event, _kind, _offset, _options),
     do: {:error, {:invalid_app_home, :request}}
 
-  @doc false
-  @spec render(:collection | :operator | :restricted, map()) :: map()
-  def render(:collection, %{} = collection), do: collection_view(collection)
-  def render(:operator, %{} = snapshot), do: operator_view(snapshot)
-  def render(:restricted, %{}), do: restricted_view()
-
   defp allowed?(event, options) do
     with directory when is_atom(directory) <- Map.get(options, :directory),
          client <- Map.get(options, :client),

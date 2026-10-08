@@ -89,11 +89,6 @@ defmodule Ryker.Admission.Context do
 
   defp put_model_previous_answer(document, _none), do: document
 
-  @doc "Whether the operator saved any instruction text for this request."
-  @spec custom_instructions?(t()) :: boolean()
-  def custom_instructions?(%__MODULE__{custom_instructions: snapshot}),
-    do: instruction_text?(snapshot)
-
   defp instruction_text?(%{} = snapshot) do
     Enum.any?(
       ~w(global channel),

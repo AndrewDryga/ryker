@@ -4,13 +4,13 @@ defmodule Ryker.Records.OutcomesTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkSessions
+  alias Ryker.Inspectors
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Records
   alias Ryker.Records.Outcomes
   alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Work.{Cancellation, Custody, DeliveryReceipt, OperationKeys, Result, Submission}
-  alias Ryker.Work.SubmissionBuilder
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
@@ -72,7 +72,7 @@ defmodule Ryker.Records.OutcomesTest do
     refute blocked_outcome["verified"]
     assert blocked_outcome["blocker"] =~ "Repository access"
 
-    assert {:ok, submission} = SubmissionBuilder.build(probe)
+    assert {:ok, submission} = Inspectors.submission(probe)
     assert submission["context"]["related_outcomes"] == outcomes
     assert submission["prompt"] =~ "payments gateway connection pool"
 
@@ -217,7 +217,7 @@ defmodule Ryker.Records.OutcomesTest do
   end
 
   defp submission!(claim, :briefing) do
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
     submission
   end
 

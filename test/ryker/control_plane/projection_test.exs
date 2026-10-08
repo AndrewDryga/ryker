@@ -21,6 +21,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.Input, as: GenericInput
+  alias Ryker.Inspectors
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Publication.Publication
@@ -34,7 +35,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Waits.EventSubscription
   alias Ryker.Work.{ActivityEvent, Cancellation, Custody, DeliveryReceipt, Measurement, Result}
-  alias Ryker.Work.{Session, SubmissionBuilder}
+  alias Ryker.Work.Session
   require Phoenix.LiveViewTest
 
   @now ~U[2026-08-28 12:00:00.000000Z]
@@ -2771,7 +2772,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
 
     assert {:ok, claim} = Custody.claim_next("usage:#{suffix}", 60, :work)
     assert claim.session.id == session.id
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
 
     assert {:ok, turn} =
              Custody.freeze_submission(

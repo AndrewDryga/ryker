@@ -2,10 +2,10 @@ defmodule Ryker.Operator.LearningTest do
   use Ryker.DataCase, async: false
   alias Ryker.Config
   alias Ryker.Fixtures.Learning, as: Fixtures
+  alias Ryker.Inspectors
   alias Ryker.Learning
   alias Ryker.Learning.{Batch, Batches, InputMembership}
   alias Ryker.Learning.LearningRun
-  alias Ryker.Operator.Actions
   alias Ryker.Operator.Learning, as: LearningOperator
 
   @settings %{
@@ -62,7 +62,7 @@ defmodule Ryker.Operator.LearningTest do
     assert Batches.fetch_latest(before.id) == {:error, :not_found}
     assert receipt.outcome["policy"] == selected.policy
     assert receipt.outcome["policy_digest"] == selected.policy_digest
-    assert {:ok, audit} = Actions.fetch("retry:current-policy")
+    assert audit = Inspectors.operator_action("retry:current-policy")
     assert audit.previous["policy"] == @settings.policy
     assert audit.previous["policy_digest"] == @settings.policy_digest
 

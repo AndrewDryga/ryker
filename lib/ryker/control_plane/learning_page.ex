@@ -74,7 +74,7 @@ defmodule Ryker.ControlPlane.LearningPage do
     |> Safe.to_iodata()
   end
 
-  def render(assigns) do
+  defp render(assigns) do
     ~H"""
     <div class="memory-view memory-learning">
       <%= if @activity.selected do %>

@@ -67,10 +67,6 @@ defmodule Ryker.ControlPlane.LabPage do
      ]}
   ]
 
-  @examples Enum.flat_map(@example_groups, &elem(&1, 2))
-
-  def examples, do: @examples
-
   # QA 2026-09-25: an example prompt in the empty box read as text someone
   # had already typed. The box says what it is for instead.
   @placeholder "Write a message to Ryker"

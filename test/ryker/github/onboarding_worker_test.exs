@@ -1,7 +1,6 @@
 defmodule Ryker.GitHub.OnboardingWorkerTest do
   use Ryker.DataCase, async: false
   alias Ryker.GitHub.OnboardingWorker
-  alias Ryker.PollingWorker
   alias Ryker.Settings
 
   @actor "control-plane:local"
@@ -17,17 +16,16 @@ defmodule Ryker.GitHub.OnboardingWorkerTest do
     end
   end
 
-  # Every GitHub event nudges the onboarding worker to poll at once. Each nudge
-  # also armed a timer beside the one already waiting, so every event since
-  # 2026-09-20 left one more loop re-reading the whole settings snapshot every
-  # two seconds for as long as Ryker ran. Found while merging the polling
-  # loops, before it was measured in production.
+  # Every announcement the onboarding worker wakes on nudges it to poll at
+  # once. Each nudge also armed a timer beside the one already waiting, so
+  # every event since 2026-09-20 left one more loop re-reading the whole
+  # settings snapshot every two seconds for as long as Ryker ran. Found while
+  # merging the polling loops, before it was measured in production.
   test "nudging the onboarding worker polls at once without adding a loop" do
     worker = start_supervised!({OnboardingWorker, api: API, interval_ms: 100})
     :ok = :sys.statistics(worker, true)
 
-    for _event <- 1..5,
-        do: assert(PollingWorker.poll_now(worker) == :ok)
+    for revision <- 1..5, do: send(worker, {:settings_saved, revision})
 
     # The window the polls are counted over.
     # credo:disable-for-next-line Ryker.Checks.TestNoProcessSleep

@@ -328,15 +328,11 @@ defmodule Ryker.Slack.ChannelSetup do
     end
   end
 
-  @doc """
-  Redraws a channel's welcome after its settings were saved, with a line
-  saying who changed them and when: the path a save in Slack takes, and the
-  one a change on the channel's page in Ryker takes (until 2026-09-26 that
-  change left the welcome naming the old environment).
-  """
-  @spec redraw_welcome(String.t(), String.t(), map()) ::
-          {:ok, :posted | :updated} | {:error, term()}
-  def redraw_welcome(workspace_ref, channel_ref, options) do
+  # Redraws a channel's welcome after its settings were saved, with a line
+  # saying who changed them and when: the path a save in Slack takes, and the
+  # one a change on the channel's page in Ryker takes (until 2026-09-26 that
+  # change left the welcome naming the old environment).
+  defp redraw_welcome(workspace_ref, channel_ref, options) do
     case options.configurations.fetch_configuration(workspace_ref, channel_ref) do
       {:ok, configuration} ->
         ensure_welcome(configuration, settings_notice(configuration), options)
@@ -401,10 +397,7 @@ defmodule Ryker.Slack.ChannelSetup do
     end
   end
 
-  @doc false
-  @spec settings_document(String.t(), String.t(), :private | :thread, map()) ::
-          {:ok, map()} | {:error, term()}
-  def settings_document(workspace_ref, channel_ref, audience, options) do
+  defp settings_document(workspace_ref, channel_ref, audience, options) do
     with {:ok, settings} <- settings(workspace_ref, channel_ref, options) do
       {:ok,
        %{

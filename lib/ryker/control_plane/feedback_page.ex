@@ -65,7 +65,7 @@ defmodule Ryker.ControlPlane.FeedbackPage do
   @spec html(map()) :: iodata()
   def html(view), do: %{__changed__: nil, view: view} |> render() |> Safe.to_iodata()
 
-  def render(assigns) do
+  defp render(assigns) do
     now = DateTime.utc_now()
 
     assigns =
@@ -249,27 +249,25 @@ defmodule Ryker.ControlPlane.FeedbackPage do
 
   # -- Words shared with the request's Feedback chapter --------------------------
 
-  @doc "A category's name: Frustrated, Asked again, Edited or deleted, …"
-  @spec label(atom()) :: String.t()
-  def label(:frustrated), do: "Frustrated"
-  def label(:asked_again), do: "Asked again"
-  def label(:edited), do: "Edited or deleted"
-  def label(:neutral), do: "Neutral"
-  def label(:satisfied), do: "Satisfied"
+  # A category's name: Frustrated, Asked again, Edited or deleted, …
+  defp label(:frustrated), do: "Frustrated"
+  defp label(:asked_again), do: "Asked again"
+  defp label(:edited), do: "Edited or deleted"
+  defp label(:neutral), do: "Neutral"
+  defp label(:satisfied), do: "Satisfied"
 
-  @doc "What a category holds, in one sentence."
-  @spec lede(atom()) :: String.t()
-  def lede(:frustrated) do
+  # What a category holds, in one sentence.
+  defp lede(:frustrated) do
     "People who were frustrated or angry with an answer, reacted to say so, or rated the request as needing work."
   end
 
-  def lede(:asked_again),
+  defp lede(:asked_again),
     do: "The same person asked the same thing again within ten minutes of the answer."
 
-  def lede(:edited), do: "People who changed or deleted their message after Ryker answered it."
-  def lede(:neutral), do: "Reactions and replies that say neither way how an answer landed."
+  defp lede(:edited), do: "People who changed or deleted their message after Ryker answered it."
+  defp lede(:neutral), do: "Reactions and replies that say neither way how an answer landed."
 
-  def lede(:satisfied),
+  defp lede(:satisfied),
     do: "People who said or showed that an answer helped, or rated the request as going well."
 
   @doc "A signal's state: a dot and a word, with what it means on hover."
@@ -315,27 +313,25 @@ defmodule Ryker.ControlPlane.FeedbackPage do
   def title(%{kind: :reviewed, value: "good"}), do: "Rated: went well"
   def title(%{kind: :reviewed, value: "needs_work"}), do: "Rated: needs work"
 
-  @doc "What a signal says, in a sentence: the reason or note, or what the person did."
-  @spec text(map()) :: String.t() | nil
-  def text(%{kind: :sentiment, note: note}) when is_binary(note), do: "\"#{note}\""
-  def text(%{kind: :sentiment}), do: "Routing read this from their next message."
-  def text(%{kind: :reaction_added, value: emoji}), do: "Reacted #{Emoji.glyph(emoji)}"
-  def text(%{kind: :reaction_removed, value: emoji}), do: "Took back #{Emoji.glyph(emoji)}"
-  def text(%{kind: :asked_again}), do: "Asked the same thing again after the answer."
-  def text(%{kind: :message_edited}), do: "Edited their message after Ryker answered it."
-  def text(%{kind: :message_deleted}), do: "Deleted their message after Ryker answered it."
-  def text(%{kind: :reviewed, note: note}) when is_binary(note), do: "\"#{note}\""
-  def text(%{kind: :reviewed, value: "good"}), do: "Rated how this request went: it went well."
+  # What a signal says, in a sentence: the reason or note, or what the person did.
+  defp text(%{kind: :sentiment, note: note}) when is_binary(note), do: "\"#{note}\""
+  defp text(%{kind: :sentiment}), do: "Routing read this from their next message."
+  defp text(%{kind: :reaction_added, value: emoji}), do: "Reacted #{Emoji.glyph(emoji)}"
+  defp text(%{kind: :reaction_removed, value: emoji}), do: "Took back #{Emoji.glyph(emoji)}"
+  defp text(%{kind: :asked_again}), do: "Asked the same thing again after the answer."
+  defp text(%{kind: :message_edited}), do: "Edited their message after Ryker answered it."
+  defp text(%{kind: :message_deleted}), do: "Deleted their message after Ryker answered it."
+  defp text(%{kind: :reviewed, note: note}) when is_binary(note), do: "\"#{note}\""
+  defp text(%{kind: :reviewed, value: "good"}), do: "Rated how this request went: it went well."
 
-  def text(%{kind: :reviewed, value: "needs_work"}),
+  defp text(%{kind: :reviewed, value: "needs_work"}),
     do: "Rated how this request went: it needs work."
 
-  @doc "The icon a signal's tile carries: what kind of thing it is."
-  @spec icon(map()) :: atom()
-  def icon(%{kind: kind}) when kind in [:reaction_added, :reaction_removed], do: :smile
-  def icon(%{kind: kind}) when kind in [:message_edited, :message_deleted], do: :pen
-  def icon(%{kind: :reviewed}), do: :check
-  def icon(%{kind: _sentiment_or_asked_again}), do: :chat
+  # The icon a signal's tile carries: what kind of thing it is.
+  defp icon(%{kind: kind}) when kind in [:reaction_added, :reaction_removed], do: :smile
+  defp icon(%{kind: kind}) when kind in [:message_edited, :message_deleted], do: :pen
+  defp icon(%{kind: :reviewed}), do: :check
+  defp icon(%{kind: _sentiment_or_asked_again}), do: :chat
 
   defp feeling_tone(feeling) when feeling in ["frustrated", "angry"], do: :bad
   defp feeling_tone("satisfied"), do: :on

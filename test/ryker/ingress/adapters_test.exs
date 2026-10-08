@@ -55,33 +55,23 @@ defmodule Ryker.Ingress.AdaptersTest do
     assert Adapters.normalize("webhook", webhook_event, route) == {:ok, expected_webhook}
   end
 
-  test "unknown and malformed adapter registrations fail without creating atoms" do
+  test "an unknown source kind fails without creating an atom" do
     untrusted = "future-#{System.unique_integer([:positive])}"
 
     assert Adapters.normalize(untrusted, %{}, nil) ==
              {:error, {:unknown_ingress_adapter, untrusted}}
-
-    assert Adapters.prepare(%{"slack" => String}) ==
-             {:error, {:invalid_ingress_adapter, "slack"}}
-
-    assert Adapters.prepare(:not_a_registry) ==
-             {:error, {:invalid_ingress_adapters, :registry}}
-
-    assert {:ok, registry} = Adapters.prepare(%{"slack" => SlackInput})
-    assert Map.keys(registry) == ["slack"]
 
     assert Adapters.normalize(:slack, %{}, nil) ==
              {:error, {:unknown_ingress_adapter, :slack}}
   end
 
   test "the registry refuses output that crosses its registered source boundary" do
-    assert {:ok, wrong_source} = Adapters.prepare(%{"wrong_source" => WrongSourceAdapter})
+    wrong_source = %{"wrong_source" => WrongSourceAdapter}
 
     assert Adapters.normalize("wrong_source", %{}, nil, wrong_source) ==
              {:error, {:invalid_ingress_adapter_output, "wrong_source", :source_kind}}
 
-    assert {:ok, invalid_result} =
-             Adapters.prepare(%{"invalid_result" => InvalidResultAdapter})
+    invalid_result = %{"invalid_result" => InvalidResultAdapter}
 
     assert Adapters.normalize("invalid_result", %{}, nil, invalid_result) ==
              {:error, {:invalid_ingress_adapter_output, "invalid_result", :result}}

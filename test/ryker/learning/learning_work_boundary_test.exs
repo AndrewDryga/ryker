@@ -3,12 +3,13 @@ defmodule Ryker.Learning.LearningWorkBoundaryTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
   alias Ryker.Fixtures.WorkSessions
+  alias Ryker.Inspectors
   alias Ryker.Knowledge
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
   alias Ryker.Learning.SourceExposure
-  alias Ryker.Work.{Custody, SubmissionBuilder}
+  alias Ryker.Work.Custody
 
   test "background learning cannot leak a queued input into an earlier Work turn" do
     # Harvested inputs; only execution placement and topic structure are host
@@ -70,7 +71,7 @@ defmodule Ryker.Learning.LearningWorkBoundaryTest do
     assert Knowledge.context(claim.episode, first.repository_ref) == []
     assert Knowledge.context(queued, first.repository_ref) == []
     assert Observations.context(claim.episode, first.repository_ref) == []
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
     refute submission["prompt"] =~ summary
     assert KnowledgeSnapshot.expose(claim, [document]) == {:error, :work_knowledge_context_stale}
     assert Repo.aggregate(SourceExposure, :count) == 0

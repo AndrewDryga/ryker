@@ -6,11 +6,12 @@ defmodule Ryker.GitHub.RouterTest do
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.GitHub.{Auth, Binding, Router}
   alias Ryker.Ingress.Inbox
+  alias Ryker.Inspectors
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Learning.LearningSources
   alias Ryker.Publication.{Followup, Followups, LifecycleEvent}
-  alias Ryker.Work.{Custody, SubmissionBuilder}
+  alias Ryker.Work.Custody
 
   @secret String.duplicate("s", 32)
   @sealed Ryker.Secret.new(@secret)
@@ -537,7 +538,7 @@ defmodule Ryker.GitHub.RouterTest do
     assert work_claim.session.policy == "work-contributor"
     assert work_claim.session.repository_ref == "ryker"
 
-    assert {:ok, submission} = SubmissionBuilder.build(work_claim)
+    assert {:ok, submission} = Inspectors.submission(work_claim)
     assert submission["context"]["mode"] == "continuation"
     assert [current] = submission["context"]["current_inputs"]["items"]
     assert current["content"]["content"]["event_name"] == "issue_comment"
@@ -714,7 +715,7 @@ defmodule Ryker.GitHub.RouterTest do
       event = record_feedback!(deleted, unquote(event_name), "withdrawal")
       claim = claim_feedback!(event)
       assert KnowledgeSnapshot.session_sources(claim.session.id) == []
-      assert {:ok, submission} = SubmissionBuilder.build(claim)
+      assert {:ok, submission} = Inspectors.submission(claim)
       assert [notice] = submission["context"]["current_inputs"]["items"]
 
       assert notice["content"] == %{
@@ -768,7 +769,7 @@ defmodule Ryker.GitHub.RouterTest do
       original = feedback_payload(unquote(event_name))
       event = record_feedback!(original, unquote(event_name), "original")
       claim = claim_feedback!(event)
-      assert {:ok, submission} = SubmissionBuilder.build(claim)
+      assert {:ok, submission} = Inspectors.submission(claim)
       claim = %{claim | turn: %{claim.turn | submission: submission}}
       assert KnowledgeSnapshot.expose_submission(claim) == :ok
       assert [_receipt] = KnowledgeSnapshot.session_sources(claim.session.id)

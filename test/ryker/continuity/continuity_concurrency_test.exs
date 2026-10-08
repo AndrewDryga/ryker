@@ -14,13 +14,14 @@ defmodule Ryker.Continuity.ContinuityConcurrencyTest do
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Ingress.Inbox.Entry
+  alias Ryker.Inspectors
   alias Ryker.Knowledge.KnowledgeExposure
   alias Ryker.Knowledge.KnowledgeSnapshot
   alias Ryker.Learning.SourceExposure
   alias Ryker.Memories.MemorySearchPage
   alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.Work.{Custody, Result, Session, SubmissionBuilder, Turn}
+  alias Ryker.Work.{Custody, Result, Session, Turn}
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
@@ -202,7 +203,7 @@ defmodule Ryker.Continuity.ContinuityConcurrencyTest do
       WorkSessions.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64))
 
     {:ok, claim} = Custody.claim_next("worker:continuity-race:#{suffix}", 60, :work)
-    {:ok, submission} = SubmissionBuilder.build(claim)
+    {:ok, submission} = Inspectors.submission(claim)
 
     %{
       claim: claim,

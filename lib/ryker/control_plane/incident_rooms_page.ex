@@ -635,16 +635,15 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
     """
   end
 
-  @doc "A room's state as a dot and a word."
-  @spec state(atom() | String.t()) :: {atom(), String.t()}
-  def state(status) when is_binary(status) and status in @statuses,
+  # A room's state as a dot and a word.
+  defp state(status) when is_binary(status) and status in @statuses,
     do: state(String.to_existing_atom(status))
 
-  def state(:requested), do: {:busy, "Setting up"}
-  def state(:ready), do: {:on, "Open"}
-  def state(:blocked), do: {:warn, "Needs attention"}
-  def state(:closed), do: {:off, "Closed"}
-  def state(_unknown), do: {:off, "Unknown"}
+  defp state(:requested), do: {:busy, "Setting up"}
+  defp state(:ready), do: {:on, "Open"}
+  defp state(:blocked), do: {:warn, "Needs attention"}
+  defp state(:closed), do: {:off, "Closed"}
+  defp state(_unknown), do: {:off, "Unknown"}
 
   # Where the room is, what it is about, and what came of it; when it opened
   # is the row's edge and its day's heading.

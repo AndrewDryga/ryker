@@ -170,13 +170,6 @@ defmodule Ryker.Work.Activity do
 
   def retry_once(_api, _client), do: {:error, {:invalid_coop_activity, :api}}
 
-  @spec list_for_episode(Ecto.UUID.t()) :: [ActivityEvent.t()]
-  def list_for_episode(episode_id) when is_binary(episode_id) do
-    episode_id |> page_for_episode() |> Map.fetch!(:events)
-  end
-
-  def list_for_episode(_episode_id), do: []
-
   @spec page_for_episode(Ecto.UUID.t(), pos_integer()) :: %{
           events: [ActivityEvent.t()],
           shown: non_neg_integer(),

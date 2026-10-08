@@ -170,7 +170,7 @@ defmodule Ryker.Slack.ReplyRecordsTest do
                }
              ])
 
-    assert [stored] = Activity.list_for_episode(claim.episode.id)
+    assert [stored] = Activity.page_for_episode(claim.episode.id).events
 
     assert get_in(stored.payload, ~w(output result structuredContent items)) == [
              hd(get_in(payload, ~w(output result structuredContent items)))

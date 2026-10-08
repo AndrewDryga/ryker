@@ -7,13 +7,14 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.WorkProfile
+  alias Ryker.Inspectors
   alias Ryker.Publication.Custody, as: PublicationCustody
   alias Ryker.Publication.Publication
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Slack.TaskCardProjection
-  alias Ryker.Work.{Cancellation, Custody, DeliveryReceipt, Result, SubmissionBuilder}
+  alias Ryker.Work.{Cancellation, Custody, DeliveryReceipt, Result}
 
   @conversation_id "018f3ef7-1f62-7ee0-a83c-0c12f21dc3e6"
   @now ~U[2026-08-30 18:00:00.000000Z]
@@ -580,7 +581,7 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
 
   defp bind_claim!(claim, suffix) do
     WorkerJob.pin!(claim.session)
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
 
     assert {:ok, _turn} =
              Custody.freeze_submission(
@@ -737,7 +738,7 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
                }
              )
 
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
 
     assert {:ok, _turn} =
              Ryker.Work.Custody.freeze_submission(

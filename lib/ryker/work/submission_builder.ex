@@ -30,22 +30,6 @@ defmodule Ryker.Work.SubmissionBuilder do
   @input_content_bytes 1_024
 
   @doc """
-  The frozen submission for this claim.
-
-  Callers that only need the exact bytes to submit use this; `prepare/2`
-  additionally returns the selection ledger, which is evidence about the
-  selection rather than part of it.
-  """
-  @spec build(%{episode: Episodes.Episode.t(), session: Session.t(), turn: Turn.t()}, keyword()) ::
-          {:ok, Submission.t()} | {:error, term()}
-  def build(claim, options \\ []) do
-    case prepare(claim, options) do
-      {:ok, %{submission: submission}} -> {:ok, submission}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  @doc """
   The frozen submission plus the ledger of what this turn actually selected.
 
   The context keeps the items that reached the model and one omitted total. It

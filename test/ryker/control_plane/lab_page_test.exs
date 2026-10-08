@@ -5,27 +5,6 @@ defmodule Ryker.ControlPlane.LabPageTest do
 
   @now ~U[2026-09-13 14:32:00Z]
 
-  # In the order the page groups them since 2026-09-19: Investigate, Build, Remember.
-  @examples [
-    "Investigate why this service keeps restarting.",
-    "Summarize the attached log and identify likely causes.",
-    "Ask me three questions to clarify this investigation.",
-    "Review this change for bugs and missing tests.",
-    "Help me turn this issue into an engineering task.",
-    "Compare these two approaches and explain the trade-offs.",
-    "Generate a small illustration of a rocket launch.",
-    "Remind me tomorrow at 9:00 to check the deployment.",
-    "Remember that I prefer concise incident updates.",
-    "Show the automations active in this conversation."
-  ]
-
-  test "the examples are exactly the ten authored ones" do
-    # Andrew approved these ten strings on 2026-09-09. They are UI copy, not
-    # model fixtures: a generated or paraphrased eleventh example, or a missing
-    # one, changes what an operator is invited to type.
-    assert LabPage.examples() == @examples
-  end
-
   test "the directory heads each day the way every list does, in one labelled timezone" do
     # Sept 13: the old list showed "3 inputs · 13 Sep, 12:58 UTC" on every row
     # and no grouping, so today's conversation and one from last week read the

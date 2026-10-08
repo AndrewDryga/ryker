@@ -62,9 +62,6 @@ defmodule Ryker.CoopFleet.SessionEvidenceDocument do
     protected_packets denied_dns_queries denied_tls_connections maintenance_queries
     maintenance_failures ingress_denied_packets maintenance_sent_bytes maintenance_received_bytes)
 
-  @spec version() :: 1
-  def version, do: @version
-
   @doc "Decodes and validates one exported evidence document."
   @spec decode(binary()) :: {:ok, map()} | {:error, term()}
   def decode(document)

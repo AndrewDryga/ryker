@@ -32,14 +32,14 @@ defmodule Ryker.Accounting.Execution.Query do
     |> priced()
   end
 
-  def recorded_since(queryable, nil), do: queryable
+  defp recorded_since(queryable, nil), do: queryable
 
-  def recorded_since(queryable, since),
+  defp recorded_since(queryable, since),
     do: where(queryable, [execution_usage: e], e.recorded_at >= ^since)
 
-  def by_execution_mode(queryable, "all"), do: queryable
+  defp by_execution_mode(queryable, "all"), do: queryable
 
-  def by_execution_mode(queryable, mode),
+  defp by_execution_mode(queryable, mode),
     do: where(queryable, [execution_usage: e], e.execution_mode == ^mode)
 
   # The ledger with each execution's estimate (`estimated_cost_usd`) and the

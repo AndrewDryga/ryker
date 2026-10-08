@@ -50,8 +50,8 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
     |> Safe.to_iodata()
   end
 
-  @doc "The list body for `items`, the search `query`, the `view` and the clock `now`."
-  def render(assigns) do
+  # The list body for `items`, the search `query`, the `view` and the clock `now`.
+  defp render(assigns) do
     assigns =
       assigns
       |> assign_new(:query, fn -> "" end)

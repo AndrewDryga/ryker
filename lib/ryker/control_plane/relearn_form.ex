@@ -73,14 +73,11 @@ defmodule Ryker.ControlPlane.RelearnForm do
 
   def submit(_kind, _id, _params, _actor_ref, _secret), do: {:error, :form}
 
-  @doc """
-  The form's fields, checked: the token, the chosen sources (1 to 16, each a
-  source the panel issued, none twice), and the versions `fields` names.
-  `{:ok, form}`, or `{:error, :form}` for anything else, extra fields included.
-  The panel's own `kind` and `target` are read where the form arrives.
-  """
-  @spec parse(map(), [atom()]) :: {:ok, map()} | {:error, :form}
-  def parse(%{"_token" => token, "sources" => sources} = params, fields) when is_binary(token) do
+  # The form's fields, checked: the token, the chosen sources (1 to 16, each a
+  # source the panel issued, none twice), and the versions `fields` names.
+  # `{:ok, form}`, or `{:error, :form}` for anything else, extra fields included.
+  # The panel's own `kind` and `target` are read where the form arrives.
+  defp parse(%{"_token" => token, "sources" => sources} = params, fields) when is_binary(token) do
     keys = Enum.map(fields, &Atom.to_string/1)
 
     with true <-
@@ -93,7 +90,7 @@ defmodule Ryker.ControlPlane.RelearnForm do
     end
   end
 
-  def parse(_params, _fields), do: {:error, :form}
+  defp parse(_params, _fields), do: {:error, :form}
 
   defp uuid(id) do
     case Ecto.UUID.cast(id) do

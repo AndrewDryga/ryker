@@ -114,9 +114,6 @@ defmodule Ryker.Learning.ConversationObservation.Query do
   def lock_for_update(queryable), do: lock(queryable, "FOR UPDATE")
   def lock_for_share(queryable), do: lock(queryable, "FOR SHARE")
 
-  def by_conversation_refs(queryable \\ all(), conversation_refs),
-    do: where(queryable, [conversation_observations: o], o.conversation_ref in ^conversation_refs)
-
   def by_conversation_ref(queryable, conversation_ref),
     do: where(queryable, [conversation_observations: o], o.conversation_ref == ^conversation_ref)
 

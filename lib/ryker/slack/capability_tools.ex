@@ -378,9 +378,6 @@ defmodule Ryker.Slack.CapabilityTools do
   end
 
   @doc false
-  defdelegate authorized_post_instruction?(input, destination_ref), to: Authority
-
-  @doc false
   @spec options!(map() | keyword()) :: map()
   def options!(options) do
     allowed = [

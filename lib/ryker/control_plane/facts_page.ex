@@ -46,7 +46,7 @@ defmodule Ryker.ControlPlane.FactsPage do
     |> Safe.to_iodata()
   end
 
-  def render(assigns) do
+  defp render(assigns) do
     ~H"""
     <div class="memory-view memory-facts">
       <div :if={@view.review_summary} class="memory-callout">

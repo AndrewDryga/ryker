@@ -79,8 +79,8 @@ defmodule Ryker.ControlPlane.ChannelsPage do
   attr(:view, :map, required: true)
   attr(:now, :any, default: nil)
 
-  @doc "The list body: filters, then one row per channel or what would put one here."
-  def render(assigns) do
+  # The list body: filters, then one row per channel or what would put one here.
+  defp render(assigns) do
     assigns =
       assigns
       |> assign_new(:now, fn -> nil end)

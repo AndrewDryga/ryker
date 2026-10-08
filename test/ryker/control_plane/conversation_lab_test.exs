@@ -19,12 +19,13 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.WorkProfile
+  alias Ryker.Inspectors
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Schedules.Schedule
   alias Ryker.TestSupport.FakeWorkCoopAPI
   alias Ryker.TestTranscriber
-  alias Ryker.Work.{Cancellation, Custody, DeliveryReceipt, Result, Session, SubmissionBuilder}
+  alias Ryker.Work.{Cancellation, Custody, DeliveryReceipt, Result, Session}
 
   @moduletag isolation: "REPEATABLE READ"
 
@@ -188,7 +189,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              )
 
     assert {:ok, claim} = Custody.claim_next("conversation-lab:incident-offer", 60, :work)
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
 
     assert {:ok, _turn} =
              Custody.freeze_submission(
@@ -918,7 +919,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
              )
 
     assert {:ok, claim} = Custody.claim_next("conversation-lab:projection", 60, :work)
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
 
     assert {:ok, _turn} =
              Custody.freeze_submission(

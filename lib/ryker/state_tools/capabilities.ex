@@ -11,9 +11,6 @@ defmodule Ryker.StateTools.Capabilities do
   @known [:emisar_approvals, :event_waits, :publication, :schedules]
   @default [:event_waits, :publication, :schedules]
 
-  @spec known() :: [atom()]
-  def known, do: @known
-
   @doc "Every group but Emisar approvals, which a turn gets only with an Emisar account."
   @spec default() :: [atom()]
   def default, do: @default

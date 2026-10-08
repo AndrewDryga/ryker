@@ -18,9 +18,6 @@ defmodule Ryker.Knowledge.KnowledgeSource.Query do
   def by_knowledge_id(queryable \\ all(), knowledge_id),
     do: where(queryable, [conversation_knowledge_sources: s], s.knowledge_id == ^knowledge_id)
 
-  def by_knowledge_ids(queryable \\ all(), knowledge_ids),
-    do: where(queryable, [conversation_knowledge_sources: s], s.knowledge_id in ^knowledge_ids)
-
   @doc """
   Of topics `knowledge_ids`, the ones that still rest on a message outside
   `observation_ids` that nobody forgot, in their current generation.

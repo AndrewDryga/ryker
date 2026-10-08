@@ -262,7 +262,7 @@ defmodule Ryker.Slack.AppHomeTest do
 
   test "paging stops at the ends of the complete list" do
     first =
-      AppHome.render(:collection, %{
+      published_collection(%{
         kind: :knowledge,
         offset: 0,
         outcome: :listed,
@@ -280,7 +280,7 @@ defmodule Ryker.Slack.AppHomeTest do
     refute Jason.encode!(first) =~ "page 1 of 1"
 
     last =
-      AppHome.render(:collection, %{
+      published_collection(%{
         kind: :schedules,
         offset: 20,
         outcome: :listed,
@@ -299,7 +299,7 @@ defmodule Ryker.Slack.AppHomeTest do
   # the operator would stop looking for the schedule they still have.
   test "an empty complete list and one that could not be read are different pages" do
     empty =
-      AppHome.render(:collection, %{
+      published_collection(%{
         kind: :standing_rules,
         offset: 0,
         outcome: :empty,
@@ -309,7 +309,7 @@ defmodule Ryker.Slack.AppHomeTest do
       })
 
     unavailable =
-      AppHome.render(:collection, %{
+      published_collection(%{
         kind: :standing_rules,
         offset: 0,
         outcome: :unavailable,
@@ -422,13 +422,12 @@ defmodule Ryker.Slack.AppHomeTest do
     # The 2026-09-12 coverage measurement: an unreadable dashboard rendered
     # exactly like a person with no schedules, no rules and no work. A quiet
     # zero is the most convincing wrong answer a surface can give.
-    view = AppHome.render(:operator, AppHomeProjection.unreadable())
-    encoded = Jason.encode!(view)
+    encoded = Jason.encode!(published_dashboard(AppHomeProjection.unreadable()))
 
     assert encoded =~ "couldn't read"
     refute encoded =~ "Nothing needs you right now"
 
-    empty = Jason.encode!(AppHome.render(:operator, AppHomeProjection.empty()))
+    empty = Jason.encode!(published_dashboard(AppHomeProjection.empty()))
     refute empty =~ "couldn't read"
   end
 
@@ -528,6 +527,39 @@ defmodule Ryker.Slack.AppHomeTest do
 
     assert AppHome.handle(event("U123"), %{valid | api: FailingAPI}) ==
              {:error, :slack_unavailable}
+  end
+
+  # The Home view an operator gets when the dashboard reads `snapshot`.
+  defp published_dashboard(snapshot) do
+    {:ok, calls} = Agent.start_link(fn -> [] end)
+
+    assert {:ok, %{access: :operator, outcome: :published}} =
+             AppHome.handle(event("U123"), options(calls, fn _, _, _ -> snapshot end))
+
+    [{"U123", view}] = Agent.get(calls, & &1)
+    view
+  end
+
+  # The Home view an operator gets when opening `collection`'s page.
+  defp published_collection(collection) do
+    {:ok, calls} = Agent.start_link(fn -> [] end)
+
+    options =
+      options(calls, fn _, _, _ -> flunk("the dashboard projection must not be queried") end)
+      |> Map.put(:collection, fn _kind, _workspace_ref, _shared_conversations, _offset ->
+        collection
+      end)
+
+    assert {:ok, %{access: :operator, outcome: :published}} =
+             AppHome.publish_collection(
+               event("U123"),
+               collection.kind,
+               collection.offset,
+               options
+             )
+
+    [{"U123", view}] = Agent.get(calls, & &1)
+    view
   end
 
   defp event(actor_ref) do

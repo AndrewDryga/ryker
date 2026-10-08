@@ -5,6 +5,7 @@ defmodule Ryker.Slack.ThreadStatusWorkerTest do
   import Ryker.TestHelpers, only: [eventually: 2]
   alias Ryker.ControlPlane.{FailureExplanation, FailureProjection}
   alias Ryker.Episodes.Episode
+  alias Ryker.Inspectors
   alias Ryker.Operator.Failures
   alias Ryker.Repo
   alias Ryker.Slack.{ThreadStatus, ThreadStatuses, ThreadStatusProjection, ThreadStatusWorker}
@@ -70,7 +71,7 @@ defmodule Ryker.Slack.ThreadStatusWorkerTest do
 
     # The mutable status row previously erased both starts when the final clear arrived.
     receipts =
-      ThreadStatusReceipts.for_thread("T123", "C456", "1787832000.000100")
+      Inspectors.thread_status_receipts("T123", "C456", "1787832000.000100")
 
     assert Enum.map(receipts, & &1.text) == ["is queued...", "is working...", ""]
     assert Enum.all?(receipts, & &1.acknowledged_at)
@@ -207,7 +208,7 @@ defmodule Ryker.Slack.ThreadStatusWorkerTest do
     assert {:ok, _} = ThreadStatusReceipts.record(claimed, :ok)
 
     assert [receipt] =
-             ThreadStatusReceipts.for_thread("T123", "C456", "1787832000.000100")
+             Inspectors.thread_status_receipts("T123", "C456", "1787832000.000100")
 
     assert receipt.generation == 1
     assert receipt.text == "is working..."
@@ -304,7 +305,7 @@ defmodule Ryker.Slack.ThreadStatusWorkerTest do
              ]
 
       assert Enum.map(
-               ThreadStatusReceipts.for_thread("T123", "C456", "1787832000.000100"),
+               Inspectors.thread_status_receipts("T123", "C456", "1787832000.000100"),
                & &1.text
              ) == ["is working...", ""]
     end

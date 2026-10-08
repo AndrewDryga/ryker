@@ -73,8 +73,7 @@ defmodule Ryker.Publication.Request do
   def new(%Publication{}), do: {:error, :publication_not_approved}
   def new(_publication), do: {:error, {:invalid_publication_request, :publication}}
 
-  @spec document(t()) :: map()
-  def document(%__MODULE__{} = request) do
+  defp document(%__MODULE__{} = request) do
     %{
       "approval_ref" => request.approval_ref,
       "approved_at" => DateTime.to_iso8601(request.approved_at),

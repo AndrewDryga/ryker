@@ -21,9 +21,6 @@ defmodule Ryker.ControlPlane.PagedRelation do
           pages: pos_integer()
         }
 
-  @spec page_size() :: pos_integer()
-  def page_size, do: @page_size
-
   @doc """
   Normalizes one namespaced page parameter.
 

@@ -19,6 +19,7 @@ defmodule Ryker.Continuity.ContinuityTest do
   alias Ryker.Fixtures.MemoryPages
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.{Inbox, Input}
+  alias Ryker.Inspectors
   alias Ryker.Knowledge
   alias Ryker.Knowledge.KnowledgeRetention
   alias Ryker.Knowledge.KnowledgeSnapshot
@@ -29,7 +30,7 @@ defmodule Ryker.Continuity.ContinuityTest do
   alias Ryker.Memories.MemorySearchPage
   alias Ryker.Repo
   alias Ryker.Slack.{ChannelConfigurations, ChannelMembership, SourceRef}
-  alias Ryker.Work.{Custody, FinalPreflight, Result, Submission, SubmissionBuilder}
+  alias Ryker.Work.{Custody, FinalPreflight, Result, Submission}
 
   @now ~U[2026-09-04 12:00:00.000000Z]
 
@@ -577,7 +578,7 @@ defmodule Ryker.Continuity.ContinuityTest do
       Ecto.Changeset.change(event, payload: Map.put(event.payload, "payload", payload))
     )
 
-    assert {:ok, rebuilt} = SubmissionBuilder.build(work.claim)
+    assert {:ok, rebuilt} = Inspectors.submission(work.claim)
     [item] = get_in(rebuilt, ["context", "inputs", "items"])
     assert item["content"]["source_dependencies"] == []
     assert Enum.any?(item["source_dependencies"], &(&1["source_input_id"] == entry.id))
@@ -587,7 +588,7 @@ defmodule Ryker.Continuity.ContinuityTest do
   test "historical truncation retains exact raw lineage and malformed ingress fails closed" do
     {entry, work, _submission} = raw_work!()
     claim = %{work.claim | episode: %{work.episode | active_input_refs: []}}
-    assert {:ok, rebuilt} = SubmissionBuilder.build(claim)
+    assert {:ok, rebuilt} = Inspectors.submission(claim)
     [historical] = get_in(rebuilt, ["context", "inputs", "items"])
     assert historical["content"]["truncated"]
     assert Enum.any?(historical["source_dependencies"], &(&1["source_input_id"] == entry.id))
@@ -600,7 +601,7 @@ defmodule Ryker.Continuity.ContinuityTest do
       Ecto.Changeset.change(event, payload: Map.put(event.payload, "payload", payload))
     )
 
-    assert {:ok, malformed} = SubmissionBuilder.build(work.claim)
+    assert {:ok, malformed} = Inspectors.submission(work.claim)
 
     assert KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", malformed) ==
              {:error, :work_knowledge_context_stale}
@@ -610,7 +611,7 @@ defmodule Ryker.Continuity.ContinuityTest do
     {entry, work, _submission} = raw_work!()
     withdraw_raw!(entry)
 
-    assert {:ok, active} = SubmissionBuilder.build(work.claim)
+    assert {:ok, active} = Inspectors.submission(work.claim)
     [active_input] = get_in(active, ["context", "inputs", "items"])
     assert active_input["current"]
     assert active_input["source_dependencies"] == nil
@@ -619,7 +620,7 @@ defmodule Ryker.Continuity.ContinuityTest do
              {:error, :work_knowledge_context_stale}
 
     claim = %{work.claim | episode: %{work.episode | active_input_refs: []}}
-    assert {:ok, rebuilt} = SubmissionBuilder.build(claim)
+    assert {:ok, rebuilt} = Inspectors.submission(claim)
     [historical] = get_in(rebuilt, ["context", "inputs", "items"])
     assert historical["content"] == %{"unavailable" => "source_not_current"}
     refute Jason.encode!(historical) =~ "nomad-hst01"
@@ -637,7 +638,7 @@ defmodule Ryker.Continuity.ContinuityTest do
         turn: %{work.claim.turn | id: Ecto.UUID.generate()}
     }
 
-    assert {:ok, delta} = SubmissionBuilder.build(claim)
+    assert {:ok, delta} = Inspectors.submission(claim)
     assert delta["context"]["mode"] == "continuation"
     first = get_in(delta, ["context", "continuity", "first_input"])
     assert first["content"] == %{"unavailable" => "source_not_current"}
@@ -684,7 +685,7 @@ defmodule Ryker.Continuity.ContinuityTest do
     assert KnowledgeSnapshot.authorize_submission(work.episode, "tenant-infra", raw) ==
              {:error, :work_knowledge_context_stale}
 
-    assert {:ok, current} = SubmissionBuilder.build(work.claim)
+    assert {:ok, current} = Inspectors.submission(work.claim)
     [notice] = get_in(current, ["context", "inputs", "items"])
     assert notice["content"] == %{"event_kind" => "delete", "unavailable" => "source_deleted"}
     refute Jason.encode!(current) =~ "nomad-hst01"
@@ -694,7 +695,7 @@ defmodule Ryker.Continuity.ContinuityTest do
              {:error, :work_knowledge_context_stale}
 
     claim = %{work.claim | episode: %{work.episode | active_input_refs: []}}
-    assert {:ok, historical} = SubmissionBuilder.build(claim)
+    assert {:ok, historical} = Inspectors.submission(claim)
     [tombstone] = get_in(historical, ["context", "inputs", "items"])
     assert tombstone["content"] == notice["content"]
     refute Jason.encode!(tombstone) =~ "nomad-hst01"
@@ -750,7 +751,7 @@ defmodule Ryker.Continuity.ContinuityTest do
       )
 
       assert Repo.aggregate(ConversationObservation, :count) == 0
-      assert {:ok, submission} = SubmissionBuilder.build(work.claim)
+      assert {:ok, submission} = Inspectors.submission(work.claim)
       [item] = get_in(submission, ["context", "inputs", "items"])
       assert item["content"]["content"]["kind"] == unquote(content_kind)
       assert item["source_dependencies"] == []
@@ -819,7 +820,7 @@ defmodule Ryker.Continuity.ContinuityTest do
 
     assert {:ok, claim} = Custody.claim_next("raw-source-review", 60, :work)
     assert claim.episode.id == episode.id
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
 
     assert Enum.any?(
              get_in(submission, ["context", "inputs", "items"]),
@@ -1999,7 +2000,7 @@ defmodule Ryker.Continuity.ContinuityTest do
              )
 
     assert {:ok, claim} = Custody.claim_next("worker:continuity:#{suffix}", 60, :work)
-    assert {:ok, submission} = SubmissionBuilder.build(claim)
+    assert {:ok, submission} = Inspectors.submission(claim)
 
     %{
       claim: claim,

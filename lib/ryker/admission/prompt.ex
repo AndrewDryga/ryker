@@ -257,7 +257,7 @@ defmodule Ryker.Admission.Prompt do
     text = Enum.join([@instructions | paragraphs(document)], "\n")
 
     # The context carries the operator's instructions only when they say
-    # something (`Ryker.Admission.Context.custom_instructions?/1`).
+    # something.
     if Map.has_key?(document, "custom_instructions"),
       do: Ryker.Instructions.prompt_instructions(text),
       else: text
