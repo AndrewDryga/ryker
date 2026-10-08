@@ -342,7 +342,7 @@ defmodule Ryker.Delivery.ChatCard do
     |> common(
       "Input needed",
       nil,
-      reply_prompt(record.status, payload["choices"]),
+      reply_prompt(record.status),
       [],
       :answer_input,
       payload["choices"]
@@ -743,8 +743,8 @@ defmodule Ryker.Delivery.ChatCard do
 
   defp chosen(_record, _choices), do: nil
 
-  defp reply_prompt(:open, _choices), do: "Reply below or choose an answer."
-  defp reply_prompt(_status, _choices), do: nil
+  defp reply_prompt(:open), do: "Reply below or choose an answer."
+  defp reply_prompt(_status), do: nil
 
   # A citation names its source by the reference a tool issued, which nobody can
   # open or read; only a source written as a name says something here. The

@@ -531,7 +531,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
         []
       else
         {title, description} =
-          group_presentation(group, title, description, entries, conversation, counts)
+          group_presentation(group, title, description)
 
         group(
           title,
@@ -1020,14 +1020,12 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   # Counts belong to the rows they count: Earlier messages says how many, and a
   # section heading does not total them again.
-  defp group_presentation("conversation", title, _description, _entries, _conversation, _counts),
-    do: {title, nil}
+  defp group_presentation("conversation", title, _description), do: {title, nil}
 
-  defp group_presentation("history", title, _description, _entries, _conversation, _counts),
+  defp group_presentation("history", title, _description),
     do: {title, "Earlier work this message may belong to, found by Search for related history."}
 
-  defp group_presentation(_group, title, description, _entries, _conversation, _counts),
-    do: {title, description}
+  defp group_presentation(_group, title, description), do: {title, description}
 
   defp candidate_sources(items, path, prefix, counts) do
     {continuations, context_only} =
@@ -2408,7 +2406,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
           do: [],
           else: source_status(value, settings.state, settings.state_override)
         ),
-        source_estimate(value, settings.state_override, settings.estimate)
+        source_estimate(settings.state_override, settings.estimate)
       ]
     )
   end
@@ -2464,16 +2462,16 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     if label, do: ["<span class=\"prompt-source-status\">", escape(label), "</span>"], else: []
   end
 
-  defp source_estimate(_value, unavailable, _estimate)
+  defp source_estimate(unavailable, _estimate)
        when unavailable in [
               "Expired",
               "Not recorded"
             ],
        do: []
 
-  defp source_estimate(_value, _override, estimate) when estimate in [nil, ""], do: []
+  defp source_estimate(_override, estimate) when estimate in [nil, ""], do: []
 
-  defp source_estimate(_value, _override, estimate),
+  defp source_estimate(_override, estimate),
     do: [
       "<span class=\"prompt-source-estimate\" title=\"Estimated from the length of the text\">",
       estimated_tokens(estimate),

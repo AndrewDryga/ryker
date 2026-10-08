@@ -249,7 +249,7 @@ defmodule Ryker.Slack.Runtime do
 
     incident_policy = policy!(incident_policy, :incident_policy)
     environments = environments!(environments)
-    default_environment = default_environment!(default_environment, environments)
+    default_environment = default_environment!(default_environment)
     file_client = file_client!(bot_client)
     schedule_policy_resolver = schedule_policy_resolver(configuration)
 
@@ -958,7 +958,7 @@ defmodule Ryker.Slack.Runtime do
 
   # The default may not be able to run work yet (its policies unverified); a
   # channel joined meanwhile is still set to it and works in it once it can.
-  defp default_environment!(environment_ref, _environments) do
+  defp default_environment!(environment_ref) do
     cond do
       is_nil(environment_ref) ->
         nil

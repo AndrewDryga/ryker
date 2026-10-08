@@ -231,19 +231,21 @@ defmodule Ryker.CoopFleet.JobSpecTest do
     }
 
     assert {:ok, digest} = JobSpec.digest(job)
-    base = %{authority_digest: nil, workspace_task: nil}
 
     insert = fn options ->
-      Session.Changeset.insert(
-        Ecto.UUID.generate(),
-        Ecto.UUID.generate(),
-        1,
-        "job:one",
-        String.duplicate("a", 64),
-        nil,
-        "job:one",
-        Map.merge(base, options)
-      )
+      %{
+        id: Ecto.UUID.generate(),
+        episode_id: Ecto.UUID.generate(),
+        generation: 1,
+        policy: "job:one",
+        policy_digest: String.duplicate("a", 64),
+        repository_ref: nil,
+        external_ref: "job:one",
+        authority_digest: nil,
+        workspace_task: nil
+      }
+      |> Map.merge(options)
+      |> Session.Changeset.insert()
     end
 
     assert insert.(%{worker_job_document: job, worker_job_digest: digest}).valid?

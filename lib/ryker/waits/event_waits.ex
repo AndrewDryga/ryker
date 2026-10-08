@@ -74,7 +74,7 @@ defmodule Ryker.Waits.EventWaits do
            :ok <- Episodes.ConversationLock.lock(Repo, destination(initial)),
            {:ok, snapshot} <- Episodes.lock_current_in_transaction(initial.key),
            %Records.Record{} = record <- lock_record(record_id),
-           {:ok, resolution_kind, subscription} <- resolution(snapshot, record, now) do
+           {:ok, resolution_kind, subscription} <- resolution(record, now) do
         resume_locked(snapshot, record, now, resolution_kind, subscription)
       else
         nil -> Repo.rollback(:event_wait_not_found)
@@ -93,7 +93,7 @@ defmodule Ryker.Waits.EventWaits do
       transport: episode.destination_transport
     }
 
-  defp resolution(_episode, record, now) do
+  defp resolution(record, now) do
     subscription =
       record.id
       |> EventSubscription.Query.by_record_id()

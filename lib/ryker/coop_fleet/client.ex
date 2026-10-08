@@ -87,7 +87,7 @@ defmodule Ryker.CoopFleet.Client do
   def create_session(client, key, policy, task, source) do
     with {:ok, session} <- create_session_identity(key, task),
          :ok <- exact_authority(session, policy, source),
-         {:ok, payload} <- create_session_payload(session, policy, task, source),
+         {:ok, payload} <- create_payload_for_authority(session, task),
          {:ok, remote} <- execute(client, session, "create_session", payload, key) do
       ensure_workspace(client, session, remote, key)
     end
@@ -199,19 +199,12 @@ defmodule Ryker.CoopFleet.Client do
   def fence_create_session(client, key, policy, task, source) do
     with {:ok, session} <- create_session_identity(key, task),
          :ok <- exact_authority(session, policy, source) do
-      fence_create_authority(client, session, key, policy, task, source)
+      fence_create_authority(client, session, key, task)
     end
   end
 
-  defp fence_create_authority(
-         client,
-         session,
-         key,
-         policy,
-         task,
-         source
-       ) do
-    with {:ok, payload} <- fence_create_payload(session, policy, task, source),
+  defp fence_create_authority(client, session, key, task) do
+    with {:ok, payload} <- fence_create_payload(session, task),
          {:ok, command} <-
            ControlPlane.fence_command(
              session,
@@ -225,14 +218,11 @@ defmodule Ryker.CoopFleet.Client do
 
   defp fence_create_payload(
          %Work.Session{worker_job_document: nil, worker_job_digest: nil},
-         _,
-         _,
-         _
+         _task
        ),
        do: {:ok, nil}
 
-  defp fence_create_payload(session, policy, task, source),
-    do: create_session_payload(session, policy, task, source)
+  defp fence_create_payload(session, task), do: create_payload_for_authority(session, task)
 
   @impl true
   def get_session(client, coop_session_id) do
@@ -1407,24 +1397,16 @@ defmodule Ryker.CoopFleet.Client do
 
   # Create and fence build the identical payload, so a fence request hashes the
   # exact selector create would have sent.
-  defp create_session_payload(session, policy, task, source) do
-    with {:ok, source} <- repository_source(source) do
-      create_payload_for_authority(session, policy, task, source)
-    end
-  end
-
   defp create_payload_for_authority(
          %Work.Session{worker_job_document: %{} = job, worker_job_digest: digest} = session,
-         _policy,
-         task,
-         _source
+         task
        ) do
     with {:ok, _session} <- JobAuthority.validate(session) do
       {:ok, %{"external_ref" => task, "job" => job, "job_digest" => digest}}
     end
   end
 
-  defp create_payload_for_authority(_session, _policy, _task, _source),
+  defp create_payload_for_authority(_session, _task),
     do: {:error, {:coop_fleet_authority_mismatch, :worker_job}}
 
   defp submit_turn_payload(coop_session_id, revision, submission, controller_tools) do

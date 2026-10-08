@@ -47,7 +47,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
 
       work = work_step(turn, ordinal)
       answer = answer_steps(turn, ordinal)
-      outcome = delivery_step(turn, ordinal)
+      outcome = delivery_step(turn)
 
       ([prepared, work] ++ answer ++ outcome)
       |> Enum.reject(&is_nil/1)
@@ -85,20 +85,18 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   end
 
   defp answer_steps(turn, ordinal) do
-    validations = validation_steps(turn, ordinal)
+    validations = validation_steps(turn)
     accepted = accepted_step(turn, ordinal)
     validations ++ Enum.reject([accepted], &is_nil/1)
   end
 
-  defp validation_steps(%Work.Turn{validation_history: history} = turn, ordinal)
+  defp validation_steps(%Work.Turn{validation_history: history} = turn)
        when is_list(history) and history != [] do
-    Enum.map(history, &validation_history_step(turn, ordinal, &1))
+    Enum.map(history, &validation_history_step(turn, &1))
   end
 
-  defp validation_steps(%Work.Turn{validation_intent: nil, candidate_attempt: nil}, _ordinal),
-    do: []
-
-  defp validation_steps(turn, ordinal), do: [validation_step(turn, ordinal)]
+  defp validation_steps(%Work.Turn{validation_intent: nil, candidate_attempt: nil}), do: []
+  defp validation_steps(turn), do: [validation_step(turn)]
 
   defp validation_band(nil, _at), do: :work
   defp validation_band(_finished_at, nil), do: :answer
@@ -106,57 +104,40 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   defp validation_band(finished_at, at),
     do: if(DateTime.compare(at, finished_at) == :lt, do: :work, else: :answer)
 
-  defp validation_history_step(turn, ordinal, entry) do
-    verdict = entry["verdict"]
-    violations = bounded_strings(entry["violations"])
-    attempt = entry["candidate_attempt"]
-    at = parsed_time(entry["recorded_at"])
-
-    validation_step(turn, ordinal,
-      at: at,
-      attempt: attempt,
-      candidate_sha256: entry["candidate_sha256"],
-      intent_fingerprint: entry["intent_fingerprint"],
-      receipt: nil,
-      verdict: verdict,
-      violations: violations
-    )
+  defp validation_history_step(turn, entry) do
+    validation_step(turn, %{
+      at: parsed_time(entry["recorded_at"]),
+      attempt: entry["candidate_attempt"],
+      verdict: entry["verdict"],
+      violations: bounded_strings(entry["violations"])
+    })
   end
 
-  defp validation_step(turn, ordinal) do
-    verdict = get_in(turn.validation_intent || %{}, ["verdict"])
-    violations = bounded_strings(get_in(turn.validation_intent || %{}, ["violations"]))
+  defp validation_step(turn) do
+    intent = turn.validation_intent || %{}
 
-    validation_step(turn, ordinal,
+    validation_step(turn, %{
       at: nil,
       attempt: turn.candidate_attempt,
-      candidate_sha256: turn.candidate_sha256,
-      intent_fingerprint: turn.validation_intent_fingerprint,
-      receipt: turn.validation_receipt,
-      verdict: verdict,
-      violations: violations
-    )
+      verdict: intent["verdict"],
+      violations: bounded_strings(intent["violations"])
+    })
   end
 
-  defp validation_step(turn, _ordinal, options) do
-    verdict = Keyword.fetch!(options, :verdict)
-    violations = Keyword.fetch!(options, :violations)
-    attempt = Keyword.fetch!(options, :attempt)
-    state = verdict || "candidate recorded"
-
+  defp validation_step(turn, %{at: at, attempt: attempt, verdict: verdict, violations: violations}) do
     {title, tone} = validation_presentation(verdict)
 
     step(
       "turn-#{turn.id}-validation-#{attempt || 0}",
-      validation_band(turn.remote_finished_at, Keyword.fetch!(options, :at)),
-      Keyword.fetch!(options, :at),
+      validation_band(turn.remote_finished_at, at),
+      at,
       %{
         actor: "Ryker",
         owner: {:turn, turn.id},
         details: validation_details(violations),
         stage: "Validation",
-        state: state,
-        summary: validation_summary(verdict, violations, attempt, turn),
+        state: verdict || "candidate recorded",
+        summary: validation_summary(verdict, violations, attempt),
         title: title,
         tone: tone
       }
@@ -197,13 +178,10 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
     )
   end
 
-  defp delivery_step(
-         %Work.Turn{delivery_ref: nil, delivered_at: nil, external_receipt: nil},
-         _ordinal
-       ),
-       do: []
+  defp delivery_step(%Work.Turn{delivery_ref: nil, delivered_at: nil, external_receipt: nil}),
+    do: []
 
-  defp delivery_step(turn, ordinal) do
+  defp delivery_step(turn) do
     queued =
       step(
         "turn-#{turn.id}-delivery-queued",
@@ -222,12 +200,12 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
         }
       )
 
-    [queued | confirmed_delivery_step(turn, ordinal)]
+    [queued | confirmed_delivery_step(turn)]
   end
 
-  defp confirmed_delivery_step(%Work.Turn{delivered_at: nil}, _ordinal), do: []
+  defp confirmed_delivery_step(%Work.Turn{delivered_at: nil}), do: []
 
-  defp confirmed_delivery_step(turn, _ordinal) do
+  defp confirmed_delivery_step(turn) do
     [
       step(
         "turn-#{turn.id}-delivery-confirmed",
@@ -469,23 +447,23 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
 
   # What was sent back and why, in a person's words; the exact correction the model got stays
   # under Details.
-  defp validation_summary("reject", violations, _attempt, _turn) do
+  defp validation_summary("reject", violations, _attempt) do
     "Ryker checks every answer before sending it. " <>
       sent_back_reason(Enum.join(violations, " ")) <> " This is a routine check, not an error."
   end
 
   # In the words the model call's Checks line uses: first time, or on
   # which attempt.
-  defp validation_summary("accept", _violations, 1, _turn),
+  defp validation_summary("accept", _violations, 1),
     do: "Ryker checked the answer and accepted it the first time."
 
-  defp validation_summary("accept", _violations, attempt, _turn) when is_integer(attempt),
+  defp validation_summary("accept", _violations, attempt) when is_integer(attempt),
     do: "Ryker checked the answer and accepted it on attempt #{attempt}."
 
-  defp validation_summary("accept", _violations, _attempt, _turn),
+  defp validation_summary("accept", _violations, _attempt),
     do: "Ryker checked the answer and accepted it."
 
-  defp validation_summary(_verdict, _violations, _attempt, _turn),
+  defp validation_summary(_verdict, _violations, _attempt),
     do: "The model returned an answer for Ryker to check."
 
   # What the correction was about, as the words a person reads; the first that matches wins.

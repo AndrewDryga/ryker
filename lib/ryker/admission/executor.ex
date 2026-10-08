@@ -395,7 +395,7 @@ defmodule Ryker.Admission.Executor do
   end
 
   defp ensure_turn(entry, session, context, settings) do
-    key = turn_key(entry, context)
+    key = turn_key(entry)
 
     with :ok <- renew_lease(settings) do
       settings.api.operation_by_key(settings.client, key)
@@ -1182,7 +1182,7 @@ defmodule Ryker.Admission.Executor do
   defp validate_turn(_turn, _expected_session_id, _expected_turn_id),
     do: {:error, {:coop_protocol_error, :turn_resource}}
 
-  defp turn_key(entry, _context) do
+  defp turn_key(entry) do
     "ryker:admission:turn:#{entry.id}:g#{entry.execution_generation}:#{entry.admission_context_fingerprint}"
   end
 

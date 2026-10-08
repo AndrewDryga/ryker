@@ -714,20 +714,18 @@ defmodule Ryker.CoopFleet.RouterTest do
     |> Repo.update!()
 
     replacement =
-      Session.Changeset.insert(
-        Ecto.UUID.generate(),
-        source.episode_id,
-        source.generation + 1,
-        source.policy,
-        source.policy_digest,
-        source.repository_ref,
-        source.external_ref,
-        %{
-          authority_digest: nil,
-          repository_source: source.repository_source,
-          workspace_task: nil
-        }
-      )
+      Session.Changeset.insert(%{
+        id: Ecto.UUID.generate(),
+        episode_id: source.episode_id,
+        generation: source.generation + 1,
+        policy: source.policy,
+        policy_digest: source.policy_digest,
+        repository_ref: source.repository_ref,
+        external_ref: source.external_ref,
+        authority_digest: nil,
+        repository_source: source.repository_source,
+        workspace_task: nil
+      })
       |> Repo.insert!()
 
     {:ok, job, digest} =

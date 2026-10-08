@@ -671,18 +671,18 @@ defmodule Ryker.Work.Custody.Delivery do
     newest_origin(episode, refs)
   end
 
-  defp answering_origin(%Episodes.Episode{} = episode, %Turn{selected_input_refs: nil} = turn),
-    do: active_origin(episode, turn)
+  defp answering_origin(%Episodes.Episode{} = episode, %Turn{selected_input_refs: nil}),
+    do: active_origin(episode)
 
-  defp answering_origin(%Episodes.Episode{} = episode, %Turn{selected_input_refs: []} = turn),
-    do: active_origin(episode, turn)
+  defp answering_origin(%Episodes.Episode{} = episode, %Turn{selected_input_refs: []}),
+    do: active_origin(episode)
 
   defp answering_origin(_episode, _turn), do: nil
 
-  defp active_origin(%Episodes.Episode{active_input_refs: [_ | _] = refs} = episode, _turn),
+  defp active_origin(%Episodes.Episode{active_input_refs: [_ | _] = refs} = episode),
     do: newest_origin(episode, refs)
 
-  defp active_origin(_episode, _turn), do: nil
+  defp active_origin(_episode), do: nil
 
   # An episode may hold evidence from several conversations, so the input a
   # reply answers is the newest by occurrence, not by this episode's own

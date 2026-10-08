@@ -315,16 +315,18 @@ defmodule Ryker.ProductContractsTest do
 
   test "persistence changesets reject malformed repository contexts" do
     session_changeset =
-      Session.Changeset.insert(
-        Ecto.UUID.generate(),
-        Ecto.UUID.generate(),
-        1,
-        "work-read-only",
-        @digest,
-        "ryker",
-        "session:repository-context",
-        %{authority_digest: nil, repository_context: %{}, workspace_task: nil}
-      )
+      Session.Changeset.insert(%{
+        id: Ecto.UUID.generate(),
+        episode_id: Ecto.UUID.generate(),
+        generation: 1,
+        policy: "work-read-only",
+        policy_digest: @digest,
+        repository_ref: "ryker",
+        external_ref: "session:repository-context",
+        authority_digest: nil,
+        repository_context: %{},
+        workspace_task: nil
+      })
 
     assert Keyword.has_key?(session_changeset.errors, :repository_context)
 

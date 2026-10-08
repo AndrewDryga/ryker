@@ -147,7 +147,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     qualifier = queue_qualifier(first, index, previous)
 
     events =
-      (Enum.map(run, &queue_event(&1, input)) ++ current_queue_event(input, last, current, now))
+      (Enum.map(run, &queue_event/1) ++ current_queue_event(input, last, current, now))
       |> recovery_link(last, tail? and input.status == :blocked, input)
       |> reattached(qualifier)
 
@@ -232,11 +232,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   defp queue_tone(:retry_scheduled), do: :warn
   defp queue_tone(_kind), do: nil
 
-  defp queue_event(%{kind: :saved} = transition, _input) do
+  defp queue_event(%{kind: :saved} = transition) do
     queue_event(transition, "Saved", "The input entered the routing queue.")
   end
 
-  defp queue_event(%{kind: :waiting_predecessor} = transition, _input) do
+  defp queue_event(%{kind: :waiting_predecessor} = transition) do
     queue_event(
       transition,
       "Waiting for an earlier input",
@@ -248,15 +248,15 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     )
   end
 
-  defp queue_event(%{kind: :transcribed, detail: nil} = transition, _input) do
+  defp queue_event(%{kind: :transcribed, detail: nil} = transition) do
     queue_event(transition, "Transcribed", "Routing reads what the voice message says.")
   end
 
-  defp queue_event(%{kind: :transcribed} = transition, _input) do
+  defp queue_event(%{kind: :transcribed} = transition) do
     queue_event(transition, "Transcribed", "Routing reads that it is #{transition.detail}.")
   end
 
-  defp queue_event(%{kind: :transcript_timed_out} = transition, _input) do
+  defp queue_event(%{kind: :transcript_timed_out} = transition) do
     queue_event(
       transition,
       "Transcript not ready",
@@ -265,7 +265,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     )
   end
 
-  defp queue_event(%{kind: kind, attempt: attempt} = transition, _input)
+  defp queue_event(%{kind: kind, attempt: attempt} = transition)
        when kind in [:claimed, :reclaimed] do
     reason =
       if attempt > 1,
@@ -275,7 +275,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     queue_event(transition, "Picked up", reason)
   end
 
-  defp queue_event(%{kind: :retry_scheduled} = transition, _input) do
+  defp queue_event(%{kind: :retry_scheduled} = transition) do
     reason =
       "Eligible to retry at #{retry_time(transition.eligible_at)}." <>
         error_reason(transition.error_code)
@@ -283,7 +283,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     queue_event(transition, "Retry scheduled", reason)
   end
 
-  defp queue_event(%{kind: :blocked} = transition, _input) do
+  defp queue_event(%{kind: :blocked} = transition) do
     queue_event(
       transition,
       "Automatic retries stopped",
@@ -292,11 +292,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     )
   end
 
-  defp queue_event(%{kind: :rearmed} = transition, _input) do
+  defp queue_event(%{kind: :rearmed} = transition) do
     queue_event(transition, "Rearmed", "An operator returned the input to the routing queue.")
   end
 
-  defp queue_event(%{kind: :superseded} = transition, _input) do
+  defp queue_event(%{kind: :superseded} = transition) do
     queue_event(
       transition,
       "Superseded",

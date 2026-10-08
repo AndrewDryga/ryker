@@ -306,8 +306,13 @@ defmodule Ryker.Memories.Reviews do
     %{created: created}
   end
 
+  # Sources reviewed before, under any status, are told by the digest's unique
+  # index in the statement that opens the review, never by a read before it.
+  # A plain insert that met the index would have aborted the whole refresh's
+  # transaction (Emisar's read-before-write rule).
   defp ensure_review(workspace_ref, {kind, entries, reason}) do
     entries = Enum.sort_by(entries, &review_entry_ref/1)
+    id = Repo.generate_id()
 
     digest =
       CanonicalJSON.digest(%{
@@ -315,37 +320,38 @@ defmodule Ryker.Memories.Reviews do
         "kind" => Atom.to_string(kind)
       })
 
-    if Repo.exists?(MemoryReviewItem.Query.by_source_digest(digest)) do
-      false
-    else
-      id = Repo.generate_id()
+    changeset =
+      MemoryReviewItem.Changeset.insert(%{
+        entry_refs: Enum.map(entries, &review_entry_ref/1),
+        id: id,
+        kind: kind,
+        reason: reason,
+        ref: "memory-review:#{id}",
+        source_digest: digest,
+        status: :pending,
+        workspace_ref: workspace_ref
+      })
 
-      changeset =
-        %{
-          entry_refs: Enum.map(entries, &review_entry_ref/1),
-          id: id,
-          kind: kind,
-          reason: reason,
-          ref: "memory-review:#{id}",
-          source_digest: digest,
-          status: :pending,
-          workspace_ref: workspace_ref
-        }
-        |> MemoryReviewItem.Changeset.insert()
-
-      changeset |> Repo.insert() |> review_inserted()
-    end
-  end
-
-  defp review_inserted({:ok, review}) do
-    Memories.broadcast_memory_updated(review.id)
-    true
-  end
-
-  defp review_inserted({:error, changeset}) do
-    if Keyword.has_key?(changeset.errors, :source_digest),
-      do: false,
+    if changeset.valid?,
+      do: insert_review(changeset),
       else: Repo.rollback({:memory_review_persistence, changeset.errors})
+  end
+
+  defp insert_review(changeset) do
+    now = Repo.now!()
+    review = Map.merge(changeset.changes, %{inserted_at: now, updated_at: now})
+
+    case Repo.insert_all(MemoryReviewItem, [review],
+           on_conflict: :nothing,
+           conflict_target: :source_digest
+         ) do
+      {1, _inserted} ->
+        Memories.broadcast_memory_updated(review.id)
+        true
+
+      {0, _inserted} ->
+        false
+    end
   end
 
   defp review_source(:duplicate, source), do: review_identity(source)

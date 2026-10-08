@@ -235,23 +235,21 @@ defmodule Ryker.Work.Custody.Sessions do
         session_id = Repo.generate_id()
         emisar = emisar_pin(authority.environment_ref)
 
-        session_id
-        |> Session.Changeset.insert(
-          episode.id,
-          1,
-          authority.policy,
-          authority.policy_digest,
-          authority.repository_ref,
-          session_external_ref(episode.id, 1),
-          %{
-            authority_digest: authority.authority_digest,
-            environment_ref: authority.environment_ref,
-            repository_context: authority.repository_context,
-            repository_source: authority.repository_source,
-            emisar: emisar,
-            workspace_task: nil
-          }
-        )
+        Session.Changeset.insert(%{
+          id: session_id,
+          episode_id: episode.id,
+          generation: 1,
+          policy: authority.policy,
+          policy_digest: authority.policy_digest,
+          repository_ref: authority.repository_ref,
+          external_ref: session_external_ref(episode.id, 1),
+          authority_digest: authority.authority_digest,
+          environment_ref: authority.environment_ref,
+          repository_context: authority.repository_context,
+          repository_source: authority.repository_source,
+          emisar: emisar,
+          workspace_task: nil
+        })
         |> Repo.insert()
         |> unwrap_or_rollback(:work_session)
 
@@ -476,25 +474,23 @@ defmodule Ryker.Work.Custody.Sessions do
       job = authority.worker_job_document
       job_digest = authority.worker_job_digest
 
-      session_id
-      |> Session.Changeset.insert(
-        episode_id,
-        generation,
-        authority.policy,
-        authority.policy_digest,
-        authority.repository_ref,
-        external_ref,
-        %{
-          authority_digest: authority.authority_digest,
-          worker_job_document: job,
-          worker_job_digest: job_digest,
-          environment_ref: authority.environment_ref,
-          repository_context: authority.repository_context,
-          repository_source: authority.repository_source,
-          emisar: present_emisar(authority.emisar),
-          workspace_task: authority.workspace_task
-        }
-      )
+      Session.Changeset.insert(%{
+        id: session_id,
+        episode_id: episode_id,
+        generation: generation,
+        policy: authority.policy,
+        policy_digest: authority.policy_digest,
+        repository_ref: authority.repository_ref,
+        external_ref: external_ref,
+        authority_digest: authority.authority_digest,
+        worker_job_document: job,
+        worker_job_digest: job_digest,
+        environment_ref: authority.environment_ref,
+        repository_context: authority.repository_context,
+        repository_source: authority.repository_source,
+        emisar: present_emisar(authority.emisar),
+        workspace_task: authority.workspace_task
+      })
       |> Repo.insert()
       |> persistence_result(:work_session)
     end

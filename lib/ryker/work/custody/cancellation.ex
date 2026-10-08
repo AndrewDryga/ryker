@@ -254,7 +254,7 @@ defmodule Ryker.Work.Custody.Cancellation do
           )
 
         {:error, :work_turn_not_found} ->
-          settle_local_cancellation(episode, nil, intent, fingerprint)
+          settle_local_cancellation(episode, intent)
       end
     else
       {:error, reason} -> Repo.rollback(reason)
@@ -609,7 +609,7 @@ defmodule Ryker.Work.Custody.Cancellation do
   defp conflicting_cancellation?(turn, fingerprint),
     do: turn.cancellation_intent != nil and turn.cancellation_intent_fingerprint != fingerprint
 
-  defp settle_local_cancellation(episode, nil, intent, _fingerprint) do
+  defp settle_local_cancellation(episode, intent) do
     command = WorkCancellation.command(intent, episode, Repo.now!())
 
     case Episodes.apply_batch_in_transaction([command]) do

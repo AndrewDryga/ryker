@@ -436,10 +436,9 @@ defmodule Ryker.ControlPlane.CapabilityTools do
       context.conversation_ref
       |> Conversation.Query.delivered_replies(@maximum_messages)
       |> Repo.all()
-      |> Enum.flat_map(&reply_message(&1, context))
+      |> Enum.flat_map(&reply_message/1)
 
-    inputs
-    |> Kernel.++(replies)
+    (inputs ++ replies)
     |> Enum.sort_by(&{&1["occurred_at"], &1["source_ref"]}, :desc)
     |> Enum.take(@maximum_messages)
     |> Enum.sort_by(&{&1["occurred_at"], &1["source_ref"]})
@@ -475,14 +474,11 @@ defmodule Ryker.ControlPlane.CapabilityTools do
     end
   end
 
-  defp reply_message(
-         %Work.Turn{
-           accepted_at: accepted_at,
-           delivery_document: %{"message" => message},
-           delivery_ref: delivery_ref
-         },
-         _context
-       )
+  defp reply_message(%Work.Turn{
+         accepted_at: accepted_at,
+         delivery_document: %{"message" => message},
+         delivery_ref: delivery_ref
+       })
        when is_binary(message) and is_binary(delivery_ref) do
     [
       %{
@@ -494,7 +490,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
     ]
   end
 
-  defp reply_message(_turn, _context), do: []
+  defp reply_message(_turn), do: []
 
   defp with_message_context(message, originals) do
     index = Enum.find_index(originals, &(&1["source_ref"] == message["source_ref"]))

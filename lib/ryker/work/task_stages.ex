@@ -433,7 +433,7 @@ defmodule Ryker.Work.TaskStages do
 
     if Enum.all?(goals, &(&1["state"] in @terminal_goal_states)),
       do: "completed",
-      else: run_state(facts) || goal_state(goals, facts)
+      else: run_state(facts) || goal_state(goals)
   end
 
   defp run_state(%{episode: %Episodes.Episode{state: :cancelled}}), do: "stopped"
@@ -446,7 +446,7 @@ defmodule Ryker.Work.TaskStages do
   defp run_state(_facts), do: nil
 
   # A stage runs when one of its steps does; one whose steps have not begun has not either.
-  defp goal_state(goals, _facts) do
+  defp goal_state(goals) do
     cond do
       Enum.any?(goals, &(&1["state"] == "working")) -> "running"
       Enum.any?(goals, &(&1["state"] == "waiting")) -> "waiting"

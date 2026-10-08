@@ -8,9 +8,6 @@ defmodule Ryker.Memories.MemoryReviewItem.Query do
   def by_ref(queryable \\ all(), ref),
     do: where(queryable, [memory_review_items: r], r.ref == ^ref)
 
-  def by_source_digest(queryable \\ all(), digest),
-    do: where(queryable, [memory_review_items: r], r.source_digest == ^digest)
-
   def by_workspace(queryable \\ all(), workspace_ref),
     do: where(queryable, [memory_review_items: r], r.workspace_ref == ^workspace_ref)
 

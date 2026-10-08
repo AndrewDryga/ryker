@@ -162,6 +162,11 @@ Emisar's write rules (`../emisar/portal/.agent/kb/rules/README.md`) that Ryker f
 - A row whose identity is a unique key is written with one upsert
   (`on_conflict: {:replace, fields}, conflict_target: key`), and a
   fetch-or-create inserts with `on_conflict: :nothing` and reads the winner.
+- Whether a row exists is never read before inserting it: the unique index
+  decides in the insert itself. `insert_all` with `on_conflict: :nothing`
+  answers how many rows it wrote (`Ryker.Feedback`, memory reviews); a plain
+  insert that meets the index inside a transaction aborts the transaction,
+  so its constraint error can never be handled there.
 - A write hands back what it changed (`returning: true`, `select` on
   `update_all`) instead of reading it again; N rows go in one `insert_all`
   unless each must fail alone, which the call says.
@@ -198,6 +203,10 @@ Functions:
 - A private function that only hands its arguments to another call is
   inlined (Emisar's rule: a wrapper earns a name only when it adds meaning
   the call site lacks).
+- A function takes only what it reads. A parameter no clause uses goes, and
+  so does the chain that only passed it on (29 on 2026-10-08, among them a
+  run ordinal through six trace steps). A callback keeps the shape its
+  caller requires: a function plug, a `Regex.replace/3` function.
 - A module attribute holds configuration: a limit, a version, a prefix, a
   pattern, a path. A message or other literal read in one place is written
   there.

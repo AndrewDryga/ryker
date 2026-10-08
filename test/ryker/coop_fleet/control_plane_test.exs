@@ -2288,20 +2288,18 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     # replacement pinned to a different source may never be seeded from it.
     moved =
       Repo.insert!(
-        Session.Changeset.insert(
-          Ecto.UUID.generate(),
-          session.episode_id,
-          2,
-          session.policy,
-          session.policy_digest,
-          session.repository_ref,
-          "resume-moved",
-          %{
-            authority_digest: session.authority_digest,
-            repository_source: %{"kind" => "branch", "name" => "feature/other"},
-            workspace_task: nil
-          }
-        )
+        Session.Changeset.insert(%{
+          id: Ecto.UUID.generate(),
+          episode_id: session.episode_id,
+          generation: 2,
+          policy: session.policy,
+          policy_digest: session.policy_digest,
+          repository_ref: session.repository_ref,
+          external_ref: "resume-moved",
+          authority_digest: session.authority_digest,
+          repository_source: %{"kind" => "branch", "name" => "feature/other"},
+          workspace_task: nil
+        })
       )
 
     assert ControlPlane.portable_workspace(moved, requirements, body_root) == nil

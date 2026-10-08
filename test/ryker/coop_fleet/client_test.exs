@@ -722,22 +722,20 @@ defmodule Ryker.CoopFleet.ClientTest do
     # A replacement generation carries its predecessor's exact repository source,
     # which is what makes the checkpoint's tree the right seed for it.
     replacement =
-      Session.Changeset.insert(
-        Ecto.UUID.generate(),
-        source.episode_id,
-        2,
-        source.policy,
-        source.policy_digest,
-        source.repository_ref,
-        source.external_ref,
-        %{
-          authority_digest: source.authority_digest,
-          repository_source: source.repository_source,
-          worker_job_document: source.worker_job_document,
-          worker_job_digest: source.worker_job_digest,
-          workspace_task: nil
-        }
-      )
+      Session.Changeset.insert(%{
+        id: Ecto.UUID.generate(),
+        episode_id: source.episode_id,
+        generation: 2,
+        policy: source.policy,
+        policy_digest: source.policy_digest,
+        repository_ref: source.repository_ref,
+        external_ref: source.external_ref,
+        authority_digest: source.authority_digest,
+        repository_source: source.repository_source,
+        worker_job_document: source.worker_job_document,
+        worker_job_digest: source.worker_job_digest,
+        workspace_task: nil
+      })
       |> Repo.insert!()
       |> Session.Changeset.bind_workspace_task(workspace_task)
       |> Repo.update!()
@@ -812,22 +810,20 @@ defmodule Ryker.CoopFleet.ClientTest do
       |> Repo.update!()
 
     replacement =
-      Session.Changeset.insert(
-        Ecto.UUID.generate(),
-        source.episode_id,
-        2,
-        source.policy,
-        source.policy_digest,
-        source.repository_ref,
-        source.external_ref,
-        %{
-          authority_digest: source.authority_digest,
-          repository_source: source.repository_source,
-          worker_job_document: source.worker_job_document,
-          worker_job_digest: source.worker_job_digest,
-          workspace_task: nil
-        }
-      )
+      Session.Changeset.insert(%{
+        id: Ecto.UUID.generate(),
+        episode_id: source.episode_id,
+        generation: 2,
+        policy: source.policy,
+        policy_digest: source.policy_digest,
+        repository_ref: source.repository_ref,
+        external_ref: source.external_ref,
+        authority_digest: source.authority_digest,
+        repository_source: source.repository_source,
+        worker_job_document: source.worker_job_document,
+        worker_job_digest: source.worker_job_digest,
+        workspace_task: nil
+      })
       |> Repo.insert!()
       |> Session.Changeset.bind_workspace_task(workspace_task)
       |> Repo.update!()
@@ -889,22 +885,20 @@ defmodule Ryker.CoopFleet.ClientTest do
     })
 
     replacement =
-      Session.Changeset.insert(
-        Ecto.UUID.generate(),
-        source.episode_id,
-        2,
-        source.policy,
-        source.policy_digest,
-        source.repository_ref,
-        source.external_ref,
-        %{
-          authority_digest: source.authority_digest,
-          repository_source: source.repository_source,
-          worker_job_document: source.worker_job_document,
-          worker_job_digest: source.worker_job_digest,
-          workspace_task: nil
-        }
-      )
+      Session.Changeset.insert(%{
+        id: Ecto.UUID.generate(),
+        episode_id: source.episode_id,
+        generation: 2,
+        policy: source.policy,
+        policy_digest: source.policy_digest,
+        repository_ref: source.repository_ref,
+        external_ref: source.external_ref,
+        authority_digest: source.authority_digest,
+        repository_source: source.repository_source,
+        worker_job_document: source.worker_job_document,
+        worker_job_digest: source.worker_job_digest,
+        workspace_task: nil
+      })
       |> Repo.insert!()
       |> Session.Changeset.bind_workspace_task(workspace_task)
       |> Repo.update!()
@@ -966,22 +960,20 @@ defmodule Ryker.CoopFleet.ClientTest do
       )
 
     replacement =
-      Session.Changeset.insert(
-        Ecto.UUID.generate(),
-        source.episode_id,
-        2,
-        source.policy,
-        source.policy_digest,
-        source.repository_ref,
-        source.external_ref,
-        %{
-          authority_digest: source.authority_digest,
-          repository_source: source.repository_source,
-          worker_job_document: source.worker_job_document,
-          worker_job_digest: source.worker_job_digest,
-          workspace_task: nil
-        }
-      )
+      Session.Changeset.insert(%{
+        id: Ecto.UUID.generate(),
+        episode_id: source.episode_id,
+        generation: 2,
+        policy: source.policy,
+        policy_digest: source.policy_digest,
+        repository_ref: source.repository_ref,
+        external_ref: source.external_ref,
+        authority_digest: source.authority_digest,
+        repository_source: source.repository_source,
+        worker_job_document: source.worker_job_document,
+        worker_job_digest: source.worker_job_digest,
+        workspace_task: nil
+      })
       |> Repo.insert!()
       |> Session.Changeset.bind_workspace_task(workspace_task)
       |> Repo.update!()

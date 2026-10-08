@@ -113,7 +113,7 @@ defmodule Ryker.Work.Executor.Cancellation do
   defp continue_cancellation(%{} = turn, claim, key, settings) do
     if Remote.terminal_turn?(turn),
       do: settle_remote_cancellation(claim, nil, turn, settings),
-      else: cancel_remote_turn(claim, key, turn, settings)
+      else: cancel_remote_turn(claim, key, settings)
   end
 
   defp reconcile_cancellation_session(
@@ -275,15 +275,15 @@ defmodule Ryker.Work.Executor.Cancellation do
   defp frozen_remote_operation?(turn, kind, key),
     do: turn.remote_operation_kind == kind and turn.remote_operation_key == key
 
-  defp cancel_remote_turn(claim, key, remote_turn, settings) do
+  defp cancel_remote_turn(claim, key, settings) do
     case Remote.operation_by_key(settings, key) do
-      :not_found -> mutate_cancellation(claim, key, remote_turn, settings)
+      :not_found -> mutate_cancellation(claim, key, settings)
       {:ok, operation} -> cancellation_from_operation(claim, operation, key, settings)
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp mutate_cancellation(claim, key, _remote_turn, settings) do
+  defp mutate_cancellation(claim, key, settings) do
     with {:ok, remote_session} <-
            Remote.api_call(settings, fn ->
              settings.api.get_session(settings.client, claim.session.coop_session_id)

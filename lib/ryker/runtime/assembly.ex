@@ -140,16 +140,16 @@ defmodule Ryker.Runtime.Assembly do
     repository_knowledge = repository_knowledge(settings, work, github)
 
     {slack, slack_left_out} =
-      slack(bootstrap, settings, environments, schedules, policies, outside)
+      slack(settings, environments, schedules, policies, outside)
 
     slack_names = slack_names(settings)
 
-    control_plane = control_plane(bootstrap, settings, environments, work, schedules, outside)
+    control_plane = control_plane(bootstrap, environments, work, schedules, outside)
     adapters = adapters(slack, github, control_plane)
     delivery = delivery(settings, adapters)
     weekly_report = weekly_report(settings, slack, delivery)
-    publication = publication(bootstrap, settings, work, repositories, github, adapters)
-    {emisar, emisar_left_out} = emisar(bootstrap, settings, adapters, slack, github)
+    publication = publication(settings, work, repositories, github, adapters)
+    {emisar, emisar_left_out} = emisar(settings, adapters, slack, github)
 
     {webhooks, webhooks_left_out} =
       webhooks(bootstrap, settings, adapters, repositories, environments)
@@ -993,7 +993,6 @@ defmodule Ryker.Runtime.Assembly do
   end
 
   defp slack(
-         _bootstrap,
          %{slack: %{enabled: false}},
          _environments,
          _schedules,
@@ -1002,7 +1001,7 @@ defmodule Ryker.Runtime.Assembly do
        ),
        do: {nil, nil}
 
-  defp slack(_bootstrap, settings, environments, schedules, policies, outside) do
+  defp slack(settings, environments, schedules, policies, outside) do
     incident_policy = installation_policy(policies, :incident)
 
     case isolated(:slack, fn ->
@@ -1111,7 +1110,7 @@ defmodule Ryker.Runtime.Assembly do
   # Each Chat conversation picks its environment, so the console receives
   # every environment that can run work and the profile of work outside any;
   # a conversation whose environment cannot run work right now runs outside.
-  defp control_plane(bootstrap, _settings, environments, work, schedules, outside) do
+  defp control_plane(bootstrap, environments, work, schedules, outside) do
     %{
       access: Map.get(bootstrap.control_plane, :access, :loopback),
       coop_api: work && work.api,
@@ -1185,13 +1184,13 @@ defmodule Ryker.Runtime.Assembly do
 
   # Publication runs authorized readiness reviews through the same Coop
   # authority Work uses; without a Work lane there is nothing to review with.
-  defp publication(_bootstrap, _settings, nil, _repositories, _github, _adapters), do: nil
+  defp publication(_settings, nil, _repositories, _github, _adapters), do: nil
 
-  defp publication(_bootstrap, _settings, _work, _repositories, _github, adapters)
+  defp publication(_settings, _work, _repositories, _github, adapters)
        when map_size(adapters) == 0,
        do: nil
 
-  defp publication(_bootstrap, settings, work, repositories, github, adapters) do
+  defp publication(settings, work, repositories, github, adapters) do
     repositories =
       if settings.publication.enabled and github,
         do: publication_repositories(settings, repositories, github),
@@ -1238,7 +1237,7 @@ defmodule Ryker.Runtime.Assembly do
   # Each account Ryker watches for approval decisions is its own watcher: one
   # it cannot watch (an address saved before today's checks, a value its
   # runtime refuses) is left out and named, and the other accounts still run.
-  defp emisar(_bootstrap, settings, adapters, slack, github) do
+  defp emisar(settings, adapters, slack, github) do
     {connections, left_out} =
       settings.emisar_connections
       |> Enum.filter(& &1.monitoring_enabled)

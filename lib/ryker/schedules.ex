@@ -467,13 +467,18 @@ defmodule Ryker.Schedules do
         miss_occurrence(schedule, now)
 
       true ->
-        dispatch_occurrence(schedule, now, policy_resolver)
+        dispatch_occurrence(schedule, policy_resolver)
     end
   end
 
-  defp dispatch_occurrence(schedule, now, policy_resolver) do
-    with {:ok, scheduled_for} <- scheduled_for(schedule, now),
-         {:ok, policy} <- policy_resolver.(schedule),
+  defp dispatch_occurrence(schedule, policy_resolver) do
+    # A run whose moment has passed is recorded as missed and the next one runs
+    # on time, so an occurrence is always for the moment it was due. Catching up
+    # meant a morning check could fire in the afternoon because the host had
+    # been down, and the card had to carry an option explaining it.
+    scheduled_for = schedule.next_occurrence_at
+
+    with {:ok, policy} <- policy_resolver.(schedule),
          :ok <- policy(policy),
          {:ok, result} <- create_occurrence(schedule, scheduled_for, policy),
          {:ok, next_at} <-
@@ -498,11 +503,6 @@ defmodule Ryker.Schedules do
         Repo.rollback(reason)
     end
   end
-
-  # A run whose moment has passed is recorded as missed and the next one runs on
-  # time. Catching up meant a morning check could fire in the afternoon because
-  # the host had been down, and the card had to carry an option explaining it.
-  defp scheduled_for(%Schedule{next_occurrence_at: scheduled_for}, _now), do: {:ok, scheduled_for}
 
   defp create_occurrence(schedule, scheduled_for, policy, trigger \\ :scheduled) do
     occurrence_id = Repo.generate_id()

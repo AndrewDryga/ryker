@@ -716,7 +716,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
 
   # Placement decides whether a worker takes a session back, under a lock; the
   # projection read the same facts so the page can say it first.
-  defp replacement_cause(nil, _row, _verb) do
+  defp replacement_cause(nil, _verb) do
     cause(
       "The worker that held this session can no longer take it back.",
       "Only the worker that holds a session can work on it, and Ryker has no record of which worker that was.",
@@ -725,7 +725,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     )
   end
 
-  defp replacement_cause(%{enrolled: false} = worker, _row, verb) do
+  defp replacement_cause(%{enrolled: false} = worker, verb) do
     cause(
       "The worker that held this session was removed from Ryker.",
       "Only the worker that holds a session can #{verb}. Worker #{worker.id} held this one and is no longer enrolled.",
@@ -734,7 +734,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     )
   end
 
-  defp replacement_cause(%{job_valid: false}, _row, _verb) do
+  defp replacement_cause(%{job_valid: false}, _verb) do
     cause(
       "This session has no valid saved job, so execution cannot resume.",
       "Ryker cannot reconstruct execution instructions from current settings. The existing session can still be inspected or cleaned up.",
@@ -743,7 +743,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     )
   end
 
-  defp replacement_cause(%{setup_current: false} = worker, _row, _verb) do
+  defp replacement_cause(%{setup_current: false} = worker, _verb) do
     cause(
       "Its worker's setup changed since the session started, so it cannot take the session back.",
       "The session is still on worker #{worker.id}, but its workspace, sandbox or required capabilities no longer match the saved placement.",
@@ -752,7 +752,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     )
   end
 
-  defp replacement_cause(%{draining: true} = worker, _row, verb) do
+  defp replacement_cause(%{draining: true} = worker, verb) do
     cause(
       "Its worker #{worker.id} is being drained and takes no work back.",
       "Only the worker that holds a session can #{verb}. Worker #{worker.id} holds this one and is draining: it finishes what it runs and accepts nothing new.",
@@ -767,7 +767,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     )
   end
 
-  defp replacement_cause(%{reporting: false} = worker, _row, verb) do
+  defp replacement_cause(%{reporting: false} = worker, verb) do
     cause(
       "Its worker #{worker.id} is not reporting, and only that worker can take the session back.",
       "Only the worker that holds a session can #{verb}. Worker #{worker.id} holds this one and has not reported#{seen(worker)}.",
@@ -782,7 +782,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     )
   end
 
-  defp replacement_cause(worker, _row, verb) do
+  defp replacement_cause(worker, verb) do
     cause(
       "Its worker could not take the session back then, but it can now.",
       "Only the worker that holds a session can #{verb}. When Ryker tried, worker #{worker.id} could not take it back; it is reporting now and matches the saved placement.",
@@ -995,7 +995,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp work_cause(row, %{kind: :completion} = brief) do
     case row[:summary] do
       "coop_session_replacement_required" ->
-        replacement_cause(Map.get(row, :worker), row, "save the result")
+        replacement_cause(Map.get(row, :worker), "save the result")
 
       code
       when code in ["coop_unavailable", "coop_transport_error", "coop_worker_command_timeout"] ->

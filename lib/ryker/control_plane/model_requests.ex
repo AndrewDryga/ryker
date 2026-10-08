@@ -838,7 +838,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
     %{
       id: turn.id,
-      counts: work_counts(turn, context),
+      counts: work_counts(context),
       title: "Work request",
       at: turn.inserted_at,
       status: turn.status,
@@ -902,13 +902,13 @@ defmodule Ryker.ControlPlane.ModelRequests do
   # it the row says the selection was not recorded rather than implying zero.
   # The briefing counts what was sent. What the selection ledger says existed
   # but was not sent is the Context selection card's, before the briefing.
-  defp work_counts(_turn, context) when is_map(context) do
+  defp work_counts(context) when is_map(context) do
     %{}
     |> put_continuity_counts(context)
     |> put_listed_counts(context)
   end
 
-  defp work_counts(_turn, _context), do: %{}
+  defp work_counts(_context), do: %{}
 
   # Source notes and maintained topics are two different kinds of record, so
   # the continuity row names each count rather than summing them.

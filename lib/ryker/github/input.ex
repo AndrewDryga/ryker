@@ -101,7 +101,7 @@ defmodule Ryker.GitHub.Input do
          {:ok, event_action} <- event_kind(event.event_name, event.payload),
          :ok <- Binding.authorize_payload(binding, event.payload),
          {:ok, details} <- event_details(event.event_name, event.payload, event_action),
-         {:ok, actor} <- actor(event.event_name, event.payload, binding),
+         {:ok, actor} <- actor(event.payload, binding),
          :ok <- says_something(event.event_name, details.item),
          {:ok, occurred_at} <- occurred_at(details.item) do
       build_input(event, binding, details, actor, occurred_at)
@@ -366,7 +366,6 @@ defmodule Ryker.GitHub.Input do
   end
 
   defp actor(
-         _event_name,
          %{"sender" => %{"id" => id, "type" => type}},
          %Binding{ryker_actor_id: id}
        )
@@ -374,7 +373,6 @@ defmodule Ryker.GitHub.Input do
        do: {:error, {:github_input_ignored, :self_authored}}
 
   defp actor(
-         _event_name,
          %{"sender" => %{"id" => id, "type" => type}},
          %Binding{}
        )
@@ -383,7 +381,7 @@ defmodule Ryker.GitHub.Input do
     {:ok, %{kind: kind, ref: "github-user:#{id}"}}
   end
 
-  defp actor(_event_name, _payload, _binding), do: {:error, {:invalid_github_input, :actor}}
+  defp actor(_payload, _binding), do: {:error, {:invalid_github_input, :actor}}
 
   # The first of these an item carries dates it. A check run has no updated_at or created_at,
   # and its completed_at stays null until it finishes: one that has just started is dated by its

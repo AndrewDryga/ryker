@@ -17,92 +17,58 @@ defmodule Ryker.Work.Session.Changeset do
     :policy_digest
   ]
 
+  @insert_fields [
+    :id,
+    :episode_id,
+    :generation,
+    :create_generation,
+    :policy,
+    :policy_digest,
+    :authority_digest,
+    :worker_job_document,
+    :worker_job_digest,
+    :repository_ref,
+    :repository_context,
+    :repository_source,
+    :environment_ref,
+    :emisar_connection_ref,
+    :emisar_account_ref,
+    :emisar_rpc_url,
+    :external_ref,
+    :workspace_task
+  ]
+  @insert_required [
+    :id,
+    :episode_id,
+    :generation,
+    :create_generation,
+    :policy,
+    :policy_digest,
+    :external_ref
+  ]
+
   @spec advance_activity_cursor(Session.t(), non_neg_integer()) :: Ecto.Changeset.t()
   def advance_activity_cursor(%Session{} = session, cursor),
     do: change(session, activity_cursor: cursor)
 
-  @spec insert(
-          Ecto.UUID.t(),
-          Ecto.UUID.t(),
-          pos_integer(),
-          String.t(),
-          String.t(),
-          String.t() | nil,
-          String.t(),
-          map()
-        ) ::
-          Ecto.Changeset.t()
-  def insert(
-        id,
-        episode_id,
-        generation,
-        policy,
-        policy_digest,
-        repository_ref,
-        external_ref,
-        options
-      ) do
-    authority_digest = Map.fetch!(options, :authority_digest)
-    workspace_task = Map.fetch!(options, :workspace_task)
-    repository_context = Map.get(options, :repository_context)
-    repository_source = Map.get(options, :repository_source)
-    environment_ref = Map.get(options, :environment_ref)
-    worker_job_document = Map.get(options, :worker_job_document)
-    worker_job_digest = Map.get(options, :worker_job_digest)
-    emisar = Map.get(options, :emisar)
+  @doc """
+  A Work session's first row, from its identity (id, episode, generation,
+  policy and digests, external ref), its authority (repository, context,
+  source, environment, job, workspace task) and its Emisar pin, `emisar`, or
+  nil without one.
+  """
+  @spec insert(map()) :: Ecto.Changeset.t()
+  def insert(attrs) do
+    attrs =
+      attrs
+      |> Map.get(:emisar)
+      |> emisar_pin()
+      |> Map.merge(attrs)
+      |> Map.put(:create_generation, 1)
 
     %Session{}
-    |> cast(
-      %{
-        id: id,
-        episode_id: episode_id,
-        generation: generation,
-        create_generation: 1,
-        policy: policy,
-        policy_digest: policy_digest,
-        authority_digest: authority_digest,
-        worker_job_document: worker_job_document,
-        worker_job_digest: worker_job_digest,
-        repository_ref: repository_ref,
-        repository_context: repository_context,
-        repository_source: repository_source,
-        environment_ref: environment_ref,
-        emisar_connection_ref: emisar && emisar.connection_ref,
-        emisar_account_ref: emisar && emisar.account_ref,
-        emisar_rpc_url: emisar && emisar.rpc_url,
-        external_ref: external_ref,
-        workspace_task: workspace_task
-      },
-      [
-        :id,
-        :episode_id,
-        :generation,
-        :create_generation,
-        :policy,
-        :policy_digest,
-        :authority_digest,
-        :worker_job_document,
-        :worker_job_digest,
-        :repository_ref,
-        :repository_context,
-        :repository_source,
-        :environment_ref,
-        :emisar_connection_ref,
-        :emisar_account_ref,
-        :emisar_rpc_url,
-        :external_ref,
-        :workspace_task
-      ]
-    )
-    |> validate_required([
-      :id,
-      :episode_id,
-      :generation,
-      :create_generation,
-      :policy,
-      :policy_digest,
-      :external_ref
-    ])
+    |> cast(attrs, @insert_fields)
+    |> validate_required(@insert_required)
     |> validate_length(:policy, min: 1, max: 1_024)
     |> validate_format(:policy_digest, Crypto.sha256_hex_pattern())
     |> validate_format(:authority_digest, Crypto.sha256_hex_pattern())
@@ -135,18 +101,20 @@ defmodule Ryker.Work.Session.Changeset do
         repository_context: repository_context,
         emisar: emisar
       }) do
-    session
-    |> cast(
-      %{
+    attrs =
+      emisar
+      |> emisar_pin()
+      |> Map.merge(%{
         policy_digest: policy_digest,
         authority_digest: authority_digest,
         repository_context: repository_context,
-        emisar_connection_ref: emisar && emisar.connection_ref,
-        emisar_account_ref: emisar && emisar.account_ref,
-        emisar_rpc_url: emisar && emisar.rpc_url,
         worker_job_document: nil,
         worker_job_digest: nil
-      },
+      })
+
+    session
+    |> cast(
+      attrs,
       [
         :policy_digest,
         :authority_digest,
@@ -167,6 +135,14 @@ defmodule Ryker.Work.Session.Changeset do
     |> check_constraint(:repository_context, name: :episode_work_session_repository_context_valid)
     |> check_constraint(:emisar_connection_ref, name: :episode_work_session_emisar_pin_valid)
     |> check_constraint(:worker_job_document, name: :episode_work_session_worker_job_valid)
+  end
+
+  defp emisar_pin(emisar) do
+    %{
+      emisar_connection_ref: emisar && emisar.connection_ref,
+      emisar_account_ref: emisar && emisar.account_ref,
+      emisar_rpc_url: emisar && emisar.rpc_url
+    }
   end
 
   def pin_worker_job(session, document, digest) do

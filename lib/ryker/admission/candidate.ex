@@ -90,20 +90,20 @@ defmodule Ryker.Admission.Candidate do
   def allowed_relations(%Episodes.Episode{} = episode, context) do
     cond do
       Map.get(context, :source_owner, false) -> @relations
-      not repository_compatible?(episode, context) -> [:history_only]
+      not repository_compatible?(context) -> [:history_only]
       episode.state in [:working, :waiting_for_input, :waiting_for_event] -> @relations
       continuable_completion?(episode, context) -> @relations
       true -> [:history_only]
     end
   end
 
-  defp repository_compatible?(_episode, %{pinned_repository: nil}), do: true
-  defp repository_compatible?(_episode, %{input_repository: nil}), do: true
+  defp repository_compatible?(%{pinned_repository: nil}), do: true
+  defp repository_compatible?(%{input_repository: nil}), do: true
 
-  defp repository_compatible?(_episode, %{pinned_repository: pinned, input_repository: input}),
+  defp repository_compatible?(%{pinned_repository: pinned, input_repository: input}),
     do: pinned == input
 
-  defp repository_compatible?(_episode, _context), do: true
+  defp repository_compatible?(_context), do: true
 
   defp continuable_completion?(
          %Episodes.Episode{state: :complete, updated_at: updated_at},

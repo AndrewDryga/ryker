@@ -1497,9 +1497,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
 
   defp field_visible?(_field, _draft), do: true
 
-  defp noun(section), do: Map.get(section, :item_label, collection_item_label(section.key))
-
-  defp collection_item_label(_key), do: "entry"
+  defp noun(section), do: Map.get(section, :item_label, "entry")
 
   # What a webhook source needs that this installation does not have yet,
   # each with where to get it, before anyone fills in the form. A sender needs

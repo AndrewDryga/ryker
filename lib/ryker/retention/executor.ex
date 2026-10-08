@@ -115,7 +115,7 @@ defmodule Ryker.Retention.Executor do
 
   defp execute(:discard_pending, session, lease_ref, settings) do
     with {:ok, remote} <- fetch_session(session, settings) do
-      discard_from_state(remote["state"], session, lease_ref, remote, settings)
+      discard_from_state(remote["state"], session, lease_ref, settings)
     end
   end
 
@@ -142,7 +142,7 @@ defmodule Ryker.Retention.Executor do
   defp close_remote(session, lease_ref, settings) do
     key = Custody.close_key(session)
 
-    case api_call(settings, fn ->
+    case api_call(fn ->
            settings.api.close_session(
              settings.client,
              session.coop_session_id,
@@ -213,7 +213,7 @@ defmodule Ryker.Retention.Executor do
   defp plan_remote(session, lease_ref, settings) do
     key = Custody.plan_key(session)
 
-    case api_call(settings, fn ->
+    case api_call(fn ->
            settings.api.plan_discard(
              settings.client,
              session.coop_session_id,
@@ -268,13 +268,13 @@ defmodule Ryker.Retention.Executor do
 
   defp handle_plan_error(reason, _session, _lease_ref), do: {:error, reason}
 
-  defp discard_from_state("discarded", session, lease_ref, _remote, _settings),
+  defp discard_from_state("discarded", session, lease_ref, _settings),
     do: settle_already_discarded(session, lease_ref)
 
-  defp discard_from_state("closed", session, lease_ref, _remote, settings) do
+  defp discard_from_state("closed", session, lease_ref, settings) do
     key = Custody.discard_key(session)
 
-    case api_call(settings, fn ->
+    case api_call(fn ->
            settings.api.discard_session(
              settings.client,
              session.coop_session_id,
@@ -287,7 +287,7 @@ defmodule Ryker.Retention.Executor do
     end
   end
 
-  defp discard_from_state(_state, _session, _lease_ref, _remote, _settings),
+  defp discard_from_state(_state, _session, _lease_ref, _settings),
     do: {:error, {:coop_protocol_error, :discard_session_state}}
 
   defp handle_discard_response(response, session, lease_ref, key) do
@@ -317,7 +317,7 @@ defmodule Ryker.Retention.Executor do
 
   defp fetch_session(session, settings) do
     with {:ok, remote} <-
-           api_call(settings, fn ->
+           api_call(fn ->
              settings.api.get_session(settings.client, session.coop_session_id)
            end),
          :ok <- exact_session(session, remote, @session_states) do
@@ -395,7 +395,7 @@ defmodule Ryker.Retention.Executor do
   # A client reports its transport failures as errors. One that raises has a
   # bug, which no retry fixes, unless its database is down, which is an
   # outage: read as an outage, a bug was retried forever.
-  defp api_call(_settings, callback) do
+  defp api_call(callback) do
     callback.()
   rescue
     error in [DBConnection.ConnectionError, Postgrex.Error] ->

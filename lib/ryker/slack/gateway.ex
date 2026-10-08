@@ -192,7 +192,7 @@ defmodule Ryker.Slack.Gateway do
   def handle_envelope(%{"type" => "slash_commands"} = envelope, settings) do
     case Command.from_socket(envelope, settings.identity.workspace_ref, database_now()) do
       {:ok, command} -> handle_command(command, settings)
-      :ignore -> handle_unsupported_command(envelope)
+      :ignore -> {:ack, {:ignored, :unsupported_command}}
     end
   end
 
@@ -309,8 +309,6 @@ defmodule Ryker.Slack.Gateway do
         {:retry, reason}
     end
   end
-
-  defp handle_unsupported_command(_envelope), do: {:ack, {:ignored, :unsupported_command}}
 
   defp handle_message_interaction(envelope, now, settings) do
     case Interaction.from_socket(envelope, settings.identity.workspace_ref, now) do
