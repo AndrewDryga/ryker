@@ -1,5 +1,6 @@
 defmodule Ryker.CoopFleet.ManagedSourcesTest do
   use ExUnit.Case, async: true
+  import ExUnit.CaptureLog, only: [with_log: 1]
   import Ryker.TestHelpers, only: [os_process_gone?: 1]
   alias Ryker.CoopFleet.ManagedSources
   alias Ryker.Work.RepositorySource
@@ -207,12 +208,21 @@ defmodule Ryker.CoopFleet.ManagedSourcesTest do
 
     git!(["-C", remote, "branch", "-M", "main"])
 
-    assert ManagedSources.prepare_from_remote(
-             storage,
-             identity("repo:one", remote, 1, "test/repository"),
-             "main",
-             %{"kind" => "commit", "sha" => String.duplicate("f", 40)}
-           ) == {:error, :coop_worker_source_unavailable}
+    {result, log} =
+      with_log(fn ->
+        ManagedSources.prepare_from_remote(
+          storage,
+          identity("repo:one", remote, 1, "test/repository"),
+          "main",
+          %{"kind" => "commit", "sha" => String.duplicate("f", 40)}
+        )
+      end)
+
+    assert result == {:error, :coop_worker_source_unavailable}
+
+    # git's reason went to the container's stderr as raw text, beside nothing
+    # that said which source or step it belonged to; it is one log line now.
+    assert log =~ ~r/git fetch failed: \S/
   end
 
   test "nested gitlinks freeze configured identities, not the URLs or default branches" do
