@@ -7,9 +7,12 @@ defmodule Ryker.Work.SessionOwnerIndexesMigrationTest do
   # Removing a learning, improvement or knowledge run, or an inbox entry, checks
   # the sessions' foreign key by the owner's id alone. The unique indexes named
   # the session's kind as well, so the check read the whole table for every row
-  # retention removed (2026-10-04 review). The plans name each index once it
-  # exists, read with sequential scans off so that a near-empty table does not
-  # hide whether the check can use it.
+  # retention removed (2026-10-04 review). An index the check can use leads
+  # with the owner's column and holds every row that has one: no predicate, or
+  # only that the owner is set, which `owner = $1` implies. The planner's choice is not
+  # asserted: on a near-empty table PostgreSQL 18's skip scan prices the
+  # unique (id, admission_input_id) index the same, and the pick flipped
+  # between runs (2026-10-08).
   test "a removed run or inbox entry finds its sessions through an index" do
     owners = %{
       "learning_run_id" => "episode_work_sessions_learning_run_id_index",
@@ -21,27 +24,36 @@ defmodule Ryker.Work.SessionOwnerIndexesMigrationTest do
     assert :ok = migrate_down(@version)
 
     for {column, index} <- owners do
-      refute plan(column) =~ index
+      refute index in indexes_led_by(column)
     end
 
     assert :ok = migrate_up(@version)
 
     for {column, index} <- owners do
-      assert plan(column) =~ index
+      assert index in indexes_led_by(column)
     end
   end
 
-  # The query PostgreSQL's foreign-key check runs for a removed owner.
-  defp plan(column) do
-    SQL.query!(Repo, "SET LOCAL enable_seqscan = off", [])
-
+  # The indexes of episode_work_sessions whose first column is `column` and
+  # that hold every row with it set, by name.
+  defp indexes_led_by(column) do
     %{rows: rows} =
       SQL.query!(
         Repo,
-        "EXPLAIN SELECT 1 FROM episode_work_sessions WHERE #{column} = $1",
-        [Ecto.UUID.dump!(Ecto.UUID.generate())]
+        """
+        SELECT index.relname
+        FROM pg_index i
+        JOIN pg_class index ON index.oid = i.indexrelid
+        JOIN pg_class tbl ON tbl.oid = i.indrelid
+        JOIN pg_attribute a ON a.attrelid = tbl.oid AND a.attnum = i.indkey[0]
+        WHERE tbl.relname = 'episode_work_sessions'
+          AND tbl.relnamespace = current_schema()::regnamespace
+          AND a.attname = $1
+          AND (i.indpred IS NULL OR pg_get_expr(i.indpred, i.indrelid) = '(' || $1 || ' IS NOT NULL)')
+        """,
+        [column]
       )
 
-    Enum.map_join(rows, "\n", &hd/1)
+    List.flatten(rows)
   end
 end

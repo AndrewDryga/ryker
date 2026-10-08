@@ -1,8 +1,8 @@
-defmodule Ryker.Delivery.Lease.Changeset do
+defmodule Ryker.Lease.Changeset do
   @moduledoc """
-  The lease custody a delivery row moves through, shared by platform actions
-  (`Ryker.Delivery.PlatformAction.Changeset`) and weekly reports
-  (`Ryker.WeeklyReport.Report.Changeset`). A worker claims a pending row
+  The lease custody a delivery row moves through (`Ryker.Lease`), shared by
+  platform actions (`Ryker.Delivery.PlatformAction.Changeset`) and weekly
+  reports (`Ryker.WeeklyReport.Report.Changeset`). A worker claims a pending row
   under a lease and renews it while it works. The attempt then confirms the
   delivery, defers it to a later attempt, or blocks it until a person retries
   it. Each caller adds its own table's constraints.

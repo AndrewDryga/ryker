@@ -2,10 +2,11 @@ defmodule Ryker.Delivery.PlatformAction.Changeset do
   @moduledoc """
   How a platform action is recorded and delivered
   (`Ryker.Delivery.PlatformAction`), through the lease custody of
-  `Ryker.Delivery.Lease.Changeset`.
+  `Ryker.Lease.Changeset`.
   """
   use Ryker, :changeset
-  alias Ryker.Delivery.{Lease, PlatformAction}
+  alias Ryker.Delivery.PlatformAction
+  alias Ryker.Lease
 
   @fields [
     :action_ref,
@@ -36,33 +37,33 @@ defmodule Ryker.Delivery.PlatformAction.Changeset do
     |> action_constraints()
   end
 
-  @doc "See `Ryker.Delivery.Lease.Changeset.claim/5`."
+  @doc "See `Ryker.Lease.Changeset.claim/5`."
   def claim(%PlatformAction{} = action, at, lease_seconds, owner, lease_ref) do
     action
     |> Lease.Changeset.claim(at, lease_seconds, owner, lease_ref)
     |> action_constraints()
   end
 
-  @doc "See `Ryker.Delivery.Lease.Changeset.renew/2`."
+  @doc "See `Ryker.Lease.Changeset.renew/2`."
   def renew(%PlatformAction{} = action, expires_at),
     do: action |> Lease.Changeset.renew(expires_at) |> action_constraints()
 
-  @doc "See `Ryker.Delivery.Lease.Changeset.defer/4`."
+  @doc "See `Ryker.Lease.Changeset.defer/4`."
   def defer(%PlatformAction{} = action, next_attempt_at, error_code, error_detail) do
     action
     |> Lease.Changeset.defer(next_attempt_at, error_code, error_detail)
     |> action_constraints()
   end
 
-  @doc "See `Ryker.Delivery.Lease.Changeset.block/3`."
+  @doc "See `Ryker.Lease.Changeset.block/3`."
   def block(%PlatformAction{} = action, error_code, error_detail),
     do: action |> Lease.Changeset.block(error_code, error_detail) |> action_constraints()
 
-  @doc "See `Ryker.Delivery.Lease.Changeset.retry/1`."
+  @doc "See `Ryker.Lease.Changeset.retry/1`."
   def retry(%PlatformAction{} = action),
     do: action |> Lease.Changeset.retry() |> action_constraints()
 
-  @doc "See `Ryker.Delivery.Lease.Changeset.confirm/4`."
+  @doc "See `Ryker.Lease.Changeset.confirm/4`."
   def confirm(%PlatformAction{} = action, at, receipt, fingerprint),
     do: action |> Lease.Changeset.confirm(at, receipt, fingerprint) |> action_constraints()
 

@@ -146,17 +146,23 @@ Results:
   it; it restates the tuple (`{:error, reason} -> {:halt, {:error, reason}}`)
   (`NoBoundTupleReturn`). A tuple handed on to a function keeps its name.
 
-Not adopted yet (2026-10-08):
+Not adopted, measured 2026-10-08:
 
 - **`Ecto.Multi` with `Repo.commit_multi`, and `Repo.fetch_and_update/3`.**
-  Emisar's lib composes its transactions this way (145 `commit_multi` and 27
-  `fetch_and_update` calls, two plain `Repo.transaction`). Ryker has 264
-  `Repo.transaction` bodies in deep custody that call each other in fixed
-  lock orders (a memory write takes the answer source, then the review lock,
-  then the channel), and each refusal is a `Repo.rollback/1` reason its
-  callers match on, so each moves together with its callers.
+  Emisar's lib composes its transactions this way (145 `commit_multi`, 27
+  `fetch_and_update`, two plain `Repo.transaction`). Ryker has 264
+  `Repo.transaction` bodies in custody that nests: a context's write joins
+  whatever transaction its caller opened, in a fixed lock order (a memory
+  write takes the answer source, then the review lock, then the channel),
+  and each refusal is a `Repo.rollback/1` reason its callers match on.
+  What `commit_multi` gives Emisar beyond that, side effects after the
+  outermost commit, Ryker already has (`Repo.after_commit/1`). One
+  `Multi.run` around today's bodies would change only the wrapper; steps
+  per custody would rewrite every caller's contract for no change in
+  behaviour.
 - **`Repo.transact/2` instead of `Repo.transaction/2`.** Ecto 3.14
-  deprecates `transaction/2` in its documentation only. `transact/2` commits
+  deprecates `transaction/2` in its documentation only, and runs it through
+  `transact/2`, where Ryker's after-commit queue lives. `transact/2` commits
   on `{:ok, _}` and rolls back on `{:error, _}`, so a body moves with its
   contract.
 
@@ -231,8 +237,8 @@ names, and `Ryker.DataCase` fails an async test that saves settings.
 - Advisory locks go through `Ryker.AdvisoryLock`.
 - A transaction's timeouts are `Repo.statement_timeout!/1` and
   `Repo.lock_timeout!/1`. The database clock is `Repo.now!/0`.
-- Delivery rows with a lease share their transitions through
-  `Ryker.Delivery.Lease.Changeset`.
+- Rows with a lease share their transitions through `Ryker.Lease.Changeset`,
+  beside `Ryker.Lease`.
 - Whether a worker still holds a row's lease is `Ryker.Lease.held?/3`, and a
   renewal's expiry is `Ryker.Lease.renewed/3`; no custody keeps its own copy.
 - A reference string is checked by `Ryker.Reference`: a boundary keeps its
@@ -245,8 +251,22 @@ names, and `Ryker.DataCase` fails an async test that saves settings.
   authorizer modules: Ryker is one installation. Writes check the actor where
   they happen (`Ryker.Settings` authorizes each save); there is no subject.
 - **Audit context checks**: Ryker has no audit context.
-- **CrossContextDeepCall**, not yet (2026-10-08): 1,227 calls into other
-  contexts' Query and Changeset modules in 167 files (647 targets).
+- **CrossContextDeepCall** (another context's Query and Changeset modules
+  called only by that context). Measured 2026-10-08: 869 calls in 123 files
+  outside the Query modules and the read-model layers (the console's
+  projections and Observability, the role Emisar's Audit resolvers play),
+  647 targets. Emisar's reason is its authorization boundary: a
+  `%Subject{}` gate and `for_subject/2` row scoping run only inside a
+  context, so a nested call runs outside them. Ryker has neither (IL-3 and
+  IL-4 above), and its directories share tables: `episode_work_sessions`
+  holds Work, Admission, Learning, Improvement and Knowledge sessions, and
+  custody locks episodes, turns and sessions of several directories in one
+  transaction, in a fixed order. Moving each read and write behind the
+  owning directory would add about 500 single-use functions without
+  changing what any of them reads, writes or locks. What holds instead:
+  queries are built only in Query modules (IL-1), another context's modules
+  are named through it (`CrossContextDeepAlias`), and transitions every
+  custody shares live at the top (`Ryker.Lease.Changeset`).
 - **NoIslandContainers**: the console uses its own CSS classes, not
   Tailwind's, so the class pattern it looks for never appears.
 - **No client-side draft store for an ordinary form**
