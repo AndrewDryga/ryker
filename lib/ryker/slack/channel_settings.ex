@@ -134,7 +134,7 @@ defmodule Ryker.Slack.ChannelSettings do
 
     unless configuration.participation == target do
       configuration
-      |> ChannelConfiguration.Changeset.configuration(%{
+      |> ChannelConfiguration.Changeset.update(%{
         actor_ref: attributes.actor_ref,
         participation: target,
         revision: configuration.revision + 1,

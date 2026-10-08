@@ -116,7 +116,26 @@ defmodule Ryker.StateTools.ErrorCode do
 
   def code(:memory_capacity_reached), do: "memory_capacity_reached"
   def code(:work_memory_source_capacity_exceeded), do: "memory_source_capacity_exceeded"
-  def code({:invalid_schedule, _field}), do: "invalid_arguments"
+  # Each field the schema refused, by JSON Pointer, with why: the model fixes
+  # those fields instead of guessing (Emisar's actionable validation).
+  def code({:invalid_arguments, %{issues: issues, count: count, truncated: truncated}}) do
+    listed =
+      Enum.map_join(issues, " ", fn issue ->
+        "#{issue.path} (#{issue.code}): #{issue.message}."
+      end)
+
+    shown =
+      if truncated,
+        do: "#{count} issues, the first #{length(issues)} shown.",
+        else: issue_count(count)
+
+    "invalid_arguments: #{shown} #{listed} Nothing was changed; correct these fields and call again."
+  end
+
+  def code({:invalid_schedule, field}) when is_atom(field) do
+    "invalid_arguments: #{field} was refused: missing where required, too long, or not valid. Nothing was proposed."
+  end
+
   # Which field the record refused, so the model can shorten or correct that
   # one instead of repeating the same call.
   def code({:invalid_state_record, :payload}) do
@@ -127,8 +146,14 @@ defmodule Ryker.StateTools.ErrorCode do
     "invalid_arguments: #{field} was refused: missing where required, too long, or not valid. Nothing was recorded."
   end
 
-  def code({:invalid_emisar_approval, _field}), do: "invalid_arguments"
+  def code({:invalid_emisar_approval, field}) when is_atom(field) do
+    "invalid_arguments: #{field} was refused: missing where required, too long, or not valid. Nothing was recorded."
+  end
+
   def code(_reason), do: "temporarily_unavailable"
+
+  defp issue_count(1), do: "1 issue."
+  defp issue_count(count), do: "#{count} issues."
 
   @doc """
   What a state-tool error means, for the person reading the timeline.

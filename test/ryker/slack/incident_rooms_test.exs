@@ -2390,7 +2390,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     }
 
     attributes
-    |> ChannelConfiguration.Changeset.configuration()
+    |> ChannelConfiguration.Changeset.insert()
     |> Repo.insert!()
   end
 

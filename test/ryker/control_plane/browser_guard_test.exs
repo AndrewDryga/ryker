@@ -189,7 +189,9 @@ defmodule Ryker.ControlPlane.BrowserGuardTest do
     :ok =
       :gen_tcp.send(socket, "GET /healthz HTTP/1.1\r\nhost: #{host}\r\nconnection: close\r\n\r\n")
 
-    {:ok, response} = :gen_tcp.recv(socket, 0, 5_000)
+    # The wait only bounds a hang: under the gate's load a loopback answer
+    # took longer than five seconds (2026-10-08).
+    {:ok, response} = :gen_tcp.recv(socket, 0, 30_000)
     :gen_tcp.close(socket)
     response
   end

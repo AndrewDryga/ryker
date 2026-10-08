@@ -311,7 +311,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
         broadcast_channel_updated(workspace_ref, channel_ref)
 
         configuration
-        |> ChannelConfiguration.Changeset.configuration(%{
+        |> ChannelConfiguration.Changeset.update(%{
           actor_ref: actor_ref,
           environment_ref: environment_ref,
           revision: configuration.revision + 1,
@@ -628,7 +628,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
         broadcast_channel_updated(membership.workspace_ref, membership.channel_ref)
 
         membership
-        |> ChannelConfiguration.Changeset.membership(%{
+        |> ChannelMembership.Changeset.update(%{
           external_shared: external_shared,
           private: private
         })
@@ -722,7 +722,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
       %ChannelConfiguration{} = configuration ->
         configuration
-        |> ChannelConfiguration.Changeset.configuration(%{welcome_message_ref: nil})
+        |> ChannelConfiguration.Changeset.update(%{welcome_message_ref: nil})
         |> Repo.update!()
     end
   end
@@ -750,7 +750,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
           welcome_message_ref: nil,
           workspace_ref: membership.workspace_ref
         }
-        |> ChannelConfiguration.Changeset.configuration()
+        |> ChannelConfiguration.Changeset.insert()
         |> Repo.insert!()
         |> tap(&broadcast_channel_updated(&1.workspace_ref, &1.channel_ref))
     end
@@ -763,13 +763,13 @@ defmodule Ryker.Slack.ChannelConfigurations do
     |> Map.take([:channel_ref, :external_shared, :private, :workspace_ref])
     |> Map.merge(timestamps)
     |> Map.merge(%{generation: generation, id: Repo.generate_id(), status: status})
-    |> ChannelConfiguration.Changeset.membership()
+    |> ChannelMembership.Changeset.insert()
     |> Repo.insert!()
   end
 
   defp rejoin_membership!(membership, occurred_at, private, external_shared) do
     membership
-    |> ChannelConfiguration.Changeset.membership(%{
+    |> ChannelMembership.Changeset.update(%{
       deleted_at: nil,
       external_shared: external_shared,
       generation: membership.generation + 1,
@@ -783,7 +783,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
   defp leave_membership!(membership, occurred_at) do
     membership
-    |> ChannelConfiguration.Changeset.membership(%{
+    |> ChannelMembership.Changeset.update(%{
       deleted_at: nil,
       joined_at: membership.joined_at || occurred_at,
       left_at: occurred_at,
@@ -794,7 +794,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
   defp delete_membership!(membership, occurred_at) do
     membership
-    |> ChannelConfiguration.Changeset.membership(%{
+    |> ChannelMembership.Changeset.update(%{
       deleted_at: occurred_at,
       joined_at: membership.joined_at,
       left_at: membership.left_at,
@@ -838,7 +838,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
       step: :participation,
       workspace_ref: membership.workspace_ref
     }
-    |> ChannelConfiguration.Changeset.session()
+    |> ConfigurationSession.Changeset.insert()
     |> Repo.insert!()
   end
 
@@ -850,7 +850,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
       id: Repo.generate_id(),
       membership_id: membership.id
     })
-    |> ChannelConfiguration.Changeset.membership_event()
+    |> ChannelMembershipEvent.Changeset.insert()
     |> Repo.insert!()
   end
 
@@ -935,7 +935,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
         broadcast_channel_updated(session.workspace_ref, session.channel_ref)
 
         session
-        |> ChannelConfiguration.Changeset.session(%{
+        |> ConfigurationSession.Changeset.update(%{
           current_message_ref: message_ref,
           response_thread_ref: thread_ref,
           root_message_ref: root_message_ref
@@ -1186,7 +1186,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
     updated =
       session
-      |> ChannelConfiguration.Changeset.session(changes)
+      |> ConfigurationSession.Changeset.update(changes)
       |> Repo.update!()
 
     {:ok, updated, outcome}
@@ -1213,7 +1213,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
     case existing do
       %ChannelConfiguration{} = configuration ->
         configuration
-        |> ChannelConfiguration.Changeset.configuration(attributes)
+        |> ChannelConfiguration.Changeset.update(attributes)
         |> Repo.update()
         |> saved_configuration(:configuration_environment_not_found)
 
@@ -1225,7 +1225,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
           welcome_message_ref: nil,
           workspace_ref: session.workspace_ref
         })
-        |> ChannelConfiguration.Changeset.configuration()
+        |> ChannelConfiguration.Changeset.insert()
         |> Repo.insert()
         |> saved_configuration(:configuration_environment_not_found)
     end
@@ -1263,7 +1263,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
       true ->
         saved =
           configuration
-          |> ChannelConfiguration.Changeset.configuration(%{
+          |> ChannelConfiguration.Changeset.update(%{
             field => value,
             actor_ref: attributes.actor_ref,
             revision: configuration.revision + 1,
@@ -1287,7 +1287,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
         broadcast_channel_updated(workspace_ref, channel_ref)
 
         configuration
-        |> ChannelConfiguration.Changeset.configuration(%{welcome_message_ref: message_ref})
+        |> ChannelConfiguration.Changeset.update(%{welcome_message_ref: message_ref})
         |> Repo.update!()
 
       %ChannelConfiguration{} ->
@@ -1306,7 +1306,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
       session_id: session.id,
       session_revision: session.revision
     }
-    |> ChannelConfiguration.Changeset.action()
+    |> ConfigurationAction.Changeset.insert()
     |> Repo.insert!()
   end
 
@@ -1314,7 +1314,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
   defp expire_session!(session) do
     session
-    |> ChannelConfiguration.Changeset.session(%{status: :expired})
+    |> ConfigurationSession.Changeset.update(%{status: :expired})
     |> Repo.update!()
 
     :ok

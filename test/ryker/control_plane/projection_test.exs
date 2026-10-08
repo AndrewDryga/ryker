@@ -29,7 +29,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
   alias Ryker.Retention.Custody, as: RetentionCustody
   alias Ryker.Schedules.Schedule
   alias Ryker.Schedules.ScheduleOccurrence
-  alias Ryker.Slack.{ChannelConfiguration, IncidentRoom}
+  alias Ryker.Slack.{ChannelConfiguration, ChannelMembership, IncidentRoom}
   alias Ryker.Slack.IncidentRoomLifecycleEvent
   alias Ryker.Slack.Input, as: SlackInput
   alias Ryker.Waits.EventSubscription
@@ -1832,7 +1832,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
         saved_at: now,
         workspace_ref: "T123"
       }
-      |> ChannelConfiguration.Changeset.configuration()
+      |> ChannelConfiguration.Changeset.insert()
       |> Repo.insert!()
 
     membership =
@@ -1846,7 +1846,7 @@ defmodule Ryker.ControlPlane.ProjectionTest do
         status: :joined,
         workspace_ref: "T123"
       }
-      |> ChannelConfiguration.Changeset.membership()
+      |> ChannelMembership.Changeset.insert()
       |> Repo.insert!()
 
     schedule =

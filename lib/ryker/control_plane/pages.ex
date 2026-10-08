@@ -220,7 +220,9 @@ defmodule Ryker.ControlPlane.Pages do
   # heading; the lists keep the page's.
   def page(["memory", "learned"], params, options) do
     view = options.projection.learned.(Map.take(params, LearnedPage.query_keys()))
-    body = LearnedPage.html(view, Map.get(options, :csrf_secret))
+
+    body =
+      LearnedPage.html(view, Map.get(options, :csrf_secret), Map.get(options, :relearn_error))
 
     case LearnedPage.heading(view) do
       nil -> ok("Learned", ConfigurationGuide.description(:learned), body)

@@ -10,7 +10,10 @@ defmodule Ryker.ControlPlane.FactsPage do
   (`subscriptions/0`).
   """
   use Phoenix.Component
-  import Ryker.ControlPlane.Components, only: [action_button: 1, filter_toolbar: 1, pager: 1]
+
+  import Ryker.ControlPlane.Components,
+    only: [action_button: 1, filter_toolbar: 1, form_feedback: 1, pager: 1]
+
   alias Phoenix.HTML.Safe
   alias Ryker.{Behaviors, Memories, Records}
   alias Ryker.ControlPlane.{Kit, MemoryFormat, MemoryProjection, Paths}
@@ -127,11 +130,20 @@ defmodule Ryker.ControlPlane.FactsPage do
   @doc """
   The form that corrects one stale fact in place: what it is about and what
   Ryker should remember, each with one line of help, then Save changes and
-  Cancel. Its POST is bound to the review by `token`.
+  Cancel. Its POST is bound to the review by `token`. A `draft` carries the
+  words a refused save typed (`:subject`, `:value`) and why it was refused
+  (`:error`), shown beside the fields.
   """
-  @spec edit_form(map(), String.t(), String.t()) :: iodata()
-  def edit_form(%{"entries" => [entry | _]}, action, token) do
-    assigns = %{__changed__: nil, entry: entry, action: action, token: token}
+  @spec edit_form(map(), String.t(), String.t(), map()) :: iodata()
+  def edit_form(%{"entries" => [entry | _]}, action, token, draft \\ %{}) do
+    assigns = %{
+      __changed__: nil,
+      action: action,
+      error: Map.get(draft, :error),
+      subject: Map.get(draft, :subject, entry["subject"]),
+      token: token,
+      value: Map.get(draft, :value, entry["value"])
+    }
 
     ~H"""
     <form class="memory-edit" method="post" action={@action}>
@@ -149,7 +161,7 @@ defmodule Ryker.ControlPlane.FactsPage do
           name="subject"
           maxlength="120"
           required
-          value={@entry["subject"]}
+          value={@subject}
           aria-describedby="memory-edit-subject-help"
         />
       </div>
@@ -164,8 +176,9 @@ defmodule Ryker.ControlPlane.FactsPage do
           maxlength="4000"
           required
           aria-describedby="memory-edit-value-help"
-        >{@entry["value"]}</textarea>
+        >{@value}</textarea>
       </div>
+      <.form_feedback :if={@error} id="memory-edit-error" message={@error} tone={:error} />
       <div class="memory-edit-actions">
         <button type="submit" class="ui-button primary">Save changes</button>
         <a class="ui-button secondary" href="/memory#review">Cancel</a>

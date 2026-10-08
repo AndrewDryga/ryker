@@ -151,7 +151,7 @@ defmodule Ryker.Slack.ChannelSettingsTest do
       saved_at: @now,
       workspace_ref: @workspace
     }
-    |> ChannelConfiguration.Changeset.configuration()
+    |> ChannelConfiguration.Changeset.insert()
     |> Repo.insert!()
   end
 

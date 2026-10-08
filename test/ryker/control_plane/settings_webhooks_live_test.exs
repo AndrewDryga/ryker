@@ -6,7 +6,7 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
   alias Ryker.Credentials
   alias Ryker.Ingress.Inbox
   alias Ryker.Settings
-  alias Ryker.Slack.ChannelConfiguration
+  alias Ryker.Slack.ChannelMembership
   alias Ryker.Slack.Names
   alias Ryker.Webhooks.Presets
 
@@ -705,7 +705,7 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
       status: :joined,
       workspace_ref: "T0123456789"
     }
-    |> ChannelConfiguration.Changeset.membership()
+    |> ChannelMembership.Changeset.insert()
     |> Repo.insert!()
   end
 

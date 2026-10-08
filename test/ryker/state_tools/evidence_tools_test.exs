@@ -37,9 +37,14 @@ defmodule Ryker.StateTools.EvidenceToolsTest do
   test "a source is still one reference: blank or spaced text is refused" do
     options = bound_options!()
 
-    for source <- ["", "an emisar run", "https://emisar.dev/app runs"] do
-      assert {:error, "invalid_arguments"} =
-               Tools.call("cite_source", citation(source), options),
+    assert Tools.call("cite_source", citation(""), options) ==
+             {:error,
+              "invalid_arguments: 1 issue. /source_ref (min_length): needs at least 1 character. Nothing was changed; correct these fields and call again."}
+
+    for source <- ["an emisar run", "https://emisar.dev/app runs"] do
+      assert Tools.call("cite_source", citation(source), options) ==
+               {:error,
+                "invalid_arguments: 1 issue. /source_ref (pattern): does not match its pattern. Nothing was changed; correct these fields and call again."},
              inspect(source)
     end
   end

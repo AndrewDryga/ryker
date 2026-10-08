@@ -626,7 +626,12 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
       |> Router.call(options)
     end
 
-    assert post.(%{"_token" => token, "budget_version" => "1"}).status == 403
+    # A refused retry was one line of plain text; it is the page that says
+    # why, with the way back to the batch (2026-10-08).
+    stale = post.(%{"_token" => token, "budget_version" => "1"})
+    assert stale.status == 403
+    assert stale.resp_body =~ "This batch changed after you opened it"
+    assert stale.resp_body =~ ~s(href="#{LearningActivity.path(claim.batch.id)}")
     assert Repo.aggregate(Action, :count) == 0
 
     for _ <- 1..2 do
@@ -665,7 +670,10 @@ defmodule Ryker.ControlPlane.LearningActivityTest do
   test "withdrawing every source rejects retry without a grant or success audit" do
     {claim, response} = retry_with_withdrawn_sources(inputs!())
     assert response.status == 409
-    assert response.resp_body =~ "can't run again as it was"
+
+    assert response.resp_body |> LazyHTML.from_document() |> LazyHTML.text() =~
+             "can't run again as it was"
+
     assert Repo.aggregate(Action, :count) == 0
     assert Repo.get!(Batch, claim.batch.id).budget_version == 0
   end

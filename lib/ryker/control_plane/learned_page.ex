@@ -72,10 +72,13 @@ defmodule Ryker.ControlPlane.LearnedPage do
 
   def heading(_view), do: nil
 
-  @doc "The Learned body for a `ConversationMemory` view."
-  @spec html(map(), String.t() | nil) :: iodata()
-  def html(view, csrf_secret) do
-    %{__changed__: nil, view: view, csrf_secret: csrf_secret}
+  @doc """
+  The Learned body for a `ConversationMemory` view, with `relearn_error`, why
+  the last relearning was refused, inside the relearning panel.
+  """
+  @spec html(map(), String.t() | nil, String.t() | nil) :: iodata()
+  def html(view, csrf_secret, relearn_error \\ nil) do
+    %{__changed__: nil, view: view, csrf_secret: csrf_secret, relearn_error: relearn_error}
     |> render()
     |> Safe.to_iodata()
   end
@@ -88,6 +91,7 @@ defmodule Ryker.ControlPlane.LearnedPage do
         :if={@view.kind == "knowledge" and not is_nil(@view.selected)}
         view={@view}
         csrf_secret={@csrf_secret}
+        relearn_error={@relearn_error}
       />
       <.topics :if={@view.kind == "knowledge" and is_nil(@view.selected)} view={@view} />
       <.summary :if={@view.kind == "context" and not is_nil(@view.selected)} view={@view} />
@@ -223,7 +227,12 @@ defmodule Ryker.ControlPlane.LearnedPage do
         </div>
         <Kit.facts id="topic-facts" facts={topic_page_facts(@item)} />
       </article>
-      <RelearnPanel.render :if={@view.rebuild} preview={@view.rebuild} csrf_secret={@csrf_secret} />
+      <RelearnPanel.render
+        :if={@view.rebuild}
+        preview={@view.rebuild}
+        csrf_secret={@csrf_secret}
+        error={@relearn_error}
+      />
       <section :if={@view.history != []} id="history" class="memory-section">
         <Kit.section_head
           title="Update history"

@@ -105,6 +105,8 @@ Emisar's write rules (`../emisar/portal/.agent/kb/rules/README.md`) that Ryker f
 - A write hands back what it changed (`returning: true`, `select` on
   `update_all`) instead of reading it again; N rows go in one `insert_all`
   unless each must fail alone, which the call says.
+- Each schema has its own Changeset module, and it builds changesets for that
+  schema only; five Slack configuration schemas shared one until 2026-10-08.
 - Fields are chosen by the changeset's `cast`, never by `Map.take/2` or
   `Map.drop/2` in a context (`ContextNoMapTakeDrop`). Crypto goes through
   `Ryker.Crypto` (`ContextCryptoBoundary`); runtime configuration a test
@@ -224,6 +226,15 @@ Not adopted, measured 2026-10-08:
 - Each migration has its own test (`Ryker.MigrationCase`): a scratch schema
   for one that rewrites rows, the test's transaction for one that changes a
   table's shape. Write the rows in the shape they had before the migration.
+- A table or column rename (Emisar's `elixir-table-rename-sweep`) renames its
+  constraints and indexes too, and updates the schema's source, every
+  `name:` option and raw SQL in the same change. PostgreSQL keeps a renamed
+  table's constraint names, cuts any name at 63 bytes, and Ecto infers a
+  changeset's constraint names from the table, so a stale or cut name makes a
+  violation raise instead of answering a changeset error. A constraint on
+  more than one column, or with a cut name, is declared with its real
+  `name:`. `Ryker.ConstraintNamesTest` checks that every constraint a
+  changeset declares exists.
 
 ## Tests
 
@@ -267,6 +278,22 @@ Not adopted, because Ryker's own test rules (CLAUDE.md) differ:
   socket connects; the first paint shows the page instead of a blank one
   (decided 2026-10-04).
 - IL-19: vendor APIs go through Ryker's own modules (`VendorViaWrapper`).
+- A form's refusal stays with the form (Emisar's `elixir-inline-form-errors`):
+  what the person chose or typed is kept, and why it was refused shows
+  beside it. The relearning panel submits through the LiveView; the fact
+  correction form is drawn again with its words. A confirmation with nothing
+  typed answers its refusal on the page that says why, with the way back,
+  never a line of plain text.
+
+Model-facing tools (Emisar's `elixir-model-authoring-validation-is-actionable`):
+
+- A state-tool call that breaks its schema answers each field it breaks, by
+  JSON Pointer, with a stable code and the rule in words, never the value
+  sent: the first eight and how many there were
+  (`StateTools.SchemaCheck`, `StateTools.ErrorCode`). A domain refusal names
+  its field (`{:invalid_state_record, field}`, `{:invalid_schedule, field}`).
+- Authorization runs before validation, and validation before anything is
+  written.
 
 ## Enforced
 
@@ -299,7 +326,9 @@ Not adopted, because Ryker's own test rules (CLAUDE.md) differ:
   house style checks listed in `.credo.exs`.
 
 Tests hold the rest: `Ryker.TypespecsTest` resolves every remote type a spec
-names, and `Ryker.DataCase` fails an async test that saves settings.
+names, `Ryker.ConstraintNamesTest` finds every constraint a changeset
+declares, `Ryker.ControlPlane.TemplateHygieneTest` keeps templates off raw
+subscripts, and `Ryker.DataCase` fails an async test that saves settings.
 
 ## Ryker conventions Emisar does not have
 
@@ -348,6 +377,15 @@ names, and `Ryker.DataCase` fails an async test that saves settings.
   drafts are pruned after a day or past the newest fifty, and a draft is
   taken back only against the revision it began from. Fields are also
   server-tracked, so a re-render or a reconnect keeps what was typed.
+- **One embedded `settings` value per schema** (`elixir-embedded-settings`).
+  Ryker's settings are their own context: one table per section, each
+  column with its own database check, every save revisioned and recorded,
+  and one read (`Settings.fetch/0`) for all of them. The rule's reason, a
+  domain table gathering one column and one accessor per toggle, does not
+  arise.
+- **Owner access** and **runbook draft edits**: Emisar's roles and runbooks.
+  Ryker has neither; its nearest case, a corrected candidate, already
+  updates the task's existing pull request instead of opening another.
 - **`not_deleted/1`, `none/1`, `cursor_fields/0`, `filters/0` and
   `preloads/0`**: Ryker has no soft deletes, no authorizer and no
   `Repo.list/3`.

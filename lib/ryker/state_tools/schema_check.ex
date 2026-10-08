@@ -9,7 +9,9 @@ defmodule Ryker.StateTools.SchemaCheck do
   # null). The catalog is the one the caller advertised, so a tool it withheld
   # is not configured here either.
 
-  @spec exact_schema(String.t(), map(), [map()]) :: :ok | {:error, atom()}
+  @maximum_issues 8
+
+  @spec exact_schema(String.t(), map(), [map()]) :: :ok | {:error, term()}
   def exact_schema(name, arguments, catalog) do
     case Enum.find(catalog, &(&1["name"] == name)) do
       %{"inputSchema" => schema} ->
@@ -50,7 +52,22 @@ defmodule Ryker.StateTools.SchemaCheck do
     end
   end
 
-  defp schema_error(_name, _arguments, _schema), do: {:error, :invalid_arguments}
+  # Every other refusal says where: each field that breaks the schema, by JSON
+  # Pointer, with a stable code and the constraint in words (never the value
+  # sent), the first eight of them and how many there were. A bare
+  # "invalid_arguments" left the model to guess which field to change
+  # (Emisar's actionable validation, 2026-10-08).
+  defp schema_error(_name, arguments, schema) do
+    all = issues(schema, arguments, "")
+
+    {:error,
+     {:invalid_arguments,
+      %{
+        issues: Enum.take(all, @maximum_issues),
+        count: length(all),
+        truncated: length(all) > @maximum_issues
+      }}}
+  end
 
   defp unsupported_automation_source?(%{"trigger" => %{"type" => "source_event"} = trigger}),
     do: trigger["source_kind"] not in Catalog.source_kinds()
@@ -128,6 +145,205 @@ defmodule Ryker.StateTools.SchemaCheck do
   defp valid_schema_value?(%{"type" => "null"}, value), do: is_nil(value)
   defp valid_schema_value?(schema, _value) when map_size(schema) == 0, do: true
   defp valid_schema_value?(_schema, _value), do: false
+
+  defp issues(%{"anyOf" => schemas}, value, path) do
+    if Enum.any?(schemas, &valid_schema_value?(&1, value)),
+      do: [],
+      else: branch_issues(schemas, value, path)
+  end
+
+  defp issues(%{"oneOf" => schemas} = schema, value, path) do
+    base = Map.drop(schema, ["oneOf"])
+
+    base_issues =
+      if map_size(base) == 0 or Map.keys(base) == ["additionalProperties"],
+        do: [],
+        else: issues(base, value, path)
+
+    case Enum.count(schemas, &valid_schema_value?(&1, value)) do
+      1 -> base_issues
+      0 -> base_issues ++ branch_issues(schemas, value, path)
+      _many -> base_issues ++ [issue(path, "one_of", "matches more than one allowed shape")]
+    end
+  end
+
+  defp issues(%{"const" => expected} = schema, value, path) do
+    if value == expected,
+      do: issues(Map.drop(schema, ["const"]), value, path),
+      else: [issue(path, "const", "must be #{Jason.encode!(expected)}")]
+  end
+
+  defp issues(%{"enum" => values} = schema, value, path) do
+    if value in values,
+      do: issues(Map.drop(schema, ["enum"]), value, path),
+      else: [issue(path, "enum", "must be one of " <> choices(values))]
+  end
+
+  defp issues(%{"properties" => _properties} = schema, value, path)
+       when is_map(value) and not is_map_key(schema, "type"),
+       do: issues(Map.put(schema, "type", "object"), value, path)
+
+  defp issues(%{"type" => "object"} = schema, value, path) when is_map(value) do
+    properties = Map.get(schema, "properties", %{})
+    closed? = Map.get(schema, "additionalProperties", true) == false
+
+    missing =
+      for key <- Enum.sort(Map.get(schema, "required", [])),
+          not Map.has_key?(value, key),
+          do: issue(pointer(path, key), "required", "is required")
+
+    present =
+      value
+      |> Enum.sort_by(fn {key, _child} -> key end)
+      |> Enum.flat_map(fn {key, child} ->
+        case Map.fetch(properties, key) do
+          {:ok, child_schema} ->
+            issues(child_schema, child, pointer(path, key))
+
+          :error when closed? ->
+            [issue(pointer(path, key), "additional_property", "is not allowed")]
+
+          :error ->
+            []
+        end
+      end)
+
+    missing ++ present
+  end
+
+  defp issues(%{"type" => "array"} = schema, value, path) when is_list(value) do
+    length = length(value)
+    minimum = Map.get(schema, "minItems", 0)
+    maximum = Map.get(schema, "maxItems", length)
+
+    bounds =
+      cond do
+        length < minimum ->
+          [issue(path, "min_items", "needs at least #{count(minimum, "item")}")]
+
+        length > maximum ->
+          [issue(path, "max_items", "takes at most #{count(maximum, "item")}")]
+
+        Map.get(schema, "uniqueItems", false) and Enum.uniq(value) != value ->
+          [issue(path, "unique_items", "repeats an item")]
+
+        true ->
+          []
+      end
+
+    items =
+      value
+      |> Enum.with_index()
+      |> Enum.flat_map(fn {child, index} ->
+        issues(schema["items"], child, pointer(path, Integer.to_string(index)))
+      end)
+
+    bounds ++ items
+  end
+
+  defp issues(%{"type" => "string"} = schema, value, path) when is_binary(value) do
+    length = Text.char_length(value)
+    minimum = Map.get(schema, "minLength", 0)
+    maximum = Map.get(schema, "maxLength", length)
+
+    cond do
+      not String.valid?(value) or :binary.match(value, <<0>>) != :nomatch ->
+        [issue(path, "invalid_text", "must be text without NUL bytes")]
+
+      length < minimum ->
+        [issue(path, "min_length", "needs at least #{count(minimum, "character")}")]
+
+      length > maximum ->
+        [issue(path, "max_length", "takes at most #{count(maximum, "character")}")]
+
+      not valid_pattern?(value, schema["pattern"]) ->
+        [issue(path, "pattern", "does not match its pattern")]
+
+      not valid_format?(value, schema["format"]) ->
+        [issue(path, "format", "must be a #{schema["format"]}")]
+
+      true ->
+        []
+    end
+  end
+
+  defp issues(%{"type" => "integer"} = schema, value, path) when is_integer(value) do
+    cond do
+      value < Map.get(schema, "minimum", value) ->
+        [issue(path, "minimum", "must be at least #{schema["minimum"]}")]
+
+      value > Map.get(schema, "maximum", value) ->
+        [issue(path, "maximum", "must be at most #{schema["maximum"]}")]
+
+      true ->
+        []
+    end
+  end
+
+  defp issues(%{"type" => type} = schema, value, path) do
+    if valid_schema_value?(schema, value),
+      do: [],
+      else: [issue(path, "type", "must be #{article(type)}")]
+  end
+
+  defp issues(schema, value, path) do
+    if valid_schema_value?(schema, value),
+      do: [],
+      else: [issue(path, "invalid", "is not allowed here")]
+  end
+
+  # A value no branch takes is reported by the branch of its own type that it
+  # comes closest to, by fewest issues (a too-long string under a nullable
+  # string, or the proposal shape whose fields it nearly has); a value of no
+  # branch's type is one issue naming the types it may be.
+  defp branch_issues(schemas, value, path) do
+    case Enum.filter(schemas, &(json_type(&1) == value_type(value))) do
+      [] ->
+        types = schemas |> Enum.map(&json_type/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+        [issue(path, "type", "must be " <> Enum.map_join(types, " or ", &article/1))]
+
+      same_type ->
+        same_type
+        |> Enum.map(&issues(&1, value, path))
+        |> Enum.min_by(&length/1)
+    end
+  end
+
+  defp json_type(%{"type" => type}), do: type
+  defp json_type(%{"properties" => _}), do: "object"
+  defp json_type(%{"const" => value}), do: value_type(value)
+  defp json_type(_schema), do: nil
+
+  defp value_type(value) when is_map(value), do: "object"
+  defp value_type(value) when is_list(value), do: "array"
+  defp value_type(value) when is_binary(value), do: "string"
+  defp value_type(value) when is_integer(value), do: "integer"
+  defp value_type(value) when is_boolean(value), do: "boolean"
+  defp value_type(nil), do: "null"
+  defp value_type(_value), do: nil
+
+  defp article("object"), do: "an object"
+  defp article("array"), do: "an array"
+  defp article("string"), do: "a string"
+  defp article("integer"), do: "an integer"
+  defp article("boolean"), do: "true or false"
+  defp article("null"), do: "null"
+  defp article(type), do: type
+
+  defp count(1, noun), do: "1 " <> noun
+  defp count(number, noun), do: "#{number} #{noun}s"
+
+  # The allowed values, as the schema names them; a long list is cut.
+  defp choices(values) when length(values) > 12,
+    do: (values |> Enum.take(12) |> Enum.map_join(", ", &Jason.encode!/1)) <> ", …"
+
+  defp choices(values), do: Enum.map_join(values, ", ", &Jason.encode!/1)
+
+  defp issue(path, code, message),
+    do: %{path: if(path == "", do: "/", else: path), code: code, message: message}
+
+  defp pointer(path, key),
+    do: path <> "/" <> (key |> String.replace("~", "~0") |> String.replace("/", "~1"))
 
   defp valid_pattern?(_value, nil), do: true
 

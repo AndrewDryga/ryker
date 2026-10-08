@@ -1427,9 +1427,21 @@ defmodule Ryker.ControlPlane.RouterTest do
         {:error, :stale}
       end)
 
+    # A refused correction kept nothing: the page that said why replaced the
+    # form. The form comes back with the words as typed and why beside them.
     refused = request_with_options(:post, edit, form, refusing)
     assert refused.status == 409
-    assert links(refused, ".document-unavailable a") == ["/memory#review"]
+    document = LazyHTML.from_document(refused.resp_body)
+
+    assert LazyHTML.query(document, "#memory-edit-subject") |> LazyHTML.attribute("value") ==
+             ["primary_codebase"]
+
+    assert LazyHTML.query(document, "#memory-edit-value") |> LazyHTML.text() == "ryker"
+
+    assert LazyHTML.query(document, "form.memory-edit #memory-edit-error") |> LazyHTML.text() !=
+             ""
+
+    assert links(refused, ".memory-edit-actions a") == ["/memory#review"]
   end
 
   test "an action no page offers is refused with the way home" do

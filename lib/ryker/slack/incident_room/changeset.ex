@@ -122,8 +122,12 @@ defmodule Ryker.Slack.IncidentRoom.Changeset do
     |> unique_constraint(:ref)
     |> unique_constraint(:record_id)
     |> unique_constraint(:episode_id)
-    |> unique_constraint(:channel_name)
-    |> unique_constraint(:channel_ref)
+    |> unique_constraint(:channel_name,
+      name: :slack_incident_rooms_workspace_ref_channel_name_index
+    )
+    |> unique_constraint(:channel_ref,
+      name: :slack_incident_rooms_workspace_ref_channel_ref_index
+    )
     |> foreign_key_constraint(:record_id)
     |> foreign_key_constraint(:source_episode_id)
     |> foreign_key_constraint(:episode_id)

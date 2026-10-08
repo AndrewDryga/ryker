@@ -1,9 +1,15 @@
 defmodule Ryker.ControlPlane.KnowledgeRebuildTest do
   use Ryker.DataCase, async: false
+  import Phoenix.ConnTest, only: [build_conn: 0, get: 2]
+
+  import Phoenix.LiveViewTest,
+    only: [form: 2, form: 3, has_element?: 2, has_element?: 3, live: 2, render_submit: 1]
+
   alias Phoenix.HTML.Safe
   alias Plug.Conn.Query
   alias Ryker.Config
-  alias Ryker.ControlPlane.{ConversationMemory, CSRF, LearnedPage, RelearnPanel, Router}
+  alias Ryker.ControlPlane.{Actions, ConversationMemory, CSRF, Endpoint, LearnedPage, Projection}
+  alias Ryker.ControlPlane.{RelearnPanel, Router}
   alias Ryker.ControlPlane.{SlackMarkdown, SourceText}
   alias Ryker.Episodes.Episode
   alias Ryker.Fixtures.DatabaseClock
@@ -13,6 +19,8 @@ defmodule Ryker.ControlPlane.KnowledgeRebuildTest do
   alias Ryker.Learning.{Batch, Batches}
   alias Ryker.Memories.Forgetting
   alias Ryker.Operator.Action
+
+  @endpoint Endpoint
 
   @settings %{
     policy: "relearn-ui",
@@ -77,7 +85,8 @@ defmodule Ryker.ControlPlane.KnowledgeRebuildTest do
       LearnedPage.render(%{
         __changed__: nil,
         view: Map.put(view, :rebuild, preview),
-        csrf_secret: String.duplicate("s", 32)
+        csrf_secret: String.duplicate("s", 32),
+        relearn_error: nil
       })
       |> Safe.to_iodata()
       |> IO.iodata_to_binary()
@@ -282,7 +291,7 @@ defmodule Ryker.ControlPlane.KnowledgeRebuildTest do
     for changed <- [%{"version" => "2"}, %{"generation" => "2"}, %{"_token" => "wrong"}] do
       response = post(path, Map.merge(form, changed))
       assert response.status == 403
-      assert response.resp_body == "Invalid confirmation token"
+      assert response.resp_body =~ "This topic changed since the page was drawn"
     end
   end
 
@@ -390,6 +399,70 @@ defmodule Ryker.ControlPlane.KnowledgeRebuildTest do
     assert response.resp_body =~ "no longer eligible"
     assert Repo.aggregate(Action, :count) == 0
     assert Repo.aggregate(Batch, :count) == 1
+  end
+
+  # A refused relearning answered with a plain-text page, away from the panel
+  # the messages were chosen in (Emisar's inline form errors, 2026-10-08).
+  # The console submits the form itself now and keeps the person on it; a
+  # refusal that leaves the topic eligible is said beside the button.
+  test "a refused relearning is explained inside the panel the messages were chosen in" do
+    {id, _current} = unavailable_with_current_original!()
+    {:ok, view, _html} = live(console(), ConversationMemory.topic_path(id) <> "&rebuild_q=keep")
+
+    view
+    |> form("section.knowledge-rebuild form[data-relearn-scope]")
+    |> render_submit()
+
+    assert has_element?(
+             view,
+             "section.knowledge-rebuild form[data-relearn-scope] #relearn-error",
+             "Choose 1 to 16 current messages"
+           )
+
+    assert has_element?(view, "section.knowledge-rebuild input[name='sources[]']")
+    assert Repo.aggregate(Action, :count) == 0
+  end
+
+  test "relearning from the panel opens the request it made" do
+    {id, _current} = unavailable_with_current_original!()
+    {:ok, view, _html} = live(console(), ConversationMemory.topic_path(id) <> "&rebuild_q=keep")
+
+    assert {:error, {:live_redirect, %{to: to}}} =
+             view
+             |> form("section.knowledge-rebuild form[data-relearn-scope]", %{
+               "sources" => [relearn_value(id)]
+             })
+             |> render_submit()
+
+    assert to =~ ~r"\A/memory/learning\?batch=[0-9a-f-]{36}\z"
+    assert Repo.aggregate(Action, :count) == 1
+  end
+
+  defp console do
+    start_supervised!(
+      {Endpoint,
+       server: false,
+       secret_key_base: String.duplicate("s", 64),
+       pubsub_server: Ryker.PubSub.Server,
+       live_view: [signing_salt: "knowledge-rebuild-test"],
+       check_origin: ["//localhost:4321"],
+       url: [host: "localhost", port: 4321],
+       control_plane: %{
+         actions: Actions.callbacks(),
+         projection: Projection.callbacks(),
+         observability: %{},
+         csrf_secret: secret()
+       }}
+    )
+
+    build_conn() |> Map.put(:host, "localhost")
+  end
+
+  defp relearn_value(id) do
+    view =
+      ConversationMemory.project(%{"kind" => "knowledge", "item" => id, "rebuild_q" => "keep"})
+
+    view.rebuild.entries |> hd() |> RelearnPanel.source_value()
   end
 
   defp unavailable_with_current_original! do

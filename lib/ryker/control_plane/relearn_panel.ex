@@ -10,16 +10,24 @@ defmodule Ryker.ControlPlane.RelearnPanel do
   2026-09-25).
   """
   use Phoenix.Component
-  import Ryker.ControlPlane.Components, only: [filter_toolbar: 1, pager: 1, timestamp: 1]
+
+  import Ryker.ControlPlane.Components,
+    only: [filter_toolbar: 1, form_feedback: 1, pager: 1, timestamp: 1]
+
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{ConversationMemory, CSRF, Kit, LearningActivity, Paths, SlackMarkdown}
   alias Ryker.ControlPlane.SourceText
   alias Ryker.InspectionRedactor
   alias Ryker.Slack
 
+  @doc """
+  The panel for one topic's `preview`. `error` is why the last submission
+  was refused, shown beside the form the person chose sources in.
+  """
   def render(assigns) do
     assigns =
       assigns
+      |> assign_new(:error, fn -> nil end)
       |> assign(:sources, sources(assigns.preview))
       |> assign(:submission, submission(assigns.preview))
 
@@ -54,6 +62,7 @@ defmodule Ryker.ControlPlane.RelearnPanel do
         <form
           method="post"
           action={@submission.path}
+          phx-submit="relearn-sources"
           data-relearn-scope={@submission.action <> ":" <> @submission.resource}
         >
           <input
@@ -61,6 +70,8 @@ defmodule Ryker.ControlPlane.RelearnPanel do
             name="_token"
             value={CSRF.token(@csrf_secret, @submission.action, @submission.resource)}
           />
+          <input type="hidden" name="kind" value={@submission.kind} />
+          <input type="hidden" name="target" value={@submission.id} />
           <input :for={{name, value} <- @submission.fields} type="hidden" name={name} value={value} />
           <div data-relearn-hidden hidden></div>
           <fieldset>
@@ -130,6 +141,7 @@ defmodule Ryker.ControlPlane.RelearnPanel do
             Selecting again keeps this request and its past attempts. It grants one additional model start;
             it does not reset the amount already spent.
           </p>
+          <.form_feedback :if={@error} id="relearn-error" message={@error} tone={:error} />
           <button type="submit" class="ui-button primary">{@submission.label}</button>
         </form>
         <.pager
@@ -194,12 +206,17 @@ defmodule Ryker.ControlPlane.RelearnPanel do
     "Choose messages from the same execution mode: either live or shadow. Clear the mixed selection and select again."
   end
 
+  def reason(:token),
+    do: "This topic changed since the page was drawn. Reload it and choose current messages."
+
   def reason(:invalid_learning_rebuild), do: reason(:form)
   def reason(:form), do: "Choose 1 to 16 current messages using the source selector."
   def reason(reason), do: LearningActivity.error(reason)
 
   defp submission(%{existing_batch: %{id: id, budget_version: budget}} = preview) do
     %{
+      kind: "reselect",
+      id: id,
       path: "/actions/learning/#{id}/reselect",
       action: "learning:reselect",
       resource: reselect_resource(id, budget, preview.version, preview.generation),
@@ -214,6 +231,8 @@ defmodule Ryker.ControlPlane.RelearnPanel do
 
   defp submission(preview) do
     %{
+      kind: "relearn",
+      id: preview.topic_id,
       path: "/actions/knowledge/#{preview.topic_id}/relearn",
       action: "knowledge:relearn",
       resource: resource(preview.topic_id, preview.version, preview.generation),

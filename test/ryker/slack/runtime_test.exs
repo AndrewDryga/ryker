@@ -361,7 +361,7 @@ defmodule Ryker.Slack.RuntimeTest do
       saved_at: ~U[2026-09-25 12:00:00.000000Z],
       workspace_ref: "T123"
     }
-    |> ChannelConfiguration.Changeset.configuration()
+    |> ChannelConfiguration.Changeset.insert()
     |> Repo.insert!()
   end
 

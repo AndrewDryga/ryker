@@ -12,7 +12,7 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
   alias Ryker.Fixtures.SavedEntities
   alias Ryker.Records
   alias Ryker.Settings
-  alias Ryker.Slack.{ChannelConfiguration, IncidentRoom}
+  alias Ryker.Slack.{ChannelConfiguration, ChannelMembership, IncidentRoom}
   alias Ryker.Slack.Names
 
   @now ~U[2026-09-24 12:00:00Z]
@@ -463,7 +463,7 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
       status: status,
       workspace_ref: workspace
     }
-    |> ChannelConfiguration.Changeset.membership()
+    |> ChannelMembership.Changeset.insert()
     |> Repo.insert!()
   end
 
@@ -479,7 +479,7 @@ defmodule Ryker.ControlPlane.ChannelsPageTest do
       workspace_ref: workspace
     }
     |> Map.merge(Map.new(attributes))
-    |> ChannelConfiguration.Changeset.configuration()
+    |> ChannelConfiguration.Changeset.insert()
     |> Repo.insert!()
   end
 

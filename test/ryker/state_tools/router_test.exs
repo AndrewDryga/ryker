@@ -398,7 +398,9 @@ defmodule Ryker.StateTools.RouterTest do
              "record_finding",
              %{args | "what" => args["what"] <> "é"},
              bound_options(claim)
-           ) == {:error, "invalid_arguments"}
+           ) ==
+             {:error,
+              "invalid_arguments: 1 issue. /what (max_length): takes at most 4000 characters. Nothing was changed; correct these fields and call again."}
   end
 
   test "a finding cannot borrow another episode's evidence" do
@@ -525,11 +527,13 @@ defmodule Ryker.StateTools.RouterTest do
       "writable_repository" => nil
     }
 
-    assert Tools.call("plan_goal", arguments, options) == {:error, "invalid_arguments"}
+    assert Tools.call("plan_goal", arguments, options) ==
+             {:error,
+              "invalid_arguments: 1 issue. /stage (required): is required. Nothing was changed; correct these fields and call again."}
 
     for stage <- ~w(workspace_setup draft_pr ci review_and_merge unknown) do
-      assert Tools.call("plan_goal", Map.put(arguments, "stage", stage), options) ==
-               {:error, "invalid_arguments"}
+      assert {:error, "invalid_arguments: 1 issue. /stage (enum): must be one of " <> _} =
+               Tools.call("plan_goal", Map.put(arguments, "stage", stage), options)
     end
 
     assert {:ok, %{"kind" => "goal"}} =
@@ -578,7 +582,9 @@ defmodule Ryker.StateTools.RouterTest do
                "state" => "completed"
              },
              options
-           ) == {:error, "invalid_arguments"}
+           ) ==
+             {:error,
+              "invalid_arguments: 1 issue. /evidence_refs/0 (pattern): does not match its pattern. Nothing was changed; correct these fields and call again."}
   end
 
   test "typed goal tools persist a dependency plan and preflight its live state" do
@@ -1601,7 +1607,9 @@ defmodule Ryker.StateTools.RouterTest do
                ]
              },
              bound_options(claim)
-           ) == {:error, "invalid_arguments"}
+           ) ==
+             {:error,
+              "invalid_arguments: recurrence was refused: missing where required, too long, or not valid. Nothing was proposed."}
   end
 
   test "automation proposal sets cannot exceed the destination-safe atomic bound" do
@@ -2264,10 +2272,12 @@ defmodule Ryker.StateTools.RouterTest do
 
     # An argument the tool does not take is refused, not ignored.
     assert Tools.call("propose_preference", Map.put(valid, "explicit_request", true), options) ==
-             {:error, "invalid_arguments"}
+             {:error,
+              "invalid_arguments: 1 issue. /explicit_request (additional_property): is not allowed. Nothing was changed; correct these fields and call again."}
 
     assert Tools.call("propose_preference", %{valid | "value" => "verbose"}, options) ==
-             {:error, "invalid_arguments"}
+             {:error,
+              ~s(invalid_arguments: 1 issue. /value \(enum\): must be one of "concise", "standard", "detailed". Nothing was changed; correct these fields and call again.)}
 
     assert Tools.call(
              "propose_preference",
@@ -2278,7 +2288,9 @@ defmodule Ryker.StateTools.RouterTest do
                  "value" => "prefer_thread"
              },
              options
-           ) == {:error, "invalid_arguments"}
+           ) ==
+             {:error,
+              ~s(invalid_arguments: 1 issue. /scope \(enum\): must be one of "current_channel", "workspace", "mine". Nothing was changed; correct these fields and call again.)}
 
     assert Tools.call("propose_preference", valid, []) == {:error, "unauthorized"}
 
@@ -2613,7 +2625,11 @@ defmodule Ryker.StateTools.RouterTest do
     options = bound_options(claim)
 
     assert Tools.call("request_input", :invalid, options) == {:error, "unknown_tool"}
-    assert Tools.call("wait_for", %{}, options) == {:error, "invalid_arguments"}
+
+    assert Tools.call("wait_for", %{}, options) ==
+             {:error,
+              "invalid_arguments: 4 issues. /deadline (required): is required. /on_timeout (required): is required. /trigger (required): is required. /verification (required): is required. Nothing was changed; correct these fields and call again."}
+
     assert Tools.call("request_input", %{}, []) == {:error, "unauthorized"}
 
     duplicate_choices = %{
@@ -2622,7 +2638,8 @@ defmodule Ryker.StateTools.RouterTest do
     }
 
     assert Tools.call("request_input", duplicate_choices, options) ==
-             {:error, "invalid_arguments"}
+             {:error,
+              "invalid_arguments: 1 issue. /questions/0/choices (unique_items): repeats an item. Nothing was changed; correct these fields and call again."}
   end
 
   test "creates input and event waits through the same active-turn capability" do
@@ -2961,7 +2978,9 @@ defmodule Ryker.StateTools.RouterTest do
              "record_emisar_approval",
              %{approval | "status" => "approved"},
              options
-           ) == {:error, "invalid_arguments"}
+           ) ==
+             {:error,
+              "invalid_arguments: status was refused: missing where required, too long, or not valid. Nothing was recorded."}
 
     assert Enum.map(Tools.list(), & &1["name"]) == FixedTools.names()
     assert "validate_final" in FixedTools.names()

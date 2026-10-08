@@ -422,7 +422,7 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     }
 
     configuration
-    |> ChannelConfiguration.Changeset.configuration()
+    |> ChannelConfiguration.Changeset.insert()
     |> Repo.insert!()
 
     id = Ecto.UUID.generate()

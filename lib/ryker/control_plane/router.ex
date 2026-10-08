@@ -13,12 +13,11 @@ defmodule Ryker.ControlPlane.Router do
   import Plug.Conn
   alias Plug.Conn.Query
   alias Ryker.Artifacts
-  alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{ActionRefusal, BehaviorLibrary, BehaviorPage, BrowserGuard, CSRF}
-  alias Ryker.ControlPlane.{CasesPage, MemoryFormat}
+  alias Ryker.ControlPlane.{CasesPage, ConversationMemory, MemoryFormat}
   alias Ryker.ControlPlane.{FactsPage, FailureExplanation, FailureProjection, FindingsPage, HTML}
   alias Ryker.ControlPlane.{ImprovementPage, IncidentRoomsPage, LabControls, LearningActivity}
-  alias Ryker.ControlPlane.{PathRef, Paths, PeoplePage, RelearnPanel, Viewer}
+  alias Ryker.ControlPlane.{PathRef, Paths, PeoplePage, RelearnForm, RelearnPanel, Viewer}
   alias Ryker.HTTPConnection
   alias Ryker.Observability
   alias Ryker.Operator
@@ -397,79 +396,28 @@ defmodule Ryker.ControlPlane.Router do
       |> send_resp(303, "")
       |> halt()
     else
-      false -> text(conn, 403, "Invalid confirmation token")
-      :error -> text(conn, 400, "Invalid learning batch")
-      {:error, :form} -> text(conn, 400, "Invalid retry form")
-      {:error, reason} -> text(conn, 409, LearningActivity.error(reason))
+      false -> retry_refused(conn, 403, LearningActivity.error(:learning_retry_conflict), id)
+      :error -> html(conn, 404, "Not found", HTML.not_found("Learning batch"))
+      {:error, :form} -> retry_refused(conn, 400, "That form could not be read.", id)
+      {:error, reason} -> retry_refused(conn, 409, LearningActivity.error(reason), id)
     end
   end
 
+  # Relearning and choosing new sources for a request already made arrive
+  # here only from a page without JavaScript: the console's LiveView submits
+  # the same form itself and shows a refusal inside the panel
+  # (`Ryker.ControlPlane.RelearnForm`).
   defp route(
          %Plug.Conn{method: "POST", path_info: ["actions", "knowledge", id, "relearn"]} = conn,
          options
-       ) do
-    with {:ok, ^id} <- Ecto.UUID.cast(id),
-         {:ok, form, conn} <- learning_source_form(conn, [:version, :generation]),
-         true <-
-           CSRF.valid?(
-             options.csrf_secret,
-             "knowledge:relearn",
-             RelearnPanel.resource(id, form.version, form.generation),
-             form.token
-           ),
-         {:ok, %{outcome: %{"batch_id" => batch_id}}} <-
-           Operator.Learning.rebuild(
-             id,
-             form.version,
-             form.generation,
-             form.sources,
-             Viewer.actor_ref(conn, options),
-             "control-plane:knowledge-relearn:#{id}:#{form.version}:#{form.generation}"
-           ) do
-      learning_redirect(conn, batch_id)
-    else
-      false -> text(conn, 403, "Invalid confirmation token")
-      :error -> text(conn, 400, "Invalid knowledge topic")
-      {:error, :form} -> text(conn, 400, RelearnPanel.reason(:form))
-      {:error, reason} -> text(conn, 409, RelearnPanel.reason(reason))
-    end
-  end
+       ),
+       do: relearn_route(conn, "relearn", id, ConversationMemory.topic_path(id), options)
 
   defp route(
          %Plug.Conn{method: "POST", path_info: ["actions", "learning", id, "reselect"]} = conn,
          options
-       ) do
-    with {:ok, ^id} <- Ecto.UUID.cast(id),
-         {:ok, form, conn} <- learning_source_form(conn, [:budget_version, :version, :generation]),
-         true <-
-           CSRF.valid?(
-             options.csrf_secret,
-             "learning:reselect",
-             RelearnPanel.reselect_resource(
-               id,
-               form.budget_version,
-               form.version,
-               form.generation
-             ),
-             form.token
-           ),
-         {:ok, %{outcome: %{"batch_id" => batch_id}}} <-
-           Operator.Learning.reselect(
-             id,
-             form.budget_version,
-             %{version: form.version, generation: form.generation},
-             form.sources,
-             Viewer.actor_ref(conn, options),
-             "control-plane:learning-reselect:#{id}:#{form.budget_version}"
-           ) do
-      learning_redirect(conn, batch_id)
-    else
-      false -> text(conn, 403, "Invalid confirmation token")
-      :error -> text(conn, 400, "Invalid learning request")
-      {:error, :form} -> text(conn, 400, RelearnPanel.reason(:form))
-      {:error, reason} -> text(conn, 409, RelearnPanel.reason(reason))
-    end
-  end
+       ),
+       do: relearn_route(conn, "reselect", id, LearningActivity.path(id), options)
 
   defp route(
          %Plug.Conn{
@@ -501,21 +449,38 @@ defmodule Ryker.ControlPlane.Router do
          options
        ) do
     with {:ok, resource_ref} <- PathRef.decode(resource_ref),
-         {:ok, _review} <- editable_memory_review(resource_ref, options),
+         {:ok, review} <- editable_memory_review(resource_ref, options),
          {:ok, token, subject, value, conn} <- memory_review_form(conn),
          true <-
-           CSRF.valid?(options.csrf_secret, "memory-review:edit", resource_ref, token),
-         {:ok, _resource} <-
-           options.actions.resolve_memory_review.(
+           CSRF.valid?(options.csrf_secret, "memory-review:edit", resource_ref, token) do
+      case options.actions.resolve_memory_review.(
              resource_ref,
              :edit,
              %{"subject" => subject, "value" => value},
              conn.assigns.viewer
            ) do
-      conn
-      |> put_resp_header("location", action_return_path("memory-review", resource_ref))
-      |> send_resp(303, "")
-      |> halt()
+        {:ok, _resource} ->
+          conn
+          |> put_resp_header("location", action_return_path("memory-review", resource_ref))
+          |> send_resp(303, "")
+          |> halt()
+
+        # The words stay as they were typed, with why they were refused beside
+        # them; a refusal replaced the form with a page that kept nothing
+        # (Emisar's inline form errors, 2026-10-08).
+        {:error, reason} ->
+          html(
+            conn,
+            409,
+            "Edit this fact",
+            FactsPage.edit_form(
+              review,
+              Paths.action("memory-review", resource_ref, "edit"),
+              token,
+              %{subject: subject, value: value, error: ActionRefusal.explain(reason)}
+            )
+          )
+      end
     else
       false ->
         text(conn, 403, "Invalid confirmation token")
@@ -1385,72 +1350,49 @@ defmodule Ryker.ControlPlane.Router do
     |> halt()
   end
 
-  defp learning_source_form(conn, fields) do
-    keys = Enum.map(fields, &Atom.to_string/1)
+  defp relearn_route(conn, kind, id, back, options) do
+    with {:ok, form, conn} <- learning_source_form(conn),
+         {:ok, batch_id} <-
+           RelearnForm.submit(
+             kind,
+             id,
+             form,
+             Viewer.actor_ref(conn, options),
+             options.csrf_secret
+           ) do
+      learning_redirect(conn, batch_id)
+    else
+      {:error, reason} ->
+        html(
+          conn,
+          relearn_status(reason),
+          "Not done",
+          HTML.action_refused(RelearnPanel.reason(reason), back)
+        )
+    end
+  end
 
+  defp relearn_status(:form), do: 400
+  defp relearn_status(:token), do: 403
+  defp relearn_status(_reason), do: 409
+
+  # A retry has nothing typed to keep, so a refusal is the page that says why,
+  # with the way back to the batch; it was a line of plain text before.
+  defp retry_refused(conn, status, explanation, id) do
+    html(conn, status, "Not done", HTML.action_refused(explanation, LearningActivity.path(id)))
+  end
+
+  defp learning_source_form(conn) do
     with [content_type] <- get_req_header(conn, "content-type"),
          true <-
            String.starts_with?(String.downcase(content_type), "application/x-www-form-urlencoded"),
          {:ok, body, conn} <- read_memory_form(conn),
-         %{"_token" => token, "sources" => sources} = form <- decode_form(body),
-         true <- Enum.sort(Map.keys(form)) == Enum.sort(["_token", "sources" | keys]),
-         true <- is_binary(token),
-         {:ok, versions} <- learning_source_versions(form, fields),
-         {:ok, sources} <- learning_source_selection(sources) do
-      {:ok, Map.merge(versions, %{token: token, sources: sources}), conn}
+         %{} = form <- decode_form(body) do
+      {:ok, form, conn}
     else
       _ -> {:error, :form}
     end
   end
-
-  defp learning_source_versions(form, fields) do
-    Enum.reduce_while(fields, {:ok, %{}}, fn field, {:ok, parsed} ->
-      minimum = if field == :budget_version, do: 0, else: 1
-
-      case learning_source_version(form[Atom.to_string(field)], minimum) do
-        number when is_integer(number) -> {:cont, {:ok, Map.put(parsed, field, number)}}
-        nil -> {:halt, {:error, :form}}
-      end
-    end)
-  end
-
-  defp learning_source_version(value, minimum) when is_binary(value) do
-    case Integer.parse(value) do
-      {number, ""} when number >= minimum and number <= 2_147_483_647 -> number
-      _ -> nil
-    end
-  end
-
-  defp learning_source_version(_, _), do: nil
-
-  defp learning_source_selection(values) when is_list(values) and length(values) in 1..16 do
-    sources = Enum.map(values, &decode_learning_source/1)
-
-    if Enum.all?(sources, &is_map/1) and
-         length(Enum.uniq_by(sources, & &1["source_input_id"])) == length(sources),
-       do: {:ok, sources},
-       else: {:error, :form}
-  end
-
-  defp learning_source_selection(_), do: {:error, :form}
-
-  defp decode_learning_source(value) when is_binary(value) and byte_size(value) <= 512 do
-    with {:ok, raw} <- Base.url_decode64(value, padding: false),
-         {:ok,
-          %{"source_input_id" => id, "revision" => revision, "fingerprint" => fingerprint} =
-            source} <- Jason.decode(raw),
-         true <- Enum.sort(Map.keys(source)) == ["fingerprint", "revision", "source_input_id"],
-         {:ok, ^id} <- Ecto.UUID.cast(id),
-         true <- is_integer(revision) and revision >= 1 and revision <= 9_223_372_036_854_775_807,
-         true <- is_binary(fingerprint) and Regex.match?(~r/\A[0-9a-f]{64}\z/, fingerprint),
-         true <- raw == CanonicalJSON.encode!(source) do
-      source
-    else
-      _ -> nil
-    end
-  end
-
-  defp decode_learning_source(_), do: nil
 
   defp memory_review_form(conn) do
     with [content_type] <- get_req_header(conn, "content-type"),

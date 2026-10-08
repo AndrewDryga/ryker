@@ -23,7 +23,11 @@ defmodule Ryker.Slack.IncidentRoomLifecycleEvent.Changeset do
     |> validate_length(:channel_ref, min: 1, max: 256)
     |> validate_length(:event_ref, min: 1, max: 1_024)
     |> validate_length(:event_fingerprint, is: 64)
-    |> unique_constraint([:workspace_ref, :event_ref])
+    # PostgreSQL cut the index's name to its 63-byte limit, and a violation
+    # reports that name, never the one Ecto would infer.
+    |> unique_constraint(:event_ref,
+      name: :slack_incident_room_lifecycle_events_workspace_ref_event_ref_in
+    )
     |> foreign_key_constraint(:room_id)
     |> check_constraint(:kind, name: :slack_incident_room_lifecycle_event_valid)
   end

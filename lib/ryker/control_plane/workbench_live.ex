@@ -20,8 +20,10 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   alias Ryker.ControlPlane.{ConversationLab, ConversationProjection, Endpoint, Environments}
   alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, IntegrationErrors, Integrations, Kit}
   alias Ryker.ControlPlane.EpisodeTrace.ToolActivity
-  alias Ryker.ControlPlane.{LabControls, LabPage, Navigation, PageCost, PageHelp, PageRead, Pages}
-  alias Ryker.ControlPlane.{PathRef, Paths, RepositoriesPage, RequestFilters, Router}
+  alias Ryker.ControlPlane.{LabControls, LabPage, LearningActivity, Navigation, PageCost}
+  alias Ryker.ControlPlane.{PageHelp, PageRead, Pages}
+  alias Ryker.ControlPlane.{PathRef, Paths, RelearnForm, RelearnPanel, RepositoriesPage}
+  alias Ryker.ControlPlane.{RequestFilters, Router}
   alias Ryker.ControlPlane.{SettingsPage, SettingsView, UsageProjection, Viewer}
   alias Ryker.Crypto
   alias Ryker.{IntegrationSetup, RepositoryKnowledge, Settings}
@@ -134,6 +136,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        carried_notice: nil,
        carried_reveal: nil,
        action_question: nil,
+       relearn_error: nil,
        fleet: nil,
        activity: nil,
        filter_menu: nil,
@@ -207,6 +210,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
        settings_confirm: nil,
        weekly_sent: nil,
        action_question: nil,
+       relearn_error: nil,
        channel_notice: nil,
        welcome_pending: nil,
        lab_environment_saved: nil
@@ -487,6 +491,27 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   @impl true
   def handle_event(event, _params, socket) when event in ["refresh", "show-new"],
     do: {:noreply, refresh(socket, true)}
+
+  # Relearning a topic from chosen messages. A refusal stays on the page,
+  # inside the panel the messages were chosen in; the selection stays with
+  # it. It went to a plain-text page before, away from the form (Emisar's
+  # inline form errors).
+  def handle_event("relearn-sources", %{"kind" => kind, "target" => id} = params, socket) do
+    options = Endpoint.config(:control_plane)
+
+    case RelearnForm.submit(kind, id, params, actor(socket), options.csrf_secret) do
+      {:ok, batch_id} ->
+        {:noreply, push_navigate(socket, to: LearningActivity.path(batch_id))}
+
+      {:error, reason} ->
+        {:noreply,
+         socket |> assign(:relearn_error, RelearnPanel.reason(reason)) |> read_page(false)}
+    end
+  end
+
+  def handle_event("relearn-sources", _params, socket) do
+    {:noreply, socket |> assign(:relearn_error, RelearnPanel.reason(:form)) |> read_page(false)}
+  end
 
   def handle_event(
         "edit-lab-message",
@@ -1439,6 +1464,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     Endpoint.config(:control_plane)
     |> Map.put(:viewer, socket.assigns.viewer)
     |> Map.put(:disclosed, socket.assigns.disclosed)
+    |> Map.put(:relearn_error, socket.assigns.relearn_error)
   end
 
   # A failed read keeps what the page now listens to, so the page still hears

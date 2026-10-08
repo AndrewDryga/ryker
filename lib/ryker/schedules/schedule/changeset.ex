@@ -60,7 +60,7 @@ defmodule Ryker.Schedules.Schedule.Changeset do
     |> unique_constraint(:offer_record_id)
     |> foreign_key_constraint(:offer_record_id)
     |> foreign_key_constraint(:source_episode_id)
-    |> check_constraint(:status, name: :episode_schedule_valid)
+    |> check_constraint(:environment_ref, name: :episode_schedules_environment_valid)
     |> check_constraint(:lease_ref, name: :episode_schedule_lease_valid)
     |> check_constraint(:revision, name: :episode_schedule_revision_valid)
   end
@@ -68,7 +68,7 @@ defmodule Ryker.Schedules.Schedule.Changeset do
   def update(%Schedule{} = schedule, attributes) do
     schedule
     |> cast(attributes, @fields)
-    |> check_constraint(:status, name: :episode_schedule_valid)
+    |> check_constraint(:environment_ref, name: :episode_schedules_environment_valid)
     |> check_constraint(:lease_ref, name: :episode_schedule_lease_valid)
     |> check_constraint(:revision, name: :episode_schedule_revision_valid)
   end
