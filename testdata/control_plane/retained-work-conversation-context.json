@@ -1,6 +1,5 @@
 {
   "bundle": {
-    "channel_summary": null,
     "messages": [
       {"actor_ref": "local-operator", "content": {"text": "Hi\r\n"}, "occurred_at": "2026-09-20T19:54:31.308563Z"},
       {"actor_ref": "local-operator", "content": {"text": "hiii\r\n"}, "occurred_at": "2026-09-20T20:22:12.362595Z"},
@@ -18,7 +17,6 @@
   },
   "manifest": {
     "bytes": 5079,
-    "channel_summary": {"reason": "absent", "status": "unavailable"},
     "cutoff": "2026-09-21T05:48:52.427135Z",
     "included": 11,
     "kind": "conversation",

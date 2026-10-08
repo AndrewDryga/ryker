@@ -13,8 +13,7 @@ defmodule Ryker.ControlPlane.ConsolePeople do
 
   - a Chat message's author, `<via>:<login>`;
   - the person a turn is for, or a Chat reaction's,
-    `control_plane:user:<via>:<login>` (events recorded before 2026-10-06
-    spell a reaction's `control-plane:user:`);
+    `control_plane:user:<via>:<login>`;
   - a change made on a page, `control-plane:<via>:<login>`.
 
   The console reached any other way names nobody: its references are the same
@@ -55,7 +54,6 @@ defmodule Ryker.ControlPlane.ConsolePeople do
   """
   @spec identity(term()) :: {:person, String.t()} | :local | nil
   def identity("control_plane:user:" <> ref), do: identity(ref)
-  def identity("control-plane:user:" <> ref), do: identity(ref)
   def identity(local) when local in ["local-operator", "control-plane:local"], do: :local
 
   def identity(ref) do

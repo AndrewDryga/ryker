@@ -6,7 +6,6 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   alias Ryker.ControlPlane.Components
   alias Ryker.ControlPlane.Paths
   alias Ryker.ControlPlane.RequestContextHTML
-  alias Ryker.ControlPlane.RoutingReason
   alias Ryker.ControlPlane.Units
   alias Ryker.Episodes
   alias Ryker.Wording
@@ -857,7 +856,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   defp explanation(%{source_kind: :admission} = request) do
     case {document(request, "candidate"), document(request, "response")} do
       {%{"reason" => reason}, _response} when is_binary(reason) ->
-        RoutingReason.plain(reason)
+        reason
 
       {nil, %{"state" => "failed"} = response} ->
         failure_explanation(request[:failure], response)

@@ -185,13 +185,11 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     assert LazyHTML.text(earlier) =~ "Up to 20 earlier messages"
     refute LazyHTML.text(earlier) =~ "Bodies not retained"
 
-    for kind <- ["channel", "thread"] do
-      summary = LazyHTML.query(document, "[data-source=#{kind}_summary]")
-      assert LazyHTML.text(summary) =~ "None saved"
+    summary = LazyHTML.query(document, "[data-source=thread_summary]")
+    assert LazyHTML.text(summary) =~ "None saved"
 
-      assert summary |> LazyHTML.query(".prompt-source-row") |> LazyHTML.attribute("title") ==
-               ["No summary had been saved for this conversation."]
-    end
+    assert summary |> LazyHTML.query(".prompt-source-row") |> LazyHTML.attribute("title") ==
+             ["No summary had been saved for this conversation."]
   end
 
   # The briefing named retained fields by capitalizing their keys, so a
@@ -575,49 +573,50 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
       |> File.read!()
       |> Jason.decode!()
 
-    for key <- ["controller_tools", "responder_state_tools"] do
-      document =
-        Map.take(work, ["source_and_action_tools"])
-        |> Map.put(key, work["responder_state_tools"] ++ ["record_emisar_approval"])
-        |> InspectionRedactor.artifact()
-        |> RequestContextHTML.assembly("$.work", "tools")
-        |> IO.iodata_to_binary()
-        |> LazyHTML.from_fragment()
+    tools = work["controller_tools"] ++ ["record_emisar_approval"]
+    key = "controller_tools"
 
-      state = LazyHTML.query(document, "[data-source=#{key}]")
+    document =
+      Map.take(work, ["source_and_action_tools"])
+      |> Map.put(key, tools)
+      |> InspectionRedactor.artifact()
+      |> RequestContextHTML.assembly("$.work", "tools")
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
 
-      assert LazyHTML.text(state) =~
-               "Tools the model could use for this request. The work cards show the ones it used."
+    state = LazyHTML.query(document, "[data-source=#{key}]")
 
-      refute LazyHTML.text(state) =~ "State operations advertised"
-      refute LazyHTML.text(state) =~ "receipt"
+    assert LazyHTML.text(state) =~
+             "Tools the model could use for this request. The work cards show the ones it used."
 
-      for {source, names} <- [
-            {key, work["responder_state_tools"] ++ ["record_emisar_approval"]},
-            {"source_and_action_tools", work["source_and_action_tools"]}
-          ] do
-        rows =
-          document
-          |> LazyHTML.query("[data-source=#{source}] .context-rows > div")
-          |> Enum.map(fn row ->
-            {row |> LazyHTML.query("dt") |> LazyHTML.text(),
-             row |> LazyHTML.query("dd") |> LazyHTML.text()}
-          end)
+    refute LazyHTML.text(state) =~ "State operations advertised"
+    refute LazyHTML.text(state) =~ "receipt"
 
-        assert Enum.map(rows, &elem(&1, 0)) == names
+    for {source, names} <- [
+          {key, tools},
+          {"source_and_action_tools", work["source_and_action_tools"]}
+        ] do
+      rows =
+        document
+        |> LazyHTML.query("[data-source=#{source}] .context-rows > div")
+        |> Enum.map(fn row ->
+          {row |> LazyHTML.query("dt") |> LazyHTML.text(),
+           row |> LazyHTML.query("dd") |> LazyHTML.text()}
+        end)
 
-        for {name, description} <- rows do
-          assert description =~ ~r/^[A-Z][^_]+\.$/, "#{name} has no plain description"
-        end
+      assert Enum.map(rows, &elem(&1, 0)) == names
+
+      for {name, description} <- rows do
+        assert description =~ ~r/^[A-Z][^_]+\.$/, "#{name} has no plain description"
       end
-
-      rows = LazyHTML.query(document, "[data-source=#{key}] .context-rows > div")
-
-      assert Enum.find_value(rows, fn row ->
-               if LazyHTML.text(LazyHTML.query(row, "dt")) == "request_input",
-                 do: LazyHTML.text(LazyHTML.query(row, "dd"))
-             end) == "Asks a person a question and waits for the answer."
     end
+
+    rows = LazyHTML.query(document, "[data-source=#{key}] .context-rows > div")
+
+    assert Enum.find_value(rows, fn row ->
+             if LazyHTML.text(LazyHTML.query(row, "dt")) == "request_input",
+               do: LazyHTML.text(LazyHTML.query(row, "dd"))
+           end) == "Asks a person a question and waits for the answer."
   end
 
   test "every tool Ryker can offer a request has words for what it is for" do

@@ -274,7 +274,7 @@ defmodule Ryker.ControlPlane.ToolCard do
     input = artifact(step, "Arguments")
     args = if is_map(input["arguments"]), do: input["arguments"], else: input
     tool = input["tool"] || input["operation"]
-    metadata = if input["server"] in ["controller-tools", "responder-state"], do: @tools[tool]
+    metadata = if input["server"] == "controller-tools", do: @tools[tool]
 
     {title, description, kind, symbol} = naming(metadata, step, args, tool)
 

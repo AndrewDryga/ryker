@@ -55,7 +55,7 @@ defmodule Ryker.ControlPlane.SavedRecords do
          turns,
          records
        )
-       when server in ["controller-tools", "responder-state"] and tool in @writers and
+       when server == "controller-tools" and tool in @writers and
               is_binary(call_id) and
               call_id != "" and is_binary(coop_turn_id) and
               coop_turn_id != "" and is_map(args) do

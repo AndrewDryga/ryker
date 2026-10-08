@@ -8,7 +8,6 @@ defmodule Ryker.ControlPlane.ConsolePeopleTest do
     for ref <- [
           "tailscale:andrew@example.com",
           "control_plane:user:tailscale:andrew@example.com",
-          "control-plane:user:tailscale:andrew@example.com",
           "control-plane:tailscale:andrew@example.com"
         ] do
       assert ConsolePeople.identity(ref) == {:person, "andrew@example.com"}, ref
@@ -18,7 +17,6 @@ defmodule Ryker.ControlPlane.ConsolePeopleTest do
     for ref <- [
           "cloudflare:dev@tenant.example",
           "control_plane:user:cloudflare:dev@tenant.example",
-          "control-plane:user:cloudflare:dev@tenant.example",
           "control-plane:cloudflare:dev@tenant.example"
         ] do
       assert ConsolePeople.identity(ref) == {:person, "dev@tenant.example"}, ref
@@ -27,7 +25,6 @@ defmodule Ryker.ControlPlane.ConsolePeopleTest do
     for ref <- [
           "local-operator",
           "control_plane:user:local-operator",
-          "control-plane:user:local-operator",
           "control-plane:local"
         ] do
       assert ConsolePeople.identity(ref) == :local, ref

@@ -102,10 +102,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       {"Repositories to choose from", "tools", nil,
        "The repositories this request could be routed to work in."}
   }
-  # Historical inspection keeps the label of the saved tool catalog; no execution
-  # producer emits the old key.
-  @sources Map.put(@sources, "responder_state_tools", @sources["controller_tools"])
-  @order ~w(custom_instructions input previous_answer slack_addressing inputs current_inputs conversation_feedback continuity operator_context conversation_observations conversation_knowledge records related_outcomes prior_outcome retained_cases repository_knowledge candidates controller_tools responder_state_tools source_and_action_tools workspace connected repository_choices repository_ref destination allowed_actions execution_mode mode offer_confirmation_supported linked_history_ref parent_submission_ref)
+  @order ~w(custom_instructions input previous_answer slack_addressing inputs current_inputs conversation_feedback continuity operator_context conversation_observations conversation_knowledge records related_outcomes prior_outcome retained_cases repository_knowledge candidates controller_tools source_and_action_tools workspace connected repository_choices repository_ref destination allowed_actions execution_mode mode offer_confirmation_supported linked_history_ref parent_submission_ref)
   # The evidence a self-analysis was given, under its prompt's `context`: what
   # the request was, what was said, what routing and Work did, what people
   # said about it, and what was left out (`Ryker.Improvement.Evidence`).
@@ -863,7 +860,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
         "current" ->
           prompt_part(field_path(path, key), {current, "conversation", "conversation"}, value)
 
-        summary when summary in ~w(channel_summary thread_summary) ->
+        "thread_summary" ->
           summary_part(path, key, value)
 
         history when history in ~w(messages root) ->
@@ -880,7 +877,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp manifest_parts(manifest, path) do
     Enum.map(manifest, fn {key, value} ->
       cond do
-        key in ~w(channel_summary thread_summary) -> summary_part(path, key, value)
+        key == "thread_summary" -> summary_part(path, key, value)
         key in @manifest_keys -> earlier_part(field_path(path, key), value)
         true -> other_part(field_path(path, key), value)
       end
@@ -890,10 +887,8 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp other_part(path, value),
     do: prompt_part(path, {"Other fields", "runtime", "runtime"}, value)
 
-  defp summary_part(path, key, value) do
-    title = if key == "channel_summary", do: "Channel summary", else: "Thread summary"
-    prompt_part(field_path(path, key), {title, "summaries", "conversation"}, value)
-  end
+  defp summary_part(path, key, value),
+    do: prompt_part(field_path(path, key), {"Thread summary", "summaries", "conversation"}, value)
 
   defp earlier_part(path, value),
     do: prompt_part(path, {"Earlier messages", "conversation", "conversation"}, value)
@@ -1852,7 +1847,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     do: candidates(value, %{}, prefix)
 
   defp body(key, tools, _path, _prefix)
-       when key in ~w(controller_tools responder_state_tools source_and_action_tools) and
+       when key in ~w(controller_tools source_and_action_tools) and
               is_list(tools) and
               tools != [],
        do: tools(tools)

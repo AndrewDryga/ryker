@@ -55,7 +55,7 @@
         "kind": "execute",
         "input": {
           "tool": "cite_source",
-          "server": "responder-state",
+          "server": "controller-tools",
           "arguments": {
             "subject": "website HAProxy cgroup OOM alert resolution",
             "relation": "supports",
@@ -64,7 +64,7 @@
             "observation": "Grafana notification reports one resolved Host OOM kills alert: kernel OOM-killed haproxy in website/haproxy-edge, allocation 7abc3462-415e-4c6a-8688-c6a0778fe5bc on nomad-hst01, constraint CONSTRAINT_MEMCG. Alert started September 5 2026 17:18:50 UTC and resolved 17:28:50 UTC. The notification states this constraint indicates the workload cgroup reached its limit and does not by itself establish host RAM exhaustion. It provides no current allocation health or user impact."
           }
         },
-        "title": "mcp.responder-state.cite_source",
+        "title": "mcp.controller-tools.cite_source",
         "tool_call_id": "exec-8fff3007-28a2-4cd8-841c-b303c71f5fea",
         "evidence_version": 1
       },
@@ -86,7 +86,7 @@
       "kind": "tool.completed",
       "payload": {
         "kind": "execute",
-        "title": "mcp.responder-state.cite_source",
+        "title": "mcp.controller-tools.cite_source",
         "status": "completed",
         "tool_call_id": "exec-8fff3007-28a2-4cd8-841c-b303c71f5fea",
         "evidence_version": 1

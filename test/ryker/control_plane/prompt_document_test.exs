@@ -22,7 +22,6 @@ defmodule Ryker.ControlPlane.PromptDocumentTest do
 
     for {key, title} <- [
           {"messages", "Earlier messages"},
-          {"channel_summary", "Channel summary"},
           {"thread_summary", "Thread summary"}
         ] do
       path = "$.work.conversation_context.bundle." <> key

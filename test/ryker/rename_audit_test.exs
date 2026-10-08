@@ -35,11 +35,8 @@ defmodule Ryker.RenameAuditTest do
   # the token is a deliberate reference; `~r//` on `path` means any file.
   @allowed_tokens [
     # --- contracts with another party
-    {~r{^(lib/ryker/(control_plane/(tool_card|saved_records|episode_trace/tool_activity)|work/activity_event/query|state_tools/record_writer)|test/ryker/slack/reply_records_test)\.exs?$},
-     ~r/responder-state(?![A-Za-z0-9_])|responder-state:v1/,
-     "read-only historical activity and immutable state-record idempotency namespace; new execution uses controller-tools"},
-    {~r{^(lib/ryker/control_plane/(model_requests|request_context_html)\.ex|test/ryker/control_plane/request_context_html_test\.exs)$},
-     ~r/responder_state_tools/, "read-only inspection of previously saved prompt context"},
+    {~r{^lib/ryker/state_tools/record_writer\.ex$}, ~r/responder-state:v1/,
+     "immutable state-record idempotency namespace; new execution uses controller-tools"},
     {~r//, ~r/x-responder-(signature|timestamp|event-id|event-type|item-id|occurred-at|revision)/,
      "inbound webhook contract; configured external senders set these headers"},
     {~r//, ~r/responder\.publication_lifecycle\.v1/,

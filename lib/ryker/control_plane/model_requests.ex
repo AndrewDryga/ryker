@@ -3,7 +3,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
   alias Ryker.Accounting
   alias Ryker.Admission
   alias Ryker.ControlPlane.{Activity, CallRun, ContextSearch, ContextSelection, EpisodeProjection}
-  alias Ryker.ControlPlane.{BackgroundCards, RoutingReason, ThreadContext, Units, UsageProjection}
+  alias Ryker.ControlPlane.{BackgroundCards, ThreadContext, Units, UsageProjection}
   alias Ryker.ControlPlane.{EpisodeTrace, FeedbackProjection, ImprovementRequests}
   alias Ryker.ControlPlane.EpisodeTrace.{CaseFile, Input, Step}
   alias Ryker.ControlPlane.{LearningRequests, PagedRelation, Paths, RepositoryNames}
@@ -656,7 +656,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
        ) do
     reason =
       case entry.decision_document do
-        %{"reason" => reason} when is_binary(reason) -> RoutingReason.plain(reason)
+        %{"reason" => reason} when is_binary(reason) -> reason
         _none -> nil
       end
 
@@ -794,7 +794,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
     work = if is_map(context), do: context, else: %{}
 
     tools =
-      Map.take(work, ~w(controller_tools responder_state_tools source_and_action_tools workspace))
+      Map.take(work, ~w(controller_tools source_and_action_tools workspace))
 
     sections = [
       section("instructions", "Ryker instructions", prompt["instructions"], reading),

@@ -13,7 +13,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
   alias Ryker.Wording
   alias Ryker.Work
 
-  @state_servers ["controller-tools", "responder-state"]
+  @state_servers ["controller-tools"]
   # Ryker receives a state-tool call between the worker's start and completion
   # frames. One host shares one clock; the margin covers a remote worker's
   # drift and stays well under the time a model takes to make its next call.
@@ -207,10 +207,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
   defp fold_activity(event, {steps, open, replaced}, disclosed),
     do: {[activity_step(event, disclosed) | steps], open, replaced}
 
-  # A worker older than 2026-09-29 sent a thought's time and no words.
-  defp hidden_activity?(%Work.ActivityEvent{kind: "model.thought", payload: payload}),
-    do: blank?(payload["text"]) and not is_map(payload["withheld"])
-
   defp hidden_activity?(%Work.ActivityEvent{kind: "model.progress", payload: payload}) do
     case payload["text"] do
       text when is_binary(text) -> String.trim(text) == ""
@@ -219,9 +215,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
   end
 
   defp hidden_activity?(_event), do: false
-
-  defp blank?(text) when is_binary(text), do: String.trim(text) == ""
-  defp blank?(_text), do: true
 
   defp tool_started_step(event, disclosed) do
     input = event.payload["input"]

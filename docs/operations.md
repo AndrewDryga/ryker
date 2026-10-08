@@ -437,10 +437,8 @@ times in `Etc/UTC` only.
 The product is Ryker. A few names remain `responder-*`: wire names Coop workers or webhook senders
 own, which change only with the other party, and identities stored data already carries:
 
-- retained tool activity naming `responder-state` (new Coop bindings use `controller-tools`);
 - the state-record identity `responder-state:v1`, which Ryker still hashes into every state write's
   operation id, so a write retried across a deploy finds the record it made instead of making two;
-- `responder_state_tools` in prompt contexts saved before the rename, which a request's page shows;
 - webhook signature and event headers beginning `x-responder-`;
 - the `responder.publication_lifecycle.v1` event type.
 

@@ -38,8 +38,7 @@ defmodule Ryker.ControlPlane.Actor do
 
   @doc """
   The person a Chat actor (`chat_ref/1`) is: whom a turn is for, and whom a
-  reaction is recorded under. A reaction had a spelling of its own,
-  `control-plane:user:`, until 2026-10-06 (2026-10-04 review).
+  reaction is recorded under.
   """
   @spec person_ref(String.t()) :: String.t()
   def person_ref(chat_ref) when is_binary(chat_ref), do: "control_plane:user:" <> chat_ref
@@ -51,7 +50,6 @@ defmodule Ryker.ControlPlane.Actor do
   """
   @spec login(term()) :: String.t() | nil
   def login("control_plane:user:" <> ref), do: login(ref)
-  def login("control-plane:user:" <> ref), do: login(ref)
   def login("control-plane:" <> ref), do: source_login(ref)
   def login(ref) when is_binary(ref), do: source_login(ref)
   def login(_ref), do: nil
