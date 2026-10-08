@@ -241,15 +241,11 @@ defmodule Ryker.Work.SubmissionBuilder do
     case PlatformTools.names(Keyword.get(options, :platform_tools)) do
       {:ok, names} ->
         {:ok,
-         Enum.filter(names, &visible_platform_tool?(&1, episode.destination_transport, mode))}
+         Enum.filter(names, &ToolVisibility.visible?(&1, episode.destination_transport, mode))}
 
       :error ->
         {:error, {:invalid_work_submission_builder, :platform_tools}}
     end
-  end
-
-  defp visible_platform_tool?(name, transport, mode) do
-    ToolVisibility.visible?(name, transport, mode)
   end
 
   # Optional notes are dropped from the tail to fit. The count before the drop

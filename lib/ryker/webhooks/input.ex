@@ -75,9 +75,9 @@ defmodule Ryker.Webhooks.Input do
 
   defp validate_metadata(metadata) do
     validations = [
-      {reference?(metadata.event_id, 1_024), :event_id},
-      {is_nil(metadata.event_type) or reference?(metadata.event_type, 256), :event_type},
-      {reference?(metadata.item_id, 1_024), :item_id},
+      {Reference.valid?(metadata.event_id, 1_024), :event_id},
+      {is_nil(metadata.event_type) or Reference.valid?(metadata.event_type, 256), :event_type},
+      {Reference.valid?(metadata.item_id, 1_024), :item_id},
       {utc_datetime?(metadata.occurred_at), :occurred_at},
       {metadata.occurred_at_source in [:source, :ingress], :occurred_at_source},
       {is_integer(metadata.revision) and metadata.revision > 0 and
@@ -106,8 +106,6 @@ defmodule Ryker.Webhooks.Input do
       }
     }
   end
-
-  defp reference?(value, maximum), do: Reference.valid?(value, maximum)
 
   defp utc_datetime?(%DateTime{} = value) do
     value.time_zone == "Etc/UTC" and value.utc_offset == 0 and value.std_offset == 0

@@ -180,7 +180,7 @@ defmodule Ryker.Learning.LearningSources do
         &(Ecto.UUID.cast(receipt[&1]) == {:ok, receipt[&1]})
       ) and
       is_integer(receipt["revision"]) and receipt["revision"] > 0 and
-      text?(receipt["fingerprint"], 64) and
+      Reference.valid?(receipt["fingerprint"], 64) and
       Regex.match?(~r/\A[0-9a-f]{64}\z/, receipt["fingerprint"]) and
       scope_shape?(receipt) and timestamp?(receipt["retained_at"])
   end
@@ -188,12 +188,10 @@ defmodule Ryker.Learning.LearningSources do
   defp valid_shape?(_), do: false
 
   defp scope_shape?(receipt) do
-    Enum.all?(~w(transport workspace_ref conversation_ref), &text?(receipt[&1], 1024)) and
-      (is_nil(receipt["repository_ref"]) or text?(receipt["repository_ref"], 1024)) and
+    Enum.all?(~w(transport workspace_ref conversation_ref), &Reference.valid?(receipt[&1], 1024)) and
+      (is_nil(receipt["repository_ref"]) or Reference.valid?(receipt["repository_ref"], 1024)) and
       receipt["visibility"] in ~w(public private direct conversation)
   end
-
-  defp text?(value, limit), do: Reference.valid?(value, limit)
 
   defp timestamp?(value) when is_binary(value),
     do: match?({:ok, _, 0}, DateTime.from_iso8601(value))

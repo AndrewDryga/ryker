@@ -233,7 +233,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
                  %{"goal_id" => goal["id"], "state" => state}
                )
 
-      _ = refresh_card!(card, slack_api)
+      refresh_card!(card, slack_api)
       assert_receive {:slack_updated, "C456", "1788268001.000200", live_card, ^card_ref}
       rendered = Jason.encode!(live_card)
 
@@ -248,7 +248,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
       assert length(FakeSlackAPI.state(slack_api).posts) == 1
     end
 
-    _ = refresh_card!(card, slack_api)
+    refresh_card!(card, slack_api)
     assert length(FakeSlackAPI.state(slack_api).updates) == 3
 
     {:ok, task_api} =

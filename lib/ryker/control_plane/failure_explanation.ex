@@ -294,34 +294,32 @@ defmodule Ryker.ControlPlane.FailureExplanation do
       recommended: level == :automatic or (level == :stuck and is_nil(story[:fix]))
     }
 
-  @doc """
-  Where leaving a failure as it is lives. A failure that ends where it lives
-  ends there: a learning batch is dropped, an incident room closed, a stopped
-  request closed. Any other is left on Failures itself, which stops listing it
-  until it changes again (Andrew, 2026-10-03: "how do I hide the alert if I
-  want to leave it and not be annoyed by having a failure pending forever?").
-  """
+  # Where leaving a failure as it is lives. A failure that ends where it lives
+  # ends there: a learning batch is dropped, an incident room closed, a stopped
+  # request closed. Any other is left on Failures itself, which stops listing it
+  # until it changes again (Andrew, 2026-10-03: "how do I hide the alert if I
+  # want to leave it and not be annoyed by having a failure pending forever?").
   @spec leave_path(map()) :: String.t() | nil
-  def leave_path(%{kind: "learning", ref: batch_id}) when is_binary(batch_id),
+  defp leave_path(%{kind: "learning", ref: batch_id}) when is_binary(batch_id),
     do: Paths.action("learning", batch_id, "drop")
 
-  def leave_path(%{kind: "slack_incident", ref: ref}) when is_binary(ref),
+  defp leave_path(%{kind: "slack_incident", ref: ref}) when is_binary(ref),
     do: Paths.action("slack_incident", ref, "close")
 
-  def leave_path(%{kind: "work", episode_id: id}) when is_binary(id),
+  defp leave_path(%{kind: "work", episode_id: id}) when is_binary(id),
     do: Paths.action("episode", id, "resolve")
 
-  def leave_path(%{kind: "stopping", episode_id: id}) when is_binary(id),
+  defp leave_path(%{kind: "stopping", episode_id: id}) when is_binary(id),
     do: Paths.action("stopping", id, "leave")
 
   # A request's failure is addressed by its request's id; without one there is
   # nowhere to leave it.
-  def leave_path(%{kind: kind}) when kind in ~w(work stopping), do: nil
+  defp leave_path(%{kind: kind}) when kind in ~w(work stopping), do: nil
 
-  def leave_path(%{kind: kind, ref: ref} = row) when is_binary(kind) and is_binary(ref),
+  defp leave_path(%{kind: kind, ref: ref} = row) when is_binary(kind) and is_binary(ref),
     do: Paths.action(kind, address(row), "leave")
 
-  def leave_path(_row), do: nil
+  defp leave_path(_row), do: nil
 
   @doc "The question Leave it asks for a failure Failures itself leaves, and what it says."
   @spec leave_confirmation(map()) :: {:ok, String.t(), String.t()}

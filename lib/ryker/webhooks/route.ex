@@ -188,7 +188,7 @@ defmodule Ryker.Webhooks.Route do
   defp scope_list(values) when is_list(values) and values != [] and length(values) <= 64 do
     prepared = Enum.sort(Enum.uniq(values))
 
-    if length(prepared) == length(values) and Enum.all?(prepared, &reference?(&1, 256)),
+    if length(prepared) == length(values) and Enum.all?(prepared, &Reference.valid?(&1, 256)),
       do: {:ok, prepared},
       else: {:error, :scope}
   end
@@ -241,7 +241,7 @@ defmodule Ryker.Webhooks.Route do
       {valid_destination?(route.destination), :destination},
       {positive_bound?(route.max_body_bytes, 1_024, @maximum_body_bytes), :max_body_bytes},
       {positive_bound?(route.max_clock_skew_seconds, 1, 3_600), :max_clock_skew_seconds},
-      {reference?(route.name, 128), :name}
+      {Reference.valid?(route.name, 128), :name}
     ]
 
     Enum.reduce_while(validations, :ok, fn
@@ -262,14 +262,13 @@ defmodule Ryker.Webhooks.Route do
   defp valid_destination?(
          %{transport: transport, conversation_ref: conversation, thread_ref: thread} = destination
        ) do
-    map_size(destination) == 3 and reference?(transport, 1_024) and
-      reference?(conversation, 1_024) and (is_nil(thread) or reference?(thread, 1_024))
+    map_size(destination) == 3 and Reference.valid?(transport, 1_024) and
+      Reference.valid?(conversation, 1_024) and
+      (is_nil(thread) or Reference.valid?(thread, 1_024))
   end
 
   defp valid_destination?(_destination), do: false
 
   defp positive_bound?(value, minimum, maximum),
     do: is_integer(value) and value >= minimum and value <= maximum
-
-  defp reference?(value, maximum), do: Reference.valid?(value, maximum)
 end

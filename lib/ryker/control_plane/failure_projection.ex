@@ -343,17 +343,17 @@ defmodule Ryker.ControlPlane.FailureProjection do
 
   def slack_incident(_ref), do: :not_found
 
-  def slack_task_card(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
+  defp slack_task_card(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
     case Repo.one(TaskCard.Query.by_ref(ref)) do
       %TaskCard{status: :blocked} = card -> {:ok, task_card_item(card)}
       _unavailable -> :not_found
     end
   end
 
-  def slack_task_card(_ref), do: :not_found
+  defp slack_task_card(_ref), do: :not_found
 
   # A thread status has no reference of its own beyond its row id.
-  def slack_thread_status(ref) when is_binary(ref) do
+  defp slack_thread_status(ref) when is_binary(ref) do
     with {:ok, id} <- Ecto.UUID.cast(ref),
          %ThreadStatus{status: :blocked} = status <- Repo.one(ThreadStatus.Query.by_id(id)) do
       {:ok, thread_status_item(status)}
@@ -362,7 +362,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
     end
   end
 
-  def slack_thread_status(_ref), do: :not_found
+  defp slack_thread_status(_ref), do: :not_found
 
   # A routing response (a reaction or quick reply) belongs to an input rather
   # than an episode; its input id is what finds the conversation and source it

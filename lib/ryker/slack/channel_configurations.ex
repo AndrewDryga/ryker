@@ -1569,14 +1569,14 @@ defmodule Ryker.Slack.ChannelConfigurations do
     |> Map.update!(:kind, &Atom.to_string/1)
     |> Map.update!(:occurred_at, &DateTime.to_iso8601/1)
     |> json_document()
-    |> fingerprint()
+    |> CanonicalJSON.digest()
   end
 
   defp reconfiguration_fingerprint(attributes) do
     attributes
     |> Map.update!(:occurred_at, &DateTime.to_iso8601/1)
     |> json_document()
-    |> fingerprint()
+    |> CanonicalJSON.digest()
   end
 
   defp action_fingerprint(attributes) do
@@ -1586,7 +1586,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
     |> Map.update!(:occurred_at, &DateTime.to_iso8601/1)
     |> Map.update!(:value, &json_value/1)
     |> json_document()
-    |> fingerprint()
+    |> CanonicalJSON.digest()
   end
 
   defp json_value(value) when is_atom(value), do: Atom.to_string(value)
@@ -1601,8 +1601,6 @@ defmodule Ryker.Slack.ChannelConfigurations do
       {to_string(key), value}
     end)
   end
-
-  defp fingerprint(document), do: CanonicalJSON.digest(document)
 
   defp lock_channel!(workspace_ref, channel_ref) do
     case ChannelFence.lock_in_transaction(workspace_ref, channel_ref) do

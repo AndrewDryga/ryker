@@ -16,7 +16,6 @@ defmodule Ryker.RepositoryKnowledge.Document do
   command.
   """
 
-  @outline_note "This is only an outline from the file list"
   @vendored ~w(node_modules vendor deps _build third_party)
   @guidance_names ~w(AGENTS.md CLAUDE.md GEMINI.md)
   @build_names ~w(Makefile GNUmakefile mix.exs go.mod go.work package.json Cargo.toml pyproject.toml Gemfile Dockerfile)
@@ -451,7 +450,7 @@ defmodule Ryker.RepositoryKnowledge.Document do
         [
           "# RYKER.md",
           provenance(commit, date) <>
-            " #{@outline_note}: Ryker could not finish reading the repository, and replaces it " <>
+            " #{"This is only an outline from the file list"}: Ryker could not finish reading the repository, and replaces it " <>
             "on its next refresh.",
           section("Purpose", [purpose]),
           listed("Components", components, shown, &"- #{link(&1, :tree)}"),

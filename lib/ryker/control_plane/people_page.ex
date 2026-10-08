@@ -39,9 +39,9 @@ defmodule Ryker.ControlPlane.PeoplePage do
     }
   end
 
-  @doc "Where forgetting one thing Ryker knows about someone asks first."
+  # Where forgetting one thing Ryker knows about someone asks first.
   @spec forget_fact_path(String.t()) :: String.t()
-  def forget_fact_path(fact_id), do: "/actions/person-fact/#{fact_id}/forget"
+  defp forget_fact_path(fact_id), do: "/actions/person-fact/#{fact_id}/forget"
 
   @doc "The People body for a `PeopleProjection.list/0` view."
   @spec html(map()) :: iodata()

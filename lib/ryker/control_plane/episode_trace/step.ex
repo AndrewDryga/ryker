@@ -103,13 +103,12 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Step do
   def time_key(%DateTime{} = value), do: DateTime.to_unix(value, :microsecond)
   def time_key(_value), do: 9_223_372_036_854_775_807
 
-  def format_ms(nil), do: nil
-  def format_ms(value) when value < 1_000, do: "#{value} ms"
-  def format_ms(value) when value < 60_000, do: format_decimal(value / 1_000, "s")
-  def format_ms(value) when value < 3_600_000, do: format_decimal(value / 60_000, "m")
-  def format_ms(value), do: format_decimal(value / 3_600_000, "h")
+  defp format_ms(value) when value < 1_000, do: "#{value} ms"
+  defp format_ms(value) when value < 60_000, do: format_decimal(value / 1_000, "s")
+  defp format_ms(value) when value < 3_600_000, do: format_decimal(value / 60_000, "m")
+  defp format_ms(value), do: format_decimal(value / 3_600_000, "h")
 
-  def format_decimal(value, suffix) do
+  defp format_decimal(value, suffix) do
     number =
       :erlang.float_to_binary(value, decimals: 1)
       |> String.trim_trailing("0")
@@ -130,8 +129,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Step do
   def plural(1, noun, _plural), do: "1 #{noun}"
   def plural(value, _noun, plural), do: "#{value} #{plural}"
 
-  def optional_human(nil), do: nil
-  def optional_human(value), do: human(value)
+  defp optional_human(nil), do: nil
+  defp optional_human(value), do: human(value)
 
   def human(nil), do: "unrecorded"
   def human(value) when is_atom(value), do: value |> Atom.to_string() |> human()

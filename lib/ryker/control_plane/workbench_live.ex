@@ -1522,7 +1522,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   # A settings page, or a page of one form on it: {section, form}, where form
   # is nil or {kind, key}, key nil for a new one. A key comes from the route's
   # decoded parameters, never from the raw path.
-  def settings_route(segments, params) do
+  defp settings_route(segments, params) do
     case Map.fetch(@settings_pages, segments) do
       {:ok, section} -> {section, nil}
       :error -> segments |> Enum.reverse() |> form_route(params)

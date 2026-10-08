@@ -127,7 +127,7 @@ defmodule Ryker.Publication.FollowupDispatcher do
            true <- positive?(values.lease_seconds),
            true <- positive?(values.retry_base_seconds),
            true <- values.retry_max_seconds >= values.retry_base_seconds,
-           true <- reference?(values.worker_ref) do
+           true <- Reference.valid?(values.worker_ref) do
         {:ok, values}
       else
         false -> {:error, {:invalid_publication_followup_dispatcher, :settings}}
@@ -147,6 +147,4 @@ defmodule Ryker.Publication.FollowupDispatcher do
   end
 
   defp positive?(value), do: is_integer(value) and value > 0
-
-  defp reference?(value), do: Reference.valid?(value)
 end

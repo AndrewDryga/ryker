@@ -128,7 +128,7 @@ defmodule Ryker.Slack.TaskCardProjection do
       "controls" =>
         controls(record, episode, turn, session, publication, snapshot.workspace_hold),
       "publication" => publication(publication, snapshot.followup, fix),
-      "request" => record.payload["prompt"] |> request_text() |> compact(12_000),
+      "request" => record.payload["prompt"] |> TaskTools.request() |> compact(12_000),
       "repository" => repository_name(record.payload["repository"]),
       "repository_url" => repository_url(publication),
       "stages" =>
@@ -167,7 +167,7 @@ defmodule Ryker.Slack.TaskCardProjection do
     turn = Repo.one(Turn.Query.current(episode))
 
     %{
-      automatic_fix: automatic_fix(publication, episode),
+      automatic_fix: FixLoop.progress(publication, episode),
       turn: turn,
       session: Repo.one(Session.Query.latest_of_episode(episode.id)),
       publication: publication,
@@ -188,7 +188,6 @@ defmodule Ryker.Slack.TaskCardProjection do
   # What the person asked for, as the task offer wrote it: the card showed
   # "Sources: slack-source:v1:…" once it stopped cutting the request at 600
   # characters (2026-09-28).
-  defp request_text(prompt), do: TaskTools.request(prompt)
 
   # A repository by the name people know it by, owner/repo, from the
   # repository Ryker added; one no longer added keeps the name the task
@@ -642,7 +641,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp summary(record, progress) do
     case List.last(progress) do
       %{"summary" => summary} -> summary
-      _missing -> record.payload["prompt"] |> request_text() |> compact(500)
+      _missing -> record.payload["prompt"] |> TaskTools.request() |> compact(500)
     end
   end
 
@@ -690,7 +689,6 @@ defmodule Ryker.Slack.TaskCardProjection do
   # asks for action: the work is doing what a person used to be asked to
   # request. Once the rounds are spent it says so plainly, as the action
   # needed, with Review latest state and Discard where they always were.
-  defp automatic_fix(publication, episode), do: FixLoop.progress(publication, episode)
 
   defp fix_line({state, line}, state), do: line
   defp fix_line(_fix, _state), do: nil

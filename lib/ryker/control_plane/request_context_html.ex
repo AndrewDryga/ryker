@@ -276,16 +276,15 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
                      "within the continuation window."
   @no_background "The search found no earlier work that could only be linked as background: " <>
                    "nothing that finished earlier, was cancelled, or is tied to another repository."
-  # Routing reads the same memory rows on every call, sent or not.
-  # V9, 2026-09-28: "None" under Selected knowledge read as if Ryker had no
-  # topics, when it had searched and none matched. The empty row says what was
-  # searched and that nothing matched.
-  @no_matching_topics "Ryker looked for topics learned in this conversation, and in public channels it is in, that share words, links or IDs with this message. None did."
-  @no_prior_topics "A learning pass is offered the topics this conversation already kept that share a thread, words, links or IDs with its messages, up to eight. None did, so the pass could only start new topics."
   @routing_memory [
     {"conversation_observations", "Conversation notes",
      "Ryker had no notes about earlier messages in this conversation."},
-    {"conversation_knowledge", "Learned topics", @no_matching_topics}
+    # Routing reads the same memory rows on every call, sent or not.
+    # V9, 2026-09-28: "None" under Selected knowledge read as if Ryker had no
+    # topics, when it had searched and none matched. The empty row says what was
+    # searched and that nothing matched.
+    {"conversation_knowledge", "Learned topics",
+     "Ryker looked for topics learned in this conversation, and in public channels it is in, that share words, links or IDs with this message. None did."}
   ]
   # Rows the briefing shows even when their value is empty, because the empty
   # value is itself the finding: no channel instructions, no summary saved.
@@ -651,7 +650,11 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   defp routing_absent(_group, _context, _root, _prefix), do: []
 
-  defp empty_status("Prior knowledge"), do: {"None matched", @no_prior_topics}
+  defp empty_status("Prior knowledge") do
+    {"None matched",
+     "A learning pass is offered the topics this conversation already kept that share a thread, words, links or IDs with its messages, up to eight. None did, so the pass could only start new topics."}
+  end
+
   defp empty_status(_title), do: {"None", "Sent to the model empty."}
 
   # A part with nothing to open is a row, not a disclosure: its status says
@@ -1802,7 +1805,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       "<p class=\"context-absent\">No global instructions were saved in Settings when this request ran.</p>"
     ]
 
-  def instruction_layers(value) when is_map(value) do
+  defp instruction_layers(value) when is_map(value) do
     Enum.map([{"global", "Global instructions"}, {"channel", "Channel instructions"}], fn {key,
                                                                                            label} ->
       [

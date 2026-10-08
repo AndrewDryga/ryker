@@ -64,8 +64,11 @@ defmodule Mix.Tasks.Ryker.Eval do
   def run(["world-pack"]) do
     WorldCase.all()
     |> case do
-      {:ok, cases} -> Enum.each(cases, &(WorldCase.document(&1) |> Jason.encode!() |> info()))
-      {:error, reason} -> Mix.raise("could not compile model-world evals: #{inspect(reason)}")
+      {:ok, cases} ->
+        Enum.each(cases, &(WorldCase.document(&1) |> Jason.encode!() |> Mix.shell().info()))
+
+      {:error, reason} ->
+        Mix.raise("could not compile model-world evals: #{inspect(reason)}")
     end
   end
 
@@ -131,7 +134,7 @@ defmodule Mix.Tasks.Ryker.Eval do
            }),
          summary = RoutingReplay.summary(cases, result, skipped),
          :ok <- write_report(replay.results, summary) do
-      info(
+      Mix.shell().info(
         "local routing replay: #{summary.same} of #{summary.total} decisions kept, " <>
           "#{summary.changed} changed, #{summary.not_answered} not usable, " <>
           "#{length(skipped)} examples skipped; report at #{replay.results}"
@@ -152,7 +155,7 @@ defmodule Mix.Tasks.Ryker.Eval do
            RoutingReplay.run(cases, client: client, concurrency: replay.concurrency, job: job),
          summary = RoutingReplay.summary(cases, result, skipped),
          :ok <- write_report(replay.results, summary) do
-      info(
+      Mix.shell().info(
         "routing replay: #{summary.same} of #{summary.total} decisions stayed the same, " <>
           "#{summary.changed} changed, #{summary.not_answered} not answered, " <>
           "#{length(skipped)} examples skipped; report at #{replay.results}"
@@ -174,7 +177,7 @@ defmodule Mix.Tasks.Ryker.Eval do
            ImprovementReplay.run(cases, client: client, concurrency: replay.concurrency, job: job),
          summary = ImprovementReplay.summary(cases, result, skipped),
          :ok <- write_report(replay.results, summary) do
-      info(
+      Mix.shell().info(
         "improvement replay: #{summary.same} of #{summary.total} diagnoses stayed the same, " <>
           "#{summary.changed} changed, #{summary.not_answered} not answered, " <>
           "#{length(skipped)} runs skipped; report at #{replay.results}"
@@ -296,7 +299,7 @@ defmodule Mix.Tasks.Ryker.Eval do
          :ok <- stop_repo(),
          reports <- run_world_plan(plan, runtime, eval_policies, eval_client),
          :ok <- WorldReport.write(results_path, reports, summary: nil) do
-      Enum.each(reports, &info(Jason.encode!(printable_world_report(&1))))
+      Enum.each(reports, &Mix.shell().info(Jason.encode!(printable_world_report(&1))))
       announce_preserved_databases(reports)
       announce_shard(world.shard, reports)
     else
@@ -333,15 +336,15 @@ defmodule Mix.Tasks.Ryker.Eval do
     candidates = Enum.filter(reports, &(&1.lane == :candidate))
     passed = Enum.count(candidates, &(&1.status == :passed))
 
-    info(
+    Mix.shell().info(
       "world shard #{index}/#{count}: #{passed}/#{length(candidates)} candidate observations" <>
         " passed; thresholds apply to the merged report"
     )
   end
 
   defp qualify_world(summary) do
-    info(Jason.encode!(%{"world_summary" => summary}))
-    info("world evals: #{summary.candidate.passed}/#{summary.candidate.total} passed")
+    Mix.shell().info(Jason.encode!(%{"world_summary" => summary}))
+    Mix.shell().info("world evals: #{summary.candidate.passed}/#{summary.candidate.total} passed")
 
     unless summary.passed?,
       do: Mix.raise("model-world qualification failed: #{inspect(summary.failures)}")
@@ -354,7 +357,9 @@ defmodule Mix.Tasks.Ryker.Eval do
       for index <- 1..shards.shards,
           {:ok, observations} = WorldSuite.shard(plan, index, shards.shards),
           observations != [] do
-        info(Jason.encode!(%{"observations" => length(observations), "shard" => index}))
+        Mix.shell().info(
+          Jason.encode!(%{"observations" => length(observations), "shard" => index})
+        )
       end
     else
       {:error, reason} -> Mix.raise("world shards failed: #{inspect(reason)}")
@@ -489,12 +494,12 @@ defmodule Mix.Tasks.Ryker.Eval do
     reports
     |> Enum.filter(&Map.get(&1, :database))
     |> Enum.each(fn report ->
-      info(
+      Mix.shell().info(
         preserved(report) <>
           " (#{report.scenario_id} #{report.lane} repeat #{report.repeat_index})"
       )
 
-      info(
+      Mix.shell().info(
         "drop after inspection with: PGDATABASE=#{report.database} MIX_ENV=test" <>
           " scripts/elixir-mix.sh ecto.drop"
       )
@@ -926,6 +931,4 @@ defmodule Mix.Tasks.Ryker.Eval do
         {:ok, Ryker.EvalFinch}
     end
   end
-
-  defp info(message), do: Mix.shell().info(message)
 end

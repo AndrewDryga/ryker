@@ -183,11 +183,10 @@ defmodule Ryker.Work.Executor do
       else: {:error, {:coop_protocol_error, :session_repository_write_authority}}
   end
 
-  @doc false
-  def ensure_state_binding(claim, %{state_tools_endpoint: nil, state_tools_secret: nil}),
+  defp ensure_state_binding(claim, %{state_tools_endpoint: nil, state_tools_secret: nil}),
     do: {:ok, claim}
 
-  def ensure_state_binding(claim, settings) do
+  defp ensure_state_binding(claim, settings) do
     with {:ok, scope} <- StateBinding.current_scope(claim.session),
          {:ok, binding} <-
            StateBinding.derive(

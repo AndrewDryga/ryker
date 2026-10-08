@@ -749,9 +749,9 @@ defmodule Ryker.ControlPlane.Integrations do
   def channel_name(%{workspace_ref: workspace, channel_ref: channel}),
     do: Slack.name(workspace, channel)
 
-  @doc "Whether every credential of these kinds is saved and verified."
+  # Whether every credential of these kinds is saved and verified.
   @spec verified?(map(), [atom()]) :: boolean()
-  def verified?(view, kinds) do
+  defp verified?(view, kinds) do
     Enum.all?(kinds, fn kind ->
       Enum.any?(view.credentials, &(&1.kind == kind and &1.verification_status == :verified))
     end)

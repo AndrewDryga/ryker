@@ -42,9 +42,6 @@ defmodule Ryker.Publication.FixLoop do
   @inline_output_bytes 16_384
   @source "publication-review"
 
-  @spec rounds() :: pos_integer()
-  def rounds, do: @rounds
-
   @doc "Whether a stored review is asked again unchanged instead of delivered."
   @spec recheck?(Publication.t(), map()) :: boolean()
   def recheck?(%Publication{recheck_rounds: rounds}, review),

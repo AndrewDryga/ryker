@@ -28,7 +28,6 @@ defmodule Ryker.Publication.Review do
   ]
   # Findings are counted from the list they name, so their code needs no clause.
   @refusal_codes ["policy_findings" | Enum.map(@refusals, &elem(&1, 0))]
-  @unrecognized_refusal "the review refused the change for a reason I don't recognize"
 
   # What Ryker does about a refusal without a person (`Ryker.Publication.FixLoop`).
   # The task's own work can fix these, most actionable first.
@@ -177,7 +176,10 @@ defmodule Ryker.Publication.Review do
     unrecognized? = Enum.any?(codes, &(&1 not in @refusal_codes))
 
     for({code, clause} <- @refusals, code in codes, do: clause) ++
-      if(unrecognized?, do: [@unrecognized_refusal], else: []) ++
+      if(unrecognized?,
+        do: ["the review refused the change for a reason I don't recognize"],
+        else: []
+      ) ++
       findings_refusal(document["policy_findings"], "policy_findings" in codes)
   end
 

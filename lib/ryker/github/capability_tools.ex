@@ -11,10 +11,6 @@ defmodule Ryker.GitHub.CapabilityTools do
   alias Ryker.GitHub.CapabilityTools.{Arguments, Authority}
   alias Ryker.{Options, Rescued}
 
-  # Every repository-bound tool may name another repository of the session's
-  # environment to read; the session's own repository is the default.
-  @repository_description "A repository of this session's environment, by its configured ref: work.repository_ref or a work.workspace.companions[].name. Companion repositories are read-only: review and CI write tools cannot target them. Omit it, or send null, for the session's own repository."
-
   @spec list(map() | keyword()) :: [map()]
   def list(options) do
     _validated = options!(options)
@@ -569,7 +565,12 @@ defmodule Ryker.GitHub.CapabilityTools do
   defp repository_property do
     %{"maxLength" => 256, "minLength" => 1, "type" => "string"}
     |> nullable()
-    |> Map.put("description", @repository_description)
+    # Every repository-bound tool may name another repository of the session's
+    # environment to read; the session's own repository is the default.
+    |> Map.put(
+      "description",
+      "A repository of this session's environment, by its configured ref: work.repository_ref or a work.workspace.companions[].name. Companion repositories are read-only: review and CI write tools cannot target them. Omit it, or send null, for the session's own repository."
+    )
   end
 
   defp nullable(schema), do: %{"anyOf" => [schema, %{"type" => "null"}]}

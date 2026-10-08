@@ -382,10 +382,9 @@ defmodule Ryker.Slack.ChannelSetup do
     :ok
   end
 
-  @doc false
   @spec welcome_document(ChannelConfiguration.t(), String.t() | nil, map()) ::
           {:ok, map()} | {:error, term()}
-  def welcome_document(%ChannelConfiguration{} = configuration, notice, options) do
+  defp welcome_document(%ChannelConfiguration{} = configuration, notice, options) do
     with {:ok, settings} <-
            settings(configuration.workspace_ref, configuration.channel_ref, options) do
       {:ok,

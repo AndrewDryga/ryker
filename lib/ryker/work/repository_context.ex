@@ -82,8 +82,8 @@ defmodule Ryker.Work.RepositoryContext do
   end
 
   defp valid?(context_ref, parallel_goal_limit, primary, read_only, repository_ref) do
-    reference?(context_ref, 256) and primary == repository_ref and
-      reference?(primary, 1_024) and valid_limit?(parallel_goal_limit) and
+    Reference.valid?(context_ref, 256) and primary == repository_ref and
+      Reference.valid?(primary, 1_024) and valid_limit?(parallel_goal_limit) and
       valid_companions?(read_only, primary) and
       CanonicalJSON.validate(
         document(%{
@@ -101,8 +101,6 @@ defmodule Ryker.Work.RepositoryContext do
   defp valid_companions?(repositories, primary) do
     is_list(repositories) and length(repositories) <= 32 and
       repositories == Enum.uniq(repositories) and primary not in repositories and
-      Enum.all?(repositories, &reference?(&1, 1_024))
+      Enum.all?(repositories, &Reference.valid?(&1, 1_024))
   end
-
-  defp reference?(value, maximum), do: Reference.valid?(value, maximum)
 end

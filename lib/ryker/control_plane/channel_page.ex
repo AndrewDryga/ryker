@@ -917,7 +917,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
           </span>
           <span :if={@view.usage.measured == 0}>Tokens not recorded</span>
           <span>
-            {if @view.usage.cost_usd, do: money(@view.usage.cost_usd), else: "Cost not recorded"}
+            {if @view.usage.cost_usd, do: Units.money(@view.usage.cost_usd), else: "Cost not recorded"}
           </span>
         </p>
         <p class="channel-usage-note">
@@ -1069,5 +1069,4 @@ defmodule Ryker.ControlPlane.ChannelPage do
   defp number(_missing), do: "0"
 
   # Recorded cost only; a channel without a price is "Cost not recorded", never $0.
-  defp money(cost), do: Units.money(cost)
 end

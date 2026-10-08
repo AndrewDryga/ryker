@@ -393,7 +393,4 @@ defmodule Ryker.Admission.ConversationContext do
   defp error_code({code, _detail}) when is_atom(code), do: Atom.to_string(code)
   defp error_code(code) when is_atom(code), do: Atom.to_string(code)
   defp error_code(_reason), do: "error"
-
-  @doc false
-  def default_limit, do: @default_limit
 end

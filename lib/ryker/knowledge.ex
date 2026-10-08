@@ -29,7 +29,7 @@ defmodule Ryker.Knowledge do
     # The conversation's topics, whatever repository each was learned with
     # (`scope_key/1`).
     base =
-      retention_seconds()
+      LearningSources.retention_seconds()
       |> ConversationKnowledge.Query.valid()
       |> ConversationKnowledge.Query.by_ids(ids)
       |> ConversationKnowledge.Query.by_conversation(scope.transport, scope.conversation_ref)
@@ -74,7 +74,11 @@ defmodule Ryker.Knowledge do
   defp recall_locked(destination, repository_ref, search, limit, search_scope) do
     case Observations.locked_scope(destination, repository_ref) do
       {:ok, scope} ->
-        query = visible_query(scope) |> within_scope(scope, search_scope) |> matching(search)
+        query =
+          visible_query(scope)
+          |> within_scope(scope, search_scope)
+          |> ConversationKnowledge.Query.matching(search)
+
         items = select_items(query, scope, search, min(max(limit, 1), 32))
         documents(Observations.authorized_notes(items, scope), scope)
 
@@ -440,7 +444,7 @@ defmodule Ryker.Knowledge do
   end
 
   @doc false
-  def valid_query, do: ConversationKnowledge.Query.valid(retention_seconds())
+  def valid_query, do: ConversationKnowledge.Query.valid(LearningSources.retention_seconds())
 
   defp visible_query(scope) do
     valid_query()
@@ -913,7 +917,7 @@ defmodule Ryker.Knowledge do
         |> Enum.take(3)
 
       expires =
-        case retention_seconds() do
+        case LearningSources.retention_seconds() do
           nil ->
             nil
 
@@ -944,11 +948,8 @@ defmodule Ryker.Knowledge do
   defp within_scope(query, scope, search_scope),
     do: ConversationKnowledge.Query.within_scope(query, scope_key(scope), scope, search_scope)
 
-  defp matching(query, search), do: ConversationKnowledge.Query.matching(query, search)
   defp id("knowledge:" <> id), do: if(Ecto.UUID.cast(id) == {:ok, id}, do: id)
   defp id(_), do: nil
-
-  defp retention_seconds, do: LearningSources.retention_seconds()
 
   # -- PubSub ------------------------------------------------------------------
 

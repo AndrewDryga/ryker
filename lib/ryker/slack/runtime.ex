@@ -152,14 +152,12 @@ defmodule Ryker.Slack.Runtime do
   @spec tasks() :: atom()
   def tasks, do: @tasks
 
-  @doc """
-  Posts `text` to the person who pressed a button, privately, on a task so
-  the gateway never waits on Slack. Slack shows nothing from the
-  acknowledgement of a button press, so every note on a refused press went
-  nowhere (2026-10-04 review). Best effort: a failed note is logged.
-  """
+  # Posts `text` to the person who pressed a button, privately, on a task so
+  # the gateway never waits on Slack. Slack shows nothing from the
+  # acknowledgement of a button press, so every note on a refused press went
+  # nowhere (2026-10-04 review). Best effort: a failed note is logged.
   @spec tell_presser(Client.t(), Ryker.Slack.Interaction.t(), String.t()) :: :ok
-  def tell_presser(client, interaction, text) do
+  defp tell_presser(client, interaction, text) do
     case Process.whereis(@tasks) do
       tasks when is_pid(tasks) ->
         {:ok, _task} =

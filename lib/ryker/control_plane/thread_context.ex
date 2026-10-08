@@ -12,8 +12,6 @@ defmodule Ryker.ControlPlane.ThreadContext do
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Repo
 
-  @label "All messages in this thread"
-
   @doc """
   The link to every message of `entry`'s Slack thread, or nil when the
   message is not in a thread or is the only message there.
@@ -31,5 +29,8 @@ defmodule Ryker.ControlPlane.ThreadContext do
   @doc "The link to a Slack thread's messages, for a request that has one."
   @spec thread_link(String.t(), String.t(), String.t()) :: %{href: String.t(), label: String.t()}
   def thread_link(transport, conversation, thread),
-    do: %{href: Activity.conversation_path(transport, conversation, thread), label: @label}
+    do: %{
+      href: Activity.conversation_path(transport, conversation, thread),
+      label: "All messages in this thread"
+    }
 end

@@ -91,10 +91,10 @@ defmodule Ryker.Slack.SourceAudits do
         attributes.result_count in 0..10_000,
         uuid?(attributes.episode_id),
         uuid?(attributes.turn_id),
-        reference?(attributes.workspace_ref, 256),
+        Reference.valid?(attributes.workspace_ref, 256),
         optional_reference?(attributes.channel_ref, 256),
-        reference?(attributes.requester_ref, 1_024),
-        reference?(attributes.capability, 128),
+        Reference.valid?(attributes.requester_ref, 1_024),
+        Reference.valid?(attributes.capability, 128),
         optional_reference?(attributes.source_ref, 1_024)
       ])
 
@@ -106,8 +106,6 @@ defmodule Ryker.Slack.SourceAudits do
 
   defp uuid?(value), do: match?({:ok, _uuid}, Ecto.UUID.cast(value))
 
-  defp reference?(value, maximum), do: Reference.valid?(value, maximum)
-
   defp optional_reference?(nil, _maximum), do: true
-  defp optional_reference?(value, maximum), do: reference?(value, maximum)
+  defp optional_reference?(value, maximum), do: Reference.valid?(value, maximum)
 end

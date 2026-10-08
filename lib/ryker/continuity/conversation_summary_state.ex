@@ -63,35 +63,39 @@ defmodule Ryker.Continuity.ConversationSummaryState do
       else: {:error, {:invalid_conversation_summary, :fields}}
   end
 
+  # Text is held to the characters its schema promises (code points), so a
+  # summary written in Ukrainian may be as long as one in English; a
+  # reference is ASCII and is held in bytes.
   defp lists(state) do
     Enum.reduce_while(@list_fields, :ok, fn field, :ok ->
-      maximum = if field in @reference_fields, do: @maximum_reference, else: @maximum_text
+      valid? =
+        if field in @reference_fields,
+          do: &Reference.valid?(&1, @maximum_reference),
+          else: &Reference.text?(&1, @maximum_text)
 
-      case text_list(state[field], maximum) do
+      case text_list(state[field], valid?) do
         :ok -> {:cont, :ok}
         {:error, _reason} -> {:halt, {:error, {:invalid_conversation_summary, field}}}
       end
     end)
   end
 
-  defp text_list(values, maximum)
+  defp text_list(values, valid?)
        when is_list(values) and length(values) <= @maximum_items do
-    if values == Enum.uniq(values) and Enum.all?(values, &text?(&1, maximum)),
+    if values == Enum.uniq(values) and Enum.all?(values, valid?),
       do: :ok,
       else: {:error, :invalid}
   end
 
-  defp text_list(_values, _maximum), do: {:error, :invalid}
+  defp text_list(_values, _valid?), do: {:error, :invalid}
 
   defp optional_text(nil, _field), do: :ok
 
   defp optional_text(value, field) do
-    if text?(value, @maximum_text),
+    if Reference.text?(value, @maximum_text),
       do: :ok,
       else: {:error, {:invalid_conversation_summary, field}}
   end
-
-  defp text?(value, maximum), do: Reference.valid?(value, maximum)
 
   defp canonical(state) do
     case CanonicalJSON.validate(state, max_bytes: @maximum_bytes) do

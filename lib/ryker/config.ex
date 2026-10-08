@@ -81,13 +81,6 @@ defmodule Ryker.Config do
       :ok
     end
 
-    @doc "Drops the calling test's override of `key`, so its reads see the application's again."
-    @spec delete_override(atom()) :: :ok
-    def delete_override(key) do
-      Process.delete({__MODULE__, key})
-      :ok
-    end
-
     defp fetch_override(key) do
       Enum.find_value(owners(), :error, fn owner ->
         case Map.fetch(overrides_of(owner), key) do

@@ -253,7 +253,7 @@ defmodule Ryker.ControlPlane.HTML do
       |> Enum.map(fn {emoji_name, reactors} ->
         mine = Enum.any?(reactors, &(&1.actor_ref == own))
         count = length(reactors)
-        glyph = lab_emoji_glyph(emoji_name)
+        glyph = Emoji.glyph(emoji_name)
         form_id = "lab-reaction-" <> lab_short_digest(message_ref <> ":" <> emoji_name)
 
         [
@@ -359,8 +359,6 @@ defmodule Ryker.ControlPlane.HTML do
 
   defp lab_reaction_picker(_message), do: ""
 
-  defp lab_emoji_glyph(emoji_name), do: Emoji.glyph(emoji_name)
-
   defp lab_short_digest(value) do
     Crypto.sha256_hex(value) |> binary_part(0, 16)
   end
@@ -376,7 +374,7 @@ defmodule Ryker.ControlPlane.HTML do
       ": · Ryker reaction · ",
       escape(reaction.status),
       "\">",
-      escape(lab_emoji_glyph(reaction.emoji_name)),
+      escape(Emoji.glyph(reaction.emoji_name)),
       "</span>"
     ]
   end

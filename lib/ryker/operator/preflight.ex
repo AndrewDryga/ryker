@@ -121,10 +121,14 @@ defmodule Ryker.Operator.Preflight do
         %{detail: detail, name: name, status: :ok}
 
       {:error, reason} ->
-        %{detail: error_detail(reason), name: name, status: :failed}
+        %{detail: ErrorDetail.detail(reason), name: name, status: :failed}
 
       unexpected ->
-        %{detail: error_detail({:unexpected_result, unexpected}), name: name, status: :failed}
+        %{
+          detail: ErrorDetail.detail({:unexpected_result, unexpected}),
+          name: name,
+          status: :failed
+        }
     end
   end
 
@@ -135,8 +139,6 @@ defmodule Ryker.Operator.Preflight do
   catch
     kind, reason -> {:error, {kind, reason}}
   end
-
-  defp error_detail(reason), do: ErrorDetail.detail(reason)
 
   defp optional_configuration(nil), do: :ok
   defp optional_configuration(configuration) when is_map(configuration), do: :ok

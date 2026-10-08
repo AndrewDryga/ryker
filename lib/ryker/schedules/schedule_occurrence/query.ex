@@ -7,7 +7,7 @@ defmodule Ryker.Schedules.ScheduleOccurrence.Query do
 
   def all, do: from(occurrences in ScheduleOccurrence, as: :episode_schedule_occurrences)
 
-  def by_schedule_id(queryable \\ all(), schedule_id),
+  defp by_schedule_id(queryable \\ all(), schedule_id),
     do: where(queryable, [episode_schedule_occurrences: o], o.schedule_id == ^schedule_id)
 
   @doc "A schedule's dispatched runs whose request has not ended."

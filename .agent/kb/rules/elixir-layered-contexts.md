@@ -122,6 +122,18 @@ Text and its limits (Emisar's `elixir-byte-budgets-need-byte-bounds`):
   (`Artifacts.maximum_bytes() + @maximum_lab_form_bytes`), never a second
   literal.
 
+Functions:
+
+- A function is public only when another module calls it, or a test of its
+  module's own contract; otherwise it is `defp`, and its `@doc` becomes a
+  comment.
+- A private function that only hands its arguments to another call is
+  inlined (Emisar's rule: a wrapper earns a name only when it adds meaning
+  the call site lacks).
+- A module attribute holds configuration: a limit, a version, a prefix, a
+  pattern, a path. A message or other literal read in one place is written
+  there.
+
 Results:
 
 - A clause never binds an `{:ok, _}` or `{:error, _}` tuple only to return

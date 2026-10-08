@@ -130,9 +130,9 @@ defmodule Ryker.Artifacts do
   @spec supported_media_type?(term()) :: boolean()
   def supported_media_type?(media_type), do: media_type in @media_types
 
-  @doc "Whether a model can receive an artifact of this type as a file."
+  # Whether a model can receive an artifact of this type as a file.
   @spec model_media_type?(term()) :: boolean()
-  def model_media_type?(media_type), do: media_type in @model_media_types
+  defp model_media_type?(media_type), do: media_type in @model_media_types
 
   @doc "Whether this type is a voice message or a video, which reaches models as its transcript."
   @spec recording?(term()) :: boolean()

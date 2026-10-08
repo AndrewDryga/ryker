@@ -22,6 +22,7 @@ defmodule Ryker.Work.RepositorySource do
   any binding that answers a different request.
   """
   alias Ryker.GitObject
+  alias Ryker.Reference
 
   @kinds ~w(default branch pull_request commit)
   @maximum_branch_bytes 255
@@ -299,12 +300,8 @@ defmodule Ryker.Work.RepositorySource do
   defp binding_kind(kind, %{"kind" => kind}), do: :ok
   defp binding_kind(_kind, _requested), do: invalid_binding(:kind)
 
-  defp bounded_binding(value, maximum, field) do
-    if is_binary(value) and String.valid?(value) and byte_size(value) in 1..maximum and
-         String.trim(value) != "" and :binary.match(value, <<0>>) == :nomatch,
-       do: :ok,
-       else: invalid_binding(field)
-  end
+  defp bounded_binding(value, maximum, field),
+    do: if(Reference.valid?(value, maximum), do: :ok, else: invalid_binding(field))
 
   defp binding_ref(value, field) do
     with :ok <- bounded_binding(value, @maximum_ref_bytes, field) do

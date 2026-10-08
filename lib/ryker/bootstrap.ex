@@ -71,7 +71,7 @@ defmodule Ryker.Bootstrap do
 
   def checkpoint_key!(env \\ &System.fetch_env/1), do: key!(env, "RYKER_CHECKPOINT_KEY")
 
-  def credential_key!(env \\ &System.fetch_env/1), do: key!(env, "RYKER_CREDENTIAL_KEY")
+  defp credential_key!(env), do: key!(env, "RYKER_CREDENTIAL_KEY")
 
   # Both keys are exactly 32 bytes, base64-encoded; the failure names the
   # variable and never quotes the value.

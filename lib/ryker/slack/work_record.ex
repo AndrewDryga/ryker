@@ -162,7 +162,7 @@ defmodule Ryker.Slack.WorkRecord do
 
     [
       heading("Timeline", snapshot),
-      "Now: #{state_words(snapshot.episode.state)}",
+      "Now: #{Words.label(snapshot.episode.state)}",
       if(entries == [], do: "Nothing has happened yet.", else: Enum.join(entries, "\n"))
     ]
     |> Enum.join("\n")
@@ -214,7 +214,7 @@ defmodule Ryker.Slack.WorkRecord do
 
     [
       heading("Where this stands", snapshot),
-      "#{state_words(snapshot.episode.state)}. " <> progress_line(progress),
+      "#{Words.label(snapshot.episode.state)}. " <> progress_line(progress),
       if(steps != [], do: "Steps:\n" <> Enum.join(steps, "\n")),
       Enum.map(waits, &wait_line/1),
       if(snapshot.kind == :task,
@@ -499,7 +499,6 @@ defmodule Ryker.Slack.WorkRecord do
 
   # The request's state in the words its timeline header uses; which internal
   # owner holds it is not something a reader can act on.
-  defp state_words(state), do: Words.label(state)
 
   defp section(_title, [], nil), do: nil
   defp section(title, [], fallback), do: "#{title}:\n#{fallback}"

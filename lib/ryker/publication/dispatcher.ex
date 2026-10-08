@@ -123,7 +123,7 @@ defmodule Ryker.Publication.Dispatcher do
          true <- positive?(settings.retry_base_seconds),
          true <- positive?(settings.retry_max_seconds),
          true <- settings.retry_max_seconds >= settings.retry_base_seconds,
-         true <- reference?(settings.worker_ref) do
+         true <- Reference.valid?(settings.worker_ref) do
       {:ok, settings}
     else
       false -> {:error, {:invalid_publication_dispatcher, :settings}}
@@ -131,6 +131,4 @@ defmodule Ryker.Publication.Dispatcher do
   end
 
   defp positive?(value), do: is_integer(value) and value > 0
-
-  defp reference?(value), do: Reference.valid?(value)
 end

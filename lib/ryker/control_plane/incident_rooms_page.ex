@@ -119,10 +119,10 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
       "The room's history stays here, and you can't reopen it."
   end
 
-  @doc "A room's state as a dot and a word; one a person asked to close says so."
+  # A room's state as a dot and a word; one a person asked to close says so.
   @spec room_state(map()) :: {atom(), String.t()}
-  def room_state(%{closing: true}), do: {:busy, "Closing"}
-  def room_state(room), do: state(room.status)
+  defp room_state(%{closing: true}), do: {:busy, "Closing"}
+  defp room_state(room), do: state(room.status)
 
   @doc """
   The list body for one page of rooms (`IncidentProjection.list/1`): its

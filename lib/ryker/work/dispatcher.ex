@@ -299,7 +299,7 @@ defmodule Ryker.Work.Dispatcher do
          :ok <- setting(positive?(settings.max_attempts), :max_attempts),
          :ok <- setting(positive?(settings.retry_base_seconds), :retry_base_seconds),
          :ok <- setting(valid_retry_max?(settings), :retry_max_seconds),
-         :ok <- setting(reference?(settings.worker_ref), :worker_ref) do
+         :ok <- setting(Reference.valid?(settings.worker_ref), :worker_ref) do
       {:ok, settings}
     end
   end
@@ -311,8 +311,6 @@ defmodule Ryker.Work.Dispatcher do
 
   defp keyword?(value), do: is_list(value) and Keyword.keyword?(value)
   defp positive?(value), do: is_integer(value) and value > 0
-
-  defp reference?(value), do: Reference.valid?(value)
 
   defp setting(true, _field), do: :ok
   defp setting(false, field), do: {:error, {:invalid_work_dispatcher, field}}

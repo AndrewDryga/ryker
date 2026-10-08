@@ -42,7 +42,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
 
     cond do
       worker.state == :revoked ->
-        rollback(:coop_worker_revoked)
+        Repo.rollback(:coop_worker_revoked)
 
       worker.drain_requested_at ->
         %{status: :duplicate, worker: worker}
@@ -65,7 +65,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
 
     cond do
       worker.state == :revoked ->
-        rollback(:coop_worker_revoked)
+        Repo.rollback(:coop_worker_revoked)
 
       is_nil(worker.drain_requested_at) ->
         %{status: :duplicate, worker: worker}
@@ -116,7 +116,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
 
   defp locked_worker!(worker_id) do
     worker_id |> Worker.Query.by_id() |> Worker.Query.lock_for_update() |> Repo.one() ||
-      rollback(:coop_worker_not_found)
+      Repo.rollback(:coop_worker_not_found)
   end
 
   defp reference(value, field) do
@@ -128,7 +128,5 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
   defp unwrap_write({:ok, value}), do: value
 
   defp unwrap_write({:error, changeset}),
-    do: rollback({:coop_worker_lifecycle_failed, changeset.errors})
-
-  defp rollback(reason), do: Repo.rollback(reason)
+    do: Repo.rollback({:coop_worker_lifecycle_failed, changeset.errors})
 end

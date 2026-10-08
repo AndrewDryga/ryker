@@ -76,7 +76,7 @@ defmodule Ryker.Publication.GateOutput do
         {:error, {:invalid_publication_gate_output, :read}}
 
       Map.has_key?(output, "incomplete") and
-          not text?(output["incomplete"], @maximum_reason_bytes) ->
+          not Reference.valid?(output["incomplete"], @maximum_reason_bytes) ->
         {:error, {:invalid_publication_gate_output, :incomplete}}
 
       true ->
@@ -85,7 +85,7 @@ defmodule Ryker.Publication.GateOutput do
   end
 
   def prepare(%{"reason" => reason, "status" => "lost"} = output) when map_size(output) == 2 do
-    if text?(reason, @maximum_reason_bytes),
+    if Reference.valid?(reason, @maximum_reason_bytes),
       do: {:ok, output},
       else: {:error, {:invalid_publication_gate_output, :lost}}
   end
@@ -192,6 +192,4 @@ defmodule Ryker.Publication.GateOutput do
   # While paging the bytes may split a character; `readable/1` mends it once.
   defp raw_tail(bytes, maximum) when byte_size(bytes) <= maximum, do: bytes
   defp raw_tail(bytes, maximum), do: binary_part(bytes, byte_size(bytes) - maximum, maximum)
-
-  defp text?(value, maximum), do: Reference.valid?(value, maximum)
 end

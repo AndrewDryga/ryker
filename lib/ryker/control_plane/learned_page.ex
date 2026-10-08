@@ -34,10 +34,6 @@ defmodule Ryker.ControlPlane.LearnedPage do
     ]
   end
 
-  @unused "Ryker stopped using this in answers because a message it learned from changed, was removed or expired."
-  @in_use "Ryker uses this topic as context when it answers in this conversation."
-  @forgotten "Someone chose to forget it: its text and history are erased, and Ryker never learns from its messages again."
-
   @doc "The query keys the Learned page reads."
   def query_keys, do: ConversationMemory.query_keys()
 
@@ -273,11 +269,22 @@ defmodule Ryker.ControlPlane.LearnedPage do
   # A forgotten topic says so; one whose messages changed says it is not used.
   # A topic in use carries no state in the list, where that is the rule, and
   # says so on its own page.
-  defp topic_state(%{forgotten_at: %DateTime{}}), do: {:off, "Forgotten", @forgotten}
-  defp topic_state(%{available: false}), do: {:warn, "Not used", @unused}
+  defp topic_state(%{forgotten_at: %DateTime{}}) do
+    {:off, "Forgotten",
+     "Someone chose to forget it: its text and history are erased, and Ryker never learns from its messages again."}
+  end
+
+  defp topic_state(%{available: false}) do
+    {:warn, "Not used",
+     "Ryker stopped using this in answers because a message it learned from changed, was removed or expired."}
+  end
+
   defp topic_state(_item), do: nil
 
-  defp topic_status(item), do: topic_state(item) || {:on, "In use", @in_use}
+  defp topic_status(item) do
+    topic_state(item) ||
+      {:on, "In use", "Ryker uses this topic as context when it answers in this conversation."}
+  end
 
   defp forget_path(id), do: "/actions/knowledge/#{id}/forget"
 

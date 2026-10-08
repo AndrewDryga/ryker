@@ -183,7 +183,7 @@ defmodule Ryker.GitHub.Input do
   defp exact_event(_event), do: {:error, {:invalid_github_input, :fields}}
 
   defp valid_delivery(value) do
-    if reference?(value), do: :ok, else: {:error, {:invalid_github_input, :delivery_ref}}
+    if Reference.valid?(value), do: :ok, else: {:error, {:invalid_github_input, :delivery_ref}}
   end
 
   defp event_kind(event_name, %{"action" => action}) when is_binary(action) do
@@ -518,6 +518,4 @@ defmodule Ryker.GitHub.Input do
 
   defp positive_id?(value),
     do: is_integer(value) and value > 0 and value <= 9_223_372_036_854_775_807
-
-  defp reference?(value), do: Reference.valid?(value)
 end

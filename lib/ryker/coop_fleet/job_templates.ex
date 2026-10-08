@@ -43,7 +43,7 @@ defmodule Ryker.CoopFleet.JobTemplates do
   @routing_turn_timeout_ms 5 * 60 * 1_000
   @turn_timeout_ms 60 * 60 * 1_000
 
-  def model_field(purpose), do: Map.get(@models, purpose)
+  defp model_field(purpose), do: Map.get(@models, purpose)
 
   @spec warm_idle_timeout_ms(atom()) :: non_neg_integer()
   def warm_idle_timeout_ms(:admission), do: @routing_warm_idle_timeout_ms

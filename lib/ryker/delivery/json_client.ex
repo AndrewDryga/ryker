@@ -139,7 +139,7 @@ defmodule Ryker.Delivery.JSONClient do
   defp method(_method), do: {:error, {:invalid_delivery_json_request, :method}}
 
   defp path(value) do
-    if text?(value, 4_096) and String.starts_with?(value, "/") and
+    if Reference.valid?(value, 4_096) and String.starts_with?(value, "/") and
          not String.starts_with?(value, "//"),
        do: :ok,
        else: {:error, {:invalid_delivery_json_request, :path}}
@@ -154,11 +154,9 @@ defmodule Ryker.Delivery.JSONClient do
   defp headers(_headers), do: {:error, {:invalid_delivery_json_request, :headers}}
 
   defp header?({name, value}) do
-    text?(name, 256) and text?(value, 4_096) and
+    Reference.valid?(name, 256) and Reference.valid?(value, 4_096) and
       String.downcase(name) not in ["authorization", "content-type"]
   end
 
   defp header?(_header), do: false
-
-  defp text?(value, maximum), do: Reference.valid?(value, maximum)
 end

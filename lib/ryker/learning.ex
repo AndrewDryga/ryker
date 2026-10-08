@@ -144,7 +144,7 @@ defmodule Ryker.Learning do
   def prepare(ids, %{policy: policy, policy_digest: digest} = settings)
       when is_list(ids) and length(ids) in 1..@max_inputs and is_binary(policy) and
              is_binary(digest) do
-    transaction(fn ->
+    Repo.transaction(fn ->
       unless Text.char_length(policy) in 1..160 and Regex.match?(~r/\A[0-9a-f]{64}\z/, digest),
         do: Repo.rollback(:invalid_learning_inputs)
 
@@ -271,7 +271,7 @@ defmodule Ryker.Learning do
   defp bind_candidate!({:error, reason}, _, _, _), do: Repo.rollback(reason)
 
   defp bind_candidate!({:ok, saved}, session_id, turn_id, attempt) do
-    unless valid_remote_ref?(turn_id) and owned_remote_session?(saved, session_id) and
+    unless Reference.valid?(turn_id) and owned_remote_session?(saved, session_id) and
              saved.coop_turn_id in [nil, turn_id] and saved.candidate_attempt in [nil, attempt],
            do: Repo.rollback(:learning_remote_identity_conflict)
 
@@ -340,7 +340,7 @@ defmodule Ryker.Learning do
       owned_remote_session?(run, turn["session_id"]) and turn["assistant_message"] == run.result and
       turn["validation_attempt"] == run.candidate_attempt and
       turn["validation_candidate_sha256"] == Crypto.sha256_hex(run.result) and
-      valid_remote_ref?(turn["validation_receipt"])
+      Reference.valid?(turn["validation_receipt"])
   end
 
   def freeze_submit(id, revision, claim \\ nil)
@@ -371,7 +371,7 @@ defmodule Ryker.Learning do
 
   def bind_turn(id, session_id, turn_id, claim \\ nil) do
     owned_transaction(id, claim, fn run ->
-      unless owned_remote_session?(run, session_id) and valid_remote_ref?(turn_id),
+      unless owned_remote_session?(run, session_id) and Reference.valid?(turn_id),
         do: Repo.rollback(:learning_remote_identity_conflict)
 
       case run.coop_turn_id do
@@ -421,7 +421,7 @@ defmodule Ryker.Learning do
       method = if phase == :create, do: "CreateRemoteSession", else: "SubmitTurn"
       session = Repo.one(Session.Query.by_learning_run_id(id))
 
-      unless session && is_nil(run.coop_turn_id) && valid_remote_ref?(operation_id) &&
+      unless session && is_nil(run.coop_turn_id) && Reference.valid?(operation_id) &&
                key == operation_key(run, phase) && operation["method"] == method &&
                is_nil(operation["resource_id"]) &&
                fence_phase_matches?(phase, session, run),
@@ -445,7 +445,7 @@ defmodule Ryker.Learning do
     do: is_nil(session.coop_session_id) and is_nil(run.submit_revision)
 
   defp fence_phase_matches?(:submit, session, run),
-    do: valid_remote_ref?(session.coop_session_id) and is_integer(run.submit_revision)
+    do: Reference.valid?(session.coop_session_id) and is_integer(run.submit_revision)
 
   @doc """
   Stop an attempt that ended before its session was asked for: Coop holds no
@@ -566,14 +566,12 @@ defmodule Ryker.Learning do
   end
 
   defp owned_remote_session?(run, remote_id) do
-    valid_remote_ref?(remote_id) and
+    Reference.valid?(remote_id) and
       run.id
       |> Session.Query.by_learning_run_id()
       |> Session.Query.by_coop_session_id(remote_id)
       |> Repo.exists?()
   end
-
-  defp valid_remote_ref?(value), do: Reference.valid?(value)
 
   @doc "Record an owned terminal execution failure without accepting or reconstructing a result."
   def fail(id, reason, receipt, claim \\ nil)
@@ -592,7 +590,7 @@ defmodule Ryker.Learning do
 
   defp valid_failure_receipt?(receipt, reason) do
     Enum.sort(Map.keys(receipt)) == Enum.sort(@failure_receipt_fields) and
-      Enum.all?(~w(session_id turn_id), &valid_remote_ref?(receipt[&1])) and
+      Enum.all?(~w(session_id turn_id), &Reference.valid?(receipt[&1])) and
       valid_failure_target?(receipt["target"], reason) and
       valid_failure_state?(receipt, reason) and
       is_binary(receipt["prompt_sha256"]) and
@@ -601,7 +599,7 @@ defmodule Ryker.Learning do
   end
 
   defp valid_failure_target?(nil, :learning_provider_failed), do: true
-  defp valid_failure_target?(target, _), do: valid_remote_ref?(target)
+  defp valid_failure_target?(target, _), do: Reference.valid?(target)
 
   defp valid_failure_time?(nil, :learning_provider_failed), do: true
 
@@ -613,7 +611,7 @@ defmodule Ryker.Learning do
 
   defp valid_failure_state?(receipt, :learning_provider_failed) do
     receipt["state"] in ~w(failed cancelled interrupted budget_exhausted) and
-      (is_nil(receipt["error_code"]) or valid_remote_ref?(receipt["error_code"]))
+      (is_nil(receipt["error_code"]) or Reference.valid?(receipt["error_code"]))
   end
 
   defp fail_locked(run, reason, receipt) do
@@ -1124,7 +1122,7 @@ defmodule Ryker.Learning do
   defp authorize_run(_), do: {:error, :learning_source_stale}
 
   defp save_result(id, result, producer) do
-    transaction(fn ->
+    Repo.transaction(fn ->
       run = fetch_run!(id)
       digest = CanonicalJSON.digest(result)
 
@@ -1395,7 +1393,7 @@ defmodule Ryker.Learning do
   end
 
   defp owned_read(id, claim, callback) do
-    transaction(fn ->
+    Repo.transaction(fn ->
       batch = if claim, do: Batches.lock_owned_in_transaction!(claim)
       run = fetch_run!(id)
 
@@ -1422,8 +1420,6 @@ defmodule Ryker.Learning do
   end
 
   defp lock_batch(key), do: AdvisoryLock.hold!(Crypto.lock_key("learning:" <> key))
-
-  defp transaction(fun), do: Repo.transaction(fun)
 
   def prune_in_transaction(seconds) do
     # Unknown receipt age is not permission to erase a retained attempt. Guard

@@ -88,7 +88,7 @@ defmodule Ryker.CoopFleet.Enrollment do
       token_sha256
       |> EnrollmentToken.Query.by_digest()
       |> EnrollmentToken.Query.lock_for_update()
-      |> Repo.one() || rollback(:coop_worker_enrollment_not_authorized)
+      |> Repo.one() || Repo.rollback(:coop_worker_enrollment_not_authorized)
 
     ensure_token_usable!(token, now)
     issued = issue_certificate!(request.public_key_pem, token.worker_id, signer, now)
@@ -114,16 +114,16 @@ defmodule Ryker.CoopFleet.Enrollment do
       certificate_sha256
       |> Certificate.Query.by_sha256()
       |> Certificate.Query.lock_for_update()
-      |> Repo.one() || rollback(:coop_worker_certificate_not_authorized)
+      |> Repo.one() || Repo.rollback(:coop_worker_certificate_not_authorized)
 
     if certificate.revoked_at || DateTime.compare(certificate.not_before, now) == :gt ||
          DateTime.compare(certificate.expires_at, now) != :gt,
-       do: rollback(:coop_worker_certificate_not_authorized)
+       do: Repo.rollback(:coop_worker_certificate_not_authorized)
 
     worker = locked_worker!(certificate.worker_id)
 
     if worker.state == :revoked,
-      do: rollback(:coop_worker_certificate_not_authorized)
+      do: Repo.rollback(:coop_worker_certificate_not_authorized)
 
     issued = issue_certificate!(request.public_key_pem, worker.id, signer, now)
     insert_certificate!(worker.id, nil, issued, :renewal, "worker:#{worker.id}")
@@ -155,10 +155,10 @@ defmodule Ryker.CoopFleet.Enrollment do
   defp ensure_token_usable!(token, now) do
     cond do
       token.consumed_at ->
-        rollback(:coop_worker_enrollment_token_consumed)
+        Repo.rollback(:coop_worker_enrollment_token_consumed)
 
       DateTime.compare(token.expires_at, now) != :gt ->
-        rollback(:coop_worker_enrollment_token_expired)
+        Repo.rollback(:coop_worker_enrollment_token_expired)
 
       true ->
         :ok
@@ -167,7 +167,7 @@ defmodule Ryker.CoopFleet.Enrollment do
 
   defp ensure_worker_enrollable!(worker_id) do
     case locked_worker(worker_id) do
-      %Worker{state: :revoked} -> rollback(:coop_worker_enrollment_not_authorized)
+      %Worker{state: :revoked} -> Repo.rollback(:coop_worker_enrollment_not_authorized)
       %Worker{} -> :ok
       nil -> :ok
     end
@@ -193,7 +193,7 @@ defmodule Ryker.CoopFleet.Enrollment do
         |> unwrap_write()
 
       %Worker{} ->
-        rollback(:coop_worker_enrollment_not_authorized)
+        Repo.rollback(:coop_worker_enrollment_not_authorized)
     end
   end
 
@@ -223,7 +223,7 @@ defmodule Ryker.CoopFleet.Enrollment do
            signer.certificate_ttl_seconds
          ) do
       {:ok, issued} -> issued
-      {:error, reason} -> rollback(reason)
+      {:error, reason} -> Repo.rollback(reason)
     end
   end
 
@@ -288,7 +288,7 @@ defmodule Ryker.CoopFleet.Enrollment do
   end
 
   defp locked_worker!(worker_id) do
-    locked_worker(worker_id) || rollback(:coop_worker_certificate_not_authorized)
+    locked_worker(worker_id) || Repo.rollback(:coop_worker_certificate_not_authorized)
   end
 
   defp token(value) when is_binary(value) and byte_size(value) in 32..128 do
@@ -323,9 +323,7 @@ defmodule Ryker.CoopFleet.Enrollment do
   defp unwrap_write({:ok, value}), do: value
 
   defp unwrap_write({:error, changeset}),
-    do: rollback({:coop_worker_enrollment_store_error, changeset})
-
-  defp rollback(reason), do: Repo.rollback(reason)
+    do: Repo.rollback({:coop_worker_enrollment_store_error, changeset})
 
   defp locked_worker(worker_id),
     do: worker_id |> Worker.Query.by_id() |> Worker.Query.lock_for_update() |> Repo.one()

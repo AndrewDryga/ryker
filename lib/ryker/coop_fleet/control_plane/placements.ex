@@ -91,7 +91,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
          true <- worker_current?(worker, placement.requirements["workspace_ref"], now),
          true <- every_slot_free?(worker),
          false <- session_being_created?(worker.id, now) do
-      not commands_waiting?(worker.id, now)
+      not Commands.waiting?(worker.id, now)
     else
       _busy_or_unplaced -> false
     end
@@ -123,7 +123,6 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   # prepare past its minute of redelivery, which it cancels; counting those kept
   # the worker busy for good, and no routing session was ever prepared on it
   # again (2026-10-04 review).
-  defp commands_waiting?(worker_id, now), do: Commands.waiting?(worker_id, now)
 
   @doc """
   The snapshot this session's work could continue from on another worker.

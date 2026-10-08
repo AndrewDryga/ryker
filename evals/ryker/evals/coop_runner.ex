@@ -282,7 +282,7 @@ defmodule Ryker.Evals.CoopRunner do
        when map_size(candidate) == 3 and is_integer(attempt) and attempt > 0 and
               is_binary(message) and
               is_binary(digest) do
-    if sha256(message) == digest,
+    if Crypto.sha256_hex(message) == digest,
       do: {:ok, candidate},
       else: {:error, {:coop_protocol_error, :candidate_digest}}
   end
@@ -683,9 +683,6 @@ defmodule Ryker.Evals.CoopRunner do
   end
 
   defp reference(_value, field), do: {:error, {:invalid_eval_runner, field}}
-
-  defp sha256(value),
-    do: Crypto.sha256_hex(value)
 
   defp failed(eval, reason) do
     %{decision: nil, eval_id: eval.eval_id, reason: reason, status: :failed}

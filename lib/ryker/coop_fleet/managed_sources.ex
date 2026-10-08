@@ -394,12 +394,10 @@ defmodule Ryker.CoopFleet.ManagedSources do
     end
   end
 
-  @doc """
-  The ref a public repository Ryker was never given has in a job. No
-  configured repository's ref has a colon, so the two never meet.
-  """
+  # The ref a public repository Ryker was never given has in a job. No
+  # configured repository's ref has a colon, so the two never meet.
   @spec public_ref(String.t()) :: String.t()
-  def public_ref(full_name), do: "public:" <> String.replace(full_name, "/", ":")
+  defp public_ref(full_name), do: "public:" <> String.replace(full_name, "/", ":")
 
   defp public_repository(slug, public_lookup) do
     case public_lookup.(slug) do

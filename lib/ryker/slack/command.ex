@@ -40,7 +40,7 @@ defmodule Ryker.Slack.Command do
       ) do
     values = [actor_ref, channel_ref, envelope_ref, workspace_ref]
 
-    if Enum.all?(values, &reference?/1) and text?(text) and utc?(occurred_at) do
+    if Enum.all?(values, &Reference.valid?/1) and text?(text) and utc?(occurred_at) do
       {:ok,
        %__MODULE__{
          actor_ref: actor_ref,
@@ -61,8 +61,6 @@ defmodule Ryker.Slack.Command do
     is_binary(value) and String.valid?(value) and byte_size(value) <= 4_096 and
       :binary.match(value, <<0>>) == :nomatch
   end
-
-  defp reference?(value), do: Reference.valid?(value)
 
   defp utc?(%DateTime{} = value),
     do: value.time_zone == "Etc/UTC" and value.utc_offset == 0 and value.std_offset == 0

@@ -30,8 +30,6 @@ defmodule Ryker.RepositoryKnowledge do
   alias Ryker.RepositoryKnowledge.{Custody, Entry}
   alias Ryker.Settings
 
-  @refresh_reason "Someone asked for it on the Repositories page."
-
   @doc """
   Has RYKER.md written again now, as Refresh knowledge on the Repositories
   page does: `{:ok, :requested}`, or `{:ok, :already_writing}` while a model
@@ -50,7 +48,7 @@ defmodule Ryker.RepositoryKnowledge do
       repository.github_access != :available -> {:error, :github_access_unavailable}
       not bound? -> {:error, :repository_binding_missing}
       repository.onboarding_state != :ready -> {:error, :repository_not_ready}
-      true -> Custody.request_write(ref, @refresh_reason, actor)
+      true -> Custody.request_write(ref, "Someone asked for it on the Repositories page.", actor)
     end
   end
 

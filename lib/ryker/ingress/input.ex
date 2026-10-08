@@ -227,8 +227,8 @@ defmodule Ryker.Ingress.Input do
       {valid_actor?(input.actor), :actor},
       {valid_destination?(input.destination), :destination},
       {input.event_kind in @event_kinds, :event_kind},
-      {reference?(input.event_ref), :event_ref},
-      {reference?(input.native_input_id), :native_input_id},
+      {Reference.valid?(input.event_ref), :event_ref},
+      {Reference.valid?(input.native_input_id), :native_input_id},
       {input.occurred_at_source in @occurred_at_sources, :occurred_at_source},
       {is_integer(input.revision) and input.revision > 0 and
          input.revision <= @maximum_revision, :revision},
@@ -321,13 +321,13 @@ defmodule Ryker.Ingress.Input do
   end
 
   defp valid_actor?(%{kind: kind, ref: ref} = actor) when kind in @actor_kinds,
-    do: map_size(actor) == 2 and reference?(ref)
+    do: map_size(actor) == 2 and Reference.valid?(ref)
 
   defp valid_actor?(_actor), do: false
 
   defp valid_source?(%{kind: kind, ref: ref} = source) do
     map_size(source) == 2 and is_binary(kind) and Regex.match?(@source_kind_regex, kind) and
-      reference?(ref)
+      Reference.valid?(ref)
   end
 
   defp valid_source?(_source), do: false
@@ -360,7 +360,7 @@ defmodule Ryker.Ingress.Input do
   defp valid_post_capability?(%{"destination_refs" => refs} = capability)
        when is_list(refs) and refs != [] and length(refs) <= @maximum_post_destinations do
     map_size(capability) == 1 and refs == Enum.sort(Enum.uniq(refs)) and
-      Enum.all?(refs, &reference?/1)
+      Enum.all?(refs, &Reference.valid?/1)
   end
 
   defp valid_post_capability?(_capability), do: false
@@ -381,7 +381,7 @@ defmodule Ryker.Ingress.Input do
   defp valid_publication_lifecycle_capability?(_capability), do: false
 
   defp scope_references?(values) when is_list(values) and values != [] and length(values) <= 64 do
-    values == Enum.sort(Enum.uniq(values)) and Enum.all?(values, &reference?/1)
+    values == Enum.sort(Enum.uniq(values)) and Enum.all?(values, &Reference.valid?/1)
   end
 
   defp scope_references?(_values), do: false
@@ -427,16 +427,14 @@ defmodule Ryker.Ingress.Input do
   defp valid_destination?(
          %{transport: transport, conversation_ref: conversation, thread_ref: thread} = destination
        ) do
-    map_size(destination) == 3 and reference?(transport) and reference?(conversation) and
+    map_size(destination) == 3 and Reference.valid?(transport) and Reference.valid?(conversation) and
       optional_reference?(thread)
   end
 
   defp valid_destination?(_destination), do: false
 
   defp optional_reference?(nil), do: true
-  defp optional_reference?(value), do: reference?(value)
-
-  defp reference?(value), do: Reference.valid?(value)
+  defp optional_reference?(value), do: Reference.valid?(value)
 
   defp utc_datetime?(%DateTime{} = value) do
     value.time_zone == "Etc/UTC" and value.utc_offset == 0 and value.std_offset == 0

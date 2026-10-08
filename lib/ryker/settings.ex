@@ -967,24 +967,23 @@ defmodule Ryker.Settings do
 
   defp authorize(_actor), do: {:error, :settings_forbidden}
 
-  @doc false
-  def stringify(%Decimal{} = value), do: Decimal.to_string(value, :normal)
-  def stringify(%Date{} = value), do: Date.to_iso8601(value)
-  def stringify(%Time{} = value), do: Time.to_iso8601(value)
-  def stringify(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp stringify(%Decimal{} = value), do: Decimal.to_string(value, :normal)
+  defp stringify(%Date{} = value), do: Date.to_iso8601(value)
+  defp stringify(%Time{} = value), do: Time.to_iso8601(value)
+  defp stringify(%DateTime{} = value), do: DateTime.to_iso8601(value)
 
-  def stringify(%{__struct__: _} = struct),
+  defp stringify(%{__struct__: _} = struct),
     do: struct |> Map.from_struct() |> Map.drop([:__meta__]) |> stringify()
 
-  def stringify(%{} = map),
+  defp stringify(%{} = map),
     do: Map.new(map, fn {key, value} -> {to_string(key), stringify(value)} end)
 
-  def stringify(list) when is_list(list), do: Enum.map(list, &stringify/1)
+  defp stringify(list) when is_list(list), do: Enum.map(list, &stringify/1)
 
-  def stringify(atom) when is_atom(atom) and not is_nil(atom) and not is_boolean(atom),
+  defp stringify(atom) when is_atom(atom) and not is_nil(atom) and not is_boolean(atom),
     do: Atom.to_string(atom)
 
-  def stringify(value), do: value
+  defp stringify(value), do: value
 
   # -- For the console ---------------------------------------------------------
 

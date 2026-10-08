@@ -68,8 +68,8 @@ defmodule Ryker.ControlPlane.LocalRoutingProjection do
   @spec project(DateTime.t() | nil, String.t()) :: map()
   def project(since, scope) do
     setting = LocalRouting.setting()
-    comparisons = comparisons(since, scope, setting.model)
-    compared = compared(comparisons)
+    comparisons = LocalRoutingReport.Query.comparisons(since, scope, setting.model)
+    compared = LocalRoutingReport.Query.compared(comparisons)
 
     %{
       setting: setting,
@@ -83,8 +83,6 @@ defmodule Ryker.ControlPlane.LocalRoutingProjection do
 
   # The period's comparisons in the page's scope, for the model saved now: a
   # model tried earlier is another model's record.
-  defp comparisons(since, scope, model),
-    do: LocalRoutingReport.Query.comparisons(since, scope, model)
 
   defp figures(comparisons) do
     comparisons
@@ -106,7 +104,6 @@ defmodule Ryker.ControlPlane.LocalRoutingProjection do
 
   # The period's compared answers, each with what the provider decided and
   # what the local model decided, as kinds.
-  defp compared(comparisons), do: LocalRoutingReport.Query.compared(comparisons)
 
   # Andrew, 2026-10-03, of the two lists this page had: "the way you built
   # those tables is piece of shit, they are useless, what i am supposed to do

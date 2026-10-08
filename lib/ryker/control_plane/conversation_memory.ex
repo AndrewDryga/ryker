@@ -185,13 +185,13 @@ defmodule Ryker.ControlPlane.ConversationMemory do
     Enum.map(rows, &item(&1, lookup, secrets))
   end
 
-  @doc "The human-readable heading, text and fact groups of one continuity state."
+  # The human-readable heading, text and fact groups of one continuity state.
   @spec continuity_state(term(), [String.t()]) :: %{
           title: String.t(),
           text: String.t(),
           groups: [{String.t(), [String.t()]}]
         }
-  def continuity_state(state, secrets) do
+  defp continuity_state(state, secrets) do
     state = InspectionRedactor.document(state, secrets)
 
     %{

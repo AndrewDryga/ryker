@@ -32,9 +32,6 @@ defmodule Ryker.Observability.Progress do
   # still committed. Once a minute proves the loop turns all the same.
   @minimum_interval_ms 60_000
 
-  @spec lanes() :: [atom()]
-  def lanes, do: @lanes
-
   @spec beat(atom(), atom()) :: :ok | {:error, term()}
   def beat(lane, outcome \\ :cycle) do
     now = System.monotonic_time(:millisecond)

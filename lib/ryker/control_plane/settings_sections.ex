@@ -37,7 +37,6 @@ defmodule Ryker.ControlPlane.SettingsSections do
   # more than a list takes, four models or sixteen accounts, is refused with a
   # reason, not cut short.
   @list_bound 32
-  @account_placeholder "provider@name, such as claude@work"
   # The words a person picks between, each with what Ryker will then do.
   @participation [
     {"mentions", "Only when mentioned", "Ryker replies when someone writes @Ryker."},
@@ -1019,7 +1018,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
 
   @doc "What an empty account row shows: how an account is written."
   @spec account_placeholder() :: String.t()
-  def account_placeholder, do: @account_placeholder
+  def account_placeholder, do: "provider@name, such as claude@work"
 
   @doc """
   One step on the list of model accounts in a draft: add an empty row, or
@@ -1485,29 +1484,29 @@ defmodule Ryker.ControlPlane.SettingsSections do
   def row_value(%{kind: :accounts}, accounts), do: Enum.join(accounts || [], ", ")
   def row_value(field, value), do: form_value(field, value)
 
-  @doc "A saved value rendered for its control."
+  # A saved value rendered for its control.
   @spec form_value(map(), term()) :: String.t() | map() | [map()]
-  def form_value(%{kind: :mapping} = field, value),
+  defp form_value(%{kind: :mapping} = field, value),
     do: Map.new(subfields(field), &{&1, Map.get(value || %{}, &1, "")})
 
-  def form_value(%{kind: :ladder}, models) when is_list(models),
+  defp form_value(%{kind: :ladder}, models) when is_list(models),
     do: Enum.map(models, &ladder_entry/1)
 
-  def form_value(%{kind: :ladder}, _absent), do: []
-  def form_value(%{kind: :accounts}, accounts) when is_list(accounts), do: accounts
-  def form_value(%{kind: :accounts}, _absent), do: []
+  defp form_value(%{kind: :ladder}, _absent), do: []
+  defp form_value(%{kind: :accounts}, accounts) when is_list(accounts), do: accounts
+  defp form_value(%{kind: :accounts}, _absent), do: []
 
-  def form_value(%{kind: :lifecycle} = field, value),
+  defp form_value(%{kind: :lifecycle} = field, value),
     do: Map.new(subfields(field), &{&1, Enum.join(Map.get(value || %{}, &1, []), ", ")})
 
-  def form_value(_field, nil), do: ""
-  def form_value(%{kind: :boolean}, value), do: to_string(value)
-  def form_value(%{kind: :list}, values), do: Enum.join(values, ", ")
-  def form_value(%{kind: :days}, seconds), do: Integer.to_string(div(seconds, @day))
+  defp form_value(_field, nil), do: ""
+  defp form_value(%{kind: :boolean}, value), do: to_string(value)
+  defp form_value(%{kind: :list}, values), do: Enum.join(values, ", ")
+  defp form_value(%{kind: :days}, seconds), do: Integer.to_string(div(seconds, @day))
 
-  def form_value(%{kind: :time}, %Time{} = time),
+  defp form_value(%{kind: :time}, %Time{} = time),
     do: time |> Time.truncate(:second) |> to_string()
 
-  def form_value(%{kind: :decimal}, %Decimal{} = value), do: Decimal.to_string(value, :normal)
-  def form_value(_field, value), do: to_string(value)
+  defp form_value(%{kind: :decimal}, %Decimal{} = value), do: Decimal.to_string(value, :normal)
+  defp form_value(_field, value), do: to_string(value)
 end

@@ -413,11 +413,11 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   defp where(_item), do: nil
 
   defp expiry(%{status: "expired", expires_at: %DateTime{} = at}, now),
-    do: rich([{:time, at, "stopped " <> day(at, now)}])
+    do: rich([{:time, at, "stopped " <> ShortTime.day(at, now)}])
 
   defp expiry(%{status: status, expires_at: %DateTime{} = at}, now)
        when status in ["active", "disabled"],
-       do: rich([{:time, at, "stops " <> day(at, now)}])
+       do: rich([{:time, at, "stops " <> ShortTime.day(at, now)}])
 
   defp expiry(_item, _now), do: nil
 
@@ -626,11 +626,9 @@ defmodule Ryker.ControlPlane.BehaviorPage do
       seconds < 3_600 -> "#{div(seconds, 60)} min ago"
       seconds < 86_400 -> "#{div(seconds, 3_600)} h ago"
       Date.diff(DateTime.to_date(now), DateTime.to_date(at)) == 1 -> "yesterday"
-      true -> day(at, now)
+      true -> ShortTime.day(at, now)
     end
   end
-
-  defp day(at, now), do: ShortTime.day(at, now)
 
   @doc false
   def source_url(%{source_conversation_ref: "control-plane:lab:" <> id}) do

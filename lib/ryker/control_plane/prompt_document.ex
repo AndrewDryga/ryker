@@ -40,13 +40,13 @@ defmodule Ryker.ControlPlane.PromptDocument do
         # highlight survives the page's periodic patches.
         [
           "<div class=\"prompt-document\" id=\"",
-          escape(id || "prompt-document-" <> digest(text)),
+          Plug.HTML.html_escape(id || "prompt-document-" <> digest(text)),
           "\" phx-update=\"ignore\">",
           legend(parts, value),
           Components.copy_block_html(
             [
               "<pre class=\"submitted-prompt submitted-prompt-formatted\"><code>",
-              layout([html, escape(Enum.join(rest))], by_index),
+              layout([html, Plug.HTML.html_escape(Enum.join(rest))], by_index),
               "</code></pre>"
             ],
             "Copy formatted prompt"
@@ -72,7 +72,7 @@ defmodule Ryker.ControlPlane.PromptDocument do
           Components.copy_block_html(
             [
               "<pre class=\"submitted-prompt submitted-prompt-formatted\"><code>",
-              layout([html, escape(Enum.join(rest))], %{}),
+              layout([html, Plug.HTML.html_escape(Enum.join(rest))], %{}),
               "</code></pre>"
             ],
             "Copy formatted JSON"
@@ -113,7 +113,7 @@ defmodule Ryker.ControlPlane.PromptDocument do
       Enum.map(rows, fn [first | _] = sections ->
         [
           "<div><dt>",
-          escape(first.group_label),
+          Plug.HTML.html_escape(first.group_label),
           "</dt><dd>",
           Enum.map(sections, &chip(&1, total)),
           "</dd></div>"
@@ -126,15 +126,15 @@ defmodule Ryker.ControlPlane.PromptDocument do
   defp chip(section, total) do
     [
       "<button type=\"button\" class=\"prompt-part\" data-prompt-part=\"",
-      escape(section.title),
+      Plug.HTML.html_escape(section.title),
       "\" data-origin=\"",
-      escape(section.origin),
+      Plug.HTML.html_escape(section.origin),
       "\"",
       if(section.sent_empty?, do: " data-empty", else: []),
       " aria-pressed=\"false\" title=\"≈ ",
       Integer.to_string(ceil(section.bytes / 4)),
       " estimated tokens\">",
-      escape(section.title),
+      Plug.HTML.html_escape(section.title),
       "<span class=\"prompt-part-share\">",
       if(section.sent_empty?, do: "empty", else: share(section.bytes, total)),
       "</span></button>"
@@ -149,7 +149,7 @@ defmodule Ryker.ControlPlane.PromptDocument do
   defp value(tokens, path, depth, parts) do
     {space, tokens} = Enum.split_while(tokens, &whitespace?/1)
     {html, rest} = content(tokens, path, depth, parts)
-    {[escape(Enum.join(space)), html], rest}
+    {[Plug.HTML.html_escape(Enum.join(space)), html], rest}
   end
 
   defp content(["{" | rest], path, depth, parts) when depth < 32 do
@@ -162,7 +162,7 @@ defmodule Ryker.ControlPlane.PromptDocument do
     {["[", html], rest}
   end
 
-  defp content([token | rest], _path, _depth, _parts), do: {escape(token), rest}
+  defp content([token | rest], _path, _depth, _parts), do: {Plug.HTML.html_escape(token), rest}
   defp content([], _path, _depth, _parts), do: {[], []}
 
   # A member's key is highlighted with its value: a bare `2` or `null` says
@@ -172,22 +172,24 @@ defmodule Ryker.ControlPlane.PromptDocument do
 
     case tokens do
       ["}" | rest] ->
-        {[escape(Enum.join(space)), "}"], rest}
+        {[Plug.HTML.html_escape(Enum.join(space)), "}"], rest}
 
       ["," | rest] ->
         {html, rest} = object(rest, path, depth, parts)
-        {[escape(Enum.join(space)), ",", html], rest}
+        {[Plug.HTML.html_escape(Enum.join(space)), ",", html], rest}
 
       [key | rest] ->
         {separator, rest} = Enum.split_while(rest, &(&1 == ":" || whitespace?(&1)))
         child = path <> segment(key)
         {html, rest} = value(rest, child, depth, parts)
         {remaining, rest} = object(rest, path, depth, parts)
-        member = [escape(key), escape(Enum.join(separator)), html]
-        {[escape(Enum.join(space)), annotate(member, child, parts), remaining], rest}
+        member = [Plug.HTML.html_escape(key), Plug.HTML.html_escape(Enum.join(separator)), html]
+
+        {[Plug.HTML.html_escape(Enum.join(space)), annotate(member, child, parts), remaining],
+         rest}
 
       [] ->
-        {escape(Enum.join(space)), []}
+        {Plug.HTML.html_escape(Enum.join(space)), []}
     end
   end
 
@@ -196,20 +198,22 @@ defmodule Ryker.ControlPlane.PromptDocument do
 
     case tokens do
       ["]" | rest] ->
-        {[escape(Enum.join(space)), "]"], rest}
+        {[Plug.HTML.html_escape(Enum.join(space)), "]"], rest}
 
       ["," | rest] ->
         {html, rest} = array(rest, path, depth, index, parts)
-        {[escape(Enum.join(space)), ",", html], rest}
+        {[Plug.HTML.html_escape(Enum.join(space)), ",", html], rest}
 
       [] ->
-        {escape(Enum.join(space)), []}
+        {Plug.HTML.html_escape(Enum.join(space)), []}
 
       tokens ->
         element = "#{path}[#{index}]"
         {html, rest} = value(tokens, element, depth, parts)
         {remaining, rest} = array(rest, path, depth, index + 1, parts)
-        {[escape(Enum.join(space)), annotate(html, element, parts), remaining], rest}
+
+        {[Plug.HTML.html_escape(Enum.join(space)), annotate(html, element, parts), remaining],
+         rest}
     end
   end
 
@@ -278,17 +282,19 @@ defmodule Ryker.ControlPlane.PromptDocument do
   defp fragment(part, joined_above?, joined_below?),
     do: [
       "<span tabindex=\"0\" aria-describedby=\"ryker-tooltip\" class=\"prompt-fragment\" data-part=\"",
-      escape(part.title),
+      Plug.HTML.html_escape(part.title),
       "\" data-origin=\"",
-      escape(part.origin),
+      Plug.HTML.html_escape(part.origin),
       "\" data-source=\"",
-      escape(part.path),
+      Plug.HTML.html_escape(part.path),
       "\" data-source-title=\"",
-      escape(part.title),
+      Plug.HTML.html_escape(part.title),
       "\" data-source-context=\"",
-      escape(if(part.sent_empty?, do: part.group_label <> " · empty", else: part.group_label)),
+      Plug.HTML.html_escape(
+        if(part.sent_empty?, do: part.group_label <> " · empty", else: part.group_label)
+      ),
       "\" data-source-path=\"",
-      escape(part.path),
+      Plug.HTML.html_escape(part.path),
       "\"",
       if(joined_above?, do: " data-joined-above", else: []),
       if(joined_below?, do: " data-joined-below", else: []),
@@ -304,12 +310,10 @@ defmodule Ryker.ControlPlane.PromptDocument do
     Components.copy_block_html(
       [
         "<pre class=\"submitted-prompt submitted-prompt-raw\"><code>",
-        escape(text),
+        Plug.HTML.html_escape(text),
         "</code></pre>"
       ],
       "Copy exact text"
     )
   end
-
-  defp escape(text), do: Plug.HTML.html_escape(text)
 end

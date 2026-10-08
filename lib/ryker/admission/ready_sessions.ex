@@ -51,9 +51,9 @@ defmodule Ryker.Admission.ReadySessions do
   @spec external_ref(Ecto.UUID.t()) :: String.t()
   def external_ref(id), do: @external_ref_prefix <> id
 
-  @doc "How long Coop keeps a prepared routing agent running."
+  # How long Coop keeps a prepared routing agent running.
   @spec warm_seconds() :: pos_integer()
-  def warm_seconds, do: div(JobTemplates.warm_idle_timeout_ms(:admission), 1_000)
+  defp warm_seconds, do: div(JobTemplates.warm_idle_timeout_ms(:admission), 1_000)
 
   @doc "How long a session kept ready may wait for a message: its agent outlasts it by the claim margin."
   @spec maximum_age_seconds() :: pos_integer()

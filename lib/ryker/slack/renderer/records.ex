@@ -30,10 +30,6 @@ defmodule Ryker.Slack.Renderer.Records do
   # Every open offer renders from its prepared payload alone; the Slack post
   # offer is the exception because the host adds the landed message's URL.
   @offer_kinds ~w(task_offer publication_offer) ++ @confirmation_kinds
-  # Every publication comes from a confirmed task, whose card carries the
-  # recovery controls; a correction the reader asks for is checked again when
-  # its turn completes.
-  @refusal_next_steps "Reply in this thread to ask me to fix it, and I'll check the new change when I'm done. To check this same change again, use *Review latest state* on the task card, or *Discard candidate* to stop publishing it."
   # A bounded page of flagged files, each path shortened on its own line.
   @findings_shown 5
   @maximum_finding_path 120
@@ -294,7 +290,16 @@ defmodule Ryker.Slack.Renderer.Records do
         ]
 
       true ->
-        [detail, section(refusal(payload)), section(@refusal_next_steps)]
+        # Every publication comes from a confirmed task, whose card carries the
+        # recovery controls; a correction the reader asks for is checked again when
+        # its turn completes.
+        [
+          detail,
+          section(refusal(payload)),
+          section(
+            "Reply in this thread to ask me to fix it, and I'll check the new change when I'm done. To check this same change again, use *Review latest state* on the task card, or *Discard candidate* to stop publishing it."
+          )
+        ]
     end
   end
 

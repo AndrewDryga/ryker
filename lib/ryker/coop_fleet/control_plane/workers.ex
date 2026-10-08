@@ -29,7 +29,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
   def handle_poll_certificate(certificate, document, options \\ [])
 
   def handle_poll_certificate(certificate, document, options) when is_binary(certificate) do
-    certificate_sha256 = certificate_digest(certificate)
+    certificate_sha256 = Crypto.sha256_hex(certificate)
 
     case active_certificate_worker(certificate_sha256) do
       nil ->
@@ -46,7 +46,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
   @spec authenticate_certificate(binary()) :: {:ok, String.t()} | {:error, term()}
   def authenticate_certificate(certificate)
       when is_binary(certificate) and byte_size(certificate) > 0 do
-    certificate_sha256 = certificate_digest(certificate)
+    certificate_sha256 = Crypto.sha256_hex(certificate)
 
     case active_certificate_worker(certificate_sha256) do
       worker_id when is_binary(worker_id) -> {:ok, worker_id}
@@ -219,9 +219,6 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
       Shared.rollback({:coop_worker_clock_skew, worker_id})
     end
   end
-
-  defp certificate_digest(certificate),
-    do: Crypto.sha256_hex(certificate)
 
   defp active_certificate_worker(certificate_sha256) do
     Repo.one(Certificate.Query.active_worker_id(certificate_sha256))

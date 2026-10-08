@@ -16,12 +16,12 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
     |> Enum.map(fn part ->
       cond do
         not Regex.match?(@mentions, part) ->
-          escape(part)
+          Plug.HTML.html_escape(part)
 
         String.starts_with?(part, "<@") ->
           [
             "<span class=\"slack-mention\">",
-            escape(Names.person(workspace, mention_ref(part)).name),
+            Plug.HTML.html_escape(Names.person(workspace, mention_ref(part)).name),
             "</span>"
           ]
 
@@ -61,7 +61,9 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
     @tokens
     |> Regex.split(text, include_captures: true)
     |> Enum.map(fn part ->
-      if Regex.match?(@tokens, part), do: token(part, workspace), else: escape(part)
+      if Regex.match?(@tokens, part),
+        do: token(part, workspace),
+        else: Plug.HTML.html_escape(part)
     end)
   end
 
@@ -178,9 +180,9 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
 
     [
       "<span class=\"slack-mention\" title=\"",
-      escape(ref),
+      Plug.HTML.html_escape(ref),
       "\">",
-      escape(name),
+      Plug.HTML.html_escape(name),
       "</span>"
     ]
   end
@@ -189,7 +191,11 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
 
   defp token("<!date^" <> text) do
     # Slack supplies a readable fallback; keep it as text, never execute the token's optional URL.
-    text |> String.trim_trailing(">") |> String.split("|", parts: 2) |> List.last() |> escape()
+    text
+    |> String.trim_trailing(">")
+    |> String.split("|", parts: 2)
+    |> List.last()
+    |> Plug.HTML.html_escape()
   end
 
   # A fence's first word names the block's language ("```sh"); it is not
@@ -200,15 +206,22 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
 
     [
       "<pre class=\"md-code\"",
-      if(language != "", do: [" data-language=\"", escape(language), "\""], else: []),
+      if(language != "",
+        do: [" data-language=\"", Plug.HTML.html_escape(language), "\""],
+        else: []
+      ),
       "><code>",
-      escape(code),
+      Plug.HTML.html_escape(code),
       "</code></pre>"
     ]
   end
 
-  defp token("`" <> text), do: ["<code>", escape(String.slice(text, 0..-2//1)), "</code>"]
-  defp token("**" <> text), do: ["<strong>", escape(String.slice(text, 0..-3//1)), "</strong>"]
+  defp token("`" <> text),
+    do: ["<code>", Plug.HTML.html_escape(String.slice(text, 0..-2//1)), "</code>"]
+
+  defp token("**" <> text),
+    do: ["<strong>", Plug.HTML.html_escape(String.slice(text, 0..-3//1)), "</strong>"]
+
   defp token("*" <> text), do: wrapped("strong", text)
   defp token("_" <> text), do: wrapped("em", text)
   defp token("~" <> text), do: wrapped("del", text)
@@ -221,12 +234,12 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
          is_nil(uri.userinfo),
        do: [
          "<a href=\"",
-         escape(url),
+         Plug.HTML.html_escape(url),
          "\" target=\"_blank\" rel=\"noreferrer noopener\">",
-         escape(List.first(labels) || url),
+         Plug.HTML.html_escape(List.first(labels) || url),
          "</a>"
        ],
-       else: escape(text)
+       else: Plug.HTML.html_escape(text)
   end
 
   defp token("[" <> text) do
@@ -234,7 +247,7 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
     token("<" <> url <> "|" <> label <> ">")
   end
 
-  defp token(text), do: escape(text)
+  defp token(text), do: Plug.HTML.html_escape(text)
 
   defp fence(body) do
     case Regex.run(~r/\A([A-Za-z0-9_+.#-]*)\n(.*)\z/s, body) do
@@ -244,7 +257,5 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
   end
 
   defp wrapped(tag, text),
-    do: ["<", tag, ">", escape(String.slice(text, 0..-2//1)), "</", tag, ">"]
-
-  defp escape(text), do: Plug.HTML.html_escape(text)
+    do: ["<", tag, ">", Plug.HTML.html_escape(String.slice(text, 0..-2//1)), "</", tag, ">"]
 end

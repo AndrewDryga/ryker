@@ -68,10 +68,6 @@ defmodule Ryker.CoopFleet.Protocol do
 
   def body_reference?(_), do: false
 
-  @doc "The product-neutral operation carried by this wire version."
-  @spec command_kinds() :: [String.t()]
-  def command_kinds, do: @command_kinds
-
   @spec decode_poll(binary()) :: {:ok, map()} | {:error, term()}
   def decode_poll(document)
       when is_binary(document) and byte_size(document) <= @maximum_document_bytes do

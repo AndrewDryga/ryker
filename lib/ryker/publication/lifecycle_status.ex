@@ -13,8 +13,8 @@ defmodule Ryker.Publication.LifecycleStatus do
          true <- is_boolean(status["draft"]) and is_boolean(status["merged"]),
          true <- positive(status["number"]),
          true <- GitObject.id?(status["head_sha"]),
-         true <- reference(status["head_ref"], 240),
-         true <- reference(status["base_ref"], 240),
+         true <- Reference.valid?(status["head_ref"], 240),
+         true <- Reference.valid?(status["base_ref"], 240),
          true <- github_url(status["url"]),
          true <- github_url(status["checks_url"]),
          true <- counts(status),
@@ -62,6 +62,4 @@ defmodule Ryker.Publication.LifecycleStatus do
 
   defp github_url(_value), do: false
   defp positive(value), do: is_integer(value) and value > 0
-
-  defp reference(value, maximum), do: Reference.valid?(value, maximum)
 end

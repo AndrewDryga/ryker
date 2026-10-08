@@ -42,14 +42,12 @@ defmodule Ryker.Accounting.Execution.Query do
   def by_execution_mode(queryable, mode),
     do: where(queryable, [execution_usage: e], e.execution_mode == ^mode)
 
-  @doc """
-  The ledger with each execution's estimate (`estimated_cost_usd`) and the
-  saved price in effect for it (`pricing_rate_id`), by `Ryker.Accounting.Pricing`'s
-  rule. The estimate is nil when the provider reported a cost, no usage was
-  recorded, a token count is negative or missing, or no saved price covers
-  the model on that day.
-  """
-  def priced(queryable) do
+  # The ledger with each execution's estimate (`estimated_cost_usd`) and the
+  # saved price in effect for it (`pricing_rate_id`), by `Ryker.Accounting.Pricing`'s
+  # rule. The estimate is nil when the provider reported a cost, no usage was
+  # recorded, a token count is negative or missing, or no saved price covers
+  # the model on that day.
+  defp priced(queryable) do
     price =
       PricingRate.Query.covering(
         dynamic(parent_as(:execution_usage).execution_target),

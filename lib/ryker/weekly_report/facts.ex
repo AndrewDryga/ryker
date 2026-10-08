@@ -62,13 +62,11 @@ defmodule Ryker.WeeklyReport.Facts do
     }
   end
 
-  @doc """
-  Whether `conversation_ref` is a public Slack channel Ryker is in: joined,
-  neither private nor shared with another organization. Only what came from
-  one is named in a report posted to a channel.
-  """
+  # Whether `conversation_ref` is a public Slack channel Ryker is in: joined,
+  # neither private nor shared with another organization. Only what came from
+  # one is named in a report posted to a channel.
   @spec public?(String.t() | nil) :: boolean()
-  def public?("slack:" <> rest) do
+  defp public?("slack:" <> rest) do
     case String.split(rest, ":") do
       [workspace, "C" <> _ = channel] ->
         workspace
@@ -81,7 +79,7 @@ defmodule Ryker.WeeklyReport.Facts do
     end
   end
 
-  def public?(_conversation_ref), do: false
+  defp public?(_conversation_ref), do: false
 
   # -- The week's work -----------------------------------------------------------------
 

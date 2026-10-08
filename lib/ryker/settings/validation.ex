@@ -17,7 +17,6 @@ defmodule Ryker.Settings.Validation do
   @adapter_name ~r/\A[a-z][a-z0-9_-]{0,63}\z/
   @github_repository ~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
 
-  def reference_pattern, do: @reference
   def slack_id_pattern, do: @slack_id
   def secret_name_pattern, do: @secret_name
   def adapter_name_pattern, do: @adapter_name
@@ -52,8 +51,8 @@ defmodule Ryker.Settings.Validation do
   defp safe_key(key) when is_binary(key) and byte_size(key) <= 64, do: key
   defp safe_key(_key), do: :unknown
 
-  @doc "Casts already-normalized attributes with schemaless types."
-  def cast_values(attributes, types) do
+  # Casts already-normalized attributes with schemaless types.
+  defp cast_values(attributes, types) do
     changeset = cast({%{}, types}, attributes, Map.keys(types))
 
     if changeset.valid?,

@@ -197,10 +197,10 @@ defmodule Ryker.ControlPlane.Components do
     |> Safe.to_iodata()
   end
 
-  def compact_identifier(value, maximum \\ 27)
+  defp compact_identifier(value, maximum \\ 27)
 
-  def compact_identifier(value, maximum)
-      when is_binary(value) and is_integer(maximum) and maximum >= 9 do
+  defp compact_identifier(value, maximum)
+       when is_binary(value) and is_integer(maximum) and maximum >= 9 do
     if String.length(value) <= maximum do
       value
     else
@@ -210,7 +210,7 @@ defmodule Ryker.ControlPlane.Components do
     end
   end
 
-  def compact_identifier(value, _maximum), do: to_string(value)
+  defp compact_identifier(value, _maximum), do: to_string(value)
 
   attr(:id, :string, required: true)
   attr(:label, :string, required: true)
