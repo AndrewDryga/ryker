@@ -460,8 +460,7 @@ defmodule Ryker.Work.Custody.Sessions do
     # A replacement gets a new request identity, not newly resolved authority,
     # except that it gives up companion repositories Ryker no longer has: none
     # could ever be fetched again (2026-09-28). Rebinding verifies the frozen
-    # digest and moves a version-1 job to version 2 first; the companions are
-    # narrowed on the job that will run.
+    # digest; the companions are narrowed on the job that will run.
     with {:ok, job, job_digest} <-
            CoopFleet.JobSpec.rebind(
              Map.get(authority, :worker_job_document),

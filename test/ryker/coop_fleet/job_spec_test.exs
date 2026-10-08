@@ -1,6 +1,6 @@
 defmodule Ryker.CoopFleet.JobSpecTest do
   use ExUnit.Case, async: true
-  alias Ryker.CoopFleet.{JobSpec, JobTemplates}
+  alias Ryker.CoopFleet.JobSpec
   alias Ryker.Work.Session
 
   defp valid_job do
@@ -66,35 +66,16 @@ defmodule Ryker.CoopFleet.JobSpecTest do
     end
   end
 
-  # Coop's workers refuse version-1 jobs since job-setup:2 (Coop 33ea84fe), and a replacement
-  # session copies its predecessor's frozen job. A task begun before the move continues on a
-  # version-2 job with exactly the sources and rights it was granted.
-  test "a version-1 predecessor is rebound as version 2 with the same grant" do
+  # Coop's workers refuse version-1 jobs since job-setup:2 (Coop 33ea84fe). Ryker moved the last
+  # sessions holding one on 2026-10-08 and no longer carries the upgrade, so a replacement of
+  # one is refused rather than sent to a worker that would refuse it.
+  test "a version-1 predecessor is refused" do
     v1 =
       valid_job()
       |> Map.drop(~w(environment check resources))
       |> Map.merge(%{"version" => 1, "project_env" => false, "project_mcp" => false})
 
-    v1_digest = Ryker.CanonicalJSON.worker_digest(v1)
-
-    assert {:ok, rebound, digest} = JobSpec.rebind(v1, v1_digest, "job:replacement")
-    assert rebound["version"] == 2
-    assert rebound["job_ref"] == "job:replacement"
-    refute Map.has_key?(rebound, "project_env")
-    refute Map.has_key?(rebound, "project_mcp")
-    assert rebound["environment"] == %{}
-    assert rebound["check"] == %{"argv" => [], "environment" => %{}}
-    assert rebound["resources"] == JobTemplates.resources()
-
-    for field <- ~w(source companions targets mode repository_read_only egress limits),
-        do: assert(rebound[field] == v1[field])
-
-    assert {:ok, ^digest} = JobSpec.digest(rebound)
-
-    assert JobSpec.rebind(v1, String.duplicate("f", 64), "job:replacement") ==
-             {:error, :invalid_coop_worker_job}
-
-    assert JobSpec.rebind(%{v1 | "project_env" => true}, v1_digest, "job:replacement") ==
+    assert JobSpec.rebind(v1, Ryker.CanonicalJSON.worker_digest(v1), "job:replacement") ==
              {:error, :invalid_coop_worker_job}
   end
 

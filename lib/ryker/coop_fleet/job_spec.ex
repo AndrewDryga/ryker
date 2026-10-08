@@ -10,7 +10,7 @@ defmodule Ryker.CoopFleet.JobSpec do
   applies nothing from the repository's own settings.
   """
   alias Ryker.CanonicalJSON
-  alias Ryker.CoopFleet.{JobCheck, JobTemplates, Protocol}
+  alias Ryker.CoopFleet.Protocol
   alias Ryker.Maps
   alias Ryker.Work
 
@@ -59,17 +59,6 @@ defmodule Ryker.CoopFleet.JobSpec do
 
   def rebind(nil, nil, _job_ref), do: {:ok, nil, nil}
 
-  def rebind(%{"version" => 1} = job, expected_digest, job_ref) do
-    with true <- CanonicalJSON.worker_digest(job) == expected_digest,
-         {:ok, upgraded} <- upgrade(job),
-         rebound = Map.put(upgraded, "job_ref", job_ref),
-         {:ok, digest} <- digest(rebound) do
-      {:ok, rebound, digest}
-    else
-      _ -> {:error, :invalid_coop_worker_job}
-    end
-  end
-
   def rebind(job, expected_digest, job_ref) do
     with {:ok, ^expected_digest} <- digest(job),
          rebound = Map.put(job, "job_ref", job_ref),
@@ -79,31 +68,6 @@ defmodule Ryker.CoopFleet.JobSpec do
       _ -> {:error, :invalid_coop_worker_job}
     end
   end
-
-  @doc """
-  A frozen version-1 job as version 2. Coop's workers refuse version 1 since
-  `job-setup:2`, so a session carrying one moves once, with exactly the
-  sources, targets, mode, egress and limits it was granted. It had no project
-  environment or MCP and gets no work environment; it gets no check, which
-  `Ryker.CoopFleet.JobAuthority` resolves for a working copy before its session
-  is created; and it gets the caps every job carries.
-  """
-  @spec upgrade(map()) :: {:ok, map()} | {:error, :invalid_coop_worker_job}
-  def upgrade(%{"version" => 1, "project_env" => false, "project_mcp" => false} = job) do
-    upgraded =
-      job
-      |> Map.drop(~w(project_env project_mcp))
-      |> Map.merge(%{
-        "version" => 2,
-        "environment" => %{},
-        "check" => JobCheck.none(),
-        "resources" => JobTemplates.resources()
-      })
-
-    with :ok <- validate(upgraded), do: {:ok, upgraded}
-  end
-
-  def upgrade(_job), do: {:error, :invalid_coop_worker_job}
 
   defp identity_and_mode?(job) do
     Maps.exact_keys?(job, @root_fields) and

@@ -6,7 +6,6 @@ defmodule Ryker.CoopFleet.JobAuthority do
   alias Ryker.CoopFleet.Placement
   alias Ryker.GitHub
   alias Ryker.{Repo, Settings}
-  alias Ryker.Settings
   alias Ryker.Work
 
   @identity ~w(id execution_kind generation create_generation external_ref policy policy_digest authority_digest repository_ref repository_context repository_source environment_ref workspace_task)a
@@ -40,30 +39,8 @@ defmodule Ryker.CoopFleet.JobAuthority do
     end
   end
 
-  # Coop's workers refuse version-1 jobs since job-setup:2. A session pinned
-  # with one but never created moves to version 2 with the same grant, and
-  # gets its check below; a created one is replaced (`JobSpec.rebind/3`).
-  def ensure_pinned(
-        %Work.Session{worker_job_document: %{"version" => 1} = job} = session,
-        root,
-        prepare,
-        reader
-      ) do
-    with :ok <- uncreated(session),
-         true <- CanonicalJSON.worker_digest(job) == session.worker_job_digest,
-         {:ok, upgraded} <- JobSpec.upgrade(job),
-         {:ok, session} <- repin(session, upgraded) do
-      ensure_pinned(session, root, prepare, reader)
-    else
-      false -> {:error, {:coop_fleet_authority_mismatch, :worker_job}}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  def ensure_pinned(%Work.Session{} = session, root, prepare, reader) do
-    with {:ok, session} <- validate(session),
-         {:ok, session} <- refresh_companions(session, root, prepare),
-         do: refresh_check(session, reader)
+  def ensure_pinned(%Work.Session{} = session, root, prepare, _reader) do
+    with {:ok, session} <- validate(session), do: refresh_companions(session, root, prepare)
   end
 
   defp check_reader, do: Config.get_env(:job_check_reader, GitHub.RepositoryFiles)
@@ -92,30 +69,6 @@ defmodule Ryker.CoopFleet.JobAuthority do
   end
 
   defp with_check(job, _snapshot, _reader), do: {:ok, job}
-
-  # A job moved from version 1 has no check yet; it gets its repository's
-  # before its session is created, as a fresh pin does. A job that names a
-  # check keeps it, and a read-only one reviews nothing.
-  defp refresh_check(
-         %Work.Session{
-           worker_job_document:
-             %{"repository_read_only" => false, "source" => %{}, "check" => %{"argv" => []}} = job
-         } = session,
-         reader
-       ) do
-    with :ok <- uncreated(session),
-         {:ok, snapshot} <- Settings.fetch(),
-         {:ok, checked} <- with_check(job, snapshot, reader) do
-      if checked == job, do: {:ok, session}, else: repin(session, checked)
-    else
-      {:error, :coop_worker_job_requires_new_session} -> {:ok, session}
-      # Without settings there is no repository to read a gate from.
-      {:error, :settings_not_initialized} -> {:ok, session}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp refresh_check(session, _reader), do: {:ok, session}
 
   # A session's job is pinned once, and a replacement copies its predecessor's,
   # so each companion repository stayed at the commit its default branch had

@@ -2658,62 +2658,6 @@ defmodule Ryker.Work.ExecutorTest do
              {:error, {:work_poll_window_elapsed, :operation}}
   end
 
-  # Coop's workers refuse every turn on a session created with a version-1 job since
-  # job-setup:2 (Coop 33ea84fe): it stays open and readable, so Ryker would hand it each turn
-  # and be refused each time. The next generation carries the same grant as version 2.
-  test "a session created with a version-1 job moves to its next generation before its turn" do
-    claim = claim_with_bound_empty_session!("version-one-session")
-
-    v1 = %{
-      "version" => 1,
-      "job_ref" => claim.session.external_ref,
-      "source" => nil,
-      "companions" => [],
-      "targets" => ["codex"],
-      "mode" => "normal",
-      "project_env" => false,
-      "project_mcp" => false,
-      "repository_read_only" => true,
-      "egress" => %{"mode" => "open", "rules" => [], "export_destinations" => false},
-      "limits" => %{
-        "max_turns" => 100,
-        "max_queued_turns" => 20,
-        "max_queued_bytes" => 1_048_576,
-        "turn_timeout_ms" => 3_600_000,
-        "warm_idle_timeout_ms" => 0,
-        "max_patch_bytes" => 1_048_576
-      }
-    }
-
-    session =
-      claim.session
-      |> Ecto.Changeset.change(
-        worker_job_document: v1,
-        worker_job_digest: Ryker.CanonicalJSON.worker_digest(v1)
-      )
-      |> Ryker.Repo.update!()
-
-    claim = %{claim | session: session}
-
-    {:ok, fake} =
-      fake_for(claim, [reply("The replacement session completed the work.")], job_backed: false)
-
-    assert {:ok, execution} = Executor.run(claim, options(fake))
-    assert execution.status == :accepted
-
-    sessions =
-      Ryker.Repo.all(
-        from(session in Ryker.Work.Session,
-          where: session.episode_id == ^claim.episode.id,
-          order_by: [asc: session.generation]
-        )
-      )
-
-    assert Enum.map(sessions, & &1.generation) == [1, 2]
-    assert List.last(sessions).worker_job_document["version"] == 2
-    refute Map.has_key?(List.last(sessions).worker_job_document, "project_env")
-  end
-
   test "a new logical turn rotates an exhausted Coop session before freezing its briefing" do
     claim = claim_with_bound_empty_session!("exhausted-session-rotation")
     {:ok, fake} = fake_for(claim, [reply("The replacement session completed the work.")])

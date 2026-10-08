@@ -97,7 +97,13 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
     refute Map.has_key?(job, "project_env")
     assert job["environment"] == %{}
     assert job["check"] == %{"argv" => [], "environment" => %{}}
-    assert job["resources"] == JobTemplates.resources()
+
+    assert job["resources"] == %{
+             "cpu_millis" => 4_000,
+             "memory_bytes" => 8 * 1_073_741_824,
+             "pids" => 4_096
+           }
+
     assert job["egress"] == %{"mode" => "open", "rules" => [], "export_destinations" => false}
     assert {:ok, digest} = JobSpec.digest(job)
     assert pinned.worker_job_digest == digest
@@ -163,36 +169,6 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
            ) == {:error, :coop_worker_source_unavailable}
 
     assert Repo.get!(Session, session.id).worker_job_document == nil
-  end
-
-  # A session pinned before the move but never created would only be refused by a version-2
-  # worker. It moves with its grant intact and gets its check like a fresh pin.
-  test "a version-1 job on a session never created is pinned again as version 2", %{
-    session: session
-  } do
-    assert {:ok, pinned} = JobAuthority.ensure_pinned(session, "/private/source", &prepare/3)
-
-    v1 =
-      pinned.worker_job_document
-      |> Map.drop(~w(environment check resources))
-      |> Map.merge(%{"version" => 1, "project_env" => false, "project_mcp" => false})
-
-    session =
-      pinned
-      |> Ecto.Changeset.change(
-        worker_job_document: v1,
-        worker_job_digest: Ryker.CanonicalJSON.worker_digest(v1)
-      )
-      |> Repo.update!()
-
-    assert {:ok, moved} = JobAuthority.ensure_pinned(session, nil, &prepare/3, GatedReader)
-    job = moved.worker_job_document
-    assert job["version"] == 2
-    refute Map.has_key?(job, "project_env")
-    assert job["check"] == %{"argv" => ["make", "check"], "environment" => %{}}
-    assert job["source"] == v1["source"]
-    assert {:ok, digest} = JobSpec.digest(job)
-    assert Repo.get!(Session, session.id).worker_job_digest == digest
   end
 
   # Closing and removing a session run nothing under its grant. Checking a version-1 job as one
@@ -695,53 +671,6 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
 
     assert without_context.worker_job_document == authority.worker_job_document
     assert without_context.repository_context == nil
-  end
-
-  # Six active sessions on 2026-10-04 still carried version-1 jobs with three to five companions
-  # each. Replacing one narrowed its companions before upgrading it, and the narrowing computed the
-  # new digest with `{:ok, digest} = JobSpec.digest(job)`, which only takes version 2: a removed
-  # companion made the next generation raise, and every Work slot crashed on that episode.
-  test "a version-1 job with a removed companion moves to version 2 without it", %{
-    session: session
-  } do
-    pinned = pinned_with_companions!(session)
-
-    v1 =
-      pinned.worker_job_document
-      |> Map.drop(~w(environment check resources))
-      |> Map.merge(%{"version" => 1, "project_env" => false, "project_mcp" => false})
-
-    pinned =
-      pinned
-      |> Ecto.Changeset.change(
-        worker_job_document: v1,
-        worker_job_digest: Ryker.CanonicalJSON.worker_digest(v1)
-      )
-      |> Repo.update!()
-
-    {:ok, snapshot} =
-      Settings.put_environment(
-        %{ref: "production", display_name: "Production", repositories: ["app", "library"]},
-        Settings.fetch!().installation.revision,
-        @actor
-      )
-
-    {:ok, snapshot} =
-      Settings.delete_github_binding("tools", snapshot.installation.revision, @actor)
-
-    {:ok, _snapshot} = Settings.delete_repository("tools", snapshot.installation.revision, @actor)
-
-    assert {:ok, next} =
-             Sessions.insert_session(
-               pinned.episode_id,
-               pinned.generation + 1,
-               Sessions.session_authority(pinned)
-             )
-
-    assert next.worker_job_document["version"] == 2
-    assert Enum.map(next.worker_job_document["companions"], & &1["name"]) == ["library"]
-    assert {:ok, next.worker_job_digest} == JobSpec.digest(next.worker_job_document)
-    assert next.worker_job_document["job_ref"] == next.external_ref
   end
 
   test "incident work in an environment pins only its configured repository set", %{

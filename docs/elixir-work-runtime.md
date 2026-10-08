@@ -95,10 +95,9 @@ tools own durable records. The generic Delivery module owns external message cus
   and such a review is not publishable. A gate GitHub cannot read now is a wait
   (`coop_worker_source_unavailable`), never a job frozen without it. Sessions are placed only on
   workers advertising `job-setup:2`.
-- A session frozen with a version-1 job moves once, keeping its grant: one never created is pinned
-  again as version 2 and gets its check; a created one, which a version-2 worker refuses to run,
-  moves to its next generation before its next turn, and the replacement's job is the same grant
-  as version 2 (`JobSpec.upgrade/1`, `JobSpec.rebind/3`).
+- Version-1 jobs are refused. The move to version 2 carried the sessions that still held one
+  until 2026-10-08, when the last were closed; sessions retained from then are cleaned up as any
+  other, since a cleanup receipt is checked against the stored job whatever its version.
 - Submodules are pinned with their source, and Coop stages every gitlink it declares. Each one must
   come from one of two places:
   - a repository Ryker was given, read through its GitHub binding;

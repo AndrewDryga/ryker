@@ -92,9 +92,6 @@ defmodule Ryker.CoopFleet.JobTemplates do
   # tenant's worker VM has six; 4096 processes is Coop's own default cap.
   @resources %{"cpu_millis" => 4_000, "memory_bytes" => 8 * 1_073_741_824, "pids" => 4_096}
 
-  @spec resources() :: map()
-  def resources, do: @resources
-
   # A job names its whole setup (Coop job-setup:2). Work gets no environment
   # of its own; a working copy's check is the repository's gate, which
   # `Ryker.CoopFleet.JobAuthority` resolves at the job's base commit.
