@@ -265,7 +265,7 @@ defmodule Ryker.Slack.PublisherTest do
     request = message_request()
 
     status = %{
-      "emisar_approval_status" => approval_status("success")
+      "emisar_approval_statuses" => [approval_status("success")]
     }
 
     assert Publisher.update_message(

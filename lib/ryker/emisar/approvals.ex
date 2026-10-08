@@ -430,6 +430,7 @@ defmodule Ryker.Emisar.Approvals do
         last_error_code: nil,
         remote_error: state.error_message,
         remote_status: state.status,
+        review: state.review,
         review_digest: Review.digest(state.review),
         run_url: state.run_url
       }
@@ -490,6 +491,7 @@ defmodule Ryker.Emisar.Approvals do
              remote_error: state.error_message,
              remote_status: state.status,
              resumed_at: now,
+             review: state.review,
              review_digest: Review.digest(state.review),
              run_url: state.run_url,
              status: :resumed,

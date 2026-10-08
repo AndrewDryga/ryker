@@ -794,7 +794,11 @@ to run an action again or start a replacement run while it verifies one; those a
 the model, not checks. No incident room is required. When an action waits for approval, the
 conversation receives an **Emisar review** card: its status ("◷ Waiting for review." or how many
 reviews are in), the reason, evidence and expected outcome from the review, the command or action,
-and the runner, with **Review in Emisar** (later **Open in Emisar**) and **Open exact run**. On
+and the runner, with **Review in Emisar** (later **Open in Emisar**) and **Open run**. Approvals
+one reply asks for that differ only in their runner are one card: the reason, evidence, expected
+outcome and command once, then a divider before each runner, its status beside it and its own
+buttons under them; approvals for different actions stay separate cards. An update of one approval
+draws the reply's others as they were last seen, so none leaves the message. On
 GitHub the same request is a comment titled "Approval required in Emisar" with the action, runner,
 pack and expiry. Opening the link is navigation, not approval; no action has run, and the decision
 remains in Emisar's authenticated console and audit trail. Ryker watches that exact run and, when

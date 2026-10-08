@@ -174,7 +174,7 @@ defmodule Ryker.GitHub.RendererTest do
       "status" => "denied"
     }
 
-    assert {:ok, rendered} = Renderer.render(%{"emisar_approval_status" => status})
+    assert {:ok, rendered} = Renderer.render(%{"emisar_approval_statuses" => [status]})
     assert rendered =~ "Denied in Emisar"
 
     # The review reads the same here as it does in Slack: the outcome once, then
@@ -183,22 +183,37 @@ defmodule Ryker.GitHub.RendererTest do
     assert rendered =~ "✓ Review granted by Jane Doe."
     assert rendered =~ "✕ Review denied by Sam Reviewer. Reason: Please narrow the query."
     assert rendered =~ "policy denied this target"
-    assert rendered =~ "Open the exact run"
+    assert rendered =~ "[Open run]("
     assert rendered =~ "GitHub cannot approve this action"
 
     assert {:ok, exact_run} =
              Renderer.render(%{
-               "emisar_approval_status" =>
+               "emisar_approval_statuses" => [
                  status
                  |> Map.put("remote_error", nil)
                  |> Map.put("run_url", nil)
+               ]
              })
 
-    assert exact_run =~ "Exact run: `run-1`"
+    assert exact_run =~ "Run: `run-1`"
 
     assert Renderer.render(%{
-             "emisar_approval_status" => %{status | "status" => "model_invented"}
-           }) == {:error, {:invalid_github_render, :emisar_approval_status}}
+             "emisar_approval_statuses" => [%{status | "status" => "model_invented"}]
+           }) == {:error, {:invalid_github_render, :emisar_approval_statuses}}
+
+    # A comment that asked for two approvals keeps both when one changes.
+    other =
+      %{status | "request_id" => "apr-2", "runner_ref" => "web-2", "status" => "pending_approval"}
+      |> Map.merge(%{
+        "approval_url" => "https://emisar.example/app/acme/approvals/apr-2",
+        "review" => nil
+      })
+
+    assert {:ok, both} = Renderer.render(%{"emisar_approval_statuses" => [status, other]})
+    assert [first, second] = String.split(both, "\n\n---\n\n")
+    assert first =~ "on `production-runner`"
+    assert second =~ "on `web-2`"
+    assert String.ends_with?(second, "GitHub cannot approve these actions.")
   end
 
   # Andrew, 2026-09-30, of Ryker's reply on emisar#87 (this document, harvested): "this is too

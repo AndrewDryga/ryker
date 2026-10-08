@@ -1822,11 +1822,47 @@ defmodule Ryker.Slack.RendererTest do
     assert Renderer.render(malformed) == {:error, {:invalid_slack_render, :record}}
   end
 
+  test "approvals asked together are posted as the one card their updates repaint" do
+    record = fn id ->
+      %{
+        "kind" => "emisar_approval",
+        "payload" => %{
+          "action_id" => "nomad.alloc_restart",
+          "approval_url" => "https://emisar.example/app/acme/approvals/apr-#{id}",
+          "expires_at" => "2099-08-29T12:00:00.000000Z",
+          "operation_id" => "op-#{id}",
+          "pack_ref" => "nomad@1#sha256:abc",
+          "request_id" => "apr-#{id}",
+          "run_id" => "run-#{id}",
+          "runner_ref" => "web-#{id}",
+          "status" => "pending_approval"
+        },
+        "ref" => "record:emisar_approval:web#{id}",
+        "status" => "open"
+      }
+    end
+
+    assert {:ok, rendered} =
+             Renderer.render(%{
+               "message" => "Both actions wait for Emisar approval.",
+               "records" => [record.(1), record.(2)]
+             })
+
+    [_message | blocks] = rendered["blocks"]
+    assert headings(blocks) == ["Emisar review", "Action"]
+
+    assert [["*Runner*\n`web-1`", status], ["*Runner*\n`web-2`", status]] =
+             for(%{"fields" => fields} <- blocks, do: Enum.map(fields, & &1["text"]))
+
+    assert status == "*Status*\n◷ Waiting for review."
+  end
+
   test "a pending review leads with the dispatch rationale and a trusted command block" do
     assert {:ok, rendered} =
              Renderer.render(%{
-               "emisar_approval_status" =>
+               "emisar_approval_statuses" => [
                  approval_status("pending_approval", nil, review(%{"approved_count" => 0}))
+               ]
              })
 
     blocks = rendered["blocks"]
@@ -1873,12 +1909,13 @@ defmodule Ryker.Slack.RendererTest do
   test "without a provable command the card names the action and where its arguments are" do
     assert {:ok, rendered} =
              Renderer.render(%{
-               "emisar_approval_status" =>
+               "emisar_approval_statuses" => [
                  approval_status(
                    "pending_approval",
                    nil,
                    review(%{"argument_count" => 3}) |> Map.delete("command")
                  )
+               ]
              })
 
     blocks = rendered["blocks"]
@@ -1914,7 +1951,7 @@ defmodule Ryker.Slack.RendererTest do
 
     assert {:ok, rendered} =
              Renderer.render(%{
-               "emisar_approval_status" =>
+               "emisar_approval_statuses" => [
                  approval_status(
                    "success",
                    nil,
@@ -1925,6 +1962,7 @@ defmodule Ryker.Slack.RendererTest do
                      "decisions" => [approve("Jane Doe"), approve("Sam Reviewer")]
                    })
                  )
+               ]
              })
 
     blocks = rendered["blocks"]
@@ -1997,7 +2035,7 @@ defmodule Ryker.Slack.RendererTest do
     for {name, run_status, review, summary, history} <- states do
       assert {:ok, rendered} =
                Renderer.render(%{
-                 "emisar_approval_status" => approval_status(run_status, nil, review)
+                 "emisar_approval_statuses" => [approval_status(run_status, nil, review)]
                })
 
       blocks = rendered["blocks"]
@@ -2020,8 +2058,9 @@ defmodule Ryker.Slack.RendererTest do
   test "a failed poll says the status could not be refreshed, never that it was denied" do
     assert {:ok, rendered} =
              Renderer.render(%{
-               "emisar_approval_status" =>
+               "emisar_approval_statuses" => [
                  approval_status("pending_approval", "The approval read failed.", nil)
+               ]
              })
 
     status = status_text(rendered["blocks"])
@@ -2033,8 +2072,116 @@ defmodule Ryker.Slack.RendererTest do
     malformed =
       put_in(approval_status("success", nil, nil), ["run_url"], "http://evil.example/run")
 
-    assert Renderer.render(%{"emisar_approval_status" => malformed}) ==
-             {:error, {:invalid_slack_render, :emisar_approval_status}}
+    assert Renderer.render(%{"emisar_approval_statuses" => [malformed]}) ==
+             {:error, {:invalid_slack_render, :emisar_approval_statuses}}
+  end
+
+  # Production asked for the same inspection on two instances in one reply
+  # (2026-10-08), and the two cards repeated everything but the runner. Andrew
+  # approved one card: the shared part once, then each runner below a divider,
+  # its runner and status side by side and its own buttons under them.
+  test "approvals asking the same thing of several runners are one card, a runner below each divider" do
+    granted = %{
+      "status" => "approved",
+      "approved_count" => 2,
+      "decisions" => [approve("Jane Doe"), approve("Sam Reviewer")]
+    }
+
+    assert {:ok, rendered} =
+             Renderer.render(%{
+               "emisar_approval_statuses" => [
+                 runner_status("1", "web-1", "pending_approval", %{}),
+                 runner_status("2", "web-2", "running", granted)
+               ]
+             })
+
+    blocks = rendered["blocks"]
+
+    assert headings(blocks) ==
+             ["Emisar review", "Reason", "Evidence", "Expected outcome", "Command to run"]
+
+    assert [
+             [%{"type" => "divider"}, web_1, web_1_actions],
+             [%{"type" => "divider"}, web_2, web_2_actions]
+           ] = blocks |> Enum.drop_while(&(&1["type"] != "divider")) |> Enum.chunk_every(3)
+
+    assert Enum.map(web_1["fields"], & &1["text"]) ==
+             ["*Runner*\n`web-1`", "*Status*\n◷ 0 of 2 reviews received."]
+
+    assert Enum.map(web_2["fields"], & &1["text"]) == [
+             "*Runner*\n`web-2`",
+             "*Status*\n✓ Review granted; 2 of 2 reviews received.\n\n" <>
+               "✓ Review granted by Jane Doe.\n✓ Review granted by Sam Reviewer."
+           ]
+
+    assert {web_1_actions["block_id"], web_2_actions["block_id"]} ==
+             {"emisar-approval:apr-1", "emisar-approval:apr-2"}
+
+    assert Enum.map(web_1_actions["elements"], & &1["text"]["text"]) ==
+             ["Review in Emisar", "Open run"]
+
+    assert Enum.map(web_2_actions["elements"], & &1["text"]["text"]) ==
+             ["Open in Emisar", "Open run"]
+
+    assert rendered["text"] == "Emisar review · nomad.alloc_restart · 2 runners"
+  end
+
+  # Emisar reports the command a runner ran as an executed receipt, so the
+  # first runner to finish would have split the card in two.
+  test "a command one runner ran and another has not keeps one card and is just the command" do
+    executed = %{
+      "kind" => "executed",
+      "text" => review(%{})["command"]["text"],
+      "truncated" => false
+    }
+
+    assert {:ok, rendered} =
+             Renderer.render(%{
+               "emisar_approval_statuses" => [
+                 runner_status("1", "web-1", "success", %{"command" => executed}),
+                 runner_status("2", "web-2", "pending_approval", %{})
+               ]
+             })
+
+    assert headings(rendered["blocks"]) ==
+             ["Emisar review", "Reason", "Evidence", "Expected outcome", "Command"]
+  end
+
+  test "approvals asking different things stay separate cards" do
+    other = runner_status("2", "web-2", "pending_approval", %{"reason" => "Read the logs."})
+
+    assert {:ok, rendered} =
+             Renderer.render(%{
+               "emisar_approval_statuses" => [
+                 runner_status("1", "web-1", "pending_approval", %{}),
+                 %{other | "action_id" => "nomad.alloc_logs"}
+               ]
+             })
+
+    blocks = rendered["blocks"]
+    assert Enum.count(headings(blocks), &(&1 == "Emisar review")) == 2
+    assert Enum.count(headings(blocks), &(&1 == "Runner")) == 2
+    assert Enum.count(blocks, &(&1["type"] == "divider")) == 1
+    assert rendered["text"] == "Emisar review · 2 approvals"
+  end
+
+  test "approvals past a message's fifty blocks are counted, not cut off mid-card" do
+    statuses =
+      for index <- 1..12 do
+        runner_status("#{index}", "web-#{index}", "pending_approval", %{
+          "reason" => "Reason #{index}."
+        })
+      end
+
+    assert {:ok, rendered} = Renderer.render(%{"emisar_approval_statuses" => statuses})
+    blocks = rendered["blocks"]
+
+    assert length(blocks) <= 50
+    shown = Enum.count(headings(blocks), &(&1 == "Runner"))
+    assert context_text(List.last(blocks)) == "#{12 - shown} more approvals in Emisar."
+
+    assert List.last(blocks |> Enum.filter(&(&1["type"] == "actions")))["block_id"] ==
+             "emisar-approval:apr-#{shown}"
   end
 
   # A confirmed offer shows the entity it saved, and once retention had removed
@@ -3621,7 +3768,7 @@ defmodule Ryker.Slack.RendererTest do
       %{"task_card" => task},
       %{"incident_room" => room},
       %{"saved_entity" => entity},
-      %{"emisar_approval_status" => review},
+      %{"emisar_approval_statuses" => [review]},
       %{
         "channel_settings" => %{
           "audience" => "thread",
@@ -4130,6 +4277,19 @@ defmodule Ryker.Slack.RendererTest do
       "run_url" => "https://emisar.example/app/acme/runs/run-1",
       "runner_ref" => "production-runner",
       "status" => status
+    }
+  end
+
+  # Approval `id` of the same action on `runner_ref`.
+  defp runner_status(id, runner_ref, status, review_fields) do
+    %{
+      approval_status(status, nil, review(Map.put(review_fields, "request_id", "apr-#{id}")))
+      | "approval_url" => "https://emisar.example/app/acme/approvals/apr-#{id}",
+        "operation_id" => "op-#{id}",
+        "request_id" => "apr-#{id}",
+        "run_id" => "run-#{id}",
+        "run_url" => "https://emisar.example/app/acme/runs/run-#{id}",
+        "runner_ref" => runner_ref
     }
   end
 

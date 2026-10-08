@@ -50,14 +50,49 @@ defmodule Ryker.Slack.Renderer.Records do
   @spec render([map()]) :: {:ok, [map()]} | {:error, term()}
   def render(records) do
     result =
-      Enum.reduce_while(records, {:ok, []}, fn record, {:ok, blocks} ->
-        case render_record(record) do
-          {:ok, rendered} -> {:cont, {:ok, blocks ++ rendered}}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      end)
+      records
+      |> Enum.chunk_by(&open_approval?/1)
+      |> render_each(&render_chunk/1)
 
     with {:ok, blocks} <- result, do: {:ok, blocks ++ source_blocks(records)}
+  end
+
+  # Each item's blocks in order, or the first refusal.
+  defp render_each(items, render) do
+    Enum.reduce_while(items, {:ok, []}, fn item, {:ok, blocks} ->
+      case render.(item) do
+        {:ok, rendered} -> {:cont, {:ok, blocks ++ rendered}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp open_approval?(%{"kind" => "emisar_approval", "status" => "open"} = record),
+    do: map_size(record) == 4
+
+  defp open_approval?(_record), do: false
+
+  # Approvals asked for together are shown together, so the ones that share
+  # their action are one card (`EmisarReview`).
+  defp render_chunk([first | _rest] = chunk) do
+    if open_approval?(first) do
+      with {:ok, approvals} <- prepared_approvals(chunk),
+           do: {:ok, EmisarReview.approval_blocks(approvals)}
+    else
+      render_each(chunk, &render_record/1)
+    end
+  end
+
+  defp prepared_approvals(records) do
+    Enum.reduce_while(records, {:ok, []}, fn %{"payload" => payload, "ref" => ref}, {:ok, done} ->
+      with :ok <- reference(ref),
+           {:ok, %{payload: prepared}} <-
+             Records.RecordPayload.prepare("emisar_approval", payload, ref) do
+        {:cont, {:ok, done ++ [{ref, prepared}]}}
+      else
+        _invalid -> {:halt, {:error, {:invalid_slack_render, :record}}}
+      end
+    end)
   end
 
   defp render_record(
@@ -126,24 +161,6 @@ defmodule Ryker.Slack.Renderer.Records do
          {:ok, %{payload: prepared}} <- Records.RecordPayload.prepare(kind, payload, ref) do
       {:ok,
        [context("*#{escape(saved_name(kind, prepared))}* was saved and has since been removed.")]}
-    else
-      _invalid -> {:error, {:invalid_slack_render, :record}}
-    end
-  end
-
-  defp render_record(
-         %{
-           "kind" => "emisar_approval",
-           "payload" => payload,
-           "ref" => ref,
-           "status" => "open"
-         } = record
-       )
-       when map_size(record) == 4 do
-    with :ok <- reference(ref),
-         {:ok, %{payload: prepared}} <-
-           Records.RecordPayload.prepare("emisar_approval", payload, ref) do
-      {:ok, EmisarReview.approval_blocks(ref, prepared)}
     else
       _invalid -> {:error, {:invalid_slack_render, :record}}
     end

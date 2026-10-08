@@ -151,7 +151,7 @@ defmodule Ryker.Emisar.EndToEndTest do
       :slack_updated,
       "C456",
       "1788019200.000100",
-      %{"emisar_approval_status" => %{"status" => "success"} = status},
+      %{"emisar_approval_statuses" => [%{"status" => "success"} = status]},
       delivery_ref
     }
 
@@ -304,7 +304,7 @@ defmodule Ryker.Emisar.EndToEndTest do
 
     # The first receipt is a change: the card gains the tally and the rationale.
     assert ApprovalPresenter.publish(approval, held, adapters) == :ok
-    assert_receive {:slack_updated, _, _, %{"emisar_approval_status" => shown}, _}
+    assert_receive {:slack_updated, _, _, %{"emisar_approval_statuses" => [shown]}, _}
     assert shown["review"]["approved_count"] == 1
 
     approval = Inspectors.emisar_approval(@connection_ref, "apr-e2e")
@@ -312,7 +312,7 @@ defmodule Ryker.Emisar.EndToEndTest do
 
     # The first receipt is a change: the card gains the tally and the rationale.
     assert ApprovalPresenter.publish(approval, held, adapters) == :ok
-    assert_receive {:slack_updated, _, _, %{"emisar_approval_status" => shown}, _}
+    assert_receive {:slack_updated, _, _, %{"emisar_approval_statuses" => [shown]}, _}
     assert shown["review"]["approved_count"] == 1
 
     assert {:ok, %{approval: observed}} =
@@ -328,7 +328,7 @@ defmodule Ryker.Emisar.EndToEndTest do
     # A decision is.
     released = %{held | status: "sent", review: review(2, "approved")}
     assert ApprovalPresenter.publish(observed, released, adapters) == :ok
-    assert_receive {:slack_updated, _, _, %{"emisar_approval_status" => decided}, _}
+    assert_receive {:slack_updated, _, _, %{"emisar_approval_statuses" => [decided]}, _}
     assert decided["review"]["status"] == "approved"
 
     # Once that decision is on the card, the released run's own march through
@@ -344,6 +344,95 @@ defmodule Ryker.Emisar.EndToEndTest do
     end
   end
 
+  # Production asked for the same inspection on two instances in one reply
+  # (2026-10-08). Each approval's update drew only its own card over the whole
+  # message, so the other approval went from it, and the message showed only
+  # whichever approval had changed last.
+  test "an update of one approval keeps the other approvals of its reply on the message" do
+    claim = claim_episode!("two-approvals")
+    assert KnowledgeSnapshot.expose(claim, []) == :ok
+    binding = %{state_token: Records.token(claim.turn), session: claim.session}
+
+    refs =
+      for id <- ["web-1", "web-2"] do
+        assert {:ok, recorded} =
+                 Tools.call("record_emisar_approval", approval_arguments(id), binding: binding)
+
+        recorded["record_ref"]
+      end
+
+    {:ok, fake} =
+      FakeWorkCoopAPI.start_link([approval_reply(refs), final_reply("Both inspections ran.")])
+
+    assert {:ok, %{status: :accepted} = first} = Executor.run(claim, executor_options(fake))
+    deliver!(first, "1788019200.000300")
+    adapters = slack_adapters!()
+
+    web_1 = Inspectors.emisar_approval(@connection_ref, "apr-web-1")
+    web_1_seen = held_state("web-1", review(1, "pending", "apr-web-1"))
+    assert ApprovalPresenter.publish(web_1, web_1_seen, adapters) == :ok
+
+    assert_receive {:slack_updated, _, "1788019200.000300", update, _}
+    assert %{"emisar_approval_statuses" => [one, two]} = update
+    assert {one["request_id"], one["review"]["approved_count"]} == {"apr-web-1", 1}
+
+    assert {two["request_id"], two["status"], two["review"]} ==
+             {"apr-web-2", "pending_approval", nil}
+
+    assert {:ok, %{approval: %{request_id: "apr-web-1"}, lease_ref: lease}} =
+             Approvals.claim_next(@connection_ref, "two-approvals-monitor", 60)
+
+    assert {:ok, _observed} =
+             Approvals.observe(@connection_ref, "apr-web-1", lease, web_1_seen, 5)
+
+    # The other approval's update draws the first one as it was last seen.
+    web_2 = Inspectors.emisar_approval(@connection_ref, "apr-web-2")
+    web_2_seen = held_state("web-2", review(0, "pending", "apr-web-2"))
+    assert ApprovalPresenter.publish(web_2, web_2_seen, adapters) == :ok
+
+    assert_receive {:slack_updated, _, "1788019200.000300", update, _}
+    assert %{"emisar_approval_statuses" => [one, two]} = update
+    assert {one["request_id"], one["review"]["approved_count"]} == {"apr-web-1", 1}
+    assert {two["request_id"], two["review"]["approved_count"]} == {"apr-web-2", 0}
+  end
+
+  defp deliver!(result, message_ref) do
+    assert {:ok, delivery} = Custody.claim_next("#{message_ref}-delivery", 60, :delivery)
+
+    assert {:ok, receipt} =
+             DeliveryReceipt.new(
+               result.turn.delivery_ref,
+               result.episode.destination_transport,
+               result.episode.destination_conversation_ref,
+               result.episode.destination_thread_ref,
+               message_ref
+             )
+
+    assert {:ok, _delivered} =
+             Custody.confirm_delivery(
+               result.episode.id,
+               result.episode.key,
+               result.turn.turn_ref,
+               delivery.lease_ref,
+               receipt
+             )
+  end
+
+  defp slack_adapters! do
+    {:ok, slack} = FakeSlackAPI.start_link(observer: self())
+
+    assert {:ok, adapters} =
+             Adapters.new(%{
+               "slack" => %{
+                 binding: %{workspaces: %{"TEC879C5EE335" => %{api: FakeSlackAPI, client: slack}}},
+                 message_publisher: Publisher,
+                 reaction_publisher: Publisher
+               }
+             })
+
+    adapters
+  end
+
   defp lease! do
     assert {:ok, %{lease_ref: lease_ref}} =
              Approvals.claim_next(@connection_ref, "repaint-monitor", 60)
@@ -351,11 +440,25 @@ defmodule Ryker.Emisar.EndToEndTest do
     lease_ref
   end
 
+  defp held_state(id, review) do
+    %RunState{
+      action_id: "nomad.alloc_restart",
+      error_message: nil,
+      operation_id: "operation-#{id}",
+      pack_ref: "nomad@1#sha256:abc",
+      review: review,
+      run_id: "run-#{id}",
+      run_url: "https://emisar.example/app/acme/runs/run-#{id}",
+      runner_ref: id,
+      status: "pending_approval"
+    }
+  end
+
   defp held_run_state(review) do
     %{terminal_run_state() | status: "pending_approval", review: review}
   end
 
-  defp review(approved_count, status) do
+  defp review(approved_count, status, request_id \\ "apr-e2e") do
     decisions =
       Enum.take(
         [
@@ -374,7 +477,7 @@ defmodule Ryker.Emisar.EndToEndTest do
       )
 
     %{
-      "request_id" => "apr-e2e",
+      "request_id" => request_id,
       "status" => status,
       "required_approvals" => 2,
       "approved_count" => approved_count,
@@ -438,14 +541,26 @@ defmodule Ryker.Emisar.EndToEndTest do
     }
   end
 
-  defp approval_reply(record_ref) do
+  # An approval per runner `id`, which also names its request, run and operation.
+  defp approval_arguments(id) do
+    %{
+      approval_arguments()
+      | "approval_url" => "https://emisar.example/app/acme/approvals/apr-#{id}",
+        "operation_id" => "operation-#{id}",
+        "request_id" => "apr-#{id}",
+        "run_id" => "run-#{id}",
+        "runner_ref" => id
+    }
+  end
+
+  defp approval_reply(record_refs) do
     Jason.encode!(%{
       "decision_reason" => nil,
       "delivery" => "reply",
       "message" => "Approval is required in Emisar. Slack cannot approve this governed action.",
       "outcome" => %{
         "artifact_refs" => [],
-        "record_refs" => [record_ref],
+        "record_refs" => List.wrap(record_refs),
         "state" => "waiting_for_event"
       }
     })

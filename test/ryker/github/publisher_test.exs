@@ -241,7 +241,7 @@ defmodule Ryker.GitHub.PublisherTest do
     request = message_request("github:github-main:pull:42")
 
     document = %{
-      "emisar_approval_status" => approval_status("denied")
+      "emisar_approval_statuses" => [approval_status("denied")]
     }
 
     assert Publisher.update_message(

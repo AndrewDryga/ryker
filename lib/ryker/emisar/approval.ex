@@ -20,6 +20,9 @@ defmodule Ryker.Emisar.Approval do
     field(:run_url, :string)
     field(:remote_error, :string)
     field(:review_digest, :string)
+    # The review last seen, which the card draws again when another approval
+    # of the same reply changes (`Ryker.Emisar.ApprovalPresenter`).
+    field(:review, Ryker.CanonicalJSON.Type)
     field(:last_observed_at, :utc_datetime_usec)
     field(:terminal_at, :utc_datetime_usec)
     field(:resumed_at, :utc_datetime_usec)

@@ -88,12 +88,12 @@ defmodule Ryker.Emisar.ApprovalPresenter do
          :ok <- exact_receipt(turn, episode, receipt),
          true <- record.status == :open,
          {:ok, request} <- request(turn, episode),
-         {:ok, status} <- ApprovalStatus.new(approval, state),
+         {:ok, statuses} <- statuses(approval, state, turn),
          :ok <-
            Delivery.Adapters.update_message(
              request,
              receipt["message_ref"],
-             %{"emisar_approval_status" => status},
+             %{"emisar_approval_statuses" => statuses},
              adapters
            ) do
       :ok
@@ -101,6 +101,36 @@ defmodule Ryker.Emisar.ApprovalPresenter do
       false -> {:error, :emisar_approval_record_stale}
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  # The message shows every approval its turn asked for, in the order the reply
+  # showed them: this one as just seen, the others as last seen. Each update
+  # drew only its own approval, so the others' cards went from the message
+  # (2026-10-08).
+  defp statuses(approval, state, turn) do
+    refs =
+      case turn.delivery_document do
+        %{"outcome" => %{"record_refs" => refs}} when is_list(refs) ->
+          Enum.filter(refs, &is_binary/1)
+
+        _other ->
+          []
+      end
+
+    turn.id
+    |> Approval.Query.asked_by_turn(refs)
+    |> Repo.all()
+    |> Enum.reduce_while({:ok, []}, fn asked, {:ok, statuses} ->
+      status =
+        if asked.id == approval.id,
+          do: ApprovalStatus.new(approval, state),
+          else: ApprovalStatus.last(asked)
+
+      case status do
+        {:ok, status} -> {:cont, {:ok, statuses ++ [status]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
   defp exact_receipt(turn, episode, receipt) do

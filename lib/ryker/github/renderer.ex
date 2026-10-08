@@ -17,28 +17,18 @@ defmodule Ryker.GitHub.Renderer do
   @confirmable_offer_kinds ~w(automation_change_offer memory_offer preference_offer guidance_offer standing_assignment_offer)
 
   @spec render(map()) :: {:ok, String.t()} | {:error, term()}
-  def render(%{"emisar_approval_status" => status} = document) when map_size(document) == 1 do
-    case Emisar.ApprovalStatus.prepare(status) do
-      {:ok, status} ->
-        run =
-          if status["run_url"],
-            do: "[Open the exact run](#{status["run_url"]})",
-            else: "Exact run: `#{escape(status["run_id"])}`"
+  def render(%{"emisar_approval_statuses" => [_first | _rest] = statuses} = document)
+      when map_size(document) == 1 do
+    prepared = Enum.map(statuses, &Emisar.ApprovalStatus.prepare/1)
 
-        {:ok,
-         """
-         ### Governed action — #{escape(Emisar.ApprovalStatus.label(status["status"]))}
+    if Enum.all?(prepared, &match?({:ok, _status}, &1)) do
+      body =
+        Enum.map_join(prepared, "\n\n---\n\n", fn {:ok, status} -> status_markdown(status) end)
 
-         `#{escape(status["action_id"])}` on `#{escape(status["runner_ref"])}`. Pack: `#{escape(status["pack_ref"])}`.
-         #{review_markdown(status)}
-         #{run} · [Review in Emisar](#{status["approval_url"]})#{error_markdown(status)}
-
-         GitHub cannot approve this action.
-         """
-         |> String.trim()}
-
-      _invalid ->
-        {:error, {:invalid_github_render, :emisar_approval_status}}
+      which = if length(statuses) == 1, do: "this action", else: "these actions"
+      {:ok, body <> "\n\nGitHub cannot approve #{which}."}
+    else
+      {:error, {:invalid_github_render, :emisar_approval_statuses}}
     end
   end
 
@@ -199,5 +189,21 @@ defmodule Ryker.GitHub.Renderer do
     |> String.replace("]", "\\]")
     |> String.replace("<", "&lt;")
     |> String.replace(">", "&gt;")
+  end
+
+  defp status_markdown(status) do
+    run =
+      if status["run_url"],
+        do: "[Open run](#{status["run_url"]})",
+        else: "Run: `#{escape(status["run_id"])}`"
+
+    """
+    ### Governed action — #{escape(Emisar.ApprovalStatus.label(status["status"]))}
+
+    `#{escape(status["action_id"])}` on `#{escape(status["runner_ref"])}`. Pack: `#{escape(status["pack_ref"])}`.
+    #{review_markdown(status)}
+    #{run} · [Review in Emisar](#{status["approval_url"]})#{error_markdown(status)}
+    """
+    |> String.trim()
   end
 end

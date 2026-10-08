@@ -54,9 +54,9 @@ defmodule Ryker.Slack.Renderer do
     end
   end
 
-  defp render_document(%{"emisar_approval_status" => status} = document)
+  defp render_document(%{"emisar_approval_statuses" => statuses} = document)
        when map_size(document) == 1,
-       do: EmisarReview.render(status)
+       do: EmisarReview.render(statuses)
 
   defp render_document(%{"incident_room" => room} = document) when map_size(document) == 1,
     do: WorkCards.incident_room(room)

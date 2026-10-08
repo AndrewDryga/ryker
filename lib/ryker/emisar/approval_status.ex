@@ -22,23 +22,38 @@ defmodule Ryker.Emisar.ApprovalStatus do
 
   @spec new(Approval.t(), RunState.t()) :: {:ok, map()} | {:error, term()}
   def new(%Approval{} = approval, %RunState{} = state) do
+    last(%{
+      approval
+      | remote_error: state.error_message,
+        remote_status: state.status,
+        review: state.review,
+        run_url: state.run_url
+    })
+  end
+
+  def new(_approval, _state), do: {:error, {:invalid_emisar_approval_status, :document}}
+
+  @doc """
+  The status an approval was last seen in, read from its own row. One never
+  polled is waiting for review.
+  """
+  @spec last(Approval.t()) :: {:ok, map()} | {:error, term()}
+  def last(%Approval{} = approval) do
     prepare(%{
       "action_id" => approval.action_id,
       "approval_url" => approval.approval_url,
       "expires_at" => DateTime.to_iso8601(approval.expires_at),
       "operation_id" => approval.operation_id,
       "pack_ref" => approval.pack_ref,
-      "remote_error" => state.error_message,
+      "remote_error" => approval.remote_error,
       "request_id" => approval.request_id,
-      "review" => state.review,
+      "review" => approval.review,
       "run_id" => approval.run_id,
-      "run_url" => state.run_url,
+      "run_url" => approval.run_url,
       "runner_ref" => approval.runner_ref,
-      "status" => state.status
+      "status" => approval.remote_status
     })
   end
-
-  def new(_approval, _state), do: {:error, {:invalid_emisar_approval_status, :document}}
 
   @spec prepare(term()) :: {:ok, map()} | {:error, term()}
   def prepare(%{} = document) do

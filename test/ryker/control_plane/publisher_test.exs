@@ -53,7 +53,7 @@ defmodule Ryker.ControlPlane.PublisherTest do
     assert Adapters.update_message(
              request,
              "control-plane-message:0123456789abcdef01234567",
-             %{"emisar_approval_status" => %{}},
+             %{"emisar_approval_statuses" => [%{}]},
              adapters
            ) == :ok
   end

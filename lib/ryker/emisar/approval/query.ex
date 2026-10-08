@@ -16,6 +16,24 @@ defmodule Ryker.Emisar.Approval.Query do
   def by_record_id(queryable \\ all(), record_id),
     do: where(queryable, [episode_emisar_approvals: a], a.record_id == ^record_id)
 
+  @doc """
+  The approvals turn `turn_id` asked for, in the order its reply named their
+  records (`record_refs`), and any it did not name after them in the order it
+  asked.
+  """
+  def asked_by_turn(queryable \\ all(), turn_id, record_refs) do
+    from([episode_emisar_approvals: a] in queryable,
+      join: record in Records.Record,
+      on: record.id == a.record_id,
+      where: record.turn_id == ^turn_id,
+      order_by: [
+        asc: fragment("array_position(?::text[], ?)", ^record_refs, record.ref),
+        asc: record.inserted_at,
+        asc: record.id
+      ]
+    )
+  end
+
   def by_connection(queryable \\ all(), connection_ref),
     do: where(queryable, [episode_emisar_approvals: a], a.connection_ref == ^connection_ref)
 

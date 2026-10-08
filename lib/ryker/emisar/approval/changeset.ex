@@ -27,6 +27,7 @@ defmodule Ryker.Emisar.Approval.Changeset do
     :remote_status,
     :request_id,
     :resumed_at,
+    :review,
     :review_digest,
     :run_id,
     :run_url,
@@ -92,6 +93,7 @@ defmodule Ryker.Emisar.Approval.Changeset do
     |> check_constraint(:status, name: :episode_emisar_approval_closure_valid)
     |> check_constraint(:lease_ref, name: :episode_emisar_approval_lease_valid)
     |> check_constraint(:review_digest, name: :episode_emisar_approval_review_valid)
+    |> check_constraint(:review, name: :episode_emisar_approval_review_document_valid)
     |> check_constraint(:last_error_code, name: :episode_emisar_approval_error_valid)
   end
 end

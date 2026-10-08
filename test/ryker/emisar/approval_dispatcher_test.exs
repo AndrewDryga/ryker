@@ -52,6 +52,29 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
     def permanent?(_reason), do: false
   end
 
+  defmodule RunsAPI do
+    @behaviour Ryker.Emisar.API
+
+    @impl true
+    def wait_for_run({test_pid, states}, run_id, wait_seconds) do
+      send(test_pid, {:wait_for_run, run_id, wait_seconds})
+      {:ok, Map.fetch!(states, run_id)}
+    end
+  end
+
+  # Draws the card only when the test says so.
+  defmodule HoldingPresenter do
+    def publish(approval, _state, test_pid) do
+      send(test_pid, {:drawing, approval.request_id, self()})
+
+      receive do
+        :drawn -> :ok
+      end
+    end
+
+    def permanent?(_reason), do: false
+  end
+
   test "polls the exact immutable run and resumes its episode on a terminal result" do
     episode = waiting_approval!("terminal")
 
@@ -140,6 +163,51 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
              ApprovalDispatcher.run_once(settings)
 
     refute_received :approval_presented
+  end
+
+  # The approvals one reply asks for share its message, and the pool's slots
+  # read two new ones at once. Each slot drew the other approval as its row
+  # last stored it, so the update that landed last could show the other one
+  # from before its own update, and nothing drew it again until that approval
+  # changed: hours, for a review nobody had picked up yet (found in review,
+  # 2026-10-08).
+  test "one slot at a time draws a task's card, after the slot before it stored what it drew" do
+    waiting_approvals!("pair", ["pair-1", "pair-2"])
+
+    states = %{
+      "run-pair-1" => state("pair-1", "pending_approval"),
+      "run-pair-2" => state("pair-2", "pending_approval")
+    }
+
+    slot = fn worker_ref ->
+      settings =
+        Keyword.merge(options({:error, :not_used}, worker_ref),
+          api: RunsAPI,
+          client: {self(), states},
+          presentation: self(),
+          presenter: HoldingPresenter
+        )
+
+      Task.async(fn -> ApprovalDispatcher.run_once(settings) end)
+    end
+
+    first = slot.("slot-1")
+    assert_receive {:drawing, first_request, first_drawer}
+    second = slot.("slot-2")
+    assert_receive {:wait_for_run, _run_id, 0}
+    assert_receive {:wait_for_run, _run_id, 0}
+
+    # The second slot has read its run, and waits for the first to finish.
+    refute_receive {:drawing, _request, _drawer}, 300
+
+    send(first_drawer, :drawn)
+    assert_receive {:drawing, second_request, second_drawer}
+    assert second_request != first_request
+    assert Inspectors.emisar_approval(@connection_ref, first_request).last_observed_at
+
+    send(second_drawer, :drawn)
+    assert {:ok, {:monitoring, ^first_request, "pending_approval"}} = Task.await(first)
+    assert {:ok, {:monitoring, ^second_request, "pending_approval"}} = Task.await(second)
   end
 
   test "rejects malformed dispatcher configuration before claiming custody" do
@@ -248,7 +316,10 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
     ]
   end
 
-  defp waiting_approval!(suffix) do
+  defp waiting_approval!(suffix), do: waiting_approvals!(suffix, [suffix])
+
+  # One task whose turn asked for an approval per suffix in `approvals`.
+  defp waiting_approvals!(suffix, approvals) do
     occurred_at = ~U[2026-08-29 12:00:00.000000Z]
 
     assert {:ok, transition} =
@@ -276,26 +347,32 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
     assert {:ok, claim} = Custody.claim_next("work:#{suffix}", 60)
     assert claim.episode.id == transition.episode.id
 
-    assert {:ok, record} =
-             Records.create(
-               Records.token(claim.turn),
-               "op-#{suffix}",
-               "emisar_approval",
-               %{
-                 "action_id" => "nomad.alloc_restart",
-                 "approval_url" => "https://emisar.example/app/acme/approvals/apr-#{suffix}",
-                 "account_ref" => "account-acme",
-                 "connection_ref" => @connection_ref,
-                 "expires_at" => "2099-08-29T12:00:00.000000Z",
-                 "operation_id" => "op-#{suffix}",
-                 "pack_ref" => "nomad@1#sha256:abc",
-                 "request_id" => "apr-#{suffix}",
-                 "run_id" => "run-#{suffix}",
-                 "runner_ref" => "production-runner",
-                 "rpc_url" => "https://emisar.example/mcp",
-                 "status" => "pending_approval"
-               }
-             )
+    [record | _more] =
+      Enum.map(approvals, fn approval ->
+        assert {:ok, record} =
+                 Records.create(
+                   Records.token(claim.turn),
+                   "op-#{approval}",
+                   "emisar_approval",
+                   %{
+                     "action_id" => "nomad.alloc_restart",
+                     "approval_url" =>
+                       "https://emisar.example/app/acme/approvals/apr-#{approval}",
+                     "account_ref" => "account-acme",
+                     "connection_ref" => @connection_ref,
+                     "expires_at" => "2099-08-29T12:00:00.000000Z",
+                     "operation_id" => "op-#{approval}",
+                     "pack_ref" => "nomad@1#sha256:abc",
+                     "request_id" => "apr-#{approval}",
+                     "run_id" => "run-#{approval}",
+                     "runner_ref" => "production-runner",
+                     "rpc_url" => "https://emisar.example/mcp",
+                     "status" => "pending_approval"
+                   }
+                 )
+
+        record
+      end)
 
     assert {:ok, waiting} =
              Episodes.apply(%Command.StartWait{

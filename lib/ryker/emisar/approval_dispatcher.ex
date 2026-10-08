@@ -25,6 +25,7 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
     :wait_seconds,
     :worker_ref
   ]
+  @card_lock_poll_ms 50
 
   @type result ::
           {:ok,
@@ -94,7 +95,42 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
     end
   end
 
+  # The approvals one reply asked for are drawn on one message, and the slots
+  # read them at the same time: the two of one turn are new together and both
+  # read at once. Each drew the other as its row last stored it, so the update
+  # that landed last could show the other before its own update, and nothing
+  # drew it again until that approval changed (2026-10-08). One slot at a time
+  # draws a task's card and stores what it drew.
   defp present(approval, claim, state, settings) do
+    lock = {{__MODULE__, approval.episode_id}, self()}
+    deadline = System.monotonic_time(:millisecond) + div(settings.lease_seconds * 1_000, 4)
+
+    if acquire_card(lock, deadline) do
+      try do
+        present_locked(approval, claim, state, settings)
+      after
+        :global.del_lock(lock, [node()])
+      end
+    else
+      handle_error(claim, :emisar_approval_card_busy, settings)
+    end
+  end
+
+  defp acquire_card(lock, deadline) do
+    cond do
+      :global.set_lock(lock, [node()], 0) ->
+        true
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        false
+
+      true ->
+        Process.sleep(@card_lock_poll_ms)
+        acquire_card(lock, deadline)
+    end
+  end
+
+  defp present_locked(approval, claim, state, settings) do
     request_id = approval.request_id
 
     case settings.presenter.publish(approval, state, settings.presentation) do
