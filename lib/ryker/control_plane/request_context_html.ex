@@ -2002,7 +2002,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
         do: "Slack, GitHub and Emisar were not connected.",
         else:
           escape(Wording.list(services)) <>
-            " " <> if(length(services) == 1, do: "was", else: "were") <> " connected."
+            " " <> Wording.word(length(services), "was", "were") <> " connected."
       ),
       "</p>",
       if(repositories == [],

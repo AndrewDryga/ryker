@@ -12,6 +12,7 @@ defmodule Ryker.Slack.AppHome do
   can open Home for the complete list.
   """
   alias Ryker.Slack.{Collections, ControlValue, HomeEvent, Operators}
+  alias Ryker.Wording
 
   @maximum_attention 8
   @maximum_work 8
@@ -352,7 +353,7 @@ defmodule Ryker.Slack.AppHome do
     blocks ++
       [
         context(
-          "#{count - shown} more memory #{if(count - shown == 1, do: "review is", else: "reviews are")} available in the Ryker control plane."
+          "#{count - shown} more memory #{Wording.word(count - shown, "review is", "reviews are")} available in the Ryker control plane."
         )
       ]
   end
@@ -465,7 +466,7 @@ defmodule Ryker.Slack.AppHome do
 
     summary =
       section(
-        "#{kind} · #{entry_count} affected #{if(entry_count == 1, do: "entry", else: "entries")}\n#{Map.get(row, "reason", "Review this memory.")}"
+        "#{kind} · #{Wording.count(entry_count, "affected entry", "affected entries")}\n#{Map.get(row, "reason", "Review this memory.")}"
       )
 
     entry_blocks =

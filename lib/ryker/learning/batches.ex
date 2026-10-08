@@ -24,7 +24,7 @@ defmodule Ryker.Learning.Batches do
   def scope_key(scope) do
     scope
     |> Map.update!(:execution_mode, &Atom.to_string/1)
-    |> Map.new(fn {k, v} -> {Atom.to_string(k), v} end)
+    |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
     |> CanonicalJSON.digest()
   end
 

@@ -33,15 +33,15 @@ defmodule Ryker.AdvisoryLockTest do
     key = System.unique_integer([:positive]) + 91_000_000
     parent = self()
 
-    assert AdvisoryLock.try_session(key)
+    assert AdvisoryLock.try_session?(key)
 
     other =
       Task.async(fn ->
         :ok = Sandbox.checkout(Repo)
-        send(parent, {:while_held, AdvisoryLock.try_session(key)})
+        send(parent, {:while_held, AdvisoryLock.try_session?(key)})
 
         receive do
-          :released -> AdvisoryLock.try_session(key) and AdvisoryLock.release_session(key) == :ok
+          :released -> AdvisoryLock.try_session?(key) and AdvisoryLock.release_session(key) == :ok
         end
       end)
 

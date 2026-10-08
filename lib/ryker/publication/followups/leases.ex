@@ -93,7 +93,7 @@ defmodule Ryker.Publication.Followups.Leases do
   @doc "Whether `lease_ref` still holds a live lease on a pending delivery."
   @spec live_event_lease(LifecycleEvent.t(), String.t(), DateTime.t()) ::
           :ok | {:error, :publication_lifecycle_lease_lost}
-  def live_event_lease(event, lease_ref, now) do
+  def live_event_lease(%LifecycleEvent{} = event, lease_ref, now) do
     if event.delivery_state == :pending and Lease.held?(event, lease_ref, now),
       do: :ok,
       else: {:error, :publication_lifecycle_lease_lost}

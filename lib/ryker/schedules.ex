@@ -252,7 +252,7 @@ defmodule Ryker.Schedules do
 
   defp confirm_locked(attributes) do
     with {:ok, record, source_episode, source_turn} <- lock_offer(attributes.record_ref),
-         :ok <- delivered_from?(source_episode, source_turn, attributes.target) do
+         :ok <- check_delivery(source_episode, source_turn, attributes.target) do
       case Repo.one(Schedule.Query.by_offer_record_id(record.id)) do
         %Schedule{} = schedule ->
           %{schedule: schedule, status: :duplicate}
@@ -674,8 +674,8 @@ defmodule Ryker.Schedules do
     end
   end
 
-  defp delivered_from?(episode, turn, target) do
-    case Records.CardDelivery.delivered_from?(episode, turn, target) do
+  defp check_delivery(episode, turn, target) do
+    case Records.CardDelivery.check(episode, turn, target) do
       :ok -> :ok
       {:error, :mismatch} -> {:error, :schedule_offer_delivery_mismatch}
       {:error, :not_delivered} -> {:error, :schedule_offer_not_delivered}

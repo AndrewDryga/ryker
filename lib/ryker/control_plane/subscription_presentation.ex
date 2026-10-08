@@ -38,8 +38,9 @@ defmodule Ryker.ControlPlane.SubscriptionPresentation do
   defp target(%{"attachments" => [%{"title" => title} = attachment | _]}),
     do: {title, attachment["title_link"]}
 
-  defp target(%{"pull_request" => %{"number" => number} = pr}) when is_integer(number),
-    do: {"Pull request ##{number}", pr["html_url"]}
+  defp target(%{"pull_request" => %{"number" => number} = pull_request})
+       when is_integer(number),
+       do: {"Pull request ##{number}", pull_request["html_url"]}
 
   defp target(matcher) do
     {matcher["run_id"] || matcher["project_id"] || matcher["deployment"], nil}

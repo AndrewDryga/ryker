@@ -27,7 +27,7 @@ defmodule Ryker.Slack.Client.Users do
   """
   @spec workspace_admin(Client.t(), String.t(), String.t()) ::
           {:ok, boolean()} | {:error, term()}
-  def workspace_admin(client, user_ref, workspace_ref) do
+  def workspace_admin(%Client{} = client, user_ref, workspace_ref) do
     with :ok <- Fields.slack_id(user_ref),
          :ok <- Fields.slack_id(workspace_ref),
          {:ok, response} <- Transport.request(client, :get, user_path(user_ref), nil),
@@ -55,7 +55,7 @@ defmodule Ryker.Slack.Client.Users do
   @doc "Read a display name only. These names never participate in authorization."
   @spec directory_name(Client.t(), String.t(), String.t()) ::
           {:ok, String.t() | nil} | {:error, term()}
-  def directory_name(client, workspace, ref) do
+  def directory_name(%Client{} = client, workspace, ref) do
     with :ok <- Fields.slack_id(workspace), :ok <- Fields.slack_id(ref) do
       directory_name_request(client, workspace, ref)
     end

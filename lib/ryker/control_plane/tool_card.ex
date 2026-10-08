@@ -10,6 +10,7 @@ defmodule Ryker.ControlPlane.ToolCard do
   alias Ryker.ControlPlane.EpisodeTrace.ToolActivity
   alias Ryker.ControlPlane.SlackMarkdown
   alias Ryker.ControlPlane.Units
+  alias Ryker.Wording
   alias Ryker.Work
 
   @tools %{
@@ -472,7 +473,7 @@ defmodule Ryker.ControlPlane.ToolCard do
     ([
        {"Action", string(args["action_id"])},
        {"Pack", args["pack_ref"] |> string() |> then(&(&1 && fact_value("pack_ref", &1)))},
-       {if(length(runners) == 1, do: "Runner", else: "Runners"), present_join(runners)}
+       {Wording.word(length(runners), "Runner"), present_join(runners)}
      ] ++
        action_arguments(args["args"]) ++
        [

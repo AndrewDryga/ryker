@@ -53,17 +53,20 @@ defmodule Ryker.Slack.Client.Assistant do
       Enum.all?([
         Map.keys(document) -- allowed == [],
         Fields.bounded_text(query, 2_048) == :ok,
-        optional_enum_list(document["channel_types"], ~w(public_channel private_channel mpim im)),
-        optional_enum_list(document["content_types"], ~w(messages files channels users)),
-        optional_boolean(document["include_bots"]),
-        optional_boolean(document["include_context_messages"]),
-        optional_positive_integer(document["after"]),
-        optional_positive_integer(document["before"]),
-        optional_limit(document["limit"]),
-        optional_text(document["cursor"], 1_024),
-        optional_slack_id(document["context_channel_id"]),
-        optional_enum(document["sort"], ~w(score timestamp)),
-        optional_enum(document["sort_dir"], ~w(asc desc))
+        optional_enum_list?(
+          document["channel_types"],
+          ~w(public_channel private_channel mpim im)
+        ),
+        optional_enum_list?(document["content_types"], ~w(messages files channels users)),
+        optional_boolean?(document["include_bots"]),
+        optional_boolean?(document["include_context_messages"]),
+        optional_positive_integer?(document["after"]),
+        optional_positive_integer?(document["before"]),
+        optional_limit?(document["limit"]),
+        optional_text?(document["cursor"], 1_024),
+        optional_slack_id?(document["context_channel_id"]),
+        optional_enum?(document["sort"], ~w(score timestamp)),
+        optional_enum?(document["sort_dir"], ~w(asc desc))
       ])
 
     if valid, do: :ok, else: {:error, {:invalid_slack_api_request, :search}}
@@ -89,30 +92,30 @@ defmodule Ryker.Slack.Client.Assistant do
 
   defp search_response(_body), do: {:error, {:slack_protocol_error, :search}}
 
-  defp optional_enum(nil, _allowed), do: true
-  defp optional_enum(value, allowed), do: value in allowed
+  defp optional_enum?(nil, _allowed), do: true
+  defp optional_enum?(value, allowed), do: value in allowed
 
-  defp optional_enum_list(nil, _allowed), do: true
+  defp optional_enum_list?(nil, _allowed), do: true
 
-  defp optional_enum_list(values, allowed) when is_list(values) and length(values) in 1..8,
+  defp optional_enum_list?(values, allowed) when is_list(values) and length(values) in 1..8,
     do: Enum.uniq(values) == values and Enum.all?(values, &(&1 in allowed))
 
-  defp optional_enum_list(_values, _allowed), do: false
+  defp optional_enum_list?(_values, _allowed), do: false
 
-  defp optional_boolean(nil), do: true
-  defp optional_boolean(value), do: is_boolean(value)
+  defp optional_boolean?(nil), do: true
+  defp optional_boolean?(value), do: is_boolean(value)
 
-  defp optional_positive_integer(nil), do: true
-  defp optional_positive_integer(value), do: is_integer(value) and value > 0
+  defp optional_positive_integer?(nil), do: true
+  defp optional_positive_integer?(value), do: is_integer(value) and value > 0
 
-  defp optional_limit(nil), do: true
-  defp optional_limit(value), do: is_integer(value) and value in 1..20
+  defp optional_limit?(nil), do: true
+  defp optional_limit?(value), do: is_integer(value) and value in 1..20
 
-  defp optional_text(nil, _maximum), do: true
-  defp optional_text(value, maximum), do: Fields.bounded_text(value, maximum) == :ok
+  defp optional_text?(nil, _maximum), do: true
+  defp optional_text?(value, maximum), do: Fields.bounded_text(value, maximum) == :ok
 
-  defp optional_slack_id(nil), do: true
-  defp optional_slack_id(value), do: Fields.slack_id(value) == :ok
+  defp optional_slack_id?(nil), do: true
+  defp optional_slack_id?(value), do: Fields.slack_id(value) == :ok
 
   defp search_cursor?(value),
     do: is_binary(value) and String.valid?(value) and byte_size(value) <= 4_096

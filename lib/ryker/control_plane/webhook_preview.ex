@@ -10,6 +10,7 @@ defmodule Ryker.ControlPlane.WebhookPreview do
   use Phoenix.LiveComponent
   alias Ryker.ControlPlane.{Components, Kit, SettingsSections}
   alias Ryker.Webhooks
+  alias Ryker.Wording
 
   @impl true
   def update(assigns, socket) do
@@ -179,7 +180,7 @@ defmodule Ryker.ControlPlane.WebhookPreview do
       <Components.form_feedback :if={@error} message={@error} tone={:error} class="settings-error" />
       <div :if={@mapped} class="webhook-preview-result" role="status">
         <h3>
-          {length(@mapped)} {if length(@mapped) == 1, do: "event", else: "events"} would be recorded
+          {Wording.count(length(@mapped), "event")} would be recorded
         </h3>
         <div :for={event <- @mapped} class="webhook-preview-event">
           <p class="entity-meta">

@@ -10,6 +10,7 @@ defmodule Ryker.ControlPlane.FeedbackChart do
   """
   use Phoenix.Component
   import Ryker.ControlPlane.ChartAxis, only: [coord: 1, date: 1, ticks: 1]
+  alias Ryker.Wording
 
   @tones [
     negative: [:frustrated, :asked_again, :edited],
@@ -69,7 +70,7 @@ defmodule Ryker.ControlPlane.FeedbackChart do
     <figure class="usage-chart feedback-chart">
       <figcaption>
         <strong>{@total}</strong>
-        {if @total == 1, do: "piece of feedback", else: "pieces of feedback"} · {span(@first, @last)}
+        {Wording.word(@total, "piece of feedback", "pieces of feedback")} · {span(@first, @last)}
         <span class="feedback-chart-legend">
           <span :for={tone <- @legend} class={"feedback-key feedback-key-#{tone}"}>{word(tone)}</span>
         </span>

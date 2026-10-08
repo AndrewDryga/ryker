@@ -13,13 +13,13 @@ defmodule Ryker.Publication.LifecycleStatus do
          true <- status["state"] in ~w(open closed),
          true <- status["checks_state"] in ~w(none pending passing failing),
          true <- is_boolean(status["draft"]) and is_boolean(status["merged"]),
-         true <- positive(status["number"]),
+         true <- positive?(status["number"]),
          true <- GitObject.id?(status["head_sha"]),
          true <- Reference.valid?(status["head_ref"], 240),
          true <- Reference.valid?(status["base_ref"], 240),
-         true <- github_url(status["url"]),
-         true <- github_url(status["checks_url"]),
-         true <- counts(status),
+         true <- github_url?(status["url"]),
+         true <- github_url?(status["checks_url"]),
+         true <- valid_counts?(status),
          :ok <- merge(status) do
       {:ok, status}
     else
@@ -43,7 +43,7 @@ defmodule Ryker.Publication.LifecycleStatus do
 
   defp merge(_status), do: {:error, {:invalid_publication_lifecycle_status, :merge}}
 
-  defp counts(status) do
+  defp valid_counts?(status) do
     total = status["checks_total"]
     passed = status["checks_passed"]
     failed = status["checks_failed"]
@@ -52,7 +52,7 @@ defmodule Ryker.Publication.LifecycleStatus do
       passed + failed <= total
   end
 
-  defp github_url(value) when is_binary(value) and byte_size(value) <= 2_048 do
+  defp github_url?(value) when is_binary(value) and byte_size(value) <= 2_048 do
     web_host = GitHub.web_host()
 
     case URI.new(value) do
@@ -64,6 +64,6 @@ defmodule Ryker.Publication.LifecycleStatus do
     end
   end
 
-  defp github_url(_value), do: false
-  defp positive(value), do: is_integer(value) and value > 0
+  defp github_url?(_value), do: false
+  defp positive?(value), do: is_integer(value) and value > 0
 end

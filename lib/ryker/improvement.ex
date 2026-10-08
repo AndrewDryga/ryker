@@ -253,10 +253,10 @@ defmodule Ryker.Improvement do
 
   @doc "A category's name for a count of them: 2 prompt bugs, 1 host bug, 3 unclear."
   @spec category_plural(atom(), non_neg_integer()) :: String.t()
-  def category_plural(category, 1), do: category_label(category)
-  def category_plural(:not_a_problem, _count), do: "Not a problem"
-  def category_plural(:unclear, _count), do: "Unclear"
-  def category_plural(category, _count), do: category_label(category) <> "s"
+  def category_plural(category, _count) when category in [:not_a_problem, :unclear],
+    do: category_label(category)
+
+  def category_plural(category, count), do: Wording.word(count, category_label(category))
 
   @doc """
   What a week brought (`week/2`), in words: what was found and what Ryker

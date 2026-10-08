@@ -78,7 +78,7 @@ defmodule Ryker.Delivery.HTTPClient do
 
   @spec stream(Finch.Request.t(), atom(), pos_integer(), pos_integer()) ::
           {:ok, response()} | {:error, term()}
-  def stream(request, finch, receive_timeout, maximum_bytes) do
+  def stream(%Finch.Request{} = request, finch, receive_timeout, maximum_bytes) do
     initial = %{body: [], body_bytes: 0, error: nil, headers: [], status: nil}
 
     request

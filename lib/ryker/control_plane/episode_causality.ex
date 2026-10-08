@@ -40,8 +40,8 @@ defmodule Ryker.ControlPlane.EpisodeCausality do
   @spec index([Ingress.Inbox.Entry.t()], [Work.Turn.t()], [Work.ActivityEvent.t()], keyword()) ::
           t()
   def index(inputs, turns, activity_events \\ [], options \\ []) do
-    inputs = Enum.sort_by(inputs, &{&1.occurred_at, &1.id}, &sort/2)
-    turns = Enum.sort_by(turns, &{&1.inserted_at, &1.id}, &sort/2)
+    inputs = Enum.sort_by(inputs, &{&1.occurred_at, &1.id}, &before?/2)
+    turns = Enum.sort_by(turns, &{&1.inserted_at, &1.id}, &before?/2)
 
     input_index =
       inputs
@@ -198,11 +198,11 @@ defmodule Ryker.ControlPlane.EpisodeCausality do
     %{owner: owner, kind: :unknown, ordinal: nil, label: nil, continues: nil, inputs: []}
   end
 
-  defp sort({nil, left}, {nil, right}), do: left <= right
-  defp sort({nil, _left}, _right), do: true
-  defp sort(_left, {nil, _right}), do: false
+  defp before?({nil, left}, {nil, right}), do: left <= right
+  defp before?({nil, _left}, _right), do: true
+  defp before?(_left, {nil, _right}), do: false
 
-  defp sort({left_at, left_id}, {right_at, right_id}) do
+  defp before?({left_at, left_id}, {right_at, right_id}) do
     case DateTime.compare(left_at, right_at) do
       :lt -> true
       :gt -> false

@@ -87,7 +87,7 @@ defmodule Ryker.Records.InputRequests do
       message_ref: receipt["message_ref"]
     }
 
-    delivered_from?(episode, turn, target) == :ok and
+    check_delivery(episode, turn, target) == :ok and
       DateTime.compare(entry.occurred_at, turn.delivered_at) == :gt
   end
 
@@ -110,7 +110,7 @@ defmodule Ryker.Records.InputRequests do
 
   defp answer_locked(attributes) do
     with {:ok, record, episode, turn} <- lock_request(attributes.record_ref),
-         :ok <- delivered_from?(episode, turn, attributes.target) do
+         :ok <- check_delivery(episode, turn, attributes.target) do
       case Repo.one(Response.Query.by_record_id(record.id)) do
         nil -> record_answer(record, episode, turn, attributes)
         response -> duplicate(response, record, attributes)
@@ -276,8 +276,8 @@ defmodule Ryker.Records.InputRequests do
     end
   end
 
-  defp delivered_from?(episode, turn, target) do
-    case CardDelivery.delivered_from?(episode, turn, target) do
+  defp check_delivery(episode, turn, target) do
+    case CardDelivery.check(episode, turn, target) do
       :ok -> :ok
       {:error, :mismatch} -> {:error, :input_request_delivery_mismatch}
       {:error, :not_delivered} -> {:error, :input_request_not_delivered}

@@ -118,7 +118,7 @@ defmodule Ryker.WeeklyReport.Digest do
            pull_requests,
          now
        ) do
-    they = if opened == 1, do: "it's", else: "they're"
+    they = Wording.word(opened, "it's", "they're")
 
     ["I opened #{Wording.count(opened, "PR")} this week, and #{they} waiting for review:"] ++
       waiting_lines(pull_requests.waiting, now)
@@ -211,7 +211,7 @@ defmodule Ryker.WeeklyReport.Digest do
   defp answered(%{on_the_spot: 0}), do: "All of them needed deeper work."
 
   defp answered(%{handled: handled, on_the_spot: spot}) do
-    quick = if spot == 1, do: "1 was a quick answer", else: "#{spot} were quick answers"
+    quick = Wording.count(spot, "was a quick answer", "were quick answers")
     rest = if handled - spot == 1, do: "the other one", else: "the other #{handled - spot}"
     "#{quick}; #{rest} needed deeper work."
   end

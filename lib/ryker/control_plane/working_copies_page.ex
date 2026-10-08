@@ -140,7 +140,7 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
     [
       %{
         value: length(current),
-        label: if(length(current) == 1, do: "copy in use", else: "copies in use"),
+        label: Wording.word(length(current), "copy in use", "copies in use"),
         href: "/working-copies"
       },
       ready > 0 &&

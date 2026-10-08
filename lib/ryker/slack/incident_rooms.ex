@@ -876,7 +876,7 @@ defmodule Ryker.Slack.IncidentRooms do
   end
 
   defp request_from_offer(record, source_episode, source_turn, source_session, attributes) do
-    with :ok <- delivered_from?(source_episode, source_turn, attributes.target),
+    with :ok <- check_delivery(source_episode, source_turn, attributes.target),
          :ok <- workspace_source?(source_episode, attributes.workspace_ref) do
       request_unique_room(record, source_episode, source_session, attributes)
     else
@@ -911,8 +911,8 @@ defmodule Ryker.Slack.IncidentRooms do
     end
   end
 
-  defp delivered_from?(episode, turn, target) do
-    case Records.CardDelivery.delivered_from?(episode, turn, target) do
+  defp check_delivery(episode, turn, target) do
+    case Records.CardDelivery.check(episode, turn, target) do
       :ok -> :ok
       {:error, :mismatch} -> {:error, :incident_offer_delivery_mismatch}
       {:error, :not_delivered} -> {:error, :incident_offer_not_delivered}

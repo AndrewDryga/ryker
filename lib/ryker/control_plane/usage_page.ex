@@ -6,6 +6,7 @@ defmodule Ryker.ControlPlane.UsagePage do
   """
   alias Phoenix.HTML.Safe
   alias Ryker.{Accounting, Settings}
+  alias Ryker.ControlPlane.ChartAxis
   alias Ryker.ControlPlane.{Components, ConsolePeople, Kit, Paths, SettingsRows, ShortTime, Units}
   alias Ryker.ControlPlane.UsageChart
   alias Ryker.Episodes
@@ -39,13 +40,13 @@ defmodule Ryker.ControlPlane.UsagePage do
       stat("Cost", money(totals), "usage-cost"),
       stat("Requests", Wording.number(value(totals, :requests))),
       stat("Executions", Wording.number(totals.attempts)),
-      stat("Total tokens", compact(value(totals, :tokens))),
+      stat("Total tokens", Units.compact(value(totals, :tokens))),
       "</div><div class=\"usage-token-groups\"><div class=\"usage-token-group\"><span class=\"usage-group-label\">Input</span>",
-      stat("Fresh input", compact(totals.input_tokens)),
-      stat("Cached input", compact(totals.cached_input_tokens)),
+      stat("Fresh input", Units.compact(totals.input_tokens)),
+      stat("Cached input", Units.compact(totals.cached_input_tokens)),
       "</div><div class=\"usage-token-group\"><span class=\"usage-group-label\">Output</span>",
-      stat("Output", compact(totals.output_tokens)),
-      stat("Reasoning", compact(totals.reasoning_tokens)),
+      stat("Output", Units.compact(totals.output_tokens)),
+      stat("Reasoning", Units.compact(totals.reasoning_tokens)),
       "</div><div class=\"usage-token-group usage-cache\">",
       stat("Cache hit rate", percent(totals.cache_hit_rate)),
       "</div></div></section>",
@@ -385,7 +386,7 @@ defmodule Ryker.ControlPlane.UsagePage do
 
   defp entity_link(label, params, snapshot) do
     params =
-      Map.new(params, fn {k, v} -> {"usage_#{k}", v || ""} end)
+      Map.new(params, fn {key, value} -> {"usage_#{key}", value || ""} end)
       |> Map.merge(%{
         "mode" => Map.get(snapshot, :mode, "live"),
         "usage_window" => snapshot.window
@@ -476,11 +477,11 @@ defmodule Ryker.ControlPlane.UsagePage do
             "<circle class=\"timing-",
             class,
             "\" cx=\"80\" cy=\"80\" r=\"62\" pathLength=\"100\" stroke-dasharray=\"",
-            coordinate(portion),
+            ChartAxis.coord(portion),
             " ",
-            coordinate(100 - portion),
+            ChartAxis.coord(100 - portion),
             "\" stroke-dashoffset=\"",
-            coordinate(-offset),
+            ChartAxis.coord(-offset),
             "\"><title>",
             label,
             ": ",
@@ -593,23 +594,14 @@ defmodule Ryker.ControlPlane.UsagePage do
 
   defp tokens(row, key) do
     if(Map.get(row, :usage_measured, Map.get(row, :measured, 0)) > 0,
-      do: compact(value(row, key)),
+      do: Units.compact(value(row, key)),
       else: "—"
     )
   end
 
-  defp compact(n) when n >= 1_000_000 do
-    (:erlang.float_to_binary(n / 1_000_000, decimals: 2)
-     |> String.trim_trailing("0")
-     |> String.trim_trailing(".")) <> "M"
-  end
-
-  defp compact(n) when n >= 1000, do: Units.decimal(n / 1000) <> "k"
-  defp compact(n), do: Wording.number(n)
-  defp coordinate(n), do: :erlang.float_to_binary(n * 1.0, decimals: 3)
   defp percent(nil), do: "—"
-  defp percent(n) when n > 0 and n < 0.001, do: "<0.1%"
-  defp percent(n), do: Units.decimal(n * 100) <> "%"
+  defp percent(share) when share > 0 and share < 0.001, do: "<0.1%"
+  defp percent(share), do: Units.decimal(share * 100) <> "%"
   defp e(nil), do: ""
   defp e(text), do: Plug.HTML.html_escape(to_string(text))
 end

@@ -161,7 +161,7 @@ defmodule Ryker.ControlPlane.UsageProjection do
   end
 
   defp ratio(_, 0), do: nil
-  defp ratio(n, d), do: Float.round(n / d, 4)
+  defp ratio(part, whole), do: Float.round(part / whole, 4)
   defp average(_, 0), do: nil
-  defp average(n, d), do: div(n, d)
+  defp average(total, count), do: div(total, count)
 end

@@ -917,7 +917,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
   def options(%{options: :workspaces}, view) do
     Enum.map(
       view.worker_installs,
-      &{&1.ref, "#{&1.ref} · #{&1.eligible} of #{&1.workers} #{workers(&1.workers)} ready"}
+      &{&1.ref, "#{&1.ref} · #{&1.eligible} of #{Wording.count(&1.workers, "worker")} ready"}
     )
   end
 
@@ -1081,7 +1081,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
 
     Enum.join(clauses, ", and ") <>
       ". Choose another account for " <>
-      if(length(models) == 1, do: "that model", else: "those models") <>
+      Wording.word(length(models), "that model", "those models") <>
       " above first, then remove " <>
       if(length(accounts) == 1, do: hd(accounts), else: "those accounts") <> "."
   end
@@ -1210,9 +1210,6 @@ defmodule Ryker.ControlPlane.SettingsSections do
 
   # An entry missing a part becomes a model the settings refuse by its shape.
   defp ladder_target(entry), do: "#{entry["model"]}/#{entry["effort"]}@#{entry["account"]}"
-
-  defp workers(1), do: "worker"
-  defp workers(_count), do: "workers"
 
   @doc """
   What a second price for the same model and day says: which price is

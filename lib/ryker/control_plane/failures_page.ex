@@ -25,6 +25,7 @@ defmodule Ryker.ControlPlane.FailuresPage do
   alias Ryker.ControlPlane.{Components, FailureExplanation, FailureProjection, Kit, ShortTime}
   alias Ryker.ControlPlane.SlackMarkdown
   alias Ryker.UTCDateTime
+  alias Ryker.Wording
 
   @doc """
   The topics an open Failures list or failure page listens to, as the context
@@ -71,13 +72,15 @@ defmodule Ryker.ControlPlane.FailuresPage do
   @spec list([map()], DateTime.t(), keyword()) :: iodata()
   def list(rows, now \\ DateTime.utc_now(), options \\ []) do
     explained = Enum.map(rows, &{&1, FailureExplanation.explain(&1, now)})
-    {people, housekeeping} = Enum.split_with(explained, fn {_row, e} -> e.impact == :people end)
+
+    {people, housekeeping} =
+      Enum.split_with(explained, fn {_row, explanation} -> explanation.impact == :people end)
 
     %{
       __changed__: nil,
       people: people,
       housekeeping: housekeeping,
-      counts: counts(explained, now, Keyword.get(options, :page_only, false)),
+      counts: counts(people, housekeeping, now, Keyword.get(options, :page_only, false)),
       now: now
     }
     |> list_view()
@@ -345,16 +348,16 @@ defmodule Ryker.ControlPlane.FailuresPage do
 
   # "1 affects people · 2 housekeeping · 1 should work if retried · 10 h since
   # the oldest stopped": who is affected first, then what a person can do now.
-  defp counts(explained, now, page_only?) do
-    {people, housekeeping} = Enum.split_with(explained, fn {_row, e} -> e.impact == :people end)
-    ready = Enum.count(explained, fn {_row, e} -> e.outlook == :ready end)
+  defp counts(people, housekeeping, now, page_only?) do
+    explained = people ++ housekeeping
+    ready = Enum.count(explained, fn {_row, explanation} -> explanation.outlook == :ready end)
 
     [
       if(page_only?, do: %{value: length(explained), label: "on this page"}),
       if(people != [],
         do: %{
           value: length(people),
-          label: if(length(people) == 1, do: "affects people", else: "affect people"),
+          label: Wording.word(length(people), "affects people", "affect people"),
           tone: :warn
         }
       ),
@@ -367,7 +370,7 @@ defmodule Ryker.ControlPlane.FailuresPage do
 
   defp oldest(explained, now) do
     explained
-    |> Enum.map(fn {row, _e} -> Map.get(row, :updated_at) end)
+    |> Enum.map(fn {row, _explanation} -> Map.get(row, :updated_at) end)
     |> Enum.reject(&is_nil/1)
     |> Enum.min_by(&DateTime.to_unix(UTCDateTime.to_utc(&1), :microsecond), fn -> nil end)
     |> case do

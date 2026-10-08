@@ -56,11 +56,11 @@ defmodule Ryker.Retention.Data do
   end
 
   defp prune_with_lock(settings) do
-    if advisory_lock?() do
+    if AdvisoryLock.try_session?(@advisory_lock) do
       try do
         prune_in_transactions(settings)
       after
-        release_advisory_lock!()
+        AdvisoryLock.release_session(@advisory_lock)
       end
     else
       {:ok, :busy}
@@ -1314,9 +1314,6 @@ defmodule Ryker.Retention.Data do
         execute_count("DELETE FROM #{table} WHERE #{owned}", [ids | params])
     end)
   end
-
-  defp advisory_lock?, do: AdvisoryLock.try_session(@advisory_lock)
-  defp release_advisory_lock!, do: AdvisoryLock.release_session(@advisory_lock)
 
   defp execute_count(sql, params \\ []) do
     sql

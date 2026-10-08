@@ -268,7 +268,7 @@ defmodule Ryker.Learning.Observations do
   def reauthorize(_destination, _repository_ref, []), do: :ok
 
   def reauthorize(destination, repository_ref, documents) when is_list(documents) do
-    case Repo.transaction(fn -> reauthorize_locked(destination, repository_ref, documents) end) do
+    case Repo.transaction(fn -> authorized_locked?(destination, repository_ref, documents) end) do
       {:ok, true} -> :ok
       _ -> {:error, {:admission_rejected, :context_stale}}
     end
@@ -279,7 +279,7 @@ defmodule Ryker.Learning.Observations do
         else: reraise(error, __STACKTRACE__)
   end
 
-  defp reauthorize_locked(destination, repository_ref, documents) do
+  defp authorized_locked?(destination, repository_ref, documents) do
     ids = Enum.map(documents, &observation_id/1)
 
     with true <- Enum.all?(ids, &is_binary/1),

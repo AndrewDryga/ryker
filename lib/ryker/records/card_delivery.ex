@@ -26,9 +26,9 @@ defmodule Ryker.Records.CardDelivery do
   Callers map `:mismatch` and `:not_delivered` onto their own vocabulary so the
   refusal a person reads names the control they pressed.
   """
-  @spec delivered_from?(Episodes.Episode.t(), Work.Turn.t(), target()) ::
+  @spec check(Episodes.Episode.t(), Work.Turn.t(), target()) ::
           :ok | {:error, :mismatch | :not_delivered}
-  def delivered_from?(
+  def check(
         %Episodes.Episode{} = episode,
         %Work.Turn{status: :settled, external_receipt: receipt},
         target
@@ -48,5 +48,5 @@ defmodule Ryker.Records.CardDelivery do
        else: {:error, :mismatch}
   end
 
-  def delivered_from?(_episode, _turn, _target), do: {:error, :not_delivered}
+  def check(_episode, _turn, _target), do: {:error, :not_delivered}
 end

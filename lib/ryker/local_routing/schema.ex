@@ -41,9 +41,14 @@ defmodule Ryker.LocalRouting.Schema do
     schema
     |> Map.drop(["$schema", "pattern", "title"])
     |> Map.new(fn
-      {"oneOf", alternatives} -> {"anyOf", portable(alternatives)}
-      {"properties", fields} -> {"properties", Map.new(fields, fn {k, v} -> {k, portable(v)} end)}
-      {key, value} -> {key, portable(value)}
+      {"oneOf", alternatives} ->
+        {"anyOf", portable(alternatives)}
+
+      {"properties", fields} ->
+        {"properties", Map.new(fields, fn {key, value} -> {key, portable(value)} end)}
+
+      {key, value} ->
+        {key, portable(value)}
     end)
   end
 

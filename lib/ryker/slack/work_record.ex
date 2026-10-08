@@ -479,11 +479,12 @@ defmodule Ryker.Slack.WorkRecord do
        do: "PR <#{url}|##{number}> · #{settled_words(state)}"
 
   defp publication_words(
-         %Publication.Publication{pull_request_url: url, pull_request_number: number} = p,
+         %Publication.Publication{pull_request_url: url, pull_request_number: number} =
+           publication,
          _state
        )
        when is_binary(url) and is_integer(number),
-       do: "Draft PR <#{url}|##{number}> · #{publication_state(p.status)}"
+       do: "Draft PR <#{url}|##{number}> · #{publication_state(publication.status)}"
 
   defp publication_words(publication, _state),
     do: "Draft PR · #{publication_state(publication.status)}"

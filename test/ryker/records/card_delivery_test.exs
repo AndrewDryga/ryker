@@ -12,7 +12,7 @@ defmodule Ryker.Records.CardDeliveryTest do
     episode = episode()
     turn = settled(@home_thread)
 
-    assert CardDelivery.delivered_from?(episode, turn, target(@home_thread, @message)) == :ok
+    assert CardDelivery.check(episode, turn, target(@home_thread, @message)) == :ok
   end
 
   test "a card is confirmable from the origin thread routing delivered it to" do
@@ -22,14 +22,14 @@ defmodule Ryker.Records.CardDeliveryTest do
     episode = episode()
     turn = settled(@origin_thread)
 
-    assert CardDelivery.delivered_from?(episode, turn, target(@origin_thread, @message)) == :ok
+    assert CardDelivery.check(episode, turn, target(@origin_thread, @message)) == :ok
   end
 
   test "a card is not confirmable from a thread it was never delivered to" do
     episode = episode()
     turn = settled(@origin_thread)
 
-    assert CardDelivery.delivered_from?(episode, turn, target(@home_thread, @message)) ==
+    assert CardDelivery.check(episode, turn, target(@home_thread, @message)) ==
              {:error, :mismatch}
   end
 
@@ -37,7 +37,7 @@ defmodule Ryker.Records.CardDeliveryTest do
     episode = episode()
     turn = settled(@origin_thread)
 
-    assert CardDelivery.delivered_from?(
+    assert CardDelivery.check(
              episode,
              turn,
              target(@origin_thread, "1789004509.000900")
@@ -50,13 +50,13 @@ defmodule Ryker.Records.CardDeliveryTest do
     episode = episode()
     turn = settled(@origin_thread, "slack:T123:C999")
 
-    assert CardDelivery.delivered_from?(
+    assert CardDelivery.check(
              episode,
              turn,
              target(@origin_thread, @message, "slack:T123:C999")
            ) == {:error, :mismatch}
 
-    assert CardDelivery.delivered_from?(episode, turn, target(@origin_thread, @message)) ==
+    assert CardDelivery.check(episode, turn, target(@origin_thread, @message)) ==
              {:error, :mismatch}
   end
 
@@ -64,16 +64,16 @@ defmodule Ryker.Records.CardDeliveryTest do
     episode = episode()
     target = target(@home_thread, @message)
 
-    assert CardDelivery.delivered_from?(episode, %Turn{status: :pending}, target) ==
+    assert CardDelivery.check(episode, %Turn{status: :pending}, target) ==
              {:error, :not_delivered}
 
-    assert CardDelivery.delivered_from?(
+    assert CardDelivery.check(
              episode,
              %{settled(@home_thread) | external_receipt: nil},
              target
            ) == {:error, :not_delivered}
 
-    assert CardDelivery.delivered_from?(
+    assert CardDelivery.check(
              episode,
              %{settled(@home_thread) | status: :pending},
              target

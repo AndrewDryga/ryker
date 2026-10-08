@@ -22,7 +22,7 @@ defmodule Ryker.GitHub.Client.Checks do
              total: non_neg_integer()
            }}
           | {:error, term()}
-  def summary(client, repository, sha) do
+  def summary(%Client{} = client, repository, sha) do
     with {:ok, check_runs} <- check_runs(client, repository, sha),
          {:ok, commit_statuses} <- commit_statuses(client, repository, sha) do
       {:ok, summarize_checks(check_runs, commit_statuses)}

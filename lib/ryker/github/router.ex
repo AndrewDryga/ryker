@@ -378,7 +378,7 @@ defmodule Ryker.GitHub.Router do
   end
 
   defp record_or_subscribe(conn, input, binding, :unmatched, options) do
-    with {:yes, reason} <- Engagement.eligible?(input, binding, options.bot_login),
+    with {:yes, reason} <- Engagement.reason(input, binding, options.bot_login),
          :ok <- authorize_engagement(reason, input, binding, options) do
       case Ingress.Inbox.record(input,
              engagement_receipt: %{"reason" => Atom.to_string(reason)},

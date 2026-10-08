@@ -15,9 +15,9 @@ defmodule Ryker.GitHub.Engagement do
   `:revision` is an edit of the exact item Ryker already took, and a
   `:standing_rule` is an event an operator chose to have handled.
   """
-  @spec eligible?(Ingress.Input.t(), Binding.t(), String.t() | nil) ::
+  @spec reason(Ingress.Input.t(), Binding.t(), String.t() | nil) ::
           {:yes, :revision | :continuation | :standing_rule | :mention} | :metadata
-  def eligible?(%Ingress.Input{} = input, %Binding{}, bot_login) do
+  def reason(%Ingress.Input{} = input, %Binding{}, bot_login) do
     cond do
       engaged_input?(input) -> {:yes, :revision}
       continuation?(input) -> {:yes, :continuation}

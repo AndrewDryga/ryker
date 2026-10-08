@@ -149,7 +149,7 @@ defmodule Ryker.Slack.Client.Messages do
           ([map()] -> {:ok, term()} | :not_found | {:error, term()}),
           String.t() | nil
         ) :: {:ok, term()} | :not_found | {:error, term()}
-  def find_in_history(client, channel, thread, match, oldest \\ nil) do
+  def find_in_history(%Client{} = client, channel, thread, match, oldest \\ nil) do
     Pagination.find(
       client,
       &(channel |> history_path(thread, &1) |> since(oldest)),

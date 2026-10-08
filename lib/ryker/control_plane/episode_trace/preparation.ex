@@ -14,6 +14,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   alias Ryker.Ingress
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
+  alias Ryker.Wording
   alias Ryker.Work
 
   @doc """
@@ -286,7 +287,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     queue_event(
       transition,
       "Automatic retries stopped",
-      "Routing stopped after #{transition.attempt} #{if transition.attempt == 1, do: "attempt", else: "attempts"}." <>
+      "Routing stopped after #{Wording.count(transition.attempt, "attempt")}." <>
         stop_reason(transition)
     )
   end
@@ -595,7 +596,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
     do: "No standing rules."
 
   defp rule_summary(%{rule_count: total, matched_count: matched}),
-    do: "#{total} #{if(total == 1, do: "rule", else: "rules")} · #{matched} matched"
+    do: "#{Wording.count(total, "rule")} · #{matched} matched"
 
   @doc """
   One Work setup card per Work turn, before its briefing: whether the message

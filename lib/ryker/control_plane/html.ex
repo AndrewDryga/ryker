@@ -274,7 +274,7 @@ defmodule Ryker.ControlPlane.HTML do
           if(mine, do: "true", else: "false"),
           "\" aria-label=\"",
           escape(
-            ":#{emoji_name}: #{count} #{if count == 1, do: "reaction", else: "reactions"}, " <>
+            ":#{emoji_name}: #{Wording.count(count, "reaction")}, " <>
               if(mine, do: "remove yours", else: "add yours")
           ),
           "\"><span class=\"lab-reaction-glyph\" aria-hidden=\"true\">",

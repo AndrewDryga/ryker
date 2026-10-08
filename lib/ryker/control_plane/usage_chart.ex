@@ -2,6 +2,7 @@ defmodule Ryker.ControlPlane.UsageChart do
   @moduledoc "An accessible daily series. Missing dates keep their position, not a false adjacency."
   import Ryker.ControlPlane.ChartAxis, only: [coord: 1, date: 1, ticks: 1]
   alias Ryker.ControlPlane.Kit
+  alias Ryker.ControlPlane.Units
   alias Ryker.Wording
 
   def render([]) do
@@ -56,7 +57,7 @@ defmodule Ryker.ControlPlane.UsageChart do
           "\"/><text class=\"chart-axis\" x=\"64\" y=\"",
           coord(y + 5),
           "\" text-anchor=\"end\">",
-          compact(round(maximum * fraction)),
+          Units.compact(round(maximum * fraction)),
           "</text>"
         ]
       end),
@@ -99,8 +100,4 @@ defmodule Ryker.ControlPlane.UsageChart do
   end
 
   defp day_label(day), do: date(day.date) <> ": " <> Wording.number(day.tokens) <> " tokens"
-
-  defp compact(value) when value >= 1_000_000, do: coord(value / 1_000_000) <> "m"
-  defp compact(value) when value >= 1000, do: coord(value / 1000) <> "k"
-  defp compact(value), do: to_string(value)
 end

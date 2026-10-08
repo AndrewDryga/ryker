@@ -47,7 +47,7 @@ defmodule Ryker.Publication.Followups.Store do
   end
 
   @spec update_followup!(Followup.t(), map(), DateTime.t()) :: Followup.t()
-  def update_followup!(followup, attributes, now) do
+  def update_followup!(%Followup{} = followup, attributes, now) do
     followup
     |> Followup.Changeset.update(Map.put(attributes, :updated_at, now))
     |> Repo.update!()
@@ -65,7 +65,7 @@ defmodule Ryker.Publication.Followups.Store do
   end
 
   @spec update_event!(LifecycleEvent.t(), map(), DateTime.t()) :: LifecycleEvent.t()
-  def update_event!(event, attributes, now) do
+  def update_event!(%LifecycleEvent{} = event, attributes, now) do
     event
     |> LifecycleEvent.Changeset.update(Map.put(attributes, :updated_at, now))
     |> Repo.update!()

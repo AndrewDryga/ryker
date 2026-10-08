@@ -121,9 +121,10 @@ defmodule Ryker.Embeddings do
 
     dimensions = vectors |> Enum.map(&length(&1 || [])) |> Enum.uniq()
 
-    if Enum.all?(vectors, &is_list/1) and match?([d] when d in 1..@maximum_dimensions, dimensions),
-      do: {:ok, vectors},
-      else: {:error, :unreadable_answer}
+    if Enum.all?(vectors, &is_list/1) and
+         match?([dimension] when dimension in 1..@maximum_dimensions, dimensions),
+       do: {:ok, vectors},
+       else: {:error, :unreadable_answer}
   end
 
   defp vectors(_answer, _count), do: {:error, :unreadable_answer}

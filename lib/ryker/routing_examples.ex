@@ -279,13 +279,18 @@ defmodule Ryker.RoutingExamples do
       messages: Enum.uniq(messages),
       topics: Enum.map(topics, &elem(&1, 0)) |> Enum.uniq(),
       keys:
-        (Enum.map(messages, fn {c, m} -> message_key(c, m) end) ++
+        (Enum.map(messages, fn {conversation_ref, message_ref} ->
+           message_key(conversation_ref, message_ref)
+         end) ++
            Enum.map(topics, &knowledge_key(elem(&1, 0))))
         |> Enum.uniq()
         |> Enum.sort(),
       conversations:
         (Enum.map(messages, &elem(&1, 0)) ++
-           for({_id, c} when is_binary(c) <- topics, do: c))
+           for(
+             {_id, conversation_ref} when is_binary(conversation_ref) <- topics,
+             do: conversation_ref
+           ))
         |> Enum.uniq()
         |> Enum.sort()
     }

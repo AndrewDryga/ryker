@@ -44,7 +44,7 @@ defmodule Ryker.Records.TaskOffers do
 
   defp confirm_locked(attributes) do
     with {:ok, record, source_episode, source_turn} <- lock_offer(attributes.record_ref),
-         :ok <- delivered_from?(source_episode, source_turn, attributes.target) do
+         :ok <- check_delivery(source_episode, source_turn, attributes.target) do
       case record.status do
         :confirmed ->
           confirmed(record, :duplicate)
@@ -67,8 +67,8 @@ defmodule Ryker.Records.TaskOffers do
     end
   end
 
-  defp delivered_from?(episode, turn, target) do
-    case CardDelivery.delivered_from?(episode, turn, target) do
+  defp check_delivery(episode, turn, target) do
+    case CardDelivery.check(episode, turn, target) do
       :ok -> :ok
       {:error, :mismatch} -> {:error, :task_offer_delivery_mismatch}
       {:error, :not_delivered} -> {:error, :task_offer_not_delivered}

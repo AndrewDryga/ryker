@@ -3,6 +3,7 @@ defmodule Ryker.Publication.Review do
   alias Ryker.CanonicalJSON
   alias Ryker.GitObject
   alias Ryker.Reference
+  alias Ryker.Wording
 
   @required ~w(candidate_head candidate_retained candidate_tree creation_base gate job_digest not_publishable_reasons operation_id parent_head parent_tree patch_truncated policy_findings publishable rebase session_id session_revision source_head source_tree)
   @optional ~w(gate_error gate_output pull_request)
@@ -287,7 +288,7 @@ defmodule Ryker.Publication.Review do
 
   defp findings_refusal([_finding | _rest] = findings, _named?) do
     count = length(findings)
-    ["the safety scan flagged #{count} issue#{if count == 1, do: "", else: "s"} in the change"]
+    ["the safety scan flagged #{Wording.count(count, "issue")} in the change"]
   end
 
   defp findings_refusal(_findings, true), do: ["the safety scan flagged the change"]
@@ -329,7 +330,7 @@ defmodule Ryker.Publication.Review do
   defp findings_reason([]), do: nil
 
   defp findings_reason(findings) when is_list(findings) do
-    "The trusted policy review found #{length(findings)} issue#{if length(findings) == 1, do: "", else: "s"}."
+    "The trusted policy review found #{Wording.count(length(findings), "issue")}."
   end
 
   defp findings_reason(_findings), do: "The trusted policy review is unreadable."

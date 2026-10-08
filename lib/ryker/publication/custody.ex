@@ -1022,8 +1022,8 @@ defmodule Ryker.Publication.Custody do
     end
   end
 
-  defp delivered_target(episode, turn, target) do
-    case Records.CardDelivery.delivered_from?(episode, turn, target) do
+  defp check_delivery(episode, turn, target) do
+    case Records.CardDelivery.check(episode, turn, target) do
       :ok -> :ok
       {:error, :mismatch} -> {:error, :publication_offer_delivery_mismatch}
       {:error, :not_delivered} -> {:error, :publication_offer_not_delivered}
@@ -1031,7 +1031,7 @@ defmodule Ryker.Publication.Custody do
   end
 
   defp delivered_offer_proof(record, episode, turn, target) do
-    with :ok <- delivered_target(episode, turn, target),
+    with :ok <- check_delivery(episode, turn, target),
          do: record_was_delivered(turn, record.ref)
   end
 

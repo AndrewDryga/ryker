@@ -21,7 +21,7 @@ defmodule Ryker.ControlPlane.ChannelContext do
   superseded and deleted ones live in the library's archive.
   """
   @spec rules(ChannelScope.t(), map()) :: PagedRelation.t()
-  def rules(scope, params) do
+  def rules(%ChannelScope{} = scope, params) do
     relation =
       scope
       |> ChannelContext.Query.rules()
@@ -48,7 +48,7 @@ defmodule Ryker.ControlPlane.ChannelContext do
   scope; the repository is the one the channel's environment changes.
   """
   @spec preferences(ChannelScope.t(), map()) :: PagedRelation.t()
-  def preferences(scope, params) do
+  def preferences(%ChannelScope{} = scope, params) do
     relation =
       :preference
       |> ChannelContext.Query.effective_behaviors(scope)
@@ -82,7 +82,7 @@ defmodule Ryker.ControlPlane.ChannelContext do
   that confirmed it. Operator-scoped guidance needs an actor and is never shown.
   """
   @spec guidance(ChannelScope.t(), map()) :: PagedRelation.t()
-  def guidance(scope, params) do
+  def guidance(%ChannelScope{} = scope, params) do
     relation =
       scope
       |> ChannelContext.Query.recalled_guidance()
@@ -116,7 +116,7 @@ defmodule Ryker.ControlPlane.ChannelContext do
   every workspace.
   """
   @spec memory(ChannelScope.t(), map()) :: PagedRelation.t()
-  def memory(scope, params) do
+  def memory(%ChannelScope{} = scope, params) do
     relation =
       scope
       |> ChannelContext.Query.memory()
@@ -175,7 +175,7 @@ defmodule Ryker.ControlPlane.ChannelContext do
 
   @doc "Durable summaries of this conversation, newest first, presented as `/memory` presents them."
   @spec summaries(ChannelScope.t(), map()) :: PagedRelation.t()
-  def summaries(scope, params) do
+  def summaries(%ChannelScope{} = scope, params) do
     relation =
       scope
       |> ChannelContext.Query.summaries()
@@ -215,7 +215,7 @@ defmodule Ryker.ControlPlane.ChannelContext do
           drafts: non_neg_integer(),
           handover_failures: non_neg_integer()
         }
-  def continuity(scope) do
+  def continuity(%ChannelScope{} = scope) do
     %{
       drafts: Repo.aggregate(ChannelContext.Query.summary_drafts(scope), :count),
       handover_failures: Repo.aggregate(ChannelContext.Query.failed_handovers(scope), :count)
@@ -224,7 +224,7 @@ defmodule Ryker.ControlPlane.ChannelContext do
 
   @doc "Learned knowledge scoped to exactly this conversation, with its recall availability."
   @spec knowledge(ChannelScope.t(), map()) :: PagedRelation.t()
-  def knowledge(scope, params) do
+  def knowledge(%ChannelScope{} = scope, params) do
     relation =
       scope
       |> ChannelContext.Query.knowledge()
@@ -263,7 +263,7 @@ defmodule Ryker.ControlPlane.ChannelContext do
           needs_attention: non_neg_integer(),
           waiting: non_neg_integer()
         }
-  def learning_status(scope) do
+  def learning_status(%ChannelScope{} = scope) do
     needs_attention =
       "slack"
       |> Learning.Batch.Query.by_conversation(scope.conversation_ref)

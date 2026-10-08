@@ -7,7 +7,7 @@ defmodule Ryker.AdvisoryLock do
   an integer is a key itself.
 
   A transaction lock (`hold/3`, `hold!/3`) lasts until the transaction ends.
-  A session lock (`try_session/1`) lasts until `release_session/1`.
+  A session lock (`try_session?/1`) lasts until `release_session/1`.
   """
   alias Ryker.Repo
 
@@ -31,8 +31,8 @@ defmodule Ryker.AdvisoryLock do
   end
 
   @doc "Takes session lock `key` when no session holds it, answering whether it did."
-  @spec try_session(integer()) :: boolean()
-  def try_session(key) when is_integer(key) do
+  @spec try_session?(integer()) :: boolean()
+  def try_session?(key) when is_integer(key) do
     %{rows: [[locked]]} = Repo.query!("SELECT pg_try_advisory_lock($1)", [key])
     locked
   end

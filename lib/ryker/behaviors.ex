@@ -327,7 +327,7 @@ defmodule Ryker.Behaviors do
            ),
          :ok <- authorize_wide_offer(record, episode),
          :ok <- authorize_personal_offer(record, turn, attributes.actor_ref),
-         :ok <- delivered_from?(episode, turn, attributes.target) do
+         :ok <- check_delivery(episode, turn, attributes.target) do
       case Repo.one(Behavior.Query.by_offer_record_id(record.id)) do
         %Behavior{} = behavior ->
           %{behavior: behavior, status: :duplicate}
@@ -659,8 +659,8 @@ defmodule Ryker.Behaviors do
     end
   end
 
-  defp delivered_from?(episode, turn, target) do
-    case Records.CardDelivery.delivered_from?(episode, turn, target) do
+  defp check_delivery(episode, turn, target) do
+    case Records.CardDelivery.check(episode, turn, target) do
       :ok -> :ok
       {:error, :mismatch} -> {:error, :behavior_offer_delivery_mismatch}
       {:error, :not_delivered} -> {:error, :behavior_offer_not_delivered}

@@ -256,7 +256,7 @@ defmodule Ryker.Admission do
              execution_mode: :live | :shadow
            }}
           | {:error, term()}
-  def validate(%Context{} = context, decision) do
+  def validate(%Context{} = context, %Decision{} = decision) do
     with {:ok, decision} <- Decision.prepare(decision),
          :ok <- allowed_action(context.input, decision.action),
          :ok <- allowed_reactions(context.input, decision),
@@ -376,7 +376,8 @@ defmodule Ryker.Admission do
   @doc "`commit/4` with no options."
   @spec commit(Context.t(), Decision.t(), String.t()) ::
           {:ok, commit_result()} | {:error, term()}
-  def commit(context, decision, decision_ref), do: commit(context, decision, decision_ref, [])
+  def commit(%Context{} = context, %Decision{} = decision, decision_ref),
+    do: commit(context, decision, decision_ref, [])
 
   @doc """
   Applies a validated decision in one transaction: the episode transitions it
@@ -388,7 +389,7 @@ defmodule Ryker.Admission do
   """
   @spec commit(Context.t(), Decision.t(), String.t(), keyword()) ::
           {:ok, commit_result()} | {:error, term()}
-  def commit(%Context{} = context, decision, decision_ref, options) do
+  def commit(%Context{} = context, %Decision{} = decision, decision_ref, options) do
     with {:ok, settings} <- commit_options(options),
          {:ok, decision} <- Decision.prepare(decision),
          :ok <- validate_reference(decision_ref) do

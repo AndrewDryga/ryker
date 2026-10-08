@@ -234,7 +234,7 @@ defmodule Ryker.Slack.Names do
       Enum.reduce(entries, false, fn
         {^workspace, ref, label}, changed when is_binary(ref) ->
           if valid_ref?(ref) and valid_label?(label),
-            do: store(workspace, ref, clean(label), @ttl) or changed,
+            do: store_changed?(workspace, ref, clean(label), @ttl) or changed,
             else: changed
 
         _another_workspace, changed ->
@@ -275,7 +275,7 @@ defmodule Ryker.Slack.Names do
           {nil, 300_000, 0}
       end
 
-    if store(state.workspace, ref, label, ttl), do: broadcast_names_updated()
+    if store_changed?(state.workspace, ref, label, ttl), do: broadcast_names_updated()
     %{state | blocked_until: now() + backoff}
   end
 
@@ -284,7 +284,7 @@ defmodule Ryker.Slack.Names do
   # until the cache had looked Ryker up (2026-09-26).
   defp keep_known(workspace, known) when is_list(known) do
     for {ref, label} <- known, is_binary(ref), valid_ref?(ref), valid_label?(label) do
-      store(workspace, ref, clean(label), @ttl)
+      store_changed?(workspace, ref, clean(label), @ttl)
     end
   end
 
@@ -293,7 +293,7 @@ defmodule Ryker.Slack.Names do
   # This is disposable presentation data, not durable identity or authority.
   # A lookup that failed keeps the name Slack gave before, if any. Whether
   # what a page would show changed is the answer.
-  defp store(workspace, ref, label, ttl) do
+  defp store_changed?(workspace, ref, label, ttl) do
     key = {workspace, ref}
 
     previous =

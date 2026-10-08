@@ -421,7 +421,7 @@ defmodule Ryker.Memories do
              episode.destination_conversation_ref
            ),
          :ok <- authorize_wide_offer(record, episode),
-         :ok <- delivered_from?(episode, turn, attributes.target) do
+         :ok <- check_delivery(episode, turn, attributes.target) do
       case Repo.one(MemoryEntry.Query.by_offer_record_id(record.id)) do
         %MemoryEntry{} = entry ->
           %{memory: entry, status: :duplicate}
@@ -597,8 +597,8 @@ defmodule Ryker.Memories do
     end
   end
 
-  defp delivered_from?(episode, turn, target) do
-    case Records.CardDelivery.delivered_from?(episode, turn, target) do
+  defp check_delivery(episode, turn, target) do
+    case Records.CardDelivery.check(episode, turn, target) do
       :ok -> :ok
       {:error, :mismatch} -> {:error, :memory_offer_delivery_mismatch}
       {:error, :not_delivered} -> {:error, :memory_offer_not_delivered}

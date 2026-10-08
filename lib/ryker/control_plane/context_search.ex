@@ -61,14 +61,14 @@ defmodule Ryker.ControlPlane.ContextSearch do
       case topics do
         0 -> "No learned topic shares words, links or IDs with the message"
         1 -> "1 learned topic shares words, links or IDs with the message"
-        n -> "#{n} learned topics share words, links or IDs with the message"
+        count -> "#{count} learned topics share words, links or IDs with the message"
       end
 
     recent =
       case notes do
         0 -> "no notes"
         1 -> "the 1 newest note"
-        n -> "the #{n} newest notes"
+        count -> "the #{count} newest notes"
       end
 
     "#{matched}; #{recent} came with it."

@@ -813,7 +813,7 @@ defmodule Ryker.Retention.Custody do
   (`Ryker.Operator.Retention`) is saved the same way.
   """
   @spec persist(Work.Session.t(), map()) :: Work.Session.t()
-  def persist(session, attributes) do
+  def persist(%Work.Session{} = session, attributes) do
     session
     |> Work.Session.Changeset.cleanup(Map.put_new(attributes, :updated_at, Repo.now!()))
     |> Repo.update()

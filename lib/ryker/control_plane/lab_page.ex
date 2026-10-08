@@ -15,7 +15,7 @@ defmodule Ryker.ControlPlane.LabPage do
   alias Ryker.ControlPlane.{ConsolePeople, ConversationLab, Environments, FailureExplanation}
   alias Ryker.ControlPlane.{HTML, Kit, Paths, ShortTime}
   alias Ryker.CoopFleet
-  alias Ryker.{Episodes, Settings}
+  alias Ryker.{Episodes, Settings, Wording}
 
   @doc """
   The topics an open conversation listens to, as the context functions that
@@ -516,7 +516,7 @@ defmodule Ryker.ControlPlane.LabPage do
     notices =
       [
         if(replies > 0,
-          do: "#{replies} new #{if replies == 1, do: "reply", else: "replies"} from Ryker."
+          do: "#{Wording.count(replies, "new reply", "new replies")} from Ryker."
         ),
         if(changed, do: List.first(phases))
       ]

@@ -46,7 +46,7 @@ defmodule Ryker.Ingress.Inbox do
   @maximum_revision 9_223_372_036_854_775_807
 
   @spec record(Input.t(), keyword()) :: {:ok, receipt()} | {:error, term()}
-  def record(input, options \\ []) do
+  def record(%Input{} = input, options \\ []) do
     case record_many([input], options) do
       {:ok, [receipt]} -> {:ok, receipt}
       {:error, reason} -> {:error, reason}

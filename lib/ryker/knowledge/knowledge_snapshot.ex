@@ -485,7 +485,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
 
   def still_valid(destination, repository, documents)
       when is_list(documents) and length(documents) <= 32 do
-    case Repo.transaction(fn -> still_valid_locked(destination, repository, documents) end) do
+    case Repo.transaction(fn -> valid_locked?(destination, repository, documents) end) do
       {:ok, true} -> :ok
       _ -> @stale
     end
@@ -496,7 +496,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
 
   def still_valid(_, _, _), do: @stale
 
-  defp still_valid_locked(destination, repository, documents) do
+  defp valid_locked?(destination, repository, documents) do
     case Learning.Observations.locked_scope(destination, repository) do
       {:ok, scope} -> Enum.all?(documents, &valid_document?(&1, scope))
       _ -> false

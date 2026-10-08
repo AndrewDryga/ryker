@@ -64,7 +64,11 @@ defmodule Ryker.Admission.Attempts do
   candidate again, as a retried validation sends it, is kept once.
   """
   @spec reject(Ingress.Inbox.Entry.t(), map(), map()) :: :ok | {:error, term()}
-  def reject(entry, %{"attempt" => number, "sha256" => sha256} = rejection, settings) do
+  def reject(
+        %Ingress.Inbox.Entry{} = entry,
+        %{"attempt" => number, "sha256" => sha256} = rejection,
+        settings
+      ) do
     locked(entry, settings, fn attempt ->
       kept = List.wrap(attempt.rejections)
 

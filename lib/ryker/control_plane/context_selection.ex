@@ -68,7 +68,8 @@ defmodule Ryker.ControlPlane.ContextSelection do
       cond do
         earlier > 0 and left_out > 0 ->
           "The model was given #{new_messages(new)} and the " <>
-            most_recent(earlier) <> " of this request, " <> new_session()
+            Wording.count(earlier, "most recent earlier message") <>
+            " of this request, " <> new_session()
 
         earlier > 0 ->
           "The model was given #{new_messages(new)} and the " <>
@@ -94,9 +95,6 @@ defmodule Ryker.ControlPlane.ContextSelection do
   defp new_messages(1), do: "this message"
   defp new_messages(count), do: "the #{count} new messages"
 
-  defp most_recent(1), do: "1 most recent earlier message"
-  defp most_recent(count), do: "#{count} most recent earlier messages"
-
   defp left_out_sentence(_inputs, 0, _limits), do: nil
 
   defp left_out_sentence(inputs, left_out, limits) do
@@ -107,7 +105,7 @@ defmodule Ryker.ControlPlane.ContextSelection do
       ]
       |> Enum.reject(&is_nil/1)
 
-    "#{Wording.count(left_out, "earlier message")} #{were(left_out)} left out: " <>
+    "#{Wording.count(left_out, "earlier message")} #{Wording.word(left_out, "was", "were")} left out: " <>
       Enum.join(reasons, " and ") <> "."
   end
 
@@ -140,9 +138,6 @@ defmodule Ryker.ControlPlane.ContextSelection do
        do: "Up to #{inputs} messages · #{Units.bytes(bytes)} of context"
 
   defp limits(_limits), do: nil
-
-  defp were(1), do: "was"
-  defp were(_count), do: "were"
 
   defp positive(value, format) when is_integer(value) and value > 0, do: format.(value)
   defp positive(_value, _format), do: nil

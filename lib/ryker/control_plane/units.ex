@@ -7,6 +7,7 @@ defmodule Ryker.ControlPlane.Units do
   ("16.5 s", "16.5s", "4.2m", "1m 5s"), money rounded three ways, and sizes in
   GiB, GB, KiB and a 1024-based "MB" (2026-10-04 review).
   """
+  alias Ryker.Wording
 
   @doc """
   A duration: 0 s, 850 ms, 5 s, 16.5 s, 4 min, 4 min 10 s, 2 h, 2 h 5 min; a
@@ -33,6 +34,25 @@ defmodule Ryker.ControlPlane.Units do
   @spec decimal(number()) :: String.t()
   def decimal(number),
     do: :erlang.float_to_binary(number * 1.0, decimals: 1) |> String.trim_trailing(".0")
+
+  @doc """
+  A count in a few characters, for a narrow cell or a chart's axis: "950",
+  "1.5k", "12k", "1.25M". The usage chart's axis wrote its own, a million as
+  "1.00m", beside a table that wrote "1M" (2026-10-08).
+  """
+  @spec compact(non_neg_integer()) :: String.t()
+  def compact(count) when count >= 1_000_000 do
+    millions =
+      (count / 1_000_000)
+      |> :erlang.float_to_binary(decimals: 2)
+      |> String.trim_trailing("0")
+      |> String.trim_trailing(".")
+
+    millions <> "M"
+  end
+
+  def compact(count) when count >= 1_000, do: decimal(count / 1_000) <> "k"
+  def compact(count), do: Wording.number(count)
 
   @doc "A size in binary units: 512 bytes, 12 KiB, 3.4 MiB, 1.2 GiB."
   @spec bytes(non_neg_integer()) :: String.t()

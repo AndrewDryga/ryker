@@ -23,6 +23,7 @@ defmodule Ryker.ControlPlane.Router do
   alias Ryker.Observability
   alias Ryker.Operator
   alias Ryker.Slack
+  alias Ryker.Wording
   require Logger
 
   @maximum_form_bytes 4_096
@@ -827,7 +828,7 @@ defmodule Ryker.ControlPlane.Router do
   defp confirmation("learning", resource_ref, "drop", options) do
     case options.projection.learning.(%{"batch" => resource_ref}) do
       %{selected: %{id: ^resource_ref, drop_available: true} = batch} ->
-        messages = if batch.input_count == 1, do: "this message", else: "these messages"
+        messages = Wording.word(batch.input_count, "this message", "these messages")
 
         {:ok, "Drop this learning batch?",
          "Ryker stops trying to learn from #{messages} in #{batch.conversation}. Nothing it already learned changes, and replies are unaffected. Its attempts and the model starts they used stay recorded. You can't undo this.",

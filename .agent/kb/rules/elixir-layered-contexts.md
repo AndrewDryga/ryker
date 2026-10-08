@@ -55,7 +55,9 @@ rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-08.
   check, as `Ryker.Slack.MembershipTransition` does around
   `Slack.Timestamp.to_datetime/1`; the rule itself is written once.
 - The ones there are: `Ryker.Wording` (a count and its noun, plurals,
-  numbers with separators, a list in a sentence, capitals),
+  numbers with separators, a list in a sentence, capitals; every choice
+  between one and many, "needs you" or "need you" included, goes through
+  `Wording.word/3`),
   `Ryker.Text` (text in the unit its limit counts), `Ryker.ConversationRef`
   (a Slack conversation's ref, built and read one way), `Ryker.Reference`
   (reference strings, identifier tokens, UUIDs), `Ryker.Crypto.sha256_hex?/1`,
@@ -74,7 +76,9 @@ rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-08.
   `Ryker.Slack.Client.Fields` (a boundary's field checks), `Ryker.Slack.Id`,
   `Ryker.Slack.Timestamp` and `Ryker.Slack.Permalink` (other contexts and the
   console reach them through `Ryker.Slack`), and in the console `Search`,
-  `MemoryFormat`, `ChartAxis`, `ShortTime`, `Units`, `Kit` and
+  `MemoryFormat`, `ChartAxis` (a chart's coordinates, for every chart),
+  `ShortTime`, `Units` (`Units.compact/1` writes a count in a few
+  characters, for a table and a chart's axis alike), `Kit` and
   `BackgroundCards`. A rule an offer and its action both apply lives with the
   action: `WorkControls.stoppable?/2`, `Publication.Custody.approvable?/1`.
   A standard library function beats a copy: `:inet.is_ip_address/1` checks a
@@ -84,8 +88,10 @@ rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-08.
   `Slack.Id.pattern/0`, `GitHub.repository_name_pattern/0`).
 - Not helpers: the shapes a layer requires (OTP and Plug callbacks, a page's
   `html/1`, a custody's `claim_next/2`, a Query module's own filters), a
-  two-line read composed where it is used, and a boundary's own error around a
-  check it shares. `Ryker.CopiedHelpersTest` lists the copies kept on purpose,
+  two-line read composed where it is used, a boundary's own error around a
+  check it shares (ten modules map `Records.CardDelivery.check/3`'s two
+  refusals to their own codes), and a guard-sized idiom such as
+  `is_integer(value) and value > 0`, which Emisar writes inline in 27 files. `Ryker.CopiedHelpersTest` lists the copies kept on purpose,
   each with its reason.
 
 ## Names
@@ -116,6 +122,19 @@ rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-08.
   `Learning.Visibility.Query`, `Learning.SourceDependency.Query` and
   `Memories.SearchPage.Query`.
 - The transition that creates a row is `insert`. Emisar calls it `create`.
+- A function that answers a boolean ends in `?`, and a `?` function answers
+  nothing else: `Records.CardDelivery.check/3` answers `:ok` or why not, and
+  `GitHub.Engagement.reason/3` why Ryker takes an input. A function that
+  writes and answers whether it changed anything says both
+  (`Slack.Names.store_changed?/4`, `AdvisoryLock.try_session?/1`). Sixteen
+  were renamed and two `?` functions that answered tuples on 2026-10-08.
+- A struct argument is matched by its struct in the head
+  (`%Work.Session{} = session`), and a catch-all clause beside it refuses any
+  other shape (32 heads on 2026-10-08). A binding names the thing, by the
+  schema's name or its last word where that reads clearly
+  (`%IncidentRoom{} = room`), as Emisar's 961 such bindings do.
+- Variables are words: `explanation`, `{key, value}`, `conversation_ref`.
+  `x` and `y` stay on a chart and `iv` in a cipher.
 
 ## Return shapes
 
@@ -391,6 +410,10 @@ subscripts, and `Ryker.DataCase` fails an async test that saves settings.
   authorizer modules: Ryker is one installation. Writes check the actor where
   they happen (`Ryker.Settings` authorizes each save); there is no subject.
 - **Audit context checks**: Ryker has no audit context.
+- **NoIslandContainers** (a page template paints no box of its own): Ryker's
+  console draws with the Kit's classes and no utility classes, so the check
+  has nothing to read. The rule holds by construction: every box is a Kit
+  part.
 - **CrossContextDeepCall** (another context's Query and Changeset modules
   called only by that context). Measured 2026-10-08: 869 calls in 123 files
   outside the Query modules and the read-model layers (the console's

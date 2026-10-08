@@ -271,7 +271,7 @@ defmodule Ryker.CoopFleet.Bridge do
   required replacement once it is gone or its lease ran out.
   """
   @spec current_command_placement(Command.t()) :: :ok | {:error, term()}
-  def current_command_placement(command) do
+  def current_command_placement(%Command{} = command) do
     placement = Repo.one(Placement.Query.by_id(command.placement_id))
     now = Repo.now!()
 

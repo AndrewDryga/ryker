@@ -111,7 +111,7 @@ defmodule Ryker.Slack.ChannelSetup do
     end
   end
 
-  def handle_interaction(interaction, options) do
+  def handle_interaction(%Ryker.Slack.Interaction{} = interaction, options) do
     with {:ok, session} <- options.configurations.fetch_session(interaction.action_value),
          {:ok, action, value} <- interaction_action(interaction.action_id, session),
          :ok <- validate_choice(action, value, interaction.workspace_ref, options),

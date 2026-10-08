@@ -806,6 +806,24 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     assert html =~ "tabindex=\"0\""
   end
 
+  # The axis wrote its own short numbers: a million tokens read "1.00m", a
+  # thousandth of a token, under a table on the same page that wrote "1M"
+  # (2026-10-08).
+  test "the daily graph's axis writes token counts the way the usage table does" do
+    days = [
+      %{date: ~D[2026-09-01], tokens: 2_000_000, attempts: 2, measured: 2},
+      %{date: ~D[2026-09-02], tokens: 1_500, attempts: 1, measured: 1}
+    ]
+
+    html = UsageChart.render(days) |> IO.iodata_to_binary()
+
+    labels =
+      for [_text, label] <- Regex.scan(~r/<text class="chart-axis"[^>]*>([^<]+)<\/text>/, html),
+          do: label
+
+    assert ["0", "1M", "2M"] -- labels == []
+  end
+
   # Four bars for 2-5 September were labelled 2, 4, 5: the operator read the
   # unlabelled third day as missing data, even though it had executions.
   test "short daily charts label every day without a standing disclaimer" do

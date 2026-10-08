@@ -33,8 +33,11 @@ defmodule Ryker.ControlPlane.PromptDocument do
             else: RequestContextHTML.prompt_parts(value)
 
         indexed = Enum.with_index(parts)
-        {html, rest} = value(tokens, "$", 0, Map.new(indexed, fn {part, i} -> {part.path, i} end))
-        by_index = Map.new(indexed, fn {part, i} -> {i, part} end)
+
+        {html, rest} =
+          value(tokens, "$", 0, Map.new(indexed, fn {part, index} -> {part.path, index} end))
+
+        by_index = Map.new(indexed, fn {part, index} -> {index, part} end)
 
         # LiveView leaves the ignored container's children alone, so the chosen
         # highlight survives the page's periodic patches.

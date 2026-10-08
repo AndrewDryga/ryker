@@ -250,7 +250,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
       attention > 0 &&
         %{
           value: attention,
-          label: if(attention == 1, do: "needs attention", else: "need attention"),
+          label: Wording.word(attention, "needs attention", "need attention"),
           tone: :warn
         }
     ]

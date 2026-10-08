@@ -132,7 +132,7 @@ defmodule Ryker.Knowledge do
 
   def still_current(destination, repository_ref, frozen)
       when is_list(frozen) and length(frozen) <= 32 do
-    case Repo.transaction(fn -> still_current_locked(destination, repository_ref, frozen) end) do
+    case Repo.transaction(fn -> current_locked?(destination, repository_ref, frozen) end) do
       {:ok, true} -> :ok
       _ -> @stale
     end
@@ -143,7 +143,7 @@ defmodule Ryker.Knowledge do
 
   def still_current(_, _, _), do: @stale
 
-  defp still_current_locked(destination, repository_ref, frozen) do
+  defp current_locked?(destination, repository_ref, frozen) do
     with {:ok, scope} <- Learning.Observations.locked_scope(destination, repository_ref),
          ids = Enum.map(frozen, &id(&1["source_ref"])),
          true <- Enum.all?(ids, &is_binary/1) do

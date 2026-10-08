@@ -30,7 +30,7 @@ defmodule Ryker.Slack.Client.Pagination do
           pos_integer()
         ) ::
           {:ok, term()} | :not_found | {:error, term()}
-  def find(client, path, page, match, page_size),
+  def find(%Client{} = client, path, page, match, page_size),
     do: find(client, path, page, match, page_size, nil, 1)
 
   defp find(client, path, page, match, page_size, cursor, number) do
@@ -56,7 +56,7 @@ defmodule Ryker.Slack.Client.Pagination do
 
   @doc "Fetches every page and returns the items in order."
   @spec collect(Client.t(), path(), page(), pos_integer()) :: {:ok, [term()]} | {:error, term()}
-  def collect(client, path, page, page_size),
+  def collect(%Client{} = client, path, page, page_size),
     do: collect(client, path, page, page_size, nil, 1, [])
 
   defp collect(client, path, page, page_size, cursor, number, items) do

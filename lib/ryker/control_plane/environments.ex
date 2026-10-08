@@ -69,7 +69,7 @@ defmodule Ryker.ControlPlane.Environments do
 
   @doc ~s(How many repositories, then the default one: ["2 repositories", "default acme/api"].)
   @spec repository_facts(map(), Settings.Environment.t()) :: [String.t()]
-  def repository_facts(snapshot, environment) do
+  def repository_facts(snapshot, %Settings.Environment{} = environment) do
     case Settings.Environment.repository_refs(environment) do
       [] ->
         ["No repositories"]
@@ -84,7 +84,7 @@ defmodule Ryker.ControlPlane.Environments do
 
   @doc "The environment's Emisar account as one fact."
   @spec emisar_fact(map(), Settings.Environment.t()) :: String.t()
-  def emisar_fact(snapshot, environment) do
+  def emisar_fact(snapshot, %Settings.Environment{} = environment) do
     case emisar_name(snapshot, environment) do
       nil -> "No Emisar account"
       name -> "Emisar: " <> name
@@ -103,7 +103,7 @@ defmodule Ryker.ControlPlane.Environments do
   @spec refusal(String.t(), %{channels: non_neg_integer(), webhook_sources: non_neg_integer()}) ::
           String.t()
   def refusal(name, %{channels: channels, webhook_sources: webhook_sources}) do
-    them = if channels + webhook_sources == 1, do: "it", else: "them"
+    them = Wording.word(channels + webhook_sources, "it", "them")
     "#{name} is used by #{users(channels, webhook_sources)}. Change #{them} first."
   end
 

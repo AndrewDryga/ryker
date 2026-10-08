@@ -798,7 +798,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
       autocomplete="off"
     >
       <label class="settings-people-search">
-        <span>Search {if @total == 1, do: "1 person", else: "#{@total} people"}</span><input
+        <span>Search {Wording.count(@total, "person", "people")}</span><input
           type="search"
           name="query"
           value={@people.query}
@@ -1615,7 +1615,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
       %{
         text:
           "No price covers #{Wording.list(unpriced)}, so " <>
-            if(length(unpriced) == 1, do: "its", else: "their") <>
+            Wording.word(length(unpriced), "its", "their") <>
             " cost will show as not priced.",
         link: "Add a price",
         href: "/settings/prices"

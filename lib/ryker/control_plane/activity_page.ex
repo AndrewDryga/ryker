@@ -19,7 +19,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
   import Ryker.ControlPlane.Components,
     only: [icon: 1, live_filter_toolbar: 1, page_header: 1, pager: 1]
 
-  alias Ryker.{Accounting, Episodes, Schedules, Settings, UTCDateTime}
+  alias Ryker.{Accounting, Episodes, Schedules, Settings, UTCDateTime, Wording}
   alias Ryker.ControlPlane.{Components, Kit, Paths, RequestFilters, SchedulesPage, SlackMarkdown}
   alias Ryker.ControlPlane.ShortTime
   alias Ryker.ControlPlane.UsageProjection
@@ -240,7 +240,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
       %{value: running, label: "in progress", href: filter_path(path, params, "running")},
       %{
         value: attention,
-        label: if(attention == 1, do: "needs you", else: "need you"),
+        label: Wording.word(attention, "needs you", "need you"),
         tone: if(attention > 0, do: :warn),
         href: filter_path(path, params, "attention")
       }

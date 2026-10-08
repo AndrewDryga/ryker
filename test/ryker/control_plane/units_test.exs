@@ -14,6 +14,11 @@ defmodule Ryker.ControlPlane.UnitsTest do
            ) == ["850 ms", "5 s", "16.5 s", "4 min", "4 min 10 s", "2 h", "2 h 5 min"]
   end
 
+  test "a count reads in a few characters, a million with a capital M" do
+    assert Enum.map([950, 1_500, 12_000, 1_000_000, 1_250_000, 2_500_000], &Units.compact/1) ==
+             ["950", "1.5k", "12k", "1M", "1.25M", "2.5M"]
+  end
+
   test "a size reads in binary units, named as such" do
     assert Enum.map(
              [512, 12_400, 3_565_158, 24_741_605_376],

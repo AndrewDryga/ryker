@@ -167,7 +167,7 @@ defmodule Ryker.Behaviors.Automations do
              episode.destination_transport,
              episode.destination_conversation_ref
            ),
-         :ok <- delivered_from?(episode, turn, attributes.target) do
+         :ok <- check_delivery(episode, turn, attributes.target) do
       case record.status do
         :confirmed -> duplicate_confirmation(record, episode)
         :open -> apply_change(record, episode, attributes)
@@ -502,8 +502,8 @@ defmodule Ryker.Behaviors.Automations do
     end
   end
 
-  defp delivered_from?(episode, turn, target) do
-    case Records.CardDelivery.delivered_from?(episode, turn, target) do
+  defp check_delivery(episode, turn, target) do
+    case Records.CardDelivery.check(episode, turn, target) do
       :ok -> :ok
       {:error, :mismatch} -> {:error, :automation_change_offer_delivery_mismatch}
       {:error, :not_delivered} -> {:error, :automation_change_offer_not_delivered}

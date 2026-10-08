@@ -1103,7 +1103,8 @@ defmodule Ryker.Learning do
   `Ryker.Learning.Batches` uses it to leave out a message too large for one.
   """
   @spec input_bytes(Ingress.Inbox.Entry.t()) :: non_neg_integer()
-  def input_bytes(entry), do: entry |> input_document() |> CanonicalJSON.encode!() |> byte_size()
+  def input_bytes(%Ingress.Inbox.Entry{} = entry),
+    do: entry |> input_document() |> CanonicalJSON.encode!() |> byte_size()
 
   # A message as the model reads it among others: its own words once. Slack
   # sends a message's text again as blocks, and the raw content made one

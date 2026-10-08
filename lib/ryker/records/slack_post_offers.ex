@@ -35,7 +35,7 @@ defmodule Ryker.Records.SlackPostOffers do
   defp confirm_locked(attributes) do
     with {:ok, record, episode, turn} <- lock_offer(attributes.record_ref),
          :ok <- requester_authorized(record, attributes.actor_ref),
-         :ok <- delivered_from?(episode, turn, attributes.target) do
+         :ok <- check_delivery(episode, turn, attributes.target) do
       case record.status do
         :open -> confirm_open(record, attributes)
         :confirmed -> confirmed(record)
@@ -89,7 +89,7 @@ defmodule Ryker.Records.SlackPostOffers do
   only way it can show where the message went.
   """
   @spec host_slot(Record.t()) :: String.t()
-  def host_slot(record), do: "confirmed-post:#{record.id}"
+  def host_slot(%Record{} = record), do: "confirmed-post:#{record.id}"
 
   defp lock_offer(record_ref) do
     case Records.lock_offer(record_ref, ["slack_post_offer"]) do
@@ -107,8 +107,8 @@ defmodule Ryker.Records.SlackPostOffers do
   defp requester_authorized(_record, _actor_ref),
     do: {:error, :slack_post_offer_actor_mismatch}
 
-  defp delivered_from?(episode, turn, target) do
-    case CardDelivery.delivered_from?(episode, turn, target) do
+  defp check_delivery(episode, turn, target) do
+    case CardDelivery.check(episode, turn, target) do
       :ok -> :ok
       {:error, :mismatch} -> {:error, :slack_post_offer_delivery_mismatch}
       {:error, :not_delivered} -> {:error, :slack_post_offer_not_delivered}
