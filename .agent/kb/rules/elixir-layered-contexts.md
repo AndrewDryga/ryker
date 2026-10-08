@@ -220,6 +220,12 @@ Emisar's write rules (`../emisar/portal/.agent/kb/rules/README.md`) that Ryker f
   answers how many rows it wrote (`Ryker.Feedback`, memory reviews); a plain
   insert that meets the index inside a transaction aborts the transaction,
   so its constraint error can never be handled there.
+- Errors a caller can cause come back as values (Emisar's README). A
+  public `!` function is either a boot-time reader of configuration, which
+  stops a start that could not run (`Ryker.Bootstrap.load!/1`, the workers'
+  `options!/1`), or a step a custody calls inside its transaction, where a
+  raise rolls the whole write back (`Ryker.AdvisoryLock.hold!/3`,
+  `Followups.Store.update_followup!/3`).
 - A write hands back what it changed (`returning: true`, `select` on
   `update_all`) instead of reading it again; N rows go in one `insert_all`
   unless each must fail alone, which the call says.
