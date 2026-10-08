@@ -47,6 +47,29 @@ defmodule Ryker.Emisar.ApprovalsTest do
     end
   end
 
+  # The Timeline and Failures redraw when an approval watch is registered or
+  # observed. Until 2026-10-08 no test held a watch to announcing itself.
+  test "an approval watch registered and observed reaches the pages that show it" do
+    :ok = Approvals.subscribe_approvals()
+    approval_wait!("announce")
+    %Approval{id: approval_id} = Inspectors.emisar_approval(@connection_ref, "apr-announce")
+    assert_receive {:emisar_approval_updated, ^approval_id}
+
+    assert {:ok, %{lease_ref: lease_ref}} =
+             Approvals.claim_next(@connection_ref, "approval-worker", 60)
+
+    assert {:ok, %{status: :monitoring}} =
+             Approvals.observe(
+               @connection_ref,
+               "apr-announce",
+               lease_ref,
+               run_state("announce", "running"),
+               5
+             )
+
+    assert_receive {:emisar_approval_updated, ^approval_id}
+  end
+
   test "registers the immutable approval atomically and claims it only after delivery starts the wait" do
     %{claim: claim, record: record} = approval_wait!("claim")
     record_id = record.id

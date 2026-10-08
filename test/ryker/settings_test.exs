@@ -132,6 +132,18 @@ defmodule Ryker.SettingsTest do
   # hears a revision, so it read the previous one, found nothing to apply, and
   # the change waited for the next save or restart. A workspace-wide
   # participation change from Slack took exactly that path.
+  # The settings pages say whether the running system has caught up with the
+  # saved revision, and redraw when the runtime records applying it. Until
+  # 2026-10-08 no test held that record to announcing itself.
+  test "a revision recorded as applied reaches the pages that show it" do
+    assert {:ok, saved} = Settings.initialize(@actor)
+    revision = saved.installation.revision
+    :ok = Settings.subscribe_application()
+
+    assert Settings.record_application(revision, :ok) == :ok
+    assert_receive {:settings_applied, ^revision}
+  end
+
   test "a settings change is announced after it commits, not before" do
     assert {:ok, _} = Settings.initialize(@actor)
     :ok = Settings.subscribe()

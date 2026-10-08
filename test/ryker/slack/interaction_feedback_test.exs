@@ -25,6 +25,17 @@ defmodule Ryker.Slack.InteractionFeedbackTest do
     end
   end
 
+  # Failures redraws when a Slack click is recorded. Until 2026-10-08 no test
+  # held a recorded click to announcing itself.
+  test "a recorded click reaches the pages that show it" do
+    :ok = InteractionAudits.subscribe_interactions()
+
+    assert {:ok, %{audit: %InteractionAudit{id: audit_id}, status: :recorded}} =
+             InteractionAudits.record(interaction("interaction:announced"), :invalid)
+
+    assert_receive {:slack_interaction_updated, ^audit_id}
+  end
+
   test "denied and stale controls are durable, idempotent, and conflict on crossed identity" do
     denied = interaction("interaction:denied")
     stale = interaction("interaction:stale")

@@ -141,6 +141,22 @@ defmodule Ryker.LocalRoutingTest do
     assert queued.generation == shadowed.execution_generation
   end
 
+  # The local routing report redraws when a comparison is queued and when it
+  # settles. Until 2026-10-08 no test held either to announcing itself.
+  test "a comparison queued and settled reaches the report that shows it" do
+    endpoint = local_model!([{:answer, Harvested.hi_again_quick_reply()}])
+    initialize!()
+    shadow!(endpoint)
+    :ok = LocalRouting.subscribe_comparisons()
+
+    entry = route!(Harvested.hi_quick_reply(), "Ev-local-announces")
+    input_id = entry.id
+    assert_receive {:local_routing_updated, ^input_id}
+
+    assert {:ran, %Comparison{}} = LocalRouting.run_next(options(endpoint))
+    assert_receive {:local_routing_updated, ^input_id}
+  end
+
   test "an answer that decides what the provider decided agrees, beside the provider's cost and time" do
     endpoint = local_model!([{:answer, Harvested.hi_again_quick_reply()}])
     initialize!()

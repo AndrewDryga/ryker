@@ -14,6 +14,15 @@ defmodule Ryker.WeeklyReport.CustodyTest do
     week: ~D[2026-10-12]
   }
 
+  # The delivery pool wakes on a queued report, and Failures redraws on one
+  # that is blocked. Until 2026-10-08 no test held a report to announcing
+  # itself.
+  test "a queued report reaches the delivery pool and the pages that show it" do
+    :ok = Custody.subscribe_reports()
+    assert {:ok, %Report{id: id}} = Custody.enqueue(@report)
+    assert_receive {:weekly_report_updated, ^id}
+  end
+
   test "only the week's report saved before reads as already queued" do
     assert {:ok, %Report{week: ~D[2026-10-12]}} = Custody.enqueue(@report)
     assert Custody.enqueue(@report) == {:ok, :already_queued}

@@ -713,6 +713,14 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
   # that nothing it started is still running at the worker, before the next
   # start may be made. None of these stops was reached by a test before
   # (2026-10-04 review), and each is the only way out of its state.
+  # The Repositories page redraws when a repository's knowledge entry
+  # changes. Until 2026-10-08 no test held a change to announcing itself.
+  test "a check asked for a repository reaches the pages that show it" do
+    :ok = RepositoryKnowledge.subscribe()
+    assert RepositoryKnowledge.check_soon("ryker") == :ok
+    assert_receive {:repository_knowledge_updated, "ryker"}
+  end
+
   describe "a run that ends without a document" do
     setup do
       github!()

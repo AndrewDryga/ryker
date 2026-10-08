@@ -429,6 +429,12 @@ Emisar's test rules Ryker follows (`elixir-layered-contexts.md` §7 there):
   about stays in the test. Thirteen rigs replaced 64 inline writes on
   2026-10-08. Ryker's tests still write 1,297 times in 668 of 5,871 tests,
   Emisar's 790 times in 457 of 8,963; what remains varies per test.
+- Every message a page or a worker listens for has a test that subscribes
+  before the action and asserts the exact message it sends (Emisar's
+  README). On 2026-10-08 six of the 39 had none (an approval watch, a local
+  routing comparison, a repository's knowledge, a settings revision applied,
+  a Slack click, a weekly report); each has one now, and renaming its
+  message fails it.
 - A changeset error is asserted by its message:
   `assert "is invalid" in errors_on(changeset).field` (`Ryker.DataCase`),
   never by matching `%Ecto.Changeset{}` or reading `changeset.errors`. A test
