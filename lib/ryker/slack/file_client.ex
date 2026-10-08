@@ -3,6 +3,7 @@ defmodule Ryker.Slack.FileClient do
   Resolves and downloads authenticated Slack file shares without persisting a
   private Slack URL or bot credential.
   """
+  alias Ryker.Maps
   alias Ryker.Slack.Id
 
   @fields [:binary_http, :binary_requester, :json_http, :json_requester]
@@ -133,7 +134,7 @@ defmodule Ryker.Slack.FileClient do
   end
 
   defp normalize(%{} = attributes) do
-    if Map.keys(attributes) |> Enum.sort() == Enum.sort(@fields),
+    if Maps.exact_keys?(attributes, @fields),
       do: {:ok, attributes},
       else: {:error, {:invalid_slack_file_client, :fields}}
   end

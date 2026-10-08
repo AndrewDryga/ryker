@@ -15,6 +15,7 @@ defmodule Ryker.Publication.Custody do
   alias Ryker.Episodes
   alias Ryker.GitHub
   alias Ryker.Lease
+  alias Ryker.Maps
   alias Ryker.Publication.{Card, ConflictReceipt, FixLoop, Followup, Followups}
   alias Ryker.Publication.{GateOutput, Publication, Receipt, Review}
   alias Ryker.Records
@@ -1465,7 +1466,7 @@ defmodule Ryker.Publication.Custody do
   end
 
   defp attributes(attributes, fields, error) when is_map(attributes) do
-    if Map.keys(attributes) |> Enum.sort() == Enum.sort(fields),
+    if Maps.exact_keys?(attributes, fields),
       do: {:ok, attributes},
       else: {:error, {error, :fields}}
   end
@@ -1473,7 +1474,7 @@ defmodule Ryker.Publication.Custody do
   defp attributes(_attributes, _fields, error), do: {:error, {error, :fields}}
 
   defp target(target) when is_map(target) do
-    if Map.keys(target) |> Enum.sort() == Enum.sort(@target_fields) do
+    if Maps.exact_keys?(target, @target_fields) do
       with :ok <- reference(target.transport, :transport),
            :ok <- reference(target.conversation_ref, :conversation_ref),
            :ok <- optional_reference(target.thread_ref, :thread_ref),

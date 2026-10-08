@@ -20,6 +20,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   alias Ryker.Delivery.{PlatformAction, Request}
   alias Ryker.Episodes
   alias Ryker.Lease
+  alias Ryker.Maps
   alias Ryker.Records
   alias Ryker.Reference
   alias Ryker.Repo
@@ -620,7 +621,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   end
 
   defp exact_attributes(%{} = attributes) do
-    if Map.keys(attributes) |> Enum.sort() == Enum.sort(@fields),
+    if Maps.exact_keys?(attributes, @fields),
       do: {:ok, attributes},
       else: {:error, {:invalid_platform_action, :fields}}
   end

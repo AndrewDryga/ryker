@@ -23,13 +23,13 @@ defmodule Ryker.Admission.Decision do
   """
   alias Ryker.Admission.Sentiment
   alias Ryker.JSONSchema
+  alias Ryker.Maps
   alias Ryker.Work
 
   @actions [:start_episode, :continue_episode, :reply, :quick_reply, :react, :ignore]
   @relations [:same_work, :history_only, :unrelated]
   @work_classes [:conversational, :standard, :deep]
   @fields ~w(action episode_ref messages reactions relation reason repository repository_source work_class)
-  @sorted_fields Enum.sort(@fields)
   @maximum_message 1_000
   @maximum_messages 3
   @maximum_reactions 3
@@ -386,7 +386,7 @@ defmodule Ryker.Admission.Decision do
   end
 
   defp exact_fields(value) do
-    if Enum.sort(Map.keys(value)) == @sorted_fields,
+    if Maps.exact_keys?(value, @fields),
       do: :ok,
       else: {:error, {:invalid_decision, :fields}}
   end

@@ -2,6 +2,7 @@ defmodule Ryker.Settings.WebhookSource.Changeset do
   @moduledoc "Adding a webhook source and changing a saved one (`Ryker.Settings.WebhookSource`)."
   @behaviour Ryker.Settings.Section.Changeset
   use Ryker, :changeset
+  alias Ryker.Maps
   alias Ryker.Publication
   alias Ryker.Settings.{Validation, WebhookSource}
   alias Ryker.Webhooks
@@ -113,7 +114,7 @@ defmodule Ryker.Settings.WebhookSource.Changeset do
 
   defp lifecycle_error(changeset, scope, repositories) do
     valid =
-      Map.keys(scope) |> Enum.sort() == @lifecycle_fields and
+      Maps.exact_keys?(scope, @lifecycle_fields) and
         Enum.all?(@lifecycle_fields, &bounded_scope?(scope[&1])) and
         Enum.all?(scope["kinds"], &(&1 in Publication.DeploymentSignal.kinds())) and
         Enum.all?(scope["repositories"], &(&1 in repositories))

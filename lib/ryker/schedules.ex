@@ -15,6 +15,7 @@ defmodule Ryker.Schedules do
   alias Ryker.ErrorDetail
   alias Ryker.Ingress
   alias Ryker.Lease
+  alias Ryker.Maps
   alias Ryker.Operator
   alias Ryker.Records
   alias Ryker.Reference
@@ -852,7 +853,7 @@ defmodule Ryker.Schedules do
   end
 
   defp status_scope(%{conversation_prefix: prefix, transport: transport} = scope) do
-    if Map.keys(scope) |> Enum.sort() == [:conversation_prefix, :transport] and
+    if Maps.exact_keys?(scope, [:conversation_prefix, :transport]) and
          Reference.valid?(prefix) and Reference.valid?(transport) do
       {:ok, scope}
     else
@@ -906,7 +907,7 @@ defmodule Ryker.Schedules do
   end
 
   defp confirmation_attributes(%{} = attributes) do
-    if Map.keys(attributes) |> Enum.sort() == Enum.sort(@confirmation_fields),
+    if Maps.exact_keys?(attributes, @confirmation_fields),
       do: {:ok, attributes},
       else: {:error, {:invalid_schedule_confirmation, :fields}}
   end
@@ -915,7 +916,7 @@ defmodule Ryker.Schedules do
     do: {:error, {:invalid_schedule_confirmation, :fields}}
 
   defp target(%{} = target) do
-    if Map.keys(target) |> Enum.sort() == Enum.sort(@target_fields) do
+    if Maps.exact_keys?(target, @target_fields) do
       with :ok <- reference(target.transport, :transport),
            :ok <- reference(target.conversation_ref, :conversation_ref),
            :ok <- optional_reference(target.thread_ref, :thread_ref),

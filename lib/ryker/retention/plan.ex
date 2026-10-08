@@ -7,6 +7,7 @@ defmodule Ryker.Retention.Plan do
   proved that this exact Work session was published.
   """
   alias Ryker.Crypto
+  alias Ryker.Maps
 
   @outer_fields ~w(operation plan)
   @operation_required ~w(id method resource_id resource_type state)
@@ -129,11 +130,7 @@ defmodule Ryker.Retention.Plan do
     do: {:error, {:invalid_discard_plan, :workspace}}
 
   defp exact_fields(value, required, optional, field) do
-    keys = Map.keys(value)
-
-    if Enum.all?(required, &(&1 in keys)) and keys -- (required ++ optional) == [],
-      do: :ok,
-      else: error(field)
+    if Maps.exact_keys?(value, required, optional), do: :ok, else: error(field)
   end
 
   defp optional_git_head(""), do: :ok

@@ -8,6 +8,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
   """
   alias Ryker.CoopFleet.Protocol
   alias Ryker.GitObject
+  alias Ryker.Maps
   alias Ryker.UTCDateTime
 
   @version 2
@@ -205,7 +206,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
   defp bundle(_bundle), do: {:error, {:invalid_workspace_checkpoint, :bundle}}
 
   defp exact_fields(document, fields, field) do
-    if Map.keys(document) |> Enum.sort() == Enum.sort(fields),
+    if Maps.exact_keys?(document, fields),
       do: :ok,
       else: {:error, {:invalid_workspace_checkpoint, field}}
   end
@@ -392,7 +393,7 @@ defmodule Ryker.CoopFleet.WorkspaceCheckpoint do
     do: part not in [<<>>, ".", ".."] and String.downcase(part, :ascii) != ".git"
 
   defp manifest_exact_fields(document, fields, reason) do
-    if Map.keys(document) |> Enum.sort() == Enum.sort(fields),
+    if Maps.exact_keys?(document, fields),
       do: :ok,
       else: bundle_error(reason)
   end

@@ -14,6 +14,7 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
   way first, then the lists, and each cut is named in `omitted`.
   """
   alias Ryker.JSONSchema
+  alias Ryker.Maps
   alias Ryker.PromptDocument
   alias Ryker.Reference
   alias Ryker.RepositoryKnowledge.Document
@@ -235,7 +236,7 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
   @spec parse(String.t()) :: {:ok, map()} | {:error, :invalid_repository_knowledge}
   def parse(result) when is_binary(result) do
     with {:ok, %{} = document} <- Jason.decode(result),
-         true <- Enum.sort(Map.keys(document)) == Enum.sort(@fields),
+         true <- Maps.exact_keys?(document, @fields),
          {:ok, purpose} <- text(document["purpose"], @purpose_characters),
          {:ok, components} <-
            items(document["components"], 40,
@@ -300,7 +301,7 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
   defp items(_values, _maximum, _fields), do: :error
 
   defp item(value, names, fields) do
-    if Enum.sort(Map.keys(value)) == names,
+    if Maps.exact_keys?(value, names),
       do: Enum.reduce_while(fields, {:ok, %{}}, &field(value, &1, &2)),
       else: :error
   end

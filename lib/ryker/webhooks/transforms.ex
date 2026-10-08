@@ -7,6 +7,7 @@ defmodule Ryker.Webhooks.Transforms do
   module. Those remain part of the validated route.
   """
   alias Ryker.CanonicalJSON
+  alias Ryker.Maps
   alias Ryker.UTCDateTime
   alias Ryker.Webhooks.{Input, Route}
 
@@ -229,7 +230,7 @@ defmodule Ryker.Webhooks.Transforms do
     ]
 
     valid =
-      Map.keys(metadata) |> Enum.sort() == Enum.sort(@metadata_fields) and Enum.all?(validations)
+      Maps.exact_keys?(metadata, @metadata_fields) and Enum.all?(validations)
 
     if valid, do: {:ok, metadata}, else: transform_error(:metadata)
   end

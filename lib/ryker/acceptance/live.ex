@@ -7,7 +7,7 @@ defmodule Ryker.Acceptance.Live do
   gateway. The already-running deployment owns Admission, Work, remote Coop execution,
   state tools, and Delivery. This process only observes their durable PostgreSQL custody.
   """
-  alias Ryker.{Bootstrap, ConversationRef, Settings}
+  alias Ryker.{Bootstrap, ConversationRef, Maps, Settings}
   alias Ryker.CoopFleet
   alias Ryker.Delivery
   alias Ryker.Ingress
@@ -208,7 +208,7 @@ defmodule Ryker.Acceptance.Live do
   defp first_operator(_operators), do: {:error, :live_acceptance_operator_not_configured}
 
   defp operations(_configuration, _slack, %{} = operations) do
-    if Map.keys(operations) |> Enum.sort() == Enum.sort(@operation_fields) and
+    if Maps.exact_keys?(operations, @operation_fields) and
          Enum.all?(@operation_fields, &is_function(operations[&1], operation_arity(&1))) do
       {:ok, operations}
     else

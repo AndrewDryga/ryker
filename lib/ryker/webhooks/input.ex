@@ -8,6 +8,7 @@ defmodule Ryker.Webhooks.Input do
   @behaviour Ryker.Ingress.Adapter
   alias Ryker.CanonicalJSON
   alias Ryker.Ingress
+  alias Ryker.Maps
   alias Ryker.Reference
   alias Ryker.UTCDateTime
   alias Ryker.Webhooks.Route
@@ -67,7 +68,7 @@ defmodule Ryker.Webhooks.Input do
   defp normalize_metadata(%{} = metadata) do
     metadata = Map.put_new(metadata, :item_id, metadata[:event_id])
 
-    if Map.keys(metadata) |> Enum.sort() == Enum.sort(@metadata_fields),
+    if Maps.exact_keys?(metadata, @metadata_fields),
       do: {:ok, metadata},
       else: {:error, {:invalid_webhook_input, :fields}}
   end

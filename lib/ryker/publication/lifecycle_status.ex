@@ -2,6 +2,7 @@ defmodule Ryker.Publication.LifecycleStatus do
   @moduledoc false
   alias Ryker.GitHub
   alias Ryker.GitObject
+  alias Ryker.Maps
   alias Ryker.Reference
   alias Ryker.UTCDateTime
 
@@ -9,7 +10,7 @@ defmodule Ryker.Publication.LifecycleStatus do
 
   @spec prepare(map()) :: {:ok, map()} | {:error, term()}
   def prepare(%{} = status) do
-    with true <- Map.keys(status) |> Enum.sort() == @fields,
+    with true <- Maps.exact_keys?(status, @fields),
          true <- status["state"] in ~w(open closed),
          true <- status["checks_state"] in ~w(none pending passing failing),
          true <- is_boolean(status["draft"]) and is_boolean(status["merged"]),

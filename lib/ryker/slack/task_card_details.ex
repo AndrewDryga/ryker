@@ -13,6 +13,7 @@ defmodule Ryker.Slack.TaskCardDetails do
   import Ryker.Slack.Renderer.Blocks,
     only: [escape: 1, expanded_section: 1, link_label: 1, sections: 1, sections: 2]
 
+  alias Ryker.Maps
   alias Ryker.Records
   alias Ryker.Text
   alias Ryker.Work
@@ -108,7 +109,7 @@ defmodule Ryker.Slack.TaskCardDetails do
   defp stages?(_stages), do: false
 
   defp stage?(stage) when is_map(stage) do
-    Enum.sort(Map.keys(stage)) == Enum.sort(@stage_keys) and stage["state"] in @stage_states and
+    Maps.exact_keys?(stage, @stage_keys) and stage["state"] in @stage_states and
       is_boolean(stage["current"]) and is_boolean(stage["your_turn"]) and
       optional_text?(stage["detail"], 200) and optional_text?(stage["reason"], 500) and
       url?(stage["url"]) and
@@ -125,7 +126,7 @@ defmodule Ryker.Slack.TaskCardDetails do
   defp subtasks?(_subtasks, _total), do: false
 
   defp subtask?(subtask) when is_map(subtask) do
-    Enum.sort(Map.keys(subtask)) == Enum.sort(@subtask_keys) and text?(subtask["id"], 120) and
+    Maps.exact_keys?(subtask, @subtask_keys) and text?(subtask["id"], 120) and
       text?(subtask["outcome"], 250) and optional_text?(subtask["detail"], 200) and
       is_boolean(subtask["current"]) and subtask["state"] in @goal_states
   end

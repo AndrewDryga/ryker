@@ -8,6 +8,7 @@ defmodule Ryker.Records.TaskOffers do
   """
   alias Ryker.Crypto
   alias Ryker.Episodes
+  alias Ryker.Maps
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
   alias Ryker.Records.Record
@@ -216,7 +217,7 @@ defmodule Ryker.Records.TaskOffers do
   end
 
   defp attributes(%{} = attributes) do
-    if Map.keys(attributes) |> Enum.sort() == Enum.sort(@fields),
+    if Maps.exact_keys?(attributes, @fields),
       do: {:ok, attributes},
       else: {:error, {:invalid_task_offer_confirmation, :fields}}
   end
@@ -264,7 +265,7 @@ defmodule Ryker.Records.TaskOffers do
   end
 
   defp target(%{} = target) do
-    if Map.keys(target) |> Enum.sort() == Enum.sort(@target_fields) do
+    if Maps.exact_keys?(target, @target_fields) do
       with :ok <- reference(target.transport, :transport),
            :ok <- reference(target.conversation_ref, :conversation_ref),
            :ok <- optional_reference(target.thread_ref, :thread_ref),

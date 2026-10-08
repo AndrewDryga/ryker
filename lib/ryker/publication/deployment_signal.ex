@@ -6,6 +6,7 @@ defmodule Ryker.Publication.DeploymentSignal do
   normalized content only; arbitrary provider payloads and prose are never
   interpreted as deployment evidence.
   """
+  alias Ryker.Maps
   alias Ryker.Reference
 
   @event_type "responder.publication_lifecycle.v1"
@@ -20,7 +21,7 @@ defmodule Ryker.Publication.DeploymentSignal do
   @spec prepare(map()) :: {:ok, map()} | {:error, term()}
   def prepare(%{"event_type" => @event_type, "payload" => payload} = content)
       when map_size(content) == 2 and is_map(payload) do
-    with true <- Enum.sort(Map.keys(payload)) == Enum.sort(@payload_fields),
+    with true <- Maps.exact_keys?(payload, @payload_fields),
          :ok <- member(payload["kind"], @kinds, :kind),
          :ok <- member(payload["state"], @states, :state),
          :ok <- reference(payload["environment"], :environment, 256),

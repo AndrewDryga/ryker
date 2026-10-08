@@ -13,6 +13,7 @@ defmodule Ryker.Admission.Context do
   alias Ryker.Crypto
   alias Ryker.Episodes
   alias Ryker.Ingress
+  alias Ryker.Maps
   alias Ryker.People
   alias Ryker.Slack
   alias Ryker.UTCDateTime
@@ -245,8 +246,7 @@ defmodule Ryker.Admission.Context do
       custom_instructions person_asking repository_choices candidate_messages previous_answer
     )
 
-    present = snapshot |> Map.drop(optional) |> Map.keys()
-    Enum.sort(present) == Enum.sort(required)
+    Maps.exact_keys?(snapshot, required, optional)
   end
 
   @doc false
@@ -256,7 +256,7 @@ defmodule Ryker.Admission.Context do
           {:ok, t()} | {:error, term()}
   def restore(snapshot, %Ingress.Input{} = input, %Ingress.Inbox.Entry{} = entry, episodes)
       when is_map(episodes) do
-    with true <- is_map(snapshot) and exact_fields?(snapshot),
+    with true <- exact_fields?(snapshot),
          {:ok, slack_addressing} <- restore_slack_addressing(snapshot, input),
          {:ok, custom_instructions} <- restore_custom_instructions(snapshot, input),
          {:ok, person_asking} <- restore_person_asking(snapshot),
@@ -364,7 +364,7 @@ defmodule Ryker.Admission.Context do
 
   defp repository_choice?(%{"ref" => ref} = choice) when is_binary(ref) do
     String.trim(ref) != "" and byte_size(ref) <= 1_024 and
-      Map.keys(choice) -- ["description", "ref"] == [] and
+      Maps.exact_keys?(choice, ["ref"], ["description"]) and
       (not Map.has_key?(choice, "description") or is_binary(choice["description"]))
   end
 

@@ -8,6 +8,7 @@ defmodule Ryker.Work.DeliveryReceipt do
   delivery intents.
   """
   alias Ryker.CanonicalJSON
+  alias Ryker.Maps
   alias Ryker.Reference
 
   @fields ~w(conversation_ref delivery_ref message_ref thread_ref transport)
@@ -47,7 +48,7 @@ defmodule Ryker.Work.DeliveryReceipt do
   def fingerprint(receipt), do: CanonicalJSON.digest(receipt)
 
   defp exact_fields(receipt) do
-    if Map.keys(receipt) |> Enum.sort() == @fields,
+    if Maps.exact_keys?(receipt, @fields),
       do: :ok,
       else: {:error, {:invalid_work_delivery_receipt, :fields}}
   end

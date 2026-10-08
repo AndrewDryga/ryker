@@ -11,6 +11,7 @@ defmodule Ryker.Artifacts do
   alias Ryker.Artifacts.Artifact
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
+  alias Ryker.Maps
   alias Ryker.Repo
 
   @maximum_bytes 8 * 1_024 * 1_024
@@ -197,7 +198,7 @@ defmodule Ryker.Artifacts do
   defp prepare(attributes) do
     expected = [:data, :media_type, :name, :source_kind, :source_ref]
 
-    if Map.keys(attributes) |> Enum.sort() == expected do
+    if Maps.exact_keys?(attributes, expected) do
       with :ok <- source_kind(attributes.source_kind),
            :ok <- text(attributes.source_ref, 1_024, :source_ref),
            :ok <- name(attributes.name),

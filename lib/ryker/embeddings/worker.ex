@@ -15,6 +15,7 @@ defmodule Ryker.Embeddings.Worker do
   use Ryker.PollingWorker, lane: :embeddings, interval: :poll_interval_ms
   alias Ryker.Embeddings
   alias Ryker.Episodes
+  alias Ryker.Maps
   alias Ryker.PollingWorker
   alias Ryker.Repo
   require Logger
@@ -38,8 +39,7 @@ defmodule Ryker.Embeddings.Worker do
   def options!(configuration) when is_map(configuration) or is_list(configuration) do
     configuration = Map.new(configuration)
 
-    unless Enum.all?(@fields, &Map.has_key?(configuration, &1)) and
-             Map.keys(configuration) -- (@fields ++ @optional) == [] and
+    unless Maps.exact_keys?(configuration, @fields, @optional) and
              is_binary(configuration.url) and is_binary(configuration.model) and
              is_integer(configuration.poll_interval_ms) and configuration.poll_interval_ms > 0 do
       raise ArgumentError, "embeddings configuration has missing, unknown or invalid fields"

@@ -7,6 +7,7 @@ defmodule Ryker.Slack.Client.Views do
   number of blocks and a bounded size before it is sent, and a reply that
   does not describe a view of the same kind is a protocol error.
   """
+  alias Ryker.Maps
   alias Ryker.Slack.Client.{Fields, Transport}
 
   def publish_home(client, user_ref, view) do
@@ -46,7 +47,7 @@ defmodule Ryker.Slack.Client.Views do
   # A view Slack publishes to the App Home: exactly `blocks` and `type`, bounded.
   defp home_view(%{"blocks" => blocks, "type" => "home"} = view)
        when is_list(blocks) and length(blocks) <= 100 do
-    if Map.keys(view) |> Enum.sort() == ["blocks", "type"] and
+    if Maps.exact_keys?(view, ["blocks", "type"]) and
          Enum.all?(blocks, &is_map/1) and byte_size(Jason.encode!(view)) <= 256 * 1_024,
        do: :ok,
        else: {:error, {:invalid_slack_api_request, :home_view}}
@@ -58,7 +59,7 @@ defmodule Ryker.Slack.Client.Views do
        when is_list(blocks) and length(blocks) <= 100 do
     required = ~w(blocks callback_id close private_metadata submit title type)
 
-    if Map.keys(view) |> Enum.sort() == Enum.sort(required) and
+    if Maps.exact_keys?(view, required) and
          Enum.all?(blocks, &is_map/1) and byte_size(Jason.encode!(view)) <= 256 * 1_024,
        do: :ok,
        else: {:error, {:invalid_slack_api_request, :modal_view}}

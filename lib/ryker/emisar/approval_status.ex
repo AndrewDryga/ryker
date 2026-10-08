@@ -12,6 +12,7 @@ defmodule Ryker.Emisar.ApprovalStatus do
   """
   alias Ryker.CanonicalJSON
   alias Ryker.Emisar.{Approval, Fields, Review, RunState}
+  alias Ryker.Maps
 
   @fields ~w(action_id approval_url expires_at operation_id pack_ref remote_error request_id review run_id run_url runner_ref status)
   # One receipt carries the rationale, the command, and up to twenty recorded
@@ -41,7 +42,7 @@ defmodule Ryker.Emisar.ApprovalStatus do
 
   @spec prepare(term()) :: {:ok, map()} | {:error, term()}
   def prepare(%{} = document) do
-    with true <- Enum.sort(Map.keys(document)) == @fields,
+    with true <- Maps.exact_keys?(document, @fields),
          :ok <- Fields.reference(document["action_id"], 200),
          :ok <- https_url(document["approval_url"]),
          :ok <- Fields.timestamp(document["expires_at"]),

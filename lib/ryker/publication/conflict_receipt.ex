@@ -8,12 +8,13 @@ defmodule Ryker.Publication.ConflictReceipt do
   """
   alias Ryker.GitHub
   alias Ryker.GitObject
+  alias Ryker.Maps
 
   @fields ~w(branch_ref candidate_commit_sha github_repository observed_head_sha pull_request_number pull_request_url repository)
 
   @spec prepare(map(), String.t()) :: {:ok, map()} | {:error, term()}
   def prepare(%{} = receipt, expected_repository) do
-    with true <- Enum.sort(Map.keys(receipt)) == Enum.sort(@fields),
+    with true <- Maps.exact_keys?(receipt, @fields),
          true <- receipt["repository"] == expected_repository,
          true <- GitHub.repository_name?(receipt["github_repository"]),
          true <- GitObject.branch_ref?(receipt["branch_ref"]),

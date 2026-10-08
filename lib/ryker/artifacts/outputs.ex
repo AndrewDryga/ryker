@@ -8,6 +8,7 @@ defmodule Ryker.Artifacts.Outputs do
   """
   alias Ryker.Artifacts.OutputArtifact
   alias Ryker.Crypto
+  alias Ryker.Maps
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Work
@@ -103,7 +104,7 @@ defmodule Ryker.Artifacts.Outputs do
   end
 
   defp prepare_metadata_item(%{} = value) do
-    if Map.keys(value) |> Enum.sort() == @fields and Reference.token?(value["id"]) and
+    if Maps.exact_keys?(value, @fields) and Reference.token?(value["id"]) and
          valid_name?(value["name"]) and value["media_type"] in @media_types and
          Crypto.sha256_hex?(value["sha256"]) and is_integer(value["bytes"]) and
          value["bytes"] in 1..@maximum_bytes do

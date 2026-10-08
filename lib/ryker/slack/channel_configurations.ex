@@ -17,6 +17,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity
   alias Ryker.ConversationRef
+  alias Ryker.Maps
   alias Ryker.Memories
   alias Ryker.People
   alias Ryker.Reference
@@ -1494,7 +1495,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
   end
 
   defp exact_map(%{} = attributes, fields, boundary) do
-    if Map.keys(attributes) |> Enum.sort() == Enum.sort(fields),
+    if Maps.exact_keys?(attributes, fields),
       do: {:ok, attributes},
       else: {:error, {:invalid_channel_configuration, boundary}}
   end

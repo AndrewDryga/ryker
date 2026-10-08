@@ -5,6 +5,7 @@ defmodule Ryker.GitHub.CapabilityTools.Arguments do
   before a repository or credential is chosen.
   """
   alias Ryker.GitHub.{InertText, SourceRef}
+  alias Ryker.Maps
 
   @emoji_names ~w(+1 -1 confused eyes heart hooray laugh rocket)
   @reaction_fields ~w(emoji item_ref)
@@ -14,6 +15,9 @@ defmodule Ryker.GitHub.CapabilityTools.Arguments do
   @ci_fields ~w(attempt run_id)
   @review_fields ~w(body comments event head_sha number)
   @context_sections ~w(subject issue_comments reviews review_comments review_thread files)
+  # Every repository-bound tool takes an optional repository of the session's
+  # environment; its keys are otherwise exact.
+  @optional_repository ["repository"]
   @page_size 20
 
   @doc "The reactions set_github_reaction may add."
@@ -39,7 +43,7 @@ defmodule Ryker.GitHub.CapabilityTools.Arguments do
 
   @spec reaction_document(term()) :: {:ok, map(), String.t()} | {:error, atom()}
   def reaction_document(%{} = arguments) do
-    with true <- Map.keys(arguments) |> Enum.sort() == @reaction_fields,
+    with true <- Maps.exact_keys?(arguments, @reaction_fields),
          {:ok, source} <- SourceRef.parse(arguments["item_ref"]),
          emoji_name when emoji_name in @emoji_names <- arguments["emoji"] do
       {:ok, source, emoji_name}
@@ -53,7 +57,7 @@ defmodule Ryker.GitHub.CapabilityTools.Arguments do
 
   @spec context_document(term()) :: {:ok, map()} | {:error, :invalid_arguments}
   def context_document(%{} = arguments) do
-    with true <- Enum.sort(Map.keys(arguments)) == Enum.sort(@context_fields),
+    with true <- Maps.exact_keys?(arguments, @context_fields),
          {:ok, page} <- cursor(arguments["cursor"]),
          {:ok, limit} <- page_size(arguments["limit"]),
          section when section in @context_sections <- arguments["section"] do
@@ -67,7 +71,7 @@ defmodule Ryker.GitHub.CapabilityTools.Arguments do
 
   @spec repository_context_document(term()) :: {:ok, map()} | {:error, :invalid_arguments}
   def repository_context_document(%{} = arguments) do
-    with true <- exact_keys?(arguments, @repository_context_fields),
+    with true <- Maps.exact_keys?(arguments, @repository_context_fields, @optional_repository),
          {:ok, repository} <- repository_argument(arguments["repository"]),
          {:ok, page} <- cursor(arguments["cursor"]),
          {:ok, limit} <- page_size(arguments["limit"]),
@@ -93,7 +97,7 @@ defmodule Ryker.GitHub.CapabilityTools.Arguments do
 
   @spec ci_document(term()) :: {:ok, map()} | {:error, :invalid_arguments}
   def ci_document(%{} = arguments) do
-    with true <- exact_keys?(arguments, @ci_fields),
+    with true <- Maps.exact_keys?(arguments, @ci_fields, @optional_repository),
          {:ok, repository} <- repository_argument(arguments["repository"]),
          attempt when is_integer(attempt) and attempt > 0 <- arguments["attempt"],
          run_id when is_integer(run_id) and run_id > 0 <- arguments["run_id"] do
@@ -107,7 +111,7 @@ defmodule Ryker.GitHub.CapabilityTools.Arguments do
 
   @spec review_document(term()) :: {:ok, map()} | {:error, :invalid_arguments}
   def review_document(%{} = arguments) do
-    with true <- exact_keys?(arguments, @review_fields),
+    with true <- Maps.exact_keys?(arguments, @review_fields, @optional_repository),
          {:ok, repository} <- repository_argument(arguments["repository"]),
          body when is_binary(body) and byte_size(body) in 1..12_000 <- arguments["body"],
          comments when is_list(comments) and length(comments) <= 20 <- arguments["comments"],
@@ -137,7 +141,7 @@ defmodule Ryker.GitHub.CapabilityTools.Arguments do
 
   @spec search_document(term()) :: {:ok, map()} | {:error, :invalid_arguments}
   def search_document(%{} = arguments) do
-    with true <- exact_keys?(arguments, @search_fields),
+    with true <- Maps.exact_keys?(arguments, @search_fields, @optional_repository),
          {:ok, repository} <- repository_argument(arguments["repository"]),
          {:ok, page} <- cursor(arguments["cursor"]),
          kind when kind in ~w(issues pull_requests all) <- arguments["kind"],
@@ -166,13 +170,6 @@ defmodule Ryker.GitHub.CapabilityTools.Arguments do
   defp page_size(limit) when is_integer(limit) and limit >= 1, do: {:ok, min(limit, @page_size)}
   defp page_size(_limit), do: {:error, :invalid_arguments}
 
-  # Every repository-bound tool takes an optional repository of the session's
-  # environment; the exact key set is otherwise unchanged.
-  defp exact_keys?(arguments, fields) do
-    keys = Enum.sort(Map.keys(arguments))
-    keys == Enum.sort(fields) or keys == Enum.sort(["repository" | fields])
-  end
-
   defp repository_argument(nil), do: {:ok, nil}
 
   defp repository_argument(value) when is_binary(value) and byte_size(value) in 1..256 do
@@ -197,7 +194,7 @@ defmodule Ryker.GitHub.CapabilityTools.Arguments do
   defp review_comment?(
          %{"body" => body, "line" => line, "path" => path, "side" => side} = comment
        ) do
-    Enum.sort(Map.keys(comment)) == ~w(body line path side) and is_binary(body) and
+    Maps.exact_keys?(comment, ~w(body line path side)) and is_binary(body) and
       byte_size(body) in 1..12_000 and is_integer(line) and line > 0 and is_binary(path) and
       byte_size(path) in 1..1_024 and side in ["LEFT", "RIGHT"]
   end

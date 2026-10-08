@@ -1603,6 +1603,12 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
         Map.take(socket.assigns.params, ["show", "view", "page"])
       )
 
+    body =
+      %{__changed__: nil, channels: view.channels, saved: saved}
+      |> BehaviorPage.instructions()
+      |> Safe.to_iodata()
+      |> IO.iodata_to_binary()
+
     assign(socket,
       native: :instructions,
       page_title: "Instructions",
@@ -1611,10 +1617,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       page_state: nil,
       page_title_href: nil,
       body_lead: "",
-      body:
-        BehaviorPage.instructions(%{__changed__: nil, channels: view.channels, saved: saved})
-        |> Safe.to_iodata()
-        |> IO.iodata_to_binary(),
+      body: body,
       instructions: view,
       instruction_scope: :global,
       save_instructions: save_instructions(options, socket.assigns.viewer)
@@ -1629,6 +1632,18 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
     with {:ok, snapshot} <- options.projection.channel.(workspace, channel, params),
          {:ok, view} <- options.projection.instructions.({:channel, workspace, channel}) do
+      lead =
+        %{__changed__: nil, view: snapshot, notice: socket.assigns.channel_notice}
+        |> ChannelPage.lead()
+        |> Safe.to_iodata()
+        |> IO.iodata_to_binary()
+
+      body =
+        %{__changed__: nil, view: snapshot}
+        |> ChannelPage.render()
+        |> Safe.to_iodata()
+        |> IO.iodata_to_binary()
+
       assign(socket,
         native: :instructions,
         page_title: ChannelPage.title(snapshot),
@@ -1636,18 +1651,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
         page_back: {"All channels", "/channels"},
         page_state: ChannelPage.header_state(snapshot),
         page_title_href: ChannelPage.slack_url(snapshot),
-        body_lead:
-          ChannelPage.lead(%{
-            __changed__: nil,
-            view: snapshot,
-            notice: socket.assigns.channel_notice
-          })
-          |> Safe.to_iodata()
-          |> IO.iodata_to_binary(),
-        body:
-          ChannelPage.render(%{__changed__: nil, view: snapshot})
-          |> Safe.to_iodata()
-          |> IO.iodata_to_binary(),
+        body_lead: lead,
+        body: body,
         instructions: view,
         instruction_scope: {:channel, workspace, channel},
         save_instructions: save_instructions(options, socket.assigns.viewer)
@@ -1909,12 +1914,14 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
     case projection.repository.(ref) do
       {:ok, %{configured: %{}} = item} ->
+        question =
+          item
+          |> RepositoriesPage.refresh_question()
+          |> Map.put(:name, RepositoriesPage.name(item))
+
         assign(socket,
           settings_confirm: {"refresh-knowledge", ref},
-          knowledge_question:
-            item
-            |> RepositoriesPage.refresh_question()
-            |> Map.put(:name, RepositoriesPage.name(item)),
+          knowledge_question: question,
           repository_notice: nil
         )
 

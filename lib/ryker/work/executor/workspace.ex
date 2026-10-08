@@ -10,6 +10,7 @@ defmodule Ryker.Work.Executor.Workspace do
   document the submission builder receives.
   """
   alias Ryker.GitObject
+  alias Ryker.Maps
   alias Ryker.UTCDateTime
   alias Ryker.Work.Executor.Remote
   alias Ryker.Work.RepositorySource
@@ -264,7 +265,7 @@ defmodule Ryker.Work.Executor.Workspace do
       ["primary" | Enum.map(companions, & &1["name"])] ++ source_receipt_names(source)
 
     valid =
-      Map.keys(by_name) |> Enum.sort() == Enum.sort(expected_names) and
+      Maps.exact_keys?(by_name, expected_names) and
         primary_receipt_matches?(by_name["primary"], source, primary) and
         Enum.all?(companions, fn companion ->
           receipt = by_name[companion["name"]]

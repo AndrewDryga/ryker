@@ -13,6 +13,7 @@ defmodule Ryker.LocalRouting.Worker do
   use Ryker.PollingWorker, lane: :local_routing, interval: :poll_interval_ms
   alias Ryker.LocalRouting
   alias Ryker.LocalRouting.Endpoint
+  alias Ryker.Maps
   alias Ryker.PollingWorker
   alias Ryker.Settings
   require Logger
@@ -46,8 +47,7 @@ defmodule Ryker.LocalRouting.Worker do
   def options!(configuration) when is_map(configuration) or is_list(configuration) do
     configuration = Map.new(configuration)
 
-    unless Enum.all?(@fields, &Map.has_key?(configuration, &1)) and
-             Map.keys(configuration) -- (@fields ++ @optional) == [] do
+    unless Maps.exact_keys?(configuration, @fields, @optional) do
       raise ArgumentError, "local routing configuration has missing or unknown fields"
     end
 

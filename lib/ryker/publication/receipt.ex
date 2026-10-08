@@ -3,13 +3,14 @@ defmodule Ryker.Publication.Receipt do
   alias Ryker.CanonicalJSON
   alias Ryker.GitHub
   alias Ryker.GitObject
+  alias Ryker.Maps
 
   @fields ~w(branch_ref candidate_tree commit_sha pull_request_number pull_request_url repository)
 
   @spec prepare(map(), map(), String.t()) :: {:ok, map()} | {:error, term()}
   def prepare(receipt, review, repository)
       when is_map(receipt) and is_map(review) and is_binary(repository) do
-    with true <- Map.keys(receipt) |> Enum.sort() == @fields,
+    with true <- Maps.exact_keys?(receipt, @fields),
          true <- receipt["repository"] == repository,
          true <- receipt["candidate_tree"] == review["candidate_tree"],
          true <- receipt["commit_sha"] == review["candidate_head"],

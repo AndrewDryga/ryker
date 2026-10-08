@@ -346,7 +346,7 @@ defmodule Ryker.Ingress.WorkProfile do
   # Every repository with policies is one of the environment's, and the
   # default is among them; the others are read only.
   defp environment_policies(%{} = policies, [default | _rest] = repositories) do
-    if Map.has_key?(policies, default) and Enum.all?(Map.keys(policies), &(&1 in repositories)) do
+    if Map.has_key?(policies, default) and Maps.only_keys?(policies, repositories) do
       prepare_repository_policies(
         policies,
         Enum.filter(repositories, &Map.has_key?(policies, &1))
@@ -496,7 +496,7 @@ defmodule Ryker.Ingress.WorkProfile do
   defp class_policies(nil), do: {:ok, nil}
 
   defp class_policies(%{} = policies) do
-    if Map.keys(policies) |> Enum.sort() == Enum.sort(@work_classes) do
+    if Maps.exact_keys?(policies, @work_classes) do
       prepare_class_policies(policies)
     else
       {:error, {:invalid_work_profile, :class_policies}}

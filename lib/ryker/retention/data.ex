@@ -14,6 +14,7 @@ defmodule Ryker.Retention.Data do
   alias Ryker.Continuity
   alias Ryker.Knowledge
   alias Ryker.Learning
+  alias Ryker.Maps
   alias Ryker.Memories
   alias Ryker.Repo
   alias Ryker.Settings
@@ -1360,7 +1361,7 @@ defmodule Ryker.Retention.Data do
     switches = [:routing_examples_enabled, :work_examples_enabled]
 
     valid =
-      Map.keys(settings) |> Enum.sort() == Enum.sort(switches ++ horizons) and
+      Maps.exact_keys?(settings, switches ++ horizons) and
         Enum.all?(switches, &is_boolean(settings[&1])) and
         Enum.all?(horizons, &(is_integer(settings[&1]) and settings[&1] > 0)) and
         Settings.Retention.ordered?(settings)

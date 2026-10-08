@@ -11,6 +11,7 @@ defmodule Ryker.Behaviors.Recall do
   alias Ryker.Behaviors.Behavior
   alias Ryker.Behaviors.StandingAssignmentRun
   alias Ryker.Episodes
+  alias Ryker.Maps
   alias Ryker.Memories
   alias Ryker.Reference
   alias Ryker.Repo
@@ -229,7 +230,7 @@ defmodule Ryker.Behaviors.Recall do
     fields = [:conversation_ref, :operator_ref, :repository, :workspace_ref]
 
     if Map.get(context, :execution_mode, :live) in [:live, :shadow] and
-         (Map.keys(context) -- [:execution_mode]) |> Enum.sort() == Enum.sort(fields) and
+         Maps.exact_keys?(context, fields, [:execution_mode]) and
          Enum.all?([:conversation_ref, :workspace_ref], &Reference.valid?(context[&1])) and
          Enum.all?([:operator_ref, :repository], &optional_reference?(context[&1])) do
       {:ok, context}

@@ -8,6 +8,7 @@ defmodule Ryker.Slack.WorkControls do
   """
   alias Ryker.Adapter
   alias Ryker.Episodes
+  alias Ryker.Maps
   alias Ryker.Operator
   alias Ryker.Publication
   alias Ryker.Repo
@@ -307,7 +308,7 @@ defmodule Ryker.Slack.WorkControls do
   defp attributes(%{} = attributes, fields) do
     valid =
       Enum.all?([
-        Map.keys(attributes) |> Enum.sort() == Enum.sort(fields),
+        Maps.exact_keys?(attributes, fields),
         present_binary?(Map.get(attributes, :actor_ref)),
         present_binary?(Map.get(attributes, :request_ref)),
         present_binary?(Map.get(attributes, :work_ref)),
@@ -360,7 +361,7 @@ defmodule Ryker.Slack.WorkControls do
     options = Map.put_new(options, :work_record, WorkRecord)
     required = [:slack_api, :slack_client, :work_record]
 
-    if Map.keys(options) |> Enum.sort() == Enum.sort(required) and
+    if Maps.exact_keys?(options, required) and
          Adapter.implements?(options.work_record, build: 3) and slack_api?(options.slack_api) do
       {:ok, options}
     else

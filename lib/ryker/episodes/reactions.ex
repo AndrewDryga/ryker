@@ -16,6 +16,7 @@ defmodule Ryker.Episodes.Reactions do
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Event}
   alias Ryker.Feedback
+  alias Ryker.Maps
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Work
@@ -289,7 +290,7 @@ defmodule Ryker.Episodes.Reactions do
   defp apply_current_event(_invalid, current), do: current
 
   defp exact_fields(map, fields, field) do
-    if Map.keys(map) |> Enum.sort() == Enum.sort(fields),
+    if Maps.exact_keys?(map, fields),
       do: :ok,
       else: {:error, {:invalid_conversation_reaction, field}}
   end

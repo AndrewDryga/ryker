@@ -8,6 +8,7 @@ defmodule Ryker.Memories.Recall do
   edited while the read waited is neither disclosed nor counted.
   """
   alias Ryker.Episodes
+  alias Ryker.Maps
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Memories.MemorySearchPage
   alias Ryker.Memories.MemorySourceLink
@@ -209,7 +210,7 @@ defmodule Ryker.Memories.Recall do
     fields = [:conversation_ref, :repository, :workspace_ref]
 
     if Map.get(context, :execution_mode, :live) in [:live, :shadow] and
-         (Map.keys(context) -- [:execution_mode]) |> Enum.sort() == Enum.sort(fields) and
+         Maps.exact_keys?(context, fields, [:execution_mode]) and
          Reference.valid?(context.conversation_ref) and
          Reference.valid?(context.workspace_ref) and
          (is_nil(context.repository) or Reference.valid?(context.repository)) do

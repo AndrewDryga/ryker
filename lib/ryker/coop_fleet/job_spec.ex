@@ -11,6 +11,7 @@ defmodule Ryker.CoopFleet.JobSpec do
   """
   alias Ryker.CanonicalJSON
   alias Ryker.CoopFleet.{JobCheck, JobTemplates, Protocol}
+  alias Ryker.Maps
   alias Ryker.Work
 
   @maximum_bytes 256 * 1_024
@@ -104,20 +105,8 @@ defmodule Ryker.CoopFleet.JobSpec do
 
   def upgrade(_job), do: {:error, :invalid_coop_worker_job}
 
-  defp exact?(value, fields) when is_map(value),
-    do: Enum.sort(Map.keys(value)) == Enum.sort(fields)
-
-  defp exact?(_value, _fields), do: false
-
-  defp exact_optional?(value, required, optional) when is_map(value) do
-    keys = Map.keys(value)
-    Enum.all?(required, &(&1 in keys)) and Enum.all?(keys, &(&1 in required or &1 in optional))
-  end
-
-  defp exact_optional?(_value, _required, _optional), do: false
-
   defp identity_and_mode?(job) do
-    exact?(job, @root_fields) and
+    Maps.exact_keys?(job, @root_fields) and
       job["version"] == 2 and
       Protocol.reference?(job["job_ref"]) and
       job["mode"] in ~w(normal readonly bare) and
@@ -167,7 +156,7 @@ defmodule Ryker.CoopFleet.JobSpec do
   end
 
   defp resources?(%{} = resources) do
-    exact?(resources, ~w(cpu_millis memory_bytes pids)) and
+    Maps.exact_keys?(resources, ~w(cpu_millis memory_bytes pids)) and
       resources["cpu_millis"] in 10..128_000 and
       resources["memory_bytes"] in (6 * 1_048_576)..1_099_511_627_776 and
       resources["pids"] in 1..65_536
@@ -181,7 +170,7 @@ defmodule Ryker.CoopFleet.JobSpec do
   defp source_mode?(%{"source" => source}), do: source?(source)
 
   defp source?(%{} = source) do
-    exact?(source, @source_fields) and
+    Maps.exact_keys?(source, @source_fields) and
       repository_identity?(source) and
       match?({:ok, _binding}, Work.RepositorySource.parse_binding(source["binding"])) and
       source["binding"]["remote_identity"] == "origin" and
@@ -207,7 +196,7 @@ defmodule Ryker.CoopFleet.JobSpec do
   defp submodules?(_modules, _depth), do: false
 
   defp submodule?(module, depth) do
-    exact?(module, @submodule_fields) and
+    Maps.exact_keys?(module, @submodule_fields) and
       submodule_path?(module["path"]) and repository_identity?(module) and
       is_binary(module["commit"]) and Regex.match?(@commit, module["commit"]) and
       is_binary(module["tree"]) and Regex.match?(@commit, module["tree"]) and
@@ -235,7 +224,7 @@ defmodule Ryker.CoopFleet.JobSpec do
 
     Enum.uniq(names) == names and
       Enum.all?(companions, fn companion ->
-        exact?(companion, ~w(name source)) and
+        Maps.exact_keys?(companion, ~w(name source)) and
           Protocol.reference?(companion["name"]) and source?(companion["source"])
       end)
   end
@@ -249,7 +238,7 @@ defmodule Ryker.CoopFleet.JobSpec do
   defp egress?(_egress), do: false
 
   defp valid_egress_shape?(egress) do
-    exact?(egress, @egress_fields) and
+    Maps.exact_keys?(egress, @egress_fields) and
       egress["mode"] in ~w(open none filtered) and
       is_boolean(egress["export_destinations"]) and
       is_list(egress["rules"]) and length(egress["rules"]) <= 128
@@ -262,7 +251,7 @@ defmodule Ryker.CoopFleet.JobSpec do
   end
 
   defp rule?(%{} = rule) do
-    exact_optional?(rule, ~w(to), ~w(protocol ports types codes)) and
+    Maps.exact_keys?(rule, ~w(to), ~w(protocol ports types codes)) and
       destination?(rule["to"]) and
       optional_string?(rule, "protocol") and
       optional_list?(rule, "ports", &is_integer/1) and
@@ -275,7 +264,7 @@ defmodule Ryker.CoopFleet.JobSpec do
   defp destination?(%{} = destination) do
     selectors = ~w(domain ip cidr service provider)
 
-    exact_optional?(destination, [], selectors ++ ["features"]) and
+    Maps.exact_keys?(destination, [], selectors ++ ["features"]) and
       is_nil(destination["service"]) and
       Enum.count(selectors, &(is_binary(destination[&1]) and destination[&1] != "")) == 1 and
       Enum.all?(selectors, &(is_nil(destination[&1]) or is_binary(destination[&1]))) and
@@ -292,7 +281,7 @@ defmodule Ryker.CoopFleet.JobSpec do
   end
 
   defp limits?(%{} = limits) do
-    exact?(limits, @limit_fields) and
+    Maps.exact_keys?(limits, @limit_fields) and
       limits["max_turns"] in 1..10_000 and
       limits["max_queued_turns"] in 1..1_000 and
       limits["max_queued_bytes"] in 1..(64 * 1_024 * 1_024) and

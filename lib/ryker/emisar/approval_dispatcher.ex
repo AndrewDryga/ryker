@@ -9,6 +9,7 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
   alias Ryker.Adapter
   alias Ryker.Backoff
   alias Ryker.Emisar.Approvals
+  alias Ryker.Maps
   alias Ryker.Reference
 
   @fields [
@@ -184,7 +185,7 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
   end
 
   defp settings(%{} = options) do
-    with true <- Map.keys(options) |> Enum.sort() == Enum.sort(@fields),
+    with true <- Maps.exact_keys?(options, @fields),
          api when is_atom(api) <- options.api,
          true <- Adapter.implements?(api, wait_for_run: 3),
          presenter when is_atom(presenter) <- options.presenter,

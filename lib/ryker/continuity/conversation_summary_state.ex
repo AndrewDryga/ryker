@@ -2,6 +2,7 @@ defmodule Ryker.Continuity.ConversationSummaryState do
   @moduledoc false
   alias Ryker.CanonicalJSON
   alias Ryker.JSONSchema
+  alias Ryker.Maps
   alias Ryker.Reference
 
   @fields ~w(active_topics decisions evidence_refs goal open_loops participants purpose situation topology unresolved_questions)
@@ -59,7 +60,7 @@ defmodule Ryker.Continuity.ConversationSummaryState do
   end
 
   defp exact_fields(state) do
-    if Enum.sort(Map.keys(state)) == @fields,
+    if Maps.exact_keys?(state, @fields),
       do: :ok,
       else: {:error, {:invalid_conversation_summary, :fields}}
   end

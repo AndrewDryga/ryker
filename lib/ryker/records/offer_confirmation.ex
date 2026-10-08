@@ -7,6 +7,7 @@ defmodule Ryker.Records.OfferConfirmation do
   own copy of these checks (2026-10-04 review); each still names a refusal in
   its own words, `{tag, field}`.
   """
+  alias Ryker.Maps
   alias Ryker.Reference
   alias Ryker.UTCDateTime
 
@@ -59,7 +60,7 @@ defmodule Ryker.Records.OfferConfirmation do
   end
 
   defp fields(%{} = attributes) do
-    if Enum.sort(Map.keys(attributes)) == @fields,
+    if Maps.exact_keys?(attributes, @fields),
       do: {:ok, attributes},
       else: {:error, :fields}
   end
@@ -74,7 +75,7 @@ defmodule Ryker.Records.OfferConfirmation do
   end
 
   defp target(%{} = target) do
-    with true <- Enum.sort(Map.keys(target)) == @target_fields,
+    with true <- Maps.exact_keys?(target, @target_fields),
          :ok <- reference(target.transport, :transport),
          :ok <- reference(target.conversation_ref, :conversation_ref),
          :ok <- optional_reference(target.thread_ref, :thread_ref),

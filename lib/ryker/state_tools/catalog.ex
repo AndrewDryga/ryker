@@ -240,18 +240,18 @@ defmodule Ryker.StateTools.Catalog do
         "instruction_ref" => reference(256),
         "kind" => enum(~w(engineering incident)),
         "prompt" =>
-          text(12_000)
-          |> describe(
+          describe(
+            text(12_000),
             "The brief a person reads before confirming. Lead with the user-visible problem and the intended outcome, then the proposed change, the scope and what you will check. Name the repository you will edit and any you only read. Do not paste a forensic trace, a function-and-line inventory or an error transcript as the request, and never widen or narrow the requested scope while rewriting it; keep the exact original in source_refs."
           ),
         "repository" =>
-          JSONSchema.nullable(reference(256))
-          |> describe(
+          describe(
+            JSONSchema.nullable(reference(256)),
             "Configured target: required (non-null) for engineering; null is allowed for incident. It may be any repository of this environment: work.repository_ref or the relevant supplied work.workspace.companions[].name, whichever the task changes. Never substitute generic primary, an unrelated companion, or an unoffered path/GitHub slug. Ask for configuration only if no matching supplied target exists."
           ),
         "repository_source" =>
-          JSONSchema.nullable(Work.RepositorySource.json_schema())
-          |> describe(
+          describe(
+            JSONSchema.nullable(Work.RepositorySource.json_schema()),
             ~s(Optional source inside the task's repository that the new linked work starts from: {"kind":"default"}, {"kind":"branch","name":"<branch>"}, {"kind":"pull_request","number":<n>} or {"kind":"commit","sha":"<full lowercase object id>"}. Null means the configured default branch. It requires a non-null repository, never changes this session's workspace, and never authorizes pushing to the selected branch or pull request.)
           ),
         "source_refs" => array(reference(256), 0, 20),

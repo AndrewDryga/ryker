@@ -2,7 +2,7 @@ defmodule Ryker.CoopFleet.SourceGrants do
   @moduledoc false
   alias Ryker.CoopFleet.{ControlPlane, JobSpec}
   alias Ryker.GitHub
-  alias Ryker.{Repo, Settings}
+  alias Ryker.{Maps, Repo, Settings}
   alias Ryker.Work
   require Logger
 
@@ -89,7 +89,7 @@ defmodule Ryker.CoopFleet.SourceGrants do
            leased_sessions(worker_id, job_ref),
          true <- job["job_ref"] == job_ref,
          {:ok, ^digest} <- JobSpec.digest(job),
-         true <- Enum.sort(Map.keys(source)) == Enum.sort(@identity),
+         true <- Maps.exact_keys?(source, @identity),
          true <-
            Enum.any?(
              [job["source"] | Enum.map(job["companions"], & &1["source"])],

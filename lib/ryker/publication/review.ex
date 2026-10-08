@@ -2,6 +2,7 @@ defmodule Ryker.Publication.Review do
   @moduledoc false
   alias Ryker.CanonicalJSON
   alias Ryker.GitObject
+  alias Ryker.Maps
   alias Ryker.Reference
   alias Ryker.Wording
 
@@ -378,7 +379,7 @@ defmodule Ryker.Publication.Review do
 
   defp gate_output(%{"bytes" => bytes, "complete" => complete} = output)
        when is_integer(bytes) and bytes >= 0 and is_boolean(complete) do
-    if Map.keys(output) -- @gate_output_keys == [] and gate_command?(output["command"]) and
+    if Maps.only_keys?(output, @gate_output_keys) and gate_command?(output["command"]) and
          optional?(output["exit_code"], &is_integer/1) and
          Enum.all?(~w(incomplete lost), &optional?(output[&1], fn text -> is_binary(text) end)),
        do: :ok,

@@ -9,6 +9,7 @@ defmodule Ryker.ControlPlane.RelearnForm do
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{CSRF, RelearnPanel}
   alias Ryker.Crypto
+  alias Ryker.Maps
   alias Ryker.Operator
 
   @doc """
@@ -83,8 +84,7 @@ defmodule Ryker.ControlPlane.RelearnForm do
     keys = Enum.map(fields, &Atom.to_string/1)
 
     with true <-
-           Enum.sort(Map.keys(params) -- ["kind", "target"]) ==
-             Enum.sort(["_token", "sources" | keys]),
+           Maps.exact_keys?(params, ["_token", "sources" | keys], ["kind", "target"]),
          {:ok, versions} <- versions(params, fields),
          {:ok, sources} <- selection(sources) do
       {:ok, Map.merge(versions, %{token: token, sources: sources})}
@@ -145,7 +145,7 @@ defmodule Ryker.ControlPlane.RelearnForm do
          {:ok,
           %{"source_input_id" => id, "revision" => revision, "fingerprint" => fingerprint} =
             source} <- Jason.decode(raw),
-         true <- Enum.sort(Map.keys(source)) == ["fingerprint", "revision", "source_input_id"],
+         true <- Maps.exact_keys?(source, ["fingerprint", "revision", "source_input_id"]),
          {:ok, ^id} <- Ecto.UUID.cast(id),
          true <- is_integer(revision) and revision >= 1 and revision <= 9_223_372_036_854_775_807,
          true <- Crypto.sha256_hex?(fingerprint),

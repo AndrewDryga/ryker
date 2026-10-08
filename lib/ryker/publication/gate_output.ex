@@ -19,6 +19,7 @@ defmodule Ryker.Publication.GateOutput do
   """
   alias Ryker.Adapter
   alias Ryker.Artifacts
+  alias Ryker.Maps
   alias Ryker.Publication.Publication
   alias Ryker.Reference
 
@@ -70,7 +71,7 @@ defmodule Ryker.Publication.GateOutput do
   def prepare(%{"artifact" => artifact, "bytes" => total, "status" => "read"} = output)
       when is_integer(total) and total >= 0 do
     cond do
-      Map.keys(output) -- ~w(artifact bytes incomplete status) != [] ->
+      not Maps.exact_keys?(output, ~w(artifact bytes status), ~w(incomplete)) ->
         {:error, {:invalid_publication_gate_output, :shape}}
 
       not descriptor?(artifact) ->

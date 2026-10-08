@@ -12,6 +12,7 @@ defmodule Ryker.Work.Custody.Delivery do
   import Ryker.Work.Custody.Locks
   alias Ryker.Episodes
   alias Ryker.Lease
+  alias Ryker.Maps
   alias Ryker.Repo
   alias Ryker.Slack
   alias Ryker.UTCDateTime
@@ -156,7 +157,7 @@ defmodule Ryker.Work.Custody.Delivery do
   end
 
   defp redirect_target(%{} = target, gone_conversation_ref) do
-    with true <- Enum.sort(Map.keys(target)) == ~w(conversation_ref thread_ref transport),
+    with true <- Maps.exact_keys?(target, ~w(conversation_ref thread_ref transport)),
          :ok <- reference(target["conversation_ref"], :target),
          :ok <- optional_reference(target["thread_ref"], :target),
          :ok <- reference(target["transport"], :target),

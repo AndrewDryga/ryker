@@ -9,6 +9,7 @@ defmodule Ryker.Slack.Mentions do
   import Ryker.Slack.Renderer.Blocks, only: [escape: 1]
   alias Ryker.ConversationRef
   alias Ryker.Episodes
+  alias Ryker.Maps
   alias Ryker.Repo
   alias Ryker.Slack.Id
 
@@ -122,7 +123,7 @@ defmodule Ryker.Slack.Mentions do
   def prepare_authority(nil), do: {:ok, nil}
 
   def prepare_authority(%{} = authority) do
-    with true <- Map.keys(authority) |> Enum.sort() == @authority_fields,
+    with true <- Maps.exact_keys?(authority, @authority_fields),
          :ok <- slack_id(authority["workspace_ref"]),
          {:ok, users} <- refs(authority["users"], "slack-user", 256),
          {:ok, channels} <- channel_refs(authority["channels"], authority["workspace_ref"]),

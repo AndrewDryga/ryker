@@ -7,6 +7,7 @@ defmodule Ryker.Delivery.JSONClient do
   """
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery.HTTPClient
+  alias Ryker.Maps
   alias Ryker.Reference
 
   @fields [:base_url, :finch, :receive_timeout, :token_provider]
@@ -96,7 +97,7 @@ defmodule Ryker.Delivery.JSONClient do
   end
 
   defp normalize_attributes(%{} = attributes) do
-    if Map.keys(attributes) |> Enum.sort() == Enum.sort(@fields),
+    if Maps.exact_keys?(attributes, @fields),
       do: {:ok, attributes},
       else: {:error, {:invalid_delivery_json_client, :fields}}
   end

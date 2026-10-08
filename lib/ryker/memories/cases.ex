@@ -312,14 +312,16 @@ defmodule Ryker.Memories.Cases do
       problem: problem
     }
 
+    fingerprint =
+      content
+      |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
+      |> CanonicalJSON.digest()
+
     Map.merge(content, %{
       anchor_keys: Enum.take(anchor_keys(digest), @maximum_anchors),
       case_ref: "case:#{episode.id}",
       closed_at: episode.updated_at,
-      content_fingerprint:
-        content
-        |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
-        |> CanonicalJSON.digest(),
+      content_fingerprint: fingerprint,
       conversation_ref: episode.destination_conversation_ref,
       episode_id: episode.id,
       episode_key: episode.key,

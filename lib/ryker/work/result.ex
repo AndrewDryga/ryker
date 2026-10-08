@@ -7,6 +7,7 @@ defmodule Ryker.Work.Result do
   no-delivery result.
   """
   alias Ryker.CanonicalJSON
+  alias Ryker.Maps
   alias Ryker.Reference
   alias Ryker.UTCDateTime
 
@@ -91,7 +92,7 @@ defmodule Ryker.Work.Result do
 
   @spec prepare_document(term()) :: {:ok, t()} | {:error, term()}
   def prepare_document(%{} = document) do
-    if Map.keys(document) |> Enum.sort() == @fields do
+    if Maps.exact_keys?(document, @fields) do
       case document["delivery"] do
         "reply" ->
           new(

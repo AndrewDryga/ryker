@@ -9,6 +9,7 @@ defmodule Ryker.GitHub.Input do
   alias Ryker.CanonicalJSON
   alias Ryker.GitHub.{Binding, Payload}
   alias Ryker.Ingress
+  alias Ryker.Maps
   alias Ryker.Reference
   alias Ryker.UTCDateTime
 
@@ -176,7 +177,7 @@ defmodule Ryker.GitHub.Input do
   defp says_something(_event_name, _item), do: :ok
 
   defp exact_event(%{} = event) do
-    if Map.keys(event) |> Enum.sort() == Enum.sort(@event_fields),
+    if Maps.exact_keys?(event, @event_fields),
       do: :ok,
       else: {:error, {:invalid_github_input, :fields}}
   end

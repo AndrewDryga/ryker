@@ -6,6 +6,7 @@ defmodule Ryker.Options do
   must hold every required one. Each refusal raises `ArgumentError` in the
   caller's own words, because an operator reads them when Ryker will not start.
   """
+  alias Ryker.Maps
 
   @typedoc """
   One message for every refusal, or one each for a bad list, a bad map and
@@ -26,7 +27,7 @@ defmodule Ryker.Options do
   end
 
   def normalize!(%{} = options, known, required, messages) do
-    if Map.keys(options) -- known == [] and Enum.all?(required, &Map.has_key?(options, &1)),
+    if Maps.only_keys?(options, known) and Enum.all?(required, &Map.has_key?(options, &1)),
       do: options,
       else: raise(ArgumentError, message(messages, :map))
   end

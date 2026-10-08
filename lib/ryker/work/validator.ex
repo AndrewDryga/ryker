@@ -8,6 +8,7 @@ defmodule Ryker.Work.Validator do
   prose, infer cause, or impose alert-specific checklists.
   """
   alias Ryker.Artifacts
+  alias Ryker.Maps
   alias Ryker.Reference
   alias Ryker.Slack
   alias Ryker.UTCDateTime
@@ -569,7 +570,7 @@ defmodule Ryker.Work.Validator do
   defp execution_mode(_mode), do: {:error, {:invalid_work_validation_context, :execution_mode}}
 
   defp exact_context_fields(context) do
-    if Map.keys(context) |> Enum.sort() == @context_fields,
+    if Maps.exact_keys?(context, @context_fields),
       do: :ok,
       else: {:error, {:invalid_work_validation_context, :fields}}
   end
@@ -807,7 +808,7 @@ defmodule Ryker.Work.Validator do
     fields =
       ~w(admitted_source_tree base_commit committed_count conflict_count fork_head fork_tree goal_ids repository staged_count unstaged_count untracked_count)
 
-    with true <- Map.keys(workspace) |> Enum.sort() == fields,
+    with true <- Maps.exact_keys?(workspace, fields),
          true <-
            Enum.all?(~w(base_commit fork_head fork_tree), &Reference.valid?(workspace[&1], 256)),
          true <-

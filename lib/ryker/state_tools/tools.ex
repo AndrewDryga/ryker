@@ -2,6 +2,7 @@ defmodule Ryker.StateTools.Tools do
   @moduledoc false
   alias Ryker.CanonicalJSON
   alias Ryker.Emisar
+  alias Ryker.Maps
   alias Ryker.Records
   alias Ryker.StateTools.{ErrorCode, FixedTools}
   alias Ryker.Work
@@ -38,7 +39,7 @@ defmodule Ryker.StateTools.Tools do
 
     with true <- approval_receipts?(options) || {:error, :not_configured},
          {:ok, authority} <- emisar_authority(options),
-         :ok <- exact_fields(arguments, payload_fields),
+         true <- Maps.exact_keys?(arguments, payload_fields) || {:error, :invalid_arguments},
          {:ok, payload} <-
            Emisar.ApprovalContract.authorize(
              Map.take(arguments, payload_fields),
@@ -109,14 +110,6 @@ defmodule Ryker.StateTools.Tools do
   end
 
   defp record_operation_id(payload), do: "host:emisar:" <> CanonicalJSON.digest(payload)
-
-  defp exact_fields(arguments, fields) when is_map(arguments) do
-    if Enum.sort(Map.keys(arguments)) == Enum.sort(fields),
-      do: :ok,
-      else: {:error, :invalid_arguments}
-  end
-
-  defp exact_fields(_arguments, _fields), do: {:error, :invalid_arguments}
 
   defp emisar_authority(options) when is_list(options) do
     if Keyword.keyword?(options),

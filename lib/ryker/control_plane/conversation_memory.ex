@@ -145,6 +145,11 @@ defmodule Ryker.ControlPlane.ConversationMemory do
             "knowledge" ->
               {count, direct, oldest} = Map.get(source_counts, row.id, {0, 0, nil})
 
+              expiry =
+                row.source_dependencies
+                |> Learning.LearningSources.oldest(oldest)
+                |> expires_at()
+
               Map.merge(rendered, %{
                 available: MapSet.member?(available_ids, row.id),
                 source_count: count,
@@ -152,10 +157,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
                 direct_source_count: direct,
                 inherited_source_count: count - direct,
                 version: row.version,
-                expires_at:
-                  row.source_dependencies
-                  |> Learning.LearningSources.oldest(oldest)
-                  |> expires_at()
+                expires_at: expiry
               })
 
             "context" ->

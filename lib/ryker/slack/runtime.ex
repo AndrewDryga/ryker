@@ -507,6 +507,9 @@ defmodule Ryker.Slack.Runtime do
         workspace_ref: identity.workspace_ref
       })
 
+    incident_room_check_seconds =
+      reconcile_seconds!(configuration, :incident_room_reconcile_ms, 5 * 60 * 1_000)
+
     incident_worker =
       IncidentRoomWorker.options!(%{
         api: Client,
@@ -514,11 +517,7 @@ defmodule Ryker.Slack.Runtime do
         bot_user_ref: identity.bot_user_ref,
         client: bot_client,
         directory: Client,
-        health_check_seconds:
-          configuration
-          |> Map.get(:incident_room_reconcile_ms, 5 * 60 * 1_000)
-          |> bounded_integer!(:incident_room_reconcile_ms, 1_000..86_400_000)
-          |> then(&max(div(&1 + 999, 1_000), 1)),
+        health_check_seconds: incident_room_check_seconds,
         interval_ms: Map.get(configuration, :incident_room_interval_ms, 1_000),
         lease_seconds: 300,
         max_attempts: 8,
@@ -528,14 +527,12 @@ defmodule Ryker.Slack.Runtime do
         worker_ref: "slack-incident-room:#{identity.workspace_ref}"
       })
 
+    task_card_check_seconds = reconcile_seconds!(configuration, :task_card_reconcile_ms, 2_000)
+
     task_card_worker =
       TaskCardWorker.options!(%{
         api: Client,
-        check_interval_seconds:
-          configuration
-          |> Map.get(:task_card_reconcile_ms, 2_000)
-          |> bounded_integer!(:task_card_reconcile_ms, 1_000..86_400_000)
-          |> then(&max(div(&1 + 999, 1_000), 1)),
+        check_interval_seconds: task_card_check_seconds,
         client: bot_client,
         interval_ms: Map.get(configuration, :task_card_interval_ms, 1_000),
         lease_seconds: 300,
@@ -602,12 +599,16 @@ defmodule Ryker.Slack.Runtime do
   """
   @spec operators(map()) :: Operators.t()
   def operators(configuration) do
+    chosen = configuration |> Map.fetch!(:operators) |> references!(:operators)
+
+    workspace_admins =
+      configuration
+      |> Map.get(:workspace_admins_manage, false)
+      |> boolean!(:workspace_admins_manage)
+
     Operators.new(
-      chosen: configuration |> Map.fetch!(:operators) |> references!(:operators),
-      workspace_admins:
-        configuration
-        |> Map.get(:workspace_admins_manage, false)
-        |> boolean!(:workspace_admins_manage),
+      chosen: chosen,
+      workspace_admins: workspace_admins,
       workspace_ref: configuration.identity.workspace_ref
     )
   end
@@ -812,7 +813,7 @@ defmodule Ryker.Slack.Runtime do
   defp validate_identity!(%{} = identity) do
     expected = [:bot_ref, :bot_user_ref, :workspace_ref]
 
-    unless Map.keys(identity) |> Enum.sort() == Enum.sort(expected) and
+    unless Maps.exact_keys?(identity, expected) and
              Enum.all?(expected, &Id.valid?(Map.fetch!(identity, &1))) do
       raise ArgumentError, "Slack identity must contain exact bounded Slack IDs"
     end
@@ -854,6 +855,17 @@ defmodule Ryker.Slack.Runtime do
 
   defp bounded_integer!(_value, field, _range),
     do: raise(ArgumentError, "Slack #{field} is out of range")
+
+  # A reconcile period is configured in milliseconds and kept in whole seconds,
+  # rounded up.
+  defp reconcile_seconds!(configuration, field, default) do
+    milliseconds =
+      configuration
+      |> Map.get(field, default)
+      |> bounded_integer!(field, 1_000..86_400_000)
+
+    div(milliseconds + 999, 1_000)
+  end
 
   # Every environment that can run work, keyed by ref, exactly as the host
   # assembled it: its display name, the policy a confirmed task runs under for

@@ -13,6 +13,7 @@ defmodule Ryker.Improvement.Prompt do
   """
   alias Ryker.Improvement.Candidate
   alias Ryker.JSONSchema
+  alias Ryker.Maps
   alias Ryker.PromptDocument
   alias Ryker.Reference
   alias Ryker.Text
@@ -149,7 +150,7 @@ defmodule Ryker.Improvement.Prompt do
   @spec parse(String.t()) :: {:ok, map()} | {:error, :invalid_improvement_result}
   def parse(result) when is_binary(result) do
     with {:ok, %{} = document} <- Jason.decode(result),
-         true <- Enum.sort(Map.keys(document)) == Enum.sort(@fields),
+         true <- Maps.exact_keys?(document, @fields),
          {:ok, category} <- enum(document["category"], Candidate.categories()),
          {:ok, step} <- enum(document["step"], Candidate.steps()),
          {:ok, confidence} <- enum(document["confidence"], Candidate.confidences()),

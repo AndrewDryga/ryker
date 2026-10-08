@@ -137,21 +137,23 @@ defmodule Ryker.Slack.CapabilityTools.Resources do
     {content, content_complete} = file_content(file)
 
     try do
-      {:ok,
-       %{
-         "content" => content,
-         "content_complete" => content_complete,
-         "created" => optional_nonnegative_integer(file["created"]),
-         "filetype" => optional_resource_text(file["filetype"], 128),
-         "kind" => Atom.to_string(kind),
-         "media_type" => optional_resource_text(file["mimetype"], 128),
-         "permalink" => optional_resource_text(file["permalink"], 8_192),
-         "size" => optional_nonnegative_integer(file["size"]),
-         "source_context" => file_source_context(file, source),
-         "title" => bounded_resource_text(title, 1_024),
-         "updated" => optional_nonnegative_integer(file["updated"])
-       }
-       |> drop_nil_values()}
+      document =
+        %{
+          "content" => content,
+          "content_complete" => content_complete,
+          "created" => optional_nonnegative_integer(file["created"]),
+          "filetype" => optional_resource_text(file["filetype"], 128),
+          "kind" => Atom.to_string(kind),
+          "media_type" => optional_resource_text(file["mimetype"], 128),
+          "permalink" => optional_resource_text(file["permalink"], 8_192),
+          "size" => optional_nonnegative_integer(file["size"]),
+          "source_context" => file_source_context(file, source),
+          "title" => bounded_resource_text(title, 1_024),
+          "updated" => optional_nonnegative_integer(file["updated"])
+        }
+        |> drop_nil_values()
+
+      {:ok, document}
     rescue
       ArgumentError -> {:error, :slack_protocol_error}
     end

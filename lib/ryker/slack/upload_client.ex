@@ -7,6 +7,7 @@ defmodule Ryker.Slack.UploadClient do
   malformed API response from turning the token-bearing adapter into an SSRF
   primitive.
   """
+  alias Ryker.Maps
 
   @fields [:base_origin, :finch, :receive_timeout]
   @maximum_body_bytes 8 * 1_024 * 1_024
@@ -113,7 +114,7 @@ defmodule Ryker.Slack.UploadClient do
   end
 
   defp normalize(%{} = attributes) do
-    if Map.keys(attributes) |> Enum.sort() == Enum.sort(@fields),
+    if Maps.exact_keys?(attributes, @fields),
       do: {:ok, attributes},
       else: {:error, {:invalid_slack_upload_client, :fields}}
   end

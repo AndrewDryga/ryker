@@ -13,6 +13,7 @@ defmodule Ryker.Episodes.Command do
   triggered a wait, so unrelated queued input cannot wake it.
   """
   alias Ryker.CanonicalJSON
+  alias Ryker.Maps
   alias Ryker.Reference
   alias Ryker.UTCDateTime
 
@@ -562,7 +563,7 @@ defmodule Ryker.Episodes.Command do
            transport: transport
          } = destination
        ) do
-    exact_keys?(destination, [:conversation_ref, :thread_ref, :transport]) and
+    Maps.exact_keys?(destination, [:conversation_ref, :thread_ref, :transport]) and
       reference?(conversation) and optional_ref?(thread) and reference?(transport)
   end
 
@@ -570,12 +571,12 @@ defmodule Ryker.Episodes.Command do
 
   defp valid_owner?(%{kind: kind, ref: ref} = owner)
        when kind in [:turn, :delivery, :input, :event],
-       do: exact_keys?(owner, [:kind, :ref]) and reference?(ref)
+       do: Maps.exact_keys?(owner, [:kind, :ref]) and reference?(ref)
 
   defp valid_owner?(_owner), do: false
 
   defp valid_reaction_source?(%{kind: kind, ref: ref} = source) do
-    exact_keys?(source, [:kind, :ref]) and reference?(kind) and reference?(ref)
+    Maps.exact_keys?(source, [:kind, :ref]) and reference?(kind) and reference?(ref)
   end
 
   defp valid_reaction_source?(_source), do: false
@@ -586,13 +587,9 @@ defmodule Ryker.Episodes.Command do
   end
 
   defp valid_wait_owner?(%{kind: kind, ref: ref} = owner) when kind in [:input, :event],
-    do: exact_keys?(owner, [:kind, :ref]) and reference?(ref)
+    do: Maps.exact_keys?(owner, [:kind, :ref]) and reference?(ref)
 
   defp valid_wait_owner?(_wait), do: false
-
-  defp exact_keys?(map, expected) do
-    map_size(map) == length(expected) and Enum.all?(expected, &Map.has_key?(map, &1))
-  end
 
   defp valid_delivery_ref?(%AcceptResult{delivery: :reply, delivery_ref: ref}),
     do: reference?(ref)
@@ -617,13 +614,13 @@ defmodule Ryker.Episodes.Command do
   defp valid_next_wait?(nil), do: true
 
   defp valid_next_wait?(%{kind: :input, ref: ref, deadline_at: nil} = wait),
-    do: exact_keys?(wait, [:deadline_at, :kind, :ref]) and reference?(ref)
+    do: Maps.exact_keys?(wait, [:deadline_at, :kind, :ref]) and reference?(ref)
 
   defp valid_next_wait?(%{kind: :event, ref: ref, deadline_at: nil} = wait),
-    do: exact_keys?(wait, [:deadline_at, :kind, :ref]) and reference?(ref)
+    do: Maps.exact_keys?(wait, [:deadline_at, :kind, :ref]) and reference?(ref)
 
   defp valid_next_wait?(%{kind: :event, ref: ref, deadline_at: %DateTime{} = deadline} = wait) do
-    exact_keys?(wait, [:deadline_at, :kind, :ref]) and reference?(ref) and
+    Maps.exact_keys?(wait, [:deadline_at, :kind, :ref]) and reference?(ref) and
       UTCDateTime.utc?(deadline)
   end
 

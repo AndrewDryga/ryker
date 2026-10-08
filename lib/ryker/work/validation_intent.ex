@@ -6,7 +6,7 @@ defmodule Ryker.Work.ValidationIntent do
   precise Coop verdict and, for acceptance, the exact host result that may later
   become a delivery intent.
   """
-  alias Ryker.{CanonicalJSON, Text}
+  alias Ryker.{CanonicalJSON, Maps, Text}
   alias Ryker.Work.Result
 
   @fields ~w(result verdict violations)
@@ -50,7 +50,7 @@ defmodule Ryker.Work.ValidationIntent do
 
   @spec prepare(term()) :: {:ok, t()} | {:error, term()}
   def prepare(%{} = intent) do
-    if Map.keys(intent) |> Enum.sort() == @fields do
+    if Maps.exact_keys?(intent, @fields) do
       prepare_shape(intent)
     else
       {:error, {:invalid_work_validation_intent, :fields}}

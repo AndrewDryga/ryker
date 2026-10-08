@@ -8,6 +8,7 @@ defmodule Ryker.Ingress.Input do
   """
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
+  alias Ryker.Maps
   alias Ryker.Publication
   alias Ryker.Reference
   alias Ryker.Transcription
@@ -210,7 +211,7 @@ defmodule Ryker.Ingress.Input do
   end
 
   defp normalize_attributes(%{} = attributes) do
-    if Map.keys(attributes) |> Enum.sort() == Enum.sort(@fields),
+    if Maps.exact_keys?(attributes, @fields),
       do: {:ok, attributes},
       else: {:error, {:invalid_input, :fields}}
   end
@@ -335,7 +336,7 @@ defmodule Ryker.Ingress.Input do
   defp valid_source_capabilities?(%{} = capabilities) do
     allowed = ["post_slack_message", "publication_lifecycle", "react"]
 
-    Map.keys(capabilities) -- allowed == [] and
+    Maps.only_keys?(capabilities, allowed) and
       (not Map.has_key?(capabilities, "react") or
          valid_reaction_capability?(capabilities["react"])) and
       (not Map.has_key?(capabilities, "post_slack_message") or

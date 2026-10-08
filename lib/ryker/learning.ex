@@ -16,6 +16,7 @@ defmodule Ryker.Learning do
   alias Ryker.Learning.LearningRun
   alias Ryker.Learning.LearningSources
   alias Ryker.Learning.Observations
+  alias Ryker.Maps
   alias Ryker.People
   alias Ryker.Reference
   alias Ryker.Repo
@@ -618,7 +619,7 @@ defmodule Ryker.Learning do
   def fail(_, _, _, _), do: {:error, :invalid_learning_failure}
 
   defp valid_failure_receipt?(receipt, reason) do
-    Enum.sort(Map.keys(receipt)) == Enum.sort(@failure_receipt_fields) and
+    Maps.exact_keys?(receipt, @failure_receipt_fields) and
       Enum.all?(~w(session_id turn_id), &Reference.valid?(receipt[&1])) and
       valid_failure_target?(receipt["target"], reason) and
       valid_failure_state?(receipt, reason) and
@@ -1262,7 +1263,7 @@ defmodule Ryker.Learning do
 
   defp parse_updates(result, entries) do
     with {:ok, %{"updates" => updates, "reason" => reason} = document} <- Jason.decode(result),
-         true <- Map.keys(document) -- ~w(updates reason people) == [],
+         true <- Maps.exact_keys?(document, ~w(updates reason), ~w(people)),
          true <- people?(Map.get(document, "people", [])),
          true <- is_list(updates) and length(updates) <= @max_inputs,
          true <- Reference.text?(reason, 1200),
@@ -1288,7 +1289,7 @@ defmodule Ryker.Learning do
   defp valid_update?(_, _), do: false
 
   defp valid_action?(%{"action" => "defer", "reason" => reason} = update) do
-    Enum.sort(Map.keys(update)) == ~w(action reason source_input_ids) and
+    Maps.exact_keys?(update, ~w(action reason source_input_ids)) and
       Reference.text?(reason, 1200)
   end
 

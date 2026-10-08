@@ -9,6 +9,7 @@ defmodule Ryker.Emisar.Client do
   alias Ryker.Adapter
   alias Ryker.Crypto
   alias Ryker.Emisar.{Review, RunState}
+  alias Ryker.Maps
   alias Ryker.Reference
   alias Ryker.Text
 
@@ -200,7 +201,7 @@ defmodule Ryker.Emisar.Client do
   end
 
   defp normalize(%{} = attributes) do
-    if Map.keys(attributes) |> Enum.sort() == Enum.sort(@fields),
+    if Maps.exact_keys?(attributes, @fields),
       do: {:ok, attributes},
       else: {:error, {:invalid_emisar_client, :fields}}
   end

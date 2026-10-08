@@ -12,6 +12,7 @@ defmodule Ryker.Admission.Candidate do
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
   alias Ryker.Ingress
+  alias Ryker.Maps
 
   @preview_limit 4_096
   @relations [:same_work, :history_only]
@@ -264,7 +265,7 @@ defmodule Ryker.Admission.Candidate do
     fields =
       ~w(allowed_relations digest episode_id episode_ref first_input idle_minutes latest_input match outcome same_thread source_owner state)
 
-    with true <- Enum.sort(Map.keys(snapshot)) == Enum.sort(fields),
+    with true <- Maps.exact_keys?(snapshot, fields),
          true <- snapshot["episode_id"] == episode.id,
          true <- snapshot["episode_ref"] == opaque_ref(episode.id),
          {:ok, relations} <- restore_relations(snapshot["allowed_relations"]),
@@ -318,7 +319,7 @@ defmodule Ryker.Admission.Candidate do
   defp valid_digest?(nil), do: true
 
   defp valid_digest?(%{} = digest) do
-    Map.keys(digest) |> Enum.sort() == ~w(conversations message_count title) and
+    Maps.exact_keys?(digest, ~w(conversations message_count title)) and
       is_integer(digest["message_count"]) and is_integer(digest["conversations"]) and
       (is_nil(digest["title"]) or is_binary(digest["title"]))
   end
@@ -328,7 +329,7 @@ defmodule Ryker.Admission.Candidate do
   defp valid_preview?(nil), do: true
 
   defp valid_preview?(%{} = preview) do
-    Map.keys(preview) |> Enum.sort() == ~w(actor at automated text truncated) and
+    Maps.exact_keys?(preview, ~w(actor at automated text truncated)) and
       (is_nil(preview["actor"]) or is_binary(preview["actor"])) and
       is_boolean(preview["automated"]) and
       is_binary(preview["text"]) and is_binary(preview["at"]) and

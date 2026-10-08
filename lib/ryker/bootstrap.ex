@@ -293,9 +293,9 @@ defmodule Ryker.Bootstrap do
       do: path!(shared, "RYKER_BUNDLED_COOP_SHARED")
 
     if languages = optional(env, "RYKER_VOICE_LANGUAGES") do
-      unless languages
-             |> String.split([",", " "], trim: true)
-             |> Enum.all?(&Regex.match?(~r/\A[a-z]{2,3}\z/i, &1)) do
+      codes = String.split(languages, [",", " "], trim: true)
+
+      unless Enum.all?(codes, &Regex.match?(~r/\A[a-z]{2,3}\z/i, &1)) do
         invalid!("RYKER_VOICE_LANGUAGES", "must list two- or three-letter language codes")
       end
     end

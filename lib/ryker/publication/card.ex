@@ -1,6 +1,7 @@
 defmodule Ryker.Publication.Card do
   @moduledoc false
   alias Ryker.GitObject
+  alias Ryker.Maps
   alias Ryker.Publication.{Publication, Review}
   alias Ryker.Reference
 
@@ -60,7 +61,7 @@ defmodule Ryker.Publication.Card do
       )
       when map_size(record) == 4 do
     with true <- reference?(ref),
-         true <- is_map(payload) and Map.keys(payload) |> Enum.sort() == @review_fields,
+         true <- Maps.exact_keys?(payload, @review_fields),
          true <- Reference.text?(payload["title"], 120),
          true <- Reference.valid?(payload["repository"], 256),
          true <- GitObject.id?(payload["candidate_tree"]),
@@ -86,7 +87,7 @@ defmodule Ryker.Publication.Card do
       )
       when map_size(record) == 4 do
     with true <- reference?(ref),
-         true <- is_map(payload) and Map.keys(payload) |> Enum.sort() == @result_fields,
+         true <- Maps.exact_keys?(payload, @result_fields),
          true <- Reference.text?(payload["title"], 120),
          true <- Reference.valid?(payload["repository"], 256),
          true <- Reference.valid?(payload["branch_ref"], 256),

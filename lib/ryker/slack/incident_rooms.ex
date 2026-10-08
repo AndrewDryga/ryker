@@ -17,6 +17,7 @@ defmodule Ryker.Slack.IncidentRooms do
   alias Ryker.Crypto
   alias Ryker.Episodes
   alias Ryker.ErrorDetail
+  alias Ryker.Maps
   alias Ryker.Records
   alias Ryker.Reference
   alias Ryker.Repo
@@ -1422,7 +1423,7 @@ defmodule Ryker.Slack.IncidentRooms do
   end
 
   defp exact_map(%{} = attributes, fields, boundary) do
-    if Map.keys(attributes) |> Enum.sort() == Enum.sort(fields),
+    if Maps.exact_keys?(attributes, fields),
       do: {:ok, attributes},
       else: {:error, {invalid_boundary(boundary), :fields}}
   end
@@ -1434,7 +1435,7 @@ defmodule Ryker.Slack.IncidentRooms do
   defp invalid_boundary(:investigation), do: :invalid_incident_investigation
 
   defp policy(%{} = policy) do
-    if Map.keys(policy) |> Enum.sort() == Enum.sort(@policy_fields) do
+    if Maps.exact_keys?(policy, @policy_fields) do
       with :ok <- reference(policy.name, :policy),
            true <- Crypto.sha256_hex?(policy.digest) do
         {:ok, policy}
@@ -1450,7 +1451,7 @@ defmodule Ryker.Slack.IncidentRooms do
   defp policy(_policy), do: {:error, {:invalid_incident_room_request, :policy}}
 
   defp target(%{} = target, workspace_ref) do
-    if Map.keys(target) |> Enum.sort() == Enum.sort(@target_fields) do
+    if Maps.exact_keys?(target, @target_fields) do
       with true <- target.transport == "slack",
            :ok <- reference(target.message_ref, :message_ref),
            :ok <- optional_reference(target.thread_ref, :thread_ref),

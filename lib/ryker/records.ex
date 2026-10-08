@@ -18,6 +18,7 @@ defmodule Ryker.Records do
   alias Ryker.Emisar
   alias Ryker.Episodes
   alias Ryker.Ingress
+  alias Ryker.Maps
   alias Ryker.Records.DerivedContext
   alias Ryker.Records.InvestigationPayload
   alias Ryker.Records.Record
@@ -1080,7 +1081,7 @@ defmodule Ryker.Records do
   defp create_options(%{} = options) do
     limit = Map.get(options, :parallel_goal_limit, @maximum_working_goals)
 
-    if Map.keys(options) -- [:parallel_goal_limit] == [] and is_integer(limit) and limit in 1..3,
+    if Maps.only_keys?(options, [:parallel_goal_limit]) and is_integer(limit) and limit in 1..3,
       do: {:ok, limit},
       else: {:error, {:invalid_state_record, :parallel_goal_limit}}
   end

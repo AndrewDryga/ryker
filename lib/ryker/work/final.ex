@@ -11,6 +11,7 @@ defmodule Ryker.Work.Final do
   parser also accepts a recorded answer without it, which keeps the name.
   """
   alias Ryker.JSONSchema
+  alias Ryker.Maps
   alias Ryker.Reference
 
   @deliveries [:reply, :none]
@@ -245,7 +246,7 @@ defmodule Ryker.Work.Final do
   defp enum(_value, _allowed, field), do: {:error, {:invalid_work_final, field}}
 
   defp exact_fields(value, fields, field) do
-    if Map.keys(value) |> Enum.sort() == Enum.sort(fields),
+    if Maps.exact_keys?(value, fields),
       do: :ok,
       else: {:error, {:invalid_work_final, field}}
   end

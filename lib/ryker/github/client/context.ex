@@ -13,6 +13,7 @@ defmodule Ryker.GitHub.Client.Context do
   alias Ryker.GitHub
   alias Ryker.GitHub.Client.{Fields, Transport}
   alias Ryker.GitObject
+  alias Ryker.Maps
 
   @maximum_review_parents 4
   @context_fields ~w(limit number page repository review_root_id section subject_kind)a
@@ -30,7 +31,7 @@ defmodule Ryker.GitHub.Client.Context do
   # --- the request ----------------------------------------------------------
 
   defp context_request(%{} = request) do
-    with true <- Enum.sort(Map.keys(request)) == Enum.sort(@context_fields),
+    with true <- Maps.exact_keys?(request, @context_fields),
          :ok <- Fields.target(request.repository, request.number),
          true <- request.subject_kind in ["issue", "pull"],
          true <- request.section in @context_sections,

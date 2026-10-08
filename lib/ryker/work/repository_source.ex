@@ -22,6 +22,7 @@ defmodule Ryker.Work.RepositorySource do
   any binding that answers a different request.
   """
   alias Ryker.GitObject
+  alias Ryker.Maps
   alias Ryker.Reference
   alias Ryker.UTCDateTime
 
@@ -241,7 +242,7 @@ defmodule Ryker.Work.RepositorySource do
   end
 
   defp exact_fields(value, kind) do
-    if Map.keys(value) |> Enum.sort() == kind_fields(kind),
+    if Maps.exact_keys?(value, kind_fields(kind)),
       do: :ok,
       else: invalid(:fields)
   end

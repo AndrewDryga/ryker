@@ -66,7 +66,9 @@ rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-08.
   ISO text, ages, the moment as a person reads it), `Ryker.Backoff` (the
   doubling wait and its bounds), `Ryker.Adapter` (a configured module that
   must export functions), `Ryker.ChildProcess` (signalling, closing and
-  draining an external program's port), `Ryker.Maps.put_present/3`,
+  draining an external program's port), `Ryker.Maps` (`put_present/3`;
+  `exact_keys?/2,3`, a decoded document with exactly its keys and any of its
+  optional ones; `only_keys?/2`, none outside a list),
   `Ryker.JSONSchema` (nonblank text, nullable), `Repo.passed?/2` (a deadline
   by the database clock), `Ryker.Lease.attempts_after_release/2`,
   `Ryker.PromptDocument` (a model prompt's text and its fitting),
@@ -111,6 +113,11 @@ rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-08.
   reason, and fails on a kept copy that is no longer one. Comparing names only
   missed 43 groups until 2026-10-08, one of them the incident room card's cut
   that had drifted into a bug.
+- A copy can be an idiom no function holds. A document's exact keys were
+  checked by sorting and comparing them by hand in 115 places and by
+  subtracting a list in twenty more, and six modules kept private versions
+  that differed only in spelling; Emisar, which checks through changesets, has
+  two. All of them call `Ryker.Maps` since 2026-10-08.
 
 ## Names
 
@@ -238,8 +245,10 @@ Functions:
   several lines is bound on its own line above the call and passed by name
   (Emisar's README: no nested transform call and no multiline pipe as an
   argument), and a pipe is never the head of a `with`, `case` or `for`
-  (`NoPipeInBranchHead`). 115 nested transforms and 18 multiline pipes were
-  rewritten on 2026-10-08. A module attribute's value is no argument and keeps its
+  (`NoPipeInBranchHead`), nor over several lines an `if` condition. On
+  2026-10-08, 115 nested transforms, 18 multiline pipe arguments and 13 more
+  inside a list, map or keyword argument were rewritten, and one `if`
+  condition. A module attribute's value is no argument and keeps its
   expression.
 - A module attribute holds configuration: a limit, a version, a prefix, a
   pattern, a path. A message or other literal read in one place is written

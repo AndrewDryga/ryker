@@ -1,6 +1,7 @@
 defmodule Ryker.Settings.Validation do
   @moduledoc "Shared typed validation for settings writes; errors name fields, never values."
   import Ecto.Changeset
+  alias Ryker.Maps
   alias Ryker.Settings.Retention
   alias Ryker.Slack
 
@@ -74,7 +75,7 @@ defmodule Ryker.Settings.Validation do
       end)
 
     cond do
-      Map.keys(values) |> Enum.sort() != Enum.sort(@retention_fields) ->
+      not Maps.exact_keys?(values, @retention_fields) ->
         {:error, [{:retention, :incomplete}]}
 
       out_of_bounds != [] ->

@@ -11,6 +11,7 @@ defmodule Ryker.Behaviors.Automations do
   alias Ryker.Behaviors.StandingAssignmentRun
   alias Ryker.Episodes
   alias Ryker.Ingress
+  alias Ryker.Maps
   alias Ryker.Operator
   alias Ryker.Records
   alias Ryker.Reference
@@ -388,7 +389,7 @@ defmodule Ryker.Behaviors.Automations do
     allowed =
       if automation_kind(before) == "time", do: @time_patch_fields, else: @source_patch_fields
 
-    if Enum.all?(Map.keys(patch), &(&1 in allowed)),
+    if Maps.only_keys?(patch, allowed),
       do: :ok,
       else: {:error, :invalid_arguments}
   end
@@ -676,7 +677,7 @@ defmodule Ryker.Behaviors.Automations do
   end
 
   defp exact_fields(document, fields) do
-    if Map.keys(document) |> Enum.sort() == Enum.sort(fields),
+    if Maps.exact_keys?(document, fields),
       do: :ok,
       else: {:error, :invalid_arguments}
   end

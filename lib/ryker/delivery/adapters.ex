@@ -8,6 +8,7 @@ defmodule Ryker.Delivery.Adapters do
   """
   alias Ryker.Adapter
   alias Ryker.Delivery.Request
+  alias Ryker.Maps
   alias Ryker.Settings
 
   @fields [:binding, :message_publisher, :reaction_publisher]
@@ -55,7 +56,7 @@ defmodule Ryker.Delivery.Adapters do
     do: {:error, {:invalid_delivery_adapters, :message_update}}
 
   defp prepare_registration(transport, %{} = registration) do
-    if Map.keys(registration) |> Enum.sort() == Enum.sort(@fields) and
+    if Maps.exact_keys?(registration, @fields) and
          Settings.adapter_name?(transport) do
       with :ok <- publisher(registration.message_publisher, transport, :message),
            :ok <- publisher(registration.reaction_publisher, transport, :reaction) do

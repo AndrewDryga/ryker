@@ -1,6 +1,7 @@
 defmodule Ryker.Work.RepositoryContext do
   @moduledoc false
   alias Ryker.CanonicalJSON
+  alias Ryker.Maps
   alias Ryker.Reference
 
   @fields [:context_ref, :parallel_goal_limit, :primary_repository, :read_only_repositories]
@@ -52,7 +53,7 @@ defmodule Ryker.Work.RepositoryContext do
         repository_ref
       )
       when map_size(context) == 4 do
-    if Enum.sort(Map.keys(context)) == Enum.sort(@document_fields) do
+    if Maps.exact_keys?(context, @document_fields) do
       prepare(
         %{
           context_ref: context_ref,

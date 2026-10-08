@@ -143,7 +143,7 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
   @spec reaction_document(term(), String.t()) ::
           {:ok, map(), String.t(), String.t()} | {:error, atom()}
   def reaction_document(%{} = arguments, workspace_ref) do
-    with true <- Map.keys(arguments) |> Enum.sort() == @reaction_fields,
+    with true <- Maps.exact_keys?(arguments, @reaction_fields),
          {:ok, source_ref} <- text(arguments["message_ref"], 1_024),
          {:ok, %{kind: :message} = source} <- SourceRef.parse(source_ref, workspace_ref),
          action when action in ["add", "remove"] <- arguments["action"],
@@ -160,7 +160,7 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
 
   @spec post_document(term(), String.t()) :: {:ok, map(), map(), String.t()} | {:error, atom()}
   def post_document(%{} = arguments, workspace_ref) do
-    with true <- Map.keys(arguments) |> Enum.sort() == @post_fields,
+    with true <- Maps.exact_keys?(arguments, @post_fields),
          {:ok, destination_ref} <- text(arguments["destination_ref"], 1_024),
          {:ok, destination} <- SourceRef.parse(destination_ref, workspace_ref),
          true <- destination.kind in [:channel, :thread],

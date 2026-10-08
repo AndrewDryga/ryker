@@ -1,6 +1,6 @@
 defmodule Ryker.Learning.LearningSources do
   @moduledoc "Bounded, host-owned source receipts carried across derived conversation memory."
-  alias Ryker.{CanonicalJSON, Crypto, Repo, UTCDateTime}
+  alias Ryker.{CanonicalJSON, Crypto, Maps, Repo, UTCDateTime}
   alias Ryker.Config
   alias Ryker.Continuity
   alias Ryker.Episodes
@@ -174,7 +174,7 @@ defmodule Ryker.Learning.LearningSources do
   defp future_inputs_absent?(_roots, _scope), do: true
 
   defp valid_shape?(receipt) when is_map(receipt) do
-    Enum.sort(Map.keys(receipt)) == Enum.sort(@receipt_fields) and
+    Maps.exact_keys?(receipt, @receipt_fields) and
       Enum.all?(
         ~w(observation_id source_input_id),
         &(Ecto.UUID.cast(receipt[&1]) == {:ok, receipt[&1]})

@@ -8,6 +8,7 @@ defmodule Ryker.Emisar.ApprovalContract do
   before a durable record can be created.
   """
   alias Ryker.CanonicalJSON
+  alias Ryker.Maps
   alias Ryker.UTCDateTime
 
   @fields ~w(action_id approval_url expires_at operation_id pack_ref request_id run_id runner_ref status)
@@ -64,10 +65,9 @@ defmodule Ryker.Emisar.ApprovalContract do
   def authorize(_payload, _rpc_url, _now),
     do: {:error, {:invalid_emisar_approval, :authority}}
 
+  # The host's authority fields come all together or not at all.
   defp exact_fields(payload) do
-    keys = Map.keys(payload) |> Enum.sort()
-
-    if keys in [@fields, Enum.sort(@fields ++ @host_fields)],
+    if Maps.exact_keys?(payload, @fields) or Maps.exact_keys?(payload, @fields ++ @host_fields),
       do: :ok,
       else: {:error, {:invalid_emisar_approval, :fields}}
   end

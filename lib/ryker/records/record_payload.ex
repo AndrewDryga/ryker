@@ -3,6 +3,7 @@ defmodule Ryker.Records.RecordPayload do
   alias Ryker.CanonicalJSON
   alias Ryker.ConversationRef
   alias Ryker.Emisar
+  alias Ryker.Maps
   alias Ryker.Records.InvestigationPayload
   alias Ryker.Reference
   alias Ryker.Schedules
@@ -552,7 +553,7 @@ defmodule Ryker.Records.RecordPayload do
     do: {:error, {:invalid_state_record, field}}
 
   defp exact_fields(payload, fields) do
-    if Enum.sort(Map.keys(payload)) == Enum.sort(fields),
+    if Maps.exact_keys?(payload, fields),
       do: :ok,
       else: {:error, {:invalid_state_record, :fields}}
   end

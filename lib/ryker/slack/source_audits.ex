@@ -7,6 +7,7 @@ defmodule Ryker.Slack.SourceAudits do
   turning Ryker into a second Slack index.
   """
   alias Ryker.CanonicalJSON
+  alias Ryker.Maps
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Slack.SourceAudit
@@ -72,7 +73,7 @@ defmodule Ryker.Slack.SourceAudits do
   end
 
   defp exact_attributes(%{} = attributes) do
-    if Map.keys(attributes) |> Enum.sort() == Enum.sort(@fields),
+    if Maps.exact_keys?(attributes, @fields),
       do: {:ok, attributes},
       else: {:error, {:invalid_slack_source_audit, :fields}}
   end

@@ -18,6 +18,7 @@ defmodule Ryker.GitHub.Client do
   @behaviour Ryker.GitHub.API
   alias Ryker.Adapter
   alias Ryker.GitHub.Client.{Actions, Comments, Context, PullRequests, Search}
+  alias Ryker.Maps
 
   @fields [:http, :requester]
 
@@ -126,7 +127,7 @@ defmodule Ryker.GitHub.Client do
   end
 
   defp normalize_attributes(%{} = attributes) do
-    if Map.keys(attributes) |> Enum.sort() == Enum.sort(@fields),
+    if Maps.exact_keys?(attributes, @fields),
       do: {:ok, attributes},
       else: {:error, {:invalid_github_client, :fields}}
   end

@@ -18,6 +18,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceDocument do
     * a bound task carries its immutable identity even when its folder is gone
   """
   alias Ryker.CoopFleet.Protocol
+  alias Ryker.Maps
   alias Ryker.UTCDateTime
 
   @version 1
@@ -637,8 +638,8 @@ defmodule Ryker.CoopFleet.SessionEvidenceDocument do
     end)
   end
 
-  defp exact_fields(document, fields) when is_map(document) do
-    if Enum.sort(Map.keys(document)) == Enum.sort(fields), do: :ok, else: error(:fields)
+  defp exact_fields(document, fields) do
+    if Maps.exact_keys?(document, fields), do: :ok, else: error(:fields)
   end
 
   defp exact_version(@version), do: :ok

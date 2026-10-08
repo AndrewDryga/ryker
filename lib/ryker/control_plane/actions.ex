@@ -507,15 +507,17 @@ defmodule Ryker.ControlPlane.Actions do
        ) do
     case task_policy(task_policies, work_profile, payload["repository"]) do
       {:ok, %{name: name, digest: digest} = policy} ->
+        pinned =
+          %{name: name, digest: digest}
+          |> Maps.put_present(:environment_ref, Map.get(policy, :environment_ref))
+          |> Maps.put_present(:repository_ref, Map.get(policy, :repository_ref))
+          |> Maps.put_present(:repository_context, Map.get(policy, :repository_context))
+
         Records.TaskOffers.confirm(%{
           actor_ref: Actor.of(request.viewer),
           confirmation_ref: request.ref,
           occurred_at: DateTime.utc_now(),
-          policy:
-            %{name: name, digest: digest}
-            |> Maps.put_present(:environment_ref, Map.get(policy, :environment_ref))
-            |> Maps.put_present(:repository_ref, Map.get(policy, :repository_ref))
-            |> Maps.put_present(:repository_context, Map.get(policy, :repository_context)),
+          policy: pinned,
           record_ref: record.ref,
           target: target
         })
@@ -536,15 +538,17 @@ defmodule Ryker.ControlPlane.Actions do
     # none for the default; it runs under that repository's conversation policy.
     case Ingress.WorkProfile.policy_for(work_profile, :conversational, payload["repository"]) do
       {:ok, policy} ->
+        pinned =
+          policy
+          |> Map.take([:digest, :name, :repository_ref])
+          |> Maps.put_present(:environment_ref, policy.environment_ref)
+          |> Maps.put_present(:repository_context, Map.get(policy, :repository_context))
+
         Records.TaskOffers.confirm(%{
           actor_ref: Actor.of(request.viewer),
           confirmation_ref: request.ref,
           occurred_at: DateTime.utc_now(),
-          policy:
-            policy
-            |> Map.take([:digest, :name, :repository_ref])
-            |> Maps.put_present(:environment_ref, policy.environment_ref)
-            |> Maps.put_present(:repository_context, Map.get(policy, :repository_context)),
+          policy: pinned,
           record_ref: record.ref,
           target: target
         })

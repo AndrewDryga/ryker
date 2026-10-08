@@ -8,6 +8,7 @@ defmodule Ryker.GitHub.Client.Search do
   result is a protocol error, not a shorter list.
   """
   alias Ryker.GitHub.Client.{Fields, Transport}
+  alias Ryker.Maps
 
   @search_fields ~w(kind limit page query repository state)a
 
@@ -29,7 +30,7 @@ defmodule Ryker.GitHub.Client.Search do
   end
 
   defp search_request(%{} = request) do
-    with true <- Enum.sort(Map.keys(request)) == Enum.sort(@search_fields),
+    with true <- Maps.exact_keys?(request, @search_fields),
          :ok <- Fields.repository(request.repository),
          true <- request.kind in ["issues", "pull_requests", "all"],
          true <- request.state in ["open", "closed", "all"],

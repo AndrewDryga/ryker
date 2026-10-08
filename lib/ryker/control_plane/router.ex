@@ -20,6 +20,7 @@ defmodule Ryker.ControlPlane.Router do
   alias Ryker.ControlPlane.{PathRef, Paths, PeoplePage, RelearnForm, RelearnPanel, Viewer}
   alias Ryker.Crypto
   alias Ryker.HTTPConnection
+  alias Ryker.Maps
   alias Ryker.Observability
   alias Ryker.Operator
   alias Ryker.Slack
@@ -657,7 +658,7 @@ defmodule Ryker.ControlPlane.Router do
   defp lab_record_view(_view), do: {:error, :lab_record_view}
 
   defp lab_record_view_params(:diff, params) when is_map(params) do
-    if Map.keys(params) -- ["offset", "snapshot"] == [] do
+    if Maps.only_keys?(params, ["offset", "snapshot"]) do
       with {:ok, offset} <- diff_offset(Map.get(params, "offset", "0")),
            {:ok, digest} <- diff_digest(Map.get(params, "snapshot"), offset) do
         {:ok, %{offset: offset, snapshot_digest: digest}}
@@ -1336,7 +1337,7 @@ defmodule Ryker.ControlPlane.Router do
            String.starts_with?(String.downcase(content_type), "application/x-www-form-urlencoded"),
          {:ok, body, conn} <- read_form(conn),
          %{"_token" => token, "budget_version" => version} = form <- decode_form(body),
-         true <- Enum.sort(Map.keys(form)) == ["_token", "budget_version"],
+         true <- Maps.exact_keys?(form, ["_token", "budget_version"]),
          true <- is_binary(token) and is_binary(version),
          {number, ""} when number in 0..2_147_483_647 <- Integer.parse(version) do
       {:ok, %{token: token, version: number}, conn}
@@ -1403,7 +1404,7 @@ defmodule Ryker.ControlPlane.Router do
          {:ok, body, conn} <- read_memory_form(conn),
          %{"_token" => token, "subject" => subject, "value" => value} = form <-
            decode_form(body),
-         true <- Enum.sort(Map.keys(form)) == ["_token", "subject", "value"],
+         true <- Maps.exact_keys?(form, ["_token", "subject", "value"]),
          true <- is_binary(token) and is_binary(subject) and is_binary(value) do
       {:ok, token, subject, value, conn}
     else
@@ -1421,7 +1422,7 @@ defmodule Ryker.ControlPlane.Router do
   defp lab_form(conn, "application/x-www-form-urlencoded" <> _parameters) do
     with {:ok, body, conn} <- read_lab_form(conn),
          %{"_token" => token, "message" => message} = form <- decode_form(body),
-         true <- Enum.sort(Map.keys(form)) == ["_token", "message"],
+         true <- Maps.exact_keys?(form, ["_token", "message"]),
          true <- is_binary(token) and is_binary(message) do
       {:ok, token, message, [], conn}
     else
@@ -1432,7 +1433,7 @@ defmodule Ryker.ControlPlane.Router do
   defp lab_form(conn, "multipart/form-data" <> _parameters) do
     with {:ok, conn} <- parse_lab_multipart(conn),
          %{"_token" => token, "message" => message} = form <- conn.body_params,
-         true <- Map.keys(form) -- ["_token", "attachments", "message"] == [],
+         true <- Maps.exact_keys?(form, ["_token", "message"], ["attachments"]),
          true <- is_binary(token) and is_binary(message),
          {:ok, attachments} <- lab_uploads(Map.get(form, "attachments", [])) do
       {:ok, token, message, attachments, conn}
@@ -1503,7 +1504,7 @@ defmodule Ryker.ControlPlane.Router do
            String.starts_with?(String.downcase(content_type), "application/x-www-form-urlencoded"),
          {:ok, body, conn} <- read_form(conn),
          %{"_token" => token, "choice_index" => choice_index} = form <- decode_form(body),
-         true <- Enum.sort(Map.keys(form)) == ["_token", "choice_index"],
+         true <- Maps.exact_keys?(form, ["_token", "choice_index"]),
          {choice_index, ""} when choice_index in 0..9 <- Integer.parse(choice_index) do
       {:ok, token, choice_index, conn}
     else
@@ -1526,7 +1527,7 @@ defmodule Ryker.ControlPlane.Router do
            "choice_index" => generation,
            "publication_ref" => publication_ref
          } = form <- decode_form(body),
-         true <- Enum.sort(Map.keys(form)) == ["_token", "choice_index", "publication_ref"],
+         true <- Maps.exact_keys?(form, ["_token", "choice_index", "publication_ref"]),
          {generation, ""} when generation > 0 <- Integer.parse(generation),
          {:ok, publication_ref} <- PathRef.decode(publication_ref) do
       {:ok, token, %{generation: generation, publication_ref: publication_ref}, conn}
@@ -1541,7 +1542,7 @@ defmodule Ryker.ControlPlane.Router do
            String.starts_with?(String.downcase(content_type), "application/x-www-form-urlencoded"),
          {:ok, body, conn} <- read_form(conn),
          %{"_token" => token, "publication_ref" => publication_ref} = form <- decode_form(body),
-         true <- Enum.sort(Map.keys(form)) == ["_token", "publication_ref"],
+         true <- Maps.exact_keys?(form, ["_token", "publication_ref"]),
          {:ok, publication_ref} <- PathRef.decode(publication_ref) do
       {:ok, token, %{publication_ref: publication_ref}, conn}
     else

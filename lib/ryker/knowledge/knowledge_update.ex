@@ -1,6 +1,7 @@
 defmodule Ryker.Knowledge.KnowledgeUpdate do
   @moduledoc "Bounded proposal to maintain one topic; the host supplies ownership and sources."
   alias Ryker.JSONSchema
+  alias Ryker.Maps
   alias Ryker.Reference
 
   @fields ~w(topic_key title summary topics anchors target_ref expected_version)
@@ -8,7 +9,7 @@ defmodule Ryker.Knowledge.KnowledgeUpdate do
   def prepare(nil), do: {:ok, nil}
 
   def prepare(%{} = value) do
-    with true <- Enum.sort(Map.keys(value)) == Enum.sort(@fields),
+    with true <- Maps.exact_keys?(value, @fields),
          true <- Reference.text?(value["title"], 160),
          true <-
            is_binary(value["topic_key"]) and

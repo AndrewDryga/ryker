@@ -7,6 +7,7 @@ defmodule Ryker.Slack.ReactionEvent do
   authored by this exact configured bot identity is accepted.
   """
   alias Ryker.ConversationRef
+  alias Ryker.Maps
   alias Ryker.Reference
   alias Ryker.Slack.Timestamp
 
@@ -86,7 +87,7 @@ defmodule Ryker.Slack.ReactionEvent do
   end
 
   defp identity(%{} = identity) do
-    if Map.keys(identity) |> Enum.sort() == Enum.sort(@identity_fields) and
+    if Maps.exact_keys?(identity, @identity_fields) and
          Enum.all?(@identity_fields, &(reference(Map.fetch!(identity, &1), &1) == :ok)),
        do: :ok,
        else: {:error, {:invalid_slack_reaction_event, :identity}}

@@ -1,6 +1,6 @@
 defmodule Ryker.Records.DerivedContext do
   @moduledoc "Source custody for model-facing episode records and historical answers."
-  alias Ryker.{CanonicalJSON, Repo}
+  alias Ryker.{CanonicalJSON, Maps, Repo}
   alias Ryker.Episodes
   alias Ryker.Knowledge
   alias Ryker.Learning
@@ -222,7 +222,7 @@ defmodule Ryker.Records.DerivedContext do
   defp record_projection?(document, record) do
     # Status is host lifecycle state and may advance after the briefing freezes;
     # only immutable identity/content defines this source-backed projection.
-    Map.keys(document) -- ~w(kind payload ref status) == [] and
+    Maps.only_keys?(document, ~w(kind payload ref status)) and
       document["kind"] == record.kind and
       document["status"] in [nil | ~w(open confirmed answered dismissed superseded)] and
       is_map(record.payload) and

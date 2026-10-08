@@ -2,8 +2,8 @@ defmodule Ryker.CoopFleet.PublicationGrants do
   @moduledoc false
   alias Ryker.CoopFleet.{Command, ControlPlane, JobAuthority, Placement}
   alias Ryker.GitHub
+  alias Ryker.{Maps, Repo, Settings}
   alias Ryker.Publication
-  alias Ryker.{Repo, Settings}
   alias Ryker.Work
 
   @identity ~w(repository_ref github_repository github_repository_id)
@@ -73,8 +73,8 @@ defmodule Ryker.CoopFleet.PublicationGrants do
     body = request["request"]
     source = job && job["source"]
 
-    with true <- Enum.sort(Map.keys(request)) == Enum.sort(@request),
-         true <- is_map(body) and Enum.sort(Map.keys(body)) == Enum.sort(@body),
+    with true <- Maps.exact_keys?(request, @request),
+         true <- Maps.exact_keys?(body, @body),
          true <- is_binary(body["base_branch"]) and is_binary(body["authorization_ref"]),
          {:ok, ^session} <- JobAuthority.validate(session),
          true <- exact_job?(request, job_ref, session),

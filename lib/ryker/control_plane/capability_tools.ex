@@ -11,6 +11,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   alias Ryker.ControlPlane.{Conversation, SourcePage}
   alias Ryker.Delivery
   alias Ryker.Episodes
+  alias Ryker.Maps
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Slack
@@ -93,7 +94,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   end
 
   defp dispatch("list_slack_channels", arguments, context) do
-    with :ok <- exact_optional_fields(arguments, @list_fields),
+    with :ok <- fields(arguments, @list_fields, []),
          {:ok, kinds} <-
            enum_list(
              Map.get(arguments, "kinds", ["public_channel"]),
@@ -127,7 +128,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   end
 
   defp dispatch("search_slack", arguments, context) do
-    with :ok <- exact_required_fields(arguments, @search_fields, ["query"]),
+    with :ok <- fields(arguments, @search_fields, ["query"]),
          {:ok, query} <- text(arguments["query"], 2_048),
          {:ok, conversations} <-
            conversation_refs(Map.get(arguments, "conversation_refs", []), context),
@@ -200,7 +201,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   end
 
   defp dispatch("read_slack_source", arguments, context) do
-    with :ok <- exact_required_fields(arguments, @read_fields, ~w(source_ref view)),
+    with :ok <- fields(arguments, @read_fields, ~w(source_ref view)),
          {:ok, source_ref} <- text(arguments["source_ref"], 1_024),
          {:ok, view} <- enum(arguments["view"], ~w(surrounding thread channel document metadata)),
          {:ok, anchor_ref} <- optional_text(Map.get(arguments, "anchor_ref"), 1_024),
@@ -227,7 +228,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   end
 
   defp dispatch("set_slack_reaction", arguments, context) do
-    with :ok <- exact_required_fields(arguments, @reaction_fields, @reaction_fields),
+    with :ok <- fields(arguments, @reaction_fields, @reaction_fields),
          {:ok, action} <- enum(arguments["action"], ~w(add remove)),
          {:ok, emoji} <- emoji(arguments["emoji"]),
          {:ok, input} <- active_input(context, arguments["message_ref"]),
@@ -250,7 +251,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   end
 
   defp dispatch("post_slack_message", arguments, context) do
-    with :ok <- exact_required_fields(arguments, @post_fields, @post_fields),
+    with :ok <- fields(arguments, @post_fields, @post_fields),
          {:ok, destination_ref} <- text(arguments["destination_ref"], 1_024),
          true <- destination_ref == context.conversation_ref,
          {:ok, input} <- active_input(context, arguments["instruction_ref"]),
@@ -414,13 +415,12 @@ defmodule Ryker.ControlPlane.CapabilityTools do
     }
 
     if include_resources do
-      Map.merge(document, %{
-        "resources" =>
-          context
-          |> file_metadata()
-          |> Enum.map(&%{"kind" => "file", "source_ref" => &1.ref}),
-        "resources_complete" => true
-      })
+      resources =
+        context
+        |> file_metadata()
+        |> Enum.map(&%{"kind" => "file", "source_ref" => &1.ref})
+
+      Map.merge(document, %{"resources" => resources, "resources_complete" => true})
     else
       document
     end
@@ -811,17 +811,10 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   defp maybe_put_result(results, key, value, true), do: Map.put(results, key, value)
   defp maybe_put_result(results, _key, _value, false), do: results
 
-  defp exact_optional_fields(arguments, allowed) do
-    if Enum.all?(Map.keys(arguments), &(&1 in allowed)),
+  defp fields(arguments, allowed, required) do
+    if Maps.only_keys?(arguments, allowed) and Enum.all?(required, &Map.has_key?(arguments, &1)),
       do: :ok,
       else: {:error, :invalid_arguments}
-  end
-
-  defp exact_required_fields(arguments, allowed, required) do
-    if Enum.all?(Map.keys(arguments), &(&1 in allowed)) and
-         Enum.all?(required, &Map.has_key?(arguments, &1)),
-       do: :ok,
-       else: {:error, :invalid_arguments}
   end
 
   defp text(value, maximum) do

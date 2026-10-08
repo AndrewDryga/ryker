@@ -7,6 +7,7 @@ defmodule Ryker.Delivery.BinaryClient do
   cannot exhaust the gateway while being downloaded; see `Ryker.Delivery.HTTPClient`.
   """
   alias Ryker.Delivery.HTTPClient
+  alias Ryker.Maps
 
   @fields [:finch, :receive_timeout, :token_provider]
   @maximum_download_bytes 8 * 1_024 * 1_024
@@ -51,7 +52,7 @@ defmodule Ryker.Delivery.BinaryClient do
   end
 
   defp normalize(%{} = attributes) do
-    if Map.keys(attributes) |> Enum.sort() == Enum.sort(@fields),
+    if Maps.exact_keys?(attributes, @fields),
       do: {:ok, attributes},
       else: {:error, {:invalid_delivery_binary_client, :fields}}
   end

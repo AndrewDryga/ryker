@@ -7,6 +7,7 @@ defmodule Ryker.Slack.MintSocketTransport do
   """
   @behaviour Ryker.Slack.SocketTransport
   alias Ryker.Adapter
+  alias Ryker.Maps
 
   @fields [:handshake_timeout_ms, :http, :mint_http, :mint_websocket, :requester]
   @default_handshake_timeout_ms 10_000
@@ -270,7 +271,7 @@ defmodule Ryker.Slack.MintSocketTransport do
 
   defp valid_options?(options) do
     Enum.all?([
-      Map.keys(options) |> Enum.sort() == Enum.sort(@fields),
+      Maps.exact_keys?(options, @fields),
       requester?(Map.get(options, :requester)),
       Adapter.implements?(Map.get(options, :mint_http), connect: 4, close: 1, get_socket: 1),
       Adapter.implements?(Map.get(options, :mint_websocket),

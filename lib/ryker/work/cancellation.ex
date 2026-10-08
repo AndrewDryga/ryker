@@ -9,6 +9,7 @@ defmodule Ryker.Work.Cancellation do
   """
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
+  alias Ryker.Maps
   alias Ryker.Reference
 
   @intent_fields ~w(action cancel_ref new_turn_ref reason required_input_ref transfer_ref)
@@ -96,7 +97,7 @@ defmodule Ryker.Work.Cancellation do
 
   @spec prepare(term()) :: {:ok, intent()} | {:error, term()}
   def prepare(%{} = intent) do
-    if Map.keys(intent) |> Enum.sort() == @intent_fields do
+    if Maps.exact_keys?(intent, @intent_fields) do
       prepare_shape(intent)
     else
       {:error, {:invalid_work_cancellation, :fields}}
@@ -198,7 +199,7 @@ defmodule Ryker.Work.Cancellation do
 
   @spec prepare_receipt(term()) :: {:ok, receipt()} | {:error, term()}
   def prepare_receipt(%{"kind" => "worker_removed"} = receipt) do
-    if Map.keys(receipt) |> Enum.sort() == @removed_receipt_fields do
+    if Maps.exact_keys?(receipt, @removed_receipt_fields) do
       worker_removed_receipt(
         receipt["remote_session_id"],
         receipt["remote_turn_id"],
@@ -210,7 +211,7 @@ defmodule Ryker.Work.Cancellation do
   end
 
   def prepare_receipt(%{"kind" => "terminal_turn"} = receipt) do
-    if Map.keys(receipt) |> Enum.sort() == @terminal_receipt_fields do
+    if Maps.exact_keys?(receipt, @terminal_receipt_fields) do
       terminal_receipt(
         receipt["remote_session_id"],
         receipt["remote_turn_id"],
@@ -225,7 +226,7 @@ defmodule Ryker.Work.Cancellation do
   end
 
   def prepare_receipt(%{"kind" => "absent_turn"} = receipt) do
-    if Map.keys(receipt) |> Enum.sort() == @absent_receipt_fields do
+    if Maps.exact_keys?(receipt, @absent_receipt_fields) do
       absent_receipt(
         receipt["create_operation_ref"],
         receipt["submit_operation_ref"],

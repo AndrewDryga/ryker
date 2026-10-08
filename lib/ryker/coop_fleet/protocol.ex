@@ -8,6 +8,7 @@ defmodule Ryker.CoopFleet.Protocol do
   any durable command or event mutation can occur.
   """
   alias Ryker.Crypto
+  alias Ryker.Maps
   alias Ryker.UTCDateTime
 
   @version 2
@@ -340,14 +341,13 @@ defmodule Ryker.CoopFleet.Protocol do
   defp event(_document), do: {:error, {:invalid_coop_worker_poll, :event}}
 
   defp session_event("session_event", sequence, %{} = document) do
-    allowed = ~w(id session_id sequence turn_id type version occurred_at payload)
     required = ~w(id session_id sequence type version occurred_at)
 
     # Each refusal names its own cause: every one of them was reported as a
     # sequence mismatch, which hid what was wrong while a stall was diagnosed
     # (2026-10-04 review).
-    with :ok <- holds(Map.keys(document) -- allowed == [], :session_event_fields),
-         :ok <- holds(Enum.all?(required, &Map.has_key?(document, &1)), :session_event_fields),
+    with :ok <-
+           holds(Maps.exact_keys?(document, required, ~w(turn_id payload)), :session_event_fields),
          :ok <- reference(document["id"], 1_024, :session_event_id),
          :ok <- reference(document["session_id"], 1_024, :session_event_session_id),
          :ok <- optional_reference(document["turn_id"], 1_024, :session_event_turn_id),
@@ -417,7 +417,7 @@ defmodule Ryker.CoopFleet.Protocol do
     do: {:error, {:invalid_coop_worker_response, :event_acknowledgement}}
 
   defp exact_fields(document, fields, scope) do
-    if Enum.sort(Map.keys(document)) == Enum.sort(fields),
+    if Maps.exact_keys?(document, fields),
       do: :ok,
       else: {:error, {error_namespace(scope), scope}}
   end
@@ -553,7 +553,7 @@ defmodule Ryker.CoopFleet.Protocol do
   defp result_shape(_document), do: {:error, {:invalid_coop_worker_poll, :command_result_shape}}
 
   defp api_response?(%{"status" => status} = response) do
-    Map.keys(response) -- ~w(status headers body body_ref) == [] and
+    Maps.exact_keys?(response, ["status"], ~w(headers body body_ref)) and
       is_integer(status) and status in 200..599 and
       response_headers?(Map.get(response, "headers", %{})) and response_body?(response)
   end

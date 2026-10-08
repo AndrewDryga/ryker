@@ -1,5 +1,6 @@
 defmodule Ryker.Slack.HomeSubmission do
   @moduledoc false
+  alias Ryker.Maps
   alias Ryker.Reference
   alias Ryker.Slack.AppHomeEditor
   alias Ryker.UTCDateTime
@@ -83,7 +84,7 @@ defmodule Ryker.Slack.HomeSubmission do
   defp metadata(_value), do: :error
 
   defp input_values(values) when is_map(values) do
-    if Map.keys(values) |> Enum.sort() == ["memory_subject", "memory_value"] do
+    if Maps.exact_keys?(values, ["memory_subject", "memory_value"]) do
       with {:ok, subject} <-
              input_value(
                values,

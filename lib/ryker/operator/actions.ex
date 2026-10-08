@@ -12,6 +12,7 @@ defmodule Ryker.Operator.Actions do
   """
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
+  alias Ryker.Maps
   alias Ryker.Operator.Action
   alias Ryker.Reference
   alias Ryker.Repo
@@ -113,7 +114,7 @@ defmodule Ryker.Operator.Actions do
   end
 
   defp attributes(attributes) do
-    with true <- Map.keys(attributes) |> Enum.sort() == Enum.sort(@fields),
+    with true <- Maps.exact_keys?(attributes, @fields),
          true <- attributes.action in [:retry, :replay, :update, :discard],
          :ok <- reference(attributes.action_ref, :action_ref),
          :ok <- reference(attributes.actor_ref, :actor_ref),
