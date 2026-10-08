@@ -18,6 +18,7 @@ defmodule Ryker.Slack.Runtime do
   alias Ryker.Delivery
   alias Ryker.Episodes
   alias Ryker.ErrorDetail
+  alias Ryker.GitHub
   alias Ryker.Ingress
   alias Ryker.Memories
   alias Ryker.Options
@@ -927,7 +928,7 @@ defmodule Ryker.Slack.Runtime do
       repositories =
         Enum.map(profile.repositories, fn repository ->
           name = Map.get(environment.github_repositories, repository)
-          %{ref: repository, url: name && "https://github.com/#{name}"}
+          %{ref: repository, url: name && GitHub.repository_url(name)}
         end)
 
       %{

@@ -17,6 +17,7 @@ defmodule Ryker.Episodes.RoutingDigests do
   """
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes.{Episode, Event, Origins, RoutingDigest}
+  alias Ryker.GitHub
   alias Ryker.Ingress
   alias Ryker.Knowledge
   alias Ryker.Repo
@@ -349,20 +350,30 @@ defmodule Ryker.Episodes.RoutingDigests do
   # One thing is one identifier however it was linked (ID5, 2026-09-30): a pull request's files
   # or commits tab is the pull request, whose link also names it as #482, and a dashboard opened
   # over another time range is the same dashboard.
-  defp link_forms("https://github.com/" <> _rest = link) do
+  # A pull request or issue is linked on the GitHub Ryker is connected to
+  # (`Ryker.GitHub.web_url/0`), github.com or an enterprise's.
+  defp link_forms(link) do
+    web = GitHub.web_url()
+
+    if String.starts_with?(link, web <> "/"),
+      do: github_link_forms(link, web),
+      else: page_link_forms(link)
+  end
+
+  defp github_link_forms(link, web) do
     case Regex.run(
-           ~r{\Ahttps://github\.com/([^/?#]+/[^/?#]+)/(pull|issues)/(\d+)(?=[/?#]|\z)},
+           ~r{\A#{Regex.escape(web)}/([^/?#]+/[^/?#]+)/(pull|issues)/(\d+)(?=[/?#]|\z)},
            link
          ) do
       [_, repository, kind, number] ->
-        ["https://github.com/#{String.downcase(repository)}/#{kind}/#{number}", "##{number}"]
+        ["#{web}/#{String.downcase(repository)}/#{kind}/#{number}", "##{number}"]
 
       nil ->
         [link]
     end
   end
 
-  defp link_forms(link) do
+  defp page_link_forms(link) do
     uri = URI.parse(link)
 
     with query when is_binary(query) <- uri.query,

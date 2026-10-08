@@ -71,7 +71,9 @@ Open the setup URL printed by the installer (`/setup`). It leads through six req
 at a time:
 
 1. connect and verify Slack;
-2. connect and verify the GitHub App;
+2. connect and verify the GitHub App: github.com's, or a GitHub Enterprise one given by its API
+   URL (`https://<host>/api/v3` for Enterprise Server, `https://api.<name>.ghe.com` for
+   Enterprise Cloud), and every link, git remote and pull request is then on that host;
 3. import selected repositories, or add every repository available to the App;
 4. invite Ryker to a Slack channel;
 5. choose that channel’s environment; and

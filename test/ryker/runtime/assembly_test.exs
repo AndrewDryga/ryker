@@ -144,6 +144,8 @@ defmodule Ryker.Runtime.AssemblyTest do
                :event_waits,
                :execution_mode,
                :github,
+               :github_api_url,
+               :github_web_url,
                :improvement,
                :learning,
                :publication,

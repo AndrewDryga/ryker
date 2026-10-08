@@ -58,7 +58,7 @@ defmodule Ryker.CoopFleet.ManagedSources do
           github_repository: github_repository,
           repository_id: repository_id,
           token: token,
-          remote: "https://github.com/#{github_repository}.git"
+          remote: "#{GitHub.web_url()}/#{github_repository}.git"
         },
         base_branch,
         requested,
@@ -407,7 +407,7 @@ defmodule Ryker.CoopFleet.ManagedSources do
            repository_ref: public_ref(full_name),
            github_repository: full_name,
            repository_id: id,
-           remote: "https://github.com/#{full_name}.git",
+           remote: "#{GitHub.web_url()}/#{full_name}.git",
            token: nil
          }}
 
@@ -430,7 +430,7 @@ defmodule Ryker.CoopFleet.ManagedSources do
              repository_ref: ref,
              github_repository: repository,
              repository_id: id,
-             remote: "https://github.com/#{repository}.git",
+             remote: "#{GitHub.web_url()}/#{repository}.git",
              token: token
            }}
 
@@ -667,7 +667,7 @@ defmodule Ryker.CoopFleet.ManagedSources do
   defp submodule_repository(parent, url) do
     url =
       if String.starts_with?(url, ["../", "./"]),
-        do: URI.merge("https://github.com/#{parent}.git/", url) |> URI.to_string(),
+        do: URI.merge("#{GitHub.web_url()}/#{parent}.git/", url) |> URI.to_string(),
         else: url
 
     case URI.new(url) do
@@ -687,9 +687,11 @@ defmodule Ryker.CoopFleet.ManagedSources do
             do: binary_part(path, 0, byte_size(path) - 4),
             else: path
 
-        if String.downcase(host) == "github.com" and
+        web = URI.parse(GitHub.web_url())
+
+        if String.downcase(host) == web.host and
              {scheme, port, userinfo} in [
-               {"https", 443, nil},
+               {"https", web.port, nil},
                {"ssh", nil, "git"},
                {"ssh", 22, "git"}
              ] and
@@ -870,7 +872,7 @@ defmodule Ryker.CoopFleet.ManagedSources do
       {"GIT_TEMPLATE_DIR", "/dev/null"},
       {"GIT_TERMINAL_PROMPT", "0"},
       {"GIT_CONFIG_COUNT", if(token, do: "1", else: "0")},
-      {"GIT_CONFIG_KEY_0", "http.https://github.com/.extraheader"},
+      {"GIT_CONFIG_KEY_0", "http.#{GitHub.web_url()}/.extraheader"},
       {"GIT_CONFIG_VALUE_0", if(token, do: git_authorization(token))}
     ])
   end

@@ -8,6 +8,7 @@ defmodule Ryker.GitHub.Client.PullRequests do
   exact refs and head SHA, a github.com pull URL, and a merge SHA and time
   exactly when it merged.
   """
+  alias Ryker.GitHub
   alias Ryker.GitHub.Client.{Checks, Fields, Transport}
   alias Ryker.GitObject
 
@@ -36,7 +37,7 @@ defmodule Ryker.GitHub.Client.PullRequests do
          "checks_passed" => checks.passed,
          "checks_state" => checks.state,
          "checks_total" => checks.total,
-         "checks_url" => "https://github.com/#{repository}/pull/#{number}/checks"
+         "checks_url" => "#{GitHub.web_url()}/#{repository}/pull/#{number}/checks"
        })}
     end
   end
@@ -183,8 +184,10 @@ defmodule Ryker.GitHub.Client.PullRequests do
   end
 
   defp github_pull_url?(value) when is_binary(value) and byte_size(value) <= 2_048 do
+    web_host = GitHub.web_host()
+
     case URI.new(value) do
-      {:ok, %URI{scheme: "https", host: "github.com", path: path}} ->
+      {:ok, %URI{scheme: "https", host: ^web_host, path: path}} ->
         is_binary(path) and
           Regex.match?(~r/\A\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9][0-9]*\z/, path)
 

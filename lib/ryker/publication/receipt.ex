@@ -2,6 +2,7 @@ defmodule Ryker.Publication.Receipt do
   @moduledoc false
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
+  alias Ryker.GitHub
   alias Ryker.GitObject
 
   @fields ~w(branch_ref candidate_tree commit_sha pull_request_number pull_request_url repository)
@@ -36,8 +37,10 @@ defmodule Ryker.Publication.Receipt do
   # write only to the repository its grant names, and a renamed repository's
   # link names it as it is now.
   defp pull_url?(value, number) when is_binary(value) and byte_size(value) <= 2_048 do
+    web_host = GitHub.web_host()
+
     case URI.new(value) do
-      {:ok, %URI{scheme: "https", host: "github.com", path: path, query: nil, fragment: nil}}
+      {:ok, %URI{scheme: "https", host: ^web_host, path: path, query: nil, fragment: nil}}
       when is_binary(path) ->
         Regex.match?(~r/\A\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/#{number}\z/, path)
 

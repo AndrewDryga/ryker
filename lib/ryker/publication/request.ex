@@ -221,8 +221,10 @@ defmodule Ryker.Publication.Request do
   end
 
   defp github_pull_url?(value, number) when is_binary(value) and byte_size(value) <= 2_048 do
+    web_host = GitHub.web_host()
+
     case URI.new(value) do
-      {:ok, %URI{scheme: "https", host: "github.com", path: path}} ->
+      {:ok, %URI{scheme: "https", host: ^web_host, path: path}} ->
         is_binary(path) and String.ends_with?(path, "/pull/#{number}") and
           Regex.match?(~r/\A\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9][0-9]*\z/, path)
 

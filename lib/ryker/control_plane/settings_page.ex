@@ -25,6 +25,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
   alias Ryker.ControlPlane.{RunningSystem, SettingsEditor, SettingsRows, SettingsSections}
   alias Ryker.ControlPlane.SetupPage
   alias Ryker.ControlPlane.{SlackMarkdown, WebhookPreview}
+  alias Ryker.GitHub
   alias Ryker.Settings
   alias Ryker.Slack
   alias Ryker.Work
@@ -1039,14 +1040,9 @@ defmodule Ryker.ControlPlane.SettingsPage do
   """
   @spec app_install_url(String.t() | nil, String.t()) :: String.t()
   def app_install_url(api_url, slug) do
-    case URI.parse(api_url || "") do
-      %URI{scheme: "https", host: host, port: port}
-      when is_binary(host) and host != "api.github.com" ->
-        URI.to_string(%URI{scheme: "https", host: host, port: port}) <>
-          "/github-apps/#{slug}/installations/new"
-
-      _github_com ->
-        "https://github.com/apps/#{slug}/installations/new"
+    case GitHub.web_url(api_url) do
+      "https://github.com" -> "https://github.com/apps/#{slug}/installations/new"
+      enterprise -> enterprise <> "/github-apps/#{slug}/installations/new"
     end
   end
 

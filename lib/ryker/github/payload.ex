@@ -10,9 +10,8 @@ defmodule Ryker.GitHub.Payload do
   The API links go first; then the longest text is cut until the payload
   fits. The same payload is always cut the same way.
   """
-  alias Ryker.{CanonicalJSON, Text}
+  alias Ryker.{CanonicalJSON, GitHub, Text}
 
-  @api "https://api.github.com/"
   # Text this short is left whole; a payload that still does not fit is refused.
   @shortest_cut 1_024
 
@@ -29,8 +28,10 @@ defmodule Ryker.GitHub.Payload do
   defp without_api_links(list) when is_list(list), do: Enum.map(list, &without_api_links/1)
   defp without_api_links(value), do: value
 
-  defp api_link?(key, value) when is_binary(key) and is_binary(value),
-    do: (key == "url" or String.ends_with?(key, "_url")) and String.starts_with?(value, @api)
+  defp api_link?(key, value) when is_binary(key) and is_binary(value) do
+    (key == "url" or String.ends_with?(key, "_url")) and
+      String.starts_with?(value, GitHub.api_url())
+  end
 
   defp api_link?(_key, _value), do: false
 

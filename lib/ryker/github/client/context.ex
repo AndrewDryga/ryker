@@ -10,6 +10,7 @@ defmodule Ryker.GitHub.Client.Context do
   request, so a thread never silently loses its context. Coverage says whether
   the provider page was complete.
   """
+  alias Ryker.GitHub
   alias Ryker.GitHub.Client.{Fields, Transport}
   alias Ryker.GitObject
 
@@ -388,7 +389,7 @@ defmodule Ryker.GitHub.Client.Context do
 
   defp read_review_parent(client, request, id) do
     path = "/repos/#{request.repository}/pulls/comments/#{id}"
-    subject_url = "https://api.github.com/repos/#{request.repository}/pulls/#{request.number}"
+    subject_url = "#{GitHub.api_url()}repos/#{request.repository}/pulls/#{request.number}"
 
     with {:ok, response} <- Transport.request(client, :get, path, nil) do
       case response do

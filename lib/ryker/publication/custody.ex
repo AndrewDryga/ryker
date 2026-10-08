@@ -13,6 +13,7 @@ defmodule Ryker.Publication.Custody do
   alias Ryker.CoopFleet
   alias Ryker.Delivery
   alias Ryker.Episodes
+  alias Ryker.GitHub
   alias Ryker.Lease
   alias Ryker.Publication.{Card, ConflictReceipt, FixLoop, Followup, Followups}
   alias Ryker.Publication.{GateOutput, Publication, Receipt, Review}
@@ -1537,7 +1538,8 @@ defmodule Ryker.Publication.Custody do
   defp transaction_result({:error, reason}), do: {:error, reason}
 
   defp github_repository!(url) do
-    %URI{host: "github.com", path: path} = URI.parse(url)
+    web_host = GitHub.web_host()
+    %URI{host: ^web_host, path: path} = URI.parse(url)
     [owner, repository, "pull", _number] = String.split(String.trim_leading(path, "/"), "/")
     "#{owner}/#{repository}"
   end

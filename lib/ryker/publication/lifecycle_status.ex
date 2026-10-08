@@ -1,5 +1,6 @@
 defmodule Ryker.Publication.LifecycleStatus do
   @moduledoc false
+  alias Ryker.GitHub
   alias Ryker.GitObject
   alias Ryker.Reference
 
@@ -51,8 +52,10 @@ defmodule Ryker.Publication.LifecycleStatus do
   end
 
   defp github_url(value) when is_binary(value) and byte_size(value) <= 2_048 do
+    web_host = GitHub.web_host()
+
     case URI.new(value) do
-      {:ok, %URI{scheme: "https", host: "github.com", path: path}} ->
+      {:ok, %URI{scheme: "https", host: ^web_host, path: path}} ->
         is_binary(path) and path != ""
 
       _invalid ->

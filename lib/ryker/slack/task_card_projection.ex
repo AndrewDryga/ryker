@@ -7,6 +7,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   """
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
+  alias Ryker.GitHub
   alias Ryker.Publication
   alias Ryker.Records
   alias Ryker.Repo
@@ -205,7 +206,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   # publication receipt recorded; a display label never becomes a URL.
   defp repository_url(%Publication.Publication{github_repository: repository})
        when is_binary(repository),
-       do: "https://github.com/#{repository}"
+       do: GitHub.repository_url(repository)
 
   defp repository_url(_publication), do: nil
 

@@ -77,8 +77,10 @@ defmodule Ryker.Runtime.Assembly do
   # Published beside the runtimes: read by whoever asks, started by nobody.
   # `integrations_left_out` names each enabled integration, Emisar account and
   # webhook source this configuration could not start, with why, for the
-  # Integrations state.
-  @published_facts [:execution_mode, :integrations_left_out]
+  # Integrations state. `github_web_url` is the web address links, remotes and
+  # pull requests are on, `github_api_url` the API root a payload's API links
+  # start with (`Ryker.GitHub`).
+  @published_facts [:execution_mode, :github_api_url, :github_web_url, :integrations_left_out]
   @managed_keys Enum.sort(Keyword.keys(@runtimes) ++ @published_facts)
 
   @spec runtimes() :: [{atom(), module()}]
@@ -169,7 +171,9 @@ defmodule Ryker.Runtime.Assembly do
       work && Map.put(work, :connected, %{github: not is_nil(github), slack: not is_nil(slack)})
 
     %{
-      execution_mode: Defaults.execution()
+      execution_mode: Defaults.execution(),
+      github_api_url: GitHub.api_root(settings.github.api_url),
+      github_web_url: GitHub.web_url(settings.github.api_url)
     }
     |> put_optional(:work, work)
     |> put_optional(:admission, admission)

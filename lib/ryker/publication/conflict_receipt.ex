@@ -6,6 +6,7 @@ defmodule Ryker.Publication.ConflictReceipt do
   Ryker App. Custody then revalidates this bounded receipt before using its
   observed head as the operator update's compare-and-swap fence.
   """
+  alias Ryker.GitHub
   alias Ryker.GitObject
 
   @fields ~w(branch_ref candidate_commit_sha github_repository observed_head_sha pull_request_number pull_request_url repository)
@@ -40,6 +41,6 @@ defmodule Ryker.Publication.ConflictReceipt do
 
   defp exact_pull_url?(receipt) do
     receipt["pull_request_url"] ==
-      "https://github.com/#{receipt["github_repository"]}/pull/#{receipt["pull_request_number"]}"
+      "#{GitHub.web_url()}/#{receipt["github_repository"]}/pull/#{receipt["pull_request_number"]}"
   end
 end

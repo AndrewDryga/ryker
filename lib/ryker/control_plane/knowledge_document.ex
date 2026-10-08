@@ -12,6 +12,7 @@ defmodule Ryker.ControlPlane.KnowledgeDocument do
   is the title of the row that holds it, so it is not repeated inside.
   """
   alias Ryker.ControlPlane.SlackMarkdown
+  alias Ryker.GitHub
 
   @heading ~r/\A(\#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*\z/u
   @fence ~r/\A[ \t]*```/u
@@ -92,7 +93,7 @@ defmodule Ryker.ControlPlane.KnowledgeDocument do
        when is_binary(repository) and is_binary(commit) do
     kind = if String.ends_with?(path, "/"), do: "tree", else: "blob"
     path = path |> String.trim_leading("./") |> String.trim_leading("/")
-    "[#{label}](https://github.com/#{repository}/#{kind}/#{commit}/#{URI.encode(path)})"
+    "[#{label}](#{GitHub.web_url()}/#{repository}/#{kind}/#{commit}/#{URI.encode(path)})"
   end
 
   defp link(_match, label, _path, _source), do: label

@@ -430,7 +430,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   end
 
   defp commit_href(%{github_repository: repository}, commit) when is_binary(repository),
-    do: "https://github.com/#{repository}/commit/#{commit}"
+    do: "#{GitHub.web_url()}/#{repository}/commit/#{commit}"
 
   defp commit_href(_repository, _commit), do: nil
 
@@ -773,7 +773,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
         <dl class="kit-facts">
           <.fact :if={@repository[:github_repository]} label="Repository">
             <a
-              href={"https://github.com/" <> @repository.github_repository}
+              href={GitHub.repository_url(@repository.github_repository)}
               target="_blank"
               rel="noopener noreferrer"
             >{@repository.github_repository}</a>

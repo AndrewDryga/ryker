@@ -250,7 +250,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
       get_in(github, ["comment", "html_url"]) || get_in(github, ["review", "html_url"]) ||
         get_in(github, ["issue", "html_url"]) || get_in(github, ["pull_request", "html_url"])
 
-    if is_binary(url) and String.starts_with?(url, "https://github.com/"),
+    if is_binary(url) and String.starts_with?(url, GitHub.web_url() <> "/"),
       do: %{href: url, label: "Open in GitHub"}
   end
 
@@ -582,7 +582,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   defp github_comment_link(repository, number, comment_id, path, anchor) do
     if github_repository?(repository) and is_integer(number) and is_integer(comment_id) do
       %{
-        href: "https://github.com/#{repository}/#{path}/#{number}##{anchor}#{comment_id}",
+        href: "#{GitHub.web_url()}/#{repository}/#{path}/#{number}##{anchor}#{comment_id}",
         label: "Open in GitHub",
         transport: "GitHub"
       }
@@ -592,7 +592,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   defp github_review_link(repository, number, review_id) do
     if github_repository?(repository) and is_integer(number) and is_integer(review_id) do
       %{
-        href: "https://github.com/#{repository}/pull/#{number}#pullrequestreview-#{review_id}",
+        href: "#{GitHub.web_url()}/#{repository}/pull/#{number}#pullrequestreview-#{review_id}",
         label: "Open in GitHub",
         transport: "GitHub"
       }

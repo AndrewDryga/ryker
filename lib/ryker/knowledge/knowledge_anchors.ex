@@ -1,6 +1,7 @@
 defmodule Ryker.Knowledge.KnowledgeAnchors do
   @moduledoc "Source-backed identity clues, never authority or a uniqueness guarantee."
   alias Ryker.CanonicalJSON
+  alias Ryker.GitHub
 
   @urls ~r{https?://[^\s<>|"`]+}u
   @uuids ~r/\b[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\b/u
@@ -22,7 +23,7 @@ defmodule Ryker.Knowledge.KnowledgeAnchors do
 
     cond do
       github_subject?(uri) ->
-        "https://github.com" <> (uri.path |> String.trim_trailing("/") |> String.downcase())
+        GitHub.web_url() <> (uri.path |> String.trim_trailing("/") |> String.downcase())
 
       slack_message?(uri) ->
         "https://" <> uri.host <> uri.path
@@ -32,8 +33,13 @@ defmodule Ryker.Knowledge.KnowledgeAnchors do
     end
   end
 
-  defp github_subject?(%URI{scheme: "https", host: "github.com", userinfo: nil, port: 443} = uri),
-    do: Regex.match?(~r{\A/[^/]+/[^/]+/(?:pull|issues)/[0-9]+/?\z}, uri.path || "")
+  # A pull request or issue on the GitHub Ryker is connected to.
+  defp github_subject?(%URI{scheme: "https", userinfo: nil} = uri) do
+    web = URI.parse(GitHub.web_url())
+
+    {uri.host, uri.port} == {web.host, web.port} and
+      Regex.match?(~r{\A/[^/]+/[^/]+/(?:pull|issues)/[0-9]+/?\z}, uri.path || "")
+  end
 
   defp github_subject?(_), do: false
 
