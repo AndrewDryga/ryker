@@ -30,6 +30,33 @@ defmodule Ryker.PromptDocument do
     ])
   end
 
+  @doc """
+  `context` made smaller by each of `steps` in turn until the prompt of
+  `instructions` and `context` fits in `max_bytes` once encoded. A step that
+  changes nothing more is done with, whether or not the prompt fits yet.
+  """
+  @spec fit(term(), map(), pos_integer(), [(map() -> map())]) :: map()
+  def fit(instructions, context, max_bytes, steps),
+    do: Enum.reduce(steps, context, &until_fits(instructions, &2, max_bytes, &1))
+
+  @doc "Whether the prompt of `instructions` and `context` is at most `max_bytes` once encoded."
+  @spec fits?(term(), map(), pos_integer()) :: boolean()
+  def fits?(instructions, context, max_bytes) do
+    encoded = CanonicalJSON.encode!(%{"instructions" => instructions, "context" => context})
+    byte_size(encoded) <= max_bytes
+  end
+
+  defp until_fits(instructions, context, max_bytes, step) do
+    if fits?(instructions, context, max_bytes),
+      do: context,
+      else: smaller(instructions, context, max_bytes, step, step.(context))
+  end
+
+  defp smaller(_instructions, context, _max_bytes, _step, context), do: context
+
+  defp smaller(instructions, _context, max_bytes, step, next),
+    do: until_fits(instructions, next, max_bytes, step)
+
   @doc "`context` with `note` in its `\"omitted\"` list, once."
   @spec omit(%{String.t() => term()}, String.t()) :: %{String.t() => term()}
   def omit(context, note) do

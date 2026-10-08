@@ -1,5 +1,6 @@
 defmodule Ryker.Slack.HomeInteraction do
   @moduledoc false
+  alias Ryker.Reference
   alias Ryker.UTCDateTime
 
   @actions %{
@@ -23,7 +24,6 @@ defmodule Ryker.Slack.HomeInteraction do
     "ryker_home_show_dashboard" => {:show_dashboard, "home-collection:"},
     "ryker_home_update_publication" => {:update_publication, "publication-recovery:"}
   }
-  @reference ~r/\A[A-Za-z0-9_.:-]{1,256}\z/
   @action_instance ~r/\A(.+)__i([0-9]+)\z/
   @resource_prefixes ~w(behavior: episode: incident-room: memory: memory-review: publication: ryker-work: schedule: task-card:)
 
@@ -89,11 +89,11 @@ defmodule Ryker.Slack.HomeInteraction do
         %DateTime{} = occurred_at
       ) do
     with {action, prefix} <- action_route(action_id),
-         true <- reference?(envelope_ref),
-         true <- reference?(actor_ref),
-         true <- reference?(workspace_ref),
-         true <- reference?(view_ref),
-         true <- reference?(resource_ref),
+         true <- Reference.token?(envelope_ref),
+         true <- Reference.token?(actor_ref),
+         true <- Reference.token?(workspace_ref),
+         true <- Reference.token?(view_ref),
+         true <- Reference.token?(resource_ref),
          true <- resource?(resource_ref, prefix),
          true <- optional_reference?(payload["trigger_id"]),
          true <- UTCDateTime.utc?(occurred_at) do
@@ -102,7 +102,7 @@ defmodule Ryker.Slack.HomeInteraction do
          action: action,
          actor_ref: actor_ref,
          event_ref: "interaction:#{envelope_ref}",
-         occurred_at: normalize_datetime(occurred_at),
+         occurred_at: UTCDateTime.to_usec(occurred_at),
          resource_ref: resource_ref,
          trigger_ref: payload["trigger_id"],
          workspace_ref: workspace_ref
@@ -135,16 +135,11 @@ defmodule Ryker.Slack.HomeInteraction do
     end
   end
 
-  defp reference?(value), do: is_binary(value) and Regex.match?(@reference, value)
-
   defp optional_reference?(nil), do: true
-  defp optional_reference?(value), do: reference?(value)
+  defp optional_reference?(value), do: Reference.token?(value)
 
   defp resource?(value, prefix) when is_binary(prefix), do: String.starts_with?(value, prefix)
 
   defp resource?(value, :resource),
     do: Enum.any?(@resource_prefixes, &String.starts_with?(value, &1))
-
-  defp normalize_datetime(%DateTime{microsecond: {microsecond, _precision}} = value),
-    do: %{value | microsecond: {microsecond, 6}}
 end

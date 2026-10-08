@@ -7,7 +7,9 @@ defmodule Ryker.Admission.Runtime do
   adapter, policy, worker identity, or execution limits.
   """
   use Supervisor
+  alias Ryker.Adapter
   alias Ryker.Admission.{FleetSession, ReadySessions, Worker}
+  alias Ryker.Crypto
   alias Ryker.Options
 
   @fields [
@@ -141,7 +143,7 @@ defmodule Ryker.Admission.Runtime do
 
   defp coop_adapter!(%{api: api, client: client})
        when is_atom(api) and not is_nil(api) and not is_nil(client) do
-    if Code.ensure_loaded?(api) and function_exported?(api, :get_session, 2) do
+    if Adapter.implements?(api, get_session: 2) do
       {api, client, execution_callbacks()}
     else
       raise ArgumentError, "admission api must implement the Coop session contract"
@@ -163,7 +165,7 @@ defmodule Ryker.Admission.Runtime do
   end
 
   defp validate_digest!(value) do
-    if is_binary(value) and Regex.match?(~r/\A[0-9a-f]{64}\z/, value),
+    if Crypto.sha256_hex?(value),
       do: :ok,
       else: raise(ArgumentError, "admission policy_digest must be a lowercase SHA-256 digest")
   end

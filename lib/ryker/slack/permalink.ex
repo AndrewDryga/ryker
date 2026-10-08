@@ -34,6 +34,10 @@ defmodule Ryker.Slack.Permalink do
 
   def message_url(_workspace_url, _conversation_ref, _message_ref), do: nil
 
+  @doc "The pattern a Slack workspace's own origin matches, for a changeset's format check."
+  @spec origin_pattern() :: Regex.t()
+  def origin_pattern, do: @origin
+
   @doc """
   Slack's redirect to a channel or a person in a workspace; nil unless both
   ids are Slack's.

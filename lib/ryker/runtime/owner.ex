@@ -23,8 +23,8 @@ defmodule Ryker.Runtime.Owner do
   and starts from the saved revision.
   """
   use GenServer
+  alias Ryker.{Adapter, Bootstrap, Credentials, Settings}
   alias Ryker.Backoff
-  alias Ryker.{Bootstrap, Credentials, Settings}
   alias Ryker.Config
   alias Ryker.Crypto
   alias Ryker.Runtime.{Assembly, Child}
@@ -337,7 +337,7 @@ defmodule Ryker.Runtime.Owner do
   # A runtime that can take a new configuration while it runs says so, as the console does for
   # everything but its listener; a restart drops what it holds open, such as every open page.
   defp reconfigured?(module, previous, configuration) do
-    Code.ensure_loaded?(module) and function_exported?(module, :reconfigure, 2) and
+    Adapter.implements?(module, reconfigure: 2) and
       module.reconfigure(previous, configuration) == :ok
   end
 

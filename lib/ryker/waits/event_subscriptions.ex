@@ -23,6 +23,7 @@ defmodule Ryker.Waits.EventSubscriptions do
   alias Ryker.Episodes
   alias Ryker.Records
   alias Ryker.Repo
+  alias Ryker.UTCDateTime
   alias Ryker.Waits.EventSubscription
   alias Ryker.Waits.EventWaitTiming
   require Logger
@@ -310,8 +311,8 @@ defmodule Ryker.Waits.EventSubscriptions do
   defp poll_after(value, _deadline), do: datetime(value, :poll_after)
 
   defp datetime(value, field) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, 0} -> {:ok, datetime}
+    case UTCDateTime.parse(value) do
+      {:ok, datetime} -> {:ok, datetime}
       _invalid -> {:error, {:invalid_event_subscription, field}}
     end
   end

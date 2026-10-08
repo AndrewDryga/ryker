@@ -123,8 +123,7 @@ defmodule Ryker.Publication.Dispatcher do
            is_list(settings.executor_options) and Keyword.keyword?(settings.executor_options),
          true <- positive?(settings.lease_seconds),
          true <- positive?(settings.retry_base_seconds),
-         true <- positive?(settings.retry_max_seconds),
-         true <- settings.retry_max_seconds >= settings.retry_base_seconds,
+         true <- Backoff.valid?(settings.retry_base_seconds, settings.retry_max_seconds),
          true <- Reference.valid?(settings.worker_ref) do
       {:ok, settings}
     else

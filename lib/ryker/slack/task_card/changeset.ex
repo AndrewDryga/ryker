@@ -1,6 +1,7 @@
 defmodule Ryker.Slack.TaskCard.Changeset do
   @moduledoc false
   use Ryker, :changeset
+  alias Ryker.Crypto
   alias Ryker.Slack.TaskCard
 
   @fields [
@@ -61,7 +62,7 @@ defmodule Ryker.Slack.TaskCard.Changeset do
     |> validate_length(:message_ref, min: 1, max: 1_024)
     |> validate_number(:attempt_count, greater_than_or_equal_to: 0)
     |> validate_number(:card_ui_revision, greater_than_or_equal_to: 0)
-    |> validate_format(:card_fingerprint, ~r/\A[0-9a-f]{64}\z/)
+    |> validate_format(:card_fingerprint, Crypto.sha256_hex_pattern())
     |> unique_constraint(:ref)
     |> unique_constraint(:record_id)
     |> unique_constraint(:episode_id)

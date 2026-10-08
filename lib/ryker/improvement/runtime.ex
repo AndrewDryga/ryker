@@ -6,8 +6,8 @@ defmodule Ryker.Improvement.Runtime do
   finishes the ones already out at Coop.
   """
   use Supervisor
+  alias Ryker.{Crypto, Options, Reference}
   alias Ryker.Improvement.Worker
-  alias Ryker.{Options, Reference}
 
   @fields ~w(api client policy policy_digest worker_ref enabled concurrency quiet_seconds
     poll_interval_ms execution_timeout_seconds)a
@@ -49,9 +49,8 @@ defmodule Ryker.Improvement.Runtime do
         do: raise(ArgumentError, "self-analysis #{key} must be a bounded nonblank reference")
     end
 
-    unless is_binary(config.policy_digest) and
-             Regex.match?(~r/\A[0-9a-f]{64}\z/, config.policy_digest),
-           do: raise(ArgumentError, "self-analysis policy_digest must be a SHA-256 digest")
+    unless Crypto.sha256_hex?(config.policy_digest),
+      do: raise(ArgumentError, "self-analysis policy_digest must be a SHA-256 digest")
 
     unless is_atom(config.api) and not is_nil(config.api) and not is_nil(config.client),
       do: raise(ArgumentError, "self-analysis requires a trusted Coop adapter")

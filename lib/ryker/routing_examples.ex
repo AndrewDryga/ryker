@@ -58,6 +58,7 @@ defmodule Ryker.RoutingExamples do
   alias Ryker.Settings
   alias Ryker.Slack
   alias Ryker.TrainingExamples
+  alias Ryker.UTCDateTime
   alias Ryker.Work
   alias Ryker.WorkExamples
 
@@ -214,8 +215,8 @@ defmodule Ryker.RoutingExamples do
   defp decided_at(%Admission.Attempt{milestones: %{"committed" => at}}, entry)
        when is_binary(at) do
     case DateTime.from_iso8601(at) do
-      {:ok, %DateTime{microsecond: {microsecond, _precision}} = decided_at, _offset} ->
-        %{decided_at | microsecond: {microsecond, 6}}
+      {:ok, decided_at, _offset} ->
+        UTCDateTime.to_usec(decided_at)
 
       {:error, _reason} ->
         entry.updated_at

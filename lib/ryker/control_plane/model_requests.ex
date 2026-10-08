@@ -16,6 +16,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
   alias Ryker.Repo
   alias Ryker.Settings
   alias Ryker.Slack
+  alias Ryker.UTCDateTime
   alias Ryker.Work
 
   @page_size 20
@@ -1048,7 +1049,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
           "verdict" => turn.validation_intent,
           "history" => window,
           "candidate_attempt" => turn.candidate_attempt,
-          "accepted_at" => iso(turn.accepted_at)
+          "accepted_at" => UTCDateTime.iso8601(turn.accepted_at)
         }
       ),
       options
@@ -1273,7 +1274,4 @@ defmodule Ryker.ControlPlane.ModelRequests do
   end
 
   defp decode(_value), do: %{}
-
-  defp iso(nil), do: nil
-  defp iso(at), do: DateTime.to_iso8601(at)
 end

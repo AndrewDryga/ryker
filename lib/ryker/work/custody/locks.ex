@@ -244,7 +244,7 @@ defmodule Ryker.Work.Custody.Locks do
 
   @doc false
   def sha256(value, field) do
-    if is_binary(value) and Regex.match?(~r/\A[0-9a-f]{64}\z/, value),
+    if Crypto.sha256_hex?(value),
       do: :ok,
       else: {:error, {:invalid_work_custody, field}}
   end

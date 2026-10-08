@@ -975,11 +975,9 @@ defmodule Ryker.Ingress.Inbox do
   defp input_id(_input_ref), do: {:error, {:invalid_ingress_execution, :input_ref}}
 
   defp utc_datetime(%DateTime{} = value) do
-    if value.time_zone == "Etc/UTC" and value.utc_offset == 0 and value.std_offset == 0 do
-      {microsecond, _precision} = value.microsecond
-      {:ok, %{value | microsecond: {microsecond, 6}}}
-    else
-      {:error, {:invalid_ingress_execution, :now}}
+    case UTCDateTime.exact(value) do
+      {:ok, value} -> {:ok, value}
+      :error -> {:error, {:invalid_ingress_execution, :now}}
     end
   end
 

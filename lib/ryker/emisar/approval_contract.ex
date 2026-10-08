@@ -8,6 +8,7 @@ defmodule Ryker.Emisar.ApprovalContract do
   before a durable record can be created.
   """
   alias Ryker.CanonicalJSON
+  alias Ryker.UTCDateTime
 
   @fields ~w(action_id approval_url expires_at operation_id pack_ref request_id run_id runner_ref status)
   @host_fields ~w(account_ref connection_ref rpc_url)
@@ -96,8 +97,8 @@ defmodule Ryker.Emisar.ApprovalContract do
   end
 
   defp utc_datetime(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, %DateTime{} = datetime, 0} -> {:ok, normalize(datetime)}
+    case UTCDateTime.parse(value) do
+      {:ok, datetime} -> {:ok, UTCDateTime.to_usec(datetime)}
       _invalid -> {:error, {:invalid_emisar_approval, :expires_at}}
     end
   end
@@ -150,7 +151,7 @@ defmodule Ryker.Emisar.ApprovalContract do
   defp effective_port(_scheme, port), do: port
 
   defp future(expires_at, now) do
-    if DateTime.compare(expires_at, normalize(now)) == :gt,
+    if DateTime.compare(expires_at, UTCDateTime.to_usec(now)) == :gt,
       do: :ok,
       else: {:error, {:invalid_emisar_approval, :expires_at}}
   end
@@ -161,7 +162,4 @@ defmodule Ryker.Emisar.ApprovalContract do
       {:error, _reason} -> {:error, {:invalid_emisar_approval, :payload}}
     end
   end
-
-  defp normalize(%DateTime{microsecond: {microsecond, _precision}} = datetime),
-    do: %{datetime | microsecond: {microsecond, 6}}
 end

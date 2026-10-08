@@ -35,6 +35,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   alias Ryker.ControlPlane.Paths
   alias Ryker.ControlPlane.ShortTime
   alias Ryker.Slack
+  alias Ryker.UTCDateTime
   alias Ryker.Wording
 
   @type outlook :: :ready | :unknown | :fix_first | :stuck | :automatic
@@ -163,7 +164,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   @doc ~s(How long ago, short: "10 h", "3 d", "under a minute".)
   @spec age(DateTime.t() | NaiveDateTime.t(), DateTime.t()) :: String.t()
   def age(at, now) do
-    seconds = max(DateTime.diff(now, utc(at), :second), 0)
+    seconds = max(DateTime.diff(now, UTCDateTime.to_utc(at), :second), 0)
 
     cond do
       seconds < 60 -> "under a minute"
@@ -709,7 +710,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp holder_reporting?(%{reporting: true}, _now), do: true
 
   defp holder_reporting?(%{draining: true, last_seen_at: at}, now) when not is_nil(at),
-    do: DateTime.diff(now, utc(at), :second) <= 60
+    do: DateTime.diff(now, UTCDateTime.to_utc(at), :second) <= 60
 
   defp holder_reporting?(_worker, _now), do: false
 
@@ -2606,7 +2607,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   # A reply that goes out much later than it was written says so on the
   # confirmation, because Slack will show it without a note.
   defp late(%{updated_at: at}, now) when not is_nil(at) do
-    if DateTime.diff(now, utc(at), :second) >= 3_600,
+    if DateTime.diff(now, UTCDateTime.to_utc(at), :second) >= 3_600,
       do: " (it stopped #{age(at, now)} ago)",
       else: ""
   end
@@ -2614,7 +2615,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp late(_row, _now), do: ""
 
   defp late_sentence(%{updated_at: at}, now, :message) when not is_nil(at) do
-    if DateTime.diff(now, utc(at), :second) >= 3_600,
+    if DateTime.diff(now, UTCDateTime.to_utc(at), :second) >= 3_600,
       do: " It arrives #{age(at, now)} late, with no note saying so.",
       else: ""
   end
@@ -2645,7 +2646,4 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp worker_now(_worker), do: "Not reporting"
 
   defp words(code), do: String.replace(code, "_", " ")
-
-  defp utc(%DateTime{} = at), do: at
-  defp utc(%NaiveDateTime{} = at), do: DateTime.from_naive!(at, "Etc/UTC")
 end

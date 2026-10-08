@@ -23,6 +23,7 @@ defmodule Ryker.Runtime.Assembly do
   alias Ryker.Emisar
   alias Ryker.GitHub
   alias Ryker.Ingress
+  alias Ryker.Maps
   alias Ryker.Publication
   alias Ryker.Secret
   alias Ryker.Settings
@@ -175,30 +176,30 @@ defmodule Ryker.Runtime.Assembly do
       github_api_url: GitHub.api_root(settings.github.api_url),
       github_web_url: GitHub.web_url(settings.github.api_url)
     }
-    |> put_optional(:work, work)
-    |> put_optional(:admission, admission)
-    |> put_optional(:admission_ready, admission_ready)
-    |> put_optional(:control_plane, control_plane)
-    |> put_optional(:coop_worker_gateway, gateway)
-    |> put_optional(:delivery, delivery)
-    |> put_optional(:emisar, emisar)
-    |> put_optional(:event_waits, Defaults.fetch!(:event_waits))
-    |> put_optional(:github, github && github.runtime)
-    |> put_optional(:improvement, improvement)
-    |> put_optional(:learning, learning)
-    |> put_optional(:local_routing, local_routing)
-    |> put_optional(:embeddings, embeddings)
-    |> put_optional(:publication, publication)
-    |> put_optional(:repository_knowledge, repository_knowledge)
-    |> put_optional(:retention, retention)
-    |> put_optional(:routing_examples, routing_examples)
-    |> put_optional(:work_examples, work_examples)
-    |> put_optional(:schedules, schedules)
-    |> put_optional(:slack, slack && slack.runtime)
-    |> put_optional(:slack_names, slack_names)
-    |> put_optional(:webhooks, webhooks)
-    |> put_optional(:weekly_report, weekly_report)
-    |> put_optional(
+    |> Maps.put_present(:work, work)
+    |> Maps.put_present(:admission, admission)
+    |> Maps.put_present(:admission_ready, admission_ready)
+    |> Maps.put_present(:control_plane, control_plane)
+    |> Maps.put_present(:coop_worker_gateway, gateway)
+    |> Maps.put_present(:delivery, delivery)
+    |> Maps.put_present(:emisar, emisar)
+    |> Maps.put_present(:event_waits, Defaults.fetch!(:event_waits))
+    |> Maps.put_present(:github, github && github.runtime)
+    |> Maps.put_present(:improvement, improvement)
+    |> Maps.put_present(:learning, learning)
+    |> Maps.put_present(:local_routing, local_routing)
+    |> Maps.put_present(:embeddings, embeddings)
+    |> Maps.put_present(:publication, publication)
+    |> Maps.put_present(:repository_knowledge, repository_knowledge)
+    |> Maps.put_present(:retention, retention)
+    |> Maps.put_present(:routing_examples, routing_examples)
+    |> Maps.put_present(:work_examples, work_examples)
+    |> Maps.put_present(:schedules, schedules)
+    |> Maps.put_present(:slack, slack && slack.runtime)
+    |> Maps.put_present(:slack_names, slack_names)
+    |> Maps.put_present(:webhooks, webhooks)
+    |> Maps.put_present(:weekly_report, weekly_report)
+    |> Maps.put_present(
       :integrations_left_out,
       left_out(
         github: github_left_out,
@@ -218,7 +219,7 @@ defmodule Ryker.Runtime.Assembly do
     Map.new(bindings, fn binding ->
       {{binding.purpose, binding.scope_kind, binding.scope_ref, binding.repository_ref},
        %{name: binding.policy_name, digest: binding.policy_digest}
-       |> put_optional(:authority_digest, binding.authority_digest)}
+       |> Maps.put_present(:authority_digest, binding.authority_digest)}
     end)
   end
 
@@ -363,7 +364,7 @@ defmodule Ryker.Runtime.Assembly do
             end),
           repositories: refs
         }
-        |> put_optional(:emisar_connection_ref, environment.emisar_connection_ref)
+        |> Maps.put_present(:emisar_connection_ref, environment.emisar_connection_ref)
     }
   end
 
@@ -510,7 +511,7 @@ defmodule Ryker.Runtime.Assembly do
   # A reviewed binding names the policy; a Work profile pins it per work class.
   defp class_policy(policy) do
     %{policy: policy.name, policy_digest: policy.digest}
-    |> put_optional(:authority_digest, Map.get(policy, :authority_digest))
+    |> Maps.put_present(:authority_digest, Map.get(policy, :authority_digest))
   end
 
   # Execution lanes ------------------------------------------------------------
@@ -1137,7 +1138,7 @@ defmodule Ryker.Runtime.Assembly do
 
   defp adapters(slack, github, control_plane) do
     %{}
-    |> put_optional(
+    |> Maps.put_present(
       "control_plane",
       control_plane &&
         %{
@@ -1146,8 +1147,8 @@ defmodule Ryker.Runtime.Assembly do
           reaction_publisher: Ryker.ControlPlane.Publisher
         }
     )
-    |> put_optional("slack", slack && slack.delivery_adapter)
-    |> put_optional(
+    |> Maps.put_present("slack", slack && slack.delivery_adapter)
+    |> Maps.put_present(
       "github",
       github &&
         %{
@@ -1688,9 +1689,6 @@ defmodule Ryker.Runtime.Assembly do
       :error -> {:error, :address_invalid}
     end
   end
-
-  defp put_optional(map, _key, nil), do: map
-  defp put_optional(map, key, value), do: Map.put(map, key, value)
 
   defp reject_nil_values(map),
     do: map |> Enum.reject(fn {_key, value} -> is_nil(value) end) |> Map.new()

@@ -2,6 +2,7 @@ defmodule Ryker.Settings.Repository.Changeset do
   @moduledoc "Adding a repository and changing a saved one (`Ryker.Settings.Repository`)."
   @behaviour Ryker.Settings.Section.Changeset
   use Ryker, :changeset
+  alias Ryker.GitHub
   alias Ryker.Settings.{Repository, Validation}
 
   @fields ~w(
@@ -25,7 +26,7 @@ defmodule Ryker.Settings.Repository.Changeset do
     |> Validation.validate_reference(:ref)
     |> validate_length(:display_name, min: 1, max: 120, count: :codepoints)
     |> validate_length(:description, min: 1, max: 1_000, count: :codepoints)
-    |> validate_format(:github_repository, Validation.github_repository_pattern())
+    |> validate_format(:github_repository, GitHub.repository_name_pattern())
     |> Validation.validate_git_ref(:base_branch)
     |> validate_length(:onboarding_error, max: 1_024)
     |> validate_format(:source_commit, ~r/\A[0-9a-f]{40}\z/)

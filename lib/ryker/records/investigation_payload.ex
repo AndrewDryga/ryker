@@ -2,9 +2,9 @@ defmodule Ryker.Records.InvestigationPayload do
   @moduledoc false
   alias Ryker.CanonicalJSON
   alias Ryker.Reference
+  alias Ryker.UTCDateTime
 
   @maximum_payload_bytes 32 * 1_024
-  @reference ~r/\A[A-Za-z0-9_.:-]{1,256}\z/
   # The model owns planning, implementation and self-review membership. The
   # host owns Workspace setup, Draft PR, CI and Review and merge from its own
   # receipts, so those can never be claimed by a goal.
@@ -363,7 +363,7 @@ defmodule Ryker.Records.InvestigationPayload do
 
   defp reference(value, maximum, field) do
     with :ok <- text(value, maximum, field),
-         true <- Regex.match?(@reference, value) and byte_size(value) <= maximum do
+         true <- Reference.token?(value) and byte_size(value) <= maximum do
       :ok
     else
       false -> invalid(field)
@@ -459,8 +459,8 @@ defmodule Ryker.Records.InvestigationPayload do
   end
 
   defp normalize_datetime(value, field) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, 0} -> {:ok, DateTime.to_iso8601(datetime)}
+    case UTCDateTime.parse(value) do
+      {:ok, datetime} -> {:ok, DateTime.to_iso8601(datetime)}
       _invalid -> invalid(field)
     end
   end

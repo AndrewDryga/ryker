@@ -12,7 +12,7 @@ defmodule Ryker.GitHub.Events do
   duplicate.
   """
   alias Ecto.Changeset
-  alias Ryker.{CanonicalJSON, Repo}
+  alias Ryker.{CanonicalJSON, Repo, UTCDateTime}
   alias Ryker.GitHub.{Binding, DeliveryCursor, Event}
 
   @dispositions ~w(metadata routed continued duplicate failed)
@@ -184,8 +184,8 @@ defmodule Ryker.GitHub.Events do
 
     Enum.find_value(candidates, fallback, fn
       value when is_binary(value) ->
-        case DateTime.from_iso8601(value) do
-          {:ok, time, 0} -> force_microsecond_precision(time)
+        case UTCDateTime.parse(value) do
+          {:ok, time} -> UTCDateTime.to_usec(time)
           _invalid -> nil
         end
 
@@ -196,9 +196,6 @@ defmodule Ryker.GitHub.Events do
 
   defp bounded(nil), do: nil
   defp bounded(reason), do: reason |> to_string() |> String.slice(0, 256)
-
-  defp force_microsecond_precision(%DateTime{microsecond: {value, _precision}} = time),
-    do: %{time | microsecond: {value, 6}}
 
   # -- PubSub ------------------------------------------------------------------
 

@@ -1,6 +1,7 @@
 defmodule Ryker.Continuity.ConversationSummaryState do
   @moduledoc false
   alias Ryker.CanonicalJSON
+  alias Ryker.JSONSchema
   alias Ryker.Reference
 
   @fields ~w(active_topics decisions evidence_refs goal open_loops participants purpose situation topology unresolved_questions)
@@ -34,7 +35,7 @@ defmodule Ryker.Continuity.ConversationSummaryState do
   @spec json_schema() :: map()
   def json_schema do
     text = %{"maxLength" => @maximum_text, "minLength" => 1, "type" => "string"}
-    nullable_text = %{"anyOf" => [text, %{"type" => "null"}]}
+    nullable_text = JSONSchema.nullable(text)
 
     properties = %{
       "active_topics" => text_array(text),

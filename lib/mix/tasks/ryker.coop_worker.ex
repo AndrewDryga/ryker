@@ -15,6 +15,7 @@ defmodule Mix.Tasks.Ryker.CoopWorker do
   use Mix.Task
   alias Mix.Tasks.Ryker.OperatorSupport, as: Support
   alias Ryker.CoopFleet
+  alias Ryker.UTCDateTime
 
   @impl Mix.Task
   def run(["enroll", worker_id, workspace_ref, operator_ref]) do
@@ -48,9 +49,9 @@ defmodule Mix.Tasks.Ryker.CoopWorker do
   defp lifecycle(operation) do
     with_repo(operation, fn %{status: status, worker: worker} ->
       %{
-        "drain_requested_at" => iso8601(worker.drain_requested_at),
+        "drain_requested_at" => UTCDateTime.iso8601(worker.drain_requested_at),
         "drain_requested_by" => worker.drain_requested_by,
-        "revoked_at" => iso8601(worker.revoked_at),
+        "revoked_at" => UTCDateTime.iso8601(worker.revoked_at),
         "revoked_by" => worker.revoked_by,
         "state" => Atom.to_string(worker.state),
         "status" => Atom.to_string(status),
@@ -72,7 +73,4 @@ defmodule Mix.Tasks.Ryker.CoopWorker do
         "mix ryker.coop_worker drain|resume|revoke WORKER_ID OPERATOR_REF"
     )
   end
-
-  defp iso8601(%DateTime{} = value), do: DateTime.to_iso8601(value)
-  defp iso8601(nil), do: nil
 end

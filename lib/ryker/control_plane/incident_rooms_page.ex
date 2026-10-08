@@ -20,6 +20,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   alias Ryker.ControlPlane.UsageProjection
   alias Ryker.Publication
   alias Ryker.Slack
+  alias Ryker.UTCDateTime
 
   @doc """
   The topics an open list of rooms listens to, as the context functions that
@@ -181,7 +182,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
       <Kit.entity_list :if={@items != []} label="Incident rooms">
         <Kit.entity_row
           :for={{room, group} <- Enum.zip(@items, Kit.day_groups(@items, & &1[:requested_at], @now))}
-          id={"room-" <> dom_id(room.ref)}
+          id={"room-" <> Kit.dom_id(room.ref)}
           name={room.title}
           href={Paths.incident_room(room.ref)}
           link_row
@@ -509,7 +510,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
 
   defp record_entry(record) do
     %{
-      id: "record-" <> dom_id(record.ref),
+      id: "record-" <> Kit.dom_id(record.ref),
       at: record[:at],
       icon: record_icon(record.kind),
       tone: if(record.kind == "finding", do: :info, else: :off),
@@ -573,7 +574,8 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
 
   # A span the way a person says it: 40 min, 3 h 5 min, 9 d 4 h.
   defp span(from, to) do
-    minutes = max(div(DateTime.diff(utc(to), utc(from), :second), 60), 0)
+    minutes =
+      max(div(DateTime.diff(UTCDateTime.to_utc(to), UTCDateTime.to_utc(from), :second), 60), 0)
 
     cond do
       minutes < 1 -> "under a minute"
@@ -620,7 +622,10 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   # exact UTC instant a pointer away.
   defp moment(assigns) do
     ~H"""
-    <time datetime={iso(@at)} title={ShortTime.full(utc(@at))}>{@prefix}{spoken(@at, @now)}</time>
+    <time datetime={ShortTime.iso(@at)} title={ShortTime.full(UTCDateTime.to_utc(@at))}>{@prefix}{spoken(
+      @at,
+      @now
+    )}</time>
     """
   end
 
@@ -812,7 +817,9 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
       {{at, event}, at}
     end)
     |> elem(0)
-    |> Enum.sort_by(fn {at, _event} -> at && DateTime.to_unix(utc(at), :microsecond) end)
+    |> Enum.sort_by(fn {at, _event} ->
+      at && DateTime.to_unix(UTCDateTime.to_utc(at), :microsecond)
+    end)
     |> Enum.map(&elem(&1, 1))
   end
 
@@ -849,7 +856,7 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   # "yesterday at 08:01": the day the way a day heading names it, in a
   # sentence's lower case, then the clock.
   defp spoken(at, now) do
-    at = utc(at)
+    at = UTCDateTime.to_utc(at)
 
     in_sentence(Kit.day_label(DateTime.to_date(at), DateTime.to_date(now))) <>
       " at " <> Kit.clock(at)
@@ -858,11 +865,6 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   defp in_sentence("Today"), do: "today"
   defp in_sentence("Yesterday"), do: "yesterday"
   defp in_sentence(day), do: day
-
-  defp iso(at), do: at |> utc() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
-
-  defp utc(%DateTime{} = at), do: DateTime.shift_zone!(at, "Etc/UTC")
-  defp utc(%NaiveDateTime{} = at), do: DateTime.from_naive!(at, "Etc/UTC")
 
   defp words(value) when is_binary(value),
     do: value |> String.replace("_", " ") |> String.capitalize()
@@ -891,6 +893,4 @@ defmodule Ryker.ControlPlane.IncidentRoomsPage do
   defp open_view(query), do: [q: query, status: "ready"]
 
   defp anchor(assigns), do: ~H|<a href={@href}>{@text}</a>|
-
-  defp dom_id(ref), do: String.replace(to_string(ref), ~r/[^A-Za-z0-9_-]/, "-")
 end

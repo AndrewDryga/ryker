@@ -8,6 +8,7 @@ defmodule Ryker.Slack.Renderer.Blocks do
   every card at once.
   """
   alias Ryker.Slack.Renderer.Fields
+  alias Ryker.UTCDateTime
 
   @maximum_section_characters 3_000
   @maximum_field_characters 2_000
@@ -52,7 +53,7 @@ defmodule Ryker.Slack.Renderer.Blocks do
   end
 
   def slack_date(value) do
-    {:ok, at, 0} = DateTime.from_iso8601(value)
+    {:ok, at} = UTCDateTime.parse(value)
     fallback = Calendar.strftime(at, "%Y-%m-%d %H:%M UTC")
     "<!date^#{DateTime.to_unix(at)}^{date_short_pretty} at {time}|#{fallback}>"
   end

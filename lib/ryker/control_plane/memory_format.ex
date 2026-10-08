@@ -71,9 +71,6 @@ defmodule Ryker.ControlPlane.MemoryFormat do
      ]}
   end
 
-  @doc "Words with one reference emphasised, e.g. \"In <strong>#payments</strong>\"."
-  def with_ref(prefix, ref), do: {:safe, [escape(prefix), "<strong>", escape(ref), "</strong>"]}
-
   @doc "Slack Markdown as safe block HTML, resolving bare Slack people IDs in a known workspace."
   def markdown(nil, _workspace), do: nil
 

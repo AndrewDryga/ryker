@@ -3,6 +3,7 @@ defmodule Ryker.Emisar.ApprovalRuntime do
   Supervises a bounded pool of durable Emisar approval monitors.
   """
   use Supervisor
+  alias Ryker.Adapter
   alias Ryker.Emisar.ApprovalWorker
   alias Ryker.Options
 
@@ -139,16 +140,13 @@ defmodule Ryker.Emisar.ApprovalRuntime do
   end
 
   defp validate_api!(api) do
-    unless is_atom(api) and Code.ensure_loaded?(api) and
-             function_exported?(api, :wait_for_run, 3),
-           do: raise(ArgumentError, "Emisar approval API must implement wait_for_run/3")
+    unless Adapter.implements?(api, wait_for_run: 3),
+      do: raise(ArgumentError, "Emisar approval API must implement wait_for_run/3")
   end
 
   defp validate_presenter!(presenter) do
-    unless is_atom(presenter) and Code.ensure_loaded?(presenter) and
-             function_exported?(presenter, :publish, 3) and
-             function_exported?(presenter, :permanent?, 1),
-           do: raise(ArgumentError, "Emisar approval presenter is invalid")
+    unless Adapter.implements?(presenter, publish: 3, permanent?: 1),
+      do: raise(ArgumentError, "Emisar approval presenter is invalid")
   end
 
   defp validate_integer!(value, minimum, maximum, _field)

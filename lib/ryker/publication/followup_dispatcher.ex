@@ -1,5 +1,6 @@
 defmodule Ryker.Publication.FollowupDispatcher do
   @moduledoc false
+  alias Ryker.Adapter
   alias Ryker.Backoff
   alias Ryker.Publication.{FollowupExecutor, Followups}
   alias Ryker.Reference
@@ -24,7 +25,7 @@ defmodule Ryker.Publication.FollowupDispatcher do
   def next_due_at(options, %DateTime{} = since) do
     custody = Keyword.get(options, :custody, Followups)
 
-    if callback?(custody, :next_due_at, 1),
+    if Adapter.implements?(custody, next_due_at: 1),
       do: custody.next_due_at(since)
   end
 
@@ -122,17 +123,19 @@ defmodule Ryker.Publication.FollowupDispatcher do
         worker_ref: Keyword.fetch!(options, :worker_ref)
       }
 
-      with true <- callback?(values.custody, :claim_delivery, 2),
-           true <- callback?(values.custody, :claim_poll, 2),
-           true <- callback?(values.custody, :defer_delivery, 4),
-           true <- callback?(values.custody, :defer_poll, 4),
-           true <- callback?(values.executor, :run_delivery, 2),
-           true <- callback?(values.executor, :run_poll, 2),
+      with true <-
+             Adapter.implements?(values.custody,
+               claim_delivery: 2,
+               claim_poll: 2,
+               defer_delivery: 4,
+               defer_poll: 4
+             ),
+           true <- Adapter.implements?(values.executor, run_delivery: 2, run_poll: 2),
            true <- is_list(values.executor_options) and Keyword.keyword?(values.executor_options),
            true <- positive?(values.interval_seconds),
            true <- positive?(values.lease_seconds),
            true <- positive?(values.retry_base_seconds),
-           true <- values.retry_max_seconds >= values.retry_base_seconds,
+           true <- Backoff.valid?(values.retry_base_seconds, values.retry_max_seconds),
            true <- Reference.valid?(values.worker_ref) do
         {:ok, values}
       else
@@ -146,11 +149,6 @@ defmodule Ryker.Publication.FollowupDispatcher do
   end
 
   defp settings(_options), do: {:error, {:invalid_publication_followup_dispatcher, :options}}
-
-  defp callback?(module, function, arity) do
-    is_atom(module) and Code.ensure_loaded?(module) and
-      function_exported?(module, function, arity)
-  end
 
   defp positive?(value), do: is_integer(value) and value > 0
 end

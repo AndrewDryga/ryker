@@ -25,7 +25,6 @@ defmodule Ryker.Operator.Actions do
       fingerprint = request_fingerprint(attributes)
 
       Repo.transaction(fn -> run_locked(attributes, fingerprint, operation) end)
-      |> transaction_result()
     end
   end
 
@@ -148,9 +147,6 @@ defmodule Ryker.Operator.Actions do
   defp document(_value, field), do: {:error, {:invalid_operator_action, field}}
 
   defp reference(value, field), do: Reference.check(value, field, :invalid_operator_action)
-
-  defp transaction_result({:ok, value}), do: {:ok, value}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 
   # -- PubSub ------------------------------------------------------------------
 

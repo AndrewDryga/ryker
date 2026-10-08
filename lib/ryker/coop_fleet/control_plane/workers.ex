@@ -22,6 +22,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
   alias Ryker.Crypto
   alias Ryker.Episodes
   alias Ryker.Repo
+  alias Ryker.UTCDateTime
   alias Ryker.Work
 
   @spec handle_poll_certificate(binary(), map(), keyword()) ::
@@ -204,14 +205,10 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
   end
 
   defp parse_timestamp!(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, 0} -> normalize_microseconds(datetime)
+    case UTCDateTime.parse(value) do
+      {:ok, datetime} -> UTCDateTime.to_usec(datetime)
       _invalid -> Shared.rollback({:invalid_coop_worker_poll, :timestamp})
     end
-  end
-
-  defp normalize_microseconds(%DateTime{microsecond: {value, _precision}} = datetime) do
-    %{datetime | microsecond: {value, 6}}
   end
 
   defp ensure_clock_skew!(worker_id, clock_at, now) do

@@ -186,7 +186,7 @@ defmodule Ryker.Publication.Request do
        )
        when map_size(pull_request) == 4 and is_integer(number) and number > 0 do
     with true <- GitObject.id?(head_commit),
-         true <- branch_ref?(ref),
+         true <- GitObject.branch_ref?(ref),
          true <- github_pull_url?(url, number) do
       :ok
     else
@@ -213,11 +213,6 @@ defmodule Ryker.Publication.Request do
       "ref" => publication.branch_ref,
       "url" => publication.pull_request_url
     }
-  end
-
-  defp branch_ref?(value) do
-    is_binary(value) and
-      Regex.match?(~r/\Arefs\/heads\/[A-Za-z0-9._\/-]{1,240}\z/, value)
   end
 
   defp github_pull_url?(value, number) when is_binary(value) and byte_size(value) <= 2_048 do

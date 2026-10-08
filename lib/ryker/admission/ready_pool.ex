@@ -25,11 +25,11 @@ defmodule Ryker.Admission.ReadyPool do
   not asked every second, and a restart does not forget the wait.
   """
   use Ryker.PollingWorker, lane: :admission_ready, interval: :poll_interval_ms
+  alias Ryker.{Adapter, Crypto, Options, Repo}
   alias Ryker.Admission.ReadySessions
   alias Ryker.Backoff
   alias Ryker.Coop
   alias Ryker.CoopFleet
-  alias Ryker.{Options, Repo}
   alias Ryker.Reference
   alias Ryker.Settings
   alias Ryker.Work
@@ -352,7 +352,7 @@ defmodule Ryker.Admission.ReadyPool do
       {&coop_adapter?(&1.api), "need a trusted Coop adapter"},
       {&(not is_nil(&1.client)), "need a Coop client"},
       {&Reference.valid?(&1.policy), "policy must be a bounded string"},
-      {&digest?(&1.policy_digest), "policy_digest must be a lowercase SHA-256 digest"},
+      {&Crypto.sha256_hex?(&1.policy_digest), "policy_digest must be a lowercase SHA-256 digest"},
       {&(is_integer(&1.target) and &1.target in 0..maximum),
        "target must be between 0 and #{maximum}"},
       {&(is_integer(&1.poll_interval_ms) and &1.poll_interval_ms > 0),
@@ -364,9 +364,6 @@ defmodule Ryker.Admission.ReadyPool do
   end
 
   defp coop_adapter?(api) do
-    is_atom(api) and not is_nil(api) and Code.ensure_loaded?(api) and
-      function_exported?(api, :create_session, 5)
+    Adapter.implements?(api, create_session: 5)
   end
-
-  defp digest?(value), do: is_binary(value) and Regex.match?(~r/\A[0-9a-f]{64}\z/, value)
 end

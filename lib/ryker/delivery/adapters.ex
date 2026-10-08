@@ -6,6 +6,7 @@ defmodule Ryker.Delivery.Adapters do
   atoms or module names. Only modules supplied by trusted runtime
   configuration can execute a delivery.
   """
+  alias Ryker.Adapter
   alias Ryker.Delivery.Request
 
   @fields [:binding, :message_publisher, :reaction_publisher]
@@ -69,7 +70,7 @@ defmodule Ryker.Delivery.Adapters do
   defp publisher(module, transport, kind) when is_atom(module) do
     callback = if kind == :message, do: :publish_message, else: :publish_reaction
 
-    if Code.ensure_loaded?(module) and function_exported?(module, :transport, 0) and
+    if Adapter.implements?(module, transport: 0) and
          function_exported?(module, callback, 2) and module.transport() == transport,
        do: :ok,
        else: {:error, {:invalid_delivery_adapters, kind}}

@@ -7,9 +7,11 @@ defmodule Ryker.ControlPlane.Server do
   is the operator; Tailscale Serve and Cloudflare Access add a name. Every form
   post carries a CSRF token bound to its action.
   """
+  alias Ryker.Adapter
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
   alias Ryker.Crypto
   alias Ryker.Ingress
+  alias Ryker.Maps
   alias Ryker.Observability
   alias Ryker.Schedules
   alias Ryker.Work
@@ -296,7 +298,7 @@ defmodule Ryker.ControlPlane.Server do
         environment_ref: environment_ref,
         repository_ref: repository_ref
       }
-      |> maybe_put(:repository_context, repository_context)
+      |> Maps.put_present(:repository_context, repository_context)
     else
       _invalid -> raise ArgumentError, "control-plane task policies are invalid"
     end
@@ -314,13 +316,10 @@ defmodule Ryker.ControlPlane.Server do
     |> Keyword.fetch!(:policy_resolver)
   end
 
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
   defp validate_coop!(nil, nil), do: :ok
 
   defp validate_coop!(api, client) when is_atom(api) and not is_nil(client) do
-    unless Code.ensure_loaded?(api) and function_exported?(api, :get_changes_page, 4),
+    unless Adapter.implements?(api, get_changes_page: 4),
       do: raise(ArgumentError, "control-plane Coop client is invalid")
   end
 

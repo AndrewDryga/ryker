@@ -64,5 +64,16 @@ defmodule Ryker.GitHubTest do
     }
   end
 
+  # Eight modules each held this pattern until 2026-10-08.
+  test "a repository's full name is owner/name" do
+    assert GitHub.repository_name?("emisar/ryker")
+    assert GitHub.repository_name?("my-org/repo.name_2")
+    refute GitHub.repository_name?("ryker")
+    refute GitHub.repository_name?("emisar/ryker/extra")
+    refute GitHub.repository_name?("emisar/ry ker")
+    refute GitHub.repository_name?(nil)
+    assert Regex.match?(GitHub.repository_name_pattern(), "emisar/ryker")
+  end
+
   defp commit, do: String.duplicate("b", 40)
 end

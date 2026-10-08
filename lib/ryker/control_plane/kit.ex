@@ -35,6 +35,7 @@ defmodule Ryker.ControlPlane.Kit do
   alias Phoenix.HTML.Safe
   alias Phoenix.LiveView.JS
   alias Ryker.ControlPlane.{Components, ShortTime}
+  alias Ryker.UTCDateTime
 
   attr(:id, :string, default: nil)
   attr(:class, :any, default: nil)
@@ -177,8 +178,8 @@ defmodule Ryker.ControlPlane.Kit do
         <time
           :if={@at}
           class="entity-at"
-          datetime={@at_time && iso(@at_time)}
-          title={@at_time && ShortTime.full(utc(@at_time))}
+          datetime={@at_time && ShortTime.iso(@at_time)}
+          title={@at_time && ShortTime.full(UTCDateTime.to_utc(@at_time))}
         >{@at}</time>
       </div>
       <div :if={@actions != []} class="entity-actions">{render_slot(@actions)}</div>
@@ -204,7 +205,7 @@ defmodule Ryker.ControlPlane.Kit do
 
     items
     |> Enum.map_reduce(nil, fn item, previous ->
-      day = item |> at.() |> day()
+      day = item |> at.() |> ShortTime.date()
       {if(day && day != previous, do: day_label(day, today)), day || previous}
     end)
     |> elem(0)
@@ -225,15 +226,23 @@ defmodule Ryker.ControlPlane.Kit do
   @doc "The clock time a row under a day heading shows: 08:33."
   @spec clock(DateTime.t() | NaiveDateTime.t() | nil) :: String.t() | nil
   def clock(nil), do: nil
-  def clock(at), do: at |> utc() |> Calendar.strftime("%H:%M")
+  def clock(at), do: at |> UTCDateTime.to_utc() |> Calendar.strftime("%H:%M")
 
-  defp iso(at), do: at |> utc() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+  @doc ~s(Words with one name in bold, e.g. "In <strong>#payments</strong>".)
+  @spec labelled(String.t(), term()) :: Phoenix.HTML.safe()
+  def labelled(lead, name) do
+    {:safe,
+     [
+       Plug.HTML.html_escape(lead),
+       "<strong>",
+       Plug.HTML.html_escape(to_string(name)),
+       "</strong>"
+     ]}
+  end
 
-  defp day(nil), do: nil
-  defp day(at), do: at |> utc() |> DateTime.to_date()
-
-  defp utc(%DateTime{} = at), do: DateTime.shift_zone!(at, "Etc/UTC")
-  defp utc(%NaiveDateTime{} = at), do: DateTime.from_naive!(at, "Etc/UTC")
+  @doc "A DOM id from a ref: anything but letters, digits, `_` and `-` becomes `-`."
+  @spec dom_id(term()) :: String.t()
+  def dom_id(ref), do: String.replace(to_string(ref), ~r/[^A-Za-z0-9_-]/, "-")
 
   attr(:value, :any, required: true)
 

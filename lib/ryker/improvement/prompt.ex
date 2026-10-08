@@ -11,10 +11,11 @@ defmodule Ryker.Improvement.Prompt do
   routing prompts give way first, then long texts are shortened, and each cut
   is named in `omitted`.
   """
-  alias Ryker.CanonicalJSON
   alias Ryker.Improvement.Candidate
+  alias Ryker.JSONSchema
   alias Ryker.PromptDocument
   alias Ryker.Reference
+  alias Ryker.Text
 
   @contract_version "improvement-analysis-v1"
   @max_encoded_bytes 65_536
@@ -130,20 +131,12 @@ defmodule Ryker.Improvement.Prompt do
       "properties" => %{
         "category" => %{"type" => "string", "enum" => names(Candidate.categories())},
         "step" => %{"type" => "string", "enum" => names(Candidate.steps())},
-        "what_went_wrong" => text_schema(@what_went_wrong_characters),
-        "expected" => text_schema(@expected_characters),
+        "what_went_wrong" => JSONSchema.text(@what_went_wrong_characters),
+        "expected" => JSONSchema.text(@expected_characters),
         "confidence" => %{"type" => "string", "enum" => names(Candidate.confidences())}
       }
     }
   end
-
-  defp text_schema(maximum),
-    do: %{
-      "type" => "string",
-      "minLength" => 1,
-      "maxLength" => maximum,
-      "pattern" => "^[^\\x00]*[^\\s\\x00][^\\x00]*$"
-    }
 
   defp names(values), do: Enum.map(values, &Atom.to_string/1)
 
@@ -203,7 +196,7 @@ defmodule Ryker.Improvement.Prompt do
   # out, so a request of a few hundred turns could never be analyzed
   # (2026-10-04 review).
   defp fit(instructions, context) do
-    [
+    PromptDocument.fit(instructions, context, @max_encoded_bytes, [
       &drop_routing_prompt/1,
       &shorten(&1, 4_000),
       &shorten(&1, 1_000),
@@ -212,23 +205,7 @@ defmodule Ryker.Improvement.Prompt do
       &shorten(&1, 200),
       &drop_oldest(&1, "work", "The oldest Work turns, left out for length."),
       &drop_oldest(&1, "feedback", "The oldest feedback, left out for length.")
-    ]
-    |> Enum.reduce(context, fn step, context -> until_fits(instructions, context, step) end)
-  end
-
-  defp until_fits(instructions, context, step) do
-    if fits?(instructions, context),
-      do: context,
-      else: smaller(instructions, context, step, step.(context))
-  end
-
-  # A step that changes nothing more is done, whether or not it fits.
-  defp smaller(_instructions, context, _step, context), do: context
-  defp smaller(instructions, _context, step, next), do: until_fits(instructions, next, step)
-
-  defp fits?(instructions, context) do
-    byte_size(CanonicalJSON.encode!(%{"instructions" => instructions, "context" => context})) <=
-      @max_encoded_bytes
+    ])
   end
 
   defp drop_routing_prompt(context) do
@@ -272,18 +249,11 @@ defmodule Ryker.Improvement.Prompt do
   defp cut(item, key, bytes) do
     case item[key] do
       text when is_binary(text) and byte_size(text) > bytes ->
-        Map.put(item, key, valid_prefix(binary_part(text, 0, bytes)) <> @marker)
+        Map.put(item, key, Text.bytes(text, bytes) <> @marker)
 
       _short ->
         item
     end
-  end
-
-  # A cut never splits a character.
-  defp valid_prefix(bytes) do
-    if String.valid?(bytes),
-      do: bytes,
-      else: valid_prefix(binary_part(bytes, 0, byte_size(bytes) - 1))
   end
 
   defp drop_tools(context) do

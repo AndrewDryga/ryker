@@ -155,12 +155,9 @@ defmodule Ryker.ControlPlane.WorkChanges do
   end
 
   defp typed?(digest, bytes, offset, next, more) do
-    valid_digest?(digest) and valid_patch_size?(bytes) and valid_offset?(offset, 0, bytes) and
+    Crypto.sha256_hex?(digest) and valid_patch_size?(bytes) and valid_offset?(offset, 0, bytes) and
       valid_offset?(next, offset, bytes) and is_boolean(more)
   end
-
-  defp valid_digest?(value),
-    do: is_binary(value) and Regex.match?(~r/\A[0-9a-f]{64}\z/, value)
 
   defp valid_patch_size?(value), do: is_integer(value) and value in 0..1_073_741_824
 

@@ -6,6 +6,7 @@ defmodule Ryker.Publication.Executor do
   retry reuses the frozen Coop review key/revision or the exact retained commit;
   an operator approval can therefore never drift to a newer workspace tree.
   """
+  alias Ryker.Adapter
   alias Ryker.CoopFleet
   alias Ryker.Delivery
   alias Ryker.LeasedCall
@@ -360,13 +361,7 @@ defmodule Ryker.Publication.Executor do
 
   defp validate_callbacks(callbacks) do
     Enum.reduce_while(callbacks, :ok, fn {module, functions, field}, :ok ->
-      valid =
-        is_atom(module) and Code.ensure_loaded?(module) and
-          Enum.all?(functions, fn {function, arity} ->
-            function_exported?(module, function, arity)
-          end)
-
-      if valid,
+      if Adapter.implements?(module, functions),
         do: {:cont, :ok},
         else: {:halt, {:error, {:invalid_publication_executor, field}}}
     end)

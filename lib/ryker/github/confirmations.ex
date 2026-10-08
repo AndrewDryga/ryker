@@ -9,11 +9,14 @@ defmodule Ryker.GitHub.Confirmations do
   services used by Slack and Chat.
   """
   alias Ryker.Behaviors
+  alias Ryker.Crypto
   alias Ryker.Episodes
   alias Ryker.Ingress
+  alias Ryker.Maps
   alias Ryker.Memories
   alias Ryker.Options
   alias Ryker.Records
+  alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Schedules
   alias Ryker.Work
@@ -21,8 +24,6 @@ defmodule Ryker.GitHub.Confirmations do
 
   @command_prefix "/ryker confirm"
   @command ~r/\A\/ryker confirm ([A-Za-z0-9_.:-]{1,256})\z/
-  @digest ~r/\A[0-9a-f]{64}\z/
-  @reference ~r/\A[A-Za-z0-9_.:-]{1,256}\z/
   @supported_kinds ~w(task_offer schedule_offer automation_change_offer memory_offer preference_offer guidance_offer standing_assignment_offer)
 
   @type options :: %{repositories: %{String.t() => %{name: String.t(), digest: String.t()}}}
@@ -248,7 +249,7 @@ defmodule Ryker.GitHub.Confirmations do
   end
 
   defp repository!({repository, %{contributor_policy: policy}}) when is_binary(repository) do
-    unless Regex.match?(@reference, repository),
+    unless Reference.token?(repository),
       do: raise(ArgumentError, "GitHub confirmation repository is invalid")
 
     {repository, policy!(policy)}
@@ -256,7 +257,7 @@ defmodule Ryker.GitHub.Confirmations do
 
   defp repository!({repository, %{name: _name, digest: _digest} = policy})
        when is_binary(repository) do
-    unless Regex.match?(@reference, repository),
+    unless Reference.token?(repository),
       do: raise(ArgumentError, "GitHub confirmation repository is invalid")
 
     {repository, policy!(policy)}
@@ -267,11 +268,11 @@ defmodule Ryker.GitHub.Confirmations do
 
   defp policy!(%{name: name, digest: digest} = source)
        when is_binary(name) and is_binary(digest) do
-    if Regex.match?(@reference, name) and Regex.match?(@digest, digest) do
+    if Reference.token?(name) and Crypto.sha256_hex?(digest) do
       %{name: name, digest: digest}
-      |> maybe_put(:environment_ref, Map.get(source, :environment_ref))
-      |> maybe_put(:repository_ref, Map.get(source, :repository_ref))
-      |> maybe_put(:repository_context, Map.get(source, :repository_context))
+      |> Maps.put_present(:environment_ref, Map.get(source, :environment_ref))
+      |> Maps.put_present(:repository_ref, Map.get(source, :repository_ref))
+      |> Maps.put_present(:repository_context, Map.get(source, :repository_context))
     else
       raise ArgumentError, "GitHub confirmation contributor policy is invalid"
     end
@@ -281,7 +282,4 @@ defmodule Ryker.GitHub.Confirmations do
     do: raise(ArgumentError, "GitHub confirmation contributor policy is invalid")
 
   defp invalid, do: {:ok, %{"status" => "invalid"}}
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

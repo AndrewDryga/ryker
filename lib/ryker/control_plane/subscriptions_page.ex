@@ -157,10 +157,10 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
 
   defp place(nil), do: nil
   defp place(:direct), do: "in a direct conversation"
-  defp place(name), do: labelled("in ", name)
+  defp place(name), do: Kit.labelled("in ", name)
 
   defp repository(nil), do: nil
-  defp repository(name), do: labelled("repository ", name)
+  defp repository(name), do: Kit.labelled("repository ", name)
 
   defp target(%{target_url: url} = item) when is_binary(url) do
     assigns = %{url: url, title: item.title}
@@ -201,11 +201,6 @@ defmodule Ryker.ControlPlane.SubscriptionsPage do
     ~H"""
     <time datetime={DateTime.to_iso8601(@at)} title={ShortTime.full(@at)}>{@text}</time>
     """
-  end
-
-  defp labelled(lead, value) do
-    assigns = %{lead: lead, value: value}
-    ~H"{@lead}<strong>{@value}</strong>"
   end
 
   defp segments(query, view) do

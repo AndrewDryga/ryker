@@ -5,6 +5,7 @@ defmodule Ryker.Ingress.Adapters do
   Source identifiers stay bounded strings. No event-controlled value is ever
   converted to an atom or used to resolve a module dynamically.
   """
+  alias Ryker.Adapter
   alias Ryker.Ingress.Input
 
   @default %{
@@ -62,8 +63,7 @@ defmodule Ryker.Ingress.Adapters do
   end
 
   defp valid_adapter?(kind, adapter) do
-    is_binary(kind) and is_atom(adapter) and Code.ensure_loaded?(adapter) and
-      function_exported?(adapter, :source_kind, 0) and
-      function_exported?(adapter, :normalize, 2) and adapter.source_kind() == kind
+    is_binary(kind) and Adapter.implements?(adapter, source_kind: 0, normalize: 2) and
+      adapter.source_kind() == kind
   end
 end

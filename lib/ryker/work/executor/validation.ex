@@ -68,7 +68,7 @@ defmodule Ryker.Work.Executor.Validation do
           claim,
           sha256,
           attempt,
-          {:reject, [presentation_violation(reason)]},
+          {:reject, [Validator.presentation_violation(reason)]},
           nil
         )
 
@@ -120,10 +120,6 @@ defmodule Ryker.Work.Executor.Validation do
 
   defp ensure_final_preflight(claim, _message, sha256, attempt, _artifacts, result),
     do: prepare_validation(claim, sha256, attempt, :accept, result)
-
-  defp presentation_violation(reason) do
-    "The final response cannot be rendered safely for this destination: #{inspect(reason, limit: 8, printable_limit: 256)}"
-  end
 
   defp decode_candidate(message) do
     case Jason.decode(message) do
@@ -365,31 +361,6 @@ defmodule Ryker.Work.Executor.Validation do
     end
   end
 
-  @doc false
-  def default_validation_context(claim) do
-    context = claim.turn.submission["context"]
-
-    %{
-      "artifact_delivery_supported" => Artifacts.Outputs.delivery_supported?(claim.episode),
-      "artifact_metadata" => [],
-      "artifact_refs" => [],
-      "execution_mode" => Atom.to_string(claim.episode.execution_mode),
-      "open_required_goals" => Records.open_required_goals(claim.episode.id),
-      "records" => validation_records(claim.episode.id, claim.turn.id),
-      "slack_mentions" => Custody.Delivery.answer_mentions(claim.episode, claim.turn),
-      "visible_reply_required" =>
-        claim.episode.execution_mode == :live and visible_reply_required?(context),
-      "workspace" => nil
-    }
-  end
-
-  defp validation_records(episode_id, turn_id) do
-    Map.merge(
-      Records.validation_records(episode_id),
-      Delivery.PlatformActionCustody.validation_records(episode_id, turn_id)
-    )
-  end
-
   defp workspace_validation_context(claim, settings) do
     case workspace_requirements(claim) do
       [] ->
@@ -481,25 +452,6 @@ defmodule Ryker.Work.Executor.Validation do
       {:error, {:invalid_work_state, :repository_write_goals}}
     end
   end
-
-  defp visible_reply_required?(%{"mode" => "full", "inputs" => %{"items" => items}}),
-    do: Enum.any?(items, &(&1["current"] == true and human_input?(&1)))
-
-  defp visible_reply_required?(%{
-         "mode" => "continuation",
-         "current_inputs" => %{"items" => items}
-       }) do
-    # The original human request was handled by an earlier accepted turn.
-    # It must not force notifications for every later automated observation.
-    Enum.any?(items, &human_input?/1)
-  end
-
-  defp visible_reply_required?(_context), do: false
-
-  defp human_input?(%{"actor_ref" => actor_ref}) when is_binary(actor_ref),
-    do: String.contains?(actor_ref, ":user:")
-
-  defp human_input?(_input), do: false
 
   defp validation_verdict(%{"verdict" => "accept"}), do: :accept
 

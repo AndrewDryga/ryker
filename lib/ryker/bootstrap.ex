@@ -6,6 +6,7 @@ defmodule Ryker.Bootstrap do
   are enabled by durable settings, never by the presence of a credential. Error
   messages name the input without echoing connection strings or secret values.
   """
+  alias Ryker.Crypto
 
   # Crash reports print a struct with inspect; the database URL carries its
   # password and the credential key opens every saved credential.
@@ -229,7 +230,7 @@ defmodule Ryker.Bootstrap do
       not Regex.match?(~r/\A[a-z0-9][a-z0-9-]{0,62}\.cloudflareaccess\.com\z/, team) ->
         invalid!("RYKER_CLOUDFLARE_ACCESS_TEAM_DOMAIN", "must be <team>.cloudflareaccess.com")
 
-      not Regex.match?(~r/\A[0-9a-f]{64}\z/, audience) ->
+      not Crypto.sha256_hex?(audience) ->
         invalid!("RYKER_CLOUDFLARE_ACCESS_AUD", "must be the application's audience tag")
 
       not String.starts_with?(control_public_url, "https://") ->

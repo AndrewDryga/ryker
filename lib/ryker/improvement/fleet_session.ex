@@ -5,6 +5,7 @@ defmodule Ryker.Improvement.FleetSession do
   (execution kind `improvement`). Cleanup closes it once the run has stopped
   (`Ryker.Retention.Custody`).
   """
+  alias Ryker.Adapter
   alias Ryker.Improvement.AnalysisRun
   alias Ryker.Repo
   alias Ryker.Work
@@ -21,7 +22,7 @@ defmodule Ryker.Improvement.FleetSession do
   def placeable?(%{api: api, client: client, policy: policy, policy_digest: digest}) do
     session = %Work.Session{execution_kind: :improvement, policy: policy, policy_digest: digest}
 
-    if Code.ensure_loaded?(api) and function_exported?(api, :accepts_session?, 2),
+    if Adapter.implements?(api, accepts_session?: 2),
       do: api.accepts_session?(client, session),
       else: true
   end

@@ -21,4 +21,23 @@ defmodule Ryker.PromptDocumentTest do
     assert noted == %{"omitted" => ["The oldest messages, left out for length."]}
     assert PromptDocument.omit(noted, "The oldest messages, left out for length.") == noted
   end
+
+  # Self-analysis and repository reading each fitted their prompt with a copy
+  # of this loop until 2026-10-08.
+  test "a prompt is made smaller step by step until it fits, and a step that stops shrinking is done" do
+    context = %{"notes" => String.duplicate("a", 500), "list" => Enum.to_list(1..100)}
+
+    halve = fn %{"notes" => notes} = context ->
+      %{context | "notes" => binary_part(notes, 0, div(byte_size(notes), 2))}
+    end
+
+    drop = fn %{"list" => list} = context -> %{context | "list" => Enum.drop(list, 10)} end
+
+    fitted = PromptDocument.fit("Read it.", context, 200, [halve, drop])
+
+    assert PromptDocument.fits?("Read it.", fitted, 200)
+    assert fitted["notes"] == ""
+    assert length(fitted["list"]) < 100
+    refute PromptDocument.fits?("Read it.", context, 200)
+  end
 end

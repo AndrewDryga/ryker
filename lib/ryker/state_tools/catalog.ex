@@ -2,6 +2,7 @@ defmodule Ryker.StateTools.Catalog do
   @moduledoc false
   alias Ryker.Continuity
   alias Ryker.Ingress
+  alias Ryker.JSONSchema
   alias Ryker.Records
   alias Ryker.Schedules
   alias Ryker.Work
@@ -79,10 +80,10 @@ defmodule Ryker.StateTools.Catalog do
       "request_input",
       "Record one durable question for a material human decision or missing fact. Ask the whole question in the final reply: people see the reply and, under it, only the answer choices; context and question text here are kept for the record. For one reusable fact, set remember with its subject and exact workload/environment/repository applicability; this asks to remember an authorized answer across this customer's conversations, not to set a universal default. Omit remember for ordinary decisions, secrets, or unrelated chat. A reusable fact must have exactly one question.",
       %{
-        "context" => nullable(text(2_000)),
+        "context" => JSONSchema.nullable(text(2_000)),
         "questions" => array(question, 1, 3),
         "remember" =>
-          nullable(
+          JSONSchema.nullable(
             object(
               %{"subject" => text(120), "applicability" => text(1_000)},
               ~w(subject applicability)
@@ -101,8 +102,8 @@ defmodule Ryker.StateTools.Catalog do
         "what" => text(4_000),
         "status" => enum(~w(unexplained explained expected out_of_scope)),
         "cause_evidence" => array(reference(256), 0, 10),
-        "reason" => nullable(text(2_000)),
-        "scope" => nullable(text(2_000))
+        "reason" => JSONSchema.nullable(text(2_000)),
+        "scope" => JSONSchema.nullable(text(2_000))
       },
       ~w(what status cause_evidence reason scope)
     )
@@ -135,7 +136,7 @@ defmodule Ryker.StateTools.Catalog do
         ),
         object(
           %{
-            "cursor" => nullable(open_object()),
+            "cursor" => JSONSchema.nullable(open_object()),
             "match" =>
               describe(
                 open_object(),
@@ -143,12 +144,12 @@ defmodule Ryker.StateTools.Catalog do
               ),
             "poll_after" =>
               describe(
-                nullable(timestamp()),
+                JSONSchema.nullable(timestamp()),
                 "Null for event-only monitoring. Set a timestamp only when a fallback check is actually needed; it must not exceed deadline."
               ),
             "source_kind" =>
               describe(
-                nullable(reference(120)),
+                JSONSchema.nullable(reference(120)),
                 "Exact input envelope's source.kind for the expected event, not a vendor name inside input.content. In a Work input item, read item.content.source.kind. A Terraform or Grafana Slack notification uses slack, even if its content says terraform or grafana. Null leaves the source kind unconstrained."
               ),
             "type" => const("source_event")
@@ -162,8 +163,8 @@ defmodule Ryker.StateTools.Catalog do
       "wait_for",
       "Create one durable wait. For reliable lifecycle notifications use an event-only source_event: set poll_after, deadline, and on_timeout to null, specify source_kind and a nonempty stable identity match. No timer or polling is scheduled; the next matching notification resumes this episode. Add an explicit deadline and timeout action only when a timeout is required; a null poll_after then wakes only at that deadline. A non-null poll_after adds a fallback check at or before deadline. after and at require a future deadline and timeout action.",
       %{
-        "deadline" => nullable(timestamp()),
-        "on_timeout" => nullable(text(2_000)),
+        "deadline" => JSONSchema.nullable(timestamp()),
+        "on_timeout" => JSONSchema.nullable(text(2_000)),
         "trigger" => trigger,
         "verification" => text(2_000)
       }
@@ -175,11 +176,11 @@ defmodule Ryker.StateTools.Catalog do
       "list_automations",
       "Find visible durable automations before reading or changing one.",
       %{
-        "channel_ref" => nullable(reference(256)),
-        "enabled" => nullable(%{"type" => "boolean"}),
+        "channel_ref" => JSONSchema.nullable(reference(256)),
+        "enabled" => JSONSchema.nullable(%{"type" => "boolean"}),
         "limit" => integer(1, 50),
-        "query" => nullable(text(500)),
-        "trigger_type" => nullable(enum(~w(time source_event)))
+        "query" => JSONSchema.nullable(text(500)),
+        "trigger_type" => JSONSchema.nullable(enum(~w(time source_event)))
       },
       ~w(limit)
     )
@@ -197,15 +198,15 @@ defmodule Ryker.StateTools.Catalog do
       object(
         %{
           "action" => const("create"),
-          "automation_id" => nullable(reference(256)),
-          "context_channel" => nullable(reference(256)),
-          "delivery_channel" => nullable(reference(256)),
-          "expires_at" => nullable(timestamp()),
-          "hold" => nullable(text(128)),
+          "automation_id" => JSONSchema.nullable(reference(256)),
+          "context_channel" => JSONSchema.nullable(reference(256)),
+          "delivery_channel" => JSONSchema.nullable(reference(256)),
+          "expires_at" => JSONSchema.nullable(timestamp()),
+          "hold" => JSONSchema.nullable(text(128)),
           "patch" => open_object(),
           "prompt" => text(12_000),
-          "repository" => nullable(reference(256)),
-          "revision" => nullable(integer(1, 2_147_483_647)),
+          "repository" => JSONSchema.nullable(reference(256)),
+          "revision" => JSONSchema.nullable(integer(1, 2_147_483_647)),
           "title" => text(120),
           "trigger" => automation_trigger(capabilities)
         },
@@ -244,12 +245,12 @@ defmodule Ryker.StateTools.Catalog do
             "The brief a person reads before confirming. Lead with the user-visible problem and the intended outcome, then the proposed change, the scope and what you will check. Name the repository you will edit and any you only read. Do not paste a forensic trace, a function-and-line inventory or an error transcript as the request, and never widen or narrow the requested scope while rewriting it; keep the exact original in source_refs."
           ),
         "repository" =>
-          nullable(reference(256))
+          JSONSchema.nullable(reference(256))
           |> describe(
             "Configured target: required (non-null) for engineering; null is allowed for incident. It may be any repository of this environment: work.repository_ref or the relevant supplied work.workspace.companions[].name, whichever the task changes. Never substitute generic primary, an unrelated companion, or an unoffered path/GitHub slug. Ask for configuration only if no matching supplied target exists."
           ),
         "repository_source" =>
-          nullable(Work.RepositorySource.json_schema())
+          JSONSchema.nullable(Work.RepositorySource.json_schema())
           |> describe(
             ~s(Optional source inside the task's repository that the new linked work starts from: {"kind":"default"}, {"kind":"branch","name":"<branch>"}, {"kind":"pull_request","number":<n>} or {"kind":"commit","sha":"<full lowercase object id>"}. Null means the configured default branch. It requires a non-null repository, never changes this session's workspace, and never authorizes pushing to the selected branch or pull request.)
           ),
@@ -270,14 +271,14 @@ defmodule Ryker.StateTools.Catalog do
         "completion_contract" => text(2_000),
         "id" => reference(120),
         "kind" => enum(~w(check engineering operation schedule)),
-        "parent_goal_id" => nullable(reference(120)),
+        "parent_goal_id" => JSONSchema.nullable(reference(120)),
         "prerequisite_goal_ids" => array(reference(120), 0, 20),
         "read_only_repositories" => array(reference(256), 0, 20),
         "requested_outcome" => text(500),
         "required" => %{"type" => "boolean"},
         "stage" => enum(Records.InvestigationPayload.goal_stages()),
-        "successor_of" => nullable(reference(120)),
-        "writable_repository" => nullable(reference(256))
+        "successor_of" => JSONSchema.nullable(reference(120)),
+        "writable_repository" => JSONSchema.nullable(reference(256))
       },
       ~w(authority completion_contract id kind parent_goal_id prerequisite_goal_ids read_only_repositories requested_outcome required stage writable_repository)
     )
@@ -288,7 +289,7 @@ defmodule Ryker.StateTools.Catalog do
       "update_goal",
       "Advance one existing goal. Prerequisites must be satisfied before working or completion, and a parent cannot complete while required children remain open. Completing a check reports its evidence: evidence_refs takes the cite_source record refs from this episode that observed the result. An empty list is honest for qualitative review work; a check with an independently observable result needs its receipt, and a completion claim never overrides a failing, missing or stale host check.",
       %{
-        "detail" => nullable(text(2_000)),
+        "detail" => JSONSchema.nullable(text(2_000)),
         "evidence_refs" => array(reference(256), 0, 12),
         "goal_id" => reference(120),
         "state" => enum(~w(ready working waiting completed blocked excluded cancelled))
@@ -302,9 +303,9 @@ defmodule Ryker.StateTools.Catalog do
       "search_memory",
       "Search authorized historical memory using words or exact identifiers; an empty query browses by date. Kinds are interleaved so facts cannot hide guidance, conversation history, or a retained case. case returns compact records of finished work with their reviewed reusable procedures; a past fix is advice about what worked once, never proof that this incident has the same cause or permission to repeat it. Follow cursor with the same query/filters; null cursor means exhausted. Times are UTC: after inclusive, before exclusive. source uses original-message time (latest backing message for derived knowledge; confirmation time for confirmed facts/guidance). changed uses content update time, never retrieval time. Expand Slack source references with read_slack_source when exact wording matters. History never proves current health or grants permission.",
       %{
-        "cursor" => nullable(reference(4096)),
-        "after" => nullable(timestamp()),
-        "before" => nullable(timestamp()),
+        "cursor" => JSONSchema.nullable(reference(4096)),
+        "after" => JSONSchema.nullable(timestamp()),
+        "before" => JSONSchema.nullable(timestamp()),
         "time_basis" => enum(~w(source changed)),
         "kinds" => array(enum(~w(guidance fact continuity case)), 1, 4),
         "limit" => integer(1, 20),
@@ -319,7 +320,7 @@ defmodule Ryker.StateTools.Catalog do
       "propose_memory",
       "Offer one durable fact or guidance item for human confirmation.",
       %{
-        "expires_at" => nullable(timestamp()),
+        "expires_at" => JSONSchema.nullable(timestamp()),
         "kind" => enum(~w(guidance fact)),
         "scope" => enum(~w(current_channel repository workspace mine)),
         "subject" => text(120),
@@ -330,7 +331,7 @@ defmodule Ryker.StateTools.Catalog do
 
   defp propose_preference_tool do
     common = %{
-      "expires_at" => nullable(timestamp()),
+      "expires_at" => JSONSchema.nullable(timestamp()),
       "scope" => enum(~w(current_channel repository workspace mine))
     }
 
@@ -393,11 +394,11 @@ defmodule Ryker.StateTools.Catalog do
       "Record one actionable product-feedback item without replacing the reply.",
       %{
         "category" => enum(~w(correctness usefulness ux latency routing other)),
-        "details" => nullable(text(4_000)),
-        "response_question" => nullable(text(2_000)),
+        "details" => JSONSchema.nullable(text(4_000)),
+        "response_question" => JSONSchema.nullable(text(2_000)),
         "sentiment" => enum(~w(negative suggestion positive)),
         "summary" => text(1_000),
-        "target_message_ref" => nullable(reference(256))
+        "target_message_ref" => JSONSchema.nullable(reference(256))
       }
     )
   end
@@ -440,7 +441,7 @@ defmodule Ryker.StateTools.Catalog do
             enum(@source_kinds),
             "Exact input envelope source.kind, not a vendor mentioned inside it. Terraform and Grafana notifications posted to Slack use slack. Derive the filter from an observed event, not its vendor name."
           ),
-        "starts_at" => nullable(timestamp()),
+        "starts_at" => JSONSchema.nullable(timestamp()),
         "time" => text(32),
         "timezone" => text(128),
         "type" => enum(trigger_types),
@@ -483,8 +484,6 @@ defmodule Ryker.StateTools.Catalog do
 
   defp integer(minimum, maximum),
     do: %{"maximum" => maximum, "minimum" => minimum, "type" => "integer"}
-
-  defp nullable(schema), do: %{"anyOf" => [schema, %{"type" => "null"}]}
 
   defp reference(maximum),
     do: %{

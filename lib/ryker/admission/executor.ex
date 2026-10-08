@@ -1034,7 +1034,7 @@ defmodule Ryker.Admission.Executor do
          :ok <- executor_value(is_function(settings.renew_lease, 0), :renew_lease),
          :ok <- executor_value(is_function(settings.sleep, 1), :sleep),
          :ok <- executor_value(Reference.valid?(settings.policy), :policy),
-         :ok <- executor_value(valid_digest?(settings.policy_digest), :policy_digest),
+         :ok <- executor_value(Crypto.sha256_hex?(settings.policy_digest), :policy_digest),
          :ok <-
            executor_value(
              is_function(settings.prepare_execution_session, 2),
@@ -1092,9 +1092,6 @@ defmodule Ryker.Admission.Executor do
         else: :ok
     end
   end
-
-  defp valid_digest?(value),
-    do: is_binary(value) and Regex.match?(~r/\A[0-9a-f]{64}\z/, value)
 
   defp executor_value(true, _field), do: :ok
   defp executor_value(false, field), do: {:error, {:invalid_admission_executor, field}}

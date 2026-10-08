@@ -6,6 +6,7 @@ defmodule Ryker.Slack.InteractionRepaint do
   incident, setup, Work, and record state is reloaded before `chat.update`;
   action values are never interpreted as authority here.
   """
+  alias Ryker.Adapter
   alias Ryker.Episodes
   alias Ryker.Records
   alias Ryker.Repo
@@ -234,6 +235,6 @@ defmodule Ryker.Slack.InteractionRepaint do
   end
 
   defp repaint_api?(api) do
-    is_atom(api) and Code.ensure_loaded?(api) and function_exported?(api, :update_message, 5)
+    Adapter.implements?(api, update_message: 5)
   end
 end

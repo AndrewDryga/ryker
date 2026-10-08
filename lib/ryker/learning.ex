@@ -10,6 +10,7 @@ defmodule Ryker.Learning do
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
   alias Ryker.Ingress
+  alias Ryker.JSONSchema
   alias Ryker.Knowledge
   alias Ryker.Learning.{Batches, Rebuilds}
   alias Ryker.Learning.LearningRun
@@ -19,6 +20,7 @@ defmodule Ryker.Learning do
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Text
+  alias Ryker.UTCDateTime
   alias Ryker.Work
 
   @max_inputs 16
@@ -151,7 +153,7 @@ defmodule Ryker.Learning do
       when is_list(ids) and length(ids) in 1..@max_inputs and is_binary(policy) and
              is_binary(digest) do
     Repo.transaction(fn ->
-      unless Text.char_length(policy) in 1..160 and Regex.match?(~r/\A[0-9a-f]{64}\z/, digest),
+      unless Text.char_length(policy) in 1..160 and Crypto.sha256_hex?(digest),
         do: Repo.rollback(:invalid_learning_inputs)
 
       limit =
@@ -619,8 +621,7 @@ defmodule Ryker.Learning do
       Enum.all?(~w(session_id turn_id), &Reference.valid?(receipt[&1])) and
       valid_failure_target?(receipt["target"], reason) and
       valid_failure_state?(receipt, reason) and
-      is_binary(receipt["prompt_sha256"]) and
-      Regex.match?(~r/\A[0-9a-f]{64}\z/, receipt["prompt_sha256"]) and
+      Crypto.sha256_hex?(receipt["prompt_sha256"]) and
       valid_failure_time?(receipt["finished_at"], reason)
   end
 
@@ -630,7 +631,7 @@ defmodule Ryker.Learning do
   defp valid_failure_time?(nil, :learning_provider_failed), do: true
 
   defp valid_failure_time?(at, _),
-    do: is_binary(at) and match?({:ok, _, 0}, DateTime.from_iso8601(at))
+    do: UTCDateTime.iso8601?(at)
 
   defp valid_failure_state?(receipt, :output_contract_failed),
     do: receipt["state"] == "failed" and receipt["error_code"] == "output_contract_failed"
@@ -1642,12 +1643,7 @@ defmodule Ryker.Learning do
       "properties" => %{
         "action" => %{"const" => "defer"},
         "source_input_ids" => source_ids,
-        "reason" => %{
-          "type" => "string",
-          "minLength" => 1,
-          "maxLength" => 1200,
-          "pattern" => "^[^\\x00]*[^\\s\\x00][^\\x00]*$"
-        }
+        "reason" => JSONSchema.text(1200)
       }
     }
 

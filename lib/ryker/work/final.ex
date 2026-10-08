@@ -10,6 +10,7 @@ defmodule Ryker.Work.Final do
   The schema requires the property so strict providers always answer it; the
   parser also accepts a recorded answer without it, which keeps the name.
   """
+  alias Ryker.JSONSchema
   alias Ryker.Reference
 
   @deliveries [:reply, :none]
@@ -18,9 +19,7 @@ defmodule Ryker.Work.Final do
   @title_length 80
   @title_pattern "^[^\\n\\r\\x00]*[^\\s\\x00][^\\n\\r\\x00]*$"
   @outcome_fields ~w(artifact_refs record_refs state)
-  @nonblank_pattern "^[^\\x00]*[^\\s\\x00][^\\x00]*$"
   @reference_pattern "^[A-Za-z0-9_.:-]{1,256}$"
-  @reference_regex ~r/\A[A-Za-z0-9_.:-]{1,256}\z/
 
   @enforce_keys [:artifact_refs, :decision_reason, :delivery, :message, :record_refs, :state]
   defstruct @enforce_keys ++ [title: nil, titled?: false]
@@ -99,25 +98,21 @@ defmodule Ryker.Work.Final do
           "properties" => %{
             "decision_reason" => %{"type" => "null"},
             "delivery" => %{"const" => "reply"},
-            "message" => bounded_string_schema(20_000)
+            "message" => JSONSchema.text(20_000)
           }
         },
         %{
           "properties" => %{
-            "decision_reason" => bounded_string_schema(240),
+            "decision_reason" => JSONSchema.text(240),
             "delivery" => %{"const" => "none"},
             "message" => %{"type" => "null"}
           }
         }
       ],
       "properties" => %{
-        "decision_reason" => %{
-          "anyOf" => [bounded_string_schema(240), %{"type" => "null"}]
-        },
+        "decision_reason" => JSONSchema.nullable(JSONSchema.text(240)),
         "delivery" => %{"enum" => Enum.map(@deliveries, &Atom.to_string/1)},
-        "message" => %{
-          "anyOf" => [bounded_string_schema(20_000), %{"type" => "null"}]
-        },
+        "message" => JSONSchema.nullable(JSONSchema.text(20_000)),
         "outcome" => %{
           "additionalProperties" => false,
           "properties" => %{
@@ -141,7 +136,7 @@ defmodule Ryker.Work.Final do
       "$schema" => "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties" => false,
       "properties" => %{
-        "decision_reason" => bounded_string_schema(240),
+        "decision_reason" => JSONSchema.text(240),
         "delivery" => %{"const" => "none"},
         "message" => %{"type" => "null"},
         "outcome" => %{
@@ -230,7 +225,7 @@ defmodule Ryker.Work.Final do
 
   defp references(value, maximum, field)
        when is_list(value) and length(value) <= maximum do
-    if Enum.uniq(value) == value and Enum.all?(value, &reference?/1),
+    if Enum.uniq(value) == value and Enum.all?(value, &Reference.token?/1),
       do: :ok,
       else: {:error, {:invalid_work_final, field}}
   end
@@ -253,15 +248,6 @@ defmodule Ryker.Work.Final do
       else: {:error, {:invalid_work_final, field}}
   end
 
-  defp bounded_string_schema(maximum) do
-    %{
-      "maxLength" => maximum,
-      "minLength" => 1,
-      "pattern" => @nonblank_pattern,
-      "type" => "string"
-    }
-  end
-
   defp reference_array_schema(maximum) do
     %{
       "items" => %{
@@ -275,7 +261,4 @@ defmodule Ryker.Work.Final do
       "uniqueItems" => true
     }
   end
-
-  defp reference?(value),
-    do: is_binary(value) and String.valid?(value) and Regex.match?(@reference_regex, value)
 end

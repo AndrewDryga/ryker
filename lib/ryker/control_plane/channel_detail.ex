@@ -259,7 +259,7 @@ defmodule Ryker.ControlPlane.ChannelDetail do
     relation =
       scope
       |> ChannelDetail.Query.episodes()
-      |> read("episode_page", [desc: :updated_at, desc: :id], params)
+      |> PagedRelation.read([desc: :updated_at, desc: :id], "episode_page", params)
 
     # An episode is named by what was asked, the way the Activity page names
     # it; the key stays beside the title as the secondary fact.
@@ -277,9 +277,10 @@ defmodule Ryker.ControlPlane.ChannelDetail do
   defp schedules(scope, params) do
     scope
     |> ChannelDetail.Query.schedules()
-    |> read("schedule_page", [asc_nulls_last: :next_occurrence_at, desc: :id], params)
+    |> PagedRelation.read(
+      [asc_nulls_last: :next_occurrence_at, desc: :id],
+      "schedule_page",
+      params
+    )
   end
-
-  defp read(query, key, order, params),
-    do: PagedRelation.read(query, order, key, params)
 end

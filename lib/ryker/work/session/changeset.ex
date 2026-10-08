@@ -2,6 +2,7 @@ defmodule Ryker.Work.Session.Changeset do
   @moduledoc false
   use Ryker, :changeset
   alias Ryker.CoopFleet
+  alias Ryker.Crypto
   alias Ryker.Work.{RepositoryContext, RepositorySource, Session}
 
   @admission_fields [
@@ -103,13 +104,13 @@ defmodule Ryker.Work.Session.Changeset do
       :external_ref
     ])
     |> validate_length(:policy, min: 1, max: 1_024)
-    |> validate_format(:policy_digest, ~r/\A[0-9a-f]{64}\z/)
-    |> validate_format(:authority_digest, ~r/\A[0-9a-f]{64}\z/)
+    |> validate_format(:policy_digest, Crypto.sha256_hex_pattern())
+    |> validate_format(:authority_digest, Crypto.sha256_hex_pattern())
     |> validate_worker_job()
     |> validate_length(:repository_ref, min: 1, max: 1_024)
     |> validate_length(:external_ref, min: 1, max: 1_024)
     |> validate_format(:environment_ref, ~r/\A[a-z0-9][a-z0-9-]{0,63}\z/)
-    |> validate_repository_context()
+    |> RepositoryContext.validate()
     |> validate_repository_source()
     |> validate_emisar_pin()
     |> validate_workspace_task()
@@ -158,10 +159,10 @@ defmodule Ryker.Work.Session.Changeset do
       ]
     )
     |> validate_required([:policy_digest])
-    |> validate_format(:policy_digest, ~r/\A[0-9a-f]{64}\z/)
-    |> validate_format(:authority_digest, ~r/\A[0-9a-f]{64}\z/)
+    |> validate_format(:policy_digest, Crypto.sha256_hex_pattern())
+    |> validate_format(:authority_digest, Crypto.sha256_hex_pattern())
     |> validate_worker_job()
-    |> validate_repository_context()
+    |> RepositoryContext.validate()
     |> validate_emisar_pin()
     |> check_constraint(:repository_context, name: :episode_work_session_repository_context_valid)
     |> check_constraint(:emisar_connection_ref, name: :episode_work_session_emisar_pin_valid)
@@ -354,15 +355,6 @@ defmodule Ryker.Work.Session.Changeset do
           match?({:ok, ^value}, RepositorySource.parse(value))
 
       if valid?, do: [], else: [repository_source: "is not an authorized repository source"]
-    end)
-  end
-
-  defp validate_repository_context(changeset) do
-    validate_change(changeset, :repository_context, fn :repository_context, value ->
-      case RepositoryContext.restore(value, get_field(changeset, :repository_ref)) do
-        {:ok, _context} -> []
-        {:error, :invalid} -> [repository_context: "is not a bounded repository set"]
-      end
     end)
   end
 end

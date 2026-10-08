@@ -1,7 +1,6 @@
 defmodule Ryker.Publication.Review do
   @moduledoc false
   alias Ryker.CanonicalJSON
-  alias Ryker.Crypto
   alias Ryker.GitObject
   alias Ryker.Reference
 
@@ -10,7 +9,6 @@ defmodule Ryker.Publication.Review do
   # What Coop says of the gate's output beside the review; the output itself is
   # read page by page (`Ryker.Publication.GateOutput`).
   @gate_output_keys ~w(bytes command complete exit_code incomplete lost)
-  @reference ~r/\A[A-Za-z0-9_.:-]{1,256}\z/
 
   # Every code Coop refuses a candidate with (internal/sessionsvc/review.go),
   # most actionable first, each worded to read on after "blocked: ". A gate
@@ -88,8 +86,7 @@ defmodule Ryker.Publication.Review do
 
   def prepare(_document, _expected), do: {:error, {:invalid_publication_review, :document}}
 
-  def fingerprint(document),
-    do: document |> CanonicalJSON.encode!() |> Crypto.sha256_hex()
+  def fingerprint(document), do: CanonicalJSON.digest(document)
 
   def publishable?(%{"publishable" => true}), do: true
   def publishable?(_document), do: false
@@ -457,7 +454,7 @@ defmodule Ryker.Publication.Review do
   end
 
   defp reference(value, field) do
-    if is_binary(value) and Regex.match?(@reference, value),
+    if Reference.token?(value),
       do: :ok,
       else: {:error, {:invalid_publication_review, field}}
   end

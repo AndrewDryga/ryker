@@ -10,6 +10,7 @@ defmodule Ryker.Work.Executor.Workspace do
   document the submission builder receives.
   """
   alias Ryker.GitObject
+  alias Ryker.UTCDateTime
   alias Ryker.Work.Executor.Remote
   alias Ryker.Work.RepositorySource
 
@@ -333,8 +334,8 @@ defmodule Ryker.Work.Executor.Workspace do
   end
 
   defp repository_timestamp(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, 0} -> {:ok, DateTime.to_iso8601(datetime)}
+    case UTCDateTime.parse(value) do
+      {:ok, datetime} -> {:ok, DateTime.to_iso8601(datetime)}
       _invalid -> {:error, :invalid_timestamp}
     end
   end

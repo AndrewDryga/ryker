@@ -6,6 +6,7 @@ defmodule Ryker.Publication.Runtime do
   the pool the outbound fleet client.
   """
   use Supervisor
+  alias Ryker.Adapter
   alias Ryker.Delivery
   alias Ryker.Options
   alias Ryker.Publication.{FollowupWorker, Worker}
@@ -171,18 +172,16 @@ defmodule Ryker.Publication.Runtime do
 
   defp coop_adapter!(%{coop_api: api, coop_client: client})
        when is_atom(api) and not is_nil(api) and not is_nil(client) do
-    if Code.ensure_loaded?(api) and function_exported?(api, :run_review, 4) and
-         function_exported?(api, :publish_review, 6),
-       do: {api, client},
-       else: raise(ArgumentError, "publication Coop API must implement review custody")
+    if Adapter.implements?(api, run_review: 4, publish_review: 6),
+      do: {api, client},
+      else: raise(ArgumentError, "publication Coop API must implement review custody")
   end
 
   defp coop_adapter!(_configuration),
     do: raise(ArgumentError, "publication requires a trusted Coop adapter")
 
   defp status_source!(%{status_api: api, status_client: client}) do
-    unless is_atom(api) and Code.ensure_loaded?(api) and
-             function_exported?(api, :get_publication_status, 3) do
+    unless Adapter.implements?(api, get_publication_status: 3) do
       raise(
         ArgumentError,
         "publication status API must implement get_publication_status/3"

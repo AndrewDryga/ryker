@@ -2,8 +2,8 @@ defmodule Ryker.Learning.Runtime do
   @moduledoc "A small supervised learning pool, configured by the host rather than incoming messages."
   use Supervisor
   alias Ryker.Config
+  alias Ryker.{Crypto, Options, Reference}
   alias Ryker.Learning.Worker
-  alias Ryker.{Options, Reference}
 
   @fields ~w(api client policy policy_digest worker_ref concurrency batch_size quiet_seconds
     maximum_delay_seconds poll_interval_ms execution_timeout_seconds)a
@@ -78,9 +78,8 @@ defmodule Ryker.Learning.Runtime do
   defp validate_identity!(config) do
     for key <- [:policy, :worker_ref], do: validate_reference!(config[key], key)
 
-    unless is_binary(config.policy_digest) and
-             Regex.match?(~r/\A[0-9a-f]{64}\z/, config.policy_digest),
-           do: raise(ArgumentError, "learning policy_digest must be a SHA-256 digest")
+    unless Crypto.sha256_hex?(config.policy_digest),
+      do: raise(ArgumentError, "learning policy_digest must be a SHA-256 digest")
   end
 
   defp validate_reference!(value, key) do

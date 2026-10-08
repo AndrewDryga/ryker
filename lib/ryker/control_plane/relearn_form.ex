@@ -8,6 +8,7 @@ defmodule Ryker.ControlPlane.RelearnForm do
   """
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{CSRF, RelearnPanel}
+  alias Ryker.Crypto
   alias Ryker.Operator
 
   @doc """
@@ -147,7 +148,7 @@ defmodule Ryker.ControlPlane.RelearnForm do
          true <- Enum.sort(Map.keys(source)) == ["fingerprint", "revision", "source_input_id"],
          {:ok, ^id} <- Ecto.UUID.cast(id),
          true <- is_integer(revision) and revision >= 1 and revision <= 9_223_372_036_854_775_807,
-         true <- is_binary(fingerprint) and Regex.match?(~r/\A[0-9a-f]{64}\z/, fingerprint),
+         true <- Crypto.sha256_hex?(fingerprint),
          true <- raw == CanonicalJSON.encode!(source) do
       source
     else

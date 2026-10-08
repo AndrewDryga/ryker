@@ -172,7 +172,7 @@ defmodule Ryker.Slack.TaskCardProjection do
       followup: followup(publication),
       records: Records.retained_records(episode.id),
       publication_offer: latest_publication_offer(episode.id),
-      goal_records: goal_records(episode.id),
+      goal_records: Records.goal_records(episode.id),
       progress_records: progress_records(episode.id),
       workspace_hold: Work.Recovery.workspace_hold(turn)
     }
@@ -210,15 +210,6 @@ defmodule Ryker.Slack.TaskCardProjection do
        do: GitHub.repository_url(repository)
 
   defp repository_url(_publication), do: nil
-
-  defp goal_records(episode_id) do
-    episode_id
-    |> Records.Record.Query.by_episode_id()
-    |> Records.Record.Query.by_kinds(["goal", "goal_state"])
-    |> Records.Record.Query.in_use()
-    |> Records.Record.Query.ordered_by_sequence()
-    |> Repo.all()
-  end
 
   defp progress_records(episode_id) do
     episode_id
@@ -831,7 +822,7 @@ defmodule Ryker.Slack.TaskCardProjection do
     []
     |> maybe_control(WorkControls.stoppable?(episode, turn), "stop")
     |> maybe_control(is_nil(hold) and resumable?(turn), "resume")
-    |> maybe_control(is_nil(hold) and bound_session?(session), "view_diff")
+    |> maybe_control(is_nil(hold) and WorkControls.diff_available?(session), "view_diff")
     |> maybe_control(close_allowed?(episode, turn, publication), "close")
     |> Kernel.++(~w(timeline evidence handoff))
     |> maybe_control(not is_nil(hold), "recovery")
@@ -870,12 +861,6 @@ defmodule Ryker.Slack.TaskCardProjection do
        do: false
 
   defp close_allowed?(_episode, _turn, _publication), do: true
-
-  defp bound_session?(%Work.Session{coop_session_id: value})
-       when is_binary(value) and value != "",
-       do: true
-
-  defp bound_session?(_session), do: false
 
   defp maybe_control(controls, true, control), do: controls ++ [control]
   defp maybe_control(controls, false, _control), do: controls

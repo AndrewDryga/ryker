@@ -19,8 +19,9 @@ defmodule Ryker.ControlPlane.ActivityPage do
   import Ryker.ControlPlane.Components,
     only: [icon: 1, live_filter_toolbar: 1, page_header: 1, pager: 1]
 
-  alias Ryker.{Accounting, Episodes, Schedules, Settings}
+  alias Ryker.{Accounting, Episodes, Schedules, Settings, UTCDateTime}
   alias Ryker.ControlPlane.{Components, Kit, Paths, RequestFilters, SchedulesPage, SlackMarkdown}
+  alias Ryker.ControlPlane.ShortTime
   alias Ryker.ControlPlane.UsageProjection
   alias Ryker.CoopFleet
   alias Ryker.Ingress
@@ -306,7 +307,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
   defp at(%{updated_at: nil}, _now), do: nil
 
   defp at(%{updated_at: updated_at} = item, now) do
-    day = updated_at |> utc() |> DateTime.to_date()
+    day = updated_at |> UTCDateTime.to_utc() |> DateTime.to_date()
 
     case Map.get(item, :day) do
       section when section in [nil, day] ->
@@ -328,7 +329,7 @@ defmodule Ryker.ControlPlane.ActivityPage do
     items
     |> Enum.zip(groups)
     |> Enum.map(fn {item, group} ->
-      Map.merge(item, %{group: group, day: item.updated_at && day(item.updated_at)})
+      Map.merge(item, %{group: group, day: item.updated_at && ShortTime.date(item.updated_at)})
     end)
   end
 
@@ -351,11 +352,6 @@ defmodule Ryker.ControlPlane.ActivityPage do
     end)
     |> elem(0)
   end
-
-  defp day(at), do: at |> utc() |> DateTime.to_date()
-
-  defp utc(%DateTime{} = at), do: DateTime.shift_zone!(at, "Etc/UTC")
-  defp utc(%NaiveDateTime{} = at), do: DateTime.from_naive!(at, "Etc/UTC")
 
   defp where(%{source: "Slack", conversation: conversation}) when is_binary(conversation),
     do: Slack.destination_name(conversation)

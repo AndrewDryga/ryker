@@ -206,7 +206,7 @@ defmodule Ryker.ControlPlane.FactsPage do
 
   defp fact(item) do
     %{
-      id: "fact-" <> dom_id(item.ref),
+      id: "fact-" <> Kit.dom_id(item.ref),
       name: item.subject,
       text: item.value,
       meta: [
@@ -226,7 +226,7 @@ defmodule Ryker.ControlPlane.FactsPage do
   defp review(%{"kind" => kind, "review_ref" => ref} = review) do
     secrets = InspectionRedactor.configured_secrets()
     entries = Enum.map(review["entries"] || [], &entry(&1, secrets))
-    base = %{id: "review-" <> dom_id(ref), actions: actions(kind, entries, ref)}
+    base = %{id: "review-" <> Kit.dom_id(ref), actions: actions(kind, entries, ref)}
 
     case {kind, entries} do
       {"stale", [entry]} ->
@@ -338,10 +338,10 @@ defmodule Ryker.ControlPlane.FactsPage do
     do: "Across the workspace"
 
   defp where(scope, _ref, name) when scope in [:repository, "repository"] and is_binary(name),
-    do: MemoryFormat.with_ref("For ", name)
+    do: Kit.labelled("For ", name)
 
   defp where(scope, ref, _name) when scope in [:conversation, "conversation"] and is_binary(ref),
-    do: MemoryFormat.with_ref("In ", Slack.destination_name(ref))
+    do: Kit.labelled("In ", Slack.destination_name(ref))
 
   defp where(_scope, _ref, _name), do: nil
 
@@ -371,6 +371,4 @@ defmodule Ryker.ControlPlane.FactsPage do
 
   defp redact(nil, _secrets), do: nil
   defp redact(text, secrets), do: InspectionRedactor.artifact(text, secrets: secrets).text
-
-  defp dom_id(ref), do: String.replace(to_string(ref), ~r/[^A-Za-z0-9_-]/, "-")
 end

@@ -1,6 +1,7 @@
 defmodule Ryker.Memories.MemoryReviewItem.Changeset do
   @moduledoc false
   use Ryker, :changeset
+  alias Ryker.Crypto
   alias Ryker.Memories.MemoryReviewItem
 
   @insert_fields [
@@ -22,7 +23,7 @@ defmodule Ryker.Memories.MemoryReviewItem.Changeset do
     |> validate_length(:ref, min: 1, max: 256)
     |> validate_length(:workspace_ref, min: 1, max: 1_024)
     |> validate_length(:reason, min: 1, max: 2_000)
-    |> validate_format(:source_digest, ~r/\A[0-9a-f]{64}\z/)
+    |> validate_format(:source_digest, Crypto.sha256_hex_pattern())
     |> unique_constraint(:ref)
     |> unique_constraint(:source_digest)
     |> check_constraint(:kind, name: :memory_review_item_valid)

@@ -17,6 +17,7 @@ defmodule Ryker.CoopFleet.SessionEvidences do
   alias Ryker.CoopFleet.SessionEvidence
   alias Ryker.CoopFleet.SessionEvidenceDocument, as: Document
   alias Ryker.Repo
+  alias Ryker.UTCDateTime
   alias Ryker.Work
 
   @doc """
@@ -144,7 +145,7 @@ defmodule Ryker.CoopFleet.SessionEvidences do
   end
 
   defp captured_at(evidence) do
-    {:ok, captured_at, 0} = DateTime.from_iso8601(evidence["captured_at"])
+    {:ok, captured_at} = UTCDateTime.parse(evidence["captured_at"])
     captured_at
   end
 

@@ -12,6 +12,7 @@ defmodule Ryker.Admission.FleetSession do
   (`Ryker.Admission.ReadySessions`), which keeps its own name. Both are found
   by the message and generation they serve.
   """
+  alias Ryker.Crypto
   alias Ryker.Ingress
   alias Ryker.Repo
   alias Ryker.Work
@@ -144,7 +145,7 @@ defmodule Ryker.Admission.FleetSession do
     do: "ryker-admission:#{id}:g#{generation}"
 
   defp policy(name, digest) do
-    if valid_ref?(name) and is_binary(digest) and Regex.match?(~r/\A[0-9a-f]{64}\z/, digest),
+    if valid_ref?(name) and Crypto.sha256_hex?(digest),
       do: :ok,
       else: {:error, :invalid_admission_fleet_session}
   end

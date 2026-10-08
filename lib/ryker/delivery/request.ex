@@ -16,6 +16,7 @@ defmodule Ryker.Delivery.Request do
   `{:delivery_share_pending, upload_refs}` for an upload of its own that it has
   not seen shared yet, so the custody keeps them for the next attempt.
   """
+  alias Ryker.Artifacts
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
   alias Ryker.Reference
@@ -206,9 +207,9 @@ defmodule Ryker.Delivery.Request do
       bytes == byte_size(data),
       safe_name?(name),
       reference?(ref),
-      Regex.match?(~r/\A[0-9a-f]{64}\z/, sha256),
+      Crypto.sha256_hex?(sha256),
       Crypto.sha256_hex(data) == sha256,
-      media_matches?(media_type, data)
+      Artifacts.Outputs.image_matches?(media_type, data)
     ])
   end
 
@@ -241,13 +242,6 @@ defmodule Ryker.Delivery.Request do
 
   defp reference?(value),
     do: Reference.valid?(value, 256) and Regex.match?(~r/\A[A-Za-z0-9_.:-]+\z/, value)
-
-  defp media_matches?("image/png", <<137, 80, 78, 71, 13, 10, 26, 10, _::binary>>), do: true
-  defp media_matches?("image/jpeg", <<255, 216, 255, _::binary>>), do: true
-  defp media_matches?("image/gif", <<"GIF87a", _::binary>>), do: true
-  defp media_matches?("image/gif", <<"GIF89a", _::binary>>), do: true
-  defp media_matches?("image/webp", <<"RIFF", _::binary-size(4), "WEBP", _::binary>>), do: true
-  defp media_matches?(_media_type, _data), do: false
 
   defp transport(value) do
     if is_binary(value) and Regex.match?(~r/\A[a-z][a-z0-9_-]{0,63}\z/, value),

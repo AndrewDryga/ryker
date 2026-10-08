@@ -15,8 +15,8 @@ defmodule Ryker.Publication.ConflictReceipt do
   def prepare(%{} = receipt, expected_repository) do
     with true <- Enum.sort(Map.keys(receipt)) == Enum.sort(@fields),
          true <- receipt["repository"] == expected_repository,
-         true <- repository?(receipt["github_repository"]),
-         true <- branch_ref?(receipt["branch_ref"]),
+         true <- GitHub.repository_name?(receipt["github_repository"]),
+         true <- GitObject.branch_ref?(receipt["branch_ref"]),
          true <- GitObject.id?(receipt["candidate_commit_sha"]),
          true <- GitObject.id?(receipt["observed_head_sha"]),
          true <- receipt["candidate_commit_sha"] != receipt["observed_head_sha"],
@@ -30,14 +30,6 @@ defmodule Ryker.Publication.ConflictReceipt do
 
   def prepare(_receipt, _expected_repository),
     do: {:error, {:invalid_publication_conflict_receipt, :document}}
-
-  defp repository?(value),
-    do: is_binary(value) and Regex.match?(~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/, value)
-
-  defp branch_ref?(value) do
-    is_binary(value) and
-      Regex.match?(~r/\Arefs\/heads\/[A-Za-z0-9._\/-]{1,240}\z/, value)
-  end
 
   defp exact_pull_url?(receipt) do
     receipt["pull_request_url"] ==

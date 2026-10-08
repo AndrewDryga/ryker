@@ -103,4 +103,19 @@ defmodule Ryker.Work.RepositoryContext do
       repositories == Enum.uniq(repositories) and primary not in repositories and
       Enum.all?(repositories, &Reference.valid?(&1, 1_024))
   end
+
+  @doc """
+  `changeset` refused when its `repository_context` is not a bounded set of
+  repositories that `restore/2` would read back for its `repository_ref`.
+  """
+  @spec validate(Ecto.Changeset.t()) :: Ecto.Changeset.t()
+  def validate(changeset) do
+    Ecto.Changeset.validate_change(changeset, :repository_context, fn :repository_context,
+                                                                      value ->
+      case restore(value, Ecto.Changeset.get_field(changeset, :repository_ref)) do
+        {:ok, _context} -> []
+        {:error, :invalid} -> [repository_context: "is not a bounded repository set"]
+      end
+    end)
+  end
 end

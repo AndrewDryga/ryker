@@ -235,7 +235,7 @@ defmodule Ryker.Admission.Dispatcher do
 
   defp valid_retry_max(settings) do
     dispatcher_value(
-      positive?(settings.retry_max_ms) and settings.retry_max_ms >= settings.retry_base_ms,
+      Backoff.valid?(settings.retry_base_ms, settings.retry_max_ms),
       :retry_max_ms
     )
   end

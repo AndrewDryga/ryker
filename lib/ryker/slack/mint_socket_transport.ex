@@ -5,8 +5,8 @@ defmodule Ryker.Slack.MintSocketTransport do
   The short-lived WSS URL is fetched with the configured Slack app token. It
   is kept only in process memory and is never logged or persisted.
   """
-
   @behaviour Ryker.Slack.SocketTransport
+  alias Ryker.Adapter
 
   @fields [:handshake_timeout_ms, :http, :mint_http, :mint_websocket, :requester]
   @default_handshake_timeout_ms 10_000
@@ -272,8 +272,8 @@ defmodule Ryker.Slack.MintSocketTransport do
     Enum.all?([
       Map.keys(options) |> Enum.sort() == Enum.sort(@fields),
       requester?(Map.get(options, :requester)),
-      module_exports?(Map.get(options, :mint_http), connect: 4, close: 1, get_socket: 1),
-      module_exports?(Map.get(options, :mint_websocket),
+      Adapter.implements?(Map.get(options, :mint_http), connect: 4, close: 1, get_socket: 1),
+      Adapter.implements?(Map.get(options, :mint_websocket),
         decode: 2,
         encode: 2,
         new: 4,
@@ -286,7 +286,7 @@ defmodule Ryker.Slack.MintSocketTransport do
   end
 
   defp requester?(module) when is_atom(module) do
-    Code.ensure_loaded?(module) and function_exported?(module, :request, 5)
+    Adapter.implements?(module, request: 5)
   end
 
   defp requester?(_module), do: false
@@ -294,13 +294,6 @@ defmodule Ryker.Slack.MintSocketTransport do
   defp valid_handshake_timeout?(timeout_ms) do
     is_integer(timeout_ms) and timeout_ms >= 100 and timeout_ms <= 60_000
   end
-
-  defp module_exports?(module, callbacks) when is_atom(module) and is_list(callbacks) do
-    Code.ensure_loaded?(module) and
-      Enum.all?(callbacks, fn {function, arity} -> function_exported?(module, function, arity) end)
-  end
-
-  defp module_exports?(_module, _callbacks), do: false
 
   defp request_path(nil, nil), do: "/"
   defp request_path(nil, query), do: "/?" <> query

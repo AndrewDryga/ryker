@@ -10,10 +10,12 @@ defmodule Ryker.Admission.Context do
   feedback on that request.
   """
   alias Ryker.Admission.Candidate
+  alias Ryker.Crypto
   alias Ryker.Episodes
   alias Ryker.Ingress
   alias Ryker.People
   alias Ryker.Slack
+  alias Ryker.UTCDateTime
 
   @enforce_keys [
     :active_episode_fingerprint,
@@ -278,7 +280,7 @@ defmodule Ryker.Admission.Context do
          omissions when is_list(omissions) <- Map.get(snapshot, "knowledge_omissions", []),
          true <- length(omissions) <= 8 and Enum.all?(omissions, &is_map/1),
          {:ok, built_at} <- parse_datetime(snapshot["built_at"]),
-         true <- valid_fingerprint?(snapshot["active_episode_fingerprint"]),
+         true <- Crypto.sha256_hex?(snapshot["active_episode_fingerprint"]),
          true <- valid_count?(snapshot["conversation_episode_count"]),
          true <- valid_window?(snapshot["continuation_window"]),
          {:ok, conversation_context} <- restore_document(snapshot, :conversation_context),
@@ -352,7 +354,7 @@ defmodule Ryker.Admission.Context do
 
       {:ok, %{"at" => at, "message_ref" => ref, "request" => request} = answer}
       when map_size(answer) == 3 and is_binary(ref) and byte_size(ref) in 1..1_024 ->
-        if match?({:ok, _at, 0}, DateTime.from_iso8601(to_string(at))) and request?(request),
+        if UTCDateTime.iso8601?(to_string(at)) and request?(request),
           do: {:ok, answer},
           else: {:error, {:invalid_admission_context_snapshot, :previous_answer}}
 
@@ -540,9 +542,9 @@ defmodule Ryker.Admission.Context do
   defp candidate_episode_id(_candidate), do: {:error, :episode_id}
 
   defp parse_datetime(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, 0} -> {:ok, datetime}
-      _invalid -> {:error, {:invalid_admission_context_snapshot, :built_at}}
+    case UTCDateTime.parse(value) do
+      {:ok, datetime} -> {:ok, datetime}
+      :error -> {:error, {:invalid_admission_context_snapshot, :built_at}}
     end
   end
 
@@ -550,9 +552,4 @@ defmodule Ryker.Admission.Context do
     do: {:error, {:invalid_admission_context_snapshot, :built_at}}
 
   defp valid_count?(count), do: is_integer(count) and count >= 0
-
-  defp valid_fingerprint?(fingerprint) do
-    is_binary(fingerprint) and byte_size(fingerprint) == 64 and
-      Regex.match?(~r/^[0-9a-f]{64}$/, fingerprint)
-  end
 end

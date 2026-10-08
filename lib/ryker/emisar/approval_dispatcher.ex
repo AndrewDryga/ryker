@@ -6,6 +6,7 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
   observation, and only an exact terminal identity can create the trusted
   continuation input.
   """
+  alias Ryker.Adapter
   alias Ryker.Backoff
   alias Ryker.Emisar.Approvals
   alias Ryker.Reference
@@ -185,9 +186,9 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
   defp settings(%{} = options) do
     with true <- Map.keys(options) |> Enum.sort() == Enum.sort(@fields),
          api when is_atom(api) <- options.api,
-         true <- Code.ensure_loaded?(api) and function_exported?(api, :wait_for_run, 3),
+         true <- Adapter.implements?(api, wait_for_run: 3),
          presenter when is_atom(presenter) <- options.presenter,
-         true <- Code.ensure_loaded?(presenter) and function_exported?(presenter, :publish, 3),
+         true <- Adapter.implements?(presenter, publish: 3),
          true <- function_exported?(presenter, :permanent?, 1),
          :ok <- reference(options.worker_ref),
          :ok <- positive(options.lease_seconds),

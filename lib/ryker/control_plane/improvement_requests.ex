@@ -100,7 +100,7 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
       phase: :submission,
       at: run.inserted_at,
       sort_at: run.inserted_at,
-      identity: if(not result_card?(run), do: identity(run, context)),
+      identity: if(not BackgroundCards.result?(run), do: identity(run, context)),
       retention_note:
         if run.pruned_at do
           "Retention removed the evidence and prompt this attempt was sent on " <>
@@ -116,7 +116,7 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
   end
 
   defp result(run, context) do
-    if result_card?(run) do
+    if BackgroundCards.result?(run) do
       options = artifact_options(run, context)
       document = run.result |> decode() |> Redactor.document(context.secrets)
       ended = run.remote_stopped_at || run.updated_at
@@ -168,8 +168,6 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
   end
 
   # An attempt still waiting on its model has only its briefing.
-  defp result_card?(%{status: :prepared, remote_stopped_at: nil}), do: false
-  defp result_card?(_run), do: true
 
   defp headline(%Improvement.AnalysisRun{status: :applied}, document) do
     case category(document) do

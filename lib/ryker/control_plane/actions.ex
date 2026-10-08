@@ -1,5 +1,6 @@
 defmodule Ryker.ControlPlane.Actions do
   @moduledoc false
+  alias Ryker.Adapter
   alias Ryker.Behaviors
   alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.Actor
@@ -12,6 +13,7 @@ defmodule Ryker.ControlPlane.Actions do
   alias Ryker.Improvement
   alias Ryker.Ingress
   alias Ryker.IntegrationSetup
+  alias Ryker.Maps
   alias Ryker.Memories
   alias Ryker.Operator
   alias Ryker.People
@@ -311,7 +313,7 @@ defmodule Ryker.ControlPlane.Actions do
 
   defp work_view_options(%{coop_api: api, coop_client: client})
        when is_atom(api) and not is_nil(client) do
-    if Code.ensure_loaded?(api) and function_exported?(api, :get_changes_page, 4),
+    if Adapter.implements?(api, get_changes_page: 4),
       do: {:ok, api, client},
       else: {:error, :conversation_lab_work_changes_not_configured}
   end
@@ -511,9 +513,9 @@ defmodule Ryker.ControlPlane.Actions do
           occurred_at: DateTime.utc_now(),
           policy:
             %{name: name, digest: digest}
-            |> maybe_put(:environment_ref, Map.get(policy, :environment_ref))
-            |> maybe_put(:repository_ref, Map.get(policy, :repository_ref))
-            |> maybe_put(:repository_context, Map.get(policy, :repository_context)),
+            |> Maps.put_present(:environment_ref, Map.get(policy, :environment_ref))
+            |> Maps.put_present(:repository_ref, Map.get(policy, :repository_ref))
+            |> Maps.put_present(:repository_context, Map.get(policy, :repository_context)),
           record_ref: record.ref,
           target: target
         })
@@ -541,8 +543,8 @@ defmodule Ryker.ControlPlane.Actions do
           policy:
             policy
             |> Map.take([:digest, :name, :repository_ref])
-            |> maybe_put(:environment_ref, policy.environment_ref)
-            |> maybe_put(:repository_context, Map.get(policy, :repository_context)),
+            |> Maps.put_present(:environment_ref, policy.environment_ref)
+            |> Maps.put_present(:repository_context, Map.get(policy, :repository_context)),
           record_ref: record.ref,
           target: target
         })
@@ -1023,7 +1025,4 @@ defmodule Ryker.ControlPlane.Actions do
 
   defp action_ref(action),
     do: "control-plane:retention:#{action}:#{Ecto.UUID.generate()}"
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

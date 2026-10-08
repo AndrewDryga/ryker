@@ -15,11 +15,13 @@ defmodule Ryker.Slack.Runtime do
   alias Ryker.Artifacts
   alias Ryker.Behaviors
   alias Ryker.Config
+  alias Ryker.Crypto
   alias Ryker.Delivery
   alias Ryker.Episodes
   alias Ryker.ErrorDetail
   alias Ryker.GitHub
   alias Ryker.Ingress
+  alias Ryker.Maps
   alias Ryker.Memories
   alias Ryker.Options
   alias Ryker.Publication
@@ -907,7 +909,7 @@ defmodule Ryker.Slack.Runtime do
   defp github_repositories!(names, held) do
     Map.new(names, fn {repository, name} ->
       unless repository in held and is_binary(name) and
-               Regex.match?(~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/, name) do
+               GitHub.repository_name?(name) do
         raise(
           ArgumentError,
           "Slack environments must name their own GitHub repositories as owner/name"
@@ -989,8 +991,7 @@ defmodule Ryker.Slack.Runtime do
 
   defp policy!(%{digest: digest, name: name} = source, field) do
     if is_binary(name) and String.valid?(name) and String.trim(name) != "" and
-         byte_size(name) <= 256 and is_binary(digest) and
-         Regex.match?(~r/\A[0-9a-f]{64}\z/, digest) do
+         byte_size(name) <= 256 and Crypto.sha256_hex?(digest) do
       %{digest: digest, name: name}
       |> maybe_put_policy_placement(source)
     else
@@ -1007,12 +1008,9 @@ defmodule Ryker.Slack.Runtime do
   defp maybe_put_policy_placement(policy, %{repository_ref: repository_ref} = source) do
     policy
     |> Map.put(:repository_ref, repository_ref)
-    |> maybe_put(:environment_ref, Map.get(source, :environment_ref))
-    |> maybe_put(:repository_context, Map.get(source, :repository_context))
+    |> Maps.put_present(:environment_ref, Map.get(source, :environment_ref))
+    |> Maps.put_present(:repository_context, Map.get(source, :repository_context))
   end
 
   defp maybe_put_policy_placement(policy, _source), do: policy
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

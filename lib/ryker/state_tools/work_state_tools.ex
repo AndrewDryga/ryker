@@ -1,6 +1,5 @@
 defmodule Ryker.StateTools.WorkStateTools do
   @moduledoc false
-  alias Ryker.Artifacts
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery
   alias Ryker.Knowledge
@@ -85,7 +84,7 @@ defmodule Ryker.StateTools.WorkStateTools do
         {:ok,
          %{
            "accepted" => false,
-           "violations" => [presentation_violation(reason)]
+           "violations" => [Work.Validator.presentation_violation(reason)]
          }}
 
       {:error, reason} ->
@@ -93,28 +92,14 @@ defmodule Ryker.StateTools.WorkStateTools do
     end
   end
 
-  defp presentation_violation(reason) do
-    "The final response cannot be rendered safely for this destination: #{inspect(reason, limit: 8, printable_limit: 256)}"
-  end
-
+  # The executor's own context, with the artifacts the answer names: the
+  # preflight never asks for more than the executor will.
   defp validation_context(binding, artifact_refs) do
-    %{
-      "artifact_delivery_supported" => Artifacts.Outputs.delivery_supported?(binding.episode),
+    binding.episode
+    |> Work.ValidationContext.build(binding.turn)
+    |> Map.merge(%{
       "artifact_metadata" => Enum.map(artifact_refs, &%{"id" => &1, "name" => &1}),
-      "artifact_refs" => artifact_refs,
-      "execution_mode" => Atom.to_string(binding.episode.execution_mode),
-      "open_required_goals" => Records.open_required_goals(binding.episode.id),
-      "records" => validation_records(binding.episode.id, binding.turn.id),
-      "slack_mentions" => Work.Custody.Delivery.answer_mentions(binding.episode, binding.turn),
-      "visible_reply_required" => true,
-      "workspace" => nil
-    }
-  end
-
-  defp validation_records(episode_id, turn_id) do
-    Map.merge(
-      Records.validation_records(episode_id),
-      Delivery.PlatformActionCustody.validation_records(episode_id, turn_id)
-    )
+      "artifact_refs" => artifact_refs
+    })
   end
 end

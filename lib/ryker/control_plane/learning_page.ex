@@ -203,7 +203,7 @@ defmodule Ryker.ControlPlane.LearningPage do
           <Kit.entity_list label="Learning worker sessions">
             <Kit.entity_row
               :for={session <- @sessions}
-              id={"session-" <> dom_id(session.ref)}
+              id={"session-" <> Kit.dom_id(session.ref)}
               name="Learning session"
               state={session_state(session)}
               text={session_detail(session)}
@@ -644,6 +644,4 @@ defmodule Ryker.ControlPlane.LearningPage do
        text -> Plug.HTML.html_escape(text)
      end)}
   end
-
-  defp dom_id(ref), do: String.replace(to_string(ref), ~r/[^A-Za-z0-9_-]/, "-")
 end

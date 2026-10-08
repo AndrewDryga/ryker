@@ -13,6 +13,7 @@ defmodule Ryker.Admission do
   alias Ryker.Admission.{ConversationSummaries, CorrelationScope, Decision, Occurrences, Prompt}
   alias Ryker.Admission.Ranking
   alias Ryker.Behaviors
+  alias Ryker.Crypto
   alias Ryker.Delivery
   alias Ryker.Episodes
   alias Ryker.Feedback
@@ -109,7 +110,6 @@ defmodule Ryker.Admission do
         {:error, reason} -> Repo.rollback(reason)
       end
     end)
-    |> transaction_result()
   rescue
     error in Postgrex.Error ->
       if error.postgres[:code] in [:serialization_failure, :deadlock_detected],
@@ -395,7 +395,6 @@ defmodule Ryker.Admission do
       Repo.transaction(fn ->
         commit_in_transaction(context, decision, decision_ref, settings)
       end)
-      |> transaction_result()
     end
   end
 
@@ -1443,15 +1442,11 @@ defmodule Ryker.Admission do
   defp valid_optional_work_policy?(nil), do: true
 
   defp valid_optional_work_policy?(%{digest: digest, name: name} = policy) do
-    valid_optional_reference?(name) and is_binary(digest) and
-      Regex.match?(~r/\A[0-9a-f]{64}\z/, digest) and
+    valid_optional_reference?(name) and Crypto.sha256_hex?(digest) and
       valid_optional_reference?(Map.get(policy, :repository_ref))
   end
 
   defp valid_optional_work_policy?(_policy), do: false
-
-  defp transaction_result({:ok, result}), do: {:ok, result}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 
   # -- PubSub ------------------------------------------------------------------
 

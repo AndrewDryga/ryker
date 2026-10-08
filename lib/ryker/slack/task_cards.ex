@@ -10,9 +10,11 @@ defmodule Ryker.Slack.TaskCards do
   outermost commit (`subscribe_task_cards/0`), on its request's topics too.
   """
   alias Ryker.AdvisoryLock
+  alias Ryker.Crypto
   alias Ryker.Delivery
   alias Ryker.Episodes
   alias Ryker.ErrorDetail
+  alias Ryker.Lease
   alias Ryker.Records
   alias Ryker.Reference
   alias Ryker.Repo
@@ -41,7 +43,6 @@ defmodule Ryker.Slack.TaskCards do
   @spec ensure_one([Ecto.UUID.t()]) :: {:ok, TaskCard.t() | nil} | {:error, term()}
   def ensure_one(skip \\ []) when is_list(skip) do
     Repo.transaction(fn -> ensure_one_locked(skip) end)
-    |> transaction_result()
   end
 
   @doc """
@@ -117,7 +118,6 @@ defmodule Ryker.Slack.TaskCards do
       Repo.transaction(fn ->
         claim_next_locked(worker_ref, lease_seconds, check_interval_seconds)
       end)
-      |> transaction_result()
     end
   end
 
@@ -217,7 +217,6 @@ defmodule Ryker.Slack.TaskCards do
   def rearm(ref) do
     with :ok <- reference(ref, :ref) do
       Repo.transaction(fn -> rearm_locked(ref) end)
-      |> transaction_result()
     end
   end
 
@@ -267,7 +266,7 @@ defmodule Ryker.Slack.TaskCards do
         update!(
           card,
           %{
-            attempt_count: given_back(card.attempt_count, options),
+            attempt_count: Lease.attempts_after_release(card.attempt_count, options),
             last_error_code: code,
             last_error_detail: detail,
             lease_expires_at: nil,
@@ -279,10 +278,6 @@ defmodule Ryker.Slack.TaskCards do
         )
       end)
     end
-  end
-
-  defp given_back(attempt_count, options) do
-    if Keyword.get(options, :counted, true), do: attempt_count, else: max(attempt_count - 1, 0)
   end
 
   defp ensure_one_locked(skip) do
@@ -352,7 +347,6 @@ defmodule Ryker.Slack.TaskCards do
           callback.(card, now)
       end
     end)
-    |> transaction_result()
   end
 
   # A check that found the card as it was, with nothing to clear, changed
@@ -409,7 +403,7 @@ defmodule Ryker.Slack.TaskCards do
   end
 
   defp sha256(value, field) do
-    if is_binary(value) and Regex.match?(~r/\A[0-9a-f]{64}\z/, value),
+    if Crypto.sha256_hex?(value),
       do: :ok,
       else: {:error, {:invalid_task_card_request, field}}
   end
@@ -429,9 +423,6 @@ defmodule Ryker.Slack.TaskCards do
       :error -> {:error, {:invalid_task_card_request, field}}
     end
   end
-
-  defp transaction_result({:ok, result}), do: {:ok, result}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 
   # -- PubSub ------------------------------------------------------------------
 

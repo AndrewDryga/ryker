@@ -17,6 +17,7 @@ defmodule Ryker.Slack.Gateway do
   says it.
   """
   use GenServer
+  alias Ryker.Adapter
   alias Ryker.Backoff
   alias Ryker.Ingress
   alias Ryker.Options
@@ -236,7 +237,7 @@ defmodule Ryker.Slack.Gateway do
     reconnect_ms = Map.get(configuration, :reconnect_ms, 1_000)
     receive_timeout_ms = Map.get(configuration, :receive_timeout_ms, 45_000)
 
-    unless transport?(transport),
+    unless Adapter.implements?(transport, connect: 1, stream: 2, send_frame: 2, close: 1),
       do: raise(ArgumentError, "Slack transport must implement SocketTransport")
 
     unless positive_timeout?(reconnect_ms),
@@ -957,15 +958,6 @@ defmodule Ryker.Slack.Gateway do
       other: "Slack gateway configuration must be a map or keyword list"
     )
   end
-
-  defp transport?(transport) when is_atom(transport) do
-    Code.ensure_loaded?(transport) and
-      Enum.all?([{:connect, 1}, {:stream, 2}, {:send_frame, 2}, {:close, 1}], fn
-        {name, arity} -> function_exported?(transport, name, arity)
-      end)
-  end
-
-  defp transport?(_transport), do: false
 
   defp positive_timeout?(value), do: is_integer(value) and value > 0 and value <= 300_000
 

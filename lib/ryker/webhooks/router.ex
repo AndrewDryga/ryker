@@ -8,6 +8,7 @@ defmodule Ryker.Webhooks.Router do
   @behaviour Plug
   alias Ryker.HTTPConnection
   alias Ryker.Ingress
+  alias Ryker.UTCDateTime
   alias Ryker.Webhooks.{Auth, Headers, Route, Transforms}
 
   @impl Plug
@@ -152,8 +153,8 @@ defmodule Ryker.Webhooks.Router do
   end
 
   defp parse_datetime(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, 0} -> {:ok, datetime}
+    case UTCDateTime.parse(value) do
+      {:ok, datetime} -> {:ok, datetime}
       _other -> {:error, :occurred_at}
     end
   end

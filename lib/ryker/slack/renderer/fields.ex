@@ -7,6 +7,7 @@ defmodule Ryker.Slack.Renderer.Fields do
   a reason the card folds into its own `{:invalid_slack_render, family}`.
   """
   alias Ryker.Reference
+  alias Ryker.UTCDateTime
 
   @spec bounded_text(term(), pos_integer()) :: :ok | {:error, :invalid_text}
   def bounded_text(value, maximum) do
@@ -32,8 +33,8 @@ defmodule Ryker.Slack.Renderer.Fields do
 
   @spec iso8601(term()) :: :ok | {:error, :invalid_datetime}
   def iso8601(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, _datetime, 0} -> :ok
+    case UTCDateTime.parse(value) do
+      {:ok, _datetime} -> :ok
       _invalid -> {:error, :invalid_datetime}
     end
   end

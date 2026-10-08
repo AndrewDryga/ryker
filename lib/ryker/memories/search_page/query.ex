@@ -9,6 +9,7 @@ defmodule Ryker.Memories.SearchPage.Query do
   """
   use Ryker, :query
   alias Ryker.CanonicalJSON
+  alias Ryker.UTCDateTime
 
   @doc """
   The next row of `queryable` that `page` reaches: written before the search
@@ -45,7 +46,7 @@ defmodule Ryker.Memories.SearchPage.Query do
           query
 
         [time, id] ->
-          {:ok, time, 0} = DateTime.from_iso8601(time)
+          {:ok, time} = UTCDateTime.parse(time)
 
           from(item in query,
             where: ^dynamic([item], ^changed < ^time or (^changed == ^time and item.id < ^id))

@@ -13,6 +13,7 @@ defmodule Ryker.Slack.IncidentRooms do
   """
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
+  alias Ryker.Crypto
   alias Ryker.Episodes
   alias Ryker.ErrorDetail
   alias Ryker.Records
@@ -78,7 +79,6 @@ defmodule Ryker.Slack.IncidentRooms do
       }
 
       Repo.transaction(fn -> request_locked(prepared) end)
-      |> transaction_result()
     else
       false -> {:error, {:invalid_incident_room_request, :private}}
       {:error, reason} -> {:error, reason}
@@ -99,7 +99,6 @@ defmodule Ryker.Slack.IncidentRooms do
          :ok <- reference(attributes.record_ref, :record_ref),
          :ok <- slack_id(attributes.workspace_ref, :workspace_ref) do
       Repo.transaction(fn -> investigate_locked(attributes) end)
-      |> transaction_result()
     end
   end
 
@@ -115,7 +114,6 @@ defmodule Ryker.Slack.IncidentRooms do
   def observe_lifecycle(%MembershipTransition{kind: kind} = transition)
       when kind in [:joined, :left, :archived, :unarchived, :deleted] do
     Repo.transaction(fn -> observe_lifecycle_locked(transition) end)
-    |> transaction_result()
   end
 
   def observe_lifecycle(_transition),
@@ -236,7 +234,6 @@ defmodule Ryker.Slack.IncidentRooms do
     with :ok <- reference(worker_ref, :worker_ref),
          :ok <- lease_seconds(lease_seconds) do
       Repo.transaction(fn -> claim_next_locked(worker_ref, lease_seconds) end)
-      |> transaction_result()
     end
   end
 
@@ -249,7 +246,6 @@ defmodule Ryker.Slack.IncidentRooms do
       Repo.transaction(fn ->
         claim_health_check_locked(worker_ref, lease_seconds, check_interval_seconds)
       end)
-      |> transaction_result()
     end
   end
 
@@ -331,7 +327,6 @@ defmodule Ryker.Slack.IncidentRooms do
       Repo.transaction(fn ->
         claim_root_card_locked(worker_ref, lease_seconds, check_interval_seconds)
       end)
-      |> transaction_result()
     end
   end
 
@@ -463,7 +458,6 @@ defmodule Ryker.Slack.IncidentRooms do
   def rearm(room_ref) do
     with :ok <- reference(room_ref, :room_ref) do
       Repo.transaction(fn -> rearm_locked(room_ref) end)
-      |> transaction_result()
     end
   end
 
@@ -482,7 +476,6 @@ defmodule Ryker.Slack.IncidentRooms do
     with :ok <- reference(room_ref, :room_ref),
          :ok <- bounded_text(actor_ref, 256, :actor_ref) do
       Repo.transaction(fn -> request_close_locked(room_ref, actor_ref) end)
-      |> transaction_result()
     end
   end
 
@@ -668,7 +661,6 @@ defmodule Ryker.Slack.IncidentRooms do
           {:ok, IncidentRoom.t()} | {:error, term()}
   def finalize(room_id, lease_ref) do
     Repo.transaction(fn -> finalize_locked(room_id, lease_ref) end)
-    |> transaction_result()
   end
 
   defp observe_lifecycle_locked(transition) do
@@ -1234,7 +1226,6 @@ defmodule Ryker.Slack.IncidentRooms do
     with {:ok, _room_id} <- uuid(room_id, :room_id),
          {:ok, _lease_ref} <- uuid(lease_ref, :lease_ref) do
       Repo.transaction(fn -> mutate_claim_locked(room_id, lease_ref, callback) end)
-      |> transaction_result()
     end
   end
 
@@ -1441,7 +1432,7 @@ defmodule Ryker.Slack.IncidentRooms do
   defp policy(%{} = policy) do
     if Map.keys(policy) |> Enum.sort() == Enum.sort(@policy_fields) do
       with :ok <- reference(policy.name, :policy),
-           true <- is_binary(policy.digest) and Regex.match?(~r/\A[0-9a-f]{64}\z/, policy.digest) do
+           true <- Crypto.sha256_hex?(policy.digest) do
         {:ok, policy}
       else
         {:error, reason} -> {:error, reason}
@@ -1573,7 +1564,7 @@ defmodule Ryker.Slack.IncidentRooms do
   end
 
   defp sha256(value, field) do
-    if is_binary(value) and Regex.match?(~r/\A[0-9a-f]{64}\z/, value),
+    if Crypto.sha256_hex?(value),
       do: :ok,
       else: {:error, {:invalid_incident_room_request, field}}
   end
@@ -1610,18 +1601,13 @@ defmodule Ryker.Slack.IncidentRooms do
   end
 
   defp utc_datetime(%DateTime{} = value) do
-    if value.time_zone == "Etc/UTC" and value.utc_offset == 0 and value.std_offset == 0 do
-      {microsecond, _precision} = value.microsecond
-      {:ok, %{value | microsecond: {microsecond, 6}}}
-    else
-      {:error, {:invalid_incident_room_request, :occurred_at}}
+    case UTCDateTime.exact(value) do
+      {:ok, value} -> {:ok, value}
+      :error -> {:error, {:invalid_incident_room_request, :occurred_at}}
     end
   end
 
   defp utc_datetime(_value), do: {:error, {:invalid_incident_room_request, :occurred_at}}
-
-  defp transaction_result({:ok, result}), do: {:ok, result}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 
   # -- PubSub ------------------------------------------------------------------
 

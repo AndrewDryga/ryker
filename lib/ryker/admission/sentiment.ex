@@ -18,6 +18,7 @@ defmodule Ryker.Admission.Sentiment do
   never does either: it keeps a feeling it knows and a reason that is plain
   text short enough, and leaves out the rest without a word.
   """
+  alias Ryker.JSONSchema
   alias Ryker.Reference
 
   @feelings %{
@@ -27,7 +28,6 @@ defmodule Ryker.Admission.Sentiment do
     "angry" => :angry
   }
   @maximum_reason 280
-  @nonblank_pattern "^[^\\x00]*[^\\s\\x00][^\\x00]*$"
 
   @type t :: %{
           feeling: :satisfied | :neutral | :frustrated | :angry,
@@ -74,12 +74,7 @@ defmodule Ryker.Admission.Sentiment do
           "additionalProperties" => false,
           "properties" => %{
             "feeling" => %{"enum" => ~w(satisfied neutral frustrated angry)},
-            "reason" => %{
-              "maxLength" => @maximum_reason,
-              "minLength" => 1,
-              "pattern" => @nonblank_pattern,
-              "type" => "string"
-            }
+            "reason" => JSONSchema.text(@maximum_reason)
           },
           "required" => ["feeling", "reason"],
           "type" => "object"

@@ -9,6 +9,7 @@ defmodule Ryker.Operator.Retention do
   """
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
+  alias Ryker.Crypto
   alias Ryker.Operator.{Actions, RetentionAction}
   alias Ryker.Reference
   alias Ryker.Repo
@@ -234,7 +235,7 @@ defmodule Ryker.Operator.Retention do
   defp optional_fingerprint(nil), do: :ok
 
   defp optional_fingerprint(value) when is_binary(value) do
-    if Regex.match?(~r/\A[0-9a-f]{64}\z/, value),
+    if Crypto.sha256_hex?(value),
       do: :ok,
       else: {:error, {:invalid_retention_operator, :expected_plan_fingerprint}}
   end

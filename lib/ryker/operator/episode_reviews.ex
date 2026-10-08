@@ -32,7 +32,6 @@ defmodule Ryker.Operator.EpisodeReviews do
          :ok <- rating(rating),
          :ok <- note(note) do
       Repo.transaction(fn -> review_locked(episode_key, actor_ref, rating, note) end)
-      |> transaction_result()
     end
   end
 
@@ -112,9 +111,6 @@ defmodule Ryker.Operator.EpisodeReviews do
   end
 
   defp note(_value), do: {:error, {:invalid_episode_review, :note}}
-
-  defp transaction_result({:ok, result}), do: {:ok, result}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 
   # -- PubSub ------------------------------------------------------------------
 

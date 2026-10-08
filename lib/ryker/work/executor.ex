@@ -14,11 +14,12 @@ defmodule Ryker.Work.Executor do
   `Executor.Cancellation` settles a cancel-pending turn, and `Executor.Remote`
   is the Coop call layer they all share.
   """
+  alias Ryker.Crypto
   alias Ryker.GitObject
   alias Ryker.Knowledge
   alias Ryker.StateTools
-  alias Ryker.Work.{Custody, PlatformTools, StateBinding, SubmissionBuilder}
-  alias Ryker.Work.Executor.{Cancellation, Remote, Sessions, Turns, Validation, Workspace}
+  alias Ryker.Work.{Custody, PlatformTools, StateBinding, SubmissionBuilder, ValidationContext}
+  alias Ryker.Work.Executor.{Cancellation, Remote, Sessions, Turns, Workspace}
 
   @doc """
   Checks executor options without running anything, so a runtime refuses a
@@ -158,7 +159,7 @@ defmodule Ryker.Work.Executor do
          true <- offer_ref == task["offer_ref"] and is_binary(offer_ref),
          true <- remote["repository_read_only"] == false,
          true <- Enum.all?([id, queue_id, task_id], &(is_binary(&1) and &1 != "")),
-         true <- is_binary(sha) and Regex.match?(~r/\A[0-9a-f]{64}\z/, sha) do
+         true <- Crypto.sha256_hex?(sha) do
       :ok
     else
       _invalid -> {:error, {:coop_protocol_error, :workspace_task_binding}}
@@ -289,7 +290,7 @@ defmodule Ryker.Work.Executor do
         state_tools_endpoint: state_tools_endpoint,
         state_tools_secret: Keyword.get(options, :state_tools_secret),
         validation_context:
-          Keyword.get(options, :validation_context, &Validation.default_validation_context/1),
+          Keyword.get(options, :validation_context, &ValidationContext.build(&1.episode, &1.turn)),
         workspace_requirements: Keyword.get(options, :workspace_requirements, [])
       })
     else

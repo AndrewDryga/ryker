@@ -23,6 +23,7 @@ defmodule Ryker.Work.RepositorySource do
   """
   alias Ryker.GitObject
   alias Ryker.Reference
+  alias Ryker.UTCDateTime
 
   @kinds ~w(default branch pull_request commit)
   @maximum_branch_bytes 255
@@ -320,7 +321,7 @@ defmodule Ryker.Work.RepositorySource do
     # Elixir's microsecond DateTime must not rewrite frozen source authority.
     with true <-
            Regex.match?(~r/\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{0,8}[1-9])?Z\z/, value),
-         {:ok, _timestamp, 0} <- DateTime.from_iso8601(value) do
+         {:ok, _timestamp} <- UTCDateTime.parse(value) do
       {:ok, value}
     else
       _invalid -> invalid_binding(:resolved_at)

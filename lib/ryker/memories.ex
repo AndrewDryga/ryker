@@ -605,16 +605,6 @@ defmodule Ryker.Memories do
     end
   end
 
-  # Shared with Memories.Recall and Memories.Reviews, so every memory document
-  # writes its times the same way.
-
-  @doc """
-  Internal — a time as a memory document writes it, ISO 8601, or nil.
-  `Ryker.Memories.Recall` and `Ryker.Memories.Reviews` use it.
-  """
-  def datetime(nil), do: nil
-  def datetime(%DateTime{} = value), do: DateTime.to_iso8601(value)
-
   @doc """
   Internal — erases a fact's value and leaves it `status`, keeping only its
   digest under `hash_field`, and announces the change; raises when the write

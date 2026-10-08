@@ -25,6 +25,7 @@ defmodule Ryker.Memories.Reviews do
   alias Ryker.Memories.MemoryReviewItem
   alias Ryker.Reference
   alias Ryker.Repo
+  alias Ryker.UTCDateTime
 
   @maximum_reviews 100
   @maximum_home_review_entries 8
@@ -352,8 +353,8 @@ defmodule Ryker.Memories.Reviews do
     source
     |> review_identity()
     |> Map.merge(%{
-      "last_reviewed_at" => Memories.datetime(review_last_reviewed_at(source)),
-      "last_used_at" => Memories.datetime(review_last_used_at(source)),
+      "last_reviewed_at" => UTCDateTime.iso8601(review_last_reviewed_at(source)),
+      "last_used_at" => UTCDateTime.iso8601(review_last_used_at(source)),
       "updated_at" => DateTime.to_iso8601(source.record.updated_at)
     })
   end
@@ -843,7 +844,7 @@ defmodule Ryker.Memories.Reviews do
     entry_document(entry)
     |> Map.merge(%{
       "confirmed_at" => DateTime.to_iso8601(entry.confirmed_at),
-      "last_recalled_at" => Memories.datetime(entry.last_recalled_at),
+      "last_recalled_at" => UTCDateTime.iso8601(entry.last_recalled_at),
       "recall_count" => entry.recall_count,
       "scope" => Atom.to_string(entry.scope_kind),
       "scope_ref" => entry.scope_ref,
@@ -859,7 +860,7 @@ defmodule Ryker.Memories.Reviews do
     %{
       "confirmed_at" => DateTime.to_iso8601(behavior.confirmed_at),
       "kind" => "guidance",
-      "last_recalled_at" => Memories.datetime(behavior.last_used_at),
+      "last_recalled_at" => UTCDateTime.iso8601(behavior.last_used_at),
       "memory_ref" => behavior.ref,
       "recall_count" => behavior.use_count,
       "scope" => Atom.to_string(behavior.scope_kind),

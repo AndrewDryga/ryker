@@ -2,7 +2,8 @@ defmodule Ryker.Settings.Report.Changeset do
   @moduledoc "Changes to the weekly report (`Ryker.Settings.Report`)."
   @behaviour Ryker.Settings.Section.Changeset
   use Ryker, :changeset
-  alias Ryker.Settings.{Report, Validation}
+  alias Ryker.Settings.Report
+  alias Ryker.Slack
 
   @fields ~w(weekly_self_report_enabled channel_ref weekday local_time timezone)a
 
@@ -15,7 +16,7 @@ defmodule Ryker.Settings.Report.Changeset do
       report
       |> cast(attributes, @fields)
       |> validate_required([:weekly_self_report_enabled, :weekday, :local_time, :timezone])
-      |> validate_format(:channel_ref, Validation.slack_id_pattern())
+      |> validate_format(:channel_ref, Slack.Id.pattern())
       |> validate_inclusion(:weekday, 1..7)
       |> validate_timezone()
       |> stamp_saved()

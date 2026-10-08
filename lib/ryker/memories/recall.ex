@@ -8,13 +8,13 @@ defmodule Ryker.Memories.Recall do
   edited while the read waited is neither disclosed nor counted.
   """
   alias Ryker.Episodes
-  alias Ryker.Memories
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Memories.MemorySearchPage
   alias Ryker.Memories.MemorySourceLink
   alias Ryker.Memories.SearchPage
   alias Ryker.Reference
   alias Ryker.Repo
+  alias Ryker.UTCDateTime
 
   @doc "Returns and accounts for memory visible to one exact model context."
   @spec recall(map(), pos_integer()) :: [map()]
@@ -161,7 +161,7 @@ defmodule Ryker.Memories.Recall do
   defp document(entry) do
     %{
       "confirmed_at" => DateTime.to_iso8601(entry.confirmed_at),
-      "expires_at" => Memories.datetime(entry.expires_at),
+      "expires_at" => UTCDateTime.iso8601(entry.expires_at),
       "kind" => Atom.to_string(entry.kind),
       "memory_ref" => entry.ref,
       "scope" => Atom.to_string(entry.scope_kind),

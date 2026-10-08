@@ -9,6 +9,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceCapture do
   absence recorded as an observation is how "we never asked" becomes "there was
   no network".
   """
+  alias Ryker.Adapter
   alias Ryker.CoopFleet.{Placement, SessionEvidences, Worker}
   alias Ryker.Repo
   alias Ryker.Work
@@ -53,7 +54,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceCapture do
   def capture(_session, _api, _client), do: {:skipped, :session_not_bound}
 
   defp exported?(api) do
-    if Code.ensure_loaded?(api) and function_exported?(api, :get_session_evidence, 2),
+    if Adapter.implements?(api, get_session_evidence: 2),
       do: :ok,
       else: {:skipped, :export_unsupported}
   end

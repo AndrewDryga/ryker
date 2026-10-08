@@ -4,6 +4,7 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
   provider document the host will send, refusing anything outside the
   published schema before a credential is touched.
   """
+  alias Ryker.Maps
   alias Ryker.Slack.{Id, SourceRef}
 
   @content_types ~w(messages files channels users)
@@ -47,9 +48,9 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
          "limit" => limit,
          "query" => query
        }
-       |> put_optional("after", after_time)
-       |> put_optional("before", before_time)
-       |> put_optional("cursor", cursor), conversations}
+       |> Maps.put_present("after", after_time)
+       |> Maps.put_present("before", before_time)
+       |> Maps.put_present("cursor", cursor), conversations}
     else
       false -> {:error, :invalid_arguments}
       {:error, :unauthorized} -> {:error, :unauthorized}
@@ -78,7 +79,7 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
          "limit" => limit,
          "types" => kinds
        }
-       |> put_optional("cursor", cursor),
+       |> Maps.put_present("cursor", cursor),
        %{
          configured_only: configured_only,
          include_resources: include_resources,
@@ -386,7 +387,4 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
   end
 
   defp kinds(_values), do: {:error, :kinds}
-
-  defp put_optional(document, _key, nil), do: document
-  defp put_optional(document, key, value), do: Map.put(document, key, value)
 end

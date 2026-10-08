@@ -10,9 +10,10 @@ defmodule Ryker.GitHub.Client.Fields do
   request with something Ryker will not pass on. Predicates return a boolean
   and leave the error to their caller.
   """
+  alias Ryker.GitHub
   alias Ryker.GitObject
+  alias Ryker.UTCDateTime
 
-  @repository ~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
   @maximum_context_pages 10
   @maximum_context_page_size 20
   @maximum_context_text_bytes 12_000
@@ -21,7 +22,7 @@ defmodule Ryker.GitHub.Client.Fields do
 
   @spec target(term(), term()) :: :ok | {:error, {:invalid_github_api_request, :target}}
   def target(repository, id) do
-    with true <- is_binary(repository) and Regex.match?(@repository, repository),
+    with true <- GitHub.repository_name?(repository),
          :ok <- positive_id(id) do
       :ok
     else
@@ -31,7 +32,7 @@ defmodule Ryker.GitHub.Client.Fields do
 
   @spec repository(term()) :: :ok | {:error, {:invalid_github_api_request, :repository}}
   def repository(value) do
-    if is_binary(value) and Regex.match?(@repository, value),
+    if GitHub.repository_name?(value),
       do: :ok,
       else: {:error, {:invalid_github_api_request, :repository}}
   end
@@ -151,8 +152,8 @@ defmodule Ryker.GitHub.Client.Fields do
 
   @spec context_datetime(term()) :: :ok | {:error, {:github_protocol_error, :datetime}}
   def context_datetime(value) do
-    case DateTime.from_iso8601(value || "") do
-      {:ok, _datetime, 0} -> :ok
+    case UTCDateTime.parse(value || "") do
+      {:ok, _datetime} -> :ok
       _invalid -> {:error, {:github_protocol_error, :datetime}}
     end
   end

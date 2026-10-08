@@ -12,6 +12,7 @@ defmodule Ryker.Slack.ThreadStatuses do
   """
   alias Ryker.AdvisoryLock
   alias Ryker.ErrorDetail
+  alias Ryker.Lease
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Slack.{Id, ThreadStatus, Timestamp}
@@ -34,7 +35,6 @@ defmodule Ryker.Slack.ThreadStatuses do
       Repo.transaction(fn ->
         reconcile_locked(workspace_ref, targets, minimum_interval_ms, refresh_interval_ms)
       end)
-      |> transaction_result()
     end
   end
 
@@ -128,7 +128,6 @@ defmodule Ryker.Slack.ThreadStatuses do
          :ok <- reference(workspace_ref, :workspace_ref),
          :ok <- seconds(lease_seconds, :lease_seconds) do
       Repo.transaction(fn -> claim_next_locked(worker_ref, workspace_ref, lease_seconds) end)
-      |> transaction_result()
     end
   end
 
@@ -183,7 +182,7 @@ defmodule Ryker.Slack.ThreadStatuses do
         {code, detail} = describe_error(reason)
 
         update!(status, %{
-          attempt_count: given_back(status.attempt_count, options),
+          attempt_count: Lease.attempts_after_release(status.attempt_count, options),
           last_error_code: code,
           last_error_detail: detail,
           lease_expires_at: nil,
@@ -193,10 +192,6 @@ defmodule Ryker.Slack.ThreadStatuses do
         })
       end)
     end
-  end
-
-  defp given_back(attempt_count, options) do
-    if Keyword.get(options, :counted, true), do: attempt_count, else: max(attempt_count - 1, 0)
   end
 
   @doc """
@@ -230,7 +225,6 @@ defmodule Ryker.Slack.ThreadStatuses do
   def rearm(id) do
     with {:ok, id} <- uuid(id, :id) do
       Repo.transaction(fn -> rearm_locked(id) end)
-      |> transaction_result()
     end
   end
 
@@ -338,7 +332,6 @@ defmodule Ryker.Slack.ThreadStatuses do
          {:ok, lease_ref} <- uuid(lease_ref, :lease_ref),
          :ok <- positive(generation, :generation) do
       Repo.transaction(fn -> mutate_claim_locked(id, lease_ref, generation, callback) end)
-      |> transaction_result()
     end
   end
 
@@ -455,9 +448,6 @@ defmodule Ryker.Slack.ThreadStatuses do
       :error -> {:error, {:invalid_slack_thread_status, field}}
     end
   end
-
-  defp transaction_result({:ok, result}), do: {:ok, result}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 
   # -- PubSub ------------------------------------------------------------------
 

@@ -6,6 +6,7 @@ defmodule Ryker.Slack.InteractionHandler do
   delivered-message identity, and current record state are all re-read after
   the click. The button value alone grants nothing.
   """
+  alias Ryker.Maps
   alias Ryker.Slack.{ControlValue, Interaction, Operators}
 
   @task_not_here [:slack_task_outside_environment, :slack_task_policy_not_configured]
@@ -662,8 +663,8 @@ defmodule Ryker.Slack.InteractionHandler do
           %{digest: digest, name: name} = policy ->
             {:ok,
              %{digest: digest, environment_ref: environment_ref, name: name}
-             |> maybe_put(:repository_ref, Map.get(policy, :repository_ref))
-             |> maybe_put(:repository_context, Map.get(policy, :repository_context))}
+             |> Maps.put_present(:repository_ref, Map.get(policy, :repository_ref))
+             |> Maps.put_present(:repository_context, Map.get(policy, :repository_context))}
 
           nil ->
             {:error, {:slack_task_outside_environment, repository}}
@@ -675,9 +676,6 @@ defmodule Ryker.Slack.InteractionHandler do
   end
 
   defp policy(_record, _interaction, _options), do: {:error, :task_offer_action_mismatch}
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp confirm_task(interaction, policy, options) do
     options.confirm_task_offer.(%{

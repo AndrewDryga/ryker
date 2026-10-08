@@ -1,6 +1,6 @@
 defmodule Ryker.Schedules.ScheduleRuntime do
   @moduledoc false
-  alias Ryker.{Options, Reference}
+  alias Ryker.{Crypto, Options, Reference}
   alias Ryker.Schedules.ScheduleWorker
 
   @fields [
@@ -99,7 +99,7 @@ defmodule Ryker.Schedules.ScheduleRuntime do
   defp policy!(%{digest: digest, name: name}, field) do
     validate_ref!(name, field)
 
-    if is_binary(digest) and Regex.match?(~r/\A[0-9a-f]{64}\z/, digest),
+    if Crypto.sha256_hex?(digest),
       do: %{digest: digest, name: name},
       else: raise(ArgumentError, "schedule #{field} must contain a SHA-256 digest")
   end

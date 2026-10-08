@@ -42,7 +42,6 @@ defmodule Ryker.Emisar.Approvals do
          :ok <- reference(worker_ref, 1_024, :worker_ref),
          :ok <- positive(lease_seconds, :lease_seconds) do
       Repo.transaction(fn -> claim_locked(connection_ref, worker_ref, lease_seconds) end)
-      |> transaction_result()
     end
   end
 
@@ -103,7 +102,6 @@ defmodule Ryker.Emisar.Approvals do
           lease_seconds
         )
       end)
-      |> transaction_result()
     end
   end
 
@@ -143,7 +141,6 @@ defmodule Ryker.Emisar.Approvals do
       Repo.transaction(fn ->
         defer_locked(connection_ref, request_id, lease_ref, delay_seconds, reason)
       end)
-      |> transaction_result()
     end
   end
 
@@ -154,7 +151,6 @@ defmodule Ryker.Emisar.Approvals do
          :ok <- reference(request_id, 80, :request_id),
          :ok <- reference(lease_ref, 1_024, :lease_ref) do
       Repo.transaction(fn -> block_locked(connection_ref, request_id, lease_ref, reason) end)
-      |> transaction_result()
     end
   end
 
@@ -223,7 +219,6 @@ defmodule Ryker.Emisar.Approvals do
 
   defp close_watches(ids) do
     Repo.transaction(fn -> close_locked(ids) end)
-    |> transaction_result()
   end
 
   defp close_locked(ids) do
@@ -256,7 +251,6 @@ defmodule Ryker.Emisar.Approvals do
   def token_replaced(connection_ref) do
     with :ok <- reference(connection_ref, 64, :connection_ref) do
       Repo.transaction(fn -> token_replaced_locked(connection_ref) end)
-      |> transaction_result()
     end
   end
 
@@ -422,7 +416,6 @@ defmodule Ryker.Emisar.Approvals do
       Repo.transaction(fn ->
         observe_locked(connection_ref, request_id, lease_ref, state, poll_seconds)
       end)
-      |> transaction_result()
     end
   end
 
@@ -464,7 +457,6 @@ defmodule Ryker.Emisar.Approvals do
     Repo.transaction(fn ->
       resume_terminal_locked(connection_ref, request_id, lease_ref, state)
     end)
-    |> transaction_result()
   end
 
   defp resume_terminal_locked(connection_ref, request_id, lease_ref, state) do
@@ -699,8 +691,8 @@ defmodule Ryker.Emisar.Approvals do
   end
 
   defp utc_datetime(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, %DateTime{} = datetime, 0} -> {:ok, datetime}
+    case UTCDateTime.parse(value) do
+      {:ok, datetime} -> {:ok, datetime}
       _invalid -> {:error, {:invalid_emisar_approval, :expires_at}}
     end
   end
@@ -712,9 +704,6 @@ defmodule Ryker.Emisar.Approvals do
 
   defp positive(value, _field) when is_integer(value) and value > 0, do: :ok
   defp positive(_value, field), do: {:error, {:invalid_emisar_approval, field}}
-
-  defp transaction_result({:ok, value}), do: {:ok, value}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 
   # -- PubSub ------------------------------------------------------------------
 

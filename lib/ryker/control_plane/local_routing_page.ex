@@ -185,7 +185,7 @@ defmodule Ryker.ControlPlane.LocalRoutingPage do
       },
       %{value: percent(figures.valid, figures.compared), label: "valid"},
       %{value: percent(figures.agreed, figures.compared), label: "agreed with the provider"},
-      %{value: duration(figures.local_ms), label: "median local time"},
+      %{value: Units.duration(figures.local_ms), label: "median local time"},
       %{
         value: money(figures.provider_cost, figures.estimated),
         label: "provider cost of these messages"
@@ -196,7 +196,7 @@ defmodule Ryker.ControlPlane.LocalRoutingPage do
   defp secondary(figures) do
     [
       figures.compared > 0 and
-        %{value: duration(figures.provider_ms), label: "median provider time"},
+        %{value: Units.duration(figures.provider_ms), label: "median provider time"},
       figures.compared > 0 and
         %{
           value: money(figures.agreed_cost, figures.estimated),
@@ -210,14 +210,10 @@ defmodule Ryker.ControlPlane.LocalRoutingPage do
   end
 
   defp percent(_part, 0), do: "—"
-  defp percent(part, whole), do: decimal(part / whole * 100) <> "%"
+  defp percent(part, whole), do: Units.decimal(part / whole * 100) <> "%"
 
   # A median is a fraction of a millisecond; the console writes it as every duration.
-  defp duration(nil), do: "—"
-  defp duration(ms), do: Units.duration(round(ms))
 
   defp money(nil, _estimated), do: "Not measured"
   defp money(%Decimal{} = cost, estimated), do: Units.money(cost, estimated)
-
-  defp decimal(n), do: :erlang.float_to_binary(n * 1.0, decimals: 1) |> String.trim_trailing(".0")
 end

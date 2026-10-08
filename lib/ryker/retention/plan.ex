@@ -6,6 +6,7 @@ defmodule Ryker.Retention.Plan do
   dirty work, and accepts unmerged commits only when the caller has separately
   proved that this exact Work session was published.
   """
+  alias Ryker.Crypto
 
   @outer_fields ~w(operation plan)
   @operation_required ~w(id method resource_id resource_type state)
@@ -14,7 +15,6 @@ defmodule Ryker.Retention.Plan do
   @plan_fields ~w(revision session_id workspace)
   @workspace_required ~w(branch dirty head running status_digest unmerged)
   @workspace_optional ~w(accepted_dirty accepted_unmerged)
-  @digest ~r/\A[0-9a-f]{64}\z/
   @head ~r/\A[0-9a-f]{40,64}\z/
 
   @spec prepare(map(), String.t(), pos_integer(), boolean()) ::
@@ -145,7 +145,7 @@ defmodule Ryker.Retention.Plan do
   defp optional_git_head(_value), do: error(:head)
 
   defp digest(value, _field) when is_binary(value) do
-    if Regex.match?(@digest, value), do: :ok, else: error(:status_digest)
+    if Crypto.sha256_hex?(value), do: :ok, else: error(:status_digest)
   end
 
   defp digest(_value, field), do: error(field)

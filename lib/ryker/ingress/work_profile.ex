@@ -26,6 +26,8 @@ defmodule Ryker.Ingress.WorkProfile do
   no environment, no repository set and no Emisar account, and its document
   carries none of those keys.
   """
+  alias Ryker.Crypto
+  alias Ryker.Maps
   alias Ryker.Reference
   alias Ryker.Work
 
@@ -194,7 +196,7 @@ defmodule Ryker.Ingress.WorkProfile do
         end),
       "repositories" => profile.repositories
     }
-    |> maybe_put("emisar_connection_ref", profile.emisar_connection_ref)
+    |> Maps.put_present("emisar_connection_ref", profile.emisar_connection_ref)
   end
 
   def document(%__MODULE__{} = profile) do
@@ -205,9 +207,9 @@ defmodule Ryker.Ingress.WorkProfile do
       "repository_ref" => profile.repository_ref
     }
     |> maybe_put_authority_digest(profile.authority_digest)
-    |> maybe_put("emisar_connection_ref", profile.emisar_connection_ref)
-    |> maybe_put("environment_ref", profile.environment_ref)
-    |> maybe_put("parallel_goal_limit", profile.parallel_goal_limit)
+    |> Maps.put_present("emisar_connection_ref", profile.emisar_connection_ref)
+    |> Maps.put_present("environment_ref", profile.environment_ref)
+    |> Maps.put_present("parallel_goal_limit", profile.parallel_goal_limit)
   end
 
   @spec restore(map()) :: {:ok, t()} | {:error, term()}
@@ -474,7 +476,7 @@ defmodule Ryker.Ingress.WorkProfile do
   defp attributes(_attributes), do: {:error, {:invalid_work_profile, :fields}}
 
   defp digest(value) do
-    if is_binary(value) and Regex.match?(~r/\A[0-9a-f]{64}\z/, value),
+    if Crypto.sha256_hex?(value),
       do: :ok,
       else: {:error, {:invalid_work_profile, :policy_digest}}
   end
@@ -600,9 +602,6 @@ defmodule Ryker.Ingress.WorkProfile do
 
   defp maybe_put_authority_digest(document, authority_digest),
     do: Map.put(document, "authority_digest", authority_digest)
-
-  defp maybe_put(document, _key, nil), do: document
-  defp maybe_put(document, key, value), do: Map.put(document, key, value)
 
   defp reference(value, field, maximum),
     do: Reference.check(value, field, :invalid_work_profile, maximum)

@@ -16,6 +16,7 @@ defmodule Ryker.GitHub.Client do
   reply checks.
   """
   @behaviour Ryker.GitHub.API
+  alias Ryker.Adapter
   alias Ryker.GitHub.Client.{Actions, Comments, Context, PullRequests, Search}
 
   @fields [:http, :requester]
@@ -29,7 +30,7 @@ defmodule Ryker.GitHub.Client do
   def new(attributes) do
     with {:ok, attributes} <- normalize_attributes(attributes),
          client <- struct!(__MODULE__, attributes),
-         true <- requester?(client.requester) do
+         true <- Adapter.implements?(client.requester, request: 5) do
       {:ok, client}
     else
       false -> {:error, {:invalid_github_client, :requester}}
@@ -131,9 +132,4 @@ defmodule Ryker.GitHub.Client do
   end
 
   defp normalize_attributes(_attributes), do: {:error, {:invalid_github_client, :fields}}
-
-  defp requester?(requester) do
-    is_atom(requester) and Code.ensure_loaded?(requester) and
-      function_exported?(requester, :request, 5)
-  end
 end

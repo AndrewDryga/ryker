@@ -147,7 +147,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
       if(changeable? and item.expires_local,
         do: moment("stops ", item.expires_local, item.now_local, item.expires_at, :date, [])
       ),
-      if(item.repository, do: labelled("repository ", item.repository)),
+      if(item.repository, do: Kit.labelled("repository ", item.repository)),
       if(changeable? and item.failures > 0, do: warning(failed_starts(item.failures)))
     ]
   end
@@ -418,7 +418,7 @@ defmodule Ryker.ControlPlane.SchedulesPage do
   defp place(%{destination_transport: "slack"} = item) do
     name = Slack.destination_name(item.destination_conversation_ref)
     lead = if item.destination_thread_ref, do: "in a thread in ", else: "in "
-    labelled(lead, name)
+    Kit.labelled(lead, name)
   end
 
   defp place(%{destination_conversation_ref: "control-plane:lab:" <> _id}),
@@ -528,11 +528,6 @@ defmodule Ryker.ControlPlane.SchedulesPage do
     ~H"""
     {@lead}<time datetime={DateTime.to_iso8601(@utc)} title={exact(@utc)}>{@text}</time>
     """
-  end
-
-  defp labelled(lead, value) do
-    assigns = %{lead: lead, value: value}
-    ~H"{@lead}<strong>{@value}</strong>"
   end
 
   defp warning(text) do

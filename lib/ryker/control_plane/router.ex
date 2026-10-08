@@ -18,6 +18,7 @@ defmodule Ryker.ControlPlane.Router do
   alias Ryker.ControlPlane.{FactsPage, FailureExplanation, FailureProjection, FindingsPage, HTML}
   alias Ryker.ControlPlane.{ImprovementPage, IncidentRoomsPage, LabControls, LearningActivity}
   alias Ryker.ControlPlane.{PathRef, Paths, PeoplePage, RelearnForm, RelearnPanel, Viewer}
+  alias Ryker.Crypto
   alias Ryker.HTTPConnection
   alias Ryker.Observability
   alias Ryker.Operator
@@ -686,7 +687,7 @@ defmodule Ryker.ControlPlane.Router do
 
   defp diff_digest(value, _offset)
        when is_binary(value) and byte_size(value) == 64 do
-    if Regex.match?(~r/\A[0-9a-f]{64}\z/, value), do: {:ok, value}, else: {:error, :digest}
+    if Crypto.sha256_hex?(value), do: {:ok, value}, else: {:error, :digest}
   end
 
   defp diff_digest(_value, _offset), do: {:error, :digest}

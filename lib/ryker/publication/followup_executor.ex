@@ -1,5 +1,6 @@
 defmodule Ryker.Publication.FollowupExecutor do
   @moduledoc false
+  alias Ryker.Adapter
   alias Ryker.Delivery
   alias Ryker.LeasedCall
   alias Ryker.Publication.Followups
@@ -112,7 +113,7 @@ defmodule Ryker.Publication.FollowupExecutor do
         lease_seconds: Keyword.get(options, :lease_seconds, 60)
       }
 
-      with true <- callback?(values.api, :get_publication_status, 3),
+      with true <- Adapter.implements?(values.api, get_publication_status: 3),
            true <- custody?(values.custody),
            true <- is_map(values.adapters) and map_size(values.adapters) > 0,
            true <- positive?(values.interval_seconds),
@@ -131,23 +132,15 @@ defmodule Ryker.Publication.FollowupExecutor do
   defp settings(_options), do: {:error, {:invalid_publication_followup_executor, :options}}
 
   defp custody?(module) do
-    Enum.all?(
-      [
-        admit_wakeup: 2,
-        confirm_delivery: 3,
-        delivery_request: 1,
-        reconcile_verification: 3,
-        renew_delivery: 3,
-        renew_poll: 3,
-        store_poll: 3
-      ],
-      fn {function, arity} -> callback?(module, function, arity) end
+    Adapter.implements?(module,
+      admit_wakeup: 2,
+      confirm_delivery: 3,
+      delivery_request: 1,
+      reconcile_verification: 3,
+      renew_delivery: 3,
+      renew_poll: 3,
+      store_poll: 3
     )
-  end
-
-  defp callback?(module, function, arity) do
-    is_atom(module) and Code.ensure_loaded?(module) and
-      function_exported?(module, function, arity)
   end
 
   defp positive?(value), do: is_integer(value) and value > 0

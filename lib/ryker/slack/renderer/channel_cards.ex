@@ -7,6 +7,7 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
   alias Ryker.Reference
+  alias Ryker.UTCDateTime
   alias Ryker.Wording
 
   @greeting "Hey there, I'm your AI teammate. I'm here to help with work in this channel."
@@ -195,7 +196,7 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
   defp notice_fallback(nil), do: nil
 
   defp notice_fallback(%{"at" => at}) do
-    {:ok, changed_at, 0} = DateTime.from_iso8601(at)
+    {:ok, changed_at} = UTCDateTime.parse(at)
     "Settings changed at #{Calendar.strftime(changed_at, "%H:%M UTC")}."
   end
 
@@ -205,7 +206,7 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
     do: "You're ready to go. Use the buttons below if you'd like to change how I work."
 
   defp notice_line(%{"actor_ref" => actor, "at" => at}) do
-    {:ok, changed_at, 0} = DateTime.from_iso8601(at)
+    {:ok, changed_at} = UTCDateTime.parse(at)
     "*Settings changed by #{mention(actor)} at #{Calendar.strftime(changed_at, "%H:%M UTC")}*"
   end
 

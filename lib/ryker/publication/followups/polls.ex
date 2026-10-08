@@ -27,6 +27,7 @@ defmodule Ryker.Publication.Followups.Polls do
   alias Ryker.Publication.LifecycleStatus
   alias Ryker.Publication.Publication
   alias Ryker.Repo
+  alias Ryker.UTCDateTime
   alias Ryker.Work
 
   # How often an open pull request is checked when no webhook arrives. Slow on
@@ -297,7 +298,7 @@ defmodule Ryker.Publication.Followups.Polls do
   defp parse_optional_datetime!(nil), do: nil
 
   defp parse_optional_datetime!(value) do
-    {:ok, datetime, 0} = DateTime.from_iso8601(value)
+    {:ok, datetime} = UTCDateTime.parse(value)
     datetime
   end
 

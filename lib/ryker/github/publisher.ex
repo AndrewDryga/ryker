@@ -10,8 +10,10 @@ defmodule Ryker.GitHub.Publisher do
   @behaviour Ryker.Delivery.Platform
   @behaviour Ryker.Delivery.MessagePublisher
   @behaviour Ryker.Delivery.ReactionPublisher
+  alias Ryker.Adapter
   alias Ryker.Crypto
   alias Ryker.Delivery
+  alias Ryker.GitHub
   alias Ryker.GitHub.{InertText, Renderer, Target}
   alias Ryker.Work
 
@@ -238,7 +240,8 @@ defmodule Ryker.GitHub.Publisher do
     with {:ok, configured} <- Map.fetch(bindings, target.binding),
          %{api: api, client: client, repository_full_name: repository, repository_id: id} <-
            configured,
-         true <- id == target.repository_id and repository?(repository) and valid_api?(api) do
+         true <-
+           id == target.repository_id and GitHub.repository_name?(repository) and valid_api?(api) do
       {:ok, api, client, repository}
     else
       _invalid -> {:error, {:github_repository_not_configured, target.binding}}
@@ -247,9 +250,6 @@ defmodule Ryker.GitHub.Publisher do
 
   defp client(_binding, target),
     do: {:error, {:github_repository_not_configured, target.binding}}
-
-  defp repository?(value),
-    do: is_binary(value) and Regex.match?(~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/, value)
 
   defp valid_api?(api) do
     callbacks = [
@@ -266,7 +266,6 @@ defmodule Ryker.GitHub.Publisher do
       add_review_comment_reaction: 4
     ]
 
-    is_atom(api) and Code.ensure_loaded?(api) and
-      Enum.all?(callbacks, fn {function, arity} -> function_exported?(api, function, arity) end)
+    Adapter.implements?(api, callbacks)
   end
 end

@@ -14,6 +14,7 @@ defmodule Ryker.Work.Custody.Delivery do
   alias Ryker.Lease
   alias Ryker.Repo
   alias Ryker.Slack
+  alias Ryker.UTCDateTime
   alias Ryker.Waits
   alias Ryker.Work.Cancellation, as: WorkCancellation
   alias Ryker.Work.Custody
@@ -774,8 +775,8 @@ defmodule Ryker.Work.Custody.Delivery do
         } = turn,
         now
       ) do
-    case DateTime.from_iso8601(deadline_at) do
-      {:ok, deadline, 0} ->
+    case UTCDateTime.parse(deadline_at) do
+      {:ok, deadline} ->
         if DateTime.compare(deadline, now) == :gt,
           do: {nil, %{deadline_at: deadline, kind: :event, ref: wait_ref}},
           else: {"turn:after:#{turn.id}", nil}

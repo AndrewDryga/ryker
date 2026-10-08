@@ -15,8 +15,8 @@ defmodule Ryker.Slack.CapabilityTools do
   shape bookmarks, canvases and files, and `Actions` freeze a reaction, a Work
   update or an offered post into durable custody.
   """
+  alias Ryker.{Adapter, Options, Rescued}
   alias Ryker.Delivery
-  alias Ryker.{Options, Rescued}
   alias Ryker.Slack.CapabilityTools.{Actions, Arguments, Authority, ChannelListing, Search}
   alias Ryker.Slack.CapabilityTools.SourceReader
   alias Ryker.Slack.{ChannelConfigurations, Id, Mentions, SourceAudits, SourceRef}
@@ -469,12 +469,14 @@ defmodule Ryker.Slack.CapabilityTools do
 
   defp valid_authority?(api, action_tokens, callbacks, workspace_ref) do
     Enum.all?([
-      module_callback?(api, :search_context, 3),
-      module_callback?(api, :list_conversations, 2),
-      module_callback?(api, :conversation_info, 2),
-      module_callback?(api, :list_bookmarks, 2),
-      module_callback?(api, :file_info, 2),
-      module_callback?(api, :read_messages, 4),
+      Adapter.implements?(api,
+        search_context: 3,
+        list_conversations: 2,
+        conversation_info: 2,
+        list_bookmarks: 2,
+        file_info: 2,
+        read_messages: 4
+      ),
       action_tokens?(action_tokens),
       is_function(callbacks.event_ref, 1),
       is_function(callbacks.audit, 1),
@@ -573,13 +575,8 @@ defmodule Ryker.Slack.CapabilityTools do
     }
   end
 
-  defp action_tokens?({module, _server}), do: module_callback?(module, :checkout, 3)
+  defp action_tokens?({module, _server}), do: Adapter.implements?(module, checkout: 3)
   defp action_tokens?(_value), do: false
-
-  defp module_callback?(module, function, arity) do
-    is_atom(module) and Code.ensure_loaded?(module) and
-      function_exported?(module, function, arity)
-  end
 
   defp error_code(:invalid_arguments), do: "invalid_arguments"
 

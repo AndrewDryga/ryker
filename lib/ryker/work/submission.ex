@@ -6,6 +6,7 @@ defmodule Ryker.Work.Submission do
   metadata are deliberately absent because they belong to the Coop operation,
   not to the model-visible turn.
   """
+  alias Ryker.Artifacts
   alias Ryker.CanonicalJSON
 
   @context_bytes 160 * 1_024
@@ -76,15 +77,11 @@ defmodule Ryker.Work.Submission do
   end
 
   defp artifact_refs(refs) when is_list(refs) do
-    if length(refs) <= 5 and Enum.uniq(refs) == refs and Enum.all?(refs, &artifact_ref?/1),
-      do: :ok,
-      else: {:error, {:invalid_work_submission, :input_artifact_refs}}
+    if length(refs) <= 5 and Enum.uniq(refs) == refs and
+         Enum.all?(refs, &Artifacts.References.input_ref?/1),
+       do: :ok,
+       else: {:error, {:invalid_work_submission, :input_artifact_refs}}
   end
 
   defp artifact_refs(_refs), do: {:error, {:invalid_work_submission, :input_artifact_refs}}
-
-  defp artifact_ref?(value) do
-    is_binary(value) and byte_size(value) in 1..128 and
-      String.starts_with?(value, "artifact:input:")
-  end
 end

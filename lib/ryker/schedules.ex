@@ -10,6 +10,7 @@ defmodule Ryker.Schedules do
   announced after the outermost commit (`subscribe_schedules/0`,
   `subscribe_schedule/1`), on the topics of the request that offered it too.
   """
+  alias Ryker.Crypto
   alias Ryker.Episodes
   alias Ryker.ErrorDetail
   alias Ryker.Ingress
@@ -787,7 +788,7 @@ defmodule Ryker.Schedules do
       {:ok,
        %{
          previous: %{
-           "next_occurrence_at" => datetime(schedule.next_occurrence_at),
+           "next_occurrence_at" => UTCDateTime.iso8601(schedule.next_occurrence_at),
            "revision" => schedule.revision,
            "status" => Atom.to_string(schedule.status)
          },
@@ -808,7 +809,7 @@ defmodule Ryker.Schedules do
     {:ok,
      %{
        previous: %{
-         "next_occurrence_at" => datetime(schedule.next_occurrence_at),
+         "next_occurrence_at" => UTCDateTime.iso8601(schedule.next_occurrence_at),
          "revision" => schedule.revision,
          "status" => Atom.to_string(schedule.status)
        },
@@ -832,9 +833,6 @@ defmodule Ryker.Schedules do
       "transport" => scope.transport
     }
   end
-
-  defp datetime(%DateTime{} = value), do: DateTime.to_iso8601(value)
-  defp datetime(nil), do: nil
 
   defp update_schedule_status(%Schedule{status: status} = schedule, status), do: schedule
 
@@ -878,7 +876,7 @@ defmodule Ryker.Schedules do
   end
 
   defp policy(%{digest: digest, name: name}) do
-    if Reference.valid?(name) and is_binary(digest) and Regex.match?(~r/\A[0-9a-f]{64}\z/, digest),
+    if Reference.valid?(name) and Crypto.sha256_hex?(digest),
       do: :ok,
       else: {:error, :schedule_policy_unavailable}
   end

@@ -707,8 +707,8 @@ defmodule Ryker.CoopFleet.SessionEvidenceDocument do
   defp optional_timestamp(value, field), do: timestamp(value, field)
 
   defp ordered_times(first, last) do
-    with {:ok, first, 0} <- DateTime.from_iso8601(first),
-         {:ok, last, 0} <- DateTime.from_iso8601(last),
+    with {:ok, first} <- UTCDateTime.parse(first),
+         {:ok, last} <- UTCDateTime.parse(last),
          :lt_or_eq <- if(DateTime.compare(last, first) == :lt, do: :lt, else: :lt_or_eq) do
       :ok
     else

@@ -3,6 +3,7 @@ defmodule Ryker.Publication.LifecycleStatus do
   alias Ryker.GitHub
   alias Ryker.GitObject
   alias Ryker.Reference
+  alias Ryker.UTCDateTime
 
   @fields ~w(base_ref checks_failed checks_passed checks_state checks_total checks_url draft head_ref head_sha merge_sha merged merged_at number state url)
 
@@ -33,7 +34,7 @@ defmodule Ryker.Publication.LifecycleStatus do
 
   defp merge(%{"merged" => true, "merge_sha" => sha, "merged_at" => at}) do
     with true <- GitObject.id?(sha),
-         {:ok, _datetime, 0} <- DateTime.from_iso8601(at || "") do
+         {:ok, _datetime} <- UTCDateTime.parse(at) do
       :ok
     else
       _invalid -> {:error, {:invalid_publication_lifecycle_status, :merge}}

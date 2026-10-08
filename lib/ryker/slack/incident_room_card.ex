@@ -197,7 +197,7 @@ defmodule Ryker.Slack.IncidentRoomCard do
   defp controls(episode, turn, session) do
     []
     |> maybe_control(WorkControls.stoppable?(episode, turn), "stop")
-    |> maybe_control(bound_session?(session), "view_diff")
+    |> maybe_control(WorkControls.diff_available?(session), "view_diff")
     |> maybe_control(close_allowed?(episode, turn), "close")
     |> Kernel.++(~w(timeline evidence handoff postmortem))
   end
@@ -211,12 +211,6 @@ defmodule Ryker.Slack.IncidentRoomCard do
        do: false
 
   defp close_allowed?(_episode, _turn), do: true
-
-  defp bound_session?(%Work.Session{coop_session_id: value})
-       when is_binary(value) and value != "",
-       do: true
-
-  defp bound_session?(_session), do: false
 
   defp maybe_control(controls, true, control), do: controls ++ [control]
   defp maybe_control(controls, false, _control), do: controls

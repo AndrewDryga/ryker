@@ -38,6 +38,7 @@ defmodule Ryker.Improvement.Export do
   """
   alias Ryker.Improvement.Candidate
   alias Ryker.Repo
+  alias Ryker.UTCDateTime
 
   @catalog_ref "../va1-health-review-repairs-and-finishes/tool-catalog.json"
 
@@ -167,8 +168,8 @@ defmodule Ryker.Improvement.Export do
 
     before =
       Enum.filter(said, fn event ->
-        case DateTime.from_iso8601(event["at"]) do
-          {:ok, at, 0} -> DateTime.compare(at, candidate.first_signal_at) == :lt
+        case UTCDateTime.parse(event["at"]) do
+          {:ok, at} -> DateTime.compare(at, candidate.first_signal_at) == :lt
           _invalid -> false
         end
       end)

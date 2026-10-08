@@ -1,5 +1,6 @@
 defmodule Ryker.Schedules.ScheduleDispatcher do
   @moduledoc false
+  alias Ryker.Adapter
   alias Ryker.Backoff
   alias Ryker.Reference
   alias Ryker.Schedules
@@ -26,7 +27,7 @@ defmodule Ryker.Schedules.ScheduleDispatcher do
   def next_due_at(options, %DateTime{} = since) do
     custody = Keyword.get(options, :custody, Schedules)
 
-    if callback?(custody, :next_due_at, 1),
+    if Adapter.implements?(custody, next_due_at: 1),
       do: custody.next_due_at(since)
   end
 
@@ -78,14 +79,12 @@ defmodule Ryker.Schedules.ScheduleDispatcher do
         worker_ref: Keyword.fetch!(options, :worker_ref)
       }
 
-      with true <- callback?(values.custody, :claim_due, 2),
-           true <- callback?(values.custody, :dispatch, 4),
-           true <- callback?(values.custody, :defer, 4),
+      with true <- Adapter.implements?(values.custody, claim_due: 2, dispatch: 4, defer: 4),
            true <- is_function(values.policy_resolver, 1),
            true <- positive?(values.lease_seconds),
            true <- non_negative?(values.misfire_grace_seconds),
            true <- positive?(values.retry_base_seconds),
-           true <- values.retry_max_seconds >= values.retry_base_seconds,
+           true <- Backoff.valid?(values.retry_base_seconds, values.retry_max_seconds),
            true <- Reference.valid?(values.worker_ref) do
         {:ok, values}
       else
@@ -99,11 +98,6 @@ defmodule Ryker.Schedules.ScheduleDispatcher do
   end
 
   defp settings(_options), do: {:error, {:invalid_schedule_dispatcher, :options}}
-
-  defp callback?(module, function, arity) do
-    is_atom(module) and Code.ensure_loaded?(module) and
-      function_exported?(module, function, arity)
-  end
 
   defp positive?(value), do: is_integer(value) and value > 0
   defp non_negative?(value), do: is_integer(value) and value >= 0

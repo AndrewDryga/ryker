@@ -1,6 +1,7 @@
 defmodule Ryker.Work.Turn.Changeset do
   @moduledoc false
   use Ryker, :changeset
+  alias Ryker.Crypto
   alias Ryker.Work.Turn
 
   @maximum_candidate_bytes 256 * 1_024
@@ -152,7 +153,7 @@ defmodule Ryker.Work.Turn.Changeset do
     )
     |> validate_required([:state_tools_endpoint, :state_tools_token_sha256])
     |> validate_length(:state_tools_endpoint, min: 1, max: 2_048, count: :bytes)
-    |> validate_format(:state_tools_token_sha256, ~r/\A[0-9a-f]{64}\z/)
+    |> validate_format(:state_tools_token_sha256, Crypto.sha256_hex_pattern())
     |> work_constraints()
   end
 
@@ -186,9 +187,9 @@ defmodule Ryker.Work.Turn.Changeset do
       :final_preflight_ledger_sha256,
       :final_preflight_semantic_version
     ])
-    |> validate_format(:final_preflight_candidate_sha256, ~r/\A[0-9a-f]{64}\z/)
-    |> validate_format(:final_preflight_continuity_sha256, ~r/\A[0-9a-f]{64}\z/)
-    |> validate_format(:final_preflight_ledger_sha256, ~r/\A[0-9a-f]{64}\z/)
+    |> validate_format(:final_preflight_candidate_sha256, Crypto.sha256_hex_pattern())
+    |> validate_format(:final_preflight_continuity_sha256, Crypto.sha256_hex_pattern())
+    |> validate_format(:final_preflight_ledger_sha256, Crypto.sha256_hex_pattern())
     |> validate_number(:final_preflight_semantic_version, greater_than_or_equal_to: 0)
     |> work_constraints()
   end

@@ -6,6 +6,7 @@ defmodule Ryker.Emisar.Client do
   configuration. Run URLs are accepted only from that same HTTPS origin.
   """
   @behaviour Ryker.Emisar.API
+  alias Ryker.Adapter
   alias Ryker.Crypto
   alias Ryker.Emisar.{Review, RunState}
   alias Ryker.Reference
@@ -34,7 +35,7 @@ defmodule Ryker.Emisar.Client do
   def new(attributes) do
     with {:ok, attributes} <- normalize(attributes),
          client <- struct!(__MODULE__, attributes),
-         true <- requester?(client.requester),
+         true <- Adapter.implements?(client.requester, request: 5),
          :ok <- origin(client.rpc_origin),
          :ok <- path(client.rpc_path) do
       {:ok, client}
@@ -205,11 +206,6 @@ defmodule Ryker.Emisar.Client do
   end
 
   defp normalize(_attributes), do: {:error, {:invalid_emisar_client, :fields}}
-
-  defp requester?(requester) do
-    is_atom(requester) and Code.ensure_loaded?(requester) and
-      function_exported?(requester, :request, 5)
-  end
 
   defp origin(value) when is_binary(value) do
     case URI.parse(value) do

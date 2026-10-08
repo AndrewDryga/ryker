@@ -8,6 +8,7 @@ defmodule Ryker.Artifacts.Outputs do
   """
   alias Ryker.Artifacts.OutputArtifact
   alias Ryker.Crypto
+  alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Work
 
@@ -15,7 +16,6 @@ defmodule Ryker.Artifacts.Outputs do
   @maximum_bytes 8 * 1_024 * 1_024
   @media_types ~w(image/png image/jpeg image/webp image/gif)
   @fields ~w(bytes id media_type name sha256)
-  @reference ~r/\A[A-Za-z0-9_.:-]{1,256}\z/
 
   @spec delivery_supported?(map()) :: boolean()
   def delivery_supported?(episode) do
@@ -67,7 +67,7 @@ defmodule Ryker.Artifacts.Outputs do
     unique = Enum.uniq(refs)
 
     if Ecto.UUID.cast(turn_id) == :error or unique != refs or length(refs) > @maximum_artifacts or
-         not Enum.all?(refs, &reference?/1) do
+         not Enum.all?(refs, &Reference.token?/1) do
       {:error, :work_output_artifact_not_found}
     else
       artifacts =
@@ -103,9 +103,9 @@ defmodule Ryker.Artifacts.Outputs do
   end
 
   defp prepare_metadata_item(%{} = value) do
-    if Map.keys(value) |> Enum.sort() == @fields and reference?(value["id"]) and
+    if Map.keys(value) |> Enum.sort() == @fields and Reference.token?(value["id"]) and
          valid_name?(value["name"]) and value["media_type"] in @media_types and
-         digest?(value["sha256"]) and is_integer(value["bytes"]) and
+         Crypto.sha256_hex?(value["sha256"]) and is_integer(value["bytes"]) and
          value["bytes"] in 1..@maximum_bytes do
       {:ok, value}
     else
@@ -135,7 +135,7 @@ defmodule Ryker.Artifacts.Outputs do
     with {:ok, metadata} <- prepare_metadata_item(metadata),
          true <- byte_size(data) == metadata["bytes"],
          true <- Crypto.sha256_hex(data) == metadata["sha256"],
-         true <- media_matches?(metadata["media_type"], data) do
+         true <- image_matches?(metadata["media_type"], data) do
       {:ok,
        %{
          byte_size: metadata["bytes"],
@@ -185,9 +185,6 @@ defmodule Ryker.Artifacts.Outputs do
   defp unique?(values, field),
     do: values |> Enum.map(& &1[field]) |> Enum.uniq() == Enum.map(values, & &1[field])
 
-  defp reference?(value), do: is_binary(value) and Regex.match?(@reference, value)
-  defp digest?(value), do: is_binary(value) and Regex.match?(~r/\A[0-9a-f]{64}\z/, value)
-
   defp valid_name?(value) when is_binary(value) do
     String.valid?(value) and byte_size(value) in 1..255 and value not in [".", ".."] and
       not String.contains?(value, ["/", "\\"]) and
@@ -196,10 +193,12 @@ defmodule Ryker.Artifacts.Outputs do
 
   defp valid_name?(_value), do: false
 
-  defp media_matches?("image/png", <<137, 80, 78, 71, 13, 10, 26, 10, _::binary>>), do: true
-  defp media_matches?("image/jpeg", <<255, 216, 255, _::binary>>), do: true
-  defp media_matches?("image/gif", <<"GIF87a", _::binary>>), do: true
-  defp media_matches?("image/gif", <<"GIF89a", _::binary>>), do: true
-  defp media_matches?("image/webp", <<"RIFF", _::binary-size(4), "WEBP", _::binary>>), do: true
-  defp media_matches?(_media_type, _data), do: false
+  @doc "Whether `data` starts the way an image of `media_type` does: PNG, JPEG, GIF or WebP."
+  @spec image_matches?(term(), binary()) :: boolean()
+  def image_matches?("image/png", <<137, 80, 78, 71, 13, 10, 26, 10, _::binary>>), do: true
+  def image_matches?("image/jpeg", <<255, 216, 255, _::binary>>), do: true
+  def image_matches?("image/gif", <<"GIF87a", _::binary>>), do: true
+  def image_matches?("image/gif", <<"GIF89a", _::binary>>), do: true
+  def image_matches?("image/webp", <<"RIFF", _::binary-size(4), "WEBP", _::binary>>), do: true
+  def image_matches?(_media_type, _data), do: false
 end

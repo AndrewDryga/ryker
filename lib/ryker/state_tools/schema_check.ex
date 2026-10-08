@@ -3,6 +3,7 @@ defmodule Ryker.StateTools.SchemaCheck do
   alias Ryker.Schedules
   alias Ryker.StateTools.Catalog
   alias Ryker.Text
+  alias Ryker.UTCDateTime
   alias Ryker.Wording
 
   # Validates tool arguments against the exact JSON-schema subset the catalog
@@ -355,7 +356,7 @@ defmodule Ryker.StateTools.SchemaCheck do
   defp valid_format?(_value, nil), do: true
 
   defp valid_format?(value, "date-time") do
-    match?({:ok, %DateTime{}, 0}, DateTime.from_iso8601(value))
+    UTCDateTime.iso8601?(value)
   end
 
   defp valid_format?(_value, _format), do: false

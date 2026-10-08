@@ -300,15 +300,14 @@ defmodule Ryker.Work.Dispatcher do
          :ok <- setting(positive?(settings.lease_seconds), :lease_seconds),
          :ok <- setting(positive?(settings.max_attempts), :max_attempts),
          :ok <- setting(positive?(settings.retry_base_seconds), :retry_base_seconds),
-         :ok <- setting(valid_retry_max?(settings), :retry_max_seconds),
+         :ok <-
+           setting(
+             Backoff.valid?(settings.retry_base_seconds, settings.retry_max_seconds),
+             :retry_max_seconds
+           ),
          :ok <- setting(Reference.valid?(settings.worker_ref), :worker_ref) do
       {:ok, settings}
     end
-  end
-
-  defp valid_retry_max?(settings) do
-    positive?(settings.retry_max_seconds) and
-      settings.retry_max_seconds >= settings.retry_base_seconds
   end
 
   defp keyword?(value), do: is_list(value) and Keyword.keyword?(value)

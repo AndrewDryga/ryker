@@ -217,9 +217,8 @@ defmodule Ryker.Ingress.Input do
 
   defp normalize_attributes(_attributes), do: {:error, {:invalid_input, :fields}}
 
-  defp normalize(%__MODULE__{occurred_at: %DateTime{microsecond: {microsecond, _}}} = input) do
-    %{input | occurred_at: %{input.occurred_at | microsecond: {microsecond, 6}}}
-  end
+  defp normalize(%__MODULE__{occurred_at: %DateTime{} = occurred_at} = input),
+    do: %{input | occurred_at: UTCDateTime.to_usec(occurred_at)}
 
   defp normalize(input), do: input
 

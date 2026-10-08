@@ -7,7 +7,7 @@ defmodule Ryker.Release do
   There is no rollback: going back is restoring the backup taken before the
   release (`docs/operations.md`, "The schema baseline").
   """
-  alias Ryker.{Bootstrap, Settings}
+  alias Ryker.{Bootstrap, Maps, Settings}
   alias Ryker.CoopFleet
   alias Ryker.Operator
   alias Ryker.Runtime
@@ -309,12 +309,9 @@ defmodule Ryker.Release do
 
   defp migrator_options(settings, strategy \\ []) do
     [log: settings.log]
-    |> put_optional(:prefix, settings.prefix)
+    |> Maps.put_present(:prefix, settings.prefix)
     |> Keyword.merge(strategy)
   end
-
-  defp put_optional(options, _key, nil), do: options
-  defp put_optional(options, key, value), do: Keyword.put(options, key, value)
 
   defp valid_prefix?(value) do
     is_binary(value) and Regex.match?(~r/\A[a-z_][a-z0-9_]{0,62}\z/, value)

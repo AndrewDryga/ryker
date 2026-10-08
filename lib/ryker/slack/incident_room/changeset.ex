@@ -1,6 +1,7 @@
 defmodule Ryker.Slack.IncidentRoom.Changeset do
   @moduledoc false
   use Ryker, :changeset
+  alias Ryker.Crypto
   alias Ryker.Settings
   alias Ryker.Slack.IncidentRoom
   alias Ryker.Work
@@ -107,9 +108,9 @@ defmodule Ryker.Slack.IncidentRoom.Changeset do
     changeset
     |> validate_length(:ref, min: 1, max: 256)
     |> validate_length(:policy, min: 1, max: 256)
-    |> validate_format(:policy_digest, ~r/\A[0-9a-f]{64}\z/)
+    |> validate_format(:policy_digest, Crypto.sha256_hex_pattern())
     |> validate_length(:repository_ref, min: 1, max: 256)
-    |> validate_repository_context()
+    |> Work.RepositoryContext.validate()
     |> validate_format(:environment_ref, Settings.Environment.ref_pattern())
     |> validate_length(:title, min: 1, max: 200)
     |> validate_length(:prompt, min: 1, max: 32_000)
@@ -118,7 +119,7 @@ defmodule Ryker.Slack.IncidentRoom.Changeset do
     |> validate_length(:topic, min: 1, max: 250)
     |> validate_number(:attempt_count, greater_than_or_equal_to: 0)
     |> validate_number(:root_card_ui_revision, greater_than_or_equal_to: 0)
-    |> validate_format(:root_card_fingerprint, ~r/\A[0-9a-f]{64}\z/)
+    |> validate_format(:root_card_fingerprint, Crypto.sha256_hex_pattern())
     |> unique_constraint(:ref)
     |> unique_constraint(:record_id)
     |> unique_constraint(:episode_id)
@@ -137,14 +138,5 @@ defmodule Ryker.Slack.IncidentRoom.Changeset do
     )
     |> check_constraint(:environment_ref, name: :slack_incident_rooms_environment_valid)
     |> check_constraint(:close_requested_by, name: :slack_incident_rooms_close_request_valid)
-  end
-
-  defp validate_repository_context(changeset) do
-    validate_change(changeset, :repository_context, fn :repository_context, value ->
-      case Work.RepositoryContext.restore(value, get_field(changeset, :repository_ref)) do
-        {:ok, _context} -> []
-        {:error, :invalid} -> [repository_context: "is not a bounded repository set"]
-      end
-    end)
   end
 end

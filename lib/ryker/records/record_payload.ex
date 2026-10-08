@@ -6,6 +6,7 @@ defmodule Ryker.Records.RecordPayload do
   alias Ryker.Reference
   alias Ryker.Schedules
   alias Ryker.Slack
+  alias Ryker.UTCDateTime
   alias Ryker.Waits
   alias Ryker.Work
 
@@ -589,8 +590,8 @@ defmodule Ryker.Records.RecordPayload do
   defp positive_integer(_value, field), do: {:error, {:invalid_state_record, field}}
 
   defp utc_datetime(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, 0} -> {:ok, datetime}
+    case UTCDateTime.parse(value) do
+      {:ok, datetime} -> {:ok, datetime}
       _invalid -> {:error, {:invalid_state_record, :deadline_at}}
     end
   end

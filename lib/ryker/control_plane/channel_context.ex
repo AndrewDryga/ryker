@@ -25,7 +25,7 @@ defmodule Ryker.ControlPlane.ChannelContext do
     relation =
       scope
       |> ChannelContext.Query.rules()
-      |> read("rule_page", [desc: :updated_at, desc: :id], params)
+      |> PagedRelation.read([desc: :updated_at, desc: :id], "rule_page", params)
 
     items =
       Enum.map(relation.items, fn behavior ->
@@ -52,9 +52,9 @@ defmodule Ryker.ControlPlane.ChannelContext do
     relation =
       :preference
       |> ChannelContext.Query.effective_behaviors(scope)
-      |> read(
-        "preference_page",
+      |> PagedRelation.read(
         ChannelContext.Query.inherited_order(:operator_behaviors),
+        "preference_page",
         params
       )
 
@@ -86,7 +86,11 @@ defmodule Ryker.ControlPlane.ChannelContext do
     relation =
       scope
       |> ChannelContext.Query.recalled_guidance()
-      |> read("guidance_page", ChannelContext.Query.inherited_order(:operator_behaviors), params)
+      |> PagedRelation.read(
+        ChannelContext.Query.inherited_order(:operator_behaviors),
+        "guidance_page",
+        params
+      )
 
     items =
       Enum.map(relation.items, fn behavior ->
@@ -116,9 +120,9 @@ defmodule Ryker.ControlPlane.ChannelContext do
     relation =
       scope
       |> ChannelContext.Query.memory()
-      |> read(
-        "memory_page",
+      |> PagedRelation.read(
         ChannelContext.Query.inherited_order(:operational_memory_entries),
+        "memory_page",
         params
       )
 
@@ -175,7 +179,7 @@ defmodule Ryker.ControlPlane.ChannelContext do
     relation =
       scope
       |> ChannelContext.Query.summaries()
-      |> read("summary_page", [desc: :updated_at, desc: :id], params)
+      |> PagedRelation.read([desc: :updated_at, desc: :id], "summary_page", params)
 
     items =
       relation.items
@@ -224,7 +228,7 @@ defmodule Ryker.ControlPlane.ChannelContext do
     relation =
       scope
       |> ChannelContext.Query.knowledge()
-      |> read("knowledge_page", [desc: :updated_at, desc: :id], params)
+      |> PagedRelation.read([desc: :updated_at, desc: :id], "knowledge_page", params)
 
     available = ConversationMemory.available_ids(relation.items)
 
@@ -284,7 +288,4 @@ defmodule Ryker.ControlPlane.ChannelContext do
     end)
     |> Enum.sum()
   end
-
-  defp read(query, key, order, params),
-    do: PagedRelation.read(query, order, key, params)
 end

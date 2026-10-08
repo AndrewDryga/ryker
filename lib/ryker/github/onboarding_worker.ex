@@ -7,6 +7,7 @@ defmodule Ryker.GitHub.OnboardingWorker do
   up it sleeps for its safety-net interval.
   """
   use Ryker.PollingWorker, lane: :github_onboarding, interval: :interval_ms
+  alias Ryker.Adapter
   alias Ryker.GitHub.Onboarding
   alias Ryker.PollingWorker
   alias Ryker.Settings
@@ -29,7 +30,7 @@ defmodule Ryker.GitHub.OnboardingWorker do
   def options!(options) when is_list(options), do: options |> Map.new() |> options!()
 
   defp remote?(api),
-    do: is_atom(api) and Code.ensure_loaded?(api) and function_exported?(api, :pin, 2)
+    do: Adapter.implements?(api, pin: 2)
 
   @impl PollingWorker
   def setup(options), do: {:ok, options!(options)}

@@ -1,9 +1,8 @@
 defmodule Ryker.Slack.HomeSubmission do
   @moduledoc false
+  alias Ryker.Reference
   alias Ryker.Slack.AppHomeEditor
   alias Ryker.UTCDateTime
-
-  @reference ~r/\A[A-Za-z0-9_.:-]{1,256}\z/
 
   @enforce_keys [
     :action,
@@ -50,14 +49,15 @@ defmodule Ryker.Slack.HomeSubmission do
     with true <- callback_id == AppHomeEditor.callback_id(),
          {:ok, "memory-review:" <> _ = review_ref} <- metadata(metadata),
          {:ok, subject, value} <- input_values(values),
-         true <- Enum.all?([envelope_ref, actor_ref, workspace_ref, review_ref], &reference?/1),
+         true <-
+           Enum.all?([envelope_ref, actor_ref, workspace_ref, review_ref], &Reference.token?/1),
          true <- UTCDateTime.utc?(occurred_at) do
       {:ok,
        %__MODULE__{
          action: :edit_memory_review,
          actor_ref: actor_ref,
          event_ref: "interaction:#{envelope_ref}",
-         occurred_at: normalize_datetime(occurred_at),
+         occurred_at: UTCDateTime.to_usec(occurred_at),
          replacement: %{"subject" => subject, "value" => value},
          resource_ref: review_ref,
          workspace_ref: workspace_ref
@@ -123,9 +123,4 @@ defmodule Ryker.Slack.HomeSubmission do
         {:error, %{block_id => error_message}}
     end
   end
-
-  defp reference?(value), do: is_binary(value) and Regex.match?(@reference, value)
-
-  defp normalize_datetime(%DateTime{microsecond: {microsecond, _precision}} = value),
-    do: %{value | microsecond: {microsecond, 6}}
 end

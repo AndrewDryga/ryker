@@ -1,6 +1,7 @@
 defmodule Ryker.Operator.RetentionAction.Changeset do
   @moduledoc "How a person's retention action is recorded (`Ryker.Operator.RetentionAction`)."
   use Ryker, :changeset
+  alias Ryker.Crypto
   alias Ryker.Operator.RetentionAction
 
   @fields [
@@ -25,7 +26,7 @@ defmodule Ryker.Operator.RetentionAction.Changeset do
     |> validate_required(@required)
     |> validate_length(:action_ref, min: 1, max: 1_024)
     |> validate_length(:actor_ref, min: 1, max: 1_024)
-    |> validate_format(:request_fingerprint, ~r/\A[0-9a-f]{64}\z/)
+    |> validate_format(:request_fingerprint, Crypto.sha256_hex_pattern())
     |> unique_constraint(:action_ref)
     |> foreign_key_constraint(:session_id)
     |> check_constraint(:action_ref, name: :retention_operator_action_valid)

@@ -8,8 +8,13 @@ defmodule Ryker.ControlPlane.Units do
   GiB, GB, KiB and a 1024-based "MB" (2026-10-04 review).
   """
 
-  @doc "A duration: 0 s, 850 ms, 5 s, 16.5 s, 4 min, 4 min 10 s, 2 h, 2 h 5 min."
-  @spec duration(non_neg_integer()) :: String.t()
+  @doc """
+  A duration: 0 s, 850 ms, 5 s, 16.5 s, 4 min, 4 min 10 s, 2 h, 2 h 5 min; a
+  measured average is rounded to the millisecond, and nothing measured is "—".
+  """
+  @spec duration(number() | nil) :: String.t()
+  def duration(nil), do: "—"
+  def duration(ms) when is_float(ms), do: duration(round(ms))
   def duration(0), do: "0 s"
   def duration(ms) when is_integer(ms) and ms < 1_000, do: "#{ms} ms"
   def duration(ms) when is_integer(ms) and ms < 60_000, do: one_place(ms / 1_000) <> " s"
@@ -23,6 +28,11 @@ defmodule Ryker.ControlPlane.Units do
     minutes = div(ms, 60_000)
     joined(div(minutes, 60), "h", rem(minutes, 60), "min")
   end
+
+  @doc ~s(A number to one decimal place, without a trailing ".0": "3", "2.5".)
+  @spec decimal(number()) :: String.t()
+  def decimal(number),
+    do: :erlang.float_to_binary(number * 1.0, decimals: 1) |> String.trim_trailing(".0")
 
   @doc "A size in binary units: 512 bytes, 12 KiB, 3.4 MiB, 1.2 GiB."
   @spec bytes(non_neg_integer()) :: String.t()

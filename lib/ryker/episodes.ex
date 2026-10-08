@@ -35,7 +35,6 @@ defmodule Ryker.Episodes do
         {:error, reason} -> Repo.rollback(reason)
       end
     end)
-    |> transaction_result()
   end
 
   @doc """
@@ -253,9 +252,6 @@ defmodule Ryker.Episodes do
   defp persistence_result({:error, %Ecto.Changeset{} = changeset}, kind) do
     {:error, {:persistence_failed, kind, changeset.errors}}
   end
-
-  defp transaction_result({:ok, value}), do: {:ok, value}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 
   # -- PubSub ------------------------------------------------------------------
 

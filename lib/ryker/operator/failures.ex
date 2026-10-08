@@ -6,6 +6,7 @@ defmodule Ryker.Operator.Failures do
   non-publishable is a product decision, not failed infrastructure custody.
   """
   alias Ryker.ControlPlane
+  alias Ryker.Crypto
   alias Ryker.Ingress
   alias Ryker.Operator.{Actions, RetentionAction}
   alias Ryker.Operator.Delivery, as: DeliveryOperator
@@ -201,7 +202,7 @@ defmodule Ryker.Operator.Failures do
   defp settings(_options), do: {:error, {:invalid_operator_failure, :options}}
 
   defp recovery_confirmation("work", value) when is_binary(value) do
-    if Regex.match?(~r/\A[0-9a-f]{64}\z/, value),
+    if Crypto.sha256_hex?(value),
       do: :ok,
       else: {:error, {:invalid_operator_failure, :expected_recovery}}
   end

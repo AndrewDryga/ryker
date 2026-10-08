@@ -1,7 +1,7 @@
 defmodule Ryker.Memories.MemorySearch do
   @moduledoc "Bounded, permission-rechecked keyset recall across existing memory owners."
   alias Ryker.Behaviors
-  alias Ryker.{CanonicalJSON, Repo}
+  alias Ryker.{CanonicalJSON, Repo, UTCDateTime}
   alias Ryker.Continuity
   alias Ryker.Crypto
   alias Ryker.Episodes
@@ -385,8 +385,8 @@ defmodule Ryker.Memories.MemorySearch do
   defp date(nil), do: {:ok, nil}
 
   defp date(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, date, 0} -> {:ok, date}
+    case UTCDateTime.parse(value) do
+      {:ok, date} -> {:ok, date}
       _ -> :error
     end
   end

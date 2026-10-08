@@ -1,6 +1,7 @@
 defmodule Ryker.Operator.Action.Changeset do
   @moduledoc "How an operator action is recorded (`Ryker.Operator.Action`)."
   use Ryker, :changeset
+  alias Ryker.Crypto
   alias Ryker.Operator.Action
 
   @fields [
@@ -24,7 +25,7 @@ defmodule Ryker.Operator.Action.Changeset do
     |> validate_length(:actor_ref, min: 1, max: 1_024)
     |> validate_length(:kind, min: 1, max: 64)
     |> validate_length(:resource_ref, min: 1, max: 1_024)
-    |> validate_format(:request_fingerprint, ~r/\A[0-9a-f]{64}\z/)
+    |> validate_format(:request_fingerprint, Crypto.sha256_hex_pattern())
     |> unique_constraint(:action_ref)
     |> check_constraint(:action_ref, name: :ryker_operator_action_valid)
   end

@@ -14,6 +14,7 @@ defmodule Ryker.Slack.Renderer.Records do
   alias Ryker.Records
   alias Ryker.Slack.Renderer.{EmisarReview, Offers, SavedEntityCard}
   alias Ryker.Slack.ReplyRecords
+  alias Ryker.UTCDateTime
   alias Ryker.Wording
 
   @maximum_records 64
@@ -73,8 +74,8 @@ defmodule Ryker.Slack.Renderer.Records do
          %{"kind" => "event_wait", "presentation" => %{"next_check_at" => at} = meta} = record
        )
        when map_size(record) == 5 and map_size(meta) == 1 and is_binary(at) do
-    case DateTime.from_iso8601(at) do
-      {:ok, _time, 0} -> event_wait(Map.delete(record, "presentation"), at)
+    case UTCDateTime.parse(at) do
+      {:ok, _time} -> event_wait(Map.delete(record, "presentation"), at)
       _invalid -> {:error, {:invalid_slack_render, :record}}
     end
   end
@@ -466,8 +467,8 @@ defmodule Ryker.Slack.Renderer.Records do
   defp earlier_check?(nil, _deadline), do: false
 
   defp earlier_check?(at, deadline) do
-    {:ok, at, 0} = DateTime.from_iso8601(at)
-    {:ok, deadline, 0} = DateTime.from_iso8601(deadline)
+    {:ok, at} = UTCDateTime.parse(at)
+    {:ok, deadline} = UTCDateTime.parse(deadline)
     DateTime.compare(at, deadline) == :lt
   end
 

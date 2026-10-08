@@ -1,6 +1,7 @@
 defmodule Ryker.Memories.MemoryEntry.Changeset do
   @moduledoc false
   use Ryker, :changeset
+  alias Ryker.Crypto
   alias Ryker.Memories.MemoryEntry
 
   @insert_fields [
@@ -59,7 +60,7 @@ defmodule Ryker.Memories.MemoryEntry.Changeset do
     |> validate_length(:source_conversation_ref, min: 1, max: 1_024)
     |> validate_length(:source_thread_ref, min: 1, max: 1_024)
     |> validate_length(:source_message_ref, min: 1, max: 1_024)
-    |> validate_format(:payload_fingerprint, ~r/\A[0-9a-f]{64}\z/)
+    |> validate_format(:payload_fingerprint, Crypto.sha256_hex_pattern())
     |> unique_constraint(:ref)
     |> unique_constraint(:offer_record_id)
     |> unique_constraint(:confirmation_ref, name: :operational_memory_answer_confirmation)
@@ -80,7 +81,7 @@ defmodule Ryker.Memories.MemoryEntry.Changeset do
       :status
     ])
     |> validate_required([:payload, :payload_fingerprint, :status])
-    |> validate_format(:payload_fingerprint, ~r/\A[0-9a-f]{64}\z/)
+    |> validate_format(:payload_fingerprint, Crypto.sha256_hex_pattern())
     |> check_constraint(:status, name: :operational_memory_entry_valid)
   end
 
@@ -133,7 +134,7 @@ defmodule Ryker.Memories.MemoryEntry.Changeset do
     |> validate_length(:subject, min: 1, max: 120)
     |> validate_length(:edited_by_actor_ref, min: 1, max: 1_024)
     |> validate_length(:edit_review_ref, min: 1, max: 256)
-    |> validate_format(:payload_fingerprint, ~r/\A[0-9a-f]{64}\z/)
+    |> validate_format(:payload_fingerprint, Crypto.sha256_hex_pattern())
     |> unique_constraint(:subject, name: :operational_memory_active_identity)
     |> check_constraint(:edited_at, name: :operational_memory_edit_provenance_valid)
     |> check_constraint(:status, name: :operational_memory_entry_valid)

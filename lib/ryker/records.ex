@@ -23,6 +23,7 @@ defmodule Ryker.Records do
   alias Ryker.Records.Record
   alias Ryker.Records.RecordPayload
   alias Ryker.Repo
+  alias Ryker.UTCDateTime
   alias Ryker.Waits
   alias Ryker.Work
 
@@ -129,7 +130,7 @@ defmodule Ryker.Records do
     # Use the saved record, including on idempotent retries. Anchoring a delay
     # to acceptance or reconciliation would silently move its promised wakeup.
     with {:ok, due_at} <- Waits.EventWaitTiming.due_at(trigger, inserted_at),
-         {:ok, deadline_at, 0} <- DateTime.from_iso8601(deadline),
+         {:ok, deadline_at} <- UTCDateTime.parse(deadline),
          :lt <- DateTime.compare(due_at, deadline_at) do
       :ok
     else
@@ -674,7 +675,7 @@ defmodule Ryker.Records do
          "event_wait",
          %{"deadline_at" => deadline_at, "kind" => "wait", "wait_kind" => "event"}
        ) do
-    with {:ok, deadline, 0} <- DateTime.from_iso8601(deadline_at),
+    with {:ok, deadline} <- UTCDateTime.parse(deadline_at),
          :gt <- DateTime.compare(deadline, Repo.now!()) do
       :ok
     else
@@ -1041,7 +1042,9 @@ defmodule Ryker.Records do
     end)
   end
 
-  defp goal_records(episode_id) do
+  @doc "The goal and goal-state records an episode still uses, in the order they were written."
+  @spec goal_records(Ecto.UUID.t()) :: [Record.t()]
+  def goal_records(episode_id) do
     episode_id
     |> Record.Query.by_episode_id()
     |> Record.Query.by_kinds(["goal", "goal_state"])

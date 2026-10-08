@@ -1,7 +1,7 @@
 defmodule Ryker.Retention.Runtime do
   @moduledoc "Supervises exact Coop ownership cleanup and retention maintenance."
   use Supervisor
-  alias Ryker.{Options, Reference}
+  alias Ryker.{Backoff, Options, Reference}
   alias Ryker.Retention.Worker
 
   @required [
@@ -142,7 +142,7 @@ defmodule Ryker.Retention.Runtime do
     valid =
       runtime_dependencies_valid?(settings) and
         positive_fields_valid?(settings, positive_fields) and
-        retry_bounds_valid?(settings) and
+        Backoff.valid?(settings.retry_base_seconds, settings.retry_max_seconds) and
         retention_horizons_valid?(settings) and
         is_boolean(settings.routing_examples_enabled) and
         is_boolean(settings.work_examples_enabled) and
@@ -169,9 +169,6 @@ defmodule Ryker.Retention.Runtime do
   defp positive_fields_valid?(settings, fields) do
     Enum.all?(fields, &(is_integer(settings[&1]) and settings[&1] > 0))
   end
-
-  defp retry_bounds_valid?(settings),
-    do: settings.retry_max_seconds >= settings.retry_base_seconds
 
   defp retention_horizons_valid?(settings) do
     settings.operational_data_seconds <= settings.closed_work_seconds and

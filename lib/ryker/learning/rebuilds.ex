@@ -1,6 +1,7 @@
 defmodule Ryker.Learning.Rebuilds do
   @moduledoc "Explicit, source-only repair of an unavailable topic under the existing learning budget."
   alias Ryker.Continuity
+  alias Ryker.Crypto
   alias Ryker.Ingress
   alias Ryker.Knowledge
   alias Ryker.Learning
@@ -122,7 +123,7 @@ defmodule Ryker.Learning.Rebuilds do
     map_size(value) == 3 and Ecto.UUID.cast(id) == {:ok, id} and
       is_integer(revision) and revision in 1..9_223_372_036_854_775_807 and is_binary(fingerprint) and
       byte_size(fingerprint) == 64 and
-      Regex.match?(~r/\A[0-9a-f]{64}\z/, fingerprint)
+      Crypto.sha256_hex?(fingerprint)
   end
 
   defp selection?(_), do: false

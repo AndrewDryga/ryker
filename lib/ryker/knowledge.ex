@@ -6,7 +6,7 @@ defmodule Ryker.Knowledge do
   outermost commit (`subscribe_knowledge/0`).
   """
   alias Ryker.AdvisoryLock
-  alias Ryker.{CanonicalJSON, Repo}
+  alias Ryker.{CanonicalJSON, Repo, UTCDateTime}
   alias Ryker.Crypto
   alias Ryker.Ingress
   alias Ryker.Knowledge.ConversationKnowledge
@@ -880,7 +880,7 @@ defmodule Ryker.Knowledge do
   end
 
   defp membership_row(item, receipt, fingerprint, support, version) do
-    {:ok, retained_at, 0} = DateTime.from_iso8601(receipt["retained_at"])
+    {:ok, retained_at} = UTCDateTime.parse(receipt["retained_at"])
 
     %{
       knowledge_id: item.id,

@@ -1,6 +1,7 @@
 defmodule Ryker.Settings.Validation do
   @moduledoc "Shared typed validation for settings writes; errors name fields, never values."
   import Ecto.Changeset
+  alias Ryker.Slack
 
   @ten_years 10 * 365 * 86_400
   # Every retention limit, in seconds, then whether routing and work examples
@@ -12,15 +13,11 @@ defmodule Ryker.Settings.Validation do
                    |> Map.put(:work_examples_enabled, :boolean)
   @retention_fields Map.keys(@retention_types)
   @reference ~r/\A[a-z0-9][a-z0-9_-]{0,63}\z/
-  @slack_id ~r/\A[A-Z0-9]{1,255}\z/
   @secret_name ~r/\A[a-z0-9][a-z0-9_.:-]{0,127}\z/
   @adapter_name ~r/\A[a-z][a-z0-9_-]{0,63}\z/
-  @github_repository ~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
 
-  def slack_id_pattern, do: @slack_id
   def secret_name_pattern, do: @secret_name
   def adapter_name_pattern, do: @adapter_name
-  def github_repository_pattern, do: @github_repository
 
   @doc "Normalizes atom or string keys onto the allowed fields; unknown keys are refused."
   def attributes(attributes, allowed) when is_map(attributes) do
@@ -116,7 +113,7 @@ defmodule Ryker.Settings.Validation do
   def validate_slack_ids(changeset, field) do
     validate_change(changeset, field, fn ^field, values ->
       if is_list(values) and Enum.uniq(values) == values and
-           Enum.all?(values, &(is_binary(&1) and Regex.match?(@slack_id, &1))),
+           Enum.all?(values, &Slack.Id.valid?/1),
          do: [],
          else: [{field, {"must list unique Slack IDs", validation: :slack_ids}}]
     end)

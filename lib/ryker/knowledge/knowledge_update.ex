@@ -1,5 +1,6 @@
 defmodule Ryker.Knowledge.KnowledgeUpdate do
   @moduledoc "Bounded proposal to maintain one topic; the host supplies ownership and sources."
+  alias Ryker.JSONSchema
   alias Ryker.Reference
 
   @fields ~w(topic_key title summary topics anchors target_ref expected_version)
@@ -26,12 +27,12 @@ defmodule Ryker.Knowledge.KnowledgeUpdate do
 
   def json_schema do
     note = %{
-      "summary" => text_schema(1200),
+      "summary" => JSONSchema.text(1200),
       "topics" => %{
         "type" => "array",
         "maxItems" => 8,
         "uniqueItems" => true,
-        "items" => text_schema(80)
+        "items" => JSONSchema.text(80)
       }
     }
 
@@ -113,12 +114,4 @@ defmodule Ryker.Knowledge.KnowledgeUpdate do
   end
 
   defp topics?(_), do: false
-
-  defp text_schema(maximum),
-    do: %{
-      "type" => "string",
-      "minLength" => 1,
-      "maxLength" => maximum,
-      "pattern" => "^[^\\x00]*[^\\s\\x00][^\\x00]*$"
-    }
 end

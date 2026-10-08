@@ -1,6 +1,6 @@
 defmodule Ryker.Learning.LearningSources do
   @moduledoc "Bounded, host-owned source receipts carried across derived conversation memory."
-  alias Ryker.{CanonicalJSON, Repo}
+  alias Ryker.{CanonicalJSON, Crypto, Repo, UTCDateTime}
   alias Ryker.Config
   alias Ryker.Continuity
   alias Ryker.Episodes
@@ -138,7 +138,7 @@ defmodule Ryker.Learning.LearningSources do
   end
 
   defp retained_at(receipt) do
-    {:ok, date, 0} = DateTime.from_iso8601(receipt["retained_at"])
+    {:ok, date} = UTCDateTime.parse(receipt["retained_at"])
     date
   end
 
@@ -181,7 +181,7 @@ defmodule Ryker.Learning.LearningSources do
       ) and
       is_integer(receipt["revision"]) and receipt["revision"] > 0 and
       Reference.valid?(receipt["fingerprint"], 64) and
-      Regex.match?(~r/\A[0-9a-f]{64}\z/, receipt["fingerprint"]) and
+      Crypto.sha256_hex?(receipt["fingerprint"]) and
       scope_shape?(receipt) and timestamp?(receipt["retained_at"])
   end
 
@@ -194,7 +194,7 @@ defmodule Ryker.Learning.LearningSources do
   end
 
   defp timestamp?(value) when is_binary(value),
-    do: match?({:ok, _, 0}, DateTime.from_iso8601(value))
+    do: UTCDateTime.iso8601?(value)
 
   defp timestamp?(_), do: false
 
@@ -637,8 +637,8 @@ defmodule Ryker.Learning.LearningSources do
   end
 
   defp unexpired?(at, cutoff) do
-    case DateTime.from_iso8601(at || "") do
-      {:ok, time, 0} -> is_nil(cutoff) or DateTime.after?(time, cutoff)
+    case UTCDateTime.parse(at) do
+      {:ok, time} -> is_nil(cutoff) or DateTime.after?(time, cutoff)
       _ -> false
     end
   end

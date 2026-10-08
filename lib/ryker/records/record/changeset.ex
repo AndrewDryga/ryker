@@ -1,6 +1,7 @@
 defmodule Ryker.Records.Record.Changeset do
   @moduledoc false
   use Ryker, :changeset
+  alias Ryker.Crypto
   alias Ryker.Records.Record
   alias Ryker.Records.RecordPayload
 
@@ -48,7 +49,7 @@ defmodule Ryker.Records.Record.Changeset do
     |> validate_length(:operation_id, min: 1, max: 80)
     |> validate_inclusion(:kind, RecordPayload.kinds())
     |> validate_length(:subject_ref, min: 1, max: 120)
-    |> validate_format(:payload_fingerprint, ~r/\A[0-9a-f]{64}\z/)
+    |> validate_format(:payload_fingerprint, Crypto.sha256_hex_pattern())
     |> unique_constraint(:ref)
     |> unique_constraint(:operation_id,
       name: :episode_state_records_turn_id_operation_id_index

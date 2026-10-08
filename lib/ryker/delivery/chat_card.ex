@@ -10,6 +10,7 @@ defmodule Ryker.Delivery.ChatCard do
   alias Ryker.Repo
   alias Ryker.Schedules
   alias Ryker.Slack
+  alias Ryker.UTCDateTime
 
   @doc "Only a lifecycle state that changes the card's meaning is shown."
   def display_status(%{status: status})
@@ -71,8 +72,8 @@ defmodule Ryker.Delivery.ChatCard do
   defp diagnostic_card(_record), do: :ignore
 
   defp diagnostic_deadline(%{"deadline_at" => value}) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, deadline, 0} -> DateTime.to_iso8601(deadline)
+    case UTCDateTime.parse(value) do
+      {:ok, deadline} -> DateTime.to_iso8601(deadline)
       _invalid -> nil
     end
   end
@@ -89,7 +90,11 @@ defmodule Ryker.Delivery.ChatCard do
     publication
     |> Publication.Card.review(false)
     |> Publication.Card.prepare_record()
-    |> project_publication_review(status, record_ref, approvable?(publication))
+    |> project_publication_review(
+      status,
+      record_ref,
+      Publication.Custody.approvable?(publication)
+    )
   end
 
   def project_publication(%Publication.Publication{status: :published} = publication, record_ref)
@@ -152,12 +157,6 @@ defmodule Ryker.Delivery.ChatCard do
   # releasable only on the separate draft-shareability verdict. Publication
   # custody re-decides both, so this only keeps the surface from offering an
   # approval the host would refuse.
-  defp approvable?(%Publication.Publication{status: :reviewed, review_document: review}),
-    do: Publication.Review.publishable?(review)
-
-  defp approvable?(%Publication.Publication{status: :blocked, review_document: review}),
-    do: Publication.Review.draft_shareable?(review)
-
   defp publication_review_summary(%{"publishable" => true}) do
     "The exact candidate passed trusted review and is ready for explicit publication approval."
   end

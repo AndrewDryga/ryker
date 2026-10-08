@@ -7,6 +7,7 @@ defmodule Ryker.CoopFleet.Protocol do
   command-bound transfers. Unknown fields and unsupported versions fail before
   any durable command or event mutation can occur.
   """
+  alias Ryker.Crypto
   alias Ryker.UTCDateTime
 
   @version 2
@@ -38,7 +39,6 @@ defmodule Ryker.CoopFleet.Protocol do
   # assistant message cannot ride along.
   @activity_event_kinds ~w(tool.started tool.completed model.plan model.thought model.progress permission.decided activity.elided provider.backoff provider.alive network)
   @reference ~r/\A[A-Za-z0-9_.:-]+\z/
-  @digest ~r/\A[0-9a-f]{64}\z/
 
   @spec version() :: 2
   def version, do: @version
@@ -58,7 +58,7 @@ defmodule Ryker.CoopFleet.Protocol do
 
   @doc "Whether `value` is one lowercase hex SHA-256 digest."
   @spec digest?(term()) :: boolean()
-  def digest?(value) when is_binary(value), do: Regex.match?(@digest, value)
+  def digest?(value) when is_binary(value), do: Crypto.sha256_hex?(value)
   def digest?(_value), do: false
 
   @doc false

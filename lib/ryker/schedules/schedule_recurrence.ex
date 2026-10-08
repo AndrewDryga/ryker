@@ -1,6 +1,7 @@
 defmodule Ryker.Schedules.ScheduleRecurrence do
   @moduledoc false
   alias Ryker.Repo
+  alias Ryker.UTCDateTime
 
   @weekdays %{
     "monday" => 1,
@@ -302,8 +303,8 @@ defmodule Ryker.Schedules.ScheduleRecurrence do
   defp optional_datetime(value), do: datetime(value)
 
   defp datetime(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, 0} -> {:ok, datetime}
+    case UTCDateTime.parse(value) do
+      {:ok, datetime} -> {:ok, datetime}
       _invalid -> {:error, {:invalid_schedule, :recurrence}}
     end
   end

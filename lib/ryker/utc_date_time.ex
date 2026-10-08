@@ -11,12 +11,28 @@ defmodule Ryker.UTCDateTime do
   `:error` for anything that is not a `DateTime` in UTC.
   """
   @spec exact(term()) :: {:ok, DateTime.t()} | :error
-  def exact(%DateTime{time_zone: "Etc/UTC", utc_offset: 0, std_offset: 0} = value) do
-    {microsecond, _precision} = value.microsecond
-    {:ok, %{value | microsecond: {microsecond, 6}}}
-  end
+  def exact(%DateTime{time_zone: "Etc/UTC", utc_offset: 0, std_offset: 0} = value),
+    do: {:ok, to_usec(value)}
 
   def exact(_value), do: :error
+
+  @doc "`value` at microsecond precision, as a `utc_datetime_usec` field keeps it."
+  @spec to_usec(DateTime.t()) :: DateTime.t()
+  def to_usec(%DateTime{microsecond: {microsecond, _precision}} = value),
+    do: %{value | microsecond: {microsecond, 6}}
+
+  @doc """
+  A time in UTC: a zoned one shifted to UTC, a zone-less one read as UTC,
+  since Ryker stores every time in UTC.
+  """
+  @spec to_utc(DateTime.t() | NaiveDateTime.t()) :: DateTime.t()
+  def to_utc(%DateTime{} = value), do: DateTime.shift_zone!(value, "Etc/UTC")
+  def to_utc(%NaiveDateTime{} = value), do: DateTime.from_naive!(value, "Etc/UTC")
+
+  @doc "A time as ISO 8601 text; nil without one."
+  @spec iso8601(DateTime.t() | nil) :: String.t() | nil
+  def iso8601(nil), do: nil
+  def iso8601(%DateTime{} = value), do: DateTime.to_iso8601(value)
 
   @doc "Whether `value` is a `DateTime` in UTC, with no offset."
   @spec utc?(term()) :: boolean()
@@ -34,6 +50,10 @@ defmodule Ryker.UTCDateTime do
 
   def parse(value), do: exact(value)
 
+  @doc "Whether `value` is ISO 8601 text with an explicit zero offset."
+  @spec iso8601?(term()) :: boolean()
+  def iso8601?(value), do: is_binary(value) and parse(value) != :error
+
   @doc """
   The earliest of `values`, skipping nils; nil when every one is nil.
 
@@ -45,7 +65,7 @@ defmodule Ryker.UTCDateTime do
   def earliest(values) when is_list(values) do
     values
     |> Enum.reject(&is_nil/1)
-    |> Enum.map(&utc/1)
+    |> Enum.map(&to_utc/1)
     |> Enum.min(DateTime, fn -> nil end)
   end
 
@@ -62,7 +82,4 @@ defmodule Ryker.UTCDateTime do
     do: max(NaiveDateTime.diff(DateTime.to_naive(now), at, :second), 0)
 
   def age_seconds(now, at), do: max(DateTime.diff(now, at, :second), 0)
-
-  defp utc(%NaiveDateTime{} = value), do: DateTime.from_naive!(value, "Etc/UTC")
-  defp utc(%DateTime{} = value), do: value
 end

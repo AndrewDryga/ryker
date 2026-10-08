@@ -56,19 +56,34 @@ rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-08.
   `Slack.Timestamp.to_datetime/1`; the rule itself is written once.
 - The ones there are: `Ryker.Wording` (a count and its noun, plurals,
   numbers with separators, a list in a sentence, capitals),
-  `Ryker.Text` and `Ryker.Reference` (text in the unit its limit counts),
-  `Ryker.UTCDateTime` (times, and ages), `Ryker.Backoff` (the doubling wait),
-  `Repo.passed?/2` (a deadline by the database clock),
-  `Ryker.PromptDocument` (a model prompt's text), `Ryker.Coop.Documents` (a
-  Coop session, turn and candidate answer), `Ryker.Emisar.Fields` and
-  `Ryker.Slack.Client.Fields` (a boundary's field checks),
-  `Ryker.Slack.Id`, `Ryker.Slack.Timestamp` and `Ryker.Slack.Permalink`
-  (other contexts and the console reach them through `Ryker.Slack`), and in
-  the console `Search`, `MemoryFormat` and `ChartAxis`. A standard library
-  function beats a copy: `:inet.is_ip_address/1` checks a listener's address.
-- Not helpers: the shapes a layer requires (OTP callbacks, a page's
-  `html/1`, a custody's `claim_next/2`, a Query module's own select), and a
-  two-line read composed where it is used.
+  `Ryker.Text` (text in the unit its limit counts), `Ryker.Reference`
+  (reference strings, identifier tokens, UUIDs), `Ryker.Crypto.sha256_hex?/1`,
+  `Ryker.UTCDateTime` (parsing, precision, UTC, ISO text, ages),
+  `Ryker.Backoff` (the doubling wait and its bounds), `Ryker.Adapter` (a
+  configured module that must export functions), `Ryker.Maps.put_present/3`,
+  `Ryker.JSONSchema` (nonblank text, nullable), `Repo.passed?/2` (a deadline
+  by the database clock), `Ryker.Lease.attempts_after_release/2`,
+  `Ryker.PromptDocument` (a model prompt's text and its fitting),
+  `Ryker.Coop.Documents` (a Coop session, turn and candidate answer),
+  `Ryker.Work.ValidationContext` (what the validator is told, for the
+  preflight and the executor alike), `Ryker.GitHub.repository_name?/1` and
+  `id?/1`, `Ryker.GitObject.branch_ref?/1`, `Ryker.Emisar.Fields` and
+  `Ryker.Slack.Client.Fields` (a boundary's field checks), `Ryker.Slack.Id`,
+  `Ryker.Slack.Timestamp` and `Ryker.Slack.Permalink` (other contexts and the
+  console reach them through `Ryker.Slack`), and in the console `Search`,
+  `MemoryFormat`, `ChartAxis`, `ShortTime`, `Units`, `Kit` and
+  `BackgroundCards`. A rule an offer and its action both apply lives with the
+  action: `WorkControls.stoppable?/2`, `Publication.Custody.approvable?/1`.
+  A standard library function beats a copy: `:inet.is_ip_address/1` checks a
+  listener's address.
+- A pattern a changeset checks comes from the module that owns the rule
+  (`Crypto.sha256_hex_pattern/0`, `Reference.token_pattern/0`,
+  `Slack.Id.pattern/0`, `GitHub.repository_name_pattern/0`).
+- Not helpers: the shapes a layer requires (OTP and Plug callbacks, a page's
+  `html/1`, a custody's `claim_next/2`, a Query module's own filters), a
+  two-line read composed where it is used, and a boundary's own error around a
+  check it shares. `Ryker.CopiedHelpersTest` lists the copies kept on purpose,
+  each with its reason.
 
 ## Names
 

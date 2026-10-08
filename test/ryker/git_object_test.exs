@@ -22,4 +22,15 @@ defmodule Ryker.GitObjectTest do
       refute GitObject.id?(invalid)
     end
   end
+
+  # Three publication modules each held this pattern until 2026-10-08.
+  test "a branch ref is refs/heads/ and a bounded branch name" do
+    assert GitObject.branch_ref?("refs/heads/main")
+    assert GitObject.branch_ref?("refs/heads/ryker/fix-retries.2")
+    refute GitObject.branch_ref?("main")
+    refute GitObject.branch_ref?("refs/tags/v1")
+    refute GitObject.branch_ref?("refs/heads/" <> String.duplicate("a", 241))
+    refute GitObject.branch_ref?("refs/heads/fix retries")
+    refute GitObject.branch_ref?(nil)
+  end
 end

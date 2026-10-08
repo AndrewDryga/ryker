@@ -6,6 +6,11 @@ defmodule Ryker.Backoff do
   reconnect.
   """
 
+  @doc "Whether `base` and `maximum` bound a backoff: both positive, the maximum no smaller."
+  @spec valid?(term(), term()) :: boolean()
+  def valid?(base, maximum),
+    do: is_integer(base) and base > 0 and is_integer(maximum) and maximum >= base
+
   @doc """
   The wait after `attempt` tries (the first waits `base`), doubling at most
   `doublings` times and never past `maximum`.

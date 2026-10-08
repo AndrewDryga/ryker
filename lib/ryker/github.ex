@@ -11,6 +11,8 @@ defmodule Ryker.GitHub do
   alias Ryker.Config
 
   @github "https://github.com"
+  @maximum_id 9_223_372_036_854_775_807
+  @repository_name ~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
   @github_api "https://api.github.com/"
 
   @doc """
@@ -56,6 +58,18 @@ defmodule Ryker.GitHub do
   """
   @spec api_url() :: String.t()
   def api_url, do: Config.get_env(:github_api_url, @github_api)
+
+  @doc ~s(Whether `value` is a repository's full name on GitHub: "owner/name".)
+  @spec repository_name?(term()) :: boolean()
+  def repository_name?(value), do: is_binary(value) and Regex.match?(@repository_name, value)
+
+  @doc "Whether `value` is a GitHub numeric id: a positive 64-bit integer."
+  @spec id?(term()) :: boolean()
+  def id?(value), do: is_integer(value) and value > 0 and value <= @maximum_id
+
+  @doc "The pattern `repository_name?/1` matches, for a changeset's format check."
+  @spec repository_name_pattern() :: Regex.t()
+  def repository_name_pattern, do: @repository_name
 
   @doc "The host of `web_url/0`: `github.com`, or the enterprise's."
   @spec web_host() :: String.t()

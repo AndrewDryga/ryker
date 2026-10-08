@@ -3,6 +3,7 @@ defmodule Ryker.CoopFleet.Server do
   Mutual-TLS HTTPS listener for outbound Coop worker polls.
   """
   alias Ryker.CoopFleet.Router
+  alias Ryker.Maps
   alias Ryker.Options
 
   @fields [
@@ -121,7 +122,7 @@ defmodule Ryker.CoopFleet.Server do
     ]
     |> Keyword.put(:checkpoint_key, options.checkpoint_key)
     |> Keyword.put(:body_root, options.body_root)
-    |> maybe_put(:state_tools, Map.get(options, :state_tools))
+    |> Maps.put_present(:state_tools, Map.get(options, :state_tools))
   end
 
   defp validate_checkpoint_custody!(%{checkpoint_key: %Ryker.Secret{value: key}}) do
@@ -151,7 +152,4 @@ defmodule Ryker.CoopFleet.Server do
     _prepared = Router.init(state_tools: options)
     :ok
   end
-
-  defp maybe_put(values, _key, nil), do: values
-  defp maybe_put(values, key, value), do: Keyword.put(values, key, value)
 end

@@ -274,7 +274,7 @@ defmodule Ryker.Episodes.Command do
       "kind" => "admit_input",
       "linked_episode_id" => command.linked_episode_id,
       "native_input_id" => command.native_input_id,
-      "occurred_at" => iso8601(command.occurred_at),
+      "occurred_at" => UTCDateTime.iso8601(command.occurred_at),
       "payload" => command.payload,
       "revision" => command.revision,
       "turn_ref" => command.turn_ref
@@ -287,7 +287,7 @@ defmodule Ryker.Episodes.Command do
       "expected_owner" => stringify_keys(command.expected_owner),
       "kind" => "transfer_owner",
       "new_owner" => stringify_keys(command.new_owner),
-      "occurred_at" => iso8601(command.occurred_at),
+      "occurred_at" => UTCDateTime.iso8601(command.occurred_at),
       "transfer_ref" => command.transfer_ref
     }
 
@@ -298,11 +298,11 @@ defmodule Ryker.Episodes.Command do
 
   def document(%StartWait{} = command) do
     %{
-      "deadline_at" => iso8601(command.deadline_at),
+      "deadline_at" => UTCDateTime.iso8601(command.deadline_at),
       "episode_key" => command.episode_key,
       "expected_turn_ref" => command.expected_turn_ref,
       "kind" => "start_wait",
-      "occurred_at" => iso8601(command.occurred_at),
+      "occurred_at" => UTCDateTime.iso8601(command.occurred_at),
       "wait_kind" => Atom.to_string(command.kind),
       "wait_ref" => command.wait_ref
     }
@@ -313,7 +313,7 @@ defmodule Ryker.Episodes.Command do
       "episode_key" => command.episode_key,
       "expected_wait" => stringify_keys(command.expected_wait),
       "kind" => "resume_wait",
-      "occurred_at" => iso8601(command.occurred_at),
+      "occurred_at" => UTCDateTime.iso8601(command.occurred_at),
       "resolution_ref" => command.resolution_ref,
       "turn_ref" => command.turn_ref
     }
@@ -328,7 +328,7 @@ defmodule Ryker.Episodes.Command do
       "expected_turn_ref" => command.expected_turn_ref,
       "kind" => "accept_result",
       "next_turn_ref" => command.next_turn_ref,
-      "occurred_at" => iso8601(command.occurred_at),
+      "occurred_at" => UTCDateTime.iso8601(command.occurred_at),
       "result_ref" => command.result_ref
     }
 
@@ -343,7 +343,7 @@ defmodule Ryker.Episodes.Command do
       "expected_delivery_ref" => command.expected_delivery_ref,
       "kind" => "confirm_delivery",
       "next_turn_ref" => command.next_turn_ref,
-      "occurred_at" => iso8601(command.occurred_at)
+      "occurred_at" => UTCDateTime.iso8601(command.occurred_at)
     }
 
     if command.next_wait,
@@ -357,7 +357,7 @@ defmodule Ryker.Episodes.Command do
       "episode_key" => command.episode_key,
       "expected_owner" => stringify_keys(command.expected_owner),
       "kind" => "cancel_episode",
-      "occurred_at" => iso8601(command.occurred_at),
+      "occurred_at" => UTCDateTime.iso8601(command.occurred_at),
       "reason" => command.reason
     }
   end
@@ -370,7 +370,7 @@ defmodule Ryker.Episodes.Command do
       "episode_key" => command.episode_key,
       "event_ref" => command.event_ref,
       "kind" => "record_reaction",
-      "occurred_at" => iso8601(command.occurred_at),
+      "occurred_at" => UTCDateTime.iso8601(command.occurred_at),
       "source" => stringify_keys(command.source),
       "target_delivery_ref" => command.target_delivery_ref,
       "target_message_ref" => command.target_message_ref
@@ -422,12 +422,7 @@ defmodule Ryker.Episodes.Command do
     [command.episode_key, command.source.kind, command.source.ref, command.event_ref]
   end
 
-  defp iso8601(nil), do: nil
-  defp iso8601(%DateTime{} = value), do: DateTime.to_iso8601(value)
-
-  defp normalize_datetime(%DateTime{microsecond: {microsecond, _precision}} = value) do
-    %{value | microsecond: {microsecond, 6}}
-  end
+  defp normalize_datetime(%DateTime{} = value), do: UTCDateTime.to_usec(value)
 
   defp normalize_datetime(value), do: value
 
@@ -452,7 +447,7 @@ defmodule Ryker.Episodes.Command do
   defp validate(%AdmitInput{} = command) do
     validate_fields([
       {reference?(command.episode_key), :episode_key},
-      {uuid?(command.episode_id), :episode_id},
+      {Reference.uuid?(command.episode_id), :episode_id},
       {optional_uuid?(command.linked_episode_id) and
          command.linked_episode_id != command.episode_id, :linked_episode_id},
       {reference?(command.actor_ref), :actor_ref},
@@ -643,7 +638,7 @@ defmodule Ryker.Episodes.Command do
 
   defp wait_document(%{deadline_at: deadline_at, kind: kind, ref: ref}) do
     %{
-      "deadline_at" => iso8601(deadline_at),
+      "deadline_at" => UTCDateTime.iso8601(deadline_at),
       "kind" => Atom.to_string(kind),
       "ref" => ref
     }
@@ -653,7 +648,7 @@ defmodule Ryker.Episodes.Command do
   defp optional_ref?(nil), do: true
   defp optional_ref?(value), do: reference?(value)
   defp optional_uuid?(nil), do: true
-  defp optional_uuid?(value), do: uuid?(value)
+  defp optional_uuid?(value), do: Reference.uuid?(value)
 
   defp bounded_text?(value, maximum) do
     is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and
@@ -663,6 +658,4 @@ defmodule Ryker.Episodes.Command do
   defp bounded_unicode_text?(value, maximum_characters, maximum_bytes) do
     Reference.text?(value, maximum_characters) and byte_size(value) <= maximum_bytes
   end
-
-  defp uuid?(value), do: match?({:ok, _uuid}, Ecto.UUID.cast(value))
 end

@@ -15,6 +15,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   alias Ryker.Episodes
   alias Ryker.Feedback
   alias Ryker.InspectionRedactor
+  alias Ryker.Reference
   alias Ryker.Repo
 
   @prefix "control-plane:lab:"
@@ -172,7 +173,7 @@ defmodule Ryker.ControlPlane.ConversationProjection do
       when is_binary(turn_id) and is_binary(artifact_ref) do
     with {:ok, conversation_id} <- Ecto.UUID.cast(conversation_id),
          {:ok, turn_id} <- Ecto.UUID.cast(turn_id),
-         true <- Regex.match?(~r/\A[A-Za-z0-9_.:-]{1,256}\z/, artifact_ref),
+         true <- Reference.token?(artifact_ref),
          %Artifacts.OutputArtifact{} = artifact <-
            Repo.one(
              Conversation.Query.artifact(@prefix <> conversation_id, turn_id, artifact_ref)

@@ -25,7 +25,6 @@ defmodule Ryker.Slack.Names do
   # `interval`, so the cache never asks between its steps.
   @interval 1600
   @maximum_names 2000
-  @workspace_url ~r/\Ahttps:\/\/[a-z0-9-]{1,64}\.slack\.com\z/
 
   def start_link(options), do: GenServer.start_link(__MODULE__, options, name: __MODULE__)
 
@@ -349,7 +348,7 @@ defmodule Ryker.Slack.Names do
   # Only a Slack workspace's own origin ever becomes a link.
   defp workspace_url(url) when is_binary(url) do
     url = String.trim_trailing(url, "/")
-    if Regex.match?(@workspace_url, url), do: url
+    if Regex.match?(Permalink.origin_pattern(), url), do: url
   end
 
   defp workspace_url(_url), do: nil

@@ -6,6 +6,7 @@ defmodule Ryker.Slack.WorkControls do
   card, episode, Work custody, and destination before any transition or network
   request. Copied and stale controls therefore grant no authority.
   """
+  alias Ryker.Adapter
   alias Ryker.Episodes
   alias Ryker.Operator
   alias Ryker.Publication
@@ -30,6 +31,14 @@ defmodule Ryker.Slack.WorkControls do
       do: true
 
   def stoppable?(_episode, _turn), do: false
+
+  @doc "Whether a card offers its diff: the work has a Coop session to read the changes from."
+  @spec diff_available?(term()) :: boolean()
+  def diff_available?(%Work.Session{coop_session_id: value})
+      when is_binary(value) and value != "",
+      do: true
+
+  def diff_available?(_session), do: false
 
   @spec stop(map()) :: {:ok, map()} | {:error, term()}
   def stop(attributes) do
@@ -351,8 +360,7 @@ defmodule Ryker.Slack.WorkControls do
     required = [:slack_api, :slack_client, :work_record]
 
     if Map.keys(options) |> Enum.sort() == Enum.sort(required) and
-         is_atom(options.work_record) and Code.ensure_loaded?(options.work_record) and
-         function_exported?(options.work_record, :build, 3) and slack_api?(options.slack_api) do
+         Adapter.implements?(options.work_record, build: 3) and slack_api?(options.slack_api) do
       {:ok, options}
     else
       {:error, :invalid_work_control_options}
@@ -360,7 +368,6 @@ defmodule Ryker.Slack.WorkControls do
   end
 
   defp slack_api?(api) do
-    is_atom(api) and Code.ensure_loaded?(api) and function_exported?(api, :find_message, 4) and
-      function_exported?(api, :post_message, 5) and function_exported?(api, :update_message, 5)
+    Adapter.implements?(api, find_message: 4, post_message: 5, update_message: 5)
   end
 end

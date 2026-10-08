@@ -22,6 +22,7 @@ defmodule Ryker.Admission.Decision do
   keeps it only as feedback on that answer.
   """
   alias Ryker.Admission.Sentiment
+  alias Ryker.JSONSchema
   alias Ryker.Work
 
   @actions [:start_episode, :continue_episode, :reply, :quick_reply, :react, :ignore]
@@ -32,7 +33,6 @@ defmodule Ryker.Admission.Decision do
   @maximum_message 1_000
   @maximum_messages 3
   @maximum_reactions 3
-  @nonblank_pattern "^[^\\x00]*[^\\s\\x00][^\\x00]*$"
 
   @enforce_keys [
     :action,
@@ -195,14 +195,14 @@ defmodule Ryker.Admission.Decision do
         "action" => %{"enum" => Enum.map(actions, &Atom.to_string/1)},
         "episode_ref" => %{
           "anyOf" => [
-            bounded_string_schema(128),
+            JSONSchema.text(128),
             %{"type" => "null"}
           ]
         },
-        "messages" => %{"anyOf" => [messages_schema(), %{"type" => "null"}]},
-        "reactions" => %{"anyOf" => [reactions_schema(reaction_names), %{"type" => "null"}]},
+        "messages" => JSONSchema.nullable(messages_schema()),
+        "reactions" => JSONSchema.nullable(reactions_schema(reaction_names)),
         "relation" => %{"enum" => Enum.map(@relations, &Atom.to_string/1)},
-        "reason" => bounded_string_schema(512),
+        "reason" => JSONSchema.text(512),
         "repository" => nullable_repository_schema(repository_choices),
         "repository_source" => repository_source_schema(repository_source?),
         "work_class" => %{
@@ -327,7 +327,7 @@ defmodule Ryker.Admission.Decision do
 
   defp messages_schema do
     %{
-      "items" => bounded_string_schema(@maximum_message),
+      "items" => JSONSchema.text(@maximum_message),
       "maxItems" => @maximum_messages,
       "minItems" => 1,
       "type" => "array"
@@ -348,12 +348,12 @@ defmodule Ryker.Admission.Decision do
   defp optional_reactions_schema(nil), do: %{"type" => "null"}
 
   defp optional_reactions_schema(reaction_names),
-    do: %{"anyOf" => [reactions_schema(reaction_names), %{"type" => "null"}]}
+    do: JSONSchema.nullable(reactions_schema(reaction_names))
 
   defp repository_source_schema(false), do: %{"type" => "null"}
 
   defp repository_source_schema(true),
-    do: %{"anyOf" => [Work.RepositorySource.json_schema(), %{"type" => "null"}]}
+    do: JSONSchema.nullable(Work.RepositorySource.json_schema())
 
   # Offered choices are required on the shapes that take them: a new episode
   # in an environment with several repositories always names one.
@@ -363,12 +363,12 @@ defmodule Ryker.Admission.Decision do
   defp nullable_repository_schema([]), do: %{"type" => "null"}
 
   defp nullable_repository_schema(choices),
-    do: %{"anyOf" => [repository_shape(choices), %{"type" => "null"}]}
+    do: JSONSchema.nullable(repository_shape(choices))
 
   defp reference_shape(nil), do: %{"type" => "null"}
 
   defp reference_shape(:reference),
-    do: bounded_string_schema(128)
+    do: JSONSchema.text(128)
 
   defp work_class_shape(:conversation), do: %{"const" => "conversational"}
   defp work_class_shape(:investigation), do: %{"enum" => ~w(standard deep)}
@@ -501,15 +501,6 @@ defmodule Ryker.Admission.Decision do
   defp validate_shape(_action, _ref, _relation), do: invalid(:relation)
 
   defp invalid(field), do: {:error, {:invalid_decision, field}}
-
-  defp bounded_string_schema(maximum) do
-    %{
-      "maxLength" => maximum,
-      "minLength" => 1,
-      "pattern" => @nonblank_pattern,
-      "type" => "string"
-    }
-  end
 
   defp bounded_text?(value, maximum) do
     is_binary(value) and String.valid?(value) and :binary.match(value, <<0>>) == :nomatch and

@@ -17,6 +17,7 @@ defmodule Ryker.Transcription.Worker do
   it sleeps for the safety-net interval.
   """
   use Ryker.PollingWorker, lane: :transcription, interval: :poll_interval_ms
+  alias Ryker.Adapter
   alias Ryker.Artifacts
   alias Ryker.Ingress
   alias Ryker.PollingWorker
@@ -150,18 +151,13 @@ defmodule Ryker.Transcription.Worker do
       transcriber: transcriber
     }
 
-    if transcriber?(transcriber) and positive?(settings.idle_interval_ms) and
+    if Adapter.implements?(transcriber, transcribe: 2) and positive?(settings.idle_interval_ms) and
          positive?(settings.poll_interval_ms),
        do: {:ok, settings},
        else: {:error, {:invalid_transcription_worker, :options}}
   end
 
   defp settings(_options), do: {:error, {:invalid_transcription_worker, :options}}
-
-  defp transcriber?(module) do
-    is_atom(module) and Code.ensure_loaded?(module) and
-      function_exported?(module, :transcribe, 2)
-  end
 
   defp positive?(value), do: is_integer(value) and value > 0
 end

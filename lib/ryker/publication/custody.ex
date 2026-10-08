@@ -43,7 +43,6 @@ defmodule Ryker.Publication.Custody do
       Repo.transaction(fn ->
         request_review_locked(%{attributes | occurred_at: occurred_at, target: target})
       end)
-      |> transaction_result()
     end
   end
 
@@ -256,7 +255,6 @@ defmodule Ryker.Publication.Custody do
     with :ok <- reference(worker_ref, :worker_ref),
          :ok <- positive(lease_seconds, :lease_seconds) do
       Repo.transaction(fn -> claim_next_locked(worker_ref, lease_seconds) end)
-      |> transaction_result()
     end
   end
 
@@ -282,7 +280,6 @@ defmodule Ryker.Publication.Custody do
       Repo.transaction(fn ->
         freeze_review_revision_locked(publication_ref, lease_ref, revision)
       end)
-      |> transaction_result()
     end
   end
 
@@ -293,7 +290,6 @@ defmodule Ryker.Publication.Custody do
       Repo.transaction(fn ->
         advance_review_generation_locked(publication_ref, lease_ref, generation)
       end)
-      |> transaction_result()
     end
   end
 
@@ -309,7 +305,6 @@ defmodule Ryker.Publication.Custody do
       Repo.transaction(fn ->
         store_review_locked(publication_ref, lease_ref, generation, review, gate_output)
       end)
-      |> transaction_result()
     end
   end
 
@@ -370,7 +365,6 @@ defmodule Ryker.Publication.Custody do
          :ok <- reference(lease_ref, :lease_ref),
          {:ok, receipt} <- Work.DeliveryReceipt.prepare(external_receipt) do
       Repo.transaction(fn -> confirm_delivery_after_task(publication_ref, lease_ref, receipt) end)
-      |> transaction_result()
     end
   end
 
@@ -394,7 +388,6 @@ defmodule Ryker.Publication.Custody do
       Repo.transaction(fn ->
         approve_locked(%{attributes | occurred_at: occurred_at, target: target})
       end)
-      |> transaction_result()
     end
   end
 
@@ -402,7 +395,6 @@ defmodule Ryker.Publication.Custody do
     with :ok <- reference(publication_ref, :publication_ref),
          :ok <- reference(lease_ref, :lease_ref) do
       Repo.transaction(fn -> store_publication_locked(publication_ref, lease_ref, receipt) end)
-      |> transaction_result()
     end
   end
 
@@ -411,7 +403,6 @@ defmodule Ryker.Publication.Custody do
          :ok <- reference(lease_ref, :lease_ref),
          {:ok, code} <- publication_conflict(code) do
       Repo.transaction(fn -> store_conflict_locked(publication_ref, lease_ref, code, receipt) end)
-      |> transaction_result()
     end
   end
 
@@ -427,7 +418,6 @@ defmodule Ryker.Publication.Custody do
     with :ok <- reference(publication_ref, :publication_ref),
          :ok <- reference(lease_ref, :lease_ref) do
       Repo.transaction(fn -> publish_again_locked(publication_ref, lease_ref, round) end)
-      |> transaction_result()
     end
   end
 
@@ -436,7 +426,6 @@ defmodule Ryker.Publication.Custody do
          :ok <- reference(lease_ref, :lease_ref),
          :ok <- positive(lease_seconds, :lease_seconds) do
       Repo.transaction(fn -> renew_locked(publication_ref, lease_ref, lease_seconds) end)
-      |> transaction_result()
     end
   end
 
@@ -449,7 +438,6 @@ defmodule Ryker.Publication.Custody do
       Repo.transaction(fn ->
         defer_locked(publication_ref, lease_ref, retry_seconds, code, detail)
       end)
-      |> transaction_result()
     end
   end
 
@@ -468,7 +456,6 @@ defmodule Ryker.Publication.Custody do
     with :ok <- reference(publication_ref, :publication_ref),
          :ok <- reference(lease_ref, :lease_ref) do
       Repo.transaction(fn -> discard_unreviewable_locked(publication_ref, lease_ref, reason) end)
-      |> transaction_result()
     end
   end
 
@@ -504,7 +491,6 @@ defmodule Ryker.Publication.Custody do
          :ok <- recovery_action(action),
          :ok <- positive(expected_generation, :recovery_generation) do
       Repo.transaction(fn -> recover_locked(publication_ref, action, expected_generation) end)
-      |> transaction_result()
     end
   end
 
@@ -1327,10 +1313,16 @@ defmodule Ryker.Publication.Custody do
   # Merge readiness releases the ordinary publish path. A blocked candidate is
   # releasable only on the separate draft-shareability verdict, and only by an
   # explicit operator approval: a task's own grant opens one before it blocks.
-  defp approvable?(%Publication{status: :reviewed, review_document: review}),
+  @doc """
+  Whether a person can approve `publication` now: a reviewed one that is
+  publishable, or a blocked one whose draft the review found safe to share.
+  The chat card offers approval by the same rule.
+  """
+  @spec approvable?(Publication.t()) :: boolean()
+  def approvable?(%Publication{status: :reviewed, review_document: review}),
     do: Review.publishable?(review)
 
-  defp approvable?(%Publication{status: :blocked, review_document: review}),
+  def approvable?(%Publication{status: :blocked, review_document: review}),
     do: Review.draft_shareable?(review)
 
   defp exact_approval?(publication, attributes) do
@@ -1524,18 +1516,13 @@ defmodule Ryker.Publication.Custody do
     do: {:error, {:invalid_publication, :conflict_code}}
 
   defp utc_datetime(%DateTime{} = value) do
-    if value.time_zone == "Etc/UTC" and value.utc_offset == 0 and value.std_offset == 0 do
-      {microsecond, _precision} = value.microsecond
-      {:ok, %{value | microsecond: {microsecond, 6}}}
-    else
-      {:error, {:invalid_publication, :occurred_at}}
+    case UTCDateTime.exact(value) do
+      {:ok, value} -> {:ok, value}
+      :error -> {:error, {:invalid_publication, :occurred_at}}
     end
   end
 
   defp utc_datetime(_value), do: {:error, {:invalid_publication, :occurred_at}}
-
-  defp transaction_result({:ok, result}), do: {:ok, result}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 
   defp github_repository!(url) do
     web_host = GitHub.web_host()

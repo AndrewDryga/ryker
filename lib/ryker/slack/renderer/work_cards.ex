@@ -5,6 +5,7 @@ defmodule Ryker.Slack.Renderer.WorkCards do
   """
   import Ryker.Slack.Renderer.Blocks
   import Ryker.Slack.Renderer.Fields
+  alias Ryker.Crypto
   alias Ryker.Records
   alias Ryker.Slack.Renderer.TaskPublication
   alias Ryker.Slack.TaskCardDetails
@@ -205,7 +206,7 @@ defmodule Ryker.Slack.Renderer.WorkCards do
     with true <- "resume" in controls,
          [work_ref, fingerprint] <- String.split(reference, "|", parts: 2),
          :ok <- task_reference(work_ref),
-         true <- Regex.match?(~r/\A[0-9a-f]{64}\z/, fingerprint) do
+         true <- Crypto.sha256_hex?(fingerprint) do
       :ok
     else
       _invalid -> {:error, :invalid_work_controls}

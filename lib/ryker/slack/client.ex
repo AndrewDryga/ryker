@@ -18,6 +18,7 @@ defmodule Ryker.Slack.Client do
   """
   @behaviour Ryker.Slack.API
   @behaviour Ryker.Slack.MemberDirectory
+  alias Ryker.Adapter
   alias Ryker.Delivery
   alias Ryker.Slack.Client.{Assistant, Conversations, Files, Messages, Reactions, Rooms, Users}
   alias Ryker.Slack.Client.Views
@@ -42,7 +43,7 @@ defmodule Ryker.Slack.Client do
     with {:ok, attributes} <- normalize_attributes(attributes),
          client <- struct!(__MODULE__, attributes),
          {:ok, client} <- prepare_uploader(client),
-         true <- requester?(client.requester),
+         true <- Adapter.implements?(client.requester, request: 5),
          true <- uploader?(client) do
       {:ok, client}
     else
@@ -190,11 +191,6 @@ defmodule Ryker.Slack.Client do
 
   defp normalize_attributes(_attributes), do: {:error, {:invalid_slack_client, :fields}}
 
-  defp requester?(requester) do
-    is_atom(requester) and Code.ensure_loaded?(requester) and
-      function_exported?(requester, :request, 5)
-  end
-
   # Up to 8 MiB goes to Slack's file host in one request, which an API call's
   # 30-second wait cut short twice the day uploads began (2026-10-04 review).
   defp prepare_uploader(
@@ -216,7 +212,6 @@ defmodule Ryker.Slack.Client do
   defp uploader?(%__MODULE__{upload_http: nil, uploader: nil}), do: true
 
   defp uploader?(%__MODULE__{upload_http: upload_http, uploader: uploader}) do
-    not is_nil(upload_http) and is_atom(uploader) and Code.ensure_loaded?(uploader) and
-      function_exported?(uploader, :upload, 4)
+    not is_nil(upload_http) and Adapter.implements?(uploader, upload: 4)
   end
 end

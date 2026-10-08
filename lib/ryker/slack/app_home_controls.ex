@@ -6,6 +6,7 @@ defmodule Ryker.Slack.AppHomeControls do
   authority, current lifecycle state, and the refreshed view are all resolved
   again by the host.
   """
+  alias Ryker.Crypto
   alias Ryker.Slack.{Collections, ControlValue, HomeEvent, HomeInteraction, HomeSubmission}
   alias Ryker.Slack.Operators
 
@@ -557,7 +558,7 @@ defmodule Ryker.Slack.AppHomeControls do
         ref = parts |> Enum.drop(-1) |> Enum.join(":")
 
         if String.starts_with?(ref, @work_session_prefix) and
-             Regex.match?(~r/\A[0-9a-f]{64}\z/, fingerprint),
+             Crypto.sha256_hex?(fingerprint),
            do: {:ok, ref, fingerprint},
            else: {:error, :app_home_control_mismatch}
 

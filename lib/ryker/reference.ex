@@ -7,6 +7,7 @@ defmodule Ryker.Reference do
   alias Ryker.Text
 
   @default_maximum_bytes 1_024
+  @token ~r/\A[A-Za-z0-9_.:-]{1,256}\z/
 
   @doc """
   Whether `value` is a reference: a string of valid UTF-8, not blank, with no
@@ -21,6 +22,21 @@ defmodule Ryker.Reference do
   end
 
   def valid?(_value, _maximum_bytes), do: false
+
+  @doc """
+  Whether `value` is an identifier-shaped reference: 1 to 256 ASCII letters,
+  digits, `_`, `.`, `:` or `-`, as record, artifact and envelope refs are.
+  """
+  @spec token?(term()) :: boolean()
+  def token?(value), do: is_binary(value) and Regex.match?(@token, value)
+
+  @doc "The pattern `token?/1` matches, for a changeset's format check."
+  @spec token_pattern() :: Regex.t()
+  def token_pattern, do: @token
+
+  @doc "Whether `value` is a UUID, as `Ecto.UUID` casts one."
+  @spec uuid?(term()) :: boolean()
+  def uuid?(value), do: match?({:ok, _uuid}, Ecto.UUID.cast(value))
 
   @doc """
   `valid?/2` as a boundary's answer: `:ok`, or `{:error, {boundary, field}}`

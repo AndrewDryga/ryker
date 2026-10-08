@@ -1302,7 +1302,14 @@ defmodule Ryker.StateTools.RouterTest do
   end
 
   test "final preflight reports semantic failures and defers output artifact existence to Coop" do
-    claim = claim!("fixed-final-rejections")
+    claim =
+      "fixed-final-rejections"
+      |> claim!()
+      |> with_context!(%{
+        "mode" => "full",
+        "inputs" => %{"items" => [%{"actor_ref" => "slack:user:U123", "current" => true}]}
+      })
+
     options = bound_options(claim)
 
     silent_candidate = %{
@@ -1350,6 +1357,52 @@ defmodule Ryker.StateTools.RouterTest do
                FinalPreflight.candidate_sha256(missing_artifact_candidate),
                ["artifact:missing"]
              )
+  end
+
+  # The preflight told the model "an explicit human request cannot be silently
+  # discarded" on every turn, while the executor asks for a reply only when a
+  # person's input is current. Twice in a week (2026-10-01 and 2026-10-04) the
+  # model was refused a silent finish on a turn with no person's input at all,
+  # one the executor would have accepted.
+  test "the final preflight lets a turn with no person's input finish silently, as the executor does" do
+    silent_candidate = %{
+      "decision_reason" => "The alert resolved itself; there is nothing to send.",
+      "delivery" => "none",
+      "message" => nil,
+      "outcome" => %{"artifact_refs" => [], "record_refs" => [], "state" => "complete"}
+    }
+
+    claim =
+      "final-automated-continuation"
+      |> claim!()
+      |> with_context!(%{
+        "mode" => "continuation",
+        "current_inputs" => %{"items" => [%{"actor_ref" => "webhook:alertmanager"}]}
+      })
+
+    assert {:ok, %{"accepted" => true}} =
+             Tools.call(
+               "validate_final",
+               %{"candidate" => silent_candidate},
+               bound_options(claim)
+             )
+
+    claim =
+      "final-person-continuation"
+      |> claim!()
+      |> with_context!(%{
+        "mode" => "continuation",
+        "current_inputs" => %{"items" => [%{"actor_ref" => "slack:user:U123"}]}
+      })
+
+    assert {:ok, %{"accepted" => false, "violations" => violations}} =
+             Tools.call(
+               "validate_final",
+               %{"candidate" => silent_candidate},
+               bound_options(claim)
+             )
+
+    assert Enum.any?(violations, &String.contains?(&1, "Set delivery to reply"))
   end
 
   test "Lab images pass the same destination checks as final execution" do
@@ -3230,6 +3283,22 @@ defmodule Ryker.StateTools.RouterTest do
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60)
     assert claim.episode.id == transition.episode.id
     claim
+  end
+
+  # The turn as Coop runs it: its submission frozen, with the briefing's
+  # context, which says whose inputs are current.
+  defp with_context!(claim, context) do
+    submission = %{"context" => context}
+
+    turn =
+      claim.turn
+      |> Ecto.Changeset.change(
+        submission: submission,
+        submission_fingerprint: Ryker.Crypto.sha256_hex(Ryker.CanonicalJSON.encode!(submission))
+      )
+      |> Repo.update!()
+
+    %{claim | turn: turn}
   end
 
   defp joined_channel!(workspace_ref, channel_ref, private, external_shared \\ false) do

@@ -101,7 +101,7 @@ defmodule Ryker.ControlPlane.UsagePage do
           "</td><td>",
           e(Wording.number(row.corrections)),
           "</td><td>",
-          e(duration(row.average_provider_ms)),
+          e(Units.duration(row.average_provider_ms)),
           "</td></tr>"
         ]
       end),
@@ -229,7 +229,7 @@ defmodule Ryker.ControlPlane.UsagePage do
       end),
       "<td class=\"usage-group-start usage-performance\">",
       primary(percent(Map.get(row, :cache_hit_rate)), " cache"),
-      secondary("Avg. model time: " <> duration(Map.get(row, :average_provider_ms))),
+      secondary("Avg. model time: " <> Units.duration(Map.get(row, :average_provider_ms))),
       "</td><td class=\"usage-money usage-group-start\">",
       e(money(row)),
       "</td></tr>"
@@ -484,7 +484,7 @@ defmodule Ryker.ControlPlane.UsagePage do
             "\"><title>",
             label,
             ": ",
-            duration(ms),
+            Units.duration(ms),
             "</title></circle>"
           ]
 
@@ -495,7 +495,7 @@ defmodule Ryker.ControlPlane.UsagePage do
         "<div class=\"usage-donut\"><svg viewBox=\"0 0 160 160\" role=\"img\" aria-label=\"Time spent waiting for a worker, in the model and checking the answer\"><title>Where the time went</title>",
         arcs,
         "<text x=\"80\" y=\"77\" text-anchor=\"middle\">",
-        duration(total),
+        Units.duration(total),
         "</text><text class=\"donut-caption\" x=\"80\" y=\"96\" text-anchor=\"middle\">total time</text></svg><dl>",
         Enum.map(segments, fn {label, ms, class} ->
           [
@@ -504,7 +504,7 @@ defmodule Ryker.ControlPlane.UsagePage do
             "\"></span>",
             label,
             "</dt><dd>",
-            duration(ms),
+            Units.duration(ms),
             "<span>",
             e(percent(ms / total)),
             "</span></dd></div>"
@@ -604,15 +604,12 @@ defmodule Ryker.ControlPlane.UsagePage do
      |> String.trim_trailing(".")) <> "M"
   end
 
-  defp compact(n) when n >= 1000, do: decimal(n / 1000) <> "k"
+  defp compact(n) when n >= 1000, do: Units.decimal(n / 1000) <> "k"
   defp compact(n), do: Wording.number(n)
-  defp decimal(n), do: :erlang.float_to_binary(n * 1.0, decimals: 1) |> String.trim_trailing(".0")
   defp coordinate(n), do: :erlang.float_to_binary(n * 1.0, decimals: 3)
   defp percent(nil), do: "—"
   defp percent(n) when n > 0 and n < 0.001, do: "<0.1%"
-  defp percent(n), do: decimal(n * 100) <> "%"
-  defp duration(nil), do: "—"
-  defp duration(ms), do: Units.duration(round(ms))
+  defp percent(n), do: Units.decimal(n * 100) <> "%"
   defp e(nil), do: ""
   defp e(text), do: Plug.HTML.html_escape(to_string(text))
 end

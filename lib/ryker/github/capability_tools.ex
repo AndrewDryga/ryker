@@ -7,9 +7,9 @@ defmodule Ryker.GitHub.CapabilityTools do
   What a tool's arguments may be is `Ryker.GitHub.CapabilityTools.Arguments`;
   what a call may touch is `Ryker.GitHub.CapabilityTools.Authority`.
   """
+  alias Ryker.{Adapter, GitHub, JSONSchema, Options, Rescued}
   alias Ryker.Delivery
   alias Ryker.GitHub.CapabilityTools.{Arguments, Authority}
-  alias Ryker.{Options, Rescued}
 
   @spec list(map() | keyword()) :: [map()]
   def list(options) do
@@ -22,7 +22,8 @@ defmodule Ryker.GitHub.CapabilityTools do
         "inputSchema" => %{
           "additionalProperties" => false,
           "properties" => %{
-            "cursor" => nullable(%{"maxLength" => 32, "minLength" => 1, "type" => "string"}),
+            "cursor" =>
+              JSONSchema.nullable(%{"maxLength" => 32, "minLength" => 1, "type" => "string"}),
             "limit" => %{"maximum" => 20, "minimum" => 1, "type" => "integer"},
             "section" => %{"enum" => Arguments.context_sections(), "type" => "string"}
           },
@@ -37,7 +38,8 @@ defmodule Ryker.GitHub.CapabilityTools do
         "inputSchema" => %{
           "additionalProperties" => false,
           "properties" => %{
-            "cursor" => nullable(%{"maxLength" => 32, "minLength" => 1, "type" => "string"}),
+            "cursor" =>
+              JSONSchema.nullable(%{"maxLength" => 32, "minLength" => 1, "type" => "string"}),
             "kind" => %{"enum" => ~w(issues pull_requests all), "type" => "string"},
             "limit" => %{"maximum" => 20, "minimum" => 1, "type" => "integer"},
             "query" => %{"maxLength" => 1_000, "minLength" => 1, "type" => "string"},
@@ -55,11 +57,12 @@ defmodule Ryker.GitHub.CapabilityTools do
         "inputSchema" => %{
           "additionalProperties" => false,
           "properties" => %{
-            "cursor" => nullable(%{"maxLength" => 32, "minLength" => 1, "type" => "string"}),
+            "cursor" =>
+              JSONSchema.nullable(%{"maxLength" => 32, "minLength" => 1, "type" => "string"}),
             "limit" => %{"maximum" => 20, "minimum" => 1, "type" => "integer"},
             "number" => %{"minimum" => 1, "type" => "integer"},
             "repository" => repository_property(),
-            "review_root_id" => nullable(%{"minimum" => 1, "type" => "integer"}),
+            "review_root_id" => JSONSchema.nullable(%{"minimum" => 1, "type" => "integer"}),
             "section" => %{"enum" => Arguments.context_sections(), "type" => "string"}
           },
           "required" => Arguments.required(:repository_context),
@@ -140,7 +143,7 @@ defmodule Ryker.GitHub.CapabilityTools do
     with {:ok, arguments} <- Arguments.context_document(arguments),
          {:ok, target, configured} <- Authority.bound_target(binding, options),
          :ok <- Authority.section_authorized(arguments.section, target),
-         true <- context_api?(configured.api, :read_context),
+         true <- Adapter.implements?(configured.api, read_context: 2),
          {:ok, result} <-
            configured.api.read_context(
              configured.client,
@@ -163,7 +166,7 @@ defmodule Ryker.GitHub.CapabilityTools do
          {:ok, target, configured} <-
            Authority.repository_target(binding, options, arguments.repository),
          :ok <- Authority.grant(configured, "read"),
-         true <- context_api?(configured.api, :search),
+         true <- Adapter.implements?(configured.api, search: 2),
          {:ok, result} <-
            configured.api.search(configured.client, search_request(configured, arguments)),
          {:ok, result} <- search_context(result, target, configured) do
@@ -190,7 +193,7 @@ defmodule Ryker.GitHub.CapabilityTools do
            subject_kind: "pull"
          },
          :ok <- Authority.section_authorized(arguments.section, target),
-         true <- context_api?(configured.api, :read_context),
+         true <- Adapter.implements?(configured.api, read_context: 2),
          {:ok, result} <-
            configured.api.read_context(
              configured.client,
@@ -223,7 +226,7 @@ defmodule Ryker.GitHub.CapabilityTools do
            Authority.mutation_repository_target(binding, options, arguments.repository),
          :ok <- Authority.number_authorized(binding, current, arguments.number),
          :ok <- Authority.review_grant(configured, arguments.event),
-         true <- context_api?(configured.api, :submit_review, 7),
+         true <- Adapter.implements?(configured.api, submit_review: 7),
          {:ok, result} <-
            configured.api.submit_review(
              configured.review_client,
@@ -373,12 +376,6 @@ defmodule Ryker.GitHub.CapabilityTools do
     Map.put(arguments, :repository, configured.repository_full_name)
   end
 
-  defp context_api?(api, function),
-    do: is_atom(api) and Code.ensure_loaded?(api) and function_exported?(api, function, 2)
-
-  defp context_api?(api, function, arity),
-    do: is_atom(api) and Code.ensure_loaded?(api) and function_exported?(api, function, arity)
-
   defp call_ci(action, arguments, binding, options) do
     options = options!(options)
 
@@ -405,7 +402,7 @@ defmodule Ryker.GitHub.CapabilityTools do
     do: Rescued.tool("GitHub tool #{tool}", error, stacktrace)
 
   defp invoke_ci(configured, :read, arguments) do
-    if context_api?(configured.api, :read_ci_attempt, 4) do
+    if Adapter.implements?(configured.api, read_ci_attempt: 4) do
       configured.api.read_ci_attempt(
         configured.ci_client,
         configured.repository_full_name,
@@ -418,7 +415,7 @@ defmodule Ryker.GitHub.CapabilityTools do
   end
 
   defp invoke_ci(configured, :rerun, arguments) do
-    if context_api?(configured.api, :rerun_failed_ci, 4) do
+    if Adapter.implements?(configured.api, rerun_failed_ci: 4) do
       configured.api.rerun_failed_ci(
         configured.ci_rerun_client,
         configured.repository_full_name,
@@ -431,7 +428,7 @@ defmodule Ryker.GitHub.CapabilityTools do
   end
 
   defp invoke_ci(configured, :cancel, arguments) do
-    if context_api?(configured.api, :cancel_ci, 4) do
+    if Adapter.implements?(configured.api, cancel_ci: 4) do
       configured.api.cancel_ci(
         configured.ci_cancel_client,
         configured.repository_full_name,
@@ -514,7 +511,7 @@ defmodule Ryker.GitHub.CapabilityTools do
        )
        when is_atom(api) and is_binary(repository) and is_integer(repository_id) and
               repository_id > 0 do
-    if Regex.match?(~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/, repository),
+    if GitHub.repository_name?(repository),
       do: %{
         api: api,
         ci_cancel_client: Map.get(configured, :ci_cancel_client, client),
@@ -564,7 +561,7 @@ defmodule Ryker.GitHub.CapabilityTools do
 
   defp repository_property do
     %{"maxLength" => 256, "minLength" => 1, "type" => "string"}
-    |> nullable()
+    |> JSONSchema.nullable()
     # Every repository-bound tool may name another repository of the session's
     # environment to read; the session's own repository is the default.
     |> Map.put(
@@ -572,6 +569,4 @@ defmodule Ryker.GitHub.CapabilityTools do
       "A repository of this session's environment, by its configured ref: work.repository_ref or a work.workspace.companions[].name. Companion repositories are read-only: review and CI write tools cannot target them. Omit it, or send null, for the session's own repository."
     )
   end
-
-  defp nullable(schema), do: %{"anyOf" => [schema, %{"type" => "null"}]}
 end

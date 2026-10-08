@@ -11,8 +11,10 @@ defmodule Ryker.GitHub.InstallationTokens do
   waiting for that same token, and they share it.
   """
   use GenServer
+  alias Ryker.GitHub
   alias Ryker.Options
   alias Ryker.Secret
+  alias Ryker.UTCDateTime
   require Logger
 
   @headers [
@@ -22,7 +24,6 @@ defmodule Ryker.GitHub.InstallationTokens do
   @refresh_before_seconds 300
   @minimum_fallback_seconds 30
   @call_timeout_ms 65_000
-  @maximum_id 9_223_372_036_854_775_807
   @purpose_permissions %{
     authorization: %{"metadata" => "read"},
     context: %{
@@ -260,7 +261,7 @@ defmodule Ryker.GitHub.InstallationTokens do
   defp parse_token(%{"expires_at" => expires_at, "token" => token}, now)
        when is_binary(expires_at) and is_binary(token) do
     with true <- valid_token?(token),
-         {:ok, expiration, 0} <- DateTime.from_iso8601(expires_at),
+         {:ok, expiration} <- UTCDateTime.parse(expires_at),
          true <- DateTime.compare(expiration, now) == :gt do
       {:ok, %{expires_at: expiration, token: token}}
     else
@@ -311,8 +312,8 @@ defmodule Ryker.GitHub.InstallationTokens do
   end
 
   defp valid_binding?({name, %{installation_id: installation_id, repository_id: repository_id}}) do
-    is_binary(name) and name != "" and positive_id?(installation_id) and
-      positive_id?(repository_id)
+    is_binary(name) and name != "" and GitHub.id?(installation_id) and
+      GitHub.id?(repository_id)
   end
 
   defp valid_binding?(_entry), do: false
@@ -336,8 +337,6 @@ defmodule Ryker.GitHub.InstallationTokens do
     unless is_nil(name) or is_atom(name) or is_pid(name) or is_tuple(name),
       do: raise(ArgumentError, "GitHub installation-token server name is invalid")
   end
-
-  defp positive_id?(value), do: is_integer(value) and value > 0 and value <= @maximum_id
 
   defp normalize_configuration!(configuration) do
     configuration =

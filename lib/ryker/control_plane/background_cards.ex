@@ -10,6 +10,11 @@ defmodule Ryker.ControlPlane.BackgroundCards do
 
   @max_bytes 2 * 1_024 * 1_024
 
+  @doc "Whether a run's card shows its result: every run but one still prepared and not stopped."
+  @spec result?(map()) :: boolean()
+  def result?(%{status: :prepared, remote_stopped_at: nil}), do: false
+  def result?(_run), do: true
+
   @doc "One section of a card: a titled, redacted artifact."
   @spec section(String.t(), String.t(), term(), atom(), keyword()) :: map()
   def section(id, title, value, source_kind, options),

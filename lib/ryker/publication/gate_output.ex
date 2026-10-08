@@ -17,6 +17,7 @@ defmodule Ryker.Publication.GateOutput do
   effort, like session evidence: one that fails changes nothing about the
   review it follows.
   """
+  alias Ryker.Adapter
   alias Ryker.Artifacts
   alias Ryker.Publication.Publication
   alias Ryker.Reference
@@ -104,7 +105,7 @@ defmodule Ryker.Publication.GateOutput do
   def ending(_output, _bytes), do: nil
 
   defp reader?(api),
-    do: Code.ensure_loaded?(api) and function_exported?(api, :read_review_gate_output, 4)
+    do: Adapter.implements?(api, read_review_gate_output: 4)
 
   defp read(_api, _client, _session, _operation, _cursor, _kept, _total, @maximum_pages),
     do: {:error, :gate_output_unfinished}

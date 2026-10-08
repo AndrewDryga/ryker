@@ -92,11 +92,8 @@ defmodule Ryker.ControlPlane.LearningRequests do
   # The result card stands for an attempt that got an answer or ended; one
   # still waiting on its model has only its briefing.
   defp card_id(run) do
-    if result_card?(run), do: "learning-#{run.id}-result", else: "learning-#{run.id}"
+    if BackgroundCards.result?(run), do: "learning-#{run.id}-result", else: "learning-#{run.id}"
   end
-
-  defp result_card?(%{status: :prepared, remote_stopped_at: nil}), do: false
-  defp result_card?(_run), do: true
 
   # The messages an attempt read, in the order its frozen selection lists them.
   defp read(%{inputs: inputs}) do
@@ -215,7 +212,7 @@ defmodule Ryker.ControlPlane.LearningRequests do
       at: run.inserted_at,
       sort_at: run.inserted_at,
       # An attempt still waiting on its model has no result card to carry them.
-      identity: if(not result_card?(run), do: identity(run, context)),
+      identity: if(not BackgroundCards.result?(run), do: identity(run, context)),
       retention_note:
         if run.pruned_at do
           "Retention removed the messages, instructions and prompt this attempt was sent on " <>
@@ -231,7 +228,7 @@ defmodule Ryker.ControlPlane.LearningRequests do
   end
 
   defp result(run, context) do
-    if result_card?(run) do
+    if BackgroundCards.result?(run) do
       options = artifact_options(run, context)
       document = run.result |> decode() |> Redactor.document(context.secrets)
       ended = run.applied_at || run.remote_stopped_at || run.updated_at

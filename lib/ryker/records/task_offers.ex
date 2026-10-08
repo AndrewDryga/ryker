@@ -6,6 +6,7 @@ defmodule Ryker.Records.TaskOffers do
   into work, after the platform adapter has authenticated the actor and supplied
   the exact message that carried the control.
   """
+  alias Ryker.Crypto
   alias Ryker.Episodes
   alias Ryker.Records
   alias Ryker.Records.CardDelivery
@@ -227,7 +228,7 @@ defmodule Ryker.Records.TaskOffers do
 
     if Enum.all?([:digest, :name], &(&1 in keys)) and keys -- @policy_fields == [] do
       with :ok <- reference(policy.name, :policy),
-           true <- is_binary(policy.digest) and Regex.match?(~r/\A[0-9a-f]{64}\z/, policy.digest),
+           true <- Crypto.sha256_hex?(policy.digest),
            :ok <- optional_reference(Map.get(policy, :repository_ref), :repository_ref),
            :ok <- environment_ref(Map.get(policy, :environment_ref)),
            :ok <-

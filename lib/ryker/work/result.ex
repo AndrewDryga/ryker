@@ -189,18 +189,15 @@ defmodule Ryker.Work.Result do
     Reference.text?(value, maximum_characters) and byte_size(value) <= maximum_bytes
   end
 
-  defp normalize_datetime(%DateTime{microsecond: {microsecond, _precision}} = value),
-    do: %{value | microsecond: {microsecond, 6}}
-
   defp normalize_deadline(%DateTime{} = deadline_at) do
     if UTCDateTime.utc?(deadline_at),
-      do: {:ok, normalize_datetime(deadline_at)},
+      do: {:ok, UTCDateTime.to_usec(deadline_at)},
       else: :error
   end
 
   defp normalize_deadline(deadline_at) when is_binary(deadline_at) do
-    case DateTime.from_iso8601(deadline_at) do
-      {:ok, parsed, 0} -> normalize_deadline(parsed)
+    case UTCDateTime.parse(deadline_at) do
+      {:ok, parsed} -> normalize_deadline(parsed)
       _invalid -> :error
     end
   end

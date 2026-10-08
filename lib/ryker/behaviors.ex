@@ -23,6 +23,7 @@ defmodule Ryker.Behaviors do
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.Slack
+  alias Ryker.UTCDateTime
   alias Ryker.Work
 
   @offer_kinds ~w(preference_offer guidance_offer standing_assignment_offer)
@@ -669,8 +670,8 @@ defmodule Ryker.Behaviors do
   defp source_event_expiry(nil, _confirmed_at), do: {:ok, nil}
 
   defp source_event_expiry(value, confirmed_at) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, expires_at, 0} ->
+    case UTCDateTime.parse(value) do
+      {:ok, expires_at} ->
         if DateTime.compare(expires_at, confirmed_at) == :gt,
           do: {:ok, expires_at},
           else: {:error, :behavior_expiry_elapsed}

@@ -8,6 +8,7 @@ defmodule Ryker.ControlPlane.ShortTime do
   short time and the full one beside it never disagree about the day.
   """
   use Phoenix.Component
+  alias Ryker.UTCDateTime
 
   attr(:at, :any, required: true, doc: "A DateTime, NaiveDateTime or ISO-8601 string")
   attr(:now, :any, default: nil, doc: "The moment the page is read; defaults to now")
@@ -38,6 +39,16 @@ defmodule Ryker.ControlPlane.ShortTime do
       at -> words(at, DateTime.diff(now, at), DateTime.to_date(at), DateTime.to_date(now))
     end
   end
+
+  @doc "The UTC day of `at`; nil without one."
+  @spec date(DateTime.t() | NaiveDateTime.t() | nil) :: Date.t() | nil
+  def date(nil), do: nil
+  def date(at), do: at |> UTCDateTime.to_utc() |> DateTime.to_date()
+
+  @doc "`at` to the second, as a `<time datetime>` attribute carries it."
+  @spec iso(DateTime.t() | NaiveDateTime.t()) :: String.t()
+  def iso(at),
+    do: at |> UTCDateTime.to_utc() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
   @doc "The exact instant, e.g. \"12 Sep 2026, 09:00 UTC\"."
   @spec full(DateTime.t()) :: String.t()
@@ -88,8 +99,7 @@ defmodule Ryker.ControlPlane.ShortTime do
     end
   end
 
-  defp utc(%DateTime{} = at), do: DateTime.shift_zone!(at, "Etc/UTC")
-  defp utc(%NaiveDateTime{} = at), do: DateTime.from_naive!(at, "Etc/UTC")
+  defp utc(%struct{} = at) when struct in [DateTime, NaiveDateTime], do: UTCDateTime.to_utc(at)
 
   defp utc(at) when is_binary(at) do
     case DateTime.from_iso8601(at) do

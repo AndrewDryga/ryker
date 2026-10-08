@@ -5,6 +5,7 @@ defmodule Ryker.RepositoryKnowledge.FleetSession do
   by exactly that run (execution kind `knowledge`). Cleanup closes it once the
   run has stopped (`Ryker.Retention.Custody`).
   """
+  alias Ryker.Adapter
   alias Ryker.Repo
   alias Ryker.RepositoryKnowledge.Run
   alias Ryker.Work
@@ -31,7 +32,7 @@ defmodule Ryker.RepositoryKnowledge.FleetSession do
       repository_ref: repository_ref
     }
 
-    if Code.ensure_loaded?(api) and function_exported?(api, :accepts_session?, 2),
+    if Adapter.implements?(api, accepts_session?: 2),
       do: api.accepts_session?(client, session),
       else: true
   end

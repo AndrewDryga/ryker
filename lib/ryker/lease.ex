@@ -36,4 +36,14 @@ defmodule Ryker.Lease do
       do: expires_at,
       else: requested
   end
+
+  @doc """
+  The attempt count a released claim leaves: unchanged, or one fewer when the
+  release says the attempt did not count (`counted: false`), as for work a
+  worker gave back before starting it.
+  """
+  @spec attempts_after_release(non_neg_integer(), keyword()) :: non_neg_integer()
+  def attempts_after_release(attempt_count, options) do
+    if Keyword.get(options, :counted, true), do: attempt_count, else: max(attempt_count - 1, 0)
+  end
 end

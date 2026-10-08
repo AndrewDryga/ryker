@@ -89,8 +89,8 @@ defmodule Ryker.Slack.SourceAudits do
         is_map(attributes.range),
         is_integer(attributes.result_count),
         attributes.result_count in 0..10_000,
-        uuid?(attributes.episode_id),
-        uuid?(attributes.turn_id),
+        Reference.uuid?(attributes.episode_id),
+        Reference.uuid?(attributes.turn_id),
         Reference.valid?(attributes.workspace_ref, 256),
         optional_reference?(attributes.channel_ref, 256),
         Reference.valid?(attributes.requester_ref, 1_024),
@@ -103,8 +103,6 @@ defmodule Ryker.Slack.SourceAudits do
 
   defp digest_optional(nil), do: nil
   defp digest_optional(value), do: CanonicalJSON.digest(value)
-
-  defp uuid?(value), do: match?({:ok, _uuid}, Ecto.UUID.cast(value))
 
   defp optional_reference?(nil, _maximum), do: true
   defp optional_reference?(value, maximum), do: Reference.valid?(value, maximum)

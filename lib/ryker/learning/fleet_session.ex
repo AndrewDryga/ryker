@@ -1,5 +1,6 @@
 defmodule Ryker.Learning.FleetSession do
   @moduledoc "A workspace-free execution session owned by one frozen learning judgment."
+  alias Ryker.Adapter
   alias Ryker.Learning.LearningRun
   alias Ryker.Repo
   alias Ryker.Work
@@ -13,7 +14,7 @@ defmodule Ryker.Learning.FleetSession do
   def placeable?(%{api: api, client: client, policy: policy, policy_digest: digest}) do
     session = %Work.Session{execution_kind: :learning, policy: policy, policy_digest: digest}
 
-    if Code.ensure_loaded?(api) and function_exported?(api, :accepts_session?, 2),
+    if Adapter.implements?(api, accepts_session?: 2),
       do: api.accepts_session?(client, session),
       else: true
   end

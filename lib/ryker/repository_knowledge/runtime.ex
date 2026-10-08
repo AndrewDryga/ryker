@@ -7,7 +7,7 @@ defmodule Ryker.RepositoryKnowledge.Runtime do
   (`Ryker.GitHub.RepositoryFiles`).
   """
   use Supervisor
-  alias Ryker.{Options, Reference}
+  alias Ryker.{Adapter, Options, Reference}
   alias Ryker.RepositoryKnowledge.Worker
 
   @fields ~w(api client remote worker_ref poll_interval_ms execution_timeout_seconds
@@ -47,9 +47,8 @@ defmodule Ryker.RepositoryKnowledge.Runtime do
 
     remote = Map.get(config, :remote, Ryker.GitHub.RepositoryFiles)
 
-    unless is_atom(remote) and Code.ensure_loaded?(remote) and
-             function_exported?(remote, :tree, 3),
-           do: raise(ArgumentError, "repository knowledge requires a GitHub remote")
+    unless Adapter.implements?(remote, tree: 3),
+      do: raise(ArgumentError, "repository knowledge requires a GitHub remote")
 
     %{
       api: config.api,

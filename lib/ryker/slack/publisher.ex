@@ -9,6 +9,7 @@ defmodule Ryker.Slack.Publisher do
   @behaviour Ryker.Delivery.Platform
   @behaviour Ryker.Delivery.MessagePublisher
   @behaviour Ryker.Delivery.ReactionPublisher
+  alias Ryker.Adapter
   alias Ryker.Crypto
   alias Ryker.Delivery
   alias Ryker.Slack.Client.Messages
@@ -285,9 +286,13 @@ defmodule Ryker.Slack.Publisher do
   defp destination_allowed(_binding, _target), do: :ok
 
   defp valid_api?(api) do
-    is_atom(api) and Code.ensure_loaded?(api) and function_exported?(api, :find_message, 4) and
-      function_exported?(api, :post_message, 5) and function_exported?(api, :find_files, 5) and
-      function_exported?(api, :upload_files, 6) and function_exported?(api, :add_reaction, 4) and
-      function_exported?(api, :update_message, 5)
+    Adapter.implements?(api,
+      find_message: 4,
+      post_message: 5,
+      find_files: 5,
+      upload_files: 6,
+      add_reaction: 4,
+      update_message: 5
+    )
   end
 end

@@ -13,10 +13,11 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
   The facts are bounded like the other prompts: the current document gives
   way first, then the lists, and each cut is named in `omitted`.
   """
-  alias Ryker.CanonicalJSON
+  alias Ryker.JSONSchema
   alias Ryker.PromptDocument
   alias Ryker.Reference
   alias Ryker.RepositoryKnowledge.Document
+  alias Ryker.Text
   alias Ryker.Wording
 
   @contract_version "repository-knowledge-v1"
@@ -160,20 +161,20 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
       "additionalProperties" => false,
       "required" => @fields,
       "properties" => %{
-        "purpose" => text_schema(@purpose_characters),
+        "purpose" => JSONSchema.text(@purpose_characters),
         "components" =>
           list_schema(
             item_schema(%{
               "path" => path_schema(),
-              "what_it_does" => text_schema(@sentence_characters)
+              "what_it_does" => JSONSchema.text(@sentence_characters)
             }),
             40
           ),
         "build_test_run" =>
           list_schema(
             item_schema(%{
-              "command" => text_schema(@command_characters),
-              "what_it_does" => text_schema(@command_characters),
+              "command" => JSONSchema.text(@command_characters),
+              "what_it_does" => JSONSchema.text(@command_characters),
               "source_file" => path_schema()
             }),
             30
@@ -181,7 +182,7 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
         "deploy_release" =>
           list_schema(
             item_schema(%{
-              "step" => text_schema(@sentence_characters),
+              "step" => JSONSchema.text(@sentence_characters),
               "source_file" => path_schema()
             }),
             12
@@ -189,28 +190,20 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
         "conventions" =>
           list_schema(
             item_schema(%{
-              "rule" => text_schema(@sentence_characters),
+              "rule" => JSONSchema.text(@sentence_characters),
               "source_file" => path_schema()
             }),
             20
           ),
         "where_to_look" =>
           list_schema(
-            item_schema(%{"task" => text_schema(@task_characters), "path" => path_schema()}),
+            item_schema(%{"task" => JSONSchema.text(@task_characters), "path" => path_schema()}),
             20
           ),
-        "open_questions" => list_schema(text_schema(@question_characters), 10)
+        "open_questions" => list_schema(JSONSchema.text(@question_characters), 10)
       }
     }
   end
-
-  defp text_schema(maximum),
-    do: %{
-      "type" => "string",
-      "minLength" => 1,
-      "maxLength" => maximum,
-      "pattern" => "^[^\\x00]*[^\\s\\x00][^\\x00]*$"
-    }
 
   # Relative to the root: never absolute, never blank.
   defp path_schema,
@@ -350,7 +343,7 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
   # source. Then the key files, then the top level, keep only their first
   # entries until the request fits.
   defp fit(instructions, context, totals) do
-    [
+    PromptDocument.fit(instructions, context, @max_encoded_bytes, [
       &shorten_document(&1, 16_000),
       &drop_document/1,
       &trim_list(&1, "key_files", 60, totals),
@@ -361,22 +354,7 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
       # the bound held only while names were short (2026-10-04 review).
       &trim_list(&1, "key_files", 0, totals),
       &trim_list(&1, "top_level", 0, totals)
-    ]
-    |> Enum.reduce(context, fn step, context -> until_fits(instructions, context, step) end)
-  end
-
-  defp until_fits(instructions, context, step) do
-    if fits?(instructions, context),
-      do: context,
-      else: smaller(instructions, context, step, step.(context))
-  end
-
-  defp smaller(_instructions, context, _step, context), do: context
-  defp smaller(instructions, _context, step, next), do: until_fits(instructions, next, step)
-
-  defp fits?(instructions, context) do
-    byte_size(CanonicalJSON.encode!(%{"instructions" => instructions, "context" => context})) <=
-      @max_encoded_bytes
+    ])
   end
 
   @marker " …[cut]"
@@ -384,7 +362,7 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
   defp shorten_document(%{"current_document" => text} = context, bytes)
        when is_binary(text) and byte_size(text) > bytes do
     context
-    |> Map.put("current_document", valid_prefix(binary_part(text, 0, bytes)) <> @marker)
+    |> Map.put("current_document", Text.bytes(text, bytes) <> @marker)
     |> PromptDocument.omit("The end of the current document, cut for length.")
   end
 
@@ -420,11 +398,4 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
 
   defp cut(key, shown, total),
     do: "Only the first #{shown} of #{Wording.number(total)} #{@list_names[key]}, cut for length."
-
-  # A cut never splits a character.
-  defp valid_prefix(bytes) do
-    if String.valid?(bytes),
-      do: bytes,
-      else: valid_prefix(binary_part(bytes, 0, byte_size(bytes) - 1))
-  end
 end

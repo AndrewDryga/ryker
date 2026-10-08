@@ -79,7 +79,7 @@ defmodule Ryker.Artifacts.References do
   defp lock_artifacts([]), do: {:ok, []}
 
   defp lock_artifacts(refs) do
-    if Enum.all?(refs, &artifact_ref?/1) do
+    if Enum.all?(refs, &input_ref?/1) do
       artifacts =
         Artifact.Query.by_refs(refs)
         |> Artifact.Query.ordered_by_ref()
@@ -105,7 +105,7 @@ defmodule Ryker.Artifacts.References do
     descriptor =
       Map.take(value, ["artifact_ref", "bytes", "media_type", "name", "sha256", "status"])
 
-    if map_size(descriptor) == 6 and artifact_ref?(ref) do
+    if map_size(descriptor) == 6 and input_ref?(ref) do
       case Map.get(accumulated, ref) do
         nil -> {:ok, Map.put(accumulated, ref, descriptor)}
         ^descriptor -> {:ok, accumulated}
@@ -156,7 +156,9 @@ defmodule Ryker.Artifacts.References do
       }
   end
 
-  defp artifact_ref?(value) do
+  @doc "Whether `value` names an input artifact: `artifact:input:` and at most 128 bytes in all."
+  @spec input_ref?(term()) :: boolean()
+  def input_ref?(value) do
     is_binary(value) and byte_size(value) in 1..128 and
       String.starts_with?(value, "artifact:input:")
   end

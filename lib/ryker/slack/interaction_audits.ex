@@ -14,6 +14,7 @@ defmodule Ryker.Slack.InteractionAudits do
   alias Ryker.Crypto
   alias Ryker.ErrorDetail
   alias Ryker.Ingress
+  alias Ryker.Lease
   alias Ryker.Records
   alias Ryker.Reference
   alias Ryker.Repo
@@ -31,7 +32,6 @@ defmodule Ryker.Slack.InteractionAudits do
     attributes = attributes(interaction, outcome)
 
     Repo.transaction(fn -> record_locked(attributes) end)
-    |> transaction_result()
   end
 
   def record(_interaction, _outcome),
@@ -92,7 +92,6 @@ defmodule Ryker.Slack.InteractionAudits do
     with :ok <- reference(worker_ref, :worker_ref, 1_024),
          :ok <- integer(lease_seconds, 5..3_600, :lease_seconds) do
       Repo.transaction(fn -> claim_next_locked(worker_ref, lease_seconds) end)
-      |> transaction_result()
     end
   end
 
@@ -125,7 +124,7 @@ defmodule Ryker.Slack.InteractionAudits do
       {code, detail} = describe_error(reason)
 
       update!(audit, %{
-        attempt_count: given_back(audit.attempt_count, options),
+        attempt_count: Lease.attempts_after_release(audit.attempt_count, options),
         last_error_code: code,
         last_error_detail: detail,
         lease_expires_at: nil,
@@ -134,10 +133,6 @@ defmodule Ryker.Slack.InteractionAudits do
         next_attempt_at: DateTime.add(now, retry_seconds, :second)
       })
     end)
-  end
-
-  defp given_back(attempt_count, options) do
-    if Keyword.get(options, :counted, true), do: attempt_count, else: max(attempt_count - 1, 0)
   end
 
   @spec block(Ecto.UUID.t(), Ecto.UUID.t(), term()) ::
@@ -167,7 +162,6 @@ defmodule Ryker.Slack.InteractionAudits do
   def rearm(event_ref) do
     with :ok <- reference(event_ref, :event_ref, 1_024) do
       Repo.transaction(fn -> rearm_locked(event_ref) end)
-      |> transaction_result()
     end
   end
 
@@ -253,7 +247,6 @@ defmodule Ryker.Slack.InteractionAudits do
     with {:ok, id} <- uuid(id, :id),
          {:ok, lease_ref} <- uuid(lease_ref, :lease_ref) do
       Repo.transaction(fn -> mutate_claim_locked(id, lease_ref, callback) end)
-      |> transaction_result()
     end
   end
 
@@ -373,9 +366,6 @@ defmodule Ryker.Slack.InteractionAudits do
       :error -> {:error, {:invalid_slack_interaction_audit, field}}
     end
   end
-
-  defp transaction_result({:ok, result}), do: {:ok, result}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 
   # -- PubSub ------------------------------------------------------------------
 

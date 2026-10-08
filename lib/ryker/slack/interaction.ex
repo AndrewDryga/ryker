@@ -5,6 +5,7 @@ defmodule Ryker.Slack.Interaction do
   Only host-issued action IDs are retained. Arbitrary model-authored Block Kit
   is never interpreted as a control.
   """
+  alias Ryker.Reference
   alias Ryker.UTCDateTime
 
   @actions ~w(ryker_answer_input ryker_close_work ryker_confirm_automation ryker_confirm_behavior ryker_confirm_memory ryker_confirm_schedule ryker_confirm_slack_post ryker_delete_behavior ryker_delete_schedule ryker_resume_behavior ryker_forget_memory ryker_investigate_incident ryker_open_incident ryker_open_publication ryker_publish_draft ryker_resume_work ryker_review_publication ryker_start_engineering_task ryker_stop_work ryker_task_discard_publication ryker_task_publish ryker_task_retry_publication ryker_task_update_publication ryker_work_record ryker_setup_alerts_automatic ryker_setup_alerts_offer ryker_setup_alerts_reply ryker_setup_audience_none ryker_setup_cancel ryker_setup_environment_none ryker_setup_participation_mentions ryker_setup_participation_proactive ryker_setup_participation_shadow ryker_setup_restart ryker_setup_save ryker_welcome_be_proactive ryker_welcome_configure ryker_welcome_mentions_only ryker_welcome_view_rules ryker_welcome_view_schedules)
@@ -17,7 +18,6 @@ defmodule Ryker.Slack.Interaction do
   @schedule_control_value ~r/\Aschedule-control:schedule:[0-9a-f-]{36}:[1-9][0-9]{0,9}\z/
   @behavior_control_value ~r/\Abehavior-control:behavior:[0-9a-f-]{36}:[1-9][0-9]{0,9}\z/
   @memory_value ~r/\Amemory:[A-Za-z0-9_.:-]{1,240}\z/
-  @reference ~r/\A[A-Za-z0-9_.:-]{1,256}\z/
   @choice_value ~r/\Arecord:input_request:[A-Za-z0-9_.:-]{1,220}\|[0-9]{1,2}\z/
   @work_record_value ~r/\A(?:task-card|incident-room):[A-Za-z0-9_.:-]{1,220}\|(?:timeline|evidence|handoff|recovery|postmortem)\z/
   @resume_work_value ~r/\A(?:task-card|incident-room):[A-Za-z0-9_.:-]{1,220}\|[0-9a-f]{64}\z/
@@ -105,7 +105,7 @@ defmodule Ryker.Slack.Interaction do
 
     # A control must be a known id with a well-formed value.
     if action_id?(action_id) and action_value?(action_id, action_value) and
-         Enum.all?(values, &reference?/1) and
+         Enum.all?(values, &Reference.token?/1) and
          optional_reference?(thread_ref) and UTCDateTime.utc?(context.occurred_at) do
       {:ok,
        %__MODULE__{
@@ -115,7 +115,7 @@ defmodule Ryker.Slack.Interaction do
          channel_ref: context.channel_ref,
          event_ref: "interaction:#{context.envelope_id}",
          message_ref: context.message_ref,
-         occurred_at: normalize_datetime(context.occurred_at),
+         occurred_at: UTCDateTime.to_usec(context.occurred_at),
          thread_ref: thread_ref,
          workspace_ref: context.workspace_ref
        }}
@@ -130,9 +130,7 @@ defmodule Ryker.Slack.Interaction do
   def setup_action?(_action_id), do: false
 
   defp optional_reference?(nil), do: true
-  defp optional_reference?(value), do: reference?(value)
-
-  defp reference?(value), do: is_binary(value) and Regex.match?(@reference, value)
+  defp optional_reference?(value), do: Reference.token?(value)
 
   defp action_value?("ryker_answer_input", value),
     do: is_binary(value) and Regex.match?(@choice_value, value)
@@ -172,7 +170,7 @@ defmodule Ryker.Slack.Interaction do
     end
   end
 
-  defp action_value?(_action_id, value), do: reference?(value)
+  defp action_value?(_action_id, value), do: Reference.token?(value)
 
   defp action_id?(value) do
     is_binary(value) and
@@ -227,7 +225,4 @@ defmodule Ryker.Slack.Interaction do
        do: {:ok, action_id, action_value}
 
   defp action(_action, _payload), do: :ignore
-
-  defp normalize_datetime(%DateTime{microsecond: {microsecond, _precision}} = value),
-    do: %{value | microsecond: {microsecond, 6}}
 end

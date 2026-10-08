@@ -15,6 +15,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   alias Ryker.Repo
   alias Ryker.Slack
   alias Ryker.StateTools
+  alias Ryker.UTCDateTime
   alias Ryker.Work
   require Logger
 
@@ -791,8 +792,8 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   end
 
   defp within_time?(occurred_at, after_time, before_time) do
-    case DateTime.from_iso8601(occurred_at) do
-      {:ok, occurred, 0} ->
+    case UTCDateTime.parse(occurred_at) do
+      {:ok, occurred} ->
         (is_nil(after_time) or DateTime.compare(occurred, after_time) in [:eq, :gt]) and
           (is_nil(before_time) or DateTime.compare(occurred, before_time) in [:eq, :lt])
 
@@ -864,8 +865,8 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   defp optional_timestamp(nil), do: {:ok, nil}
 
   defp optional_timestamp(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, timestamp, 0} -> {:ok, timestamp}
+    case UTCDateTime.parse(value) do
+      {:ok, timestamp} -> {:ok, timestamp}
       _invalid -> {:error, :invalid_arguments}
     end
   end

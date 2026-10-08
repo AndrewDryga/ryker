@@ -10,6 +10,7 @@ defmodule Ryker.GitHub.Input do
   alias Ryker.GitHub.{Binding, Payload}
   alias Ryker.Ingress
   alias Ryker.Reference
+  alias Ryker.UTCDateTime
 
   @event_fields [:delivery_ref, :event_name, :event_ref, :payload]
   # The input's content holds 48 KiB; the delivery reference, up to 1 KiB, and
@@ -393,8 +394,8 @@ defmodule Ryker.GitHub.Input do
   defp occurred_at(item) do
     value = Enum.find_value(@occurred_at_fields, &item[&1])
 
-    case DateTime.from_iso8601(value || "") do
-      {:ok, datetime, 0} -> {:ok, datetime}
+    case UTCDateTime.parse(value || "") do
+      {:ok, datetime} -> {:ok, datetime}
       _invalid -> {:error, {:invalid_github_input, :occurred_at}}
     end
   end

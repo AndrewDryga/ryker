@@ -8,6 +8,7 @@ defmodule Ryker.Work.Runtime do
   component tests supply a test double in its place.
   """
   use Supervisor
+  alias Ryker.Adapter
   alias Ryker.Options
   alias Ryker.StateTools
   alias Ryker.Work.{ActivitySyncWorker, Executor, Worker}
@@ -85,7 +86,7 @@ defmodule Ryker.Work.Runtime do
   # release runs reads activity from the worker's event batches, and this
   # worker woke four times a second there to do nothing (2026-10-04 review).
   defp activity_sync(options) do
-    if Code.ensure_loaded?(options.api) and function_exported?(options.api, :list_events, 4) do
+    if Adapter.implements?(options.api, list_events: 4) do
       [
         Supervisor.child_spec(
           {ActivitySyncWorker,
@@ -178,7 +179,7 @@ defmodule Ryker.Work.Runtime do
 
   defp coop_adapter!(%{api: api, client: client})
        when is_atom(api) and not is_nil(api) and not is_nil(client) do
-    if Code.ensure_loaded?(api) and function_exported?(api, :get_session, 2),
+    if Adapter.implements?(api, get_session: 2),
       do: {api, client},
       else: raise(ArgumentError, "work api must implement the Coop session contract")
   end

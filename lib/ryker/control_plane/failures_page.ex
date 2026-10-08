@@ -24,6 +24,7 @@ defmodule Ryker.ControlPlane.FailuresPage do
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Components, FailureExplanation, FailureProjection, Kit, ShortTime}
   alias Ryker.ControlPlane.SlackMarkdown
+  alias Ryker.UTCDateTime
 
   @doc """
   The topics an open Failures list or failure page listens to, as the context
@@ -368,13 +369,10 @@ defmodule Ryker.ControlPlane.FailuresPage do
     explained
     |> Enum.map(fn {row, _e} -> Map.get(row, :updated_at) end)
     |> Enum.reject(&is_nil/1)
-    |> Enum.min_by(&DateTime.to_unix(utc(&1), :microsecond), fn -> nil end)
+    |> Enum.min_by(&DateTime.to_unix(UTCDateTime.to_utc(&1), :microsecond), fn -> nil end)
     |> case do
       nil -> nil
       at -> %{value: FailureExplanation.age(at, now), label: "since the oldest stopped"}
     end
   end
-
-  defp utc(%DateTime{} = at), do: at
-  defp utc(%NaiveDateTime{} = at), do: DateTime.from_naive!(at, "Etc/UTC")
 end

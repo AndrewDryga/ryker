@@ -220,8 +220,8 @@ defmodule Ryker.Waits.EventWaits do
 
   defp saved_deadline?(%Records.Record{payload: %{"deadline_at" => value}}, deadline)
        when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, saved, 0} -> DateTime.compare(saved, deadline) == :eq
+    case UTCDateTime.parse(value) do
+      {:ok, saved} -> DateTime.compare(saved, deadline) == :eq
       _invalid -> false
     end
   end

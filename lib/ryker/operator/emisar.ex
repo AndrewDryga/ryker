@@ -90,7 +90,6 @@ defmodule Ryker.Operator.Emisar do
   def rearm(ref) do
     with {:ok, connection_ref, request_id} <- split_ref(ref) do
       Repo.transaction(fn -> rearm_locked(connection_ref, request_id) end)
-      |> transaction_result()
     end
   end
 
@@ -238,7 +237,4 @@ defmodule Ryker.Operator.Emisar do
   defp split_ref(_value), do: {:error, {:invalid_emisar_approval_operator, :ref}}
 
   defp operator_ref(connection_ref, request_id), do: connection_ref <> "/" <> request_id
-
-  defp transaction_result({:ok, value}), do: {:ok, value}
-  defp transaction_result({:error, reason}), do: {:error, reason}
 end

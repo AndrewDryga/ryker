@@ -1,9 +1,6 @@
 defmodule Ryker.Ingress.IndexCurrentMessageRevisionsMigrationTest do
   use Ryker.MigrationCase
-  import Ecto.Query
   alias Ecto.Adapters.SQL
-  alias Ryker.ControlPlane.CurrentInput
-  alias Ryker.Ingress.Inbox.Entry
 
   @version 20_261_006_120_000
   @revisions_index "ingress_inbox_current_revisions"
@@ -11,37 +8,31 @@ defmodule Ryker.Ingress.IndexCurrentMessageRevisionsMigrationTest do
 
   # A message's current revision was found by ranking every revision in the
   # inbox, and a conversation's messages by reading every message, on every
-  # page that showed one (2026-10-04 review). The plans name each index once
-  # it exists, read with sequential scans off so that a near-empty table does
-  # not hide whether the query can use it.
-  test "a message's current revision and a conversation's messages each read an index" do
-    current =
-      from(entry in Entry,
-        as: :revision,
-        inner_lateral_join: current in subquery(CurrentInput.Query.current()),
-        on: true,
-        where: entry.id == ^Ecto.UUID.generate(),
-        select: current.id
-      )
-
-    conversation =
-      from(entry in Entry,
-        where: entry.destination_conversation_ref == "control-plane:lab:one",
-        order_by: [asc: entry.inserted_at, asc: entry.id],
-        select: entry.id
-      )
-
+  # page that showed one (2026-10-04 review). Each needs an index in the order
+  # its query reads. The planner's choice is not asserted: on a near-empty
+  # table it priced the older source-revisions index and a sort the same as
+  # this one, and the pick flipped between gate runs (2026-10-08).
+  test "a message's current revision and a conversation's messages each have an index in their order" do
     assert migrate_down(@version) == :ok
-    refute plan(current) =~ @revisions_index
-    refute plan(conversation) =~ @conversation_index
+    assert definition(@revisions_index) == nil
+    assert definition(@conversation_index) == nil
 
     assert migrate_up(@version) == :ok
-    assert plan(current) =~ @revisions_index
-    assert plan(conversation) =~ @conversation_index
+
+    assert definition(@revisions_index) =~
+             "(native_input_id, execution_mode, revision DESC, inserted_at DESC, id DESC)"
+
+    assert definition(@conversation_index) =~ "(destination_conversation_ref, inserted_at, id)"
   end
 
-  defp plan(query) do
-    SQL.query!(Repo, "SET LOCAL enable_seqscan = off", [])
-    SQL.explain(Repo, :all, query)
+  defp definition(name) do
+    %{rows: rows} =
+      SQL.query!(
+        Repo,
+        "SELECT indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname = $1",
+        [name]
+      )
+
+    rows |> List.flatten() |> List.first()
   end
 end

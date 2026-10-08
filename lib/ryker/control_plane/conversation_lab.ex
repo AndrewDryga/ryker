@@ -17,6 +17,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
   environment, once stored or changed, is announced on the conversation's
   topics (`Ryker.Episodes.subscribe_conversations/1`).
   """
+  alias Ryker.Adapter
   alias Ryker.AdvisoryLock
   alias Ryker.Artifacts
   alias Ryker.ControlPlane.{Actor, Conversation}
@@ -513,18 +514,13 @@ defmodule Ryker.ControlPlane.ConversationLab do
 
   defp usable?(settings) do
     is_function(settings.id_generator, 0) and is_function(settings.now, 0) and
-      transcriber?(settings.transcriber) and chat_actor?(settings.actor)
+      Adapter.implements?(settings.transcriber, transcribe: 2) and chat_actor?(settings.actor)
   end
 
   # The local console's one operator, or a person Tailscale or Cloudflare named
   # (`Ryker.ControlPlane.Actor.chat_ref/1`).
   defp chat_actor?("local-operator"), do: true
   defp chat_actor?(actor), do: Actor.chat_ref?(actor)
-
-  defp transcriber?(module) do
-    is_atom(module) and Code.ensure_loaded?(module) and
-      function_exported?(module, :transcribe, 2)
-  end
 
   defp generated_id(id_generator) do
     case Ecto.UUID.cast(id_generator.()) do

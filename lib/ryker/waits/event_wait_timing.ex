@@ -1,5 +1,6 @@
 defmodule Ryker.Waits.EventWaitTiming do
   @moduledoc false
+  alias Ryker.UTCDateTime
 
   @maximum_delay_us 365 * 24 * 60 * 60 * 1_000_000
   @duration ~r/\A\+?(?:[0-9]+(?:\.[0-9]*)?[hms]|\.[0-9]+[hms])+\z/
@@ -45,8 +46,8 @@ defmodule Ryker.Waits.EventWaitTiming do
   end
 
   def due_at(%{"type" => "at", "at" => value}, %DateTime{}) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, 0} -> {:ok, datetime}
+    case UTCDateTime.parse(value) do
+      {:ok, datetime} -> {:ok, datetime}
       _invalid -> {:error, :at}
     end
   end

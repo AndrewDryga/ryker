@@ -47,7 +47,7 @@ defmodule Ryker.Slack.Command do
          actor_ref: actor_ref,
          channel_ref: channel_ref,
          event_ref: "slash:#{envelope_ref}",
-         occurred_at: normalize_datetime(occurred_at),
+         occurred_at: UTCDateTime.to_usec(occurred_at),
          text: String.trim(text),
          workspace_ref: workspace_ref
        }}
@@ -62,7 +62,4 @@ defmodule Ryker.Slack.Command do
     is_binary(value) and String.valid?(value) and byte_size(value) <= 4_096 and
       :binary.match(value, <<0>>) == :nomatch
   end
-
-  defp normalize_datetime(%DateTime{microsecond: {microsecond, _precision}} = value),
-    do: %{value | microsecond: {microsecond, 6}}
 end

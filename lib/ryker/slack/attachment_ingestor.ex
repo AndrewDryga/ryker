@@ -12,6 +12,7 @@ defmodule Ryker.Slack.AttachmentIngestor do
   acknowledgement: nothing is transcribed here, while the Slack gateway holds
   every later event behind this one.
   """
+  alias Ryker.Adapter
   alias Ryker.Artifacts
   alias Ryker.Delivery
   alias Ryker.Ingress
@@ -292,16 +293,11 @@ defmodule Ryker.Slack.AttachmentIngestor do
   defp failure(_reason), do: :failed
 
   defp options(%{client: _client, downloader: downloader, store: store} = settings) do
-    if implements?(downloader, download: 3, resolve: 2) and
-         implements?(store, fetch_source: 2, put: 1),
+    if Adapter.implements?(downloader, download: 3, resolve: 2) and
+         Adapter.implements?(store, fetch_source: 2, put: 1),
        do: {:ok, Map.take(settings, [:client, :downloader, :store])},
        else: {:error, {:invalid_slack_attachment_ingestor, :settings}}
   end
 
   defp options(_settings), do: {:error, {:invalid_slack_attachment_ingestor, :settings}}
-
-  defp implements?(module, functions) do
-    is_atom(module) and Code.ensure_loaded?(module) and
-      Enum.all?(functions, fn {name, arity} -> function_exported?(module, name, arity) end)
-  end
 end

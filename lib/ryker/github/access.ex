@@ -1,7 +1,7 @@
 defmodule Ryker.GitHub.Access do
   @moduledoc "Applies authenticated GitHub App installation and repository access changes."
   alias Ryker.GitHub.Binding
-  alias Ryker.{IntegrationSetup, Settings}
+  alias Ryker.{IntegrationSetup, Maps, Settings}
 
   @actor "github:webhook"
 
@@ -221,7 +221,7 @@ defmodule Ryker.GitHub.Access do
     case Enum.find(snapshot.repositories, &(&1.ref == ref)) do
       %{github_access: current} when current != access ->
         %{ref: ref, github_access: access, onboarding_error: error}
-        |> maybe_put(:onboarding_state, onboarding)
+        |> Maps.put_present(:onboarding_state, onboarding)
         |> Settings.put_repository(snapshot.installation.revision, @actor)
 
       _unchanged_or_removed ->
@@ -242,7 +242,4 @@ defmodule Ryker.GitHub.Access do
   end
 
   defp saved?(snapshot, ref), do: Enum.any?(snapshot.repositories, &(&1.ref == ref))
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

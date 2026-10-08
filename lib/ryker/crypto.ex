@@ -12,11 +12,20 @@ defmodule Ryker.Crypto do
   """
 
   @nonce_bytes 12
+  @sha256_hex ~r/\A[0-9a-f]{64}\z/
   @tag_bytes 16
 
   @doc "SHA-256 of `data`, as lowercase hex."
   @spec sha256_hex(iodata()) :: String.t()
   def sha256_hex(data), do: data |> sha256() |> Base.encode16(case: :lower)
+
+  @doc "Whether `value` is a SHA-256 digest as `sha256_hex/1` writes it: 64 lowercase hex digits."
+  @spec sha256_hex?(term()) :: boolean()
+  def sha256_hex?(value), do: is_binary(value) and Regex.match?(@sha256_hex, value)
+
+  @doc "The pattern `sha256_hex?/1` matches, for a changeset's format check."
+  @spec sha256_hex_pattern() :: Regex.t()
+  def sha256_hex_pattern, do: @sha256_hex
 
   @doc "SHA-256 of `data`, the raw 32 bytes."
   @spec sha256(iodata()) :: binary()

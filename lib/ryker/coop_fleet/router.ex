@@ -5,6 +5,7 @@ defmodule Ryker.CoopFleet.Router do
   alias Ryker.CoopFleet.{Bodies, ControlPlane, Enrollment, Protocol, PublicationGrants}
   alias Ryker.CoopFleet.SourceGrants
   alias Ryker.HTTPConnection
+  alias Ryker.Maps
   alias Ryker.StateTools
   require Logger
 
@@ -263,17 +264,14 @@ defmodule Ryker.CoopFleet.Router do
   defp state_tools_router(%{capabilities: capabilities} = state_tools) do
     # Never sign history cursors with the caller's active-turn bearer.
     [capabilities: capabilities, cursor_secret: Map.get(state_tools, :token_secret)]
-    |> maybe_put(:additional_tools, Map.get(state_tools, :additional_tools))
-    |> maybe_put(:additional_call, Map.get(state_tools, :additional_call))
-    |> maybe_put(:answer_authorizer, Map.get(state_tools, :answer_authorizer))
+    |> Maps.put_present(:additional_tools, Map.get(state_tools, :additional_tools))
+    |> Maps.put_present(:additional_call, Map.get(state_tools, :additional_call))
+    |> Maps.put_present(:answer_authorizer, Map.get(state_tools, :answer_authorizer))
     |> StateTools.Router.init()
   end
 
   defp state_tools_router(_state_tools),
     do: raise(ArgumentError, "Coop worker gateway state-tools options are invalid")
-
-  defp maybe_put(values, _key, nil), do: values
-  defp maybe_put(values, key, value), do: Keyword.put(values, key, value)
 
   defp json_content_type(conn) do
     case get_req_header(conn, "content-type") do

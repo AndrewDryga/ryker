@@ -9,10 +9,10 @@ defmodule Ryker.Work.Validator do
   """
   alias Ryker.Reference
   alias Ryker.Slack
+  alias Ryker.UTCDateTime
   alias Ryker.Work.{Final, Result}
 
   @context_fields ~w(artifact_delivery_supported artifact_metadata artifact_refs execution_mode open_required_goals records slack_mentions visible_reply_required workspace)
-  @reference_regex ~r/\A[A-Za-z0-9_.:-]{1,256}\z/
   @shadow_record_kinds ~w(evidence coverage finding progress alert_assessment)
   @artifact_filename ~r/\b[\p{L}\p{N}][\p{L}\p{N}_.() -]*\.(?:png|jpe?g|gif|webp|svg|pdf|csv|xlsx?|docx?|pptx?|zip)\b/iu
   @artifact_action ~r/(?:\A|[.!?]\s+)(?:I(?:'ve| have)?|we(?:'ve| have)?|Ryker has)?\s*(?:attached|created|exported|generated|made|produced|rendered|saved)\b/iu
@@ -20,6 +20,15 @@ defmodule Ryker.Work.Validator do
 
   @type accepted :: %{final: Final.t(), result: Result.t()}
   @type outcome :: {:accept, accepted()} | {:reject, [String.t()]} | {:error, term()}
+
+  @doc """
+  The violation an answer gets when its destination cannot show it safely,
+  with the presentation check's reason.
+  """
+  @spec presentation_violation(term()) :: String.t()
+  def presentation_violation(reason) do
+    "The final response cannot be rendered safely for this destination: #{inspect(reason, limit: 8, printable_limit: 256)}"
+  end
 
   @spec validate(String.t(), map(), DateTime.t()) :: outcome()
   def validate(candidate, context, %DateTime{} = now) do
@@ -565,7 +574,7 @@ defmodule Ryker.Work.Validator do
   end
 
   defp prepare_artifacts(refs) when is_list(refs) do
-    if Enum.uniq(refs) == refs and Enum.all?(refs, &reference?/1),
+    if Enum.uniq(refs) == refs and Enum.all?(refs, &Reference.token?/1),
       do: {:ok, MapSet.new(refs)},
       else: {:error, {:invalid_work_validation_context, :artifact_refs}}
   end
@@ -578,7 +587,7 @@ defmodule Ryker.Work.Validator do
     prepared =
       Enum.map(values, fn
         %{"id" => id, "name" => name} = value when map_size(value) == 2 ->
-          if reference?(id) and bounded_artifact_name?(name), do: %{id: id, name: name}
+          if Reference.token?(id) and bounded_artifact_name?(name), do: %{id: id, name: name}
 
         _invalid ->
           nil
@@ -633,7 +642,7 @@ defmodule Ryker.Work.Validator do
          } = goal
        )
        when map_size(goal) == 3 do
-    if reference?(id) and Reference.text?(requested_outcome, 500) and
+    if Reference.token?(id) and Reference.text?(requested_outcome, 500) and
          state in ~w(ready working waiting blocked) do
       {:ok, %{id: id, requested_outcome: requested_outcome, state: state}}
     else
@@ -657,8 +666,8 @@ defmodule Ryker.Work.Validator do
 
   defp prepare_record(ref, %{"continuation" => continuation, "kind" => kind} = record)
        when map_size(record) == 2 do
-    with true <- reference?(ref),
-         true <- reference?(kind),
+    with true <- Reference.token?(ref),
+         true <- Reference.token?(kind),
          {:ok, continuation} <- prepare_record_continuation(continuation) do
       {:ok, %{continuation: continuation, kind: kind}}
     else
@@ -676,7 +685,7 @@ defmodule Ryker.Work.Validator do
          } = record
        )
        when map_size(record) == 3 and wait_mode in ["external", "timer"] do
-    with true <- reference?(ref),
+    with true <- Reference.token?(ref),
          {:ok, continuation} <- prepare_record_continuation(continuation) do
       {:ok, %{continuation: continuation, kind: "event_wait", wait_mode: wait_mode(wait_mode)}}
     else
@@ -699,7 +708,7 @@ defmodule Ryker.Work.Validator do
          } = record
        )
        when map_size(record) == 8 do
-    with true <- reference?(ref),
+    with true <- Reference.token?(ref),
          {:ok, action_kind} <- platform_action_kind(action_kind),
          {:ok, action, source_item_ref} <-
            prepare_platform_action_identity(action_kind, action, source_item_ref),
@@ -768,7 +777,7 @@ defmodule Ryker.Work.Validator do
          %{"input_ref" => input_ref, "source_item_ref" => source_item_ref} = input
        )
        when map_size(input) == 2 do
-    if reference?(input_ref) and
+    if Reference.token?(input_ref) and
          (is_nil(source_item_ref) or Reference.valid?(source_item_ref)) do
       {:ok, %{input_ref: input_ref, source_item_ref: source_item_ref}}
     else
@@ -823,7 +832,7 @@ defmodule Ryker.Work.Validator do
     do: {:error, {:invalid_work_validation_context, :workspace}}
 
   defp valid_goal_ids?(ids) when is_list(ids) and ids != [] and length(ids) <= 64,
-    do: Enum.uniq(ids) == ids and Enum.all?(ids, &reference?/1)
+    do: Enum.uniq(ids) == ids and Enum.all?(ids, &Reference.token?/1)
 
   defp valid_goal_ids?(_ids), do: false
 
@@ -841,8 +850,8 @@ defmodule Ryker.Work.Validator do
   defp elapsed?(%{"deadline_at" => nil}, _now), do: false
 
   defp elapsed?(%{"deadline_at" => deadline_at}, now) do
-    case DateTime.from_iso8601(deadline_at) do
-      {:ok, deadline, 0} -> DateTime.compare(deadline, now) != :gt
+    case UTCDateTime.parse(deadline_at) do
+      {:ok, deadline} -> DateTime.compare(deadline, now) != :gt
       _invalid -> true
     end
   end
@@ -897,7 +906,4 @@ defmodule Ryker.Work.Validator do
   defp final_violation(:waiting_state_requires_record) do
     "A waiting outcome must reference the durable request_input, wait_for, or record_emisar_approval record that will resume it."
   end
-
-  defp reference?(value),
-    do: is_binary(value) and String.valid?(value) and Regex.match?(@reference_regex, value)
 end

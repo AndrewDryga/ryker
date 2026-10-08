@@ -521,9 +521,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
 
   defp entry_source_link(_episode, _input), do: nil
 
-  defp github_repository?(value),
-    do: is_binary(value) and Regex.match?(~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/, value)
-
   defp github_source_link(
          repository,
          number,
@@ -575,7 +572,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
        do: nil
 
   defp github_comment_link(repository, number, comment_id, path, anchor) do
-    if github_repository?(repository) and is_integer(number) and is_integer(comment_id) do
+    if GitHub.repository_name?(repository) and is_integer(number) and is_integer(comment_id) do
       %{
         href: "#{GitHub.web_url()}/#{repository}/#{path}/#{number}##{anchor}#{comment_id}",
         label: "Open in GitHub",
@@ -585,7 +582,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
   end
 
   defp github_review_link(repository, number, review_id) do
-    if github_repository?(repository) and is_integer(number) and is_integer(review_id) do
+    if GitHub.repository_name?(repository) and is_integer(number) and is_integer(review_id) do
       %{
         href: "#{GitHub.web_url()}/#{repository}/pull/#{number}#pullrequestreview-#{review_id}",
         label: "Open in GitHub",

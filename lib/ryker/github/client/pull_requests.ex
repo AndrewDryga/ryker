@@ -11,6 +11,7 @@ defmodule Ryker.GitHub.Client.PullRequests do
   alias Ryker.GitHub
   alias Ryker.GitHub.Client.{Checks, Fields, Transport}
   alias Ryker.GitObject
+  alias Ryker.UTCDateTime
 
   def get_pull_request(client, repository, number) do
     with :ok <- Fields.target(repository, number),
@@ -177,8 +178,8 @@ defmodule Ryker.GitHub.Client.PullRequests do
   defp merge_identity(%{"merged" => false}), do: {:ok, nil, nil}
 
   defp github_datetime(value) do
-    case DateTime.from_iso8601(value || "") do
-      {:ok, datetime, 0} -> {:ok, datetime}
+    case UTCDateTime.parse(value || "") do
+      {:ok, datetime} -> {:ok, datetime}
       _invalid -> {:error, :datetime}
     end
   end

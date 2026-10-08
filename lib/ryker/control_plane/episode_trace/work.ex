@@ -12,6 +12,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Slack
+  alias Ryker.UTCDateTime
   alias Ryker.Work
 
   @doc "Each Work turn from queueing through its result and delivery."
@@ -571,8 +572,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   end
 
   defp parsed_time(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, time, 0} -> time
+    case UTCDateTime.parse(value) do
+      {:ok, time} -> time
       _invalid -> nil
     end
   end

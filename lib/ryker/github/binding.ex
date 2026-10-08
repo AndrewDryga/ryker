@@ -5,6 +5,7 @@ defmodule Ryker.GitHub.Binding do
   Signed webhook payloads identify the item inside this binding. They cannot
   move work to another installation or repository.
   """
+  alias Ryker.GitHub
   alias Ryker.Ingress
 
   # GitHub's own payloads, a pull request's description included, before
@@ -14,7 +15,7 @@ defmodule Ryker.GitHub.Binding do
   @doc "The body limit a binding takes when it names none."
   @spec default_max_body_bytes() :: pos_integer()
   def default_max_body_bytes, do: @default_max_body_bytes
-  @maximum_id 9_223_372_036_854_775_807
+
   @fields [
     :action_grants,
     :installation_id,
@@ -28,7 +29,6 @@ defmodule Ryker.GitHub.Binding do
   @required_fields @fields -- [:action_grants, :max_body_bytes, :work_profile]
   @action_grants ~w(read review rerun_ci cancel_ci approve)
   @name_regex ~r/\A[a-z][a-z0-9_-]{0,63}\z/
-  @repository_regex ~r/\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
 
   @enforce_keys @fields
   defstruct @fields
@@ -114,14 +114,14 @@ defmodule Ryker.GitHub.Binding do
   defp validate(binding) do
     validations = [
       {valid_action_grants?(binding.action_grants), :action_grants},
-      {positive_id?(binding.installation_id), :installation_id},
+      {GitHub.id?(binding.installation_id), :installation_id},
       {is_integer(binding.max_body_bytes) and binding.max_body_bytes >= 1_024 and
          binding.max_body_bytes <= @default_max_body_bytes, :max_body_bytes},
       {is_binary(binding.name) and Regex.match?(@name_regex, binding.name), :name},
       {is_binary(binding.repository_full_name) and
-         Regex.match?(@repository_regex, binding.repository_full_name), :repository_full_name},
-      {positive_id?(binding.repository_id), :repository_id},
-      {positive_id?(binding.ryker_actor_id), :ryker_actor_id}
+         GitHub.repository_name?(binding.repository_full_name), :repository_full_name},
+      {GitHub.id?(binding.repository_id), :repository_id},
+      {GitHub.id?(binding.ryker_actor_id), :ryker_actor_id}
     ]
 
     Enum.reduce_while(validations, :ok, fn
@@ -129,9 +129,6 @@ defmodule Ryker.GitHub.Binding do
       {false, field}, :ok -> {:halt, {:error, {:invalid_github_binding, field}}}
     end)
   end
-
-  defp positive_id?(value),
-    do: is_integer(value) and value > 0 and value <= @maximum_id
 
   defp valid_action_grants?(grants) do
     is_list(grants) and grants != [] and grants == Enum.uniq(grants) and

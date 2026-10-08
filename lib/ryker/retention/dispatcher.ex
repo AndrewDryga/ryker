@@ -294,8 +294,7 @@ defmodule Ryker.Retention.Dispatcher do
 
   defp retry_settings_valid?(settings) do
     positive?(settings.lease_seconds) and positive?(settings.max_attempts) and
-      positive?(settings.retry_base_seconds) and
-      settings.retry_max_seconds >= settings.retry_base_seconds
+      Backoff.valid?(settings.retry_base_seconds, settings.retry_max_seconds)
   end
 
   defp budget_settings_valid?(settings) do
