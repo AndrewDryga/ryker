@@ -683,6 +683,13 @@ Model-facing tools (Emisar's `elixir-model-authoring-validation-is-actionable`):
 - `IL12NoFloatMoney`, `WebNoRepoCalls`, `WebNoChangesetConstruction`, and the
   house style checks listed in `.credo.exs`.
 
+The gate's static step also holds Emisar's compile-cycle budget: `mix xref graph --format cycles
+--label compile --fail-above 0`. Until 2026-10-08 one cycle held 124 files, through a runtime
+list kept in a module attribute, a guard built from another module's names, a filter list that
+called another page, and the endpoint and router compiling in plugs that reach them again at
+runtime. Plugs now initialize at runtime in development and tests, as in Emisar. `make check`
+runs `mix deps.audit` and `mix hex.audit` over the locked Hex packages, as Emisar's gate does.
+
 Tests hold the rest: `Ryker.TypespecsTest` resolves every remote type a spec
 names, `Ryker.ConstraintNamesTest` finds every constraint a changeset
 declares, `Ryker.CopiedHelpersTest` finds a function copied between modules,

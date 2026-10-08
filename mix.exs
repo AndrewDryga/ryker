@@ -67,7 +67,9 @@ defmodule Ryker.MixProject do
       # ships a database that knows only UTC. Its IANA data is compiled in, and
       # its updater stays off, so it never reaches the network.
       {:tz, "~> 0.28"},
-      {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      # Known advisories for the locked Hex packages (`make deps-audit`).
+      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false}
     ]
   end
 

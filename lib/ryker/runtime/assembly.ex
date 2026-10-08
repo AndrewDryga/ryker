@@ -35,46 +35,53 @@ defmodule Ryker.Runtime.Assembly do
   # Every runtime the owner starts, in dependency order, with the module that
   # validates its configuration here and runs it there. One list, so a runtime
   # cannot be assembled without being started or started without being checked.
-  @runtimes [
-    {:coop_worker_gateway, Ryker.CoopFleet.Server},
-    {:admission, Ryker.Admission.Runtime},
-    # Its own key, so changing how many routing sessions are kept ready
-    # restarts only the pool, never the routing slots mid-message.
-    {:admission_ready, Ryker.Admission.ReadyPool},
-    # Its own key too: the local routing model's comparisons never touch the
-    # routing slots, and turning them on or off restarts only their lane.
-    {:local_routing, Ryker.LocalRouting.Worker},
-    # Vectors of what each request is about, for routing's search by meaning;
-    # only while RYKER_EMBEDDINGS_URL names a server and routing runs.
-    {:embeddings, Ryker.Embeddings.Worker},
-    {:work, Ryker.Work.Runtime},
-    {:learning, Ryker.Learning.Runtime},
-    # Self-analysis runs on learning's policy and models, only where learning
-    # runs, in a pool of its own so its restarts never touch learning's.
-    {:improvement, Ryker.Improvement.Runtime},
-    {:retention, Ryker.Retention.Runtime},
-    # Its own key, so turning keeping routing examples on or off, or a stored
-    # credential changing, restarts only the copy, never cleanup.
-    {:routing_examples, Ryker.RoutingExamples.Worker},
-    # The same for keeping work examples, which copy settled Work turns.
-    {:work_examples, Ryker.WorkExamples.Worker},
-    {:github, Ryker.GitHub.Runtime},
-    # RYKER.md for each repository: model turns through Work's adapter, and
-    # GitHub through the App, so it starts after both.
-    {:repository_knowledge, Ryker.RepositoryKnowledge.Runtime},
-    {:publication, Ryker.Publication.Runtime},
-    {:delivery, Ryker.Delivery.Runtime},
-    # Its own key, so turning the weekly report on or off starts or stops
-    # only its schedule; delivery posts what it queues.
-    {:weekly_report, Ryker.WeeklyReport.Worker},
-    {:emisar, Ryker.Emisar.Runtime},
-    {:event_waits, Ryker.Waits.EventWaitWorker},
-    {:schedules, Ryker.Schedules.ScheduleRuntime},
-    {:slack, Ryker.Slack.Runtime},
-    {:slack_names, Ryker.Slack.Names},
-    {:webhooks, Ryker.Webhooks.Server},
-    {:control_plane, Ryker.ControlPlane.Server}
-  ]
+  # A function, not an attribute: a module written in the module body is a
+  # compile-time reference, and Ryker's one compile cycle ran through all of
+  # these, so a change to any runtime recompiled 124 files (2026-10-08).
+  @spec runtimes() :: [{atom(), module()}]
+  def runtimes do
+    [
+      {:coop_worker_gateway, Ryker.CoopFleet.Server},
+      {:admission, Ryker.Admission.Runtime},
+      # Its own key, so changing how many routing sessions are kept ready
+      # restarts only the pool, never the routing slots mid-message.
+      {:admission_ready, Ryker.Admission.ReadyPool},
+      # Its own key too: the local routing model's comparisons never touch the
+      # routing slots, and turning them on or off restarts only their lane.
+      {:local_routing, Ryker.LocalRouting.Worker},
+      # Vectors of what each request is about, for routing's search by meaning;
+      # only while RYKER_EMBEDDINGS_URL names a server and routing runs.
+      {:embeddings, Ryker.Embeddings.Worker},
+      {:work, Ryker.Work.Runtime},
+      {:learning, Ryker.Learning.Runtime},
+      # Self-analysis runs on learning's policy and models, only where learning
+      # runs, in a pool of its own so its restarts never touch learning's.
+      {:improvement, Ryker.Improvement.Runtime},
+      {:retention, Ryker.Retention.Runtime},
+      # Its own key, so turning keeping routing examples on or off, or a stored
+      # credential changing, restarts only the copy, never cleanup.
+      {:routing_examples, Ryker.RoutingExamples.Worker},
+      # The same for keeping work examples, which copy settled Work turns.
+      {:work_examples, Ryker.WorkExamples.Worker},
+      {:github, Ryker.GitHub.Runtime},
+      # RYKER.md for each repository: model turns through Work's adapter, and
+      # GitHub through the App, so it starts after both.
+      {:repository_knowledge, Ryker.RepositoryKnowledge.Runtime},
+      {:publication, Ryker.Publication.Runtime},
+      {:delivery, Ryker.Delivery.Runtime},
+      # Its own key, so turning the weekly report on or off starts or stops
+      # only its schedule; delivery posts what it queues.
+      {:weekly_report, Ryker.WeeklyReport.Worker},
+      {:emisar, Ryker.Emisar.Runtime},
+      {:event_waits, Ryker.Waits.EventWaitWorker},
+      {:schedules, Ryker.Schedules.ScheduleRuntime},
+      {:slack, Ryker.Slack.Runtime},
+      {:slack_names, Ryker.Slack.Names},
+      {:webhooks, Ryker.Webhooks.Server},
+      {:control_plane, Ryker.ControlPlane.Server}
+    ]
+  end
+
   # Published beside the runtimes: read by whoever asks, started by nobody.
   # `integrations_left_out` names each enabled integration, Emisar account and
   # webhook source this configuration could not start, with why, for the
@@ -82,13 +89,9 @@ defmodule Ryker.Runtime.Assembly do
   # pull requests are on, `github_api_url` the API root a payload's API links
   # start with (`Ryker.GitHub`).
   @published_facts [:execution_mode, :github_api_url, :github_web_url, :integrations_left_out]
-  @managed_keys Enum.sort(Keyword.keys(@runtimes) ++ @published_facts)
-
-  @spec runtimes() :: [{atom(), module()}]
-  def runtimes, do: @runtimes
 
   @spec managed_keys() :: [atom()]
-  def managed_keys, do: @managed_keys
+  def managed_keys, do: Enum.sort(Keyword.keys(runtimes()) ++ @published_facts)
 
   @doc """
   Publishes an assembled configuration as the process-wide applied snapshot.
@@ -99,7 +102,7 @@ defmodule Ryker.Runtime.Assembly do
   """
   @spec publish(map()) :: :ok
   def publish(configuration) do
-    Enum.each(@managed_keys, fn key ->
+    Enum.each(managed_keys(), fn key ->
       case Map.fetch(configuration, key) do
         {:ok, value} -> Config.publish(key, value)
         :error -> Config.withdraw(key)
@@ -1631,7 +1634,7 @@ defmodule Ryker.Runtime.Assembly do
   # Validation and helpers ------------------------------------------------------
 
   defp validate_runtimes!(configuration) do
-    Enum.each(@runtimes, fn {key, module} ->
+    Enum.each(runtimes(), fn {key, module} ->
       if configuration[key], do: validate_runtime!(module, configuration[key])
     end)
 

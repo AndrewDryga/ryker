@@ -170,9 +170,13 @@ test_files() {
 
 if [[ ${1:-} == "--check" ]]; then
   shift
+  # No compile-time dependency cycle, as Emisar's gate: every file in one
+  # recompiles on any change to any of them, and until 2026-10-08 one cycle held
+  # 124 files.
   env MIX_ENV=test scripts/elixir-mix.sh "do" \
     format --check-formatted + \
     compile --warnings-as-errors + \
+    xref graph --format cycles --label compile --fail-above 0 + \
     credo --strict
   # A test file that compiles with a warning fails the gate, as lib does above.
   test_partitions --warnings-as-errors "$@"

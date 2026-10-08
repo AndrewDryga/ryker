@@ -7,8 +7,6 @@ defmodule Ryker.StateTools.Tools do
   alias Ryker.StateTools.{ErrorCode, FixedTools}
   alias Ryker.Work
 
-  @fixed_tool_names FixedTools.names()
-
   @spec list(keyword() | map()) :: [map()]
   def list(options \\ %{}) do
     tools = FixedTools.list(options)
@@ -30,9 +28,6 @@ defmodule Ryker.StateTools.Tools do
   end
 
   @spec call(String.t(), map(), keyword() | map()) :: {:ok, map()} | {:error, String.t()}
-  def call(name, arguments, options) when name in @fixed_tool_names,
-    do: FixedTools.call(name, arguments, options)
-
   def call("record_emisar_approval", arguments, options) do
     payload_fields =
       ~w(action_id approval_url expires_at operation_id pack_ref request_id run_id runner_ref status)
@@ -67,7 +62,14 @@ defmodule Ryker.StateTools.Tools do
     end
   end
 
-  def call(_name, _arguments, _options), do: {:error, "unknown_tool"}
+  # The fixed tools are asked for their names when a call comes: a guard
+  # built from `FixedTools.names/0` at compile time put this catalog in Ryker's
+  # one compile cycle (2026-10-08).
+  def call(name, arguments, options) do
+    if name in FixedTools.names(),
+      do: FixedTools.call(name, arguments, options),
+      else: {:error, "unknown_tool"}
+  end
 
   @doc "The Emisar account of the session's environment, when it has one."
   @spec emisar_pin(keyword() | map()) :: {:ok, map()} | {:error, :not_configured}

@@ -45,9 +45,11 @@ Before committing, run:
 make dev-check
 ```
 
-It checks formatting, compilation warnings, Credo, migrations, and the ExUnit suite except slow
-capacity tests, plus the control-plane JavaScript tests and ShellCheck. Nothing in it calls a
-model. It is the gate for every commit and every deploy; `make check` also runs the slow capacity
+It checks formatting, compilation warnings, that no compile-time dependency cycle exists, Credo,
+migrations, and the ExUnit suite except slow capacity tests, plus the control-plane JavaScript
+tests and ShellCheck. Nothing in it calls a model. Plugs initialize at runtime in development and
+tests, as in Emisar, so the endpoint and router do not compile their plugs in; production keeps
+compile-time initialization. It is the gate for every commit and every deploy; `make check` also runs the slow capacity
 tests.
 
 Most of the suite's time is `async: false` modules, which one VM runs one at a time. So the gate
@@ -90,9 +92,11 @@ The full deterministic gate is:
 make check
 ```
 
-It adds the isolated host replay, the watchdog, deploy and live-acceptance script self-tests, the
-accelerated thirty-day retention simulation, and the evaluation-trend script's self-test. CI runs
-it on pull requests and every push to `main`. Run it locally before a tagged release or when a
+It adds the isolated host replay, the watchdog, deploy, live-acceptance and runtime-release script
+self-tests, the accelerated thirty-day retention simulation, the evaluation-trend script's
+self-test, and two audits of the locked Hex packages that read the network: known advisories
+(`mix deps.audit`) and packages their maintainers retired (`mix hex.audit`). CI runs it on pull
+requests and every push to `main`. Run it locally before a tagged release or when a
 change touches retention custody or the release scripts, not before every deploy.
 
 ## Model evaluation

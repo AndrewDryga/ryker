@@ -54,3 +54,6 @@ config :ryker, :github_files_requester, Ryker.TestSupport.RecordedGitHub
 # .agent/project.yaml (Ryker.CoopFleet.JobCheck); tests read none unless they
 # name a reader.
 config :ryker, :job_check_reader, Ryker.TestSupport.NoProjectFile
+
+# Plugs initialize at runtime, as in development (config/dev.exs).
+config :phoenix, :plug_init_mode, :runtime

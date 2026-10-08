@@ -51,7 +51,6 @@ defmodule Ryker.PublicFunctionsTest do
     "Ryker.Defaults.owners" => "every owner of a default has its horizons",
     "Ryker.IntegrationSetup.slack_scopes" =>
       "the Slack manifest asks for every scope setup requires",
-    "Ryker.Runtime.Assembly.managed_keys" => "a test restores every key assembly writes",
     "Ryker.Settings.Edit.domains" => "every settings domain records its edits",
     # The general case production only reaches through narrower doors.
     "Ryker.CoopFleet.ManagedSources.resolve_submodules" =>

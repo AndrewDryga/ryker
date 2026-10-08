@@ -35,7 +35,7 @@ defmodule Ryker.ControlPlane.RequestFilters do
     {"transport", "Source", ~w(slack github control_plane)},
     {"repository", "Repository", :text},
     {"state", "State", ~w(working waiting_for_input waiting_for_event complete cancelled)},
-    {"usage_work_kind", "Work type", UsagePage.work_kinds()},
+    {"usage_work_kind", "Work type", :work_kind},
     {"usage_model", "Model", :text},
     {"usage_effort", "Reasoning effort", @efforts},
     {"usage_profile", "Account", :text},
@@ -447,6 +447,10 @@ defmodule Ryker.ControlPlane.RequestFilters do
     |> Enum.map(&{&1.conversation_ref, Slack.destination_name(&1.conversation_ref), nil})
   end
 
+  # The usage page's kinds, asked for when the menu renders: written into the
+  # field list, they made this module part of Ryker's one compile cycle
+  # (2026-10-08).
+  defp options(:work_kind, rows), do: options(UsagePage.work_kinds(), rows)
   defp options(values, _rows), do: Enum.map(values, &{&1, choice_label(&1), nil})
 
   defp user_name(%{source: "slack"} = row), do: Slack.name(row.workspace, row.actor)
