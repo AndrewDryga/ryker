@@ -295,7 +295,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   def admission(_ref), do: :not_found
 
   def work(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    case blocked_work(ref) do
+    case fetch_blocked_work(ref) do
       {:error, :not_found} -> :not_found
       {:ok, row} -> {:ok, row |> work_item() |> List.wrap() |> attach_work_recovery() |> hd()}
     end
@@ -406,7 +406,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
     }
   end
 
-  defp blocked_work(ref) do
+  defp fetch_blocked_work(ref) do
     Failure.Query.blocked_work() |> Failure.Query.by_episode_key(ref) |> Repo.fetch()
   end
 

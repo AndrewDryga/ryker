@@ -36,7 +36,7 @@ defmodule Ryker.Admission.ConversationSummaries do
   # name the thread by the same identity key.
   defp selected_locked(entry, now) do
     with {:ok, scope} <- Continuity.destination_context(entry, entry.repository_ref),
-         {:ok, summary} <- latest(scope.identity_key) do
+         {:ok, summary} <- fetch_latest(scope.identity_key) do
       cond do
         after_cutoff?(summary, entry) ->
           unavailable("after_cutoff")
@@ -53,7 +53,7 @@ defmodule Ryker.Admission.ConversationSummaries do
     end
   end
 
-  defp latest(identity_key) do
+  defp fetch_latest(identity_key) do
     latest =
       identity_key
       |> Continuity.ConversationSummary.Query.by_identity_key()

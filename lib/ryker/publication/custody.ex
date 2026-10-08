@@ -55,7 +55,7 @@ defmodule Ryker.Publication.Custody do
         %Work.Turn{continuation: %{"kind" => "complete"}} = turn
       )
       when is_binary(repository) and is_binary(session.coop_session_id) do
-    case confirmed_task_readiness(episode, turn, task_ref) do
+    case fetch_confirmed_task_readiness(episode, turn, task_ref) do
       {:ok,
        {%Records.Record{} = offer, %Records.Record{} = task,
         %Work.Turn{external_receipt: %{"message_ref" => message} = receipt}}} ->
@@ -72,7 +72,7 @@ defmodule Ryker.Publication.Custody do
         # Later completed turns belong to the task's existing publication,
         # including its pull request and recovery history. Re-arm that one for a
         # fresh review; never open a second draft workflow for the same task.
-        case episode_publication(episode.id) do
+        case fetch_and_lock_episode_publication(episode.id) do
           {:error, :not_found} ->
             _request = insert_review_request(offer, episode, session, repository, attributes)
             :ok
@@ -88,10 +88,10 @@ defmodule Ryker.Publication.Custody do
 
   def ensure_task_review_in_transaction(_episode, _session, _turn), do: :ok
 
-  defp confirmed_task_readiness(episode, turn, task_ref),
+  defp fetch_confirmed_task_readiness(episode, turn, task_ref),
     do: Repo.fetch(Records.Record.Query.task_readiness(episode.id, turn.id, task_ref))
 
-  defp episode_publication(episode_id) do
+  defp fetch_and_lock_episode_publication(episode_id) do
     episode_id
     |> Publication.Query.by_episode_id()
     |> Publication.Query.ordered_by_recent()
@@ -940,7 +940,7 @@ defmodule Ryker.Publication.Custody do
   end
 
   defp request_review_locked(attributes) do
-    case publication_for_record(attributes.record_ref) do
+    case fetch_and_lock_publication_for_record(attributes.record_ref) do
       {:ok, %Publication{} = publication} ->
         if publication.review_request_ref == attributes.request_ref and
              publication.review_requested_by_actor_ref == attributes.actor_ref do
@@ -1000,7 +1000,7 @@ defmodule Ryker.Publication.Custody do
     end
   end
 
-  defp publication_for_record(record_ref) do
+  defp fetch_and_lock_publication_for_record(record_ref) do
     record_ref
     |> Publication.Query.by_record_ref()
     |> Publication.Query.lock_for_update()

@@ -61,7 +61,7 @@ defmodule Ryker.Admission.CorrelationScope do
   end
 
   defp workspace_scope(destination, workspace_ref, channel_ref) do
-    case membership(workspace_ref, channel_ref) do
+    case fetch_membership(workspace_ref, channel_ref) do
       {:ok, {:joined, false, false}} ->
         {refs, truncated?} = public_conversation_refs(workspace_ref)
 
@@ -78,7 +78,7 @@ defmodule Ryker.Admission.CorrelationScope do
     end
   end
 
-  defp membership(workspace_ref, channel_ref) do
+  defp fetch_membership(workspace_ref, channel_ref) do
     workspace_ref
     |> Slack.ChannelMembership.Query.by_channel(channel_ref)
     |> Slack.ChannelMembership.Query.select_audience()

@@ -70,11 +70,11 @@ defmodule Ryker.Operator.Emisar do
   @spec fetch(String.t()) :: {:ok, map()} | {:error, term()}
   def fetch(ref) do
     with {:ok, connection_ref, request_id} <- split_ref(ref),
-         {:ok, row} <- watch(connection_ref, request_id),
+         {:ok, row} <- fetch_watch(connection_ref, request_id),
          do: {:ok, item(row, unwatched_accounts())}
   end
 
-  defp watch(connection_ref, request_id) do
+  defp fetch_watch(connection_ref, request_id) do
     watched =
       connection_ref
       |> Emisar.Approval.Query.by_request(request_id)

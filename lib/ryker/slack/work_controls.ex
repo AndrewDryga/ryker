@@ -243,7 +243,7 @@ defmodule Ryker.Slack.WorkControls do
   # offered only when the separate draft-shareability verdict says its exact
   # snapshot is safe. Custody re-decides both; this is the card's own fence.
   defp approvable_publication(episode_id, publication_ref) do
-    case episode_publication(episode_id, publication_ref) do
+    case fetch_episode_publication(episode_id, publication_ref) do
       {:ok, %Publication.Publication{status: :reviewed} = publication} ->
         {:ok, publication}
 
@@ -261,13 +261,13 @@ defmodule Ryker.Slack.WorkControls do
   end
 
   defp publication(episode_id, publication_ref) do
-    case episode_publication(episode_id, publication_ref) do
+    case fetch_episode_publication(episode_id, publication_ref) do
       {:ok, %Publication.Publication{} = publication} -> {:ok, publication}
       {:error, :not_found} -> {:error, :task_publication_mismatch}
     end
   end
 
-  defp episode_publication(episode_id, publication_ref) do
+  defp fetch_episode_publication(episode_id, publication_ref) do
     episode_id
     |> Publication.Publication.Query.by_episode_id()
     |> Publication.Publication.Query.by_ref(publication_ref)

@@ -74,7 +74,7 @@ defmodule Ryker.Records do
          :ok <- operation_id(operation_id),
          :ok <- known_kind(kind),
          {:ok, parallel_goal_limit} <- create_options(options),
-         {:ok, episode_id} <- episode_id(turn_id) do
+         {:ok, episode_id} <- fetch_episode_id(turn_id) do
       Repo.transaction(fn ->
         create_locked(
           episode_id,
@@ -445,7 +445,7 @@ defmodule Ryker.Records do
       else: {:error, :state_record_not_found}
   end
 
-  defp episode_id(turn_id) do
+  defp fetch_episode_id(turn_id) do
     query = turn_id |> Work.Turn.Query.by_id() |> Work.Turn.Query.select_episode_ids()
     with {:error, :not_found} <- Repo.fetch(query), do: {:error, :state_record_unauthorized}
   end
@@ -526,7 +526,7 @@ defmodule Ryker.Records do
     case existing do
       {:error, :not_found} ->
         with {:error, :not_found} <-
-               reusable_open_source_wait(
+               fetch_reusable_open_source_wait(
                  episode.id,
                  kind,
                  prepared.payload,
@@ -585,7 +585,7 @@ defmodule Ryker.Records do
     end
   end
 
-  defp reusable_open_source_wait(
+  defp fetch_reusable_open_source_wait(
          episode_id,
          "event_wait",
          %{
@@ -605,7 +605,8 @@ defmodule Ryker.Records do
     |> Repo.fetch()
   end
 
-  defp reusable_open_source_wait(_episode_id, _kind, _payload, _reuse?), do: {:error, :not_found}
+  defp fetch_reusable_open_source_wait(_episode_id, _kind, _payload, _reuse?),
+    do: {:error, :not_found}
 
   defp record_ref(turn_id, operation_id, kind) do
     digest =

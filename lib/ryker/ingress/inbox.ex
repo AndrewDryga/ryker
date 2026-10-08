@@ -703,7 +703,7 @@ defmodule Ryker.Ingress.Inbox do
   # different event ids. A source that says so (`one_input_per_revision`)
   # makes a later event for a revision already recorded the same input.
   defp admit(input, nil, %{one_input_per_revision: true} = settings) do
-    case same_revision(input) do
+    case fetch_and_lock_same_revision(input) do
       {:ok, %Entry{} = entry} -> {:ok, %{entry: entry, status: :duplicate}}
       {:error, :not_found} -> reconcile_record(input, nil, settings)
     end
@@ -711,7 +711,7 @@ defmodule Ryker.Ingress.Inbox do
 
   defp admit(input, entry, settings), do: reconcile_record(input, entry, settings)
 
-  defp same_revision(input) do
+  defp fetch_and_lock_same_revision(input) do
     input |> Entry.Query.same_revision() |> Entry.Query.lock_for_update() |> Repo.fetch()
   end
 

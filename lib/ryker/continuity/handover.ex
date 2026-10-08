@@ -188,21 +188,21 @@ defmodule Ryker.Continuity.Handover do
     id
     |> Episodes.Episode.Query.by_id()
     |> Episodes.Episode.Query.lock_for_update()
-    |> staged()
+    |> fetch_staged()
   end
 
   defp fetch_and_lock_turn(id),
-    do: id |> Work.Turn.Query.by_id() |> Work.Turn.Query.lock_for_update() |> staged()
+    do: id |> Work.Turn.Query.by_id() |> Work.Turn.Query.lock_for_update() |> fetch_staged()
 
   # A turn or request gone before its summary is staged leaves nothing it may
   # write for.
-  defp staged(query) do
+  defp fetch_staged(query) do
     with {:error, :not_found} <- Repo.fetch(query),
          do: {:error, :conversation_summary_unauthorized}
   end
 
   defp stage_locked(turn_id, state) do
-    with {:ok, identity} <- staged(Work.Turn.Query.by_id(turn_id)),
+    with {:ok, identity} <- fetch_staged(Work.Turn.Query.by_id(turn_id)),
          {:ok, episode} <- fetch_and_lock_episode(identity.episode_id),
          {:ok, turn} <- fetch_and_lock_turn(turn_id),
          :ok <-

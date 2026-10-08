@@ -52,9 +52,9 @@ defmodule Ryker.Behaviors.Automations do
           {:ok, Schedules.Schedule.t() | Behavior.t()} | :error
   def fetch_for_episode(%Episodes.Episode{} = episode, automation_id)
       when is_binary(automation_id) do
-    case visible_schedule(episode, automation_id) do
+    case fetch_visible_schedule(episode, automation_id) do
       {:ok, %Schedules.Schedule{} = schedule} -> {:ok, schedule}
-      {:error, :not_found} -> visible_behavior_result(episode, automation_id)
+      {:error, :not_found} -> fetch_visible_behavior(episode, automation_id)
     end
   end
 
@@ -531,7 +531,7 @@ defmodule Ryker.Behaviors.Automations do
     with {:error, :not_found} <- Repo.fetch(locked), do: :error
   end
 
-  defp visible_schedule(episode, automation_id),
+  defp fetch_visible_schedule(episode, automation_id),
     do: Repo.fetch(visible_schedule_query(episode, automation_id))
 
   # One automation is found exactly where the list finds it: a deleted one is
@@ -546,7 +546,7 @@ defmodule Ryker.Behaviors.Automations do
     |> Schedules.Schedule.Query.not_deleted()
   end
 
-  defp visible_behavior_result(episode, automation_id) do
+  defp fetch_visible_behavior(episode, automation_id) do
     with {:error, :not_found} <- Repo.fetch(visible_behavior_query(episode, automation_id)),
          do: :error
   end

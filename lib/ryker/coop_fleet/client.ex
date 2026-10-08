@@ -169,7 +169,7 @@ defmodule Ryker.CoopFleet.Client do
 
   @impl true
   def checkpoint_workspace(client, coop_session_id, key, expected_revision) do
-    with {:ok, session} <- session_by_coop_id(coop_session_id),
+    with {:ok, session} <- fetch_session_by_coop_id(coop_session_id),
          repository_ref when is_binary(repository_ref) <- session.repository_ref,
          {:ok, response} <-
            execute(
@@ -226,7 +226,7 @@ defmodule Ryker.CoopFleet.Client do
 
   @impl true
   def get_session(client, coop_session_id) do
-    with {:ok, session} <- session_by_coop_id(coop_session_id) do
+    with {:ok, session} <- fetch_session_by_coop_id(coop_session_id) do
       case durable_prebinding_session(session, coop_session_id) do
         {:ok, remote_session} ->
           {:ok, remote_session}
@@ -239,7 +239,7 @@ defmodule Ryker.CoopFleet.Client do
 
   @impl true
   def prepare_session(client, coop_session_id, key) do
-    with {:ok, session} <- session_by_coop_id(coop_session_id) do
+    with {:ok, session} <- fetch_session_by_coop_id(coop_session_id) do
       case Repo.fetch(Command.Query.by_idempotency_key(key)) do
         {:error, :not_found} ->
           prepare_on_idle_worker(client, session, coop_session_id, key)
@@ -287,7 +287,7 @@ defmodule Ryker.CoopFleet.Client do
 
   @impl true
   def get_session_evidence(client, coop_session_id) do
-    with {:ok, session} <- session_by_coop_id(coop_session_id) do
+    with {:ok, session} <- fetch_session_by_coop_id(coop_session_id) do
       execute_read(client, session, "get_session_evidence", %{
         "coop_session_id" => coop_session_id
       })
@@ -352,14 +352,14 @@ defmodule Ryker.CoopFleet.Client do
 
   @impl true
   def get_changes(client, coop_session_id) do
-    with {:ok, session} <- session_by_coop_id(coop_session_id) do
+    with {:ok, session} <- fetch_session_by_coop_id(coop_session_id) do
       execute_read(client, session, "get_changes", %{"coop_session_id" => coop_session_id})
     end
   end
 
   @impl true
   def get_changes_page(client, coop_session_id, patch_offset, patch_limit) do
-    with {:ok, session} <- session_by_coop_id(coop_session_id) do
+    with {:ok, session} <- fetch_session_by_coop_id(coop_session_id) do
       execute_read(client, session, "get_changes_page", %{
         "coop_session_id" => coop_session_id,
         "patch_limit" => patch_limit,
@@ -370,7 +370,7 @@ defmodule Ryker.CoopFleet.Client do
 
   @impl true
   def read_review_gate_output(client, coop_session_id, review_operation_id, cursor) do
-    with {:ok, session} <- session_by_coop_id(coop_session_id) do
+    with {:ok, session} <- fetch_session_by_coop_id(coop_session_id) do
       execute_read(client, session, "get_review_gate_output", %{
         "coop_session_id" => coop_session_id,
         "cursor" => cursor,
@@ -381,7 +381,8 @@ defmodule Ryker.CoopFleet.Client do
 
   @impl true
   def run_review(client, coop_session_id, key, expected_revision) do
-    with {:ok, %Work.Session{id: session_id} = session} <- session_by_coop_id(coop_session_id) do
+    with {:ok, %Work.Session{id: session_id} = session} <-
+           fetch_session_by_coop_id(coop_session_id) do
       payload = %{"coop_session_id" => coop_session_id, "expected_revision" => expected_revision}
 
       case Repo.fetch(Command.Query.by_idempotency_key(key)) do
@@ -514,7 +515,8 @@ defmodule Ryker.CoopFleet.Client do
 
   @impl true
   def publish_review(client, coop_session_id, review_key, review_id, key, body) do
-    with {:ok, %Work.Session{id: session_id} = session} <- session_by_coop_id(coop_session_id),
+    with {:ok, %Work.Session{id: session_id} = session} <-
+           fetch_session_by_coop_id(coop_session_id),
          %Command{
            session_id: ^session_id,
            kind: "run_review",
@@ -686,7 +688,7 @@ defmodule Ryker.CoopFleet.Client do
   # when OrbStack crashed on 30 Sep; a newer placement on the same worker reads it.
   defp publication_result(client, command, session_id, response)
        when response == :reconcile or is_map_key(response, "operation") do
-    with {:ok, session} <- command_session(command),
+    with {:ok, session} <- fetch_command_session(command),
          {:ok, placement} <- review_holder_placement(client, session, command),
          {:ok, lookup} <-
            ControlPlane.enqueue_command(
@@ -774,7 +776,7 @@ defmodule Ryker.CoopFleet.Client do
       ) do
     with {:ok, _artifact_refs} <- exact_input_artifacts(submission, artifacts),
          :ok <- optional_controller_tools(controller_tools),
-         {:ok, session} <- session_by_coop_id(coop_session_id) do
+         {:ok, session} <- fetch_session_by_coop_id(coop_session_id) do
       execute(
         client,
         session,
@@ -797,7 +799,7 @@ defmodule Ryker.CoopFleet.Client do
       ) do
     with {:ok, _artifact_refs} <- exact_input_artifacts(submission, artifacts),
          :ok <- optional_controller_tools(controller_tools),
-         {:ok, session} <- session_by_coop_id(coop_session_id) do
+         {:ok, session} <- fetch_session_by_coop_id(coop_session_id) do
       fence_durable_operation(
         client,
         session,
@@ -810,7 +812,7 @@ defmodule Ryker.CoopFleet.Client do
 
   @impl true
   def get_turn(client, coop_session_id, coop_turn_id) do
-    with {:ok, session} <- session_by_coop_id(coop_session_id) do
+    with {:ok, session} <- fetch_session_by_coop_id(coop_session_id) do
       execute_read(client, session, "get_turn", %{
         "coop_session_id" => coop_session_id,
         "coop_turn_id" => coop_turn_id
@@ -820,7 +822,7 @@ defmodule Ryker.CoopFleet.Client do
 
   @impl true
   def cancel_turn(client, coop_session_id, coop_turn_id, key, revision) do
-    with {:ok, session} <- session_by_coop_id(coop_session_id) do
+    with {:ok, session} <- fetch_session_by_coop_id(coop_session_id) do
       execute(
         client,
         session,
@@ -837,7 +839,7 @@ defmodule Ryker.CoopFleet.Client do
 
   @impl true
   def close_session(client, coop_session_id, key, revision) do
-    with {:ok, session} <- session_by_coop_id(coop_session_id) do
+    with {:ok, session} <- fetch_session_by_coop_id(coop_session_id) do
       execute(
         client,
         session,
@@ -860,7 +862,7 @@ defmodule Ryker.CoopFleet.Client do
         accept_dirty,
         accept_unmerged
       ) do
-    with {:ok, session} <- session_by_coop_id(coop_session_id) do
+    with {:ok, session} <- fetch_session_by_coop_id(coop_session_id) do
       execute(
         client,
         session,
@@ -878,7 +880,7 @@ defmodule Ryker.CoopFleet.Client do
 
   @impl true
   def discard_session(client, coop_session_id, key, plan_operation_id) do
-    with {:ok, session} <- session_by_coop_id(coop_session_id) do
+    with {:ok, session} <- fetch_session_by_coop_id(coop_session_id) do
       execute(
         client,
         session,
@@ -906,7 +908,7 @@ defmodule Ryker.CoopFleet.Client do
         sha256,
         verdict
       ) do
-    with {:ok, session} <- session_by_coop_id(coop_session_id),
+    with {:ok, session} <- fetch_session_by_coop_id(coop_session_id),
          {:ok, verdict_name, violations} <- prepare_verdict(verdict) do
       execute(
         client,
@@ -963,7 +965,7 @@ defmodule Ryker.CoopFleet.Client do
         {:ok, worker_rejected_operation(command)}
 
       {:ok, %Command{} = command} ->
-        with {:ok, session} <- command_session(command),
+        with {:ok, session} <- fetch_command_session(command),
              {:ok, result} <-
                execute_read(client, session, "reconcile_operation", %{"operation_key" => key}),
              {:ok, operation} <- operation_result(result),
@@ -975,7 +977,7 @@ defmodule Ryker.CoopFleet.Client do
 
   @impl true
   def get_output_artifact(client, coop_session_id, coop_turn_id, artifact_id) do
-    with {:ok, session} <- session_by_coop_id(coop_session_id),
+    with {:ok, session} <- fetch_session_by_coop_id(coop_session_id),
          {:ok, %{stored_body: stored, body_ref: reference, headers: headers}} <-
            execute_read(client, session, "get_output_artifact", %{
              "artifact_ref" => artifact_id,
@@ -1155,12 +1157,12 @@ defmodule Ryker.CoopFleet.Client do
   defp maybe_put_checkpoint(payload, checkpoint), do: Map.put(payload, "checkpoint", checkpoint)
 
   # The session a command was sent for, in Coop's words when it is gone.
-  defp command_session(%Command{session_id: id}) do
+  defp fetch_command_session(%Command{session_id: id}) do
     with {:error, :not_found} <- Repo.fetch(Work.Session.Query.by_id(id)),
          do: {:error, {:coop_session_not_found, id}}
   end
 
-  defp session_by_coop_id(coop_session_id) do
+  defp fetch_session_by_coop_id(coop_session_id) do
     bound =
       Work.Session.Query.all()
       |> Work.Session.Query.by_coop_session_id(coop_session_id)
@@ -1198,7 +1200,7 @@ defmodule Ryker.CoopFleet.Client do
 
       :not_found ->
         with :ok <- Bridge.current_command_placement(command),
-             {:ok, session} <- command_session(command),
+             {:ok, session} <- fetch_command_session(command),
              {:ok, result} <-
                execute_read(client, session, "reconcile_operation", %{
                  "operation_key" => operation_key

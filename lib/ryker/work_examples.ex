@@ -133,7 +133,7 @@ defmodule Ryker.WorkExamples do
   defp copy_in_transaction(turn_id, secrets) do
     Repo.transaction(fn ->
       with true <- enabled?(),
-           {:ok, %Work.Turn{} = turn} <- held_turn(turn_id),
+           {:ok, %Work.Turn{} = turn} <- fetch_and_lock_held_turn(turn_id),
            :ok <- RoutingExamples.copy_lock_in_transaction(),
            false <- Repo.exists?(Example.Query.by_turn_id(turn_id)) do
         turn |> example(secrets) |> TrainingExamples.insert!([:turn_id])
@@ -152,7 +152,7 @@ defmodule Ryker.WorkExamples do
     enabled == true
   end
 
-  defp held_turn(turn_id) do
+  defp fetch_and_lock_held_turn(turn_id) do
     turn_id
     |> Work.Turn.Query.by_id()
     |> Work.Turn.Query.settled_with_bodies()

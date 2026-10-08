@@ -42,14 +42,14 @@ defmodule Ryker.Records.Outcomes do
   end
 
   defp build_outcome(%Episodes.Episode{state: :complete} = episode) do
-    case latest_settled_turn(episode.id) do
+    case fetch_latest_settled_turn(episode.id) do
       {:ok, %Work.Turn{} = turn} -> [document(episode, turn, "complete")]
       {:error, :not_found} -> []
     end
   end
 
   defp build_outcome(%Episodes.Episode{state: :working, owner_kind: :turn} = episode) do
-    case blocked_owner_turn(episode.id, episode.owner_ref) do
+    case fetch_blocked_owner_turn(episode.id, episode.owner_ref) do
       {:ok, %Work.Turn{} = turn} -> [document(episode, turn, "blocked")]
       {:error, :not_found} -> []
     end
@@ -57,10 +57,10 @@ defmodule Ryker.Records.Outcomes do
 
   defp build_outcome(_episode), do: []
 
-  defp latest_settled_turn(episode_id),
+  defp fetch_latest_settled_turn(episode_id),
     do: episode_id |> Work.Turn.Query.latest_settled_with_result() |> Repo.fetch()
 
-  defp blocked_owner_turn(episode_id, owner_ref),
+  defp fetch_blocked_owner_turn(episode_id, owner_ref),
     do: episode_id |> Work.Turn.Query.blocked_owner(owner_ref) |> Repo.fetch()
 
   defp document(episode, turn, state) do

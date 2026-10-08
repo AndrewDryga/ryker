@@ -288,7 +288,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
 
     with :ok <- start_conversation(conversation_id),
          :ok <- lock_source_item(source_item_ref),
-         {:ok, current} <- current_message(conversation_id, source_item_ref, actor),
+         {:ok, current} <- fetch_and_lock_current_message(conversation_id, source_item_ref, actor),
          :ok <- editable_message(current),
          {:ok, input} <- lifecycle_input(current, event_id, occurred_at, kind, message),
          {:ok, receipt} <-
@@ -304,7 +304,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
   end
 
   # A person edits and deletes only what they sent.
-  defp current_message(conversation_id, source_item_ref, actor) do
+  defp fetch_and_lock_current_message(conversation_id, source_item_ref, actor) do
     current =
       conversation_id
       |> ref()

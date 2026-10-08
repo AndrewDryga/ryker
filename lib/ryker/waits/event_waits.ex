@@ -70,7 +70,7 @@ defmodule Ryker.Waits.EventWaits do
       # Resuming locked them the other way round, so a resume and a message in
       # the same conversation could each wait for the other (2026-10-04
       # review).
-      with {:ok, initial} <- wait_row(Episodes.Episode.Query.by_id(episode_id)),
+      with {:ok, initial} <- fetch_wait_row(Episodes.Episode.Query.by_id(episode_id)),
            :ok <- Episodes.ConversationLock.lock(Repo, destination(initial)),
            {:ok, snapshot} <- Episodes.fetch_and_lock_current_in_transaction(initial.key),
            {:ok, record} <- fetch_and_lock_record(record_id),
@@ -83,10 +83,14 @@ defmodule Ryker.Waits.EventWaits do
     |> transaction_result()
   end
 
-  defp fetch_and_lock_record(id),
-    do: id |> Records.Record.Query.by_id() |> Records.Record.Query.lock_for_update() |> wait_row()
+  defp fetch_and_lock_record(id) do
+    id
+    |> Records.Record.Query.by_id()
+    |> Records.Record.Query.lock_for_update()
+    |> fetch_wait_row()
+  end
 
-  defp wait_row(query) do
+  defp fetch_wait_row(query) do
     with {:error, :not_found} <- Repo.fetch(query), do: {:error, :event_wait_not_found}
   end
 

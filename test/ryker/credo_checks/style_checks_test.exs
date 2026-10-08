@@ -647,6 +647,54 @@ defmodule Ryker.CredoChecks.StyleChecksTest do
     end
   end
 
+  describe "Ryker.Checks.TaggedReadNamedFetch" do
+    test "flags a read that answers a tagged row under another name" do
+      source = """
+      defmodule Ryker.Sprockets do
+        alias Ryker.Repo
+        alias Ryker.Sprockets.Sprocket
+
+        defp current_sprocket(id), do: id |> Sprocket.Query.by_id() |> Repo.fetch()
+
+        defp sprocket_named(name) do
+          query = Sprocket.Query.by_name(name)
+          with {:error, :not_found} <- Repo.fetch(query), do: {:error, :sprocket_not_found}
+        end
+      end
+      """
+
+      assert fetch_triggers(source) == ["current_sprocket", "sprocket_named"]
+    end
+
+    test "allows a fetch_ name, a peek, and a read the function goes on to use" do
+      source = """
+      defmodule Ryker.Sprockets do
+        alias Ryker.Repo
+        alias Ryker.Sprockets.Sprocket
+
+        defp fetch_sprocket(id), do: id |> Sprocket.Query.by_id() |> Repo.fetch()
+        defp sprocket(id), do: id |> Sprocket.Query.by_id() |> Repo.peek()
+
+        defp name(id) do
+          case Repo.fetch(Sprocket.Query.by_id(id)) do
+            {:ok, sprocket} -> sprocket.name
+            {:error, :not_found} -> nil
+          end
+        end
+      end
+      """
+
+      assert issues(fetch_named(), source, @context) == []
+    end
+  end
+
+  defp fetch_triggers(source) do
+    fetch_named()
+    |> issues(source, @context)
+    |> Enum.sort_by(& &1.line_no)
+    |> Enum.map(& &1.trigger)
+  end
+
   defp lock_triggers(source) do
     lock_name()
     |> issues(source, @context)
@@ -663,6 +711,7 @@ defmodule Ryker.CredoChecks.StyleChecksTest do
 
   defp dispatch_on_pattern, do: check("DispatchOnPattern")
   defp lock_name, do: check("LockNameReturnsNothing")
+  defp fetch_named, do: check("TaggedReadNamedFetch")
   defp if_on_arg_field, do: check("NoIfOnArgField")
   defp acronym, do: check("AcronymModuleCase")
   defp alias_group, do: check("MultilineAliasGroup")

@@ -19,12 +19,12 @@ defmodule Ryker.Feedback.Answers do
   @spec message_request(target()) :: {:ok, Ryker.Feedback.request()} | :error
   def message_request(%{transport: transport, conversation_ref: conversation, message_ref: ref})
       when is_binary(transport) and is_binary(conversation) and is_binary(ref) do
-    case quick_reply(transport, conversation, ref) do
+    case fetch_quick_reply(transport, conversation, ref) do
       {:ok, input_id} when is_binary(input_id) ->
         {:ok, {:input, input_id}}
 
       {:error, :not_found} ->
-        case post(transport, conversation, ref) do
+        case fetch_post(transport, conversation, ref) do
           {:ok, episode_id} when is_binary(episode_id) -> {:ok, {:episode, episode_id}}
           {:error, :not_found} -> :error
         end
@@ -33,7 +33,7 @@ defmodule Ryker.Feedback.Answers do
 
   def message_request(_target), do: :error
 
-  defp quick_reply(transport, conversation, ref) do
+  defp fetch_quick_reply(transport, conversation, ref) do
     Delivery.RoutingResponse.Query.delivered_messages()
     |> Delivery.RoutingResponse.Query.by_conversation(transport, conversation)
     |> Delivery.RoutingResponse.Query.by_receipt_message(ref)
@@ -43,7 +43,7 @@ defmodule Ryker.Feedback.Answers do
     |> Repo.fetch()
   end
 
-  defp post(transport, conversation, ref) do
+  defp fetch_post(transport, conversation, ref) do
     Delivery.PlatformAction.Query.delivered_messages()
     |> Delivery.PlatformAction.Query.by_conversation(transport, conversation)
     |> Delivery.PlatformAction.Query.by_receipt_message(ref)

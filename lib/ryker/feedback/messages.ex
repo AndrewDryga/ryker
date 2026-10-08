@@ -114,7 +114,7 @@ defmodule Ryker.Feedback.Messages do
         {:ok, {:episode, episode_id}}
 
       nil ->
-        case quick_replied(Enum.map(revisions, & &1.id), sent_at, before) do
+        case fetch_quick_replied(Enum.map(revisions, & &1.id), sent_at, before) do
           {:ok, input_id} when is_binary(input_id) -> {:ok, {:input, input_id}}
           {:error, :not_found} -> :none
         end
@@ -130,7 +130,7 @@ defmodule Ryker.Feedback.Messages do
     |> Repo.exists?()
   end
 
-  defp quick_replied(input_ids, from, before) do
+  defp fetch_quick_replied(input_ids, from, before) do
     input_ids
     |> Delivery.RoutingResponse.Query.by_input_ids()
     |> Delivery.RoutingResponse.Query.delivered_messages()

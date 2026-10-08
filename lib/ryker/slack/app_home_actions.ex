@@ -91,7 +91,7 @@ defmodule Ryker.Slack.AppHomeActions do
         workspace_ref,
         action_ref
       ) do
-    case retained_session(session_ref) do
+    case fetch_retained_session(session_ref) do
       {:ok, {%Work.Session{} = session, %Episodes.Episode{} = episode}} ->
         if slack_workspace?(episode, workspace_ref) do
           Operator.Retention.discard_unmerged(
@@ -109,7 +109,7 @@ defmodule Ryker.Slack.AppHomeActions do
     end
   end
 
-  defp retained_session(session_ref) do
+  defp fetch_retained_session(session_ref) do
     session_ref
     |> Work.Session.Query.by_external_ref()
     |> Work.Session.Query.select_with_episode()
@@ -161,7 +161,7 @@ defmodule Ryker.Slack.AppHomeActions do
       parts when length(parts) >= 4 ->
         session_ref = parts |> Enum.drop(-1) |> Enum.join(":")
 
-        case retained_session(session_ref) do
+        case fetch_retained_session(session_ref) do
           {:ok,
            {%Work.Session{}, %Episodes.Episode{destination_conversation_ref: destination_ref}}} ->
             {:ok, destination_ref}

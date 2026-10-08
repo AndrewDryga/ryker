@@ -181,6 +181,12 @@ rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-08.
   three that returned a query became reads, and `lock_activity_episode/1`,
   whose callers only wanted the lock, answers `:ok`. `LockNameReturnsNothing`
   flags a `lock_*` function whose last expression reads the repo.
+- A read that answers `{:ok, row}` or a reason is `fetch_*`, whatever it
+  reads (Emisar's README: the prefix is that contract). On 2026-10-08, 56
+  private reads named for their row (`latest`, `staged`, `approval_row`,
+  `lock`) became `fetch_*`, 15 of them `fetch_and_lock_*` because their query
+  locks the row. `TaggedReadNamedFetch` flags a function whose last
+  expression is `Repo.fetch`, outside Query modules.
 - A value a query selects (a due time, one column) stays a value or nil. Its
   pipeline names a `select_*` helper (`select_next_due_after`,
   `select_coop_session_ids`), which is how `IL05TaggedReads` tells it from a
@@ -604,6 +610,7 @@ Model-facing tools (Emisar's `elixir-model-authoring-validation-is-actionable`):
   of whole rows.
 - `LockNameReturnsNothing`: a `lock_*` function hands back nothing a caller
   reads; one that hands back its row is `fetch_and_lock_*`.
+- `TaggedReadNamedFetch`: a function that ends in `Repo.fetch` is `fetch_*`.
 - `IL06QueryModulePure`: Query modules never call `Repo`.
 - `IL07SchemaFieldsOnly`: no changeset code in a schema module.
 - `IL08ChangesetPure`: changeset modules never call `Repo`.

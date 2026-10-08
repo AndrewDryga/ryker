@@ -136,7 +136,7 @@ defmodule Ryker.Memories.Cases do
   @spec delete(String.t()) :: {:ok, CaseRecord.t()} | {:error, term()}
   def delete(case_ref) do
     Repo.transaction(fn ->
-      case locked(case_ref) do
+      case fetch_and_lock_case(case_ref) do
         {:error, :not_found} -> Repo.rollback(:case_not_found)
         {:ok, record} -> redact!(record)
       end
@@ -231,14 +231,14 @@ defmodule Ryker.Memories.Cases do
         announce_case(struct!(CaseRecord, withdrawn))
 
       {0, _kept} ->
-        case locked(withdrawn.case_ref) do
+        case fetch_and_lock_case(withdrawn.case_ref) do
           {:ok, %CaseRecord{status: :active} = record} -> redact!(record)
           _withdrawn -> :ok
         end
     end
   end
 
-  defp locked(case_ref) do
+  defp fetch_and_lock_case(case_ref) do
     case_ref
     |> CaseRecord.Query.by_case_ref()
     |> CaseRecord.Query.lock_for_update()
@@ -276,7 +276,7 @@ defmodule Ryker.Memories.Cases do
     Repo.transaction(fn ->
       now = Repo.now!()
 
-      case locked(attributes.case_ref) do
+      case fetch_and_lock_case(attributes.case_ref) do
         {:ok, %CaseRecord{content_fingerprint: same} = record}
         when same == :erlang.map_get(:content_fingerprint, attributes) ->
           record

@@ -381,7 +381,7 @@ defmodule Ryker.Retention.Custody do
   defp claim_locked(worker_ref, lease_seconds, exclude, passed_over) do
     now = Repo.now!()
 
-    case candidate(now, exclude) do
+    case fetch_candidate(now, exclude) do
       {:error, :not_found} ->
         nil
 
@@ -417,7 +417,7 @@ defmodule Ryker.Retention.Custody do
     end
   end
 
-  defp candidate(now, exclude), do: Repo.fetch(Cleanup.Query.next_candidate(now, exclude))
+  defp fetch_candidate(now, exclude), do: Repo.fetch(Cleanup.Query.next_candidate(now, exclude))
 
   defp peek_and_lock_owner(kind, id, lock)
        when kind in [:work, :learning, :improvement, :knowledge],
@@ -737,7 +737,7 @@ defmodule Ryker.Retention.Custody do
     do: Repo.rollback(:retention_remote_session_mismatch)
 
   defp settle_worker_removed_locked(session, now) do
-    case holding_worker(session.id) do
+    case fetch_holding_worker(session.id) do
       {:ok, %CoopFleet.Worker{} = worker}
       when worker.state == :revoked or not is_nil(worker.revoked_at) ->
         receipt = %{
@@ -760,7 +760,7 @@ defmodule Ryker.Retention.Custody do
 
   # Cleanup runs only on the worker a session was last placed on: a bound
   # session is never placed anywhere else.
-  defp holding_worker(session_id) do
+  defp fetch_holding_worker(session_id) do
     session_id
     |> CoopFleet.Placement.Query.by_session_id()
     |> CoopFleet.Placement.Query.with_joined_worker()

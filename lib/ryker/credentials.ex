@@ -46,11 +46,11 @@ defmodule Ryker.Credentials do
   @spec fetch(kind(), String.t()) :: {:ok, binary()} | {:error, term()}
   def fetch(kind, name) do
     with :ok <- validate_identity(kind, name),
-         {:ok, credential} <- stored(kind, name),
+         {:ok, credential} <- fetch_stored(kind, name),
          do: open(root_key(), credential)
   end
 
-  defp stored(kind, name) do
+  defp fetch_stored(kind, name) do
     with {:error, :not_found} <- Repo.fetch(Credential.Query.by_identity(kind, name)),
          do: {:error, :credential_missing}
   end

@@ -7,7 +7,7 @@ defmodule Ryker.CoopFleet.Checkpoints do
   alias Ryker.Crypto
   alias Ryker.Work
 
-  defp producer_command(key, session_id) do
+  defp fetch_producer_command(key, session_id) do
     producer =
       key |> Command.Query.by_idempotency_key() |> Command.Query.by_session_id(session_id)
 
@@ -15,7 +15,7 @@ defmodule Ryker.CoopFleet.Checkpoints do
   end
 
   def capture(session_id, key, response, options) do
-    with {:ok, producer} <- producer_command(key, session_id),
+    with {:ok, producer} <- fetch_producer_command(key, session_id),
          %{"checkpoint" => checkpoint, "operation" => %{"id" => operation_id}} <- response,
          :ok <- producer_authority(producer, checkpoint, operation_id),
          {:ok, command} <-
@@ -140,7 +140,7 @@ defmodule Ryker.CoopFleet.Checkpoints do
         %Command{kind: "ensure_workspace", payload: %{"checkpoint" => saved}} = command,
         options
       ) do
-    with {:ok, transfer} <- saved_transfer(saved),
+    with {:ok, transfer} <- fetch_saved_transfer(saved),
          :ok <- restore_authority(command, transfer) do
       with_checkpoint(
         transfer,
@@ -152,7 +152,7 @@ defmodule Ryker.CoopFleet.Checkpoints do
 
   def prepare_restore(_command, _options), do: :ok
 
-  defp saved_transfer(saved) do
+  defp fetch_saved_transfer(saved) do
     with {:error, :not_found} <-
            Repo.fetch(WorkspaceCheckpointTransfer.Query.by_id(saved["transfer_id"])),
          do: {:error, :checkpoint_not_available}

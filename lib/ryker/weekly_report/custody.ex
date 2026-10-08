@@ -232,7 +232,7 @@ defmodule Ryker.WeeklyReport.Custody do
   end
 
   defp retry_locked(delivery_ref) do
-    case lock(delivery_ref) do
+    case fetch_and_lock_report(delivery_ref) do
       {:ok, %Report{status: :blocked} = report} ->
         report |> Report.Changeset.retry() |> write!(:retry)
 
@@ -250,7 +250,7 @@ defmodule Ryker.WeeklyReport.Custody do
   defp confirm_locked(delivery_ref, lease_ref, receipt, fingerprint) do
     now = Repo.now!()
 
-    case lock(delivery_ref) do
+    case fetch_and_lock_report(delivery_ref) do
       {:ok, %Report{status: :delivered, external_receipt_fingerprint: ^fingerprint} = report} ->
         report
 
@@ -286,7 +286,7 @@ defmodule Ryker.WeeklyReport.Custody do
   end
 
   defp leased(delivery_ref, lease_ref, now) do
-    case lock(delivery_ref) do
+    case fetch_and_lock_report(delivery_ref) do
       {:ok, %Report{status: :pending} = report} ->
         with :ok <- current_lease(report, lease_ref, now), do: {:ok, report}
 
@@ -298,7 +298,7 @@ defmodule Ryker.WeeklyReport.Custody do
     end
   end
 
-  defp lock(delivery_ref) do
+  defp fetch_and_lock_report(delivery_ref) do
     delivery_ref
     |> Report.Query.by_delivery_ref()
     |> Report.Query.lock_for_update()

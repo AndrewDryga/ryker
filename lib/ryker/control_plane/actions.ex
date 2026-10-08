@@ -286,7 +286,7 @@ defmodule Ryker.ControlPlane.Actions do
     with {:ok, %{offset: offset, snapshot_digest: expected_digest}} <- diff_params(params),
          {:ok, coop_api, coop_client} <- work_view_options(options),
          {:ok, %Work.Session{coop_session_id: session_id}} when is_binary(session_id) <-
-           latest_bound_session(episode.id),
+           fetch_latest_bound_session(episode.id),
          {:ok, changes} <-
            coop_api.get_changes_page(coop_client, session_id, offset, WorkChanges.page_bytes()),
          :ok <- exact_snapshot(expected_digest, offset, changes["patch_digest"]),
@@ -312,7 +312,7 @@ defmodule Ryker.ControlPlane.Actions do
   defp lab_task_record_title(:handoff), do: "Task handoff"
   defp lab_task_record_title(:postmortem), do: "Incident postmortem"
 
-  defp latest_bound_session(episode_id) do
+  defp fetch_latest_bound_session(episode_id) do
     latest =
       episode_id
       |> Work.Session.Query.by_episode_id()
@@ -710,7 +710,7 @@ defmodule Ryker.ControlPlane.Actions do
       end
 
     with {:ok, episode} <- task_episode(record, target),
-         {:ok, publication} <- task_publication(episode.id, publication_ref) do
+         {:ok, publication} <- fetch_task_publication(episode.id, publication_ref) do
       Operator.Publication.recover(publication.ref, recovery_action, expected_generation,
         actor_ref: Actor.of(request.viewer),
         action_ref: request.ref
@@ -896,7 +896,7 @@ defmodule Ryker.ControlPlane.Actions do
          expected_status,
          receipt_kind
        ) do
-    case task_publication(episode_id, publication_ref) do
+    case fetch_task_publication(episode_id, publication_ref) do
       {:ok, %Publication.Publication{status: ^expected_status} = publication} ->
         lab_publication_target(publication, source_target, receipt_kind)
 
@@ -912,7 +912,7 @@ defmodule Ryker.ControlPlane.Actions do
   # or one whose checks could not run, offered as an unverified draft. Chat accepted only the
   # first while its card offered both (30 Sep: "Couldn't create the draft pull request").
   defp approvable_lab_task_publication(episode_id, publication_ref, target) do
-    case task_publication(episode_id, publication_ref) do
+    case fetch_task_publication(episode_id, publication_ref) do
       {:ok, %Publication.Publication{status: :blocked} = publication} ->
         if Publication.Review.draft_shareable?(publication.review_document),
           do: lab_publication_target(publication, target, :review),
@@ -923,7 +923,7 @@ defmodule Ryker.ControlPlane.Actions do
     end
   end
 
-  defp task_publication(episode_id, publication_ref) do
+  defp fetch_task_publication(episode_id, publication_ref) do
     query =
       episode_id
       |> Publication.Publication.Query.by_episode_id()

@@ -462,10 +462,11 @@ defmodule Ryker.Emisar.Approvals do
   defp resume_terminal_locked(connection_ref, request_id, lease_ref, state) do
     now = Repo.now!()
 
-    with {:ok, snapshot} <- approval_row(Approval.Query.by_request(connection_ref, request_id)),
+    with {:ok, snapshot} <-
+           fetch_approval_row(Approval.Query.by_request(connection_ref, request_id)),
          :ok <- exact_run(snapshot, state),
-         {:ok, episode} <- approval_row(Episodes.Episode.Query.by_id(snapshot.episode_id)),
-         {:ok, record} <- approval_row(Records.Record.Query.by_id(snapshot.record_id)),
+         {:ok, episode} <- fetch_approval_row(Episodes.Episode.Query.by_id(snapshot.episode_id)),
+         {:ok, record} <- fetch_approval_row(Records.Record.Query.by_id(snapshot.record_id)),
          {:ok, input} <- terminal_input(episode, snapshot, state, now),
          admit <- admit_command(episode, input, snapshot),
          resume <- resume_command(episode, admit, record, snapshot, now),
@@ -665,14 +666,14 @@ defmodule Ryker.Emisar.Approvals do
     id
     |> Records.Record.Query.by_id()
     |> Records.Record.Query.lock_for_update()
-    |> approval_row()
+    |> fetch_approval_row()
   end
 
   defp fetch_and_lock_approval(id),
-    do: id |> Approval.Query.by_id() |> Approval.Query.lock_for_update() |> approval_row()
+    do: id |> Approval.Query.by_id() |> Approval.Query.lock_for_update() |> fetch_approval_row()
 
   # Each row a finished approval resumes from must still be there.
-  defp approval_row(query) do
+  defp fetch_approval_row(query) do
     with {:error, :not_found} <- Repo.fetch(query), do: {:error, :emisar_approval_not_found}
   end
 

@@ -607,7 +607,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp question_url(%Episodes.Episode{state: :waiting_for_input} = episode) do
     with workspace_url when is_binary(workspace_url) <- Settings.slack_workspace_url(),
          {:ok, %Records.Record{turn_id: turn_id}} when not is_nil(turn_id) <-
-           open_question(episode.id),
+           fetch_open_question(episode.id),
          %Work.Turn{
            external_receipt: %{"conversation_ref" => conversation, "message_ref" => message}
          } <-
@@ -620,7 +620,7 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   defp question_url(_episode), do: nil
 
-  defp open_question(episode_id) do
+  defp fetch_open_question(episode_id) do
     episode_id
     |> Records.Record.Query.by_episode_id()
     |> Records.Record.Query.by_kind("input_request")

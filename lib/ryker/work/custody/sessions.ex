@@ -230,7 +230,7 @@ defmodule Ryker.Work.Custody.Sessions do
   end
 
   defp pin_session_locked(episode, authority) do
-    case latest_session(episode.id) do
+    case fetch_and_lock_latest_session(episode.id) do
       {:error, :not_found} ->
         session_id = Repo.generate_id()
         emisar = emisar_pin(authority.environment_ref)
@@ -287,7 +287,7 @@ defmodule Ryker.Work.Custody.Sessions do
 
   @doc false
   def current_session(episode) do
-    case latest_session(episode.id) do
+    case fetch_and_lock_latest_session(episode.id) do
       {:error, :not_found} ->
         {:error, :work_policy_not_pinned}
 
@@ -310,7 +310,7 @@ defmodule Ryker.Work.Custody.Sessions do
     end
   end
 
-  defp latest_session(episode_id) do
+  defp fetch_and_lock_latest_session(episode_id) do
     episode_id
     |> Session.Query.latest_of_episode()
     |> Session.Query.lock_for_update()

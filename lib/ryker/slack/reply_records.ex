@@ -96,7 +96,7 @@ defmodule Ryker.Slack.ReplyRecords do
   # status: the offer payload alone cannot say whether the schedule still runs.
   defp present_saved_entity(document, %{status: :confirmed, kind: kind} = record)
        when kind in @saved_offer_kinds do
-    case saved_entity(kind, record) do
+    case fetch_saved_entity(kind, record) do
       {:error, :not_found} ->
         document
 
@@ -109,7 +109,7 @@ defmodule Ryker.Slack.ReplyRecords do
          document,
          %{status: :confirmed, kind: "automation_change_offer", payload: payload}
        ) do
-    case updated_automation(payload["automation_id"]) do
+    case fetch_updated_automation(payload["automation_id"]) do
       {:error, :not_found} ->
         document
 
@@ -138,7 +138,7 @@ defmodule Ryker.Slack.ReplyRecords do
   # durable global save was the model's own prose, which a reader cannot check
   # and which the instructions had to keep policing.
   defp present_saved_entity(document, %{status: :answered, kind: "input_request", ref: ref}) do
-    case remembered_answer(ref) do
+    case fetch_remembered_answer(ref) do
       {:error, :not_found} ->
         document
 
@@ -163,7 +163,7 @@ defmodule Ryker.Slack.ReplyRecords do
 
   defp present_saved_entity(document, _record), do: document
 
-  defp remembered_answer(ref) do
+  defp fetch_remembered_answer(ref) do
     ref
     |> Memories.MemoryEntry.Query.answering()
     |> Memories.MemoryEntry.Query.active()
@@ -176,22 +176,22 @@ defmodule Ryker.Slack.ReplyRecords do
 
   defp room_url(_room), do: nil
 
-  defp saved_entity("schedule_offer", record),
+  defp fetch_saved_entity("schedule_offer", record),
     do: Repo.fetch(Schedules.Schedule.Query.by_offer_record_id(record.id))
 
-  defp saved_entity("memory_offer", record),
+  defp fetch_saved_entity("memory_offer", record),
     do: Repo.fetch(Memories.MemoryEntry.Query.by_offer_record_id(record.id))
 
-  defp saved_entity(_behavior_offer, record),
+  defp fetch_saved_entity(_behavior_offer, record),
     do: Repo.fetch(Behaviors.Behavior.Query.by_offer_record_id(record.id))
 
-  defp updated_automation("schedule:" <> _rest = ref),
+  defp fetch_updated_automation("schedule:" <> _rest = ref),
     do: Repo.fetch(Schedules.Schedule.Query.by_ref(ref))
 
-  defp updated_automation("behavior:" <> _rest = ref),
+  defp fetch_updated_automation("behavior:" <> _rest = ref),
     do: Repo.fetch(Behaviors.Behavior.Query.by_ref(ref))
 
-  defp updated_automation(_ref), do: nil
+  defp fetch_updated_automation(_ref), do: nil
 
   @doc """
   The records a reply shows, each evidence record given the one link its

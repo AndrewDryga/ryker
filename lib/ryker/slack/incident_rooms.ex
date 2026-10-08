@@ -1061,7 +1061,7 @@ defmodule Ryker.Slack.IncidentRooms do
 
   defp claim_next_locked(worker_ref, lease_seconds) do
     now = Repo.now!()
-    now |> next_claimable_room() |> lease_room(worker_ref, lease_seconds, now)
+    now |> fetch_and_lock_next_claimable_room() |> lease_room(worker_ref, lease_seconds, now)
   end
 
   defp rearm_locked(room_ref) do
@@ -1094,7 +1094,8 @@ defmodule Ryker.Slack.IncidentRooms do
     end
   end
 
-  defp next_claimable_room(now), do: Repo.fetch(IncidentRoom.Query.next_claimable(now))
+  defp fetch_and_lock_next_claimable_room(now),
+    do: Repo.fetch(IncidentRoom.Query.next_claimable(now))
 
   defp claim_health_check_locked(worker_ref, lease_seconds, check_interval_seconds) do
     now = Repo.now!()
@@ -1126,11 +1127,11 @@ defmodule Ryker.Slack.IncidentRooms do
     now = Repo.now!()
 
     now
-    |> root_card_claimable_room(check_interval_seconds)
+    |> fetch_and_lock_root_card_claimable_room(check_interval_seconds)
     |> lease_room(worker_ref, lease_seconds, now)
   end
 
-  defp root_card_claimable_room(now, check_interval_seconds),
+  defp fetch_and_lock_root_card_claimable_room(now, check_interval_seconds),
     do: Repo.fetch(IncidentRoom.Query.next_root_card(now, check_interval_seconds))
 
   defp lease_room({:error, :not_found}, _worker_ref, _lease_seconds, _now), do: nil
@@ -1338,7 +1339,7 @@ defmodule Ryker.Slack.IncidentRooms do
              repository_context: room.repository_context,
              repository_ref: room.repository_ref
            ),
-         {:ok, record} <- offer_record(room.record_id),
+         {:ok, record} <- fetch_and_lock_offer_record(room.record_id),
          :ok <- confirmable_record(record),
          {:ok, _record} <- confirm_record(record, transition.episode.id, room),
          changeset =
@@ -1522,7 +1523,7 @@ defmodule Ryker.Slack.IncidentRooms do
     |> Repo.fetch()
   end
 
-  defp offer_record(id) do
+  defp fetch_and_lock_offer_record(id) do
     locked = id |> Records.Record.Query.by_id() |> Records.Record.Query.lock_for_update()
     with {:error, :not_found} <- Repo.fetch(locked), do: {:error, :incident_offer_not_found}
   end

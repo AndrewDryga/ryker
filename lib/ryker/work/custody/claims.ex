@@ -167,7 +167,7 @@ defmodule Ryker.Work.Custody.Claims do
   defp claim_locked(worker_ref, lease_seconds, phase, skipped) do
     now = Repo.now!()
 
-    case eligible_episode(now, phase, skipped) do
+    case fetch_and_lock_eligible_episode(now, phase, skipped) do
       {:error, :not_found} ->
         nil
 
@@ -190,7 +190,7 @@ defmodule Ryker.Work.Custody.Claims do
     end
   end
 
-  defp eligible_episode(now, phase, skipped),
+  defp fetch_and_lock_eligible_episode(now, phase, skipped),
     do: Repo.fetch(OwningTurn.Query.next_claimable_episode(now, phase, skipped))
 
   # The episode came from the snapshot the choosing query started with, which

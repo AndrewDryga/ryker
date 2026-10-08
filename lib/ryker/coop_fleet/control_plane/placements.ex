@@ -85,7 +85,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   def worker_idle?(session_id) do
     now = Repo.now!()
 
-    with {:ok, %Placement{} = placement} <- active_placement(session_id),
+    with {:ok, %Placement{} = placement} <- fetch_active_placement(session_id),
          true <- current?(placement, now),
          {:ok, %Worker{} = worker} <- Repo.fetch(Worker.Query.by_id(placement.worker_id)),
          true <- worker_current?(worker, placement.requirements["workspace_ref"], now),
@@ -97,7 +97,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     end
   end
 
-  defp active_placement(session_id),
+  defp fetch_active_placement(session_id),
     do: session_id |> Placement.Query.by_session_id() |> Placement.Query.active() |> Repo.fetch()
 
   defp every_slot_free?(worker) do
@@ -186,7 +186,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     validate_job_for_placement!(session)
     now = Repo.now!()
 
-    case current_placement(session_id) do
+    case fetch_and_lock_current_placement(session_id) do
       {:ok, %Placement{} = placement} ->
         cond do
           not current?(placement, now) ->
@@ -206,7 +206,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   end
 
   defp place_unassigned_session(session, requirements, lease_seconds, now) do
-    case latest_placement(session.id) do
+    case fetch_and_lock_latest_placement(session.id) do
       {:ok, %Placement{} = placement} ->
         Commands.fail_undelivered_commands(placement, now)
 
@@ -663,7 +663,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     |> Enum.each(&Shared.fetch_and_lock_worker/1)
   end
 
-  defp current_placement(session_id) do
+  defp fetch_and_lock_current_placement(session_id) do
     session_id
     |> Placement.Query.by_session_id()
     |> Placement.Query.current()
@@ -671,7 +671,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     |> Repo.fetch()
   end
 
-  defp latest_placement(session_id) do
+  defp fetch_and_lock_latest_placement(session_id) do
     session_id
     |> Placement.Query.by_session_id()
     |> Placement.Query.ordered_by_generation_desc()
