@@ -2,10 +2,15 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
   use ExUnit.Case, async: true
   alias Ryker.ControlPlane.{Assets, EpisodeTrace}
 
-  test "message content has its own surface and sections outrank disclosure labels" do
+  # The rules below read the one stylesheet the console serves.
+  setup_all do
+    conn = Plug.Test.conn(:get, "/workspace.css")
+    %{css: Assets.call(conn, []).resp_body}
+  end
+
+  test "message content has its own surface and sections outrank disclosure labels", %{css: css} do
     # Font-only fixes left sender/title plus message looking like title/subtitle.
     # The shared content surface must be present at every message nesting level.
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
     assert [_, container] = Regex.run(~r/^\.ui-message \{([^}]+)\}/m, css)
     assert container =~ "border:1px solid var(--ryker-stroke)"
     assert container =~ "background:var(--ryker-surface-raised)"
@@ -54,9 +59,9 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     assert field_value =~ "font-size:14px"
   end
 
-  test "cards use spacing instead of decorative dividers between titles and explanations" do
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
-
+  test "cards use spacing instead of decorative dividers between titles and explanations", %{
+    css: css
+  } do
     assert [_, heading] =
              Regex.run(
                ~r/^\.case-entry-body \.case-card-heading:not\(:last-child\) \{([^}]+)\}/m,
@@ -88,10 +93,9 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     refute participation =~ "border-top"
   end
 
-  test "secondary labels remain legible on both paper and panel surfaces" do
+  test "secondary labels remain legible on both paper and panel surfaces", %{css: css} do
     # Every usage label was pale green on paper; calibration put dark headings
     # on a black banner. These actual shipped colors must not recur.
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
     [_, tokens] = Regex.run(~r/\.ryker-app \.page-surface \{([^}]+)\}/, css)
     [_, muted] = Regex.run(~r/--muted:\s*(var\(--ryker-[a-z-]+\))/, tokens)
 
@@ -116,9 +120,7 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     end
   end
 
-  test "prompt and action headings cannot inherit the dark application banner" do
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
-
+  test "prompt and action headings cannot inherit the dark application banner", %{css: css} do
     for selector <- [".prompt-group > header", ".case-card-heading"] do
       [_, rule] = Regex.run(Regex.compile!(Regex.escape(selector) <> " \\{([^}]+)\\}"), css)
       assert rule =~ "background:transparent"
@@ -126,10 +128,9 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     end
   end
 
-  test "prompt token counts are visible and action facts fit a narrow viewport" do
+  test "prompt token counts are visible and action facts fit a narrow viewport", %{css: css} do
     # Desktop HTML tests missed a hidden token-count rule and an inherited
     # two-column grid that pushed a 390px viewport to 753px.
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
     [_, tokens] = Regex.run(~r/\.prompt-source-estimate \{([^}]+)\}/, css)
     assert tokens =~ "font-variant-numeric:tabular-nums"
     [_, facts] = Regex.run(~r/\.action-facts \{([^}]+)\}/, css)
@@ -139,9 +140,7 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     assert tooltip =~ "max-width:min(420px, calc(100vw - 24px))"
   end
 
-  test "prompt source disclosures have a shared chevron and right metadata slot" do
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
-
+  test "prompt source disclosures have a shared chevron and right metadata slot", %{css: css} do
     assert [_, summary] = Regex.run(~r/^\.ui-disclosure > summary \{([^}]+)\}/m, css)
     assert summary =~ "grid-template-columns"
 
@@ -163,12 +162,10 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     assert metadata =~ "margin-left:auto"
   end
 
-  test "expanded request-context fields and raw prompts remain contained" do
+  test "expanded request-context fields and raw prompts remain contained", %{css: css} do
     # A 3.4kpx source-field JSON line pushed a 390px episode page sideways, and
     # a retained raw prompt widened a 1,440px page to 1,517px. One source-card
     # boundary keeps every character available without widening the document.
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
-
     assert [_, source_body] = Regex.run(~r/^\.prompt-source-body \{([^}]+)\}/m, css)
     assert source_body =~ "min-width:0"
     assert source_body =~ "overflow-wrap:anywhere"
@@ -188,9 +185,7 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
   # one line and stretched the step to 3,735 px, because the copy block put the text out of reach
   # of the disclosure's wrapping rule. Above Raw arguments sat two lines, the card header's
   # hairline and the disclosure's own border.
-  test "a tool step's raw evidence wraps inside its card, under one line" do
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
-
+  test "a tool step's raw evidence wraps inside its card, under one line", %{css: css} do
     assert [_, raw] =
              Regex.run(
                ~r/^\.ui-disclosure-body > pre, \.ui-disclosure-body > \.copy-block > pre \{([^}]+)\}/m,
@@ -217,9 +212,7 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
   # rendering of those is way off, text too large, make it properly designed and more minimalistic
   # without loosing the data/features". Group names read as the cards' other section labels and
   # each entry at the cards' body size.
-  test "a briefing's saved context reads at the card's own sizes" do
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
-
+  test "a briefing's saved context reads at the card's own sizes", %{css: css} do
     assert [_, group] = Regex.run(~r/^\.applied-context h4 \{([^}]+)\}/m, css)
     assert group =~ "font-size:11px"
     assert group =~ "text-transform:uppercase"
@@ -232,10 +225,9 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     assert title =~ "font-size:14px"
   end
 
-  test "the open mobile workspace menu remains inside the viewport" do
+  test "the open mobile workspace menu remains inside the viewport", %{css: css} do
     # At 390px the menu's 320px content box opened from the More trigger and
     # widened the document to 447px. Anchor it to the full mobile navigation.
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
     assert [_, navigation] = Regex.run(~r/^\.mobile-navigation \{([^}]+)\}/m, css)
     assert navigation =~ "position:relative"
 
@@ -249,27 +241,23 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     assert menu =~ "box-sizing:border-box"
   end
 
-  test "shared fact lists cannot inherit the page surface column grid" do
+  test "shared fact lists cannot inherit the page surface column grid", %{css: css} do
     # An open Input details disclosure widened the 320px episode page to
     # 396px because the generic page-surface dl columns placed fact rows
     # beside one another instead of stacking them.
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
     assert [_, facts] = Regex.run(~r/\.ui-facts \{([^}]+)\}/, css)
     assert facts =~ "grid-template-columns:minmax(0,1fr)"
   end
 
-  test "candidate evidence cannot squeeze event reasons into a side column" do
+  test "candidate evidence cannot squeeze event reasons into a side column", %{css: css} do
     # Full-page Chromium screenshots caught unreadably narrow rejection text
     # despite a passing page-overflow check; geometry is also browser-tested.
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
     assert [_, rule] = Regex.run(~r/\.candidate-evidence \{([^}]+)\}/, css)
     assert rule =~ "grid-column:1 / -1"
     assert rule =~ "min-width:0"
   end
 
-  test "timeline cards share one readable type hierarchy" do
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
-
+  test "timeline cards share one readable type hierarchy", %{css: css} do
     [_, shell] = Regex.run(~r/\.case-card-heading \{([^}]+)\}/, css)
     assert shell =~ "grid-template-columns:minmax(0,1fr) auto"
     assert shell =~ "align-items:start"
@@ -309,9 +297,7 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     assert summary =~ "color:var(--ryker-text-secondary)"
   end
 
-  test "timeline navigation, disclosures and copy controls keep full-size targets" do
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
-
+  test "timeline navigation, disclosures and copy controls keep full-size targets", %{css: css} do
     [_, jumps] = Regex.run(~r/\.timeline-jumps a \{([^}]+)\}/, css)
     assert jumps =~ "width:44px"
     assert jumps =~ "height:44px"
@@ -324,11 +310,10 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     assert copy =~ "height:44px"
   end
 
-  test "the episode summary keeps timing together while semantic groups reflow without scrolling" do
+  test "the episode summary keeps timing together while semantic groups reflow without scrolling",
+       %{css: css} do
     # The three groups must survive both a 200% zoom viewport and a 320px
     # phone without turning the summary into a horizontally scrolling table.
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
-
     assert css =~
              ".episode-metrics { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr)"
 
@@ -342,12 +327,10 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     refute css =~ ".episode-metrics { overflow"
   end
 
-  test "participation rules stay a wrapping list and matched state is not color-only" do
+  test "participation rules stay a wrapping list and matched state is not color-only", %{css: css} do
     # The complete inventory can be longer than 200 rows. It remains one dense
     # list at phone width and text zoom, while a written verdict accompanies
     # the Ryker mint-on-graphite treatment for every match.
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
-
     assert [_, list] = Regex.run(~r/\.standing-rule-list \{([^}]+)\}/, css)
     assert list =~ "display:grid"
     assert list =~ "gap:0"
@@ -373,9 +356,7 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
   # Andrew, 2026-10-01, on Chat's "● Routing your message 5s": "make status
   # grayed out". The mint dot and bright words read like a message of their
   # own; the line only says where Ryker is.
-  test "the progress line under a Chat message is gray, dot and words alike" do
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
-
+  test "the progress line under a Chat message is gray, dot and words alike", %{css: css} do
     assert [_, dot] = Regex.run(~r/\.lab-progress-dot \{([^}]+)\}/, css)
     assert dot =~ "background:var(--ryker-text-secondary)"
 
@@ -389,8 +370,7 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
   # 'jumped' down. Status line should not move as it changes." The working line had rules of its
   # own and stood 24 px tall where the routing line is 18 px, so its words dropped as it took over.
   # Both are now one kind of line.
-  test "Chat's status line keeps its place as routing gives way to work" do
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
+  test "Chat's status line keeps its place as routing gives way to work", %{css: css} do
     refute css =~ "lab-typing-indicator"
   end
 
@@ -445,9 +425,8 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
     assert Enum.map(Enum.drop(chapters, -1), & &1.conversation_turn) == [1, 1, 1, 1, 1]
   end
 
-  test "settings feedback colours stay legible on the dark section panel" do
+  test "settings feedback colours stay legible on the dark section panel", %{css: css} do
     # A refusal an operator cannot read is a refusal they will retry blindly.
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
     tokens = Assets.call(Plug.Test.conn(:get, "/ryker-tokens.css"), []).resp_body
 
     assert css =~ ".form-feedback-error"
@@ -471,13 +450,11 @@ defmodule Ryker.ControlPlane.ReadabilityTest do
            "success text #{success} is unreadable on the page #{surface}"
   end
 
-  test "icon-only controls keep a 44px hit area around their small glyph" do
+  test "icon-only controls keep a 44px hit area around their small glyph", %{css: css} do
     # brand/ryker: at least 44x44px for icon buttons even if the glyph is
     # small. The activity row's "Inspect" chevron was a 20x36px link beside
     # a 14px icon; an Activity row now opens from anywhere on the row, and
     # the close and overflow controls already met the size.
-    css = Assets.call(Plug.Test.conn(:get, "/workspace.css"), []).resp_body
-
     for selector <- [
           ".ryker-app .behavior-menu > summary",
           ".lab-directory.is-open .lab-directory-close",

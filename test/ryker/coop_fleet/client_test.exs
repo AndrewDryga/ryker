@@ -379,7 +379,8 @@ defmodule Ryker.CoopFleet.ClientTest do
           name: :coop_worker_command_identity_valid
         )
 
-      assert {:error, %Ecto.Changeset{errors: [_ | _]}} = Repo.update(changeset, mode: :savepoint)
+      assert {:error, changeset} = Repo.update(changeset, mode: :savepoint)
+      assert "is invalid" in errors_on(changeset).operation_key
     end
 
     assert Repo.get!(Command, command.id) == command

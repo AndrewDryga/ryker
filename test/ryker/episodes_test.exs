@@ -198,8 +198,7 @@ defmodule Ryker.EpisodesTest do
 
     assert {:error, changeset} = Repo.insert(Episode.Changeset.insert(self_linked))
 
-    assert {:linked_episode_id, {"is invalid", _metadata}} =
-             List.keyfind(changeset.errors, :linked_episode_id, 0)
+    assert "is invalid" in errors_on(changeset).linked_episode_id
 
     assert Ryker.Inspectors.episode(input.episode_key) == nil
   end

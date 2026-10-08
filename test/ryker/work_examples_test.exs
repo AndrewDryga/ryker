@@ -235,10 +235,14 @@ defmodule Ryker.WorkExamplesTest do
   end
 
   describe "a person forgetting wins" do
+    setup do
+      keep_work_examples!()
+      :ok
+    end
+
     # A work example carries what a person asked; deleting that message must
     # take it back from the copy as it does from routing's.
     test "deleting the message a request was asked in erases its example, before or after the copy" do
-      keep_work_examples!()
       copied = work!("Ev-work-delete", "@ryker the staging password is hunter2, check db-1")
       assert {:ok, %{copied: 1}} = WorkExamples.capture(@options)
       later = work!("Ev-work-delete-2", "@ryker and check db-2 too", message: 2)
@@ -258,7 +262,6 @@ defmodule Ryker.WorkExamplesTest do
     # carried what that message said (2026-10-04 review; 32 of 47 live examples
     # of confirmed tasks named no message on 2026-10-07).
     test "deleting the message a task was offered in erases the confirmed task's example" do
-      keep_work_examples!()
       source = work!("Ev-task-source", "@ryker the staging password is hunter2, check db-1")
       task = confirmed_task!(source.episode_id)
       assert {:ok, %{copied: 2}} = WorkExamples.capture(@options)
@@ -269,7 +272,6 @@ defmodule Ryker.WorkExamplesTest do
     end
 
     test "deleting a Slack channel erases the work examples from it" do
-      keep_work_examples!()
       first = work!("Ev-work-channel", "@ryker why is the staging api down?")
       assert {:ok, %{copied: 1}} = WorkExamples.capture(@options)
 

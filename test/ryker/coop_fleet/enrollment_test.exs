@@ -2,9 +2,14 @@ defmodule Ryker.CoopFleet.EnrollmentTest do
   use Ryker.DataCase, async: true
   alias Ryker.CoopFleet.{Certificate, ControlPlane, Enrollment, EnrollmentToken}
 
-  test "a single-use token binds one named worker without receiving its private key" do
-    authority = authority()
+  # A test CA key takes a moment to generate, and every test signs with one.
+  setup_all do
+    %{authority: authority()}
+  end
 
+  test "a single-use token binds one named worker without receiving its private key", %{
+    authority: authority
+  } do
     assert {:ok, issued_token} =
              Enrollment.issue_token("worker-enroll", "workspace-main", "operator:andrew", 300)
 
@@ -66,9 +71,8 @@ defmodule Ryker.CoopFleet.EnrollmentTest do
              {:error, :coop_worker_enrollment_token_consumed}
   end
 
-  test "certificate renewal overlaps old and new identities so a lost response cannot strand the worker" do
-    authority = authority()
-
+  test "certificate renewal overlaps old and new identities so a lost response cannot strand the worker",
+       %{authority: authority} do
     assert {:ok, issued_token} =
              Enrollment.issue_token("worker-rotate", "workspace-main", "operator:andrew", 300)
 
@@ -99,8 +103,7 @@ defmodule Ryker.CoopFleet.EnrollmentTest do
 
   # Enrolling again left every earlier certificate valid until it expired, up
   # to a week, and any of them could renew itself meanwhile (2026-10-04 review).
-  test "enrolling a worker again cuts off every certificate it had" do
-    authority = authority()
+  test "enrolling a worker again cuts off every certificate it had", %{authority: authority} do
     first = enroll!("worker-reenrolled", authority)
 
     assert {:ok, renewed} =
@@ -124,8 +127,9 @@ defmodule Ryker.CoopFleet.EnrollmentTest do
            |> ControlPlane.authenticate_certificate() == {:ok, "worker-reenrolled"}
   end
 
-  test "a renewal leaves valid only the certificate that asked and the new one" do
-    authority = authority()
+  test "a renewal leaves valid only the certificate that asked and the new one", %{
+    authority: authority
+  } do
     enrolled = enroll!("worker-renewals", authority)
     first = certificate_der(enrolled["certificate_pem"])
 
@@ -156,9 +160,7 @@ defmodule Ryker.CoopFleet.EnrollmentTest do
     assert renew.(first) == {:error, :coop_worker_certificate_not_authorized}
   end
 
-  test "a token cannot be redirected to another worker or workspace" do
-    authority = authority()
-
+  test "a token cannot be redirected to another worker or workspace", %{authority: authority} do
     assert {:ok, issued_token} =
              Enrollment.issue_token("worker-bound", "workspace-bound", "operator:andrew", 300)
 
@@ -175,9 +177,9 @@ defmodule Ryker.CoopFleet.EnrollmentTest do
     assert Repo.aggregate(Certificate, :count) == 0
   end
 
-  test "enrollment authority request and TTL inputs fail closed before certificate custody" do
-    authority = authority()
-
+  test "enrollment authority request and TTL inputs fail closed before certificate custody", %{
+    authority: authority
+  } do
     assert Enrollment.issue_token("bad worker", "workspace", "operator", 60) ==
              {:error, {:invalid_coop_worker_enrollment, :worker_id}}
 

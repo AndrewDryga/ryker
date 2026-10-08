@@ -8,33 +8,33 @@ defmodule Ryker.Records.CardDeliveryTest do
   @origin_thread "1789004500.000700"
   @message "1789004501.000200"
 
-  test "a card is confirmable from the thread its episode is bound to" do
-    episode = episode()
+  setup do
+    %{episode: episode()}
+  end
+
+  test "a card is confirmable from the thread its episode is bound to", %{episode: episode} do
     turn = settled(@home_thread)
 
     assert CardDelivery.check(episode, turn, target(@home_thread, @message)) == :ok
   end
 
-  test "a card is confirmable from the origin thread routing delivered it to" do
+  test "a card is confirmable from the origin thread routing delivered it to", %{episode: episode} do
     # Found live 2026-09-11: routing delivered a correction card to the joined
     # root's thread and the Save press was refused as "no longer current"; a
     # human sees the same.
-    episode = episode()
     turn = settled(@origin_thread)
 
     assert CardDelivery.check(episode, turn, target(@origin_thread, @message)) == :ok
   end
 
-  test "a card is not confirmable from a thread it was never delivered to" do
-    episode = episode()
+  test "a card is not confirmable from a thread it was never delivered to", %{episode: episode} do
     turn = settled(@origin_thread)
 
     assert CardDelivery.check(episode, turn, target(@home_thread, @message)) ==
              {:error, :mismatch}
   end
 
-  test "a card is not confirmable through another message in its own thread" do
-    episode = episode()
+  test "a card is not confirmable through another message in its own thread", %{episode: episode} do
     turn = settled(@origin_thread)
 
     assert CardDelivery.check(
@@ -44,10 +44,9 @@ defmodule Ryker.Records.CardDeliveryTest do
            ) == {:error, :mismatch}
   end
 
-  test "a card delivered to another conversation is confirmable from neither" do
+  test "a card delivered to another conversation is confirmable from neither", %{episode: episode} do
     # The receipt is trusted for the thread, never for the channel: an episode
     # can only ever authorize controls in the conversation it belongs to.
-    episode = episode()
     turn = settled(@origin_thread, "slack:T123:C999")
 
     assert CardDelivery.check(
@@ -60,8 +59,7 @@ defmodule Ryker.Records.CardDeliveryTest do
              {:error, :mismatch}
   end
 
-  test "a card nothing has delivered yet carries no confirmable location" do
-    episode = episode()
+  test "a card nothing has delivered yet carries no confirmable location", %{episode: episode} do
     target = target(@home_thread, @message)
 
     assert CardDelivery.check(episode, %Turn{status: :pending}, target) ==

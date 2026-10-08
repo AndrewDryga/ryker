@@ -714,8 +714,12 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
   # start may be made. None of these stops was reached by a test before
   # (2026-10-04 review), and each is the only way out of its state.
   describe "a run that ends without a document" do
-    test "a session create Coop reports failed stops the run on that proof" do
+    setup do
       github!()
+      :ok
+    end
+
+    test "a session create Coop reports failed stops the run on that proof" do
       ready!()
       coop = coop!([answer_json()], fail_first_operation: true)
 
@@ -735,7 +739,6 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     end
 
     test "a session the worker cannot address before the turn is sent is given up" do
-      github!()
       ready!()
       coop = coop!([answer_json()])
       StopAPI.arm(coop, :unaddressable)
@@ -756,7 +759,6 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     end
 
     test "a run that ended before its session was asked for stops with nothing to stop" do
-      github!()
       ready!()
       coop = coop!([answer_json()])
       StopAPI.arm(coop, :unprepared)
@@ -779,7 +781,6 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     end
 
     test "a run that ended before its turn was sent stops on Coop's word that no submit exists" do
-      github!()
       ready!()
       coop = coop!([answer_json()])
       StopAPI.arm(coop, :lost_submit)
@@ -808,7 +809,6 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     end
 
     test "a submit Coop reports failed stops the run on that proof" do
-      github!()
       ready!()
       coop = coop!([answer_json()])
       StopAPI.arm(coop, :failed_submit)
@@ -825,7 +825,6 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     end
 
     test "a turn past its time is cancelled and the run stops once Coop says it ended" do
-      github!()
       ready!()
       coop = coop!([answer_json(), answer_json()], turn_wait_polls: 1_000)
       step_until_submitted!(coop)
@@ -845,7 +844,6 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
     end
 
     test "a run no turn of which can still be running is closed on the clock alone" do
-      github!()
       ready!()
       coop = coop!([answer_json(), answer_json()], turn_wait_polls: 1_000)
       step_until_submitted!(coop)

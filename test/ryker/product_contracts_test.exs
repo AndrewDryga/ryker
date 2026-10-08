@@ -1,5 +1,6 @@
 defmodule Ryker.ProductContractsTest do
   use ExUnit.Case, async: true
+  import Ryker.DataCase, only: [errors_on: 1]
   alias Ryker.ControlPlane.CSRF
   alias Ryker.Ingress.{Projections, WorkProfile}
   alias Ryker.Publication.{LifecycleStatus, Receipt}
@@ -328,12 +329,12 @@ defmodule Ryker.ProductContractsTest do
         workspace_task: nil
       })
 
-    assert Keyword.has_key?(session_changeset.errors, :repository_context)
+    assert "is not a bounded repository set" in errors_on(session_changeset).repository_context
 
     room_changeset =
       IncidentRoom.Changeset.insert(%{repository_context: %{}, repository_ref: "ryker"})
 
-    assert Keyword.has_key?(room_changeset.errors, :repository_context)
+    assert "is not a bounded repository set" in errors_on(room_changeset).repository_context
   end
 
   test "model classes cannot widen the trusted execution authority" do

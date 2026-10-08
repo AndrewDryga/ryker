@@ -366,11 +366,15 @@ defmodule Ryker.RoutingExamplesTest do
   end
 
   describe "a person forgetting wins" do
+    setup do
+      keep_examples!()
+      :ok
+    end
+
     # The prompt of a later message quotes the earlier ones of its channel, so
     # forgetting a message must reach every example that quoted it, not only
     # its own.
     test "forgetting what was learned from a message erases every example that quoted it" do
-      keep_examples!()
       first = route!("Ev-examples-first", "the staging account is acme-staging", @ignore)
       second = route!("Ev-examples-second", "thanks", @ignore, message: 2)
       unrelated = route!("Ev-examples-other", "hello", @ignore, message: 3, channel: "C999")
@@ -393,7 +397,6 @@ defmodule Ryker.RoutingExamplesTest do
     # A learned topic reaches later prompts on its own, its summary quoted
     # where the message it came from may no longer be.
     test "forgetting a learned topic erases the examples whose prompt quoted it" do
-      keep_examples!()
       first = route!("Ev-examples-topic", "the staging account is acme-staging", @ignore)
       topic = topic!(first, "staging-account", "Staging account")
       second = route!("Ev-examples-topic-2", "which account is staging?", @ignore, message: 2)
@@ -409,7 +412,6 @@ defmodule Ryker.RoutingExamplesTest do
     end
 
     test "a message forgotten before its example is taken is never copied" do
-      keep_examples!()
       first = route!("Ev-examples-early", "the staging account is acme-staging", @ignore)
       second = route!("Ev-examples-early-2", "thanks", @ignore, message: 2)
 
@@ -422,7 +424,6 @@ defmodule Ryker.RoutingExamplesTest do
     end
 
     test "deleting a message in Slack erases the examples that quote it" do
-      keep_examples!()
       first = route!("Ev-examples-deleted", "the staging account is acme-staging", @ignore)
       second = route!("Ev-examples-deleted-2", "thanks", @ignore, message: 2)
       assert {:ok, %{copied: 2}} = RoutingExamples.capture(@options)
@@ -434,7 +435,6 @@ defmodule Ryker.RoutingExamplesTest do
     end
 
     test "a message deleted before its example is taken is never copied" do
-      keep_examples!()
       first = route!("Ev-examples-deleted-early", "the staging account is acme-staging", @ignore)
 
       delete_message!("Ev-examples-deleted-early-gone", 1)
@@ -448,7 +448,6 @@ defmodule Ryker.RoutingExamplesTest do
     # had replaced, in its own prompt and in every later prompt of the channel
     # that quoted it.
     test "editing a message in Slack erases the examples that quoted its old words" do
-      keep_examples!()
       first = route!("Ev-examples-edited", "the staging account is acme-staging", @ignore)
       second = route!("Ev-examples-edited-2", "thanks", @ignore, message: 2)
       unrelated = route!("Ev-examples-edited-3", "hello", @ignore, message: 3, channel: "C999")
@@ -465,7 +464,6 @@ defmodule Ryker.RoutingExamplesTest do
     # fixes their message meanwhile: the copy taken afterwards quoted the
     # words the edit had replaced.
     test "a message edited before its example is taken is never copied" do
-      keep_examples!()
       first = route!("Ev-examples-edited-early", "the staging account is acme-staging", @ignore)
       second = route!("Ev-examples-edited-early-2", "thanks", @ignore, message: 2)
 
@@ -480,7 +478,6 @@ defmodule Ryker.RoutingExamplesTest do
     # the words untouched. Most messages quote a channel's last twenty, so
     # counting those as edits would take nearly every example with them.
     test "an edit that leaves the words as they were, such as a link preview, erases nothing" do
-      keep_examples!()
       text = "the dashboard is https://grafana.example.com/d/abc"
       first = route!("Ev-examples-preview", text, @ignore)
       second = route!("Ev-examples-preview-2", "thanks", @ignore, message: 2)
@@ -502,7 +499,6 @@ defmodule Ryker.RoutingExamplesTest do
     # every example that had offered that work: the one quotation forgetting
     # could not trace (2026-09-27).
     test "deleting a message a candidate's preview quoted erases the examples that offered it" do
-      keep_examples!()
       route!("Ev-examples-offered", "the staging account is acme-staging", @start_episode)
 
       # The channel's five later messages are the notes routing recalls beside
@@ -531,7 +527,6 @@ defmodule Ryker.RoutingExamplesTest do
     # not a person taking back their words, and erasing on it would lose the
     # examples of how routing handled the alert, which most routing is.
     test "an app updating its own message erases nothing" do
-      keep_examples!()
       alerting = %{kind: :app, ref: "AALERTS"}
       first = route!("Ev-examples-alert", "FIRING: disk full on db-1", @ignore, actor: alerting)
       second = route!("Ev-examples-alert-2", "looking into it", @ignore, message: 2)
@@ -549,7 +544,6 @@ defmodule Ryker.RoutingExamplesTest do
     end
 
     test "deleting a Slack channel erases the examples from it" do
-      keep_examples!()
       first = route!("Ev-examples-channel", "the staging account is acme-staging", @ignore)
       assert {:ok, %{copied: 1}} = RoutingExamples.capture(@options)
       later = route!("Ev-examples-channel-2", "thanks", @ignore, message: 2)
@@ -578,10 +572,14 @@ defmodule Ryker.RoutingExamplesTest do
   end
 
   describe "retention" do
+    setup do
+      keep_examples!()
+      :ok
+    end
+
     # The copy is the point: a prompt pruned at 30 days must not take its
     # training example with it, however the source rows go.
     test "an example outlives the pruning of every row it was copied from" do
-      keep_examples!()
       entry = route!("Ev-examples-outlives", "hello there", @ignore)
       assert {:ok, %{copied: 1}} = RoutingExamples.capture(@options)
       kept_prompt = Repo.one!(Example).prompt
@@ -608,7 +606,6 @@ defmodule Ryker.RoutingExamplesTest do
     end
 
     test "an example expires at its own window, counted from the decision" do
-      keep_examples!()
       old = route!("Ev-examples-old", "hello there", @ignore)
       fresh = route!("Ev-examples-fresh", "good morning", @ignore, message: 2)
       assert {:ok, %{copied: 2}} = RoutingExamples.capture(@options)
@@ -627,7 +624,6 @@ defmodule Ryker.RoutingExamplesTest do
     # included, never ran while that phase kept failing (2026-10-04 review).
     # Each phase runs on its own, and the pass still reports the failure.
     test "examples a person turned off are deleted even when an earlier pruning phase fails" do
-      keep_examples!()
       route!("Ev-examples-phase-failed", "hello there", @ignore)
       assert {:ok, %{copied: 1}} = RoutingExamples.capture(@options)
 
@@ -647,7 +643,6 @@ defmodule Ryker.RoutingExamplesTest do
     end
 
     test "turning keeping routing examples off deletes every kept one" do
-      keep_examples!()
       route!("Ev-examples-withdrawn", "hello there", @ignore)
       assert {:ok, %{copied: 1}} = RoutingExamples.capture(@options)
 
@@ -803,8 +798,12 @@ defmodule Ryker.RoutingExamplesTest do
   end
 
   describe "the export" do
-    test "the export writes one fine-tuning line per kept example and none for a forgotten one" do
+    setup do
       keep_examples!()
+      :ok
+    end
+
+    test "the export writes one fine-tuning line per kept example and none for a forgotten one" do
       kept = route!("Ev-examples-export", "hi, reply with one word", @quick_reply)
       deliver_routing_responses!()
 
@@ -849,7 +848,6 @@ defmodule Ryker.RoutingExamplesTest do
     # its address and from the mix task until retention deleted the examples
     # (2026-10-04 review).
     test "nothing is exported once keeping routing examples is off" do
-      keep_examples!()
       route!("Ev-examples-off", "hello there", @ignore)
       assert {:ok, %{copied: 1}} = RoutingExamples.capture(@options)
       revision = Settings.fetch!().installation.revision
@@ -864,7 +862,6 @@ defmodule Ryker.RoutingExamplesTest do
     end
 
     test "the export goes oldest decision first and stops when its reader does" do
-      keep_examples!()
       older = route!("Ev-examples-order", "hello there", @ignore)
       newer = route!("Ev-examples-order-2", "good morning", @ignore, message: 2)
       assert {:ok, %{copied: 2}} = RoutingExamples.capture(@options)
@@ -885,12 +882,16 @@ defmodule Ryker.RoutingExamplesTest do
   end
 
   describe "the worker" do
+    setup do
+      keep_examples!()
+      :ok
+    end
+
     # Copies were taken oldest first and a failed one was simply tried again,
     # so a batch of decisions whose copy failed every time held back every
     # decision settled after them for the whole window, a year by default
     # (2026-10-04 review).
     test "a decision whose copy fails every time stops holding back the ones after it" do
-      keep_examples!()
       failing = route!("Ev-examples-failing", "hello there", @ignore)
       later = route!("Ev-examples-after-failing", "good morning", @ignore, message: 2)
 
@@ -923,8 +924,6 @@ defmodule Ryker.RoutingExamplesTest do
     # Nothing settles by the clock, so an idle worker sleeps ten seconds; a
     # routed message has to wake it.
     test "a decision that settles while the worker is idle is copied at once" do
-      keep_examples!()
-
       worker =
         start_supervised!(
           {RoutingExamples.Worker, batch_size: 25, poll_interval_ms: 10_000, window_seconds: 60}
@@ -938,7 +937,6 @@ defmodule Ryker.RoutingExamplesTest do
     end
 
     test "feedback given while the worker is idle is copied at once" do
-      keep_examples!()
       entry = route!("Ev-examples-feedback-woken", "hi, reply with one word", @quick_reply)
       deliver_routing_responses!()
       assert {:ok, %{copied: 1}} = RoutingExamples.capture(@options)

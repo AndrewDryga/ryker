@@ -9,13 +9,17 @@ defmodule Ryker.ControlPlane.FailureListingTest do
   alias Ryker.Operator.Delivery, as: DeliveryOperator
   alias Ryker.Work.Custody
 
+  setup do
+    %{turn: work_turn!()}
+  end
+
   # Blocked replies were read oldest first, a hundred of each kind, and the page
   # then kept the newest hundred of what it had read. Once more than a hundred
   # replies were blocked, the newest ones, the replies people were still
   # waiting for, were cut before anything sorted them, and nothing on the page
   # said that anything was missing.
-  test "the newest blocked replies are listed first, and older ones are a page away, never dropped" do
-    turn = work_turn!()
+  test "the newest blocked replies are listed first, and older ones are a page away, never dropped",
+       %{turn: turn} do
     base = ~U[2099-01-01 00:00:00.000000Z]
 
     # Oldest first: refs[0] stopped first, refs[100] most recently.
@@ -51,8 +55,7 @@ defmodule Ryker.ControlPlane.FailureListingTest do
   # A full page ran the whole projection a second time, every kind and every
   # row's decoration, only to learn whether a next page existed (2026-10-04
   # review). The one read that fills the page also says whether more exist.
-  test "a full page of failures is read once, and still knows there are older ones" do
-    turn = work_turn!()
+  test "a full page of failures is read once, and still knows there are older ones", %{turn: turn} do
     base = ~U[2099-01-01 00:00:00.000000Z]
     for index <- 0..100, do: blocked_reply!(turn, index, DateTime.add(base, index, :second))
 
@@ -72,8 +75,7 @@ defmodule Ryker.ControlPlane.FailureListingTest do
     assert Agent.get(reads, & &1) == 1
   end
 
-  test "a page that holds every failure offers no other page" do
-    turn = work_turn!()
+  test "a page that holds every failure offers no other page", %{turn: turn} do
     blocked_reply!(turn, 0, ~U[2099-01-01 00:00:00.000000Z])
 
     assert {:ok, [_one]} = FailureProjection.list(%{})

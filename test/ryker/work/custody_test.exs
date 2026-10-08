@@ -497,7 +497,7 @@ defmodule Ryker.Work.CustodyTest do
              )
              |> Repo.insert()
 
-    assert {"does not exist", _metadata} = changeset.errors[:session_id]
+    assert "does not exist" in errors_on(changeset).session_id
   end
 
   test "session and turn generations reject out-of-order remote bindings" do

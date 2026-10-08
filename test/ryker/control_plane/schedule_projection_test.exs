@@ -15,10 +15,14 @@ defmodule Ryker.ControlPlane.ScheduleProjectionTest do
   alias Ryker.Schedules.ScheduleOccurrence
   alias Ryker.Work.{Session, Turn}
 
-  test "current schedules put the next run first and paused ones after it, never alphabetical by status" do
+  setup do
+    %{source: SavedEntities.source!("slack:T123:C456")}
+  end
+
+  test "current schedules put the next run first and paused ones after it, never alphabetical by status",
+       %{source: source} do
     # Until 2026-09-24 the list sorted on the status column's text, so Paused
     # sat below Deleted and a live schedule could be buried under history.
-    source = SavedEntities.source!("slack:T123:C456")
     SavedEntities.schedule!(source, "Later", 5)
     SavedEntities.schedule!(source, "Sooner", 1)
     SavedEntities.schedule!(source, "Paused", 0, status: :paused)
@@ -45,11 +49,11 @@ defmodule Ryker.ControlPlane.ScheduleProjectionTest do
     assert titles(ScheduleProjection.list(%{"view" => "current", "q" => "soon"})) == ["Sooner"]
   end
 
-  test "a schedule's times are read in its own time zone, so the next run matches how often it runs" do
+  test "a schedule's times are read in its own time zone, so the next run matches how often it runs",
+       %{source: source} do
     # "Every day at 09:00 Berlin time" next to a next run of "07:00 UTC" reads
     # as a contradiction; the database converts, because the host has no zone
     # database of its own.
-    source = SavedEntities.source!("slack:T123:C456")
     schedule = SavedEntities.schedule!(source, "Morning summary", 1)
 
     Repo.update_all(from(saved in Schedule, where: saved.id == ^schedule.id),
@@ -89,8 +93,9 @@ defmodule Ryker.ControlPlane.ScheduleProjectionTest do
              "/timeline/" <> source.episode.id
   end
 
-  test "a one-time schedule says its moment in its own zone even after it has run" do
-    source = SavedEntities.source!("slack:T123:C456")
+  test "a one-time schedule says its moment in its own zone even after it has run", %{
+    source: source
+  } do
     schedule = SavedEntities.schedule!(source, "Release check", 1, status: :completed)
 
     Repo.update_all(from(saved in Schedule, where: saved.id == ^schedule.id),
@@ -109,8 +114,7 @@ defmodule Ryker.ControlPlane.ScheduleProjectionTest do
   # Each run's latest turn was found by ranking every turn in the database, so
   # a schedule's page read the whole turns table to show its ten newest runs,
   # and read it again on every refresh (2026-10-04 review).
-  test "a schedule's page reads only its own runs' turns" do
-    source = SavedEntities.source!("slack:T123:C456")
+  test "a schedule's page reads only its own runs' turns", %{source: source} do
     schedule = SavedEntities.schedule!(source, "Nightly check", 1)
     run = episode!()
     turn!(run, :blocked, ~U[2026-10-01 08:00:00.000000Z])

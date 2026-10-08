@@ -8,9 +8,12 @@ defmodule Ryker.AccountingTest do
   alias Ryker.Work.Custody
   alias Ryker.Work.SubmissionBuilder
 
-  test "polling and missing telemetry cannot duplicate or erase an unsuccessful execution's spend" do
-    claim = claim!()
+  setup do
+    %{claim: claim!()}
+  end
 
+  test "polling and missing telemetry cannot duplicate or erase an unsuccessful execution's spend",
+       %{claim: claim} do
     remote = %{
       "id" => "remote-cost-turn",
       "state" => "running",
@@ -43,8 +46,9 @@ defmodule Ryker.AccountingTest do
   # The Usage page and a request's page show what each execution cost. Until
   # 2026-09-26 they learned of it from a trigger's NOTIFY and a five-second
   # poll; the ledger now says so itself once the snapshot commits.
-  test "a recorded execution's usage reaches the usage page and its request's page" do
-    claim = claim!()
+  test "a recorded execution's usage reaches the usage page and its request's page", %{
+    claim: claim
+  } do
     episode_id = claim.episode.id
     :ok = Accounting.subscribe_usage()
     :ok = Episodes.subscribe_episode(episode_id)
@@ -62,9 +66,9 @@ defmodule Ryker.AccountingTest do
     assert_received {:episode_updated, ^episode_id}
   end
 
-  test "a retry generation preserves its predecessor and fences the expired claimant" do
-    claim = claim!()
-
+  test "a retry generation preserves its predecessor and fences the expired claimant", %{
+    claim: claim
+  } do
     assert {:ok, session} =
              Custody.bind_session(
                claim.episode.id,
@@ -114,9 +118,9 @@ defmodule Ryker.AccountingTest do
     assert Enum.map(rows, & &1.status) == ["failed", "cancelled"]
   end
 
-  test "compact accounting survives source artifact removal and separates shadow execution" do
-    claim = claim!()
-
+  test "compact accounting survives source artifact removal and separates shadow execution", %{
+    claim: claim
+  } do
     assert Accounting.observe_work(claim, %{
              "state" => "cancelled",
              "usage" => %{"input_tokens" => 12}
@@ -143,8 +147,7 @@ defmodule Ryker.AccountingTest do
   # ahead of its database refused usage for leases the database still held,
   # and one running behind accounted for leases custody had already given
   # away. The two clocks agree on one machine, which is why nothing caught it.
-  test "the accounting fence reads the database clock, not the host's" do
-    claim = claim!()
+  test "the accounting fence reads the database clock, not the host's", %{claim: claim} do
     shadow_database_clock!(3_600)
 
     assert Accounting.observe_work(claim, %{"state" => "completed"}) ==

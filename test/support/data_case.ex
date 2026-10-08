@@ -6,8 +6,21 @@ defmodule Ryker.DataCase do
   using do
     quote do
       @moduletag :database
+      import Ryker.DataCase, only: [errors_on: 1]
       alias Ryker.Repo
     end
+  end
+
+  @doc """
+  A changeset's errors by field, each message with its options filled in, so
+  a test asserts what a person reads rather than that some error is there.
+  """
+  def errors_on(changeset) do
+    Ecto.Changeset.traverse_errors(changeset, fn {message, options} ->
+      Regex.replace(~r"%{(\w+)}", message, fn _, key ->
+        options |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
+      end)
+    end)
   end
 
   setup tags do

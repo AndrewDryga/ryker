@@ -5,8 +5,15 @@ defmodule Ryker.Admission.AttemptsTest do
   alias Ryker.Ingress.Inbox
   alias Ryker.Slack.Input
 
-  test "transport retries reuse frozen request bytes after instructions change" do
+  setup do
     {entry, settings} = claimed_input!()
+    %{entry: entry, settings: settings}
+  end
+
+  test "transport retries reuse frozen request bytes after instructions change", %{
+    entry: entry,
+    settings: settings
+  } do
     first = %{"prompt" => "Host-authored first request", "output_schema" => %{"type" => "object"}}
     next = %{first | "prompt" => "Later code must not rewrite the same operation"}
     assert {:ok, attempt} = Attempts.prepare(entry, settings)
@@ -25,8 +32,10 @@ defmodule Ryker.Admission.AttemptsTest do
     assert Repo.aggregate(Attempt, :count) == 1
   end
 
-  test "an expired executor cannot replace a newer generation's evidence" do
-    {entry, settings} = claimed_input!()
+  test "an expired executor cannot replace a newer generation's evidence", %{
+    entry: entry,
+    settings: settings
+  } do
     assert {:ok, _} = Attempts.prepare(entry, settings)
 
     assert {:ok, _} =
@@ -51,8 +60,8 @@ defmodule Ryker.Admission.AttemptsTest do
     assert Repo.aggregate(Attempt, :count) == 2
   end
 
-  test "admission usage is counted before an episode exists and survives a sparse terminal poll" do
-    {entry, settings} = claimed_input!()
+  test "admission usage is counted before an episode exists and survives a sparse terminal poll",
+       %{entry: entry, settings: settings} do
     settings = Map.put(settings, :execution_target, "codex:gpt-5.6-terra/medium")
 
     remote = %{
@@ -83,8 +92,10 @@ defmodule Ryker.Admission.AttemptsTest do
   # Activity says "Routing" while a message is being routed, and its page
   # shows each phase. Until 2026-09-26 both waited on a trigger's NOTIFY and a
   # five-second poll; the context now says so itself once the phase commits.
-  test "each routing phase a message reaches is announced to the pages showing it" do
-    {entry, settings} = claimed_input!()
+  test "each routing phase a message reaches is announced to the pages showing it", %{
+    entry: entry,
+    settings: settings
+  } do
     id = entry.id
     :ok = Ryker.Admission.subscribe_routing()
     :ok = Inbox.subscribe_input(id)

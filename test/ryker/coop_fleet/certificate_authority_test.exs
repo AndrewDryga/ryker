@@ -34,13 +34,19 @@ defmodule Ryker.CoopFleet.CertificateAuthorityTest do
     Record.extract(:SignatureAlgorithm, from_lib: "public_key/include/public_key.hrl")
   )
 
-  test "one enrollment key receives a short-lived client-only certificate from the configured CA" do
+  # A test root CA's key takes a moment to generate, and every test signs with one.
+  setup_all do
     root =
       :public_key.pkix_test_root_cert(~c"Ryker Test Worker CA",
         digest: :sha256,
         key: {:rsa, 2_048, 65_537}
       )
 
+    %{root: root}
+  end
+
+  test "one enrollment key receives a short-lived client-only certificate from the configured CA",
+       %{root: root} do
     worker_private_key = :public_key.generate_key({:rsa, 2_048, 65_537})
     worker_public_key = {:RSAPublicKey, elem(worker_private_key, 2), elem(worker_private_key, 3)}
 
@@ -97,15 +103,9 @@ defmodule Ryker.CoopFleet.CertificateAuthorityTest do
              {:asn1_OPENTYPE, <<5, 0>>}
   end
 
-  test "the certificate authority accepts an OpenSSL PKCS8 private key" do
+  test "the certificate authority accepts an OpenSSL PKCS8 private key", %{root: root} do
     # The live gateway accepted this standard key at boot, but worker enrollment
     # returned HTTP 400 before it could issue an identity certificate.
-    root =
-      :public_key.pkix_test_root_cert(~c"Ryker Test Worker CA",
-        digest: :sha256,
-        key: {:rsa, 2_048, 65_537}
-      )
-
     ca_certificate_pem =
       :public_key.pem_encode([{:Certificate, root.cert, :not_encrypted}])
 
@@ -127,13 +127,7 @@ defmodule Ryker.CoopFleet.CertificateAuthorityTest do
              )
   end
 
-  test "weak worker keys and private-key submissions are rejected" do
-    root =
-      :public_key.pkix_test_root_cert(~c"Ryker Test Worker CA",
-        digest: :sha256,
-        key: {:rsa, 2_048, 65_537}
-      )
-
+  test "weak worker keys and private-key submissions are rejected", %{root: root} do
     ca_certificate_pem =
       :public_key.pem_encode([{:Certificate, root.cert, :not_encrypted}])
 

@@ -459,10 +459,14 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
   end
 
   describe "episode metric and pagination" do
+    setup do
+      membership!("T123", "C456", private: false, external_shared: false)
+      :ok
+    end
+
     test "the episode count is an exact aggregate with a filtered link the reader can page through" do
       # The old page showed nine rows from a hidden 200-row sample and no
       # total, so a busy channel could not be told from a quiet one.
-      membership!("T123", "C456", private: false, external_shared: false)
       membership!("T123", "C999", private: false, external_shared: false)
       episodes!("slack:T123:C456", 201)
       episodes!("slack:T123:C999", 2)
@@ -500,7 +504,6 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     test "an empty section says what would put something there once, with no zero count" do
       # "0 rollups" over "No compacted continuity is retained" was the same
       # fact twice; a count belongs to a list that has rows.
-      membership!("T123", "C456", private: false, external_shared: false)
       document = page("/channels/T123/C456") |> LazyHTML.from_document()
       schedules = LazyHTML.query(document, "#schedules")
 
@@ -520,7 +523,6 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       # `ingress-input:dc0ef577-…` in monospace and nothing else: the key of
       # the request, not the request. The Activity page already names an
       # episode by its first input; the channel page uses the same title.
-      membership!("T123", "C456", private: false, external_shared: false)
       [key] = episodes!("slack:T123:C456", 1)
       episode = Repo.get_by!(Episode, key: key)
 
@@ -565,7 +567,6 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     end
 
     test "every related collection pages exactly at 25 rows without losing a timestamp tie" do
-      membership!("T123", "C456", private: false, external_shared: false)
       # The offers' source episode lives elsewhere so it is not a 27th episode.
       source = SavedEntities.source!("slack:T123:CSOURCE")
       episode_refs = episodes!("slack:T123:C456", 26, updated_at: @now)
@@ -643,7 +644,6 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     end
 
     test "paging one section preserves the others and lands on its own anchor" do
-      membership!("T123", "C456", private: false, external_shared: false)
       episodes!("slack:T123:C456", 26, updated_at: @now)
       for _ <- 1..26, do: summary!("slack:T123", "slack:T123:C456", [])
 
@@ -687,7 +687,6 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     end
 
     test "a row deleted between requests moves the reader to the last valid page, not to an empty one" do
-      membership!("T123", "C456", private: false, external_shared: false)
       [first | _] = for _ <- 1..26, do: summary!("slack:T123", "slack:T123:C456", [])
       assert {:ok, view} = ChannelDetail.fetch("T123", "C456", %{"summary_page" => "2"})
       assert view.summaries.page == 2
@@ -707,7 +706,6 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     end
 
     test "a channel with only paged-out rows never reads as empty" do
-      membership!("T123", "C456", private: false, external_shared: false)
       summary!("slack:T123", "slack:T123:C456", [])
       html = page("/channels/T123/C456?summary_page=9")
       refute html =~ "Ryker has not learned anything here yet"
@@ -720,11 +718,15 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
   end
 
   describe "continuity and learning" do
+    setup do
+      membership!("T123", "C456", private: false, external_shared: false)
+      :ok
+    end
+
     test "a summary shows its retained state, sources and maintenance error, never its internals" do
       # The old row was an opaque continuity UUID with a thread and a date; an
       # operator could not tell what the channel remembered or why recall was
       # blocked without opening PostgreSQL.
-      membership!("T123", "C456", private: false, external_shared: false)
       source = SavedEntities.source!("slack:T123:C456")
 
       summary =
@@ -792,7 +794,6 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     end
 
     test "learned knowledge for the exact conversation shows its topic, state and history link" do
-      membership!("T123", "C456", private: false, external_shared: false)
       [key] = episodes!("slack:T123:C456", 1)
       episode = Repo.get_by!(Episode, key: key)
       {_entry, _document} = KnowledgeFixtures.learn!(episode)
@@ -836,7 +837,6 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     test "a long learned topic reads as a few lines, and the whole text stays one click away" do
       # "What Ryker knows" is a summary of the channel, not the memory itself:
       # one topic's full text once pushed every later section off the screen.
-      membership!("T123", "C456", private: false, external_shared: false)
       long = String.duplicate("Replication lag grows under load on the primary. ", 20)
       item = knowledge!("slack:T123:C456", title: "Replication", summary: long)
 
@@ -855,7 +855,6 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     end
 
     test "learning that needs a person is counted for the exact conversation and links to Learning" do
-      membership!("T123", "C456", private: false, external_shared: false)
       membership!("T123", "C999", private: false, external_shared: false)
 
       batch!("slack:T123:C456",
@@ -883,7 +882,6 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     end
 
     test "in-flight drafts and unsaved handovers are counted, never shown" do
-      membership!("T123", "C456", private: false, external_shared: false)
       source = SavedEntities.source!("slack:T123:C456")
       other = SavedEntities.source!("slack:T123:C999")
       draft!(source, "must-not-render-draft")
@@ -1198,11 +1196,15 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
   end
 
   describe "usage" do
+    setup do
+      membership!("T123", "C456", private: false, external_shared: false)
+      :ok
+    end
+
     test "usage is the conversation's own measured ledger with explicit coverage, never a free zero" do
       # Nine executions, two without token reports and one without a price:
       # summing them as zero would have shown a cheaper channel than the
       # ledger records.
-      membership!("T123", "C456", private: false, external_shared: false)
       now = DateTime.utc_now()
 
       execution!("slack:T123:C456",
@@ -1276,7 +1278,6 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     end
 
     test "measured zero, missing measurement and missing cost read differently" do
-      membership!("T123", "C456", private: false, external_shared: false)
       now = DateTime.utc_now()
 
       quiet = page("/channels/T123/C456") |> usage_text()
@@ -1309,7 +1310,6 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
     end
 
     test "the window is explicit and its boundaries hold for every choice" do
-      membership!("T123", "C456", private: false, external_shared: false)
       now = DateTime.utc_now()
 
       for hours <- [1, 72, 480, 1440] do

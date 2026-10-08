@@ -4,12 +4,18 @@ defmodule Ryker.Slack.InvestigationReplyTest do
 
   @fixture Path.expand("../../../testdata/slack/terraform-deployment-reply.json", __DIR__)
 
-  test "the recorded Terraform review keeps audit records out of the Slack reply" do
+  # The recorded investigation every test below renders.
+  setup_all do
+    fixture = @fixture |> File.read!() |> Jason.decode!()
+    %{fixture: fixture}
+  end
+
+  test "the recorded Terraform review keeps audit records out of the Slack reply", %{
+    fixture: fixture
+  } do
     # Seven evidence dumps, a repeated finding and private wait instructions buried the review.
     # Linkless source footers later buried it again with labels the reader could
     # not open. Evidence stays in the audit; only useful source links belong here.
-    fixture = @fixture |> File.read!() |> Jason.decode!()
-
     assert {:ok, rendered} =
              Renderer.render(%{
                "message" => fixture["candidate"]["message"],
@@ -24,8 +30,9 @@ defmodule Ryker.Slack.InvestigationReplyTest do
     refute inspect(rendered["blocks"]) =~ "source link unavailable"
   end
 
-  test "recorded sources become named links without repeating observations or findings" do
-    fixture = @fixture |> File.read!() |> Jason.decode!()
+  test "recorded sources become named links without repeating observations or findings", %{
+    fixture: fixture
+  } do
     records = ReplyRecords.enrich(fixture["records"], fixture["receipts"])
 
     assert {:ok, rendered} =
@@ -45,8 +52,9 @@ defmodule Ryker.Slack.InvestigationReplyTest do
     assert blocks =~ "2026-09-10 10:30 UTC"
   end
 
-  test "superseded observations stay in the audit but do not compete in source links" do
-    fixture = @fixture |> File.read!() |> Jason.decode!()
+  test "superseded observations stay in the audit but do not compete in source links", %{
+    fixture: fixture
+  } do
     [old, current | _] = Enum.filter(fixture["records"], &(&1["kind"] == "evidence"))
     current = put_in(current, ["payload", "supersedes"], [old["ref"]])
     records = ReplyRecords.enrich([old, current], fixture["receipts"])
@@ -59,8 +67,9 @@ defmodule Ryker.Slack.InvestigationReplyTest do
     assert hd(records)["payload"] == old["payload"]
   end
 
-  test "missing, ambiguous and unsafe source URLs never become invented links" do
-    fixture = @fixture |> File.read!() |> Jason.decode!()
+  test "missing, ambiguous and unsafe source URLs never become invented links", %{
+    fixture: fixture
+  } do
     [record | _] = fixture["records"]
     id = record["payload"]["source_id"]
     url = "https://emisar.dev/app/emisar/runs/" <> id
@@ -95,11 +104,12 @@ defmodule Ryker.Slack.InvestigationReplyTest do
     refute inspect(rendered) =~ "01a085b2-310a-7f88-8b05-138e306c7555"
   end
 
-  test "the renderer links the resolved source, never the record's own source_id" do
+  test "the renderer links the resolved source, never the record's own source_id", %{
+    fixture: fixture
+  } do
     # The footer had its own URL policy and fell back to payload source_id, so a
     # model-written URL stayed clickable even after the host refused to resolve it.
     # Two consumers of one link must not disagree about what proved it.
-    fixture = @fixture |> File.read!() |> Jason.decode!()
     [record | _] = fixture["records"]
     claimed = "https://emisar.dev/app/emisar/runs/" <> record["payload"]["source_id"]
     record = put_in(record, ["payload", "source_id"], claimed)
@@ -111,8 +121,9 @@ defmodule Ryker.Slack.InvestigationReplyTest do
     refute inspect(rendered) =~ claimed
   end
 
-  test "a mixed source footer keeps real links and omits linkless audit labels" do
-    fixture = @fixture |> File.read!() |> Jason.decode!()
+  test "a mixed source footer keeps real links and omits linkless audit labels", %{
+    fixture: fixture
+  } do
     records = ReplyRecords.enrich(fixture["records"], fixture["receipts"])
     [first | _] = records
     original_payload = first["payload"]
@@ -132,8 +143,7 @@ defmodule Ryker.Slack.InvestigationReplyTest do
     assert linkless["payload"] == original_payload
   end
 
-  test "repeated evidence for the same source produces one navigable link" do
-    fixture = @fixture |> File.read!() |> Jason.decode!()
+  test "repeated evidence for the same source produces one navigable link", %{fixture: fixture} do
     [record | _] = ReplyRecords.enrich(fixture["records"], fixture["receipts"])
     duplicate = Map.put(record, "ref", "record:evidence:same-source")
 
@@ -143,8 +153,7 @@ defmodule Ryker.Slack.InvestigationReplyTest do
     assert length(Regex.scan(~r/\|Saved Terraform plan>/, inspect(rendered["blocks"]))) == 1
   end
 
-  test "source labels cannot turn source links into Slack notifications" do
-    fixture = @fixture |> File.read!() |> Jason.decode!()
+  test "source labels cannot turn source links into Slack notifications", %{fixture: fixture} do
     [record | _] = fixture["records"]
     record = put_in(record, ["payload", "target"], "Plan | <!channel>")
     records = ReplyRecords.enrich([record], fixture["receipts"])
@@ -190,9 +199,8 @@ defmodule Ryker.Slack.InvestigationReplyTest do
     refute inspect(rendered) =~ "Private"
   end
 
-  test "retained source labels always fit Slack even after escaping" do
+  test "retained source labels always fit Slack even after escaping", %{fixture: fixture} do
     # Retained evidence allows 500-character labels; escaping must not reject delivery.
-    fixture = @fixture |> File.read!() |> Jason.decode!()
     [record | _] = fixture["records"]
 
     for character <- ["|", "&", "<"] do

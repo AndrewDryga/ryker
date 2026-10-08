@@ -2,8 +2,12 @@ defmodule Ryker.StateTools.WaitPromptTest do
   use ExUnit.Case, async: true
   alias Ryker.StateTools.FixedTools
 
-  test "reliable source notifications may be awaited without any scheduled wake" do
-    tool = Enum.find(FixedTools.list(capabilities: [:event_waits]), &(&1["name"] == "wait_for"))
+  setup do
+    tools = FixedTools.list(capabilities: [:event_waits])
+    %{tool: Enum.find(tools, &(&1["name"] == "wait_for"))}
+  end
+
+  test "reliable source notifications may be awaited without any scheduled wake", %{tool: tool} do
     schema = JSV.build!(tool["inputSchema"])
 
     assert {:ok, _} =
@@ -25,13 +29,11 @@ defmodule Ryker.StateTools.WaitPromptTest do
     assert tool["description"] =~ "event-only"
   end
 
-  test "source waits distinguish ingress identity from vendor payload fields" do
+  test "source waits distinguish ingress identity from vendor payload fields", %{tool: tool} do
     # A fresh Terraform replay waited for source_kind=terraform although the
     # actual notification arrived through Slack, so its terminal update never
     # resumed the episode. This pins the tool guidance; real model replay must
     # separately prove that the model uses it correctly.
-    tool = Enum.find(FixedTools.list(capabilities: [:event_waits]), &(&1["name"] == "wait_for"))
-
     source_trigger =
       tool["inputSchema"]["properties"]["trigger"]["oneOf"]
       |> Enum.find(&Map.has_key?(&1["properties"], "source_kind"))
@@ -49,11 +51,9 @@ defmodule Ryker.StateTools.WaitPromptTest do
     assert fields["match"]["description"] =~ "not JSONPath"
   end
 
-  test "wait matching starts at the raw payload below the Work input envelope" do
+  test "wait matching starts at the raw payload below the Work input envelope", %{tool: tool} do
     # The next real replay selected Slack correctly but wrapped run_id inside
     # content, so the terminal update again could not resume its stored wait.
-    tool = Enum.find(FixedTools.list(capabilities: [:event_waits]), &(&1["name"] == "wait_for"))
-
     trigger =
       Enum.find(
         tool["inputSchema"]["properties"]["trigger"]["oneOf"],

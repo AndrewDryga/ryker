@@ -161,15 +161,12 @@ defmodule Ryker.Artifacts.Outputs do
     changeset = OutputArtifact.Changeset.insert(attributes)
 
     case Repo.insert(changeset, on_conflict: :nothing) do
-      {:ok, _artifact_or_ignored_conflict} ->
-        reconcile_existing!(attributes, changeset)
-
-      {:error, %Ecto.Changeset{} = failed} ->
-        Repo.rollback({:work_output_artifact_conflict, failed})
+      {:ok, _artifact_or_ignored_conflict} -> reconcile_existing!(attributes)
+      {:error, %Ecto.Changeset{}} -> Repo.rollback(:work_output_artifact_conflict)
     end
   end
 
-  defp reconcile_existing!(attributes, changeset) do
+  defp reconcile_existing!(attributes) do
     artifact =
       OutputArtifact.Query.by_turn_id(attributes.turn_id)
       |> OutputArtifact.Query.by_ref(attributes.ref)
@@ -177,7 +174,7 @@ defmodule Ryker.Artifacts.Outputs do
 
     if artifact && identity(artifact) == identity(attributes),
       do: artifact,
-      else: Repo.rollback({:work_output_artifact_conflict, changeset})
+      else: Repo.rollback(:work_output_artifact_conflict)
   end
 
   defp identity(value),

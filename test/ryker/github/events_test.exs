@@ -2,12 +2,17 @@ defmodule Ryker.GitHub.EventsTest do
   use Ryker.DataCase, async: true
   alias Ryker.GitHub.{Binding, Event, Events}
 
+  setup do
+    %{binding: github_binding()}
+  end
+
   # Repositories shows each repository's GitHub health: when its last delivery
   # arrived and whether Ryker could process it. No trigger watched GitHub
   # deliveries at all until 2026-09-26, so that line caught up only on the
   # page's five-second poll; each delivery is now announced once it commits.
-  test "a recorded, repeated and processed delivery reaches the repository pages" do
-    binding = github_binding()
+  test "a recorded, repeated and processed delivery reaches the repository pages", %{
+    binding: binding
+  } do
     name = binding.name
     :ok = Events.subscribe_deliveries()
     payload = %{"action" => "opened", "number" => 7}
@@ -28,8 +33,7 @@ defmodule Ryker.GitHub.EventsTest do
 
   # Only a delivery whose processing failed is processed again; one that was
   # taken stays a duplicate, and so does the second of two copies racing.
-  test "a failed delivery is processed again once, and a processed one never" do
-    binding = github_binding()
+  test "a failed delivery is processed again once, and a processed one never", %{binding: binding} do
     payload = %{"action" => "created", "comment" => %{"id" => 7}}
     record = fn -> Events.record(binding, "delivery-2", "comment:7", "issue_comment", payload) end
 
@@ -49,8 +53,7 @@ defmodule Ryker.GitHub.EventsTest do
 
   # A request that crashed after recording its delivery left it "received" for
   # good: never processed, shown as pending, and kept by retention as custody.
-  test "a delivery a crash left unprocessed is taken again after ten minutes" do
-    binding = github_binding()
+  test "a delivery a crash left unprocessed is taken again after ten minutes", %{binding: binding} do
     payload = %{"action" => "created", "comment" => %{"id" => 8}}
     record = fn -> Events.record(binding, "delivery-3", "comment:8", "issue_comment", payload) end
 

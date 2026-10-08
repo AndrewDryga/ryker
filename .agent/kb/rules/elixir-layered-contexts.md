@@ -392,6 +392,22 @@ Emisar's test rules Ryker follows (`elixir-layered-contexts.md` §7 there):
 - Logs are captured at the ExUnit boundary (`capture_log: true`), and the
   code under test prints nothing else: git runs keep their errors and log one
   line on failure, and a test remote serves partial clones as GitHub does.
+- What every test of a describe or module needs and none of them varies is
+  built once in its `setup` and taken from the context (Emisar's README);
+  `setup_all` when it holds no rows and costs time, such as a test CA's key or
+  the console's stylesheet. What a test varies, or the subject it checks,
+  stays in the test (Emisar's DAMP rule). On 2026-10-08 twelve modules and
+  nine describes moved their shared opening into setup; seven kept theirs,
+  because one of their tests needs other rows or the opening is the thing
+  under test.
+- A changeset error is asserted by its message:
+  `assert "is invalid" in errors_on(changeset).field` (`Ryker.DataCase`),
+  never by matching `%Ecto.Changeset{}` or reading `changeset.errors`. A test
+  of which database constraint caught a write reads the constraint's name.
+- Measured against Emisar's test taste on 2026-10-08 and kept as Emisar
+  writes it: multi-line map arguments in test bodies (Ryker 1,398, Emisar
+  1,205) and parts of a fixture's result a test discards (Ryker 209, Emisar
+  1,080).
 
 Not adopted, because Ryker's own test rules (CLAUDE.md) differ:
 

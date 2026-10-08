@@ -327,8 +327,9 @@ defmodule Ryker.ArtifactsTest do
       output("different.png", "image/png", @png <> "different")
       |> Map.put("id", png["id"])
 
-    assert {:error, {:work_output_artifact_conflict, %Ecto.Changeset{}}} =
-             Outputs.put_many(turn_id, [conflicting])
+    # The refusal carried the attempted insert, image bytes and all, into the
+    # turn's saved error detail, and nothing read it.
+    assert Outputs.put_many(turn_id, [conflicting]) == {:error, :work_output_artifact_conflict}
 
     assert Outputs.fetch_many("bad-turn", []) == {:error, :work_output_artifact_not_found}
     assert Outputs.fetch_many(turn_id, :invalid) == {:error, :work_output_artifact_not_found}

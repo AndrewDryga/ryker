@@ -12,10 +12,15 @@ defmodule Ryker.Knowledge.KnowledgeSourcesTest do
   alias Ryker.Learning.Observations
   alias Ryker.Repo
 
+  setup do
+    %{entries: sources!()}
+  end
+
   # 103 of the 1,034 retained replay inputs have no old observation note. Raw
   # learning must not require inventing a note or rewrite the original admission.
-  test "raw learning includes inputs without old notes and records its own result reference" do
-    entries = sources!()
+  test "raw learning includes inputs without old notes and records its own result reference", %{
+    entries: entries
+  } do
     before = Repo.all(ConversationObservation)
     dependencies = entries |> Enum.map(&LearningSources.for_entry/1) |> LearningSources.merge()
 
@@ -46,9 +51,9 @@ defmodule Ryker.Knowledge.KnowledgeSourcesTest do
     assert KnowledgeSnapshot.still_valid(hd(entries), "tenant-infra", [item]) == :ok
   end
 
-  test "raw learning cannot reduce disclosed lineage to the claimed supporting sources" do
-    entries = sources!()
-
+  test "raw learning cannot reduce disclosed lineage to the claimed supporting sources", %{
+    entries: entries
+  } do
     assert {:ok, {:error, _}} =
              Repo.transaction(fn ->
                Knowledge.record_sources_in_transaction(entries, proposal(), [], %{
@@ -61,8 +66,9 @@ defmodule Ryker.Knowledge.KnowledgeSourcesTest do
     assert Repo.aggregate(ConversationKnowledge, :count) == 0
   end
 
-  test "raw learning carries every offered topic source even when creating a different topic" do
-    entries = sources!()
+  test "raw learning carries every offered topic source even when creating a different topic", %{
+    entries: entries
+  } do
     {old_source, offered} = Ryker.Fixtures.Knowledge.learn!(hd(entries), "tenant-infra")
     raw = entries |> Enum.map(&LearningSources.for_entry/1) |> LearningSources.merge()
 
@@ -91,8 +97,9 @@ defmodule Ryker.Knowledge.KnowledgeSourcesTest do
     assert Knowledge.context(hd(entries), "tenant-infra") == []
   end
 
-  test "raw learning does not copy an old derived observation it never disclosed" do
-    entries = sources!()
+  test "raw learning does not copy an old derived observation it never disclosed", %{
+    entries: entries
+  } do
     {_old_source, offered} = Ryker.Fixtures.Knowledge.learn!(hd(entries), "tenant-infra")
     older_at = DateTime.add(DateTime.utc_now(), -3601)
 
@@ -143,8 +150,7 @@ defmodule Ryker.Knowledge.KnowledgeSourcesTest do
     assert Repo.get!(ConversationKnowledge, raw_item.id).state["summary"] == proposal()["summary"]
   end
 
-  test "pruned knowledge cannot reappear when source retention is extended" do
-    entries = sources!()
+  test "pruned knowledge cannot reappear when source retention is extended", %{entries: entries} do
     dependencies = entries |> Enum.map(&LearningSources.for_entry/1) |> LearningSources.merge()
 
     assert Repo.transaction(fn ->
@@ -164,8 +170,9 @@ defmodule Ryker.Knowledge.KnowledgeSourcesTest do
              {:error, :work_knowledge_context_stale}
   end
 
-  test "an edit to a raw supporting input invalidates both recall and frozen Work" do
-    entries = sources!()
+  test "an edit to a raw supporting input invalidates both recall and frozen Work", %{
+    entries: entries
+  } do
     dependencies = entries |> Enum.map(&LearningSources.for_entry/1) |> LearningSources.merge()
 
     assert Repo.transaction(fn ->
