@@ -183,10 +183,10 @@ defmodule Ryker.CoopFleet.Checkpoints do
     do: Credentials.redaction_values() |> Enum.filter(&(byte_size(&1) >= 8)) |> Secret.new()
 
   defp restore_authority(command, transfer) do
-    source_command = Repo.one(Command.Query.by_id(transfer.command_id))
-    source = source_command && Repo.one(Work.Session.Query.by_id(source_command.session_id))
-    target = Repo.one(Work.Session.Query.by_id(command.session_id))
-    placement = Repo.one(Placement.Query.by_id(command.placement_id))
+    source_command = Repo.peek(Command.Query.by_id(transfer.command_id))
+    source = source_command && Repo.peek(Work.Session.Query.by_id(source_command.session_id))
+    target = Repo.peek(Work.Session.Query.by_id(command.session_id))
+    placement = Repo.peek(Placement.Query.by_id(command.placement_id))
 
     if leased_placement?(placement, command) and same_source_sessions?(source, target) and
          command.payload["checkpoint"] == saved_checkpoint(transfer) do

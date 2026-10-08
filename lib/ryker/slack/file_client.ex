@@ -4,7 +4,7 @@ defmodule Ryker.Slack.FileClient do
   private Slack URL or bot credential.
   """
   alias Ryker.Maps
-  alias Ryker.Slack.Id
+  alias Ryker.Slack.ID
 
   @fields [:binary_http, :binary_requester, :json_http, :json_requester]
 
@@ -145,7 +145,7 @@ defmodule Ryker.Slack.FileClient do
     do: is_atom(module) and function_exported?(module, function, arity)
 
   defp slack_ref(value) do
-    if Id.valid?(value),
+    if ID.valid?(value),
       do: :ok,
       else: {:error, {:slack_file_rejected, :metadata}}
   end

@@ -77,7 +77,7 @@ defmodule Ryker.Episodes.CorrelationClaims do
     scope_ref
     |> CorrelationClaim.Query.by_occurrence(namespace, occurrence_ref)
     |> CorrelationClaim.Query.active()
-    |> Repo.one()
+    |> Repo.peek()
   end
 
   @spec for_episode(Ecto.UUID.t()) :: [CorrelationClaim.t()]

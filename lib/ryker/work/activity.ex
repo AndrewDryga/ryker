@@ -101,12 +101,12 @@ defmodule Ryker.Work.Activity do
 
   defp lock_ingest_session(session_id) do
     identity =
-      Repo.one(Session.Query.by_id(session_id)) || Repo.rollback(:work_session_not_found)
+      Repo.peek(Session.Query.by_id(session_id)) || Repo.rollback(:work_session_not_found)
 
     lock_activity_episode(identity.episode_id)
 
     session =
-      session_id |> Session.Query.by_id() |> Session.Query.lock_for_update() |> Repo.one() ||
+      session_id |> Session.Query.by_id() |> Session.Query.lock_for_update() |> Repo.peek() ||
         Repo.rollback(:work_session_not_found)
 
     if session.episode_id != identity.episode_id, do: Repo.rollback(:work_session_not_found)
@@ -121,7 +121,7 @@ defmodule Ryker.Work.Activity do
     episode_id
     |> Episodes.Episode.Query.by_id()
     |> Episodes.Episode.Query.lock_for_key_share()
-    |> Repo.one() ||
+    |> Repo.peek() ||
       Repo.rollback(:work_session_not_found)
   end
 
@@ -133,7 +133,7 @@ defmodule Ryker.Work.Activity do
              is_list(events) and length(events) <= @maximum_page do
     Repo.transaction(fn ->
       session =
-        Repo.one(Session.Query.by_id(session_id)) || Repo.rollback(:work_session_not_found)
+        Repo.peek(Session.Query.by_id(session_id)) || Repo.rollback(:work_session_not_found)
 
       if session.coop_session_id != remote_id,
         do: Repo.rollback({:coop_activity_session_conflict, remote_id})
@@ -353,7 +353,7 @@ defmodule Ryker.Work.Activity do
 
   defp verify_replayed_activity(session_id, event) do
     stored =
-      Repo.one(
+      Repo.peek(
         ActivityEvent.Query.by_sequence(session_id, event.remote_session_id, event.sequence)
       )
 

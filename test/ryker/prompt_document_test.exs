@@ -14,6 +14,13 @@ defmodule Ryker.PromptDocumentTest do
              ~s({"instructions":"Read it.","context":{"repository":"r","input":"hi","alpha":[true],"zeta":1}})
   end
 
+  # Self-analysis and repository reading each cut a long text for the model
+  # with their own copy of this until 2026-10-08.
+  test "a cut keeps whole characters within its bytes and tells the model the rest is gone" do
+    assert PromptDocument.cut("abcdef", 3) == "abc …[cut]"
+    assert PromptDocument.cut("ééé", 5) == "éé …[cut]"
+  end
+
   test "what was left out is listed once" do
     context = %{"omitted" => []}
     noted = PromptDocument.omit(context, "The oldest messages, left out for length.")

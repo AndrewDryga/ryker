@@ -38,7 +38,7 @@ defmodule Ryker.Improvement.FleetSession do
   @spec ensure(AnalysisRun.t()) :: {:ok, Work.Session.t()} | {:error, term()}
   def ensure(%AnalysisRun{} = run) do
     Repo.transaction(fn ->
-      session = run |> run_session() |> Repo.one() || create!(run)
+      session = run |> run_session() |> Repo.peek() || create!(run)
 
       unless session.policy == run.policy and session.policy_digest == run.policy_digest,
         do: Repo.rollback(:improvement_session_authority_conflict)

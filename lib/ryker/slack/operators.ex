@@ -26,12 +26,12 @@ defmodule Ryker.Slack.Operators do
   whether the workspace's admins and owners can too, and `workspace_ref` the
   workspace they are admins of. Anything but `true` keeps admins out.
   """
-  @spec new(keyword()) :: t()
-  def new(options) do
+  @spec new(Enumerable.t(String.t()), term(), String.t() | nil) :: t()
+  def new(chosen, workspace_admins, workspace_ref) do
     %__MODULE__{
-      chosen: options |> Keyword.fetch!(:chosen) |> MapSet.new(),
-      workspace_admins: Keyword.fetch!(options, :workspace_admins) == true,
-      workspace_ref: Keyword.fetch!(options, :workspace_ref)
+      chosen: MapSet.new(chosen),
+      workspace_admins: workspace_admins == true,
+      workspace_ref: workspace_ref
     }
   end
 

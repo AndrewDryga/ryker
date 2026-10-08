@@ -55,7 +55,7 @@ defmodule Ryker.CoopFleet.Bodies do
   end
 
   defp authorized_command(worker_id, command_id, now),
-    do: Repo.one(Command.Query.uploadable(worker_id, command_id, now))
+    do: Repo.peek(Command.Query.uploadable(worker_id, command_id, now))
 
   defdelegate reference?(reference), to: Protocol, as: :body_reference?
 
@@ -354,9 +354,10 @@ defmodule Ryker.CoopFleet.Bodies do
 
   defp write_chunks(file, cipher, chunks, reference) do
     chunks
-    |> Enum.reduce_while({0, :crypto.hash_init(:sha256)}, fn chunk, state ->
-      write_chunk(file, cipher, reference, chunk, state)
-    end)
+    |> Enum.reduce_while(
+      {0, :crypto.hash_init(:sha256)},
+      &write_chunk(file, cipher, reference, &1, &2)
+    )
     |> verify_written(reference)
   end
 

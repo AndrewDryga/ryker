@@ -108,7 +108,7 @@ defmodule Ryker.Slack.WorkRecord do
       pull_request_states: pull_request_states,
       records: records,
       title: work_title(resolved.work_ref),
-      turn: Repo.one(Work.Turn.Query.current(resolved.episode)),
+      turn: Repo.peek(Work.Turn.Query.current(resolved.episode)),
       work_ref: resolved.work_ref
     }
   end
@@ -145,7 +145,7 @@ defmodule Ryker.Slack.WorkRecord do
 
   # The task or incident by its own title; the card's reference is Ryker's (Andrew, 2026-10-01:
   # "Timeline for task-card:c00814ba-…").
-  defp work_title("task-card:" <> _rest = ref), do: Repo.one(TaskCard.Query.task_title(ref))
+  defp work_title("task-card:" <> _rest = ref), do: Repo.peek(TaskCard.Query.task_title(ref))
 
   defp work_title("record:task_offer:" <> _rest = ref),
     do: ref |> Records.Record.Query.by_ref() |> Records.Record.Query.select_titles() |> Repo.one()

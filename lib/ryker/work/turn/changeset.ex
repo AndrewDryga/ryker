@@ -41,7 +41,7 @@ defmodule Ryker.Work.Turn.Changeset do
       :turn_ref,
       :validation_generation
     ])
-    |> validate_length(:turn_ref, min: 1, max: 1_024)
+    |> validate_length(:turn_ref, min: 1, max: 1_024, count: :codepoints)
     |> unique_constraint([:episode_id, :turn_ref])
     |> foreign_key_constraint(:episode_id)
     |> foreign_key_constraint(:session_id, name: :episode_work_turn_session_episode_fkey)
@@ -70,8 +70,8 @@ defmodule Ryker.Work.Turn.Changeset do
       :lease_ref,
       :work_attempt_count
     ])
-    |> validate_length(:lease_owner, min: 1, max: 1_024)
-    |> validate_length(:lease_ref, min: 1, max: 1_024)
+    |> validate_length(:lease_owner, min: 1, max: 1_024, count: :codepoints)
+    |> validate_length(:lease_ref, min: 1, max: 1_024, count: :codepoints)
     |> work_constraints()
   end
 
@@ -95,7 +95,7 @@ defmodule Ryker.Work.Turn.Changeset do
       [:submission, :submission_fingerprint, :selected_input_refs, :selection_ledger]
     )
     |> validate_required([:submission, :submission_fingerprint])
-    |> validate_length(:submission_fingerprint, is: 64)
+    |> validate_length(:submission_fingerprint, is: 64, count: :codepoints)
     |> validate_selected_input_refs()
     |> work_constraints()
   end
@@ -235,7 +235,7 @@ defmodule Ryker.Work.Turn.Changeset do
       ]
     )
     |> validate_required([:remote_operation_key, :remote_operation_kind])
-    |> validate_length(:remote_operation_key, min: 1, max: 1_024)
+    |> validate_length(:remote_operation_key, min: 1, max: 1_024, count: :codepoints)
     |> work_constraints()
   end
 
@@ -271,8 +271,8 @@ defmodule Ryker.Work.Turn.Changeset do
       :status
     ])
     |> validate_required([:last_error_code, :last_error_detail, :next_attempt_at, :status])
-    |> validate_length(:last_error_code, min: 1, max: 128)
-    |> validate_length(:last_error_detail, min: 1, max: 4_096)
+    |> validate_length(:last_error_code, min: 1, max: 128, count: :codepoints)
+    |> validate_length(:last_error_detail, min: 1, max: 4_096, count: :codepoints)
     |> validate_length(:delivery_upload_refs, max: 5)
     |> work_constraints()
   end
@@ -319,8 +319,8 @@ defmodule Ryker.Work.Turn.Changeset do
       :status
     ])
     |> validate_required([:last_error_code, :last_error_detail, :status])
-    |> validate_length(:last_error_code, min: 1, max: 128)
-    |> validate_length(:last_error_detail, min: 1, max: 4_096)
+    |> validate_length(:last_error_code, min: 1, max: 128, count: :codepoints)
+    |> validate_length(:last_error_detail, min: 1, max: 4_096, count: :codepoints)
     |> work_constraints()
   end
 
@@ -426,7 +426,7 @@ defmodule Ryker.Work.Turn.Changeset do
     turn
     |> cast(%{coop_turn_id: coop_turn_id}, [:coop_turn_id])
     |> validate_required([:coop_turn_id])
-    |> validate_length(:coop_turn_id, min: 1, max: 1_024)
+    |> validate_length(:coop_turn_id, min: 1, max: 1_024, count: :codepoints)
     |> unique_constraint(:coop_turn_id)
     |> work_constraints()
   end
@@ -452,7 +452,7 @@ defmodule Ryker.Work.Turn.Changeset do
     )
     |> validate_required([:candidate, :candidate_attempt, :candidate_sha256])
     |> validate_length(:candidate, min: 1, max: @maximum_candidate_bytes, count: :bytes)
-    |> validate_length(:candidate_sha256, is: 64)
+    |> validate_length(:candidate_sha256, is: 64, count: :codepoints)
     |> validate_number(:candidate_attempt, greater_than: 0)
     |> work_constraints()
   end
@@ -485,7 +485,7 @@ defmodule Ryker.Work.Turn.Changeset do
       :validation_generation
     ])
     |> validate_length(:candidate, min: 1, max: @maximum_candidate_bytes, count: :bytes)
-    |> validate_length(:candidate_sha256, is: 64)
+    |> validate_length(:candidate_sha256, is: 64, count: :codepoints)
     |> validate_number(:candidate_attempt, greater_than: 0)
     |> work_constraints()
   end
@@ -521,7 +521,7 @@ defmodule Ryker.Work.Turn.Changeset do
       :validation_intent,
       :validation_intent_fingerprint
     ])
-    |> validate_length(:validation_intent_fingerprint, is: 64)
+    |> validate_length(:validation_intent_fingerprint, is: 64, count: :codepoints)
     |> validate_change(:validation_history, fn :validation_history, value ->
       case Ryker.CanonicalJSON.validate(value, max_bytes: @maximum_candidate_bytes) do
         :ok -> []
@@ -578,7 +578,7 @@ defmodule Ryker.Work.Turn.Changeset do
       ]
     )
     |> validate_required([:cancellation_intent, :cancellation_intent_fingerprint, :status])
-    |> validate_length(:cancellation_intent_fingerprint, is: 64)
+    |> validate_length(:cancellation_intent_fingerprint, is: 64, count: :codepoints)
     |> work_constraints()
   end
 
@@ -677,9 +677,9 @@ defmodule Ryker.Work.Turn.Changeset do
       :last_error_detail,
       :status
     ])
-    |> validate_length(:cancellation_receipt_fingerprint, is: 64)
-    |> validate_length(:last_error_code, min: 1, max: 128)
-    |> validate_length(:last_error_detail, min: 1, max: 4_096)
+    |> validate_length(:cancellation_receipt_fingerprint, is: 64, count: :codepoints)
+    |> validate_length(:last_error_code, min: 1, max: 128, count: :codepoints)
+    |> validate_length(:last_error_detail, min: 1, max: 4_096, count: :codepoints)
     |> work_constraints()
   end
 
@@ -723,9 +723,9 @@ defmodule Ryker.Work.Turn.Changeset do
       :last_error_detail,
       :status
     ])
-    |> validate_length(:cancellation_intent_fingerprint, is: 64)
-    |> validate_length(:last_error_code, min: 1, max: 128)
-    |> validate_length(:last_error_detail, min: 1, max: 4_096)
+    |> validate_length(:cancellation_intent_fingerprint, is: 64, count: :codepoints)
+    |> validate_length(:last_error_code, min: 1, max: 128, count: :codepoints)
+    |> validate_length(:last_error_detail, min: 1, max: 4_096, count: :codepoints)
     |> work_constraints()
   end
 
@@ -772,10 +772,10 @@ defmodule Ryker.Work.Turn.Changeset do
       :status,
       :validation_receipt
     ])
-    |> validate_length(:result_ref, min: 1, max: 1_024)
-    |> validate_length(:validation_receipt, min: 1, max: 4_096)
-    |> validate_length(:delivery_ref, min: 1, max: 1_024)
-    |> validate_length(:delivery_fingerprint, is: 64)
+    |> validate_length(:result_ref, min: 1, max: 1_024, count: :codepoints)
+    |> validate_length(:validation_receipt, min: 1, max: 4_096, count: :codepoints)
+    |> validate_length(:delivery_ref, min: 1, max: 1_024, count: :codepoints)
+    |> validate_length(:delivery_fingerprint, is: 64, count: :codepoints)
     |> validate_length(:execution_target, min: 1, max: 512, count: :bytes)
     |> validate_length(:measurement_error_code, min: 1, max: 256, count: :bytes)
     |> validate_number(:usage_input_tokens, greater_than_or_equal_to: 0)
@@ -826,7 +826,7 @@ defmodule Ryker.Work.Turn.Changeset do
       :external_receipt_fingerprint,
       :status
     ])
-    |> validate_length(:external_receipt_fingerprint, is: 64)
+    |> validate_length(:external_receipt_fingerprint, is: 64, count: :codepoints)
     |> work_constraints()
   end
 

@@ -38,6 +38,21 @@ defmodule Ryker.TextTest do
     assert Text.shorten(String.duplicate("é", 101), 100) == String.duplicate("é", 99) <> "…"
   end
 
+  # Three pages cut a quote or a list row back to a whole word by hand, two of
+  # them a regex apart (2026-10-08).
+  test "a quote shortened for display ends on a whole word a reader can see" do
+    flag = "🇺🇦"
+
+    assert Text.shorten_to_word("short", 10) == "short"
+    assert Text.shorten_to_word("one two three four", 10) == "one two…"
+    assert Text.shorten_to_word("ок так ні", 7) == "ок так…"
+
+    assert Text.shorten_to_word(Enum.join([flag, flag, flag], " "), 4) ==
+             flag <> " " <> flag <> "…"
+
+    assert Text.shorten_to_word(String.duplicate("é", 12), 10) == String.duplicate("é", 10) <> "…"
+  end
+
   test "a length counts what JSON Schema and PostgreSQL count, not what a reader sees" do
     assert Text.char_length("") == 0
     assert Text.char_length("abc") == 3

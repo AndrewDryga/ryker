@@ -122,11 +122,15 @@ defmodule Ryker.ControlPlane.InstructionsEditor do
     )
   end
 
-  defp error({:invalid_instructions, :characters}),
-    do: "Use at most 2,000 characters. Your draft is preserved."
+  defp error({:invalid_instructions, :characters}) do
+    characters = Wording.number(Instructions.limits().characters)
+    "Use at most #{characters} characters. Your draft is preserved."
+  end
 
-  defp error({:invalid_instructions, :bytes}),
-    do: "This text is larger than 8,192 bytes. Shorten it; your draft is preserved."
+  defp error({:invalid_instructions, :bytes}) do
+    bytes = Wording.number(Instructions.limits().bytes)
+    "This text is larger than #{bytes} bytes. Shorten it; your draft is preserved."
+  end
 
   defp error(:instructions_scope_unavailable),
     do: "This channel is no longer available for editing. Your draft has not been saved."
@@ -139,15 +143,17 @@ defmodule Ryker.ControlPlane.InstructionsEditor do
   # it is close enough to the 8 KiB limit to matter (emoji and some scripts
   # take several bytes a character).
   defp character_count(text) do
+    %{characters: characters, bytes: bytes} = Instructions.limits()
+
     left =
-      case 2_000 - String.length(text) do
+      case characters - String.length(text) do
         remaining when remaining >= 0 -> "#{Wording.number(remaining)} characters left"
         -1 -> "1 character over the limit"
         over -> "#{Wording.number(-over)} characters over the limit"
       end
 
-    if byte_size(text) > 6_144,
-      do: left <> " · #{Wording.number(byte_size(text))} of 8,192 bytes",
+    if byte_size(text) > div(bytes * 3, 4),
+      do: left <> " · #{Wording.number(byte_size(text))} of #{Wording.number(bytes)} bytes",
       else: left
   end
 

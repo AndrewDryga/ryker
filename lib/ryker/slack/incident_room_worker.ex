@@ -391,7 +391,7 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   # hold the room open, and neither does a reply the alert thread refused: it
   # stays owed, for a person to post from the Failures page.
   defp close_on_request(room, options) do
-    episode = room.episode_id && Repo.one(Episodes.Episode.Query.by_id(room.episode_id))
+    episode = room.episode_id && Repo.peek(Episodes.Episode.Query.by_id(room.episode_id))
 
     with {:ok, result} <- close_requested_investigation(room, episode),
          {:ok, outcome} <- settle_close(room, episode, result, options) do

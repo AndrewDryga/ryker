@@ -200,7 +200,7 @@ defmodule Ryker.Publication.Custody do
     turn
     |> Work.OperationKeys.checkpoint()
     |> CoopFleet.WorkspaceCheckpointTransfer.Query.latest_descriptor()
-    |> Repo.one()
+    |> Repo.peek()
     |> case do
       %{} = descriptor ->
         candidate = Map.take(descriptor, @checkpointed_candidate)
@@ -1249,7 +1249,7 @@ defmodule Ryker.Publication.Custody do
   # name a different repository and there is no authority left to carry.
   defp draft_grant(%Publication{episode_id: episode_id, repository: repository})
        when is_binary(episode_id) and is_binary(repository) do
-    Repo.one(Records.Record.Query.task_grant(episode_id, repository))
+    Repo.peek(Records.Record.Query.task_grant(episode_id, repository))
   end
 
   defp draft_grant(_publication), do: nil

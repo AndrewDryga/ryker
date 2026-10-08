@@ -691,7 +691,7 @@ defmodule Ryker.Work.Custody.Delivery do
     |> Episodes.Origin.Query.by_input_refs(refs)
     |> Episodes.Origin.Query.ordered_by_occurred_at_desc()
     |> Episodes.Origin.Query.limit_to(1)
-    |> Repo.one()
+    |> Repo.peek()
   end
 
   defp delivery_already_settled?(turn, receipt, fingerprint) do

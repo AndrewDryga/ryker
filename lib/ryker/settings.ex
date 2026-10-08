@@ -1076,9 +1076,9 @@ defmodule Ryker.Settings do
     with {:ok, %__MODULE__.Slack{} = saved} <- Repo.fetch(__MODULE__.Slack.Query.all()),
          operators =
            Slack.Operators.new(
-             chosen: saved.operators,
-             workspace_admins: saved.workspace_admins_manage,
-             workspace_ref: saved.workspace_ref
+             saved.operators,
+             saved.workspace_admins_manage,
+             saved.workspace_ref
            ),
          true <- Slack.Operators.operator?(operators, user_ref) do
       :ok

@@ -207,7 +207,7 @@ defmodule Ryker.Continuity.Compaction do
     workspace_ref
     |> ConversationRollup.Query.by_identity(scope_kind, scope_ref, period_start)
     |> ConversationRollup.Query.lock_for_update()
-    |> Repo.one()
+    |> Repo.peek()
   end
 
   defp rollup_attributes(

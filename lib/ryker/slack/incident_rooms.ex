@@ -279,9 +279,11 @@ defmodule Ryker.Slack.IncidentRooms do
     with :ok <- reference(message_ref, :message_ref),
          :ok <- sha256(fingerprint, :root_card_fingerprint),
          :ok <- positive(ui_revision, :root_card_ui_revision) do
-      mutate_claim(room_id, lease_ref, fn room, now ->
-        bind_root_locked(room, message_ref, fingerprint, ui_revision, now)
-      end)
+      mutate_claim(
+        room_id,
+        lease_ref,
+        &bind_root_locked(&1, message_ref, fingerprint, ui_revision, &2)
+      )
     end
   end
 
@@ -1234,7 +1236,7 @@ defmodule Ryker.Slack.IncidentRooms do
     now = Repo.now!()
 
     room =
-      room_id |> IncidentRoom.Query.by_id() |> IncidentRoom.Query.lock_for_update() |> Repo.one()
+      room_id |> IncidentRoom.Query.by_id() |> IncidentRoom.Query.lock_for_update() |> Repo.peek()
 
     cond do
       is_nil(room) ->
@@ -1258,7 +1260,7 @@ defmodule Ryker.Slack.IncidentRooms do
     now = Repo.now!()
 
     room =
-      room_id |> IncidentRoom.Query.by_id() |> IncidentRoom.Query.lock_for_update() |> Repo.one()
+      room_id |> IncidentRoom.Query.by_id() |> IncidentRoom.Query.lock_for_update() |> Repo.peek()
 
     cond do
       is_nil(room) ->

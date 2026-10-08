@@ -675,5 +675,5 @@ defmodule Ryker.Slack.AppHomeControlsTest do
 
   # The people chosen to manage Ryker, with the workspace's admins left out.
   defp chosen_operators(people),
-    do: Operators.new(chosen: people, workspace_admins: false, workspace_ref: "T123")
+    do: Operators.new(people, false, "T123")
 end

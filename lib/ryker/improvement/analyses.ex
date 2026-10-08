@@ -68,7 +68,7 @@ defmodule Ryker.Improvement.Analyses do
 
   defp next_candidate(now, quiet_seconds, enabled?) do
     quiet = DateTime.add(now, -quiet_seconds, :second)
-    Repo.one(Candidate.Query.next_claimable(now, quiet, enabled?))
+    Repo.peek(Candidate.Query.next_claimable(now, quiet, enabled?))
   end
 
   @doc """
@@ -794,7 +794,7 @@ defmodule Ryker.Improvement.Analyses do
       |> AnalysisRun.Query.by_id()
       |> AnalysisRun.Query.by_candidate_id(candidate.id)
       |> AnalysisRun.Query.lock_for_update()
-      |> Repo.one()
+      |> Repo.peek()
 
     run || Repo.rollback(:improvement_run_mismatch)
   end
@@ -812,7 +812,7 @@ defmodule Ryker.Improvement.Analyses do
       claim.candidate.id
       |> Candidate.Query.by_id()
       |> Candidate.Query.lock_for_update()
-      |> Repo.one()
+      |> Repo.peek()
 
     unless candidate && candidate.analysis == :running &&
              Lease.held?(candidate, claim.lease_ref, Repo.now!()),

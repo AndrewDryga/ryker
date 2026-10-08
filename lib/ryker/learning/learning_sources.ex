@@ -220,7 +220,7 @@ defmodule Ryker.Learning.LearningSources do
   end
 
   def for_source(source) do
-    existing = Repo.one(ConversationObservation.Query.by_identity(source.identity_key))
+    existing = Repo.peek(ConversationObservation.Query.by_identity(source.identity_key))
 
     source = if existing, do: %{source | id: existing.id}, else: source
 
@@ -320,7 +320,7 @@ defmodule Ryker.Learning.LearningSources do
         "native_input_id" => native
       })
 
-    with %{} = source <- Repo.one(ConversationObservation.Query.by_identity(identity)),
+    with %{} = source <- Repo.peek(ConversationObservation.Query.by_identity(identity)),
          true <- source.revision == revision,
          true <- source_payload_matches?(source, document, content) do
       [receipt(source)]
@@ -520,7 +520,7 @@ defmodule Ryker.Learning.LearningSources do
   def document_sources(%{"source_ref" => "knowledge:" <> id, "version" => version}) do
     with true <- is_integer(version),
          {:ok, ^id} <- Ecto.UUID.cast(id),
-         %{source_dependencies: sources} <- Repo.one(knowledge_revision(id, version)) do
+         %{source_dependencies: sources} <- Repo.peek(knowledge_revision(id, version)) do
       sources
     else
       _ -> nil

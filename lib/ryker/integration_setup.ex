@@ -252,9 +252,11 @@ defmodule Ryker.IntegrationSetup do
     with {:ok, snapshot} <- Settings.fetch(),
          {:ok, ryker_actor_id} <- import_actor_id(snapshot, options) do
       {added, present, failed} =
-        Enum.reduce(repositories, {[], [], []}, fn repository, totals ->
-          import_repository(repository, ryker_actor_id, actor_ref, totals)
-        end)
+        Enum.reduce(
+          repositories,
+          {[], [], []},
+          &import_repository(&1, ryker_actor_id, actor_ref, &2)
+        )
 
       with :ok <- switch_github_on(added, actor_ref, options) do
         {:ok,

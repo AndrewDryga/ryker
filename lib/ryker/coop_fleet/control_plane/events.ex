@@ -91,7 +91,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
     worker_id
     |> Placement.Query.by_worker_session(batch["session_ref"], batch["placement_generation"])
     |> Placement.Query.lock_for_update()
-    |> Repo.one() || Shared.rollback({:coop_session_placement_not_found, batch["session_ref"]})
+    |> Repo.peek() || Shared.rollback({:coop_session_placement_not_found, batch["session_ref"]})
   end
 
   defp last_event_sequence([], after_sequence), do: after_sequence
@@ -267,7 +267,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
       |> Command.Query.succeeded_2xx()
       |> Command.Query.ordered_by_completed_at_desc()
       |> Command.Query.limit_to(1)
-      |> Repo.one()
+      |> Repo.peek()
 
     Map.get(event, "turn_id") in [nil, ""] and
       match?(
@@ -301,7 +301,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
     Map.get(event, "turn_id") in [nil, ""] and
       match?(
         %Work.Session{coop_session_id: ^remote_id},
-        Repo.one(Work.Session.Query.by_id(placement.session_id))
+        Repo.peek(Work.Session.Query.by_id(placement.session_id))
       )
   end
 
@@ -369,10 +369,10 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
   end
 
   defp replayed_event(placement_id, %{"kind" => "session_event", "sequence" => sequence}),
-    do: Repo.one(Event.Query.stored(placement_id, sequence, true))
+    do: Repo.peek(Event.Query.stored(placement_id, sequence, true))
 
   defp replayed_event(placement_id, %{"sequence" => sequence}),
-    do: Repo.one(Event.Query.stored(placement_id, sequence, false))
+    do: Repo.peek(Event.Query.stored(placement_id, sequence, false))
 
   defp event_fingerprint(event) do
     CanonicalJSON.digest(%{"kind" => event["kind"], "payload" => event["payload"]})

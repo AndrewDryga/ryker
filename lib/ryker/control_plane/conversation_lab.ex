@@ -96,7 +96,7 @@ defmodule Ryker.ControlPlane.ConversationLab do
     default =
       if Enum.all?(ids, &Map.has_key?(stored, &1)),
         do: nil,
-        else: Repo.one(Settings.Environment.Query.default_ref())
+        else: Repo.peek(Settings.Environment.Query.default_ref())
 
     Map.new(ids, &{&1, Map.get(stored, &1, default)})
   end

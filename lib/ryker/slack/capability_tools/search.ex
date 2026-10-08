@@ -6,7 +6,7 @@ defmodule Ryker.Slack.CapabilityTools.Search do
   """
   alias Ryker.Delivery
   alias Ryker.Slack.CapabilityTools.{Arguments, Authority, Resources, SourceReader}
-  alias Ryker.Slack.{Id, SourceRef, Timestamp}
+  alias Ryker.Slack.{ID, SourceRef, Timestamp}
 
   @search_expansions 2
 
@@ -181,7 +181,7 @@ defmodule Ryker.Slack.CapabilityTools.Search do
       %{"user_id" => user_ref} = result when is_binary(user_ref) ->
         team_ref = Map.get(result, "team_id", options.workspace_ref)
 
-        if Id.valid?(user_ref) and team_ref == options.workspace_ref do
+        if ID.valid?(user_ref) and team_ref == options.workspace_ref do
           {:ok, Map.put(result, "entity_ref", "slack-user:#{user_ref}")}
         else
           {:error, :slack_protocol_error}
@@ -414,7 +414,7 @@ defmodule Ryker.Slack.CapabilityTools.Search do
   end
 
   defp search_result_channel_ref(%{"channel_id" => channel_ref}) when is_binary(channel_ref) do
-    if Id.valid?(channel_ref),
+    if ID.valid?(channel_ref),
       do: {:ok, channel_ref},
       else: {:error, :slack_protocol_error}
   end
@@ -424,7 +424,7 @@ defmodule Ryker.Slack.CapabilityTools.Search do
            URI.parse(permalink),
          true <- host == "slack.com" or String.ends_with?(host, ".slack.com"),
          ["", "archives", channel_ref] <- String.split(path, "/"),
-         true <- Id.valid?(channel_ref) do
+         true <- ID.valid?(channel_ref) do
       {:ok, channel_ref}
     else
       _invalid -> {:error, :slack_protocol_error}

@@ -72,7 +72,7 @@ defmodule Ryker.Memories.MemorySourceLink do
   defp lab_anchor(conversation, message) do
     # Observation receipts name the native source item; the Lab reader names
     # the admitted event. Resolve that durable relation, never invent a locator.
-    Repo.one(Episodes.Event.Query.lab_admission_key(conversation, message))
+    Repo.peek(Episodes.Event.Query.lab_admission_key(conversation, message))
   end
 
   def context_targets(%{"conversation_ref" => conversation} = document)

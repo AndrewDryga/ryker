@@ -1,6 +1,6 @@
 defmodule Ryker.Slack.SourceRef do
   @moduledoc false
-  alias Ryker.Slack.{Id, Timestamp}
+  alias Ryker.Slack.{ID, Timestamp}
 
   @resource_id ~r/\A[A-Za-z0-9]+\z/
 
@@ -75,13 +75,13 @@ defmodule Ryker.Slack.SourceRef do
   def parse(_value, _expected_workspace_ref), do: {:error, :invalid_slack_source_ref}
 
   defp encode(workspace_ref, channel_ref, kind, nil) do
-    if Id.valid?(workspace_ref) and Id.valid?(channel_ref),
+    if ID.valid?(workspace_ref) and ID.valid?(channel_ref),
       do: Enum.join(["slack-source", "v1", workspace_ref, channel_ref, kind], ":"),
       else: raise(ArgumentError, "invalid Slack source identity")
   end
 
   defp encode(workspace_ref, channel_ref, kind, message_ref) do
-    if Id.valid?(workspace_ref) and Id.valid?(channel_ref) and Timestamp.valid?(message_ref) do
+    if ID.valid?(workspace_ref) and ID.valid?(channel_ref) and Timestamp.valid?(message_ref) do
       Enum.join(
         ["slack-source", "v1", workspace_ref, channel_ref, kind, message_ref],
         ":"
@@ -92,7 +92,7 @@ defmodule Ryker.Slack.SourceRef do
   end
 
   defp encode_resource(workspace_ref, channel_ref, kind, resource_ref) do
-    if Id.valid?(workspace_ref) and Id.valid?(channel_ref) and resource_id?(resource_ref) do
+    if ID.valid?(workspace_ref) and ID.valid?(channel_ref) and resource_id?(resource_ref) do
       Enum.join(
         ["slack-source", "v1", workspace_ref, channel_ref, kind, resource_ref],
         ":"
@@ -105,8 +105,8 @@ defmodule Ryker.Slack.SourceRef do
   defp parsed(workspace_ref, channel_ref, kind, message_ref, expected_workspace_ref) do
     valid_message = is_nil(message_ref) or Timestamp.valid?(message_ref)
 
-    if workspace_ref == expected_workspace_ref and Id.valid?(workspace_ref) and
-         Id.valid?(channel_ref) and
+    if workspace_ref == expected_workspace_ref and ID.valid?(workspace_ref) and
+         ID.valid?(channel_ref) and
          valid_message do
       {:ok,
        %{
@@ -128,8 +128,8 @@ defmodule Ryker.Slack.SourceRef do
          resource_ref,
          expected_workspace_ref
        ) do
-    if workspace_ref == expected_workspace_ref and Id.valid?(workspace_ref) and
-         Id.valid?(channel_ref) and
+    if workspace_ref == expected_workspace_ref and ID.valid?(workspace_ref) and
+         ID.valid?(channel_ref) and
          resource_id?(resource_ref) do
       {:ok,
        %{

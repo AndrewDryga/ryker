@@ -69,12 +69,12 @@ defmodule Ryker.Work.Session.Changeset do
     %Session{}
     |> cast(attrs, @insert_fields)
     |> validate_required(@insert_required)
-    |> validate_length(:policy, min: 1, max: 1_024)
+    |> validate_length(:policy, min: 1, max: 1_024, count: :codepoints)
     |> validate_format(:policy_digest, Crypto.sha256_hex_pattern())
     |> validate_format(:authority_digest, Crypto.sha256_hex_pattern())
     |> validate_worker_job()
-    |> validate_length(:repository_ref, min: 1, max: 1_024)
-    |> validate_length(:external_ref, min: 1, max: 1_024)
+    |> validate_length(:repository_ref, min: 1, max: 1_024, count: :codepoints)
+    |> validate_length(:external_ref, min: 1, max: 1_024, count: :codepoints)
     |> validate_format(:environment_ref, ~r/\A[a-z0-9][a-z0-9-]{0,63}\z/)
     |> RepositoryContext.validate()
     |> validate_repository_source()
@@ -189,9 +189,9 @@ defmodule Ryker.Work.Session.Changeset do
 
       Enum.all?(values, &is_binary/1) ->
         changeset
-        |> validate_length(:emisar_connection_ref, min: 1, max: 64)
-        |> validate_length(:emisar_account_ref, min: 1, max: 256)
-        |> validate_length(:emisar_rpc_url, min: 9, max: 2_048)
+        |> validate_length(:emisar_connection_ref, min: 1, max: 64, count: :codepoints)
+        |> validate_length(:emisar_account_ref, min: 1, max: 256, count: :codepoints)
+        |> validate_length(:emisar_rpc_url, min: 9, max: 2_048, count: :codepoints)
 
       true ->
         add_error(changeset, :emisar_connection_ref, "must be pinned as one complete authority")
@@ -203,7 +203,7 @@ defmodule Ryker.Work.Session.Changeset do
     session
     |> cast(%{coop_session_id: coop_session_id}, [:coop_session_id])
     |> validate_required([:coop_session_id])
-    |> validate_length(:coop_session_id, min: 1, max: 1_024)
+    |> validate_length(:coop_session_id, min: 1, max: 1_024, count: :codepoints)
     |> unique_constraint(:coop_session_id)
   end
 

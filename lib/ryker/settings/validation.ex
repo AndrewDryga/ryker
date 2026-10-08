@@ -108,7 +108,7 @@ defmodule Ryker.Settings.Validation do
   def validate_slack_ids(changeset, field) do
     validate_change(changeset, field, fn ^field, values ->
       if is_list(values) and Enum.uniq(values) == values and
-           Enum.all?(values, &Slack.Id.valid?/1),
+           Enum.all?(values, &Slack.ID.valid?/1),
          do: [],
          else: [{field, {"must list unique Slack IDs", validation: :slack_ids}}]
     end)

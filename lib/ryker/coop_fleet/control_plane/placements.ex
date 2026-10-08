@@ -151,7 +151,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   defp portable_checkpoint(%Work.Session{} = session, root) do
     session
     |> WorkspaceCheckpointTransfer.Query.latest_portable()
-    |> Repo.one()
+    |> Repo.peek()
     |> checkpoint_offer(session.repository_source, root)
   end
 
@@ -180,7 +180,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
       session_id
       |> Work.Session.Query.by_id()
       |> Work.Session.Query.lock_for_no_key_update()
-      |> Repo.one() ||
+      |> Repo.peek() ||
         Shared.rollback({:coop_session_not_found, session_id})
 
     validate_job_for_placement!(session)
@@ -566,7 +566,9 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   # worker at all, stopped for a person (2026-10-04 review).
   defp worker_candidate(requirements, cutoff, excluded_ids) do
     query = Worker.Query.placement_candidate(requirements, cutoff, excluded_ids)
-    Repo.one(Worker.Query.lock_next_free(query)) || Repo.one(Worker.Query.lock_for_update(query))
+
+    Repo.peek(Worker.Query.lock_next_free(query)) ||
+      Repo.peek(Worker.Query.lock_for_update(query))
   end
 
   defp worker_has_capacity?(worker, now) do

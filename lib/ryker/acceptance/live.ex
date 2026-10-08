@@ -84,7 +84,7 @@ defmodule Ryker.Acceptance.Live do
          {timeout_seconds, ""} <- Integer.parse(timeout_seconds),
          true <- timeout_seconds in 1..div(@maximum_timeout_ms, 1_000),
          {:ok, report} <-
-           with_repo_and_finch(:durable_settings, channel_ref, timeout_seconds * 1_000) do
+           with_repo_and_finch(channel_ref, timeout_seconds * 1_000) do
       IO.puts(Jason.encode!(string_keys(report)))
       :ok
     else
@@ -95,19 +95,16 @@ defmodule Ryker.Acceptance.Live do
     end
   end
 
-  defp with_repo_and_finch(configuration, channel_ref, timeout_ms) do
-    case Ecto.Migrator.with_repo(
-           Repo,
-           &run_with_finch(&1, configuration, channel_ref, timeout_ms),
-           mode: :temporary,
-           pool_size: 2
-         ) do
+  defp with_repo_and_finch(channel_ref, timeout_ms) do
+    observe = fn _repo -> run_with_finch(channel_ref, timeout_ms) end
+
+    case Ecto.Migrator.with_repo(Repo, observe, mode: :temporary, pool_size: 2) do
       {:ok, result, _started_apps} -> result
       {:error, reason} -> {:error, {:live_acceptance_repository_unavailable, reason}}
     end
   end
 
-  defp run_with_finch(_repo, :durable_settings, channel_ref, timeout_ms) do
+  defp run_with_finch(channel_ref, timeout_ms) do
     # The harness observes the deployment that is already running, so it reads
     # the same durable settings that deployment applied.
     with {:ok, settings} <- Settings.fetch(),
@@ -406,7 +403,7 @@ defmodule Ryker.Acceptance.Live do
       |> Ingress.Inbox.Entry.Query.by_source_event(event_ref)
       |> Ingress.Inbox.Entry.Query.ordered_by_recent()
       |> Ingress.Inbox.Entry.Query.limit_to(1)
-      |> Repo.one()
+      |> Repo.peek()
 
     observe_entry(entry, previous_turn_ids)
   end
@@ -433,7 +430,7 @@ defmodule Ryker.Acceptance.Live do
       |> Work.Turn.Query.excluding_ids(previous_turn_ids)
       |> Work.Turn.Query.ordered_by_recent()
       |> Work.Turn.Query.limit_to(1)
-      |> Repo.one()
+      |> Repo.peek()
 
     observe_turn(turn, episode_id)
   end

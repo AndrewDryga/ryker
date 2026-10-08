@@ -9,7 +9,7 @@ defmodule Ryker.Slack.Client.Fields do
   """
   alias Ryker.CanonicalJSON
   alias Ryker.Reference
-  alias Ryker.Slack.{Id, Timestamp}
+  alias Ryker.Slack.{ID, Timestamp}
 
   @maximum_conversation_name_bytes 80
   @maximum_result_bytes 768 * 1_024
@@ -32,7 +32,7 @@ defmodule Ryker.Slack.Client.Fields do
 
   @spec slack_id(term()) :: :ok | {:error, {:invalid_slack_api_request, :id}}
   def slack_id(value) do
-    if Id.valid?(value),
+    if ID.valid?(value),
       do: :ok,
       else: {:error, {:invalid_slack_api_request, :id}}
   end

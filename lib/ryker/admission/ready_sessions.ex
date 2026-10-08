@@ -91,7 +91,7 @@ defmodule Ryker.Admission.ReadySessions do
       entry.id
       |> Ingress.Inbox.Entry.Query.by_id()
       |> Ingress.Inbox.Entry.Query.lock_for_update()
-      |> Repo.one()
+      |> Repo.peek()
 
     if is_nil(current) or current.status != :pending or
          current.execution_generation != entry.execution_generation,
@@ -281,7 +281,7 @@ defmodule Ryker.Admission.ReadySessions do
   defp transition(id, change) do
     Repo.transaction(fn ->
       session =
-        id |> Work.Session.Query.by_id() |> Work.Session.Query.lock_for_update() |> Repo.one()
+        id |> Work.Session.Query.by_id() |> Work.Session.Query.lock_for_update() |> Repo.peek()
 
       case change.(session) do
         :unchanged -> session

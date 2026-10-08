@@ -170,7 +170,7 @@ defmodule Ryker.Learning.Rebuilds do
   @doc false
   def reselect_in_transaction(id, expected_budget_version, expected_target, selected) do
     Batches.lock_queue!()
-    batch = id |> Batch.Query.by_id() |> Batch.Query.lock_for_update() |> Repo.one()
+    batch = id |> Batch.Query.by_id() |> Batch.Query.lock_for_update() |> Repo.peek()
 
     unless batch && batch.rebuild_target_id && batch.status in @terminal &&
              batch.budget_version == expected_budget_version,
@@ -213,7 +213,7 @@ defmodule Ryker.Learning.Rebuilds do
 
   defp target!(id, version, generation) do
     topic =
-      Repo.one(Knowledge.ConversationKnowledge.Query.by_id(id)) ||
+      Repo.peek(Knowledge.ConversationKnowledge.Query.by_id(id)) ||
         Repo.rollback(:knowledge_not_found)
 
     destination = destination(topic)
@@ -348,7 +348,7 @@ defmodule Ryker.Learning.Rebuilds do
   def authorize_run(%{rebuild: nil}), do: :ok
 
   def authorize_run(run) do
-    batch = Repo.one(Batch.Query.by_id(run.batch_id))
+    batch = Repo.peek(Batch.Query.by_id(run.batch_id))
 
     if batch && contract(batch) == run.rebuild && batch.budget_version == run.batch_budget_version do
       _topic =
@@ -390,7 +390,7 @@ defmodule Ryker.Learning.Rebuilds do
   defp existing(id, generation, lock \\ nil) do
     query = Batch.Query.rebuilding(id, generation)
     query = if lock, do: Batch.Query.lock_for_update(query), else: query
-    Repo.one(query)
+    Repo.peek(query)
   end
 
   defp settings_or_rollback! do

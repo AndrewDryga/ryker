@@ -297,7 +297,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
 
   @doc "Retain a handover's exact raw and topic-generation custody within result acceptance."
   def summary_sources(session_id) do
-    session = Repo.one(Work.Session.Query.by_id(session_id))
+    session = Repo.peek(Work.Session.Query.by_id(session_id))
 
     if (Repo.in_transaction?() and session) && exposure_counts_attested?(session),
       do: retained_summary_sources(session_id),
@@ -354,7 +354,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
   end
 
   defp session_valid?(destination, session) do
-    current = Repo.one(Work.Session.Query.by_id(session.id))
+    current = Repo.peek(Work.Session.Query.by_id(session.id))
 
     if current && exposure_counts_consistent?(current),
       do: retained_session_valid?(destination, session),

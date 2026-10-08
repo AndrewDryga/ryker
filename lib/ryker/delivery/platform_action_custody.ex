@@ -185,7 +185,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
         source_item_ref,
         emoji_name
       )
-      |> Repo.one()
+      |> Repo.peek()
 
     latest == "add"
   end
@@ -412,14 +412,14 @@ defmodule Ryker.Delivery.PlatformActionCustody do
       binding.episode.id
       |> Episodes.Episode.Query.by_id()
       |> Episodes.Episode.Query.lock_for_update()
-      |> Repo.one()
+      |> Repo.peek()
 
     turn =
       binding.turn.id
       |> Work.Turn.Query.by_id()
       |> Work.Turn.Query.by_episode_id(binding.episode.id)
       |> Work.Turn.Query.lock_for_update()
-      |> Repo.one()
+      |> Repo.peek()
 
     {episode, turn}
   end

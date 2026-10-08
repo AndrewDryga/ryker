@@ -13,7 +13,7 @@ defmodule Ryker.Artifacts.OutputArtifact.Changeset do
     |> cast(attributes, @fields)
     |> validate_required(@fields)
     |> validate_format(:ref, Reference.token_pattern())
-    |> validate_length(:name, min: 1, max: 255)
+    |> validate_length(:name, min: 1, max: 255, count: :codepoints)
     # A media type is IANA's name, and it is sent on as it is written: an enum
     # would only translate it back.
     # credo:disable-for-next-line Ryker.Checks.EnumOverValidateInclusion

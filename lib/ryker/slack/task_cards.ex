@@ -71,7 +71,7 @@ defmodule Ryker.Slack.TaskCards do
       when is_binary(episode_id) and is_binary(thread_ref) do
     case ConversationRef.parse_slack(conversation_ref) do
       {:ok, workspace, channel} ->
-        Repo.one(TaskCard.Query.message_in_thread(episode_id, workspace, channel, thread_ref))
+        Repo.peek(TaskCard.Query.message_in_thread(episode_id, workspace, channel, thread_ref))
 
       :error ->
         nil
@@ -333,7 +333,7 @@ defmodule Ryker.Slack.TaskCards do
   defp mutate_claim(card_id, lease_ref, callback) do
     Repo.transaction(fn ->
       now = Repo.now!()
-      card = card_id |> TaskCard.Query.by_id() |> TaskCard.Query.lock_for_update() |> Repo.one()
+      card = card_id |> TaskCard.Query.by_id() |> TaskCard.Query.lock_for_update() |> Repo.peek()
 
       cond do
         is_nil(card) ->

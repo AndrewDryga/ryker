@@ -29,7 +29,7 @@ defmodule Ryker.Observability.Reads do
   end
 
   @spec one(Ecto.Queryable.t()) :: {:ok, term()} | {:error, failure()}
-  def one(query), do: read(fn -> Repo.one(query) end)
+  def one(query), do: read(fn -> Repo.peek(query) end)
 
   @spec all(Ecto.Queryable.t()) :: {:ok, [term()]} | {:error, failure()}
   def all(query), do: read(fn -> Repo.all(query) end)

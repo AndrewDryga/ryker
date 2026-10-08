@@ -135,7 +135,14 @@ defmodule Ryker.ControlPlane.UsageProjection do
     |> Usage.Query.grouped(fields)
     |> Repo.all()
     |> Enum.map(&finish/1)
-    |> Enum.sort_by(&{-&1.tokens, -&1.attempts, inspect(Map.take(&1, fields))})
+    |> Enum.sort_by(&sort_key(&1, fields))
+  end
+
+  # Most tokens first, then most attempts, then the group's own fields, so
+  # equal rows keep one order.
+  defp sort_key(row, fields) do
+    group = Map.take(row, fields)
+    {-row.tokens, -row.attempts, inspect(group)}
   end
 
   defp days(query) do

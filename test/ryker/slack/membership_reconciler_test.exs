@@ -278,10 +278,6 @@ defmodule Ryker.Slack.MembershipReconcilerTest do
 
   # The people chosen to manage Ryker, with the workspace's admins left out.
   defp chosen_operators(people) do
-    Operators.new(
-      chosen: people,
-      workspace_admins: false,
-      workspace_ref: "T9E23FDA39DE5"
-    )
+    Operators.new(people, false, "T9E23FDA39DE5")
   end
 end

@@ -16,7 +16,7 @@ defmodule Ryker.Settings.Report.Changeset do
       report
       |> cast(attributes, @fields)
       |> validate_required([:weekly_self_report_enabled, :weekday, :local_time, :timezone])
-      |> validate_format(:channel_ref, Slack.Id.pattern())
+      |> validate_format(:channel_ref, Slack.ID.pattern())
       |> validate_inclusion(:weekday, 1..7)
       |> validate_timezone()
       |> stamp_saved()

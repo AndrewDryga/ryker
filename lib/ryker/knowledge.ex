@@ -615,7 +615,7 @@ defmodule Ryker.Knowledge do
       identity
       |> Learning.ConversationObservation.Query.by_identity()
       |> Learning.ConversationObservation.Query.lock_for_share()
-      |> Repo.one()
+      |> Repo.peek()
 
     cond do
       source && source.revision > entry.revision ->
@@ -654,7 +654,7 @@ defmodule Ryker.Knowledge do
       |> ConversationKnowledge.Query.by_scope_key()
       |> ConversationKnowledge.Query.by_topic_key(proposal["topic_key"])
       |> ConversationKnowledge.Query.lock_for_update()
-      |> Repo.one()
+      |> Repo.peek()
       |> release_if_gone(proposal)
 
     cond do

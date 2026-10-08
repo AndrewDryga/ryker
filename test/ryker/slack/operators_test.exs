@@ -144,11 +144,7 @@ defmodule Ryker.Slack.OperatorsTest do
   # Whether `/ryker proactive on` from this person changed the channel.
   defp changed?(actor_ref, client, workspace_admins) do
     operators =
-      Operators.new(
-        chosen: [@chosen],
-        workspace_admins: workspace_admins,
-        workspace_ref: @workspace
-      )
+      Operators.new([@chosen], workspace_admins, @workspace)
 
     observer = self()
 

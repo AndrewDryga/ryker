@@ -29,7 +29,7 @@ defmodule Ryker.Ingress.Inbox.Entry.Changeset do
       [:admission_context, :admission_context_fingerprint]
     )
     |> validate_required([:admission_context, :admission_context_fingerprint])
-    |> validate_length(:admission_context_fingerprint, is: 64)
+    |> validate_length(:admission_context_fingerprint, is: 64, count: :codepoints)
     |> check_constraint(:admission_context,
       name: :ingress_inbox_admission_context_valid
     )
@@ -205,8 +205,8 @@ defmodule Ryker.Ingress.Inbox.Entry.Changeset do
     |> put_change(:last_error_code, "stale_input_revision")
     |> put_change(:last_error_detail, ErrorDetail.detail(details))
     |> validate_required([:last_error_code, :last_error_detail])
-    |> validate_length(:last_error_code, max: 128)
-    |> validate_length(:last_error_detail, max: 4_096)
+    |> validate_length(:last_error_code, max: 128, count: :codepoints)
+    |> validate_length(:last_error_detail, max: 4_096, count: :codepoints)
   end
 
   @doc """
@@ -232,8 +232,8 @@ defmodule Ryker.Ingress.Inbox.Entry.Changeset do
     |> cast(attributes, @execution_fields)
     |> validate_required([:attempt_count, :lease_expires_at, :lease_owner, :lease_ref])
     |> validate_number(:attempt_count, greater_than_or_equal_to: 1)
-    |> validate_length(:lease_ref, max: 1_024)
-    |> validate_length(:lease_owner, max: 1_024)
+    |> validate_length(:lease_ref, max: 1_024, count: :codepoints)
+    |> validate_length(:lease_owner, max: 1_024, count: :codepoints)
     |> check_constraint(:status, name: :ingress_inbox_execution_custody_valid)
   end
 
@@ -257,8 +257,8 @@ defmodule Ryker.Ingress.Inbox.Entry.Changeset do
     ])
     |> validate_number(:execution_generation, greater_than_or_equal_to: 1)
     |> validate_number(:validation_generation, greater_than_or_equal_to: 1)
-    |> validate_length(:last_error_code, max: 128)
-    |> validate_length(:last_error_detail, max: 4_096)
+    |> validate_length(:last_error_code, max: 128, count: :codepoints)
+    |> validate_length(:last_error_detail, max: 4_096, count: :codepoints)
     |> check_constraint(:status, name: :ingress_inbox_execution_custody_valid)
     |> check_constraint(:execution_generation, name: :ingress_inbox_execution_generation_valid)
     |> check_constraint(:validation_generation,
@@ -285,8 +285,8 @@ defmodule Ryker.Ingress.Inbox.Entry.Changeset do
     |> validate_required([:last_error_code, :last_error_detail, :status])
     |> validate_number(:execution_generation, greater_than_or_equal_to: 1)
     |> validate_number(:validation_generation, greater_than_or_equal_to: 1)
-    |> validate_length(:last_error_code, max: 128)
-    |> validate_length(:last_error_detail, max: 4_096)
+    |> validate_length(:last_error_code, max: 128, count: :codepoints)
+    |> validate_length(:last_error_detail, max: 4_096, count: :codepoints)
     |> check_constraint(:status, name: :ingress_inbox_decision_matches_status)
     |> check_constraint(:status, name: :ingress_inbox_execution_custody_valid)
   end

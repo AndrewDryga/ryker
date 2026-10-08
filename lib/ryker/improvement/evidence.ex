@@ -162,7 +162,7 @@ defmodule Ryker.Improvement.Evidence do
 
   # -- The request ------------------------------------------------------------------
 
-  defp episode({:episode, id}), do: Repo.one(Episodes.Episode.Query.by_id(id))
+  defp episode({:episode, id}), do: Repo.peek(Episodes.Episode.Query.by_id(id))
   defp episode(_input), do: nil
 
   # The person's messages of the request, every revision, oldest first: an

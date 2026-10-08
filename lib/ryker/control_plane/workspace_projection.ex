@@ -71,7 +71,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
 
   @doc "One worker session by its external reference."
   def fetch(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    row = WorkingCopy.Query.sessions() |> WorkingCopy.Query.listed(ref) |> Repo.one()
+    row = WorkingCopy.Query.sessions() |> WorkingCopy.Query.listed(ref) |> Repo.peek()
     if row, do: {:ok, hd(items([row], RepositoryNames.all()))}, else: :not_found
   end
 

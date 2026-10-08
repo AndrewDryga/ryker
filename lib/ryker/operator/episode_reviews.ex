@@ -40,7 +40,7 @@ defmodule Ryker.Operator.EpisodeReviews do
       episode_key
       |> Episodes.Episode.Query.by_key()
       |> Episodes.Episode.Query.lock_for_update()
-      |> Repo.one() ||
+      |> Repo.peek() ||
         Repo.rollback(:episode_not_found)
 
     if episode.state not in [:complete, :cancelled], do: Repo.rollback(:episode_not_reviewable)

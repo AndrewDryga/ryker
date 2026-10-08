@@ -55,11 +55,11 @@ defmodule Ryker.Slack.TaskCard.Changeset do
 
   defp validate_card(changeset) do
     changeset
-    |> validate_length(:ref, min: 1, max: 256)
-    |> validate_length(:workspace_ref, min: 1, max: 256)
-    |> validate_length(:channel_ref, min: 1, max: 256)
-    |> validate_length(:thread_ref, min: 1, max: 1_024)
-    |> validate_length(:message_ref, min: 1, max: 1_024)
+    |> validate_length(:ref, min: 1, max: 256, count: :codepoints)
+    |> validate_length(:workspace_ref, min: 1, max: 256, count: :codepoints)
+    |> validate_length(:channel_ref, min: 1, max: 256, count: :codepoints)
+    |> validate_length(:thread_ref, min: 1, max: 1_024, count: :codepoints)
+    |> validate_length(:message_ref, min: 1, max: 1_024, count: :codepoints)
     |> validate_number(:attempt_count, greater_than_or_equal_to: 0)
     |> validate_number(:card_ui_revision, greater_than_or_equal_to: 0)
     |> validate_format(:card_fingerprint, Crypto.sha256_hex_pattern())

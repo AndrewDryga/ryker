@@ -32,7 +32,7 @@ defmodule Ryker.Slack.Runtime do
   alias Ryker.Slack.{ActionTokens, AppHome, AppHomeActions, AppHomeControls, AppHomeEditor}
   alias Ryker.Slack.{AppHomeProjection, AttachmentIngestor, ChannelConfiguration}
   alias Ryker.Slack.{ChannelConfigurations, ChannelSettings, ChannelSetup, Client, CommandHandler}
-  alias Ryker.Slack.{Engagement, FileClient, Gateway, Id, IncidentRooms, IncidentRoomWorker}
+  alias Ryker.Slack.{Engagement, FileClient, Gateway, ID, IncidentRooms, IncidentRoomWorker}
   alias Ryker.Slack.{InteractionAudits, InteractionFeedbackWorker, InteractionHandler}
   alias Ryker.Slack.{InteractionRepaint, MembershipReconciler, Mentions, MintSocketTransport}
   alias Ryker.Slack.{Operators, Publisher, TaskCardWorker, ThreadStatusProjection}
@@ -606,11 +606,7 @@ defmodule Ryker.Slack.Runtime do
       |> Map.get(:workspace_admins_manage, false)
       |> boolean!(:workspace_admins_manage)
 
-    Operators.new(
-      chosen: chosen,
-      workspace_admins: workspace_admins,
-      workspace_ref: configuration.identity.workspace_ref
-    )
+    Operators.new(chosen, workspace_admins, configuration.identity.workspace_ref)
   end
 
   defp effective_settings(default_participation) do
@@ -814,7 +810,7 @@ defmodule Ryker.Slack.Runtime do
     expected = [:bot_ref, :bot_user_ref, :workspace_ref]
 
     unless Maps.exact_keys?(identity, expected) and
-             Enum.all?(expected, &Id.valid?(Map.fetch!(identity, &1))) do
+             Enum.all?(expected, &ID.valid?(Map.fetch!(identity, &1))) do
       raise ArgumentError, "Slack identity must contain exact bounded Slack IDs"
     end
   end
@@ -824,7 +820,7 @@ defmodule Ryker.Slack.Runtime do
   end
 
   defp references!(values, field) when is_list(values) do
-    if Enum.uniq(values) == values and Enum.all?(values, &Id.valid?/1),
+    if Enum.uniq(values) == values and Enum.all?(values, &ID.valid?/1),
       do: MapSet.new(values),
       else: raise(ArgumentError, "Slack #{field} must contain unique Slack IDs")
   end

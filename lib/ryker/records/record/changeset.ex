@@ -45,10 +45,10 @@ defmodule Ryker.Records.Record.Changeset do
 
   defp validate(changeset) do
     changeset
-    |> validate_length(:ref, min: 1, max: 256)
-    |> validate_length(:operation_id, min: 1, max: 80)
+    |> validate_length(:ref, min: 1, max: 256, count: :codepoints)
+    |> validate_length(:operation_id, min: 1, max: 80, count: :codepoints)
     |> validate_inclusion(:kind, RecordPayload.kinds())
-    |> validate_length(:subject_ref, min: 1, max: 120)
+    |> validate_length(:subject_ref, min: 1, max: 120, count: :codepoints)
     |> validate_format(:payload_fingerprint, Crypto.sha256_hex_pattern())
     |> unique_constraint(:ref)
     |> unique_constraint(:operation_id,
@@ -78,8 +78,8 @@ defmodule Ryker.Records.Record.Changeset do
       :status
     ])
     |> validate_inclusion(:status, [:confirmed])
-    |> validate_length(:confirmation_ref, min: 1, max: 1_024)
-    |> validate_length(:confirmed_by_actor_ref, min: 1, max: 1_024)
+    |> validate_length(:confirmation_ref, min: 1, max: 1_024, count: :codepoints)
+    |> validate_length(:confirmed_by_actor_ref, min: 1, max: 1_024, count: :codepoints)
     |> foreign_key_constraint(:confirmed_episode_id)
     |> unique_constraint(:confirmed_episode_id)
     |> check_constraint(:status, name: :episode_state_record_confirmation_valid)
@@ -91,8 +91,8 @@ defmodule Ryker.Records.Record.Changeset do
     |> cast(attributes, [:confirmed_at, :confirmed_by_actor_ref, :confirmation_ref, :status])
     |> validate_required([:confirmed_at, :confirmed_by_actor_ref, :confirmation_ref, :status])
     |> validate_inclusion(:status, [:confirmed])
-    |> validate_length(:confirmation_ref, min: 1, max: 1_024)
-    |> validate_length(:confirmed_by_actor_ref, min: 1, max: 1_024)
+    |> validate_length(:confirmation_ref, min: 1, max: 1_024, count: :codepoints)
+    |> validate_length(:confirmed_by_actor_ref, min: 1, max: 1_024, count: :codepoints)
     |> check_constraint(:status, name: :episode_state_record_confirmation_valid)
   end
 

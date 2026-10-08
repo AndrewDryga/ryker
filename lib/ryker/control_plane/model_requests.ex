@@ -272,7 +272,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
   defp selected_timeline_turn(episode, %{"attempt" => id}) when is_binary(id) do
     case Ecto.UUID.cast(id) do
       {:ok, id} ->
-        id |> Work.Turn.Query.by_id() |> Work.Turn.Query.by_episode_id(episode.id) |> Repo.one()
+        id |> Work.Turn.Query.by_id() |> Work.Turn.Query.by_episode_id(episode.id) |> Repo.peek()
 
       :error ->
         nil

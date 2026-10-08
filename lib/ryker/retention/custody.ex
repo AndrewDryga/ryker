@@ -142,9 +142,12 @@ defmodule Ryker.Retention.Custody do
          :ok <- reference(lease_ref, :lease_ref),
          :ok <- positive_integer(retained_recheck_seconds, :retained_recheck_seconds),
          true <- is_map(plan) or {:error, {:invalid_retention_custody, :plan}} do
-      update_leased(session_id, lease_ref, :plan_pending, fn session, now ->
-        store_plan_locked(session, plan, now, retained_recheck_seconds)
-      end)
+      update_leased(
+        session_id,
+        lease_ref,
+        :plan_pending,
+        &store_plan_locked(&1, plan, &2, retained_recheck_seconds)
+      )
     else
       {:error, reason} -> {:error, reason}
       false -> {:error, {:invalid_retention_custody, :plan}}
@@ -155,9 +158,7 @@ defmodule Ryker.Retention.Custody do
   def settle_absent(session_id, lease_ref) do
     with {:ok, session_id} <- uuid(session_id, :session_id),
          :ok <- reference(lease_ref, :lease_ref) do
-      update_leased(session_id, lease_ref, :close_pending, fn session, now ->
-        settle_absent_locked(session, now)
-      end)
+      update_leased(session_id, lease_ref, :close_pending, &settle_absent_locked/2)
     end
   end
 
@@ -168,9 +169,12 @@ defmodule Ryker.Retention.Custody do
          :ok <- reference(lease_ref, :lease_ref),
          :ok <- reference(operation_key, :operation_key),
          :ok <- reference(remote_session_id, :remote_session_id) do
-      update_leased(session_id, lease_ref, :discard_pending, fn session, now ->
-        settle_discard_locked(session, operation_key, remote_session_id, now)
-      end)
+      update_leased(
+        session_id,
+        lease_ref,
+        :discard_pending,
+        &settle_discard_locked(&1, operation_key, remote_session_id, &2)
+      )
     end
   end
 
@@ -180,9 +184,12 @@ defmodule Ryker.Retention.Custody do
     with {:ok, session_id} <- uuid(session_id, :session_id),
          :ok <- reference(lease_ref, :lease_ref),
          :ok <- reference(remote_session_id, :remote_session_id) do
-      update_leased(session_id, lease_ref, @pending_statuses, fn session, now ->
-        settle_remote_discarded_locked(session, remote_session_id, now)
-      end)
+      update_leased(
+        session_id,
+        lease_ref,
+        @pending_statuses,
+        &settle_remote_discarded_locked(&1, remote_session_id, &2)
+      )
     end
   end
 
@@ -199,9 +206,12 @@ defmodule Ryker.Retention.Custody do
     with {:ok, session_id} <- uuid(session_id, :session_id),
          :ok <- reference(lease_ref, :lease_ref),
          :ok <- reference(remote_session_id, :remote_session_id) do
-      update_leased(session_id, lease_ref, @pending_statuses, fn session, now ->
-        settle_remote_absent_locked(session, remote_session_id, now)
-      end)
+      update_leased(
+        session_id,
+        lease_ref,
+        @pending_statuses,
+        &settle_remote_absent_locked(&1, remote_session_id, &2)
+      )
     end
   end
 
@@ -219,9 +229,7 @@ defmodule Ryker.Retention.Custody do
   def settle_worker_removed(session_id, lease_ref) do
     with {:ok, session_id} <- uuid(session_id, :session_id),
          :ok <- reference(lease_ref, :lease_ref) do
-      update_leased(session_id, lease_ref, @pending_statuses, fn session, now ->
-        settle_worker_removed_locked(session, now)
-      end)
+      update_leased(session_id, lease_ref, @pending_statuses, &settle_worker_removed_locked/2)
     end
   end
 
@@ -412,7 +420,7 @@ defmodule Ryker.Retention.Custody do
   defp candidate(now, exclude), do: Repo.fetch(Cleanup.Query.next_candidate(now, exclude))
 
   defp lock_owner(kind, id, lock) when kind in [:work, :learning, :improvement, :knowledge],
-    do: kind |> Cleanup.Query.owner(id) |> Cleanup.Query.lock_owner(lock) |> Repo.one()
+    do: kind |> Cleanup.Query.owner(id) |> Cleanup.Query.lock_owner(lock) |> Repo.peek()
 
   # A routing session started ahead of time has no message until one claims
   # it. Until then the pool owns it, and the session's own state says whether
@@ -423,7 +431,7 @@ defmodule Ryker.Retention.Custody do
     :admission
     |> Cleanup.Query.owner(input_id)
     |> Cleanup.Query.lock_owner(lock)
-    |> Repo.one()
+    |> Repo.peek()
   end
 
   defp lock_owner(_, _, _), do: nil
@@ -788,7 +796,7 @@ defmodule Ryker.Retention.Custody do
   end
 
   defp leased!(session_id, lease_ref, statuses) do
-    identity = Repo.one(Cleanup.Query.owner_identity(session_id))
+    identity = Repo.peek(Cleanup.Query.owner_identity(session_id))
 
     owner = lock_identity_owner(identity)
     if is_nil(owner), do: Repo.rollback(:retention_session_not_found)

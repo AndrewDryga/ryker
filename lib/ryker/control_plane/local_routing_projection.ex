@@ -87,7 +87,7 @@ defmodule Ryker.ControlPlane.LocalRoutingProjection do
   defp figures(comparisons) do
     comparisons
     |> LocalRoutingReport.Query.figures()
-    |> Repo.one()
+    |> Repo.peek()
     |> nothing_agreed()
   end
 
@@ -100,7 +100,8 @@ defmodule Ryker.ControlPlane.LocalRoutingProjection do
 
   # The comparison that settled last, compared or given up: whether the
   # local model is answering now.
-  defp last_settled(comparisons), do: Repo.one(LocalRoutingReport.Query.last_settled(comparisons))
+  defp last_settled(comparisons),
+    do: Repo.peek(LocalRoutingReport.Query.last_settled(comparisons))
 
   # The period's compared answers, each with what the provider decided and
   # what the local model decided, as kinds.

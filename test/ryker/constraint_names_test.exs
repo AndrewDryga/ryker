@@ -34,6 +34,80 @@ defmodule Ryker.ConstraintNamesTest do
     assert missing == []
   end
 
+  # Ecto counts a length in graphemes unless told otherwise, while a column's
+  # check counts code points (`char_length`) or bytes (`octet_length`). Text
+  # whose graphemes fit and whose code points or bytes do not passed the
+  # changeset and broke the check instead of coming back as a field error: 139
+  # of 169 bounds counted graphemes until 2026-10-08. A column with no check
+  # counts code points, as Ryker's text does (`Ryker.Text.char_length/1`).
+  test "every length a changeset checks counts in its column's unit" do
+    checks =
+      Repo.query!("""
+      SELECT conrelid::regclass::text, pg_get_constraintdef(oid)
+      FROM pg_constraint WHERE contype = 'c'
+      """).rows
+      |> Enum.group_by(&hd/1, &List.last/1)
+
+    bounds = Enum.flat_map(Path.wildcard("lib/**/changeset.ex"), &bounds/1)
+
+    assert length(bounds) > 100
+
+    wrong =
+      for {path, line, table, field, count} <- bounds,
+          expected = column_unit(Map.get(checks, table, []), field),
+          count != expected,
+          do: "#{path}:#{line} counts #{field} in #{inspect(count)}, its column in #{expected}"
+
+    assert wrong == []
+  end
+
+  defp column_unit(definitions, field) do
+    bytes = ~r/octet_length\(\(?#{field}\)?(::\w+)?\)/
+    if Enum.any?(definitions, &Regex.match?(bytes, &1)), do: :bytes, else: :codepoints
+  end
+
+  # Each `validate_length` of a text field in a changeset module, with its
+  # table and the unit it counts in (nil when it names none). A list field's
+  # length counts its items, so it has no unit.
+  defp bounds(path) do
+    {:ok, ast} = path |> File.read!() |> Code.string_to_quoted()
+
+    {_ast, {_schema, found}} =
+      Macro.prewalk(ast, {nil, []}, fn
+        {:defmodule, _, [{:__aliases__, _, parts}, _body]} = node, {_schema, found} ->
+          {node, {schema(parts), found}}
+
+        {:validate_length, meta, arguments} = node, {schema, found} when is_list(arguments) ->
+          {node, {schema, bound(schema, arguments, path, meta[:line]) ++ found}}
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    found
+  end
+
+  defp bound(nil, _arguments, _path, _line), do: []
+
+  defp bound(schema, arguments, path, line) do
+    case field_and_options(arguments) do
+      {field, options} when is_atom(field) and not is_nil(field) ->
+        if match?({:array, _}, schema.__schema__(:type, field)),
+          do: [],
+          else: [{path, line, schema.__schema__(:source), field, Keyword.get(options, :count)}]
+
+      _computed ->
+        []
+    end
+  end
+
+  defp schema(parts) do
+    schema = Module.safe_concat(Enum.drop(parts, -1))
+    if Code.ensure_loaded?(schema) and function_exported?(schema, :__schema__, 1), do: schema
+  rescue
+    ArgumentError -> nil
+  end
+
   # Each constraint call in a changeset module, with the name it expects: the
   # `name:` option, or Ecto's inference from the schema's table and field. A
   # name the call computes is not checked here.

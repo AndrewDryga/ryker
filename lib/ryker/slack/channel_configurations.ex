@@ -225,7 +225,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
   # The saved configuration, or nil for a channel on the defaults.
   defp configuration(workspace_ref, channel_ref),
-    do: Repo.one(ChannelConfiguration.Query.by_channel(workspace_ref, channel_ref))
+    do: Repo.peek(ChannelConfiguration.Query.by_channel(workspace_ref, channel_ref))
 
   @spec fetch_membership(String.t(), String.t()) ::
           {:ok, ChannelMembership.t()} | {:error, :not_found}
@@ -528,7 +528,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
       |> ConfigurationSession.Query.by_channel(attributes.channel_ref)
       |> ConfigurationSession.Query.active()
       |> ConfigurationSession.Query.lock_for_update()
-      |> Repo.one()
+      |> Repo.peek()
 
     cond do
       not match?(%ChannelMembership{status: :joined}, membership) ->
@@ -1628,10 +1628,10 @@ defmodule Ryker.Slack.ChannelConfigurations do
   conversation_ref}`), for the page that shows that channel.
   """
   def subscribe_channel(workspace_ref, channel_ref),
-    do: Ryker.PubSub.subscribe(channel_topic(conversation_ref(workspace_ref, channel_ref)))
+    do: Ryker.PubSub.subscribe(channel_topic(workspace_ref, channel_ref))
 
   def unsubscribe_channel(workspace_ref, channel_ref),
-    do: Ryker.PubSub.unsubscribe(channel_topic(conversation_ref(workspace_ref, channel_ref)))
+    do: Ryker.PubSub.unsubscribe(channel_topic(workspace_ref, channel_ref))
 
   @doc """
   Internal — announces, after the outermost commit, that a channel's settings
@@ -1640,39 +1640,39 @@ defmodule Ryker.Slack.ChannelConfigurations do
   """
   @spec broadcast_channel_updated(String.t(), String.t()) :: :ok
   def broadcast_channel_updated(workspace_ref, channel_ref) do
-    conversation_ref = conversation_ref(workspace_ref, channel_ref)
+    conversation_ref = ConversationRef.slack(workspace_ref, channel_ref)
+    topic = channel_topic(workspace_ref, channel_ref)
 
     Repo.after_commit(fn ->
       message = {:slack_channel_updated, conversation_ref}
-      Ryker.PubSub.broadcast(channel_topic(conversation_ref), message)
+      Ryker.PubSub.broadcast(topic, message)
       Ryker.PubSub.broadcast(channels_topic(), message)
     end)
   end
 
   defp channels_topic, do: "slack:channels"
-  defp channel_topic(conversation_ref), do: "slack:channel:#{conversation_ref}"
 
-  defp conversation_ref(workspace_ref, channel_ref),
-    do: ConversationRef.slack(workspace_ref, channel_ref)
+  defp channel_topic(workspace_ref, channel_ref),
+    do: "slack:channel:" <> ConversationRef.slack(workspace_ref, channel_ref)
 
   defp locked_configuration(workspace_ref, channel_ref) do
     workspace_ref
     |> ChannelConfiguration.Query.by_channel(channel_ref)
     |> ChannelConfiguration.Query.lock_for_update()
-    |> Repo.one()
+    |> Repo.peek()
   end
 
   defp locked_membership(workspace_ref, channel_ref) do
     workspace_ref
     |> ChannelMembership.Query.by_channel(channel_ref)
     |> ChannelMembership.Query.lock_for_update()
-    |> Repo.one()
+    |> Repo.peek()
   end
 
   defp locked_session(id) do
     id
     |> ConfigurationSession.Query.by_id()
     |> ConfigurationSession.Query.lock_for_update()
-    |> Repo.one()
+    |> Repo.peek()
   end
 end

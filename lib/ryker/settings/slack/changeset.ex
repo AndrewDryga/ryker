@@ -22,7 +22,7 @@ defmodule Ryker.Settings.Slack.Changeset do
       :default_participation,
       :workspace_admins_manage
     ])
-    |> validate_format(:workspace_ref, Slack.Id.pattern())
+    |> validate_format(:workspace_ref, Slack.ID.pattern())
     # The workspace origin is the only part of a Slack message link the host
     # cannot derive. It is an origin, never a path, so a card can build a link
     # from it without ever trusting a stored URL shape.
@@ -30,8 +30,8 @@ defmodule Ryker.Settings.Slack.Changeset do
     |> validate_length(:workspace_url, max: 256, count: :codepoints)
     # Both names are varchar(255) columns, which count code points.
     |> validate_length(:workspace_name, min: 1, max: 255, count: :codepoints)
-    |> validate_format(:bot_ref, Slack.Id.pattern())
-    |> validate_format(:bot_user_ref, Slack.Id.pattern())
+    |> validate_format(:bot_ref, Slack.ID.pattern())
+    |> validate_format(:bot_user_ref, Slack.ID.pattern())
     |> validate_length(:bot_name, min: 1, max: 255, count: :codepoints)
     |> validate_format(:channel_prefix, ~r/\A[a-z0-9_-]{1,20}\z/)
     |> Validation.validate_slack_ids(:operators)

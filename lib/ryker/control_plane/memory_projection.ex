@@ -45,7 +45,7 @@ defmodule Ryker.ControlPlane.MemoryProjection do
 
   @doc "One active fact as the page shows it, by reference, or nil."
   def fact(ref) when is_binary(ref) do
-    fact = fact_rows() |> Memories.MemoryEntry.Query.by_ref(ref) |> Repo.one()
+    fact = fact_rows() |> Memories.MemoryEntry.Query.by_ref(ref) |> Repo.peek()
 
     if fact,
       do: fact |> redact(InspectionRedactor.configured_secrets()) |> named(names([fact], []))

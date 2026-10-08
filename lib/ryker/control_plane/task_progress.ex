@@ -19,7 +19,7 @@ defmodule Ryker.ControlPlane.TaskProgress do
   @doc "The task a confirmed offer started as this episode, or nil for any other request."
   @spec for_episode(Episodes.Episode.t()) :: map() | nil
   def for_episode(%Episodes.Episode{id: id}) do
-    offer = id |> Records.Record.Query.task_offer_confirming() |> Repo.one()
+    offer = id |> Records.Record.Query.task_offer_confirming() |> Repo.peek()
 
     with %Records.Record{} <- offer,
          {:ok, %{document: %{"task_card" => task}}} <- Slack.TaskCardProjection.page(offer) do

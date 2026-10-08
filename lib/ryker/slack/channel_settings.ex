@@ -206,7 +206,7 @@ defmodule Ryker.Slack.ChannelSettings do
   end
 
   defp configuration(workspace_ref, channel_ref) do
-    workspace_ref |> ChannelConfiguration.Query.by_channel(channel_ref) |> Repo.one()
+    workspace_ref |> ChannelConfiguration.Query.by_channel(channel_ref) |> Repo.peek()
   end
 
   defp fingerprint(attributes) do

@@ -898,7 +898,7 @@ defmodule Ryker.Admission do
   defp refresh_selection(%{candidate: nil} = selection), do: selection
 
   defp refresh_selection(%{candidate: candidate} = selection) do
-    current = Repo.one(Episodes.Episode.Query.by_id(candidate.episode.id))
+    current = Repo.peek(Episodes.Episode.Query.by_id(candidate.episode.id))
 
     if current,
       do: %{selection | candidate: %{candidate | episode: current}},
@@ -1173,7 +1173,7 @@ defmodule Ryker.Admission do
     do: Work.Custody.resume_blocked_in_transaction(episode, input_ref)
 
   defp load_decided_episode(nil), do: nil
-  defp load_decided_episode(id), do: Repo.one(Episodes.Episode.Query.by_id(id))
+  defp load_decided_episode(id), do: Repo.peek(Episodes.Episode.Query.by_id(id))
 
   # Retrieval is bounded, indexed and explainable: five lanes fill a pool of at
   # most 200 eligible episodes, the exact source item's owner is resolved
@@ -1341,7 +1341,7 @@ defmodule Ryker.Admission do
 
     ordered
     |> Episodes.Event.Query.limit_to(1)
-    |> Repo.one()
+    |> Repo.peek()
   end
 
   defp selected_candidate(_context, nil), do: {:ok, nil}

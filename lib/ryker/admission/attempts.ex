@@ -44,11 +44,9 @@ defmodule Ryker.Admission.Attempts do
   end
 
   def observe(entry, phase, attributes, settings) when phase in @phases and is_map(attributes) do
-    locked(
-      entry,
-      settings,
-      &persist(&1, Map.take(attributes, @observations), phase, settings.now.())
-    )
+    observations = Map.take(attributes, @observations)
+
+    locked(entry, settings, &persist(&1, observations, phase, settings.now.()))
     |> case do
       {:ok, _attempt} -> :ok
       {:error, reason} -> {:error, reason}
@@ -150,7 +148,7 @@ defmodule Ryker.Admission.Attempts do
         entry.id
         |> Ingress.Inbox.Entry.Query.by_id()
         |> Ingress.Inbox.Entry.Query.lock_for_update()
-        |> Repo.one()
+        |> Repo.peek()
 
       if is_nil(current) or current.status != :pending or
            not Lease.held?(current, settings.lease_ref, settings.now.()) or
@@ -159,7 +157,7 @@ defmodule Ryker.Admission.Attempts do
       end
 
       attempt =
-        Repo.one(query(entry)) ||
+        Repo.peek(query(entry)) ||
           Repo.insert!(%Attempt{
             input_id: entry.id,
             generation: entry.execution_generation,

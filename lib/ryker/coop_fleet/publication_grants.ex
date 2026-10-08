@@ -155,7 +155,7 @@ defmodule Ryker.CoopFleet.PublicationGrants do
   # from another worker, or from a placement newer than the publish, grants nothing.
   defp exact_review_command?(publication, session, placement) do
     review =
-      Repo.one(Command.Query.by_idempotency_key(Publication.Executor.review_key(publication)))
+      Repo.peek(Command.Query.by_idempotency_key(Publication.Executor.review_key(publication)))
 
     match?(%Command{kind: "run_review"}, review) and review.session_id == session.id and
       review.worker_id == placement.worker_id and

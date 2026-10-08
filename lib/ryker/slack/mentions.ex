@@ -11,7 +11,7 @@ defmodule Ryker.Slack.Mentions do
   alias Ryker.Episodes
   alias Ryker.Maps
   alias Ryker.Repo
-  alias Ryker.Slack.Id
+  alias Ryker.Slack.ID
 
   @typed_link ~r/\[([^\]\r\n]{1,120})\]\((slack-(?:user|channel|usergroup|broadcast)):([A-Za-z0-9_.:-]{1,1024})\)/u
   @typed_prefix ~r/\]\(\s*slack-/u
@@ -69,8 +69,8 @@ defmodule Ryker.Slack.Mentions do
   def authority_for_delivery(delivery_ref)
       when is_binary(delivery_ref) and byte_size(delivery_ref) in 1..256 do
     answered =
-      Repo.one(Episodes.Episode.Query.answered_by_delivery(delivery_ref)) ||
-        Repo.one(Episodes.Episode.Query.updated_by_slack_action(delivery_ref))
+      Repo.peek(Episodes.Episode.Query.answered_by_delivery(delivery_ref)) ||
+        Repo.peek(Episodes.Episode.Query.updated_by_slack_action(delivery_ref))
 
     case answered do
       {%Episodes.Episode{} = episode, input_refs} ->
@@ -358,7 +358,7 @@ defmodule Ryker.Slack.Mentions do
   defp unique(values), do: values |> Enum.uniq() |> Enum.sort()
 
   defp slack_id(value) do
-    if Id.valid?(value),
+    if ID.valid?(value),
       do: :ok,
       else: {:error, :slack_id}
   end

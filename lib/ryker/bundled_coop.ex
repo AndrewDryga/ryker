@@ -97,7 +97,7 @@ defmodule Ryker.BundledCoop do
 
   defp revoked?, do: match?(%CoopFleet.Worker{state: :revoked}, configured_worker())
 
-  defp configured_worker, do: Repo.one(CoopFleet.Worker.Query.by_id(configured_worker_id()))
+  defp configured_worker, do: Repo.peek(CoopFleet.Worker.Query.by_id(configured_worker_id()))
 
   defp retire_tokens!(path) do
     worker = configured_worker_id()

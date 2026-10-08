@@ -115,7 +115,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
   end
 
   defp locked_worker!(worker_id) do
-    worker_id |> Worker.Query.by_id() |> Worker.Query.lock_for_update() |> Repo.one() ||
+    worker_id |> Worker.Query.by_id() |> Worker.Query.lock_for_update() |> Repo.peek() ||
       Repo.rollback(:coop_worker_not_found)
   end
 

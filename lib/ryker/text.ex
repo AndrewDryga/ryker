@@ -38,6 +38,19 @@ defmodule Ryker.Text do
   end
 
   @doc """
+  `text` within `count` characters as a reader sees them (graphemes), cut back
+  to its last whole word and ending in "…" when it had to be cut: a quote or a
+  list row, where a word cut in half reads as a typo. A word longer than the
+  whole limit is cut where the limit falls.
+  """
+  @spec shorten_to_word(String.t(), pos_integer()) :: String.t()
+  def shorten_to_word(text, count) when is_binary(text) and is_integer(count) and count > 0 do
+    if String.length(text) <= count,
+      do: text,
+      else: (text |> String.slice(0, count) |> String.replace(~r/\s+\S*\z/u, "")) <> @ellipsis
+  end
+
+  @doc """
   The start of `text` within `max_bytes`, never splitting what a reader sees as
   one character, and with nothing added.
   """

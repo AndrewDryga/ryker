@@ -12,7 +12,7 @@ defmodule Ryker.Slack.AppHomeProjection do
   alias Ryker.Publication
   alias Ryker.Repo
   alias Ryker.Schedules
-  alias Ryker.Slack.{AppHome, Collections, Id, Permalink, SavedEntity}
+  alias Ryker.Slack.{AppHome, Collections, ID, Permalink, SavedEntity}
   alias Ryker.Work
 
   @maximum_collection_rows 10
@@ -28,7 +28,7 @@ defmodule Ryker.Slack.AppHomeProjection do
 
   @spec snapshot(String.t(), String.t(), MapSet.t(String.t())) :: map()
   def snapshot(workspace_ref, actor_ref, %MapSet{} = shared_conversations) do
-    if Id.valid?(workspace_ref) and Id.valid?(actor_ref) and
+    if ID.valid?(workspace_ref) and ID.valid?(actor_ref) and
          shared_conversations?(shared_conversations) do
       now = Repo.now!()
 
@@ -134,7 +134,7 @@ defmodule Ryker.Slack.AppHomeProjection do
           map()
   def collection(kind, workspace_ref, shared_conversations, offset) do
     with true <- kind in Collections.kinds(),
-         true <- Id.valid?(workspace_ref),
+         true <- ID.valid?(workspace_ref),
          %MapSet{} <- shared_conversations,
          true <- shared_conversations?(shared_conversations),
          true <- is_integer(offset) and offset >= 0,
@@ -613,6 +613,6 @@ defmodule Ryker.Slack.AppHomeProjection do
   defp count(query), do: Repo.aggregate(query, :count, :id)
 
   defp shared_conversations?(conversations) do
-    MapSet.size(conversations) <= 20_000 and Enum.all?(conversations, &Id.valid?/1)
+    MapSet.size(conversations) <= 20_000 and Enum.all?(conversations, &ID.valid?/1)
   end
 end

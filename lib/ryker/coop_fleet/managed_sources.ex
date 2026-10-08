@@ -64,9 +64,11 @@ defmodule Ryker.CoopFleet.ManagedSources do
         },
         base_branch,
         requested,
-        &resolve_repository(snapshot, &1, fn slug ->
-          GitHub.PublicRepositories.lookup(snapshot.github.api_url, slug, token)
-        end)
+        &resolve_repository(
+          snapshot,
+          &1,
+          fn slug -> GitHub.PublicRepositories.lookup(snapshot.github.api_url, slug, token) end
+        )
       )
       |> log_failure(repository_ref, :fetch)
     else

@@ -17,7 +17,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
   alias Ryker.{Behaviors, Continuity, Episodes, Instructions, Knowledge, Learning, Memories}
   alias Ryker.ControlPlane.{Activity, Actor, ChannelScope, ChannelsPage, Components, Kit, Paths}
   alias Ryker.ControlPlane.{ShortTime, Units}
-  alias Ryker.{ConversationRef, Schedules, Settings}
+  alias Ryker.{ConversationRef, Schedules, Settings, Text}
   alias Ryker.Slack
   alias Ryker.Wording
 
@@ -971,11 +971,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
   # away, on the thing's own page or in the row's Details.
   @clamp 280
 
-  defp clamp(text) when is_binary(text) and text != "" do
-    if String.length(text) > @clamp,
-      do: (text |> String.slice(0, @clamp) |> String.replace(~r/\s+\S*\z/u, "")) <> "…",
-      else: text
-  end
+  defp clamp(text) when is_binary(text) and text != "", do: Text.shorten_to_word(text, @clamp)
 
   defp clamp(_empty), do: nil
 

@@ -20,9 +20,9 @@ defmodule Ryker.Memories.MemoryReviewItem.Changeset do
     %MemoryReviewItem{}
     |> cast(attributes, @insert_fields)
     |> validate_required(@insert_fields)
-    |> validate_length(:ref, min: 1, max: 256)
-    |> validate_length(:workspace_ref, min: 1, max: 1_024)
-    |> validate_length(:reason, min: 1, max: 2_000)
+    |> validate_length(:ref, min: 1, max: 256, count: :codepoints)
+    |> validate_length(:workspace_ref, min: 1, max: 1_024, count: :codepoints)
+    |> validate_length(:reason, min: 1, max: 2_000, count: :codepoints)
     |> validate_format(:source_digest, Crypto.sha256_hex_pattern())
     |> unique_constraint(:ref)
     |> unique_constraint(:source_digest)
@@ -40,7 +40,7 @@ defmodule Ryker.Memories.MemoryReviewItem.Changeset do
       :status
     ])
     |> validate_required([:action, :reviewed_at, :reviewed_by_actor_ref, :status])
-    |> validate_length(:reviewed_by_actor_ref, min: 1, max: 1_024)
+    |> validate_length(:reviewed_by_actor_ref, min: 1, max: 1_024, count: :codepoints)
     |> check_constraint(:status, name: :memory_review_item_valid)
   end
 end

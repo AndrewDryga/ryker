@@ -7,7 +7,7 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
   alias Ryker.ConversationRef
   alias Ryker.Maps
   alias Ryker.Slack.Client.Fields
-  alias Ryker.Slack.{Id, SourceRef, Timestamp}
+  alias Ryker.Slack.{ID, SourceRef, Timestamp}
 
   @content_types ~w(messages files channels users)
   @search_fields ~w(after author_ref before content_types conversation_refs cursor limit query)
@@ -300,7 +300,7 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
   def conversation(value, workspace_ref) do
     case ConversationRef.parse_slack(value) do
       {:ok, ^workspace_ref, channel_ref} ->
-        if Id.valid?(channel_ref), do: {:ok, channel_ref}, else: {:error, :conversation}
+        if ID.valid?(channel_ref), do: {:ok, channel_ref}, else: {:error, :conversation}
 
       {:ok, _other_workspace, _channel_ref} ->
         {:error, :unauthorized}
@@ -318,7 +318,7 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
   defp author(nil), do: {:ok, nil}
 
   defp author("slack-user:" <> user_ref) do
-    if Id.valid?(user_ref), do: {:ok, user_ref}, else: {:error, :author}
+    if ID.valid?(user_ref), do: {:ok, user_ref}, else: {:error, :author}
   end
 
   defp author(_value), do: {:error, :author}

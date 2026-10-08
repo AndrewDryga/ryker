@@ -122,7 +122,7 @@ defmodule Ryker.Continuity.Recall do
     current =
       context.identity_key
       |> ConversationSummary.Query.by_identity_key()
-      |> Repo.one()
+      |> Repo.peek()
       |> learning_visible(context)
 
     related = related_summaries(context, request)
@@ -184,7 +184,7 @@ defmodule Ryker.Continuity.Recall do
     |> ConversationSummary.Query.select_descriptors()
     |> Repo.all()
     |> Enum.sort_by(&summary_rank(&1, context, request))
-    |> Stream.map(&Repo.one(ConversationSummary.Query.by_id(query, &1.id)))
+    |> Stream.map(&Repo.peek(ConversationSummary.Query.by_id(query, &1.id)))
     |> Stream.reject(&is_nil/1)
     |> Stream.filter(&summary_visible?(&1, context))
     |> Enum.take(@maximum_related)
@@ -203,7 +203,7 @@ defmodule Ryker.Continuity.Recall do
     query
     |> ConversationRollup.Query.select_ids()
     |> Repo.all()
-    |> Stream.map(&Repo.one(ConversationRollup.Query.by_id(query, &1)))
+    |> Stream.map(&Repo.peek(ConversationRollup.Query.by_id(query, &1)))
     |> Stream.reject(&is_nil/1)
     |> Stream.filter(&(rollup_visible?(&1, context) and derived_sources_valid?(&1, context)))
     |> Enum.take(@maximum_rollups)

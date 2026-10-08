@@ -10,7 +10,7 @@ defmodule Ryker.Operator.EpisodeReview.Changeset do
     %EpisodeReview{}
     |> cast(attributes, @fields)
     |> validate_required(@fields -- [:note])
-    |> validate_length(:actor_ref, min: 1, max: 1_024)
+    |> validate_length(:actor_ref, min: 1, max: 1_024, count: :codepoints)
     |> validate_length(:note, max: 2_048, count: :bytes)
     |> validate_number(:semantic_version, greater_than_or_equal_to: 0)
     |> unique_constraint([:episode_id, :semantic_version])

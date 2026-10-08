@@ -135,6 +135,16 @@ defmodule Ryker.Repo do
   end
 
   @doc """
+  The one row `queryable` selects, or nil when there is none: a read where no
+  row is itself the answer (a card's current turn, a lock taken only if the
+  row is there, a fallback after `||`). A read the caller matches on answers
+  through `fetch/2`; a value a query selects stays `one/2`. Raises when more
+  than one row matches.
+  """
+  @spec peek(Ecto.Queryable.t(), keyword()) :: term() | nil
+  def peek(queryable, opts \\ []), do: one(queryable, opts)
+
+  @doc """
   The one row `queryable` selects, as `{:ok, row}`, or `{:error, :not_found}`
   when there is none; raises when more than one matches. A row is the schema,
   or what the query's `select` names (a tuple, a map, a single value). The

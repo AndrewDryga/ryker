@@ -41,7 +41,8 @@ defmodule Ryker.ControlPlane.Pages do
   """
   @spec page([String.t()], %{optional(String.t()) => term()}, map()) :: page()
   def page(["incident-rooms"], params, options) do
-    snapshot = options.projection.incidents.(Map.take(params, ["q", "status", "page"]))
+    params = Map.take(params, ["q", "status", "page"])
+    snapshot = options.projection.incidents.(params)
 
     ok(
       "Incident rooms",
@@ -116,12 +117,8 @@ defmodule Ryker.ControlPlane.Pages do
   def page(["channels", workspace_ref, channel_ref], params, options) do
     with {:ok, workspace_ref} <- PathRef.decode(workspace_ref),
          {:ok, channel_ref} <- PathRef.decode(channel_ref),
-         {:ok, snapshot} <-
-           options.projection.channel.(
-             workspace_ref,
-             channel_ref,
-             Map.take(params, ChannelDetail.query_keys())
-           ) do
+         params = Map.take(params, ChannelDetail.query_keys()),
+         {:ok, snapshot} <- options.projection.channel.(workspace_ref, channel_ref, params) do
       snapshot
       |> ChannelPage.title()
       |> ok(ChannelPage.description(snapshot), [
@@ -219,7 +216,8 @@ defmodule Ryker.ControlPlane.Pages do
   # One topic, or the messages behind a record, is a sub-page with its own
   # heading; the lists keep the page's.
   def page(["memory", "learned"], params, options) do
-    view = options.projection.learned.(Map.take(params, LearnedPage.query_keys()))
+    params = Map.take(params, LearnedPage.query_keys())
+    view = options.projection.learned.(params)
 
     body =
       LearnedPage.html(view, Map.get(options, :csrf_secret), Map.get(options, :relearn_error))
@@ -253,11 +251,8 @@ defmodule Ryker.ControlPlane.Pages do
   end
 
   def page(["rules"], params, options) do
-    snapshot =
-      options.projection.behaviors.(
-        :standing_assignment,
-        Map.take(params, ["q", "view", "page"])
-      )
+    params = Map.take(params, ["q", "view", "page"])
+    snapshot = options.projection.behaviors.(:standing_assignment, params)
 
     ok(
       "Rules",
@@ -267,7 +262,8 @@ defmodule Ryker.ControlPlane.Pages do
   end
 
   def page(["usage"], params, options) do
-    snapshot = options.projection.usage.(Map.take(params, ["window", "mode", "by"]))
+    params = Map.take(params, ["window", "mode", "by"])
+    snapshot = options.projection.usage.(params)
     ok("Usage & cost", UsagePage.render(snapshot))
   end
 
@@ -334,7 +330,8 @@ defmodule Ryker.ControlPlane.Pages do
   # What people said about Ryker's answers; one category is a sub-page with
   # its own heading and the way back to all feedback.
   def page(["feedback"], params, options) do
-    view = options.projection.feedback.(Map.take(params, FeedbackProjection.query_keys()))
+    params = Map.take(params, FeedbackProjection.query_keys())
+    view = options.projection.feedback.(params)
     body = FeedbackPage.html(view)
 
     case FeedbackPage.heading(view) do
@@ -346,7 +343,8 @@ defmodule Ryker.ControlPlane.Pages do
   # Requests people were unhappy with, with Ryker's own diagnosis: a
   # sub-page of Feedback with the way back to it.
   def page(["feedback", "fix"], params, options) do
-    view = options.projection.improvement.(Map.take(params, ImprovementProjection.query_keys()))
+    params = Map.take(params, ImprovementProjection.query_keys())
+    view = options.projection.improvement.(params)
     view |> ImprovementPage.heading() |> sub_page(ImprovementPage.html(view))
   end
 
@@ -359,11 +357,9 @@ defmodule Ryker.ControlPlane.Pages do
   end
 
   def page(["memory", "cases"], params, options) do
-    ok(
-      "Cases",
-      ConfigurationGuide.description(:cases),
-      CasesPage.html(options.projection.cases.(Map.take(params, CasesPage.query_keys())))
-    )
+    params = Map.take(params, CasesPage.query_keys())
+    cases = options.projection.cases.(params)
+    ok("Cases", ConfigurationGuide.description(:cases), CasesPage.html(cases))
   end
 
   # One finding is a sub-page of its own, with the way back to all of them.
@@ -378,11 +374,9 @@ defmodule Ryker.ControlPlane.Pages do
   end
 
   def page(["memory", "findings"], params, options) do
-    ok(
-      "Findings",
-      ConfigurationGuide.description(:findings),
-      FindingsPage.html(options.projection.findings.(Map.take(params, FindingsPage.query_keys())))
-    )
+    params = Map.take(params, FindingsPage.query_keys())
+    findings = options.projection.findings.(params)
+    ok("Findings", ConfigurationGuide.description(:findings), FindingsPage.html(findings))
   end
 
   # One person is a sub-page of their own, with the way back to everyone.
@@ -460,11 +454,14 @@ defmodule Ryker.ControlPlane.Pages do
   # A sub-page's heading: its title and description, the way back to the page
   # it belongs to, and the action opposite its title when it has one.
   defp sub_page(heading, body) do
+    links =
+      heading
+      |> Map.take([:back, :action])
+      |> Map.reject(fn {_key, value} -> is_nil(value) end)
+
     heading.title
     |> ok(heading.description, body)
-    |> Map.merge(
-      Map.reject(Map.take(heading, [:back, :action]), fn {_key, value} -> is_nil(value) end)
-    )
+    |> Map.merge(links)
   end
 
   defp ok(title, description, body),

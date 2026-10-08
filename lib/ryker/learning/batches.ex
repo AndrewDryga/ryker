@@ -63,7 +63,7 @@ defmodule Ryker.Learning.Batches do
   @spec next_due_at(DateTime.t(), map()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since, settings) do
     batches = Repo.one(Batch.Query.select_next_due_after(since))
-    scopes = Repo.one(LearningInput.Query.next_scope_due_after(since, settings))
+    scopes = Repo.peek(LearningInput.Query.next_scope_due_after(since, settings))
     UTCDateTime.earliest([scopes | batches])
   end
 
@@ -264,7 +264,7 @@ defmodule Ryker.Learning.Batches do
         |> LearningRun.Query.ordered_by_recent()
         |> LearningRun.Query.limit_to(1)
         |> LearningRun.Query.lock_for_update()
-        |> Repo.one()
+        |> Repo.peek()
 
       valid_ids = current_members!(batch, unfinished_members(batch.id))
       retire_unstarted_manifest!(unstarted, valid_ids)
@@ -545,7 +545,7 @@ defmodule Ryker.Learning.Batches do
         |> LearningRun.Query.by_id()
         |> LearningRun.Query.by_batch_id(claim.batch.id)
         |> LearningRun.Query.lock_for_update()
-        |> Repo.one()
+        |> Repo.peek()
 
       if is_nil(run), do: Repo.rollback(:learning_batch_mismatch)
       {:ok, save(run, reconcile_attempt_count: run.reconcile_attempt_count + 1)}
@@ -559,7 +559,7 @@ defmodule Ryker.Learning.Batches do
     end
   end
 
-  defp next_batch(now), do: Repo.one(Batch.Query.next_claimable(now))
+  defp next_batch(now), do: Repo.peek(Batch.Query.next_claimable(now))
 
   defp create_batch(settings, now) do
     pending = LearningInput.Query.pending()

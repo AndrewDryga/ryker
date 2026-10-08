@@ -227,7 +227,10 @@ defmodule Ryker.Slack.WorkControls do
          %{state: :working, owner_kind: :turn, owner_ref: turn_ref, id: id} = episode
        ) do
     turn =
-      id |> Work.Turn.Query.by_episode_id() |> Work.Turn.Query.by_turn_ref(turn_ref) |> Repo.one()
+      id
+      |> Work.Turn.Query.by_episode_id()
+      |> Work.Turn.Query.by_turn_ref(turn_ref)
+      |> Repo.peek()
 
     if stoppable?(episode, turn),
       do: {:ok, turn_ref},

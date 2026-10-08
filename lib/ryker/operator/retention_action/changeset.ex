@@ -24,8 +24,8 @@ defmodule Ryker.Operator.RetentionAction.Changeset do
     %RetentionAction{}
     |> cast(attributes, @fields)
     |> validate_required(@required)
-    |> validate_length(:action_ref, min: 1, max: 1_024)
-    |> validate_length(:actor_ref, min: 1, max: 1_024)
+    |> validate_length(:action_ref, min: 1, max: 1_024, count: :codepoints)
+    |> validate_length(:actor_ref, min: 1, max: 1_024, count: :codepoints)
     |> validate_format(:request_fingerprint, Crypto.sha256_hex_pattern())
     |> unique_constraint(:action_ref)
     |> foreign_key_constraint(:session_id)

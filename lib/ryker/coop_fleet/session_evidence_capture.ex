@@ -65,7 +65,7 @@ defmodule Ryker.CoopFleet.SessionEvidenceCapture do
     |> Placement.Query.active()
     |> Placement.Query.ordered_by_generation_desc()
     |> Placement.Query.limit_to(1)
-    |> Repo.one()
+    |> Repo.peek()
     |> case do
       %Placement{} = placement -> {:ok, placement}
       nil -> {:skipped, :no_active_placement}

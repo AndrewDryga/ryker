@@ -11,6 +11,7 @@ defmodule Ryker.ControlPlane.MemoryFormat do
   use Phoenix.Component
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{Kit, ShortTime, SlackMarkdown}
+  alias Ryker.Text
   alias Ryker.UTCDateTime
   alias Ryker.Wording
 
@@ -90,14 +91,8 @@ defmodule Ryker.ControlPlane.MemoryFormat do
   bytes cut short multi-byte text that fitted.
   """
   @spec row_text(String.t()) :: Phoenix.HTML.safe()
-  def row_text(text) when is_binary(text) do
-    if String.length(text) > @row_characters do
-      cut = text |> String.slice(0, @row_characters) |> String.replace(~r/\s+\S*$/u, "")
-      inline(cut <> "…")
-    else
-      inline(text)
-    end
-  end
+  def row_text(text) when is_binary(text),
+    do: text |> Text.shorten_to_word(@row_characters) |> inline()
 
   def inline(nil, _workspace), do: nil
 

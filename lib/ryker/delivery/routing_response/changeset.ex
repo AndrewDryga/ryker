@@ -34,13 +34,13 @@ defmodule Ryker.Delivery.RoutingResponse.Changeset do
     %RoutingResponse{}
     |> cast(attributes, Map.keys(attributes))
     |> validate_required(Map.keys(attributes) -- [:thread_ref])
-    |> validate_length(:decision_ref, min: 1, max: 1_024)
-    |> validate_length(:delivery_ref, min: 1, max: 1_024)
-    |> validate_length(:transport, min: 1, max: 1_024)
-    |> validate_length(:conversation_ref, min: 1, max: 1_024)
-    |> validate_length(:thread_ref, min: 1, max: 1_024)
-    |> validate_length(:source_item_ref, min: 1, max: 1_024)
-    |> validate_length(:document_fingerprint, is: 64)
+    |> validate_length(:decision_ref, min: 1, max: 1_024, count: :codepoints)
+    |> validate_length(:delivery_ref, min: 1, max: 1_024, count: :codepoints)
+    |> validate_length(:transport, min: 1, max: 1_024, count: :codepoints)
+    |> validate_length(:conversation_ref, min: 1, max: 1_024, count: :codepoints)
+    |> validate_length(:thread_ref, min: 1, max: 1_024, count: :codepoints)
+    |> validate_length(:source_item_ref, min: 1, max: 1_024, count: :codepoints)
+    |> validate_length(:document_fingerprint, is: 64, count: :codepoints)
     |> validate_number(:position, greater_than_or_equal_to: 1, less_than_or_equal_to: 6)
     |> unique_constraint([:input_id, :position],
       name: :delivery_routing_responses_input_position_index
@@ -64,8 +64,8 @@ defmodule Ryker.Delivery.RoutingResponse.Changeset do
     ])
     |> validate_required([:attempt_count, :lease_expires_at, :lease_owner, :lease_ref])
     |> validate_number(:attempt_count, greater_than: 0)
-    |> validate_length(:lease_owner, min: 1, max: 1_024)
-    |> validate_length(:lease_ref, min: 1, max: 1_024)
+    |> validate_length(:lease_owner, min: 1, max: 1_024, count: :codepoints)
+    |> validate_length(:lease_ref, min: 1, max: 1_024, count: :codepoints)
     |> response_constraints()
   end
 
@@ -81,8 +81,8 @@ defmodule Ryker.Delivery.RoutingResponse.Changeset do
       :next_attempt_at
     ])
     |> validate_required([:last_error_code, :last_error_detail, :next_attempt_at])
-    |> validate_length(:last_error_code, min: 1, max: 128)
-    |> validate_length(:last_error_detail, min: 1, max: 4_096)
+    |> validate_length(:last_error_code, min: 1, max: 128, count: :codepoints)
+    |> validate_length(:last_error_detail, min: 1, max: 4_096, count: :codepoints)
     |> response_constraints()
   end
 
@@ -107,8 +107,8 @@ defmodule Ryker.Delivery.RoutingResponse.Changeset do
       :status
     ])
     |> validate_required([:last_error_code, :last_error_detail, :status])
-    |> validate_length(:last_error_code, min: 1, max: 128)
-    |> validate_length(:last_error_detail, min: 1, max: 4_096)
+    |> validate_length(:last_error_code, min: 1, max: 128, count: :codepoints)
+    |> validate_length(:last_error_detail, min: 1, max: 4_096, count: :codepoints)
     |> response_constraints()
   end
 
@@ -180,7 +180,7 @@ defmodule Ryker.Delivery.RoutingResponse.Changeset do
       :external_receipt_fingerprint,
       :status
     ])
-    |> validate_length(:external_receipt_fingerprint, is: 64)
+    |> validate_length(:external_receipt_fingerprint, is: 64, count: :codepoints)
     |> response_constraints()
   end
 

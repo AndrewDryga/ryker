@@ -19,10 +19,10 @@ defmodule Ryker.Records.Response.Changeset do
     %Response{}
     |> cast(attributes, @fields)
     |> validate_required(@fields -- [:choice, :choice_index])
-    |> validate_length(:response_ref, min: 1, max: 1_024)
-    |> validate_length(:actor_ref, min: 1, max: 1_024)
+    |> validate_length(:response_ref, min: 1, max: 1_024, count: :codepoints)
+    |> validate_length(:actor_ref, min: 1, max: 1_024, count: :codepoints)
     |> validate_number(:choice_index, greater_than_or_equal_to: 0, less_than_or_equal_to: 9)
-    |> validate_length(:choice, min: 1, max: 240)
+    |> validate_length(:choice, min: 1, max: 240, count: :codepoints)
     |> validate_choice_pair()
     |> unique_constraint(:record_id)
     |> unique_constraint(:inbox_entry_id)

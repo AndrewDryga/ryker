@@ -15,8 +15,4 @@ defmodule Ryker.JSONSchema do
   @doc "`schema`, or null."
   @spec nullable(map()) :: map()
   def nullable(schema), do: %{"anyOf" => [schema, %{"type" => "null"}]}
-
-  @doc "The pattern `text/1` gives: at least one character that is not white space, and no NUL."
-  @spec nonblank_pattern() :: String.t()
-  def nonblank_pattern, do: @nonblank
 end

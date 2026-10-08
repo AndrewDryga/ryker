@@ -2,7 +2,7 @@ defmodule Ryker.Slack.MembershipTransition do
   @moduledoc """
   Normalizes authenticated Slack bot membership events before generic message admission.
   """
-  alias Ryker.Slack.{Id, Timestamp}
+  alias Ryker.Slack.{ID, Timestamp}
 
   @enforce_keys [:actor_ref, :channel_ref, :event_ref, :kind, :occurred_at, :workspace_ref]
   defstruct @enforce_keys
@@ -112,7 +112,7 @@ defmodule Ryker.Slack.MembershipTransition do
   defp optional_reference(value, field), do: reference(value, field)
 
   defp reference(value, field) do
-    if Id.valid?(value),
+    if ID.valid?(value),
       do: :ok,
       else: {:error, {:invalid_slack_membership, field}}
   end

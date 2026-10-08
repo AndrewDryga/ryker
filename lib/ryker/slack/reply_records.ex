@@ -84,7 +84,7 @@ defmodule Ryker.Slack.ReplyRecords do
   defp present_sent_post(document, _record), do: document
 
   defp sent_action(record) do
-    Repo.one(
+    Repo.peek(
       Delivery.PlatformAction.Query.by_turn_slot(
         record.turn_id,
         Records.SlackPostOffers.host_slot(record)

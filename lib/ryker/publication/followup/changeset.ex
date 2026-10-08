@@ -57,7 +57,7 @@ defmodule Ryker.Publication.Followup.Changeset do
     |> validate_number(:failure_count, greater_than_or_equal_to: 0)
     |> validate_length(:checks_url, max: 2_048, count: :bytes)
     |> validate_length(:last_error, max: 4_096, count: :bytes)
-    |> validate_length(:last_event_key, max: 128)
+    |> validate_length(:last_event_key, max: 128, count: :codepoints)
     |> check_constraint(:pr_state, name: :episode_publication_followup_state_valid)
     |> check_constraint(:lease_ref, name: :episode_publication_followup_lease_valid)
   end

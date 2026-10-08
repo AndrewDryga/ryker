@@ -45,7 +45,7 @@ defmodule Ryker.RepositoryKnowledge.FleetSession do
   @spec ensure(Run.t()) :: {:ok, Work.Session.t()} | {:error, term()}
   def ensure(%Run{} = run) do
     Repo.transaction(fn ->
-      session = run |> run_session() |> Repo.one() || create!(run)
+      session = run |> run_session() |> Repo.peek() || create!(run)
 
       unless session.policy == run.policy and session.policy_digest == run.policy_digest and
                session.repository_ref == run.repository_ref and

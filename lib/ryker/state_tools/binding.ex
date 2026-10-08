@@ -18,7 +18,7 @@ defmodule Ryker.StateTools.Binding do
   def resolve(token) when is_binary(token) and byte_size(token) in 32..256 do
     token_sha256 = Crypto.sha256_hex(token)
 
-    binding = token_sha256 |> Work.Session.Query.state_tools_binding() |> Repo.one()
+    binding = token_sha256 |> Work.Session.Query.state_tools_binding() |> Repo.peek()
 
     with {%Work.Session{} = session, %Episodes.Episode{} = episode, %Work.Turn{} = turn} <-
            binding,
@@ -49,7 +49,7 @@ defmodule Ryker.StateTools.Binding do
       |> Work.Session.Query.by_id()
       |> Work.Session.Query.by_episode_id(binding.episode.id)
       |> Work.Session.Query.lock_for_update()
-      |> Repo.one()
+      |> Repo.peek()
 
     with %Work.Session{cleanup_status: :active} <- session,
          true <-

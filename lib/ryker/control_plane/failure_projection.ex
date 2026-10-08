@@ -245,12 +245,12 @@ defmodule Ryker.ControlPlane.FailureProjection do
   defp failure_exact("work", ref), do: work(ref)
 
   defp failure_exact("publication", ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    found = Repo.one(Failure.Query.failing_publication(@running_publication_statuses, ref))
+    found = Repo.peek(Failure.Query.failing_publication(@running_publication_statuses, ref))
     if found, do: {:ok, publication_item(found)}, else: :not_found
   end
 
   defp failure_exact("retention", ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    found = Repo.one(Failure.Query.blocked_cleanup(ref))
+    found = Repo.peek(Failure.Query.blocked_cleanup(ref))
     if found, do: {:ok, retention_item(found)}, else: :not_found
   end
 
@@ -259,7 +259,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
       Work.Cancellation.stalled_after_attempts()
       |> Failure.Query.stalled_stops()
       |> Failure.Query.by_episode_key(ref)
-      |> Repo.one()
+      |> Repo.peek()
 
     if found, do: {:ok, stopping_item(found)}, else: :not_found
   end
@@ -460,7 +460,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   # active again and the task resumes; a deleted one never can, so its task
   # closes instead, and the page must not promise otherwise.
   defp paused_room("destination_paused", %Episodes.Episode{id: episode_id}),
-    do: Repo.one(Failure.Query.room_of(episode_id))
+    do: Repo.peek(Failure.Query.room_of(episode_id))
 
   defp paused_room(_stop_code, _episode), do: nil
 
@@ -710,7 +710,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   end
 
   # What the batch's last attempt stopped on, so its page can say it in words.
-  defp last_attempt_error(batch_id), do: Repo.one(Failure.Query.last_attempt_error(batch_id))
+  defp last_attempt_error(batch_id), do: Repo.peek(Failure.Query.last_attempt_error(batch_id))
 
   # Where to relearn the topics a batch stopped on: the topic itself when
   # there is one, the Learned list when there are several.

@@ -117,9 +117,7 @@ defmodule Ryker.Delivery.Dispatcher do
           upload_refs
         )
       end,
-      block: fn code, detail ->
-        Work.Custody.block_delivery(episode.id, turn.turn_ref, lease_ref, code, detail)
-      end
+      block: &Work.Custody.block_delivery(episode.id, turn.turn_ref, lease_ref, &1, &2)
     }
   end
 
@@ -140,9 +138,7 @@ defmodule Ryker.Delivery.Dispatcher do
           detail
         )
       end,
-      block: fn code, detail ->
-        RoutingResponseCustody.block(response.delivery_ref, lease_ref, code, detail)
-      end
+      block: &RoutingResponseCustody.block(response.delivery_ref, lease_ref, &1, &2)
     }
   end
 
@@ -157,9 +153,7 @@ defmodule Ryker.Delivery.Dispatcher do
       defer: fn retry_seconds, code, detail, [] ->
         PlatformActionCustody.defer(action.action_ref, lease_ref, retry_seconds, code, detail)
       end,
-      block: fn code, detail ->
-        PlatformActionCustody.block(action.action_ref, lease_ref, code, detail)
-      end
+      block: &PlatformActionCustody.block(action.action_ref, lease_ref, &1, &2)
     }
   end
 
@@ -174,9 +168,7 @@ defmodule Ryker.Delivery.Dispatcher do
       defer: fn retry_seconds, code, detail, [] ->
         WeeklyReport.Custody.defer(report.delivery_ref, lease_ref, retry_seconds, code, detail)
       end,
-      block: fn code, detail ->
-        WeeklyReport.Custody.block(report.delivery_ref, lease_ref, code, detail)
-      end
+      block: &WeeklyReport.Custody.block(report.delivery_ref, lease_ref, &1, &2)
     }
   end
 

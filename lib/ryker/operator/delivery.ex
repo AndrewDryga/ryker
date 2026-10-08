@@ -76,10 +76,10 @@ defmodule Ryker.Operator.Delivery do
   end
 
   defp lookup(delivery_ref) do
-    message = Repo.one(Work.Turn.Query.by_delivery_ref(delivery_ref))
-    response = Repo.one(Delivery.RoutingResponse.Query.by_delivery_ref(delivery_ref))
-    action = Repo.one(Delivery.PlatformAction.Query.by_action_ref(delivery_ref))
-    report = Repo.one(WeeklyReport.Report.Query.by_delivery_ref(delivery_ref))
+    message = Repo.peek(Work.Turn.Query.by_delivery_ref(delivery_ref))
+    response = Repo.peek(Delivery.RoutingResponse.Query.by_delivery_ref(delivery_ref))
+    action = Repo.peek(Delivery.PlatformAction.Query.by_action_ref(delivery_ref))
+    report = Repo.peek(WeeklyReport.Report.Query.by_delivery_ref(delivery_ref))
 
     case {message, response, action, report} do
       {%Work.Turn{} = turn, nil, nil, nil} -> {:ok, {:message, turn}}

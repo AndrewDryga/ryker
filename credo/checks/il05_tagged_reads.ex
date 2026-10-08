@@ -52,12 +52,14 @@ defmodule Ryker.Checks.IL05TaggedReads do
 
   defp last_expression(expression), do: expression
 
-  # `Repo.one(query)` or `query |> ... |> Repo.one()`, of whole rows.
+  # `Repo.one(query)` or `query |> ... |> Repo.one()`, of whole rows, and
+  # `Repo.peek`, which is the same read named for a nil that means no row.
   defp row_read?({:|>, _meta, [query, call]}), do: repo_one?(call, 0) and not selects?(query)
   defp row_read?(call), do: repo_one?(call, 1) and not selects?(call)
 
-  defp repo_one?({{:., _, [{:__aliases__, _, parts}, :one]}, _, args}, arity),
-    do: List.last(parts) == :Repo and length(args) in [arity, arity + 1]
+  defp repo_one?({{:., _, [{:__aliases__, _, parts}, read]}, _, args}, arity)
+       when read in [:one, :peek],
+       do: List.last(parts) == :Repo and length(args) in [arity, arity + 1]
 
   defp repo_one?(_call, _arity), do: false
 

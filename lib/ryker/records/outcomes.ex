@@ -99,7 +99,7 @@ defmodule Ryker.Records.Outcomes do
     |> Episodes.Event.Query.by_kind(:input_admitted)
     |> Episodes.Event.Query.ordered_by_sequence()
     |> Episodes.Event.Query.limit_to(1)
-    |> Repo.one()
+    |> Repo.peek()
   end
 
   defp record_document(record) do

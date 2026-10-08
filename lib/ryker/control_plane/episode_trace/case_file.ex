@@ -33,7 +33,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
       base
       |> EpisodeTrace.Query.ordered_by_occurred_at()
       |> EpisodeTrace.Query.limit_to(1)
-      |> Repo.one()
+      |> Repo.peek()
 
     first = if first, do: case_message(first, options)
 
@@ -209,7 +209,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
 
   @doc "The proposal, approval and failed start of a task that never ran, for a collapsed page."
   def task_start(episode, turn) do
-    offer = Repo.one(EpisodeTrace.Query.task_offer(episode))
+    offer = Repo.peek(EpisodeTrace.Query.task_offer(episode))
 
     %{
       confirmed: not is_nil(offer) and not is_nil(offer.confirmed_at),

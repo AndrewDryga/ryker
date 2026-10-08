@@ -59,8 +59,8 @@ defmodule Ryker.Slack.IncidentRoomCard do
 
       {:ok, %Episodes.Episode{} = episode} ->
         records = latest_records(episode.id)
-        turn = Repo.one(Work.Turn.Query.current(episode))
-        session = Repo.one(Work.Session.Query.latest_of_episode(episode.id))
+        turn = Repo.peek(Work.Turn.Query.current(episode))
+        session = Repo.peek(Work.Session.Query.latest_of_episode(episode.id))
 
         {:ok,
          base(room)

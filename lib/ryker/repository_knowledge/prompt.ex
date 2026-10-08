@@ -18,7 +18,6 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
   alias Ryker.PromptDocument
   alias Ryker.Reference
   alias Ryker.RepositoryKnowledge.Document
-  alias Ryker.Text
   alias Ryker.Wording
 
   @contract_version "repository-knowledge-v1"
@@ -358,12 +357,12 @@ defmodule Ryker.RepositoryKnowledge.Prompt do
     ])
   end
 
-  @marker " …[cut]"
-
   defp shorten_document(%{"current_document" => text} = context, bytes)
        when is_binary(text) and byte_size(text) > bytes do
+    cut = PromptDocument.cut(text, bytes)
+
     context
-    |> Map.put("current_document", Text.bytes(text, bytes) <> @marker)
+    |> Map.put("current_document", cut)
     |> PromptDocument.omit("The end of the current document, cut for length.")
   end
 

@@ -150,11 +150,11 @@ defmodule Ryker.ControlPlane.ChannelDetail do
     }
   end
 
-  defp configuration(scope), do: Repo.one(ChannelDetail.Query.configuration(scope))
+  defp configuration(scope), do: Repo.peek(ChannelDetail.Query.configuration(scope))
 
-  defp membership(scope), do: Repo.one(ChannelDetail.Query.membership(scope))
+  defp membership(scope), do: Repo.peek(ChannelDetail.Query.membership(scope))
 
-  defp incident_room(scope), do: Repo.one(ChannelDetail.Query.incident_room(scope))
+  defp incident_room(scope), do: Repo.peek(ChannelDetail.Query.incident_room(scope))
 
   defp settings do
     case Ryker.Settings.fetch() do

@@ -28,7 +28,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
       in_episode
       |> Ingress.Inbox.Entry.Query.ordered_by_occurred_at()
       |> Ingress.Inbox.Entry.Query.limit_to(1)
-      |> Repo.one()
+      |> Repo.peek()
 
     newest =
       in_episode

@@ -46,7 +46,7 @@ defmodule Ryker.Waits.EventWaits do
   @spec next_due_at(DateTime.t()) :: DateTime.t() | nil
   def next_due_at(%DateTime{} = since) do
     subscriptions = since |> EventSubscription.Query.select_next_due_after() |> Repo.one()
-    deadlines = since |> Episodes.Episode.Query.next_event_deadline_after() |> Repo.one()
+    deadlines = since |> Episodes.Episode.Query.next_event_deadline_after() |> Repo.peek()
 
     UTCDateTime.earliest([deadlines | subscriptions])
   end

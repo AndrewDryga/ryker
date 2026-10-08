@@ -15,7 +15,7 @@ defmodule Ryker.Slack.ThreadStatuses do
   alias Ryker.Lease
   alias Ryker.Reference
   alias Ryker.Repo
-  alias Ryker.Slack.{Id, ThreadStatus, Timestamp}
+  alias Ryker.Slack.{ID, ThreadStatus, Timestamp}
   alias Ryker.Text
   alias Ryker.UTCDateTime
 
@@ -340,7 +340,7 @@ defmodule Ryker.Slack.ThreadStatuses do
     now = Repo.now!()
 
     status =
-      id |> ThreadStatus.Query.by_id() |> ThreadStatus.Query.lock_for_update() |> Repo.one()
+      id |> ThreadStatus.Query.by_id() |> ThreadStatus.Query.lock_for_update() |> Repo.peek()
 
     cond do
       is_nil(status) ->
@@ -386,7 +386,7 @@ defmodule Ryker.Slack.ThreadStatuses do
 
   defp target?(%{channel_ref: channel, phase: phase, status: status, thread_ref: thread}) do
     phase in @phases and
-      Id.valid?(channel) and Timestamp.valid?(thread) and
+      ID.valid?(channel) and Timestamp.valid?(thread) and
       is_binary(status) and String.valid?(status) and byte_size(status) <= 100 and
       :binary.match(status, <<0>>) == :nomatch
   end

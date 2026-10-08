@@ -65,9 +65,7 @@ defmodule Ryker.Publication.Followups.Signals do
 
     active = matching_lifecycle_followups(repository, references, branch_references, now)
 
-    Enum.reduce(active, 0, fn publication_pair, count ->
-      observe_publication_input(publication_pair, input, signal, references, count)
-    end)
+    Enum.reduce(active, 0, &observe_publication_input(&1, input, signal, references, &2))
   end
 
   defp matching_lifecycle_followups(repository, references, branch_references, now) do

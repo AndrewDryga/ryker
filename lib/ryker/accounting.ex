@@ -37,7 +37,7 @@ defmodule Ryker.Accounting do
         current =
           Work.Turn.Query.by_id(claim.turn.id)
           |> Work.Turn.Query.lock_for_update()
-          |> Repo.one()
+          |> Repo.peek()
 
         # The lease was written with the database's clock; only that clock can
         # say whether it still holds.
@@ -238,7 +238,7 @@ defmodule Ryker.Accounting do
     existing =
       Execution.Query.by_execution(identity.kind, identity.source_id, identity.generation)
       |> Execution.Query.lock_for_update()
-      |> Repo.one()
+      |> Repo.peek()
 
     recorded = Map.put(identity, :recorded_at, now)
     current = existing || struct!(Execution, recorded)

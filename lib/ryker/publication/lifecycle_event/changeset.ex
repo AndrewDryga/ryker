@@ -64,8 +64,8 @@ defmodule Ryker.Publication.LifecycleEvent.Changeset do
 
   defp common(changeset) do
     changeset
-    |> validate_length(:ref, min: 1, max: 256)
-    |> validate_length(:delivery_ref, min: 1, max: 256)
+    |> validate_length(:ref, min: 1, max: 256, count: :codepoints)
+    |> validate_length(:delivery_ref, min: 1, max: 256, count: :codepoints)
     |> validate_length(:summary, min: 1, max: 2_048, count: :bytes)
     |> validate_length(:last_error, max: 4_096, count: :bytes)
     |> validate_number(:attempt_count, greater_than_or_equal_to: 0)

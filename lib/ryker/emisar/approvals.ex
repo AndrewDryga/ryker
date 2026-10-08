@@ -312,7 +312,7 @@ defmodule Ryker.Emisar.Approvals do
 
   defp exact_session_authority(record) do
     result =
-      record.turn_id |> Work.Turn.Query.session_emisar_authority(record.episode_id) |> Repo.one()
+      record.turn_id |> Work.Turn.Query.session_emisar_authority(record.episode_id) |> Repo.peek()
 
     expected = {
       record.payload["connection_ref"],

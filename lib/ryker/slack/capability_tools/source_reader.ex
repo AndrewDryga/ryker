@@ -77,7 +77,8 @@ defmodule Ryker.Slack.CapabilityTools.SourceReader do
         "view" => Atom.to_string(view)
       }
 
-      result = Map.merge(result, Map.take(page, ["source_reads"]))
+      reads = Map.take(page, ["source_reads"])
+      result = Map.merge(result, reads)
       add_thread_channel_context(options, source, document, root, result, binding)
     end
   end

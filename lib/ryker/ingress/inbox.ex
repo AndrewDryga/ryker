@@ -423,7 +423,7 @@ defmodule Ryker.Ingress.Inbox do
     |> Entry.Query.ordered_by_oldest()
     |> Entry.Query.limit_to(1)
     |> Entry.Query.lock_next_free()
-    |> Repo.one()
+    |> Repo.peek()
   end
 
   @doc """
@@ -826,7 +826,7 @@ defmodule Ryker.Ingress.Inbox do
   end
 
   defp load(dedupe_key) do
-    dedupe_key |> Entry.Query.by_dedupe_key() |> Entry.Query.lock_for_update() |> Repo.one()
+    dedupe_key |> Entry.Query.by_dedupe_key() |> Entry.Query.lock_for_update() |> Repo.peek()
   end
 
   defp reconcile(input, nil, settings) do

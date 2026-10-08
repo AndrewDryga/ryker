@@ -160,7 +160,7 @@ defmodule Ryker.Work.Custody.Claims do
   end
 
   defp reviews_due(since, :work),
-    do: [Repo.one(Publication.Publication.Query.next_review_expiry_after(since))]
+    do: [Repo.peek(Publication.Publication.Query.next_review_expiry_after(since))]
 
   defp reviews_due(_since, :delivery), do: []
 

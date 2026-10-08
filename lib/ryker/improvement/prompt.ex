@@ -16,7 +16,6 @@ defmodule Ryker.Improvement.Prompt do
   alias Ryker.Maps
   alias Ryker.PromptDocument
   alias Ryker.Reference
-  alias Ryker.Text
 
   @contract_version "improvement-analysis-v1"
   @max_encoded_bytes 65_536
@@ -245,12 +244,11 @@ defmodule Ryker.Improvement.Prompt do
       else: PromptDocument.omit(shortened, "The end of long texts, cut for length.")
   end
 
-  @marker " …[cut]"
-
   defp cut(item, key, bytes) do
     case item[key] do
       text when is_binary(text) and byte_size(text) > bytes ->
-        Map.put(item, key, Text.bytes(text, bytes) <> @marker)
+        cut = PromptDocument.cut(text, bytes)
+        Map.put(item, key, cut)
 
       _short ->
         item

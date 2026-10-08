@@ -90,7 +90,7 @@ defmodule Ryker.Memories.MemorySearch do
     # irrespective of which result kind resumes first on this cursor page.
     lock_scope(binding)
 
-    fetch = fn lane, current -> fetch(lane, binding, current) end
+    fetch = &fetch(&1, binding, &2)
     {documents, state, budget} = collect(page, state, arguments["limit"], fetch)
     {related, coverage} = related_to_results(documents, page, binding, budget)
 

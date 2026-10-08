@@ -98,9 +98,9 @@ defmodule Ryker.Publication.Publication.Changeset do
 
   defp common(changeset) do
     changeset
-    |> validate_length(:ref, min: 1, max: 256)
-    |> validate_length(:repository, min: 1, max: 256)
-    |> validate_length(:title, min: 1, max: 120)
+    |> validate_length(:ref, min: 1, max: 256, count: :codepoints)
+    |> validate_length(:repository, min: 1, max: 256, count: :codepoints)
+    |> validate_length(:title, min: 1, max: 120, count: :codepoints)
     |> validate_length(:body, min: 1, max: 8_000, count: :bytes)
     |> validate_number(:review_generation, greater_than: 0)
     |> validate_number(:recovery_generation, greater_than: 0)

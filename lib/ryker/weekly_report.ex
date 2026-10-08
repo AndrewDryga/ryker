@@ -57,13 +57,12 @@ defmodule Ryker.WeeklyReport do
   def compose(week, options \\ []) do
     now = Keyword.get_lazy(options, :now, &DateTime.utc_now/0)
 
+    base_url = Keyword.get_lazy(options, :base_url, &base_url/0)
+    preview = Keyword.get(options, :preview, false)
+
     week
     |> Facts.read(now)
-    |> Digest.render(
-      base_url: Keyword.get_lazy(options, :base_url, &base_url/0),
-      time_zone_database: database(options),
-      preview: Keyword.get(options, :preview, false)
-    )
+    |> Digest.render(base_url, database(options), preview)
   end
 
   @doc """

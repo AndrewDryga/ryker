@@ -174,7 +174,7 @@ defmodule Ryker.Memories.Reviews do
     workspace_ref
     |> home_review_query(actor_ref, :pending)
     |> MemoryReviewItem.Query.by_ref(review_ref)
-    |> Repo.one()
+    |> Repo.peek()
   end
 
   @spec resolve_review(String.t(), atom(), String.t(), String.t(), map() | nil) ::

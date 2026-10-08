@@ -322,14 +322,14 @@ defmodule Ryker.Publication.FixLoop do
   defp task_session?(publication) do
     match?(
       %Work.Session{workspace_task: %{}},
-      Repo.one(Work.Session.Query.by_id(publication.session_id))
+      Repo.peek(Work.Session.Query.by_id(publication.session_id))
     )
   end
 
   defp at_rest?(publication) do
     match?(
       %Episodes.Episode{state: :complete},
-      Repo.one(Episodes.Episode.Query.by_id(publication.episode_id))
+      Repo.peek(Episodes.Episode.Query.by_id(publication.episode_id))
     )
   end
 

@@ -237,7 +237,7 @@ defmodule Ryker.Records.DerivedContext do
   # The row `by_id` finds for `id`, or nil when there is none or `id` is no UUID.
   defp get_uuid(by_id, id) do
     case Ecto.UUID.cast(id) do
-      {:ok, id} -> Repo.one(by_id.(id))
+      {:ok, id} -> Repo.peek(by_id.(id))
       _ -> nil
     end
   end

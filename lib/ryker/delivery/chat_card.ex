@@ -742,7 +742,7 @@ defmodule Ryker.Delivery.ChatCard do
        when is_binary(id) and is_list(choices) do
     id
     |> Records.Response.Query.latest_choice()
-    |> Repo.one()
+    |> Repo.peek()
     |> case do
       {index, _choice} when is_integer(index) -> index
       {nil, choice} when is_binary(choice) -> Enum.find_index(choices, &(&1 == choice))

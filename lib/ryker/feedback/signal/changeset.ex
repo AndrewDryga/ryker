@@ -32,11 +32,11 @@ defmodule Ryker.Feedback.Signal.Changeset do
       :source_ref,
       :occurred_at
     ])
-    |> validate_length(:actor_ref, min: 1, max: 1_024)
-    |> validate_length(:source_ref, min: 1, max: 1_024)
+    |> validate_length(:actor_ref, min: 1, max: 1_024, count: :codepoints)
+    |> validate_length(:source_ref, min: 1, max: 1_024, count: :codepoints)
     |> validate_format(:source, ~r/\A[a-z0-9_.-]{1,64}\z/)
     |> validate_length(:note, min: 1, max: 2_048, count: :bytes)
-    |> validate_length(:message_ref, min: 1, max: 1_024)
+    |> validate_length(:message_ref, min: 1, max: 1_024, count: :codepoints)
     |> validate_request()
     |> validate_value()
     |> validate_message()

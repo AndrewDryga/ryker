@@ -170,7 +170,7 @@ defmodule Ryker.Artifacts.Outputs do
     artifact =
       OutputArtifact.Query.by_turn_id(attributes.turn_id)
       |> OutputArtifact.Query.by_ref(attributes.ref)
-      |> Repo.one()
+      |> Repo.peek()
 
     if artifact && identity(artifact) == identity(attributes),
       do: artifact,

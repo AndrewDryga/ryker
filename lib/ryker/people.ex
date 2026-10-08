@@ -127,7 +127,7 @@ defmodule Ryker.People do
       |> PersonFact.Query.by_person()
       |> PersonFact.Query.by_keys([key, forgotten_key(person, key)])
       |> PersonFact.Query.lock_for_update()
-      |> Repo.one()
+      |> Repo.peek()
 
     case change(existing, entry, fact, person) do
       :none -> :ok

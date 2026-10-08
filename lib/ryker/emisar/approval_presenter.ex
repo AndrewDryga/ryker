@@ -65,9 +65,9 @@ defmodule Ryker.Emisar.ApprovalPresenter do
   end
 
   defp source(approval) do
-    record = Repo.one(Records.Record.Query.by_id(approval.record_id))
-    turn = record && Repo.one(Work.Turn.Query.by_id(record.turn_id))
-    episode = Repo.one(Episodes.Episode.Query.by_id(approval.episode_id))
+    record = Repo.peek(Records.Record.Query.by_id(approval.record_id))
+    turn = record && Repo.peek(Work.Turn.Query.by_id(record.turn_id))
+    episode = Repo.peek(Episodes.Episode.Query.by_id(approval.episode_id))
 
     case {record, turn, episode} do
       {%Records.Record{episode_id: episode_id, kind: "emisar_approval"} = record,

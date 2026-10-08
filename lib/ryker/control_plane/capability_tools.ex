@@ -712,7 +712,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
       |> Episodes.Event.Query.by_episode_id()
       |> Episodes.Event.Query.admitted_inputs([source_ref])
       |> Episodes.Event.Query.limit_to(1)
-      |> Repo.one()
+      |> Repo.peek()
 
     case admitted do
       %Episodes.Event{payload: %{"payload" => %{} = input}} -> {:ok, input}

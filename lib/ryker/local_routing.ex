@@ -161,7 +161,7 @@ defmodule Ryker.LocalRouting do
         |> Comparison.Query.ordered_by_oldest()
         |> Comparison.Query.limit_to(1)
         |> Comparison.Query.lock_next_free()
-        |> Repo.one()
+        |> Repo.peek()
         |> case do
           nil ->
             nil
@@ -293,7 +293,7 @@ defmodule Ryker.LocalRouting do
     nil
     |> Accounting.Execution.Query.ledger("all")
     |> Accounting.Execution.Query.admission_call(comparison.input_id, generation)
-    |> Repo.one()
+    |> Repo.peek()
     |> case do
       %{usage_cost_recorded: true, usage_cost_usd: %Decimal{} = cost} = call ->
         %{cost: cost, estimated: false, ms: call.usage_provider_ms}

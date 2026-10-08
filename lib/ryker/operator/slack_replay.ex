@@ -63,7 +63,7 @@ defmodule Ryker.Operator.SlackReplay do
          {:ok, source_id} <- source_id(entry.event_ref) do
       episode =
         if entry.episode_id,
-          do: Repo.one(Episodes.Episode.Query.by_id(entry.episode_id)),
+          do: Repo.peek(Episodes.Episode.Query.by_id(entry.episode_id)),
           else: nil
 
       turn = latest_turn(entry.episode_id)
@@ -160,7 +160,7 @@ defmodule Ryker.Operator.SlackReplay do
     |> Work.Turn.Query.by_episode_id()
     |> Work.Turn.Query.ordered_by_recent()
     |> Work.Turn.Query.limit_to(1)
-    |> Repo.one()
+    |> Repo.peek()
   end
 
   defp replay_outcome(nil), do: nil

@@ -434,7 +434,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
     dependencies
     |> Ryker.CanonicalJSON.encode!()
     |> Learned.Query.latest_source_at()
-    |> Repo.one()
+    |> Repo.peek()
   end
 
   defp summary_groups(state) do

@@ -1,6 +1,6 @@
 defmodule Ryker.Slack.PostGrant do
   @moduledoc false
-  alias Ryker.Slack.{Id, SourceRef, Timestamp}
+  alias Ryker.Slack.{ID, SourceRef, Timestamp}
 
   @channel_target ~r/\A<#([A-Z0-9]+)(?:\|[^>\r\n]*)?>\z/u
   @permalink_path ~r/\A\/archives\/([A-Z0-9]+)\/p([0-9]{16,22})\z/u
@@ -15,7 +15,7 @@ defmodule Ryker.Slack.PostGrant do
     pattern =
       ~r/\A[ \t]*(?:<@#{bot}>[ \t]+)?[Pp][Oo][Ss][Tt][ \t]+[Tt][Oo][ \t]+(?<target><#[A-Z0-9]+(?:\|[^>\r\n]*)?>|<https:\/\/[^>\r\n]+>)[ \t]*:[ \t]*\S/u
 
-    with true <- String.valid?(text) and Id.valid?(workspace_ref),
+    with true <- String.valid?(text) and ID.valid?(workspace_ref),
          %{"target" => target} <- Regex.named_captures(pattern, text),
          {:ok, ref} <- destination_ref(target, workspace_ref) do
       [ref]

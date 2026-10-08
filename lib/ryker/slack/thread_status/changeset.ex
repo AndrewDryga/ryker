@@ -42,8 +42,8 @@ defmodule Ryker.Slack.ThreadStatus.Changeset do
 
   defp validate_status(changeset) do
     changeset
-    |> validate_length(:workspace_ref, min: 1, max: 256)
-    |> validate_length(:channel_ref, min: 1, max: 256)
+    |> validate_length(:workspace_ref, min: 1, max: 256, count: :codepoints)
+    |> validate_length(:channel_ref, min: 1, max: 256, count: :codepoints)
     |> validate_format(:thread_ref, Timestamp.pattern())
     |> validate_length(:desired_text, max: 100, count: :bytes)
     |> validate_number(:generation, greater_than_or_equal_to: 1)

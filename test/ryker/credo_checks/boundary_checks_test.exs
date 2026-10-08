@@ -125,10 +125,11 @@ defmodule Ryker.CredoChecks.BoundaryChecksTest do
         end
 
         def oldest, do: Repo.one(Sprocket.Query.ordered_by_oldest(), timeout: 5_000)
+        def latest, do: Sprocket.Query.ordered_by_recent() |> Repo.peek()
       end
       """
 
-      assert triggers(il05(), source, @context) == ["by_id", "named", "oldest"]
+      assert triggers(il05(), source, @context) == ["by_id", "latest", "named", "oldest"]
       assert [issue | _] = issues(il05(), source, @context)
       assert issue.check == il05()
       assert issue.message =~ "IL-5"

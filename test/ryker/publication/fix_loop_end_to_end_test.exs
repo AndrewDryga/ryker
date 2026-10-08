@@ -347,8 +347,7 @@ defmodule Ryker.Publication.FixLoopEndToEndTest do
         client: :directory,
         confirm_task_offer: &TaskOffers.confirm/1,
         directory: Directory,
-        operators:
-          Operators.new(chosen: ["U123"], workspace_admins: false, workspace_ref: "T123"),
+        operators: Operators.new(["U123"], false, "T123"),
         approve_task_publication: &WorkControls.approve_publication/1,
         records: Records,
         conversation_environment: fn "T123", "C456" -> "production" end,

@@ -173,7 +173,7 @@ defmodule Ryker.RoutingExamples do
     prompt = attempt.submission["prompt"]
     document = decoded(prompt)
     quoted = quoted(entry)
-    episode = entry.episode_id && Repo.one(Episodes.Episode.Query.by_id(entry.episode_id))
+    episode = entry.episode_id && Repo.peek(Episodes.Episode.Query.by_id(entry.episode_id))
 
     identity = %Example{
       id: Repo.generate_id(),

@@ -446,11 +446,11 @@ defmodule Ryker.ControlPlane.ConversationProjection do
   end
 
   defp input_queue(ref) do
-    entries = Repo.one(Conversation.Query.message_counts(ref))
+    entries = Repo.peek(Conversation.Query.message_counts(ref))
 
     # A response waiting behind a stopped earlier one of its message is not
     # being sent: the stopped one says so, and the conversation is not live.
-    responses = Repo.one(Conversation.Query.response_counts(ref))
+    responses = Repo.peek(Conversation.Query.response_counts(ref))
 
     %{
       blocked: entries.blocked,

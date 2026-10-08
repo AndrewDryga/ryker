@@ -1,4 +1,4 @@
-defmodule Ryker.Slack.Id do
+defmodule Ryker.Slack.ID do
   @moduledoc """
   A Slack id for a workspace, channel, person or bot: capital letters and
   digits, as in "T0123ABCD" or "C0456EFGH". Slack's own are a dozen or so

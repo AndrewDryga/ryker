@@ -194,7 +194,7 @@ defmodule Ryker.Learning do
         |> LearningRun.Query.ordered_by_generation_desc()
         |> LearningRun.Query.limit_to(1)
         |> LearningRun.Query.lock_for_update()
-        |> Repo.one()
+        |> Repo.peek()
 
       prepare_attempt(existing, entries, manifest, key, settings)
     end)
@@ -443,7 +443,7 @@ defmodule Ryker.Learning do
       when phase in [:create, :submit] do
     owned_transaction(id, claim, fn run ->
       method = if phase == :create, do: "CreateRemoteSession", else: "SubmitTurn"
-      session = Repo.one(Work.Session.Query.by_learning_run_id(id))
+      session = Repo.peek(Work.Session.Query.by_learning_run_id(id))
 
       unless session && is_nil(run.coop_turn_id) && Reference.valid?(operation_id) &&
                key == operation_key(run, phase) && operation["method"] == method &&
@@ -477,7 +477,7 @@ defmodule Ryker.Learning do
   """
   def record_uncreated_stop(id, claim) do
     owned_transaction(id, claim, fn run ->
-      session = Repo.one(Work.Session.Query.by_learning_run_id(id))
+      session = Repo.peek(Work.Session.Query.by_learning_run_id(id))
 
       unless run.status in [:stale, :rejected] and is_nil(run.submit_revision) and
                is_nil(run.coop_turn_id) and is_nil(session && session.coop_session_id),
@@ -514,7 +514,7 @@ defmodule Ryker.Learning do
                is_nil(run.coop_turn_id),
              do: Repo.rollback(:learning_absence_unconfirmed)
 
-      session = Repo.one(Work.Session.Query.by_learning_run_id(id))
+      session = Repo.peek(Work.Session.Query.by_learning_run_id(id))
 
       store_stop(run, %{
         "kind" => "never_submitted",
@@ -539,7 +539,7 @@ defmodule Ryker.Learning do
                DateTime.diff(Repo.now!(), run.started_at) >= closed_after_seconds,
              do: Repo.rollback(:learning_remote_unresolved)
 
-      session = Repo.one(Work.Session.Query.by_learning_run_id(id))
+      session = Repo.peek(Work.Session.Query.by_learning_run_id(id))
 
       store_stop(run, %{
         "kind" => "attempt_expired",
@@ -957,7 +957,8 @@ defmodule Ryker.Learning do
 
     document =
       if rebuild do
-        Map.put(document, "rebuild_target", Map.take(rebuild, ~w(topic_id version generation)))
+        target = Map.take(rebuild, ~w(topic_id version generation))
+        Map.put(document, "rebuild_target", target)
       else
         document
       end
@@ -1228,7 +1229,7 @@ defmodule Ryker.Learning do
   end
 
   defp checked_updates(run) do
-    first = Repo.one(Ingress.Inbox.Entry.Query.by_id(hd(run.inputs)["source_input_id"]))
+    first = Repo.peek(Ingress.Inbox.Entry.Query.by_id(hd(run.inputs)["source_input_id"]))
     unless first && is_binary(run.result), do: Repo.rollback(:learning_source_stale)
 
     with :ok <- lock_scope(first),

@@ -614,7 +614,7 @@ defmodule Ryker.Work.SubmissionBuilder do
         visible
         |> Episodes.Event.Query.ordered_by_sequence()
         |> Episodes.Event.Query.limit_to(1)
-        |> Repo.one(),
+        |> Repo.peek(),
       historical: historical,
       total_count: Repo.aggregate(visible, :count)
     }
@@ -627,7 +627,7 @@ defmodule Ryker.Work.SubmissionBuilder do
     |> Turn.Query.having_result()
     |> Turn.Query.ordered_by_recent()
     |> Turn.Query.limit_to(1)
-    |> Repo.one()
+    |> Repo.peek()
   end
 
   defp active_ref_count_fits(active_refs) do

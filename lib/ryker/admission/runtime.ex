@@ -136,7 +136,7 @@ defmodule Ryker.Admission.Runtime do
     %{
       bind_execution_session: &FleetSession.bind/2,
       claim_ready_session: &ReadySessions.claim/2,
-      prepare_execution_session: fn entry, policy -> FleetSession.ensure(entry, policy) end,
+      prepare_execution_session: &FleetSession.ensure/2,
       settle_execution_session: &FleetSession.settle/2
     }
   end

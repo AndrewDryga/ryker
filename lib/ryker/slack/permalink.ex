@@ -12,7 +12,7 @@ defmodule Ryker.Slack.Permalink do
   person's messages or a message through slack.com, in the app when it is
   installed.
   """
-  alias Ryker.Slack.{Id, Timestamp}
+  alias Ryker.Slack.{ID, Timestamp}
 
   # Public and private channels and direct messages: only public channels'
   # ids matched until 2026-10-06 (2026-10-04 review).
@@ -44,7 +44,7 @@ defmodule Ryker.Slack.Permalink do
   """
   @spec app_redirect(term(), term()) :: String.t() | nil
   def app_redirect(workspace_ref, channel_ref) do
-    if Id.valid?(workspace_ref) and Id.valid?(channel_ref),
+    if ID.valid?(workspace_ref) and ID.valid?(channel_ref),
       do: redirect(team: workspace_ref, channel: channel_ref)
   end
 
@@ -54,7 +54,7 @@ defmodule Ryker.Slack.Permalink do
   """
   @spec app_redirect(term(), term(), term()) :: String.t() | nil
   def app_redirect(workspace_ref, channel_ref, message_ref) do
-    if Id.valid?(workspace_ref) and Id.valid?(channel_ref) and Timestamp.valid?(message_ref),
+    if ID.valid?(workspace_ref) and ID.valid?(channel_ref) and Timestamp.valid?(message_ref),
       do: redirect(team: workspace_ref, channel: channel_ref, message_ts: message_ref)
   end
 
@@ -75,7 +75,7 @@ defmodule Ryker.Slack.Permalink do
   end
 
   defp conversation_id?(<<prefix, _rest::binary>> = ref) when prefix in [?C, ?D, ?G],
-    do: Id.valid?(ref)
+    do: ID.valid?(ref)
 
   defp conversation_id?(_ref), do: false
 

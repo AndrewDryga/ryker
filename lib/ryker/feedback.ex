@@ -246,7 +246,6 @@ defmodule Ryker.Feedback do
   defp hold_request(%Signal{episode_id: id}) when is_binary(id) do
     id
     |> Episodes.Episode.Query.by_id()
-    |> Episodes.Episode.Query.select_ids()
     |> Episodes.Episode.Query.lock_for_key_share()
     |> held()
   end
@@ -254,17 +253,13 @@ defmodule Ryker.Feedback do
   defp hold_request(%Signal{input_id: id}) when is_binary(id) do
     id
     |> Ingress.Inbox.Entry.Query.by_id()
-    |> Ingress.Inbox.Entry.Query.select_ids()
     |> Ingress.Inbox.Entry.Query.lock_for_key_share()
     |> held()
   end
 
-  defp held(query) do
-    case Repo.fetch(query) do
-      {:error, :not_found} -> {:error, :feedback_request_not_found}
-      {:ok, _id} -> :ok
-    end
-  end
+  # `exists?` keeps the query's lock: the row it finds is held all the same.
+  defp held(query),
+    do: if(Repo.exists?(query), do: :ok, else: {:error, :feedback_request_not_found})
 
   @columns [
     :id,

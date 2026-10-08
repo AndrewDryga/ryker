@@ -2,7 +2,7 @@ defmodule Ryker.Slack.Target do
   @moduledoc false
   alias Ryker.ConversationRef
   alias Ryker.Delivery
-  alias Ryker.Slack.{Id, Timestamp}
+  alias Ryker.Slack.{ID, Timestamp}
 
   @spec parse(Delivery.Request.t()) :: {:ok, map()} | {:error, term()}
   def parse(%Delivery.Request{transport: "slack"} = request) do
@@ -23,7 +23,7 @@ defmodule Ryker.Slack.Target do
 
   defp conversation(value) do
     with {:ok, workspace_ref, channel_ref} <- ConversationRef.parse_slack(value),
-         true <- Id.valid?(workspace_ref) and Id.valid?(channel_ref) do
+         true <- ID.valid?(workspace_ref) and ID.valid?(channel_ref) do
       {:ok, workspace_ref, channel_ref}
     else
       _invalid -> {:error, {:invalid_slack_delivery_target, :conversation_ref}}

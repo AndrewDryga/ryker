@@ -166,7 +166,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
       original.id
       |> Work.Session.Query.by_id()
       |> Work.Session.Query.lock_for_update()
-      |> Repo.one()
+      |> Repo.peek()
 
     cond do
       is_nil(session) or Map.take(session, @identity) != Map.take(original, @identity) or
@@ -534,13 +534,13 @@ defmodule Ryker.CoopFleet.JobAuthority do
       installation =
         Settings.Installation.Query.all()
         |> Settings.Installation.Query.lock_for_share()
-        |> Repo.one()
+        |> Repo.peek()
 
       session =
         original.id
         |> Work.Session.Query.by_id()
         |> Work.Session.Query.lock_for_update()
-        |> Repo.one()
+        |> Repo.peek()
 
       unless session && Map.take(session, @identity) == Map.take(original, @identity),
         do: Repo.rollback(:coop_worker_job_identity_changed)

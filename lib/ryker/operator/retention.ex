@@ -98,7 +98,7 @@ defmodule Ryker.Operator.Retention do
           session_ref
           |> Work.Session.Query.by_external_ref()
           |> Work.Session.Query.lock_for_update()
-          |> Repo.one() || Repo.rollback(:retention_session_not_found)
+          |> Repo.peek() || Repo.rollback(:retention_session_not_found)
 
         {outcome, previous_status, previous_plan_fingerprint, updated} =
           transition(action, session, expected_plan_fingerprint)

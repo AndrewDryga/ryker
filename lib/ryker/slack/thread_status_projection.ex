@@ -14,7 +14,7 @@ defmodule Ryker.Slack.ThreadStatusProjection do
   alias Ryker.Episodes
   alias Ryker.Ingress
   alias Ryker.Repo
-  alias Ryker.Slack.{Id, ThreadActivity, ThreadStatuses, Timestamp}
+  alias Ryker.Slack.{ID, ThreadActivity, ThreadStatuses, Timestamp}
 
   @recent_terminal_seconds 24 * 60 * 60
   @maximum_rows 1_000
@@ -322,7 +322,7 @@ defmodule Ryker.Slack.ThreadStatusProjection do
     case ConversationRef.parse_slack(conversation_ref) do
       {:ok, ^workspace_ref, channel_ref}
       when is_binary(thread_ref) and byte_size(thread_ref) > 0 ->
-        if Id.valid?(channel_ref) and Timestamp.valid?(thread_ref) do
+        if ID.valid?(channel_ref) and Timestamp.valid?(thread_ref) do
           {:ok, {channel_ref, thread_ref}}
         else
           :error

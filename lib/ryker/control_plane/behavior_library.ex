@@ -23,7 +23,7 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
   def return_path(kind) when kind in [:preference, :guidance], do: "/instructions#saved"
 
   def fetch(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    item = instruction_query() |> Behaviors.Behavior.Query.by_ref(ref) |> Repo.one()
+    item = instruction_query() |> Behaviors.Behavior.Query.by_ref(ref) |> Repo.peek()
     if item, do: {:ok, item |> sanitize() |> List.wrap() |> named() |> hd()}, else: :not_found
   end
 
@@ -114,9 +114,9 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
 
   def sanitize(item) do
     payload =
-      Map.new(Map.take(item.payload, @payload_fields), fn {key, value} ->
-        {key, sanitize_value(value)}
-      end)
+      item.payload
+      |> Map.take(@payload_fields)
+      |> Map.new(fn {key, value} -> {key, sanitize_value(value)} end)
 
     Map.put(item, :payload, payload)
   end

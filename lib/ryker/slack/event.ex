@@ -180,7 +180,8 @@ defmodule Ryker.Slack.Event do
 
     # Filters match normalized content. Keep authenticated author IDs so an
     # attachment-only app notification can be selected without matching all bots.
-    content = Map.merge(content, Map.take(event, ["app_id", "bot_id"]))
+    authors = Map.take(event, ["app_id", "bot_id"])
+    content = Map.merge(content, authors)
 
     if valid_json_collections?(content),
       do: {:ok, content},

@@ -1559,9 +1559,10 @@ defmodule Ryker.Runtime.Assembly do
 
       configuration
       |> Map.put(:additional_tools, tools)
-      |> Map.put(:additional_call, fn name, arguments, binding ->
-        call_platform_tool(slack_tools, github_tools, control_plane?, name, arguments, binding)
-      end)
+      |> Map.put(
+        :additional_call,
+        &call_platform_tool(slack_tools, github_tools, control_plane?, &1, &2, &3)
+      )
     end
   end
 

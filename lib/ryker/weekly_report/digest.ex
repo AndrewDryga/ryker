@@ -51,19 +51,18 @@ defmodule Ryker.WeeklyReport.Digest do
   @type t :: %{parts: [part()], text: String.t()}
 
   @doc """
-  The report for `facts`. `options`: `:base_url`, the console's address the
-  links start with, `:time_zone_database`, which reads the week's zone, and
-  `:preview`, true for a preview a person sent from Settings.
+  The report for `facts`, its links starting at `base_url` (the console's
+  address), the week's zone read from `time_zone_database`, and `preview` true
+  for a preview a person sent from Settings.
   """
-  @spec render(map(), keyword()) :: t()
-  def render(facts, options) do
-    base = options |> Keyword.fetch!(:base_url) |> String.trim_trailing("/")
-    database = Keyword.get(options, :time_zone_database, Calendar.get_time_zone_database())
+  @spec render(map(), String.t(), module(), boolean()) :: t()
+  def render(facts, base_url, time_zone_database, preview) do
+    base = String.trim_trailing(base_url, "/")
     pull_requests = pull_requests(facts.pull_requests, facts.week.to)
 
     parts =
       [
-        greeting: [greeting(facts.week, database, Keyword.get(options, :preview, false))],
+        greeting: [greeting(facts.week, time_zone_database, preview)],
         pull_requests: pull_requests,
         work: work(facts, pull_requests != []),
         questions: questions(facts.questions, base),

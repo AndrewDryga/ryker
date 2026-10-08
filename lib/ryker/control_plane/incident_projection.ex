@@ -106,7 +106,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
         :not_found
 
       {:ok, room} ->
-        episode = if room.episode_id, do: Repo.one(Episodes.Episode.Query.by_id(room.episode_id))
+        episode = if room.episode_id, do: Repo.peek(Episodes.Episode.Query.by_id(room.episode_id))
         names = RepositoryNames.all()
         secrets = InspectionRedactor.configured_secrets()
         alert = alert(room, secrets)
@@ -176,7 +176,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
     |> IncidentReport.Query.messages()
     |> IncidentReport.Query.ordered_by_occurred_at()
     |> IncidentReport.Query.limit_to(1)
-    |> Repo.one()
+    |> Repo.peek()
     |> message(secrets)
   end
 
@@ -291,7 +291,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
   defp publication(episode_id, names) do
     episode_id
     |> IncidentReport.Query.latest_publication()
-    |> Repo.one()
+    |> Repo.peek()
     |> sanitize_publication()
     |> then(&(&1 && %{&1 | repository: RepositoryNames.name(names, &1.repository)}))
   end

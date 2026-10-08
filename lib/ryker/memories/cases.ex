@@ -313,7 +313,7 @@ defmodule Ryker.Memories.Cases do
   defp announce_case(_not_written), do: :ok
 
   defp attributes(%Episodes.Episode{} = episode) do
-    digest = Repo.one(Episodes.RoutingDigest.Query.by_episode_id(episode.id))
+    digest = Repo.peek(Episodes.RoutingDigest.Query.by_episode_id(episode.id))
     problem = bounded(digest_problem(digest, episode), @problem_bytes)
     checked = Enum.flat_map(records(episode.id, "evidence"), &checked/1)
 
@@ -381,7 +381,7 @@ defmodule Ryker.Memories.Cases do
     |> Enum.join("\n")
   end
 
-  defp outcome(episode_id), do: Repo.one(Work.Turn.Query.latest_answer_message(episode_id))
+  defp outcome(episode_id), do: Repo.peek(Work.Turn.Query.latest_answer_message(episode_id))
 
   # What the work still stands by: a replaced record, and a finding a person
   # forgot or marked explained (`Ryker.Records.Findings`), are left out.
@@ -467,7 +467,8 @@ defmodule Ryker.Memories.Cases do
     |> Enum.take(64)
   end
 
-  defp repository_ref(episode_id), do: Repo.one(Work.Turn.Query.latest_repository_ref(episode_id))
+  defp repository_ref(episode_id),
+    do: Repo.peek(Work.Turn.Query.latest_repository_ref(episode_id))
 
   defp document(%CaseRecord{} = record) do
     %{

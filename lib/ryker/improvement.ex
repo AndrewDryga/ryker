@@ -115,7 +115,7 @@ defmodule Ryker.Improvement do
     locked = signal |> request_candidate() |> Candidate.Query.lock_for_update()
 
     with %Candidate{analysis: :pending, start_count: 0, status: :open, reasons: ["reaction"]} =
-           candidate <- Repo.one(locked),
+           candidate <- Repo.peek(locked),
          false <- negative_reaction_standing?(signal) do
       Repo.delete!(candidate)
       broadcast_improvement_updated(candidate.id)
@@ -349,7 +349,7 @@ defmodule Ryker.Improvement do
 
   defp decide_locked(id, actor_ref, status) do
     candidate =
-      id |> Candidate.Query.by_id() |> Candidate.Query.lock_for_update() |> Repo.one() ||
+      id |> Candidate.Query.by_id() |> Candidate.Query.lock_for_update() |> Repo.peek() ||
         Repo.rollback(:improvement_candidate_not_found)
 
     cond do

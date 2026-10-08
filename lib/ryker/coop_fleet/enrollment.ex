@@ -88,7 +88,7 @@ defmodule Ryker.CoopFleet.Enrollment do
       token_sha256
       |> EnrollmentToken.Query.by_digest()
       |> EnrollmentToken.Query.lock_for_update()
-      |> Repo.one() || Repo.rollback(:coop_worker_enrollment_not_authorized)
+      |> Repo.peek() || Repo.rollback(:coop_worker_enrollment_not_authorized)
 
     ensure_token_usable!(token, now)
     issued = issue_certificate!(request.public_key_pem, token.worker_id, signer, now)
@@ -114,7 +114,7 @@ defmodule Ryker.CoopFleet.Enrollment do
       certificate_sha256
       |> Certificate.Query.by_sha256()
       |> Certificate.Query.lock_for_update()
-      |> Repo.one() || Repo.rollback(:coop_worker_certificate_not_authorized)
+      |> Repo.peek() || Repo.rollback(:coop_worker_certificate_not_authorized)
 
     if certificate.revoked_at || DateTime.compare(certificate.not_before, now) == :gt ||
          DateTime.compare(certificate.expires_at, now) != :gt,

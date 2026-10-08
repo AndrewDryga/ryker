@@ -12,7 +12,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   it lists changes (`subscriptions/1`).
   """
   use Phoenix.Component
-  alias Ryker.{Behaviors, ConversationRef, Instructions, UTCDateTime}
+  alias Ryker.{Behaviors, ConversationRef, Instructions, Text, UTCDateTime}
   alias Ryker.ControlPlane.{Components, Kit, Paths, ShortTime}
   alias Ryker.Episodes
   alias Ryker.Slack
@@ -542,11 +542,15 @@ defmodule Ryker.ControlPlane.BehaviorPage do
     end
   end
 
-  defp rules_url(view, changes),
-    do: url("/rules", Map.take(view.params, ["q", "view"]), changes, "")
+  defp rules_url(view, changes) do
+    kept = Map.take(view.params, ["q", "view"])
+    url("/rules", kept, changes, "")
+  end
 
-  defp saved_url(view, changes),
-    do: url("/instructions", Map.take(view.params, ["show", "view"]), changes, "#saved")
+  defp saved_url(view, changes) do
+    kept = Map.take(view.params, ["show", "view"])
+    url("/instructions", kept, changes, "#saved")
+  end
 
   # A shareable address holding only what differs from the page's defaults.
   # Changing a filter starts again at page one.
@@ -583,11 +587,8 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   # click away on the channel's page.
   @quote_limit 160
   defp clamp(text) do
-    text = text |> String.split() |> Enum.join(" ")
-
-    if String.length(text) > @quote_limit,
-      do: (text |> String.slice(0, @quote_limit) |> String.replace(~r/\s+\S*\z/u, "")) <> "…",
-      else: text
+    one_line = text |> String.split() |> Enum.join(" ")
+    Text.shorten_to_word(one_line, @quote_limit)
   end
 
   # A fact with emphasised references, code or a time in it. Every text part

@@ -29,7 +29,7 @@ defmodule Ryker.Learning.FleetSession do
       unless current.policy == run.policy and current.policy_digest == run.policy_digest,
         do: Repo.rollback(:learning_session_authority_conflict)
 
-      session = run |> run_session() |> Repo.one() || create!(run)
+      session = run |> run_session() |> Repo.peek() || create!(run)
 
       unless session.policy == run.policy and session.policy_digest == run.policy_digest,
         do: Repo.rollback(:learning_session_authority_conflict)

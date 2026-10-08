@@ -168,12 +168,12 @@ defmodule Ryker.Slack.TaskCardProjection do
 
   defp snapshot(episode) do
     publication = latest_publication(episode.id)
-    turn = Repo.one(Work.Turn.Query.current(episode))
+    turn = Repo.peek(Work.Turn.Query.current(episode))
 
     %{
       automatic_fix: Publication.FixLoop.progress(publication, episode),
       turn: turn,
-      session: Repo.one(Work.Session.Query.latest_of_episode(episode.id)),
+      session: Repo.peek(Work.Session.Query.latest_of_episode(episode.id)),
       publication: publication,
       followup: followup(publication),
       records: Records.retained_records(episode.id),
@@ -187,7 +187,7 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp followup(nil), do: nil
 
   defp followup(%Publication.Publication{id: id}),
-    do: Repo.one(Publication.Followup.Query.by_publication_id(id))
+    do: Repo.peek(Publication.Followup.Query.by_publication_id(id))
 
   # What the person asked for, as the task offer wrote it: the card showed
   # "Sources: slack-source:v1:…" once it stopped cutting the request at 600
@@ -436,7 +436,7 @@ defmodule Ryker.Slack.TaskCardProjection do
     |> Publication.Publication.Query.by_episode_id()
     |> Publication.Publication.Query.ordered_by_recent()
     |> Publication.Publication.Query.limit_to(1)
-    |> Repo.one()
+    |> Repo.peek()
   end
 
   defp status(
@@ -611,7 +611,7 @@ defmodule Ryker.Slack.TaskCardProjection do
          %Work.Turn{
            external_receipt: %{"conversation_ref" => conversation, "message_ref" => message}
          } <-
-           Repo.one(Work.Turn.Query.by_id(turn_id)) do
+           Repo.peek(Work.Turn.Query.by_id(turn_id)) do
       Permalink.message_url(workspace_url, conversation, message)
     else
       _unbuildable -> nil

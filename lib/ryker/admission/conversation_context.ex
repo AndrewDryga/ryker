@@ -347,7 +347,7 @@ defmodule Ryker.Admission.ConversationContext do
   end
 
   defp retained_root(entry, root_ref),
-    do: Repo.one(ConversationContext.Query.retained_root(entry, root_ref))
+    do: Repo.peek(ConversationContext.Query.retained_root(entry, root_ref))
 
   defp message_document(%Ingress.Inbox.Entry{} = entry, origin) do
     %{

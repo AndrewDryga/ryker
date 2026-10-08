@@ -49,11 +49,20 @@ defmodule Ryker.ControlPlane.Actions do
   defp current, do: :persistent_term.get(@current, nil) || callbacks()
 
   defp delegate(name, 0), do: fn -> current()[name].() end
-  defp delegate(name, 1), do: fn a -> current()[name].(a) end
-  defp delegate(name, 2), do: fn a, b -> current()[name].(a, b) end
-  defp delegate(name, 3), do: fn a, b, c -> current()[name].(a, b, c) end
-  defp delegate(name, 4), do: fn a, b, c, d -> current()[name].(a, b, c, d) end
-  defp delegate(name, 5), do: fn a, b, c, d, e -> current()[name].(a, b, c, d, e) end
+  defp delegate(name, 1), do: fn first -> current()[name].(first) end
+  defp delegate(name, 2), do: fn first, second -> current()[name].(first, second) end
+
+  defp delegate(name, 3),
+    do: fn first, second, third -> current()[name].(first, second, third) end
+
+  defp delegate(name, 4),
+    do: fn first, second, third, fourth -> current()[name].(first, second, third, fourth) end
+
+  defp delegate(name, 5) do
+    fn first, second, third, fourth, fifth ->
+      current()[name].(first, second, third, fourth, fifth)
+    end
+  end
 
   # Chat's placements: the Work profile of every environment that can run
   # work, by ref, and the profile of work outside any environment. Each
@@ -213,7 +222,7 @@ defmodule Ryker.ControlPlane.Actions do
     episode.id
     |> Work.Turn.Query.by_episode_id()
     |> Work.Turn.Query.by_turn_ref(turn_ref)
-    |> Repo.one()
+    |> Repo.peek()
     |> resolve_blocked_episode(episode, turn_ref, reason)
   end
 

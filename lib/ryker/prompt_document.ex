@@ -10,6 +10,7 @@ defmodule Ryker.PromptDocument do
   `"omitted"` notes (`omit/2`).
   """
   alias Ryker.CanonicalJSON
+  alias Ryker.Text
 
   @doc "The prompt text: instructions first, then the context's keys in `order`, then the rest."
   @spec render(%{String.t() => term()}, [String.t()]) :: String.t()
@@ -56,6 +57,15 @@ defmodule Ryker.PromptDocument do
 
   defp smaller(instructions, _context, max_bytes, step, next),
     do: until_fits(instructions, next, max_bytes, step)
+
+  @cut_marker " …[cut]"
+
+  @doc """
+  The start of `text` within `max_bytes`, never splitting a character, and a
+  marker after it that tells the model the rest was cut.
+  """
+  @spec cut(String.t(), non_neg_integer()) :: String.t()
+  def cut(text, max_bytes) when is_binary(text), do: Text.bytes(text, max_bytes) <> @cut_marker
 
   @doc "`context` with `note` in its `\"omitted\"` list, once."
   @spec omit(%{String.t() => term()}, String.t()) :: %{String.t() => term()}

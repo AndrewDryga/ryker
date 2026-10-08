@@ -99,7 +99,8 @@ defmodule Ryker.CoopFleet.Requests do
   end
 
   defp request_for("get_changes_page", payload, _) do
-    query = URI.encode_query(Map.take(payload, ~w(patch_offset patch_limit)))
+    page = Map.take(payload, ~w(patch_offset patch_limit))
+    query = URI.encode_query(page)
     {:ok, request("GET", session_path(payload) <> "/changes?" <> query)}
   end
 
@@ -138,8 +139,10 @@ defmodule Ryker.CoopFleet.Requests do
      request("GET", "/v1/operations?" <> URI.encode_query(%{"key" => payload["operation_key"]}))}
   end
 
-  defp request_for("fence_operation", payload, _),
-    do: {:ok, request("POST", "/v1/operations/fence", Map.take(payload, ~w(method request)))}
+  defp request_for("fence_operation", payload, _) do
+    body = Map.take(payload, ~w(method request))
+    {:ok, request("POST", "/v1/operations/fence", body)}
+  end
 
   defp request_for(kind, payload, _)
        when kind in ~w(get_session get_session_evidence get_changes get_turn) do
@@ -183,7 +186,8 @@ defmodule Ryker.CoopFleet.Requests do
           {turn_path(payload) <> "/validation", ~w(candidate_sha256 verdict violations)}
       end
 
-    {:ok, request("POST", path, Map.take(payload, fields))}
+    body = Map.take(payload, fields)
+    {:ok, request("POST", path, body)}
   end
 
   defp request_for(_kind, _payload, _placement), do: {:error, :invalid_coop_request}

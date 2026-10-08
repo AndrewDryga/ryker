@@ -96,7 +96,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
     end)
   end
 
-  defp next_entry(now, refs), do: now |> Entry.Query.next_claimable(refs) |> Repo.one()
+  defp next_entry(now, refs), do: now |> Entry.Query.next_claimable(refs) |> Repo.peek()
 
   @doc """
   The earliest moment after `since` at which an entry becomes due by the
@@ -940,7 +940,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
       |> Run.Query.by_id()
       |> Run.Query.by_repository(entry.repository_ref)
       |> Run.Query.lock_for_update()
-      |> Repo.one()
+      |> Repo.peek()
 
     run || Repo.rollback(:repository_knowledge_run_mismatch)
   end
@@ -958,7 +958,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
       claim.entry.repository_ref
       |> Entry.Query.by_repository()
       |> Entry.Query.lock_for_update()
-      |> Repo.one()
+      |> Repo.peek()
 
     unless entry && Lease.held?(entry, claim.lease_ref, Repo.now!()),
       do: Repo.rollback(:repository_knowledge_lease_lost)

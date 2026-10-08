@@ -59,7 +59,8 @@ rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-08.
   words or a label; every choice between one and many, "needs you" or "need
   you" included, goes through `Wording.word/3`), `Ryker.Text` (text in the
   unit its limit counts; `shorten/2` cuts a line shown in a narrow place in
-  graphemes), `Ryker.ConversationRef` (a Slack conversation's ref, built and
+  graphemes, and `shorten_to_word/2` a quote or list row back to a whole
+  word, which three pages did by hand), `Ryker.ConversationRef` (a Slack conversation's ref, built and
   read one way), `Ryker.Reference` (reference strings, identifier tokens,
   UUIDs, text a person or model wrote, with a byte bound beside it),
   `Ryker.Crypto.sha256_hex?/1`, `Ryker.UTCDateTime` (parsing, precision, UTC,
@@ -71,7 +72,8 @@ rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-08.
   optional ones; `only_keys?/2`, none outside a list),
   `Ryker.JSONSchema` (nonblank text, nullable), `Repo.passed?/2` (a deadline
   by the database clock), `Ryker.Lease.attempts_after_release/2`,
-  `Ryker.PromptDocument` (a model prompt's text and its fitting),
+  `Ryker.PromptDocument` (a model prompt's text and its fitting; `cut/2`
+  marks text cut for the model, which two prompts copied),
   `Ryker.Coop.Documents` (a Coop session and its revision, a turn, a
   candidate answer and stop proof), `Ryker.Coop.RunStep` (one step of a
   background model run, for self-analysis and repository reading, each a lane
@@ -84,7 +86,7 @@ rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-08.
   `webhook_secret?/1`), `Ryker.GitObject` (`branch_ref?/1`, `ref_part?/1`),
   `Ryker.Emisar.Fields` and `Ryker.Slack.Client.Fields` (a boundary's field
   checks and listing limits), `Slack.Renderer.Fields` (a card's checks, and
-  `cut/2` in the unit they count), `Ryker.Slack.Id`, `Ryker.Slack.Timestamp`
+  `cut/2` in the unit they count), `Ryker.Slack.ID`, `Ryker.Slack.Timestamp`
   (with `microseconds/1` for ordering) and `Ryker.Slack.Permalink` (other
   contexts and the console reach them through `Ryker.Slack`), and in the
   console `Search`, `MemoryFormat`, `ChartAxis` (a chart's coordinates, for
@@ -99,7 +101,7 @@ rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-08.
   anything not an integer).
 - A pattern a changeset checks comes from the module that owns the rule
   (`Crypto.sha256_hex_pattern/0`, `Reference.token_pattern/0`,
-  `Slack.Id.pattern/0`, `GitHub.repository_name_pattern/0`).
+  `Slack.ID.pattern/0`, `GitHub.repository_name_pattern/0`).
 - Not helpers: the shapes a layer requires (OTP and Plug callbacks, a page's
   `html/1`, a custody's `claim_next/2`, a Query module's own filters), a
   two-line read composed where it is used, a boundary's own error around a
@@ -159,7 +161,10 @@ rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-08.
   schema's name or its last word where that reads clearly
   (`%IncidentRoom{} = room`), as Emisar's 961 such bindings do.
 - Variables are words: `explanation`, `{key, value}`, `conversation_ref`.
-  `x` and `y` stay on a chart and `iv` in a cipher.
+  `x` and `y` stay on a chart and `iv` in a cipher. A closure that forwards
+  arguments it cannot name names them in order (`first`, `second`).
+- An acronym is capitals in a module name: `JSONSchema`, `UTCDateTime`,
+  `Slack.ID` (renamed from `Slack.Id` on 2026-10-08).
 
 ## Return shapes
 
@@ -203,7 +208,10 @@ Emisar's write rules (`../emisar/portal/.agent/kb/rules/README.md`) that Ryker f
   fetch-or-create inserts with `on_conflict: :nothing` and reads the winner.
   A write that depends on what the row already holds (a version to bump, a
   state that refuses it, an event that says whether it was created) reads
-  the row under a lock first instead; six do (2026-10-08).
+  the row under a lock first instead: on 2026-10-08, 33 reads before an
+  insert, 20 locking the row or an advisory key in the same function and 13
+  inside a transaction that already holds the parent's lock (a turn's
+  lease, the offer record, the answer source, the enrollment token).
 - A read the code matches on answers through `Repo.fetch/1`: a `case`,
   `with` or function head matches `{:ok, row}` and `{:error, :not_found}`,
   never `nil`, nor a bare struct pattern a missing row falls past. A module
@@ -211,18 +219,22 @@ Emisar's write rules (`../emisar/portal/.agent/kb/rules/README.md`) that Ryker f
   (`with {:error, :not_found} <- Repo.fetch(locked), do: {:error, :work_turn_not_found}`),
   so no other step's `{:error, :not_found}` lands in that branch, and an
   `else` that only passed errors on goes. Eight moved on 2026-10-08, then the
-  rest the same day: 283 reads, from 42 `Repo.fetch` calls to 325 (Emisar has
-  67; its 17 `Repo.one` are counts and stats).
-  `Repo.one` stays where nothing matches on the read (262, measured
-  2026-10-08): a fallback written with `||` (25: roll the transaction back,
-  create the row, a default, or a second read, the idiom of the
-  rollback-reason custody under "Not adopted"); an optional value that flows
-  into data, where `nil` is the value (a card's current turn, the earlier of
-  two deadlines, a transform that passes `nil` through, public readers
-  documented as returning `nil`); a presence test (`if row`, `row && ...`);
-  counts and other aggregates; and `Ryker.Slack.ChannelConfigurations`,
-  which reads a channel's membership, configuration and setup session as the
-  state of its state machine (`case {membership, kind}`, `cond`).
+  rest the same day: 283 reads, from 42 `Repo.fetch` calls to 324.
+- A row read where no row is itself the answer is `Repo.peek/1`, as Emisar
+  names it: a fallback written with `||` (roll the transaction back, create
+  the row, a default, or a second read, the idiom of the rollback-reason
+  custody under "Not adopted"), an optional value that flows into data (a
+  card's current turn, a transform that passes `nil` through, public readers
+  documented as returning `nil`), a presence the code tests with `if`, and
+  `Ryker.Slack.ChannelConfigurations`, which reads a channel's membership,
+  configuration and setup session as the state of its state machine (`case
+  {membership, kind}`, `cond`). `Repo.one` is left for a value a query
+  selects and for aggregates: 324 `fetch`, 189 `peek` and 73 `one` on
+  2026-10-08 (Emisar: 67, 52 and 17). `IL05TaggedReads` reads `peek` as it
+  reads `one`.
+- Whether a row exists is `Repo.exists?/1`, never a fetch whose row is
+  thrown away or a count compared with zero; a lock in the query holds
+  through `exists?` too (`Ryker.Feedback` holds a request that way).
 - A `case` whose one branch opens a `with` while the others only refuse is
   one flat `with` (Emisar's README), or clause heads when it matches its own
   argument's shape. Eight folded on 2026-10-08; the 48 left tell several
@@ -262,8 +274,15 @@ Text and its limits (Emisar's `elixir-byte-budgets-need-byte-bounds`):
   (`Ryker.Text.cut/2`, `Ryker.Reference.valid?/2`).
 - A changeset bounds a field in its column's unit: `validate_length(field,
   max: n, count: :codepoints)` under a `char_length` check, `count: :bytes`
-  under an `octet_length` one, so a long value is a field error instead of a
-  constraint that raises.
+  under an `octet_length` one, and code points where the column has no
+  check, so a long value is a field error instead of a constraint that
+  raises. Until 2026-10-08, 139 of 169 bounds counted Ecto's default,
+  graphemes; `Ryker.ConstraintNamesTest` reads each bound against its
+  column's checks now. A list field's length counts its items.
+- A limit Ryker sets for a person's own text, with nothing else enforcing
+  it, counts what the person sees: instructions allow 2,000 characters as a
+  reader counts them (graphemes, tested) beside the column's 8,192 bytes,
+  and the editor's counter reads both limits from `Instructions.limits/0`.
 - A budget made of parts is derived from their bounds
   (`Artifacts.maximum_bytes() + @maximum_lab_form_bytes`), never a second
   literal.
@@ -287,7 +306,10 @@ Functions:
   attempt and the redactor's options together, and `disclosed` meant a set of
   opened ids to the page and a boolean to the redactor. OTP and Plug `init/1`
   options and a worker's settings from its child spec keep their keyword
-  shape.
+  shape. On 2026-10-08 `Slack.Operators.new/3` and
+  `WeeklyReport.Digest.render/4` took their always-given options as
+  arguments; the other 41 `Keyword.fetch!/2` calls are those shapes or a
+  lookup in a table of data.
 - An argument is a name, a literal or a field read. A value changed for one
   call (`Map.put(attributes, :updated_at, now)`) or built by a pipe over
   several lines is bound on its own line above the call and passed by name
@@ -296,11 +318,20 @@ Functions:
   (`NoPipeInBranchHead`), nor over several lines an `if` condition. On
   2026-10-08, 115 nested transforms, 18 multiline pipe arguments and 13 more
   inside a list, map or keyword argument were rewritten, and one `if`
-  condition. A module attribute's value is no argument and keeps its
+  condition, then the 19 `Map.take/2` and `Map.delete/2` arguments left (Emisar
+  keeps 35). A module attribute's value is no argument and keeps its
   expression.
 - A module attribute holds configuration: a limit, a version, a prefix, a
   pattern, a path. A message or other literal read in one place is written
-  there.
+  there. Measured 2026-10-08: the six string attributes read once are a
+  cache header, the content security policy, a command prefix and a SQL
+  fragment, all configuration.
+- A closure whose body is one call is a capture (`&settle_absent_locked/2`,
+  `&Work.Custody.block_delivery(episode.id, turn.turn_ref, lease_ref, &1, &2)`)
+  while it stays one readable line (Emisar's README). Nineteen moved on
+  2026-10-08; `fn` stays inside another capture, where a capture cannot
+  nest, and where the closure takes its arguments in another order than the
+  call (`Ryker.CoopFleet.Bridge`).
 - A pipeline whose `fn` steps mix one-line and wrapped bodies is left as
   the formatter writes it: Ryker has 36 such pipelines and Emisar, whose
   README asks to hand-wrap the short ones, 32 (measured 2026-10-08).
@@ -368,6 +399,12 @@ Stored data (Emisar's `elixir-nil-is-not-an-empty-list`):
   data unchecked, the improvement export's case snapshot and a webhook
   source's lifecycle scope; both normalize now. Templates walk only what
   projections built (`Ryker.ControlPlane.TemplateHygieneTest`).
+- An `Ecto.Enum` field is compared on its atoms (Emisar's
+  `elixir-ecto-enum-atom-compare`): a loaded enum is an atom, so a string
+  never equals it. Measured 2026-10-08: of 75 comparisons of an enum-named
+  field with a string outside queries, every one reads a string column or
+  text a query selected (`fragment("...::text")`); inside a query Ecto casts
+  the string through the field's type.
 
 Not adopted, measured 2026-10-08:
 

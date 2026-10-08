@@ -55,7 +55,7 @@ defmodule Ryker.Learning.Observations do
                "revision" => revision,
                "actor" => %{"kind" => actor_kind, "ref" => actor_ref}
              } = document
-         } = event <- Repo.one(Publication.LifecycleEvent.Query.by_id(id)),
+         } = event <- Repo.peek(Publication.LifecycleEvent.Query.by_id(id)),
          {:ok, %Episodes.Episode{} = episode} <-
            Repo.fetch(Episodes.Episode.Query.by_id(episode_id)) do
       source = %{

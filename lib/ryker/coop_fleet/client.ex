@@ -521,7 +521,7 @@ defmodule Ryker.CoopFleet.Client do
            payload: %{"coop_session_id" => ^coop_session_id},
            placement_id: placement_id
          } = owner
-         when not is_nil(placement_id) <- Repo.one(Command.Query.by_idempotency_key(review_key)),
+         when not is_nil(placement_id) <- Repo.peek(Command.Query.by_idempotency_key(review_key)),
          path <- "/v1/sessions/#{coop_session_id}/reviews/#{review_id}/publish",
          {:ok, command} <- publication_command(client, session, owner, key, path, body),
          {:ok, response} <- publication_command_response(client, command) do
@@ -1056,7 +1056,7 @@ defmodule Ryker.CoopFleet.Client do
   defp create_session_identity(key, task) do
     case Repo.fetch(Command.Query.by_idempotency_key(key)) do
       {:ok, %Command{kind: "create_session", session_id: id}} ->
-        exact_create_task(Repo.one(Work.Session.Query.by_id(id)), task)
+        exact_create_task(Repo.peek(Work.Session.Query.by_id(id)), task)
 
       {:error, :not_found} ->
         new_create_identity(key, task)
@@ -1100,7 +1100,7 @@ defmodule Ryker.CoopFleet.Client do
   defp restore_checkpoint(%Work.Session{generation: 1}), do: {:ok, nil}
 
   defp restore_checkpoint(%Work.Session{} = session) do
-    previous = Repo.one(Work.Session.Query.previous_generation(session))
+    previous = Repo.peek(Work.Session.Query.previous_generation(session))
     checkpoint = Repo.fetch(WorkspaceCheckpointTransfer.Query.latest_for_replacement(session))
 
     case checkpoint do
@@ -1265,7 +1265,7 @@ defmodule Ryker.CoopFleet.Client do
   end
 
   defp durable_terminal_operation(command, operation, operation_key) do
-    candidate = Repo.one(Command.Query.terminal_reconciliation(command, operation_key))
+    candidate = Repo.peek(Command.Query.terminal_reconciliation(command, operation_key))
 
     with %Command{result: result} <- candidate,
          {:ok, body} <- Bridge.response(result),

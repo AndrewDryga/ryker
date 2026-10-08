@@ -43,9 +43,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
           do: {activity_tool_key(event), event}
 
     {joined, _unclaimed} =
-      Enum.reduce(events, {%{}, Enum.group_by(calls, &{&1.turn_id, &1.tool})}, fn event, acc ->
-        join_state_call(event, acc, completions, causality)
-      end)
+      Enum.reduce(
+        events,
+        {%{}, Enum.group_by(calls, &{&1.turn_id, &1.tool})},
+        &join_state_call(&1, &2, completions, causality)
+      )
 
     Enum.map(events, &join_call(&1, joined[&1.id]))
   end
@@ -546,7 +548,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.ToolActivity do
          {:ok, event_id} <- Ecto.UUID.cast(event_id),
          %Work.ActivityEvent{episode_id: ^episode_id, kind: kind, payload: %{} = payload}
          when kind in ["tool.started", "tool.completed"] <-
-           Repo.one(Work.ActivityEvent.Query.by_id(event_id)),
+           Repo.peek(Work.ActivityEvent.Query.by_id(event_id)),
          {_label, value} when not is_nil(value) <- shown_artifact(payload, key, key),
          %{state: :retained, text: text} when is_binary(text) <-
            InspectionRedactor.artifact(value, max_bytes: 20_000, disclosed: true) do
