@@ -16,7 +16,7 @@ defmodule Ryker.Artifacts.References do
   def attach_input(%Ingress.Input{} = input, input_id) when is_binary(input_id) do
     with :ok <- transaction_open(),
          {:ok, descriptors} <- descriptors(input.content),
-         {:ok, artifacts} <- lock_artifacts(Map.keys(descriptors)),
+         {:ok, artifacts} <- fetch_and_lock_artifacts(Map.keys(descriptors)),
          :ok <- validate_input_artifacts(artifacts, descriptors, input.source.kind) do
       now = DateTime.utc_now()
 
@@ -47,7 +47,7 @@ defmodule Ryker.Artifacts.References do
   def attach_turn(turn_id, refs) when is_binary(turn_id) and is_list(refs) do
     with :ok <- transaction_open(),
          true <- Enum.uniq(refs) == refs,
-         {:ok, artifacts} <- lock_artifacts(refs) do
+         {:ok, artifacts} <- fetch_and_lock_artifacts(refs) do
       now = DateTime.utc_now()
 
       rows =
@@ -76,9 +76,9 @@ defmodule Ryker.Artifacts.References do
   def attach_turn(_turn_id, _refs),
     do: {:error, {:invalid_input_artifact_reference, :refs}}
 
-  defp lock_artifacts([]), do: {:ok, []}
+  defp fetch_and_lock_artifacts([]), do: {:ok, []}
 
-  defp lock_artifacts(refs) do
+  defp fetch_and_lock_artifacts(refs) do
     if Enum.all?(refs, &input_ref?/1) do
       artifacts =
         Artifact.Query.by_refs(refs)

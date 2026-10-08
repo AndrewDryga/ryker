@@ -581,7 +581,7 @@ defmodule Ryker.Coop.RunStep do
   # Every observed turn is metered under the lease.
   defp observe(%__MODULE__{lane: lane, store: store, claim: claim}, run, session, turn) do
     store.with_lease(claim, fn ->
-      owner = store.lock_owned_in_transaction!(claim)
+      owner = store.fetch_and_lock_owned_in_transaction!(claim)
       {:ok, local} = lane.fleet_session().fetch_for_run(run)
       lane.observe_in_transaction(owner, run, local.id, turn, session, Repo.now!())
     end)

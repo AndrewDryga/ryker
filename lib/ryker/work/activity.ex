@@ -86,7 +86,7 @@ defmodule Ryker.Work.Activity do
   def ingest(session_id, events)
       when is_binary(session_id) and is_list(events) and length(events) <= @maximum_page do
     Repo.transaction(fn ->
-      session = lock_ingest_session(session_id)
+      session = fetch_and_lock_ingest_session!(session_id)
 
       with {:ok, prepared} <- prepare_page(events, session),
            {:ok, result} <- apply_page(session, prepared) do
@@ -99,7 +99,7 @@ defmodule Ryker.Work.Activity do
 
   def ingest(_session_id, _events), do: {:error, {:invalid_coop_activity, :page}}
 
-  defp lock_ingest_session(session_id) do
+  defp fetch_and_lock_ingest_session!(session_id) do
     identity =
       Repo.peek(Session.Query.by_id(session_id)) || Repo.rollback(:work_session_not_found)
 
@@ -118,11 +118,11 @@ defmodule Ryker.Work.Activity do
   defp lock_activity_episode(episode_id) do
     # The activity insert needs this FK lock anyway. Take it before Session so
     # narration cannot deadlock Work's Episode -> Session ownership/preflight.
-    episode_id
-    |> Episodes.Episode.Query.by_id()
-    |> Episodes.Episode.Query.lock_for_key_share()
-    |> Repo.peek() ||
-      Repo.rollback(:work_session_not_found)
+    locked =
+      episode_id |> Episodes.Episode.Query.by_id() |> Episodes.Episode.Query.lock_for_key_share()
+
+    unless Repo.exists?(locked), do: Repo.rollback(:work_session_not_found)
+    :ok
   end
 
   @doc false

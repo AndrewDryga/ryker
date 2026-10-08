@@ -70,7 +70,7 @@ defmodule Ryker.Continuity.Recall do
   @spec search_page(:summary | :rollup, map(), String.t() | nil, map()) ::
           {:ok, map(), term()} | {:skip, term()} | :done
   def search_page(kind, episode, repository_ref, page) when kind in [:summary, :rollup] do
-    case Learning.Observations.locked_scope(episode, repository_ref) do
+    case Learning.Observations.fetch_and_lock_scope(episode, repository_ref) do
       {:ok, context} -> search_visible_page(kind, context, page, counted?(episode))
       _ -> :done
     end

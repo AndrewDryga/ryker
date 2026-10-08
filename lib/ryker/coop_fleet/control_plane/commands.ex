@@ -373,7 +373,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
   @doc false
   def acknowledge_commands(worker_id, command_ids, now) do
     Enum.each(command_ids, fn command_id ->
-      command = locked_command!(command_id, worker_id)
+      command = fetch_and_lock_command!(command_id, worker_id)
 
       cond do
         command.status in @terminal_command_states or command.status == :acknowledged ->
@@ -400,7 +400,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
   defp applied_result(worker_id, result, now, body_root) do
     applied =
       Repo.transaction(fn ->
-        _locked = Shared.lock_worker(worker_id)
+        _locked = Shared.fetch_and_lock_worker(worker_id)
         apply_command_result(worker_id, result, now, body_root)
       end)
 
@@ -419,9 +419,9 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
   end
 
   defp apply_command_result(worker_id, result, now, body_root) do
-    command = locked_command!(result["command_id"], worker_id)
+    command = fetch_and_lock_command!(result["command_id"], worker_id)
     fingerprint = CanonicalJSON.digest(result)
-    placement = locked_command_placement!(command)
+    placement = fetch_and_lock_command_placement!(command)
 
     cond do
       command.operation_key != nil and command.result_fingerprint == fingerprint ->
@@ -635,7 +635,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
   defp materialize_binding(command, _placement, _descriptor, _state_tools_secret),
     do: {:error, {:coop_worker_state_binding_not_current, command.id}}
 
-  defp locked_command!(command_id, worker_id) do
+  defp fetch_and_lock_command!(command_id, worker_id) do
     command_id
     |> Command.Query.by_id()
     |> Command.Query.by_worker_id(worker_id)
@@ -643,7 +643,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
     |> Repo.peek() || Shared.rollback({:coop_worker_command_not_found, command_id})
   end
 
-  defp locked_command_placement!(command) do
+  defp fetch_and_lock_command_placement!(command) do
     command
     |> Placement.Query.by_command()
     |> Placement.Query.lock_for_update()

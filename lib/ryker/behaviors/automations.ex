@@ -161,7 +161,7 @@ defmodule Ryker.Behaviors.Automations do
   end
 
   defp confirm_locked(attributes) do
-    with {:ok, record, episode, turn} <- lock_offer(attributes.record_ref),
+    with {:ok, record, episode, turn} <- fetch_and_lock_offer(attributes.record_ref),
          :ok <-
            Slack.ChannelFence.authorize_in_transaction(
              episode.destination_transport,
@@ -181,7 +181,7 @@ defmodule Ryker.Behaviors.Automations do
   defp apply_change(record, episode, attributes) do
     payload = record.payload
 
-    with {:ok, automation} <- lock_visible_automation(episode, payload["automation_id"]),
+    with {:ok, automation} <- fetch_and_lock_visible_automation(episode, payload["automation_id"]),
          :ok <- exact_revision(automation, payload["revision"]),
          :ok <- exact_frozen_change(automation, episode, payload),
          {:ok, changed} <- persist_change(automation, payload, attributes.occurred_at),
@@ -210,7 +210,7 @@ defmodule Ryker.Behaviors.Automations do
   end
 
   defp duplicate_confirmation(record, episode) do
-    case lock_visible_automation(episode, record.payload["automation_id"]) do
+    case fetch_and_lock_visible_automation(episode, record.payload["automation_id"]) do
       {:ok, automation} -> %{automation: document(automation), status: :duplicate}
       :error -> Repo.rollback(:automation_not_found)
     end
@@ -497,8 +497,8 @@ defmodule Ryker.Behaviors.Automations do
     |> Map.put("type", "time")
   end
 
-  defp lock_offer(record_ref) do
-    case Records.lock_offer(record_ref, ["automation_change_offer"]) do
+  defp fetch_and_lock_offer(record_ref) do
+    case Records.fetch_and_lock_offer(record_ref, ["automation_change_offer"]) do
       {:error, :not_found} -> {:error, :automation_change_offer_not_found}
       found -> found
     end
@@ -512,17 +512,17 @@ defmodule Ryker.Behaviors.Automations do
     end
   end
 
-  defp lock_visible_automation(episode, automation_id) do
+  defp fetch_and_lock_visible_automation(episode, automation_id) do
     locked =
       episode
       |> visible_schedule_query(automation_id)
       |> Schedules.Schedule.Query.lock_for_update()
 
     with {:error, :not_found} <- Repo.fetch(locked),
-         do: lock_visible_behavior(episode, automation_id)
+         do: fetch_and_lock_visible_behavior(episode, automation_id)
   end
 
-  defp lock_visible_behavior(episode, automation_id) do
+  defp fetch_and_lock_visible_behavior(episode, automation_id) do
     locked =
       episode
       |> visible_behavior_query(automation_id)

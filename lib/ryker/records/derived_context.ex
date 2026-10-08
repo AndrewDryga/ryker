@@ -153,7 +153,7 @@ defmodule Ryker.Records.DerivedContext do
   defp valid_sources?([], _destination, _repository), do: true
 
   defp valid_sources?(sources, destination, repository) when is_list(sources) do
-    case Learning.Observations.locked_scope(destination, repository) do
+    case Learning.Observations.fetch_and_lock_scope(destination, repository) do
       {:ok, scope} -> Learning.LearningSources.valid?(sources, scope)
       _ -> false
     end

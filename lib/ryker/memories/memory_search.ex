@@ -33,7 +33,7 @@ defmodule Ryker.Memories.MemorySearch do
   def related(binding, targets, before_time) when is_list(targets) and length(targets) <= 20 do
     Repo.transaction(fn ->
       Repo.statement_timeout!(5_000)
-      binding = lock_binding(binding, %{"cursor" => nil})
+      binding = fetch_and_lock_binding!(binding, %{"cursor" => nil})
       # The session, then the channel, then any recall accounting, as search
       # takes them: related memory charged a recall before the channel's lock,
       # and a lock it then could not take left the transaction aborted under
@@ -77,7 +77,7 @@ defmodule Ryker.Memories.MemorySearch do
     # Result count is not a database-work bound. A broad literal search or
     # expensive lineage filter must fail explicitly, not occupy a worker forever.
     Repo.statement_timeout!(5_000)
-    binding = lock_binding(binding, arguments)
+    binding = fetch_and_lock_binding!(binding, arguments)
 
     {page, state} =
       case restore(binding, arguments, secret) do
@@ -162,14 +162,17 @@ defmodule Ryker.Memories.MemorySearch do
   end
 
   defp lock_scope(binding) do
-    case Learning.Observations.locked_scope(binding.episode, binding.session.repository_ref) do
+    case Learning.Observations.fetch_and_lock_scope(
+           binding.episode,
+           binding.session.repository_ref
+         ) do
       {:ok, _scope} -> :ok
       {:error, reason} -> Repo.rollback(search_error(reason))
     end
   end
 
-  defp lock_binding(binding, arguments) do
-    case StateTools.Binding.lock_current(binding) do
+  defp fetch_and_lock_binding!(binding, arguments) do
+    case StateTools.Binding.fetch_and_lock_current(binding) do
       {:ok, current} ->
         Map.put(current, :operator_ref, latest_operator_ref(current.episode))
 

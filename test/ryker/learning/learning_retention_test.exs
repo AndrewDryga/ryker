@@ -32,7 +32,7 @@ defmodule Ryker.Learning.LearningRetentionTest do
 
     assert {:ok, valid?} =
              Repo.transaction(fn ->
-               {:ok, scope} = Observations.locked_scope(first, first.repository_ref)
+               {:ok, scope} = Observations.fetch_and_lock_scope(first, first.repository_ref)
                LearningSources.valid?(run.source_dependencies, scope)
              end)
 

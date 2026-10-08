@@ -69,9 +69,9 @@ defmodule Ryker.Publication.Followups.Leases do
   Locks a publication's follow-up, with the publication, for a poll whose lease
   `lease_ref` still holds; returns the database time the lease was checked at.
   """
-  @spec lock_poll(String.t(), String.t()) ::
+  @spec fetch_and_lock_poll(String.t(), String.t()) ::
           {:ok, Followup.t(), Publication.t(), DateTime.t()} | {:error, atom()}
-  def lock_poll(publication_ref, lease_ref) do
+  def fetch_and_lock_poll(publication_ref, lease_ref) do
     now = Repo.now!()
 
     query =
@@ -171,7 +171,7 @@ defmodule Ryker.Publication.Followups.Leases do
   # --- renewals -------------------------------------------------------------
 
   defp renew_poll_locked(publication_ref, lease_ref, lease_seconds) do
-    case lock_poll(publication_ref, lease_ref) do
+    case fetch_and_lock_poll(publication_ref, lease_ref) do
       {:ok, followup, _publication, now} ->
         Store.update_followup!(
           followup,
@@ -187,7 +187,7 @@ defmodule Ryker.Publication.Followups.Leases do
   defp renew_delivery_locked(event_ref, lease_ref, lease_seconds) do
     now = Repo.now!()
 
-    case Store.lock_lifecycle_event(event_ref) do
+    case Store.fetch_and_lock_lifecycle_event(event_ref) do
       {:ok, event} -> renew_locked_event(event, lease_ref, lease_seconds, now)
       {:error, :not_found} -> Repo.rollback(:publication_lifecycle_event_not_found)
     end
@@ -212,7 +212,7 @@ defmodule Ryker.Publication.Followups.Leases do
   defp defer_delivery_locked(event_ref, lease_ref, delay_seconds, reason) do
     now = Repo.now!()
 
-    case Store.lock_lifecycle_event(event_ref) do
+    case Store.fetch_and_lock_lifecycle_event(event_ref) do
       {:ok, event} -> defer_locked_event(event, lease_ref, delay_seconds, reason, now)
       {:error, :not_found} -> Repo.rollback(:publication_lifecycle_event_not_found)
     end

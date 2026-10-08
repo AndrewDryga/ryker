@@ -95,7 +95,7 @@ defmodule Ryker.Work.Custody.Delivery do
   end
 
   defp redirect_delivery_locked(episode_id, episode_key, gone_conversation_ref, target) do
-    with {:ok, episode} <- Episodes.lock_current_in_transaction(episode_key),
+    with {:ok, episode} <- Episodes.fetch_and_lock_current_in_transaction(episode_key),
          :ok <- exact_episode(episode, episode_id) do
       redirect_delivery_owner(episode, gone_conversation_ref, target)
     else
@@ -108,7 +108,7 @@ defmodule Ryker.Work.Custody.Delivery do
          gone_conversation_ref,
          target
        ) do
-    case lock_delivery_turn(episode.id, episode.owner_ref) do
+    case fetch_and_lock_delivery_turn(episode.id, episode.owner_ref) do
       {:ok, %Turn{status: status} = turn} when status in [:delivery_pending, :blocked] ->
         redirect_owed_reply(episode, turn, gone_conversation_ref, target, Repo.now!())
 
@@ -173,7 +173,7 @@ defmodule Ryker.Work.Custody.Delivery do
     do: {:error, {:invalid_work_custody, :target}}
 
   defp pause_destination_locked(episode_id, episode_key, intent, fingerprint) do
-    with {:ok, episode} <- Episodes.lock_current_in_transaction(episode_key),
+    with {:ok, episode} <- Episodes.fetch_and_lock_current_in_transaction(episode_key),
          :ok <- exact_episode(episode, episode_id) do
       pause_destination_owner(episode, intent, fingerprint)
     else
@@ -182,7 +182,7 @@ defmodule Ryker.Work.Custody.Delivery do
   end
 
   defp resume_destination_locked(episode_id, episode_key, reason) do
-    with {:ok, episode} <- Episodes.lock_current_in_transaction(episode_key),
+    with {:ok, episode} <- Episodes.fetch_and_lock_current_in_transaction(episode_key),
          :ok <- exact_episode(episode, episode_id) do
       resume_destination_owner(episode, reason)
     else
@@ -229,9 +229,9 @@ defmodule Ryker.Work.Custody.Delivery do
          external_receipt,
          receipt_fingerprint
        ) do
-    with {:ok, episode} <- Episodes.lock_current_in_transaction(episode_key),
+    with {:ok, episode} <- Episodes.fetch_and_lock_current_in_transaction(episode_key),
          :ok <- exact_episode(episode, episode_id),
-         {:ok, _session, turn} <- lock_turn_after_episode(episode_id, turn_ref),
+         {:ok, _session, turn} <- fetch_and_lock_turn_after_episode(episode_id, turn_ref),
          {:continue, command, delivered_at} <-
            prepare_delivery_confirmation(
              episode,
@@ -318,7 +318,7 @@ defmodule Ryker.Work.Custody.Delivery do
   defp pause_destination_delivery(episode, intent) do
     now = Repo.now!()
 
-    case lock_delivery_turn(episode.id, episode.owner_ref) do
+    case fetch_and_lock_delivery_turn(episode.id, episode.owner_ref) do
       {:ok, %Turn{status: :delivery_pending} = turn} ->
         pause_pending_delivery(episode, turn, intent, now)
 
@@ -391,7 +391,7 @@ defmodule Ryker.Work.Custody.Delivery do
          %Episodes.Episode{state: :working, owner_kind: :delivery} = episode,
          reason
        ) do
-    case lock_delivery_turn(episode.id, episode.owner_ref) do
+    case fetch_and_lock_delivery_turn(episode.id, episode.owner_ref) do
       {:ok,
        %Turn{
          last_error_code: "destination_paused",
@@ -482,7 +482,7 @@ defmodule Ryker.Work.Custody.Delivery do
     end
   end
 
-  defp lock_delivery_turn(episode_id, delivery_ref) do
+  defp fetch_and_lock_delivery_turn(episode_id, delivery_ref) do
     locked =
       episode_id
       |> Turn.Query.by_episode_id()
@@ -527,8 +527,8 @@ defmodule Ryker.Work.Custody.Delivery do
   end
 
   defp retry_delivery_owner_locked(episode_id, turn_ref, delivery_ref) do
-    with {:ok, _episode} <- lock_episode_owner(episode_id, :delivery, delivery_ref),
-         {:ok, turn} <- lock_turn(episode_id, turn_ref) do
+    with {:ok, _episode} <- fetch_and_lock_episode_owner(episode_id, :delivery, delivery_ref),
+         {:ok, turn} <- fetch_and_lock_turn(episode_id, turn_ref) do
       retry_delivery_turn_locked(turn, delivery_ref)
     else
       {:error, reason} -> Repo.rollback(reason)

@@ -261,7 +261,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   # that worker under the ordinary eligibility checks; the caller decides what
   # an ineligible worker means for its session.
   defp recover_placement_on_previous_worker(session, previous, requirements, lease_seconds, now) do
-    with {:ok, worker} <- Shared.lock_worker(previous.worker_id),
+    with {:ok, worker} <- Shared.fetch_and_lock_worker(previous.worker_id),
          true <-
            holder_reachable?(worker, requirements.workspace_ref, now) and
              is_nil(worker.drain_requested_at) and worker.state in [:eligible, :busy] and
@@ -357,7 +357,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   # Stop and cleanup return to the exact holder even after settings or sandbox
   # changes. They need no new runtime slot and never authorize another turn.
   defp place_on_holder(session, previous, requirements, lease_seconds, now) do
-    with {:ok, worker} <- Shared.lock_worker(previous.worker_id),
+    with {:ok, worker} <- Shared.fetch_and_lock_worker(previous.worker_id),
          true <- holder_reachable?(worker, requirements.workspace_ref, now) do
       holder = %{
         requirements
@@ -455,7 +455,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     workers = query |> Placement.Query.select_worker_ids() |> Repo.all()
 
     Repo.transaction(fn ->
-      Enum.each(Enum.sort(workers), &Shared.lock_worker/1)
+      Enum.each(Enum.sort(workers), &Shared.fetch_and_lock_worker/1)
 
       query
       |> Placement.Query.lock_for_update()
@@ -660,7 +660,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     |> Placement.Query.by_session_id()
     |> Placement.Query.select_worker_ids()
     |> Repo.all()
-    |> Enum.each(&Shared.lock_worker/1)
+    |> Enum.each(&Shared.fetch_and_lock_worker/1)
   end
 
   defp current_placement(session_id) do

@@ -252,7 +252,7 @@ defmodule Ryker.Schedules do
     do: {:error, {:invalid_schedule, :run_now}}
 
   defp confirm_locked(attributes) do
-    with {:ok, record, source_episode, source_turn} <- lock_offer(attributes.record_ref),
+    with {:ok, record, source_episode, source_turn} <- fetch_and_lock_offer(attributes.record_ref),
          :ok <- check_delivery(source_episode, source_turn, attributes.target) do
       case Repo.fetch(Schedule.Query.by_offer_record_id(record.id)) do
         {:ok, %Schedule{} = schedule} ->
@@ -668,8 +668,8 @@ defmodule Ryker.Schedules do
     schedule_id |> ScheduleOccurrence.Query.running() |> Repo.exists?()
   end
 
-  defp lock_offer(record_ref) do
-    case Records.lock_offer(record_ref, ["schedule_offer"]) do
+  defp fetch_and_lock_offer(record_ref) do
+    case Records.fetch_and_lock_offer(record_ref, ["schedule_offer"]) do
       {:error, :not_found} -> {:error, :schedule_offer_not_found}
       found -> found
     end
@@ -684,7 +684,7 @@ defmodule Ryker.Schedules do
   end
 
   defp live_schedule_lease(schedule_ref, lease_ref, now) do
-    case lock_schedule(schedule_ref) do
+    case fetch_and_lock_schedule(schedule_ref) do
       {:error, :not_found} ->
         {:error, :schedule_not_found}
 
@@ -698,19 +698,19 @@ defmodule Ryker.Schedules do
     end
   end
 
-  defp lock_schedule(schedule_ref) do
+  defp fetch_and_lock_schedule(schedule_ref) do
     schedule_ref |> Schedule.Query.by_ref() |> Schedule.Query.lock_for_update() |> Repo.fetch()
   end
 
   defp set_status_locked(schedule_ref, status) do
-    case lock_schedule(schedule_ref) do
+    case fetch_and_lock_schedule(schedule_ref) do
       {:error, :not_found} -> Repo.rollback(:schedule_not_found)
       {:ok, %Schedule{} = schedule} -> update_schedule_status(schedule, status)
     end
   end
 
   defp run_now_locked(schedule_ref, scope, policy_resolver) do
-    case lock_schedule(schedule_ref) do
+    case fetch_and_lock_schedule(schedule_ref) do
       {:error, :not_found} ->
         {:error, :schedule_not_found}
 
@@ -720,7 +720,7 @@ defmodule Ryker.Schedules do
   end
 
   defp set_home_status_locked(schedule_ref, status, expected_revision, scope) do
-    case lock_schedule(schedule_ref) do
+    case fetch_and_lock_schedule(schedule_ref) do
       {:error, :not_found} ->
         {:error, :schedule_not_found}
 

@@ -47,7 +47,7 @@ defmodule Ryker.Publication.Followups.Delivery do
   defp admit_wakeup_locked(event_ref, lease_ref) do
     now = Repo.now!()
 
-    with {:ok, event} <- Store.lock_lifecycle_event(event_ref),
+    with {:ok, event} <- Store.fetch_and_lock_lifecycle_event(event_ref),
          :ok <- Leases.live_event_lease(event, lease_ref, now) do
       admit_wakeup_event(event, now)
     else
@@ -92,7 +92,7 @@ defmodule Ryker.Publication.Followups.Delivery do
 
   defp record_wakeup_admission(event, publication, command, transition, now) do
     updated_event = Store.update_event!(event, %{wakeup_state: :admitted}, now)
-    followup = Store.lock_followup(publication.id)
+    followup = Store.fetch_and_lock_followup!(publication.id)
 
     attributes =
       if event.kind == :review_feedback do
@@ -251,7 +251,7 @@ defmodule Ryker.Publication.Followups.Delivery do
     do: %{kind: kind, ref: ref}
 
   defp publication_followup_merge(publication_id),
-    do: Store.lock_followup(publication_id).merge_sha
+    do: Store.fetch_and_lock_followup!(publication_id).merge_sha
 
   # --- the message and its receipt ------------------------------------------
 
@@ -270,7 +270,7 @@ defmodule Ryker.Publication.Followups.Delivery do
   defp confirm_delivery_locked(event_ref, lease_ref, receipt) do
     now = Repo.now!()
 
-    case Store.lock_lifecycle_event(event_ref) do
+    case Store.fetch_and_lock_lifecycle_event(event_ref) do
       {:error, :not_found} ->
         Repo.rollback(:publication_lifecycle_event_not_found)
 

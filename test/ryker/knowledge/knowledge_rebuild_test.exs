@@ -181,7 +181,7 @@ defmodule Ryker.Knowledge.KnowledgeRebuildTest do
     KnowledgeFixtures.revoke!(second)
 
     {:ok, {:ok, scope}} =
-      Repo.transaction(fn -> Observations.locked_scope(first, first.repository_ref) end)
+      Repo.transaction(fn -> Observations.fetch_and_lock_scope(first, first.repository_ref) end)
 
     old_reference = LearningSources.document_sources(first_document)
     summary = retained_summary!(head, first_document, old_reference)

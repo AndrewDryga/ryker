@@ -38,7 +38,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
   end
 
   defp drain_locked(worker_id, operator_ref) do
-    worker = locked_worker!(worker_id)
+    worker = fetch_and_lock_worker!(worker_id)
 
     cond do
       worker.state == :revoked ->
@@ -61,7 +61,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
   end
 
   defp resume_locked(worker_id) do
-    worker = locked_worker!(worker_id)
+    worker = fetch_and_lock_worker!(worker_id)
 
     cond do
       worker.state == :revoked ->
@@ -82,7 +82,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
   end
 
   defp revoke_locked(worker_id, operator_ref) do
-    worker = locked_worker!(worker_id)
+    worker = fetch_and_lock_worker!(worker_id)
 
     if worker.state == :revoked do
       %{status: :duplicate, worker: worker}
@@ -114,7 +114,7 @@ defmodule Ryker.CoopFleet.WorkerLifecycle do
     end
   end
 
-  defp locked_worker!(worker_id) do
+  defp fetch_and_lock_worker!(worker_id) do
     worker_id |> Worker.Query.by_id() |> Worker.Query.lock_for_update() |> Repo.peek() ||
       Repo.rollback(:coop_worker_not_found)
   end

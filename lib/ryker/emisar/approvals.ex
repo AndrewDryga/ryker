@@ -224,7 +224,7 @@ defmodule Ryker.Emisar.Approvals do
     now = Repo.now!()
 
     ids
-    |> lock_unleased(now)
+    |> fetch_and_lock_unleased(now)
     |> Enum.map(fn approval ->
       update!(approval, %{
         closed_at: now,
@@ -257,7 +257,7 @@ defmodule Ryker.Emisar.Approvals do
     now = Repo.now!()
 
     (refused_watches(connection_ref) ++ unreadable_watches(connection_ref))
-    |> lock_unleased(now)
+    |> fetch_and_lock_unleased(now)
     |> Enum.map(fn approval ->
       update!(approval, %{
         failure_count: 0,
@@ -290,7 +290,7 @@ defmodule Ryker.Emisar.Approvals do
   end
 
   # The rows among `ids` still open and not being polled right now, locked.
-  defp lock_unleased(ids, now) do
+  defp fetch_and_lock_unleased(ids, now) do
     ids
     |> Approval.Query.by_ids()
     |> Approval.Query.by_statuses([:monitoring, :blocked])
@@ -470,8 +470,8 @@ defmodule Ryker.Emisar.Approvals do
          admit <- admit_command(episode, input, snapshot),
          resume <- resume_command(episode, admit, record, snapshot, now),
          {:ok, [_admitted, resumed]} <- Episodes.apply_batch_in_transaction([admit, resume]),
-         {:ok, locked_record} <- lock_record(snapshot.record_id),
-         {:ok, locked_approval} <- lock_approval(snapshot.id),
+         {:ok, locked_record} <- fetch_and_lock_record(snapshot.record_id),
+         {:ok, locked_approval} <- fetch_and_lock_approval(snapshot.id),
          {:ok, _approval} <- live_lease(locked_approval, lease_ref, now),
          :ok <- exact_run(locked_approval, state),
          :ok <- exact_wait_record(locked_record, locked_approval, record.ref),
@@ -661,14 +661,14 @@ defmodule Ryker.Emisar.Approvals do
     "turn:emisar-approval:#{binary_part(digest, 0, 32)}"
   end
 
-  defp lock_record(id) do
+  defp fetch_and_lock_record(id) do
     id
     |> Records.Record.Query.by_id()
     |> Records.Record.Query.lock_for_update()
     |> approval_row()
   end
 
-  defp lock_approval(id),
+  defp fetch_and_lock_approval(id),
     do: id |> Approval.Query.by_id() |> Approval.Query.lock_for_update() |> approval_row()
 
   # Each row a finished approval resumes from must still be there.

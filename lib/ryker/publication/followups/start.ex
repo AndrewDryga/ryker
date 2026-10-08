@@ -50,7 +50,7 @@ defmodule Ryker.Publication.Followups.Start do
     do: Repo.rollback(:publication_not_delivered)
 
   def rearm_stale_in_transaction(%Publication{} = publication, now) do
-    case Repo.fetch(locked_followup(publication)) do
+    case fetch_and_lock_followup(publication) do
       {:ok, %Followup{pr_state: :stale} = followup} ->
         _followup = reset_followup!(followup, publication, now)
         :ok
@@ -63,14 +63,15 @@ defmodule Ryker.Publication.Followups.Start do
     end
   end
 
-  defp locked_followup(publication) do
+  defp fetch_and_lock_followup(publication) do
     publication.id
     |> Followup.Query.by_publication_id()
     |> Followup.Query.lock_for_update()
+    |> Repo.fetch()
   end
 
   def rearm_conflict_in_transaction(%Publication{} = publication, now) do
-    case Repo.fetch(locked_followup(publication)) do
+    case fetch_and_lock_followup(publication) do
       {:ok, %Followup{} = followup} ->
         _followup = reset_followup!(followup, publication, now)
         :ok

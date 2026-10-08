@@ -69,7 +69,8 @@ defmodule Ryker.Publication.Followups.Polls do
   # --- what the poll found --------------------------------------------------
 
   defp store_poll_locked(publication_ref, lease_ref, status) do
-    with {:ok, followup, publication, now} <- Leases.lock_poll(publication_ref, lease_ref),
+    with {:ok, followup, publication, now} <-
+           Leases.fetch_and_lock_poll(publication_ref, lease_ref),
          :ok <- exact_status(publication, status) do
       cond do
         past_deadline?(followup, now) ->
@@ -114,7 +115,7 @@ defmodule Ryker.Publication.Followups.Polls do
   # repository, a removed App or publication turned off polled every two
   # minutes forever (2026-10-04 review).
   defp defer_poll_locked(publication_ref, lease_ref, delay_seconds, reason) do
-    case Leases.lock_poll(publication_ref, lease_ref) do
+    case Leases.fetch_and_lock_poll(publication_ref, lease_ref) do
       {:ok, followup, publication, now} ->
         if past_deadline?(followup, now) do
           observation = %{
@@ -307,7 +308,8 @@ defmodule Ryker.Publication.Followups.Polls do
   # --- the wait for a woken task --------------------------------------------
 
   defp reconcile_verification_locked(publication_ref, lease_ref, interval_seconds) do
-    with {:ok, followup, _publication, now} <- Leases.lock_poll(publication_ref, lease_ref),
+    with {:ok, followup, _publication, now} <-
+           Leases.fetch_and_lock_poll(publication_ref, lease_ref),
          true <- verification_pending?(followup) do
       Store.update_followup!(
         followup,

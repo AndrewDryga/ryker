@@ -138,7 +138,7 @@ defmodule Ryker.Continuity.Handover do
   def candidate_staged_in_transaction(%Work.Turn{} = turn, candidate_sha256, candidate_attempt)
       when is_binary(candidate_sha256) and is_integer(candidate_attempt) and candidate_attempt > 0 do
     if Repo.in_transaction?() do
-      bind_candidate_draft(locked_draft(turn), candidate_sha256, candidate_attempt)
+      bind_candidate_draft(fetch_and_lock_draft(turn), candidate_sha256, candidate_attempt)
     else
       {:error, :conversation_summary_transaction_required}
     end
@@ -178,20 +178,20 @@ defmodule Ryker.Continuity.Handover do
   @spec preflight_fingerprint_in_transaction(Work.Turn.t()) :: String.t() | no_return()
   def preflight_fingerprint_in_transaction(%Work.Turn{} = turn) do
     if Repo.in_transaction?() do
-      CanonicalJSON.digest(preflight_document(locked_draft(turn)))
+      CanonicalJSON.digest(preflight_document(fetch_and_lock_draft(turn)))
     else
       raise ArgumentError, "preflight fingerprint requires a transaction"
     end
   end
 
-  defp locked_episode(id) do
+  defp fetch_and_lock_episode(id) do
     id
     |> Episodes.Episode.Query.by_id()
     |> Episodes.Episode.Query.lock_for_update()
     |> staged()
   end
 
-  defp locked_turn(id),
+  defp fetch_and_lock_turn(id),
     do: id |> Work.Turn.Query.by_id() |> Work.Turn.Query.lock_for_update() |> staged()
 
   # A turn or request gone before its summary is staged leaves nothing it may
@@ -203,8 +203,8 @@ defmodule Ryker.Continuity.Handover do
 
   defp stage_locked(turn_id, state) do
     with {:ok, identity} <- staged(Work.Turn.Query.by_id(turn_id)),
-         {:ok, episode} <- locked_episode(identity.episode_id),
-         {:ok, turn} <- locked_turn(turn_id),
+         {:ok, episode} <- fetch_and_lock_episode(identity.episode_id),
+         {:ok, turn} <- fetch_and_lock_turn(turn_id),
          :ok <-
            Slack.ChannelFence.authorize_in_transaction(
              episode.destination_transport,
@@ -317,7 +317,7 @@ defmodule Ryker.Continuity.Handover do
     }
   end
 
-  defp locked_draft(turn) do
+  defp fetch_and_lock_draft(turn) do
     turn.id
     |> ConversationSummaryDraft.Query.by_turn_id()
     |> ConversationSummaryDraft.Query.by_episode_id(turn.episode_id)

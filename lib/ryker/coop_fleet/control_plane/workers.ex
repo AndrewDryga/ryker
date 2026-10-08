@@ -94,7 +94,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
       announce_reported_sessions(poll["event_batches"])
 
       Repo.transaction(fn ->
-        _locked = Shared.lock_worker(authenticated_worker_id)
+        _locked = Shared.fetch_and_lock_worker(authenticated_worker_id)
 
         commands =
           Commands.deliver_commands(
@@ -162,7 +162,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
   end
 
   defp authenticated_worker!(worker_id, workspace_ref, certificate_sha256) do
-    case Shared.lock_worker(worker_id) do
+    case Shared.fetch_and_lock_worker(worker_id) do
       {:error, :not_found} ->
         Shared.rollback({:coop_worker_not_authorized, worker_id})
 

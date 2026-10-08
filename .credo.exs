@@ -51,6 +51,7 @@
           {Ryker.Checks.NoProcessDictionary, []},
           {Ryker.Checks.NoUnsafeDeserialization, []},
           {Ryker.Checks.PreferCaptureClosure, []},
+          {Ryker.Checks.LockNameReturnsNothing, []},
           {Ryker.Checks.RepoExistsOverCount, []},
           {Ryker.Checks.ShortBindings, []},
           {Ryker.Checks.SubscribeNeedsConnected, []},

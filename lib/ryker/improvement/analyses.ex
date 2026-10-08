@@ -319,7 +319,7 @@ defmodule Ryker.Improvement.Analyses do
   def begin_execution(claim, run_id) do
     Repo.transaction(fn ->
       candidate = owned!(claim)
-      run = locked_run!(candidate, run_id)
+      run = fetch_and_lock_run!(candidate, run_id)
 
       cond do
         not is_nil(run.started_at) ->
@@ -341,7 +341,7 @@ defmodule Ryker.Improvement.Analyses do
   @doc "Counts one more failure to learn how a run ended at the worker."
   def reconciliation_failed(claim, run_id) do
     with_lease(claim, fn ->
-      run = locked_run!(claim.candidate, run_id)
+      run = fetch_and_lock_run!(claim.candidate, run_id)
 
       {:ok,
        run
@@ -504,7 +504,7 @@ defmodule Ryker.Improvement.Analyses do
   def apply_result(claim, run_id, %{"state" => "completed"} = turn) do
     Repo.transaction(fn ->
       candidate = owned!(claim)
-      run = locked_run!(candidate, run_id)
+      run = fetch_and_lock_run!(candidate, run_id)
       diagnosis = confirmed_diagnosis!(run, turn)
 
       run =
@@ -781,14 +781,14 @@ defmodule Ryker.Improvement.Analyses do
   defp run_transaction(claim, run_id, callback) do
     Repo.transaction(fn ->
       candidate = owned!(claim)
-      run = locked_run!(candidate, run_id)
+      run = fetch_and_lock_run!(candidate, run_id)
       result = callback.(run)
       Improvement.broadcast_improvement_updated(candidate.id)
       result
     end)
   end
 
-  defp locked_run!(candidate, run_id) do
+  defp fetch_and_lock_run!(candidate, run_id) do
     run =
       run_id
       |> AnalysisRun.Query.by_id()
@@ -823,7 +823,7 @@ defmodule Ryker.Improvement.Analyses do
 
   @doc false
   @impl true
-  def lock_owned_in_transaction!(claim), do: owned!(claim)
+  def fetch_and_lock_owned_in_transaction!(claim), do: owned!(claim)
 
   defp save(candidate, changes) do
     candidate

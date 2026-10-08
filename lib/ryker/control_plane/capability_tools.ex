@@ -87,7 +87,7 @@ defmodule Ryker.ControlPlane.CapabilityTools do
   defp dispatch_current(name, arguments, context) do
     Repo.statement_timeout!(5_000)
 
-    case StateTools.Binding.lock_current(context.binding) do
+    case StateTools.Binding.fetch_and_lock_current(context.binding) do
       {:ok, _current} -> dispatch(name, arguments, context)
       {:error, _reason} -> Repo.rollback(:unauthorized)
     end

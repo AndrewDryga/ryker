@@ -34,7 +34,7 @@ defmodule Ryker.Records.SlackPostOffers do
   end
 
   defp confirm_locked(attributes) do
-    with {:ok, record, episode, turn} <- lock_offer(attributes.record_ref),
+    with {:ok, record, episode, turn} <- fetch_and_lock_offer(attributes.record_ref),
          :ok <- requester_authorized(record, attributes.actor_ref),
          :ok <- check_delivery(episode, turn, attributes.target) do
       case record.status do
@@ -92,8 +92,8 @@ defmodule Ryker.Records.SlackPostOffers do
   @spec host_slot(Record.t()) :: String.t()
   def host_slot(%Record{} = record), do: "confirmed-post:#{record.id}"
 
-  defp lock_offer(record_ref) do
-    case Records.lock_offer(record_ref, ["slack_post_offer"]) do
+  defp fetch_and_lock_offer(record_ref) do
+    case Records.fetch_and_lock_offer(record_ref, ["slack_post_offer"]) do
       {:error, :not_found} -> {:error, :slack_post_offer_not_found}
       found -> found
     end

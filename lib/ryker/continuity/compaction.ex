@@ -173,7 +173,7 @@ defmodule Ryker.Continuity.Compaction do
     identity = rollup_identity(first)
     {workspace_ref, scope_kind, scope_ref, period_start} = identity
 
-    existing = locked_rollup(workspace_ref, scope_kind, scope_ref, period_start)
+    existing = peek_and_lock_rollup(workspace_ref, scope_kind, scope_ref, period_start)
     retained = if existing && existing.state != %{"retention" => "pruned"}, do: existing
 
     if retained && not Learning.LearningSources.sourced?(retained.source_dependencies) do
@@ -203,7 +203,7 @@ defmodule Ryker.Continuity.Compaction do
     complete_compaction(existing, sources, attributes)
   end
 
-  defp locked_rollup(workspace_ref, scope_kind, scope_ref, period_start) do
+  defp peek_and_lock_rollup(workspace_ref, scope_kind, scope_ref, period_start) do
     workspace_ref
     |> ConversationRollup.Query.by_identity(scope_kind, scope_ref, period_start)
     |> ConversationRollup.Query.lock_for_update()

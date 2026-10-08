@@ -39,7 +39,7 @@ defmodule Ryker.StateTools.Binding do
   def resolve(_token), do: {:error, :state_tools_binding_not_authorized}
 
   @doc "Recheck an already resolved caller under the session lock before local disclosure."
-  def lock_current(binding) do
+  def fetch_and_lock_current(binding) do
     # Routine Work bookkeeping briefly owns this row while the model is using
     # MCP. Wait within the existing recall lock budget, then recheck authority.
     Repo.lock_timeout!(1_000)

@@ -120,7 +120,7 @@ defmodule Ryker.CoopFleet.Enrollment do
          DateTime.compare(certificate.expires_at, now) != :gt,
        do: Repo.rollback(:coop_worker_certificate_not_authorized)
 
-    worker = locked_worker!(certificate.worker_id)
+    worker = fetch_and_lock_worker!(certificate.worker_id)
 
     if worker.state == :revoked,
       do: Repo.rollback(:coop_worker_certificate_not_authorized)
@@ -166,7 +166,7 @@ defmodule Ryker.CoopFleet.Enrollment do
   end
 
   defp ensure_worker_enrollable!(worker_id) do
-    case locked_worker(worker_id) do
+    case fetch_and_lock_worker(worker_id) do
       {:ok, %Worker{state: :revoked}} -> Repo.rollback(:coop_worker_enrollment_not_authorized)
       {:ok, %Worker{}} -> :ok
       {:error, :not_found} -> :ok
@@ -174,7 +174,7 @@ defmodule Ryker.CoopFleet.Enrollment do
   end
 
   defp upsert_enrolled_worker!(worker_id, workspace_ref, certificate_sha256) do
-    case locked_worker(worker_id) do
+    case fetch_and_lock_worker(worker_id) do
       {:error, :not_found} ->
         %{
           certificate_sha256: certificate_sha256,
@@ -288,8 +288,8 @@ defmodule Ryker.CoopFleet.Enrollment do
     end
   end
 
-  defp locked_worker!(worker_id) do
-    case locked_worker(worker_id) do
+  defp fetch_and_lock_worker!(worker_id) do
+    case fetch_and_lock_worker(worker_id) do
       {:ok, worker} -> worker
       {:error, :not_found} -> Repo.rollback(:coop_worker_certificate_not_authorized)
     end
@@ -329,6 +329,6 @@ defmodule Ryker.CoopFleet.Enrollment do
   defp unwrap_write({:error, changeset}),
     do: Repo.rollback({:coop_worker_enrollment_store_error, changeset})
 
-  defp locked_worker(worker_id),
+  defp fetch_and_lock_worker(worker_id),
     do: worker_id |> Worker.Query.by_id() |> Worker.Query.lock_for_update() |> Repo.fetch()
 end

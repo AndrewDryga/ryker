@@ -386,8 +386,8 @@ defmodule Ryker.Retention.Custody do
         nil
 
       {:ok, {kind, owner_id, session_id, placed_worker_id}} ->
-        with owner when not is_nil(owner) <- lock_owner(kind, owner_id, :skip_locked),
-             {:ok, %Work.Session{} = session} <- lock_session(session_id),
+        with owner when not is_nil(owner) <- peek_and_lock_owner(kind, owner_id, :skip_locked),
+             {:ok, %Work.Session{} = session} <- fetch_and_lock_session(session_id),
              true <- claimable?(owner, session, now) do
           session = prepare_phase(session)
           lease_ref = "retention-lease:#{Ecto.UUID.generate()}"
@@ -419,28 +419,33 @@ defmodule Ryker.Retention.Custody do
 
   defp candidate(now, exclude), do: Repo.fetch(Cleanup.Query.next_candidate(now, exclude))
 
-  defp lock_owner(kind, id, lock) when kind in [:work, :learning, :improvement, :knowledge],
-    do: kind |> Cleanup.Query.owner(id) |> Cleanup.Query.lock_owner(lock) |> Repo.peek()
+  defp peek_and_lock_owner(kind, id, lock)
+       when kind in [:work, :learning, :improvement, :knowledge],
+       do: kind |> Cleanup.Query.owner(id) |> Cleanup.Query.lock_owner(lock) |> Repo.peek()
 
   # A routing session started ahead of time has no message until one claims
   # it. Until then the pool owns it, and the session's own state says whether
   # the pool gave it up; the session row is locked right after.
-  defp lock_owner(:admission, nil, _lock), do: :ready_pool
+  defp peek_and_lock_owner(:admission, nil, _lock), do: :ready_pool
 
-  defp lock_owner(:admission, input_id, lock) do
+  defp peek_and_lock_owner(:admission, input_id, lock) do
     :admission
     |> Cleanup.Query.owner(input_id)
     |> Cleanup.Query.lock_owner(lock)
     |> Repo.peek()
   end
 
-  defp lock_owner(_, _, _), do: nil
+  defp peek_and_lock_owner(_, _, _), do: nil
 
-  defp lock_identity_owner({kind, id}) when not is_nil(id), do: lock_owner(kind, id, :wait)
-  defp lock_identity_owner({:admission, nil}), do: lock_owner(:admission, nil, :wait)
-  defp lock_identity_owner(_identity), do: nil
+  defp peek_and_lock_identity_owner({kind, id}) when not is_nil(id),
+    do: peek_and_lock_owner(kind, id, :wait)
 
-  defp lock_session(session_id) do
+  defp peek_and_lock_identity_owner({:admission, nil}),
+    do: peek_and_lock_owner(:admission, nil, :wait)
+
+  defp peek_and_lock_identity_owner(_identity), do: nil
+
+  defp fetch_and_lock_session(session_id) do
     session_id
     |> Work.Session.Query.by_id()
     |> Work.Session.Query.lock_for_update()
@@ -798,7 +803,7 @@ defmodule Ryker.Retention.Custody do
   defp leased!(session_id, lease_ref, statuses) do
     identity = Repo.peek(Cleanup.Query.owner_identity(session_id))
 
-    owner = lock_identity_owner(identity)
+    owner = peek_and_lock_identity_owner(identity)
     if is_nil(owner), do: Repo.rollback(:retention_session_not_found)
 
     session =

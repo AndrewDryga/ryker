@@ -34,7 +34,7 @@ defmodule Ryker.CopiedHelpersTest do
     {"A read composed where it is used, inside the caller's own transaction.",
      ~w(Ryker.ControlPlane.OverviewProjection.count/1 Ryker.Slack.AppHomeProjection.count/1)},
     {"A read composed where it is used, inside the caller's own transaction.",
-     ~w(Ryker.CoopFleet.ControlPlane.Shared.lock_worker/1 Ryker.CoopFleet.Enrollment.locked_worker/1)},
+     ~w(Ryker.CoopFleet.ControlPlane.Shared.fetch_and_lock_worker/1 Ryker.CoopFleet.Enrollment.fetch_and_lock_worker/1)},
     {"A read composed where it is used.",
      ~w(Ryker.ControlPlane.ChannelDetail.settings/0 Ryker.ControlPlane.IncidentProjection.settings/0)},
     {"The worker protocol fixes these two streaming hashes (Ryker.Crypto's note).",

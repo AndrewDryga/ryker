@@ -98,8 +98,8 @@ defmodule Ryker.Records do
          parallel_goal_limit,
          reuse_open_source_wait?
        ) do
-    with {:ok, episode} <- lock_episode(episode_id),
-         {:ok, turn} <- lock_turn(turn_id, episode_id),
+    with {:ok, episode} <- fetch_and_lock_episode(episode_id),
+         {:ok, turn} <- fetch_and_lock_turn(turn_id, episode_id),
          :ok <- authorize(episode, turn, kind),
          ref <- record_ref(turn.id, operation_id, kind),
          {:ok, prepared} <- RecordPayload.prepare(kind, payload, ref),
@@ -450,7 +450,7 @@ defmodule Ryker.Records do
     with {:error, :not_found} <- Repo.fetch(query), do: {:error, :state_record_unauthorized}
   end
 
-  defp lock_episode(episode_id) do
+  defp fetch_and_lock_episode(episode_id) do
     locked =
       episode_id
       |> Episodes.Episode.Query.by_id()
@@ -459,7 +459,7 @@ defmodule Ryker.Records do
     with {:error, :not_found} <- Repo.fetch(locked), do: {:error, :state_record_unauthorized}
   end
 
-  defp lock_turn(turn_id, episode_id) do
+  defp fetch_and_lock_turn(turn_id, episode_id) do
     locked =
       turn_id
       |> Work.Turn.Query.by_id()
@@ -1080,9 +1080,9 @@ defmodule Ryker.Records do
   turn that made it, all three locked until the caller's transaction ends,
   for its confirmation or answer. Seven cards kept a copy of this.
   """
-  @spec lock_offer(String.t(), [String.t()]) ::
+  @spec fetch_and_lock_offer(String.t(), [String.t()]) ::
           {:ok, Record.t(), Episodes.Episode.t(), Work.Turn.t()} | {:error, :not_found}
-  def lock_offer(ref, kinds) do
+  def fetch_and_lock_offer(ref, kinds) do
     with {:ok, {record, episode, turn}} <- Repo.fetch(Record.Query.offer_with_origin(ref, kinds)),
          do: {:ok, record, episode, turn}
   end

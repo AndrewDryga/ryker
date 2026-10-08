@@ -462,7 +462,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   def begin_execution(claim, run_id) do
     Repo.transaction(fn ->
       entry = owned!(claim)
-      run = locked_run!(entry, run_id)
+      run = fetch_and_lock_run!(entry, run_id)
 
       cond do
         not is_nil(run.started_at) ->
@@ -484,7 +484,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   @doc "Counts one more failure to learn how a run ended at the worker."
   def reconciliation_failed(claim, run_id) do
     with_lease(claim, fn ->
-      run = locked_run!(claim.entry, run_id)
+      run = fetch_and_lock_run!(claim.entry, run_id)
 
       {:ok,
        run
@@ -660,7 +660,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   def apply_result(claim, run_id, %{"state" => "completed"} = turn) do
     Repo.transaction(fn ->
       entry = owned!(claim)
-      run = locked_run!(entry, run_id)
+      run = fetch_and_lock_run!(entry, run_id)
 
       unless run.status in [:responded, :applied] and is_binary(run.document) and
                is_map(run.validation_receipt),
@@ -927,14 +927,14 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   defp run_transaction(claim, run_id, callback) do
     Repo.transaction(fn ->
       entry = owned!(claim)
-      run = locked_run!(entry, run_id)
+      run = fetch_and_lock_run!(entry, run_id)
       result = callback.(run)
       RepositoryKnowledge.broadcast_updated(entry.repository_ref)
       result
     end)
   end
 
-  defp locked_run!(entry, run_id) do
+  defp fetch_and_lock_run!(entry, run_id) do
     run =
       run_id
       |> Run.Query.by_id()
@@ -968,7 +968,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
 
   @doc false
   @impl true
-  def lock_owned_in_transaction!(claim), do: owned!(claim)
+  def fetch_and_lock_owned_in_transaction!(claim), do: owned!(claim)
 
   defp unleased, do: [lease_ref: nil, lease_owner: nil, lease_expires_at: nil]
 

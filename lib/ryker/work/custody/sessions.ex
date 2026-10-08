@@ -353,8 +353,8 @@ defmodule Ryker.Work.Custody.Sessions do
         end
 
       {:ok, identity} ->
-        with {:ok, session} <- lock_session(episode.id, identity.session_id),
-             {:ok, turn} <- lock_turn(episode.id, episode.owner_ref) do
+        with {:ok, session} <- fetch_and_lock_session(episode.id, identity.session_id),
+             {:ok, turn} <- fetch_and_lock_turn(episode.id, episode.owner_ref) do
           {:ok, session, turn}
         end
     end
@@ -365,8 +365,8 @@ defmodule Ryker.Work.Custody.Sessions do
       episode.id |> Turn.Query.by_episode_id() |> Turn.Query.by_delivery_ref(episode.owner_ref)
 
     with {:ok, identity} <- Repo.fetch(delivery),
-         {:ok, session} <- lock_session(episode.id, identity.session_id),
-         {:ok, turn} <- lock_turn(episode.id, identity.turn_ref) do
+         {:ok, session} <- fetch_and_lock_session(episode.id, identity.session_id),
+         {:ok, turn} <- fetch_and_lock_turn(episode.id, identity.turn_ref) do
       {:ok, session, turn}
     else
       {:error, :not_found} -> {:error, :work_delivery_turn_not_found}

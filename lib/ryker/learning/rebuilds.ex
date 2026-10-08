@@ -264,7 +264,7 @@ defmodule Ryker.Learning.Rebuilds do
     unless Enum.all?(entries, &(&1.execution_mode == first.execution_mode)),
       do: Repo.rollback(:learning_mixed_execution_modes)
 
-    {:ok, scope} = Observations.locked_scope(first, first.repository_ref)
+    {:ok, scope} = Observations.fetch_and_lock_scope(first, first.repository_ref)
 
     valid =
       Enum.all?(entries, fn entry ->

@@ -33,16 +33,16 @@ defmodule Ryker.Work.Custody.Locks do
   @doc false
   def turn_for_lease(episode_id, turn_ref, lease_ref) do
     with {:ok, identity} <- fetch_turn_identity(episode_id, turn_ref),
-         {:ok, _episode} <- lock_current_episode_owner(episode_id, identity),
-         {:ok, session} <- lock_session(episode_id, identity.session_id),
+         {:ok, _episode} <- fetch_and_lock_current_episode_owner(episode_id, identity),
+         {:ok, session} <- fetch_and_lock_session(episode_id, identity.session_id),
          {:ok, turn} <- leased_turn(episode_id, turn_ref, lease_ref) do
       {:ok, session, turn}
     end
   end
 
   # The turn as it is, before its episode and session are locked; locking it
-  # waits for them (`lock_turn/2`). Missing, it is `:work_turn_not_found`, as
-  # `lock_turn/2` says.
+  # waits for them (`fetch_and_lock_turn/2`). Missing, it is `:work_turn_not_found`, as
+  # `fetch_and_lock_turn/2` says.
   @doc false
   @spec fetch_turn_identity(Ecto.UUID.t(), String.t()) ::
           {:ok, Turn.t()} | {:error, :work_turn_not_found}
@@ -52,7 +52,7 @@ defmodule Ryker.Work.Custody.Locks do
   end
 
   @doc false
-  def lock_turn(episode_id, turn_ref) do
+  def fetch_and_lock_turn(episode_id, turn_ref) do
     locked = episode_id |> turn(turn_ref) |> Turn.Query.lock_for_update()
     with {:error, :not_found} <- Repo.fetch(locked), do: {:error, :work_turn_not_found}
   end
@@ -83,30 +83,33 @@ defmodule Ryker.Work.Custody.Locks do
   defp turn(episode_id, turn_ref),
     do: episode_id |> Turn.Query.by_episode_id() |> Turn.Query.by_turn_ref(turn_ref)
 
-  defp lock_current_episode_owner(episode_id, %Turn{status: :pending, turn_ref: owner_ref}) do
-    lock_episode_owner(episode_id, :turn, owner_ref)
+  defp fetch_and_lock_current_episode_owner(episode_id, %Turn{
+         status: :pending,
+         turn_ref: owner_ref
+       }) do
+    fetch_and_lock_episode_owner(episode_id, :turn, owner_ref)
   end
 
-  defp lock_current_episode_owner(
+  defp fetch_and_lock_current_episode_owner(
          episode_id,
          %Turn{status: :cancel_pending, turn_ref: owner_ref}
        ) do
-    lock_episode_owner(episode_id, :turn, owner_ref)
+    fetch_and_lock_episode_owner(episode_id, :turn, owner_ref)
   end
 
-  defp lock_current_episode_owner(
+  defp fetch_and_lock_current_episode_owner(
          episode_id,
          %Turn{status: :delivery_pending, delivery_ref: owner_ref}
        )
        when is_binary(owner_ref) do
-    lock_episode_owner(episode_id, :delivery, owner_ref)
+    fetch_and_lock_episode_owner(episode_id, :delivery, owner_ref)
   end
 
-  defp lock_current_episode_owner(_episode_id, %Turn{}),
+  defp fetch_and_lock_current_episode_owner(_episode_id, %Turn{}),
     do: {:error, :work_turn_not_claimable}
 
   @doc false
-  def lock_episode_owner(episode_id, owner_kind, owner_ref) do
+  def fetch_and_lock_episode_owner(episode_id, owner_kind, owner_ref) do
     locked =
       episode_id
       |> Episodes.Episode.Query.working_for(owner_kind, owner_ref)
@@ -116,7 +119,7 @@ defmodule Ryker.Work.Custody.Locks do
   end
 
   @doc false
-  def lock_session(episode_id, session_id) do
+  def fetch_and_lock_session(episode_id, session_id) do
     locked =
       episode_id
       |> Session.Query.by_episode_id_and_id(session_id)
@@ -126,10 +129,10 @@ defmodule Ryker.Work.Custody.Locks do
   end
 
   @doc false
-  def lock_turn_after_episode(episode_id, turn_ref) do
+  def fetch_and_lock_turn_after_episode(episode_id, turn_ref) do
     with {:ok, identity} <- fetch_turn_identity(episode_id, turn_ref),
-         {:ok, session} <- lock_session(episode_id, identity.session_id),
-         {:ok, turn} <- lock_turn(episode_id, turn_ref) do
+         {:ok, session} <- fetch_and_lock_session(episode_id, identity.session_id),
+         {:ok, turn} <- fetch_and_lock_turn(episode_id, turn_ref) do
       {:ok, session, turn}
     end
   end

@@ -38,8 +38,8 @@ defmodule Ryker.Publication.Followups.Store do
   # --- follow-ups -----------------------------------------------------------
 
   @doc "Locks the follow-up of a publication that must have one."
-  @spec lock_followup(Ecto.UUID.t()) :: Followup.t()
-  def lock_followup(publication_id) do
+  @spec fetch_and_lock_followup!(Ecto.UUID.t()) :: Followup.t()
+  def fetch_and_lock_followup!(publication_id) do
     publication_id
     |> Followup.Query.by_publication_id()
     |> Followup.Query.lock_for_update()
@@ -58,8 +58,9 @@ defmodule Ryker.Publication.Followups.Store do
 
   # --- lifecycle events -----------------------------------------------------
 
-  @spec lock_lifecycle_event(String.t()) :: {:ok, LifecycleEvent.t()} | {:error, :not_found}
-  def lock_lifecycle_event(event_ref) do
+  @spec fetch_and_lock_lifecycle_event(String.t()) ::
+          {:ok, LifecycleEvent.t()} | {:error, :not_found}
+  def fetch_and_lock_lifecycle_event(event_ref) do
     event_ref
     |> LifecycleEvent.Query.by_ref()
     |> LifecycleEvent.Query.lock_for_update()

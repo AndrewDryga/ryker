@@ -293,7 +293,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
     lock_channel!(workspace_ref, channel_ref)
 
     configuration =
-      locked_configuration(workspace_ref, channel_ref)
+      peek_and_lock_configuration(workspace_ref, channel_ref)
 
     cond do
       is_nil(configuration) ->
@@ -522,7 +522,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
   defp start_new_reconfiguration(attributes, catalog, fingerprint) do
     membership =
-      locked_membership(attributes.workspace_ref, attributes.channel_ref)
+      peek_and_lock_membership(attributes.workspace_ref, attributes.channel_ref)
 
     now = Repo.now!()
     expire_active_sessions!(attributes.workspace_ref, attributes.channel_ref, now)
@@ -601,7 +601,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
       lock_channel!(workspace_ref, channel_ref)
 
       membership =
-        locked_membership(workspace_ref, channel_ref)
+        peek_and_lock_membership(workspace_ref, channel_ref)
 
       reconcile_joined_membership(
         membership,
@@ -671,7 +671,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
   defp transition_membership(attributes, catalog, fingerprint) do
     membership =
-      locked_membership(attributes.workspace_ref, attributes.channel_ref)
+      peek_and_lock_membership(attributes.workspace_ref, attributes.channel_ref)
 
     {membership, configuration, status} =
       case {membership, attributes.kind} do
@@ -730,7 +730,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
   end
 
   defp ensure_configuration!(membership, catalog) do
-    case locked_configuration(membership.workspace_ref, membership.channel_ref) do
+    case peek_and_lock_configuration(membership.workspace_ref, membership.channel_ref) do
       %ChannelConfiguration{} = configuration ->
         configuration
 
@@ -920,7 +920,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
   end
 
   defp bind_prompt_locked(session_ref, revision, message_ref, thread_ref) do
-    case locked_session(session_ref) do
+    case peek_and_lock_session(session_ref) do
       nil ->
         Repo.rollback(:configuration_session_not_found)
 
@@ -973,7 +973,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
     lock_channel!(attributes.workspace_ref, attributes.channel_ref)
     broadcast_channel_updated(attributes.workspace_ref, attributes.channel_ref)
 
-    session = locked_session(attributes.session_ref)
+    session = peek_and_lock_session(attributes.session_ref)
 
     case action_identity(session, attributes) do
       :ok -> apply_action_for_session(session, attributes, fingerprint)
@@ -983,7 +983,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
   defp apply_action_for_session(session, attributes, fingerprint) do
     membership =
-      locked_membership(attributes.workspace_ref, attributes.channel_ref)
+      peek_and_lock_membership(attributes.workspace_ref, attributes.channel_ref)
 
     with :ok <- live_membership(membership, session),
          :ok <- action_scope(session, attributes),
@@ -1198,7 +1198,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
     now = Repo.now!()
 
     existing =
-      locked_configuration(session.workspace_ref, session.channel_ref)
+      peek_and_lock_configuration(session.workspace_ref, session.channel_ref)
 
     attributes = %{
       actor_ref: actor_ref,
@@ -1241,10 +1241,10 @@ defmodule Ryker.Slack.ChannelConfigurations do
     broadcast_channel_updated(attributes.workspace_ref, attributes.channel_ref)
 
     membership =
-      locked_membership(attributes.workspace_ref, attributes.channel_ref)
+      peek_and_lock_membership(attributes.workspace_ref, attributes.channel_ref)
 
     configuration =
-      locked_configuration(attributes.workspace_ref, attributes.channel_ref)
+      peek_and_lock_configuration(attributes.workspace_ref, attributes.channel_ref)
 
     cond do
       not match?(%ChannelMembership{status: :joined}, membership) ->
@@ -1278,7 +1278,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
   end
 
   defp bind_welcome_locked(workspace_ref, channel_ref, message_ref) do
-    case locked_configuration(workspace_ref, channel_ref) do
+    case peek_and_lock_configuration(workspace_ref, channel_ref) do
       nil ->
         Repo.rollback(:configuration_not_found)
 
@@ -1659,21 +1659,21 @@ defmodule Ryker.Slack.ChannelConfigurations do
   defp channel_topic(workspace_ref, channel_ref),
     do: "slack:channel:" <> ConversationRef.slack(workspace_ref, channel_ref)
 
-  defp locked_configuration(workspace_ref, channel_ref) do
+  defp peek_and_lock_configuration(workspace_ref, channel_ref) do
     workspace_ref
     |> ChannelConfiguration.Query.by_channel(channel_ref)
     |> ChannelConfiguration.Query.lock_for_update()
     |> Repo.peek()
   end
 
-  defp locked_membership(workspace_ref, channel_ref) do
+  defp peek_and_lock_membership(workspace_ref, channel_ref) do
     workspace_ref
     |> ChannelMembership.Query.by_channel(channel_ref)
     |> ChannelMembership.Query.lock_for_update()
     |> Repo.peek()
   end
 
-  defp locked_session(id) do
+  defp peek_and_lock_session(id) do
     id
     |> ConfigurationSession.Query.by_id()
     |> ConfigurationSession.Query.lock_for_update()

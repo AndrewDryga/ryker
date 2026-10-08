@@ -394,7 +394,7 @@ defmodule Ryker.Learning.Batches do
   end
 
   defp retryable_batch!(id, expected_version) do
-    case locked_batch(id) do
+    case fetch_and_lock_batch(id) do
       {:ok, %Batch{status: :deferred, budget_version: ^expected_version} = batch} -> batch
       _changed_or_gone -> Repo.rollback(:learning_retry_conflict)
     end
@@ -440,7 +440,7 @@ defmodule Ryker.Learning.Batches do
 
   defp learnable_entry?(entry, batch) do
     with true <- LearningSources.current_entry?(entry) and same_scope?(entry, batch),
-         {:ok, scope} <- Observations.locked_scope(entry, entry.repository_ref),
+         {:ok, scope} <- Observations.fetch_and_lock_scope(entry, entry.repository_ref),
          sources when is_list(sources) and sources != [] <- LearningSources.for_entry(entry),
          true <- LearningSources.valid?(sources, scope),
          do: true,
@@ -482,7 +482,7 @@ defmodule Ryker.Learning.Batches do
     lock_queue!()
 
     batch =
-      case locked_batch(id) do
+      case fetch_and_lock_batch(id) do
         {:ok, %Batch{status: :deferred, budget_version: ^expected_version} = batch} -> batch
         _changed_or_gone -> Repo.rollback(:learning_batch_changed)
       end
@@ -642,7 +642,7 @@ defmodule Ryker.Learning.Batches do
   defp unfinished_members(batch_id),
     do: batch_id |> InputMembership.Query.by_batch_id() |> InputMembership.Query.unfinished()
 
-  defp locked_batch(id),
+  defp fetch_and_lock_batch(id),
     do: id |> Batch.Query.by_id() |> Batch.Query.lock_for_update() |> Repo.fetch()
 
   defp current_request?(%{rebuild_target_id: nil}, _run), do: true
@@ -675,7 +675,7 @@ defmodule Ryker.Learning.Batches do
   end
 
   defp owned!(claim) do
-    with {:ok, %Batch{status: :running} = batch} <- locked_batch(claim.batch.id),
+    with {:ok, %Batch{status: :running} = batch} <- fetch_and_lock_batch(claim.batch.id),
          true <- Lease.held?(batch, claim.lease_ref, Repo.now!()) do
       batch
     else
@@ -684,7 +684,7 @@ defmodule Ryker.Learning.Batches do
   end
 
   @doc false
-  def lock_owned_in_transaction!(claim), do: owned!(claim)
+  def fetch_and_lock_owned_in_transaction!(claim), do: owned!(claim)
 
   # A renewal only moves the lease and its heartbeat, which no page shows.
   defp save(row, [heartbeat_at: _heartbeat, lease_expires_at: _expiry] = attrs),

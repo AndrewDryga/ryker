@@ -169,9 +169,18 @@ rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-08.
 ## Return shapes
 
 - A public function that reads one row answers `{:ok, row}` or
-  `{:error, :not_found}` (IL-5) and reads it with `Repo.fetch/2`. Custody
-  locks keep their `lock_` names, and a module whose errors already name the
-  missing thing keeps that reason (`{:error, :work_turn_not_found}`).
+  `{:error, :not_found}` (IL-5) and reads it with `Repo.fetch/2`. A module
+  whose errors already name the missing thing keeps that reason
+  (`{:error, :work_turn_not_found}`).
+- A function is named for what it returns (Emisar's README): one that locks a
+  row and hands it back says both jobs, `fetch_and_lock_*`, or
+  `peek_and_lock_*` when no row is itself the answer; `lock_*` takes a lock
+  and hands back nothing a caller reads (`:ok`, or a reason). On 2026-10-08
+  72 lock helpers that handed back their rows were renamed, among
+  them `Work.Custody.Locks`' four and `Records.fetch_and_lock_offer/2`;
+  three that returned a query became reads, and `lock_activity_episode/1`,
+  whose callers only wanted the lock, answers `:ok`. `LockNameReturnsNothing`
+  flags a `lock_*` function whose last expression reads the repo.
 - A value a query selects (a due time, one column) stays a value or nil. Its
   pipeline names a `select_*` helper (`select_next_due_after`,
   `select_coop_session_ids`), which is how `IL05TaggedReads` tells it from a
@@ -593,6 +602,8 @@ Model-facing tools (Emisar's `elixir-model-authoring-validation-is-actionable`):
 - `IL02NoRepoGet`: no `Repo.get`, `get!` or `get_by`.
 - `IL05TaggedReads`: a public function's result is never a bare `Repo.one`
   of whole rows.
+- `LockNameReturnsNothing`: a `lock_*` function hands back nothing a caller
+  reads; one that hands back its row is `fetch_and_lock_*`.
 - `IL06QueryModulePure`: Query modules never call `Repo`.
 - `IL07SchemaFieldsOnly`: no changeset code in a schema module.
 - `IL08ChangesetPure`: changeset modules never call `Repo`.

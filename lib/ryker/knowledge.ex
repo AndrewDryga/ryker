@@ -73,7 +73,7 @@ defmodule Ryker.Knowledge do
   end
 
   defp recall_locked(destination, repository_ref, search, limit, search_scope) do
-    case Learning.Observations.locked_scope(destination, repository_ref) do
+    case Learning.Observations.fetch_and_lock_scope(destination, repository_ref) do
       {:ok, scope} ->
         query =
           visible_query(scope)
@@ -94,7 +94,7 @@ defmodule Ryker.Knowledge do
   not see, or `:done`. `Ryker.Memories.MemorySearch` pages through it.
   """
   def search_page(destination, repository_ref, page) do
-    case Learning.Observations.locked_scope(destination, repository_ref) do
+    case Learning.Observations.fetch_and_lock_scope(destination, repository_ref) do
       {:ok, scope} -> search_page_locked(scope, page)
       _ -> :done
     end
@@ -144,7 +144,7 @@ defmodule Ryker.Knowledge do
   def still_current(_, _, _), do: @stale
 
   defp current_locked?(destination, repository_ref, frozen) do
-    with {:ok, scope} <- Learning.Observations.locked_scope(destination, repository_ref),
+    with {:ok, scope} <- Learning.Observations.fetch_and_lock_scope(destination, repository_ref),
          ids = Enum.map(frozen, &id(&1["source_ref"])),
          true <- Enum.all?(ids, &is_binary/1) do
       # Learning may update a reauthorized target later in this transaction.
@@ -238,7 +238,7 @@ defmodule Ryker.Knowledge do
     lock_scope(key)
 
     with {:ok, ^id} <- Ecto.UUID.cast(id),
-         {:ok, %ConversationKnowledge{} = head} <- locked_topic(id),
+         {:ok, %ConversationKnowledge{} = head} <- fetch_and_lock_topic(id),
          true <-
            is_nil(head.forgotten_at) and head.scope_key == key and head.version == version and
              head.source_generation == generation,
@@ -259,7 +259,7 @@ defmodule Ryker.Knowledge do
 
   defp plan_rebuild(_, _, _, _), do: {:error, :knowledge_rebuild_conflict}
 
-  defp locked_topic(id) do
+  defp fetch_and_lock_topic(id) do
     id
     |> ConversationKnowledge.Query.by_id()
     |> ConversationKnowledge.Query.lock_for_update()
@@ -279,7 +279,7 @@ defmodule Ryker.Knowledge do
          true <- Enum.all?(entries, &same_source_scope?(&1, entry)),
          {:ok, proposal} when not is_nil(proposal) <- KnowledgeUpdate.prepare(proposal),
          :ok <- validate_anchors(entries, proposal, offered),
-         {:ok, scope} <- Learning.Observations.locked_scope(entry, entry.repository_ref),
+         {:ok, scope} <- Learning.Observations.fetch_and_lock_scope(entry, entry.repository_ref),
          {:ok, source} <- raw_sources(entries, dependencies, result_ref, scope, offered),
          :ok <- still_current(entry, entry.repository_ref, offered) do
       {:ok, scope, source, proposal}
@@ -310,7 +310,7 @@ defmodule Ryker.Knowledge do
   """
   def lock_scope_in_transaction(destination, repository_ref) do
     with true <- Repo.in_transaction?(),
-         {:ok, scope} <- Learning.Observations.locked_scope(destination, repository_ref) do
+         {:ok, scope} <- Learning.Observations.fetch_and_lock_scope(destination, repository_ref) do
       lock_scope(scope_key(scope))
       :ok
     else
@@ -320,7 +320,7 @@ defmodule Ryker.Knowledge do
 
   @doc "Check proposed new subjects before accepting a different name as proof of novelty."
   def check_creates_in_transaction([entry | _] = entries, proposals, offered) do
-    with {:ok, scope} <- Learning.Observations.locked_scope(entry, entry.repository_ref),
+    with {:ok, scope} <- Learning.Observations.fetch_and_lock_scope(entry, entry.repository_ref),
          :ok <- known_create_targets(scope, proposals) do
       check_visible_creates(entries, proposals, offered)
     end

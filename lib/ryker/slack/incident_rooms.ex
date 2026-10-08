@@ -480,7 +480,7 @@ defmodule Ryker.Slack.IncidentRooms do
   end
 
   defp request_close_locked(room_ref, actor_ref) do
-    case Repo.fetch(locked_room(room_ref)) do
+    case fetch_and_lock_room(room_ref) do
       {:error, :not_found} ->
         Repo.rollback(:incident_room_not_found)
 
@@ -826,7 +826,8 @@ defmodule Ryker.Slack.IncidentRooms do
   defp investigate_locked(attributes) do
     lock_workspace!(attributes.workspace_ref)
 
-    with {:ok, record, source_episode, _turn, session} <- lock_offer(attributes.record_ref),
+    with {:ok, record, source_episode, _turn, session} <-
+           fetch_and_lock_offer(attributes.record_ref),
          :ok <- workspace_source?(source_episode, attributes.workspace_ref),
          :ok <- no_room_for(record),
          offer = attributes |> Map.delete(:workspace_ref) |> inherit_placement(session),
@@ -855,7 +856,7 @@ defmodule Ryker.Slack.IncidentRooms do
   end
 
   defp no_room_for(record) do
-    case Repo.fetch(locked_room_of(record)) do
+    case fetch_and_lock_room_of(record) do
       {:error, :not_found} -> :ok
       {:ok, %IncidentRoom{}} -> {:error, :incident_offer_stale}
     end
@@ -864,7 +865,7 @@ defmodule Ryker.Slack.IncidentRooms do
   defp request_locked(attributes) do
     lock_workspace!(attributes.workspace_ref)
 
-    case lock_offer(attributes.record_ref) do
+    case fetch_and_lock_offer(attributes.record_ref) do
       {:ok, record, source_episode, source_turn, source_session} ->
         request_from_offer(record, source_episode, source_turn, source_session, attributes)
 
@@ -883,7 +884,7 @@ defmodule Ryker.Slack.IncidentRooms do
   end
 
   defp request_unique_room(record, source_episode, source_session, attributes) do
-    case Repo.fetch(locked_room_of(record)) do
+    case fetch_and_lock_room_of(record) do
       {:ok, %IncidentRoom{} = room} ->
         %{room: room, status: :duplicate}
 
@@ -900,7 +901,7 @@ defmodule Ryker.Slack.IncidentRooms do
   # The offer's row serializes its requests and investigations. The episode,
   # turn and session are read, not locked: locking them made every write to
   # that conversation's work wait for the request (2026-10-04 review).
-  defp lock_offer(record_ref) do
+  defp fetch_and_lock_offer(record_ref) do
     query = Records.Record.Query.incident_offer(record_ref)
 
     case Repo.fetch(query) do
@@ -1066,7 +1067,7 @@ defmodule Ryker.Slack.IncidentRooms do
   defp rearm_locked(room_ref) do
     now = Repo.now!()
 
-    case Repo.fetch(locked_room(room_ref)) do
+    case fetch_and_lock_room(room_ref) do
       {:error, :not_found} ->
         Repo.rollback(:incident_room_not_found)
 
@@ -1507,11 +1508,19 @@ defmodule Ryker.Slack.IncidentRooms do
   # Ryker's own id and named Emisar (2026-10-04 review).
   defp topic(title), do: Text.bytes("#{title} · incident room opened by Ryker", 250)
 
-  defp locked_room(room_ref),
-    do: room_ref |> IncidentRoom.Query.by_ref() |> IncidentRoom.Query.lock_for_update()
+  defp fetch_and_lock_room(room_ref) do
+    room_ref
+    |> IncidentRoom.Query.by_ref()
+    |> IncidentRoom.Query.lock_for_update()
+    |> Repo.fetch()
+  end
 
-  defp locked_room_of(record),
-    do: record.id |> IncidentRoom.Query.by_record_id() |> IncidentRoom.Query.lock_for_update()
+  defp fetch_and_lock_room_of(record) do
+    record.id
+    |> IncidentRoom.Query.by_record_id()
+    |> IncidentRoom.Query.lock_for_update()
+    |> Repo.fetch()
+  end
 
   defp offer_record(id) do
     locked = id |> Records.Record.Query.by_id() |> Records.Record.Query.lock_for_update()

@@ -22,7 +22,7 @@ defmodule Ryker.Coop.RunStep.Store do
   @callback with_lease(claim(), callback :: (-> result())) :: result()
 
   @doc "The row the claim owns, locked, inside `with_lease/2`'s transaction."
-  @callback lock_owned_in_transaction!(claim()) :: struct()
+  @callback fetch_and_lock_owned_in_transaction!(claim()) :: struct()
 
   @doc "The key a remote effect of `run` is made under, so a repeat finds it."
   @callback operation_key(run :: struct(), phase :: :create | :submit | :cancel) :: String.t()

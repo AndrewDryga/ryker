@@ -16,8 +16,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Shared do
   def maximum_clock_skew_seconds, do: @maximum_clock_skew_seconds
 
   @doc false
-  @spec lock_worker(String.t()) :: {:ok, Worker.t()} | {:error, :not_found}
-  def lock_worker(worker_id) do
+  @spec fetch_and_lock_worker(String.t()) :: {:ok, Worker.t()} | {:error, :not_found}
+  def fetch_and_lock_worker(worker_id) do
     worker_id |> Worker.Query.by_id() |> Worker.Query.lock_for_update() |> Repo.fetch()
   end
 

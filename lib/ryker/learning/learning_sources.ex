@@ -234,7 +234,7 @@ defmodule Ryker.Learning.LearningSources do
   end
 
   def authorize_context(context, entry) do
-    with {:ok, scope} <- Observations.locked_scope(entry, entry.repository_ref),
+    with {:ok, scope} <- Observations.fetch_and_lock_scope(entry, entry.repository_ref),
          true <- valid?(context.source_dependencies, scope) do
       context.source_dependencies
     else

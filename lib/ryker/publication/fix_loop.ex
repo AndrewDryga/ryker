@@ -165,7 +165,7 @@ defmodule Ryker.Publication.FixLoop do
 
   defp lock_task(episode) do
     with :ok <- Episodes.ConversationLock.lock_many(Repo, [destination(episode)]),
-         {:ok, _episode} <- Episodes.lock_current_in_transaction(episode.key),
+         {:ok, _episode} <- Episodes.fetch_and_lock_current_in_transaction(episode.key),
          do: :ok
   end
 

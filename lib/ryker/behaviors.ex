@@ -203,7 +203,7 @@ defmodule Ryker.Behaviors do
          workspace_ref,
          conversation_ref \\ nil
        ) do
-    case lock_behavior(ref) do
+    case fetch_and_lock_behavior(ref) do
       {:error, :not_found} ->
         {:error, :behavior_not_found}
 
@@ -279,7 +279,7 @@ defmodule Ryker.Behaviors do
     do: {:error, {:invalid_behavior, :assignment}}
 
   defp manage_assignment_locked(ref, status, workspace_ref, conversation_ref) do
-    case lock_behavior(ref) do
+    case fetch_and_lock_behavior(ref) do
       {:ok,
        %Behavior{
          kind: :standing_assignment,
@@ -320,7 +320,7 @@ defmodule Ryker.Behaviors do
   defdelegate rule_inventories(input_refs), to: StandingRules
 
   defp confirm_locked(attributes) do
-    with {:ok, record, episode, turn} <- lock_offer(attributes.record_ref),
+    with {:ok, record, episode, turn} <- fetch_and_lock_offer(attributes.record_ref),
          :ok <-
            Slack.ChannelFence.authorize_in_transaction(
              episode.destination_transport,
@@ -570,11 +570,11 @@ defmodule Ryker.Behaviors do
     end
   end
 
-  defp lock_behavior(ref),
+  defp fetch_and_lock_behavior(ref),
     do: ref |> Behavior.Query.by_ref() |> Behavior.Query.lock_for_update() |> Repo.fetch()
 
   defp set_status_locked(ref, status, workspace_ref) do
-    case lock_behavior(ref) do
+    case fetch_and_lock_behavior(ref) do
       {:error, :not_found} ->
         Repo.rollback(:behavior_not_found)
 
@@ -653,8 +653,8 @@ defmodule Ryker.Behaviors do
   defp scope_kind("repository"), do: :repository
   defp scope_kind("operator"), do: :operator
 
-  defp lock_offer(record_ref) do
-    case Records.lock_offer(record_ref, @offer_kinds) do
+  defp fetch_and_lock_offer(record_ref) do
+    case Records.fetch_and_lock_offer(record_ref, @offer_kinds) do
       {:error, :not_found} -> {:error, :behavior_offer_not_found}
       found -> found
     end

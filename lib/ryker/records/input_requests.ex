@@ -46,7 +46,7 @@ defmodule Ryker.Records.InputRequests do
       )
       when is_binary(text) and text != "" do
     with true <- Repo.in_transaction?(),
-         {:ok, record, episode, turn} <- lock_request(ref),
+         {:ok, record, episode, turn} <- fetch_and_lock_request(ref),
          :ok <- current_wait?(episode, ref) do
       if typed_answer_source?(entry, episode, turn) and
            not Repo.exists?(Response.Query.by_record_id(record.id)) do
@@ -110,7 +110,7 @@ defmodule Ryker.Records.InputRequests do
   end
 
   defp answer_locked(attributes) do
-    with {:ok, record, episode, turn} <- lock_request(attributes.record_ref),
+    with {:ok, record, episode, turn} <- fetch_and_lock_request(attributes.record_ref),
          :ok <- check_delivery(episode, turn, attributes.target) do
       case Repo.fetch(Response.Query.by_record_id(record.id)) do
         {:error, :not_found} -> record_answer(record, episode, turn, attributes)
@@ -121,8 +121,8 @@ defmodule Ryker.Records.InputRequests do
     end
   end
 
-  defp lock_request(record_ref) do
-    case Records.lock_offer(record_ref, ["input_request"]) do
+  defp fetch_and_lock_request(record_ref) do
+    case Records.fetch_and_lock_offer(record_ref, ["input_request"]) do
       {:error, :not_found} -> {:error, :input_request_not_found}
       found -> found
     end

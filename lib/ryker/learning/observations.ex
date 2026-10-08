@@ -237,7 +237,7 @@ defmodule Ryker.Learning.Observations do
   end
 
   defp recall_authorized(destination, repository_ref, query, limit, search_scope) do
-    case locked_scope(destination, repository_ref) do
+    case fetch_and_lock_scope(destination, repository_ref) do
       {:ok, scope} -> recall(scope, query, min(max(limit, 1), 32), search_scope)
       _ -> []
     end
@@ -283,7 +283,7 @@ defmodule Ryker.Learning.Observations do
     ids = Enum.map(documents, &observation_id/1)
 
     with true <- Enum.all?(ids, &is_binary/1),
-         {:ok, scope} <- locked_scope(destination, repository_ref) do
+         {:ok, scope} <- fetch_and_lock_scope(destination, repository_ref) do
       notes =
         ids
         |> ConversationObservation.Query.by_ids()
@@ -315,7 +315,7 @@ defmodule Ryker.Learning.Observations do
   defp observation_id(_), do: nil
 
   @doc false
-  def locked_scope(destination, repository_ref) do
+  def fetch_and_lock_scope(destination, repository_ref) do
     with :ok <-
            Slack.ChannelFence.authorize_in_transaction(
              destination.destination_transport,
@@ -323,7 +323,7 @@ defmodule Ryker.Learning.Observations do
            ) do
       # Under REPEATABLE READ, advisory locks alone do not refresh a snapshot.
       # Locking the actual membership row rejects a snapshot predating revocation.
-      lock_memberships([destination.destination_conversation_ref])
+      fetch_and_lock_memberships([destination.destination_conversation_ref])
 
       with {:ok, scope} <- Continuity.destination_context(destination, repository_ref) do
         {:ok, LearningSources.with_input_boundary(scope, destination)}
@@ -350,7 +350,7 @@ defmodule Ryker.Learning.Observations do
 
   @doc false
   def search_page(destination, repository_ref, page) do
-    case locked_scope(destination, repository_ref) do
+    case fetch_and_lock_scope(destination, repository_ref) do
       {:ok, scope} -> search_visible_page(scope, page)
       _ -> :done
     end
@@ -384,7 +384,7 @@ defmodule Ryker.Learning.Observations do
 
   @doc false
   def authorized_notes(notes, scope) do
-    members = notes |> Enum.map(& &1.conversation_ref) |> lock_memberships()
+    members = notes |> Enum.map(& &1.conversation_ref) |> fetch_and_lock_memberships()
 
     Enum.filter(notes, fn note ->
       note.conversation_ref == scope.conversation_ref or
@@ -393,7 +393,7 @@ defmodule Ryker.Learning.Observations do
     end)
   end
 
-  defp lock_memberships(refs) do
+  defp fetch_and_lock_memberships(refs) do
     refs
     |> Slack.ChannelMembership.Query.by_conversation_refs()
     |> Slack.ChannelMembership.Query.lock_for_share()

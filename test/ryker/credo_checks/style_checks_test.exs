@@ -590,6 +590,70 @@ defmodule Ryker.CredoChecks.StyleChecksTest do
     end
   end
 
+  describe "Ryker.Checks.LockNameReturnsNothing" do
+    test "flags a lock function that hands back the row it locked" do
+      source = """
+      defmodule Ryker.Sprockets do
+        alias Ryker.Repo
+        alias Ryker.Sprockets.Sprocket
+
+        defp lock_sprocket(id),
+          do: id |> Sprocket.Query.by_id() |> Sprocket.Query.lock_for_update() |> Repo.fetch()
+
+        defp locked_sprocket!(id) do
+          id |> Sprocket.Query.by_id() |> Repo.peek() || Repo.rollback(:sprocket_not_found)
+        end
+
+        def lock_sprocket_named(name) do
+          locked = name |> Sprocket.Query.by_name() |> Sprocket.Query.lock_for_update()
+          with {:error, :not_found} <- Repo.fetch(locked), do: {:error, :sprocket_not_found}
+        end
+      end
+      """
+
+      assert lock_triggers(source) == ["lock_sprocket", "locked_sprocket!", "lock_sprocket_named"]
+    end
+
+    test "allows a lock that answers :ok and a name that says it fetches" do
+      source = """
+      defmodule Ryker.Sprockets do
+        alias Ryker.{AdvisoryLock, Repo}
+        alias Ryker.Sprockets.Sprocket
+
+        defp lock_sprockets!, do: AdvisoryLock.hold!("sprockets")
+
+        defp fetch_and_lock_sprocket(id),
+          do: id |> Sprocket.Query.by_id() |> Sprocket.Query.lock_for_update() |> Repo.fetch()
+
+        defp lock_channel(id) do
+          case AdvisoryLock.hold(id) do
+            :ok -> :ok
+            {:error, reason} -> Repo.rollback(reason)
+          end
+        end
+
+        def lock_owner_in_transaction(ref) do
+          with {:ok, %Sprocket{owner: owner}} <- Repo.fetch(Sprocket.Query.by_ref(ref)) do
+            AdvisoryLock.hold!(owner)
+            :ok
+          else
+            _nothing_to_lock -> :ok
+          end
+        end
+      end
+      """
+
+      assert issues(lock_name(), source, @context) == []
+    end
+  end
+
+  defp lock_triggers(source) do
+    lock_name()
+    |> issues(source, @context)
+    |> Enum.sort_by(& &1.line_no)
+    |> Enum.map(& &1.trigger)
+  end
+
   defp sprocket_triggers(source) do
     dispatch_on_pattern()
     |> issues(source, @context)
@@ -598,6 +662,7 @@ defmodule Ryker.CredoChecks.StyleChecksTest do
   end
 
   defp dispatch_on_pattern, do: check("DispatchOnPattern")
+  defp lock_name, do: check("LockNameReturnsNothing")
   defp if_on_arg_field, do: check("NoIfOnArgField")
   defp acronym, do: check("AcronymModuleCase")
   defp alias_group, do: check("MultilineAliasGroup")

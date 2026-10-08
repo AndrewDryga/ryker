@@ -7,7 +7,7 @@ defmodule Ryker.StateTools.LookupBoundary do
   alias Ryker.StateTools.Binding
 
   def current(binding, result) do
-    with {:ok, current} <- Binding.lock_current(binding) do
+    with {:ok, current} <- Binding.fetch_and_lock_current(binding) do
       excluded = queued_sources(current.episode, binding.episode.next_sequence)
 
       if Enum.any?([result["anchor"], result["thread_root"]], &excluded?(&1, excluded)) do

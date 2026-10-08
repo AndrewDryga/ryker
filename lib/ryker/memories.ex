@@ -74,7 +74,7 @@ defmodule Ryker.Memories do
   # so the model could not tell a question it named wrongly from an answer it
   # may not save (2026-10-04 review).
   defp confirm_answer_locked(binding, record_ref, value, authorize) do
-    with {:ok, current} <- StateTools.Binding.lock_current(binding),
+    with {:ok, current} <- StateTools.Binding.fetch_and_lock_current(binding),
          :ok <- live(current.episode),
          {:ok, record, response, entry} <- answer_confirmation(current, record_ref),
          :ok <- lock_answer_source!(entry),
@@ -306,7 +306,7 @@ defmodule Ryker.Memories do
     with :ok <- Reference.check(ref, :memory_ref, :invalid_memory_confirmation) do
       Repo.transaction(fn ->
         Reviews.lock_review_maintenance!()
-        ref |> lock_memory() |> forget_found()
+        ref |> fetch_and_lock_memory() |> forget_found()
       end)
     end
   end
@@ -346,11 +346,11 @@ defmodule Ryker.Memories do
     end
   end
 
-  defp lock_memory(ref),
+  defp fetch_and_lock_memory(ref),
     do: ref |> MemoryEntry.Query.by_ref() |> MemoryEntry.Query.lock_for_update() |> Repo.fetch()
 
   defp forget_home_locked(ref, actor_ref, workspace_ref, conversation_ref \\ nil) do
-    case lock_memory(ref) do
+    case fetch_and_lock_memory(ref) do
       {:error, :not_found} ->
         Repo.rollback(:memory_not_found)
 
@@ -417,7 +417,7 @@ defmodule Ryker.Memories do
   defdelegate lock_reviews_in_transaction, to: Reviews, as: :lock_review_maintenance!
 
   defp confirm_locked(attributes) do
-    with {:ok, record, episode, turn} <- lock_offer(attributes.record_ref),
+    with {:ok, record, episode, turn} <- fetch_and_lock_offer(attributes.record_ref),
          :ok <-
            Slack.ChannelFence.authorize_in_transaction(
              episode.destination_transport,
@@ -593,8 +593,8 @@ defmodule Ryker.Memories do
     forgotten
   end
 
-  defp lock_offer(record_ref) do
-    case Records.lock_offer(record_ref, ["memory_offer"]) do
+  defp fetch_and_lock_offer(record_ref) do
+    case Records.fetch_and_lock_offer(record_ref, ["memory_offer"]) do
       {:error, :not_found} -> {:error, :memory_offer_not_found}
       found -> found
     end

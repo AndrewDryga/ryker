@@ -46,7 +46,7 @@ defmodule Ryker.Admission.FleetSession do
   def settle(_entry, _coop_session_id), do: {:error, :invalid_admission_fleet_session}
 
   defp ensure_locked(entry, policy, digest) do
-    case lock_session(entry) do
+    case fetch_and_lock_session(entry) do
       {:error, :not_found} ->
         insert_or_reload_session!(entry, policy, digest, external_ref(entry))
 
@@ -72,7 +72,7 @@ defmodule Ryker.Admission.FleetSession do
     |> Work.Session.Changeset.insert_admission(now)
     |> Repo.insert!(on_conflict: :nothing)
 
-    case lock_session(entry) do
+    case fetch_and_lock_session(entry) do
       {:ok, session} ->
         session
         |> exact_authority(policy, digest)
@@ -100,7 +100,7 @@ defmodule Ryker.Admission.FleetSession do
     do: Repo.rollback(:admission_fleet_authority_conflict)
 
   defp bind_locked(entry, coop_session_id) do
-    case lock_session(entry) do
+    case fetch_and_lock_session(entry) do
       {:ok, %Work.Session{execution_kind: :admission, coop_session_id: nil} = session} ->
         session
         |> Work.Session.Changeset.bind(coop_session_id)
@@ -117,7 +117,7 @@ defmodule Ryker.Admission.FleetSession do
   end
 
   defp settle_locked(entry, coop_session_id) do
-    case lock_session(entry) do
+    case fetch_and_lock_session(entry) do
       {:ok,
        %Work.Session{
          execution_kind: :admission,
@@ -145,7 +145,7 @@ defmodule Ryker.Admission.FleetSession do
     end
   end
 
-  defp lock_session(entry) do
+  defp fetch_and_lock_session(entry) do
     entry.id
     |> Work.Session.Query.by_admission_input_id_and_generation(entry.execution_generation)
     |> Work.Session.Query.lock_for_update()

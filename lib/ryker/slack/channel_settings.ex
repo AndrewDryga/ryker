@@ -125,7 +125,7 @@ defmodule Ryker.Slack.ChannelSettings do
   end
 
   defp apply_change!(%{scope: :channel} = attributes, default) do
-    configuration = locked_configuration!(attributes)
+    configuration = fetch_and_lock_configuration!(attributes)
 
     target =
       case attributes.value do
@@ -154,7 +154,7 @@ defmodule Ryker.Slack.ChannelSettings do
   defp target_participation(%{setting: setting}, current),
     do: if(current == setting, do: :mentions, else: current || :mentions)
 
-  defp locked_configuration!(attributes) do
+  defp fetch_and_lock_configuration!(attributes) do
     locked =
       attributes.workspace_ref
       |> ChannelConfiguration.Query.by_channel(

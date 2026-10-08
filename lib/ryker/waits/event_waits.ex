@@ -72,8 +72,8 @@ defmodule Ryker.Waits.EventWaits do
       # review).
       with {:ok, initial} <- wait_row(Episodes.Episode.Query.by_id(episode_id)),
            :ok <- Episodes.ConversationLock.lock(Repo, destination(initial)),
-           {:ok, snapshot} <- Episodes.lock_current_in_transaction(initial.key),
-           {:ok, record} <- lock_record(record_id),
+           {:ok, snapshot} <- Episodes.fetch_and_lock_current_in_transaction(initial.key),
+           {:ok, record} <- fetch_and_lock_record(record_id),
            {:ok, resolution_kind, subscription} <- resolution(record, now) do
         resume_locked(snapshot, record, now, resolution_kind, subscription)
       else
@@ -83,7 +83,7 @@ defmodule Ryker.Waits.EventWaits do
     |> transaction_result()
   end
 
-  defp lock_record(id),
+  defp fetch_and_lock_record(id),
     do: id |> Records.Record.Query.by_id() |> Records.Record.Query.lock_for_update() |> wait_row()
 
   defp wait_row(query) do
@@ -132,7 +132,7 @@ defmodule Ryker.Waits.EventWaits do
          resume <- resume_command(snapshot, admit, record, now),
          {:ok, [_admitted, resumed]} <-
            Episodes.apply_batch_in_transaction([admit, resume]),
-         {:ok, %Records.Record{status: :open} = locked_record} <- lock_record(record.id),
+         {:ok, %Records.Record{status: :open} = locked_record} <- fetch_and_lock_record(record.id),
          {:ok, record} <- Repo.update(Records.Record.Changeset.answer_wait(locked_record)),
          :ok <- EventSubscriptions.resolve_wait_in_transaction(record.ref, resolution_kind) do
       Records.broadcast_record_updated(record)

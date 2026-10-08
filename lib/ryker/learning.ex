@@ -203,7 +203,7 @@ defmodule Ryker.Learning do
   def prepare(_, _), do: {:error, :invalid_learning_inputs}
 
   defp request_settings!(%{batch_claim: claim} = settings) do
-    batch = Batches.lock_owned_in_transaction!(claim)
+    batch = Batches.fetch_and_lock_owned_in_transaction!(claim)
 
     Map.merge(settings, %{
       rebuild: Rebuilds.contract(batch),
@@ -908,7 +908,7 @@ defmodule Ryker.Learning do
   end
 
   defp source_scope!(entry) do
-    case Observations.locked_scope(entry, entry.repository_ref) do
+    case Observations.fetch_and_lock_scope(entry, entry.repository_ref) do
       {:ok, scope} -> scope
       {:error, _} -> Repo.rollback(:learning_source_stale)
     end
@@ -1140,7 +1140,7 @@ defmodule Ryker.Learning do
          true <- Enum.map(entries, &manifest/1) == run.inputs,
          true <- CanonicalJSON.digest(run.prompt) == run.prompt_sha256,
          :ok <- Rebuilds.authorize_run(run),
-         {:ok, scope} <- Observations.locked_scope(first, first.repository_ref),
+         {:ok, scope} <- Observations.fetch_and_lock_scope(first, first.repository_ref),
          true <- LearningSources.valid?(run.source_dependencies, scope),
          :ok <- Knowledge.still_current(first, first.repository_ref, run.knowledge) do
       {:ok, entries, thread}
@@ -1435,7 +1435,7 @@ defmodule Ryker.Learning do
 
   defp owned_read(id, claim, callback) do
     Repo.transaction(fn ->
-      batch = if claim, do: Batches.lock_owned_in_transaction!(claim)
+      batch = if claim, do: Batches.fetch_and_lock_owned_in_transaction!(claim)
       run = fetch_run!(id)
 
       unless is_nil(run.batch_id) or (batch && batch.id == run.batch_id),

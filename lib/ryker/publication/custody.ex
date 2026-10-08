@@ -459,7 +459,7 @@ defmodule Ryker.Publication.Custody do
   end
 
   defp discard_unreviewable_locked(publication_ref, lease_ref, reason) do
-    with {:ok, publication, now} <- lock_leased(publication_ref, lease_ref),
+    with {:ok, publication, now} <- fetch_and_lock_leased(publication_ref, lease_ref),
          :ok <- status(publication, :review_pending) do
       attributes =
         publication.recovery_generation
@@ -494,7 +494,7 @@ defmodule Ryker.Publication.Custody do
   end
 
   defp recover_locked(publication_ref, action, expected_generation) do
-    case lock_publication(publication_ref) do
+    case fetch_and_lock_publication(publication_ref) do
       {:error, :not_found} ->
         Repo.rollback(:publication_not_found)
 
@@ -753,7 +753,7 @@ defmodule Ryker.Publication.Custody do
   end
 
   defp freeze_review_revision_locked(publication_ref, lease_ref, revision) do
-    with {:ok, publication, now} <- lock_leased(publication_ref, lease_ref),
+    with {:ok, publication, now} <- fetch_and_lock_leased(publication_ref, lease_ref),
          :ok <- status(publication, :review_pending) do
       case publication.review_expected_revision do
         nil -> update!(publication, %{review_expected_revision: revision}, now)
@@ -766,7 +766,7 @@ defmodule Ryker.Publication.Custody do
   end
 
   defp advance_review_generation_locked(publication_ref, lease_ref, generation) do
-    with {:ok, publication, now} <- lock_leased(publication_ref, lease_ref),
+    with {:ok, publication, now} <- fetch_and_lock_leased(publication_ref, lease_ref),
          :ok <- status(publication, :review_pending),
          true <- publication.review_generation == generation do
       update!(
@@ -781,7 +781,7 @@ defmodule Ryker.Publication.Custody do
   end
 
   defp store_review_locked(publication_ref, lease_ref, generation, review, gate_output) do
-    with {:ok, publication, now} <- lock_leased(publication_ref, lease_ref),
+    with {:ok, publication, now} <- fetch_and_lock_leased(publication_ref, lease_ref),
          :ok <- status(publication, :review_pending),
          true <- publication.review_generation == generation,
          {:ok, session} <- session(publication.session_id),
@@ -825,7 +825,7 @@ defmodule Ryker.Publication.Custody do
   end
 
   defp store_publication_locked(publication_ref, lease_ref, receipt) do
-    with {:ok, publication, now} <- lock_leased(publication_ref, lease_ref),
+    with {:ok, publication, now} <- fetch_and_lock_leased(publication_ref, lease_ref),
          :ok <- status(publication, :publish_pending),
          {:ok, receipt} <-
            Receipt.prepare(receipt, publication.review_document, publication.repository) do
@@ -836,7 +836,7 @@ defmodule Ryker.Publication.Custody do
   end
 
   defp store_conflict_locked(publication_ref, lease_ref, code, receipt) do
-    with {:ok, publication, now} <- lock_leased(publication_ref, lease_ref),
+    with {:ok, publication, now} <- fetch_and_lock_leased(publication_ref, lease_ref),
          :ok <- status(publication, :publish_pending),
          {:ok, receipt} <- ConflictReceipt.prepare(receipt, publication.repository) do
       update!(
@@ -882,7 +882,7 @@ defmodule Ryker.Publication.Custody do
   end
 
   defp publish_again_locked(publication_ref, lease_ref, round) do
-    with {:ok, publication, now} <- lock_leased(publication_ref, lease_ref),
+    with {:ok, publication, now} <- fetch_and_lock_leased(publication_ref, lease_ref),
          :ok <- status(publication, :publish_pending),
          true <- publication.publish_round == round do
       update!(
@@ -905,7 +905,7 @@ defmodule Ryker.Publication.Custody do
   end
 
   defp renew_locked(publication_ref, lease_ref, lease_seconds) do
-    case lock_leased(publication_ref, lease_ref) do
+    case fetch_and_lock_leased(publication_ref, lease_ref) do
       {:ok, publication, now} ->
         update!(
           publication,
@@ -919,7 +919,7 @@ defmodule Ryker.Publication.Custody do
   end
 
   defp defer_locked(publication_ref, lease_ref, retry_seconds, code, detail) do
-    case lock_leased(publication_ref, lease_ref) do
+    case fetch_and_lock_leased(publication_ref, lease_ref) do
       {:ok, publication, now} ->
         update!(
           publication,
@@ -1111,7 +1111,7 @@ defmodule Ryker.Publication.Custody do
 
   defp confirm_delivery_locked(publication_ref, lease_ref, receipt) do
     publication =
-      case lock_publication(publication_ref) do
+      case fetch_and_lock_publication(publication_ref) do
         {:ok, publication} -> publication
         {:error, :not_found} -> Repo.rollback(:publication_not_found)
       end
@@ -1278,7 +1278,7 @@ defmodule Ryker.Publication.Custody do
   def publication_authorized?(_publication), do: false
 
   defp approve_locked(attributes) do
-    case lock_publication(attributes.publication_ref) do
+    case fetch_and_lock_publication(attributes.publication_ref) do
       {:error, :not_found} ->
         Repo.rollback(:publication_not_found)
 
@@ -1351,8 +1351,8 @@ defmodule Ryker.Publication.Custody do
       else: {:error, :publication_review_delivery_mismatch}
   end
 
-  defp lock_leased(publication_ref, lease_ref) do
-    case lock_publication(publication_ref) do
+  defp fetch_and_lock_leased(publication_ref, lease_ref) do
+    case fetch_and_lock_publication(publication_ref) do
       {:error, :not_found} ->
         {:error, :publication_not_found}
 
@@ -1366,7 +1366,7 @@ defmodule Ryker.Publication.Custody do
     end
   end
 
-  defp lock_publication(publication_ref) do
+  defp fetch_and_lock_publication(publication_ref) do
     publication_ref
     |> Publication.Query.by_ref()
     |> Publication.Query.lock_for_update()

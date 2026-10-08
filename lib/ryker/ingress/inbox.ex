@@ -291,7 +291,7 @@ defmodule Ryker.Ingress.Inbox do
   def transcribed(_input_ref, _results), do: {:error, {:invalid_ingress_transcript, :results}}
 
   defp transcribed_locked(id, results) do
-    case lock_entry(id) do
+    case fetch_and_lock_entry(id) do
       {:error, :not_found} ->
         Repo.rollback({:ingress_transcript_failed, :input_not_found})
 
@@ -427,11 +427,11 @@ defmodule Ryker.Ingress.Inbox do
     |> UTCDateTime.earliest()
   end
 
-  defp lock_entry(id),
+  defp fetch_and_lock_entry(id),
     do: id |> Entry.Query.by_id() |> Entry.Query.lock_for_update() |> Repo.fetch()
 
   defp renew_locked(id, lease_ref, now, lease_seconds) do
-    case lock_entry(id) do
+    case fetch_and_lock_entry(id) do
       {:error, :not_found} ->
         Repo.rollback({:ingress_renew_failed, :input_not_found})
 
@@ -453,7 +453,7 @@ defmodule Ryker.Ingress.Inbox do
   end
 
   defp defer_locked(id, lease_ref, now, delay_ms, error_code, error_detail, generation) do
-    case lock_entry(id) do
+    case fetch_and_lock_entry(id) do
       {:error, :not_found} ->
         Repo.rollback({:ingress_retry_failed, :input_not_found})
 
@@ -520,7 +520,7 @@ defmodule Ryker.Ingress.Inbox do
   defp maybe_clear_context(attributes, _generation), do: attributes
 
   defp bind_context_locked(id, lease_ref, context, fingerprint) do
-    case lock_entry(id) do
+    case fetch_and_lock_entry(id) do
       {:error, :not_found} ->
         Repo.rollback({:admission_context_failed, :input_not_found})
 
@@ -560,7 +560,7 @@ defmodule Ryker.Ingress.Inbox do
   end
 
   defp block_locked(id, lease_ref, error_code, error_detail, generation) do
-    case lock_entry(id) do
+    case fetch_and_lock_entry(id) do
       {:error, :not_found} ->
         Repo.rollback({:ingress_block_failed, :input_not_found})
 
@@ -606,7 +606,7 @@ defmodule Ryker.Ingress.Inbox do
   end
 
   defp rearm_locked(id) do
-    case lock_entry(id) do
+    case fetch_and_lock_entry(id) do
       {:error, :not_found} ->
         Repo.rollback({:ingress_rearm_failed, :input_not_found})
 

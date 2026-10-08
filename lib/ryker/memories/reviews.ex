@@ -401,7 +401,7 @@ defmodule Ryker.Memories.Reviews do
         end
 
       {:ok, %MemoryReviewItem{} = review} ->
-        entries = lock_review_entries(review.entry_refs, workspace_ref)
+        entries = fetch_and_lock_review_entries(review.entry_refs, workspace_ref)
 
         with :ok <- review_authorized_entries(entries, authorization),
              :ok <- review_entries_current(review, entries),
@@ -439,7 +439,7 @@ defmodule Ryker.Memories.Reviews do
     end
   end
 
-  defp lock_review_entries(entry_refs, workspace_ref) do
+  defp fetch_and_lock_review_entries(entry_refs, workspace_ref) do
     memories =
       entry_refs
       |> current_facts(workspace_ref)

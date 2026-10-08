@@ -59,7 +59,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
     with true <- turn.session_id == session.id,
          true <- session_valid?(destination, session),
          :ok <- still_valid(destination, session.repository_ref, knowledge),
-         references <- lock_dependency_heads!(sources),
+         references <- fetch_and_lock_dependency_heads!(sources),
          true <- sources_valid?(destination, session.repository_ref, sources) do
       Enum.each(references, &record_knowledge(&1, session, turn))
       record_inherited_knowledge(inherited, session, turn)
@@ -75,10 +75,10 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
 
   @doc "Within the owning transaction, resolve proven Ryker-accounted disclosure custody."
   def producer_sources(destination, session) do
-    if Repo.in_transaction?(), do: locked_producer_sources(destination, session)
+    if Repo.in_transaction?(), do: fetch_and_lock_producer_sources(destination, session)
   end
 
-  defp locked_producer_sources(destination, session) do
+  defp fetch_and_lock_producer_sources(destination, session) do
     # The receiver may already hold its UPDATE lock. Never wait on another
     # producer here: reciprocal historical reads must yield, not deadlock.
     current =
@@ -175,10 +175,10 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
     Repo.insert_all(KnowledgeExposure, query, on_conflict: :nothing)
   end
 
-  defp lock_dependency_heads!(sources) when is_list(sources) do
+  defp fetch_and_lock_dependency_heads!(sources) when is_list(sources) do
     references = Enum.filter(sources, &Map.has_key?(&1, "knowledge_id"))
     ids = references |> Enum.map(& &1["knowledge_id"]) |> Enum.uniq() |> Enum.sort()
-    heads = lock_dependency_heads(ids)
+    heads = fetch_and_lock_dependency_heads(ids)
 
     unless Enum.all?(references, &(heads[&1["knowledge_id"]] == &1["generation"])),
       do: Repo.rollback(:work_knowledge_context_stale)
@@ -186,11 +186,11 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
     references
   end
 
-  defp lock_dependency_heads!(_), do: Repo.rollback(:work_knowledge_context_stale)
+  defp fetch_and_lock_dependency_heads!(_), do: Repo.rollback(:work_knowledge_context_stale)
 
-  defp lock_dependency_heads([]), do: %{}
+  defp fetch_and_lock_dependency_heads([]), do: %{}
 
-  defp lock_dependency_heads(ids) do
+  defp fetch_and_lock_dependency_heads(ids) do
     # Summaries and rollups can inherit a topic without showing its document.
     # Retain that generation boundary as well as the expanded raw roots. Do not
     # wait while holding earlier session/topic locks: a concurrent rebuild yields.
@@ -377,7 +377,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
   end
 
   defp session_sources_valid?(destination, session, query) do
-    case Learning.Observations.locked_scope(destination, session.repository_ref) do
+    case Learning.Observations.fetch_and_lock_scope(destination, session.repository_ref) do
       {:ok, scope} ->
         Enum.all?(Repo.stream(query, max_rows: 100), &valid_exposure?(&1, scope)) and
           source_exposures_valid?(session.id, scope)
@@ -418,7 +418,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
   defp sources_valid?(_destination, _repository, []), do: true
 
   defp sources_valid?(destination, repository, sources) do
-    case Learning.Observations.locked_scope(destination, repository) do
+    case Learning.Observations.fetch_and_lock_scope(destination, repository) do
       {:ok, scope} -> Learning.LearningSources.valid?(sources, scope)
       _ -> false
     end
@@ -499,7 +499,7 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
   def still_valid(_, _, _), do: @stale
 
   defp valid_locked?(destination, repository, documents) do
-    case Learning.Observations.locked_scope(destination, repository) do
+    case Learning.Observations.fetch_and_lock_scope(destination, repository) do
       {:ok, scope} -> Enum.all?(documents, &valid_document?(&1, scope))
       _ -> false
     end

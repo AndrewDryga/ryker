@@ -44,7 +44,7 @@ defmodule Ryker.Records.TaskOffers do
   end
 
   defp confirm_locked(attributes) do
-    with {:ok, record, source_episode, source_turn} <- lock_offer(attributes.record_ref),
+    with {:ok, record, source_episode, source_turn} <- fetch_and_lock_offer(attributes.record_ref),
          :ok <- check_delivery(source_episode, source_turn, attributes.target) do
       case record.status do
         :confirmed ->
@@ -61,8 +61,8 @@ defmodule Ryker.Records.TaskOffers do
     end
   end
 
-  defp lock_offer(record_ref) do
-    case Records.lock_offer(record_ref, ["task_offer"]) do
+  defp fetch_and_lock_offer(record_ref) do
+    case Records.fetch_and_lock_offer(record_ref, ["task_offer"]) do
       {:error, :not_found} -> {:error, :task_offer_not_found}
       found -> found
     end

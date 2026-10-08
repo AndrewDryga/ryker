@@ -63,8 +63,8 @@ defmodule Ryker.Episodes do
   hold an episode while it changes another row calls it (cancellation, event
   waits, the publication fix loop).
   """
-  @spec lock_current_in_transaction(String.t()) :: {:ok, Episode.t()} | {:error, term()}
-  def lock_current_in_transaction(episode_key) when is_binary(episode_key) do
+  @spec fetch_and_lock_current_in_transaction(String.t()) :: {:ok, Episode.t()} | {:error, term()}
+  def fetch_and_lock_current_in_transaction(episode_key) when is_binary(episode_key) do
     with {:ok, :locked} <- lock_source(Repo, episode_key),
          {:ok, %Episode{} = episode} <- load_episode(Repo, episode_key) do
       {:ok, episode}
@@ -74,7 +74,7 @@ defmodule Ryker.Episodes do
     end
   end
 
-  def lock_current_in_transaction(_episode_key), do: {:error, :invalid_episode_key}
+  def fetch_and_lock_current_in_transaction(_episode_key), do: {:error, :invalid_episode_key}
 
   @doc """
   The admitted input events `episode` still holds open (its

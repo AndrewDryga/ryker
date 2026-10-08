@@ -980,9 +980,9 @@ defmodule Ryker.Work.Custody.Turns do
          validation_receipt,
          measurement
        ) do
-    with {:ok, episode} <- Episodes.lock_current_in_transaction(episode_key),
+    with {:ok, episode} <- Episodes.fetch_and_lock_current_in_transaction(episode_key),
          :ok <- exact_episode(episode, episode_id),
-         {:ok, session, turn} <- lock_turn_after_episode(episode_id, turn_ref),
+         {:ok, session, turn} <- fetch_and_lock_turn_after_episode(episode_id, turn_ref),
          {:ok, result} <- accepted_intent_result(turn),
          {:continue, command, attributes} <-
            prepare_result_acceptance(

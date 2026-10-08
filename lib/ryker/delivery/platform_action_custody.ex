@@ -244,7 +244,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   end
 
   defp retry_locked(action_ref) do
-    case lock_action(action_ref) do
+    case fetch_and_lock_action(action_ref) do
       {:ok, %PlatformAction{status: :blocked} = action} ->
         action |> PlatformAction.Changeset.retry() |> write!(:retry)
 
@@ -346,7 +346,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
 
   defp enqueue_locked(binding, attributes, request) do
     now = Repo.now!()
-    {episode, turn} = lock_binding(binding)
+    {episode, turn} = peek_and_lock_binding(binding)
 
     case live_binding(episode, turn, binding, now) do
       :ok -> enqueue_for_ids(episode.id, turn.id, attributes, request)
@@ -355,7 +355,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   end
 
   defp enqueue_in_turn_locked(binding, attributes) do
-    {episode, turn} = lock_binding(binding)
+    {episode, turn} = peek_and_lock_binding(binding)
 
     case live_binding(episode, turn, binding, Repo.now!()) do
       :ok -> next_in_turn(episode, turn, attributes)
@@ -407,7 +407,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   defp limit_reached(:set_slack_reaction), do: :reaction_limit_reached
   defp limit_reached(:post_slack_update), do: :update_limit_reached
 
-  defp lock_binding(binding) do
+  defp peek_and_lock_binding(binding) do
     episode =
       binding.episode.id
       |> Episodes.Episode.Query.by_id()
@@ -500,7 +500,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   defp confirm_locked(action_ref, lease_ref, receipt, fingerprint) do
     now = Repo.now!()
 
-    case lock_action(action_ref) do
+    case fetch_and_lock_action(action_ref) do
       {:ok,
        %PlatformAction{status: :delivered, external_receipt_fingerprint: ^fingerprint} = action} ->
         action
@@ -524,7 +524,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   end
 
   defp leased_action(action_ref, lease_ref, now) do
-    case lock_action(action_ref) do
+    case fetch_and_lock_action(action_ref) do
       {:ok, %PlatformAction{status: :pending} = action} ->
         case current_lease(action, lease_ref, now) do
           :ok -> {:ok, action}
@@ -539,7 +539,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
     end
   end
 
-  defp lock_action(action_ref) do
+  defp fetch_and_lock_action(action_ref) do
     action_ref
     |> PlatformAction.Query.by_action_ref()
     |> PlatformAction.Query.lock_for_update()

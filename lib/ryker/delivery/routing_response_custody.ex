@@ -264,7 +264,7 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
   end
 
   defp retry_locked(delivery_ref) do
-    case lock_response(delivery_ref) do
+    case fetch_and_lock_response(delivery_ref) do
       {:ok, %RoutingResponse{status: :blocked} = response} ->
         response
         |> RoutingResponse.Changeset.retry()
@@ -285,7 +285,7 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
   defp confirm_locked(delivery_ref, lease_ref, receipt, fingerprint) do
     now = Repo.now!()
 
-    case lock_response(delivery_ref) do
+    case fetch_and_lock_response(delivery_ref) do
       {:ok,
        %RoutingResponse{status: :delivered, external_receipt_fingerprint: ^fingerprint} = response} ->
         response
@@ -310,7 +310,7 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
   end
 
   defp leased_response(delivery_ref, lease_ref, now) do
-    case lock_response(delivery_ref) do
+    case fetch_and_lock_response(delivery_ref) do
       {:ok, %RoutingResponse{status: :pending} = response} ->
         case current_lease(response, lease_ref, now) do
           :ok -> {:ok, response}
@@ -325,7 +325,7 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
     end
   end
 
-  defp lock_response(delivery_ref) do
+  defp fetch_and_lock_response(delivery_ref) do
     delivery_ref
     |> RoutingResponse.Query.by_delivery_ref()
     |> RoutingResponse.Query.lock_for_update()
