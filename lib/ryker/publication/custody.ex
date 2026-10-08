@@ -185,8 +185,8 @@ defmodule Ryker.Publication.Custody do
          %Work.Turn{} = turn
        ) do
     with {:ok, armed_id} <- Ecto.UUID.cast(armed_id),
-         {:ok, %Work.Turn{} = armed} <- Repo.fetch(Work.Turn.Query.by_id(armed_id)),
-         %{} = published <- checkpointed_candidate(armed) do
+         {:ok, %Work.Turn{} = armed_turn} <- Repo.fetch(Work.Turn.Query.by_id(armed_id)),
+         %{} = published <- checkpointed_candidate(armed_turn) do
       published == checkpointed_candidate(turn)
     else
       _unknown -> false

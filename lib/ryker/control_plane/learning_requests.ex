@@ -301,12 +301,12 @@ defmodule Ryker.ControlPlane.LearningRequests do
   # does; the reason is the Learning page's own sentence for it.
   defp retried_after(run, context) do
     with %{previous: previous} when is_binary(previous) <- context.numbers[run.id],
-         %Learning.LearningRun{} = earlier <- context.runs[previous],
-         error when is_binary(error) <- LearningActivity.attempt_error(earlier) do
+         %Learning.LearningRun{} = earlier_run <- context.runs[previous],
+         error when is_binary(error) <- LearningActivity.attempt_error(earlier_run) do
       %{
         generation: context.numbers[previous].number,
         summary: error,
-        href: "#" <> card_id(earlier)
+        href: "#" <> card_id(earlier_run)
       }
     else
       _none -> nil

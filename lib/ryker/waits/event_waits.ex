@@ -111,7 +111,7 @@ defmodule Ryker.Waits.EventWaits do
       {:ok, %EventSubscription{status: :active, deadline_at: nil, poll_after: nil}} ->
         {:error, :event_wait_not_due}
 
-      {:ok, %EventSubscription{status: :active, deadline_at: deadline} = active} ->
+      {:ok, %EventSubscription{status: :active, deadline_at: deadline} = active_subscription} ->
         kind =
           cond do
             DateTime.compare(deadline, now) in [:lt, :eq] -> :deadline
@@ -119,7 +119,7 @@ defmodule Ryker.Waits.EventWaits do
             true -> :timer
           end
 
-        {:ok, kind, active}
+        {:ok, kind, active_subscription}
 
       {:error, :not_found} ->
         {:ok, :deadline, nil}

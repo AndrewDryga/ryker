@@ -24,14 +24,14 @@ defmodule Ryker.Records.Outcomes do
   @spec recall(Episodes.Episode.t(), String.t() | nil) :: [map()]
   def recall(current, repository \\ nil)
 
-  def recall(%Episodes.Episode{} = current, repository) do
-    current
+  def recall(%Episodes.Episode{} = current_episode, repository) do
+    current_episode
     |> candidate_episodes()
     |> Enum.flat_map(&build_outcome/1)
     |> Enum.map(&DerivedContext.outcome/1)
-    |> DerivedContext.filter(current, repository)
+    |> DerivedContext.filter(current_episode, repository)
     |> Enum.map(& &1["document"])
-    |> Enum.sort_by(&sort_key(&1, current), :desc)
+    |> Enum.sort_by(&sort_key(&1, current_episode), :desc)
     |> Enum.take(@maximum_outcomes)
   end
 

@@ -225,9 +225,9 @@ defmodule Ryker.WorkExamples do
 
   defp linked_inputs(episode_id, until, left) do
     case Repo.fetch(Episodes.Episode.Query.by_id(episode_id)) do
-      {:ok, %Episodes.Episode{} = source} ->
-        admitted(source.id, until) ++
-          linked_inputs(source.linked_episode_id, source.inserted_at, left - 1)
+      {:ok, %Episodes.Episode{} = source_episode} ->
+        admitted(source_episode.id, until) ++
+          linked_inputs(source_episode.linked_episode_id, source_episode.inserted_at, left - 1)
 
       {:error, :not_found} ->
         []

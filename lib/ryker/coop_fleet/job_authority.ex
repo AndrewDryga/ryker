@@ -294,21 +294,22 @@ defmodule Ryker.CoopFleet.JobAuthority do
   was closed as "session_authority" because it had not (2026-09-28).
   """
   @spec prepared(Work.Session.t()) :: {:ok, Work.Session.t()} | {:error, term()}
-  def prepared(%Work.Session{id: id} = expected) when is_binary(id) do
+  def prepared(%Work.Session{id: id} = expected_session) when is_binary(id) do
     case Repo.fetch(Work.Session.Query.by_id(id)) do
-      {:ok, %Work.Session{} = saved} ->
+      {:ok, %Work.Session{} = saved_session} ->
         cond do
-          Map.take(saved, @identity) != Map.take(expected, @identity) ->
+          Map.take(saved_session, @identity) != Map.take(expected_session, @identity) ->
             {:error, {:coop_fleet_authority_mismatch, :worker_job}}
 
           # A session Coop runs directly holds no worker job, so there is
           # nothing to adopt. Validating one anyway failed every such create
           # before its first turn: each eval world ran no model (2026-09-29).
-          is_nil(saved.worker_job_document) and is_nil(expected.worker_job_document) ->
-            {:ok, expected}
+          is_nil(saved_session.worker_job_document) and
+              is_nil(expected_session.worker_job_document) ->
+            {:ok, expected_session}
 
           true ->
-            validate(saved)
+            validate(saved_session)
         end
 
       {:error, :not_found} ->
@@ -318,9 +319,9 @@ defmodule Ryker.CoopFleet.JobAuthority do
 
   # Create preparation pins after callers take their claim snapshot. Reload only the
   # same execution identity; an already-pinned caller may never adopt another job.
-  def exact_receipt(%Work.Session{id: id} = expected, remote)
+  def exact_receipt(%Work.Session{id: id} = expected_session, remote)
       when is_binary(id) and is_map(remote) do
-    with {:ok, session} <- stored_session(expected),
+    with {:ok, session} <- stored_session(expected_session),
          {:ok, session} <- validate(session),
          true <- remote["external_ref"] == Work.Session.coop_task_ref(session),
          true <- remote["job_ref"] == session.external_ref,
@@ -339,9 +340,9 @@ defmodule Ryker.CoopFleet.JobAuthority do
   # the worker need only hold this session's exact job, whatever version it was
   # frozen in. Checking it as a job Ryker would grant today refused every
   # cleanup of a session created before version 2 (2026-10-04).
-  def exact_cleanup_receipt(%Work.Session{id: id} = expected, remote)
+  def exact_cleanup_receipt(%Work.Session{id: id} = expected_session, remote)
       when is_binary(id) and is_map(remote) do
-    with {:ok, session} <- stored_session(expected),
+    with {:ok, session} <- stored_session(expected_session),
          true <- cleanup_receipt?(session, remote) do
       :ok
     else
@@ -371,11 +372,11 @@ defmodule Ryker.CoopFleet.JobAuthority do
 
   defp stored_session(expected) do
     case Repo.fetch(Work.Session.Query.by_id(expected.id)) do
-      {:ok, %Work.Session{} = saved} ->
-        if Map.take(saved, @identity) == Map.take(expected, @identity) and
+      {:ok, %Work.Session{} = saved_session} ->
+        if Map.take(saved_session, @identity) == Map.take(expected, @identity) and
              (is_nil(expected.worker_job_digest) or
-                expected.worker_job_digest == saved.worker_job_digest),
-           do: {:ok, saved},
+                expected.worker_job_digest == saved_session.worker_job_digest),
+           do: {:ok, saved_session},
            else: {:error, :coop_worker_job_identity_changed}
 
       {:error, :not_found} ->

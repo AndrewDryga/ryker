@@ -361,8 +361,8 @@ defmodule Ryker.Behaviors.StandingRules do
     end
   end
 
-  defp finalize_assignment_run(%StandingAssignmentRun{} = existing, desired, _now) do
-    if Map.take(existing, [:decision_action, :decision_ref, :episode_id, :outcome]) == desired,
+  defp finalize_assignment_run(%StandingAssignmentRun{} = existing_run, desired, _now) do
+    if Map.take(existing_run, [:decision_action, :decision_ref, :episode_id, :outcome]) == desired,
       do: :ok,
       else: Repo.rollback(:standing_assignment_run_conflict)
   end

@@ -68,12 +68,12 @@ defmodule Ryker.Accounting.Pricing do
   prices, and reasoning only at a reasoning price of its own.
   """
   @spec estimate(Settings.PricingRate.t(), map()) :: Decimal.t()
-  def estimate(%Settings.PricingRate{} = price, usage) do
+  def estimate(%Settings.PricingRate{} = rate, usage) do
     [
-      {usage.input, price.input_usd_per_million},
-      {usage.cached, price.cached_input_usd_per_million},
-      {usage.output, price.output_usd_per_million},
-      {usage.reasoning, price.reasoning_usd_per_million}
+      {usage.input, rate.input_usd_per_million},
+      {usage.cached, rate.cached_input_usd_per_million},
+      {usage.output, rate.output_usd_per_million},
+      {usage.reasoning, rate.reasoning_usd_per_million}
     ]
     |> Enum.reject(fn {_count, rate} -> is_nil(rate) end)
     |> Enum.reduce(Decimal.new(0), fn {count, rate}, sum ->

@@ -159,7 +159,14 @@ rules Ryker does not follow and why. Ported 2026-10-04 to 2026-10-08.
   (`%Work.Session{} = session`), and a catch-all clause beside it refuses any
   other shape (32 heads on 2026-10-08). A binding names the thing, by the
   schema's name or its last word where that reads clearly
-  (`%IncidentRoom{} = room`), as Emisar's 961 such bindings do.
+  (`%IncidentRoom{} = room`), as Emisar's 961 such bindings do, and a role
+  qualifies that noun rather than replacing it (`saved_session`,
+  `existing_fact`, `head_topic`): 40 role-only bindings (`saved`, `existing`,
+  `current`) were qualified on 2026-10-08. A row may be named by the word the
+  console and the code use for it (an inbox entry is an `input`, a memory
+  entry a `fact`, a knowledge row a `topic`, a record an `offer`), Emisar's
+  one-vocabulary rule; a value struct is named for its role (`%DateTime{} =
+  now`), and the episode reducer's clauses all name theirs `command`.
 - Variables are words: `explanation`, `{key, value}`, `conversation_ref`.
   `x` and `y` stay on a chart and `iv` in a cipher. A closure that forwards
   arguments it cannot name names them in order (`first`, `second`).

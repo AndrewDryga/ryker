@@ -619,8 +619,8 @@ defmodule Ryker.Slack.IncidentRoomWorker do
 
   defp reply_detail(nil), do: ""
 
-  defp reply_detail(%Work.Turn{} = reply) do
-    " The investigation's finished reply could not be posted (#{reply_refusal(reply)}), " <>
+  defp reply_detail(%Work.Turn{} = reply_turn) do
+    " The investigation's finished reply could not be posted (#{reply_refusal(reply_turn)}), " <>
       "so it waits on the Failures page."
   end
 

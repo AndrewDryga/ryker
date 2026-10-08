@@ -153,15 +153,15 @@ defmodule Ryker.People do
 
   # A statement older than the one kept, or than the moment it was forgotten,
   # or from the very message it was forgotten from, changes nothing.
-  defp newer?(entry, %PersonFact{status: :forgotten} = existing) do
-    since = Enum.max([existing.said_at, existing.forgotten_at], DateTime)
+  defp newer?(entry, %PersonFact{status: :forgotten} = existing_fact) do
+    since = Enum.max([existing_fact.said_at, existing_fact.forgotten_at], DateTime)
 
-    entry.native_input_id != existing.source_message_ref and
+    entry.native_input_id != existing_fact.source_message_ref and
       DateTime.compare(entry.occurred_at, since) == :gt
   end
 
-  defp newer?(entry, %PersonFact{} = existing),
-    do: DateTime.compare(entry.occurred_at, existing.said_at) != :lt
+  defp newer?(entry, %PersonFact{} = existing_fact),
+    do: DateTime.compare(entry.occurred_at, existing_fact.said_at) != :lt
 
   defp kept_count(person) do
     person

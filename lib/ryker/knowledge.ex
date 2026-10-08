@@ -238,16 +238,17 @@ defmodule Ryker.Knowledge do
     lock_scope(key)
 
     with {:ok, ^id} <- Ecto.UUID.cast(id),
-         {:ok, %ConversationKnowledge{} = head} <- fetch_and_lock_topic(id),
+         {:ok, %ConversationKnowledge{} = head_topic} <- fetch_and_lock_topic(id),
          true <-
-           is_nil(head.forgotten_at) and head.scope_key == key and head.version == version and
-             head.source_generation == generation,
-         false <- Repo.exists?(availability_query(scope, [head.id])),
-         {:ok, plan} <- bounded_plan(head, key, source, proposal) do
+           is_nil(head_topic.forgotten_at) and head_topic.scope_key == key and
+             head_topic.version == version and
+             head_topic.source_generation == generation,
+         false <- Repo.exists?(availability_query(scope, [head_topic.id])),
+         {:ok, plan} <- bounded_plan(head_topic, key, source, proposal) do
       {:ok,
        %{
          plan
-         | topic_key: head.topic_key,
+         | topic_key: head_topic.topic_key,
            generation: generation + 1,
            latest_source_at: source.occurred_at
        }}
@@ -415,11 +416,11 @@ defmodule Ryker.Knowledge do
   # A topic is its conversation's (`scope_key/1`), so its sources may come
   # from messages whose work used different repositories.
   defp same_source_scope?(
-         %Ingress.Inbox.Entry{status: :decided} = source,
+         %Ingress.Inbox.Entry{status: :decided} = source_entry,
          %Ingress.Inbox.Entry{} = entry
        ) do
-    source.destination_transport == entry.destination_transport and
-      source.destination_conversation_ref == entry.destination_conversation_ref
+    source_entry.destination_transport == entry.destination_transport and
+      source_entry.destination_conversation_ref == entry.destination_conversation_ref
   end
 
   defp same_source_scope?(_, _), do: false
@@ -678,16 +679,16 @@ defmodule Ryker.Knowledge do
   # the same subject and refused it as unavailable, so a recurring subject
   # stopped being learned once its first topic expired (2026-10-04 review).
   # The old row stays for its history under a key nothing proposes.
-  defp release_if_gone(%ConversationKnowledge{} = head, %{"target_ref" => nil}) do
-    if head.forgotten_at || head.state == %{"retention" => "pruned"} do
+  defp release_if_gone(%ConversationKnowledge{} = head_topic, %{"target_ref" => nil}) do
+    if head_topic.forgotten_at || head_topic.state == %{"retention" => "pruned"} do
       {1, _released} =
-        Repo.update_all(ConversationKnowledge.Query.by_id(head.id),
-          set: [topic_key: "retired:" <> head.id, anchor_keys: []]
+        Repo.update_all(ConversationKnowledge.Query.by_id(head_topic.id),
+          set: [topic_key: "retired:" <> head_topic.id, anchor_keys: []]
         )
 
       nil
     else
-      head
+      head_topic
     end
   end
 

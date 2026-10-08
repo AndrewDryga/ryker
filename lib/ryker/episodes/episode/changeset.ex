@@ -39,10 +39,10 @@ defmodule Ryker.Episodes.Episode.Changeset do
   end
 
   @spec advance(Episode.t(), Episode.t()) :: Ecto.Changeset.t()
-  def advance(%Episode{} = stored, %Episode{} = decided) do
-    attrs = decided |> Map.from_struct() |> Map.take(@mutable_fields)
+  def advance(%Episode{} = stored_episode, %Episode{} = decided_episode) do
+    attrs = decided_episode |> Map.from_struct() |> Map.take(@mutable_fields)
 
-    stored
+    stored_episode
     |> cast(attrs, @mutable_fields)
     |> validate()
   end

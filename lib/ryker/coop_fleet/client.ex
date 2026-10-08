@@ -570,14 +570,15 @@ defmodule Ryker.CoopFleet.Client do
   # may approve the draft long after that placement's lease ran out. Placing the bound session
   # again returns it to the worker holding it, or fails closed when that worker cannot take it.
   # A placement on any other worker would have no review to publish.
-  defp review_holder_placement(client, session, %Command{worker_id: worker_id} = owner) do
+  defp review_holder_placement(client, session, %Command{worker_id: worker_id} = owner_command) do
     case Bridge.place(session, client.bridge_options) do
       {:ok, %Placement{worker_id: ^worker_id} = placement} ->
         {:ok, placement}
 
       {:ok, %Placement{}} ->
         {:error,
-         {:coop_session_replacement_required, owner.session_id, owner.placement_generation}}
+         {:coop_session_replacement_required, owner_command.session_id,
+          owner_command.placement_generation}}
 
       {:error, reason} ->
         {:error, reason}
@@ -589,10 +590,11 @@ defmodule Ryker.CoopFleet.Client do
     # acknowledged a background operation and its placement has since expired.
     # The lookup runs on the worker holding the session, maybe on a newer placement.
     case Repo.fetch(Command.Query.by_idempotency_key(publication_result_key(command))) do
-      {:ok, %Command{status: :succeeded, session_id: session_id, worker_id: worker_id} = result}
+      {:ok,
+       %Command{status: :succeeded, session_id: session_id, worker_id: worker_id} = result_command}
       when session_id == command.session_id and worker_id == command.worker_id ->
         Bridge.command_response(
-          result,
+          result_command,
           client.bridge_options[:body_root],
           client.bridge_options[:checkpoint_key]
         )
@@ -1115,8 +1117,12 @@ defmodule Ryker.CoopFleet.Client do
   # may only seed a replacement pinned to the same repository source. Rotation
   # copies the selector verbatim; a mismatch is a custody violation, never a
   # reason to start from a different source.
-  defp checkpoint_document(checkpoint, %Work.Session{} = source, %Work.Session{} = session) do
-    if Work.RepositorySource.same?(source.repository_source, session.repository_source) do
+  defp checkpoint_document(
+         checkpoint,
+         %Work.Session{} = source_session,
+         %Work.Session{} = session
+       ) do
+    if Work.RepositorySource.same?(source_session.repository_source, session.repository_source) do
       {:ok,
        %{
          "byte_size" => checkpoint.bundle_byte_size,
@@ -1134,10 +1140,13 @@ defmodule Ryker.CoopFleet.Client do
   defp missing_checkpoint(nil), do: {:ok, nil}
   defp missing_checkpoint(%Work.Session{coop_session_id: nil}), do: {:ok, nil}
 
-  defp missing_checkpoint(%Work.Session{} = previous) do
-    if workspace_changes_possible?(previous.id),
-      do: {:error, {:coop_workspace_checkpoint_required, previous.id, previous.generation}},
-      else: {:ok, nil}
+  defp missing_checkpoint(%Work.Session{} = previous_session) do
+    if workspace_changes_possible?(previous_session.id) do
+      {:error,
+       {:coop_workspace_checkpoint_required, previous_session.id, previous_session.generation}}
+    else
+      {:ok, nil}
+    end
   end
 
   defp workspace_changes_possible?(session_id),

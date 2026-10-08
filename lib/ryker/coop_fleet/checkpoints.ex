@@ -204,10 +204,13 @@ defmodule Ryker.CoopFleet.Checkpoints do
 
   defp leased_placement?(_placement, _command), do: false
 
-  defp same_source_sessions?(%Work.Session{} = source, %Work.Session{} = target) do
-    source.episode_id == target.episode_id and
-      source.repository_ref == target.repository_ref and
-      Work.RepositorySource.same?(source.repository_source, target.repository_source)
+  defp same_source_sessions?(%Work.Session{} = source_session, %Work.Session{} = target_session) do
+    source_session.episode_id == target_session.episode_id and
+      source_session.repository_ref == target_session.repository_ref and
+      Work.RepositorySource.same?(
+        source_session.repository_source,
+        target_session.repository_source
+      )
   end
 
   defp same_source_sessions?(_source, _target), do: false

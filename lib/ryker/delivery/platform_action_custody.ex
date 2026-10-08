@@ -372,8 +372,8 @@ defmodule Ryker.Delivery.PlatformActionCustody do
       |> Repo.all()
 
     case repeated(earlier, attributes) do
-      %PlatformAction{} = same ->
-        %{action: same, status: :duplicate}
+      %PlatformAction{} = same_action ->
+        %{action: same_action, status: :duplicate}
 
       nil when length(earlier) >= @maximum_per_turn ->
         {:refused, limit_reached(attributes.tool)}

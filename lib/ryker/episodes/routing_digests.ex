@@ -141,8 +141,8 @@ defmodule Ryker.Episodes.RoutingDigests do
 
   defp refresh(episode_id) do
     with {:ok, %Episode{} = episode} <- Repo.fetch(Episode.Query.by_id(episode_id)),
-         {:ok, %Event{} = latest} <- Repo.fetch(latest_admission(episode_id)),
-         :ok <- refresh_in_transaction(episode, latest) do
+         {:ok, %Event{} = latest_event} <- Repo.fetch(latest_admission(episode_id)),
+         :ok <- refresh_in_transaction(episode, latest_event) do
       :ok
     else
       _nothing -> Repo.rollback(:not_refreshed)

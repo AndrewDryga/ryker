@@ -255,7 +255,7 @@ defmodule Ryker.Continuity.Compaction do
       source_scopes: []
     }
 
-  defp existing_rollup(%ConversationRollup{} = existing), do: existing
+  defp existing_rollup(%ConversationRollup{} = existing_rollup), do: existing_rollup
 
   defp existing_states(nil), do: []
   defp existing_states(existing), do: [{existing.period_end, existing.state}]

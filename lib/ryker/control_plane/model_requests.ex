@@ -438,12 +438,12 @@ defmodule Ryker.ControlPlane.ModelRequests do
       by_generation = Map.new(attempts, &{&1.generation, &1})
 
       for attempt <- attempts,
-          %Admission.Attempt{} = previous <- [by_generation[attempt.generation - 1]],
-          %{} = failure <- [failures[previous.id]] do
+          %Admission.Attempt{} = previous_attempt <- [by_generation[attempt.generation - 1]],
+          %{} = failure <- [failures[previous_attempt.id]] do
         {attempt.id,
          Map.merge(failure, %{
-           generation: previous.generation,
-           href: "#" <> failure_card(previous)
+           generation: previous_attempt.generation,
+           href: "#" <> failure_card(previous_attempt)
          })}
       end
     end)

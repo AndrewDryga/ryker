@@ -693,10 +693,10 @@ defmodule Ryker.Admission do
          selection,
          decision,
          decision_ref,
-         {:ok, {%Episodes.Episode{} = owner, _earlier_revision}},
+         {:ok, {%Episodes.Episode{} = owner_episode, _earlier_revision}},
          work_policy
        ) do
-    if source_owner_matches_selection?(owner, selection) do
+    if source_owner_matches_selection?(owner_episode, selection) do
       apply_and_persist_current(context, entry, selection, decision, decision_ref, work_policy)
     else
       {:error, {:admission_rejected, :context_stale}}

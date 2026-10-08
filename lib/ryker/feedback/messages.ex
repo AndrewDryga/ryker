@@ -84,9 +84,9 @@ defmodule Ryker.Feedback.Messages do
 
   defp observe_revision(entry) do
     case earlier_revisions(entry) do
-      [%Ingress.Inbox.Entry{actor_ref: actor} = first | _later] = earlier
+      [%Ingress.Inbox.Entry{actor_ref: actor} = first_entry | _later] = earlier
       when actor == entry.actor_ref ->
-        case answered(earlier, first.occurred_at, entry.occurred_at) do
+        case answered(earlier, first_entry.occurred_at, entry.occurred_at) do
           {:ok, request} -> record(entry, revision_kind(entry.event_kind), request)
           :none -> :none
         end

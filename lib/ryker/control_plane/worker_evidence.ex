@@ -45,20 +45,20 @@ defmodule Ryker.ControlPlane.WorkerEvidence do
   def for_episode(_episode_id), do: []
 
   # Projects one already-decoded capture.
-  defp project(%CoopFleet.SessionEvidence{} = row, %{} = document) do
+  defp project(%CoopFleet.SessionEvidence{} = evidence, %{} = document) do
     %{
-      id: row.id,
-      session_id: row.session_id,
-      coop_session_id: row.coop_session_id,
-      worker: row.worker_id,
-      placement_generation: row.placement_generation,
+      id: evidence.id,
+      session_id: evidence.session_id,
+      coop_session_id: evidence.coop_session_id,
+      worker: evidence.worker_id,
+      placement_generation: evidence.placement_generation,
       state: :recorded,
-      captured_at: row.first_captured_at,
-      observed_at: row.last_captured_at,
-      capture_count: row.capture_count,
+      captured_at: evidence.first_captured_at,
+      observed_at: evidence.last_captured_at,
+      capture_count: evidence.capture_count,
       session_revision: document["revision"],
       session_state: document["state"],
-      snapshot: Evidence.snapshot(:current, observed_at: row.last_captured_at),
+      snapshot: Evidence.snapshot(:current, observed_at: evidence.last_captured_at),
       access: access(document["network"]),
       network: network(document["network"]),
       task: task(document["task"])

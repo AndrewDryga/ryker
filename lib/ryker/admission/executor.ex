@@ -1140,11 +1140,11 @@ defmodule Ryker.Admission.Executor do
 
   defp exact_job_receipt?(remote, settings, purpose) do
     case Repo.fetch(Work.Session.Query.by_external_ref(settings.session_external_ref)) do
-      {:ok, %Work.Session{policy: policy, policy_digest: digest} = saved}
+      {:ok, %Work.Session{policy: policy, policy_digest: digest} = saved_session}
       when policy == settings.policy and digest == settings.policy_digest ->
         if purpose == :cleanup,
-          do: CoopFleet.JobAuthority.exact_cleanup_receipt(saved, remote) == :ok,
-          else: CoopFleet.JobAuthority.exact_receipt(saved, remote) == :ok
+          do: CoopFleet.JobAuthority.exact_cleanup_receipt(saved_session, remote) == :ok,
+          else: CoopFleet.JobAuthority.exact_receipt(saved_session, remote) == :ok
 
       _missing ->
         false

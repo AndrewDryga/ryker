@@ -192,11 +192,11 @@ defmodule Ryker.Records do
   its session works in: each record's model document, newest first.
   """
   @spec model_records(Episodes.Episode.t(), String.t() | nil) :: [map()]
-  def model_records(%Episodes.Episode{} = destination, repository) do
-    destination.id
+  def model_records(%Episodes.Episode{} = destination_episode, repository) do
+    destination_episode.id
     |> retained_records()
     |> Enum.map(&DerivedContext.record/1)
-    |> DerivedContext.filter(destination, repository)
+    |> DerivedContext.filter(destination_episode, repository)
     |> Enum.map(& &1["document"])
   end
 

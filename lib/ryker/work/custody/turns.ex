@@ -791,15 +791,15 @@ defmodule Ryker.Work.Custody.Turns do
            candidate_sha256,
            candidate_attempt
          ) do
-      %Turn{} = staged ->
-        record_candidate_response!(staged)
+      %Turn{} = staged_turn ->
+        record_candidate_response!(staged_turn)
 
         case Continuity.candidate_staged_in_transaction(
-               staged,
+               staged_turn,
                candidate_sha256,
                candidate_attempt
              ) do
-          :ok -> staged
+          :ok -> staged_turn
           {:error, reason} -> Repo.rollback(reason)
         end
     end

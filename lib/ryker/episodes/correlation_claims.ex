@@ -59,19 +59,21 @@ defmodule Ryker.Episodes.CorrelationClaims do
     end
   end
 
-  defp reconcile(%CorrelationClaim{} = owner, row) when owner.episode_id == row.episode_id do
-    if owner.lifecycle_state == row.lifecycle_state do
-      {:ok, owner}
+  defp reconcile(%CorrelationClaim{} = owner_claim, row)
+       when owner_claim.episode_id == row.episode_id do
+    if owner_claim.lifecycle_state == row.lifecycle_state do
+      {:ok, owner_claim}
     else
-      Ryker.Episodes.broadcast_episode_updated(owner.episode_id)
+      Ryker.Episodes.broadcast_episode_updated(owner_claim.episode_id)
 
-      owner
+      owner_claim
       |> Ecto.Changeset.change(lifecycle_state: row.lifecycle_state)
       |> Repo.update()
     end
   end
 
-  defp reconcile(%CorrelationClaim{} = owner, _row), do: {:error, {:occurrence_claimed, owner}}
+  defp reconcile(%CorrelationClaim{} = owner_claim, _row),
+    do: {:error, {:occurrence_claimed, owner_claim}}
 
   defp owner(scope_ref, namespace, occurrence_ref) do
     scope_ref
