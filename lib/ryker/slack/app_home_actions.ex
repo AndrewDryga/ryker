@@ -70,15 +70,14 @@ defmodule Ryker.Slack.AppHomeActions do
         workspace_ref,
         action_ref
       ) do
-    with %Publication.Publication{} = publication <-
-           Repo.one(Publication.Publication.Query.by_ref(publication_ref)),
+    with {:ok, publication} <- Repo.fetch(Publication.Publication.Query.by_ref(publication_ref)),
          true <- slack_workspace?(publication, workspace_ref) do
       Operator.Publication.recover(publication.ref, action, expected_generation,
         actor_ref: "slack:user:#{actor_ref}",
         action_ref: action_ref
       )
     else
-      nil -> {:error, :publication_not_found}
+      {:error, :not_found} -> {:error, :publication_not_found}
       false -> {:error, :publication_workspace_mismatch}
     end
   end
@@ -93,7 +92,7 @@ defmodule Ryker.Slack.AppHomeActions do
         action_ref
       ) do
     case retained_session(session_ref) do
-      {%Work.Session{} = session, %Episodes.Episode{} = episode} ->
+      {:ok, {%Work.Session{} = session, %Episodes.Episode{} = episode}} ->
         if slack_workspace?(episode, workspace_ref) do
           Operator.Retention.discard_unmerged(
             session.external_ref,
@@ -105,7 +104,7 @@ defmodule Ryker.Slack.AppHomeActions do
           {:error, :retention_session_workspace_mismatch}
         end
 
-      nil ->
+      {:error, :not_found} ->
         {:error, :retention_session_not_found}
     end
   end
@@ -114,7 +113,7 @@ defmodule Ryker.Slack.AppHomeActions do
     session_ref
     |> Work.Session.Query.by_external_ref()
     |> Work.Session.Query.select_with_episode()
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   defp destination_ref(%HomeInteraction{action: :run_schedule, resource_ref: ref}),
@@ -163,10 +162,11 @@ defmodule Ryker.Slack.AppHomeActions do
         session_ref = parts |> Enum.drop(-1) |> Enum.join(":")
 
         case retained_session(session_ref) do
-          {%Work.Session{}, %Episodes.Episode{destination_conversation_ref: destination_ref}} ->
+          {:ok,
+           {%Work.Session{}, %Episodes.Episode{destination_conversation_ref: destination_ref}}} ->
             {:ok, destination_ref}
 
-          nil ->
+          {:error, :not_found} ->
             {:error, :app_home_resource_not_visible}
         end
 

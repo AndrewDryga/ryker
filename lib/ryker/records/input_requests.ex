@@ -112,9 +112,9 @@ defmodule Ryker.Records.InputRequests do
   defp answer_locked(attributes) do
     with {:ok, record, episode, turn} <- lock_request(attributes.record_ref),
          :ok <- check_delivery(episode, turn, attributes.target) do
-      case Repo.one(Response.Query.by_record_id(record.id)) do
-        nil -> record_answer(record, episode, turn, attributes)
-        response -> duplicate(response, record, attributes)
+      case Repo.fetch(Response.Query.by_record_id(record.id)) do
+        {:error, :not_found} -> record_answer(record, episode, turn, attributes)
+        {:ok, response} -> duplicate(response, record, attributes)
       end
     else
       {:error, reason} -> Repo.rollback(reason)
@@ -162,8 +162,8 @@ defmodule Ryker.Records.InputRequests do
     if response.response_ref == attributes.response_ref and
          response.actor_ref == attributes.actor_ref and
          response.choice_index == attributes.choice_index do
-      case Repo.one(Ingress.Inbox.Entry.Query.by_id(response.inbox_entry_id)) do
-        %Ingress.Inbox.Entry{} = entry ->
+      case Repo.fetch(Ingress.Inbox.Entry.Query.by_id(response.inbox_entry_id)) do
+        {:ok, %Ingress.Inbox.Entry{} = entry} ->
           %{
             input_ref: Ingress.Inbox.ref(entry),
             record: record,
@@ -171,7 +171,7 @@ defmodule Ryker.Records.InputRequests do
             status: :duplicate
           }
 
-        nil ->
+        {:error, :not_found} ->
           Repo.rollback(:input_request_response_incomplete)
       end
     else

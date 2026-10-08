@@ -204,11 +204,25 @@ Emisar's write rules (`../emisar/portal/.agent/kb/rules/README.md`) that Ryker f
   A write that depends on what the row already holds (a version to bump, a
   state that refuses it, an event that says whether it was created) reads
   the row under a lock first instead; six do (2026-10-08).
-- A row read answers through `Repo.fetch/1`, and a module that names its
-  missing row maps the one reason
+- A read the code matches on answers through `Repo.fetch/1`: a `case`,
+  `with` or function head matches `{:ok, row}` and `{:error, :not_found}`,
+  never `nil`, nor a bare struct pattern a missing row falls past. A module
+  that names its missing row maps the one reason in a small helper
   (`with {:error, :not_found} <- Repo.fetch(locked), do: {:error, :work_turn_not_found}`),
-  never `Repo.one/1` with a `nil` clause of its own; eight moved on
-  2026-10-08 (Emisar has none).
+  so no other step's `{:error, :not_found}` lands in that branch, and an
+  `else` that only passed errors on goes. Eight moved on 2026-10-08, then the
+  rest the same day: 283 reads, from 42 `Repo.fetch` calls to 325 (Emisar has
+  67; its 17 `Repo.one` are counts and stats).
+  `Repo.one` stays where nothing matches on the read (262, measured
+  2026-10-08): a fallback written with `||` (25: roll the transaction back,
+  create the row, a default, or a second read, the idiom of the
+  rollback-reason custody under "Not adopted"); an optional value that flows
+  into data, where `nil` is the value (a card's current turn, the earlier of
+  two deadlines, a transform that passes `nil` through, public readers
+  documented as returning `nil`); a presence test (`if row`, `row && ...`);
+  counts and other aggregates; and `Ryker.Slack.ChannelConfigurations`,
+  which reads a channel's membership, configuration and setup session as the
+  state of its state machine (`case {membership, kind}`, `cond`).
 - A `case` whose one branch opens a `with` while the others only refuse is
   one flat `with` (Emisar's README), or clause heads when it matches its own
   argument's shape. Eight folded on 2026-10-08; the 48 left tell several

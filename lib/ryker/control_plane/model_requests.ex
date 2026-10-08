@@ -51,9 +51,10 @@ defmodule Ryker.ControlPlane.ModelRequests do
   # routed into an existing conversation rather than starting a new episode.
   def episode_ref("ingress-input:" <> id = ref) do
     with {:ok, id} <- Ecto.UUID.cast(id),
-         %Ingress.Inbox.Entry{episode_id: episode_id} when not is_nil(episode_id) <-
-           Repo.one(Ingress.Inbox.Entry.Query.by_id(id)),
-         %Episodes.Episode{key: key} <- Repo.one(Episodes.Episode.Query.by_id(episode_id)) do
+         {:ok, %Ingress.Inbox.Entry{episode_id: episode_id}} when not is_nil(episode_id) <-
+           Repo.fetch(Ingress.Inbox.Entry.Query.by_id(id)),
+         {:ok, %Episodes.Episode{key: key}} <-
+           Repo.fetch(Episodes.Episode.Query.by_id(episode_id)) do
       key
     else
       _ -> ref
@@ -64,9 +65,9 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
   @doc "A bounded chronological document, with bulk-loaded custody and no per-request tool queries."
   def timeline(ref, params) do
-    case Repo.one(Episodes.Episode.Query.by_key(episode_ref(ref))) do
-      nil -> :not_found
-      episode -> timeline_for(episode, params)
+    case Repo.fetch(Episodes.Episode.Query.by_key(episode_ref(ref))) do
+      {:error, :not_found} -> :not_found
+      {:ok, episode} -> timeline_for(episode, params)
     end
   end
 
@@ -561,7 +562,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
   """
   def project_input(id, params) when is_map(params) do
     with {:ok, id} <- Ecto.UUID.cast(id),
-         %Ingress.Inbox.Entry{} = entry <- Repo.one(Ingress.Inbox.Entry.Query.by_id(id)) do
+         {:ok, %Ingress.Inbox.Entry{} = entry} <- Repo.fetch(Ingress.Inbox.Entry.Query.by_id(id)) do
       secrets = Redactor.configured_secrets()
       disclosed = disclosed(params)
       now = DateTime.utc_now()
@@ -706,8 +707,8 @@ defmodule Ryker.ControlPlane.ModelRequests do
   # When routing's decision was saved, from the attempt that made it; the
   # message row's own timestamp moves whenever the row changes again.
   defp decided_at(entry) do
-    with %Admission.Attempt{milestones: %{"committed" => committed}} <-
-           Repo.one(Admission.Attempt.Query.by_generation(entry.id, entry.execution_generation)),
+    with {:ok, %Admission.Attempt{milestones: %{"committed" => committed}}} <-
+           Repo.fetch(Admission.Attempt.Query.by_generation(entry.id, entry.execution_generation)),
          {:ok, at, _offset} <- DateTime.from_iso8601(committed) do
       at
     else

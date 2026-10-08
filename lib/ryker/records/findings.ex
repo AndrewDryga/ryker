@@ -42,7 +42,7 @@ defmodule Ryker.Records.Findings do
   end
 
   defp settle_locked(id, status, allowed?) do
-    record = id |> Record.Query.finding() |> Record.Query.lock_for_update() |> Repo.one()
+    record = id |> Record.Query.finding() |> Record.Query.lock_for_update() |> Repo.fetch()
 
     with {:ok, payload} <- open_payload(record),
          :ok <- allowed?.(payload) do
@@ -53,9 +53,9 @@ defmodule Ryker.Records.Findings do
   end
 
   # Only a finding Ryker still uses can be settled, and only once.
-  defp open_payload(%Record{status: :open, payload: payload}), do: {:ok, payload}
-  defp open_payload(%Record{}), do: {:error, :finding_settled}
-  defp open_payload(nil), do: {:error, :finding_not_found}
+  defp open_payload({:ok, %Record{status: :open, payload: payload}}), do: {:ok, payload}
+  defp open_payload({:ok, %Record{}}), do: {:error, :finding_settled}
+  defp open_payload({:error, :not_found}), do: {:error, :finding_not_found}
 
   defp set_status!(id, status) do
     {1, [record]} =

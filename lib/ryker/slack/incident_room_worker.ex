@@ -266,14 +266,18 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   end
 
   defp reconcile_lifecycle(room, options) do
-    with %Episodes.Episode{} = episode <- Repo.one(Episodes.Episode.Query.by_id(room.episode_id)),
+    with {:ok, episode} <- room_episode(room),
          {:ok, result} <- reconcile_episode_destination(room, episode),
          {:ok, outcome} <- settle_lifecycle_reconciliation(room, episode, result, options) do
       {:ok, outcome}
     else
-      nil -> handle_error(room, :incident_room_episode_not_found, options)
       {:error, reason} -> handle_error(room, reason, options)
     end
+  end
+
+  defp room_episode(room) do
+    with {:error, :not_found} <- Repo.fetch(Episodes.Episode.Query.by_id(room.episode_id)),
+         do: {:error, :incident_room_episode_not_found}
   end
 
   defp check_channel(room, options) do

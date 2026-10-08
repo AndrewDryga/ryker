@@ -115,8 +115,8 @@ defmodule Ryker.Feedback.Messages do
 
       nil ->
         case quick_replied(Enum.map(revisions, & &1.id), sent_at, before) do
-          input_id when is_binary(input_id) -> {:ok, {:input, input_id}}
-          nil -> :none
+          {:ok, input_id} when is_binary(input_id) -> {:ok, {:input, input_id}}
+          {:error, :not_found} -> :none
         end
     end
   end
@@ -139,7 +139,7 @@ defmodule Ryker.Feedback.Messages do
     |> Delivery.RoutingResponse.Query.ordered_by_delivered_at_desc()
     |> Delivery.RoutingResponse.Query.limit_to(1)
     |> Delivery.RoutingResponse.Query.select_input_ids()
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   # -- Asked again ----------------------------------------------------------------

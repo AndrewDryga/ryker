@@ -121,13 +121,9 @@ defmodule Ryker.GitHub.Confirmations do
     query =
       record_ref |> Records.Record.Query.by_ref() |> Records.Record.Query.with_joined_origin()
 
-    case Repo.one(query) do
-      {%Records.Record{} = record, %Episodes.Episode{} = episode, %Work.Turn{} = turn} ->
-        {:ok, record, episode, turn}
-
-      nil ->
-        {:error, :not_found}
-    end
+    with {:ok, {%Records.Record{} = record, %Episodes.Episode{} = episode, %Work.Turn{} = turn}} <-
+           Repo.fetch(query),
+         do: {:ok, record, episode, turn}
   end
 
   defp exact_discussion(

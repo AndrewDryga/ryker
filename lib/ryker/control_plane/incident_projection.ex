@@ -99,13 +99,13 @@ defmodule Ryker.ControlPlane.IncidentProjection do
       ref
       |> Slack.IncidentRoom.Query.by_ref()
       |> Slack.IncidentRoom.Query.limit_to(1)
-      |> Repo.one()
+      |> Repo.fetch()
 
     case found do
-      nil ->
+      {:error, :not_found} ->
         :not_found
 
-      room ->
+      {:ok, room} ->
         episode = if room.episode_id, do: Repo.one(Episodes.Episode.Query.by_id(room.episode_id))
         names = RepositoryNames.all()
         secrets = InspectionRedactor.configured_secrets()

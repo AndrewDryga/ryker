@@ -172,17 +172,17 @@ defmodule Ryker.Operator.SlackReplay do
       |> Episodes.Event.Query.by_kind(:result_accepted)
       |> Episodes.Event.Query.ordered_by_sequence_desc()
       |> Episodes.Event.Query.limit_to(1)
-      |> Repo.one()
+      |> Repo.fetch()
 
     case event do
-      %Episodes.Event{payload: %{"decision_reason" => reason, "delivery" => "none"}}
+      {:ok, %Episodes.Event{payload: %{"decision_reason" => reason, "delivery" => "none"}}}
       when is_binary(reason) and byte_size(reason) in 1..960 ->
         %{decision_reason: reason, delivery: :none, status: :accepted}
 
-      %Episodes.Event{} ->
+      {:ok, %Episodes.Event{}} ->
         %{status: :invalid}
 
-      nil ->
+      {:error, :not_found} ->
         nil
     end
   end

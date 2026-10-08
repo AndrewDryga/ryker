@@ -303,9 +303,9 @@ defmodule Ryker.Emisar.Approvals do
 
   defp ensure_registered(%Records.Record{kind: "emisar_approval"} = record) do
     with :ok <- exact_session_authority(record) do
-      case Repo.one(Approval.Query.by_record_id(record.id)) do
-        nil -> insert_approval(record)
-        %Approval{} = approval -> exact_registration(approval, record)
+      case Repo.fetch(Approval.Query.by_record_id(record.id)) do
+        {:error, :not_found} -> insert_approval(record)
+        {:ok, %Approval{} = approval} -> exact_registration(approval, record)
       end
     end
   end
@@ -382,13 +382,13 @@ defmodule Ryker.Emisar.Approvals do
   defp claim_locked(connection_ref, worker_ref, lease_seconds) do
     now = Repo.now!()
 
-    approval = connection_ref |> Approval.Query.next_claimable(now) |> Repo.one()
+    approval = connection_ref |> Approval.Query.next_claimable(now) |> Repo.fetch()
 
     case approval do
-      nil ->
+      {:error, :not_found} ->
         nil
 
-      %Approval{} = approval ->
+      {:ok, %Approval{} = approval} ->
         lease_ref = "emisar-approval-lease:#{Ecto.UUID.generate()}"
 
         # A claim only takes the lease, which no page shows. A watch is
@@ -463,17 +463,16 @@ defmodule Ryker.Emisar.Approvals do
   defp resume_terminal_locked(connection_ref, request_id, lease_ref, state) do
     now = Repo.now!()
 
-    with %Approval{} = snapshot <- Repo.one(Approval.Query.by_request(connection_ref, request_id)),
+    with {:ok, snapshot} <- approval_row(Approval.Query.by_request(connection_ref, request_id)),
          :ok <- exact_run(snapshot, state),
-         %Episodes.Episode{} = episode <-
-           Repo.one(Episodes.Episode.Query.by_id(snapshot.episode_id)),
-         %Records.Record{} = record <- Repo.one(Records.Record.Query.by_id(snapshot.record_id)),
+         {:ok, episode} <- approval_row(Episodes.Episode.Query.by_id(snapshot.episode_id)),
+         {:ok, record} <- approval_row(Records.Record.Query.by_id(snapshot.record_id)),
          {:ok, input} <- terminal_input(episode, snapshot, state, now),
          admit <- admit_command(episode, input, snapshot),
          resume <- resume_command(episode, admit, record, snapshot, now),
          {:ok, [_admitted, resumed]} <- Episodes.apply_batch_in_transaction([admit, resume]),
-         %Records.Record{} = locked_record <- lock_record(snapshot.record_id),
-         %Approval{} = locked_approval <- lock_approval(snapshot.id),
+         {:ok, locked_record} <- lock_record(snapshot.record_id),
+         {:ok, locked_approval} <- lock_approval(snapshot.id),
          {:ok, _approval} <- live_lease(locked_approval, lease_ref, now),
          :ok <- exact_run(locked_approval, state),
          :ok <- exact_wait_record(locked_record, locked_approval, record.ref),
@@ -499,10 +498,7 @@ defmodule Ryker.Emisar.Approvals do
       Records.broadcast_record_updated(answered_record)
       %{approval: approval, episode: resumed.episode, record: answered_record, status: :resumed}
     else
-      nil -> Repo.rollback(:emisar_approval_not_found)
       {:error, reason} -> Repo.rollback(reason)
-      %Records.Record{} -> Repo.rollback(:emisar_approval_record_stale)
-      %Approval{} -> Repo.rollback(:emisar_approval_lease_lost)
     end
   end
 
@@ -552,11 +548,11 @@ defmodule Ryker.Emisar.Approvals do
       connection_ref
       |> Approval.Query.by_request(request_id)
       |> Approval.Query.lock_for_update()
-      |> Repo.one()
+      |> Repo.fetch()
 
     case locked do
-      %Approval{} = approval -> live_lease(approval, lease_ref, now)
-      nil -> {:error, :emisar_approval_not_found}
+      {:ok, %Approval{} = approval} -> live_lease(approval, lease_ref, now)
+      {:error, :not_found} -> {:error, :emisar_approval_not_found}
     end
   end
 
@@ -666,11 +662,20 @@ defmodule Ryker.Emisar.Approvals do
     "turn:emisar-approval:#{binary_part(digest, 0, 32)}"
   end
 
-  defp lock_record(id),
-    do: id |> Records.Record.Query.by_id() |> Records.Record.Query.lock_for_update() |> Repo.one()
+  defp lock_record(id) do
+    id
+    |> Records.Record.Query.by_id()
+    |> Records.Record.Query.lock_for_update()
+    |> approval_row()
+  end
 
   defp lock_approval(id),
-    do: id |> Approval.Query.by_id() |> Approval.Query.lock_for_update() |> Repo.one()
+    do: id |> Approval.Query.by_id() |> Approval.Query.lock_for_update() |> approval_row()
+
+  # Each row a finished approval resumes from must still be there.
+  defp approval_row(query) do
+    with {:error, :not_found} <- Repo.fetch(query), do: {:error, :emisar_approval_not_found}
+  end
 
   # A look that found the run as Emisar last described it, a claim and a
   # lease extension change nothing anyone sees, and a watch is looked at

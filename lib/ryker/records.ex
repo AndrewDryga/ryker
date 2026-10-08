@@ -413,15 +413,15 @@ defmodule Ryker.Records do
       wait_ref
       |> Record.Query.by_ref()
       |> Record.Query.open_or_question()
-      |> Repo.one()
+      |> Repo.fetch()
 
     case holder do
-      %{kind: "emisar_approval"} -> false
-      %{kind: "event_wait"} when input.actor.kind == :user -> true
-      %{kind: "event_wait", payload: payload} -> event_wait_matches?(payload, input)
-      %{kind: "input_request"} -> input.actor.kind == :user
-      nil -> true
-      _other_record -> false
+      {:ok, %{kind: "emisar_approval"}} -> false
+      {:ok, %{kind: "event_wait"}} when input.actor.kind == :user -> true
+      {:ok, %{kind: "event_wait", payload: payload}} -> event_wait_matches?(payload, input)
+      {:ok, %{kind: "input_request"}} -> input.actor.kind == :user
+      {:error, :not_found} -> true
+      {:ok, _other_record} -> false
     end
   end
 
@@ -458,40 +458,27 @@ defmodule Ryker.Records do
   end
 
   defp episode_id(turn_id) do
-    episode_id =
-      turn_id |> Work.Turn.Query.by_id() |> Work.Turn.Query.select_episode_ids() |> Repo.one()
-
-    case episode_id do
-      nil -> {:error, :state_record_unauthorized}
-      episode_id -> {:ok, episode_id}
-    end
+    query = turn_id |> Work.Turn.Query.by_id() |> Work.Turn.Query.select_episode_ids()
+    with {:error, :not_found} <- Repo.fetch(query), do: {:error, :state_record_unauthorized}
   end
 
   defp lock_episode(episode_id) do
-    episode =
+    locked =
       episode_id
       |> Episodes.Episode.Query.by_id()
       |> Episodes.Episode.Query.lock_for_update()
-      |> Repo.one()
 
-    case episode do
-      nil -> {:error, :state_record_unauthorized}
-      episode -> {:ok, episode}
-    end
+    with {:error, :not_found} <- Repo.fetch(locked), do: {:error, :state_record_unauthorized}
   end
 
   defp lock_turn(turn_id, episode_id) do
-    turn =
+    locked =
       turn_id
       |> Work.Turn.Query.by_id()
       |> Work.Turn.Query.by_episode_id(episode_id)
       |> Work.Turn.Query.lock_for_update()
-      |> Repo.one()
 
-    case turn do
-      nil -> {:error, :state_record_unauthorized}
-      turn -> {:ok, turn}
-    end
+    with {:error, :not_found} <- Repo.fetch(locked), do: {:error, :state_record_unauthorized}
   end
 
   defp authorize(
@@ -546,36 +533,33 @@ defmodule Ryker.Records do
       turn.id
       |> Record.Query.by_turn_id()
       |> Record.Query.by_operation_id(operation_id)
-      |> Repo.one()
+      |> Repo.fetch()
 
     case existing do
-      nil ->
-        case reusable_open_source_wait(
-               episode.id,
-               kind,
-               prepared.payload,
-               reuse_open_source_wait?
-             ) do
-          %Record{} = record ->
-            {:ok, record}
-
-          nil ->
-            insert_new_record(
-              episode,
-              turn,
-              operation_id,
-              kind,
-              ref,
-              prepared,
-              fingerprint,
-              parallel_goal_limit
-            )
+      {:error, :not_found} ->
+        with {:error, :not_found} <-
+               reusable_open_source_wait(
+                 episode.id,
+                 kind,
+                 prepared.payload,
+                 reuse_open_source_wait?
+               ) do
+          insert_new_record(
+            episode,
+            turn,
+            operation_id,
+            kind,
+            ref,
+            prepared,
+            fingerprint,
+            parallel_goal_limit
+          )
         end
 
-      %Record{kind: ^kind, payload_fingerprint: ^fingerprint} = record ->
+      {:ok, %Record{kind: ^kind, payload_fingerprint: ^fingerprint} = record} ->
         {:ok, record}
 
-      %Record{} ->
+      {:ok, %Record{}} ->
         {:error, :state_record_operation_conflict}
     end
   end
@@ -630,10 +614,10 @@ defmodule Ryker.Records do
     |> Record.Query.by_payload(payload)
     |> Record.Query.ordered_by_sequence()
     |> Record.Query.limit_to(1)
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
-  defp reusable_open_source_wait(_episode_id, _kind, _payload, _reuse?), do: nil
+  defp reusable_open_source_wait(_episode_id, _kind, _payload, _reuse?), do: {:error, :not_found}
 
   defp record_ref(turn_id, operation_id, kind) do
     digest =
@@ -1111,10 +1095,8 @@ defmodule Ryker.Records do
   @spec lock_offer(String.t(), [String.t()]) ::
           {:ok, Record.t(), Episodes.Episode.t(), Work.Turn.t()} | {:error, :not_found}
   def lock_offer(ref, kinds) do
-    case Repo.fetch(Record.Query.offer_with_origin(ref, kinds)) do
-      {:ok, {record, episode, turn}} -> {:ok, record, episode, turn}
-      {:error, :not_found} -> {:error, :not_found}
-    end
+    with {:ok, {record, episode, turn}} <- Repo.fetch(Record.Query.offer_with_origin(ref, kinds)),
+         do: {:ok, record, episode, turn}
   end
 
   @doc """

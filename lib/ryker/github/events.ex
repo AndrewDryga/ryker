@@ -151,8 +151,8 @@ defmodule Ryker.GitHub.Events do
   defp abandoned_before(now), do: DateTime.add(now, -@abandoned_seconds, :second)
 
   defp duplicate(binding_ref, delivery_ref, digest, now) do
-    case Repo.one(Event.Query.by_delivery(binding_ref, delivery_ref)) do
-      %Event{payload_digest: ^digest} = event ->
+    case Repo.fetch(Event.Query.by_delivery(binding_ref, delivery_ref)) do
+      {:ok, %Event{payload_digest: ^digest} = event} ->
         {_count, _rows} =
           event.id
           |> Event.Query.by_id()
@@ -161,10 +161,10 @@ defmodule Ryker.GitHub.Events do
         broadcast_delivery_updated(binding_ref)
         {:ok, :duplicate}
 
-      %Event{} ->
+      {:ok, %Event{}} ->
         {:error, :github_event_conflict}
 
-      nil ->
+      {:error, :not_found} ->
         {:error, :github_event_persistence_failed}
     end
   end

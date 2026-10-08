@@ -200,19 +200,19 @@ defmodule Ryker.Learning.LearningSources do
 
   def for_entry(entry) do
     identity = Observations.source_identity(entry)
-    source = Repo.one(ConversationObservation.Query.by_identity(identity))
+    source = Repo.fetch(ConversationObservation.Query.by_identity(identity))
 
     case source do
-      %{source_result_ref: "source-conflict:" <> _} ->
+      {:ok, %{source_result_ref: "source-conflict:" <> _}} ->
         nil
 
       # A forgotten message is never learned from again.
-      %{forgotten_at: %DateTime{}} ->
+      {:ok, %{forgotten_at: %DateTime{}}} ->
         nil
 
-      %{source_input_id: id, revision: revision}
+      {:ok, %{source_input_id: id, revision: revision} = observation}
       when id == entry.id and revision == entry.revision ->
-        [receipt(source)]
+        [receipt(observation)]
 
       _ ->
         nil
@@ -337,7 +337,7 @@ defmodule Ryker.Learning.LearningSources do
          _content
        ) do
     case get_uuid(&Publication.LifecycleEvent.Query.by_id/1, id) do
-      %Publication.LifecycleEvent{kind: :review_feedback, observation: observation} ->
+      {:ok, %Publication.LifecycleEvent{kind: :review_feedback, observation: observation}} ->
         fields = ~w(source native_input_id revision event_kind content)
         Map.take(observation, fields) == Map.take(document, fields)
 
@@ -353,8 +353,8 @@ defmodule Ryker.Learning.LearningSources do
     do: false
 
   defp source_payload_matches?(source, document, content) do
-    case Repo.one(Ingress.Inbox.Entry.Query.by_id(source.source_input_id)) do
-      %Ingress.Inbox.Entry{content: ^content, event_kind: kind} ->
+    case Repo.fetch(Ingress.Inbox.Entry.Query.by_id(source.source_input_id)) do
+      {:ok, %Ingress.Inbox.Entry{content: ^content, event_kind: kind}} ->
         Atom.to_string(kind) == document["event_kind"]
 
       _ ->
@@ -475,7 +475,7 @@ defmodule Ryker.Learning.LearningSources do
          %{"source_event_id" => id, "source_dependencies" => _sources} = document
        ) do
     case get_uuid(&Episodes.Event.Query.by_id/1, id) do
-      %Episodes.Event{kind: :input_admitted} = event ->
+      {:ok, %Episodes.Event{kind: :input_admitted} = event} ->
         exact_work_sources(document, event, for_work_input(event.payload["payload"]))
 
       _ ->
@@ -504,7 +504,7 @@ defmodule Ryker.Learning.LearningSources do
 
   def document_sources(%{"source_ref" => "observation:" <> id} = document) do
     case get_uuid(&ConversationObservation.Query.by_id/1, id) do
-      %{note: note, source_dependencies: sources} = source when is_map(note) ->
+      {:ok, %{note: note, source_dependencies: sources} = source} when is_map(note) ->
         # Navigation is a host projection, not the original's custody receipt.
         # Keep exact content/identity checks across reader availability changes.
         if Observations.original_document(source) ==
@@ -532,7 +532,7 @@ defmodule Ryker.Learning.LearningSources do
 
   def document_sources(%{"source_ref" => "continuity-rollup:" <> _} = document) do
     summary_sources(
-      Repo.one(Continuity.ConversationRollup.Query.by_ref(document["source_ref"])),
+      Repo.fetch(Continuity.ConversationRollup.Query.by_ref(document["source_ref"])),
       document
     )
   end
@@ -549,9 +549,11 @@ defmodule Ryker.Learning.LearningSources do
   end
 
   # The row `by_id` finds for `id`, or nil when there is none or `id` is no UUID.
-  defp get_uuid(by_id, id), do: if(Ecto.UUID.cast(id) == {:ok, id}, do: Repo.one(by_id.(id)))
+  defp get_uuid(by_id, id) do
+    if Ecto.UUID.cast(id) == {:ok, id}, do: Repo.fetch(by_id.(id)), else: {:error, :not_found}
+  end
 
-  defp summary_sources(%{state: state, source_dependencies: [_ | _] = sources}, %{
+  defp summary_sources({:ok, %{state: state, source_dependencies: [_ | _] = sources}}, %{
          "state" => state
        }),
        do: sources

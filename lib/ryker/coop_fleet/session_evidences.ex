@@ -66,18 +66,18 @@ defmodule Ryker.CoopFleet.SessionEvidences do
   defp unwrap!({:error, reason}), do: Repo.rollback(reason)
 
   defp insert_locked(session_id, evidence, worker_id, generation) do
-    case Repo.one(Work.Session.Query.by_id(session_id)) do
-      nil ->
+    case Repo.fetch(Work.Session.Query.by_id(session_id)) do
+      {:error, :not_found} ->
         {:error, :work_session_not_found}
 
-      %Work.Session{coop_session_id: remote} when remote != nil ->
+      {:ok, %Work.Session{coop_session_id: remote}} when remote != nil ->
         if remote == evidence["session_id"] do
           upsert(session_id, evidence, worker_id, generation)
         else
           {:error, {:coop_session_evidence_session_conflict, evidence["session_id"]}}
         end
 
-      %Work.Session{} ->
+      {:ok, %Work.Session{}} ->
         # An unbound local session has no remote identity to check the export
         # against, and binding it from the export would let a worker name the
         # session it is reporting on.

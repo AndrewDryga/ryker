@@ -260,9 +260,9 @@ defmodule Ryker.Feedback do
   end
 
   defp held(query) do
-    case Repo.one(query) do
-      nil -> {:error, :feedback_request_not_found}
-      _id -> :ok
+    case Repo.fetch(query) do
+      {:error, :not_found} -> {:error, :feedback_request_not_found}
+      {:ok, _id} -> :ok
     end
   end
 

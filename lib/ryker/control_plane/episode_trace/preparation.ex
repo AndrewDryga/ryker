@@ -919,11 +919,11 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
 
   defp linked_request(%Episodes.Episode{linked_episode_id: id}) do
     key =
-      id |> Episodes.Episode.Query.by_id() |> Episodes.Episode.Query.select_keys() |> Repo.one()
+      id |> Episodes.Episode.Query.by_id() |> Episodes.Episode.Query.select_keys() |> Repo.fetch()
 
     case key do
-      nil -> nil
-      key -> get_in(Activity.request_titles([key]), [key, :title])
+      {:error, :not_found} -> nil
+      {:ok, key} -> get_in(Activity.request_titles([key]), [key, :title])
     end
   end
 

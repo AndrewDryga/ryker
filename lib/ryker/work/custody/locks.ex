@@ -67,15 +67,15 @@ defmodule Ryker.Work.Custody.Locks do
       |> Turn.Query.lock_for_update()
       |> Turn.Query.select_with_lease_current()
 
-    case Repo.one(locked) do
-      nil ->
+    case Repo.fetch(locked) do
+      {:error, :not_found} ->
         {:error, :work_turn_not_found}
 
-      {%Turn{status: status, lease_ref: ^lease_ref} = turn, true}
+      {:ok, {%Turn{status: status, lease_ref: ^lease_ref} = turn, true}}
       when status in [:pending, :cancel_pending, :delivery_pending] ->
         {:ok, turn}
 
-      {%Turn{}, _current} ->
+      {:ok, {%Turn{}, _current}} ->
         {:error, :work_lease_lost}
     end
   end

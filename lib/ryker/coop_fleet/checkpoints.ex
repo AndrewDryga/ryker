@@ -8,14 +8,14 @@ defmodule Ryker.CoopFleet.Checkpoints do
   alias Ryker.Work
 
   defp producer_command(key, session_id) do
-    key
-    |> Command.Query.by_idempotency_key()
-    |> Command.Query.by_session_id(session_id)
-    |> Repo.one()
+    producer =
+      key |> Command.Query.by_idempotency_key() |> Command.Query.by_session_id(session_id)
+
+    with {:error, :not_found} <- Repo.fetch(producer), do: {:error, :checkpoint_not_available}
   end
 
   def capture(session_id, key, response, options) do
-    with %Command{} = producer <- producer_command(key, session_id),
+    with {:ok, producer} <- producer_command(key, session_id),
          %{"checkpoint" => checkpoint, "operation" => %{"id" => operation_id}} <- response,
          :ok <- producer_authority(producer, checkpoint, operation_id),
          {:ok, command} <-
@@ -140,23 +140,23 @@ defmodule Ryker.CoopFleet.Checkpoints do
         %Command{kind: "ensure_workspace", payload: %{"checkpoint" => saved}} = command,
         options
       ) do
-    with %WorkspaceCheckpointTransfer{} = transfer <-
-           Repo.one(WorkspaceCheckpointTransfer.Query.by_id(saved["transfer_id"])),
-         :ok <- restore_authority(command, transfer),
-         :ok <-
-           with_checkpoint(
-             transfer,
-             options,
-             &copy_checkpoint_to_request(command, transfer, &1, options)
-           ) do
-      :ok
-    else
-      nil -> {:error, :checkpoint_not_available}
-      error -> error
+    with {:ok, transfer} <- saved_transfer(saved),
+         :ok <- restore_authority(command, transfer) do
+      with_checkpoint(
+        transfer,
+        options,
+        &copy_checkpoint_to_request(command, transfer, &1, options)
+      )
     end
   end
 
   def prepare_restore(_command, _options), do: :ok
+
+  defp saved_transfer(saved) do
+    with {:error, :not_found} <-
+           Repo.fetch(WorkspaceCheckpointTransfer.Query.by_id(saved["transfer_id"])),
+         do: {:error, :checkpoint_not_available}
+  end
 
   defp copy_checkpoint_to_request(command, transfer, stream, options) do
     with {:ok, _} <-

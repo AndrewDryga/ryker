@@ -135,11 +135,11 @@ defmodule Ryker.Slack.ThreadStatuses do
   defp claim_next_locked(worker_ref, workspace_ref, lease_seconds) do
     now = Repo.now!()
 
-    next = workspace_ref |> ThreadStatus.Query.next_claimable(now) |> Repo.one()
+    next = workspace_ref |> ThreadStatus.Query.next_claimable(now) |> Repo.fetch()
 
     case next do
-      nil -> nil
-      %ThreadStatus{} = status -> lease!(status, worker_ref, lease_seconds, now)
+      {:error, :not_found} -> nil
+      {:ok, %ThreadStatus{} = status} -> lease!(status, worker_ref, lease_seconds, now)
     end
   end
 
@@ -231,13 +231,13 @@ defmodule Ryker.Slack.ThreadStatuses do
 
   defp rearm_locked(id) do
     locked =
-      id |> ThreadStatus.Query.by_id() |> ThreadStatus.Query.lock_for_update() |> Repo.one()
+      id |> ThreadStatus.Query.by_id() |> ThreadStatus.Query.lock_for_update() |> Repo.fetch()
 
     case locked do
-      nil ->
+      {:error, :not_found} ->
         Repo.rollback(:slack_thread_status_not_found)
 
-      %ThreadStatus{status: :blocked} = status ->
+      {:ok, %ThreadStatus{status: :blocked} = status} ->
         update!(status, %{
           attempt_count: 0,
           last_error_code: nil,
@@ -249,7 +249,7 @@ defmodule Ryker.Slack.ThreadStatuses do
           status: :pending
         })
 
-      %ThreadStatus{} ->
+      {:ok, %ThreadStatus{}} ->
         Repo.rollback(:slack_thread_status_not_blocked)
     end
   end

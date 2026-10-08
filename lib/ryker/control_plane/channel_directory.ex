@@ -160,8 +160,8 @@ defmodule Ryker.ControlPlane.ChannelDirectory do
 
   # How a channel takes part unless set otherwise: the installation's choice.
   defp default_participation do
-    case Repo.one(Settings.Slack.Query.select_default_participation()) do
-      {_workspace_ref, participation} when not is_nil(participation) -> participation
+    case Repo.fetch(Settings.Slack.Query.select_default_participation()) do
+      {:ok, {_workspace_ref, participation}} when not is_nil(participation) -> participation
       _unset -> :mentions
     end
   end

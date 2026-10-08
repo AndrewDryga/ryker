@@ -298,17 +298,17 @@ defmodule Ryker.Behaviors.StandingRules do
       StandingAssignmentRun.Query.by_assignment_id(assignment.id)
       |> StandingAssignmentRun.Query.by_source_input_ref(input_ref)
       |> StandingAssignmentRun.Query.lock_for_update()
-      |> Repo.one()
+      |> Repo.fetch()
 
     case existing do
-      %StandingAssignmentRun{source_event_ref: event_ref}
+      {:ok, %StandingAssignmentRun{source_event_ref: event_ref}}
       when event_ref == input.event_ref ->
         :ok
 
-      %StandingAssignmentRun{} ->
+      {:ok, %StandingAssignmentRun{}} ->
         Repo.rollback(:standing_assignment_run_conflict)
 
-      nil ->
+      {:error, :not_found} ->
         digest = CanonicalJSON.digest([assignment.id, input_ref])
 
         case Repo.insert(

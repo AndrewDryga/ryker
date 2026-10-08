@@ -1053,11 +1053,11 @@ defmodule Ryker.Admission do
       |> Episodes.Event.Query.wait_marks(episode.owner_ref)
       |> Episodes.Event.Query.ordered_by_sequence_desc()
       |> Episodes.Event.Query.limit_to(1)
-      |> Repo.one()
+      |> Repo.fetch()
 
     case wait_mark do
-      nil -> false
-      event -> DateTime.compare(occurred_at, event.occurred_at) == :gt
+      {:error, :not_found} -> false
+      {:ok, event} -> DateTime.compare(occurred_at, event.occurred_at) == :gt
     end
   end
 

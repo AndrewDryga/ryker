@@ -154,16 +154,19 @@ defmodule Ryker.Publication.FixLoop do
   """
   @spec lock_task_in_transaction(String.t()) :: :ok | {:error, term()}
   def lock_task_in_transaction(publication_ref) do
-    with %Publication{status: :review_ready, episode_id: episode_id} <-
-           Repo.one(Publication.Query.by_ref(publication_ref)),
-         %Episodes.Episode{} = episode <- Repo.one(Episodes.Episode.Query.by_id(episode_id)),
-         :ok <- Episodes.ConversationLock.lock_many(Repo, [destination(episode)]),
-         {:ok, _episode} <- Episodes.lock_current_in_transaction(episode.key) do
-      :ok
+    with {:ok, %Publication{status: :review_ready, episode_id: episode_id}} <-
+           Repo.fetch(Publication.Query.by_ref(publication_ref)),
+         {:ok, episode} <- Repo.fetch(Episodes.Episode.Query.by_id(episode_id)) do
+      lock_task(episode)
     else
-      {:error, reason} -> {:error, reason}
       _nothing_to_start -> :ok
     end
+  end
+
+  defp lock_task(episode) do
+    with :ok <- Episodes.ConversationLock.lock_many(Repo, [destination(episode)]),
+         {:ok, _episode} <- Episodes.lock_current_in_transaction(episode.key),
+         do: :ok
   end
 
   @doc """

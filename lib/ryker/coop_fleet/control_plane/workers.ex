@@ -33,10 +33,10 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
     certificate_sha256 = Crypto.sha256_hex(certificate)
 
     case active_certificate_worker(certificate_sha256) do
-      nil ->
+      {:error, :not_found} ->
         {:error, :coop_worker_certificate_not_authorized}
 
-      worker_id ->
+      {:ok, worker_id} ->
         handle_poll(worker_id, certificate_sha256, document, options)
     end
   end
@@ -50,8 +50,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
     certificate_sha256 = Crypto.sha256_hex(certificate)
 
     case active_certificate_worker(certificate_sha256) do
-      worker_id when is_binary(worker_id) -> {:ok, worker_id}
-      nil -> {:error, :coop_worker_certificate_not_authorized}
+      {:ok, worker_id} when is_binary(worker_id) -> {:ok, worker_id}
+      {:error, :not_found} -> {:error, :coop_worker_certificate_not_authorized}
     end
   end
 
@@ -218,7 +218,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Workers do
   end
 
   defp active_certificate_worker(certificate_sha256) do
-    Repo.one(Certificate.Query.active_worker_id(certificate_sha256))
+    Repo.fetch(Certificate.Query.active_worker_id(certificate_sha256))
   end
 
   defp active_certificate_for_worker?(certificate_sha256, worker_id) do

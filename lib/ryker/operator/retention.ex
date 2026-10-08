@@ -85,15 +85,15 @@ defmodule Ryker.Operator.Retention do
       |> RetentionAction.Query.by_action_ref()
       |> RetentionAction.Query.lock_for_update()
 
-    case Repo.one(locked) do
-      %RetentionAction{request_fingerprint: ^fingerprint} = entry ->
+    case Repo.fetch(locked) do
+      {:ok, %RetentionAction{request_fingerprint: ^fingerprint} = entry} ->
         session = Repo.one!(Work.Session.Query.by_id(entry.session_id))
         %{action: entry, outcome: :duplicate, session: session}
 
-      %RetentionAction{} ->
+      {:ok, %RetentionAction{}} ->
         Repo.rollback(:retention_operator_action_conflict)
 
-      nil ->
+      {:error, :not_found} ->
         session =
           session_ref
           |> Work.Session.Query.by_external_ref()

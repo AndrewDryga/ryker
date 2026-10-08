@@ -37,13 +37,14 @@ defmodule Ryker.CoopFleet.PublicationGrants do
   def publication_grant_authority(certificate, job_ref, request) when is_map(request) do
     with true <- is_binary(request["command_key"]),
          {:ok, worker_id} <- ControlPlane.authenticate_certificate(certificate),
-         %Command{} = command <-
-           Repo.one(Command.Query.by_idempotency_key(request["command_key"])),
+         {:ok, %Command{} = command} <-
+           Repo.fetch(Command.Query.by_idempotency_key(request["command_key"])),
          true <- is_binary(command.placement_id),
-         %Placement{worker_id: ^worker_id, state: :active} = placement <-
-           Repo.one(Placement.Query.by_id(command.placement_id)),
+         {:ok, %Placement{worker_id: ^worker_id, state: :active} = placement} <-
+           Repo.fetch(Placement.Query.by_id(command.placement_id)),
          :ok <- live_placement(placement),
-         %Work.Session{} = session <- Repo.one(Work.Session.Query.by_id(placement.session_id)),
+         {:ok, %Work.Session{} = session} <-
+           Repo.fetch(Work.Session.Query.by_id(placement.session_id)),
          {:ok, snapshot} <- settings() do
       authorize(request, job_ref, session, placement, command, snapshot)
     else

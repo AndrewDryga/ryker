@@ -102,7 +102,7 @@ defmodule Ryker.Ingress.Inbox do
   @spec fetch(String.t()) :: {:ok, Entry.t()} | :error
   def fetch(@ref_prefix <> id) do
     with {:ok, id} <- Ecto.UUID.cast(id),
-         %Entry{} = entry <- Repo.one(Entry.Query.by_id(id)) do
+         {:ok, %Entry{} = entry} <- Repo.fetch(Entry.Query.by_id(id)) do
       {:ok, entry}
     else
       _other -> :error
@@ -308,10 +308,10 @@ defmodule Ryker.Ingress.Inbox do
 
   defp transcribed_locked(id, results) do
     case lock_entry(id) do
-      nil ->
+      {:error, :not_found} ->
         Repo.rollback({:ingress_transcript_failed, :input_not_found})
 
-      %Entry{status: :pending, awaiting_transcript_until: %DateTime{}} = entry ->
+      {:ok, %Entry{status: :pending, awaiting_transcript_until: %DateTime{}} = entry} ->
         content =
           Transcription.settle(
             entry.content,
@@ -324,7 +324,7 @@ defmodule Ryker.Ingress.Inbox do
 
         :transcribed
 
-      %Entry{} ->
+      {:ok, %Entry{}} ->
         :released
     end
   end
@@ -444,14 +444,14 @@ defmodule Ryker.Ingress.Inbox do
   end
 
   defp lock_entry(id),
-    do: id |> Entry.Query.by_id() |> Entry.Query.lock_for_update() |> Repo.one()
+    do: id |> Entry.Query.by_id() |> Entry.Query.lock_for_update() |> Repo.fetch()
 
   defp renew_locked(id, lease_ref, now, lease_seconds) do
     case lock_entry(id) do
-      nil ->
+      {:error, :not_found} ->
         Repo.rollback({:ingress_renew_failed, :input_not_found})
 
-      %Entry{status: :pending, lease_ref: ^lease_ref} = entry ->
+      {:ok, %Entry{status: :pending, lease_ref: ^lease_ref} = entry} ->
         lease_expires_at = Lease.renewed(entry.lease_expires_at, now, lease_seconds)
         changeset = Entry.Changeset.renew(entry, lease_expires_at)
 
@@ -463,20 +463,20 @@ defmodule Ryker.Ingress.Inbox do
             Repo.rollback({:persistence_failed, :ingress_renew, changeset.errors})
         end
 
-      %Entry{} ->
+      {:ok, %Entry{}} ->
         Repo.rollback({:ingress_renew_failed, :lease_lost})
     end
   end
 
   defp defer_locked(id, lease_ref, now, delay_ms, error_code, error_detail, generation) do
     case lock_entry(id) do
-      nil ->
+      {:error, :not_found} ->
         Repo.rollback({:ingress_retry_failed, :input_not_found})
 
-      %Entry{status: status} = entry when status in [:decided, :superseded] ->
+      {:ok, %Entry{status: status} = entry} when status in [:decided, :superseded] ->
         entry
 
-      %Entry{lease_ref: ^lease_ref} = entry ->
+      {:ok, %Entry{lease_ref: ^lease_ref} = entry} ->
         {execution_generation, validation_generation} =
           next_generations(entry, generation)
 
@@ -512,7 +512,7 @@ defmodule Ryker.Ingress.Inbox do
             Repo.rollback({:persistence_failed, :ingress_retry, changeset.errors})
         end
 
-      %Entry{} ->
+      {:ok, %Entry{}} ->
         Repo.rollback({:ingress_retry_failed, :lease_lost})
     end
   end
@@ -537,10 +537,10 @@ defmodule Ryker.Ingress.Inbox do
 
   defp bind_context_locked(id, lease_ref, context, fingerprint) do
     case lock_entry(id) do
-      nil ->
+      {:error, :not_found} ->
         Repo.rollback({:admission_context_failed, :input_not_found})
 
-      %Entry{status: :pending, lease_ref: ^lease_ref, admission_context: nil} = entry ->
+      {:ok, %Entry{status: :pending, lease_ref: ^lease_ref, admission_context: nil} = entry} ->
         changeset = Entry.Changeset.bind_context(entry, context, fingerprint)
 
         case Repo.update(changeset) do
@@ -552,17 +552,18 @@ defmodule Ryker.Ingress.Inbox do
             Repo.rollback({:persistence_failed, :admission_context, changeset.errors})
         end
 
-      %Entry{
-        status: :pending,
-        lease_ref: ^lease_ref,
-        admission_context_fingerprint: ^fingerprint
-      } = entry ->
+      {:ok,
+       %Entry{
+         status: :pending,
+         lease_ref: ^lease_ref,
+         admission_context_fingerprint: ^fingerprint
+       } = entry} ->
         entry
 
-      %Entry{status: :pending, lease_ref: ^lease_ref} ->
+      {:ok, %Entry{status: :pending, lease_ref: ^lease_ref}} ->
         Repo.rollback({:admission_context_failed, :snapshot_conflict})
 
-      %Entry{} ->
+      {:ok, %Entry{}} ->
         Repo.rollback({:admission_context_failed, :lease_lost})
     end
   end
@@ -576,13 +577,13 @@ defmodule Ryker.Ingress.Inbox do
 
   defp block_locked(id, lease_ref, error_code, error_detail, generation) do
     case lock_entry(id) do
-      nil ->
+      {:error, :not_found} ->
         Repo.rollback({:ingress_block_failed, :input_not_found})
 
-      %Entry{status: status} = entry when status in [:blocked, :decided, :superseded] ->
+      {:ok, %Entry{status: status} = entry} when status in [:blocked, :decided, :superseded] ->
         entry
 
-      %Entry{status: :pending, lease_ref: ^lease_ref} = entry ->
+      {:ok, %Entry{status: :pending, lease_ref: ^lease_ref} = entry} ->
         {execution_generation, validation_generation} = next_generations(entry, generation)
 
         attributes =
@@ -615,17 +616,17 @@ defmodule Ryker.Ingress.Inbox do
             Repo.rollback({:persistence_failed, :ingress_block, changeset.errors})
         end
 
-      %Entry{} ->
+      {:ok, %Entry{}} ->
         Repo.rollback({:ingress_block_failed, :lease_lost})
     end
   end
 
   defp rearm_locked(id) do
     case lock_entry(id) do
-      nil ->
+      {:error, :not_found} ->
         Repo.rollback({:ingress_rearm_failed, :input_not_found})
 
-      %Entry{status: :blocked} = entry ->
+      {:ok, %Entry{status: :blocked} = entry} ->
         changeset = Entry.Changeset.rearm(entry)
 
         case Repo.update(changeset) do
@@ -637,7 +638,7 @@ defmodule Ryker.Ingress.Inbox do
             Repo.rollback({:persistence_failed, :ingress_rearm, changeset.errors})
         end
 
-      %Entry{} ->
+      {:ok, %Entry{}} ->
         Repo.rollback({:ingress_rearm_failed, :input_not_blocked})
     end
   end
@@ -719,15 +720,15 @@ defmodule Ryker.Ingress.Inbox do
   # makes a later event for a revision already recorded the same input.
   defp admit(input, nil, %{one_input_per_revision: true} = settings) do
     case same_revision(input) do
-      %Entry{} = entry -> {:ok, %{entry: entry, status: :duplicate}}
-      nil -> reconcile_record(input, nil, settings)
+      {:ok, %Entry{} = entry} -> {:ok, %{entry: entry, status: :duplicate}}
+      {:error, :not_found} -> reconcile_record(input, nil, settings)
     end
   end
 
   defp admit(input, entry, settings), do: reconcile_record(input, entry, settings)
 
   defp same_revision(input) do
-    input |> Entry.Query.same_revision() |> Entry.Query.lock_for_update() |> Repo.one()
+    input |> Entry.Query.same_revision() |> Entry.Query.lock_for_update() |> Repo.fetch()
   end
 
   defp reconcile_record(input, nil, %{revision_ties: :exact} = settings),
@@ -1109,11 +1110,11 @@ defmodule Ryker.Ingress.Inbox do
   def broadcast_input_updated(input_id) when is_binary(input_id) do
     Repo.after_commit(fn ->
       fields =
-        input_id |> Entry.Query.by_id() |> Entry.Query.select_broadcast_fields() |> Repo.one()
+        input_id |> Entry.Query.by_id() |> Entry.Query.select_broadcast_fields() |> Repo.fetch()
 
       case fields do
-        %Entry{} = entry -> broadcast_input_updated(entry)
-        nil -> broadcast_committed_input(input_id)
+        {:ok, %Entry{} = entry} -> broadcast_input_updated(entry)
+        {:error, :not_found} -> broadcast_committed_input(input_id)
       end
     end)
   end

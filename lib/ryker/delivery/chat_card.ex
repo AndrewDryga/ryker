@@ -636,24 +636,24 @@ defmodule Ryker.Delivery.ChatCard do
   end
 
   defp confirmed_outcome(%Records.Record{kind: "schedule_offer", id: id}) do
-    case Repo.one(Schedules.Schedule.Query.by_offer_record_id(id)) do
-      %Schedules.Schedule{} = schedule -> schedule_outcome(schedule)
-      nil -> nil
+    case Repo.fetch(Schedules.Schedule.Query.by_offer_record_id(id)) do
+      {:ok, %Schedules.Schedule{} = schedule} -> schedule_outcome(schedule)
+      {:error, :not_found} -> nil
     end
   end
 
   defp confirmed_outcome(%Records.Record{kind: "memory_offer", id: id}) do
-    case Repo.one(Memories.MemoryEntry.Query.by_offer_record_id(id)) do
-      %Memories.MemoryEntry{} = memory -> memory_outcome(memory)
-      nil -> nil
+    case Repo.fetch(Memories.MemoryEntry.Query.by_offer_record_id(id)) do
+      {:ok, %Memories.MemoryEntry{} = memory} -> memory_outcome(memory)
+      {:error, :not_found} -> nil
     end
   end
 
   defp confirmed_outcome(%Records.Record{kind: kind, id: id})
        when kind in ~w(preference_offer guidance_offer standing_assignment_offer) do
-    case Repo.one(Behaviors.Behavior.Query.by_offer_record_id(id)) do
-      %Behaviors.Behavior{} = behavior -> behavior_outcome(behavior)
-      nil -> nil
+    case Repo.fetch(Behaviors.Behavior.Query.by_offer_record_id(id)) do
+      {:ok, %Behaviors.Behavior{} = behavior} -> behavior_outcome(behavior)
+      {:error, :not_found} -> nil
     end
   end
 

@@ -241,26 +241,26 @@ defmodule Ryker.Slack.WorkControls do
   # snapshot is safe. Custody re-decides both; this is the card's own fence.
   defp approvable_publication(episode_id, publication_ref) do
     case episode_publication(episode_id, publication_ref) do
-      %Publication.Publication{status: :reviewed} = publication ->
+      {:ok, %Publication.Publication{status: :reviewed} = publication} ->
         {:ok, publication}
 
-      %Publication.Publication{status: :blocked} = publication ->
+      {:ok, %Publication.Publication{status: :blocked} = publication} ->
         if Publication.Review.draft_shareable?(publication.review_document),
           do: {:ok, publication},
           else: {:error, :task_publication_not_ready}
 
-      %Publication.Publication{} ->
+      {:ok, %Publication.Publication{}} ->
         {:error, :task_publication_not_ready}
 
-      nil ->
+      {:error, :not_found} ->
         {:error, :task_publication_mismatch}
     end
   end
 
   defp publication(episode_id, publication_ref) do
     case episode_publication(episode_id, publication_ref) do
-      %Publication.Publication{} = publication -> {:ok, publication}
-      nil -> {:error, :task_publication_mismatch}
+      {:ok, %Publication.Publication{} = publication} -> {:ok, publication}
+      {:error, :not_found} -> {:error, :task_publication_mismatch}
     end
   end
 
@@ -268,7 +268,7 @@ defmodule Ryker.Slack.WorkControls do
     episode_id
     |> Publication.Publication.Query.by_episode_id()
     |> Publication.Publication.Query.by_ref(publication_ref)
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   defp publication_review_target(%Publication.Publication{review_delivery_receipt: receipt})

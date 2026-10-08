@@ -144,12 +144,12 @@ defmodule Ryker.Memories do
   defp answer_confirmation(binding, record_ref) do
     record_ref
     |> Records.Record.Query.answered_question(binding.episode.id)
-    |> Repo.one()
+    |> Repo.fetch()
     |> answered()
   end
 
-  defp answered({record, response, entry}), do: {:ok, record, response, entry}
-  defp answered(nil), do: {:error, :answer_memory_question_not_found}
+  defp answered({:ok, {record, response, entry}}), do: {:ok, record, response, entry}
+  defp answered({:error, :not_found}), do: {:error, :answer_memory_question_not_found}
 
   # A newer revision that took the answer's words back; a link preview
   # arriving as an edit kept the answer from being saved (2026-10-04 review).
@@ -224,14 +224,14 @@ defmodule Ryker.Memories do
   defp save_answer(record, response, entry, intent, value) do
     confirmation_ref = "answer:#{response.id}"
 
-    case Repo.one(MemoryEntry.Query.by_confirmation_ref(confirmation_ref)) do
-      nil ->
+    case Repo.fetch(MemoryEntry.Query.by_confirmation_ref(confirmation_ref)) do
+      {:error, :not_found} ->
         insert_answer(record, response, entry, intent, value, confirmation_ref)
 
-      %MemoryEntry{status: :active, payload: %{"value" => ^value}} = memory ->
+      {:ok, %MemoryEntry{status: :active, payload: %{"value" => ^value}} = memory} ->
         %{memory: memory, status: :duplicate}
 
-      _ ->
+      {:ok, _} ->
         Repo.rollback(:answer_memory_conflict)
     end
   end
@@ -311,8 +311,8 @@ defmodule Ryker.Memories do
     end
   end
 
-  defp forget_found(nil), do: Repo.rollback(:memory_not_found)
-  defp forget_found(%MemoryEntry{} = entry), do: forget_locked(entry)
+  defp forget_found({:error, :not_found}), do: Repo.rollback(:memory_not_found)
+  defp forget_found({:ok, entry}), do: forget_locked(entry)
 
   @doc "Forgets shared App Home memory without granting access to channel-only entries."
   @spec forget_home(String.t(), String.t(), String.t()) ::
@@ -347,17 +347,17 @@ defmodule Ryker.Memories do
   end
 
   defp lock_memory(ref),
-    do: ref |> MemoryEntry.Query.by_ref() |> MemoryEntry.Query.lock_for_update() |> Repo.one()
+    do: ref |> MemoryEntry.Query.by_ref() |> MemoryEntry.Query.lock_for_update() |> Repo.fetch()
 
   defp forget_home_locked(ref, actor_ref, workspace_ref, conversation_ref \\ nil) do
     case lock_memory(ref) do
-      nil ->
+      {:error, :not_found} ->
         Repo.rollback(:memory_not_found)
 
-      %MemoryEntry{workspace_ref: actual} when actual != workspace_ref ->
+      {:ok, %MemoryEntry{workspace_ref: actual}} when actual != workspace_ref ->
         Repo.rollback(:memory_workspace_mismatch)
 
-      %MemoryEntry{} = entry ->
+      {:ok, %MemoryEntry{} = entry} ->
         forget_home_visible(entry, actor_ref, conversation_ref)
     end
   end
@@ -422,14 +422,14 @@ defmodule Ryker.Memories do
            ),
          :ok <- authorize_wide_offer(record, episode),
          :ok <- check_delivery(episode, turn, attributes.target) do
-      case Repo.one(MemoryEntry.Query.by_offer_record_id(record.id)) do
-        %MemoryEntry{} = entry ->
+      case Repo.fetch(MemoryEntry.Query.by_offer_record_id(record.id)) do
+        {:ok, %MemoryEntry{} = entry} ->
           %{memory: entry, status: :duplicate}
 
-        nil when record.status == :open ->
+        {:error, :not_found} when record.status == :open ->
           create_memory(record, episode, attributes)
 
-        nil ->
+        {:error, :not_found} ->
           Repo.rollback(:memory_offer_stale)
       end
     else

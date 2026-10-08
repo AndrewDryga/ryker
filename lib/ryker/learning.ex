@@ -1447,7 +1447,7 @@ defmodule Ryker.Learning do
 
   defp fetch_run!(id) do
     with {:ok, ^id} <- Ecto.UUID.cast(id),
-         %LearningRun{} = run <- Repo.one(LearningRun.Query.by_id(id)) do
+         {:ok, %LearningRun{} = run} <- Repo.fetch(LearningRun.Query.by_id(id)) do
       # Prepare and acceptance share batch -> row lock order. Taking the row
       # first deadlocks with a concurrent retry preparing the same batch.
       lock_batch(run.batch_key)

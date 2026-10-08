@@ -46,13 +46,13 @@ defmodule Ryker.Credentials do
   @spec fetch(kind(), String.t()) :: {:ok, binary()} | {:error, term()}
   def fetch(kind, name) do
     with :ok <- validate_identity(kind, name),
-         %Credential{} = credential <- Repo.one(Credential.Query.by_identity(kind, name)),
-         {:ok, plaintext} <- open(root_key(), credential) do
-      {:ok, plaintext}
-    else
-      nil -> {:error, :credential_missing}
-      {:error, reason} -> {:error, reason}
-    end
+         {:ok, credential} <- stored(kind, name),
+         do: open(root_key(), credential)
+  end
+
+  defp stored(kind, name) do
+    with {:error, :not_found} <- Repo.fetch(Credential.Query.by_identity(kind, name)),
+         do: {:error, :credential_missing}
   end
 
   @doc """
@@ -71,9 +71,9 @@ defmodule Ryker.Credentials do
   def status(kind, name) do
     case validate_identity(kind, name) do
       :ok ->
-        case Repo.one(Credential.Query.by_identity(kind, name)) do
-          nil -> %{kind: kind, name: name, status: :missing}
-          %Credential{} = credential -> metadata(credential)
+        case Repo.fetch(Credential.Query.by_identity(kind, name)) do
+          {:error, :not_found} -> %{kind: kind, name: name, status: :missing}
+          {:ok, %Credential{} = credential} -> metadata(credential)
         end
 
       {:error, _reason} ->
@@ -177,8 +177,8 @@ defmodule Ryker.Credentials do
     unverified =
       Map.merge(sealed, %{verification_status: :unverified, verified_at: nil, updated_at: now})
 
-    case Repo.one(Credential.Query.by_identity(kind, name)) do
-      nil ->
+    case Repo.fetch(Credential.Query.by_identity(kind, name)) do
+      {:error, :not_found} ->
         credential =
           %Credential{
             id: Repo.generate_id(),
@@ -193,7 +193,7 @@ defmodule Ryker.Credentials do
         broadcast_credentials_changed(kind, name)
         metadata(credential)
 
-      %Credential{} = credential ->
+      {:ok, %Credential{} = credential} ->
         credential =
           credential
           |> Ecto.Changeset.change(unverified)
@@ -208,11 +208,11 @@ defmodule Ryker.Credentials do
   defp verify_locked(kind, name, verification_status, actor_ref) do
     lock!(kind, name)
 
-    case Repo.one(Credential.Query.by_identity(kind, name)) do
-      nil ->
+    case Repo.fetch(Credential.Query.by_identity(kind, name)) do
+      {:error, :not_found} ->
         Repo.rollback(:credential_missing)
 
-      %Credential{} = credential ->
+      {:ok, %Credential{} = credential} ->
         now = Repo.now!()
 
         credential =
@@ -234,11 +234,11 @@ defmodule Ryker.Credentials do
   defp delete_locked(kind, name, actor_ref) do
     lock!(kind, name)
 
-    case Repo.one(Credential.Query.by_identity(kind, name)) do
-      nil ->
+    case Repo.fetch(Credential.Query.by_identity(kind, name)) do
+      {:error, :not_found} ->
         :ok
 
-      %Credential{} = credential ->
+      {:ok, %Credential{} = credential} ->
         now = Repo.now!()
         event!(credential, :deleted, actor_ref, now)
         Repo.delete!(credential)

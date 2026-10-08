@@ -53,8 +53,8 @@ defmodule Ryker.Behaviors.Automations do
   def fetch_for_episode(%Episodes.Episode{} = episode, automation_id)
       when is_binary(automation_id) do
     case visible_schedule(episode, automation_id) do
-      %Schedules.Schedule{} = schedule -> {:ok, schedule}
-      nil -> visible_behavior_result(episode, automation_id)
+      {:ok, %Schedules.Schedule{} = schedule} -> {:ok, schedule}
+      {:error, :not_found} -> visible_behavior_result(episode, automation_id)
     end
   end
 
@@ -514,33 +514,26 @@ defmodule Ryker.Behaviors.Automations do
   end
 
   defp lock_visible_automation(episode, automation_id) do
-    schedule =
+    locked =
       episode
       |> visible_schedule_query(automation_id)
       |> Schedules.Schedule.Query.lock_for_update()
-      |> Repo.one()
 
-    case schedule do
-      %Schedules.Schedule{} = schedule -> {:ok, schedule}
-      nil -> lock_visible_behavior(episode, automation_id)
-    end
+    with {:error, :not_found} <- Repo.fetch(locked),
+         do: lock_visible_behavior(episode, automation_id)
   end
 
   defp lock_visible_behavior(episode, automation_id) do
-    behavior =
+    locked =
       episode
       |> visible_behavior_query(automation_id)
       |> Behavior.Query.lock_for_update()
-      |> Repo.one()
 
-    case behavior do
-      %Behavior{} = behavior -> {:ok, behavior}
-      nil -> :error
-    end
+    with {:error, :not_found} <- Repo.fetch(locked), do: :error
   end
 
   defp visible_schedule(episode, automation_id),
-    do: Repo.one(visible_schedule_query(episode, automation_id))
+    do: Repo.fetch(visible_schedule_query(episode, automation_id))
 
   # One automation is found exactly where the list finds it: a deleted one is
   # gone from both, so it can be neither read nor changed.
@@ -555,10 +548,8 @@ defmodule Ryker.Behaviors.Automations do
   end
 
   defp visible_behavior_result(episode, automation_id) do
-    case Repo.one(visible_behavior_query(episode, automation_id)) do
-      %Behavior{} = behavior -> {:ok, behavior}
-      nil -> :error
-    end
+    with {:error, :not_found} <- Repo.fetch(visible_behavior_query(episode, automation_id)),
+         do: :error
   end
 
   defp visible_behavior_query(episode, automation_id) do

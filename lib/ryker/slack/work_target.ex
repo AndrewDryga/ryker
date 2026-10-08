@@ -23,10 +23,10 @@ defmodule Ryker.Slack.WorkTarget do
 
   defp task(work_ref) do
     found =
-      work_ref |> TaskCard.Query.by_ref() |> TaskCard.Query.select_with_episode() |> Repo.one()
+      work_ref |> TaskCard.Query.by_ref() |> TaskCard.Query.select_with_episode() |> Repo.fetch()
 
     case found do
-      {%TaskCard{} = card, %Episodes.Episode{} = episode} ->
+      {:ok, {%TaskCard{} = card, %Episodes.Episode{} = episode}} ->
         {:ok,
          %{
            card_message_ref: card.message_ref,
@@ -38,7 +38,7 @@ defmodule Ryker.Slack.WorkTarget do
            workspace_ref: card.workspace_ref
          }}
 
-      nil ->
+      {:error, :not_found} ->
         {:error, :work_control_not_found}
     end
   end
@@ -48,10 +48,10 @@ defmodule Ryker.Slack.WorkTarget do
       work_ref
       |> IncidentRoom.Query.by_ref()
       |> IncidentRoom.Query.select_with_episode()
-      |> Repo.one()
+      |> Repo.fetch()
 
     case found do
-      {%IncidentRoom{} = room, %Episodes.Episode{} = episode} ->
+      {:ok, {%IncidentRoom{} = room, %Episodes.Episode{} = episode}} ->
         {:ok,
          %{
            card_message_ref: room.root_message_ref,
@@ -63,7 +63,7 @@ defmodule Ryker.Slack.WorkTarget do
            workspace_ref: room.workspace_ref
          }}
 
-      nil ->
+      {:error, :not_found} ->
         {:error, :work_control_not_found}
     end
   end

@@ -102,27 +102,28 @@ defmodule Ryker.Admission.ReadySessions do
       |> Work.Session.Query.by_admission_input_id_and_generation(entry.execution_generation)
       |> Work.Session.Query.lock_for_update()
 
-    case Repo.one(generation) do
-      %Work.Session{ready_state: :claimed, policy: ^policy, policy_digest: ^digest} = session ->
+    case Repo.fetch(generation) do
+      {:ok,
+       %Work.Session{ready_state: :claimed, policy: ^policy, policy_digest: ^digest} = session} ->
         {session, :resumed}
 
-      %Work.Session{ready_state: :claimed} ->
+      {:ok, %Work.Session{ready_state: :claimed}} ->
         Repo.rollback(:admission_fleet_authority_conflict)
 
-      %Work.Session{} ->
+      {:ok, %Work.Session{}} ->
         :none
 
-      nil ->
+      {:error, :not_found} ->
         take_ready(entry, policy, digest)
     end
   end
 
   defp take_ready(entry, policy, digest) do
-    case Repo.one(ready_query(policy, digest)) do
-      nil ->
+    case Repo.fetch(ready_query(policy, digest)) do
+      {:error, :not_found} ->
         :none
 
-      %Work.Session{} = session ->
+      {:ok, %Work.Session{} = session} ->
         session
         |> Work.Session.Changeset.claim_ready(entry.id, entry.execution_generation, Repo.now!())
         |> Repo.update()

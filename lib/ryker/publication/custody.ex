@@ -56,8 +56,9 @@ defmodule Ryker.Publication.Custody do
       )
       when is_binary(repository) and is_binary(session.coop_session_id) do
     case confirmed_task_readiness(episode, turn, task_ref) do
-      {%Records.Record{} = offer, %Records.Record{} = task,
-       %Work.Turn{external_receipt: %{"message_ref" => message} = receipt}} ->
+      {:ok,
+       {%Records.Record{} = offer, %Records.Record{} = task,
+        %Work.Turn{external_receipt: %{"message_ref" => message} = receipt}}} ->
         # The original task confirmation authorizes its checks, not publication.
         # Retain that actor, source message and source thread; no new button
         # receipt is invented, and the checks report where the task was started.
@@ -72,15 +73,15 @@ defmodule Ryker.Publication.Custody do
         # including its pull request and recovery history. Re-arm that one for a
         # fresh review; never open a second draft workflow for the same task.
         case episode_publication(episode.id) do
-          nil ->
+          {:error, :not_found} ->
             _request = insert_review_request(offer, episode, session, repository, attributes)
             :ok
 
-          %Publication{} = publication ->
+          {:ok, %Publication{} = publication} ->
             rearm_task_review(publication, session, turn, repository, attributes)
         end
 
-      nil ->
+      {:error, :not_found} ->
         :ok
     end
   end
@@ -88,7 +89,7 @@ defmodule Ryker.Publication.Custody do
   def ensure_task_review_in_transaction(_episode, _session, _turn), do: :ok
 
   defp confirmed_task_readiness(episode, turn, task_ref),
-    do: Repo.one(Records.Record.Query.task_readiness(episode.id, turn.id, task_ref))
+    do: Repo.fetch(Records.Record.Query.task_readiness(episode.id, turn.id, task_ref))
 
   defp episode_publication(episode_id) do
     episode_id
@@ -96,7 +97,7 @@ defmodule Ryker.Publication.Custody do
     |> Publication.Query.ordered_by_recent()
     |> Publication.Query.limit_to(1)
     |> Publication.Query.lock_for_update()
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   # A corrected candidate is the same task's work, so it belongs on the pull
@@ -184,7 +185,7 @@ defmodule Ryker.Publication.Custody do
          %Work.Turn{} = turn
        ) do
     with {:ok, armed_id} <- Ecto.UUID.cast(armed_id),
-         %Work.Turn{} = armed <- Repo.one(Work.Turn.Query.by_id(armed_id)),
+         {:ok, %Work.Turn{} = armed} <- Repo.fetch(Work.Turn.Query.by_id(armed_id)),
          %{} = published <- checkpointed_candidate(armed) do
       published == checkpointed_candidate(turn)
     else
@@ -494,10 +495,10 @@ defmodule Ryker.Publication.Custody do
 
   defp recover_locked(publication_ref, action, expected_generation) do
     case lock_publication(publication_ref) do
-      nil ->
+      {:error, :not_found} ->
         Repo.rollback(:publication_not_found)
 
-      publication ->
+      {:ok, publication} ->
         now = Repo.now!()
 
         with :ok <- recovery_generation(publication, expected_generation),
@@ -940,7 +941,7 @@ defmodule Ryker.Publication.Custody do
 
   defp request_review_locked(attributes) do
     case publication_for_record(attributes.record_ref) do
-      %Publication{} = publication ->
+      {:ok, %Publication{} = publication} ->
         if publication.review_request_ref == attributes.request_ref and
              publication.review_requested_by_actor_ref == attributes.actor_ref do
           %{publication: publication, status: :duplicate}
@@ -948,7 +949,7 @@ defmodule Ryker.Publication.Custody do
           Repo.rollback(:publication_offer_already_requested)
         end
 
-      nil ->
+      {:error, :not_found} ->
         create_review_request(attributes)
     end
   end
@@ -1003,19 +1004,20 @@ defmodule Ryker.Publication.Custody do
     record_ref
     |> Publication.Query.by_record_ref()
     |> Publication.Query.lock_for_update()
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   defp delivered_offer(record_ref) do
-    case Repo.one(Records.Record.Query.publication_offer(record_ref)) do
-      {%Records.Record{} = record, %Episodes.Episode{} = episode,
-       %Work.Turn{status: :settled} = turn, %Work.Session{} = session} ->
+    case Repo.fetch(Records.Record.Query.publication_offer(record_ref)) do
+      {:ok,
+       {%Records.Record{} = record, %Episodes.Episode{} = episode,
+        %Work.Turn{status: :settled} = turn, %Work.Session{} = session}} ->
         {:ok, record, episode, turn, session}
 
-      nil ->
+      {:error, :not_found} ->
         {:error, :publication_offer_not_found}
 
-      _not_delivered ->
+      {:ok, _not_delivered} ->
         {:error, :publication_offer_not_delivered}
     end
   end
@@ -1062,11 +1064,11 @@ defmodule Ryker.Publication.Custody do
   defp claim_next_locked(worker_ref, lease_seconds) do
     now = Repo.now!()
 
-    case Repo.one(Publication.Query.next_claimable(now, @claimable, @publication_conflicts)) do
-      nil ->
+    case Repo.fetch(Publication.Query.next_claimable(now, @claimable, @publication_conflicts)) do
+      {:error, :not_found} ->
         nil
 
-      {publication, session} ->
+      {:ok, {publication, session}} ->
         # The joined session is locked by the claim. Recheck Work
         # custody after acquiring it, before starting Coop's exclusive review.
         if publication.status != :review_pending or not working_on_turn?(session.episode_id) do
@@ -1108,13 +1110,15 @@ defmodule Ryker.Publication.Custody do
   end
 
   defp confirm_delivery_locked(publication_ref, lease_ref, receipt) do
-    publication = lock_publication(publication_ref)
+    publication =
+      case lock_publication(publication_ref) do
+        {:ok, publication} -> publication
+        {:error, :not_found} -> Repo.rollback(:publication_not_found)
+      end
+
     fingerprint = Work.DeliveryReceipt.fingerprint(receipt)
 
     cond do
-      publication == nil ->
-        Repo.rollback(:publication_not_found)
-
       publication.review_delivery_receipt_fingerprint == fingerprint and
           publication.status in [:reviewed, :blocked] ->
         publication
@@ -1275,15 +1279,16 @@ defmodule Ryker.Publication.Custody do
 
   defp approve_locked(attributes) do
     case lock_publication(attributes.publication_ref) do
-      nil ->
+      {:error, :not_found} ->
         Repo.rollback(:publication_not_found)
 
-      %Publication{approval_ref: approval_ref} = publication when is_binary(approval_ref) ->
+      {:ok, %Publication{approval_ref: approval_ref} = publication}
+      when is_binary(approval_ref) ->
         if exact_approval?(publication, attributes),
           do: %{publication: publication, status: :duplicate},
           else: Repo.rollback(:publication_approval_conflict)
 
-      %Publication{status: status} = publication when status in [:reviewed, :blocked] ->
+      {:ok, %Publication{status: status} = publication} when status in [:reviewed, :blocked] ->
         with true <- approvable?(publication),
              :ok <- exact_approval_target(publication, attributes.target) do
           approved =
@@ -1304,7 +1309,7 @@ defmodule Ryker.Publication.Custody do
           {:error, reason} -> Repo.rollback(reason)
         end
 
-      _not_reviewed ->
+      {:ok, _not_reviewed} ->
         Repo.rollback(:publication_not_reviewed)
     end
   end
@@ -1348,10 +1353,10 @@ defmodule Ryker.Publication.Custody do
 
   defp lock_leased(publication_ref, lease_ref) do
     case lock_publication(publication_ref) do
-      nil ->
+      {:error, :not_found} ->
         {:error, :publication_not_found}
 
-      publication ->
+      {:ok, publication} ->
         now = Repo.now!()
 
         case live_lease(publication, lease_ref, now) do
@@ -1365,7 +1370,7 @@ defmodule Ryker.Publication.Custody do
     publication_ref
     |> Publication.Query.by_ref()
     |> Publication.Query.lock_for_update()
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   defp live_lease(publication, lease_ref, now) do
@@ -1427,8 +1432,9 @@ defmodule Ryker.Publication.Custody do
     do: {:error, :publication_review_job_mismatch}
 
   defp session(session_id) do
-    case Repo.one(Work.Session.Query.by_id(session_id)) do
-      %Work.Session{coop_session_id: coop_session_id} = session when is_binary(coop_session_id) ->
+    case Repo.fetch(Work.Session.Query.by_id(session_id)) do
+      {:ok, %Work.Session{coop_session_id: coop_session_id} = session}
+      when is_binary(coop_session_id) ->
         {:ok, session}
 
       _missing ->

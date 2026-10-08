@@ -504,14 +504,14 @@ defmodule Ryker.Slack.ChannelConfigurations do
       |> ConfigurationSession.Query.by_start_event()
       |> ConfigurationSession.Query.lock_for_update()
 
-    case Repo.one(started) do
-      %ConfigurationSession{start_fingerprint: ^fingerprint} = session ->
+    case Repo.fetch(started) do
+      {:ok, %ConfigurationSession{start_fingerprint: ^fingerprint} = session} ->
         %{session: session, status: :duplicate}
 
-      %ConfigurationSession{} ->
+      {:ok, %ConfigurationSession{}} ->
         Repo.rollback(:configuration_reconfiguration_conflict)
 
-      nil ->
+      {:error, :not_found} ->
         start_new_reconfiguration(attributes, catalog, fingerprint)
     end
   end
@@ -568,8 +568,8 @@ defmodule Ryker.Slack.ChannelConfigurations do
       |> ChannelMembershipEvent.Query.by_event(attributes.event_ref)
       |> ChannelMembershipEvent.Query.lock_for_update()
 
-    case Repo.one(stored) do
-      %ChannelMembershipEvent{event_fingerprint: ^fingerprint} = event ->
+    case Repo.fetch(stored) do
+      {:ok, %ChannelMembershipEvent{event_fingerprint: ^fingerprint} = event} ->
         membership = Repo.one!(ChannelMembership.Query.by_id(event.membership_id))
 
         %{
@@ -578,10 +578,10 @@ defmodule Ryker.Slack.ChannelConfigurations do
           status: :duplicate
         }
 
-      %ChannelMembershipEvent{} ->
+      {:ok, %ChannelMembershipEvent{}} ->
         Repo.rollback(:channel_membership_event_conflict)
 
-      nil ->
+      {:error, :not_found} ->
         transition_membership(attributes, catalog, fingerprint)
     end
   end
@@ -950,17 +950,17 @@ defmodule Ryker.Slack.ChannelConfigurations do
       |> ConfigurationAction.Query.by_event_ref()
       |> ConfigurationAction.Query.lock_for_update()
 
-    case Repo.one(stored) do
-      %ConfigurationAction{event_fingerprint: ^fingerprint} = action ->
+    case Repo.fetch(stored) do
+      {:ok, %ConfigurationAction{event_fingerprint: ^fingerprint} = action} ->
         %{
           session: Repo.one!(ConfigurationSession.Query.by_id(action.session_id)),
           status: :duplicate
         }
 
-      %ConfigurationAction{} ->
+      {:ok, %ConfigurationAction{}} ->
         Repo.rollback(:configuration_action_event_conflict)
 
-      nil ->
+      {:error, :not_found} ->
         apply_new_action(attributes, fingerprint)
     end
   end

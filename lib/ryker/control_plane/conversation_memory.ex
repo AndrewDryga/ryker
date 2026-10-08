@@ -40,8 +40,8 @@ defmodule Ryker.ControlPlane.ConversationMemory do
     secrets = InspectionRedactor.configured_secrets()
 
     with {:ok, id} <- Ecto.UUID.cast(id),
-         %Knowledge.ConversationKnowledge{forgotten_at: nil} = topic <-
-           Repo.one(Knowledge.ConversationKnowledge.Query.by_id(id)) do
+         {:ok, %Knowledge.ConversationKnowledge{forgotten_at: nil} = topic} <-
+           Repo.fetch(Knowledge.ConversationKnowledge.Query.by_id(id)) do
       outcome = Memories.Forgetting.preview_topic(id)
 
       {:ok,
@@ -62,10 +62,10 @@ defmodule Ryker.ControlPlane.ConversationMemory do
       ref
       |> Memories.MemoryEntry.Query.by_ref()
       |> Memories.MemoryEntry.Query.active()
-      |> Repo.one()
+      |> Repo.fetch()
 
     case active do
-      %Memories.MemoryEntry{} = fact ->
+      {:ok, %Memories.MemoryEntry{} = fact} ->
         outcome = Memories.Forgetting.preview_fact(fact)
 
         {:ok,
@@ -74,7 +74,7 @@ defmodule Ryker.ControlPlane.ConversationMemory do
            relearn: topic_titles(outcome.relearn, secrets)
          }}
 
-      nil ->
+      {:error, :not_found} ->
         :error
     end
   end
@@ -270,8 +270,8 @@ defmodule Ryker.ControlPlane.ConversationMemory do
 
   defp source_parent("knowledge:" <> id, secrets) do
     with id when is_binary(id) <- selected_id(id),
-         %Knowledge.ConversationKnowledge{} = knowledge <-
-           Repo.one(Knowledge.ConversationKnowledge.Query.by_id(id)) do
+         {:ok, %Knowledge.ConversationKnowledge{} = knowledge} <-
+           Repo.fetch(Knowledge.ConversationKnowledge.Query.by_id(id)) do
       title = knowledge_title(knowledge, secrets)
 
       %{
@@ -288,8 +288,8 @@ defmodule Ryker.ControlPlane.ConversationMemory do
 
   defp source_parent("context:" <> id, secrets) do
     with id when is_binary(id) <- selected_id(id),
-         %Continuity.ConversationSummary{} = summary <-
-           Repo.one(Continuity.ConversationSummary.Query.by_id(id)) do
+         {:ok, %Continuity.ConversationSummary{} = summary} <-
+           Repo.fetch(Continuity.ConversationSummary.Query.by_id(id)) do
       %{
         back_label: "Conversation summaries",
         back_path: "/memory/learned?kind=context#summary-#{id}",

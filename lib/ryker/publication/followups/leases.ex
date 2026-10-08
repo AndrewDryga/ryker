@@ -79,11 +79,11 @@ defmodule Ryker.Publication.Followups.Leases do
       |> Followup.Query.by_publication_ref()
       |> Followup.Query.lock_for_update()
 
-    case Repo.one(query) do
-      nil ->
+    case Repo.fetch(query) do
+      {:error, :not_found} ->
         {:error, :publication_followup_not_found}
 
-      {followup, publication} ->
+      {:ok, {followup, publication}} ->
         if Lease.held?(followup, lease_ref, now),
           do: {:ok, followup, publication, now},
           else: {:error, :publication_followup_lease_lost}
@@ -112,11 +112,11 @@ defmodule Ryker.Publication.Followups.Leases do
       |> Followup.Query.select_with_publications()
       |> Followup.Query.lock_next_free()
 
-    case Repo.one(query) do
-      nil ->
+    case Repo.fetch(query) do
+      {:error, :not_found} ->
         nil
 
-      {followup, publication} ->
+      {:ok, {followup, publication}} ->
         lease_ref = "publication-followup-lease:#{Ecto.UUID.generate()}"
 
         followup =
@@ -144,11 +144,11 @@ defmodule Ryker.Publication.Followups.Leases do
       |> LifecycleEvent.Query.limit_to(1)
       |> LifecycleEvent.Query.lock_next_free()
 
-    case Repo.one(query) do
-      nil ->
+    case Repo.fetch(query) do
+      {:error, :not_found} ->
         nil
 
-      event ->
+      {:ok, event} ->
         lease_ref = "publication-lifecycle-lease:#{Ecto.UUID.generate()}"
 
         event =

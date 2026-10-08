@@ -46,9 +46,9 @@ defmodule Ryker.ControlPlane.ScheduleProjection do
   def fetch(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
     query = ScheduleDirectory.Query.by_ref_with_local_times(ref)
 
-    case Repo.one(query) do
-      nil -> :not_found
-      {schedule, local} -> {:ok, detail(schedule, local)}
+    case Repo.fetch(query) do
+      {:error, :not_found} -> :not_found
+      {:ok, {schedule, local}} -> {:ok, detail(schedule, local)}
     end
   end
 

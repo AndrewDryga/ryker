@@ -20,13 +20,13 @@ defmodule Ryker.Feedback.Answers do
   def message_request(%{transport: transport, conversation_ref: conversation, message_ref: ref})
       when is_binary(transport) and is_binary(conversation) and is_binary(ref) do
     case quick_reply(transport, conversation, ref) do
-      input_id when is_binary(input_id) ->
+      {:ok, input_id} when is_binary(input_id) ->
         {:ok, {:input, input_id}}
 
-      nil ->
+      {:error, :not_found} ->
         case post(transport, conversation, ref) do
-          episode_id when is_binary(episode_id) -> {:ok, {:episode, episode_id}}
-          nil -> :error
+          {:ok, episode_id} when is_binary(episode_id) -> {:ok, {:episode, episode_id}}
+          {:error, :not_found} -> :error
         end
     end
   end
@@ -40,7 +40,7 @@ defmodule Ryker.Feedback.Answers do
     |> Delivery.RoutingResponse.Query.ordered_by_delivered_at_desc()
     |> Delivery.RoutingResponse.Query.limit_to(1)
     |> Delivery.RoutingResponse.Query.select_input_ids()
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   defp post(transport, conversation, ref) do
@@ -50,6 +50,6 @@ defmodule Ryker.Feedback.Answers do
     |> Delivery.PlatformAction.Query.ordered_by_delivered_at_desc()
     |> Delivery.PlatformAction.Query.limit_to(1)
     |> Delivery.PlatformAction.Query.select_episode_ids()
-    |> Repo.one()
+    |> Repo.fetch()
   end
 end

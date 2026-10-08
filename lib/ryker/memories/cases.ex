@@ -70,10 +70,15 @@ defmodule Ryker.Memories.Cases do
   @doc "Captures one finished episode; unfinished work has no case yet."
   @spec capture(Ecto.UUID.t()) :: {:ok, CaseRecord.t()} | {:error, term()}
   def capture(episode_id) do
-    case Repo.one(Episodes.Episode.Query.by_id(episode_id)) do
-      %Episodes.Episode{state: state} = episode when state in @terminal_states -> persist(episode)
-      %Episodes.Episode{} -> {:error, :case_episode_active}
-      nil -> {:error, :case_episode_not_found}
+    case Repo.fetch(Episodes.Episode.Query.by_id(episode_id)) do
+      {:ok, %Episodes.Episode{state: state} = episode} when state in @terminal_states ->
+        persist(episode)
+
+      {:ok, %Episodes.Episode{}} ->
+        {:error, :case_episode_active}
+
+      {:error, :not_found} ->
+        {:error, :case_episode_not_found}
     end
   end
 
@@ -132,8 +137,8 @@ defmodule Ryker.Memories.Cases do
   def delete(case_ref) do
     Repo.transaction(fn ->
       case locked(case_ref) do
-        nil -> Repo.rollback(:case_not_found)
-        record -> redact!(record)
+        {:error, :not_found} -> Repo.rollback(:case_not_found)
+        {:ok, record} -> redact!(record)
       end
     end)
   end
@@ -227,14 +232,17 @@ defmodule Ryker.Memories.Cases do
 
       {0, _kept} ->
         case locked(withdrawn.case_ref) do
-          %CaseRecord{status: :active} = record -> redact!(record)
+          {:ok, %CaseRecord{status: :active} = record} -> redact!(record)
           _withdrawn -> :ok
         end
     end
   end
 
   defp locked(case_ref) do
-    case_ref |> CaseRecord.Query.by_case_ref() |> CaseRecord.Query.lock_for_update() |> Repo.one()
+    case_ref
+    |> CaseRecord.Query.by_case_ref()
+    |> CaseRecord.Query.lock_for_update()
+    |> Repo.fetch()
   end
 
   # The identity and the lifecycle stay; the text is erased.
@@ -269,14 +277,14 @@ defmodule Ryker.Memories.Cases do
       now = Repo.now!()
 
       case locked(attributes.case_ref) do
-        %CaseRecord{content_fingerprint: same} = record
+        {:ok, %CaseRecord{content_fingerprint: same} = record}
         when same == :erlang.map_get(:content_fingerprint, attributes) ->
           record
 
-        %CaseRecord{status: :deleted} = record ->
+        {:ok, %CaseRecord{status: :deleted} = record} ->
           record
 
-        %CaseRecord{} = record ->
+        {:ok, %CaseRecord{} = record} ->
           attributes = Map.put(attributes, :updated_at, now)
 
           record
@@ -284,7 +292,7 @@ defmodule Ryker.Memories.Cases do
           |> Repo.update!()
           |> tap(&announce_case/1)
 
-        nil ->
+        {:error, :not_found} ->
           attributes = Map.merge(attributes, %{inserted_at: now, updated_at: now})
 
           CaseRecord
@@ -349,9 +357,12 @@ defmodule Ryker.Memories.Cases do
   defp digest_problem(_digest, %Episodes.Episode{key: key}), do: "Work #{key}"
 
   defp digest_text(%Episodes.Episode{} = episode) do
-    case Repo.one(Episodes.RoutingDigest.Query.by_episode_id(episode.id)) do
-      %Episodes.RoutingDigest{} = digest -> "#{digest.objective} #{digest.latest_development}"
-      nil -> ""
+    case Repo.fetch(Episodes.RoutingDigest.Query.by_episode_id(episode.id)) do
+      {:ok, %Episodes.RoutingDigest{} = digest} ->
+        "#{digest.objective} #{digest.latest_development}"
+
+      {:error, :not_found} ->
+        ""
     end
   end
 

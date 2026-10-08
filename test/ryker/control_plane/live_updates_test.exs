@@ -104,9 +104,11 @@ defmodule Ryker.ControlPlane.LiveUpdatesTest do
     |> Enum.filter(&(&1 =~ "Ryker.PubSub.broadcast("))
     |> Enum.flat_map(fn source ->
       broadcasts =
-        ~r/Ryker\.PubSub\.broadcast\([^\n]*(?:\n[^\n]*){0,2}/
-        |> Regex.scan(source)
-        |> List.flatten()
+        source
+        |> :binary.matches("Ryker.PubSub.broadcast(")
+        |> Enum.map(fn {start, length} ->
+          source |> binary_part(start + length, byte_size(source) - start - length) |> arguments()
+        end)
 
       messages = ~r/message = \{:[a-z_]+/ |> Regex.scan(source) |> List.flatten()
 
@@ -116,4 +118,17 @@ defmodule Ryker.ControlPlane.LiveUpdatesTest do
     end)
     |> MapSet.new(&String.to_atom/1)
   end
+
+  # A call's arguments, up to the parenthesis that closes it. Reading the two
+  # lines after each call took the next case clause's `{:error, ...}` for an
+  # announcement (2026-10-08).
+  defp arguments(rest, depth \\ 1, read \\ [])
+
+  defp arguments(<<")", _rest::binary>>, 1, read),
+    do: read |> Enum.reverse() |> IO.iodata_to_binary()
+
+  defp arguments(<<")", rest::binary>>, depth, read), do: arguments(rest, depth - 1, [")" | read])
+  defp arguments(<<"(", rest::binary>>, depth, read), do: arguments(rest, depth + 1, ["(" | read])
+  defp arguments(<<char, rest::binary>>, depth, read), do: arguments(rest, depth, [char | read])
+  defp arguments(<<>>, _depth, read), do: read |> Enum.reverse() |> IO.iodata_to_binary()
 end

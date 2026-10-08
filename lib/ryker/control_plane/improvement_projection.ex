@@ -87,8 +87,8 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
   @spec fetch(String.t()) :: {:ok, map()} | :error
   def fetch(id) do
     with {:ok, id} <- PathRef.uuid(id),
-         %Improvement.Candidate{forgotten_at: nil} = candidate <-
-           Repo.one(Improvement.Candidate.Query.by_id(id)) do
+         {:ok, %Improvement.Candidate{forgotten_at: nil} = candidate} <-
+           Repo.fetch(Improvement.Candidate.Query.by_id(id)) do
       [item] = present([candidate])
       {:ok, item}
     else

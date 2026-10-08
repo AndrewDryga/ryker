@@ -137,8 +137,8 @@ defmodule Ryker.RoutingExamples do
       # recording its revision takes them in, so the two cannot wait on each
       # other.
       with true <- enabled?(),
-           %Ingress.Inbox.Entry{} = entry <- held_input(input_id),
-           %Admission.Attempt{} = attempt <- committed_attempt(entry),
+           {:ok, %Ingress.Inbox.Entry{} = entry} <- held_input(input_id),
+           {:ok, %Admission.Attempt{} = attempt} <- committed_attempt(entry),
            :ok <- lock(:shared),
            false <- Repo.exists?(Example.Query.by_input_id(input_id)) do
         entry |> example(attempt, secrets) |> TrainingExamples.insert!([:input_id])
@@ -162,11 +162,11 @@ defmodule Ryker.RoutingExamples do
     |> Ingress.Inbox.Entry.Query.by_id()
     |> Ingress.Inbox.Entry.Query.decided_with_bodies()
     |> Ingress.Inbox.Entry.Query.lock_for_share()
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   defp committed_attempt(entry),
-    do: entry |> Admission.Attempt.Query.committed_for() |> Repo.one()
+    do: entry |> Admission.Attempt.Query.committed_for() |> Repo.fetch()
 
   defp example(entry, attempt, secrets) do
     now = Repo.now!()

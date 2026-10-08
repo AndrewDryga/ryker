@@ -136,10 +136,11 @@ defmodule Ryker.Repo do
 
   @doc """
   The one row `queryable` selects, as `{:ok, row}`, or `{:error, :not_found}`
-  when there is none; raises when more than one matches. The query comes from
-  the schema's Query module (`Ryker.Checks.IL02NoRepoGet`).
+  when there is none; raises when more than one matches. A row is the schema,
+  or what the query's `select` names (a tuple, a map, a single value). The
+  query comes from the schema's Query module (`Ryker.Checks.IL02NoRepoGet`).
   """
-  @spec fetch(Ecto.Queryable.t(), keyword()) :: {:ok, struct()} | {:error, :not_found}
+  @spec fetch(Ecto.Queryable.t(), keyword()) :: {:ok, term()} | {:error, :not_found}
   def fetch(queryable, opts \\ []) do
     case one(queryable, opts) do
       nil -> {:error, :not_found}

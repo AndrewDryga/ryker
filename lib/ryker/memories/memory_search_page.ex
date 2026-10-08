@@ -35,9 +35,9 @@ defmodule Ryker.Memories.MemorySearchPage do
   `:done` (`Ryker.Memories.SearchPage.Query.next/5`).
   """
   def one(query, page, text, changed, source) do
-    case Repo.one(SearchPage.Query.next(query, page, text, changed, source)) do
-      nil -> :done
-      %{item: item, time: time} -> {:ok, item, [DateTime.to_iso8601(time), item.id]}
+    case Repo.fetch(SearchPage.Query.next(query, page, text, changed, source)) do
+      {:error, :not_found} -> :done
+      {:ok, %{item: item, time: time}} -> {:ok, item, [DateTime.to_iso8601(time), item.id]}
     end
   end
 end

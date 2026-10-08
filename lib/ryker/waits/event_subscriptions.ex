@@ -191,11 +191,11 @@ defmodule Ryker.Waits.EventSubscriptions do
       episode.id
       |> Records.Record.Query.open_wait(wait_ref)
       |> Records.Record.Query.lock_for_update()
-      |> Repo.one()
+      |> Repo.fetch()
 
     case wait do
-      %Records.Record{} = record -> ensure_record(episode, record)
-      nil -> {:ok, :not_source_event}
+      {:ok, %Records.Record{} = record} -> ensure_record(episode, record)
+      {:error, :not_found} -> {:ok, :not_source_event}
     end
   end
 
@@ -232,11 +232,11 @@ defmodule Ryker.Waits.EventSubscriptions do
 
   defp ensure_record(episode, %Records.Record{payload: %{"event_matcher" => trigger}} = record) do
     if trigger["type"] in ["source_event", "after", "at"] do
-      case Repo.one(EventSubscription.Query.by_record_id(record.id)) do
-        %EventSubscription{} = subscription ->
+      case Repo.fetch(EventSubscription.Query.by_record_id(record.id)) do
+        {:ok, %EventSubscription{} = subscription} ->
           {:ok, subscription}
 
-        nil ->
+        {:error, :not_found} ->
           insert(episode, record, trigger)
       end
     else

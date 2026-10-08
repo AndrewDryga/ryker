@@ -198,13 +198,13 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
   end
 
   defp enqueue_on_placement(placement_id, kind, payload, idempotency_key) do
-    case Repo.one(Placement.Query.by_id(placement_id)) do
-      %Placement{session_id: session_id} ->
+    case Repo.fetch(Placement.Query.by_id(placement_id)) do
+      {:ok, %Placement{session_id: session_id}} ->
         with_session_command(session_id, idempotency_key, fn session, existing ->
           enqueue_command_locked(session, existing, placement_id, kind, payload, idempotency_key)
         end)
 
-      nil ->
+      {:error, :not_found} ->
         {:error, {:coop_session_placement_not_found, placement_id}}
     end
   end
@@ -279,8 +279,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
          payload
        ) do
     with {:ok, request} <- Requests.encode(kind, payload, placement),
-         %Work.Session{coop_session_id: id} when is_binary(id) <-
-           Repo.one(Work.Session.Query.by_id(placement.session_id)),
+         {:ok, %Work.Session{coop_session_id: id}} when is_binary(id) <-
+           Repo.fetch(Work.Session.Query.by_id(placement.session_id)),
          true <- cleanup_request?(request, id) do
       :ok
     else

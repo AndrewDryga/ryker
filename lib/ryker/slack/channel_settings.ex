@@ -91,16 +91,16 @@ defmodule Ryker.Slack.ChannelSettings do
       attributes.event_ref
       |> ChannelSettingAudit.Query.by_event_ref()
       |> ChannelSettingAudit.Query.lock_for_update()
-      |> Repo.one()
+      |> Repo.fetch()
 
     case audit do
-      %ChannelSettingAudit{request_fingerprint: ^fingerprint} ->
+      {:ok, %ChannelSettingAudit{request_fingerprint: ^fingerprint}} ->
         %{effective: effective!(attributes, default), status: :duplicate}
 
-      %ChannelSettingAudit{} ->
+      {:ok, %ChannelSettingAudit{}} ->
         Repo.rollback(:channel_setting_event_conflict)
 
-      nil ->
+      {:error, :not_found} ->
         default = apply_change!(attributes, default)
         insert_audit!(attributes, fingerprint)
 
@@ -126,7 +126,6 @@ defmodule Ryker.Slack.ChannelSettings do
 
   defp apply_change!(%{scope: :channel} = attributes, default) do
     configuration = locked_configuration!(attributes)
-    if is_nil(configuration), do: Repo.rollback(:configuration_not_found)
 
     target =
       case attributes.value do
@@ -156,12 +155,17 @@ defmodule Ryker.Slack.ChannelSettings do
     do: if(current == setting, do: :mentions, else: current || :mentions)
 
   defp locked_configuration!(attributes) do
-    attributes.workspace_ref
-    |> ChannelConfiguration.Query.by_channel(
-      ConversationRef.slack_channel(attributes.conversation_ref)
-    )
-    |> ChannelConfiguration.Query.lock_for_update()
-    |> Repo.one()
+    locked =
+      attributes.workspace_ref
+      |> ChannelConfiguration.Query.by_channel(
+        ConversationRef.slack_channel(attributes.conversation_ref)
+      )
+      |> ChannelConfiguration.Query.lock_for_update()
+
+    case Repo.fetch(locked) do
+      {:ok, configuration} -> configuration
+      {:error, :not_found} -> Repo.rollback(:configuration_not_found)
+    end
   end
 
   defp insert_audit!(attributes, fingerprint) do
@@ -188,8 +192,8 @@ defmodule Ryker.Slack.ChannelSettings do
     do: effective(attributes.workspace_ref, attributes.conversation_ref, default)
 
   defp default_participation(nil, workspace_ref) do
-    case Repo.one(Settings.Slack.Query.select_default_participation()) do
-      {^workspace_ref, default} -> {:ok, default}
+    case Repo.fetch(Settings.Slack.Query.select_default_participation()) do
+      {:ok, {^workspace_ref, default}} -> {:ok, default}
       _other -> {:error, {:invalid_channel_setting, :workspace_ref}}
     end
   end

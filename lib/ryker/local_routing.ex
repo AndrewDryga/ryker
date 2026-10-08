@@ -62,15 +62,15 @@ defmodule Ryker.LocalRouting do
   @doc "The saved setting; off before an installation has settings."
   @spec setting() :: setting()
   def setting do
-    case Repo.one(Settings.Work.Query.all()) do
-      %Settings.Work{} = work ->
+    case Repo.fetch(Settings.Work.Query.all()) do
+      {:ok, %Settings.Work{} = work} ->
         %{
           mode: work.local_routing_mode,
           endpoint: work.local_routing_endpoint,
           model: work.local_routing_model
         }
 
-      nil ->
+      {:error, :not_found} ->
         %{mode: :off, endpoint: nil, model: nil}
     end
   end
@@ -230,11 +230,11 @@ defmodule Ryker.LocalRouting do
   # Read just before it is sent, and never sent once a person forgot or
   # deleted anything it quotes.
   defp material(comparison) do
-    with %Ingress.Inbox.Entry{status: :decided, operational_pruned_at: nil} = entry <-
-           Repo.one(Ingress.Inbox.Entry.Query.by_id(comparison.input_id)),
+    with {:ok, %Ingress.Inbox.Entry{status: :decided, operational_pruned_at: nil} = entry} <-
+           Repo.fetch(Ingress.Inbox.Entry.Query.by_id(comparison.input_id)),
          %{"action" => _action} = provider <- entry.decision_document,
-         %Admission.Attempt{operational_pruned_at: nil, submission: %{} = submission} <-
-           Repo.one(Admission.Attempt.Query.by_generation(entry.id, comparison.generation)),
+         {:ok, %Admission.Attempt{operational_pruned_at: nil, submission: %{} = submission}} <-
+           Repo.fetch(Admission.Attempt.Query.by_generation(entry.id, comparison.generation)),
          prompt when is_binary(prompt) <- submission["prompt"],
          schema when is_map(schema) <- submission["output_schema"],
          {:ok, context} <- Admission.decided_context(entry),

@@ -91,13 +91,13 @@ defmodule Ryker.Continuity.Handover do
       |> ConversationSummaryDraft.Query.by_turn_id()
       |> ConversationSummaryDraft.Query.by_episode_id(episode.id)
       |> ConversationSummaryDraft.Query.lock_for_update()
-      |> Repo.one()
+      |> Repo.fetch()
 
     case draft do
-      nil ->
+      {:error, :not_found} ->
         :ok
 
-      %ConversationSummaryDraft{} = draft ->
+      {:ok, %ConversationSummaryDraft{} = draft} ->
         with :ok <- exact_candidate(draft, turn),
              {:ok, state} <- ConversationSummaryState.prepare(draft.state),
              true <- CanonicalJSON.digest(state) == draft.state_fingerprint,
@@ -144,26 +144,27 @@ defmodule Ryker.Continuity.Handover do
     end
   end
 
-  defp bind_candidate_draft(nil, _candidate_sha256, _candidate_attempt), do: :ok
+  defp bind_candidate_draft({:error, :not_found}, _candidate_sha256, _candidate_attempt), do: :ok
 
   defp bind_candidate_draft(
-         %ConversationSummaryDraft{candidate_sha256: nil} = draft,
+         {:ok, %ConversationSummaryDraft{candidate_sha256: nil} = draft},
          candidate_sha256,
          candidate_attempt
        ),
        do: bind_draft(draft, candidate_sha256, candidate_attempt)
 
   defp bind_candidate_draft(
-         %ConversationSummaryDraft{
-           candidate_sha256: candidate_sha256,
-           candidate_attempt: candidate_attempt
-         },
+         {:ok,
+          %ConversationSummaryDraft{
+            candidate_sha256: candidate_sha256,
+            candidate_attempt: candidate_attempt
+          }},
          candidate_sha256,
          candidate_attempt
        ),
        do: :ok
 
-  defp bind_candidate_draft(%ConversationSummaryDraft{} = draft, _sha256, _attempt) do
+  defp bind_candidate_draft({:ok, %ConversationSummaryDraft{} = draft}, _sha256, _attempt) do
     case Repo.delete(draft) do
       {:ok, _draft} -> :ok
       {:error, changeset} -> {:error, {:conversation_summary_persistence, changeset.errors}}
@@ -187,16 +188,23 @@ defmodule Ryker.Continuity.Handover do
     id
     |> Episodes.Episode.Query.by_id()
     |> Episodes.Episode.Query.lock_for_update()
-    |> Repo.one()
+    |> staged()
   end
 
   defp locked_turn(id),
-    do: id |> Work.Turn.Query.by_id() |> Work.Turn.Query.lock_for_update() |> Repo.one()
+    do: id |> Work.Turn.Query.by_id() |> Work.Turn.Query.lock_for_update() |> staged()
+
+  # A turn or request gone before its summary is staged leaves nothing it may
+  # write for.
+  defp staged(query) do
+    with {:error, :not_found} <- Repo.fetch(query),
+         do: {:error, :conversation_summary_unauthorized}
+  end
 
   defp stage_locked(turn_id, state) do
-    with %Work.Turn{} = identity <- Repo.one(Work.Turn.Query.by_id(turn_id)),
-         %Episodes.Episode{} = episode <- locked_episode(identity.episode_id),
-         %Work.Turn{} = turn <- locked_turn(turn_id),
+    with {:ok, identity} <- staged(Work.Turn.Query.by_id(turn_id)),
+         {:ok, episode} <- locked_episode(identity.episode_id),
+         {:ok, turn} <- locked_turn(turn_id),
          :ok <-
            Slack.ChannelFence.authorize_in_transaction(
              episode.destination_transport,
@@ -209,23 +217,23 @@ defmodule Ryker.Continuity.Handover do
         turn.id
         |> ConversationSummaryDraft.Query.by_turn_id()
         |> ConversationSummaryDraft.Query.lock_for_update()
-        |> Repo.one()
+        |> Repo.fetch()
 
       case existing do
-        nil ->
+        {:error, :not_found} ->
           insert_draft(episode, turn, state, fingerprint)
 
-        %ConversationSummaryDraft{
-          state_fingerprint: ^fingerprint,
-          candidate_sha256: nil
-        } = draft ->
+        {:ok,
+         %ConversationSummaryDraft{
+           state_fingerprint: ^fingerprint,
+           candidate_sha256: nil
+         } = draft} ->
           draft_result(draft)
 
-        %ConversationSummaryDraft{} = draft ->
+        {:ok, %ConversationSummaryDraft{} = draft} ->
           update_draft(draft, state, fingerprint)
       end
     else
-      nil -> Repo.rollback(:conversation_summary_unauthorized)
       {:error, reason} -> Repo.rollback(reason)
     end
   end
@@ -314,7 +322,7 @@ defmodule Ryker.Continuity.Handover do
     |> ConversationSummaryDraft.Query.by_turn_id()
     |> ConversationSummaryDraft.Query.by_episode_id(turn.episode_id)
     |> ConversationSummaryDraft.Query.lock_for_update()
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   defp bind_draft(draft, candidate_sha256, candidate_attempt) do
@@ -331,9 +339,9 @@ defmodule Ryker.Continuity.Handover do
     end
   end
 
-  defp preflight_document(nil), do: %{"summary" => nil}
+  defp preflight_document({:error, :not_found}), do: %{"summary" => nil}
 
-  defp preflight_document(draft) do
+  defp preflight_document({:ok, draft}) do
     %{
       "revision" => draft.revision,
       "state_fingerprint" => draft.state_fingerprint,

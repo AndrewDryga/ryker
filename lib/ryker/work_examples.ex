@@ -133,7 +133,7 @@ defmodule Ryker.WorkExamples do
   defp copy_in_transaction(turn_id, secrets) do
     Repo.transaction(fn ->
       with true <- enabled?(),
-           %Work.Turn{} = turn <- held_turn(turn_id),
+           {:ok, %Work.Turn{} = turn} <- held_turn(turn_id),
            :ok <- RoutingExamples.copy_lock_in_transaction(),
            false <- Repo.exists?(Example.Query.by_turn_id(turn_id)) do
         turn |> example(secrets) |> TrainingExamples.insert!([:turn_id])
@@ -157,7 +157,7 @@ defmodule Ryker.WorkExamples do
     |> Work.Turn.Query.by_id()
     |> Work.Turn.Query.settled_with_bodies()
     |> Work.Turn.Query.lock_for_share()
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   defp example(turn, secrets) do
@@ -224,12 +224,12 @@ defmodule Ryker.WorkExamples do
   defp linked_inputs(_episode_id, _until, 0), do: []
 
   defp linked_inputs(episode_id, until, left) do
-    case Repo.one(Episodes.Episode.Query.by_id(episode_id)) do
-      %Episodes.Episode{} = source ->
+    case Repo.fetch(Episodes.Episode.Query.by_id(episode_id)) do
+      {:ok, %Episodes.Episode{} = source} ->
         admitted(source.id, until) ++
           linked_inputs(source.linked_episode_id, source.inserted_at, left - 1)
 
-      nil ->
+      {:error, :not_found} ->
         []
     end
   end

@@ -47,14 +47,14 @@ defmodule Ryker.Memories.Forgetting do
       |> Knowledge.ConversationKnowledge.Query.by_id()
       |> Knowledge.ConversationKnowledge.Query.lock_for_update()
 
-    case Repo.one(locked) do
-      nil ->
+    case Repo.fetch(locked) do
+      {:error, :not_found} ->
         Repo.rollback(:knowledge_not_found)
 
-      %Knowledge.ConversationKnowledge{forgotten_at: %DateTime{}} ->
+      {:ok, %Knowledge.ConversationKnowledge{forgotten_at: %DateTime{}}} ->
         %{forgotten: [], relearn: []}
 
-      %Knowledge.ConversationKnowledge{} = topic ->
+      {:ok, %Knowledge.ConversationKnowledge{} = topic} ->
         outcome = forget_observations_in_transaction(topic_observations(topic.id))
         erase!([topic.id])
         %{outcome | forgotten: Enum.uniq([topic.id | outcome.forgotten])}
@@ -173,8 +173,8 @@ defmodule Ryker.Memories.Forgetting do
     turn_ref =
       record_id |> Records.Record.Query.by_id() |> Records.Record.Query.select_turn_refs()
 
-    case Repo.one(turn_ref) do
-      "ingress-turn:" <> id -> entry_observations([id])
+    case Repo.fetch(turn_ref) do
+      {:ok, "ingress-turn:" <> id} -> entry_observations([id])
       _other -> []
     end
   end

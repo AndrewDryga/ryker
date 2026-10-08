@@ -58,9 +58,12 @@ defmodule Ryker.Slack.TaskCardProjection do
         } = record
       )
       when is_binary(episode_id) do
-    case Repo.one(Episodes.Episode.Query.by_id(episode_id)) do
-      %Episodes.Episode{} = episode -> project(record, episode, record.ref, snapshot(episode))
-      nil -> {:error, :task_card_source_not_found}
+    case Repo.fetch(Episodes.Episode.Query.by_id(episode_id)) do
+      {:ok, %Episodes.Episode{} = episode} ->
+        project(record, episode, record.ref, snapshot(episode))
+
+      {:error, :not_found} ->
+        {:error, :task_card_source_not_found}
     end
   end
 
@@ -77,13 +80,13 @@ defmodule Ryker.Slack.TaskCardProjection do
           record
       )
       when is_binary(episode_id) do
-    case Repo.one(Episodes.Episode.Query.by_id(episode_id)) do
-      %Episodes.Episode{} = episode ->
+    case Repo.fetch(Episodes.Episode.Query.by_id(episode_id)) do
+      {:ok, %Episodes.Episode{} = episode} ->
         snapshot = snapshot(episode)
         {:ok, projection} = project(record, episode, record.ref, snapshot)
         {:ok, public_errors(projection, snapshot)}
 
-      nil ->
+      {:error, :not_found} ->
         {:error, :task_card_source_not_found}
     end
   end
@@ -91,8 +94,8 @@ defmodule Ryker.Slack.TaskCardProjection do
   def page(_record), do: {:error, :invalid_task_card}
 
   defp build_public(card) do
-    with %Records.Record{} = record <- Repo.one(Records.Record.Query.by_id(card.record_id)),
-         %Episodes.Episode{} = episode <- Repo.one(Episodes.Episode.Query.by_id(card.episode_id)) do
+    with {:ok, record} <- Repo.fetch(Records.Record.Query.by_id(card.record_id)),
+         {:ok, episode} <- Repo.fetch(Episodes.Episode.Query.by_id(card.episode_id)) do
       snapshot = snapshot(episode)
       {:ok, projection} = project(record, episode, card.ref, snapshot)
 
@@ -100,7 +103,7 @@ defmodule Ryker.Slack.TaskCardProjection do
         do: {:ok, public_errors(projection, snapshot)},
         else: {:ok, neutral(projection)}
     else
-      nil -> {:error, :task_card_source_not_found}
+      {:error, :not_found} -> {:error, :task_card_source_not_found}
     end
   end
 
@@ -259,12 +262,12 @@ defmodule Ryker.Slack.TaskCardProjection do
   end
 
   defp offer_owner(record) do
-    with %Episodes.Episode{} = episode <-
-           Repo.one(Episodes.Episode.Query.by_id(record.episode_id)),
-         %Work.Turn{episode_id: episode_id} = turn <-
-           Repo.one(Work.Turn.Query.by_id(record.turn_id)),
+    with {:ok, %Episodes.Episode{} = episode} <-
+           Repo.fetch(Episodes.Episode.Query.by_id(record.episode_id)),
+         {:ok, %Work.Turn{episode_id: episode_id} = turn} <-
+           Repo.fetch(Work.Turn.Query.by_id(record.turn_id)),
          true <- episode_id == episode.id,
-         %Work.Session{} = session <- Repo.one(Work.Session.Query.by_id(turn.session_id)) do
+         {:ok, %Work.Session{} = session} <- Repo.fetch(Work.Session.Query.by_id(turn.session_id)) do
       {:ok, episode, session}
     else
       _ -> {:error, :task_card_source_not_found}
@@ -603,7 +606,8 @@ defmodule Ryker.Slack.TaskCardProjection do
   # card describes the question instead of linking nowhere.
   defp question_url(%Episodes.Episode{state: :waiting_for_input} = episode) do
     with workspace_url when is_binary(workspace_url) <- Settings.slack_workspace_url(),
-         %Records.Record{turn_id: turn_id} when not is_nil(turn_id) <- open_question(episode.id),
+         {:ok, %Records.Record{turn_id: turn_id}} when not is_nil(turn_id) <-
+           open_question(episode.id),
          %Work.Turn{
            external_receipt: %{"conversation_ref" => conversation, "message_ref" => message}
          } <-
@@ -623,7 +627,7 @@ defmodule Ryker.Slack.TaskCardProjection do
     |> Records.Record.Query.open()
     |> Records.Record.Query.ordered_by_sequence_desc()
     |> Records.Record.Query.limit_to(1)
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   defp wait_summary(records, kind, fallback) do

@@ -295,8 +295,8 @@ defmodule Ryker.CoopFleet.JobAuthority do
   """
   @spec prepared(Work.Session.t()) :: {:ok, Work.Session.t()} | {:error, term()}
   def prepared(%Work.Session{id: id} = expected) when is_binary(id) do
-    case Repo.one(Work.Session.Query.by_id(id)) do
-      %Work.Session{} = saved ->
+    case Repo.fetch(Work.Session.Query.by_id(id)) do
+      {:ok, %Work.Session{} = saved} ->
         cond do
           Map.take(saved, @identity) != Map.take(expected, @identity) ->
             {:error, {:coop_fleet_authority_mismatch, :worker_job}}
@@ -311,7 +311,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
             validate(saved)
         end
 
-      nil ->
+      {:error, :not_found} ->
         {:error, {:coop_fleet_authority_mismatch, :worker_job}}
     end
   end
@@ -370,15 +370,15 @@ defmodule Ryker.CoopFleet.JobAuthority do
   defp cleanup_receipt?(_session, _remote), do: false
 
   defp stored_session(expected) do
-    case Repo.one(Work.Session.Query.by_id(expected.id)) do
-      %Work.Session{} = saved ->
+    case Repo.fetch(Work.Session.Query.by_id(expected.id)) do
+      {:ok, %Work.Session{} = saved} ->
         if Map.take(saved, @identity) == Map.take(expected, @identity) and
              (is_nil(expected.worker_job_digest) or
                 expected.worker_job_digest == saved.worker_job_digest),
            do: {:ok, saved},
            else: {:error, :coop_worker_job_identity_changed}
 
-      nil ->
+      {:error, :not_found} ->
         {:error, :coop_worker_job_identity_changed}
     end
   end

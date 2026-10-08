@@ -223,13 +223,13 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
       |> RoutingResponse.Query.ordered_by_oldest()
       |> RoutingResponse.Query.limit_to(1)
       |> RoutingResponse.Query.lock_next_free()
-      |> Repo.one()
+      |> Repo.fetch()
 
     case next do
-      nil ->
+      {:error, :not_found} ->
         nil
 
-      %RoutingResponse{} = response ->
+      {:ok, %RoutingResponse{} = response} ->
         lease_ref = "routing-response-lease:#{Ecto.UUID.generate()}"
 
         claimed =
@@ -265,19 +265,19 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
 
   defp retry_locked(delivery_ref) do
     case lock_response(delivery_ref) do
-      %RoutingResponse{status: :blocked} = response ->
+      {:ok, %RoutingResponse{status: :blocked} = response} ->
         response
         |> RoutingResponse.Changeset.retry()
         |> Repo.update()
         |> unwrap_or_rollback(:delivery_retry)
 
-      %RoutingResponse{status: :pending} = response ->
+      {:ok, %RoutingResponse{status: :pending} = response} ->
         response
 
-      %RoutingResponse{} ->
+      {:ok, %RoutingResponse{}} ->
         Repo.rollback(:routing_response_not_retryable)
 
-      nil ->
+      {:error, :not_found} ->
         Repo.rollback(:routing_response_not_found)
     end
   end
@@ -286,13 +286,14 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
     now = Repo.now!()
 
     case lock_response(delivery_ref) do
-      %RoutingResponse{status: :delivered, external_receipt_fingerprint: ^fingerprint} = response ->
+      {:ok,
+       %RoutingResponse{status: :delivered, external_receipt_fingerprint: ^fingerprint} = response} ->
         response
 
-      %RoutingResponse{status: :delivered} ->
+      {:ok, %RoutingResponse{status: :delivered}} ->
         Repo.rollback(:routing_response_receipt_conflict)
 
-      %RoutingResponse{} = response ->
+      {:ok, %RoutingResponse{} = response} ->
         with :ok <- current_lease(response, lease_ref, now),
              :ok <- exact_receipt(response, receipt) do
           response
@@ -303,23 +304,23 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
           {:error, reason} -> Repo.rollback(reason)
         end
 
-      nil ->
+      {:error, :not_found} ->
         Repo.rollback(:routing_response_not_found)
     end
   end
 
   defp leased_response(delivery_ref, lease_ref, now) do
     case lock_response(delivery_ref) do
-      %RoutingResponse{status: :pending} = response ->
+      {:ok, %RoutingResponse{status: :pending} = response} ->
         case current_lease(response, lease_ref, now) do
           :ok -> {:ok, response}
           {:error, reason} -> {:error, reason}
         end
 
-      %RoutingResponse{} ->
+      {:ok, %RoutingResponse{}} ->
         {:error, :routing_response_not_pending}
 
-      nil ->
+      {:error, :not_found} ->
         {:error, :routing_response_not_found}
     end
   end
@@ -328,7 +329,7 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
     delivery_ref
     |> RoutingResponse.Query.by_delivery_ref()
     |> RoutingResponse.Query.lock_for_update()
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   defp current_lease(response, lease_ref, now) do

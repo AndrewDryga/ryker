@@ -213,13 +213,13 @@ defmodule Ryker.WeeklyReport.Custody do
       |> Report.Query.ordered_by_due_at()
       |> Report.Query.limit_to(1)
       |> Report.Query.lock_next_free()
-      |> Repo.one()
+      |> Repo.fetch()
 
     case next do
-      nil ->
+      {:error, :not_found} ->
         nil
 
-      %Report{} = report ->
+      {:ok, %Report{} = report} ->
         lease_ref = Ecto.UUID.generate()
 
         report =
@@ -233,16 +233,16 @@ defmodule Ryker.WeeklyReport.Custody do
 
   defp retry_locked(delivery_ref) do
     case lock(delivery_ref) do
-      %Report{status: :blocked} = report ->
+      {:ok, %Report{status: :blocked} = report} ->
         report |> Report.Changeset.retry() |> write!(:retry)
 
-      %Report{status: :pending} = report ->
+      {:ok, %Report{status: :pending} = report} ->
         report
 
-      %Report{} ->
+      {:ok, %Report{}} ->
         Repo.rollback(:weekly_report_not_retryable)
 
-      nil ->
+      {:error, :not_found} ->
         Repo.rollback(:weekly_report_not_found)
     end
   end
@@ -251,13 +251,13 @@ defmodule Ryker.WeeklyReport.Custody do
     now = Repo.now!()
 
     case lock(delivery_ref) do
-      %Report{status: :delivered, external_receipt_fingerprint: ^fingerprint} = report ->
+      {:ok, %Report{status: :delivered, external_receipt_fingerprint: ^fingerprint} = report} ->
         report
 
-      %Report{status: :delivered} ->
+      {:ok, %Report{status: :delivered}} ->
         Repo.rollback(:weekly_report_receipt_conflict)
 
-      %Report{} = report ->
+      {:ok, %Report{} = report} ->
         with :ok <- current_lease(report, lease_ref, now),
              :ok <- exact_receipt(report, receipt) do
           report
@@ -267,7 +267,7 @@ defmodule Ryker.WeeklyReport.Custody do
           {:error, reason} -> Repo.rollback(reason)
         end
 
-      nil ->
+      {:error, :not_found} ->
         Repo.rollback(:weekly_report_not_found)
     end
   end
@@ -287,13 +287,13 @@ defmodule Ryker.WeeklyReport.Custody do
 
   defp leased(delivery_ref, lease_ref, now) do
     case lock(delivery_ref) do
-      %Report{status: :pending} = report ->
+      {:ok, %Report{status: :pending} = report} ->
         with :ok <- current_lease(report, lease_ref, now), do: {:ok, report}
 
-      %Report{} ->
+      {:ok, %Report{}} ->
         {:error, :weekly_report_not_pending}
 
-      nil ->
+      {:error, :not_found} ->
         {:error, :weekly_report_not_found}
     end
   end
@@ -302,7 +302,7 @@ defmodule Ryker.WeeklyReport.Custody do
     delivery_ref
     |> Report.Query.by_delivery_ref()
     |> Report.Query.lock_for_update()
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   defp current_lease(report, lease_ref, now) do

@@ -26,15 +26,15 @@ defmodule Ryker.Publication.Followups.Start do
       publication_id: publication.id
     }
 
-    case Repo.one(Followup.Query.by_publication_id(publication.id)) do
+    case Repo.fetch(Followup.Query.by_publication_id(publication.id)) do
       # Each generation publishes a new head, often to the same pull request,
       # and its checks are its own. The follow-up kept the previous head's
       # check state, so a new head failing the way the old one did woke
       # nothing (2026-10-04 review).
-      %Followup{} = followup ->
+      {:ok, %Followup{} = followup} ->
         reset_followup!(followup, publication, now)
 
-      nil ->
+      {:error, :not_found} ->
         case Repo.insert(Followup.Changeset.insert(attributes)) do
           {:ok, %Followup{} = followup} ->
             Custody.broadcast_publication_updated(publication)
@@ -50,15 +50,15 @@ defmodule Ryker.Publication.Followups.Start do
     do: Repo.rollback(:publication_not_delivered)
 
   def rearm_stale_in_transaction(%Publication{} = publication, now) do
-    case Repo.one(locked_followup(publication)) do
-      %Followup{pr_state: :stale} = followup ->
+    case Repo.fetch(locked_followup(publication)) do
+      {:ok, %Followup{pr_state: :stale} = followup} ->
         _followup = reset_followup!(followup, publication, now)
         :ok
 
-      %Followup{} ->
+      {:ok, %Followup{}} ->
         {:error, :publication_recovery_not_stale}
 
-      nil ->
+      {:error, :not_found} ->
         {:error, :publication_followup_not_found}
     end
   end
@@ -70,15 +70,15 @@ defmodule Ryker.Publication.Followups.Start do
   end
 
   def rearm_conflict_in_transaction(%Publication{} = publication, now) do
-    case Repo.one(locked_followup(publication)) do
-      %Followup{} = followup ->
+    case Repo.fetch(locked_followup(publication)) do
+      {:ok, %Followup{} = followup} ->
         _followup = reset_followup!(followup, publication, now)
         :ok
 
-      nil when is_nil(publication.publication_receipt) ->
+      {:error, :not_found} when is_nil(publication.publication_receipt) ->
         :ok
 
-      nil ->
+      {:error, :not_found} ->
         {:error, :publication_followup_not_found}
     end
   end
@@ -148,11 +148,11 @@ defmodule Ryker.Publication.Followups.Start do
       |> Followup.Query.by_pull_request(number, states)
       |> Followup.Query.lock_for_update()
 
-    case Repo.one(query) do
-      nil ->
+    case Repo.fetch(query) do
+      {:error, :not_found} ->
         :ignored
 
-      followup ->
+      {:ok, followup} ->
         publication = Repo.one!(Publication.Query.by_id(followup.publication_id))
 
         if is_nil(head_sha) or head_sha == publication.commit_sha do

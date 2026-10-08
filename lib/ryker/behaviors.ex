@@ -204,16 +204,16 @@ defmodule Ryker.Behaviors do
          conversation_ref \\ nil
        ) do
     case lock_behavior(ref) do
-      nil ->
+      {:error, :not_found} ->
         {:error, :behavior_not_found}
 
-      %Behavior{workspace_ref: actual} when actual != workspace_ref ->
+      {:ok, %Behavior{workspace_ref: actual}} when actual != workspace_ref ->
         {:error, :behavior_workspace_mismatch}
 
-      %Behavior{revision: actual} when actual != expected_revision ->
+      {:ok, %Behavior{revision: actual}} when actual != expected_revision ->
         {:error, :behavior_revision_stale}
 
-      %Behavior{} = behavior ->
+      {:ok, %Behavior{} = behavior} ->
         if home_behavior_visible?(behavior, actor_ref) or
              (behavior.scope_kind == :conversation and behavior.scope_ref == conversation_ref) do
           updated = set_status_locked(ref, status, workspace_ref)
@@ -280,18 +280,19 @@ defmodule Ryker.Behaviors do
 
   defp manage_assignment_locked(ref, status, workspace_ref, conversation_ref) do
     case lock_behavior(ref) do
-      %Behavior{
-        kind: :standing_assignment,
-        scope_kind: :conversation,
-        workspace_ref: ^workspace_ref,
-        scope_ref: ^conversation_ref
-      } ->
+      {:ok,
+       %Behavior{
+         kind: :standing_assignment,
+         scope_kind: :conversation,
+         workspace_ref: ^workspace_ref,
+         scope_ref: ^conversation_ref
+       }} ->
         update_assignment_status(ref, status, workspace_ref)
 
-      %Behavior{} ->
+      {:ok, %Behavior{}} ->
         Repo.rollback(:assignment_scope_mismatch)
 
-      nil ->
+      {:error, :not_found} ->
         Repo.rollback(:behavior_not_found)
     end
   end
@@ -328,14 +329,14 @@ defmodule Ryker.Behaviors do
          :ok <- authorize_wide_offer(record, episode),
          :ok <- authorize_personal_offer(record, turn, attributes.actor_ref),
          :ok <- check_delivery(episode, turn, attributes.target) do
-      case Repo.one(Behavior.Query.by_offer_record_id(record.id)) do
-        %Behavior{} = behavior ->
+      case Repo.fetch(Behavior.Query.by_offer_record_id(record.id)) do
+        {:ok, %Behavior{} = behavior} ->
           %{behavior: behavior, status: :duplicate}
 
-        nil when record.status == :open ->
+        {:error, :not_found} when record.status == :open ->
           create_behavior(record, episode, attributes)
 
-        nil ->
+        {:error, :not_found} ->
           Repo.rollback(:behavior_offer_stale)
       end
     else
@@ -570,29 +571,29 @@ defmodule Ryker.Behaviors do
   end
 
   defp lock_behavior(ref),
-    do: ref |> Behavior.Query.by_ref() |> Behavior.Query.lock_for_update() |> Repo.one()
+    do: ref |> Behavior.Query.by_ref() |> Behavior.Query.lock_for_update() |> Repo.fetch()
 
   defp set_status_locked(ref, status, workspace_ref) do
     case lock_behavior(ref) do
-      nil ->
+      {:error, :not_found} ->
         Repo.rollback(:behavior_not_found)
 
-      %Behavior{workspace_ref: actual}
+      {:ok, %Behavior{workspace_ref: actual}}
       when not is_nil(workspace_ref) and actual != workspace_ref ->
         Repo.rollback(:behavior_workspace_mismatch)
 
-      %Behavior{status: ^status} = behavior ->
+      {:ok, %Behavior{status: ^status} = behavior} ->
         behavior
 
-      %Behavior{status: current} when current in [:deleted, :expired, :superseded] ->
+      {:ok, %Behavior{status: current}} when current in [:deleted, :expired, :superseded] ->
         Repo.rollback(:behavior_terminal)
 
-      %Behavior{} = behavior when status == :deleted ->
+      {:ok, %Behavior{} = behavior} when status == :deleted ->
         deleted = redact!(behavior, :deleted, "deleted_payload_sha256")
         dismiss_moot_reviews(deleted)
         deleted
 
-      %Behavior{} = behavior ->
+      {:ok, %Behavior{} = behavior} ->
         if status == :active, do: supersede_existing(Map.from_struct(behavior))
         broadcast_behavior_updated(behavior.id)
 

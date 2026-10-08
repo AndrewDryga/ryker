@@ -88,14 +88,14 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
       key
       |> Episodes.Episode.Query.by_key()
       |> Episodes.Episode.Query.select_id_destinations()
-      |> Repo.one()
+      |> Repo.fetch()
 
     case found do
-      {id, transport, conversation_ref} ->
+      {:ok, {id, transport, conversation_ref}} ->
         [{Episodes, :subscribe_conversation, [transport, conversation_ref]}, @learning] ++
           episode_subscriptions(id)
 
-      nil ->
+      {:error, :not_found} ->
         []
     end
   end
@@ -105,17 +105,17 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
       id
       |> Ingress.Inbox.Entry.Query.by_id()
       |> Ingress.Inbox.Entry.Query.select_episode_destinations()
-      |> Repo.one()
+      |> Repo.fetch()
 
     case found do
-      {episode_id, transport, conversation_ref} ->
+      {:ok, {episode_id, transport, conversation_ref}} ->
         [
           {Ingress.Inbox, :subscribe_input, [id]},
           {Episodes, :subscribe_conversation, [transport, conversation_ref]},
           @learning
         ] ++ episode_subscriptions(episode_id)
 
-      nil ->
+      {:error, :not_found} ->
         [{Ingress.Inbox, :subscribe_input, [id]}, @learning]
     end
   end
@@ -129,11 +129,11 @@ defmodule Ryker.ControlPlane.EpisodeProjection do
   def fetch(ref, params) when is_binary(ref) and byte_size(ref) <= 1_024 and is_map(params) do
     ref = ModelRequests.episode_ref(ref)
 
-    case Repo.one(Episodes.Episode.Query.by_key(ref)) do
-      nil ->
+    case Repo.fetch(Episodes.Episode.Query.by_key(ref)) do
+      {:error, :not_found} ->
         :not_found
 
-      episode ->
+      {:ok, episode} ->
         event_records =
           episode.id
           |> Episodes.Event.Query.by_episode_id()

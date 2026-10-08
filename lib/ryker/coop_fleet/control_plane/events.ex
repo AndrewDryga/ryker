@@ -207,20 +207,20 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
   defp ingest_bound_session_events!(placement, remote_id, values, cursor) do
     expected_cursor = List.last(values)["sequence"]
 
-    case Repo.one(Work.Session.Query.by_id(placement.session_id)) do
-      %Work.Session{coop_session_id: nil} = session ->
+    case Repo.fetch(Work.Session.Query.by_id(placement.session_id)) do
+      {:ok, %Work.Session{coop_session_id: nil} = session} ->
         if prebinding_session_events?(placement, session, values, cursor),
           do: :ok,
           else: Shared.rollback({:coop_activity_session_conflict, remote_id})
 
-      %Work.Session{} ->
+      {:ok, %Work.Session{}} ->
         case Work.Activity.ingest_fleet(placement.session_id, remote_id, cursor, values) do
           {:ok, %{cursor: ^expected_cursor}} -> :ok
           {:error, reason} -> Shared.rollback(reason)
           _invalid -> Shared.rollback({:invalid_coop_activity, :cursor})
         end
 
-      nil ->
+      {:error, :not_found} ->
         Shared.rollback(:work_session_not_found)
     end
   end
@@ -308,8 +308,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
   defp terminal_workspace_discard?(_placement, _events), do: false
 
   defp bound_session_activity?(placement, [_event | _rest] = events) do
-    case Repo.one(Work.Session.Query.by_id(placement.session_id)) do
-      %Work.Session{coop_session_id: remote_id} when is_binary(remote_id) ->
+    case Repo.fetch(Work.Session.Query.by_id(placement.session_id)) do
+      {:ok, %Work.Session{coop_session_id: remote_id}} when is_binary(remote_id) ->
         Enum.all?(events, fn
           %{"kind" => "session_event", "payload" => %{"session_id" => ^remote_id}} -> true
           _other -> false
@@ -329,8 +329,8 @@ defmodule Ryker.CoopFleet.ControlPlane.Events do
         _other -> nil
       end)
 
-    case Repo.one(Work.Session.Query.by_id(placement.session_id)) do
-      %Work.Session{coop_session_id: nil} = session ->
+    case Repo.fetch(Work.Session.Query.by_id(placement.session_id)) do
+      {:ok, %Work.Session{coop_session_id: nil} = session} ->
         Enum.all?(values, &is_map/1) and
           prebinding_session_events?(placement, session, values, cursor)
 

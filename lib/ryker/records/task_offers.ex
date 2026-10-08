@@ -195,12 +195,13 @@ defmodule Ryker.Records.TaskOffers do
     end
   end
 
-  defp latest_session(episode_id), do: Repo.one(Work.Session.Query.latest_of_episode(episode_id))
+  defp latest_session(episode_id),
+    do: Repo.fetch(Work.Session.Query.latest_of_episode(episode_id))
 
   defp confirmed(record, status) do
-    with %Episodes.Episode{} = episode <-
-           Repo.one(Episodes.Episode.Query.by_id(record.confirmed_episode_id)),
-         %Work.Session{} = session <- latest_session(record.confirmed_episode_id) do
+    with {:ok, %Episodes.Episode{} = episode} <-
+           Repo.fetch(Episodes.Episode.Query.by_id(record.confirmed_episode_id)),
+         {:ok, %Work.Session{} = session} <- latest_session(record.confirmed_episode_id) do
       %{episode: episode, record: record, session: session, status: status}
     else
       _missing -> Repo.rollback(:task_offer_confirmation_incomplete)

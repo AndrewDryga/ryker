@@ -262,9 +262,9 @@ defmodule Ryker.Settings do
     # The lock fences simultaneous first saves so they agree on one identity.
     lock!()
 
-    case Repo.one(Installation.Query.all()) do
-      %Installation{} = installation -> load(installation)
-      nil -> insert_installation!(generate_host_ref(), actor_ref)
+    case Repo.fetch(Installation.Query.all()) do
+      {:ok, %Installation{} = installation} -> load(installation)
+      {:error, :not_found} -> insert_installation!(generate_host_ref(), actor_ref)
     end
   end
 
@@ -315,11 +315,11 @@ defmodule Ryker.Settings do
   defp record_application_locked(revision, failure_code) do
     lock!()
 
-    case Repo.one(Installation.Query.all()) do
-      nil ->
+    case Repo.fetch(Installation.Query.all()) do
+      {:error, :not_found} ->
         Repo.rollback(:settings_not_initialized)
 
-      %Installation{revision: ^revision} = installation ->
+      {:ok, %Installation{revision: ^revision} = installation} ->
         changes =
           if failure_code,
             do: %{failure_code: Atom.to_string(failure_code)},
@@ -328,7 +328,7 @@ defmodule Ryker.Settings do
         installation |> Ecto.Changeset.change(changes) |> Repo.update!()
         :ok
 
-      %Installation{} ->
+      {:ok, %Installation{}} ->
         Repo.rollback(:settings_revision_changed)
     end
   end
@@ -875,23 +875,23 @@ defmodule Ryker.Settings do
   defp current!(:current) do
     lock!()
 
-    case Repo.one(Installation.Query.all()) do
-      nil -> Repo.rollback(:settings_not_initialized)
-      %Installation{} = installation -> load(installation)
+    case Repo.fetch(Installation.Query.all()) do
+      {:error, :not_found} -> Repo.rollback(:settings_not_initialized)
+      {:ok, %Installation{} = installation} -> load(installation)
     end
   end
 
   defp current!(expected_revision) do
     lock!()
 
-    case Repo.one(Installation.Query.all()) do
-      nil ->
+    case Repo.fetch(Installation.Query.all()) do
+      {:error, :not_found} ->
         Repo.rollback(:settings_not_initialized)
 
-      %Installation{revision: ^expected_revision} = installation ->
+      {:ok, %Installation{revision: ^expected_revision} = installation} ->
         load(installation)
 
-      %Installation{} = installation ->
+      {:ok, %Installation{} = installation} ->
         Repo.rollback({:settings_conflict, load(installation)})
     end
   end
@@ -1046,11 +1046,11 @@ defmodule Ryker.Settings do
   defp broadcast_settings_saved, do: Repo.after_commit(&broadcast_saved_revision/0)
 
   defp broadcast_saved_revision do
-    case Repo.one(Installation.Query.select_revision()) do
-      revision when is_integer(revision) ->
+    case Repo.fetch(Installation.Query.select_revision()) do
+      {:ok, revision} when is_integer(revision) ->
         Ryker.PubSub.broadcast(saves_topic(), {:settings_saved, revision})
 
-      nil ->
+      {:error, :not_found} ->
         :ok
     end
   end
@@ -1073,7 +1073,7 @@ defmodule Ryker.Settings do
   defp authorize("github:onboarding"), do: :ok
 
   defp authorize("slack:user:" <> user_ref) when byte_size(user_ref) in 1..255 do
-    with %__MODULE__.Slack{} = saved <- Repo.one(__MODULE__.Slack.Query.all()),
+    with {:ok, %__MODULE__.Slack{} = saved} <- Repo.fetch(__MODULE__.Slack.Query.all()),
          operators =
            Slack.Operators.new(
              chosen: saved.operators,

@@ -45,14 +45,14 @@ defmodule Ryker.Operator.EpisodeReviews do
 
     if episode.state not in [:complete, :cancelled], do: Repo.rollback(:episode_not_reviewable)
 
-    case Repo.one(EpisodeReview.Query.by_version(episode.id, episode.semantic_version)) do
-      %EpisodeReview{actor_ref: ^actor_ref, rating: ^rating, note: ^note} = review ->
+    case Repo.fetch(EpisodeReview.Query.by_version(episode.id, episode.semantic_version)) do
+      {:ok, %EpisodeReview{actor_ref: ^actor_ref, rating: ^rating, note: ^note} = review} ->
         %{review: review, status: :duplicate}
 
-      %EpisodeReview{} ->
+      {:ok, %EpisodeReview{}} ->
         Repo.rollback(:episode_review_conflict)
 
-      nil ->
+      {:error, :not_found} ->
         attributes = %{
           actor_ref: actor_ref,
           episode_id: episode.id,

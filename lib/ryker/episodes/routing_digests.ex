@@ -140,8 +140,8 @@ defmodule Ryker.Episodes.RoutingDigests do
   end
 
   defp refresh(episode_id) do
-    with %Episode{} = episode <- Repo.one(Episode.Query.by_id(episode_id)),
-         %Event{} = latest <- Repo.one(latest_admission(episode_id)),
+    with {:ok, %Episode{} = episode} <- Repo.fetch(Episode.Query.by_id(episode_id)),
+         {:ok, %Event{} = latest} <- Repo.fetch(latest_admission(episode_id)),
          :ok <- refresh_in_transaction(episode, latest) do
       :ok
     else
@@ -219,8 +219,8 @@ defmodule Ryker.Episodes.RoutingDigests do
 
   defp accepted_title(%Work.Turn{id: turn_id, candidate_attempt: attempt})
        when is_integer(attempt) do
-    with %Work.CandidateResponse{body: body} when is_binary(body) <-
-           Repo.one(Work.CandidateResponse.Query.by_attempt(turn_id, attempt)),
+    with {:ok, %Work.CandidateResponse{body: body}} when is_binary(body) <-
+           Repo.fetch(Work.CandidateResponse.Query.by_attempt(turn_id, attempt)),
          {:ok, %{} = document} <- Jason.decode(body),
          {:ok, %Work.Final{title: title}} <- Work.Final.parse(document) do
       title

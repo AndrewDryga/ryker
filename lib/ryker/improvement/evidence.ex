@@ -451,12 +451,13 @@ defmodule Ryker.Improvement.Evidence do
   end
 
   defp attempt_routing(entry, secrets) do
-    case Repo.one(Admission.Attempt.Query.committed_for(entry)) do
-      %Admission.Attempt{
-        submission: %{"prompt" => prompt},
-        response: %{"assistant_message" => answer}
-      } =
-          attempt
+    case Repo.fetch(Admission.Attempt.Query.committed_for(entry)) do
+      {:ok,
+       %Admission.Attempt{
+         submission: %{"prompt" => prompt},
+         response: %{"assistant_message" => answer}
+       } =
+           attempt}
       when is_binary(prompt) and is_binary(answer) ->
         {routing_item(
            entry,

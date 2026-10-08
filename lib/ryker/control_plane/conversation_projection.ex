@@ -174,8 +174,8 @@ defmodule Ryker.ControlPlane.ConversationProjection do
     with {:ok, conversation_id} <- Ecto.UUID.cast(conversation_id),
          {:ok, turn_id} <- Ecto.UUID.cast(turn_id),
          true <- Reference.token?(artifact_ref),
-         %Artifacts.OutputArtifact{} = artifact <-
-           Repo.one(
+         {:ok, %Artifacts.OutputArtifact{} = artifact} <-
+           Repo.fetch(
              Conversation.Query.artifact(@prefix <> conversation_id, turn_id, artifact_ref)
            ) do
       {:ok,

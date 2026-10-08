@@ -52,18 +52,18 @@ defmodule Ryker.Work.StateBinding do
       |> CoopFleet.Placement.Query.by_session_id()
       |> CoopFleet.Placement.Query.current()
       |> CoopFleet.Placement.Query.limit_to(1)
-      |> Repo.one()
+      |> Repo.fetch()
 
     case placement do
-      %CoopFleet.Placement{state: :active} = current ->
+      {:ok, %CoopFleet.Placement{state: :active} = current} ->
         if DateTime.compare(current.lease_expires_at, Repo.now!()) == :gt,
           do: {:ok, placement_scope(current)},
           else: {:error, {:work_state_tools_placement_not_current, session_id}}
 
-      %CoopFleet.Placement{} ->
+      {:ok, %CoopFleet.Placement{}} ->
         {:error, {:work_state_tools_placement_not_current, session_id}}
 
-      nil ->
+      {:error, :not_found} ->
         if Repo.exists?(CoopFleet.Placement.Query.by_session_id(session_id)) do
           {:error, {:work_state_tools_placement_not_current, session_id}}
         else

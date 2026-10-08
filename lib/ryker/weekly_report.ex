@@ -77,9 +77,9 @@ defmodule Ryker.WeeklyReport do
     now = Keyword.get_lazy(options, :now, &Repo.now!/0)
 
     zone =
-      case Repo.one(Settings.Report.Query.select_timezone()) do
-        zone when is_binary(zone) -> zone
-        nil -> "Etc/UTC"
+      case Repo.fetch(Settings.Report.Query.select_timezone()) do
+        {:ok, zone} when is_binary(zone) -> zone
+        {:error, :not_found} -> "Etc/UTC"
       end
 
     week = last_seven_days(now, zone)
@@ -155,10 +155,10 @@ defmodule Ryker.WeeklyReport do
   # Where the report goes, on or not: its channel, while Slack is connected
   # to a workspace.
   defp destination do
-    with %Settings.Report{channel_ref: channel} = report when is_binary(channel) <-
-           Repo.one(Settings.Report.Query.all()),
-         %Settings.Slack{enabled: true, workspace_ref: workspace} when is_binary(workspace) <-
-           Repo.one(Settings.Slack.Query.all()) do
+    with {:ok, %Settings.Report{channel_ref: channel} = report} when is_binary(channel) <-
+           Repo.fetch(Settings.Report.Query.all()),
+         {:ok, %Settings.Slack{enabled: true, workspace_ref: workspace}} when is_binary(workspace) <-
+           Repo.fetch(Settings.Slack.Query.all()) do
       {:ok,
        %{
          conversation_ref: ConversationRef.slack(workspace, channel),

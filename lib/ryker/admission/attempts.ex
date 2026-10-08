@@ -134,11 +134,11 @@ defmodule Ryker.Admission.Attempts do
   def committed(%Ingress.Inbox.Entry{} = entry) do
     :ok = Ryker.Accounting.attach_admission_in_transaction(entry)
 
-    case Repo.one(query(entry)) do
-      nil ->
+    case Repo.fetch(query(entry)) do
+      {:error, :not_found} ->
         :ok
 
-      attempt ->
+      {:ok, attempt} ->
         persist(attempt, %{}, "committed", entry.updated_at)
         :ok
     end

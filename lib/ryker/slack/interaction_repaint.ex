@@ -47,22 +47,22 @@ defmodule Ryker.Slack.InteractionRepaint do
 
   defp repaint_source(audit, options) do
     case task_card(audit) do
-      %TaskCard{} = card -> task_card_document(card)
-      nil -> repaint_non_task(audit, options)
+      {:ok, %TaskCard{} = card} -> task_card_document(card)
+      {:error, :not_found} -> repaint_non_task(audit, options)
     end
   end
 
   defp repaint_non_task(audit, options) do
     case incident_room(audit) do
-      %IncidentRoom{} = room -> incident_room_document(room)
-      nil -> repaint_non_incident(audit, options)
+      {:ok, %IncidentRoom{} = room} -> incident_room_document(room)
+      {:error, :not_found} -> repaint_non_incident(audit, options)
     end
   end
 
   defp repaint_non_incident(audit, options) do
     case configuration_session(audit) do
-      %ConfigurationSession{} = session -> setup_document(session, options)
-      nil -> turn_document(audit)
+      {:ok, %ConfigurationSession{} = session} -> setup_document(session, options)
+      {:error, :not_found} -> turn_document(audit)
     end
   end
 
@@ -75,21 +75,21 @@ defmodule Ryker.Slack.InteractionRepaint do
     audit.workspace_ref
     |> TaskCard.Query.by_message(audit.channel_ref, audit.message_ref, audit.thread_ref)
     |> TaskCard.Query.limit_to(1)
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   defp incident_room(audit) do
     audit.workspace_ref
     |> IncidentRoom.Query.by_root_message(audit.channel_ref, audit.message_ref)
     |> IncidentRoom.Query.limit_to(1)
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   defp configuration_session(audit) do
     audit.workspace_ref
     |> ConfigurationSession.Query.by_current_message(audit.channel_ref, audit.message_ref)
     |> ConfigurationSession.Query.limit_to(1)
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   defp task_card_document(card) do
@@ -103,9 +103,9 @@ defmodule Ryker.Slack.InteractionRepaint do
   end
 
   defp turn_document(audit) do
-    case Repo.one(delivered_turn(audit)) do
-      %Work.Turn{} = turn -> public_turn_document(turn, audit)
-      nil -> :not_found
+    case Repo.fetch(delivered_turn(audit)) do
+      {:ok, %Work.Turn{} = turn} -> public_turn_document(turn, audit)
+      {:error, :not_found} -> :not_found
     end
   end
 
@@ -151,13 +151,13 @@ defmodule Ryker.Slack.InteractionRepaint do
   end
 
   defp public_turn_sources(turn, audit, document) do
-    with %Episodes.Episode{} = episode <- Repo.one(Episodes.Episode.Query.by_id(turn.episode_id)),
+    with {:ok, episode} <- source_row(Episodes.Episode.Query.by_id(turn.episode_id)),
          true <- episode.destination_transport == "slack",
          true <-
            episode.destination_conversation_ref ==
              ConversationRef.slack(audit.workspace_ref, audit.channel_ref),
-         %Work.Session{episode_id: owner} = session <-
-           Repo.one(Work.Session.Query.by_id(turn.session_id)),
+         {:ok, %Work.Session{episode_id: owner} = session} <-
+           source_row(Work.Session.Query.by_id(turn.session_id)),
          true <- owner == episode.id,
          {:ok, _} <-
            Records.DerivedContext.resolve(
@@ -173,6 +173,11 @@ defmodule Ryker.Slack.InteractionRepaint do
       {:error, reason} -> {:error, reason}
       _refused -> :withdrawn
     end
+  end
+
+  # The request or session a reply came from being gone withdraws the reply.
+  defp source_row(query) do
+    with {:error, :not_found} <- Repo.fetch(query), do: :gone
   end
 
   defp repaint_sources(turn, document) do

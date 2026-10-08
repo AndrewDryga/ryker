@@ -374,12 +374,12 @@ defmodule Ryker.Retention.Custody do
     now = Repo.now!()
 
     case candidate(now, exclude) do
-      nil ->
+      {:error, :not_found} ->
         nil
 
-      {kind, owner_id, session_id, placed_worker_id} ->
+      {:ok, {kind, owner_id, session_id, placed_worker_id}} ->
         with owner when not is_nil(owner) <- lock_owner(kind, owner_id, :skip_locked),
-             %Work.Session{} = session <- lock_session(session_id),
+             {:ok, %Work.Session{} = session} <- lock_session(session_id),
              true <- claimable?(owner, session, now) do
           session = prepare_phase(session)
           lease_ref = "retention-lease:#{Ecto.UUID.generate()}"
@@ -409,7 +409,7 @@ defmodule Ryker.Retention.Custody do
     end
   end
 
-  defp candidate(now, exclude), do: Repo.one(Cleanup.Query.next_candidate(now, exclude))
+  defp candidate(now, exclude), do: Repo.fetch(Cleanup.Query.next_candidate(now, exclude))
 
   defp lock_owner(kind, id, lock) when kind in [:work, :learning, :improvement, :knowledge],
     do: kind |> Cleanup.Query.owner(id) |> Cleanup.Query.lock_owner(lock) |> Repo.one()
@@ -436,7 +436,7 @@ defmodule Ryker.Retention.Custody do
     session_id
     |> Work.Session.Query.by_id()
     |> Work.Session.Query.lock_for_update()
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   defp claimable?(owner, session, now) do
@@ -725,7 +725,7 @@ defmodule Ryker.Retention.Custody do
 
   defp settle_worker_removed_locked(session, now) do
     case holding_worker(session.id) do
-      %CoopFleet.Worker{} = worker
+      {:ok, %CoopFleet.Worker{} = worker}
       when worker.state == :revoked or not is_nil(worker.revoked_at) ->
         receipt = %{
           "kind" => "worker_removed",
@@ -737,10 +737,10 @@ defmodule Ryker.Retention.Custody do
 
         settle(session, receipt, now)
 
-      %CoopFleet.Worker{id: worker_id} ->
+      {:ok, %CoopFleet.Worker{id: worker_id}} ->
         Repo.rollback({:retention_worker_unavailable, worker_id})
 
-      nil ->
+      {:error, :not_found} ->
         Repo.rollback({:retention_worker_unavailable, nil})
     end
   end
@@ -754,7 +754,7 @@ defmodule Ryker.Retention.Custody do
     |> CoopFleet.Placement.Query.ordered_by_generation_desc()
     |> CoopFleet.Placement.Query.limit_to(1)
     |> CoopFleet.Placement.Query.select_workers()
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   defp advance_generation(session_id, lease_ref, status, field, generation, reset) do

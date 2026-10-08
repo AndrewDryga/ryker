@@ -167,15 +167,15 @@ defmodule Ryker.CoopFleet.Enrollment do
 
   defp ensure_worker_enrollable!(worker_id) do
     case locked_worker(worker_id) do
-      %Worker{state: :revoked} -> Repo.rollback(:coop_worker_enrollment_not_authorized)
-      %Worker{} -> :ok
-      nil -> :ok
+      {:ok, %Worker{state: :revoked}} -> Repo.rollback(:coop_worker_enrollment_not_authorized)
+      {:ok, %Worker{}} -> :ok
+      {:error, :not_found} -> :ok
     end
   end
 
   defp upsert_enrolled_worker!(worker_id, workspace_ref, certificate_sha256) do
     case locked_worker(worker_id) do
-      nil ->
+      {:error, :not_found} ->
         %{
           certificate_sha256: certificate_sha256,
           id: worker_id,
@@ -186,13 +186,14 @@ defmodule Ryker.CoopFleet.Enrollment do
         |> Repo.insert()
         |> unwrap_write()
 
-      %Worker{workspace_ref: ^workspace_ref, state: state} = worker when state != :revoked ->
+      {:ok, %Worker{workspace_ref: ^workspace_ref, state: state} = worker}
+      when state != :revoked ->
         worker
         |> Worker.Changeset.bind_certificate(certificate_sha256)
         |> Repo.update()
         |> unwrap_write()
 
-      %Worker{} ->
+      {:ok, %Worker{}} ->
         Repo.rollback(:coop_worker_enrollment_not_authorized)
     end
   end
@@ -288,7 +289,10 @@ defmodule Ryker.CoopFleet.Enrollment do
   end
 
   defp locked_worker!(worker_id) do
-    locked_worker(worker_id) || Repo.rollback(:coop_worker_certificate_not_authorized)
+    case locked_worker(worker_id) do
+      {:ok, worker} -> worker
+      {:error, :not_found} -> Repo.rollback(:coop_worker_certificate_not_authorized)
+    end
   end
 
   defp token(value) when is_binary(value) and byte_size(value) in 32..128 do
@@ -326,5 +330,5 @@ defmodule Ryker.CoopFleet.Enrollment do
     do: Repo.rollback({:coop_worker_enrollment_store_error, changeset})
 
   defp locked_worker(worker_id),
-    do: worker_id |> Worker.Query.by_id() |> Worker.Query.lock_for_update() |> Repo.one()
+    do: worker_id |> Worker.Query.by_id() |> Worker.Query.lock_for_update() |> Repo.fetch()
 end

@@ -150,9 +150,9 @@ defmodule Ryker.Memories.Reviews do
   def pending_review(review_ref) when is_binary(review_ref) do
     pending = review_ref |> MemoryReviewItem.Query.by_ref() |> MemoryReviewItem.Query.pending()
 
-    case Repo.one(pending) do
-      nil -> nil
-      review -> review_document(review)
+    case Repo.fetch(pending) do
+      {:error, :not_found} -> nil
+      {:ok, review} -> review_document(review)
     end
   end
 
@@ -387,20 +387,20 @@ defmodule Ryker.Memories.Reviews do
     locked =
       review_ref |> MemoryReviewItem.Query.by_ref() |> MemoryReviewItem.Query.lock_for_update()
 
-    case Repo.one(locked) do
-      nil ->
+    case Repo.fetch(locked) do
+      {:error, :not_found} ->
         Repo.rollback(:memory_review_not_found)
 
-      %MemoryReviewItem{workspace_ref: actual} when actual != workspace_ref ->
+      {:ok, %MemoryReviewItem{workspace_ref: actual}} when actual != workspace_ref ->
         Repo.rollback(:memory_review_workspace_mismatch)
 
-      %MemoryReviewItem{status: status} = review when status != :pending ->
+      {:ok, %MemoryReviewItem{status: status} = review} when status != :pending ->
         case review_authorized(review, workspace_ref, authorization) do
           :ok -> resolved_review_result(review, action, actor_ref, replacement)
           {:error, reason} -> Repo.rollback(reason)
         end
 
-      %MemoryReviewItem{} = review ->
+      {:ok, %MemoryReviewItem{} = review} ->
         entries = lock_review_entries(review.entry_refs, workspace_ref)
 
         with :ok <- review_authorized_entries(entries, authorization),

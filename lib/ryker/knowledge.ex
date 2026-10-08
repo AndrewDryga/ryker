@@ -238,7 +238,7 @@ defmodule Ryker.Knowledge do
     lock_scope(key)
 
     with {:ok, ^id} <- Ecto.UUID.cast(id),
-         %ConversationKnowledge{} = head <- locked_topic(id),
+         {:ok, %ConversationKnowledge{} = head} <- locked_topic(id),
          true <-
            is_nil(head.forgotten_at) and head.scope_key == key and head.version == version and
              head.source_generation == generation,
@@ -263,7 +263,7 @@ defmodule Ryker.Knowledge do
     id
     |> ConversationKnowledge.Query.by_id()
     |> ConversationKnowledge.Query.lock_for_update()
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   defp source_update(entries, proposal, offered, %{

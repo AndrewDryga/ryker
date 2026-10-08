@@ -159,9 +159,9 @@ defmodule Ryker.Work.Activity do
         |> Session.Query.ordered_by_least_recently_updated()
         |> Session.Query.limit_to(1)
 
-      case Repo.one(pending) do
-        nil -> {:ok, :idle}
-        session -> retry_sync(session, api, client)
+      case Repo.fetch(pending) do
+        {:error, :not_found} -> {:ok, :idle}
+        {:ok, session} -> retry_sync(session, api, client)
       end
     else
       {:ok, :idle}

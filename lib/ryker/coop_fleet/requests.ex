@@ -27,8 +27,8 @@ defmodule Ryker.CoopFleet.Requests do
   end
 
   defp request_for("ensure_workspace", %{"checkpoint" => saved} = payload, _) do
-    with %WorkspaceCheckpointTransfer{} = transfer <-
-           Repo.one(WorkspaceCheckpointTransfer.Query.by_id(saved["transfer_id"])),
+    with {:ok, %WorkspaceCheckpointTransfer{} = transfer} <-
+           Repo.fetch(WorkspaceCheckpointTransfer.Query.by_id(saved["transfer_id"])),
          true <-
            transfer.bundle_sha256 == saved["sha256"] and
              transfer.bundle_byte_size == saved["byte_size"] do

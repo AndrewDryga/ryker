@@ -166,7 +166,7 @@ defmodule Ryker.ControlPlane.LearningActivity do
 
   defp selected_batch(params, secrets) do
     with {:ok, id} <- Ecto.UUID.cast(params["batch"]),
-         %Learning.Batch{} = batch <- Repo.one(Learning.Batch.Query.by_id(id)) do
+         {:ok, %Learning.Batch{} = batch} <- Repo.fetch(Learning.Batch.Query.by_id(id)) do
       selected(batch, params, secrets)
     else
       _ -> nil

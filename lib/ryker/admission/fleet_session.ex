@@ -47,8 +47,11 @@ defmodule Ryker.Admission.FleetSession do
 
   defp ensure_locked(entry, policy, digest) do
     case lock_session(entry) do
-      nil -> insert_or_reload_session!(entry, policy, digest, external_ref(entry))
-      %Work.Session{} = session -> exact_authority(session, policy, digest)
+      {:error, :not_found} ->
+        insert_or_reload_session!(entry, policy, digest, external_ref(entry))
+
+      {:ok, session} ->
+        exact_authority(session, policy, digest)
     end
   end
 
@@ -69,10 +72,15 @@ defmodule Ryker.Admission.FleetSession do
     |> Work.Session.Changeset.insert_admission(now)
     |> Repo.insert!(on_conflict: :nothing)
 
-    entry
-    |> lock_session()
-    |> exact_authority(policy, digest)
-    |> tap(&Work.Custody.broadcast_session_updated/1)
+    case lock_session(entry) do
+      {:ok, session} ->
+        session
+        |> exact_authority(policy, digest)
+        |> tap(&Work.Custody.broadcast_session_updated/1)
+
+      {:error, :not_found} ->
+        Repo.rollback(:admission_fleet_authority_conflict)
+    end
   end
 
   defp exact_authority(
@@ -93,13 +101,14 @@ defmodule Ryker.Admission.FleetSession do
 
   defp bind_locked(entry, coop_session_id) do
     case lock_session(entry) do
-      %Work.Session{execution_kind: :admission, coop_session_id: nil} = session ->
+      {:ok, %Work.Session{execution_kind: :admission, coop_session_id: nil} = session} ->
         session
         |> Work.Session.Changeset.bind(coop_session_id)
         |> Repo.update!()
         |> tap(&Work.Custody.broadcast_session_updated/1)
 
-      %Work.Session{execution_kind: :admission, coop_session_id: ^coop_session_id} = session ->
+      {:ok,
+       %Work.Session{execution_kind: :admission, coop_session_id: ^coop_session_id} = session} ->
         session
 
       _other ->
@@ -109,19 +118,21 @@ defmodule Ryker.Admission.FleetSession do
 
   defp settle_locked(entry, coop_session_id) do
     case lock_session(entry) do
-      %Work.Session{
-        execution_kind: :admission,
-        coop_session_id: ^coop_session_id,
-        cleanup_status: status
-      } = session
+      {:ok,
+       %Work.Session{
+         execution_kind: :admission,
+         coop_session_id: ^coop_session_id,
+         cleanup_status: status
+       } = session}
       when status in [:plan_pending, :discard_pending, :retained, :discarded] ->
         session
 
-      %Work.Session{
-        execution_kind: :admission,
-        coop_session_id: ^coop_session_id,
-        cleanup_status: :active
-      } = session ->
+      {:ok,
+       %Work.Session{
+         execution_kind: :admission,
+         coop_session_id: ^coop_session_id,
+         cleanup_status: :active
+       } = session} ->
         now = Repo.now!()
 
         session
@@ -138,7 +149,7 @@ defmodule Ryker.Admission.FleetSession do
     entry.id
     |> Work.Session.Query.by_admission_input_id_and_generation(entry.execution_generation)
     |> Work.Session.Query.lock_for_update()
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   defp external_ref(%Ingress.Inbox.Entry{id: id, execution_generation: generation}),

@@ -36,7 +36,7 @@ defmodule Ryker.Admission.ConversationSummaries do
   # name the thread by the same identity key.
   defp selected_locked(entry, now) do
     with {:ok, scope} <- Continuity.destination_context(entry, entry.repository_ref),
-         %Continuity.ConversationSummary{} = summary <- latest(scope.identity_key) do
+         {:ok, summary} <- latest(scope.identity_key) do
       cond do
         after_cutoff?(summary, entry) ->
           unavailable("after_cutoff")
@@ -48,17 +48,19 @@ defmodule Ryker.Admission.ConversationSummaries do
           document(summary, now)
       end
     else
-      nil -> unavailable("absent")
+      :absent -> unavailable("absent")
       {:error, _reason} -> unavailable("scope_unavailable")
     end
   end
 
   defp latest(identity_key) do
-    identity_key
-    |> Continuity.ConversationSummary.Query.by_identity_key()
-    |> Continuity.ConversationSummary.Query.ordered_by_recently_updated()
-    |> Continuity.ConversationSummary.Query.limit_to(1)
-    |> Repo.one()
+    latest =
+      identity_key
+      |> Continuity.ConversationSummary.Query.by_identity_key()
+      |> Continuity.ConversationSummary.Query.ordered_by_recently_updated()
+      |> Continuity.ConversationSummary.Query.limit_to(1)
+
+    with {:error, :not_found} <- Repo.fetch(latest), do: :absent
   end
 
   # When the summary was saved is what bounds what it can know. Its

@@ -34,11 +34,9 @@ defmodule Ryker.CopiedHelpersTest do
     {"A read composed where it is used, inside the caller's own transaction.",
      ~w(Ryker.ControlPlane.OverviewProjection.count/1 Ryker.Slack.AppHomeProjection.count/1)},
     {"A read composed where it is used, inside the caller's own transaction.",
-     ~w(Ryker.Emisar.Approvals.lock_record/1 Ryker.Waits.EventWaits.lock_record/1)},
+     ~w(Ryker.CoopFleet.ControlPlane.Shared.lock_worker/1 Ryker.CoopFleet.Enrollment.locked_worker/1)},
     {"A read composed where it is used.",
      ~w(Ryker.ControlPlane.ChannelDetail.settings/0 Ryker.ControlPlane.IncidentProjection.settings/0)},
-    {"A read composed where it is used.",
-     ~w(Ryker.ControlPlane.Actions.task_publication/2 Ryker.Slack.WorkControls.episode_publication/2)},
     {"The worker protocol fixes these two streaming hashes (Ryker.Crypto's note).",
      ~w(Ryker.CoopFleet.Bodies.hex/1 Ryker.CoopFleet.WorkspaceCheckpointBundle.hex/1)},
     # One-line normalizers of a stored value, each reading better where it is

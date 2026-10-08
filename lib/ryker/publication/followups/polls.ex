@@ -338,8 +338,8 @@ defmodule Ryker.Publication.Followups.Polls do
   end
 
   defp still_working?(followup, now) do
-    case Repo.one(Episodes.Episode.Query.by_id(followup.episode_id)) do
-      %Episodes.Episode{state: :working, owner_kind: :turn, owner_ref: owner} ->
+    case Repo.fetch(Episodes.Episode.Query.by_id(followup.episode_id)) do
+      {:ok, %Episodes.Episode{state: :working, owner_kind: :turn, owner_ref: owner}} ->
         owner == followup.verification_turn_ref and within_wait?(followup, now) and
           Work.Custody.turn_in_progress?(followup.episode_id, owner)
 

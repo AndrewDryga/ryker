@@ -76,8 +76,8 @@ defmodule Ryker.CoopFleet.SessionEvidenceCapture do
   # worker that stops advertising it stops being asked, rather than producing a
   # failure the operator has to read past.
   defp advertises_export?(worker_id) do
-    case Repo.one(Worker.Query.by_id(worker_id)) do
-      %Worker{capabilities: capabilities} when is_list(capabilities) ->
+    case Repo.fetch(Worker.Query.by_id(worker_id)) do
+      {:ok, %Worker{capabilities: capabilities}} when is_list(capabilities) ->
         if Enum.any?(capabilities, &(&1["name"] == @capability and &1["version"] == @version)),
           do: :ok,
           else: {:skipped, :export_not_advertised}

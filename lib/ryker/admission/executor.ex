@@ -115,8 +115,8 @@ defmodule Ryker.Admission.Executor do
          candidates: candidates
        })
        when is_binary(ref) do
-    with %Records.Record{kind: "input_request", episode_id: episode_id} <-
-           Repo.one(Records.Record.Query.by_ref(ref)),
+    with {:ok, %Records.Record{kind: "input_request", episode_id: episode_id}} <-
+           Repo.fetch(Records.Record.Query.by_ref(ref)),
          %{ref: candidate_ref} <- Enum.find(candidates, &(&1.episode.id == episode_id)) do
       deletion(
         :continue_episode,
@@ -1139,8 +1139,8 @@ defmodule Ryker.Admission.Executor do
     do: {:error, {:coop_protocol_error, :session_resource}}
 
   defp exact_job_receipt?(remote, settings, purpose) do
-    case Repo.one(Work.Session.Query.by_external_ref(settings.session_external_ref)) do
-      %Work.Session{policy: policy, policy_digest: digest} = saved
+    case Repo.fetch(Work.Session.Query.by_external_ref(settings.session_external_ref)) do
+      {:ok, %Work.Session{policy: policy, policy_digest: digest} = saved}
       when policy == settings.policy and digest == settings.policy_digest ->
         if purpose == :cleanup,
           do: CoopFleet.JobAuthority.exact_cleanup_receipt(saved, remote) == :ok,

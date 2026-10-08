@@ -160,17 +160,18 @@ defmodule Ryker.CoopFleet.Bridge do
   # each, the last too: the result that ended the last wait was never read,
   # and the caller timed out holding it.
   defp await(command_id, settings, left) do
-    case Repo.one(Command.Query.by_id(command_id)) do
-      %Command{placement_id: nil, status: :failed, error: %{"code" => "operation_not_enqueued"}} =
-          command ->
+    case Repo.fetch(Command.Query.by_id(command_id)) do
+      {:ok,
+       %Command{placement_id: nil, status: :failed, error: %{"code" => "operation_not_enqueued"}} =
+           command} ->
         await_result(command, command_id, settings, left)
 
-      %Command{} = command ->
+      {:ok, %Command{} = command} ->
         with :ok <- current_command_placement(command) do
           await_result(command, command_id, settings, left)
         end
 
-      nil ->
+      {:error, :not_found} ->
         await_result(nil, command_id, settings, left)
     end
   end

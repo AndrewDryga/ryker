@@ -53,11 +53,11 @@ defmodule Ryker.Slack.IncidentRoomCard do
   end
 
   defp projection(%IncidentRoom{} = room) do
-    case Repo.one(Episodes.Episode.Query.by_id(room.episode_id)) do
-      nil ->
+    case Repo.fetch(Episodes.Episode.Query.by_id(room.episode_id)) do
+      {:error, :not_found} ->
         {:error, :incident_room_episode_not_found}
 
-      %Episodes.Episode{} = episode ->
+      {:ok, %Episodes.Episode{} = episode} ->
         records = latest_records(episode.id)
         turn = Repo.one(Work.Turn.Query.current(episode))
         session = Repo.one(Work.Session.Query.latest_of_episode(episode.id))

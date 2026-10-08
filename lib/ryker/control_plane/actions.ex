@@ -127,8 +127,8 @@ defmodule Ryker.ControlPlane.Actions do
 
   defp run_schedule(policy_resolver) when is_function(policy_resolver, 1) do
     fn schedule_ref, viewer ->
-      case Repo.one(Schedules.Schedule.Query.by_ref(schedule_ref)) do
-        %{revision: revision} ->
+      case Repo.fetch(Schedules.Schedule.Query.by_ref(schedule_ref)) do
+        {:ok, %{revision: revision}} ->
           action_ref = "control-plane:run-schedule:#{schedule_ref}:#{revision}"
 
           Schedules.run_now_for_operator(
@@ -138,7 +138,7 @@ defmodule Ryker.ControlPlane.Actions do
             policy_resolver
           )
 
-        nil ->
+        {:error, :not_found} ->
           {:error, :schedule_not_found}
       end
     end
@@ -149,11 +149,11 @@ defmodule Ryker.ControlPlane.Actions do
   end
 
   defp resolve_memory_review(review_ref, action, replacement, viewer) do
-    case Repo.one(Memories.MemoryReviewItem.Query.by_ref(review_ref)) do
-      %Memories.MemoryReviewItem{workspace_ref: workspace_ref} ->
+    case Repo.fetch(Memories.MemoryReviewItem.Query.by_ref(review_ref)) do
+      {:ok, %Memories.MemoryReviewItem{workspace_ref: workspace_ref}} ->
         Memories.resolve_review(review_ref, action, Actor.of(viewer), workspace_ref, replacement)
 
-      nil ->
+      {:error, :not_found} ->
         {:error, :memory_review_not_found}
     end
   end
@@ -197,10 +197,13 @@ defmodule Ryker.ControlPlane.Actions do
   end
 
   defp resolve_episode(episode_key, viewer) do
-    episode_key
-    |> Episodes.Episode.Query.by_key()
-    |> Repo.one()
-    |> resolve_episode_record("Closed by #{Actor.of(viewer)} as no longer needed.")
+    case Repo.fetch(Episodes.Episode.Query.by_key(episode_key)) do
+      {:ok, episode} ->
+        resolve_episode_record(episode, "Closed by #{Actor.of(viewer)} as no longer needed.")
+
+      {:error, :not_found} ->
+        {:error, :episode_not_found}
+    end
   end
 
   defp resolve_episode_record(
@@ -231,7 +234,6 @@ defmodule Ryker.ControlPlane.Actions do
   end
 
   defp resolve_episode_record(%Episodes.Episode{}, _reason), do: {:error, :episode_not_resolvable}
-  defp resolve_episode_record(nil, _reason), do: {:error, :episode_not_found}
 
   defp resolve_blocked_episode(%Work.Turn{status: :blocked}, episode, turn_ref, reason) do
     Work.Custody.request_cancel(episode.id, episode.key, turn_ref, resolve_action_ref(), reason)
@@ -274,7 +276,7 @@ defmodule Ryker.ControlPlane.Actions do
   defp build_lab_task_record(record, episode, :diff, params, options) do
     with {:ok, %{offset: offset, snapshot_digest: expected_digest}} <- diff_params(params),
          {:ok, coop_api, coop_client} <- work_view_options(options),
-         %Work.Session{coop_session_id: session_id} when is_binary(session_id) <-
+         {:ok, %Work.Session{coop_session_id: session_id}} when is_binary(session_id) <-
            latest_bound_session(episode.id),
          {:ok, changes} <-
            coop_api.get_changes_page(coop_client, session_id, offset, WorkChanges.page_bytes()),
@@ -288,7 +290,6 @@ defmodule Ryker.ControlPlane.Actions do
          title: "Workspace diff"
        }}
     else
-      nil -> {:error, :conversation_lab_work_changes_not_available}
       {:error, reason} -> {:error, reason}
       _invalid -> {:error, :conversation_lab_work_changes_not_available}
     end
@@ -303,12 +304,15 @@ defmodule Ryker.ControlPlane.Actions do
   defp lab_task_record_title(:postmortem), do: "Incident postmortem"
 
   defp latest_bound_session(episode_id) do
-    episode_id
-    |> Work.Session.Query.by_episode_id()
-    |> Work.Session.Query.bound()
-    |> Work.Session.Query.ordered_by_generation_desc()
-    |> Work.Session.Query.limit_to(1)
-    |> Repo.one()
+    latest =
+      episode_id
+      |> Work.Session.Query.by_episode_id()
+      |> Work.Session.Query.bound()
+      |> Work.Session.Query.ordered_by_generation_desc()
+      |> Work.Session.Query.limit_to(1)
+
+    with {:error, :not_found} <- Repo.fetch(latest),
+         do: {:error, :conversation_lab_work_changes_not_available}
   end
 
   defp work_view_options(%{coop_api: api, coop_client: client})
@@ -417,16 +421,16 @@ defmodule Ryker.ControlPlane.Actions do
 
   defp lab_record_context(conversation_ref, record_ref) do
     case fetch_lab_record(record_ref) do
-      {%Records.Record{} = record, %Episodes.Episode{} = episode, %Work.Turn{} = turn} ->
+      {:ok, {%Records.Record{} = record, %Episodes.Episode{} = episode, %Work.Turn{} = turn}} ->
         lab_record_target(record, episode, turn, conversation_ref)
 
-      nil ->
+      {:error, :not_found} ->
         {:error, :conversation_lab_record_not_found}
     end
   end
 
   defp fetch_lab_record(record_ref),
-    do: Repo.one(Records.Record.Query.by_ref_with_origin_turn(record_ref))
+    do: Repo.fetch(Records.Record.Query.by_ref_with_origin_turn(record_ref))
 
   defp lab_record_target(
          %Records.Record{} = record,
@@ -697,14 +701,11 @@ defmodule Ryker.ControlPlane.Actions do
       end
 
     with {:ok, episode} <- task_episode(record, target),
-         %Publication.Publication{} = publication <- task_publication(episode.id, publication_ref) do
+         {:ok, publication} <- task_publication(episode.id, publication_ref) do
       Operator.Publication.recover(publication.ref, recovery_action, expected_generation,
         actor_ref: Actor.of(request.viewer),
         action_ref: request.ref
       )
-    else
-      nil -> {:error, :conversation_lab_publication_not_found}
-      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -803,8 +804,8 @@ defmodule Ryker.ControlPlane.Actions do
   end
 
   defp task_episode(%Records.Record{} = record, target) do
-    case Repo.one(Episodes.Episode.Query.by_id(record.confirmed_episode_id)) do
-      %Episodes.Episode{} = episode ->
+    case Repo.fetch(Episodes.Episode.Query.by_id(record.confirmed_episode_id)) do
+      {:ok, %Episodes.Episode{} = episode} ->
         exact =
           episode.linked_episode_id == record.episode_id and
             episode.destination_transport == target.transport and
@@ -815,7 +816,7 @@ defmodule Ryker.ControlPlane.Actions do
           do: {:ok, episode},
           else: {:error, :conversation_lab_task_mismatch}
 
-      nil ->
+      {:error, :not_found} ->
         {:error, :conversation_lab_task_not_found}
     end
   end
@@ -867,14 +868,14 @@ defmodule Ryker.ControlPlane.Actions do
   defp stopper(nil), do: "Someone"
 
   defp lab_publication(record, source_target, expected_status, receipt_kind) do
-    case Repo.one(Publication.Publication.Query.by_record_id(record.id)) do
-      %Publication.Publication{status: ^expected_status} = publication ->
+    case Repo.fetch(Publication.Publication.Query.by_record_id(record.id)) do
+      {:ok, %Publication.Publication{status: ^expected_status} = publication} ->
         lab_publication_target(publication, source_target, receipt_kind)
 
-      %Publication.Publication{} ->
+      {:ok, %Publication.Publication{}} ->
         {:error, :conversation_lab_publication_not_ready}
 
-      nil ->
+      {:error, :not_found} ->
         {:error, :conversation_lab_publication_not_found}
     end
   end
@@ -886,17 +887,15 @@ defmodule Ryker.ControlPlane.Actions do
          expected_status,
          receipt_kind
        ) do
-    publication = task_publication(episode_id, publication_ref)
-
-    case publication do
-      %Publication.Publication{status: ^expected_status} ->
+    case task_publication(episode_id, publication_ref) do
+      {:ok, %Publication.Publication{status: ^expected_status} = publication} ->
         lab_publication_target(publication, source_target, receipt_kind)
 
-      %Publication.Publication{} ->
+      {:ok, %Publication.Publication{}} ->
         {:error, :conversation_lab_publication_not_ready}
 
-      nil ->
-        {:error, :conversation_lab_publication_not_found}
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -905,7 +904,7 @@ defmodule Ryker.ControlPlane.Actions do
   # first while its card offered both (30 Sep: "Couldn't create the draft pull request").
   defp approvable_lab_task_publication(episode_id, publication_ref, target) do
     case task_publication(episode_id, publication_ref) do
-      %Publication.Publication{status: :blocked} = publication ->
+      {:ok, %Publication.Publication{status: :blocked} = publication} ->
         if Publication.Review.draft_shareable?(publication.review_document),
           do: lab_publication_target(publication, target, :review),
           else: {:error, :conversation_lab_publication_not_ready}
@@ -916,10 +915,13 @@ defmodule Ryker.ControlPlane.Actions do
   end
 
   defp task_publication(episode_id, publication_ref) do
-    episode_id
-    |> Publication.Publication.Query.by_episode_id()
-    |> Publication.Publication.Query.by_ref(publication_ref)
-    |> Repo.one()
+    query =
+      episode_id
+      |> Publication.Publication.Query.by_episode_id()
+      |> Publication.Publication.Query.by_ref(publication_ref)
+
+    with {:error, :not_found} <- Repo.fetch(query),
+         do: {:error, :conversation_lab_publication_not_found}
   end
 
   defp lab_publication_target(publication, source_target, receipt_kind) do

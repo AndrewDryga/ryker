@@ -240,15 +240,15 @@ defmodule Ryker.CoopFleet.Client do
   @impl true
   def prepare_session(client, coop_session_id, key) do
     with {:ok, session} <- session_by_coop_id(coop_session_id) do
-      case Repo.one(Command.Query.by_idempotency_key(key)) do
-        nil ->
+      case Repo.fetch(Command.Query.by_idempotency_key(key)) do
+        {:error, :not_found} ->
           prepare_on_idle_worker(client, session, coop_session_id, key)
 
-        %Command{kind: "prepare_session", session_id: id, payload: payload}
+        {:ok, %Command{kind: "prepare_session", session_id: id, payload: payload}}
         when id == session.id ->
           execute(client, session, "prepare_session", payload, key)
 
-        _other ->
+        {:ok, _other} ->
           {:error, {:coop_worker_command_conflict, key}}
       end
     end
@@ -306,12 +306,12 @@ defmodule Ryker.CoopFleet.Client do
       |> Placement.Query.select_with_workers()
       |> Placement.Query.limit_to(1)
 
-    case Repo.one(current) do
-      {%Placement{state: :active, lease_expires_at: expires_at}, %Worker{} = worker}
+    case Repo.fetch(current) do
+      {:ok, {%Placement{state: :active, lease_expires_at: expires_at}, %Worker{} = worker}}
       when not is_nil(expires_at) ->
         placed_freshness_capabilities(worker, expires_at, now)
 
-      nil when is_nil(session.coop_session_id) ->
+      {:error, :not_found} when is_nil(session.coop_session_id) ->
         configured_freshness_capabilities(client)
 
       _unavailable ->
@@ -384,17 +384,18 @@ defmodule Ryker.CoopFleet.Client do
     with {:ok, %Work.Session{id: session_id} = session} <- session_by_coop_id(coop_session_id) do
       payload = %{"coop_session_id" => coop_session_id, "expected_revision" => expected_revision}
 
-      case Repo.one(Command.Query.by_idempotency_key(key)) do
-        %Command{
-          status: :uncertain,
-          session_id: ^session_id,
-          kind: "run_review",
-          payload: ^payload
-        } =
-            command ->
+      case Repo.fetch(Command.Query.by_idempotency_key(key)) do
+        {:ok,
+         %Command{
+           status: :uncertain,
+           session_id: ^session_id,
+           kind: "run_review",
+           payload: ^payload
+         } =
+             command} ->
           reconcile_review(client, session, command, coop_session_id, expected_revision)
 
-        %Command{status: :uncertain} ->
+        {:ok, %Command{status: :uncertain}} ->
           {:error, {:coop_worker_command_conflict, key}}
 
         _not_uncertain ->
@@ -532,11 +533,12 @@ defmodule Ryker.CoopFleet.Client do
   end
 
   defp publication_command(client, session, owner, key, path, body) do
-    case Repo.one(Command.Query.by_idempotency_key(key)) do
-      %Command{
-        kind: "api_request",
-        payload: %{"method" => "POST", "path" => ^path, "body" => saved}
-      } = command ->
+    case Repo.fetch(Command.Query.by_idempotency_key(key)) do
+      {:ok,
+       %Command{
+         kind: "api_request",
+         payload: %{"method" => "POST", "path" => ^path, "body" => saved}
+       } = command} ->
         # Destination and prose freeze in the first durable command. A settings
         # refresh cannot reroute its retry, but approval/candidate drift is refused.
         identity =
@@ -547,7 +549,7 @@ defmodule Ryker.CoopFleet.Client do
            do: {:ok, command},
            else: {:error, {:coop_worker_command_conflict, key}}
 
-      nil ->
+      {:error, :not_found} ->
         with {:ok, placement} <- review_holder_placement(client, session, owner) do
           ControlPlane.enqueue_command(
             placement.id,
@@ -557,7 +559,7 @@ defmodule Ryker.CoopFleet.Client do
           )
         end
 
-      _other ->
+      {:ok, _other} ->
         {:error, {:coop_worker_command_conflict, key}}
     end
   end
@@ -584,8 +586,8 @@ defmodule Ryker.CoopFleet.Client do
     # A completed result lookup is durable even if the original POST only
     # acknowledged a background operation and its placement has since expired.
     # The lookup runs on the worker holding the session, maybe on a newer placement.
-    case Repo.one(Command.Query.by_idempotency_key(publication_result_key(command))) do
-      %Command{status: :succeeded, session_id: session_id, worker_id: worker_id} = result
+    case Repo.fetch(Command.Query.by_idempotency_key(publication_result_key(command))) do
+      {:ok, %Command{status: :succeeded, session_id: session_id, worker_id: worker_id} = result}
       when session_id == command.session_id and worker_id == command.worker_id ->
         Bridge.command_response(
           result,
@@ -684,7 +686,7 @@ defmodule Ryker.CoopFleet.Client do
   # when OrbStack crashed on 30 Sep; a newer placement on the same worker reads it.
   defp publication_result(client, command, session_id, response)
        when response == :reconcile or is_map_key(response, "operation") do
-    with %Work.Session{} = session <- Repo.one(Work.Session.Query.by_id(command.session_id)),
+    with {:ok, session} <- command_session(command),
          {:ok, placement} <- review_holder_placement(client, session, command),
          {:ok, lookup} <-
            ControlPlane.enqueue_command(
@@ -695,9 +697,6 @@ defmodule Ryker.CoopFleet.Client do
            ),
          {:ok, operation} <- client.bridge.await_command(lookup.id, client.bridge_options) do
       publication_operation(client, placement, command, session_id, operation)
-    else
-      nil -> {:error, {:coop_session_not_found, command.session_id}}
-      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -928,11 +927,11 @@ defmodule Ryker.CoopFleet.Client do
 
   @impl true
   def operation_by_key(client, key) do
-    case Repo.one(Command.Query.by_idempotency_key(key)) do
-      nil ->
+    case Repo.fetch(Command.Query.by_idempotency_key(key)) do
+      {:error, :not_found} ->
         :not_found
 
-      %Command{status: :succeeded} = command ->
+      {:ok, %Command{status: :succeeded} = command} ->
         with {:ok, body} <-
                Bridge.command_response(
                  command,
@@ -945,31 +944,31 @@ defmodule Ryker.CoopFleet.Client do
           {:ok, operation}
         end
 
-      %Command{status: status} = command when status in [:queued, :delivered, :acknowledged] ->
+      {:ok, %Command{status: status} = command}
+      when status in [:queued, :delivered, :acknowledged] ->
         with {:ok, result} <- client.bridge.await_command(command.id, client.bridge_options),
              {:ok, operation} <- operation_result(result),
              :ok <- ensure_reconciled_workspace(client, command, operation, key) do
           {:ok, operation}
         end
 
-      %Command{status: :failed, kind: kind, error: %{"code" => "invalid_command"}} = command
+      {:ok,
+       %Command{status: :failed, kind: kind, error: %{"code" => "invalid_command"}} = command}
       when kind in ["create_session", "submit_turn"] ->
         {:ok, worker_rejected_operation(command)}
 
-      %Command{placement_id: nil, status: :failed, error: %{"code" => "operation_not_enqueued"}} =
-          command ->
+      {:ok,
+       %Command{placement_id: nil, status: :failed, error: %{"code" => "operation_not_enqueued"}} =
+           command} ->
         {:ok, worker_rejected_operation(command)}
 
-      %Command{} = command ->
-        with %Work.Session{} = session <- Repo.one(Work.Session.Query.by_id(command.session_id)),
+      {:ok, %Command{} = command} ->
+        with {:ok, session} <- command_session(command),
              {:ok, result} <-
                execute_read(client, session, "reconcile_operation", %{"operation_key" => key}),
              {:ok, operation} <- operation_result(result),
              :ok <- ensure_reconciled_workspace(client, command, operation, key) do
           {:ok, operation}
-        else
-          nil -> {:error, {:coop_session_not_found, command.session_id}}
-          {:error, reason} -> {:error, reason}
         end
     end
   end
@@ -1055,14 +1054,14 @@ defmodule Ryker.CoopFleet.Client do
   # Task offers can span execution generations. A durable key keeps its original
   # session; before enqueue the Work create key names that session and attempt.
   defp create_session_identity(key, task) do
-    case Repo.one(Command.Query.by_idempotency_key(key)) do
-      %Command{kind: "create_session", session_id: id} ->
+    case Repo.fetch(Command.Query.by_idempotency_key(key)) do
+      {:ok, %Command{kind: "create_session", session_id: id}} ->
         exact_create_task(Repo.one(Work.Session.Query.by_id(id)), task)
 
-      nil ->
+      {:error, :not_found} ->
         new_create_identity(key, task)
 
-      _other_kind ->
+      {:ok, _other_kind} ->
         {:error, {:coop_worker_command_conflict, key}}
     end
   end
@@ -1071,7 +1070,7 @@ defmodule Ryker.CoopFleet.Client do
     case Regex.run(~r/\Aryker:work:create:([0-9a-f-]{36}):g([1-9]\d*)\z/, key) do
       [_, id, generation] ->
         with {:ok, id} <- Ecto.UUID.cast(id),
-             %Work.Session{} = session <- Repo.one(Work.Session.Query.by_id(id)),
+             {:ok, %Work.Session{} = session} <- Repo.fetch(Work.Session.Query.by_id(id)),
              true <- Integer.to_string(session.create_generation) == generation do
           exact_create_task(session, task)
         else
@@ -1102,11 +1101,11 @@ defmodule Ryker.CoopFleet.Client do
 
   defp restore_checkpoint(%Work.Session{} = session) do
     previous = Repo.one(Work.Session.Query.previous_generation(session))
-    checkpoint = Repo.one(WorkspaceCheckpointTransfer.Query.latest_for_replacement(session))
+    checkpoint = Repo.fetch(WorkspaceCheckpointTransfer.Query.latest_for_replacement(session))
 
     case checkpoint do
-      nil -> missing_checkpoint(previous)
-      {checkpoint, source} -> checkpoint_document(checkpoint, source, session)
+      {:error, :not_found} -> missing_checkpoint(previous)
+      {:ok, {checkpoint, source}} -> checkpoint_document(checkpoint, source, session)
     end
   end
 
@@ -1155,16 +1154,20 @@ defmodule Ryker.CoopFleet.Client do
   defp maybe_put_checkpoint(payload, nil), do: payload
   defp maybe_put_checkpoint(payload, checkpoint), do: Map.put(payload, "checkpoint", checkpoint)
 
+  # The session a command was sent for, in Coop's words when it is gone.
+  defp command_session(%Command{session_id: id}) do
+    with {:error, :not_found} <- Repo.fetch(Work.Session.Query.by_id(id)),
+         do: {:error, {:coop_session_not_found, id}}
+  end
+
   defp session_by_coop_id(coop_session_id) do
     bound =
       Work.Session.Query.all()
       |> Work.Session.Query.by_coop_session_id(coop_session_id)
       |> Work.Session.Query.limit_to(1)
 
-    case Repo.one(bound) do
-      %Work.Session{} = session -> {:ok, session}
-      nil -> session_by_reconciled_coop_id(coop_session_id)
-    end
+    with {:error, :not_found} <- Repo.fetch(bound),
+         do: session_by_reconciled_coop_id(coop_session_id)
   end
 
   defp session_by_reconciled_coop_id(coop_session_id) do
@@ -1195,15 +1198,12 @@ defmodule Ryker.CoopFleet.Client do
 
       :not_found ->
         with :ok <- Bridge.current_command_placement(command),
-             %Work.Session{} = session <- Repo.one(Work.Session.Query.by_id(command.session_id)),
+             {:ok, session} <- command_session(command),
              {:ok, result} <-
                execute_read(client, session, "reconcile_operation", %{
                  "operation_key" => operation_key
                }) do
           operation_result(result)
-        else
-          nil -> {:error, {:coop_session_not_found, command.session_id}}
-          {:error, reason} -> {:error, reason}
         end
     end
   end
@@ -1223,14 +1223,14 @@ defmodule Ryker.CoopFleet.Client do
          create_key
        )
        when is_binary(coop_session_id) do
-    case Repo.one(Work.Session.Query.by_id(session_id)) do
-      nil ->
+    case Repo.fetch(Work.Session.Query.by_id(session_id)) do
+      {:error, :not_found} ->
         {:error, {:coop_session_not_found, session_id}}
 
-      %Work.Session{workspace_task: nil} ->
+      {:ok, %Work.Session{workspace_task: nil}} ->
         :ok
 
-      %Work.Session{} = session ->
+      {:ok, %Work.Session{} = session} ->
         if durable_workspace_bound?(command, session, coop_session_id) do
           :ok
         else

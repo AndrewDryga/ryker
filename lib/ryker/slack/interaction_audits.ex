@@ -170,17 +170,17 @@ defmodule Ryker.Slack.InteractionAudits do
       attributes.event_ref
       |> InteractionAudit.Query.by_event_ref()
       |> InteractionAudit.Query.lock_for_update()
-      |> Repo.one()
+      |> Repo.fetch()
 
     case existing do
-      %InteractionAudit{} = audit ->
+      {:ok, %InteractionAudit{} = audit} ->
         # occurred_at is the gateway's receive time, not Slack event identity.
         # A redelivered envelope keeps the first receipt and its repaint lease.
         if Map.take(audit, @identity_fields) == Map.take(attributes, @identity_fields),
           do: %{audit: audit, status: :duplicate},
           else: Repo.rollback(:slack_interaction_event_conflict)
 
-      nil ->
+      {:error, :not_found} ->
         changeset = InteractionAudit.Changeset.insert(attributes)
 
         case Repo.insert(changeset) do
@@ -199,13 +199,13 @@ defmodule Ryker.Slack.InteractionAudits do
       event_ref
       |> InteractionAudit.Query.by_event_ref()
       |> InteractionAudit.Query.lock_for_update()
-      |> Repo.one()
+      |> Repo.fetch()
 
     case locked do
-      nil ->
+      {:error, :not_found} ->
         Repo.rollback(:slack_interaction_audit_not_found)
 
-      %InteractionAudit{repaint_status: :blocked} = audit ->
+      {:ok, %InteractionAudit{repaint_status: :blocked} = audit} ->
         update!(audit, %{
           attempt_count: 0,
           last_error_code: nil,
@@ -218,7 +218,7 @@ defmodule Ryker.Slack.InteractionAudits do
           repainted_at: nil
         })
 
-      %InteractionAudit{} ->
+      {:ok, %InteractionAudit{}} ->
         Repo.rollback(:slack_interaction_audit_not_blocked)
     end
   end
@@ -226,13 +226,13 @@ defmodule Ryker.Slack.InteractionAudits do
   defp claim_next_locked(worker_ref, lease_seconds) do
     now = Repo.now!()
 
-    next = now |> InteractionAudit.Query.next_claimable() |> Repo.one()
+    next = now |> InteractionAudit.Query.next_claimable() |> Repo.fetch()
 
     case next do
-      nil ->
+      {:error, :not_found} ->
         nil
 
-      %InteractionAudit{} = audit ->
+      {:ok, %InteractionAudit{} = audit} ->
         update!(audit, %{
           attempt_count: audit.attempt_count + 1,
           lease_expires_at: DateTime.add(now, lease_seconds, :second),
@@ -257,16 +257,16 @@ defmodule Ryker.Slack.InteractionAudits do
       id
       |> InteractionAudit.Query.by_id()
       |> InteractionAudit.Query.lock_for_update()
-      |> Repo.one()
+      |> Repo.fetch()
 
     case locked do
-      nil ->
+      {:error, :not_found} ->
         Repo.rollback(:slack_interaction_audit_not_found)
 
-      %InteractionAudit{lease_ref: ^lease_ref, lease_expires_at: expires_at} = audit ->
+      {:ok, %InteractionAudit{lease_ref: ^lease_ref, lease_expires_at: expires_at} = audit} ->
         mutate_live_claim(audit, expires_at, now, callback)
 
-      %InteractionAudit{} ->
+      {:ok, %InteractionAudit{}} ->
         Repo.rollback(:slack_interaction_audit_lease_lost)
     end
   end

@@ -42,8 +42,8 @@ defmodule Ryker.Learning.Observations do
         }
       ) do
     with true <- Repo.in_transaction?(),
-         %Publication.Publication{episode_id: ^episode_id, repository: ^repository} <-
-           Repo.one(Publication.Publication.Query.by_id(publication_id)),
+         {:ok, %Publication.Publication{episode_id: ^episode_id, repository: ^repository}} <-
+           Repo.fetch(Publication.Publication.Query.by_id(publication_id)),
          %Publication.LifecycleEvent{
            kind: :review_feedback,
            publication_id: ^publication_id,
@@ -56,7 +56,8 @@ defmodule Ryker.Learning.Observations do
                "actor" => %{"kind" => actor_kind, "ref" => actor_ref}
              } = document
          } = event <- Repo.one(Publication.LifecycleEvent.Query.by_id(id)),
-         %Episodes.Episode{} = episode <- Repo.one(Episodes.Episode.Query.by_id(episode_id)) do
+         {:ok, %Episodes.Episode{} = episode} <-
+           Repo.fetch(Episodes.Episode.Query.by_id(episode_id)) do
       source = %{
         id: event.id,
         source_kind: "github",
@@ -200,8 +201,9 @@ defmodule Ryker.Learning.Observations do
   defp source_conflicted?(_), do: false
 
   defp retained_content(%{source_input_id: id, source_result_ref: "publication-feedback:" <> id}) do
-    case Repo.one(Publication.LifecycleEvent.Query.by_id(id)) do
-      %Publication.LifecycleEvent{kind: :review_feedback, observation: %{"content" => content}} ->
+    case Repo.fetch(Publication.LifecycleEvent.Query.by_id(id)) do
+      {:ok,
+       %Publication.LifecycleEvent{kind: :review_feedback, observation: %{"content" => content}}} ->
         normalized_content(content, "github")
 
       _ ->
@@ -210,8 +212,8 @@ defmodule Ryker.Learning.Observations do
   end
 
   defp retained_content(source) do
-    case Repo.one(Ingress.Inbox.Entry.Query.by_id(source.source_input_id)) do
-      %Ingress.Inbox.Entry{content: content, source_kind: kind} ->
+    case Repo.fetch(Ingress.Inbox.Entry.Query.by_id(source.source_input_id)) do
+      {:ok, %Ingress.Inbox.Entry{content: content, source_kind: kind}} ->
         normalized_content(content, kind)
 
       _ ->

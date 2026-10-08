@@ -70,13 +70,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Input do
       episode.id
       |> Ingress.Inbox.Entry.Query.by_episode_id()
       |> Ingress.Inbox.Entry.Query.select_earliest_insert()
-      |> Repo.one()
+      |> Repo.fetch()
 
     case received_at do
-      %DateTime{} = at ->
+      {:ok, %DateTime{} = at} ->
         if DateTime.compare(at, episode.inserted_at) == :lt, do: at, else: episode.inserted_at
 
-      nil ->
+      {:error, :not_found} ->
         episode.inserted_at
     end
   end

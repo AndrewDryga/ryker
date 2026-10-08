@@ -517,17 +517,17 @@ defmodule Ryker.Acceptance.Live do
       |> CoopFleet.Placement.Query.by_session_id()
       |> CoopFleet.Placement.Query.ordered_by_generation_desc()
       |> CoopFleet.Placement.Query.limit_to(1)
-      |> Repo.one()
+      |> Repo.fetch()
 
     case placement do
-      %CoopFleet.Placement{} = placement ->
+      {:ok, %CoopFleet.Placement{} = placement} ->
         %{
           generation: placement.generation,
           state: placement.state,
           worker_id: placement.worker_id
         }
 
-      nil ->
+      {:error, :not_found} ->
         nil
     end
   end

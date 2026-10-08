@@ -309,12 +309,9 @@ defmodule Ryker.ControlPlane.ConversationLab do
       conversation_id
       |> ref()
       |> Conversation.Query.current_message(source_item_ref, actor)
-      |> Repo.one()
 
-    case current do
-      %Ingress.Inbox.Entry{} = entry -> {:ok, entry}
-      nil -> {:error, {:invalid_conversation_lab, :message_not_found}}
-    end
+    with {:error, :not_found} <- Repo.fetch(current),
+         do: {:error, {:invalid_conversation_lab, :message_not_found}}
   end
 
   defp editable_message(%Ingress.Inbox.Entry{event_kind: :delete}),

@@ -85,14 +85,14 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
       session.id
       |> Work.Session.Query.by_id()
       |> Work.Session.Query.lock_for_share_skip_locked()
-      |> Repo.one()
+      |> Repo.fetch()
 
     case current do
-      nil ->
+      {:error, :not_found} ->
         if Repo.exists?(Work.Session.Query.by_id(session.id)),
           do: {:error, :work_derived_context_busy}
 
-      current ->
+      {:ok, current} ->
         receiving_scope = %{current | repository_ref: session.repository_ref}
 
         if exposure_counts_attested?(current) and

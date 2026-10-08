@@ -85,9 +85,9 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   def worker_idle?(session_id) do
     now = Repo.now!()
 
-    with %Placement{} = placement <- active_placement(session_id),
+    with {:ok, %Placement{} = placement} <- active_placement(session_id),
          true <- current?(placement, now),
-         %Worker{} = worker <- Repo.one(Worker.Query.by_id(placement.worker_id)),
+         {:ok, %Worker{} = worker} <- Repo.fetch(Worker.Query.by_id(placement.worker_id)),
          true <- worker_current?(worker, placement.requirements["workspace_ref"], now),
          true <- every_slot_free?(worker),
          false <- session_being_created?(worker.id, now) do
@@ -98,7 +98,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   end
 
   defp active_placement(session_id),
-    do: session_id |> Placement.Query.by_session_id() |> Placement.Query.active() |> Repo.one()
+    do: session_id |> Placement.Query.by_session_id() |> Placement.Query.active() |> Repo.fetch()
 
   defp every_slot_free?(worker) do
     worker.capacity["state"] == "eligible" and
@@ -187,7 +187,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     now = Repo.now!()
 
     case current_placement(session_id) do
-      %Placement{} = placement ->
+      {:ok, %Placement{} = placement} ->
         cond do
           not current?(placement, now) ->
             replacement_required(placement, now)
@@ -200,14 +200,14 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
             placement
         end
 
-      nil ->
+      {:error, :not_found} ->
         place_unassigned_session(session, requirements, lease_seconds, now)
     end
   end
 
   defp place_unassigned_session(session, requirements, lease_seconds, now) do
     case latest_placement(session.id) do
-      %Placement{} = placement ->
+      {:ok, %Placement{} = placement} ->
         Commands.fail_undelivered_commands(placement, now)
 
         cond do
@@ -231,7 +231,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
             {:replacement_required, placement.generation}
         end
 
-      nil ->
+      {:error, :not_found} ->
         insert_placement(session, requirements, lease_seconds, now)
     end
   end
@@ -666,7 +666,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     |> Placement.Query.by_session_id()
     |> Placement.Query.current()
     |> Placement.Query.lock_for_update()
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   defp latest_placement(session_id) do
@@ -675,7 +675,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     |> Placement.Query.ordered_by_generation_desc()
     |> Placement.Query.limit_to(1)
     |> Placement.Query.lock_for_update()
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   defp requirements(%{} = requirements) do

@@ -65,7 +65,7 @@ defmodule Ryker.StateTools.Binding do
              :emisar_rpc_url
            ]),
          true <- is_binary(binding.turn.lease_ref),
-         {episode, turn} <- Repo.one(working_on_turn(binding, session)),
+         {:ok, {episode, turn}} <- Repo.fetch(working_on_turn(binding, session)),
          true <-
            same_fields?(episode, binding.episode, [
              :destination_transport,

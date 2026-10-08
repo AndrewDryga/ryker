@@ -61,11 +61,11 @@ defmodule Ryker.Records.SlackPostOffers do
   end
 
   defp confirmed(record) do
-    case Repo.one(Delivery.PlatformAction.Query.by_turn_slot(record.turn_id, host_slot(record))) do
-      %Delivery.PlatformAction{} = action ->
+    case Repo.fetch(Delivery.PlatformAction.Query.by_turn_slot(record.turn_id, host_slot(record))) do
+      {:ok, %Delivery.PlatformAction{} = action} ->
         %{action: action, record: record, status: :duplicate}
 
-      nil ->
+      {:error, :not_found} ->
         Repo.rollback(:slack_post_offer_confirmation_incomplete)
     end
   end

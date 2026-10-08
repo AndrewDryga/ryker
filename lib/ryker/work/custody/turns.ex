@@ -813,8 +813,8 @@ defmodule Ryker.Work.Custody.Turns do
     # pruning. Record only these supplied bytes, never backfill an older cursor.
     bytes = byte_size(turn.candidate)
 
-    case Repo.one(CandidateResponse.Query.current_attempt(turn)) do
-      nil ->
+    case Repo.fetch(CandidateResponse.Query.current_attempt(turn)) do
+      {:error, :not_found} ->
         Repo.insert!(%CandidateResponse{
           turn_id: turn.id,
           candidate_attempt: turn.candidate_attempt,
@@ -824,14 +824,14 @@ defmodule Ryker.Work.Custody.Turns do
           recorded_at: Repo.now!()
         })
 
-      %CandidateResponse{operational_pruned_at: pruned} when not is_nil(pruned) ->
+      {:ok, %CandidateResponse{operational_pruned_at: pruned}} when not is_nil(pruned) ->
         Repo.rollback(:work_candidate_response_pruned)
 
-      %CandidateResponse{body: body, sha256: sha256, byte_size: ^bytes}
+      {:ok, %CandidateResponse{body: body, sha256: sha256, byte_size: ^bytes}}
       when body == turn.candidate and sha256 == turn.candidate_sha256 ->
         :ok
 
-      %CandidateResponse{} ->
+      {:ok, %CandidateResponse{}} ->
         Repo.rollback({:work_candidate_response_conflict, turn.candidate_attempt})
     end
   end

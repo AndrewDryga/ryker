@@ -70,20 +70,18 @@ defmodule Ryker.Operator.Emisar do
   @spec fetch(String.t()) :: {:ok, map()} | {:error, term()}
   def fetch(ref) do
     with {:ok, connection_ref, request_id} <- split_ref(ref),
-         {_approval, _record, _episode} = row <- watch(connection_ref, request_id) do
-      {:ok, item(row, unwatched_accounts())}
-    else
-      nil -> {:error, :emisar_approval_not_found}
-      {:error, reason} -> {:error, reason}
-    end
+         {:ok, row} <- watch(connection_ref, request_id),
+         do: {:ok, item(row, unwatched_accounts())}
   end
 
   defp watch(connection_ref, request_id) do
-    connection_ref
-    |> Emisar.Approval.Query.by_request(request_id)
-    |> Emisar.Approval.Query.with_joined_origin()
-    |> Emisar.Approval.Query.select_with_origin()
-    |> Repo.one()
+    watched =
+      connection_ref
+      |> Emisar.Approval.Query.by_request(request_id)
+      |> Emisar.Approval.Query.with_joined_origin()
+      |> Emisar.Approval.Query.select_with_origin()
+
+    with {:error, :not_found} <- Repo.fetch(watched), do: {:error, :emisar_approval_not_found}
   end
 
   @spec rearm(String.t()) :: {:ok, map()} | {:error, term()}
@@ -98,13 +96,13 @@ defmodule Ryker.Operator.Emisar do
       connection_ref
       |> Emisar.Approval.Query.by_request(request_id)
       |> Emisar.Approval.Query.lock_for_update()
-      |> Repo.one()
+      |> Repo.fetch()
 
     case approval do
-      nil ->
+      {:error, :not_found} ->
         Repo.rollback(:emisar_approval_not_found)
 
-      %Emisar.Approval{status: :blocked} = approval ->
+      {:ok, %Emisar.Approval{status: :blocked} = approval} ->
         with :ok <- exact_open_wait(approval),
              changeset =
                Emisar.Approval.Changeset.update(approval, %{
@@ -128,7 +126,7 @@ defmodule Ryker.Operator.Emisar do
             Repo.rollback(reason)
         end
 
-      %Emisar.Approval{} ->
+      {:ok, %Emisar.Approval{}} ->
         Repo.rollback(:emisar_approval_not_blocked)
     end
   end

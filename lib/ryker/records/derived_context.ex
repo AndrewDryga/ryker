@@ -162,7 +162,7 @@ defmodule Ryker.Records.DerivedContext do
   defp valid_sources?(_, _, _), do: false
 
   defp proof(%{"kind" => "episode_record", "document" => document}, destination) do
-    with %Record{} = record <- Repo.one(Record.Query.by_ref(document["ref"])),
+    with {:ok, %Record{} = record} <- Repo.fetch(Record.Query.by_ref(document["ref"])),
          true <- record.episode_id == destination.id,
          true <- record_projection?(document, record) do
       %{turn_ids: [record.turn_id], sources: []}

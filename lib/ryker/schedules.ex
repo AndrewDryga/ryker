@@ -254,14 +254,14 @@ defmodule Ryker.Schedules do
   defp confirm_locked(attributes) do
     with {:ok, record, source_episode, source_turn} <- lock_offer(attributes.record_ref),
          :ok <- check_delivery(source_episode, source_turn, attributes.target) do
-      case Repo.one(Schedule.Query.by_offer_record_id(record.id)) do
-        %Schedule{} = schedule ->
+      case Repo.fetch(Schedule.Query.by_offer_record_id(record.id)) do
+        {:ok, %Schedule{} = schedule} ->
           %{schedule: schedule, status: :duplicate}
 
-        nil when record.status == :open ->
+        {:error, :not_found} when record.status == :open ->
           create_schedule(record, source_episode, source_turn, attributes)
 
-        nil ->
+        {:error, :not_found} ->
           Repo.rollback(:schedule_offer_stale)
       end
     else
@@ -384,13 +384,13 @@ defmodule Ryker.Schedules do
       |> Schedule.Query.ordered_by_next_occurrence_at()
       |> Schedule.Query.limit_to(1)
       |> Schedule.Query.lock_next_free()
-      |> Repo.one()
+      |> Repo.fetch()
 
     case schedule do
-      nil ->
+      {:error, :not_found} ->
         nil
 
-      %Schedule{} = schedule ->
+      {:ok, %Schedule{} = schedule} ->
         if expired?(schedule, now) do
           update_schedule!(schedule, terminal_attributes(:expired))
           claim_due_locked(worker_ref, lease_seconds, skipped + 1)
@@ -685,46 +685,46 @@ defmodule Ryker.Schedules do
 
   defp live_schedule_lease(schedule_ref, lease_ref, now) do
     case lock_schedule(schedule_ref) do
-      nil ->
+      {:error, :not_found} ->
         {:error, :schedule_not_found}
 
-      %Schedule{status: :active} = schedule ->
+      {:ok, %Schedule{status: :active} = schedule} ->
         if Lease.held?(schedule, lease_ref, now),
           do: {:ok, schedule},
           else: {:error, :schedule_lease_lost}
 
-      %Schedule{} ->
+      {:ok, %Schedule{}} ->
         {:error, :schedule_lease_lost}
     end
   end
 
   defp lock_schedule(schedule_ref) do
-    schedule_ref |> Schedule.Query.by_ref() |> Schedule.Query.lock_for_update() |> Repo.one()
+    schedule_ref |> Schedule.Query.by_ref() |> Schedule.Query.lock_for_update() |> Repo.fetch()
   end
 
   defp set_status_locked(schedule_ref, status) do
     case lock_schedule(schedule_ref) do
-      nil -> Repo.rollback(:schedule_not_found)
-      %Schedule{} = schedule -> update_schedule_status(schedule, status)
+      {:error, :not_found} -> Repo.rollback(:schedule_not_found)
+      {:ok, %Schedule{} = schedule} -> update_schedule_status(schedule, status)
     end
   end
 
   defp run_now_locked(schedule_ref, scope, policy_resolver) do
     case lock_schedule(schedule_ref) do
-      nil ->
+      {:error, :not_found} ->
         {:error, :schedule_not_found}
 
-      %Schedule{} = schedule ->
+      {:ok, %Schedule{} = schedule} ->
         run_now_schedule(schedule, Repo.now!(), scope, policy_resolver)
     end
   end
 
   defp set_home_status_locked(schedule_ref, status, expected_revision, scope) do
     case lock_schedule(schedule_ref) do
-      nil ->
+      {:error, :not_found} ->
         {:error, :schedule_not_found}
 
-      %Schedule{} = schedule ->
+      {:ok, %Schedule{} = schedule} ->
         now = Repo.now!()
 
         cond do
@@ -1002,9 +1002,9 @@ defmodule Ryker.Schedules do
 
   def broadcast_schedule_updated(schedule_id) when is_binary(schedule_id) do
     Repo.after_commit(fn ->
-      case Repo.one(Schedule.Query.by_id(schedule_id)) do
-        %Schedule{ref: ref} -> broadcast_committed_schedule(schedule_id, ref)
-        nil -> :ok
+      case Repo.fetch(Schedule.Query.by_id(schedule_id)) do
+        {:ok, %Schedule{ref: ref}} -> broadcast_committed_schedule(schedule_id, ref)
+        {:error, :not_found} -> :ok
       end
     end)
   end

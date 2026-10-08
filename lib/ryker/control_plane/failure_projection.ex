@@ -266,7 +266,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
 
   defp failure_exact("learning", ref) do
     with {:ok, id} <- Ecto.UUID.cast(ref),
-         %Learning.Batch{} = batch <- Repo.one(Failure.Query.stalled_batch(id)) do
+         {:ok, %Learning.Batch{} = batch} <- Repo.fetch(Failure.Query.stalled_batch(id)) do
       {:ok, learning_item(batch)}
     else
       _missing -> :not_found
@@ -296,8 +296,8 @@ defmodule Ryker.ControlPlane.FailureProjection do
 
   def work(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
     case blocked_work(ref) do
-      nil -> :not_found
-      row -> {:ok, row |> work_item() |> List.wrap() |> attach_work_recovery() |> hd()}
+      {:error, :not_found} -> :not_found
+      {:ok, row} -> {:ok, row |> work_item() |> List.wrap() |> attach_work_recovery() |> hd()}
     end
   end
 
@@ -322,17 +322,20 @@ defmodule Ryker.ControlPlane.FailureProjection do
   def emisar(_ref), do: :not_found
 
   def slack_interaction(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    case Repo.one(Slack.InteractionAudit.Query.by_event_ref(ref)) do
-      %Slack.InteractionAudit{repaint_status: :blocked} = audit -> {:ok, interaction_item(audit)}
-      _unavailable -> :not_found
+    case Repo.fetch(Slack.InteractionAudit.Query.by_event_ref(ref)) do
+      {:ok, %Slack.InteractionAudit{repaint_status: :blocked} = audit} ->
+        {:ok, interaction_item(audit)}
+
+      _unavailable ->
+        :not_found
     end
   end
 
   def slack_interaction(_ref), do: :not_found
 
   def slack_incident(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    case Repo.one(Slack.IncidentRoom.Query.by_ref(ref)) do
-      %Slack.IncidentRoom{status: :blocked} = room -> {:ok, incident_item(room)}
+    case Repo.fetch(Slack.IncidentRoom.Query.by_ref(ref)) do
+      {:ok, %Slack.IncidentRoom{status: :blocked} = room} -> {:ok, incident_item(room)}
       _unavailable -> :not_found
     end
   end
@@ -340,8 +343,8 @@ defmodule Ryker.ControlPlane.FailureProjection do
   def slack_incident(_ref), do: :not_found
 
   defp slack_task_card(ref) when is_binary(ref) and byte_size(ref) <= 1_024 do
-    case Repo.one(Slack.TaskCard.Query.by_ref(ref)) do
-      %Slack.TaskCard{status: :blocked} = card -> {:ok, task_card_item(card)}
+    case Repo.fetch(Slack.TaskCard.Query.by_ref(ref)) do
+      {:ok, %Slack.TaskCard{status: :blocked} = card} -> {:ok, task_card_item(card)}
       _unavailable -> :not_found
     end
   end
@@ -351,8 +354,8 @@ defmodule Ryker.ControlPlane.FailureProjection do
   # A thread status has no reference of its own beyond its row id.
   defp slack_thread_status(ref) when is_binary(ref) do
     with {:ok, id} <- Ecto.UUID.cast(ref),
-         %Slack.ThreadStatus{status: :blocked} = status <-
-           Repo.one(Slack.ThreadStatus.Query.by_id(id)) do
+         {:ok, %Slack.ThreadStatus{status: :blocked} = status} <-
+           Repo.fetch(Slack.ThreadStatus.Query.by_id(id)) do
       {:ok, thread_status_item(status)}
     else
       _unavailable -> :not_found
@@ -404,7 +407,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   end
 
   defp blocked_work(ref) do
-    Failure.Query.blocked_work() |> Failure.Query.by_episode_key(ref) |> Repo.one()
+    Failure.Query.blocked_work() |> Failure.Query.by_episode_key(ref) |> Repo.fetch()
   end
 
   # A row is cheap until the page is cut: its recovery brief (custody reads

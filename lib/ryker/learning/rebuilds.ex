@@ -285,11 +285,11 @@ defmodule Ryker.Learning.Rebuilds do
   def inputs(%Batch{} = batch) do
     ids = Enum.map(batch.rebuild_selection, & &1["source_input_id"])
 
-    case Repo.one(Knowledge.ConversationKnowledge.Query.by_id(batch.rebuild_target_id)) do
-      nil ->
+    case Repo.fetch(Knowledge.ConversationKnowledge.Query.by_id(batch.rebuild_target_id)) do
+      {:error, :not_found} ->
         []
 
-      topic ->
+      {:ok, topic} ->
         entries =
           topic
           |> source_query()

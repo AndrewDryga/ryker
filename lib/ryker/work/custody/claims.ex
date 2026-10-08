@@ -168,10 +168,10 @@ defmodule Ryker.Work.Custody.Claims do
     now = Repo.now!()
 
     case eligible_episode(now, phase, skipped) do
-      nil ->
+      {:error, :not_found} ->
         nil
 
-      episode ->
+      {:ok, episode} ->
         with {:ok, session, turn} <- Sessions.ensure_session_and_turn(episode),
              :ok <- still_free(turn, now),
              false <- active_publication_review?(session, turn),
@@ -191,7 +191,7 @@ defmodule Ryker.Work.Custody.Claims do
   end
 
   defp eligible_episode(now, phase, skipped),
-    do: Repo.one(OwningTurn.Query.next_claimable_episode(now, phase, skipped))
+    do: Repo.fetch(OwningTurn.Query.next_claimable_episode(now, phase, skipped))
 
   # The episode came from the snapshot the choosing query started with, which
   # can predate another worker's committed claim, and a claim writes the turn,

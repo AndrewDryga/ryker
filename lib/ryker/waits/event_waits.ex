@@ -70,14 +70,13 @@ defmodule Ryker.Waits.EventWaits do
       # Resuming locked them the other way round, so a resume and a message in
       # the same conversation could each wait for the other (2026-10-04
       # review).
-      with %Episodes.Episode{} = initial <- Repo.one(Episodes.Episode.Query.by_id(episode_id)),
+      with {:ok, initial} <- wait_row(Episodes.Episode.Query.by_id(episode_id)),
            :ok <- Episodes.ConversationLock.lock(Repo, destination(initial)),
            {:ok, snapshot} <- Episodes.lock_current_in_transaction(initial.key),
-           %Records.Record{} = record <- lock_record(record_id),
+           {:ok, record} <- lock_record(record_id),
            {:ok, resolution_kind, subscription} <- resolution(record, now) do
         resume_locked(snapshot, record, now, resolution_kind, subscription)
       else
-        nil -> Repo.rollback(:event_wait_not_found)
         {:error, reason} -> Repo.rollback(reason)
       end
     end)
@@ -85,7 +84,11 @@ defmodule Ryker.Waits.EventWaits do
   end
 
   defp lock_record(id),
-    do: id |> Records.Record.Query.by_id() |> Records.Record.Query.lock_for_update() |> Repo.one()
+    do: id |> Records.Record.Query.by_id() |> Records.Record.Query.lock_for_update() |> wait_row()
+
+  defp wait_row(query) do
+    with {:error, :not_found} <- Repo.fetch(query), do: {:error, :event_wait_not_found}
+  end
 
   defp destination(episode),
     do: %{
@@ -98,13 +101,13 @@ defmodule Ryker.Waits.EventWaits do
       record.id
       |> EventSubscription.Query.by_record_id()
       |> EventSubscription.Query.lock_for_update()
-      |> Repo.one()
+      |> Repo.fetch()
 
     case subscription do
-      %EventSubscription{status: :active, deadline_at: nil, poll_after: nil} ->
+      {:ok, %EventSubscription{status: :active, deadline_at: nil, poll_after: nil}} ->
         {:error, :event_wait_not_due}
 
-      %EventSubscription{status: :active, deadline_at: deadline} ->
+      {:ok, %EventSubscription{status: :active, deadline_at: deadline} = active} ->
         kind =
           cond do
             DateTime.compare(deadline, now) in [:lt, :eq] -> :deadline
@@ -112,12 +115,12 @@ defmodule Ryker.Waits.EventWaits do
             true -> :timer
           end
 
-        {:ok, kind, subscription}
+        {:ok, kind, active}
 
-      nil ->
+      {:error, :not_found} ->
         {:ok, :deadline, nil}
 
-      _inactive ->
+      {:ok, _inactive} ->
         {:error, :event_wait_already_resumed}
     end
   end
@@ -129,16 +132,15 @@ defmodule Ryker.Waits.EventWaits do
          resume <- resume_command(snapshot, admit, record, now),
          {:ok, [_admitted, resumed]} <-
            Episodes.apply_batch_in_transaction([admit, resume]),
-         %Records.Record{status: :open} = locked_record <- lock_record(record.id),
+         {:ok, %Records.Record{status: :open} = locked_record} <- lock_record(record.id),
          {:ok, record} <- Repo.update(Records.Record.Changeset.answer_wait(locked_record)),
          :ok <- EventSubscriptions.resolve_wait_in_transaction(record.ref, resolution_kind) do
       Records.broadcast_record_updated(record)
       %{episode: resumed.episode, record: record}
     else
-      nil -> Repo.rollback(:event_wait_not_found)
+      {:ok, %Records.Record{}} -> Repo.rollback(:event_wait_already_resumed)
       {:error, {:stale_wait, _details}} -> Repo.rollback(:event_wait_already_resumed)
       {:error, reason} -> Repo.rollback(reason)
-      %Records.Record{} -> Repo.rollback(:event_wait_already_resumed)
     end
   end
 

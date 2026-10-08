@@ -51,7 +51,7 @@ defmodule Ryker.Operator.Actions do
   @spec fetch(String.t()) :: {:ok, Action.t()} | :error
   def fetch(action_ref) do
     with :ok <- Reference.check(action_ref, :action_ref, :invalid_operator_action),
-         %Action{} = action <- Repo.one(Action.Query.by_action_ref(action_ref)) do
+         {:ok, %Action{} = action} <- Repo.fetch(Action.Query.by_action_ref(action_ref)) do
       {:ok, action}
     else
       _unavailable -> :error
@@ -64,14 +64,14 @@ defmodule Ryker.Operator.Actions do
     locked =
       attributes.action_ref |> Action.Query.by_action_ref() |> Action.Query.lock_for_update()
 
-    case Repo.one(locked) do
-      %Action{request_fingerprint: ^fingerprint} = action ->
+    case Repo.fetch(locked) do
+      {:ok, %Action{request_fingerprint: ^fingerprint} = action} ->
         receipt(action, :duplicate)
 
-      %Action{} ->
+      {:ok, %Action{}} ->
         Repo.rollback(:operator_action_conflict)
 
-      nil ->
+      {:error, :not_found} ->
         execute_and_record(attributes, fingerprint, operation)
     end
   end

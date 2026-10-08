@@ -223,15 +223,15 @@ defmodule Ryker.Work.Custody.Sessions do
     locked =
       episode_id |> Episodes.Episode.Query.by_id() |> Episodes.Episode.Query.lock_for_update()
 
-    case Repo.one(locked) do
-      nil -> Repo.rollback(:episode_not_found)
-      %Episodes.Episode{} = episode -> pin_session_locked(episode, authority)
+    case Repo.fetch(locked) do
+      {:error, :not_found} -> Repo.rollback(:episode_not_found)
+      {:ok, %Episodes.Episode{} = episode} -> pin_session_locked(episode, authority)
     end
   end
 
   defp pin_session_locked(episode, authority) do
     case latest_session(episode.id) do
-      nil ->
+      {:error, :not_found} ->
         session_id = Repo.generate_id()
         emisar = emisar_pin(authority.environment_ref)
 
@@ -253,18 +253,19 @@ defmodule Ryker.Work.Custody.Sessions do
         |> Repo.insert()
         |> unwrap_or_rollback(:work_session)
 
-      %Session{cleanup_status: :active} = session ->
+      {:ok, %Session{cleanup_status: :active} = session} ->
         session
 
-      %Session{
-        cleanup_status: :grace,
-        cleanup_lease_ref: nil,
-        closed_at: nil,
-        discard_after: %DateTime{}
-      } = session ->
+      {:ok,
+       %Session{
+         cleanup_status: :grace,
+         cleanup_lease_ref: nil,
+         closed_at: nil,
+         discard_after: %DateTime{}
+       } = session} ->
         reuse_or_replace_grace(episode, session)
 
-      %Session{} = session ->
+      {:ok, %Session{} = session} ->
         insert_session_or_rollback(
           episode.id,
           session.generation + 1,
@@ -287,23 +288,24 @@ defmodule Ryker.Work.Custody.Sessions do
   @doc false
   def current_session(episode) do
     case latest_session(episode.id) do
-      nil ->
+      {:error, :not_found} ->
         {:error, :work_policy_not_pinned}
 
-      %Session{cleanup_status: :active} = session ->
+      {:ok, %Session{cleanup_status: :active} = session} ->
         {:ok, session}
 
-      %Session{
-        cleanup_status: :grace,
-        cleanup_lease_ref: nil,
-        closed_at: nil,
-        discard_after: %DateTime{}
-      } = session ->
+      {:ok,
+       %Session{
+         cleanup_status: :grace,
+         cleanup_lease_ref: nil,
+         closed_at: nil,
+         discard_after: %DateTime{}
+       } = session} ->
         if reusable_grace?(session),
           do: {:ok, reactivate_grace!(session)},
           else: insert_session(episode.id, session.generation + 1, session_authority(session))
 
-      %Session{} = session ->
+      {:ok, %Session{} = session} ->
         insert_session(episode.id, session.generation + 1, session_authority(session))
     end
   end
@@ -312,7 +314,7 @@ defmodule Ryker.Work.Custody.Sessions do
     episode_id
     |> Session.Query.latest_of_episode()
     |> Session.Query.lock_for_update()
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   defp reusable_grace?(%Session{

@@ -245,16 +245,16 @@ defmodule Ryker.Delivery.PlatformActionCustody do
 
   defp retry_locked(action_ref) do
     case lock_action(action_ref) do
-      %PlatformAction{status: :blocked} = action ->
+      {:ok, %PlatformAction{status: :blocked} = action} ->
         action |> PlatformAction.Changeset.retry() |> write!(:retry)
 
-      %PlatformAction{status: :pending} = action ->
+      {:ok, %PlatformAction{status: :pending} = action} ->
         action
 
-      %PlatformAction{} ->
+      {:ok, %PlatformAction{}} ->
         Repo.rollback(:platform_action_not_retryable)
 
-      nil ->
+      {:error, :not_found} ->
         Repo.rollback(:platform_action_not_found)
     end
   end
@@ -305,8 +305,8 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   defp platform_action_operation(%PlatformAction{}), do: nil
 
   defp current_human_inputs(episode_id) do
-    case Repo.one(Episodes.Episode.Query.by_id(episode_id)) do
-      %Episodes.Episode{} = episode ->
+    case Repo.fetch(Episodes.Episode.Query.by_id(episode_id)) do
+      {:ok, %Episodes.Episode{} = episode} ->
         episode
         |> Episodes.active_input_events()
         |> Enum.reverse()
@@ -318,7 +318,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
           }
         end)
 
-      nil ->
+      {:error, :not_found} ->
         []
     end
   end
@@ -427,14 +427,14 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   defp enqueue_for_ids(episode_id, turn_id, attributes, request) do
     fingerprint = CanonicalJSON.digest(request)
 
-    case Repo.one(PlatformAction.Query.by_turn_slot(turn_id, attributes.host_slot)) do
-      %PlatformAction{intent_fingerprint: ^fingerprint} = action ->
+    case Repo.fetch(PlatformAction.Query.by_turn_slot(turn_id, attributes.host_slot)) do
+      {:ok, %PlatformAction{intent_fingerprint: ^fingerprint} = action} ->
         %{action: action, status: :duplicate}
 
-      %PlatformAction{} ->
+      {:ok, %PlatformAction{}} ->
         Repo.rollback(:platform_action_slot_conflict)
 
-      nil ->
+      {:error, :not_found} ->
         action_ref = action_ref(turn_id, attributes.host_slot)
         action = insert_action!(episode_id, turn_id, action_ref, attributes, fingerprint)
         %{action: action, status: :created}
@@ -470,11 +470,11 @@ defmodule Ryker.Delivery.PlatformActionCustody do
   defp claim_locked(worker_ref, lease_seconds) do
     now = Repo.now!()
 
-    case Repo.one(PlatformAction.Query.next_claimable(now, @numbered_tools)) do
-      nil ->
+    case Repo.fetch(PlatformAction.Query.next_claimable(now, @numbered_tools)) do
+      {:error, :not_found} ->
         nil
 
-      %PlatformAction{} = action ->
+      {:ok, %PlatformAction{} = action} ->
         lease_ref = Ecto.UUID.generate()
 
         action =
@@ -501,13 +501,14 @@ defmodule Ryker.Delivery.PlatformActionCustody do
     now = Repo.now!()
 
     case lock_action(action_ref) do
-      %PlatformAction{status: :delivered, external_receipt_fingerprint: ^fingerprint} = action ->
+      {:ok,
+       %PlatformAction{status: :delivered, external_receipt_fingerprint: ^fingerprint} = action} ->
         action
 
-      %PlatformAction{status: :delivered} ->
+      {:ok, %PlatformAction{status: :delivered}} ->
         Repo.rollback(:platform_action_receipt_conflict)
 
-      %PlatformAction{} = action ->
+      {:ok, %PlatformAction{} = action} ->
         with :ok <- current_lease(action, lease_ref, now),
              :ok <- exact_receipt(action, receipt) do
           action
@@ -517,23 +518,23 @@ defmodule Ryker.Delivery.PlatformActionCustody do
           {:error, reason} -> Repo.rollback(reason)
         end
 
-      nil ->
+      {:error, :not_found} ->
         Repo.rollback(:platform_action_not_found)
     end
   end
 
   defp leased_action(action_ref, lease_ref, now) do
     case lock_action(action_ref) do
-      %PlatformAction{status: :pending} = action ->
+      {:ok, %PlatformAction{status: :pending} = action} ->
         case current_lease(action, lease_ref, now) do
           :ok -> {:ok, action}
           {:error, reason} -> {:error, reason}
         end
 
-      %PlatformAction{} ->
+      {:ok, %PlatformAction{}} ->
         {:error, :platform_action_not_pending}
 
-      nil ->
+      {:error, :not_found} ->
         {:error, :platform_action_not_found}
     end
   end
@@ -542,7 +543,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
     action_ref
     |> PlatformAction.Query.by_action_ref()
     |> PlatformAction.Query.lock_for_update()
-    |> Repo.one()
+    |> Repo.fetch()
   end
 
   defp current_lease(action, lease_ref, now) do

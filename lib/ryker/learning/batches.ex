@@ -342,8 +342,8 @@ defmodule Ryker.Learning.Batches do
     unless Repo.in_transaction?(), do: raise(ArgumentError, "operator audit transaction required")
     lock_queue!()
 
-    case Repo.one(Batch.Query.by_id(id)) do
-      %Batch{rebuild_target_id: target} = batch when not is_nil(target) ->
+    case Repo.fetch(Batch.Query.by_id(id)) do
+      {:ok, %Batch{rebuild_target_id: target} = batch} when not is_nil(target) ->
         target = %{
           version: batch.rebuild_target_version,
           generation: batch.rebuild_target_generation
@@ -394,12 +394,10 @@ defmodule Ryker.Learning.Batches do
   end
 
   defp retryable_batch!(id, expected_version) do
-    batch = locked_batch(id)
-
-    unless batch && batch.status == :deferred && batch.budget_version == expected_version,
-      do: Repo.rollback(:learning_retry_conflict)
-
-    batch
+    case locked_batch(id) do
+      {:ok, %Batch{status: :deferred, budget_version: ^expected_version} = batch} -> batch
+      _changed_or_gone -> Repo.rollback(:learning_retry_conflict)
+    end
   end
 
   defp ensure_retry_scope_available!(batch) do
@@ -482,10 +480,12 @@ defmodule Ryker.Learning.Batches do
   def drop_in_transaction(id, expected_version) do
     unless Repo.in_transaction?(), do: raise(ArgumentError, "operator audit transaction required")
     lock_queue!()
-    batch = locked_batch(id)
 
-    unless batch && batch.status == :deferred && batch.budget_version == expected_version,
-      do: Repo.rollback(:learning_batch_changed)
+    batch =
+      case locked_batch(id) do
+        {:ok, %Batch{status: :deferred, budget_version: ^expected_version} = batch} -> batch
+        _changed_or_gone -> Repo.rollback(:learning_batch_changed)
+      end
 
     if Repo.exists?(outstanding_scope_query(batch.scope_key)),
       do: Repo.rollback(:learning_remote_outstanding)
@@ -572,9 +572,9 @@ defmodule Ryker.Learning.Batches do
   end
 
   defp create_batch(settings, now, pending) do
-    case Repo.one(LearningInput.Query.next_due_scope(pending, settings, now)) do
-      nil -> nil
-      scope -> assign_scope(scope, pending, settings, now)
+    case Repo.fetch(LearningInput.Query.next_due_scope(pending, settings, now)) do
+      {:error, :not_found} -> nil
+      {:ok, scope} -> assign_scope(scope, pending, settings, now)
     end
   end
 
@@ -643,7 +643,7 @@ defmodule Ryker.Learning.Batches do
     do: batch_id |> InputMembership.Query.by_batch_id() |> InputMembership.Query.unfinished()
 
   defp locked_batch(id),
-    do: id |> Batch.Query.by_id() |> Batch.Query.lock_for_update() |> Repo.one()
+    do: id |> Batch.Query.by_id() |> Batch.Query.lock_for_update() |> Repo.fetch()
 
   defp current_request?(%{rebuild_target_id: nil}, _run), do: true
 
@@ -675,12 +675,12 @@ defmodule Ryker.Learning.Batches do
   end
 
   defp owned!(claim) do
-    batch = locked_batch(claim.batch.id)
-
-    unless batch && batch.status == :running && Lease.held?(batch, claim.lease_ref, Repo.now!()),
-      do: Repo.rollback(:learning_lease_lost)
-
-    batch
+    with {:ok, %Batch{status: :running} = batch} <- locked_batch(claim.batch.id),
+         true <- Lease.held?(batch, claim.lease_ref, Repo.now!()) do
+      batch
+    else
+      _lost -> Repo.rollback(:learning_lease_lost)
+    end
   end
 
   @doc false

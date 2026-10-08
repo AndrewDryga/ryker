@@ -127,9 +127,9 @@ defmodule Ryker.Slack.TaskCards do
 
     query = TaskCard.Query.next_claimable(now, check_interval_seconds)
 
-    case Repo.one(query) do
-      nil -> nil
-      %TaskCard{} = card -> lease_card(card, worker_ref, lease_seconds, now)
+    case Repo.fetch(query) do
+      {:error, :not_found} -> nil
+      {:ok, %TaskCard{} = card} -> lease_card(card, worker_ref, lease_seconds, now)
     end
   end
 
@@ -224,11 +224,11 @@ defmodule Ryker.Slack.TaskCards do
   defp rearm_locked(ref) do
     now = Repo.now!()
 
-    case Repo.one(ref |> TaskCard.Query.by_ref() |> TaskCard.Query.lock_for_update()) do
-      nil ->
+    case Repo.fetch(ref |> TaskCard.Query.by_ref() |> TaskCard.Query.lock_for_update()) do
+      {:error, :not_found} ->
         Repo.rollback(:task_card_not_found)
 
-      %TaskCard{status: :blocked} = card ->
+      {:ok, %TaskCard{status: :blocked} = card} ->
         update!(
           card,
           %{
@@ -245,7 +245,7 @@ defmodule Ryker.Slack.TaskCards do
           now
         )
 
-      %TaskCard{} ->
+      {:ok, %TaskCard{}} ->
         Repo.rollback(:task_card_not_blocked)
     end
   end
@@ -284,13 +284,14 @@ defmodule Ryker.Slack.TaskCards do
   defp ensure_one_locked(skip) do
     AdvisoryLock.hold!("slack-task-card-repair")
 
-    row = Repo.one(TaskCard.Query.next_uncarded_offer(skip))
+    row = Repo.fetch(TaskCard.Query.next_uncarded_offer(skip))
 
     case row do
-      nil ->
+      {:error, :not_found} ->
         nil
 
-      {%Records.Record{} = record, %Work.Turn{} = source_turn, %Episodes.Episode{} = episode} ->
+      {:ok,
+       {%Records.Record{} = record, %Work.Turn{} = source_turn, %Episodes.Episode{} = episode}} ->
         insert!(record, source_turn, episode)
     end
   end

@@ -26,9 +26,9 @@ defmodule Ryker.Publication.Followups.Delivery do
   end
 
   def delivery_request(%LifecycleEvent{delivery_state: :pending} = event) do
-    case Repo.one(Publication.Query.by_id(event.publication_id)) do
-      %Publication{} = publication -> publication_delivery_request(publication, event)
-      nil -> {:error, :publication_not_found}
+    case Repo.fetch(Publication.Query.by_id(event.publication_id)) do
+      {:ok, %Publication{} = publication} -> publication_delivery_request(publication, event)
+      {:error, :not_found} -> {:error, :publication_not_found}
     end
   end
 

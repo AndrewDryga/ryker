@@ -382,7 +382,7 @@ defmodule Ryker.Work.Custody.Cancellation do
 
   def portable_workspace(%Turn{status: :blocked, session_id: session_id}, options)
       when is_binary(session_id) do
-    with %Session{} = session <- Repo.one(Session.Query.by_id(session_id)),
+    with {:ok, %Session{} = session} <- Repo.fetch(Session.Query.by_id(session_id)),
          workspace_ref when is_binary(workspace_ref) <- Settings.worker_workspace_ref() do
       storage_root = Keyword.get_lazy(options, :storage_root, &Ryker.Bootstrap.storage_root!/0)
 
