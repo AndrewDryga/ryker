@@ -102,6 +102,8 @@ every tenant identifier, identifying resource name, person and third-party build
 "The corpus is pseudonymized" in `docs/memory-evaluation.md` for the substitution, the three digest
 families re-derived from it, and what deliberately survives;
 `test/ryker/redaction_audit_test.exs` fails on any real Slack identifier reaching a tracked file.
+Private names have no such check, so they are a rule: a client's organization, its repositories,
+its people and its hosts never go into a tracked file or a commit message.
 
 ### Where each kind of test belongs
 

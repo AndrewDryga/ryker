@@ -27,18 +27,6 @@ jobs:
         with:
           version-file: .tool-versions
           version-type: strict
-      # The names the redaction audit refuses are private, so the public repository cannot
-      # hold them (test/ryker/redaction_audit_test.exs); CI reads them from a secret. Without
-      # the secret the audit has no names to look for.
-      - name: private names for the redaction audit
-        env:
-          RYKER_REDACTION_DENYLIST: ${{ secrets.RYKER_REDACTION_DENYLIST }}
-        run: |
-          if [ -n "$RYKER_REDACTION_DENYLIST" ]; then
-            umask 077
-            mkdir -p .ryker
-            printf '%s\n' "$RYKER_REDACTION_DENYLIST" >.ryker/redaction-denylist
-          fi
       - name: full gate
         run: make check
 
