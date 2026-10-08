@@ -1,8 +1,8 @@
 # Base images are pinned by digest as well as tag (2026-10-04 review).
 FROM golang:1.27.1-bookworm@sha256:8d48e12ec56735e9358640898b9d9b9fcca110612ed8a5567438c0a1baa24e66 AS build
 
-ARG COOP_VERSION=v10.1.2-24-gd019c807
-ARG COOP_REVISION=d019c807ea6373b25ec7d145441bd9163f637564
+ARG COOP_VERSION=v10.1.2-122-g5b112ce7
+ARG COOP_REVISION=5b112ce7250039c8753b20cbf8c2502619f7924c
 
 RUN git clone https://github.com/AndrewDryga/coop.git /build/coop \
  && cd /build/coop \
@@ -11,16 +11,28 @@ RUN git clone https://github.com/AndrewDryga/coop.git /build/coop \
       -ldflags "-s -w -X github.com/AndrewDryga/coop/internal/cli.Version=$COOP_VERSION" \
       -o /out/coop .
 
+# The image the worker's Docker daemon runs (compose.yml `ryker-coop-docker`), by the same digest.
+FROM docker:27.5.1-dind-alpine3.21@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce AS docker
+
 FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl docker.io git git-lfs jq openssl \
+ && apt-get install -y --no-install-recommends ca-certificates curl git git-lfs jq openssl \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --gid 1000 coop \
  && useradd --uid 1000 --gid coop --home-dir /var/lib/coop --create-home --shell /bin/sh coop
 
-# Coop starts a review's declared service stack with `docker compose`, which Debian's docker.io
-# lacks. The plugin is a pinned release, its checksum checked for this image's architecture.
+# Coop builds a filtered run's network images with `docker build`, which Debian's Docker CLI 20.10
+# never hands to Buildx: a worker with it could not run one (2026-10-07). The CLI and Buildx are
+# the pair the daemon's own image ships, so they always match the daemon they talk to.
+COPY --from=docker /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=docker /usr/local/libexec/docker/cli-plugins/docker-buildx \
+     /usr/libexec/docker/cli-plugins/docker-buildx
+RUN docker --version \
+ && docker buildx version
+
+# Coop starts a review's declared service stack with `docker compose`. The plugin is a pinned
+# release, its checksum checked for this image's architecture.
 ARG COMPOSE_VERSION=v5.1.2
 RUN case "$(dpkg --print-architecture)" in \
       arm64) arch=aarch64 sum=d5ce4020039cdbe81679b770e64f89d2cc601398d3b1aacd84a02a9176cd9d20 ;; \

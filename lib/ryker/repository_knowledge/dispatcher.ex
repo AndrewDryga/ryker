@@ -181,13 +181,13 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
         )
   end
 
-  # The repository's own read-only policy: the standard models Work uses for
-  # an ordinary task there (`Ryker.CoopFleet.JobTemplates`). Reading a whole
-  # repository with tools is exactly that kind of task, and the policy mounts
-  # the repository read-only already, so no new policy is needed.
+  # The repository's knowledge policy: the standard models Work uses for an
+  # ordinary task there, the repository mounted read-only, and a network that
+  # reaches only the model provider (`Ryker.CoopFleet.JobTemplates`). It ran
+  # on the standard Work policy and its open network until 2026-10-08.
   defp policy(snapshot, ref) do
     Enum.find_value(CoopFleet.JobTemplates.from_settings(snapshot), fn binding ->
-      if binding.purpose == :standard and binding.scope_kind == :repository and
+      if binding.purpose == :knowledge and binding.scope_kind == :repository and
            binding.scope_ref == ref,
          do: %{name: binding.policy_name, digest: binding.policy_digest}
     end)

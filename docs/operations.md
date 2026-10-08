@@ -151,6 +151,13 @@ it, which is the way back, and remove the rest (`docker image ls ryker-coop` lis
 `docker image rm ryker-coop:TAG` removes one). Inside the worker's own Docker, the entrypoint
 removes the box bases of older Coop builds and the images nothing is tagged as.
 
+Repository knowledge runs with filtered networking: the model reaches its provider and nothing
+else. Coop takes a filtered job only on a Docker daemon that `coop net setup` qualified, so the
+worker's entrypoint runs it before the worker connects, and the worker's image carries the Docker
+CLI and Buildx from its daemon's own image, which setup builds with. A failed setup is logged
+(`docker logs ryker-ryker-coop-1`) and leaves only filtered jobs refused; the next worker start
+tries again.
+
 For a worker-protocol change, first verify that the bundled-worker build pin or supplied image
 actually speaks the new protocol, and plan the worker and controller cutover together. The normal
 Ryker-only deploy does not upgrade Coop. Do not run a broad Compose upgrade against a controller

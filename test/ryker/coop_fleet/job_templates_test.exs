@@ -88,11 +88,51 @@ defmodule Ryker.CoopFleet.JobTemplatesTest do
 
   test "controller templates require no worker or policy rows" do
     templates = JobTemplates.from_settings(snapshot())
-    assert length(templates) == 24
+    assert length(templates) == 26
     assert Enum.count(templates, &(&1.scope_kind == :installation)) == 6
-    assert Enum.count(templates, &(&1.scope_kind == :repository)) == 10
+    assert Enum.count(templates, &(&1.scope_kind == :repository)) == 12
     assert Enum.count(templates, &(&1.scope_kind == :environment)) == 8
     assert template(templates, :conversational).policy_name == "ryker-repo-app-conversation"
+    assert template(templates, :knowledge).policy_name == "ryker-repo-app-knowledge"
+  end
+
+  # Knowledge runs read whole repositories with nobody watching, on the
+  # standard Work policy and its open network, so a file could have the model
+  # fetch or send anything (2026-10-04 review). Work keeps the open network:
+  # a person asked for it, and its tools need it.
+  test "a knowledge run's job reaches only its model provider; every other job keeps the network" do
+    work = %Work{standard_models: ["codex:gpt-5.6-sol/medium@default"]}
+    knowledge = JobTemplates.execution(work, :knowledge, true)
+
+    assert knowledge["egress"] == %{
+             "mode" => "filtered",
+             "rules" => [],
+             "export_destinations" => false
+           }
+
+    # Coop runs a filtered repository job only in normal mode, read-only.
+    assert {knowledge["mode"], knowledge["repository_read_only"]} == {"normal", true}
+    assert knowledge["targets"] == work.standard_models
+
+    for purpose <- [
+          :admission,
+          :conversational,
+          :contributor,
+          :deep,
+          :incident,
+          :learning,
+          :schedule,
+          :schedule_governed,
+          :schedule_read_only,
+          :standard
+        ] do
+      assert JobTemplates.execution(work, purpose, true)["egress"]["mode"] == "open"
+    end
+
+    templates = JobTemplates.from_settings(snapshot())
+
+    refute template(templates, :knowledge).authority_digest ==
+             template(templates, :standard).authority_digest
   end
 
   test "model choice changes execution but read-only classes share the same authority" do
@@ -137,7 +177,7 @@ defmodule Ryker.CoopFleet.JobTemplatesTest do
 
     for changed <- [%{app | github_access: :suspended}, %{app | source_commit: nil}] do
       templates = JobTemplates.from_settings(%{snapshot | repositories: [changed, companion]})
-      assert length(templates) == 11
+      assert length(templates) == 12
       refute Enum.any?(templates, &(&1.scope_kind == :environment or &1.scope_ref == "app"))
     end
 

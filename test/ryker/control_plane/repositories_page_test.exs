@@ -651,8 +651,7 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
   # A write that waits because no worker takes the repository's sessions, or
   # GitHub does not answer, said only "Writing knowledge" (2026-10-04 review).
   test "a RYKER.md write that waits says why on the row and the page" do
-    reason =
-      "No Coop worker takes this repository's sessions. Check that a worker is online and offers its policy."
+    reason = "No Coop worker takes this repository's sessions. Check that a worker is online."
 
     waiting =
       @repository

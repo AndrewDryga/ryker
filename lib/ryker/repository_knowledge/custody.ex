@@ -191,11 +191,10 @@ defmodule Ryker.RepositoryKnowledge.Custody do
   end
 
   defp held("repository_knowledge_policy_unavailable"),
-    do: "No model setup reads this repository yet. Ryker waits for its standard policy."
+    do: "No model setup reads this repository yet. Ryker waits until it can read it on GitHub."
 
-  defp held("repository_knowledge_worker_unavailable") do
-    "No Coop worker takes this repository's sessions. Check that a worker is online and offers its policy."
-  end
+  defp held("repository_knowledge_worker_unavailable"),
+    do: "No Coop worker takes this repository's sessions. Check that a worker is online."
 
   defp held("repository_knowledge_github_unavailable"),
     do: "GitHub did not answer for this repository. Ryker tries again."

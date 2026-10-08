@@ -126,6 +126,13 @@ prepare_ryker_box() {
 
 prepare_ryker_box
 
+# Repository knowledge runs with filtered networking, and Coop's session API takes a filtered
+# job only on a daemon `coop net setup` qualified: it never qualifies one itself, and never
+# runs the job on the open network instead. A failed setup leaves just those jobs refused.
+if ! coop net setup; then
+  echo "coop net setup failed; this worker refuses filtered jobs until it passes." >&2
+fi
+
 while :; do
   recover_identity
   until [ -r "$identity" ] || [ -r "$token" ]; do sleep 1; done

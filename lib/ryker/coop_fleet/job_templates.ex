@@ -12,12 +12,14 @@ defmodule Ryker.CoopFleet.JobTemplates do
     :schedule_governed,
     :schedule_read_only
   ]
-  @repository [:conversational, :contributor, :deep, :schedule, :standard]
+  @repository [:conversational, :contributor, :deep, :knowledge, :schedule, :standard]
   @environment [:conversational, :contributor, :deep, :standard]
   @models %{
     admission: :routing_models,
     conversational: :conversation_models,
     standard: :standard_models,
+    # Reading a repository to write its RYKER.md is an ordinary task there.
+    knowledge: :standard_models,
     deep: :deep_models,
     contributor: :contributor_models,
     schedule: :schedule_models,
@@ -104,7 +106,7 @@ defmodule Ryker.CoopFleet.JobTemplates do
       "check" => JobCheck.none(),
       "resources" => @resources,
       "repository_read_only" => not repository? or purpose != :contributor,
-      "egress" => %{"mode" => "open", "rules" => [], "export_destinations" => false},
+      "egress" => egress(purpose),
       "limits" => %{
         "max_turns" => 100,
         "max_queued_turns" => 20,
@@ -115,6 +117,17 @@ defmodule Ryker.CoopFleet.JobTemplates do
       }
     }
   end
+
+  # A knowledge run reads a whole repository with nobody watching, and any
+  # file in it can tell the model to fetch or send something, which the open
+  # network let it do (2026-10-04 review). It reaches its model provider and
+  # nothing else. Coop runs a filtered job only on a worker `coop net setup`
+  # qualified, never on the open network instead
+  # (deploy/compose/coop/entrypoint.sh).
+  defp egress(:knowledge),
+    do: %{"mode" => "filtered", "rules" => [], "export_destinations" => false}
+
+  defp egress(_purpose), do: %{"mode" => "open", "rules" => [], "export_destinations" => false}
 
   defp template(work, purpose, scope, scope_ref, repository_ref, refs) do
     document = %{

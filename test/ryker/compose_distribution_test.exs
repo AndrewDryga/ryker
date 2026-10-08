@@ -132,9 +132,10 @@ defmodule Ryker.ComposeDistributionTest do
     # cb5178eb, worker protocol v1, for days after Ryker spoke only v2 (2026-09-27): rebuilding
     # the worker from the recipe would have produced one that could not talk to Ryker at all.
     # Coop main runs the version-2 jobs Ryker sends since 2026-10-04; d019c807 also holds a
-    # command back while a repository's first download runs.
-    assert worker_image =~ "COOP_REVISION=d019c807ea6373b25ec7d145441bd9163f637564"
-    assert worker_image =~ "COOP_VERSION=v10.1.2-24-gd019c807"
+    # command back while a repository's first download runs, and 5b112ce7 runs filtered jobs
+    # on a Docker-in-Docker worker.
+    assert worker_image =~ "COOP_REVISION=5b112ce7250039c8753b20cbf8c2502619f7924c"
+    assert worker_image =~ "COOP_VERSION=v10.1.2-122-g5b112ce7"
     # The Coop pin lives in one place, the worker Dockerfile. Two copies of the
     # default once had to be bumped together, and compose.yml's COOP_VERSION
     # override relabeled the pinned revision as whatever it named (2026-10-04
@@ -296,9 +297,9 @@ defmodule Ryker.ComposeDistributionTest do
   end
 
   # emisar's draft-PR reviews, 2026-10-01: its review stack (PostgreSQL) never started, and once
-  # Coop starts a review's declared stack, it does so with `docker compose`, which Debian's
-  # docker.io in the worker image does not include ("'compose' is not a docker command"). The
-  # plugin is a pinned release whose checksum is checked for each architecture.
+  # Coop starts a review's declared stack, it does so with `docker compose`, which the worker
+  # image's Docker did not include ("'compose' is not a docker command"). The plugin is a pinned
+  # release whose checksum is checked for each architecture.
   test "the worker can start a review's services with a verified Docker Compose" do
     worker_image = read("deploy/compose/coop/Dockerfile")
 
@@ -356,6 +357,31 @@ defmodule Ryker.ComposeDistributionTest do
       )
 
     assert ("--group=" <> gid) in daemon["command"]
+  end
+
+  # Repository knowledge moved to filtered networking (2026-10-08), which this worker could not
+  # run: Debian's Docker CLI 20.10 never hands `docker build` to Buildx, which Coop builds the
+  # network images with, and Coop's session API takes a filtered job only on a daemon
+  # `coop net setup` qualified (Coop 4f32cb88, 2026-10-07). The worker copies the CLI and Buildx
+  # the daemon's own image ships, by the same digest, and qualifies the daemon before it
+  # connects. Coop reads the qualification from the worker's state, which the daemon shares.
+  test "the worker runs filtered jobs with its daemon's own Docker CLI, on a daemon qualified first" do
+    services = YamlElixir.read_from_string!(read("compose.yml"))["services"]
+    worker_image = read("deploy/compose/coop/Dockerfile")
+    entrypoint = read("deploy/compose/coop/entrypoint.sh")
+
+    assert worker_image =~ "FROM #{services["ryker-coop-docker"]["image"]} AS docker\n"
+    assert worker_image =~ "COPY --from=docker /usr/local/bin/docker /usr/local/bin/docker"
+
+    assert worker_image =~
+             "COPY --from=docker /usr/local/libexec/docker/cli-plugins/docker-buildx"
+
+    assert worker_image =~ "docker buildx version"
+    refute worker_image =~ "docker.io"
+
+    assert {setup, _length} = :binary.match(entrypoint, "if ! coop net setup; then")
+    assert {connect, _length} = :binary.match(entrypoint, "coop sessions connect")
+    assert setup < connect
   end
 
   # Ryker's draft-PR reviews of its own repository run `make dev-check` in the

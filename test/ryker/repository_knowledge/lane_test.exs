@@ -3,6 +3,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
   import Ecto.Query
   alias Ryker.Accounting.Execution
   alias Ryker.ControlPlane.RepositoryProjection
+  alias Ryker.CoopFleet.JobTemplates
   alias Ryker.GitHub.Onboarding
   alias Ryker.Inspectors
   alias Ryker.{IntegrationSetup, RepositoryKnowledge, Settings}
@@ -693,6 +694,30 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
 
     assert Repo.exists?(from(session in Session, where: session.execution_kind == :knowledge))
     assert %{items: [%{ref: "emisar", sessions: 0}]} = RepositoryProjection.list(%{})
+  end
+
+  # Knowledge ran on the repository's standard Work policy, whose open network
+  # let any file in the repository have the model fetch or send something
+  # (2026-10-04 review).
+  test "a repository is read for its RYKER.md on a job that reaches only the model provider" do
+    github!()
+    coop = coop!([answer_json()])
+    written!(coop)
+
+    session = Repo.get_by!(Session, execution_kind: :knowledge)
+    {:ok, snapshot} = Settings.fetch()
+
+    template =
+      Enum.find(
+        JobTemplates.from_settings(snapshot),
+        &(&1.policy_name == session.policy and &1.policy_digest == session.policy_digest)
+      )
+
+    assert JobTemplates.execution(snapshot.work, template.purpose, true)["egress"] == %{
+             "mode" => "filtered",
+             "rules" => [],
+             "export_destinations" => false
+           }
   end
 
   # The worker sleeps until the next check falls due, as a UTC DateTime,
