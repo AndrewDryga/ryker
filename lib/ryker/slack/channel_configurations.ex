@@ -1198,11 +1198,11 @@ defmodule Ryker.Slack.ChannelConfigurations do
 
     attributes = %{
       actor_ref: actor_ref,
-      alert_policy: String.to_existing_atom(draft["alert_policy"]),
+      alert_policy: draft["alert_policy"],
       environment_ref: draft["environment_ref"],
       invite_user_group_refs: draft["invite_user_group_refs"],
       invite_user_refs: draft["invite_user_refs"],
-      participation: String.to_existing_atom(draft["participation"]),
+      participation: draft["participation"],
       revision: if(existing, do: existing.revision + 1, else: 1),
       saved_at: now
     }

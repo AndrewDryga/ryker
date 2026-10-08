@@ -399,6 +399,18 @@ Stored data (Emisar's `elixir-nil-is-not-an-empty-list`):
   data unchecked, the improvement export's case snapshot and a webhook
   source's lifecycle scope; both normalize now. Templates walk only what
   projections built (`Ryker.ControlPlane.TemplateHygieneTest`).
+- `match?/2` answers a shape question, never a plain field read (Emisar's
+  README): a field read is `@view.participation[:value] == :shadow`, which
+  a moved key cannot turn silently false. On 2026-10-08, of seven `match?`
+  with a field value, five match a struct, whose fields the compiler checks,
+  one became that read, and one tells a map from `nil` or `false`
+  (`ChannelsPage`), which is shape.
+- Input a changeset casts goes in as it came (Emisar's README: cast first,
+  then read the cast value): a channel's saved setup handed its enum fields
+  over through `String.to_existing_atom/1`, which raises where the changeset
+  answers a field error, until 2026-10-08. A validated document decoded at
+  a boundary for logic before any changeset keeps its atoms (a memory
+  offer's scope, kind and visibility).
 - An `Ecto.Enum` field is compared on its atoms (Emisar's
   `elixir-ecto-enum-atom-compare`): a loaded enum is an atom, so a string
   never equals it. Measured 2026-10-08: of 75 comparisons of an enum-named

@@ -273,7 +273,7 @@ defmodule Ryker.ControlPlane.ChannelPage do
             view={@view}
             notice={@notice}
           >
-            <span :if={match?(%{value: :shadow}, @view.participation)} class="channel-fact-note">
+            <span :if={@view.participation[:value] == :shadow} class="channel-fact-note">
               while Ryker watches quietly, it waits to be asked
             </span>
           </.choice>
