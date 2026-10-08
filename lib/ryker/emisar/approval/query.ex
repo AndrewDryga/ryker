@@ -60,17 +60,14 @@ defmodule Ryker.Emisar.Approval.Query do
   end
 
   @doc """
-  Of watches `with_joined_origin/1`, the ones a task waits for that cannot make
-  progress: monitored, their card open and its episode waiting on it, on an
-  account in `stalled_refs` or failing with one of `token_codes`.
+  Of watches `with_joined_origin/1`, the monitored ones a task waits for
+  (`awaited/1`) that cannot make progress: on an account in `stalled_refs`, or
+  failing with one of `token_codes`.
   """
   def stalled(queryable, stalled_refs, token_codes) do
     queryable
-    |> where(
-      [episode_emisar_approvals: a, episode_state_records: r, episode_kernel_episodes: e],
-      a.status == :monitoring and r.status == :open and e.state == :waiting_for_event and
-        e.owner_kind == :event and e.owner_ref == r.ref
-    )
+    |> awaited()
+    |> by_status(:monitoring)
     |> where(
       [episode_emisar_approvals: a],
       a.connection_ref in ^stalled_refs or a.last_error_code in ^token_codes
@@ -93,8 +90,10 @@ defmodule Ryker.Emisar.Approval.Query do
 
   @doc """
   Of watches `with_joined_origin/1`, the ones a task is waiting for right now:
-  an open approval of a task waiting for an event, whether its wait is this
-  approval or another one beside it (`Ryker.Work.Validator`).
+  an open approval of a waiting task, whether the task's wait is this
+  approval, another approval or watch beside it, or a question beside it
+  (`Ryker.Work.Validator`). A task at work is not waiting for it until its
+  turn ends.
   """
   def awaited(queryable) do
     queryable
@@ -104,7 +103,8 @@ defmodule Ryker.Emisar.Approval.Query do
     )
     |> where(
       [episode_kernel_episodes: e],
-      e.state == :waiting_for_event and e.owner_kind == :event
+      (e.state == :waiting_for_event and e.owner_kind == :event) or
+        (e.state == :waiting_for_input and e.owner_kind == :input)
     )
   end
 

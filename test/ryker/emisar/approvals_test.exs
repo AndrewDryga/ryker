@@ -204,6 +204,104 @@ defmodule Ryker.Emisar.ApprovalsTest do
     assert Repo.get!(Record, first.id).status == :open
   end
 
+  # A task may ask a question while an approval it asked for is pending, and
+  # the question owns the wait (`Ryker.Work.Validator`). Nothing watched the
+  # approval while the question was open, so one that expired in the meantime
+  # left the task holding a wait it could never take again. The outcome now
+  # waits in the task's queue and reaches it with the answer.
+  test "an approval that settles while its task waits on a question reaches the task with the answer" do
+    %{claim: claim, record: approval} = registered!("beside-question")
+
+    assert {:ok, question} =
+             Records.create(Records.token(claim.turn), "question-beside", "input_request", %{
+               "choices" => ["eu-west-1", "us-east-1"],
+               "question" => "Which region should I scale while the restart waits?"
+             })
+
+    assert {:ok, %{episode: %{state: :waiting_for_input}}} =
+             Episodes.apply(%Command.StartWait{
+               deadline_at: nil,
+               episode_key: claim.episode.key,
+               expected_turn_ref: claim.turn.turn_ref,
+               kind: :input,
+               occurred_at: ~U[2026-08-29 12:00:01.000000Z],
+               wait_ref: question.ref
+             })
+
+    assert {:ok, %{approval: %{request_id: "apr-beside-question"}, lease_ref: lease_ref}} =
+             Approvals.claim_next(@connection_ref, "approval-worker", 60)
+
+    assert {:ok, %{episode: waiting, record: %Record{status: :answered, ref: answered_ref}}} =
+             Approvals.observe(
+               @connection_ref,
+               "apr-beside-question",
+               lease_ref,
+               run_state("beside-question", "cancelled"),
+               5
+             )
+
+    assert answered_ref == approval.ref
+    assert {waiting.state, waiting.owner_ref} == {:waiting_for_input, question.ref}
+    assert [outcome_ref] = waiting.queued_input_refs
+
+    answer =
+      EpisodeFixtures.admit_input(%{
+        episode_id: claim.episode.id,
+        episode_key: claim.episode.key,
+        native_input_id: "slack:event:Ev-region",
+        occurred_at: ~U[2026-08-29 12:10:00.000000Z],
+        payload: %{"text" => "eu-west-1"},
+        turn_ref: "turn:answer-beside-question"
+      })
+
+    resume = %Command.ResumeWait{
+      episode_key: claim.episode.key,
+      expected_wait: %{kind: :input, ref: question.ref},
+      occurred_at: ~U[2026-08-29 12:10:00.000000Z],
+      resolution_ref: Command.dedupe_key(answer),
+      turn_ref: "turn:answer-beside-question"
+    }
+
+    assert {:ok, {:ok, [_admitted, %{episode: resumed}]}} =
+             Repo.transaction(fn -> Episodes.apply_batch_in_transaction([answer, resume]) end)
+
+    assert resumed.state == :working
+
+    assert Enum.sort(resumed.active_input_refs) ==
+             Enum.sort([Command.dedupe_key(answer), outcome_ref])
+  end
+
+  # Approvals beside another wait are watched (above), but the Failures list
+  # and its "Watch the approval again" button still asked whether each was
+  # the one the task's wait named. One whose account stopped being watched
+  # was not listed, and one Emisar refused could not be watched again.
+  test "an approval beside another wait is listed when it stalls" do
+    %{rider: rider} = beside_another_approval!("stalled-rider")
+
+    assert {:ok, _snapshot} =
+             IntegrationSetup.disable_emisar_monitoring(@connection_ref, "control-plane:local")
+
+    assert %{stall: :monitoring_off} = failure("production/#{rider}")
+  end
+
+  test "an approval beside another wait can be watched again once Emisar refused it" do
+    %{rider: rider} = beside_another_approval!("blocked-rider")
+
+    lease_ref =
+      Enum.find_value(1..2, fn attempt ->
+        assert {:ok, %{approval: approval, lease_ref: lease_ref}} =
+                 Approvals.claim_next(@connection_ref, "approval-worker-#{attempt}", 60)
+
+        if approval.request_id == rider, do: lease_ref
+      end)
+
+    assert {:ok, %Approval{status: :blocked}} =
+             Approvals.block(@connection_ref, rider, lease_ref, {:emisar_http_error, 403, "no"})
+
+    assert %{action: :rearm} = failure("production/#{rider}")
+    assert {:ok, %{status: :monitoring}} = EmisarOperator.rearm("production/#{rider}")
+  end
+
   # The same tasks watched a Terraform run beside their approvals. A watch
   # keeps the episode's one subscription while a question owns the wait; an
   # approval owning it left the watch unsubscribed.
@@ -496,6 +594,24 @@ defmodule Ryker.Emisar.ApprovalsTest do
     assert {:ok, waiting} = wait_on!(claim, record)
     assert waiting.episode.state == :waiting_for_event
     %{claim: claim, record: record}
+  end
+
+  # A task waiting on one approval with a second one pending beside it; the
+  # second is the rider.
+  defp beside_another_approval!(suffix) do
+    %{claim: claim, record: owner} = registered!("#{suffix}-owner")
+
+    assert {:ok, _rider} =
+             Records.create(
+               Records.token(claim.turn),
+               "op-#{suffix}",
+               "emisar_approval",
+               approval_payload(suffix)
+             )
+
+    assert {:ok, %{episode: %{owner_ref: owner_ref}}} = wait_on!(claim, owner)
+    assert owner_ref == owner.ref
+    %{claim: claim, rider: "apr-#{suffix}"}
   end
 
   # The claimed turn's delivered result starts the episode's wait on `record`.

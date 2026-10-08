@@ -4,8 +4,9 @@ defmodule Ryker.Emisar.Approvals do
 
   Approval and denial happen only in Emisar. This module owns a small polling
   lease, validates the immutable run identity, and converts one terminal run
-  into one trusted input that resumes the same episode. It never calls
-  `run_action` and never grants mutation authority.
+  into one trusted input for the same episode: it resumes the episode's wait,
+  or waits in its queue for the answer while a question owns the wait. It
+  never calls `run_action` and never grants mutation authority.
 
   Each watch registered, observed, blocked, closed or settled is announced
   after the outermost commit (`subscribe_approvals/0`), on its request's
@@ -465,12 +466,11 @@ defmodule Ryker.Emisar.Approvals do
     with {:ok, snapshot} <-
            fetch_approval_row(Approval.Query.by_request(connection_ref, request_id)),
          :ok <- exact_run(snapshot, state),
-         {:ok, episode} <- fetch_approval_row(Episodes.Episode.Query.by_id(snapshot.episode_id)),
+         {:ok, episode} <- fetch_and_lock_episode(snapshot.episode_id),
          {:ok, record} <- fetch_approval_row(Records.Record.Query.by_id(snapshot.record_id)),
          {:ok, input} <- terminal_input(episode, snapshot, state, now),
-         admit <- admit_command(episode, input, snapshot),
-         resume <- resume_command(episode, admit, record, snapshot, now),
-         {:ok, [_admitted, resumed]} <- Episodes.apply_batch_in_transaction([admit, resume]),
+         commands = outcome_commands(episode, input, record, snapshot, now),
+         {:ok, transitions} <- Episodes.apply_batch_in_transaction(commands),
          {:ok, locked_record} <- fetch_and_lock_record(snapshot.record_id),
          {:ok, locked_approval} <- fetch_and_lock_approval(snapshot.id),
          {:ok, _approval} <- live_lease(locked_approval, lease_ref, now),
@@ -496,7 +496,13 @@ defmodule Ryker.Emisar.Approvals do
              terminal_at: now
            }) do
       Records.broadcast_record_updated(answered_record)
-      %{approval: approval, episode: resumed.episode, record: answered_record, status: :resumed}
+
+      %{
+        approval: approval,
+        episode: List.last(transitions).episode,
+        record: answered_record,
+        status: :resumed
+      }
     else
       {:error, reason} -> Repo.rollback(reason)
     end
@@ -647,6 +653,23 @@ defmodule Ryker.Emisar.Approvals do
     }
   end
 
+  # A question owns its task's wait while approvals ride beside it
+  # (`Ryker.Work.Validator`), and only its answer resumes the task: the
+  # outcome waits in the task's queue and reaches it with the answer.
+  defp outcome_commands(
+         %Episodes.Episode{state: :waiting_for_input} = episode,
+         input,
+         _record,
+         approval,
+         _now
+       ),
+       do: [admit_command(episode, input, approval)]
+
+  defp outcome_commands(episode, input, record, approval, now) do
+    admit = admit_command(episode, input, approval)
+    [admit, resume_command(episode, admit, record, approval, now)]
+  end
+
   defp resume_command(episode, admit, record, approval, now) do
     %Episodes.Command.ResumeWait{
       episode_key: episode.key,
@@ -657,9 +680,9 @@ defmodule Ryker.Emisar.Approvals do
     }
   end
 
-  # A task may wait on several approvals at once, with one of them, or a
-  # watch, owning its wait (`Ryker.Work.Validator`): whichever settles first
-  # resumes that wait, and the others stay open for the task to wait on again.
+  # A task may wait on several approvals at once, with one of them owning its
+  # wait (`Ryker.Work.Validator`): whichever settles first resumes that wait,
+  # and the others stay open for the task to wait on again.
   defp waited_ref(
          %Episodes.Episode{state: :waiting_for_event, owner_kind: :event} = episode,
          _record
@@ -671,6 +694,19 @@ defmodule Ryker.Emisar.Approvals do
   defp turn_ref(request_id) do
     digest = Crypto.sha256_hex(request_id)
     "turn:emisar-approval:#{binary_part(digest, 0, 32)}"
+  end
+
+  # Admission locks the conversation before the episode, and so does this:
+  # the wait the outcome is shaped for cannot change before it arrives.
+  defp fetch_and_lock_episode(id) do
+    with {:ok, episode} <- fetch_approval_row(Episodes.Episode.Query.by_id(id)),
+         :ok <-
+           Episodes.ConversationLock.lock(Repo, %{
+             conversation_ref: episode.destination_conversation_ref,
+             transport: episode.destination_transport
+           }) do
+      Episodes.fetch_and_lock_current_in_transaction(episode.key)
+    end
   end
 
   defp fetch_and_lock_record(id) do

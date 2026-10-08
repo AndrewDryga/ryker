@@ -239,21 +239,6 @@ defmodule Ryker.Records.Record.Query do
   end
 
   @doc """
-  The open Emisar approval card `record_id` of `episode_id`, while the
-  episode waits on it.
-  """
-  def awaited_approval(record_id, episode_id) do
-    from(r in all(),
-      join: e in Episodes.Episode,
-      on: e.id == r.episode_id,
-      where:
-        r.id == ^record_id and r.episode_id == ^episode_id and r.kind == "emisar_approval" and
-          r.status == :open and e.state == :waiting_for_event and e.owner_kind == :event and
-          e.owner_ref == r.ref
-    )
-  end
-
-  @doc """
   The open readiness offer of `episode_id`'s turn `turn_id` that confirmed
   task `task_ref` asked for, with the task and the settled turn that offered
   the task, as `{offer, task, source_turn}`.

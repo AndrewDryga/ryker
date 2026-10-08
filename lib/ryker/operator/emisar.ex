@@ -14,7 +14,6 @@ defmodule Ryker.Operator.Emisar do
   """
   alias Ryker.Credentials
   alias Ryker.Emisar
-  alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Settings
 
@@ -139,10 +138,14 @@ defmodule Ryker.Operator.Emisar do
   end
 
   defp exact_open_wait(approval) do
-    valid =
-      Repo.exists?(Records.Record.Query.awaited_approval(approval.record_id, approval.episode_id))
+    awaited =
+      approval.id
+      |> Emisar.Approval.Query.by_id()
+      |> Emisar.Approval.Query.with_joined_origin()
+      |> Emisar.Approval.Query.awaited()
+      |> Repo.exists?()
 
-    if valid, do: :ok, else: {:error, :emisar_approval_wait_stale}
+    if awaited, do: :ok, else: {:error, :emisar_approval_wait_stale}
   end
 
   # Why an account cannot make progress on the approvals waiting on it, if it
@@ -195,15 +198,18 @@ defmodule Ryker.Operator.Emisar do
   end
 
   # Whether the task still waits for this approval: `:open` while it does,
-  # `:ended` once it never can again (the task was closed or the wait
-  # answered), `:elsewhere` when the task is doing something else for now.
+  # whatever owns its wait (`Emisar.Approval.Query.awaited/1`), `:ended` once
+  # it never can again (the task was closed or the wait answered),
+  # `:elsewhere` while the task is at work.
   defp wait(record, episode) do
     cond do
       record.status != :open or episode.state == :cancelled ->
         :ended
 
-      episode.state == :waiting_for_event and episode.owner_kind == :event and
-          episode.owner_ref == record.ref ->
+      {episode.state, episode.owner_kind} in [
+        {:waiting_for_event, :event},
+        {:waiting_for_input, :input}
+      ] ->
         :open
 
       true ->

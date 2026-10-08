@@ -788,6 +788,71 @@ defmodule Ryker.Work.ValidatorTest do
              Validator.validate(candidate(outcome, message), context(records: timed), @now)
   end
 
+  # The same family: a task that asks a question while an Emisar approval is
+  # pending had no valid answer either, and the model has no tool to end a
+  # wait. The question owns the wait; the approval rides beside it, and its
+  # outcome waits for the answer (`Ryker.Emisar.Approvals`).
+  test "a question can be asked while an approval is pending" do
+    question = %{
+      "deadline_at" => nil,
+      "kind" => "wait",
+      "wait_kind" => "input",
+      "wait_ref" => "record:question"
+    }
+
+    records = %{
+      "record:question" => record("input_request", question),
+      "record:approval" =>
+        record("emisar_approval", %{
+          "deadline_at" => "2099-08-29T12:00:00.000000Z",
+          "kind" => "wait",
+          "wait_kind" => "event",
+          "wait_ref" => "record:approval"
+        })
+    }
+
+    outcome =
+      empty_outcome(%{
+        "record_refs" => ["record:approval", "record:question"],
+        "state" => "waiting_for_input"
+      })
+
+    assert {:accept, accepted} =
+             Validator.validate(
+               candidate(outcome, "While the restart waits for approval: which region?"),
+               context(records: records),
+               @now
+             )
+
+    assert accepted.result.continuation == question
+  end
+
+  # And the last of it: an approval whose deadline passed before the answer
+  # was ready could not be waited on ("elapsed deadline") or left behind
+  # ("cannot be abandoned"). Emisar cancels the run of an expired approval
+  # within minutes and the watcher reports that, so the wait drops the
+  # deadline instead.
+  test "an approval past its deadline is waited on until Emisar ends its run" do
+    approval = %{
+      "deadline_at" => "2026-08-28T11:59:00.000000Z",
+      "kind" => "wait",
+      "wait_kind" => "event",
+      "wait_ref" => "record:approval"
+    }
+
+    outcome =
+      empty_outcome(%{"record_refs" => ["record:approval"], "state" => "waiting_for_event"})
+
+    assert {:accept, accepted} =
+             Validator.validate(
+               candidate(outcome, "The restart still waits for approval in Emisar."),
+               context(records: %{"record:approval" => record("emisar_approval", approval)}),
+               @now
+             )
+
+    assert accepted.result.continuation == %{approval | "deadline_at" => nil}
+  end
+
   test "waiting and complete outcomes name exactly one compatible durable wait" do
     input_wait = %{
       "deadline_at" => nil,

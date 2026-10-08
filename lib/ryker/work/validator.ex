@@ -452,10 +452,14 @@ defmodule Ryker.Work.Validator do
   # three failed "exactly one durable input wait", and dropping the extras
   # failed "open durable waits cannot be abandoned". Production hit it on
   # episode 0b0c3590 and burned the turn's three attempts against itself.
+  # Pending Emisar approvals ride beside a question the same way, and their
+  # outcome waits for its answer (`Ryker.Emisar.Approvals`).
   defp primary_waits(waits, :waiting_for_input) do
     case Enum.split_with(waits, &(continuation_kind(&1.continuation) == :input)) do
-      {[question], watches} ->
-        if Enum.all?(watches, &event_only_watch?/1), do: [question], else: waits
+      {[question], riders} ->
+        if Enum.all?(riders, &(event_only_watch?(&1) or &1.kind == "emisar_approval")),
+          do: [question],
+          else: waits
 
       _other ->
         waits
@@ -501,19 +505,20 @@ defmodule Ryker.Work.Validator do
 
   defp event_only_watch?(_wait), do: false
 
-  defp validate_wait(violations, %{continuation: continuation, ref: ref}, expected_kind, now) do
+  defp validate_wait(violations, %{continuation: continuation} = wait, expected_kind, now) do
     actual_kind = continuation_kind(continuation)
 
     cond do
       actual_kind != expected_kind ->
         [
-          "outcome.state waiting_for_#{expected_kind} must reference an #{expected_kind} wait, but #{inspect(ref)} is an #{actual_kind || :invalid} wait."
+          "outcome.state waiting_for_#{expected_kind} must reference an #{expected_kind} wait, but #{inspect(wait.ref)} is an #{actual_kind || :invalid} wait."
           | violations
         ]
 
-      expected_kind == :event and elapsed?(continuation, now) ->
+      # An approval's wait ends with its run (`accepted_continuation/3`).
+      expected_kind == :event and wait.kind != "emisar_approval" and elapsed?(continuation, now) ->
         [
-          "The event wait #{inspect(ref)} has an elapsed or invalid deadline; create a new wait with wait_for or finish the response now."
+          "The event wait #{inspect(wait.ref)} has an elapsed or invalid deadline; create a new wait with wait_for or finish the response now."
           | violations
         ]
 
@@ -537,7 +542,7 @@ defmodule Ryker.Work.Validator do
   end
 
   defp accept(final, context, now) do
-    continuation = accepted_continuation(final, context)
+    continuation = accepted_continuation(final, context, now)
 
     result =
       case final.delivery do
@@ -553,13 +558,25 @@ defmodule Ryker.Work.Validator do
     end
   end
 
-  defp accepted_continuation(%{state: :complete}, _context), do: %{"kind" => "complete"}
+  defp accepted_continuation(%{state: :complete}, _context, _now), do: %{"kind" => "complete"}
 
-  defp accepted_continuation(final, context) do
-    [%{continuation: continuation}] =
-      final |> referenced_waits(context) |> primary_waits(final.state)
+  # A wait on an approval ends when its run does, never by the clock: Emisar
+  # cancels the run of an expired approval within minutes and the watcher
+  # reports that (`Ryker.Emisar.Approvals`). An approval whose deadline passed
+  # before the answer was ready could neither be waited on nor left behind, so
+  # its wait goes without the deadline instead.
+  defp accepted_continuation(final, context, now) do
+    waits = final |> referenced_waits(context) |> primary_waits(final.state)
 
-    continuation
+    case waits do
+      [%{kind: "emisar_approval", continuation: continuation}] ->
+        if elapsed?(continuation, now),
+          do: %{continuation | "deadline_at" => nil},
+          else: continuation
+
+      [%{continuation: continuation}] ->
+        continuation
+    end
   end
 
   defp prepare_context(%{} = context) do
