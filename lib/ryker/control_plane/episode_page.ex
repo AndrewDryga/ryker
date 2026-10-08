@@ -1543,16 +1543,18 @@ defmodule Ryker.ControlPlane.EpisodePage do
           <span class={"provider-state tone-#{@provider.tone}"}>{@provider.state}</span>
         </:meta>
       </.card_heading>
-      <p :if={@provider.subject} class="provider-subject">{@provider.subject}</p>
-      <.fact_list :if={@provider.facts != []} facts={@provider.facts} class="provider-facts" />
-      <.disclosure
-        :for={group <- @provider[:groups] || []}
-        label={group.label}
-        class="provider-group"
-        id={"provider-#{@id}-#{@provider.provider}-#{String.downcase(group.label)}"}
-      >
-        <.fact_list facts={group.entries} />
-      </.disclosure>
+      <div class="provider-body">
+        <p :if={@provider.subject} class="provider-subject">{@provider.subject}</p>
+        <.fact_list :if={@provider.facts != []} facts={@provider.facts} class="provider-facts" />
+        <.disclosure
+          :for={group <- @provider[:groups] || []}
+          label={group.label}
+          class="provider-group"
+          id={"provider-#{@id}-#{@provider.provider}-#{String.downcase(group.label)}"}
+        >
+          <.fact_list facts={group.entries} />
+        </.disclosure>
+      </div>
     </div>
     """
   end

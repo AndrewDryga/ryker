@@ -547,7 +547,7 @@
 .case-event-summary { grid-column:1 / -1; }
 .candidate-evidence { grid-column:1 / -1; min-width:0; }
 .case-event-content > .case-event-details { grid-column:1 / -1; grid-row:auto; }
-.case-card-heading { grid-column:1 / -1; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:start; gap:8px 20px; position:static; margin:0; padding:0; border:0; background:transparent; color:var(--ink); }
+.case-card-heading { grid-column:1 / -1; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:start; gap:8px 20px; position:static; margin:0; padding:0; border:0; background:transparent; backdrop-filter:none; color:var(--ink); }
 .case-card-heading-copy { display:grid; min-width:0; gap:4px; }
 .case-card-heading-main { display:flex; min-width:0; flex-wrap:wrap; align-items:center; gap:4px 8px; }
 .case-card-heading h3 { min-width:0; margin:0; color:var(--ink); font-size:17px; line-height:24px; font-weight:600; overflow-wrap:anywhere; }
@@ -925,9 +925,10 @@
 .participation-facts dd strong { color:var(--ryker-text-secondary); }
 
 /* Recognized provider notifications: provider accent, textual state, labelled facts. */
-.provider-message { border-left:3px solid var(--ryker-stroke-strong); padding-left:12px; }
-.provider-message.provider-terraform { border-left-color:var(--ryker-text-secondary); }
-.provider-message.provider-grafana { border-left-color:var(--ryker-text-secondary); }
+/* The accent marks the notification's body. The heading above it is the card's own and runs to
+   the card's edges, so the accent kept beside it ran under the heading (2026-10-08). */
+.provider-body { border-left:3px solid var(--ryker-stroke-strong); padding-left:12px; }
+.provider-terraform .provider-body, .provider-grafana .provider-body { border-left-color:var(--ryker-text-secondary); }
 .provider-state { font-size:13px; padding:2px 8px; border-radius:3px; background:var(--ryker-surface-raised); color:var(--ryker-text-secondary); }
 .provider-state.tone-planning { background:var(--ryker-surface-raised); color:var(--ryker-text-secondary); }
 .provider-state.tone-confirmation { background:var(--ryker-surface-raised); color:var(--ryker-text-secondary); }
