@@ -1,6 +1,6 @@
 defmodule Ryker.Work.RecoveryTest do
   use ExUnit.Case, async: true
-  alias Ryker.ControlPlane.FailuresPage
+  alias Ryker.ControlPlane.{FailureExplanation, FailuresPage}
   alias Ryker.Work.Recovery
   alias Ryker.Work.Turn
 
@@ -17,6 +17,46 @@ defmodule Ryker.Work.RecoveryTest do
     assert brief.action == nil
     assert brief.setup_href == "/settings/advanced#code-editing"
     assert Recovery.not_started?(turn)
+  end
+
+  # The Failures page took a cause it could not name for "the worker ended the
+  # task early" (`Ryker.Work.FailureCauseTest`), and said a retry would work
+  # once "the condition the worker named" was corrected, a condition no worker
+  # had named.
+  test "a task whose every answer Ryker refused is Ryker's refusal on the Failures page" do
+    turn = %Turn{
+      status: :blocked,
+      last_error_code: "work_execution_blocked",
+      last_error_detail:
+        ~s(work_turn_terminal: {:work_turn_terminal, "failed", "output_contract_failed", ) <>
+          ~s("caller rejected semantic output after 3 attempts"})
+    }
+
+    brief = Recovery.project(turn, :ok, true)
+    assert brief.explained
+
+    explained =
+      FailureExplanation.explain(
+        %{
+          kind: "work",
+          ref: "episode:refused",
+          episode_id: "0193a5d2-7c1e-7b8a-9f00-00000000e02e",
+          action: :retry,
+          attempt_count: 1,
+          status: :blocked,
+          stop_code: "work_turn_terminal",
+          summary: "work_execution_blocked",
+          updated_at: ~U[2026-10-08 08:15:03Z],
+          work_recovery: brief
+        },
+        ~U[2026-10-08 17:00:00Z]
+      )
+
+    assert explained.summary =~ "Ryker refused the model's answer three times"
+    refute explained.summary =~ "worker ended the task early"
+
+    assert %{note: "It works if the model's next answer passes Ryker's checks."} =
+             Enum.find(explained.options, &(&1[:label] == "Run the task again"))
   end
 
   test "missing or expired evidence never proves that code work did not start" do

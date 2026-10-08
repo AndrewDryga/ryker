@@ -89,20 +89,20 @@ defmodule Ryker.Acceptance.LiveTest do
   # required a remote placement against the fleet it was accepting. The
   # topology assembly does publish is `execution_mode`.
   test "fleet acceptance proves both turns used a valid remote worker placement" do
-    first_placement = %{generation: 3, state: :active, worker_id: "worker-remote-a"}
+    initial_placement = %{generation: 3, state: :active, worker_id: "worker-remote-a"}
     followup_placement = %{generation: 4, state: :active, worker_id: "worker-remote-b"}
 
-    first =
+    initial =
       "episode-a"
       |> snapshot("session-a", "turn-a", "Remote answer one")
-      |> Map.put(:worker_placement, first_placement)
+      |> Map.put(:worker_placement, initial_placement)
 
     followup =
       "episode-a"
       |> snapshot("session-b", "turn-b", "Remote answer two")
       |> Map.put(:worker_placement, followup_placement)
 
-    operations = snapshot_operations(self(), "fleet", first, followup)
+    operations = snapshot_operations(self(), "fleet", initial, followup)
     configuration = Map.put(configuration(), :execution_mode, :fleet)
 
     assert {:ok, report} =
@@ -112,11 +112,11 @@ defmodule Ryker.Acceptance.LiveTest do
                timeout_ms: 1_000
              )
 
-    assert report.worker_placement == first_placement
+    assert report.worker_placement == initial_placement
 
     missing = Map.put(followup, :worker_placement, nil)
 
-    operations = snapshot_operations(self(), "missing-fleet", first, missing)
+    operations = snapshot_operations(self(), "missing-fleet", initial, missing)
 
     assert Live.run(configuration, "C-TEST",
              operations: operations,

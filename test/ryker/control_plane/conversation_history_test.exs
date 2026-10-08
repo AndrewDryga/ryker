@@ -188,22 +188,22 @@ defmodule Ryker.ControlPlane.ConversationHistoryTest do
   test "each history page costs a bounded number of bounded queries" do
     long_history!()
     assert {:ok, first} = ConversationProjection.history(@conversation_id, nil, 50)
-    first_page = measure(fn -> ConversationProjection.history(@conversation_id, nil, 50) end)
-    assert {:ok, third} = ConversationProjection.history(@conversation_id, first.before, 50)
+    latest_page = measure(fn -> ConversationProjection.history(@conversation_id, nil, 50) end)
+    assert {:ok, second} = ConversationProjection.history(@conversation_id, first.before, 50)
 
     deep_page =
-      measure(fn -> ConversationProjection.history(@conversation_id, third.before, 50) end)
+      measure(fn -> ConversationProjection.history(@conversation_id, second.before, 50) end)
 
     # No query ever returns more than a page plus one row of lookahead, and a
     # deep page costs the same number of queries as the first one.
-    for {queries, label} <- [{first_page, "latest"}, {deep_page, "deep"}] do
+    for {queries, label} <- [{latest_page, "latest"}, {deep_page, "deep"}] do
       assert length(queries) <= 12, "#{label} page ran #{length(queries)} queries"
 
       assert Enum.all?(queries, &(&1 <= @row_bound)),
              "#{label} page returned #{inspect(queries)} rows"
     end
 
-    assert length(first_page) == length(deep_page)
+    assert length(latest_page) == length(deep_page)
   end
 
   test "a cursor from another conversation or a malformed cursor is refused" do

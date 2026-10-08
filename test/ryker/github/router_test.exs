@@ -647,15 +647,15 @@ defmodule Ryker.GitHub.RouterTest do
 
     original_payload = payload()
     original_body = Jason.encode!(original_payload)
-    original = request(original_body, delivery_ref: "original-before-edit")
-    assert original.status == 202
-    first_ref = Jason.decode!(original.resp_body)["publication_event_ref"]
-    first = Repo.get_by!(LifecycleEvent, ref: first_ref)
-    source = Repo.get_by!(ConversationObservation, source_input_id: first.id)
+    original_response = request(original_body, delivery_ref: "original-before-edit")
+    assert original_response.status == 202
+    original_ref = Jason.decode!(original_response.resp_body)["publication_event_ref"]
+    original = Repo.get_by!(LifecycleEvent, ref: original_ref)
+    source = Repo.get_by!(ConversationObservation, source_input_id: original.id)
 
     assert {:ok, claim} = Followups.claim_delivery("stale-feedback", 60)
-    assert claim.event.id == first.id
-    assert {:ok, first} = Followups.admit_wakeup(first.ref, claim.lease_ref)
+    assert claim.event.id == original.id
+    assert {:ok, original} = Followups.admit_wakeup(original.ref, claim.lease_ref)
 
     edited_payload =
       original_payload
@@ -667,13 +667,13 @@ defmodule Ryker.GitHub.RouterTest do
     assert edit_response.status == 202
     assert Jason.decode!(edit_response.resp_body)["status"] == "recorded"
     edit_ref = Jason.decode!(edit_response.resp_body)["publication_event_ref"]
-    assert edit_ref != first_ref
+    assert edit_ref != original_ref
     edit = Repo.get_by!(LifecycleEvent, ref: edit_ref)
     current = Repo.get!(ConversationObservation, source.id)
     assert current.revision > source.revision
     assert current.source_input_id == edit.id
     assert [current_receipt] = LearningSources.for_work_input(edit.observation)
-    assert LearningSources.for_work_input(first.observation) == nil
+    assert LearningSources.for_work_input(original.observation) == nil
 
     retry_body = Jason.encode!(original_payload, pretty: true)
     assert retry_body != original_body
@@ -681,7 +681,7 @@ defmodule Ryker.GitHub.RouterTest do
     assert redelivery.status == 202
 
     assert Jason.decode!(redelivery.resp_body) == %{
-             "publication_event_ref" => first_ref,
+             "publication_event_ref" => original_ref,
              "status" => "duplicate"
            }
 
@@ -690,10 +690,10 @@ defmodule Ryker.GitHub.RouterTest do
              :count
            ) == 2
 
-    assert Repo.get!(LifecycleEvent, first.id) == first
-    assert first.observation["content"]["delivery_ref"] == "original-before-edit"
+    assert Repo.get!(LifecycleEvent, original.id) == original
+    assert original.observation["content"]["delivery_ref"] == "original-before-edit"
     assert Repo.get!(ConversationObservation, source.id) == current
-    assert LearningSources.for_work_input(first.observation) == nil
+    assert LearningSources.for_work_input(original.observation) == nil
     assert LearningSources.for_work_input(edit.observation) == [current_receipt]
   end
 

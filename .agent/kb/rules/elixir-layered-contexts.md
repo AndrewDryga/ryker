@@ -579,6 +579,15 @@ Emisar's test rules Ryker follows (`elixir-layered-contexts.md` §7 there):
 - Tests read the database catalog only where no domain call can say the same:
   constraint names, a retention plan for every foreign key, planner
   statistics, a shadowed clock, and migrations.
+- Values of one kind a test (or a function) makes side by side share one
+  naming scheme: all ordinals (`first`, `second`), all roles
+  (`original_ref`, `edit_ref`), or all matching suffixes, never an ordinal
+  beside a role (Emisar's README). On 2026-10-08 five tests mixed them
+  (`first` beside `other`, `first_ref` beside `edit_ref`, a page called
+  `third` that was the second); `lib` held one pair, `first_seen` and
+  `last_seen`, already one scheme. A value rebuilt from a sibling keeps a
+  role that says so (`fresh_context` for the second input's context built
+  again, `replacement` for a claim on a rotated session).
 - Measured against Emisar's test taste on 2026-10-08 and kept as Emisar
   writes it: multi-line map arguments in test bodies (Ryker 1,398, Emisar
   1,205) and parts of a fixture's result a test discards (Ryker 209, Emisar
@@ -656,6 +665,11 @@ Model-facing tools (Emisar's `elixir-model-authoring-validation-is-actionable`):
 - `WebNoNestedDomainCalls`: a web module calls a top-level context, never a
   module below one, in code or in a `~H` template.
 - `NoBoundTupleReturn`: no tuple bound only to be returned.
+- `NoProcessDictionary`: no state hidden in the process dictionary (Emisar
+  threads request metadata as a struct). The uses kept each say why at the
+  call: a transaction's after-commit queue, a read's secrets memo, a test's
+  configuration override, the poll machinery's bookkeeping, a lane's last
+  progress beat and a running turn's last heartbeat.
 - `InlineBroadcast` and `BroadcastEventAsData`: a publish happens in a
   `broadcast_*` function named for its event, never with the event as data,
   and a function that subscribes or publishes sits in its module's

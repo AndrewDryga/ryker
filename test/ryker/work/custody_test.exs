@@ -203,7 +203,7 @@ defmodule Ryker.Work.CustodyTest do
     create_episode!("immutable-bindings")
     assert {:ok, claim} = Custody.claim_next("worker:a", 60)
 
-    first_submission = submission!(%{"request" => "first"})
+    frozen_submission = submission!(%{"request" => "first"})
     different_submission = submission!(%{"request" => "different"})
 
     assert {:ok, _turn} =
@@ -211,7 +211,7 @@ defmodule Ryker.Work.CustodyTest do
                claim.episode.id,
                claim.turn.turn_ref,
                claim.lease_ref,
-               first_submission
+               frozen_submission
              )
 
     assert {:error, {:work_submission_conflict, _stored_fingerprint}} =

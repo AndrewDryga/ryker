@@ -1087,14 +1087,11 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     )
   end
 
-  defp work_depends(%{stop_code: "work_turn_terminal"}, %{explained: true, cause: cause})
-       when is_binary(cause) do
-    if String.contains?(cause, "sign-in") do
-      "It works once the worker is signed in to its model account again. Ryker cannot see that from here."
-    else
-      "It works if the condition the worker named has been corrected."
-    end
-  end
+  defp work_depends(_row, %{explained: true, depends: depends}) when is_binary(depends),
+    do: depends
+
+  defp work_depends(%{stop_code: "work_turn_terminal"}, %{explained: true}),
+    do: "It works if the condition the worker named has been corrected."
 
   defp work_depends(_row, %{explained: true}),
     do: "It works if the condition named above has been corrected."

@@ -30,13 +30,39 @@ defmodule Ryker.Work.FailureCause do
   @refused_source ~r/\{:coop_worker_(source|companion)_refused, "([A-Za-z0-9._\/-]+)", "([A-Za-z0-9._\/-]+)"\}/
 
   # The saved error names one of these conditions somewhere in its term, and
-  # each says the same thing wherever it nests.
+  # each says the same thing wherever it nests. `depends` says what a retry
+  # depends on, where the generic "the condition named above" would mislead.
   @explained [
     {"Failed to refresh token",
      %{
        cause:
          "The model provider rejected the worker's sign-in, so the call never reached the model.",
-       next_step: "Sign the worker in to its model account again, then retry."
+       next_step: "Sign the worker in to its model account again, then retry.",
+       depends:
+         "It works once the worker is signed in to its model account again. Ryker cannot see that from here."
+     }},
+    # Two tasks stopped on 2026-10-08 after Ryker refused every answer the
+    # model gave (no valid answer existed for them, 79759944), and the
+    # Failures page said the worker had ended them early.
+    {"output_contract_failed",
+     %{
+       cause:
+         "Ryker refused the model's answer three times in a row. Each one broke a rule " <>
+           "Ryker checks before it uses an answer.",
+       next_step:
+         "Run it again. If it stops the same way, the request's page shows what each answer broke.",
+       depends: "It works if the model's next answer passes Ryker's checks."
+     }},
+    # A briefing found stale on a later attempt stopped its task until
+    # 82633a80 made it run again from the current one; the tasks it stopped
+    # before read "stopped before Ryker could confirm why".
+    {"work_knowledge_context_stale",
+     %{
+       cause:
+         "The repository's briefing changed while the task ran, so Ryker stopped it rather " <>
+           "than answer from the old one.",
+       next_step: "Run the task again. It reads the briefing as it is now.",
+       depends: "It works: a new run reads the current briefing."
      }},
     {"coop_worker_capacity_unavailable",
      %{
@@ -90,7 +116,13 @@ defmodule Ryker.Work.FailureCause do
   Reading only `last_error_code` answered "no specific cause" to a refusal the
   host was holding word for word, leaving the operator with nothing to do.
   """
-  @spec explain(String.t() | nil) :: %{cause: String.t(), next_step: String.t()} | nil
+  @spec explain(String.t() | nil) ::
+          %{
+            required(:cause) => String.t(),
+            required(:next_step) => String.t(),
+            optional(:depends) => String.t()
+          }
+          | nil
   def explain(detail) when is_binary(detail) do
     cond do
       refusal = coop_refusal(detail) ->

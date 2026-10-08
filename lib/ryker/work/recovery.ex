@@ -42,7 +42,9 @@ defmodule Ryker.Work.Recovery do
 
     stranded = workspace_recovery == {:error, :work_completed_workspace_recovery_required}
 
-    {headline, cause, next_step} = explanation(turn, unsupported, finalizing, closed, saved)
+    {headline, cause, next_step, depends} =
+      explanation(turn, unsupported, finalizing, closed, saved)
+
     action = recovery_action(stranded, unsupported, checkpoint_supported?)
     resumable = if action == :retry and not finalizing, do: portable_workspace
 
@@ -50,6 +52,7 @@ defmodule Ryker.Work.Recovery do
       kind: if(finalizing, do: :completion, else: :execution),
       headline: headline,
       cause: cause,
+      depends: depends,
       next_step: if(stranded, do: stranded_recovery(), else: next_step),
       fingerprint: Custody.recovery_fingerprint(turn),
       model_output: saved,
@@ -205,25 +208,25 @@ defmodule Ryker.Work.Recovery do
 
     {headline,
      "The worker connection can't save the working copy. This is a setup problem in Ryker, and the code checks did not fail.",
-     next_step}
+     next_step, nil}
   end
 
   defp explanation(turn, false, true, _closed, _saved) do
     {cause, step} = completion_failure(turn.last_error_code)
 
     {"The worker finished, but saving its result stopped", cause,
-     step <> " Then resume saving this result; do not rerun the completed task."}
+     step <> " Then resume saving this result; do not rerun the completed task.", nil}
   end
 
   defp explanation(turn, false, false, _closed, _saved) do
     case turn.last_error_code do
       code when code in ~w(coop_unavailable coop_transport_error) ->
         {"The worker connection failed", "Ryker could not confirm what the worker did.",
-         "Reconnect the worker and check its last confirmed step before trying again."}
+         "Reconnect the worker and check its last confirmed step before trying again.", nil}
 
       _ ->
-        {cause, step} = execution_failure(turn.last_error_detail || "")
-        {"The task stopped before it could finish", cause, step}
+        {cause, step, depends} = execution_failure(turn.last_error_detail || "")
+        {"The task stopped before it could finish", cause, step, depends}
     end
   end
 
@@ -233,12 +236,13 @@ defmodule Ryker.Work.Recovery do
   # what it does when nothing there can be characterised.
   defp execution_failure(detail) do
     case FailureCause.explain(detail) do
-      %{cause: cause, next_step: next_step} ->
-        {cause, next_step}
+      %{cause: cause, next_step: next_step} = explanation ->
+        {cause, next_step, explanation[:depends]}
 
       nil ->
         {@unexplained_cause,
-         "Read the saved answer and the error, fix what they point to, and keep any unfinished changes before trying again."}
+         "Read the saved answer and the error, fix what they point to, and keep any unfinished changes before trying again.",
+         nil}
     end
   end
 

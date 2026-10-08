@@ -31,11 +31,11 @@ defmodule Ryker.Admission.OccurrenceClaimTest do
 
   test "a different object in the same repository is its own occurrence" do
     first = record!("eval", 4120, "Please review pull request 4120")
-    other = record!("eval", 4121, "Please review pull request 4121")
+    second = record!("eval", 4121, "Please review pull request 4121")
 
     assert {:ok, first_result} = admit(first)
-    assert {:ok, other_result} = admit(other)
-    refute first_result.episode.id == other_result.episode.id
+    assert {:ok, second_result} = admit(second)
+    refute first_result.episode.id == second_result.episode.id
   end
 
   test "a Slack message reference is a clue, never an exclusive claim" do
