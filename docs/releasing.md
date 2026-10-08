@@ -15,6 +15,16 @@ No release of the Elixir code has been published yet. The only tag, `v0.1.0`, is
 release: it is not in `main`'s history, and its changelog section describes that release.
 
 Local release checks require the Erlang and Elixir versions from `.tool-versions` and ShellCheck.
+
+The runtime is pinned in three places that move together: `.tool-versions`, the Dockerfile's
+digest-pinned `hexpm/elixir` builder, and `deploy/compose/coop/Box.Dockerfile`. The Dockerfile's
+Debian stages name the snapshot that builder was made on, and
+`test/ryker/compose_distribution_test.exs` holds all of them to one version. Package scanners
+never see the Erlang runtime or Elixir itself, so `scripts/runtime-releases.sh` fails while a
+newer patch of the pinned Erlang/OTP major or Elixir minor is out, and the scheduled Runtime
+releases workflow runs it every day. Ryker ran OTP 28.4.1 while 46 advisories were fixed after
+it, two of them TLS clients that skipped the server certificate check (bumped 2026-10-08).
+
 Commit first, then prove the exact Elixir artifact without touching the running deployment:
 
 ```bash

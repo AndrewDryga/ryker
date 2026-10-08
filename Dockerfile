@@ -1,6 +1,6 @@
 # Every base image is pinned by digest as well as tag, so a moved tag never changes a build;
 # Dependabot proposes the next one (2026-10-04 review).
-ARG ELIXIR_IMAGE=hexpm/elixir:1.19.5-erlang-28.4.1-debian-bookworm-20260610-slim@sha256:b6b08eda454de9015ec8a5e20e9a7f873c6459ce8150cee1ce071ccd9a1d6436
+ARG ELIXIR_IMAGE=hexpm/elixir:1.19.6-erlang-28.5.0.7-debian-bookworm-20261005-slim@sha256:3120d2b962915184aac7b745d398674a37209eac03dac3391f28a16062055997
 
 FROM ${ELIXIR_IMAGE} AS build
 
@@ -56,7 +56,7 @@ RUN test -n "$RYKER_VERSION" \
 # video needs: 3 MB, where Debian's package added 386 MB of video codecs and X11
 # libraries, and far fewer parsers facing an untrusted upload. The release
 # tarball is FFmpeg's signed 9.0.2 (key FCF986EA15E6E293A5644F10B4322F04D67658D8).
-FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS ffmpeg
+FROM debian:bookworm-20261005-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS ffmpeg
 
 ARG FFMPEG_VERSION=9.0.2
 ARG FFMPEG_SHA256=8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
@@ -84,7 +84,7 @@ RUN curl -fsSL --retry 3 -o /ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-$
  && make install
 
 # GGML_NATIVE=OFF keeps whisper-cli portable to any CPU of the image's architecture.
-FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS whisper
+FROM debian:bookworm-20261005-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS whisper
 
 ARG WHISPER_CPP_VERSION=v1.9.4
 ARG WHISPER_CPP_COMMIT=927cfce34f31707e17f2bff35c349632fb9e2c3a
@@ -105,7 +105,7 @@ RUN git clone --depth 1 --branch "$WHISPER_CPP_VERSION" https://github.com/ggml-
 RUN curl -fsSL --retry 3 -o /opt/whisper/ggml-base.bin "$WHISPER_MODEL_URL" \
  && echo "$WHISPER_MODEL_SHA256  /opt/whisper/ggml-base.bin" | sha256sum -c -
 
-FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS runtime
+FROM debian:bookworm-20261005-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS runtime
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl git openssh-client openssl libstdc++6 libncurses6 \

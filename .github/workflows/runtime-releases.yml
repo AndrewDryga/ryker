@@ -1,0 +1,25 @@
+name: Runtime releases
+
+# Fails while a newer Erlang/OTP release of the pinned major, or a newer Elixir
+# patch of the pinned minor, is out: package scanners never see the runtime
+# itself (scripts/runtime-releases.sh).
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-releases:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: newest Erlang/OTP and Elixir of the pinned lines
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/runtime-releases.sh

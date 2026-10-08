@@ -211,7 +211,7 @@ defmodule Ryker.ComposeDistributionTest do
     assert dockerfile =~ "RYKER_ELIXIR_VERSION=${RYKER_VERSION}"
     # The image carries the release, not an install kit beside it.
     refute dockerfile =~ "COPY Dockerfile compose.yml install.sh ./"
-    assert dockerfile =~ ~r/^FROM debian:bookworm-slim@sha256:[0-9a-f]{64} AS runtime$/m
+    assert dockerfile =~ ~r/^FROM debian:bookworm-\d{8}-slim@sha256:[0-9a-f]{64} AS runtime$/m
     assert dockerfile =~ "LANG=C.UTF-8"
     refute dockerfile =~ ~r/^FROM node:/m
     refute dockerfile =~ ~r/apt-get install[^\n]*(nodejs|npm)/
@@ -382,6 +382,39 @@ defmodule Ryker.ComposeDistributionTest do
     assert {setup, _length} = :binary.match(entrypoint, "if ! coop net setup; then")
     assert {connect, _length} = :binary.match(entrypoint, "coop sessions connect")
     assert setup < connect
+  end
+
+  # Ryker ran Erlang/OTP 28.4.1 for two weeks after 28.5.0.7 fixed
+  # CVE-2026-89422, a TLS 1.3 client that finished a handshake without checking
+  # the server's certificate (2026-10-08). A runtime bump moves the local
+  # toolchain, the release's builder and the Debian snapshot that builder was
+  # made on together; `scripts/runtime-releases.sh` says each day when one is due.
+  test "the release builds on the .tool-versions runtime and that runtime's Debian snapshot" do
+    versions =
+      for line <- String.split(read(".tool-versions"), "\n", trim: true), into: %{} do
+        [tool, version] = String.split(line)
+        {tool, version}
+      end
+
+    [elixir, otp_major] =
+      Regex.run(~r/^(.+)-otp-(\d+)$/, versions["elixir"], capture: :all_but_first)
+
+    assert String.starts_with?(versions["erlang"], otp_major <> ".")
+
+    dockerfile = read("Dockerfile")
+
+    [snapshot] =
+      Regex.run(
+        ~r/^ARG ELIXIR_IMAGE=hexpm\/elixir:#{Regex.escape(elixir)}-erlang-#{Regex.escape(versions["erlang"])}-debian-bookworm-(\d{8})-slim@sha256:[0-9a-f]{64}$/m,
+        dockerfile,
+        capture: :all_but_first
+      )
+
+    debian =
+      Regex.scan(~r/^FROM debian:(\S+)@sha256:[0-9a-f]{64}/m, dockerfile, capture: :all_but_first)
+
+    assert debian != []
+    assert Enum.uniq(debian) == [["bookworm-#{snapshot}-slim"]]
   end
 
   # Ryker's draft-PR reviews of its own repository run `make dev-check` in the
