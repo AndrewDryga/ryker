@@ -24,6 +24,23 @@ defmodule Ryker.Publication.RequestTest do
     assert body["title"] == "Fix the retry"
   end
 
+  # Draft PR AndrewDryga/test#10 opened with "## Ryker task" over the chat
+  # reply and a "## Publication proof" list of the Coop session, trees and
+  # commits, the first thing a reviewer read (Slack as Andrew, 2026-10-09).
+  # The description is the change; how Ryker checked it is folded away.
+  test "a pull request description leads with the change and folds Ryker's review away" do
+    request = request(%{body: "Adds a short contributing guide.", title: "Add a guide"})
+
+    assert {:ok, %{"body" => body}} = Request.worker_body(request, @repositories)
+
+    assert String.starts_with?(body, "Adds a short contributing guide.")
+    refute body =~ "## Ryker task"
+    refute body =~ "## Publication proof"
+    assert body =~ "<details>\n<summary>How Ryker checked this change</summary>"
+    assert body =~ "- Reviewed tree: `#{request.review["candidate_tree"]}`"
+    assert String.ends_with?(body, "</details>")
+  end
+
   # GitHub keeps the branch name on a merged or closed pull request, and Coop
   # will not open a draft from a branch whose pull request ended. A later
   # generation that opens a new draft takes a branch of its own; one that

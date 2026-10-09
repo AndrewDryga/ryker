@@ -29,9 +29,7 @@ defmodule Ryker.CoopFleet.JobAuthority do
          {:ok, snapshot} <- Settings.fetch(),
          {:ok, refs} <- companion_refs(session),
          {:ok, purpose} <- purpose(snapshot, session, refs),
-         {:ok, source} <-
-           source(snapshot, session.repository_ref, session.repository_source, root, prepare),
-         {:ok, companions} <- companions(snapshot, refs, root, prepare),
+         {:ok, source, companions} <- sources(snapshot, session, refs, root, prepare),
          job = document(session, snapshot.work, purpose, source, companions),
          {:ok, job} <- with_check(job, snapshot, reader),
          {:ok, digest} <- JobSpec.digest(job) do
@@ -453,11 +451,37 @@ defmodule Ryker.CoopFleet.JobAuthority do
   defp source(_snapshot, _ref, _requested, _root, _prepare),
     do: {:error, :coop_worker_source_unavailable}
 
+  # Each repository is fetched from GitHub into its own mirror before the
+  # session can be created. One after another, a new session in an environment
+  # of four repositories waited about 11 s for them (Slack as Andrew,
+  # 2026-10-09); they are independent, so they are prepared at once. The task's
+  # own repository answers first, then each companion in order, as before.
+  defp sources(snapshot, session, refs, root, prepare) do
+    own =
+      Task.async(fn ->
+        source(snapshot, session.repository_ref, session.repository_source, root, prepare)
+      end)
+
+    companions = companions(snapshot, refs, root, prepare)
+
+    case {Task.await(own, :infinity), companions} do
+      {{:ok, source}, {:ok, companions}} -> {:ok, source, companions}
+      {{:ok, _source}, error} -> error
+      {error, _companions} -> error
+    end
+  end
+
   # A read-only repository is refused in its own words: what to change is the
   # environment that lists it, not the repository the task works on.
   defp companions(snapshot, refs, root, prepare) do
-    Enum.reduce_while(refs, {:ok, []}, fn ref, {:ok, sources} ->
-      case source(snapshot, ref, nil, root, prepare) do
+    refs
+    |> Task.async_stream(&{&1, source(snapshot, &1, nil, root, prepare)},
+      max_concurrency: max(length(refs), 1),
+      ordered: true,
+      timeout: :infinity
+    )
+    |> Enum.reduce_while({:ok, []}, fn {:ok, {ref, result}}, {:ok, sources} ->
+      case result do
         {:ok, source} ->
           {:cont, {:ok, sources ++ [%{"name" => ref, "source" => source}]}}
 

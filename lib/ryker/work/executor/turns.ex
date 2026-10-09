@@ -14,6 +14,7 @@ defmodule Ryker.Work.Executor.Turns do
   alias Ryker.CoopFleet
   alias Ryker.Crypto
   alias Ryker.Records
+  alias Ryker.StateTools
   alias Ryker.Work.{Activity, Custody, Measurement, OperationKeys, StateBinding, ValidationIntent}
   alias Ryker.Work.Executor.{Remote, Validation}
 
@@ -392,17 +393,31 @@ defmodule Ryker.Work.Executor.Turns do
     end
   end
 
-  # The pull request description is the task's final message. A task that
-  # finished without one (`delivery: none`) could never be finalized: the
-  # offer needed a message, and the failure read as a Coop protocol error
-  # (2026-10-04 review). It falls back to the reason the model gave, then to
-  # what the task was asked to do.
+  # The pull request description is the task's final message, then what the
+  # task was asked: the reply alone read as chat on GitHub, and nothing said
+  # what the change was for (draft PR AndrewDryga/test#10, 2026-10-09). A task
+  # that finished without a message (`delivery: none`) could never be
+  # finalized: the offer needed one, and the failure read as a Coop protocol
+  # error (2026-10-04 review). It falls back to the reason the model gave, then
+  # to the request alone.
   defp publication_offer_body(result, task) do
     message = get_in(result.delivery_document || %{}, ["message"])
+    request = offer_text(StateTools.TaskTools.request(task["prompt"]))
 
-    [message, result.decision_reason, task["prompt"], task["title"]]
-    |> Enum.find_value(&offer_text/1)
-    |> case do
+    case Enum.find_value([message, result.decision_reason], &offer_text/1) do
+      nil ->
+        request_body(request, task)
+
+      body when is_binary(request) ->
+        {:ok, Ryker.Text.cut(body <> "\n\n## Request\n\n" <> request, 8_000)}
+
+      body ->
+        {:ok, body}
+    end
+  end
+
+  defp request_body(request, task) do
+    case Enum.find_value([request, task["title"]], &offer_text/1) do
       nil -> {:error, {:invalid_work_result, :publication_offer}}
       body -> {:ok, body}
     end

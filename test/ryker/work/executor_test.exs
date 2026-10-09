@@ -752,8 +752,13 @@ defmodule Ryker.Work.ExecutorTest do
              )
            )
 
+    # The pull request says what changed, then what the task was asked: the
+    # reply alone read as chat on GitHub (draft PR AndrewDryga/test#10,
+    # 2026-10-09).
     assert offer.payload == %{
-             "body" => "Writable milestone complete.",
+             "body" =>
+               "Writable milestone complete.\n\n## Request\n\n" <>
+                 "Change the parser without losing the workspace.",
              "title" => "Checkpoint writable work"
            }
 
@@ -810,7 +815,9 @@ defmodule Ryker.Work.ExecutorTest do
       )
 
     assert offer.payload == %{
-             "body" => "The parser change is committed; the thread needs no reply.",
+             "body" =>
+               "The parser change is committed; the thread needs no reply.\n\n## Request\n\n" <>
+                 "Change the parser without losing the workspace.",
              "title" => "Checkpoint silent work"
            }
   end

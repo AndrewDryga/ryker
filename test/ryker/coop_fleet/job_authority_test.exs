@@ -441,6 +441,78 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
     assert JobAuthority.validate(pinned) == {:ok, pinned}
   end
 
+  # A new session's repositories were fetched from GitHub one after another
+  # before it could be created: in an environment of four repositories a
+  # one-line question waited about 11 s for them (Slack as Andrew,
+  # 2026-10-09). Each has a mirror of its own, so they are prepared at once.
+  test "a session's repositories are prepared at the same time, in their order", %{
+    session: session
+  } do
+    add_repository!("library", 18)
+    snapshot = add_repository!("tools", 19)
+
+    {:ok, snapshot} =
+      Settings.put_environment(
+        %{
+          ref: "production",
+          display_name: "Production",
+          repositories: ["app", "library", "tools"]
+        },
+        snapshot.installation.revision,
+        @actor
+      )
+
+    template =
+      Enum.find(
+        JobTemplates.from_settings(snapshot),
+        &(&1.purpose == :contributor and &1.scope_kind == :environment and
+            &1.repository_ref == "app")
+      )
+
+    session =
+      session
+      |> Ecto.Changeset.change(
+        environment_ref: "production",
+        policy: template.policy_name,
+        policy_digest: template.policy_digest,
+        authority_digest: template.authority_digest,
+        repository_context: %{
+          "context_ref" => "production",
+          "primary_repository" => "app",
+          "read_only_repositories" => ["library", "tools"],
+          "parallel_goal_limit" => 1
+        }
+      )
+      |> Repo.update!()
+
+    {:ok, running} = Agent.start_link(fn -> {0, 0} end)
+
+    prepare = fn _, ref, _ ->
+      Agent.update(running, fn {now, most} -> {now + 1, max(most, now + 1)} end)
+      Process.sleep(300)
+      Agent.update(running, fn {now, most} -> {now - 1, most} end)
+
+      {:ok,
+       %{
+         source:
+           source()
+           |> Map.put("repository_ref", ref)
+           |> Map.put("github_repository", "example/" <> ref)
+           |> Map.put("github_repository_id", %{"app" => 17, "library" => 18, "tools" => 19}[ref])
+       }}
+    end
+
+    assert {:ok, pinned} = JobAuthority.ensure_pinned(session, nil, prepare)
+    assert {0, 3} = Agent.get(running, & &1)
+
+    assert pinned.worker_job_document["source"]["repository_ref"] == "app"
+
+    assert Enum.map(pinned.worker_job_document["companions"], & &1["name"]) == [
+             "library",
+             "tools"
+           ]
+  end
+
   # Found live 2026-09-28: review feedback on Ryker's pull request woke its
   # task a day later, and every new session for it failed eight times with
   # "job source identity or working tree does not match": the job kept each
@@ -772,9 +844,12 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
   end
 
   test "a simultaneous valid pin wins instead of moving the source on retry", %{session: session} do
+    # Sources are prepared in tasks of their own, so the double reports to the test.
+    test = self()
+
     prepare = fn root, _ref, _selector ->
       assert {:ok, pinned} = JobAuthority.ensure_pinned(session, root, &prepare/3)
-      send(self(), {:winner, pinned.worker_job_digest})
+      send(test, {:winner, pinned.worker_job_digest})
       {:ok, %{source: put_in(source(), ["binding", "resolved_at"], "2026-09-26T13:00:00Z")}}
     end
 

@@ -252,6 +252,37 @@ defmodule Ryker.CoopFleet.BridgeTest do
     assert is_binary(missing_id)
   end
 
+  # The read found a command settled before its settle message was taken, and
+  # the message stayed in the caller's mailbox. A GenServer that waited got it
+  # later as "[error] Ryker.Retention.Worker received an unexpected message:
+  # {:coop_command_settled, …}" (live, 2026-10-09 19:53 UTC).
+  test "a wait leaves no settle message behind in its caller's mailbox" do
+    command = queued_command!()
+
+    settle = fn ->
+      command
+      |> Ecto.Changeset.change(
+        completed_at: Repo.now!(),
+        result: %{"status" => 200, "body" => %{"id" => "remote-result"}},
+        status: :succeeded
+      )
+      |> Repo.update!()
+
+      send(self(), {:coop_command_settled, command.id})
+      :ok
+    end
+
+    assert {:ok, %{"id" => "remote-result"}} =
+             Bridge.await_command(command.id,
+               max_waits: 2,
+               poll_interval_ms: 1,
+               wait: settle,
+               workspace_ref: "workspace-main"
+             )
+
+    refute_received {:coop_command_settled, _command_id}
+  end
+
   test "transport success does not turn an API refusal into business success" do
     command = queued_command!()
 

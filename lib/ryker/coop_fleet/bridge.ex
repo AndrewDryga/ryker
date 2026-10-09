@@ -143,6 +143,18 @@ defmodule Ryker.CoopFleet.Bridge do
       await(command_id, settings, settings.max_waits)
     after
       Commands.unsubscribe_settled(command_id, alias)
+      flush_settled(command_id)
+    end
+  end
+
+  # A read can find the command settled before its message is taken, and a
+  # GenServer that waited then got the message later as an unexpected one,
+  # logged as an error (2026-10-09). The wait is over; its messages go with it.
+  defp flush_settled(command_id) do
+    receive do
+      {:coop_command_settled, ^command_id} -> flush_settled(command_id)
+    after
+      0 -> :ok
     end
   end
 

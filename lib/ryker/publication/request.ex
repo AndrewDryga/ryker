@@ -137,13 +137,16 @@ defmodule Ryker.Publication.Request do
   defp generation(1), do: ""
   defp generation(generation), do: "-#{generation}"
 
+  # The description is the change. Draft PR AndrewDryga/test#10 opened with
+  # "## Ryker task" over the chat reply and a "## Publication proof" list of
+  # the Coop session, trees and commits (Slack as Andrew, 2026-10-09); that
+  # proof is for an auditor, so it is folded away below.
   defp pull_request_body(request) do
     """
-    ## Ryker task
-
     #{safe_body(request.body)}
 
-    ## Publication proof
+    <details>
+    <summary>How Ryker checked this change</summary>
 
     - Coop session: `#{request.review["session_id"]}`
     - Reviewed parent: `#{request.review["parent_head"]}`
@@ -151,6 +154,7 @@ defmodule Ryker.Publication.Request do
     - Publication commit: `#{request.review["candidate_head"]}`
     - Gate: `#{request.review["gate"]}`
     - Rebase: `#{request.review["rebase"]}`
+    </details>
     """
     |> String.trim()
   end

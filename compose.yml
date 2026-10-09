@@ -50,7 +50,10 @@ services:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: ecto://ryker:${RYKER_DATABASE_PASSWORD}@database/ryker
-      POOL_SIZE: ${RYKER_POOL_SIZE:-10}
+      # About thirty lanes poll the database beside the console and the worker gateway.
+      # Ten connections ran out while the worker was slow to answer (2026-10-09 19:54
+      # UTC), and a routing worker that lost its query held its message for five minutes.
+      POOL_SIZE: ${RYKER_POOL_SIZE:-25}
       RYKER_CONTAINER: "true"
       RYKER_CONTROL_IP: 0.0.0.0
       RYKER_CONTROL_PORT: 4321
