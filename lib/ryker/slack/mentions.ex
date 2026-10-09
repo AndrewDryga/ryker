@@ -133,32 +133,35 @@ defmodule Ryker.Slack.Mentions do
         users = MapSet.new(captures(source, @native_user, ""))
 
         message
-        |> then(
-          &Regex.replace(@native_channel, &1, fn whole, id, label ->
-            if MapSet.member?(channels, id),
-              do:
-                "[##{typed_label(label, "channel")}](slack-channel:slack:#{workspace_ref}:#{id})",
-              else: whole
-          end)
-        )
-        |> then(
-          &Regex.replace(@native_user, &1, fn whole, id ->
-            if MapSet.member?(users, id), do: "[@person](slack-user:#{id})", else: whole
-          end)
-        )
+        |> then(&Regex.replace(@native_channel, &1, typed_channel(channels, workspace_ref)))
+        |> then(&Regex.replace(@native_user, &1, typed_user(users)))
 
       {:error, _reason} ->
         message
     end
   end
 
+  defp typed_channel(channels, workspace_ref) do
+    fn whole, id, label ->
+      if MapSet.member?(channels, id) do
+        "[##{typed_label(label, "channel")}](slack-channel:slack:#{workspace_ref}:#{id})"
+      else
+        whole
+      end
+    end
+  end
+
+  defp typed_user(users) do
+    fn whole, id ->
+      if MapSet.member?(users, id), do: "[@person](slack-user:#{id})", else: whole
+    end
+  end
+
   # A typed link's label is one short line without brackets; the native entity
   # it becomes shows Slack's own name, so a missing label costs nothing.
   defp typed_label(label, fallback) do
-    case label |> String.replace(~r/[\[\]\r\n]/u, "") |> String.trim() do
-      "" -> fallback
-      label -> String.slice(label, 0, 80)
-    end
+    cleaned = label |> String.replace(~r/[\[\]\r\n]/u, "") |> String.trim()
+    if cleaned == "", do: fallback, else: String.slice(cleaned, 0, 80)
   end
 
   @spec authority_from_events(String.t(), String.t(), [Episodes.Event.t() | map()]) :: map()
