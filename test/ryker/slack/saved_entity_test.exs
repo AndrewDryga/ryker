@@ -1,7 +1,8 @@
 defmodule Ryker.Slack.SavedEntityTest do
-  use ExUnit.Case, async: true
+  use Ryker.DataCase, async: true
   alias Ryker.Behaviors.Behavior
   alias Ryker.Schedules.Schedule
+  alias Ryker.Slack.Renderer
   alias Ryker.Slack.Renderer.SavedEntityCard
   alias Ryker.Slack.SavedEntity
 
@@ -102,6 +103,62 @@ defmodule Ryker.Slack.SavedEntityTest do
     }
 
     assert ["When", "Every Monday at 09:00 UTC"] in SavedEntity.document(weekly, :saved)["facts"]
+  end
+
+  # A saved schedule read "Access: Repository write", "Repository:
+  # andrewdryga-test" and "Next run: 12 Oct 2026, 07:00 UTC" under a schedule
+  # that runs at 09:00 Berlin time, while its offer had said "Can change code"
+  # (Slack as Andrew, 2026-10-10). It says its access in the offer's words,
+  # names the repository as GitHub does, and gives the next run in the
+  # reader's own time.
+  test "a saved schedule says its access in words, its repository by name and its next run in the reader's time" do
+    now = DateTime.utc_now()
+    ref = "schedule-repository-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all(Ryker.Settings.Repository, [
+      %{ref: ref, github_repository: "AndrewDryga/test", inserted_at: now, updated_at: now}
+    ])
+
+    schedule = %Schedule{
+      authority: :repository_write,
+      confirmed_at: ~U[2026-10-09 23:35:00.000000Z],
+      confirmed_by_actor_ref: "slack:user:U123",
+      destination_conversation_ref: "slack:T123:C456",
+      expires_at: nil,
+      next_occurrence_at: ~U[2026-10-12 07:00:00.000000Z],
+      recurrence: %{"kind" => "weekdays", "time" => "09:00:00"},
+      ref: "schedule:weekday-pull-requests",
+      repository: ref,
+      revision: 1,
+      status: :active,
+      task: "Post a one-line summary of open pull requests here.",
+      timezone: "Europe/Berlin",
+      title: "Weekday open pull request summary"
+    }
+
+    document = SavedEntity.document(schedule, :saved)
+    assert ["Access", "Can change code"] in document["facts"]
+
+    assert ["Repository", %{"ref" => ref, "url" => "https://github.com/AndrewDryga/test"}] in document[
+             "facts"
+           ]
+
+    assert ["Next run", %{"at" => "2026-10-12T07:00:00.000000Z"}] in document["facts"]
+    assert SavedEntityCard.validate(document) == :ok
+
+    assert {:ok, %{"blocks" => blocks, "text" => text}} =
+             Renderer.render(%{"saved_entity" => document})
+
+    shown = Jason.encode!(blocks)
+    assert shown =~ "<https://github.com/AndrewDryga/test|AndrewDryga/test>"
+    assert shown =~ "<!date^1791788400^{date_short_pretty} at {time}|2026-10-12 07:00 UTC>"
+    refute shown =~ "Repository write"
+    assert text =~ "Repository: AndrewDryga/test"
+
+    # One that works in no repository says nothing about one.
+    unbound = SavedEntity.document(%{schedule | authority: :read_only, repository: nil}, :saved)
+    assert ["Access", "Read-only"] in unbound["facts"]
+    refute "Repository" in Enum.map(unbound["facts"], &hd/1)
   end
 
   # A schedule or rule may hold 12,000 bytes of task, but its card shows at most 2,000

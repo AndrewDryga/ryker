@@ -1,5 +1,5 @@
 defmodule Ryker.Delivery.ChatCardTest do
-  use ExUnit.Case, async: true
+  use Ryker.DataCase, async: true
   alias Ryker.ControlPlane.HTML
   alias Ryker.Delivery.ChatCard
   alias Ryker.Fixtures.TaskOffer
@@ -336,6 +336,35 @@ defmodule Ryker.Delivery.ChatCardTest do
   # QA, 2026-09-25: chat cards printed "SOURCE admit_input:63c450cc…", a digest
   # nobody can open, beside "AUTHORITY read_only", "KIND Entity relationship"
   # and "SCOPE Workspace": stored values a person can neither read nor act on.
+  # Cards said andrewdryga-test for the repository GitHub calls AndrewDryga/test
+  # (Slack as Andrew, 2026-10-10). A Chat card names it as GitHub does, and
+  # keeps the ref only for a repository Ryker no longer has.
+  test "a Chat card names its repository as GitHub does" do
+    now = DateTime.utc_now()
+    ref = "chat-card-repository-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all(Ryker.Settings.Repository, [
+      %{ref: ref, github_repository: "AndrewDryga/test", inserted_at: now, updated_at: now}
+    ])
+
+    schedule = %{
+      "authority" => "repository_write",
+      "expires_at" => nil,
+      "recurrence" => %{"kind" => "weekdays", "time" => "09:00:00"},
+      "repository" => ref,
+      "task" => "Post a one-line summary of open pull requests here.",
+      "timezone" => "Europe/Berlin",
+      "title" => "Weekday open pull request summary"
+    }
+
+    assert {:ok, card} = ChatCard.project(record("schedule_offer", schedule))
+    assert {"What it may do", "Can change code in AndrewDryga/test"} in card.details
+
+    gone = %{schedule | "repository" => "since-removed"}
+    assert {:ok, card} = ChatCard.project(record("schedule_offer", gone))
+    assert {"What it may do", "Can change code in since-removed"} in card.details
+  end
+
   test "offer and evidence cards say what matters in words, never stored values" do
     schedule = %{
       "authority" => "read_only",

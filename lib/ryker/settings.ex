@@ -560,6 +560,14 @@ defmodule Ryker.Settings do
     |> Repo.one()
   end
 
+  @doc """
+  The name people know a repository by: its GitHub owner/name, or the ref Ryker
+  keeps once it is no longer added; nil when there is no repository.
+  """
+  @spec repository_name(String.t() | nil) :: String.t() | nil
+  def repository_name(nil), do: nil
+  def repository_name(ref) when is_binary(ref), do: github_repository(ref) || ref
+
   @doc "Adds a repository, or edits the one with its ref. Returns `t:write_result/0`."
   @spec put_repository(map(), revision(), String.t()) :: write_result()
   def put_repository(attributes, expected_revision, actor_ref),

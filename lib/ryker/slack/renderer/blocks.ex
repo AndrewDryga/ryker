@@ -221,7 +221,8 @@ defmodule Ryker.Slack.Renderer.Blocks do
   end
 
   # Fact values are escaped text unless the host typed them: a repository link,
-  # a channel reference, or markup it assembled itself from validated refs.
+  # a channel reference, a moment each reader sees in their own time, or markup
+  # it assembled itself from validated refs.
   defp fact_markdown(values) when is_list(values),
     do: Enum.map_join(values, "\n", &fact_markdown/1)
 
@@ -231,6 +232,7 @@ defmodule Ryker.Slack.Renderer.Blocks do
     do: repository_link(repository) <> " · " <> escape(role)
 
   defp fact_markdown(%{"channel_ref" => channel_ref}), do: channel_mention(channel_ref)
+  defp fact_markdown(%{"at" => at}), do: slack_date(at)
   defp fact_markdown({:markup, text}), do: text
   defp fact_markdown(value), do: escape(value)
 
@@ -242,6 +244,7 @@ defmodule Ryker.Slack.Renderer.Blocks do
     do: escape(repository_name(repository)) <> " · " <> escape(role)
 
   def fact_text(%{"channel_ref" => channel_ref}), do: channel_mention(channel_ref)
+  def fact_text(%{"at" => at}), do: display_time(at)
   def fact_text({:markup, text}), do: text
   def fact_text(value), do: escape(value)
 

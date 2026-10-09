@@ -90,7 +90,21 @@ defmodule Ryker.Slack.ReplyRecords do
   # ref Ryker keeps, while the task card after it said AndrewDryga/test (Slack
   # as Andrew, 2026-10-09).
   defp present_repository(document, %{kind: "task_offer", payload: %{"repository" => ref}})
-       when is_binary(ref) do
+       when is_binary(ref),
+       do: put_repository(document, ref)
+
+  # An open schedule offer says which repository its runs may change; once
+  # confirmed it is the saved schedule's card, which names it itself.
+  defp present_repository(
+         document,
+         %{kind: "schedule_offer", status: :open, payload: %{"repository" => ref}}
+       )
+       when is_binary(ref),
+       do: put_repository(document, ref)
+
+  defp present_repository(document, _record), do: document
+
+  defp put_repository(document, ref) do
     case Settings.github_repository(ref) do
       name when is_binary(name) ->
         repository = %{"ref" => ref, "url" => GitHub.repository_url(name)}
@@ -101,8 +115,6 @@ defmodule Ryker.Slack.ReplyRecords do
         document
     end
   end
-
-  defp present_repository(document, _record), do: document
 
   defp sent_action(record) do
     Repo.peek(

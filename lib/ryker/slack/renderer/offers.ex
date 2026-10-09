@@ -21,7 +21,7 @@ defmodule Ryker.Slack.Renderer.Offers do
   @spec blocks(String.t(), String.t(), map()) :: [map()]
   def blocks("task_offer", ref, offer), do: task_offer(ref, offer)
   def blocks("publication_offer", ref, offer), do: publication_offer(ref, offer)
-  def blocks("schedule_offer", ref, offer), do: schedule_offer(ref, offer)
+  def blocks("schedule_offer", ref, offer), do: schedule_offer_blocks(ref, offer, %{})
   def blocks("automation_change_offer", ref, offer), do: automation_change_offer(ref, offer)
   def blocks("memory_offer", ref, offer), do: memory_offer(ref, offer)
 
@@ -236,15 +236,28 @@ defmodule Ryker.Slack.Renderer.Offers do
       ]
   end
 
-  defp schedule_offer(ref, payload) do
+  @doc "The host's presentation of a schedule offer: the repository GitHub knows, if any."
+  @spec schedule_offer_presentation(term()) :: :ok | {:error, term()}
+  def schedule_offer_presentation(%{"repository" => repository} = presentation)
+      when map_size(presentation) == 1 do
+    if presented_repository?(repository),
+      do: :ok,
+      else: {:error, :invalid_schedule_offer_presentation}
+  end
+
+  def schedule_offer_presentation(_presentation),
+    do: {:error, :invalid_schedule_offer_presentation}
+
+  @spec schedule_offer_blocks(String.t(), map(), map()) :: [map()]
+  def schedule_offer_blocks(ref, payload, presentation) do
     # The recurrence the confirmation saves, in the words every surface uses,
     # never the title or task the model wrote over it.
     cadence = Schedules.ScheduleCadence.describe(payload["recurrence"], payload["timezone"])
 
     limits =
       [
-        Schedules.ScheduleCadence.access(payload["authority"], payload["repository"]),
-        Schedules.ScheduleCadence.ends(payload["expires_at"])
+        schedule_access(payload, presentation["repository"]),
+        payload["expires_at"] |> Schedules.ScheduleCadence.ends() |> escape_present()
       ]
       |> Enum.reject(&is_nil/1)
 
@@ -253,7 +266,7 @@ defmodule Ryker.Slack.Renderer.Offers do
         "*#{escape(payload["title"])}*",
         escape(payload["task"]),
         "When: #{escape(cadence)}",
-        if(limits != [], do: escape(Enum.join(limits, " · "))),
+        if(limits != [], do: Enum.join(limits, " · ")),
         "_This is only an offer; no schedule exists yet._"
       ]
       |> compact_lines()
@@ -274,6 +287,23 @@ defmodule Ryker.Slack.Renderer.Offers do
         )
       ]
   end
+
+  # Runs that may change code name the repository as GitHub does when the host
+  # knows it, as a link.
+  defp schedule_access(
+         %{"authority" => "repository_write", "repository" => ref},
+         %{"ref" => ref} = repository
+       ),
+       do: "Can change code in " <> repository_link(repository)
+
+  defp schedule_access(payload, _repository) do
+    payload["authority"]
+    |> Schedules.ScheduleCadence.access(payload["repository"])
+    |> escape_present()
+  end
+
+  defp escape_present(nil), do: nil
+  defp escape_present(text), do: escape(text)
 
   # A change is said in words: what it changes, with what it was, and the
   # whole new instructions when those change. The JSON before and after it

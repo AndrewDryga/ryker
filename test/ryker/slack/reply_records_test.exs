@@ -98,6 +98,43 @@ defmodule Ryker.Slack.ReplyRecordsTest do
     refute plain["presentation"]
   end
 
+  # The schedule offer said "Can change code in andrewdryga-test" for the
+  # repository GitHub calls AndrewDryga/test (Slack as Andrew, 2026-10-10).
+  test "a schedule offer names the repository its runs may change as GitHub does" do
+    claim = claim!()
+    now = DateTime.utc_now()
+    ref = "schedule-offer-repository-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all(Ryker.Settings.Repository, [
+      %{ref: ref, github_repository: "AndrewDryga/test", inserted_at: now, updated_at: now}
+    ])
+
+    payload = %{
+      "authority" => "repository_write",
+      "expires_at" => nil,
+      "recurrence" => %{"kind" => "weekdays", "time" => "09:00:00"},
+      "repository" => ref,
+      "task" => "Post a one-line summary of open pull requests here.",
+      "timezone" => "Europe/Berlin",
+      "title" => "Weekday open pull request summary"
+    }
+
+    {:ok, offer} =
+      Records.create(Records.token(claim.turn), "propose_automation", "schedule_offer", payload)
+
+    [projected] = ReplyRecords.documents("slack", claim.episode.id, [offer])
+
+    assert projected["presentation"] == %{
+             "repository" => %{"ref" => ref, "url" => "https://github.com/AndrewDryga/test"}
+           }
+
+    assert {:ok, %{"blocks" => blocks}} =
+             Ryker.Slack.Renderer.render(%{"message" => "Ready.", "records" => [projected]})
+
+    assert Jason.encode!(blocks) =~
+             "Can change code in <https://github.com/AndrewDryga/test|AndrewDryga/test>"
+  end
+
   test "receipt-shaped stdout from another tool is not Emisar source provenance" do
     claim = claim!()
 

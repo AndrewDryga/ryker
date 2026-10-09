@@ -9,6 +9,7 @@ defmodule Ryker.Delivery.ChatCard do
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Schedules
+  alias Ryker.Settings
   alias Ryker.Slack
   alias Ryker.UTCDateTime
   alias Ryker.Wording
@@ -117,7 +118,7 @@ defmodule Ryker.Delivery.ChatCard do
            # What a person reads: the branch as GitHub names it, and no commit
            # hash, which the pull request shows (manual test, 2026-10-09).
            details: [
-             {"Repository", payload["repository"]},
+             {"Repository", Settings.repository_name(payload["repository"])},
              {"Branch", String.replace_prefix(payload["branch_ref"], "refs/heads/", "")},
              {"Pull request", "##{payload["pull_request_number"]}"}
            ],
@@ -143,7 +144,7 @@ defmodule Ryker.Delivery.ChatCard do
        action: if(approvable?, do: :approve_publication),
        choices: [],
        details: [
-         {"Repository", payload["repository"]},
+         {"Repository", Settings.repository_name(payload["repository"])},
          {"Gate", payload["gate"]},
          {"Rebase", payload["rebase"]},
          {"Candidate tree", payload["candidate_tree"]}
@@ -180,7 +181,7 @@ defmodule Ryker.Delivery.ChatCard do
   end
 
   defp card(%Records.Record{kind: "task_offer"} = record, payload) do
-    details = optional_detail([], "Repository", payload["repository"])
+    details = optional_detail([], "Repository", Settings.repository_name(payload["repository"]))
 
     if payload["kind"] == "engineering" do
       common(
@@ -239,7 +240,10 @@ defmodule Ryker.Delivery.ChatCard do
         {"How often",
          Schedules.ScheduleCadence.describe(payload["recurrence"], payload["timezone"])},
         {"What it may do",
-         Schedules.ScheduleCadence.access(payload["authority"], payload["repository"])}
+         Schedules.ScheduleCadence.access(
+           payload["authority"],
+           Settings.repository_name(payload["repository"])
+         )}
       ]
       |> optional_detail("Stops", OfferWords.stamp(payload["expires_at"]))
 
@@ -267,7 +271,10 @@ defmodule Ryker.Delivery.ChatCard do
       []
       |> optional_detail(
         "Applies to",
-        OfferWords.applies_to(chat_scope(payload["scope"]), payload["repository"])
+        OfferWords.applies_to(
+          chat_scope(payload["scope"]),
+          Settings.repository_name(payload["repository"])
+        )
       )
       |> optional_detail(
         "Shown to",
@@ -290,7 +297,10 @@ defmodule Ryker.Delivery.ChatCard do
       []
       |> optional_detail(
         "Applies to",
-        OfferWords.applies_to(chat_scope(payload["scope"]), payload["repository"])
+        OfferWords.applies_to(
+          chat_scope(payload["scope"]),
+          Settings.repository_name(payload["repository"])
+        )
       )
       |> optional_detail("Expires", OfferWords.duration(payload["expires_in"]))
 
@@ -309,7 +319,10 @@ defmodule Ryker.Delivery.ChatCard do
       []
       |> optional_detail(
         "Applies to",
-        OfferWords.applies_to(chat_scope(payload["scope"]), payload["repository"])
+        OfferWords.applies_to(
+          chat_scope(payload["scope"]),
+          Settings.repository_name(payload["repository"])
+        )
       )
       |> optional_detail(
         "Shown to",
@@ -331,7 +344,7 @@ defmodule Ryker.Delivery.ChatCard do
     details =
       []
       |> optional_detail("Listens to", OfferWords.listens_to(payload))
-      |> optional_detail("Repository", payload["repository"])
+      |> optional_detail("Repository", Settings.repository_name(payload["repository"]))
       |> optional_detail("Expires", OfferWords.stamp(payload["expires_at"]))
 
     common(

@@ -174,10 +174,19 @@ defmodule Ryker.Slack.Renderer.SavedEntityCard do
 
   defp entity_ref?(ref), do: Regex.match?(~r/\A[a-z]+:[A-Za-z0-9_.:-]{1,240}\z/, ref)
 
+  # A fact is text, or a value the host typed: a channel, a moment, or a
+  # repository with the link GitHub has for it.
   defp facts?(facts) when is_list(facts) and length(facts) <= @maximum_facts do
     Enum.all?(facts, fn
       [label, %{"channel_ref" => channel_ref} = value] when map_size(value) == 1 ->
         Reference.text?(label) and is_binary(channel_ref)
+
+      [label, %{"at" => at} = value] when map_size(value) == 1 ->
+        Reference.text?(label) and iso8601(at) == :ok
+
+      [label, %{"ref" => ref, "url" => url} = value] when map_size(value) == 2 ->
+        Reference.text?(label) and Reference.text?(ref) and byte_size(ref) <= 256 and
+          optional_https_url(url) == :ok
 
       [label, value] ->
         Reference.text?(label) and Reference.text?(value) and

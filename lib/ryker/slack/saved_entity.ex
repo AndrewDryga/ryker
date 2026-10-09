@@ -12,9 +12,10 @@ defmodule Ryker.Slack.SavedEntity do
   alias Ryker.Behaviors
   alias Ryker.ConversationRef
   alias Ryker.Delivery
+  alias Ryker.GitHub
   alias Ryker.Memories
   alias Ryker.Schedules
-  alias Ryker.UTCDateTime
+  alias Ryker.Settings
   alias Ryker.Wording
 
   @shown_bytes 2_000
@@ -38,7 +39,7 @@ defmodule Ryker.Slack.SavedEntity do
           {"Next run", next_run(schedule)},
           {"Expires", expiry(schedule.expires_at, "No expiry")},
           {"Access", authority(schedule.authority)},
-          {"Repository", schedule.repository || "No fixed binding"}
+          {"Repository", repository(schedule.repository)}
         ]),
       "instructions" => shown(schedule.task),
       "kind" => "schedule",
@@ -111,7 +112,7 @@ defmodule Ryker.Slack.SavedEntity do
       {"Channel", destination(payload["context_channel"])},
       {"Source", payload["source_kind"]},
       {"Event filter", event_filter(payload["source_kind"], payload["filter"])},
-      {"Repository", payload["repository"] || "No fixed binding"},
+      {"Repository", repository(payload["repository"])},
       {"Expires", expiry(behavior.expires_at, "Until disabled")},
       {"Access", "Read-only"}
     ]
@@ -138,7 +139,7 @@ defmodule Ryker.Slack.SavedEntity do
       "#{payload["key"]} = #{payload["value"]}",
       [
         {"Scope", scope(behavior.scope_kind, behavior.scope_ref)},
-        {"Repository", payload["repository"] || "No fixed binding"},
+        {"Repository", repository(payload["repository"])},
         {"Expires", expiry(behavior.expires_at, "Until removed")}
       ],
       event
@@ -156,7 +157,7 @@ defmodule Ryker.Slack.SavedEntity do
       payload["text"],
       [
         {"Scope", scope(behavior.scope_kind, behavior.scope_ref)},
-        {"Repository", payload["repository"] || "No fixed binding"},
+        {"Repository", repository(payload["repository"])},
         {"Visibility", visibility(payload["visibility"])},
         {"Expires", expiry(behavior.expires_at, "Until removed")},
         {"Source", source(behavior)}
@@ -209,14 +210,27 @@ defmodule Ryker.Slack.SavedEntity do
   defp notice(label, "deleted", _event), do: "#{label} deleted"
   defp notice(label, "superseded", _event), do: "#{label} replaced by a newer version"
 
+  # A time is the moment itself, which Slack shows in each reader's own time.
   defp next_run(%Schedules.Schedule{status: :active, next_occurrence_at: %DateTime{} = at}),
-    do: UTCDateTime.readable(at)
+    do: %{"at" => DateTime.to_iso8601(at)}
 
   defp next_run(_schedule), do: nil
 
+  # In the words the schedule's offer used ("Can change code in …").
   defp authority(:read_only), do: "Read-only"
-  defp authority(:repository_write), do: "Repository write"
-  defp authority(:governed_operation), do: "Governed operation"
+  defp authority(:repository_write), do: "Can change code"
+  defp authority(:governed_operation), do: "Can run approved operations"
+
+  # A repository by the name GitHub gives it, as a link, or by the ref Ryker
+  # keeps once it no longer has it; nothing when the entity names none.
+  defp repository(nil), do: nil
+
+  defp repository(ref) do
+    case Settings.github_repository(ref) do
+      name when is_binary(name) -> %{"ref" => ref, "url" => GitHub.repository_url(name)}
+      _unknown -> %{"ref" => ref, "url" => nil}
+    end
+  end
 
   # A Slack destination is a typed channel reference so the renderer can emit
   # a real channel mention; anything else stays escaped text.
@@ -262,7 +276,7 @@ defmodule Ryker.Slack.SavedEntity do
   defp scope(:workspace, _ref), do: "Whole workspace"
   defp scope(:global, _ref), do: "Everywhere"
   defp scope(:conversation, _ref), do: "This conversation"
-  defp scope(:repository, ref), do: "Repository #{ref}"
+  defp scope(:repository, ref), do: "Repository " <> Settings.repository_name(ref)
   defp scope(:operator, ref), do: "Operator #{ref}"
 
   defp visibility("private"), do: "Private to the operator"
@@ -271,7 +285,7 @@ defmodule Ryker.Slack.SavedEntity do
   defp visibility("global"), do: "Everywhere"
   defp visibility(other), do: other
 
-  defp expiry(%DateTime{} = at, _default), do: UTCDateTime.readable(at)
+  defp expiry(%DateTime{} = at, _default), do: %{"at" => DateTime.to_iso8601(at)}
   defp expiry(nil, default), do: default
 
   # A schedule or rule holds up to 12,000 bytes; its card shows the first 2,000,
