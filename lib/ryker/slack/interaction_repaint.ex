@@ -141,20 +141,20 @@ defmodule Ryker.Slack.InteractionRepaint do
         {:error, reason} ->
           {:error, reason}
 
-        # A repaint nobody clicked for, such as an offer redrawn once its
-        # incident room is made, leaves a reply it cannot republish as it is.
         :withdrawn ->
-          if Map.get(options, :withdraw, true),
-            do:
-              {:ok,
-               %{
-                 "message" =>
-                   "This response is unavailable until its source context can be checked."
-               }, delivery_ref},
-            else: :not_found
+          withdrawn(delivery_ref, Map.get(options, :withdraw, true))
       end
     end
   end
+
+  defp withdrawn(delivery_ref, true) do
+    {:ok, %{"message" => "This response is unavailable until its source context can be checked."},
+     delivery_ref}
+  end
+
+  # A repaint nobody clicked for, such as an offer redrawn once its incident
+  # room is made, leaves a reply it cannot republish as it is.
+  defp withdrawn(_delivery_ref, false), do: :not_found
 
   defp public_turn_sources(turn, audit, document) do
     with {:ok, episode} <- fetch_source_row(Episodes.Episode.Query.by_id(turn.episode_id)),

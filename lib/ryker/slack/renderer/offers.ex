@@ -65,12 +65,9 @@ defmodule Ryker.Slack.Renderer.Offers do
   defp offer_summary(%{"repository" => nil, "title" => title} = offer, _repository),
     do: offer_lines("*#{escape(title)}*", offer)
 
-  defp offer_summary(%{"title" => title} = offer, repository),
-    do:
-      offer_lines(
-        "*#{escape(title)}*\nRepository: #{repository_label(offer, repository)}",
-        offer
-      )
+  defp offer_summary(%{"title" => title} = offer, repository) do
+    offer_lines("*#{escape(title)}*\nRepository: #{repository_label(offer, repository)}", offer)
+  end
 
   # The repository GitHub knows, linked, when the host presented the offer's
   # own repository; otherwise the ref the offer recorded.
