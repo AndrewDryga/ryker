@@ -1,6 +1,7 @@
 defmodule Ryker.ControlPlane.SourceText do
   @moduledoc "Plain source-message content shared by the timeline and request inspector."
   alias Ryker.GitHub
+  alias Ryker.Ingress
   alias Ryker.Reference
   alias Ryker.Wording
 
@@ -8,6 +9,18 @@ defmodule Ryker.ControlPlane.SourceText do
   # (Andrew, 2026-10-01: the timeline said "Source content not recorded or expired").
   def from_content(%{"choice" => choice, "interaction_kind" => "button"}) when is_binary(choice),
     do: "Answered \"#{choice}\""
+
+  # A webhook carries its sender's JSON (`Ryker.Webhooks.Input`): it reads as its event type,
+  # then the payload's text or its fields, as routing reads them. Every webhook event read
+  # "Source content not recorded or expired" (2026-10-09).
+  def from_content(%{"event_type" => type, "payload" => payload}) do
+    event = if Reference.text?(type), do: "Webhook event: " <> type, else: "Webhook event"
+
+    case Ingress.MessageText.from(payload) do
+      "" -> event
+      text -> event <> "\n\n" <> text
+    end
+  end
 
   def from_content(%{} = content) do
     text = content["text"]

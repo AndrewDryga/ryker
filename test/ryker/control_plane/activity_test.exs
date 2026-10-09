@@ -3,6 +3,7 @@ defmodule Ryker.ControlPlane.ActivityTest do
   import Ecto.Query
   import Phoenix.LiveViewTest
   alias Ryker.ControlPlane.{Actions, Activity, ActivityPage, EpisodeProjection}
+  alias Ryker.ControlPlane.EpisodeTrace.CaseFile
   alias Ryker.ControlPlane.{OverviewProjection, UsagePage, UsageProjection, WorkspaceProjection}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Answers
@@ -16,6 +17,8 @@ defmodule Ryker.ControlPlane.ActivityTest do
   alias Ryker.Schedules.ScheduleOccurrence
   alias Ryker.Slack.Input
   alias Ryker.Slack.Names
+  alias Ryker.Webhooks.Input, as: WebhookInput
+  alias Ryker.Webhooks.Route
   alias Ryker.Work.Custody
   alias Ryker.Work.Session
   alias Ryker.Work.Turn
@@ -678,6 +681,46 @@ defmodule Ryker.ControlPlane.ActivityTest do
              Enum.find(Activity.list(%{}).items, &(&1.id == run.id))
 
     assert Activity.list(%{"q" => "weekday open incident"}).total == 1
+  end
+
+  # Manual test, 2026-10-09: two webhook events read "Message text no longer available" in
+  # Activity, and their timelines "Source content not recorded or expired", thirteen hours
+  # after they came in. A webhook carries its sender's JSON rather than a message's text,
+  # and only a Slack or GitHub shape was read, so every webhook event looked expired.
+  test "a webhook event reads as its event, not as a message that went missing" do
+    {:ok, route} =
+      Route.new(%{
+        auth: {:bearer, Ryker.Secret.new("a-secret-token-long-enough")},
+        destination: %{conversation_ref: "slack:T123:C456", thread_ref: nil, transport: "slack"},
+        name: "deploys",
+        publication_lifecycle: nil
+      })
+
+    event = fn id, payload ->
+      {:ok, input} =
+        WebhookInput.new(route, payload,
+          event_id: id,
+          event_type: "deploy.status",
+          occurred_at: DateTime.utc_now(),
+          occurred_at_source: :source,
+          revision: 1
+        )
+
+      {:ok, %{entry: entry}} = Inbox.record(input)
+      entry
+    end
+
+    fields = event.("evt-fields", %{"service" => "checkout", "status" => "recovered"})
+    worded = event.("evt-text", %{"text" => "Checkout is healthy again"})
+
+    titles = Map.new(Activity.list(%{}).items, &{&1.id, &1.title})
+    assert titles[fields.id] == "Webhook event: deploy.status"
+    assert titles[worded.id] == "Checkout is healthy again"
+
+    message = CaseFile.input_message(fields, MapSet.new())
+    assert message.available
+    assert message.text == "Webhook event: deploy.status\n\nservice: checkout\nstatus: recovered"
+    assert CaseFile.message_heading(message) == "Webhook event: deploy.status"
   end
 
   # Andrew, 2026-10-01, of Activity rows reading "Message text no longer available": a task is

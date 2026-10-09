@@ -210,6 +210,29 @@ defmodule Ryker.Behaviors.BehaviorsTest do
              |> Enum.filter(&(&1.scope_kind == :repository))
   end
 
+  # Manual test, 2026-10-09: the Rules page read "uses andrewdryga-emisar", a rule's
+  # repository by its ref, where its guidance and every other page name it as GitHub does.
+  test "a rule names the repository it works in the way GitHub does" do
+    fixture = delivered_offers!("rule-repository-name")
+    {:ok, _rule} = Behaviors.confirm(confirmation(fixture, fixture.assignment, "rule-name"))
+
+    {:ok, snapshot} =
+      case Ryker.Settings.fetch() do
+        {:error, :settings_not_initialized} -> Ryker.Settings.initialize("control-plane:local")
+        found -> found
+      end
+
+    {:ok, _snapshot} =
+      Ryker.Settings.put_repository(
+        %{ref: "ryker", display_name: "acme/ryker", github_repository: "acme/ryker"},
+        snapshot.installation.revision,
+        "control-plane:local"
+      )
+
+    assert [%{payload: %{"repository" => "ryker"}, repository_name: "acme/ryker"}] =
+             BehaviorLibrary.list(:standing_assignment, %{}).items
+  end
+
   # A preference replaced by a newer one kept every word of the old one,
   # where a replaced fact keeps a digest (2026-10-04 review).
   test "a preference replaced by a newer one keeps no words" do

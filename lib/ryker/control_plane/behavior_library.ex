@@ -96,21 +96,25 @@ defmodule Ryker.ControlPlane.BehaviorLibrary do
   @doc false
   # An entry for one repository names it the way GitHub does; it named the
   # repository by its ref, where every other page used the name (2026-10-04
-  # review).
+  # review). So does a rule for the repository it works in: the Rules page
+  # read "uses andrewdryga-emisar" (2026-10-09).
   defp named(items) do
     names =
-      if Enum.any?(items, &(&1.scope_kind == :repository)),
+      if Enum.any?(items, &(&1.scope_kind == :repository or is_binary(&1.payload["repository"]))),
         do: RepositoryNames.all(),
         else: %{}
 
-    Enum.map(items, fn
-      %{scope_kind: :repository, scope_ref: ref} = item ->
-        Map.put(item, :scope_name, RepositoryNames.name(names, ref))
-
-      item ->
-        item
+    Enum.map(items, fn item ->
+      item
+      |> Map.put(:repository_name, RepositoryNames.name(names, item.payload["repository"]))
+      |> scope_name(names)
     end)
   end
+
+  defp scope_name(%{scope_kind: :repository, scope_ref: ref} = item, names),
+    do: Map.put(item, :scope_name, RepositoryNames.name(names, ref))
+
+  defp scope_name(item, _names), do: item
 
   def sanitize(item) do
     payload =

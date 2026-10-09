@@ -173,11 +173,30 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
 
     assert meta(unmerged) =~ "has commits that were never merged, kept until you discard them"
     assert meta(dirty) =~ "has uncommitted changes, kept until they are safe to remove"
-    assert meta(kept) =~ "removed after tomorrow 09:00"
+    assert meta(kept) =~ "removed tomorrow 09:00 UTC"
     assert meta(active) =~ "cleanup starts when the task ends"
 
     # The working copy's id is support plumbing; the row never shows it.
     refute LazyHTML.text(blocked) =~ "workspace:blocked"
+  end
+
+  # Manual test, 2026-10-09: a copy kept for a follow-up read "removed after in 10 min",
+  # the prefix written for a clock time put before a countdown. A copy whose time has
+  # passed waits for the next cleanup, and says so rather than "removed after 5 min ago".
+  test "a kept copy says when it goes in words that read for any time left" do
+    soon = %{@kept | discard_after: DateTime.add(@now, 10, :minute)}
+    due = %{@kept | discard_after: DateTime.add(@now, -5, :minute)}
+
+    rows =
+      [soon, due]
+      |> render()
+      |> LazyHTML.query("div.working-copies-page > .entity-list > article.entity-row")
+
+    assert Enum.map(rows, &meta/1) ==
+             [
+               "removed in 10 min · updated 2 h ago",
+               "removed at the next cleanup · updated 2 h ago"
+             ]
   end
 
   test "two requests in one repository stay distinguishable before cleanup" do

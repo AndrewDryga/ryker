@@ -351,7 +351,7 @@ defmodule Ryker.ControlPlane.BehaviorPage do
   defp facts(%{kind: :standing_assignment} = item, now) do
     [
       trigger(item),
-      if(item.payload["repository"], do: rich(["uses ", {:strong, item.payload["repository"]}])),
+      if(item[:repository_name], do: rich(["uses ", {:strong, item.repository_name}])),
       expiry(item, now),
       usage(item, now)
     ]

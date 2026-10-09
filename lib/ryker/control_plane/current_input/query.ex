@@ -21,12 +21,14 @@ defmodule Ryker.ControlPlane.CurrentInput.Query do
   @doc """
   Like `visible_text/3`, but for a request title: a source with no text of its
   own falls through to its comment or review body, its first attachment or
-  block, or its first file name.
+  block, or its first file name. A webhook event, whose content is its sender's
+  JSON (`Ryker.Webhooks.Input`), reads as its payload's text or its event type:
+  every one read "Message text no longer available" (2026-10-09).
   """
   defmacro visible_preview(pruned_at, event_kind, content) do
     quote do
       fragment(
-        "CASE WHEN ? IS NOT NULL THEN NULL WHEN ? = 'delete' THEN 'Message deleted' ELSE (SELECT left(COALESCE(NULLIF(source ->> 'text', ''), 'Answered \"' || (source ->> 'choice') || '\"', source #>> '{payload,comment,body}', source #>> '{payload,review,body}', source #>> '{attachments,0,title}', source #>> '{attachments,0,pretext}', source #>> '{attachments,0,text}', source #>> '{attachments,0,fallback}', source #>> '{blocks,0,text,text}', source #>> '{files,0,name}'), 12000) FROM (SELECT ?::jsonb AS source) AS payload) END",
+        "CASE WHEN ? IS NOT NULL THEN NULL WHEN ? = 'delete' THEN 'Message deleted' ELSE (SELECT left(COALESCE(NULLIF(source ->> 'text', ''), 'Answered \"' || (source ->> 'choice') || '\"', source #>> '{payload,comment,body}', source #>> '{payload,review,body}', source #>> '{attachments,0,title}', source #>> '{attachments,0,pretext}', source #>> '{attachments,0,text}', source #>> '{attachments,0,fallback}', source #>> '{blocks,0,text,text}', source #>> '{files,0,name}', CASE WHEN source -> 'event_type' IS NOT NULL THEN COALESCE(NULLIF(source #>> '{payload,text}', ''), 'Webhook event: ' || NULLIF(source ->> 'event_type', ''), 'Webhook event') END), 12000) FROM (SELECT ?::jsonb AS source) AS payload) END",
         unquote(pruned_at),
         unquote(event_kind),
         unquote(content)

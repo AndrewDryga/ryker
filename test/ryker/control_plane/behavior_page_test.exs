@@ -67,12 +67,12 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
 
     meta = LazyHTML.query(row, "p.entity-meta")
     assert LazyHTML.text(meta) =~ "When a matching GitHub event arrives in Slack channel C456"
-    assert LazyHTML.text(meta) =~ "uses emisar"
+    assert LazyHTML.text(meta) =~ "uses acme/emisar"
     assert LazyHTML.text(meta) =~ "used 3 times"
 
     assert LazyHTML.query(meta, "strong") |> Enum.map(&LazyHTML.text/1) == [
              "Slack channel C456",
-             "emisar"
+             "acme/emisar"
            ]
 
     refute LazyHTML.text(meta) =~ "slack:T123:C456"
@@ -694,6 +694,7 @@ defmodule Ryker.ControlPlane.BehaviorPageTest do
         "source_kind" => "github",
         "repository" => "emisar"
       },
+      repository_name: "acme/emisar",
       status: "active",
       scope_kind: :conversation,
       scope_ref: "slack:T123:C456",

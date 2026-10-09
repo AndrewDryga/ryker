@@ -215,8 +215,12 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
   # What cleanup does next, and when.
   defp next(%{status: :active}, _now), do: "cleanup starts when the task ends"
 
-  defp next(%{status: :grace, discard_after: %DateTime{} = at}, now),
-    do: ShortTime.time(%{__changed__: nil, at: at, now: now, prefix: "removed after "})
+  # "removed after " read before a countdown as "removed after in 10 min" (2026-10-09).
+  defp next(%{status: :grace, discard_after: %DateTime{} = at}, now) do
+    if DateTime.after?(at, now),
+      do: ShortTime.time(%{__changed__: nil, at: at, now: now, prefix: "removed "}),
+      else: "removed at the next cleanup"
+  end
 
   defp next(%{status: :grace}, _now), do: "removed when the follow-up window ends"
 
