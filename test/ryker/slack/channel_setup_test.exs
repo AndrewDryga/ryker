@@ -44,6 +44,9 @@ defmodule Ryker.Slack.ChannelSetupTest do
 
     def fetch_membership(_workspace_ref, _channel_ref), do: {:ok, %{generation: 1}}
 
+    def record_welcome(_workspace_ref, _channel_ref, _digest),
+      do: {:ok, Process.get({__MODULE__, :configuration})}
+
     def change_participation(request) do
       send(self(), {:participation_change, request.participation, request.expected_revision})
       {:ok, %{configuration: Process.get({__MODULE__, :configuration}), status: :saved}}

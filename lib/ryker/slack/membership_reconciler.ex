@@ -8,6 +8,7 @@ defmodule Ryker.Slack.MembershipReconciler do
   """
   use Ryker.PollingWorker, lane: :slack_membership, interval: :interval_ms
   alias Ryker.Options
+  alias Ryker.Slack.ChannelConfiguration
   alias Ryker.Slack.Names
   require Logger
 
@@ -52,7 +53,34 @@ defmodule Ryker.Slack.MembershipReconciler do
              snapshot_started_at
            ),
          {:ok, prompted} <- prompt_sessions(results, options) do
+      refresh_welcomes(results, options)
       {:ok, %{channels: length(channels), left: left, prompted: prompted}}
+    end
+  end
+
+  # A channel already joined keeps its welcome, drawn again only once what it
+  # says has changed (`ChannelSetup.refresh_welcome/2`). One that cannot be
+  # drawn now waits for the next sweep and holds no other channel back.
+  defp refresh_welcomes(results, %{setup_handler: handler, setup_options: setup_options}) do
+    if function_exported?(handler, :refresh_welcome, 2) do
+      for %{configuration: %ChannelConfiguration{welcome_message_ref: ref} = configuration} <-
+            results,
+          is_binary(ref),
+          do: refresh_welcome(handler, configuration, setup_options)
+    end
+
+    :ok
+  end
+
+  defp refresh_welcome(handler, configuration, setup_options) do
+    case handler.refresh_welcome(configuration, setup_options) do
+      {:ok, _outcome} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "welcome in #{configuration.channel_ref} not drawn again: #{inspect(reason, limit: 5)}"
+        )
     end
   end
 

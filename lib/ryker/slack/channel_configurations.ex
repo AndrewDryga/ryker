@@ -356,6 +356,36 @@ defmodule Ryker.Slack.ChannelConfigurations do
   end
 
   @doc """
+  Saves the digest of what `channel_ref`'s welcome last said, so the
+  membership sweep draws it again only once that changes.
+  """
+  @spec record_welcome(String.t(), String.t(), String.t()) ::
+          {:ok, ChannelConfiguration.t()} | {:error, term()}
+  def record_welcome(workspace_ref, channel_ref, digest) do
+    with :ok <- reference(workspace_ref, :workspace_ref, 256),
+         :ok <- reference(channel_ref, :channel_ref, 256),
+         true <- is_binary(digest) and Regex.match?(~r/\A[0-9a-f]{64}\z/, digest) do
+      Repo.transaction(fn -> record_welcome_locked(workspace_ref, channel_ref, digest) end)
+      |> transaction_result()
+    else
+      false -> {:error, {:invalid_channel_configuration, :welcome_digest}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp record_welcome_locked(workspace_ref, channel_ref, digest) do
+    case peek_and_lock_configuration(workspace_ref, channel_ref) do
+      nil ->
+        Repo.rollback(:configuration_not_found)
+
+      configuration ->
+        configuration
+        |> ChannelConfiguration.Changeset.update(%{welcome_digest: digest})
+        |> Repo.update!()
+    end
+  end
+
+  @doc """
   One effective-settings projection shared by the welcome, the setup Q&A
   completion and settings shown on request. Reading never mutates.
 

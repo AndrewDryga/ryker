@@ -13,6 +13,7 @@ defmodule Ryker.Slack.ChannelSetup do
   session offered when it started, and membership plus operator authority are
   rechecked for every action or conversational answer.
   """
+  alias Ryker.CanonicalJSON
   alias Ryker.ConversationRef
   alias Ryker.Slack.{ChannelConfiguration, Collections, ConfigurationSession}
   alias Ryker.Slack.Client.Messages
@@ -323,9 +324,54 @@ defmodule Ryker.Slack.ChannelSetup do
   @spec ensure_welcome(ChannelConfiguration.t(), String.t() | nil, map()) ::
           {:ok, :posted | :updated} | {:error, term()}
   def ensure_welcome(%ChannelConfiguration{} = configuration, notice, options) do
-    with {:ok, document} <- welcome_document(configuration, notice, options) do
-      deliver_welcome(configuration, document, options)
+    with {:ok, document} <- welcome_document(configuration, notice, options),
+         {:ok, outcome} <- deliver_welcome(configuration, document, options),
+         {:ok, _configuration} <- remember_welcome(configuration, document, options) do
+      {:ok, outcome}
     end
+  end
+
+  @doc """
+  Draws a channel's posted welcome again from its effective settings when what
+  it would say now differs from what it last said: its environment changed
+  repositories or Emisar, or the installation's environments changed. It was
+  drawn again only when that channel's own settings were saved, so #infra
+  went on listing repositories its environment had dropped (2026-10-09).
+  """
+  @spec refresh_welcome(ChannelConfiguration.t(), map()) ::
+          {:ok, :unchanged | :updated} | {:error, term()}
+  def refresh_welcome(%ChannelConfiguration{welcome_message_ref: nil}, _options),
+    do: {:ok, :unchanged}
+
+  def refresh_welcome(%ChannelConfiguration{} = configuration, options) do
+    with {:ok, document} <-
+           welcome_document(configuration, refresh_notice(configuration), options) do
+      redraw_changed(configuration, document, CanonicalJSON.digest(document), options)
+    end
+  end
+
+  defp redraw_changed(%ChannelConfiguration{welcome_digest: digest}, _document, digest, _options),
+    do: {:ok, :unchanged}
+
+  defp redraw_changed(configuration, document, _digest, options) do
+    with {:ok, _outcome} <- deliver_welcome(configuration, document, options),
+         {:ok, _configuration} <- remember_welcome(configuration, document, options),
+         do: {:ok, :updated}
+  end
+
+  # The line a person's save added stays; a welcome nobody saved has none.
+  defp refresh_notice(%ChannelConfiguration{actor_ref: actor} = configuration)
+       when is_binary(actor),
+       do: settings_notice(configuration)
+
+  defp refresh_notice(_configuration), do: nil
+
+  defp remember_welcome(configuration, document, options) do
+    options.configurations.record_welcome(
+      configuration.workspace_ref,
+      configuration.channel_ref,
+      CanonicalJSON.digest(document)
+    )
   end
 
   # Redraws a channel's welcome after its settings were saved, with a line

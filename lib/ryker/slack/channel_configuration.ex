@@ -17,6 +17,7 @@ defmodule Ryker.Slack.ChannelConfiguration do
     field(:revision, :integer)
     field(:saved_at, :utc_datetime_usec)
     field(:welcome_message_ref, :string)
+    field(:welcome_digest, :string)
     timestamps()
   end
 

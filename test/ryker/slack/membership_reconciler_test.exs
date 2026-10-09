@@ -82,6 +82,41 @@ defmodule Ryker.Slack.MembershipReconcilerTest do
     assert FakeSlackAPI.state(agent).updates == []
   end
 
+  # A welcome was drawn again only when its own channel's settings were saved,
+  # so #infra still listed repositories the environment had dropped and
+  # #infra-alerts said "I don't have access to any repos" weeks after it got
+  # some (responder-52, Slack, 2026-10-09). A sweep draws a welcome again once
+  # what it says has changed, and only then.
+  test "a sweep draws a welcome again once what it says changes, and only then" do
+    agent =
+      start_supervised!(
+        {FakeSlackAPI, channels: [%{channel_ref: "C456", external_shared: false, private: false}]}
+      )
+
+    assert {:ok, %{prompted: 1}} = MembershipReconciler.run_once(options(agent))
+    assert FakeSlackAPI.state(agent).updates == []
+
+    changed =
+      options(agent, %{
+        default_environment: "infrastructure",
+        environments: [
+          %{
+            emisar: true,
+            name: "Infrastructure",
+            ref: "infrastructure",
+            repositories: [%{ref: "backend", url: "https://github.com/acme/backend"}]
+          }
+        ]
+      })
+
+    assert {:ok, %{prompted: 0}} = MembershipReconciler.run_once(changed)
+    assert [{"C456", "1.000001", document, _ref}] = updates(agent)
+    assert inspect(document) =~ "acme/backend"
+
+    assert {:ok, %{prompted: 0}} = MembershipReconciler.run_once(changed)
+    assert length(updates(agent)) == 1
+  end
+
   test "managed incident rooms are excluded from generic channel onboarding" do
     agent =
       start_supervised!(
@@ -274,6 +309,13 @@ defmodule Ryker.Slack.MembershipReconcilerTest do
       },
       workspace_ref: "T9E23FDA39DE5"
     }
+  end
+
+  defp updates(agent) do
+    Enum.map(
+      FakeSlackAPI.state(agent).updates,
+      &{&1.channel, &1.message_ref, &1.document, &1.delivery_ref}
+    )
   end
 
   # The people chosen to manage Ryker, with the workspace's admins left out.

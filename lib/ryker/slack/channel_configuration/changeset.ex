@@ -14,6 +14,7 @@ defmodule Ryker.Slack.ChannelConfiguration.Changeset do
     :participation,
     :revision,
     :saved_at,
+    :welcome_digest,
     :welcome_message_ref,
     :workspace_ref
   ]
@@ -24,6 +25,7 @@ defmodule Ryker.Slack.ChannelConfiguration.Changeset do
     :actor_ref,
     :environment_ref,
     :participation,
+    :welcome_digest,
     :welcome_message_ref
   ]
 
