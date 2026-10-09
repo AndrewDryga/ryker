@@ -8,6 +8,8 @@ defmodule Ryker.Learning.Executor do
 
   @terminal ~w(completed failed cancelled interrupted budget_exhausted)
   @pending ~w(reserved running)
+  # Coop's turn states before a candidate, as Work and admission wait on them.
+  @turn_waiting ~w(queued starting running)
 
   def step(claim, run, settings) do
     result =
@@ -355,7 +357,7 @@ defmodule Ryker.Learning.Executor do
   end
 
   defp process_turn(_claim, _run, _session, %{"state" => state}, _settings)
-       when state in ~w(queued running pending), do: {:ok, :waiting}
+       when state in @turn_waiting, do: {:ok, :waiting}
 
   defp process_turn(_, _, _, _, _), do: {:error, :learning_remote_protocol_error}
 

@@ -33,8 +33,25 @@ defmodule Ryker.Learning.DispatcherTest do
 
     def get_turn(client, sid, tid) do
       record_call(client, :get_turn)
-      client |> Fake.get_turn(sid, tid) |> offered(client)
+      client |> Fake.get_turn(sid, tid) |> starting(client) |> offered(client)
     end
+
+    # While a test sets `:starting_polls`, Coop reports that many polls of the
+    # turn as starting, as it does while the agent boots.
+    defp starting({:ok, turn}, client) do
+      Agent.get_and_update(client, fn state ->
+        case state[:starting_polls] do
+          count when is_integer(count) and count > 0 ->
+            starting = turn |> Map.put("state", "starting") |> Map.put("candidate", nil)
+            {{:ok, starting}, %{state | starting_polls: count - 1}}
+
+          _none ->
+            {{:ok, turn}, state}
+        end
+      end)
+    end
+
+    defp starting(result, _client), do: result
 
     # While a test sets `:offered_digest`, Coop offers each answer under that
     # digest instead of its own.
@@ -430,6 +447,25 @@ defmodule Ryker.Learning.DispatcherTest do
       assert length(remote.create_keys) == 1
       assert remote.submit_count == 1
     end
+  end
+
+  # Coop reports a turn as starting while its agent boots. Learning took that
+  # state for a protocol error: 70 of 71 runs in a week counted one to four
+  # failed steps, backed off, and logged "could not take its next step" for a
+  # turn that was only starting (2026-10-10).
+  test "a turn Coop is still starting is waited for, not counted as a failed step" do
+    entries = inputs!()
+    {:ok, fake} = FakeCoopAPI.start_link([result(entries)])
+    Agent.update(fake, &Map.put(&1, :starting_polls, 1))
+    settings = Map.put(@settings, :client, fake)
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert %{status: :applied} = drive_to_applied!(settings, 5)
+      end)
+
+    assert [%{reconcile_attempt_count: 0}] = Repo.all(LearningRun)
+    refute log =~ "could not take its next step"
   end
 
   test "a learning receipt records the session target when Coop omits it from the turn" do
