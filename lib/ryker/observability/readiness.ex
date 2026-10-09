@@ -43,7 +43,7 @@ defmodule Ryker.Observability.Readiness do
       fleet_issues: Fleet.issues(snapshot.fleet, check.stall_after_seconds),
       missing_runtimes: Enum.sort(missing),
       queues: snapshot.queues,
-      settings: durable_settings(),
+      settings: durable_settings(check.check_runtimes),
       stale_progress_lanes: stale_progress,
       stalled_active_leases: snapshot.stalled_active_leases,
       stalled_queues: snapshot.stalled_queues
@@ -77,15 +77,18 @@ defmodule Ryker.Observability.Readiness do
 
   # Configuration is not health. A revision an operator saved but the runtime
   # could not assemble, and an integration this installation turned on but that
-  # is not running, are both states where "ready" would be a lie.
-  defp durable_settings do
+  # is not running, are both states where "ready" would be a lie. Whether an
+  # integration started is read from this VM, so a check that leaves the
+  # runtimes out, as the operator doctor beside the node does, leaves it out
+  # too: the doctor read every integration as not configured (2026-10-09).
+  defp durable_settings(check_runtimes) do
     case fetch_settings() do
       {:ok, snapshot} ->
         %{
           applied_revision: snapshot.installation.applied_revision,
           failure: snapshot.installation.failure_code,
           revision: snapshot.installation.revision,
-          unconfigured: unconfigured_dependencies(snapshot)
+          unconfigured: if(check_runtimes, do: unconfigured_dependencies(snapshot), else: [])
         }
 
       {:error, :settings_not_initialized} ->

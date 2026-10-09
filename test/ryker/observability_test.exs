@@ -739,6 +739,31 @@ defmodule Ryker.ObservabilityTest do
     refute readiness.settings.failure
   end
 
+  # Manual test, 2026-10-09: `scripts/compose.sh doctor` said a healthy install had failed,
+  # naming emisar, github, learning, publication, slack and work as not configured. The doctor
+  # runs in its own VM beside the node, which applies no settings and cannot see what the node
+  # started. It already leaves the runtimes out, and whether one was started is that half.
+  test "a check that leaves the runtimes out never calls a started integration unconfigured" do
+    Config.put_override(:slack, nil)
+
+    {:ok, saved} = Settings.initialize("control-plane:local")
+
+    {:ok, _saved} =
+      Settings.save_slack(
+        %{
+          enabled: true,
+          workspace_ref: "T0123456789",
+          bot_ref: "A0123456789",
+          bot_user_ref: "U0123456789"
+        },
+        saved.installation.revision,
+        "control-plane:local"
+      )
+
+    assert {:ok, readiness} = Observability.ready(check_progress: false, check_runtimes: false)
+    assert readiness.settings.unconfigured == []
+  end
+
   test "invalid observability thresholds and readiness options fail closed" do
     assert Observability.snapshot(0) ==
              {:error, {:invalid_observability, :stall_after_seconds}}
