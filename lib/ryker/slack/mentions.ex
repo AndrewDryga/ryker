@@ -8,13 +8,17 @@ defmodule Ryker.Slack.Mentions do
   """
   import Ryker.Slack.Renderer.Blocks, only: [escape: 1]
   alias Ryker.ConversationRef
+  alias Ryker.Delivery
   alias Ryker.Episodes
+  alias Ryker.Ingress
   alias Ryker.Maps
   alias Ryker.Repo
   alias Ryker.Slack.ID
 
   @typed_link ~r/\[([^\]\r\n]{1,120})\]\((slack-(?:user|channel|usergroup|broadcast)):([A-Za-z0-9_.:-]{1,1024})\)/u
   @typed_prefix ~r/\]\(\s*slack-/u
+  @native_channel ~r/<#([A-Z0-9]+)(?:\|([^>]*))?>/u
+  @native_user ~r/<@([A-Z0-9]+)(?:\|[^>]*)?>/u
   @maximum_mentions 32
   @maximum_markdown_characters 12_000
   @authority_fields ~w(broadcasts channels user_groups users workspace_ref)
@@ -80,12 +84,82 @@ defmodule Ryker.Slack.Mentions do
         end
 
       nil ->
-        {:error, {:slack_mention_authority_unavailable, :delivery}}
+        routing_response_authority(delivery_ref)
     end
   end
 
   def authority_for_delivery(_delivery_ref),
     do: {:error, {:slack_mention_authority_unavailable, :delivery}}
+
+  # A quick reply routing sent by itself names whom the message it answers may:
+  # it has no episode, so its own input is the evidence.
+  defp routing_response_authority(delivery_ref) do
+    with %Delivery.RoutingResponse{input_id: input_id} <-
+           Repo.peek(Delivery.RoutingResponse.Query.by_delivery_ref(delivery_ref)),
+         {:ok, %Ingress.Inbox.Entry{} = entry} <-
+           Repo.fetch(Ingress.Inbox.Entry.Query.by_id(input_id)),
+         {:ok, workspace_ref, _channel_ref} <- conversation(entry.destination_conversation_ref) do
+      {:ok,
+       authority_from_events(workspace_ref, entry.destination_conversation_ref, [
+         input_event(entry)
+       ])}
+    else
+      _unknown -> {:error, {:slack_mention_authority_unavailable, :delivery}}
+    end
+  end
+
+  defp input_event(%Ingress.Inbox.Entry{} = entry) do
+    actor = if entry.actor_kind == :user, do: "slack:user:#{entry.actor_ref}"
+
+    %Episodes.Event{
+      payload: %{"actor_ref" => actor, "payload" => %{"content" => entry.content}}
+    }
+  end
+
+  @doc """
+  `message` with each native channel link or mention that `source` itself
+  carries turned into the typed entity `render/2` draws, so a quick reply can
+  link the channel or the person the message it answers named. Slack writes
+  them as `<#C123>` and `<@U123>`, and a reply that echoed one showed that
+  text escaped (Slack as Andrew, 2026-10-09). Every other native token stays as
+  written and is rendered inert.
+  """
+  @spec adopt_native(String.t(), String.t(), String.t()) :: String.t()
+  def adopt_native(message, source, conversation_ref)
+      when is_binary(message) and is_binary(source) do
+    case conversation(conversation_ref) do
+      {:ok, workspace_ref, _channel_ref} ->
+        channels = MapSet.new(captures(source, @native_channel, ""))
+        users = MapSet.new(captures(source, @native_user, ""))
+
+        message
+        |> then(
+          &Regex.replace(@native_channel, &1, fn whole, id, label ->
+            if MapSet.member?(channels, id),
+              do:
+                "[##{typed_label(label, "channel")}](slack-channel:slack:#{workspace_ref}:#{id})",
+              else: whole
+          end)
+        )
+        |> then(
+          &Regex.replace(@native_user, &1, fn whole, id ->
+            if MapSet.member?(users, id), do: "[@person](slack-user:#{id})", else: whole
+          end)
+        )
+
+      {:error, _reason} ->
+        message
+    end
+  end
+
+  # A typed link's label is one short line without brackets; the native entity
+  # it becomes shows Slack's own name, so a missing label costs nothing.
+  defp typed_label(label, fallback) do
+    case label |> String.replace(~r/[\[\]\r\n]/u, "") |> String.trim() do
+      "" -> fallback
+      label -> String.slice(label, 0, 80)
+    end
+  end
 
   @spec authority_from_events(String.t(), String.t(), [Episodes.Event.t() | map()]) :: map()
   defp authority_from_events(workspace_ref, conversation_ref, events)
@@ -98,8 +172,10 @@ defmodule Ryker.Slack.Mentions do
       |> Kernel.++(captures(evidence, ~r/<@([A-Z0-9]+)>/, "slack-user:"))
       |> Kernel.++(captures(evidence, ~r/slack-user:([A-Z0-9]+)/, "slack-user:"))
 
+    # A channel the person linked themselves, Slack's <#C123>, may be linked back.
     channels =
       [conversation_ref | captures(evidence, ~r/(slack:[A-Z0-9]+:[A-Z0-9]+)/, "")]
+      |> Kernel.++(captures(evidence, @native_channel, "slack:#{workspace_ref}:"))
       |> Enum.filter(&match?({:ok, ^workspace_ref, _channel_ref}, conversation(&1)))
 
     user_groups =
@@ -352,7 +428,7 @@ defmodule Ryker.Slack.Mentions do
   defp captures(text, regex, prefix) do
     regex
     |> Regex.scan(text, capture: :all_but_first)
-    |> Enum.map(fn [value] -> prefix <> value end)
+    |> Enum.map(fn [value | _rest] -> prefix <> value end)
   end
 
   defp unique(values), do: values |> Enum.uniq() |> Enum.sort()

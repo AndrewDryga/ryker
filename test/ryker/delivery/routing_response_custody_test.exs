@@ -199,6 +199,46 @@ defmodule Ryker.Delivery.RoutingResponseCustodyTest do
     assert delivered.external_receipt["message_ref"] == "1787832002.000300"
   end
 
+  # Andrew wrote "the handoff happens in #infra" in a DM and the quick reply
+  # echoed Slack's <#C0BHTRPHXP0>, which arrived escaped, as that literal text
+  # (Slack as Andrew, 2026-10-09). A channel or person the message itself named
+  # is linked back; anything else the reply names stays inert text.
+  test "a quick reply links the channel and person its message named, and nothing else" do
+    entry =
+      record_input!(
+        "Ev-quick-reply-links",
+        :live,
+        "1787832001.000200",
+        "Remember: the handoff is in <#C0BHTRPHXP0> with <@U0777ABC>."
+      )
+
+    assert {:ok, _applied} =
+             Admission.commit(
+               context!(entry),
+               quick_reply!(
+                 "Got it: handoff in <#C0BHTRPHXP0|infra> with <@U0777ABC>; not <#C0999ABC> or <@U0999ABC>."
+               ),
+               "decision:quick-reply-links"
+             )
+
+    pending = Repo.get_by!(RoutingResponse, input_id: entry.id)
+
+    assert pending.document == %{
+             "message" =>
+               "Got it: handoff in [#infra](slack-channel:slack:TREACTIONCUSTODY:C0BHTRPHXP0) " <>
+                 "with [@person](slack-user:U0777ABC); not <#C0999ABC> or <@U0999ABC>."
+           }
+
+    assert {:ok, authority} = Ryker.Slack.Mentions.authority_for_delivery(pending.delivery_ref)
+
+    assert {:ok, %{"text" => text}} =
+             Ryker.Slack.Renderer.render(Map.put(pending.document, "slack_mentions", authority))
+
+    assert text ==
+             "Got it: handoff in <#C0BHTRPHXP0> with <@U0777ABC>; " <>
+               "not &lt;#C0999ABC&gt; or &lt;@U0999ABC&gt;."
+  end
+
   # Andrew, 2026-09-26: routing could send one message or one emoji, so
   # "Now both reply and add a reaction" started a whole work run. Its quick
   # answer is now a few messages and emoji, and the person has to see the
@@ -442,12 +482,17 @@ defmodule Ryker.Delivery.RoutingResponseCustodyTest do
       )
   end
 
-  defp record_input!(event_ref, execution_mode \\ :live, message_ref \\ "1787832001.000200") do
+  defp record_input!(
+         event_ref,
+         execution_mode \\ :live,
+         message_ref \\ "1787832001.000200",
+         text \\ "Please acknowledge this input."
+       ) do
     assert {:ok, input} =
              Input.new(%{
                actor: %{kind: :user, ref: "U123"},
                channel_ref: "C456",
-               content: %{"text" => "Please acknowledge this input."},
+               content: %{"text" => text},
                event_kind: :message,
                event_ref: event_ref,
                message_ref: message_ref,

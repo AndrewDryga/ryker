@@ -20,6 +20,7 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
   alias Ryker.Lease
   alias Ryker.Reference
   alias Ryker.Repo
+  alias Ryker.Slack
   alias Ryker.UTCDateTime
   alias Ryker.Work
 
@@ -35,6 +36,7 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
     with :ok <- transaction_open(),
          {:ok, responses} <- decided_responses(entry.decision_document) do
       responses
+      |> Enum.map(&linked_entities(&1, entry))
       |> Enum.with_index(1)
       |> Enum.reduce_while({:ok, []}, &insert_response(entry, &1, &2))
       |> then(fn
@@ -82,6 +84,23 @@ defmodule Ryker.Delivery.RoutingResponseCustody do
   defp decided_responses(_decision), do: {:error, {:invalid_routing_response, :decision}}
 
   defp reaction(emoji_name), do: {:reaction, %{"emoji_name" => emoji_name}}
+
+  # A Slack channel or person the message named is linked back when the quick
+  # reply names it the way Slack wrote it; anything else stays text.
+  defp linked_entities(
+         {:message, %{"message" => message}},
+         %Ingress.Inbox.Entry{destination_transport: "slack"} = entry
+       ) do
+    source = Jason.encode!(entry.content)
+
+    {:message,
+     %{
+       "message" =>
+         Slack.Mentions.adopt_native(message, source, entry.destination_conversation_ref)
+     }}
+  end
+
+  defp linked_entities(response, _entry), do: response
 
   @doc """
   The earliest moment after `since` at which a pending response becomes
