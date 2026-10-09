@@ -2386,6 +2386,23 @@ defmodule Ryker.StateTools.RouterTest do
 
     assert lab_tools == slack_tools
 
+    # Every Chat conversation is a workspace of its own, so a fact offered
+    # there for everyone is kept for that conversation, and the offer the model
+    # reads says so: it replied "I'll remember for everyone" over a card that
+    # said "This conversation" (Chat, 2026-10-09).
+    assert {:ok, %{"proposal" => %{"scope" => "conversation", "visibility" => "conversation"}}} =
+             Tools.call(
+               "propose_memory",
+               %{
+                 "expires_at" => nil,
+                 "kind" => "fact",
+                 "scope" => "workspace",
+                 "subject" => "staging deploy dashboard",
+                 "value" => "https://dash.example.test/staging"
+               },
+               bound_options(lab_claim)
+             )
+
     names = Enum.map(lab_tools, & &1["name"])
 
     assert "propose_automation" in names

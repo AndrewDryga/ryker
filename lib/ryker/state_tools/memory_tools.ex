@@ -132,6 +132,15 @@ defmodule Ryker.StateTools.MemoryTools do
     if public_slack_destination?(episode), do: scope, else: "current_channel"
   end
 
+  # Chat has no workspace beyond the conversation: every Chat conversation is a
+  # workspace of its own, so what it keeps for "the workspace" or a repository
+  # is kept for that conversation. Offered as such, the reply said "I'll
+  # remember for everyone" over a card that said "This conversation" (Chat,
+  # 2026-10-09); the model now sees the scope that is kept.
+  defp effective_memory_scope(scope, %{destination_transport: "control_plane"})
+       when scope in ["repository", "workspace"],
+       do: "current_channel"
+
   defp effective_memory_scope(scope, _episode), do: scope
 
   defp public_slack_destination?(%{destination_conversation_ref: conversation_ref}) do
