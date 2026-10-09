@@ -31,22 +31,23 @@ display_information:
 features:
   agent_view:
     agent_description: >-
-      A proactive AI teammate that reconciles repository topology with fresh live
-      evidence and uses only policy-controlled, host-validated infrastructure actions.
+      An AI teammate for engineering and operations work. It answers questions, checks
+      alerts and production with live evidence, and prepares code changes as draft pull
+      requests. Changes to running systems go through your infrastructure policy.
     suggested_prompts:
       - title: Production health
-        message: Reconcile our declared production topology with fresh live evidence and report healthy, degraded, and unverified layers.
+        message: How healthy is production right now? Check it live and tell me what needs attention.
       - title: Explain an alert
-        message: Explain the latest alert in context, verify its current state, and identify the next operator decision.
+        message: What happened with the latest alert, is it still going on, and what should we do?
       - title: Open work
-        message: What are you working on, what is blocked, and what do you owe the team?
+        message: What are you working on, what is blocked, and what do you need from us?
     actions:
       - name: Investigate production
-        description: Correlate repository topology with fresh, policy-controlled live evidence.
+        description: Check production live and say what needs attention.
       - name: Explain alert
-        description: Assess an alert in channel context without automatically creating an incident.
+        description: Explain an alert where it was posted, without opening an incident.
       - name: Prepare handoff
-        description: Summarize verified evidence, gaps, decisions, and next actions.
+        description: Sum up what is known, what is not, and what comes next.
   app_home:
     home_tab_enabled: true
     messages_tab_enabled: true

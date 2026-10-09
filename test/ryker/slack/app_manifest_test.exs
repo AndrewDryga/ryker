@@ -71,4 +71,20 @@ defmodule Ryker.Slack.AppManifestTest do
     {:ok, manifest} = @manifest_path |> File.read!() |> YamlElixir.read_from_string()
     get_in(manifest, ["oauth_config", "scopes", "bot"])
   end
+
+  # The Messages tab's "Production health" posted, in the person's own name,
+  # "Reconcile our declared production topology with fresh live evidence and
+  # report healthy, degraded, and unverified layers." (Slack as Andrew,
+  # 2026-10-09). A suggested prompt is what a person would ask.
+  test "suggested prompts read as questions a person would ask" do
+    {:ok, manifest} = @manifest_path |> File.read!() |> YamlElixir.read_from_string()
+    agent = get_in(manifest, ["features", "agent_view"])
+
+    for %{"message" => message} <- agent["suggested_prompts"] do
+      assert message =~ "?"
+      refute message =~ ~r/topology|reconcile|operator decision/i
+    end
+
+    refute agent["agent_description"] =~ ~r/topology|host-validated/i
+  end
 end
