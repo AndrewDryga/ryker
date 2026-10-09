@@ -166,6 +166,27 @@ defmodule Ryker.Slack.Renderer.Records do
     end
   end
 
+  # The host adds the repository GitHub knows to a task offer, so the card and
+  # its Start dialog name it as people do.
+  defp render_record(
+         %{
+           "kind" => "task_offer",
+           "payload" => payload,
+           "presentation" => presentation,
+           "ref" => ref,
+           "status" => "open"
+         } = record
+       )
+       when map_size(record) == 5 do
+    with :ok <- reference(ref),
+         :ok <- Offers.task_offer_presentation(presentation),
+         {:ok, %{payload: prepared}} <- Records.RecordPayload.prepare("task_offer", payload, ref) do
+      {:ok, Offers.task_offer_blocks(ref, prepared, presentation)}
+    else
+      _invalid -> {:error, {:invalid_slack_render, :record}}
+    end
+  end
+
   defp render_record(
          %{"kind" => kind, "payload" => payload, "ref" => ref, "status" => "open"} = record
        )
@@ -190,7 +211,7 @@ defmodule Ryker.Slack.Renderer.Records do
     presentation = Map.get(record, "presentation", %{})
 
     with :ok <- reference(ref),
-         :ok <- Offers.incident_room_presentation(presentation),
+         :ok <- Offers.task_offer_presentation(presentation),
          {:ok, %{payload: prepared}} <- Records.RecordPayload.prepare("task_offer", payload, ref) do
       {:ok, Offers.confirmed_task_offer(prepared, presentation)}
     else

@@ -63,7 +63,6 @@ defmodule Ryker.Slack.AppHomeProjection do
             shared_conversations,
             now
           ),
-        counts: counts(workspace_ref, actor_scope, destination_refs, channel_refs, now),
         incidents: incidents(workspace_ref, channel_refs),
         memories:
           memories(
@@ -88,17 +87,6 @@ defmodule Ryker.Slack.AppHomeProjection do
   @spec empty() :: map()
   def empty do
     %{
-      counts: %{
-        active_behaviors: 0,
-        active_commitments: 0,
-        active_memory: 0,
-        active_schedules: 0,
-        blocked_work: 0,
-        incident_history: 0,
-        open_incidents: 0,
-        published_work: 0,
-        retained_workspaces: 0
-      },
       behaviors: [],
       incidents: [],
       memories: [],
@@ -191,21 +179,6 @@ defmodule Ryker.Slack.AppHomeProjection do
   defp collection_url(entity, workspace_ref, shared_conversations),
     do: source_url(entity, workspace_ref, shared_conversations)
 
-  defp counts(workspace_ref, actor_ref, destination_refs, channel_refs, now) do
-    %{
-      active_behaviors:
-        active_behavior_count(ConversationRef.slack_workspace(workspace_ref), actor_ref, now),
-      active_commitments: active_commitment_count(destination_refs),
-      active_memory: active_memory_count(ConversationRef.slack_workspace(workspace_ref), now),
-      active_schedules: active_schedule_count(destination_refs, now),
-      blocked_work: blocked_work_count(destination_refs),
-      incident_history: incident_count(workspace_ref, channel_refs, :closed),
-      open_incidents: incident_count(workspace_ref, channel_refs, :open),
-      published_work: published_work_count(destination_refs),
-      retained_workspaces: retained_workspace_count(destination_refs)
-    }
-  end
-
   defp needs_attention(workspace_ref, destination_refs, channel_refs) do
     (operator_waits(workspace_ref, destination_refs) ++
        blocked_work(workspace_ref, destination_refs) ++
@@ -216,30 +189,6 @@ defmodule Ryker.Slack.AppHomeProjection do
     |> Enum.take(@maximum_attention)
     |> Enum.map(&Map.delete(&1, :updated_at))
   end
-
-  defp active_behavior_count(workspace_ref, actor_ref, now),
-    do: count(AppHome.Query.active_behaviors(workspace_ref, actor_ref, now))
-
-  defp active_commitment_count(destination_refs),
-    do: count(AppHome.Query.active_commitments(destination_refs))
-
-  defp active_memory_count(workspace_ref, now),
-    do: count(AppHome.Query.workspace_facts(workspace_ref, now))
-
-  defp active_schedule_count(destination_refs, now),
-    do: count(AppHome.Query.active_schedules(destination_refs, now))
-
-  defp blocked_work_count(destination_refs),
-    do: count(AppHome.Query.blocked_turns(destination_refs))
-
-  defp incident_count(workspace_ref, channel_refs, state),
-    do: count(AppHome.Query.incidents(workspace_ref, channel_refs, state))
-
-  defp published_work_count(destination_refs),
-    do: count(AppHome.Query.published_work(destination_refs))
-
-  defp retained_workspace_count(destination_refs),
-    do: count(AppHome.Query.retained_workspaces(destination_refs))
 
   defp operator_waits(workspace_ref, destination_refs) do
     destination_refs
@@ -457,21 +406,26 @@ defmodule Ryker.Slack.AppHomeProjection do
 
     tasks = ids |> AppHome.Query.latest_tasks() |> Repo.all() |> Map.new()
     inputs = ids |> AppHome.Query.first_inputs() |> Repo.all() |> Map.new()
+    titles = Episodes.RoutingDigests.titles(ids)
 
     Enum.map(rows, fn row ->
       episode = episode_of.(row)
       input = request_from_payload(inputs[episode.id])
-      {row, episode_request(tasks[episode.id], input, episode)}
+      {row, episode_request(tasks[episode.id], titles[episode.id], input)}
     end)
   end
 
-  defp episode_request(task, input, episode) when is_map(task),
-    do: first_text([task["prompt"], task["title"], input, episode.key])
+  # A row is named as the work is everywhere else: the task's title, the title
+  # the work gave itself, then what was asked. It was the brief the worker was
+  # given, cut at 240 characters, or `ingress-input:<uuid>` (Slack as Andrew,
+  # 2026-10-09).
+  defp episode_request(task, title, input) when is_map(task),
+    do: first_text([task["title"], title, input, task["prompt"]])
 
-  defp episode_request(_task, input, episode), do: first_text([input, episode.key])
+  defp episode_request(_task, title, input), do: first_text([title, input])
 
   defp workspace_request(%Work.Session{workspace_task: task}, request) when is_map(task),
-    do: first_text([task["prompt"], task["title"], request])
+    do: first_text([task["title"], request, task["prompt"]])
 
   defp workspace_request(_session, request), do: request
 
@@ -609,8 +563,6 @@ defmodule Ryker.Slack.AppHomeProjection do
   defp next_action(_episode, :cancel_pending, _coop_turn_id), do: "reconcile_stop"
   defp next_action(_episode, _turn_status, nil), do: "start_work"
   defp next_action(_episode, _turn_status, _coop_turn_id), do: "continue_work"
-
-  defp count(query), do: Repo.aggregate(query, :count, :id)
 
   defp shared_conversations?(conversations) do
     MapSet.size(conversations) <= 20_000 and Enum.all?(conversations, &ID.valid?/1)

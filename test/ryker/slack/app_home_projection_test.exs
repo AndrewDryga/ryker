@@ -26,9 +26,6 @@ defmodule Ryker.Slack.AppHomeProjectionTest do
 
     snapshot = AppHomeProjection.snapshot("T123", "U123", MapSet.new(["C456"]))
 
-    assert snapshot.counts.active_commitments == 1
-    assert snapshot.counts.published_work == 1
-
     assert Enum.any?(snapshot.needs_attention, fn row ->
              row.kind == :operator_input and row.ref == local.episode.key and
                row.title == "Choose local." and
@@ -51,6 +48,33 @@ defmodule Ryker.Slack.AppHomeProjectionTest do
     assert length(snapshot.memory_reviews) <= 2
     assert snapshot.memory_review_count >= length(snapshot.memory_reviews)
     assert length(snapshot.schedules) <= 5
+  end
+
+  # App Home listed work as `ingress-input:01a12235-… · working; next: start
+  # work`, and a task as the first 240 characters of the brief its worker was
+  # given (Slack as Andrew, 2026-10-09). A row is named the way the work is
+  # named everywhere else: its title, then what was asked.
+  test "a Home row names its work by the work's title" do
+    titled = waiting_episode!("T123", "titled")
+
+    Repo.update_all(
+      from(digest in Ryker.Episodes.RoutingDigest,
+        where: digest.episode_id == ^titled.episode.id
+      ),
+      set: [
+        title: "Commit-message rules",
+        title_turn_id: Ecto.UUID.generate(),
+        title_updated_at: @now
+      ]
+    )
+
+    untitled = waiting_episode!("T123", "untitled")
+    snapshot = AppHomeProjection.snapshot("T123", "U123", MapSet.new(["C456"]))
+    titles = Map.new(snapshot.work, &{&1.ref, &1.title})
+
+    assert titles[titled.episode.key] == "Commit-message rules"
+    assert titles[untitled.episode.key] == "Choose untitled."
+    refute Map.has_key?(snapshot, :counts)
   end
 
   # Each row's title cost two more queries, the work's latest session and its
@@ -84,13 +108,12 @@ defmodule Ryker.Slack.AppHomeProjectionTest do
 
       refute snapshot == AppHomeProjection.empty()
       assert snapshot.readable == false
-      assert snapshot.counts == AppHomeProjection.empty().counts
     end
 
     assert AppHomeProjection.empty().readable == true
   end
 
-  test "private conversation titles and counts are absent when Home user no longer shares them" do
+  test "private conversation titles are absent when Home user no longer shares them" do
     visible = waiting_episode!("T123", "visible", "C456")
     secret = waiting_episode!("T123", "secret", "GSECRET")
 
@@ -111,8 +134,6 @@ defmodule Ryker.Slack.AppHomeProjectionTest do
 
     snapshot = AppHomeProjection.snapshot("T123", "U123", MapSet.new(["C456"]))
 
-    assert snapshot.counts.active_commitments == 1
-    assert snapshot.counts.published_work == 0
     assert Enum.any?(snapshot.work, &(&1.ref == visible.episode.key))
     refute Enum.any?(snapshot.work, &(&1.ref == secret.episode.key))
     refute Jason.encode!(snapshot) =~ "Choose secret."

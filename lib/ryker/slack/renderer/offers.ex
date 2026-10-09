@@ -29,31 +29,60 @@ defmodule Ryker.Slack.Renderer.Offers do
       when kind in ~w(preference_offer guidance_offer standing_assignment_offer),
       do: behavior_offer(kind, ref, offer)
 
-  defp task_offer(ref, %{"kind" => "engineering", "repository" => repository} = offer),
-    do: [section(offer_summary(offer)), actions(ref, engineering_button(ref, repository))]
+  @doc """
+  An open task offer's blocks, naming its repository as the host's
+  `presentation` does when it carries one (`task_offer_presentation/1`).
+  """
+  @spec task_offer_blocks(String.t(), map(), map()) :: [map()]
+  def task_offer_blocks(ref, offer, presentation),
+    do: task_offer(ref, offer, presentation["repository"])
+
+  defp task_offer(ref, offer), do: task_offer(ref, offer, nil)
+
+  defp task_offer(ref, %{"kind" => "engineering"} = offer, repository),
+    do: [
+      section(offer_summary(offer, repository)),
+      actions(ref, engineering_button(ref, repository_name(offer, repository)))
+    ]
 
   # One offer owns both incident paths; the host starts exactly one of them.
-  defp task_offer(ref, %{"kind" => "incident", "repository" => _repository} = offer),
+  defp task_offer(ref, %{"kind" => "incident", "repository" => _repository} = offer, repository),
     do: [
-      section(offer_summary(offer)),
+      section(offer_summary(offer, repository)),
       actions(ref, [investigate_button(ref), incident_button(ref)])
     ]
 
   # Both the open and the confirmed card render this. An operator returning to
   # the thread reads the confirmed card to find out what was authorized, and
   # repainting it down to a title and a check mark answered nothing.
-  defp offer_summary(%{"kind" => "engineering", "repository" => repository} = offer) do
+  defp offer_summary(%{"kind" => "engineering"} = offer, repository) do
     offer_lines(
-      "*#{escape(offer["title"])}*\nRepository: `#{escape(repository)}`#{offer_source(offer)}",
+      "*#{escape(offer["title"])}*\nRepository: #{repository_label(offer, repository)}#{offer_source(offer)}",
       offer
     )
   end
 
-  defp offer_summary(%{"repository" => nil, "title" => title} = offer),
+  defp offer_summary(%{"repository" => nil, "title" => title} = offer, _repository),
     do: offer_lines("*#{escape(title)}*", offer)
 
-  defp offer_summary(%{"repository" => repository, "title" => title} = offer),
-    do: offer_lines("*#{escape(title)}*\nRepository: `#{escape(repository)}`", offer)
+  defp offer_summary(%{"title" => title} = offer, repository),
+    do:
+      offer_lines(
+        "*#{escape(title)}*\nRepository: #{repository_label(offer, repository)}",
+        offer
+      )
+
+  # The repository GitHub knows, linked, when the host presented the offer's
+  # own repository; otherwise the ref the offer recorded.
+  defp repository_label(%{"repository" => ref}, %{"ref" => ref} = repository),
+    do: repository_link(repository)
+
+  defp repository_label(%{"repository" => ref}, _repository), do: "`#{escape(ref)}`"
+
+  defp repository_name(%{"repository" => ref}, %{"ref" => ref} = repository),
+    do: Ryker.Slack.Renderer.Blocks.repository_name(repository)
+
+  defp repository_name(%{"repository" => ref}, _repository), do: ref
 
   defp offer_lines(head, offer), do: Enum.join([head | offer_brief(offer)], "\n\n")
 
@@ -91,13 +120,13 @@ defmodule Ryker.Slack.Renderer.Offers do
 
   @doc "The confirmed task offer, with the incident room it opened once the host knows it."
   @spec confirmed_task_offer(map(), map()) :: [map()]
-  def confirmed_task_offer(%{"kind" => "engineering"} = offer, _presentation),
-    do: [section(offer_outcome(offer, "✓ Task started in this thread."))]
+  def confirmed_task_offer(%{"kind" => "engineering"} = offer, presentation),
+    do: [section(offer_outcome(offer, presentation, "✓ Task started in this thread."))]
 
-  def confirmed_task_offer(offer, %{"incident_room" => %{"url" => url}})
+  def confirmed_task_offer(offer, %{"incident_room" => %{"url" => url}} = presentation)
       when is_binary(url) do
     [
-      section(offer_outcome(offer, "✓ Incident room created.")),
+      section(offer_outcome(offer, presentation, "✓ Incident room created.")),
       actions(
         "incident-room-link",
         url_button("ryker_open_incident_room", "Open incident room", "room", url)
@@ -105,23 +134,49 @@ defmodule Ryker.Slack.Renderer.Offers do
     ]
   end
 
-  def confirmed_task_offer(offer, %{"incident_room" => _room}),
-    do: [section(offer_outcome(offer, "◷ Incident room requested · creating the channel"))]
+  def confirmed_task_offer(offer, %{"incident_room" => _room} = presentation),
+    do: [
+      section(
+        offer_outcome(offer, presentation, "◷ Incident room requested · creating the channel")
+      )
+    ]
 
-  def confirmed_task_offer(offer, _presentation),
-    do: [section(offer_outcome(offer, "✓ Investigating in this thread."))]
+  def confirmed_task_offer(offer, presentation),
+    do: [section(offer_outcome(offer, presentation, "✓ Investigating in this thread."))]
 
-  defp offer_outcome(offer, outcome), do: offer_summary(offer) <> "\n\n" <> outcome
+  defp offer_outcome(offer, presentation, outcome),
+    do: offer_summary(offer, presentation["repository"]) <> "\n\n" <> outcome
 
-  @spec incident_room_presentation(map()) :: :ok | {:error, term()}
-  def incident_room_presentation(presentation) when map_size(presentation) == 0, do: :ok
+  @doc """
+  What the host adds to a task offer it shows: the incident room the offer
+  opened and the offer's repository as GitHub knows it, each only once the
+  host knows it.
+  """
+  @spec task_offer_presentation(map()) :: :ok | {:error, term()}
+  def task_offer_presentation(presentation) when is_map(presentation) do
+    if Map.keys(presentation) -- ["incident_room", "repository"] == [] and
+         presented_room?(presentation["incident_room"]) and
+         presented_repository?(presentation["repository"]),
+       do: :ok,
+       else: {:error, :invalid_task_offer_presentation}
+  end
 
-  def incident_room_presentation(%{"incident_room" => %{"url" => url} = room} = presentation)
-      when map_size(presentation) == 1 and map_size(room) == 1,
-      do: optional_https_url(url)
+  def task_offer_presentation(_presentation), do: {:error, :invalid_task_offer_presentation}
 
-  def incident_room_presentation(_presentation),
-    do: {:error, :invalid_incident_room_presentation}
+  defp presented_room?(nil), do: true
+
+  defp presented_room?(%{"url" => url} = room) when map_size(room) == 1,
+    do: optional_https_url(url) == :ok
+
+  defp presented_room?(_room), do: false
+
+  defp presented_repository?(nil), do: true
+
+  defp presented_repository?(%{"ref" => ref, "url" => url} = repository)
+       when map_size(repository) == 2 and is_binary(ref) and is_binary(url),
+       do: Ryker.Reference.text?(ref) and byte_size(ref) <= 256 and optional_https_url(url) == :ok
+
+  defp presented_repository?(_repository), do: false
 
   defp engineering_button(ref, repository) do
     # The repository last, where a name too long for the dialog loses only its end.

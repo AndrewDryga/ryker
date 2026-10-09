@@ -74,7 +74,26 @@ defmodule Ryker.Slack.Renderer.Blocks do
   # A repository is a typed link. Ordinary text is escaped and never becomes
   # clickable Slack markup.
   def repository_link(%{"ref" => ref, "url" => nil}), do: "`#{escape(ref)}`"
-  def repository_link(%{"ref" => ref, "url" => url}), do: link(url, ref)
+
+  def repository_link(%{"ref" => _ref, "url" => url} = repository),
+    do: link(url, repository_name(repository))
+
+  @doc """
+  A repository by the name people know it by: owner/name, as GitHub shows it
+  and as the link the host built for it ends. The ref Ryker keeps for it is
+  plumbing (Andrew, 2026-09-28: "why repo name is andrewdryga-emisar while
+  it's andrewdryga/emisar?"); it is the name only when there is no link.
+  """
+  def repository_name(%{"ref" => ref, "url" => url}) when is_binary(url) do
+    with %URI{path: "/" <> name} <- URI.parse(url),
+         true <- Ryker.GitHub.repository_name?(name) do
+      name
+    else
+      _other -> ref
+    end
+  end
+
+  def repository_name(%{"ref" => ref}), do: ref
 
   # --- blocks -------------------------------------------------------------
 
@@ -225,8 +244,11 @@ defmodule Ryker.Slack.Renderer.Blocks do
 
   # The same facts as notification text, where markup is noise.
   def fact_text(values) when is_list(values), do: Enum.map_join(values, ", ", &fact_text/1)
-  def fact_text(%{"ref" => ref}), do: escape(ref)
-  def fact_text({:repository, %{"ref" => ref}, role}), do: escape(ref) <> " · " <> escape(role)
+  def fact_text(%{"ref" => _ref} = repository), do: escape(repository_name(repository))
+
+  def fact_text({:repository, repository, role}),
+    do: escape(repository_name(repository)) <> " · " <> escape(role)
+
   def fact_text(%{"channel_ref" => channel_ref}), do: channel_mention(channel_ref)
   def fact_text({:markup, text}), do: text
   def fact_text(value), do: escape(value)

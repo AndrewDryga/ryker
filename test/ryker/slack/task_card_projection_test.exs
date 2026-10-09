@@ -813,7 +813,7 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
     assert json =~ "✓ CI · 8/8"
     # The row links to the pull request it merged.
     assert json =~ "✓ <https://github.com/acme/ryker/pull/91|Review and merge> · merged"
-    assert json =~ "<https://github.com/acme/ryker|ryker>"
+    assert json =~ "<https://github.com/acme/ryker|acme/ryker>"
   end
 
   # A merge moves the pull request's head, and a card whose head had moved

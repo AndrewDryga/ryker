@@ -53,6 +53,51 @@ defmodule Ryker.Slack.ReplyRecordsTest do
     refute plain["presentation"]
   end
 
+  # The offer card said `andrewdryga-test` and its Start dialog "an isolated
+  # working copy of andrewdryga-test" while the task card after it said
+  # AndrewDryga/test (Slack as Andrew, 2026-10-09).
+  test "a task offer shown in Slack carries its repository as GitHub names it" do
+    claim = claim!()
+    now = DateTime.utc_now()
+    ref = "offer-repository-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all(Ryker.Settings.Repository, [
+      %{ref: ref, github_repository: "AndrewDryga/test", inserted_at: now, updated_at: now}
+    ])
+
+    payload =
+      Ryker.Fixtures.TaskOffer.payload(%{
+        "kind" => "engineering",
+        "prompt" => "Add a contributing guide.",
+        "repository" => ref,
+        "title" => "Add a contributing guide"
+      })
+
+    {:ok, offer} =
+      Records.create(Records.token(claim.turn), "request_task", "task_offer", payload)
+
+    [projected] = ReplyRecords.documents("slack", claim.episode.id, [offer])
+
+    assert projected["presentation"] == %{
+             "repository" => %{"ref" => ref, "url" => "https://github.com/AndrewDryga/test"}
+           }
+
+    assert {:ok, %{"blocks" => blocks}} =
+             Ryker.Slack.Renderer.render(%{"message" => "Ready.", "records" => [projected]})
+
+    assert Jason.encode!(blocks) =~ "<https://github.com/AndrewDryga/test|AndrewDryga/test>"
+
+    # A repository Ryker no longer has keeps the name the offer recorded.
+    other_claim = claim!()
+    gone = put_in(payload["repository"], "since-removed")
+
+    {:ok, other} =
+      Records.create(Records.token(other_claim.turn), "request_task", "task_offer", gone)
+
+    assert [plain] = ReplyRecords.documents("slack", other_claim.episode.id, [other])
+    refute plain["presentation"]
+  end
+
   test "receipt-shaped stdout from another tool is not Emisar source provenance" do
     claim = claim!()
 

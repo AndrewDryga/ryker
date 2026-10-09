@@ -28,17 +28,6 @@ defmodule Ryker.Slack.AppHomeTest do
     {:ok, calls} = Agent.start_link(fn -> [] end)
 
     snapshot = %{
-      counts: %{
-        active_behaviors: 3,
-        active_commitments: 4,
-        active_memory: 2,
-        active_schedules: 1,
-        blocked_work: 1,
-        incident_history: 7,
-        open_incidents: 1,
-        published_work: 5,
-        retained_workspaces: 1
-      },
       behaviors: [
         %{
           kind: :guidance,
@@ -154,6 +143,14 @@ defmodule Ryker.Slack.AppHomeTest do
           title: "Repair checkout deploy",
           url:
             "https://slack.com/app_redirect?team=T123&channel=COPS&message_ts=1787832000.000100"
+        },
+        %{
+          next_action: "external_event",
+          ref: "ingress-input:01a11f07-c8e8-7c58-9ad2-8ba93e36a979",
+          state: :waiting_for_event,
+          title: "Track Terraform run run-LfSQGsUsJgv6vXJ2",
+          url:
+            "https://slack.com/app_redirect?team=T123&channel=COPS&message_ts=1787832000.000200"
         }
       ]
     }
@@ -172,6 +169,21 @@ defmodule Ryker.Slack.AppHomeTest do
 
     text = Jason.encode!(blocks)
     assert text =~ "What needs you"
+    # A row says what the work is and where it stands, in words (Slack as
+    # Andrew, 2026-10-09: `ingress-input:01a11f07-… · waiting for event; next:
+    # external event`, under a block of nine counters).
+    assert text =~ "Repair checkout deploy · Working"
+    assert text =~ "Track Terraform run run-LfSQGsUsJgv6vXJ2 · Waiting for an update"
+    visible = visible_text(blocks)
+    refute visible =~ "next:"
+    refute visible =~ "ingress-input:"
+    refute visible =~ "Active commitments"
+    refute visible =~ "authoritative"
+    assert visible =~ "Waiting for your answer: Choose the sampling strategy"
+    assert visible =~ "Kept, never published: Preserved checkout patch"
+    assert visible =~ "Checkout API latency · Open"
+    refute visible =~ "operator input"
+    refute visible =~ "retained workspace"
     assert text =~ "Choose the sampling strategy"
     assert text =~ "Checkout API latency"
     assert text =~ "Repair checkout deploy"
@@ -392,7 +404,6 @@ defmodule Ryker.Slack.AppHomeTest do
 
     snapshot = %{
       behaviors: Enum.map(1..5, row),
-      counts: %{},
       incidents: Enum.map(1..5, row),
       memories: Enum.map(1..5, row),
       memory_review_count: 5,
@@ -409,13 +420,12 @@ defmodule Ryker.Slack.AppHomeTest do
     # Slack rejects a view over 100 blocks, so the complete-list controls cost
     # exactly one actions block for all three collections.
     assert length(blocks) < 100
-    assert length(blocks) == 99
+    assert length(blocks) == 95
     action_ids = action_ids(blocks)
     assert length(action_ids) == length(Enum.uniq(action_ids))
     rendered = Jason.encode!(blocks)
     assert rendered =~ "3 more memory reviews are available"
     assert rendered =~ "visibility: workspace; value: VALUE-"
-    assert rendered =~ "Durable state remains authoritative"
   end
 
   test "a dashboard the host could not read says so instead of showing nothing" do
@@ -444,7 +454,6 @@ defmodule Ryker.Slack.AppHomeTest do
           subject: "Quiet hours"
         }
       ],
-      counts: :unavailable,
       incidents: [],
       memories: [],
       memory_review_count: :unavailable,
@@ -504,7 +513,7 @@ defmodule Ryker.Slack.AppHomeTest do
 
   test "malformed dependencies fail closed and publisher errors remain retryable" do
     {:ok, calls} = Agent.start_link(fn -> [] end)
-    valid = options(calls, fn _, _, _ -> %{counts: %{}} end)
+    valid = options(calls, fn _, _, _ -> %{} end)
 
     assert AppHome.handle(:invalid, %{}) == {:error, {:invalid_app_home, :request}}
 
@@ -603,4 +612,13 @@ defmodule Ryker.Slack.AppHomeTest do
   # The people chosen to manage Ryker, with the workspace's admins left out.
   defp chosen_operators(people),
     do: Operators.new(people, false, "T123")
+
+  defp visible_text(blocks) do
+    blocks
+    |> Enum.flat_map(
+      &[get_in(&1, ["text", "text"]) | Enum.map(&1["fields"] || [], fn f -> f["text"] end)]
+    )
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n")
+  end
 end

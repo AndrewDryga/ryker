@@ -184,16 +184,12 @@ defmodule Ryker.Slack.AppHome do
       )
       |> append_section("In flight", work, &work_block/1)
       |> append_section("Incident rooms", incidents, &incident_block/1)
-      |> append_counts(Map.get(snapshot, :counts, %{}))
       |> append_control_section("Memory review", memory_reviews, &memory_review_blocks/1)
       |> append_memory_review_overflow(memory_review_count, length(memory_reviews))
       |> append_control_section("Operational memory", memories, &memory_blocks/1)
       |> append_control_section("Behaviors", behaviors, &behavior_blocks/1)
       |> append_control_section("Schedules", schedules, &schedule_blocks/1)
-      |> Kernel.++([
-        collection_controls(),
-        context("Refreshed when you open Home. Durable state remains authoritative.")
-      ])
+      |> Kernel.++([collection_controls()])
       |> unique_action_ids()
 
     %{"blocks" => blocks, "type" => "home"}
@@ -355,50 +351,48 @@ defmodule Ryker.Slack.AppHome do
 
   defp append_memory_review_overflow(blocks, _count, _shown), do: blocks
 
-  defp append_counts(blocks, counts) when is_map(counts) do
-    labels = [
-      {:active_commitments, "Active commitments"},
-      {:blocked_work, "Blocked work"},
-      {:open_incidents, "Open incidents"},
-      {:incident_history, "Incident history"},
-      {:published_work, "Published work"},
-      {:retained_workspaces, "Retained workspaces"},
-      {:active_memory, "Active memories"},
-      {:active_behaviors, "Active behaviors"},
-      {:active_schedules, "Active schedules"}
-    ]
-
-    fields =
-      Enum.map(labels, fn {key, label} ->
-        count = Map.get(counts, key, 0)
-        plain("#{label}: #{if(is_integer(count) and count >= 0, do: count, else: 0)}")
-      end)
-
-    blocks ++ [divider(), header("State"), %{"fields" => fields, "type" => "section"}]
-  end
-
-  defp append_counts(blocks, _counts), do: append_counts(blocks, %{})
-
   defp attention_blocks(row) do
-    kind = row |> Map.get(:kind, :attention) |> label()
-    summary = "#{kind}: #{bounded(Map.get(row, :title, Map.get(row, :ref, "Needs attention")))}"
+    summary =
+      "#{attention_label(Map.get(row, :kind))}: #{bounded(Map.get(row, :title) || "A request")}"
 
     [section(summary, open_button(row))]
     |> append_attention_controls(row)
   end
 
+  # Why a row needs the reader, in words: it said "operator input", "publish
+  # pending" and "retained workspace" (Slack as Andrew, 2026-10-09).
+  defp attention_label(:operator_input), do: "Waiting for your answer"
+  defp attention_label(:blocked_work), do: "Stopped, needs you"
+  defp attention_label(:blocked_incident), do: "Incident room needs you"
+  defp attention_label(:retained_workspace), do: "Kept, never published"
+  defp attention_label(:published), do: "Pull request changed outside Ryker"
+  defp attention_label(status) when status in [:reviewed, :blocked], do: "Not published yet"
+  defp attention_label(_publication), do: "Pull request on its way"
+
+  # What the work is and where it stands, in words. The row said
+  # `ingress-input:01a11f07-… · waiting for event; next: external event`
+  # (Slack as Andrew, 2026-10-09).
   defp work_block(row) do
-    title = bounded(Map.get(row, :title, Map.get(row, :ref, "Work")))
-    state = row |> Map.get(:state, :working) |> label()
-    next_action = row |> Map.get(:next_action, "continue_work") |> label()
-    section("#{title} · #{state}; next: #{next_action}", open_button(row))
+    title = bounded(Map.get(row, :title) || "A request")
+    section("#{title} · #{work_status(row)}", open_button(row))
   end
 
+  defp work_status(%{next_action: "operator_input"}), do: "Waiting for your answer"
+  defp work_status(%{next_action: "external_event"}), do: "Waiting for an update"
+  defp work_status(%{next_action: "deliver_result"}), do: "Sending the answer"
+  defp work_status(%{next_action: "operator_recovery"}), do: "Stopped, needs you"
+  defp work_status(%{next_action: "reconcile_stop"}), do: "Stopping"
+  defp work_status(%{next_action: "start_work"}), do: "Starting"
+  defp work_status(_row), do: "Working"
+
   defp incident_block(row) do
-    title = bounded(Map.get(row, :title, Map.get(row, :ref, "Incident")))
-    status = row |> Map.get(:status, :open) |> label()
-    section("#{title} · #{status}", open_button(row))
+    title = bounded(Map.get(row, :title) || "Incident")
+    section("#{title} · #{incident_status(Map.get(row, :status))}", open_button(row))
   end
+
+  defp incident_status(:requested), do: "Creating the room"
+  defp incident_status(:blocked), do: "Needs you"
+  defp incident_status(_open), do: "Open"
 
   defp memory_blocks(row) do
     subject = bounded(Map.get(row, :subject, Map.get(row, :ref, "Memory")))

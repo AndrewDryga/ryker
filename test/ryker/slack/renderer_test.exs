@@ -268,7 +268,7 @@ defmodule Ryker.Slack.RendererTest do
     text = Jason.encode!(rendered)
 
     assert text =~
-             "I work in the *Production* environment here: I can work on <https://github.com/acme/backend|backend> and `infrastructure`, changing only ones with read/write access."
+             "I work in the *Production* environment here: I can work on <https://github.com/acme/backend|acme/backend> and `infrastructure`, changing only ones with read/write access."
 
     assert text =~ "I'll reply when you mention <@UBOT>"
     assert text =~ "When an alert is posted here, I'll investigate proactively in its thread"
@@ -349,12 +349,12 @@ defmodule Ryker.Slack.RendererTest do
     production = settings_document()["environment"]
 
     assert welcome.(%{production | "emisar" => true}, 2) =~
-             "I can work on <https://github.com/acme/backend|backend> and `infrastructure`, changing only ones with read/write access, and use Emisar."
+             "I can work on <https://github.com/acme/backend|acme/backend> and `infrastructure`, changing only ones with read/write access, and use Emisar."
 
     single = %{production | "repositories" => [hd(production["repositories"])]}
 
     assert welcome.(single, 2) =~
-             "I work in the *Production* environment here: I can work on <https://github.com/acme/backend|backend>."
+             "I work in the *Production* environment here: I can work on <https://github.com/acme/backend|acme/backend>."
 
     ops = %{production | "emisar" => true, "name" => "Ops", "repositories" => []}
 
@@ -412,10 +412,10 @@ defmodule Ryker.Slack.RendererTest do
     repositories = Enum.find(fields, &String.starts_with?(&1, "*Repositories*"))
 
     assert repositories =~
-             "<https://github.com/acme-platform-engineering/service-1-backend-api|service-1-backend-api> · default"
+             "<https://github.com/acme-platform-engineering/service-1-backend-api|acme-platform-engineering/service-1-backend-api> · default"
 
     [_, more] = Regex.run(~r/and (\d+) more\z/, repositories)
-    shown = length(Regex.scan(~r/\|service-\d+-backend-api>/, repositories))
+    shown = length(Regex.scan(~r/engineering\/service-\d+-backend-api>/, repositories))
     assert shown + String.to_integer(more) == 33
   end
 
@@ -438,7 +438,7 @@ defmodule Ryker.Slack.RendererTest do
       |> Enum.map_join("\n", & &1["text"]["text"])
 
     assert text =~
-             "|service-10-backend-api> and 23 more, changing only ones with read/write access"
+             "|acme-platform-engineering/service-10-backend-api> and 23 more, changing only ones with read/write access"
 
     refute text =~ "service-11-backend-api"
     refute text =~ "…"
@@ -466,7 +466,7 @@ defmodule Ryker.Slack.RendererTest do
                "*Conversations*\nReply when mentioned",
                "*Alerts*\nInvestigate in the existing thread",
                "*Environment*\nProduction",
-               "*Repositories*\n<https://github.com/acme/backend|backend> · default\n`infrastructure` · available",
+               "*Repositories*\n<https://github.com/acme/backend|acme/backend> · default\n`infrastructure` · available",
                "*Incident invitations*\nNo one automatically; you can add people yourself",
                "*Observation mode*\nOff"
              ]
@@ -786,6 +786,44 @@ defmodule Ryker.Slack.RendererTest do
 
     assert confirmation =~ "isolated working copy"
     refute inspect(rendered) =~ "Change the parser"
+  end
+
+  # The offer said `andrewdryga-test` and its Start dialog "an isolated
+  # working copy of andrewdryga-test", the ref Ryker keeps, while the task card
+  # after it said AndrewDryga/test (Slack as Andrew, 2026-10-09). The host adds
+  # the repository GitHub knows; the card and the dialog name it that way.
+  test "an offer names its repository as GitHub does when the host knows it" do
+    assert {:ok, rendered} =
+             Renderer.render(%{
+               "message" => "I can prepare that repository change.",
+               "records" => [
+                 %{
+                   "kind" => "task_offer",
+                   "payload" =>
+                     TaskOffer.payload(%{
+                       "kind" => "engineering",
+                       "prompt" => "Change the parser and run focused tests.",
+                       "repository" => "acme-ryker",
+                       "title" => "Fix parser retries"
+                     }),
+                   "presentation" => %{
+                     "repository" => %{
+                       "ref" => "acme-ryker",
+                       "url" => "https://github.com/acme/ryker"
+                     }
+                   },
+                   "ref" => "record:task_offer:named",
+                   "status" => "open"
+                 }
+               ]
+             })
+
+    assert [_reply, offer, controls] = rendered["blocks"]
+    assert offer["text"]["text"] =~ "Repository: <https://github.com/acme/ryker|acme/ryker>"
+    refute offer["text"]["text"] =~ "acme-ryker"
+
+    assert get_in(hd(controls["elements"]), ["confirm", "text", "text"]) ==
+             "Start this task? Ryker edits, tests and commits in an isolated working copy of acme/ryker."
   end
 
   # A confirmation dialog holds 300 characters and Slack refuses a message

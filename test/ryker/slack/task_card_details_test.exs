@@ -117,7 +117,7 @@ defmodule Ryker.Slack.TaskCardDetailsTest do
     assert [
              %{
                "fields" => [
-                 %{"text" => "*Repository*\n<https://github.com/tenantcorp/emisar|emisar>"}
+                 %{"text" => "*Repository*\n<https://github.com/tenantcorp/emisar|tenantcorp/emisar>"}
                ]
              }
            ] =

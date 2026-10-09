@@ -16,16 +16,6 @@ defmodule Ryker.Slack.AppHome.Query do
 
   @active_episode_states [:working, :waiting_for_input, :waiting_for_event]
 
-  @doc "Active, unexpired behaviors of `workspace_ref` that `actor_ref` may see."
-  def active_behaviors(workspace_ref, actor_ref, now) do
-    from([operator_behaviors: behavior] in Behaviors.Behavior.Query.all(),
-      where:
-        behavior.workspace_ref == ^workspace_ref and behavior.status == :active and
-          (is_nil(behavior.expires_at) or behavior.expires_at > ^now),
-      where: ^behavior_visibility(actor_ref)
-    )
-  end
-
   @doc "The `limit` latest active or paused, unexpired behaviors `actor_ref` may see."
   def listed_behaviors(workspace_ref, actor_ref, now, limit) do
     from([operator_behaviors: behavior] in Behaviors.Behavior.Query.all(),
@@ -68,16 +58,6 @@ defmodule Ryker.Slack.AppHome.Query do
     )
   end
 
-  @doc "Episodes of the person's Slack conversations still under way."
-  def active_commitments(destination_refs) do
-    from(episode in Episodes.Episode,
-      where:
-        episode.destination_transport == "slack" and
-          episode.destination_conversation_ref in ^destination_refs and
-          episode.state in ^@active_episode_states
-    )
-  end
-
   @doc "Active, unexpired facts of `workspace_ref` the whole workspace may see."
   def workspace_facts(workspace_ref, now) do
     from(memory in Memories.MemoryEntry,
@@ -94,17 +74,6 @@ defmodule Ryker.Slack.AppHome.Query do
       order_by: [desc: memory.updated_at, desc: memory.id],
       limit: ^limit,
       select: memory
-    )
-  end
-
-  @doc "Active, unexpired schedules of the person's Slack conversations."
-  def active_schedules(destination_refs, now) do
-    from(schedule in Schedules.Schedule,
-      where:
-        schedule.destination_transport == "slack" and
-          schedule.destination_conversation_ref in ^destination_refs and
-          schedule.status == :active and
-          (is_nil(schedule.expires_at) or schedule.expires_at > ^now)
     )
   end
 
@@ -148,16 +117,8 @@ defmodule Ryker.Slack.AppHome.Query do
     )
   end
 
-  @doc "Incident rooms of the person's channels, closed (`:closed`) or not (`:open`)."
-  def incidents(workspace_ref, channel_refs, :closed) do
-    from(room in IncidentRoom,
-      where:
-        room.workspace_ref == ^workspace_ref and room.channel_ref in ^channel_refs and
-          room.status == :closed
-    )
-  end
-
-  def incidents(workspace_ref, channel_refs, :open) do
+  @doc "Incident rooms of the person's channels that are not closed."
+  def open_incidents(workspace_ref, channel_refs) do
     from(room in IncidentRoom,
       where:
         room.workspace_ref == ^workspace_ref and room.channel_ref in ^channel_refs and
@@ -167,7 +128,7 @@ defmodule Ryker.Slack.AppHome.Query do
 
   @doc "The `limit` latest open rooms of the person's channels."
   def listed_open_incidents(workspace_ref, channel_refs, limit) do
-    from(room in incidents(workspace_ref, channel_refs, :open),
+    from(room in open_incidents(workspace_ref, channel_refs),
       order_by: [desc: room.updated_at, desc: room.id],
       limit: ^limit,
       select: room
@@ -183,16 +144,6 @@ defmodule Ryker.Slack.AppHome.Query do
       order_by: [desc: room.updated_at, desc: room.id],
       limit: ^limit,
       select: room
-    )
-  end
-
-  @doc "Publications of the person's conversations that went out."
-  def published_work(destination_refs) do
-    from(publication in Publication.Publication,
-      where:
-        publication.destination_transport == "slack" and
-          publication.destination_conversation_ref in ^destination_refs and
-          publication.status == :published
     )
   end
 
@@ -290,7 +241,7 @@ defmodule Ryker.Slack.AppHome.Query do
   turn_status, coop_turn_id}`.
   """
   def work(destination_refs, limit) do
-    from(episode in active_commitments(destination_refs),
+    from(episode in active_episodes(destination_refs),
       left_join: turn in Work.Turn,
       on:
         turn.episode_id == episode.id and episode.owner_kind == :turn and
@@ -298,6 +249,15 @@ defmodule Ryker.Slack.AppHome.Query do
       order_by: [desc: episode.updated_at, desc: episode.id],
       limit: ^limit,
       select: {episode, turn.status, turn.coop_turn_id}
+    )
+  end
+
+  defp active_episodes(destination_refs) do
+    from(episode in Episodes.Episode,
+      where:
+        episode.destination_transport == "slack" and
+          episode.destination_conversation_ref in ^destination_refs and
+          episode.state in ^@active_episode_states
     )
   end
 

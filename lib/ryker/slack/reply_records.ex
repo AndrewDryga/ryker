@@ -12,6 +12,7 @@ defmodule Ryker.Slack.ReplyRecords do
   """
   alias Ryker.Behaviors
   alias Ryker.Delivery
+  alias Ryker.GitHub
   alias Ryker.Memories
   alias Ryker.Records
   alias Ryker.Repo
@@ -59,6 +60,7 @@ defmodule Ryker.Slack.ReplyRecords do
       |> enrich(receipts(episode_id, Enum.uniq(sources)), times)
       |> Enum.zip_with(records, &present_saved_entity/2)
       |> Enum.zip_with(records, &present_sent_post/2)
+      |> Enum.zip_with(records, &present_repository/2)
     else
       documents
     end
@@ -82,6 +84,28 @@ defmodule Ryker.Slack.ReplyRecords do
   end
 
   defp present_sent_post(document, _record), do: document
+
+  # A task offer names its repository as GitHub does, with its link, when the
+  # host still has that repository: the offer printed `andrewdryga-test`, the
+  # ref Ryker keeps, while the task card after it said AndrewDryga/test (Slack
+  # as Andrew, 2026-10-09).
+  defp present_repository(document, %{kind: "task_offer", payload: %{"repository" => ref}})
+       when is_binary(ref) do
+    case ref
+         |> Settings.Repository.Query.by_ref()
+         |> Settings.Repository.Query.select_github_repositories()
+         |> Repo.one() do
+      name when is_binary(name) ->
+        repository = %{"ref" => ref, "url" => GitHub.repository_url(name)}
+        presentation = Map.get(document, "presentation", %{})
+        Map.put(document, "presentation", Map.put(presentation, "repository", repository))
+
+      _unknown ->
+        document
+    end
+  end
+
+  defp present_repository(document, _record), do: document
 
   defp sent_action(record) do
     Repo.peek(
