@@ -85,7 +85,7 @@ defmodule Ryker.Slack.MembershipReconcilerTest do
   # A welcome was drawn again only when its own channel's settings were saved,
   # so #infra still listed repositories the environment had dropped and
   # #infra-alerts said "I don't have access to any repos" weeks after it got
-  # some (responder-52, Slack, 2026-10-09). A sweep draws a welcome again once
+  # some (manual testing in Slack, 2026-10-09). A sweep draws a welcome again once
   # what it says has changed, and only then.
   test "a sweep draws a welcome again once what it says changes, and only then" do
     agent =
