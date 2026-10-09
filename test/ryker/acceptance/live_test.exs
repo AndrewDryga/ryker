@@ -79,9 +79,14 @@ defmodule Ryker.Acceptance.LiveTest do
 
     # The first prompt names the environment's repository, as assembly
     # publishes it: it read a field environments no longer have and always
-    # said the environment had none (2026-10-04 review).
+    # said the environment had none (2026-10-04 review). Both ask for work in
+    # it: routing answered a one-sentence ask by itself, with no episode for the
+    # lane to prove, and the lane failed on a healthy install (2026-10-09).
     assert get_in(first, ["payload", "event", "text"]) =~
-             "identify the environment ryker you work in and its repository ryker"
+             "Read the first line of README.md in the repository ryker of the environment ryker"
+
+    assert get_in(followup, ["payload", "event", "text"]) =~
+             "read the second line of that same README.md"
   end
 
   # The harness asked the configuration for a `runtime_mode` key that assembly

@@ -352,7 +352,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   defp put_projected_card(record, key, cards) do
     case Delivery.ChatCard.project(record) do
       {:ok, card} -> Map.put(cards, key, named_repository(card))
-      :ignore -> cards
+      none when none in [:none, :ignore] -> cards
     end
   end
 

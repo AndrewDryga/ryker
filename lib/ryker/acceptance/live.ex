@@ -294,11 +294,26 @@ defmodule Ryker.Acceptance.Live do
          do: wait_for_result(settings, event_ref, previous_turn_ids)
   end
 
+  # The lane proves two turns of one episode, and routing answers by itself
+  # whatever the conversation already holds: asked for one sentence about the
+  # environment, it replied without starting an episode, and the lane failed on
+  # a healthy install (2026-10-09). Reading the repository is work.
+  defp prompt(:first, environment_ref, repository_ref) when is_binary(repository_ref) do
+    "Read the first line of README.md in the repository #{repository_ref} of the " <>
+      "environment #{environment_ref} and quote it in one sentence. This is a live " <>
+      "acceptance check: create no incident, task, memory, schedule, publication, or governed action."
+  end
+
   defp prompt(:first, environment_ref, repository_ref) do
     "Reply in one concise sentence. State that this live acceptance run is active, " <>
       "identify the environment #{environment_ref} you work in" <>
       repository_words(repository_ref) <>
       ", and create no incident, task, memory, schedule, publication, or governed action."
+  end
+
+  defp prompt(:followup, _environment_ref, repository_ref) when is_binary(repository_ref) do
+    "Now read the second line of that same README.md and quote it in one sentence. " <>
+      "Use the same conversation and create no new state."
   end
 
   defp prompt(:followup, _environment_ref, _repository_ref) do

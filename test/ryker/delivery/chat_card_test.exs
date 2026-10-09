@@ -273,7 +273,7 @@ defmodule Ryker.Delivery.ChatCardTest do
     question = "Which timezone should I use for the weekday 9:00 status?"
 
     assert ChatCard.project(record("input_request", %{"choices" => [], "question" => question})) ==
-             :ignore
+             :none
 
     assert {:ok, choosing} =
              ChatCard.project(

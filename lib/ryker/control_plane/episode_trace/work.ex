@@ -245,7 +245,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
                  wait_error: nil
              }) do
           {:ok, projected} -> projected
-          :ignore -> nil
+          none when none in [:none, :ignore] -> nil
         end
 
       # Creating an offer or a question is model work; only a delivery receipt

@@ -68,6 +68,9 @@ defmodule Ryker.Delivery.Presentation do
         {:ok, _card} ->
           {:cont, :ok}
 
+        :none ->
+          {:cont, :ok}
+
         :ignore ->
           {:halt,
            {:error, {:invalid_delivery_presentation, {:invalid_control_plane_card, record.ref}}}}

@@ -37,12 +37,18 @@ defmodule Ryker.Delivery.ChatCard do
   def display_status(%{status: status}),
     do: Wording.label(status)
 
-  @spec project(Records.Record.t()) :: {:ok, map()} | :ignore
+  @doc """
+  The card a record shows in Chat: `{:ok, card}`, `:none` when it shows none
+  by design (a question answered by typing, which the reply asks), or
+  `:ignore` when it cannot be drawn.
+  """
+  @spec project(Records.Record.t()) :: {:ok, map()} | :none | :ignore
   def project(%Records.Record{} = record) do
     case Records.RecordPayload.prepare(record.kind, record.payload, record.ref) do
       {:ok, %{payload: payload}} ->
         case card(record, payload) do
           %{} = card -> {:ok, card}
+          :none -> :none
           nil -> :ignore
         end
 
@@ -337,7 +343,10 @@ defmodule Ryker.Delivery.ChatCard do
   # answers gets a card holding only them. Every question card once said "Reply below or
   # choose one of the offered answers." whether it offered any or not, and went on saying it
   # after the answer came. An answered question asks for nothing.
-  defp card(%Records.Record{kind: "input_request"}, %{"choices" => []}), do: nil
+  # Having no card is the design here, not a card that could not be drawn: the reply
+  # check refused every typed question as unrenderable, so Chat could not ask one
+  # (2026-10-09).
+  defp card(%Records.Record{kind: "input_request"}, %{"choices" => []}), do: :none
 
   defp card(%Records.Record{kind: "input_request"} = record, payload) do
     record

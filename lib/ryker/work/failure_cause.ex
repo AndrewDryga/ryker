@@ -150,6 +150,28 @@ defmodule Ryker.Work.FailureCause do
 
   def explain(_detail), do: nil
 
+  @doc """
+  What a card says of a blocked turn. A person's Stop saves the sentence its
+  control wrote for the reader, and the card keeps it. Anything else saved a
+  term: the card says the cause and next step `explain/1` names for it, or
+  `fallback` when it names none. The task card printed the term whole
+  ("coop_error: {:coop_error, 409, …}", 2026-10-09).
+  """
+  @spec summary(
+          %{last_error_code: String.t() | nil, last_error_detail: String.t() | nil},
+          String.t()
+        ) :: String.t()
+  def summary(%{last_error_code: "operator_stop", last_error_detail: detail}, _fallback)
+      when is_binary(detail),
+      do: detail
+
+  def summary(%{last_error_detail: detail}, fallback) do
+    case explain(detail) do
+      %{cause: cause, next_step: next_step} -> cause <> "\n" <> next_step
+      nil -> fallback
+    end
+  end
+
   @doc "The cause `explain/1` names for `detail` in words, or nil when it names none."
   @spec cause(String.t() | nil) :: String.t() | nil
   def cause(detail) do

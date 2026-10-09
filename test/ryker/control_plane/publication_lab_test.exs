@@ -514,7 +514,8 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
 
     assert {:ok, blocked} = TaskCardProjection.build(confirmed_task)
     assert blocked.document["task_card"]["status"] == "action_required"
-    assert blocked.document["task_card"]["action_needed"] =~ "follow-up could not finish"
+    # Ryker's own block saves an error term, which the card never prints.
+    assert blocked.document["task_card"]["action_needed"] =~ "The task stopped and needs a person"
     assert blocked.document["task_card"]["publication"]["pull_request_url"] == published_task.url
   end
 

@@ -347,7 +347,7 @@ defmodule Ryker.ControlPlane.IncidentProjection do
     card =
       case Delivery.ChatCard.project(record) do
         {:ok, card} -> card
-        :ignore -> %{}
+        none when none in [:none, :ignore] -> %{}
       end
 
     %{

@@ -643,6 +643,57 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
     assert json =~ "ryker_task_discard_publication"
   end
 
+  # Found live 2026-10-09: a local incident's card read "Action needed: coop_error:
+  # {:coop_error, 409, \"invalid_session_state\", …}", the saved error term printed
+  # whole, in Chat and on Slack's task card alike. It says in words what Ryker can
+  # tell of it, as the incident room's card does, and otherwise where the cause is.
+  test "a blocked task says what stopped it in words, never its saved error term" do
+    %{episode: episode} = PublicationFixture.review_requested!("blocked-term")
+
+    {1, _rows} =
+      Repo.update_all(
+        from(turn in Turn, where: turn.episode_id == ^episode.id),
+        set: [
+          last_error_code: "work_execution_blocked",
+          last_error_detail:
+            ~s(coop_error: {:coop_error, 409, "invalid_session_state", "workspace task requires an unused writable open session"}),
+          status: :blocked
+        ]
+      )
+
+    card_record = %Record{
+      kind: "task_offer",
+      status: :confirmed,
+      confirmed_episode_id: episode.id,
+      confirmed_at: DateTime.utc_now(),
+      confirmed_by_actor_ref: "slack:user:U1",
+      ref: "task-card:blocked-term",
+      payload:
+        TaskOffer.payload(%{
+          "title" => "Investigate checkout failures",
+          "repository" => "ryker",
+          "prompt" => "Investigate the checkout failures."
+        })
+    }
+
+    assert {:ok, %{document: %{"task_card" => card}}} = TaskCardProjection.build(card_record)
+
+    assert card["action_needed"] ==
+             "The task stopped and needs a person. The cause is on Ryker's Failures page."
+
+    # A person's Stop saves the sentence its control wrote, and the card keeps it.
+    stop = "Andrew Example stopped this run. Reply in this conversation to continue."
+
+    {1, _rows} =
+      Repo.update_all(
+        from(turn in Turn, where: turn.episode_id == ^episode.id),
+        set: [last_error_code: "operator_stop", last_error_detail: stop]
+      )
+
+    assert {:ok, %{document: %{"task_card" => stopped}}} = TaskCardProjection.build(card_record)
+    assert stopped["action_needed"] == stop
+  end
+
   test "a stopped task offers a resume bound to the turn it was rendered against" do
     # The card that offers Stop has to offer the way back, or stopping from
     # Slack means finishing from the control plane.

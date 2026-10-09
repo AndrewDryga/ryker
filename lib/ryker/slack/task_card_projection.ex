@@ -592,10 +592,11 @@ defmodule Ryker.Slack.TaskCardProjection do
     do: wait_summary(records, "event_wait", "The task is waiting for external verification.")
 
   defp action_needed(_episode, %Work.Turn{status: :blocked} = turn, _records, _publication) do
-    Fields.cut(
-      turn.last_error_detail || "Task work is blocked and needs operator attention.",
-      500
+    turn
+    |> Work.FailureCause.summary(
+      "The task stopped and needs a person. The cause is on Ryker's Failures page."
     )
+    |> Fields.cut(500)
   end
 
   defp action_needed(_episode, _turn, _records, _publication), do: nil

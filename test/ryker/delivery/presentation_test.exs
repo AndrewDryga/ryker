@@ -114,6 +114,24 @@ defmodule Ryker.Delivery.PresentationTest do
              {:error, {:invalid_delivery_presentation, {:invalid_control_plane_card, record.ref}}}
   end
 
+  # Found live 2026-10-09: a Chat question answered by typing has no card (the
+  # reply asks it, Andrew 2026-10-04), and this check read that as a card it
+  # could not render. Asking was refused, waiting without the question was
+  # refused, and completing over the open question was refused: a recall
+  # question in Chat stopped after three answers, on every model attempt.
+  test "Chat accepts a question answered by typing, which has no card" do
+    claim = claim!("control-plane-question", "control_plane")
+
+    assert {:ok, question} =
+             Records.create(Records.token(claim.turn), "lab-question", "input_request", %{
+               "choices" => [],
+               "question" =>
+                 "Where is the staging Nomad deployment configuration or runbook that names the cluster?"
+             })
+
+    assert Presentation.validate(claim.episode, claim.turn, final!(:reply, [question.ref])) == :ok
+  end
+
   defp episode("slack") do
     %Episode{
       active_input_refs: [],

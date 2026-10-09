@@ -158,13 +158,11 @@ defmodule Ryker.Slack.IncidentRoomCard do
   # (2026-10-04 review). It says in words what Ryker can tell of it, as a task
   # card does, and otherwise where the cause is written.
   defp action_needed(_room, _episode, _records, %Work.Turn{status: :blocked} = turn) do
-    case Work.FailureCause.explain(turn.last_error_detail) do
-      %{cause: cause, next_step: next_step} ->
-        Fields.cut(cause <> "\n" <> next_step, 500)
-
-      nil ->
-        "The investigation stopped and needs a person. The cause is on Ryker's Failures page."
-    end
+    turn
+    |> Work.FailureCause.summary(
+      "The investigation stopped and needs a person. The cause is on Ryker's Failures page."
+    )
+    |> Fields.cut(500)
   end
 
   defp action_needed(_room, _episode, _records, _turn), do: nil
