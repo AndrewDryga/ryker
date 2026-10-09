@@ -168,8 +168,10 @@ defmodule Ryker.Slack.ChannelSetupTest do
     text = explanation["text"]["text"]
     assert text =~ "*2 · Environment*"
 
+    # A repository GitHub knows is named as GitHub names it; the step said
+    # `andrewdryga-emisar`, the ref Ryker keeps (2026-10-09).
     assert text =~
-             "*Production*: I'll work on `payments` and `ledger`, changing only ones with read/write access."
+             "*Production*: I'll work on `acme/payments` and `ledger`, changing only ones with read/write access."
 
     assert text =~ "*Staging*: It has no repos or Emisar, so I'll answer without them."
     assert text =~ "*No environment*: I'll still answer here, but without any repos or Emisar."

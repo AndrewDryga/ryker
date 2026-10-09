@@ -17,6 +17,7 @@ defmodule Ryker.Slack.ChannelConfigurations do
   alias Ryker.CanonicalJSON
   alias Ryker.Continuity
   alias Ryker.ConversationRef
+  alias Ryker.GitHub
   alias Ryker.Maps
   alias Ryker.Memories
   alias Ryker.People
@@ -1361,10 +1362,14 @@ defmodule Ryker.Slack.ChannelConfigurations do
         "emisar" => choice.emisar,
         "name" => choice.name,
         "ref" => choice.ref,
-        "repositories" => Enum.map(choice.repositories, & &1.ref)
+        "repositories" => Enum.map(choice.repositories, &repository_name/1)
       }
     end)
   end
+
+  # The Q&A shows each repository by the name GitHub knows it by; the ref Ryker
+  # keeps is plumbing (2026-10-09).
+  defp repository_name(%{ref: ref, url: url}), do: GitHub.repository_name_from_url(url) || ref
 
   defp audience(:none), do: {:ok, %{user_group_refs: [], user_refs: []}}
 

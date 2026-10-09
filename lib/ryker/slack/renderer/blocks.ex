@@ -84,16 +84,8 @@ defmodule Ryker.Slack.Renderer.Blocks do
   plumbing (Andrew, 2026-09-28: "why repo name is andrewdryga-emisar while
   it's andrewdryga/emisar?"); it is the name only when there is no link.
   """
-  def repository_name(%{"ref" => ref, "url" => url}) when is_binary(url) do
-    with %URI{path: "/" <> name} <- URI.parse(url),
-         true <- Ryker.GitHub.repository_name?(name) do
-      name
-    else
-      _other -> ref
-    end
-  end
-
-  def repository_name(%{"ref" => ref}), do: ref
+  def repository_name(%{"ref" => ref} = repository),
+    do: Ryker.GitHub.repository_name_from_url(repository["url"]) || ref
 
   # --- blocks -------------------------------------------------------------
 

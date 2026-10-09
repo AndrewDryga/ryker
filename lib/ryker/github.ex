@@ -86,6 +86,20 @@ defmodule Ryker.GitHub do
 
   def webhook_secret?(_unsealed), do: false
 
+  @doc """
+  The owner/name a repository's web page `url` names, or nil when it names
+  none: the name people know a repository by, where Ryker keeps a ref.
+  """
+  @spec repository_name_from_url(String.t() | nil) :: String.t() | nil
+  def repository_name_from_url(url) when is_binary(url) do
+    case URI.parse(url) do
+      %URI{path: "/" <> name} -> if repository_name?(name), do: name
+      _other -> nil
+    end
+  end
+
+  def repository_name_from_url(_url), do: nil
+
   @doc "The pattern `repository_name?/1` matches, for a changeset's format check."
   @spec repository_name_pattern() :: Regex.t()
   def repository_name_pattern, do: @repository_name
