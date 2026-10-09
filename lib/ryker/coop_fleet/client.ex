@@ -930,7 +930,10 @@ defmodule Ryker.CoopFleet.Client do
   end
 
   @impl true
-  def operation_by_key(client, key) do
+  def operation_by_key(client, key),
+    do: operation_by_key(client, key, &ensure_reconciled_workspace/4)
+
+  defp operation_by_key(client, key, ensure_workspace) do
     case Repo.fetch(Command.Query.by_idempotency_key(key)) do
       {:error, :not_found} ->
         :not_found
@@ -944,7 +947,7 @@ defmodule Ryker.CoopFleet.Client do
                ),
              {:ok, operation} <- operation_result(body),
              {:ok, operation} <- reconcile_waiting_operation(client, command, operation, key),
-             :ok <- ensure_reconciled_workspace(client, command, operation, key) do
+             :ok <- ensure_workspace.(client, command, operation, key) do
           {:ok, operation}
         end
 
@@ -952,7 +955,7 @@ defmodule Ryker.CoopFleet.Client do
       when status in [:queued, :delivered, :acknowledged] ->
         with {:ok, result} <- client.bridge.await_command(command.id, client.bridge_options),
              {:ok, operation} <- operation_result(result),
-             :ok <- ensure_reconciled_workspace(client, command, operation, key) do
+             :ok <- ensure_workspace.(client, command, operation, key) do
           {:ok, operation}
         end
 
@@ -971,7 +974,7 @@ defmodule Ryker.CoopFleet.Client do
              {:ok, result} <-
                execute_read(client, session, "reconcile_operation", %{"operation_key" => key}),
              {:ok, operation} <- operation_result(result),
-             :ok <- ensure_reconciled_workspace(client, command, operation, key) do
+             :ok <- ensure_workspace.(client, command, operation, key) do
           {:ok, operation}
         end
     end
@@ -1026,8 +1029,19 @@ defmodule Ryker.CoopFleet.Client do
 
   defp fenced_command(client, command, key, payload) do
     if Commands.local_fence?(command) or command.payload == payload,
-      do: operation_by_key(client, key),
+      do: operation_by_key(client, key, &fenced_workspace/4),
       else: {:error, {:coop_worker_command_conflict, key}}
+  end
+
+  # A fence asks what a create did. A session Coop refused its workspace task
+  # for good (a read-only session, 409 invalid_session_state) still exists and
+  # takes no turn, so the fence names it for the stop to close: refusing the
+  # fence too failed the stop on every attempt for eleven hours (2026-10-09).
+  defp fenced_workspace(client, command, operation, key) do
+    case ensure_reconciled_workspace(client, command, operation, key) do
+      {:error, {:coop_error, 409, "invalid_session_state", _detail}} -> :ok
+      result -> result
+    end
   end
 
   defp normalize_options(options) when is_list(options) do

@@ -69,15 +69,16 @@ defmodule Ryker.Work.Custody.Sessions do
 
   @doc """
   Pins a task's episode as `pin_episode_in_transaction/4` does, in
-  `repository_ref`, and binds the session to `workspace_task`. `options` are
-  `repository_context`, `repository_source` and `environment_ref`.
+  `repository_ref`, and binds the session to `workspace_task`, or to none for
+  a task that only reads. `options` are `repository_context`,
+  `repository_source` and `environment_ref`.
   """
   @spec pin_task_episode_in_transaction(
           Ecto.UUID.t(),
           String.t(),
           String.t(),
           String.t(),
-          map(),
+          map() | nil,
           keyword()
         ) :: {:ok, Session.t()} | {:error, term()}
   def pin_task_episode_in_transaction(
@@ -96,14 +97,14 @@ defmodule Ryker.Work.Custody.Sessions do
     with {:ok, session} <-
            pin_episode_in_transaction(episode_id, policy, policy_digest, options) do
       case session.workspace_task do
+        ^workspace_task ->
+          {:ok, session}
+
         nil ->
           session
           |> Session.Changeset.bind_workspace_task(workspace_task)
           |> Repo.update()
           |> persistence_result(:work_session_workspace_task)
-
-        ^workspace_task ->
-          {:ok, session}
 
         _different ->
           {:error, :work_session_workspace_task_conflict}

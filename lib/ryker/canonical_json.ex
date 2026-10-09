@@ -21,43 +21,90 @@ defmodule Ryker.CanonicalJSON do
   @doc """
   SHA-256 over the sorted-key JSON representation used by Go's encoding/json.
 
-  Go writes the float 1.0 as `1` where Jason writes `1.0`, so a float would
-  give a digest the worker cannot reproduce (2026-10-04 review). Nothing Ryker
-  sends a worker holds one, and a float here raises rather than mismatch.
+  Go writes the float 1.0 as `1` where Jason writes `1.0` (2026-10-04 review),
+  so each float is written here as Go writes it. Refusing floats instead
+  stopped every Work turn of a task whose webhook JSON held one (2026-10-09).
   """
   @spec worker_digest(Jason.Encoder.t()) :: String.t()
   def worker_digest(value) do
-    case float_path(value, "$") do
-      nil -> :ok
-      path -> raise ArgumentError, "a worker digest cannot hold a float at #{path}"
+    case order(value, "$") do
+      {:ok, ordered} ->
+        ordered
+        |> go_floats()
+        |> Jason.encode!()
+        |> String.replace("&", "\\u0026")
+        |> String.replace("<", "\\u003c")
+        |> String.replace(">", "\\u003e")
+        |> String.replace(<<0x2028::utf8>>, "\\u2028")
+        |> String.replace(<<0x2029::utf8>>, "\\u2029")
+        |> Crypto.sha256_hex()
+
+      {:error, reason} ->
+        raise ArgumentError, format_error(reason)
     end
-
-    value
-    |> encode!()
-    |> String.replace("&", "\\u0026")
-    |> String.replace("<", "\\u003c")
-    |> String.replace(">", "\\u003e")
-    |> String.replace(<<0x2028::utf8>>, "\\u2028")
-    |> String.replace(<<0x2029::utf8>>, "\\u2029")
-    |> Crypto.sha256_hex()
   end
 
-  defp float_path(value, path) when is_float(value), do: path
+  defp go_floats(%Jason.OrderedObject{values: values} = object),
+    do: %{object | values: Enum.map(values, fn {key, value} -> {key, go_floats(value)} end)}
 
-  # A struct is no JSON object; encode!/1 refuses it with its own error.
-  defp float_path(%_{}, _path), do: nil
+  defp go_floats(values) when is_list(values), do: Enum.map(values, &go_floats/1)
+  defp go_floats(value) when is_float(value), do: Jason.Fragment.new(go_float(value))
+  defp go_floats(value), do: value
 
-  defp float_path(%{} = value, path) do
-    Enum.find_value(value, fn {key, nested} -> float_path(nested, "#{path}.#{key}") end)
+  # Go writes a float as ECMAScript does: its shortest digits that read back as
+  # the same float, positional from 1e-6 up to 1e21 and with an exponent
+  # (`1e-7`, `1.5e+21`) outside that, and a negative zero as `-0`.
+  defp go_float(float) when float == 0.0 do
+    <<sign::1, _rest::63>> = <<float::float>>
+    if sign == 1, do: "-0", else: "0"
   end
 
-  defp float_path(value, path) when is_list(value) do
-    value
-    |> Enum.with_index()
-    |> Enum.find_value(fn {nested, index} -> float_path(nested, "#{path}[#{index}]") end)
+  defp go_float(float) do
+    {digits, exponent} = shortest_digits(abs(float))
+    count = byte_size(digits)
+
+    text =
+      cond do
+        count <= exponent and exponent <= 21 ->
+          digits <> String.duplicate("0", exponent - count)
+
+        exponent > 0 and exponent <= 21 ->
+          binary_part(digits, 0, exponent) <>
+            "." <> binary_part(digits, exponent, count - exponent)
+
+        exponent > -6 and exponent <= 0 ->
+          "0." <> String.duplicate("0", -exponent) <> digits
+
+        true ->
+          scientific(digits, exponent - 1)
+      end
+
+    if float < 0, do: "-" <> text, else: text
   end
 
-  defp float_path(_value, _path), do: nil
+  # The float as 0.`digits` x 10^exponent, `digits` with no leading or
+  # trailing zero, from Erlang's shortest round-trip text ("1.25e-7").
+  defp shortest_digits(float) do
+    {mantissa, power} =
+      case String.split(:erlang.float_to_binary(float, [:short]), "e") do
+        [mantissa, power] -> {mantissa, String.to_integer(power)}
+        [mantissa] -> {mantissa, 0}
+      end
+
+    [whole, fraction] = String.split(mantissa, ".")
+    all = whole <> fraction
+    trimmed = String.trim_leading(all, "0")
+    leading = byte_size(all) - byte_size(trimmed)
+    {String.trim_trailing(trimmed, "0"), byte_size(whole) + power - leading}
+  end
+
+  defp scientific(<<first::binary-size(1)>>, power), do: first <> "e" <> signed(power)
+
+  defp scientific(<<first::binary-size(1), rest::binary>>, power),
+    do: first <> "." <> rest <> "e" <> signed(power)
+
+  defp signed(power) when power < 0, do: Integer.to_string(power)
+  defp signed(power), do: "+" <> Integer.to_string(power)
 
   @truncation_marker "...<truncated>..."
 

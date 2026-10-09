@@ -2298,6 +2298,55 @@ defmodule Ryker.Work.ExecutorTest do
     assert stopped.cancellation_receipt["session_state"] == "discarded"
   end
 
+  # Found live 2026-10-09: a local incident's create was refused its workspace
+  # task, and its stop fenced that create while the worker lease that held the
+  # session ran out. From then on the fence answered that the session needs a
+  # replacement, on every attempt for eleven hours, and the request read
+  # "stopping" throughout. Ryker never bound a remote session to the turn, so
+  # no turn of it can be running anywhere: the stop completes.
+  test "a stop whose unbound session lost its worker lease completes" do
+    work = claim_episode!("cancel-create-replacement")
+    {:ok, fake} = fake_for(work, [reply("unused")])
+    key = create_key(work)
+
+    assert Custody.with_mutation_fence(
+             work.episode.id,
+             work.turn.turn_ref,
+             work.lease_ref,
+             %{
+               kind: :create_session,
+               lease_seconds: 60,
+               operation_key: key,
+               operation_revision: nil
+             },
+             fn -> {:error, :simulated_loss_before_operation_reservation} end
+           ) == {:error, :simulated_loss_before_operation_reservation}
+
+    assert {:ok, _requested} =
+             Custody.request_cancel(
+               work.episode.id,
+               work.episode.key,
+               work.turn.turn_ref,
+               "cancel:create-replacement:#{work.turn.id}",
+               "Stop a turn whose session's worker lease ended."
+             )
+
+    assert {:ok, cancel_claim} = Custody.claim_next("worker:cancel-create-replacement", 60)
+
+    lost =
+      protocol_options(fake, %{
+        fence_create_session: {:error, {:coop_session_replacement_required, work.session.id, 1}}
+      })
+
+    assert {:ok, execution} = Executor.run(cancel_claim, lost)
+    assert execution.status == :cancelled
+    assert execution.episode.state == :cancelled
+
+    stopped = Repo.get!(Ryker.Work.Turn, work.turn.id)
+    assert stopped.cancellation_receipt["kind"] == "absent_turn"
+    assert stopped.cancellation_receipt["remote_session_id"] == nil
+  end
+
   # The same worker reset, before any stop: a turn whose bound session the
   # worker says it does not have starts a new session, as a lost placement
   # does, instead of stopping the request.

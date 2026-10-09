@@ -1,6 +1,7 @@
 defmodule Ryker.CanonicalJSONTest do
   use ExUnit.Case, async: true
   alias Ryker.CanonicalJSON
+  alias Ryker.Crypto
 
   describe "encode!/1" do
     test "orders every object while preserving list order" do
@@ -71,16 +72,41 @@ defmodule Ryker.CanonicalJSONTest do
     refute key_error.message =~ "key-"
   end
 
-  # Go's encoding/json writes 1.0 as 1 and Jason writes 1.0, so a float in what Coop
-  # digests would give a digest the worker cannot reproduce (2026-10-04 review). Nothing
-  # Ryker sends a worker holds one; a worker digest refuses one rather than mismatch.
-  test "a worker digest refuses a float it would encode unlike Go" do
-    assert_raise ArgumentError, ~r/float at \$\.limit/, fn ->
-      CanonicalJSON.worker_digest(%{"limit" => 1.0})
+  # Go's encoding/json writes 1.0 as 1 and Jason writes 1.0, so the worker digest refused
+  # every float rather than give one the worker cannot reproduce (2026-10-04 review). A
+  # webhook's JSON holds what its sender sends, and an error rate of 0.24 in one stopped
+  # every Work turn of its task with an ArgumentError, once a minute (2026-10-09). The
+  # digest writes each float as Go does; the texts are Go 1.27's json.Marshal of each.
+  test "a worker digest writes a float as Go's encoding/json does" do
+    for {float, go} <- [
+          {0.24, "0.24"},
+          {1.0, "1"},
+          {-1.0, "-1"},
+          {0.0, "0"},
+          {-0.0, "-0"},
+          {-0.001, "-0.001"},
+          {1.0e-6, "0.000001"},
+          {9.99e-7, "9.99e-7"},
+          {1.25e-7, "1.25e-7"},
+          {123_456.0, "123456"},
+          {1.0e16, "10000000000000000"},
+          {1.0000000000000002, "1.0000000000000002"},
+          {9.99e20, "999000000000000000000"},
+          {1.0e21, "1e+21"},
+          {1.5e21, "1.5e+21"},
+          {-2.5e-300, "-2.5e-300"},
+          {5.0e-324, "5e-324"},
+          {12_345_678_901_234_567_890.0, "12345678901234567000"}
+        ] do
+      assert CanonicalJSON.worker_digest(%{"value" => float}) ==
+               Crypto.sha256_hex(~s({"value":#{go}})),
+             "#{float} is #{go} in Go"
     end
 
-    assert CanonicalJSON.worker_digest(%{"limit" => 1}) =~ ~r/\A[0-9a-f]{64}\z/
-    assert CanonicalJSON.digest(%{"score" => 0.5}) =~ ~r/\A[0-9a-f]{64}\z/
+    payload = %{"items" => [%{"error_rate" => 0.24, "count" => 3}]}
+
+    assert CanonicalJSON.worker_digest(payload) ==
+             Crypto.sha256_hex(~s({"items":[{"count":3,"error_rate":0.24}]}))
   end
 
   test "rejects non-string object keys even without a collision" do

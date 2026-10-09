@@ -30,7 +30,7 @@ defmodule Ryker.Work.Executor.Cancellation do
 
     case result do
       {:error, reason} = error ->
-        if session_gone?(reason) and is_nil(claim.turn.coop_turn_id),
+        if absent?(reason, claim),
           do: settle_gone_session(claim),
           else: settle_removed_worker(claim, error)
 
@@ -39,12 +39,31 @@ defmodule Ryker.Work.Executor.Cancellation do
     end
   end
 
+  # No turn of this request can be running: Coop never bound one, and either
+  # the worker no longer has the session or the session was never bound and the
+  # worker lease that held it ended, so nothing can reach it again. Its stop
+  # asked again every attempt for eleven hours (2026-10-09).
+  defp absent?(reason, claim) do
+    is_nil(claim.turn.coop_turn_id) and
+      (session_gone?(reason) or (is_nil(claim.session.coop_session_id) and lease_ended?(reason)))
+  end
+
+  defp lease_ended?({:coop_session_replacement_required, _session_id, _generation}), do: true
+
+  defp lease_ended?(reason) when is_tuple(reason),
+    do: reason |> Tuple.to_list() |> Enum.any?(&lease_ended?/1)
+
+  defp lease_ended?(_reason), do: false
+
   # The worker holding the session says it does not have it (its state was
   # started afresh, 2026-09-28), so no turn of this one can be running there.
   # Asking again got the same answer on every attempt, and the stop never
   # finished. A turn Coop never bound is settled as absent, its session gone.
   defp settle_gone_session(claim) do
-    with {:ok, receipt} <- absent_receipt(claim, claim.session.coop_session_id, "discarded", nil),
+    remote_session_id = claim.session.coop_session_id
+    session_state = if remote_session_id, do: "discarded"
+
+    with {:ok, receipt} <- absent_receipt(claim, remote_session_id, session_state, nil),
          {:ok, settled} <-
            Custody.settle_cancellation(
              claim.episode.id,

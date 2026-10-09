@@ -327,6 +327,12 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     assert confirmation.session.policy_digest == profile().policy_digest
     assert confirmation.session.repository_ref == nil
 
+    # An investigation runs under a conversation policy, whose session only reads,
+    # and Coop binds a workspace task only to a session that may change its
+    # repository: every local incident opened in Chat was refused that way, and
+    # its stop then waited on the refusal (2026-10-09).
+    assert confirmation.session.workspace_task == nil
+
     assert {:ok, after_confirmation} = ConversationProjection.fetch(@conversation_id)
     [incident_card] = after_confirmation.messages |> List.last() |> Map.fetch!(:cards)
     assert incident_card.label == "Local incident"

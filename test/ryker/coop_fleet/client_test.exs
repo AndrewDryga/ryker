@@ -36,7 +36,11 @@ defmodule Ryker.CoopFleet.ClientTest do
           {:ok, %{"session" => %{"id" => "remote-resource", "revision" => 1, "state" => "open"}}}
 
         "ensure_workspace" ->
-          {:ok, %{"session" => %{"id" => "remote-resource", "revision" => 2, "state" => "open"}}}
+          Process.get(
+            :coop_fleet_ensure_workspace_result,
+            {:ok,
+             %{"session" => %{"id" => "remote-resource", "revision" => 2, "state" => "open"}}}
+          )
 
         "checkpoint_workspace" ->
           {:ok,
@@ -87,6 +91,7 @@ defmodule Ryker.CoopFleet.ClientTest do
     on_exit(fn ->
       Process.delete(:coop_fleet_client_test_pid)
       Process.delete(:coop_fleet_reconcile_result)
+      Process.delete(:coop_fleet_ensure_workspace_result)
       Process.delete(:coop_fleet_get_session_result)
     end)
 
@@ -349,6 +354,63 @@ defmodule Ryker.CoopFleet.ClientTest do
              )
 
     assert Repo.aggregate(Placement, :count) == 0
+  end
+
+  # A stop fences the create it may have sent, to learn whether a remote
+  # session exists. The fence binds the session's workspace task first, and
+  # once Coop refused that for good (a local incident's read-only session, 409
+  # invalid_session_state) every fence failed the same way and the stop never
+  # settled (2026-10-09). The session exists and takes no turn: the fence names
+  # it, for the stop to close.
+  test "a create fence names a created session Coop refused its workspace task", %{
+    client: client,
+    session: session
+  } do
+    offer = "offer:refused-workspace"
+
+    session =
+      session |> Ecto.Changeset.change(workspace_task: %{"offer_ref" => offer}) |> Repo.update!()
+
+    key = "ryker:work:create:#{session.id}:g#{session.create_generation}"
+
+    command =
+      command!(session, "created-then-refused",
+        kind: "create_session",
+        payload: create_payload(session, offer),
+        key: key
+      )
+
+    complete_command!(command, :succeeded, %{
+      "id" => "operation-created-then-refused",
+      "method" => "CreateRemoteSession",
+      "resource_id" => "remote:created-then-refused",
+      "resource_type" => "session",
+      "state" => "succeeded"
+    })
+
+    Process.put(:coop_fleet_get_session_result, %{
+      "id" => "remote:created-then-refused",
+      "revision" => 1,
+      "state" => "open"
+    })
+
+    Process.put(
+      :coop_fleet_ensure_workspace_result,
+      {:error,
+       {:coop_error, 409, "invalid_session_state",
+        "workspace task requires an unused writable open session"}}
+    )
+
+    assert {:ok, %{"resource_id" => "remote:created-then-refused", "state" => "succeeded"}} =
+             Client.fence_create_session(
+               client,
+               key,
+               session.policy,
+               offer,
+               session.repository_source
+             )
+
+    assert_received {:fleet_command, _, "ensure_workspace", _, _, _}
   end
 
   test "unplaced terminal commands cannot have missing receipts or partial placement identity", %{

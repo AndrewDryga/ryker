@@ -130,6 +130,12 @@ defmodule Ryker.Records.TaskOffers do
     end
   end
 
+  # An incident investigation only reads, under a conversation or incident
+  # policy, and Coop binds a workspace task only to a session that may change
+  # its repository: it refused every local incident opened in Chat
+  # (2026-10-09). A task that changes code is the one that has a workspace.
+  defp workspace_task(%{payload: %{"kind" => "incident"}}), do: nil
+
   defp workspace_task(record) do
     payload = record.payload
 
