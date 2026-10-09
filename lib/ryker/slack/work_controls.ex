@@ -12,7 +12,7 @@ defmodule Ryker.Slack.WorkControls do
   alias Ryker.Operator
   alias Ryker.Publication
   alias Ryker.Repo
-  alias Ryker.Slack.{WorkRecord, WorkTarget}
+  alias Ryker.Slack.{IncidentRooms, WorkRecord, WorkTarget}
   alias Ryker.Work
 
   @control_fields [:actor_ref, :occurred_at, :request_ref, :target, :work_ref]
@@ -170,6 +170,16 @@ defmodule Ryker.Slack.WorkControls do
   end
 
   def recover_publication(_attributes, _action), do: {:error, :invalid_work_control}
+
+  # Close incident on a room's pinned card closes the room, as the console
+  # does: its investigation stops and the room and the alert thread are told.
+  # It closed only the investigation, so the card said "Cancelled", the room
+  # stayed open and nobody was told (Slack as Andrew, 2026-10-09).
+  defp close_resolved(%{kind: :incident, work_ref: room_ref} = resolved, attributes) do
+    with {:ok, _room} <- IncidentRooms.request_close(room_ref, attributes.actor_ref) do
+      {:ok, %{outcome: :closing, work_ref: resolved.work_ref}}
+    end
+  end
 
   defp close_resolved(%{episode: %{state: state}} = resolved, _attributes)
        when state in [:complete, :cancelled] do

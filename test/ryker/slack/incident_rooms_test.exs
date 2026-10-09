@@ -1124,6 +1124,42 @@ defmodule Ryker.Slack.IncidentRoomsTest do
   # Andrew, 2026-10-03: "why I can't do shit to incident rooms, how about at least closing them?"
   # A room closed only when Slack deleted its channel, so a room whose incident was over stayed
   # open, counted against the open-room limit, and Ryker kept working in it.
+  # Close incident on the room's own pinned card closed only its investigation:
+  # the card said "Cancelled", the room stayed open and nobody was told. Closing
+  # the room, with its notes, was a console control (Slack as Andrew,
+  # 2026-10-09).
+  test "Close incident on a room's card closes the room, as the console does" do
+    save_channel_configuration!()
+    %{agent: agent, episode: episode, room: room} = ready_room!("closed-from-card")
+    publish_through_slack!(agent)
+    wait_for_an_answer!(episode)
+
+    assert {:ok, %{outcome: :closing}} =
+             Ryker.Slack.WorkControls.close(%{
+               actor_ref: "slack:user:U123",
+               occurred_at: DateTime.add(@now, 30, :second),
+               request_ref: "interaction:close-from-card",
+               target: %{
+                 conversation_ref: "slack:T123:#{room.channel_ref}",
+                 message_ref: room.root_message_ref,
+                 thread_ref: room.root_message_ref,
+                 transport: "slack"
+               },
+               work_ref: room.ref
+             })
+
+    assert %IncidentRoom{close_requested_by: "slack:user:U123"} = Repo.get!(IncidentRoom, room.id)
+
+    room_ref = room.ref
+    assert {:ok, {:closed, ^room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    assert Repo.get!(IncidentRoom, room.id).status == :closed
+
+    assert Enum.any?(
+             Agent.get(agent, & &1.posts),
+             &match?({_channel, nil, %{"message" => "This incident room is closed." <> _}, _}, &1)
+           )
+  end
+
   test "a room a person closes stops its investigation, says so in the room and the alert thread, and frees its place" do
     save_channel_configuration!()
     %{agent: agent, episode: episode, room: room} = ready_room!("closed-on-request")
