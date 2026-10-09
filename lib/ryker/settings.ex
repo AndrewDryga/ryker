@@ -547,6 +547,19 @@ defmodule Ryker.Settings do
 
   # Collections ---------------------------------------------------------------
 
+  @doc """
+  The GitHub owner/name of the repository Ryker added as `ref`, the name people
+  know it by, or nil once it is no longer added (Andrew, 2026-09-28: "why repo
+  name is andrewdryga-emisar while it's andrewdryga/emisar?").
+  """
+  @spec github_repository(String.t()) :: String.t() | nil
+  def github_repository(ref) when is_binary(ref) do
+    ref
+    |> Repository.Query.by_ref()
+    |> Repository.Query.select_github_repositories()
+    |> Repo.one()
+  end
+
   @doc "Adds a repository, or edits the one with its ref. Returns `t:write_result/0`."
   @spec put_repository(map(), revision(), String.t()) :: write_result()
   def put_repository(attributes, expected_revision, actor_ref),

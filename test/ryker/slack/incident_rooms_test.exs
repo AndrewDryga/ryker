@@ -518,6 +518,91 @@ defmodule Ryker.Slack.IncidentRoomsTest do
   # took its repository from the channel's saved setting, which names an
   # environment now, and pinned no environment, so its investigation ran
   # outside every environment, without the Emisar account the alert had.
+  # Create incident room asks for the room at the click, but the offer is
+  # confirmed only once the room's channel exists, seconds later. The click's
+  # repaint ran in between and drew the open offer again, and nothing drew it
+  # after, so Investigate and Create incident room stayed live under "Incident
+  # room ready" (Slack as Andrew, 2026-10-09).
+  test "an incident offer loses its buttons once its room is asked for, and links the room once made" do
+    fixture = delivered_offer!()
+    save_channel_configuration!()
+
+    agent =
+      start_supervised!(
+        {Agent,
+         fn ->
+           %{
+             allowed_users: MapSet.new(["U123", "U200", "U201", "U300"]),
+             channel_ref: nil,
+             conversations: [],
+             groups: %{"SRE" => ["U201", "U200"]},
+             invites: [],
+             messages: %{},
+             pins: [],
+             posts: [],
+             topics: []
+           }
+         end}
+      )
+
+    # A live session attests what it was shown; a repaint republishes the
+    # offer only from a session that did.
+    sources =
+      Repo.aggregate(
+        Ryker.Learning.SourceExposure.Query.by_session_id(fixture.session.id),
+        :count
+      )
+
+    knowledge =
+      Repo.aggregate(
+        Ryker.Knowledge.KnowledgeExposure.Query.by_session_id(fixture.session.id),
+        :count
+      )
+
+    Repo.update_all(from(session in Session, where: session.id == ^fixture.session.id),
+      set: [source_exposure_count: sources, knowledge_exposure_count: knowledge]
+    )
+
+    assert {:ok, %{status: :requested}} = IncidentRooms.request(request(fixture))
+
+    # The click's repaint: the room is asked for, the offer not yet confirmed.
+    offer = Repo.get!(Record, fixture.record.id)
+    assert offer.status == :open
+    [document] = Ryker.Slack.ReplyRecords.documents("slack", fixture.episode.id, [offer])
+    assert {:ok, rendered} = Renderer.render(%{"message" => "Ready.", "records" => [document]})
+    clicked = Jason.encode!(rendered)
+    refute clicked =~ "ryker_open_incident"
+    refute clicked =~ "ryker_investigate_incident"
+    assert clicked =~ "Incident room requested"
+
+    # The room's card names its repository as GitHub does; it said
+    # `andrewdryga-test`, the ref Ryker keeps.
+    Repo.insert_all(Ryker.Settings.Repository, [
+      %{ref: "ryker", github_repository: "acme/ryker", inserted_at: @now, updated_at: @now}
+    ])
+
+    # The worker makes the room, then draws the offer again with its link.
+    assert {:ok, {:ready, room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    room = Repo.get_by!(IncidentRoom, ref: room_ref)
+
+    assert [%{"incident_room" => %{"repository" => "acme/ryker"}} | _rest] =
+             agent |> Agent.get(& &1.posts) |> Enum.map(&elem(&1, 2))
+
+    offer_message_ref = fixture.receipt["message_ref"]
+
+    assert [{"C456", ^offer_message_ref, repainted, _delivery_ref}] =
+             agent
+             |> Agent.get(&Map.get(&1, :updates, []))
+             |> Enum.filter(&match?({"C456", _message, _document, _ref}, &1))
+
+    assert {:ok, rendered} = Renderer.render(repainted)
+    made = Jason.encode!(rendered)
+    assert made =~ "Incident room created"
+    assert made =~ "ryker_open_incident_room"
+    assert made =~ "channel=#{room.channel_ref}"
+    refute made =~ "ryker_investigate_incident"
+  end
+
   test "an incident room inherits its conversation's environment" do
     fixture = delivered_offer!()
     save_channel_configuration!()

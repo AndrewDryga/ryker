@@ -62,7 +62,7 @@ defmodule Ryker.Slack.InteractionRepaint do
   defp repaint_non_incident(audit, options) do
     case fetch_configuration_session(audit) do
       {:ok, %ConfigurationSession{} = session} -> setup_document(session, options)
-      {:error, :not_found} -> turn_document(audit)
+      {:error, :not_found} -> turn_document(audit, options)
     end
   end
 
@@ -102,9 +102,9 @@ defmodule Ryker.Slack.InteractionRepaint do
          do: {:ok, projection.document, "#{room.ref}:root"}
   end
 
-  defp turn_document(audit) do
+  defp turn_document(audit, options) do
     case Repo.fetch(delivered_turn(audit)) do
-      {:ok, %Work.Turn{} = turn} -> public_turn_document(turn, audit)
+      {:ok, %Work.Turn{} = turn} -> public_turn_document(turn, audit, options)
       {:error, :not_found} -> :not_found
     end
   end
@@ -118,16 +118,16 @@ defmodule Ryker.Slack.InteractionRepaint do
     )
   end
 
-  defp public_turn_document(turn, audit) do
+  defp public_turn_document(turn, audit, options) do
     # These are external republications, not retained audit views. Check the
     # exact projection before HTTP; a later withdrawal is seen on the next repaint.
-    case Repo.transaction(fn -> checked_turn_document(turn, audit) end) do
+    case Repo.transaction(fn -> checked_turn_document(turn, audit, options) end) do
       {:ok, result} -> result
       error -> error
     end
   end
 
-  defp checked_turn_document(turn, audit) do
+  defp checked_turn_document(turn, audit, options) do
     with {:ok, document, delivery_ref} = result <- rebuild_turn_document(turn) do
       case public_turn_sources(turn, audit, document) do
         :public ->
@@ -141,11 +141,17 @@ defmodule Ryker.Slack.InteractionRepaint do
         {:error, reason} ->
           {:error, reason}
 
+        # A repaint nobody clicked for, such as an offer redrawn once its
+        # incident room is made, leaves a reply it cannot republish as it is.
         :withdrawn ->
-          {:ok,
-           %{
-             "message" => "This response is unavailable until its source context can be checked."
-           }, delivery_ref}
+          if Map.get(options, :withdraw, true),
+            do:
+              {:ok,
+               %{
+                 "message" =>
+                   "This response is unavailable until its source context can be checked."
+               }, delivery_ref},
+            else: :not_found
       end
     end
   end

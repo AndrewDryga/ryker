@@ -10,6 +10,7 @@ defmodule Ryker.Slack.IncidentRoomCard do
   alias Ryker.Episodes
   alias Ryker.Records
   alias Ryker.Repo
+  alias Ryker.Settings
   alias Ryker.Slack.IncidentRoom
   alias Ryker.Slack.Renderer.Fields
   alias Ryker.Slack.WorkControls
@@ -80,13 +81,19 @@ defmodule Ryker.Slack.IncidentRoomCard do
     %{
       "opened_at" => DateTime.to_iso8601(room.requested_at),
       "opened_by" => room.requested_by_actor_ref,
-      "repository" => room.repository_ref,
+      "repository" => repository_name(room.repository_ref),
       "room_ref" => room.ref,
       "source_channel_ref" => room.source_channel_ref,
       "title" => room.title,
       "ui_revision" => @ui_revision
     }
   end
+
+  # The room's repository by the name people know it by; one no longer added
+  # keeps the name the room recorded. The card said `andrewdryga-test` (Slack
+  # as Andrew, 2026-10-09).
+  defp repository_name(nil), do: nil
+  defp repository_name(ref), do: Settings.github_repository(ref) || ref
 
   # What the investigation set out to establish, and where each of those stands.
   # The task card has carried this ledger since 405e9443; an incident room, the

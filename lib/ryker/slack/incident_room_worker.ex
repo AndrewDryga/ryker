@@ -22,7 +22,8 @@ defmodule Ryker.Slack.IncidentRoomWorker do
   alias Ryker.Options
   alias Ryker.PollingWorker
   alias Ryker.Repo
-  alias Ryker.Slack.{ChannelConfigurations, IncidentRoomCard, IncidentRooms}
+  alias Ryker.Slack.{ChannelConfigurations, IncidentRoom, IncidentRoomCard, IncidentRooms}
+  alias Ryker.Slack.{InteractionAudit, InteractionRepaint}
   alias Ryker.Work
   require Logger
 
@@ -259,11 +260,39 @@ defmodule Ryker.Slack.IncidentRoomWorker do
          {:ok, room} <- ensure_pin(room, options),
          {:ok, room} <- ensure_handoff(room, options),
          {:ok, room} <- IncidentRooms.finalize(room.id, room.lease_ref) do
+      repaint_offer(room, options)
       {:ok, {:ready, room.ref}}
     else
       {:error, reason} -> handle_error(room, reason, options)
     end
   end
+
+  # The offer the room was opened from is drawn again now that it is
+  # confirmed, so it links the room instead of offering to create one. Its
+  # click's repaint ran before the room existed (Slack as Andrew, 2026-10-09).
+  # The room is ready either way; a repaint Slack refuses leaves the offer
+  # saying the room is being created, with no buttons.
+  defp repaint_offer(%IncidentRoom{source_message_ref: message_ref} = room, options)
+       when is_binary(message_ref) do
+    offer = %InteractionAudit{
+      channel_ref: room.source_channel_ref,
+      message_ref: message_ref,
+      thread_ref: room.source_thread_ref,
+      workspace_ref: room.workspace_ref
+    }
+
+    case InteractionRepaint.repaint(offer, Map.put(options, :withdraw, false)) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "incident room #{room.ref} could not repaint its offer: #{inspect(reason)}"
+        )
+    end
+  end
+
+  defp repaint_offer(_room, _options), do: :ok
 
   defp reconcile_lifecycle(room, options) do
     with {:ok, episode} <- fetch_room_episode(room),

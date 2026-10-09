@@ -91,10 +91,7 @@ defmodule Ryker.Slack.ReplyRecords do
   # as Andrew, 2026-10-09).
   defp present_repository(document, %{kind: "task_offer", payload: %{"repository" => ref}})
        when is_binary(ref) do
-    case ref
-         |> Settings.Repository.Query.by_ref()
-         |> Settings.Repository.Query.select_github_repositories()
-         |> Repo.one() do
+    case Settings.github_repository(ref) do
       name when is_binary(name) ->
         repository = %{"ref" => ref, "url" => GitHub.repository_url(name)}
         presentation = Map.get(document, "presentation", %{})
@@ -154,6 +151,27 @@ defmodule Ryker.Slack.ReplyRecords do
 
       {:ok, room} ->
         Map.put(document, "presentation", %{"incident_room" => %{"url" => room_url(room)}})
+    end
+  end
+
+  # Create incident room asks for the room at the click, but the offer is
+  # confirmed only once the room's channel exists, seconds later. The click's
+  # repaint ran in between and drew the open offer again, so its buttons stayed
+  # live under "Incident room ready" (Slack as Andrew, 2026-10-09). An open
+  # offer whose room is under way is shown as the confirmed offer it is about
+  # to become; one whose room setup stopped keeps its buttons.
+  defp present_saved_entity(
+         document,
+         %{status: :open, kind: "task_offer", payload: %{"kind" => "incident"}} = record
+       ) do
+    case Repo.fetch(IncidentRoom.Query.by_record_id(record.id)) do
+      {:ok, %IncidentRoom{status: status} = room} when status in [:requested, :ready] ->
+        document
+        |> Map.put("status", "confirmed")
+        |> Map.put("presentation", %{"incident_room" => %{"url" => room_url(room)}})
+
+      _none ->
+        document
     end
   end
 
