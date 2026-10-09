@@ -1,7 +1,7 @@
 import {test} from "node:test"
 import assert from "node:assert/strict"
 import {draftKey} from "../../priv/static/drafts.mjs"
-import {conversationFromAction, followSentDraft, fillExample, createConversationControls} from "../../priv/static/conversation.mjs"
+import {composerDraft, conversationFromAction, followSentDraft, fillExample, createConversationControls} from "../../priv/static/conversation.mjs"
 
 // A tiny DOM: enough for closest()/querySelector() on the few controls the
 // conversation page has, without a browser. Real rendering is checked in Chromium.
@@ -141,4 +141,15 @@ test("a live patch keeps the drawer open on the same page and closes it after na
   assert.equal(f.directory.classList.contains("is-open"), false)
   f.controls.destroy()
   assert.equal(f.controls.open, false)
+})
+
+// An environment chosen on a new conversation was saved for an identity the
+// connected page made up, not the one its composer posts to (2026-10-09). The
+// page names the composer's when it connects.
+test("the page names the identity its new-conversation composer posts to", () => {
+  const id = "01a11f20-c3bb-7074-9d89-acbaf3af47d8"
+  const composer = element({action: `/conversations/${id}/messages`})
+  const draftSelector = 'form.lab-native-composer[data-draft-action="new"]'
+  assert.equal(composerDraft({querySelector: selector => selector === draftSelector ? composer : null}), id)
+  assert.equal(composerDraft({querySelector: () => null}), null)
 })

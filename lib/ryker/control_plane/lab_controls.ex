@@ -367,7 +367,9 @@ defmodule Ryker.ControlPlane.LabControls do
     do: "Ryker couldn't finish it. Try again; if it keeps failing, look under Failures."
 
   defp record_label(:confirm_task), do: "Start task"
-  defp record_label(:open_incident), do: "Open local incident"
+  # Slack's offer and the model's reply both say Investigate; Chat said "Open local
+  # incident", and its reply asked for a button the card did not have (2026-10-09).
+  defp record_label(:open_incident), do: "Investigate"
   defp record_label(:confirm_memory), do: "Remember this"
   defp record_label(:confirm_behavior), do: "Confirm"
   defp record_label(:confirm_schedule), do: "Schedule this"

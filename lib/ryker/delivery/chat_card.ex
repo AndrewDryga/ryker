@@ -108,17 +108,18 @@ defmodule Ryker.Delivery.ChatCard do
          %{
            action: nil,
            choices: [],
+           # What a person reads: the branch as GitHub names it, and no commit
+           # hash, which the pull request shows (manual test, 2026-10-09).
            details: [
              {"Repository", payload["repository"]},
-             {"Branch", payload["branch_ref"]},
-             {"Commit", payload["commit_sha"]},
+             {"Branch", String.replace_prefix(payload["branch_ref"], "refs/heads/", "")},
              {"Pull request", "##{payload["pull_request_number"]}"}
            ],
            kind: "publication_result",
            label: "Published draft",
            ref: record_ref,
            status: :published,
-           summary: "The exact reviewed candidate was published as a draft pull request.",
+           summary: "The reviewed change is open as a draft pull request.",
            title: payload["title"],
            url: safe_https_url(payload["pull_request_url"])
          }}

@@ -480,7 +480,9 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert conversation.resp_body =~
              "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record:task_offer:incident/open-incident"
 
-    assert conversation.resp_body =~ ">Open local incident<"
+    # The reply names the button the card has (Slack's word too), not "Open local
+    # incident" (2026-10-09).
+    assert conversation.resp_body =~ ">Investigate<"
 
     assert conversation.resp_body =~
              "/conversations/018f3ef7-1f62-7ee0-a83c-0c12f21d83e6/records/record:task_offer:confirmed/diff"

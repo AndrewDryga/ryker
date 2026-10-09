@@ -89,6 +89,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
      socket
      |> assign(
        viewer: viewer,
+       connected_draft_id: connected_draft(socket),
        path: "/",
        location: "/",
        params: %{},
@@ -253,11 +254,30 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
   # A conversation view is opened once per navigation: the index gets a fresh
   # identity nothing is written behind. Reloads come through refresh/2, not
-  # here, so an announcement cannot hand the draft a new identity.
-  defp assign_conversation_draft(socket, "/conversations"),
-    do: assign(socket, lab_draft_id: Ecto.UUID.generate())
+  # here, so an announcement cannot hand the draft a new identity. The page
+  # that connects keeps the identity its composer already posts to.
+  defp assign_conversation_draft(socket, "/conversations") do
+    draft = socket.assigns.connected_draft_id || Ecto.UUID.generate()
+    assign(socket, lab_draft_id: draft, connected_draft_id: nil)
+  end
 
-  defp assign_conversation_draft(socket, _path), do: assign(socket, lab_draft_id: nil)
+  defp assign_conversation_draft(socket, _path),
+    do: assign(socket, lab_draft_id: nil, connected_draft_id: nil)
+
+  # The composer keeps the identity its first render carried (phx-update
+  # "ignore"), and the connected page made another, so an environment chosen
+  # before the first message was saved for an identity nothing posted to, and
+  # the conversation started in the default (2026-10-09). The page names its
+  # composer's identity when it connects.
+  defp connected_draft(socket) do
+    with true <- connected?(socket),
+         %{"draft" => draft} <- get_connect_params(socket),
+         {:ok, draft} <- Ecto.UUID.cast(draft) do
+      draft
+    else
+      _none -> nil
+    end
+  end
 
   # Reading state belongs to one record. Navigating to a different Timeline must
   # not carry another record's opened bodies, which would load evidence the

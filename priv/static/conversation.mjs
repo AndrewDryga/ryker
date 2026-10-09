@@ -16,6 +16,16 @@ export const conversationFromAction = action => {
   return match ? match[1].toLowerCase() : null
 }
 
+// The identity the page's new-conversation composer posts to, or null. The
+// page names it when its socket connects, so what a person chooses before the
+// first message, such as the environment, is saved for that conversation: the
+// connected page used to make an identity of its own, and every such choice
+// was lost (2026-10-09).
+export const composerDraft = root => {
+  const form = root.querySelector('form.lab-native-composer[data-draft-action="new"]')
+  return form ? conversationFromAction(form.getAttribute("action")) : null
+}
+
 // After a 202 receipt from an index draft, ask the server to open the exact
 // conversation the message was accepted into. Only the index form (marked
 // data-draft-action="new") navigates; an open conversation stays where it is.

@@ -23,6 +23,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Schedules.Schedule
+  alias Ryker.Settings
   alias Ryker.TestSupport.FakeWorkCoopAPI
   alias Ryker.TestTranscriber
   alias Ryker.Work.{Cancellation, Custody, DeliveryReceipt, Result, Session}
@@ -885,6 +886,14 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
   test "the lab projects only its durable operator inputs and accepted visible replies" do
     # Chat's default environment, which this conversation starts in.
     environment!("production", true)
+    {:ok, snapshot} = Settings.initialize("control-plane:local")
+
+    {:ok, _snapshot} =
+      Settings.put_repository(
+        %{ref: "ryker", github_repository: "acme/ryker"},
+        snapshot.installation.revision,
+        "control-plane:local"
+      )
 
     assert {:ok, %{status: :recorded}} =
              ConversationLab.send_message(
@@ -1115,7 +1124,10 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     assert [task_card, memory_card, schedule_card, preference_card, _guidance_card] = ryker.cards
     assert task_card.title == "Finish Lab parity"
     assert task_card.action == :confirm_task
-    assert {"Repository", "ryker"} in task_card.details
+    # A card names a repository as GitHub does: the offer said "andrewdryga-test"
+    # while the task card after it said "AndrewDryga/test" (manual test,
+    # 2026-10-09).
+    assert {"Repository", "acme/ryker"} in task_card.details
     assert memory_card.title == "primary service"
     assert memory_card.action == :confirm_memory
     assert memory_card.summary == "The API is the primary service in this conversation."
@@ -1331,7 +1343,7 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     assert task_status.status == "queued"
     assert task_status.title == "Finish Lab parity"
     assert task_status.summary =~ "Conversation Lab parity"
-    assert task_status.details == [{"Repository", "ryker"}]
+    assert task_status.details == [{"Repository", "acme/ryker"}]
     assert task_status.action == nil
 
     assert {:ok, remembered} =

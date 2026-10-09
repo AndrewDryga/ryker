@@ -11,6 +11,7 @@ import {RepositoryPicker} from "/assets/repository-picker.mjs"
 import {copyValueFromEvent} from "/assets/copy-value.mjs"
 import {setupTooltips} from "/assets/tooltips.mjs"
 import {setupPromptParts} from "/assets/prompt-parts.mjs"
+import {composerDraft} from "/assets/conversation.mjs"
 import {createToggleHook, setupPageHelp, wideQuery} from "/assets/page-help.mjs"
 
 // The shell: one LiveView socket and the hooks that keep a reader's place,
@@ -56,7 +57,7 @@ const PrivateKeyFile = {
 
 const csrfToken = document.querySelector("meta[name=csrf-token]").content
 const liveSocket = new LiveSocket("/live", Socket, {
-  params: {_csrf_token: csrfToken},
+  params: () => ({_csrf_token: csrfToken, draft: composerDraft(document)}),
   hooks: {PreserveReadingState, InstructionDraft, SettingsDraft, PageHelp, PrivateKeyFile, RepositoryPicker, ConversationHistory, FilterMenu, ElapsedTime}
 })
 liveSocket.connect()

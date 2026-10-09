@@ -541,6 +541,20 @@ defmodule Ryker.Delivery.ChatCardTest do
     assert result.url == "https://github.com/example/ryker/pull/42"
     assert {"Pull request", "#42"} in result.details
 
+    # The card names what a person reads, not git's plumbing: it said "Branch:
+    # refs/heads/ryker/…" and a whole commit hash, under "The exact reviewed
+    # candidate was published as a draft pull request" (manual test, 2026-10-09).
+    harvested =
+      put_in(
+        published.publication_receipt["branch_ref"],
+        "refs/heads/ryker/add-manual-qa-note-to-readme-b4d62e9d51"
+      )
+
+    assert {:ok, named} = ChatCard.project_publication(harvested, "record:publication_offer:one")
+    assert {"Branch", "ryker/add-manual-qa-note-to-readme-b4d62e9d51"} in named.details
+    refute Enum.any?(named.details, fn {label, _value} -> label == "Commit" end)
+    refute named.summary =~ "candidate"
+
     unsafe = put_in(published.publication_receipt["pull_request_url"], "javascript:alert(1)")
     assert {:ok, safe} = ChatCard.project_publication(unsafe, "record:publication_offer:one")
     assert safe.url == nil

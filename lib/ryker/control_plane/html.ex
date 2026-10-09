@@ -66,18 +66,27 @@ defmodule Ryker.ControlPlane.HTML do
   end
 
   # A task record's view; the way back to its conversation is the page's own
-  # (`page/4`), above its title.
+  # (`page/4`), above its title. A diff is a patch and keeps its lines; every
+  # other view is the record Slack shows, written in Slack's markup, which this
+  # page printed raw: dates as `<!date^…>`, links as `<url|label>` (2026-10-09).
   def lab_task_record(snapshot) do
     navigation =
       Enum.map(snapshot.navigation, fn item ->
         ["<a class=\"button\" href=\"", escape(item.path), "\">", escape(item.label), "</a>"]
       end)
 
+    body =
+      if snapshot.kind == :diff do
+        ["<pre>", escape(snapshot.body), "</pre>"]
+      else
+        {:safe, record} = SlackMarkdown.html(snapshot.body)
+        ["<div class=\"markdown-preview\">", record, "</div>"]
+      end
+
     [
-      "<section class=\"work-view\"><p class=\"eyebrow\">Host-rendered task record</p>",
-      "<pre>",
-      escape(snapshot.body),
-      "</pre><div class=\"work-view-actions\">",
+      "<section class=\"work-view\">",
+      body,
+      "<div class=\"work-view-actions\">",
       navigation,
       "</div></section>"
     ]

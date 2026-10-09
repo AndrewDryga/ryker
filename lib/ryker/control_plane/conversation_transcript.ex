@@ -11,7 +11,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   """
   alias Ryker.Artifacts
   alias Ryker.ControlPlane.{ConsolePeople, ConversationTranscript, Paths}
-  alias Ryker.ControlPlane.{PublicationPosition, TranscriptCursor}
+  alias Ryker.ControlPlane.{PublicationPosition, RepositoryNames, TranscriptCursor}
   alias Ryker.Delivery
   alias Ryker.Episodes
   alias Ryker.Feedback
@@ -351,9 +351,22 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
 
   defp put_projected_card(record, key, cards) do
     case Delivery.ChatCard.project(record) do
-      {:ok, card} -> Map.put(cards, key, card)
+      {:ok, card} -> Map.put(cards, key, named_repository(card))
       :ignore -> cards
     end
+  end
+
+  # A card names a repository as GitHub does (Andrew, 2026-09-28): an offer
+  # said "andrewdryga-test" while the task card after it said
+  # "AndrewDryga/test" (manual test, 2026-10-09).
+  defp named_repository(%{details: details} = card) do
+    named =
+      Enum.map(details, fn
+        {"Repository", ref} -> {"Repository", RepositoryNames.name(ref)}
+        detail -> detail
+      end)
+
+    %{card | details: named}
   end
 
   defp output_artifacts(replies, conversation_id) do
@@ -658,7 +671,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
       publication,
       record_ref,
       receipt,
-      "Published the exact reviewed candidate as a draft pull request."
+      "Opened a draft pull request with the reviewed change."
     )
   end
 
@@ -666,8 +679,11 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
 
   defp project_publication_message(publication, record_ref, receipt, message) do
     case Delivery.ChatCard.project_publication(publication, record_ref) do
-      {:ok, card} -> [build_publication_message(publication, receipt, card, message)]
-      :ignore -> []
+      {:ok, card} ->
+        [build_publication_message(publication, receipt, named_repository(card), message)]
+
+      :ignore ->
+        []
     end
   end
 

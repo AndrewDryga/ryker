@@ -1205,6 +1205,29 @@ defmodule Ryker.ControlPlane.LiveTest do
     refute has_element?(again, "#lab-environment-saved .kit-saved-mark")
   end
 
+  # Found 2026-10-09: the composer keeps the identity its first render carried
+  # (phx-update="ignore") and the connected page made another, so an
+  # environment chosen before the first message was saved for an identity
+  # nothing posted to. The page said Saved, the conversation started in the
+  # default environment, and four such choices were lost in one morning. The
+  # page names its composer's identity when it connects.
+  test "an environment chosen on a new conversation is the one its first message starts in" do
+    ChannelEnvironments.environment!("production", %{is_default: true, repositories: ["acme-api"]})
+
+    ChannelEnvironments.environment!("staging", %{repositories: ["acme-api"]})
+    composer = Ecto.UUID.generate()
+
+    conn =
+      build_conn()
+      |> Map.put(:host, "localhost")
+      |> put_connect_params(%{"draft" => composer})
+
+    {:ok, draft, _html} = live(conn, "/conversations")
+    draft |> element("form.lab-environment") |> render_change(%{"environment" => "staging"})
+
+    assert ConversationLab.environment(composer) == {:ok, "staging"}
+  end
+
   test "an inspection link opens beside the conversation instead of replacing it" do
     # Andrew, 2026-09-19: "View request ↗" navigated away from the conversation
     # being read. Every per-message inspection link now opens a new tab, and
