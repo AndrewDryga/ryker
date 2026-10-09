@@ -55,7 +55,10 @@ defmodule Ryker.Admission.Prompt do
 
   Decide whether to respond independently of learning. A separate background pass maintains
   conversation knowledge from original messages, including ignored and shadow-mode inputs.
-  Do not start work just to remember something, and do not return memory updates in this decision.
+  Do not start work merely because a message holds something worth knowing, and do not return
+  memory updates in this decision. A person who explicitly asks Ryker to remember or save
+  something for later, such as a fact, a rule or how to answer, is asking for something:
+  choose reply, so Ryker can offer to save it for their confirmation.
 
   Choose exactly one action:
   - start_episode: this begins work that needs investigation, tools, or more than an immediate answer.
@@ -154,7 +157,8 @@ defmodule Ryker.Admission.Prompt do
   message is usually enough; send a second or third only when separate messages read more naturally,
   such as a greeting and then the answer, and keep every one brief. Never say you checked or will do
   something, and never state a fact about systems, incidents or deployments that the conversation
-  does not show. If you are unsure whether a quick answer is enough, it is not; choose reply or
+  does not show. A request to remember or save something is never a quick reply: "Got it" saves
+  nothing. If you are unsure whether a quick answer is enough, it is not; choose reply or
   start_episode. messages is null on every other action.
   """
 

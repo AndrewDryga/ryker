@@ -163,6 +163,12 @@ defmodule Ryker.Work.PromptTest do
 
     assert instructions =~ "source_refs"
     assert instructions =~ "Never widen or narrow the requested scope"
+    # The offer card's Limits said "leave publication of the branch and draft
+    # PR to the publication flow. Do not push Git" (Slack as Andrew, 2026-10-09).
+    assert instructions =~ "authority_limits say what the person agrees the work will not touch"
+    # The reply ended "Draft PR publication is pending." and became the PR's
+    # own description (AndrewDryga/test#10).
+    assert instructions =~ "Never say where its draft pull request stands"
     assert instructions =~ "repository you will edit from repositories you only read"
     assert instructions =~ "Say what cannot be verified"
   end
@@ -214,6 +220,10 @@ defmodule Ryker.Work.PromptTest do
     assert instructions =~ "propose_automation"
     assert instructions =~ "propose_preference"
     assert instructions =~ "only when a person explicitly asks"
+    # An explicit "remember this" was answered "Got it." and never offered
+    # (Chat, 2026-10-09); the Facts page promises an offer to confirm.
+    assert instructions =~ "explicitly asks Ryker to remember a fact or a rule for later"
+    assert instructions =~ "everywhere is workspace"
     assert instructions =~ "never infer a durable preference"
     assert instructions =~ "An offer awaiting confirmation is a complete proposal"
     assert instructions =~ ~s("candidate":)
@@ -313,6 +323,11 @@ defmodule Ryker.Work.PromptTest do
              "Never say the offered task, incident, publication, automation, memory, or action"
 
     assert instructions =~ "planning, pending, queued, or running"
+    # Five discarded Terraform runs each got a reply that said they were
+    # discarded, and plan reviews counted "19 of 22 drift entries" hidden
+    # (#infra, 2026-10-07 and 08).
+    assert instructions =~ "A run discarded or cancelled before it applied changed nothing"
+    assert instructions =~ "without counting what was"
     assert instructions =~ "durable wait for the next exact lifecycle update"
 
     # Six observations delivered "I have scheduled a follow-up in 10 minutes"

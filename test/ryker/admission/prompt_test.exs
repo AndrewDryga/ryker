@@ -119,6 +119,11 @@ defmodule Ryker.Admission.PromptTest do
     assert request["instructions"] =~ "standard: the default for investigation"
     assert request["instructions"] =~ "deep: only when materially harder reasoning"
 
+    # "Save this as a fact Ryker should remember everywhere: …" got a quick
+    # "Got it." and nothing was saved, twice (Chat, 2026-10-09).
+    assert request["instructions"] =~ "explicitly asks Ryker to remember or save"
+    assert request["instructions"] =~ "choose reply, so Ryker can offer to save it"
+
     assert request["instructions"] =~ "never changes repository, tools, credentials,"
     assert request["instructions"] =~ "or write authority"
 
@@ -500,6 +505,7 @@ defmodule Ryker.Admission.PromptTest do
       assert instructions =~ "One short\nmessage is usually enough"
       assert instructions =~ "A\nquick_reply may carry reactions beside its messages"
       assert instructions =~ "keep every one brief"
+      assert instructions =~ "A request to remember or save something is never a quick reply"
       refute instructions =~ ~r/\b\d+\s*(words?|sentences?|characters?)\b/i
     end
 
