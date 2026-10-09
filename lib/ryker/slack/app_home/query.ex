@@ -58,8 +58,8 @@ defmodule Ryker.Slack.AppHome.Query do
     )
   end
 
-  @doc "Active, unexpired facts of `workspace_ref` the whole workspace may see."
-  def workspace_facts(workspace_ref, now) do
+  # Active, unexpired facts of `workspace_ref` the whole workspace may see.
+  defp workspace_facts(workspace_ref, now) do
     from(memory in Memories.MemoryEntry,
       where:
         memory.workspace_ref == ^workspace_ref and memory.status == :active and
@@ -90,8 +90,8 @@ defmodule Ryker.Slack.AppHome.Query do
     )
   end
 
-  @doc "Working episodes of the person's conversations whose owning turn is blocked."
-  def blocked_turns(destination_refs) do
+  # Working episodes of the person's conversations whose owning turn is blocked.
+  defp blocked_turns(destination_refs) do
     from([episode_work_turns: turn] in Work.Turn.Query.all(),
       join: episode in Episodes.Episode,
       as: :episode_kernel_episodes,
@@ -117,8 +117,8 @@ defmodule Ryker.Slack.AppHome.Query do
     )
   end
 
-  @doc "Incident rooms of the person's channels that are not closed."
-  def open_incidents(workspace_ref, channel_refs) do
+  # Incident rooms of the person's channels that are not closed.
+  defp open_incidents(workspace_ref, channel_refs) do
     from(room in IncidentRoom,
       where:
         room.workspace_ref == ^workspace_ref and room.channel_ref in ^channel_refs and
@@ -188,8 +188,8 @@ defmodule Ryker.Slack.AppHome.Query do
     )
   end
 
-  @doc "Retained working copies of the person's conversations."
-  def retained_workspaces(destination_refs) do
+  # Retained working copies of the person's conversations.
+  defp retained_workspaces(destination_refs) do
     from([episode_work_sessions: session] in Work.Session.Query.all(),
       join: episode in Episodes.Episode,
       as: :episode_kernel_episodes,

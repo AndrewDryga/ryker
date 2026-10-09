@@ -32,8 +32,6 @@ defmodule Ryker.CopiedHelpersTest do
   # Copies kept on purpose, each group with its reason.
   @kept [
     {"A read composed where it is used, inside the caller's own transaction.",
-     ~w(Ryker.ControlPlane.OverviewProjection.count/1 Ryker.Slack.AppHomeProjection.count/1)},
-    {"A read composed where it is used, inside the caller's own transaction.",
      ~w(Ryker.CoopFleet.ControlPlane.Shared.fetch_and_lock_worker/1 Ryker.CoopFleet.Enrollment.fetch_and_lock_worker/1)},
     {"A read composed where it is used.",
      ~w(Ryker.ControlPlane.ChannelDetail.settings/0 Ryker.ControlPlane.IncidentProjection.settings/0)},
