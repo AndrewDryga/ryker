@@ -256,6 +256,12 @@ defmodule Ryker.Publication.Executor do
       {:error, {:coop_review_lost, _detail} = reason} ->
         spend_review_generation(claim, frozen, reason, settings)
 
+      # The worker recorded the review operation as failed (status 0 is a saved operation,
+      # `Ryker.CoopFleet.Client`): it cannot succeed under its key, and reconciling that key
+      # read the same failure on every attempt after a restart (2026-10-09).
+      {:error, {:coop_error, 0, _code, _detail} = reason} ->
+        spend_review_generation(claim, frozen, reason, settings)
+
       other ->
         other
     end

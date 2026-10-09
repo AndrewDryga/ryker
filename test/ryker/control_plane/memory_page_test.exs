@@ -238,6 +238,21 @@ defmodule Ryker.ControlPlane.MemoryPageTest do
       refute meta =~ "installation:"
     end
 
+    # Manual test, 2026-10-09: a fact confirmed in Chat "for everyone" read "Across the
+    # workspace", and no other chat could recall it: a Chat conversation is its own workspace.
+    test "a fact saved in Chat for the workspace says it holds in that conversation" do
+      chat = %{@fact | scope: :workspace, scope_ref: "control-plane:lab:6d7364ad-1a45-45b8"}
+
+      meta =
+        facts(%{memories: [chat], reviews: []})
+        |> LazyHTML.query(".entity-meta")
+        |> LazyHTML.text()
+
+      assert meta =~ "In Direct conversation"
+      refute meta =~ "Across the workspace"
+      refute meta =~ "control-plane:"
+    end
+
     test "facts that may be out of date or saved twice are called out once and settled in their own section" do
       # Before 2026-09-24 reviews were a table of raw enums ("Duplicate"),
       # scope refs and ISO stamps under a heading nobody could act on first.

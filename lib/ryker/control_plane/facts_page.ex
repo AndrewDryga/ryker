@@ -334,6 +334,13 @@ defmodule Ryker.ControlPlane.FactsPage do
 
   defp where(scope, _ref, _name) when scope in [:global, "global"], do: "Everywhere"
 
+  # A Chat conversation is its own workspace (`Ryker.Episodes.Scope`), so a fact saved there
+  # for the workspace holds in that conversation alone; the page said "Across the workspace"
+  # of one no other chat could recall (2026-10-09).
+  defp where(scope, "control-plane:" <> _rest = ref, _name)
+       when scope in [:workspace, "workspace"],
+       do: Kit.labelled("In ", Slack.destination_name(ref))
+
   defp where(scope, _ref, _name) when scope in [:workspace, "workspace"],
     do: "Across the workspace"
 

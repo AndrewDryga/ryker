@@ -577,14 +577,11 @@ defmodule Ryker.Slack.TaskCardProjection do
        when code in @publication_conflicts,
        do: @changed_on_github
 
-  defp action_needed(
-         _episode,
-         _turn,
-         _records,
-         %Publication.Publication{last_error_code: code} = publication
-       )
+  # The saved detail is a term ("{:coop_error, 0, \"repository_unavailable\", …}" on the
+  # Chat card, 2026-10-09), so the card says what Slack's already did.
+  defp action_needed(_episode, _turn, _records, %Publication.Publication{last_error_code: code})
        when is_binary(code) and code not in @in_flight,
-       do: Fields.cut(publication.last_error_detail || code, 500)
+       do: attention("Making the draft pull request stopped and needs a person")
 
   defp action_needed(%Episodes.Episode{state: :waiting_for_input}, _turn, records, _publication),
     do: wait_summary(records, "input_request", "An operator response is required.")

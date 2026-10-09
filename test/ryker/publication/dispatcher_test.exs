@@ -795,6 +795,62 @@ defmodule Ryker.Publication.DispatcherTest do
     assert [{^key1, 7}, {^key2, 8}] = Agent.get(coop, & &1.review_calls)
   end
 
+  # Manual test, 2026-10-09: the whole Compose stack restarted while Coop started a review, and
+  # the worker recorded that operation as failed ("could not refresh the job's default
+  # revision"). Every attempt reconciled the same key, read the same failure and waited again:
+  # 16 attempts in ten minutes, with the card asking a person for the raw error term. A review
+  # that failed under its key cannot succeed under it, so it is asked again under a new one.
+  test "a review the worker recorded as failed is asked again under a new key" do
+    %{claim: work_claim, offer: offer, offer_receipt: offer_receipt} =
+      delivered_offer!("review-failed")
+
+    assert {:ok, %{publication: publication}} =
+             PublicationCustody.request_review(review_request(work_claim, offer, offer_receipt))
+
+    {:ok, coop} =
+      Agent.start_link(fn ->
+        %{
+          review: %{review_document(work_claim) | "session_revision" => 8},
+          review_calls: [],
+          review_errors: [
+            {:coop_error, 0, "repository_unavailable",
+             "could not refresh the job's default revision"}
+          ],
+          session: %{
+            "external_ref" => work_claim.session.external_ref,
+            "id" => work_claim.session.coop_session_id,
+            "job_ref" => work_claim.session.external_ref,
+            "job_digest" => work_claim.session.worker_job_digest,
+            "revision" => 7,
+            "state" => "open"
+          }
+        }
+      end)
+
+    {:ok, effects} =
+      Agent.start_link(fn ->
+        %{delivery_requests: [], publication_id: publication.id, publication_requests: []}
+      end)
+
+    options = dispatcher_options(coop, effects)
+
+    assert {:ok,
+            {:deferred,
+             {:publication_review_generation_spent,
+              {:coop_error, 0, "repository_unavailable", _detail}}}} =
+             Dispatcher.run_once(options)
+
+    assert Repo.get!(Publication, publication.id).review_generation == 2
+
+    due_now!(publication.id)
+
+    assert {:ok, {:executed, %{phase: :reviewed}}} = Dispatcher.run_once(options)
+
+    key1 = "ryker:publication:review:#{publication.id}:g1"
+    key2 = "ryker:publication:review:#{publication.id}:g2"
+    assert [{^key1, 7}, {^key2, 8}] = Agent.get(coop, & &1.review_calls)
+  end
+
   # Production, 2026-09-10: a person pressed Review on a change whose worker
   # session Ryker had closed five hours earlier. Every attempt asked the worker
   # for the session, read `closed`, called it a protocol error and waited a

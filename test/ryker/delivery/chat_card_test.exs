@@ -371,8 +371,10 @@ defmodule Ryker.Delivery.ChatCardTest do
 
     assert {:ok, remembered} = ChatCard.project(record("memory_offer", memory))
 
+    # A Chat conversation is its own workspace: the card said "Everyone in this workspace" of
+    # a fact no other chat could recall (manual test, 2026-10-09).
     assert remembered.details == [
-             {"Applies to", "Everyone in this workspace"},
+             {"Applies to", "This conversation"},
              {"Expires", "90 days"}
            ]
 

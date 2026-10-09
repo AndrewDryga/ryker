@@ -267,9 +267,12 @@ defmodule Ryker.Delivery.ChatCard do
       []
       |> optional_detail(
         "Applies to",
-        OfferWords.applies_to(payload["scope"], payload["repository"])
+        OfferWords.applies_to(chat_scope(payload["scope"]), payload["repository"])
       )
-      |> optional_detail("Shown to", OfferWords.shown_to(payload["scope"], payload["visibility"]))
+      |> optional_detail(
+        "Shown to",
+        OfferWords.shown_to(chat_scope(payload["scope"]), chat_scope(payload["visibility"]))
+      )
       |> optional_detail("Expires", OfferWords.duration(payload["expires_in"]))
 
     common(
@@ -287,7 +290,7 @@ defmodule Ryker.Delivery.ChatCard do
       []
       |> optional_detail(
         "Applies to",
-        OfferWords.applies_to(payload["scope"], payload["repository"])
+        OfferWords.applies_to(chat_scope(payload["scope"]), payload["repository"])
       )
       |> optional_detail("Expires", OfferWords.duration(payload["expires_in"]))
 
@@ -306,9 +309,12 @@ defmodule Ryker.Delivery.ChatCard do
       []
       |> optional_detail(
         "Applies to",
-        OfferWords.applies_to(payload["scope"], payload["repository"])
+        OfferWords.applies_to(chat_scope(payload["scope"]), payload["repository"])
       )
-      |> optional_detail("Shown to", OfferWords.shown_to(payload["scope"], payload["visibility"]))
+      |> optional_detail(
+        "Shown to",
+        OfferWords.shown_to(chat_scope(payload["scope"]), chat_scope(payload["visibility"]))
+      )
       |> optional_detail("Expires", OfferWords.duration(payload["expires_in"]))
 
     common(
@@ -776,6 +782,12 @@ defmodule Ryker.Delivery.ChatCard do
   # rather than rendering a row with nothing in it.
   defp evidence_refs(refs) when is_list(refs) and refs != [], do: Enum.join(refs, ", ")
   defp evidence_refs(_refs), do: nil
+
+  # A Chat conversation is its own workspace (`Ryker.Episodes.Scope`), so what is saved for
+  # the workspace holds in this conversation alone: the card said "Everyone in this
+  # workspace" of a fact no other chat could recall (2026-10-09).
+  defp chat_scope("workspace"), do: "conversation"
+  defp chat_scope(scope), do: scope
 
   defp optional_detail(details, _label, nil), do: details
   defp optional_detail(details, label, value), do: details ++ [{label, to_string(value)}]

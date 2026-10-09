@@ -379,6 +379,47 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
              "the worker session holding these changes closed before they could be checked"
   end
 
+  # Manual test, 2026-10-09: after the worker restarted under a review, the Chat task card read
+  # "Action needed: {:coop_error, 0, \"repository_unavailable\", …}", the publication's saved
+  # term printed whole. Slack's card already said it in words; both say the same now.
+  test "a publication error reads in words on every card, never as its saved term" do
+    %{claim: work, publication: approved} = PublicationFixture.approved!("coop-error-card")
+    assert {:ok, claim} = PublicationCustody.claim_next("publication:coop-error-card", 60)
+
+    assert {:ok, _deferred} =
+             PublicationCustody.defer(
+               approved.ref,
+               claim.lease_ref,
+               60,
+               "coop_error",
+               ~s({:coop_error, 0, "repository_unavailable", "could not refresh the job's default revision"})
+             )
+
+    source = %Record{
+      kind: "task_offer",
+      status: :confirmed,
+      confirmed_episode_id: work.episode.id,
+      confirmed_at: DateTime.utc_now(),
+      confirmed_by_actor_ref: "slack:user:U1",
+      ref: "task-card:coop-error-card",
+      payload:
+        TaskOffer.payload(%{
+          "title" => "Implement coop-error-card",
+          "repository" => "ryker",
+          "prompt" => "Implement the change."
+        })
+    }
+
+    words =
+      "Making the draft pull request stopped and needs a person. " <>
+        "The cause is on Ryker's Failures page."
+
+    assert {:ok, %{document: %{"task_card" => chat}}} = TaskCardProjection.build(source)
+    assert chat["action_needed"] == words
+    assert {:ok, %{document: %{"task_card" => page}}} = TaskCardProjection.page(source)
+    assert page["action_needed"] == words
+  end
+
   # 2026-09-30: after a refused publication grant the card offered "Retry publication", which
   # custody refuses for that code because the worker finished the publish as refused. The card
   # offers the recovery that works, and says the draft was not made.
