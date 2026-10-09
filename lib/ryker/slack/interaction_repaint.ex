@@ -243,7 +243,7 @@ defmodule Ryker.Slack.InteractionRepaint do
 
   defp confirmation_message(records, message) do
     if Enum.any?(records, &(&1.kind in @confirmation_kinds and &1.status == :confirmed)),
-      do: "Confirmation saved. The confirmed items are shown below.",
+      do: "Saved.",
       else: message
   end
 

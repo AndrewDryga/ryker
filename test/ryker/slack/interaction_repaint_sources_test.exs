@@ -208,7 +208,9 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
 
     assert repaint(fixture.audit) == :ok
     assert_received {:updated, _, _, document, _}
-    assert document["message"] =~ "Confirmation saved"
+    # The reply said "Confirmation saved. The confirmed items are shown
+    # below." (Slack as Andrew, 2026-10-09); the card below says what.
+    assert document["message"] == "Saved."
     refute document["message"] =~ "not yet active"
     assert {:ok, rendered} = Renderer.render(document)
     assert inspect(rendered) =~ "Standing rule saved"

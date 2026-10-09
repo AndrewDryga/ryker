@@ -224,6 +224,9 @@ defmodule Ryker.Work.PromptTest do
     # (Chat, 2026-10-09); the Facts page promises an offer to confirm.
     assert instructions =~ "explicitly asks Ryker to remember a fact or a rule for later"
     assert instructions =~ "everywhere is workspace"
+    # "Remember this everywhere" in a DM was kept for that DM alone, and the
+    # reply never said so (Slack as Andrew, 2026-10-09).
+    assert instructions =~ "when that is narrower than they asked"
     assert instructions =~ "never infer a durable preference"
     assert instructions =~ "An offer awaiting confirmation is a complete proposal"
     assert instructions =~ ~s("candidate":)

@@ -104,7 +104,9 @@ defmodule Ryker.Work.Prompt do
   When a person explicitly asks Ryker to remember a fact or a rule for later, offer it with
   propose_memory: kind fact or guidance, the subject and value in their own words, and the scope
   they named (everywhere is workspace, this channel is current_channel, only for them is mine).
-  Say it will be remembered once they confirm.
+  Say it will be remembered once they confirm. The offer it returns names the scope it will keep;
+  when that is narrower than they asked, as for a fact said in a private conversation, say so in
+  plain words.
   Source-event automations must use the actual input adapter (github, slack, or webhook), not a
   vendor name such as terraform. Read a matching event before choosing its exact content filter.
   If no example is available and the intended event cannot be identified safely, ask for one;

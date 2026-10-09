@@ -37,6 +37,40 @@ defmodule Ryker.Slack.SavedEntityTest do
            ] in facts
   end
 
+  # A fact saved from a DM read "Kind: entity relationship", then "Scope: This
+  # conversation" and "Visibility: This conversation" (Slack as Andrew,
+  # 2026-10-09). The card says what was saved and, once, whom it is for.
+  test "a saved fact names its kind in words and says once whom it applies to" do
+    entry = %Ryker.Memories.MemoryEntry{
+      confirmed_at: ~U[2026-10-09 21:39:00.000000Z],
+      confirmed_by_actor_ref: "slack:user:U123",
+      expires_at: ~U[2027-01-07 21:39:00.000000Z],
+      kind: :entity_relationship,
+      payload: %{"value" => "https://status.example.test"},
+      ref: "memory:status-page",
+      scope_kind: :conversation,
+      scope_ref: "slack:T123:D456",
+      source_conversation_ref: "slack:T123:D456",
+      source_transport: "slack",
+      status: :active,
+      subject: "our public status page",
+      visibility: :conversation
+    }
+
+    facts = SavedEntity.document(entry, :saved)["facts"]
+    labels = Enum.map(facts, &hd/1)
+
+    assert ["Kind", "Fact"] in facts
+    assert ["Applies to", "This conversation"] in facts
+    refute "Scope" in labels
+    refute "Visibility" in labels
+
+    shared = %{entry | scope_kind: :workspace, visibility: :conversation}
+    shared_facts = SavedEntity.document(shared, :saved)["facts"]
+    assert ["Applies to", "Whole workspace"] in shared_facts
+    assert ["Who sees it", "This conversation"] in shared_facts
+  end
+
   # QA, 2026-09-25: the saved schedule in Slack said "Every monday at 09:00:00
   # · Etc/UTC" in words of its own, and had none for a weekday schedule. It
   # reads the recurrence through the one wording every surface shares.

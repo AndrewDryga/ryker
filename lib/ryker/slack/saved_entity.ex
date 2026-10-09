@@ -65,13 +65,17 @@ defmodule Ryker.Slack.SavedEntity do
 
     %{
       "facts" =>
-        facts([
-          {"Kind", Wording.words(entry.kind)},
-          {"Scope", scope(entry.scope_kind, entry.scope_ref)},
-          {"Visibility", visibility(Atom.to_string(entry.visibility))},
-          {"Expires", expiry(entry.expires_at, "No expiry")},
-          {"Source", source(entry)}
-        ]),
+        facts(
+          [{"Kind", memory_kind(entry.kind)}] ++
+            audience(
+              scope(entry.scope_kind, entry.scope_ref),
+              visibility(Atom.to_string(entry.visibility))
+            ) ++
+            [
+              {"Expires", expiry(entry.expires_at, "No expiry")},
+              {"Source", source(entry)}
+            ]
+        ),
       "instructions" => shown(entry.payload["value"]),
       "kind" => "memory",
       "notice" => notice("Memory", status, event),
@@ -241,6 +245,19 @@ defmodule Ryker.Slack.SavedEntity do
     do: "Request through #{transport}"
 
   defp source(_entity), do: nil
+
+  # What was saved, in words: the card said "entity relationship" (Slack as
+  # Andrew, 2026-10-09).
+  defp memory_kind(:entity_relationship), do: "Fact"
+  defp memory_kind(:alias), do: "Another name"
+  defp memory_kind(:repository_binding), do: "Repository for this work"
+  defp memory_kind(:evidence_route), do: "Where to look"
+  defp memory_kind(kind), do: Wording.words(kind)
+
+  # Whom it applies to, said once when it is also who sees it: the card said
+  # "This conversation" twice, as Scope and as Visibility.
+  defp audience(applies, applies), do: [{"Applies to", applies}]
+  defp audience(applies, sees), do: [{"Applies to", applies}, {"Who sees it", sees}]
 
   defp scope(:workspace, _ref), do: "Whole workspace"
   defp scope(:global, _ref), do: "Every installation"
