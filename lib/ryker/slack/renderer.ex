@@ -110,7 +110,7 @@ defmodule Ryker.Slack.Renderer do
       {:ok,
        %{
          "blocks" => message_blocks(text) ++ record_blocks,
-         "text" => text
+         "text" => spoken(text)
        }}
     else
       {:error, {:invalid_slack_mentions, _reason}} ->
@@ -131,12 +131,31 @@ defmodule Ryker.Slack.Renderer do
       {:ok,
        %{
          "blocks" => message_blocks(text) ++ record_blocks,
-         "text" => text
+         "text" => spoken(text)
        }}
     end
   end
 
   defp render_document(_document), do: {:error, {:invalid_slack_render, :document}}
+
+  # A notification shows the message's text, which Slack takes literally
+  # (`"mrkdwn" => false`), so it says the reply's words without the Markdown
+  # its blocks render: a link by its label, code and emphasis by their words.
+  # A message that is nothing but Markdown keeps its text as written.
+  defp spoken(text) do
+    words =
+      text
+      |> String.replace(~r/^[ \t]*```[^\n]*\n?/m, "")
+      |> String.replace(~r/^[#]{1,6}[ \t]+/m, "")
+      |> String.replace(~r/!?\[([^\]\n]+)\]\([^()\s]+\)/u, "\\1")
+      |> String.replace(~r/\*\*([^*\n]+)\*\*/u, "\\1")
+      |> String.replace(~r/(?<!\w)__([^_\n]+)__(?!\w)/u, "\\1")
+      |> String.replace(~r/~~([^~\n]+)~~/u, "\\1")
+      |> String.replace(~r/`([^`\n]+)`/u, "\\1")
+      |> String.trim()
+
+    if words == "", do: text, else: words
+  end
 
   defp block_count(text, record_blocks) do
     if length(message_blocks(text)) + length(record_blocks) <= @maximum_blocks,

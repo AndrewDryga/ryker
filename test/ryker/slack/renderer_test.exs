@@ -255,6 +255,23 @@ defmodule Ryker.Slack.RendererTest do
     assert hd(rendered["blocks"])["text"] == rendered["text"]
   end
 
+  # A notification shows a message's text, not its blocks, and Slack takes that
+  # text literally. Replies notified as "[6e2e911](<https://github.com/…>)
+  # changed only **CHANGELOG.md**" (manual testing in Slack, 2026-10-10).
+  test "a notification says a reply's words, not its Markdown" do
+    message =
+      "## Result\n[6e2e911](https://github.com/acme/app/commit/6e2e911) changed only " <>
+        "**CHANGELOG.md** and `mix.exs`; see __notes__, not ~~old~~ ones.\n```sh\nmix test\n```"
+
+    assert {:ok, rendered} = Renderer.render(%{"message" => message, "records" => []})
+
+    assert rendered["text"] ==
+             "Result\n6e2e911 changed only CHANGELOG.md and mix.exs; see notes, not old ones.\n" <>
+               "mix test"
+
+    assert hd(rendered["blocks"])["text"] == message
+  end
+
   # Until 2026-09-11 the welcome was static system copy ("Configure Emisar for
   # this channel. Nothing is saved until an operator confirms it.") with a
   # 30-minute expiry; a channel that never clicked had no readable description
