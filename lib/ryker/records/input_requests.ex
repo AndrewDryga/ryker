@@ -41,8 +41,10 @@ defmodule Ryker.Records.InputRequests do
   """
   @spec asked(String.t()) :: String.t()
   def asked(question) when is_binary(question) do
-    case question |> String.split("\n\n") |> List.last() do
-      "1. " <> _rest = questions -> questions
+    last = question |> String.split("\n\n") |> List.last()
+
+    case last do
+      "1. " <> _rest -> last
       _context -> question
     end
   end
