@@ -148,8 +148,11 @@ defmodule Ryker.Slack.IncidentRoomCard do
 
   defp action_needed(_room, %Episodes.Episode{state: :waiting_for_input}, records, _turn) do
     case records["input_request"] do
-      %Records.Record{payload: %{"question" => question}} -> Fields.cut(question, 500)
-      _missing -> "An operator response is required before the investigation can continue."
+      %Records.Record{payload: %{"question" => question}} ->
+        question |> Records.InputRequests.asked() |> Fields.cut(500)
+
+      _missing ->
+        "An operator response is required before the investigation can continue."
     end
   end
 

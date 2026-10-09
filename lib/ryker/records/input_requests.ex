@@ -33,6 +33,21 @@ defmodule Ryker.Records.InputRequests do
   @target_fields [:conversation_ref, :message_ref, :thread_ref, :transport]
 
   @doc """
+  The numbered questions of a stored `question`, without the context written
+  above them: request_input keeps its context, a blank line, then "1. …". A
+  card that shows the question cut the whole text and showed only the context
+  and "1. Can you share fr…" (Slack as Andrew, 2026-10-09). A question with no
+  context is returned whole.
+  """
+  @spec asked(String.t()) :: String.t()
+  def asked(question) when is_binary(question) do
+    case question |> String.split("\n\n") |> List.last() do
+      "1. " <> _rest = questions -> questions
+      _context -> question
+    end
+  end
+
+  @doc """
   Associate a typed reply while admission holds the input and episode locks.
 
   This records provenance, not a semantic decision that the reply supplies the

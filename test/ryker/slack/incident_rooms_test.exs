@@ -2352,10 +2352,15 @@ defmodule Ryker.Slack.IncidentRoomsTest do
                "verdict" => "unverified"
              })
 
+    # A question is stored as its context, a blank line and its numbered
+    # questions. The pinned card cut that at 500 characters, so it showed the
+    # context and "1. Can you share fr…" (Slack as Andrew, 2026-10-09).
+    context = String.duplicate("The checkout error rate rose after the 20:00 deploy. ", 12)
+
     assert {:ok, question} =
              Records.create(Records.token(claim.turn), "question", "input_request", %{
                "choices" => ["rollback", "continue"],
-               "question" => "Should we roll back the checkout deployment?"
+               "question" => context <> "\n\n1. Should we roll back the checkout deployment?"
              })
 
     # The 2026-09-12 coverage measurement: an incident card carried a prose
@@ -2403,7 +2408,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
            ]
 
     assert card["status"] == "waiting_for_input"
-    assert card["action_needed"] =~ "roll back"
+    assert card["action_needed"] == "1. Should we roll back the checkout deployment?"
 
     assert card["alert"] == %{
              "impact" => alert.payload["impact"],
