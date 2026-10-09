@@ -838,6 +838,65 @@ defmodule Ryker.Admission.CommitTest do
     end
   end
 
+  # Manual test, 2026-10-09: "What is 12 times 12?" was edited to "13 times 13" while routing
+  # still read the first version. The first's quick reply committed six seconds after the edit
+  # was recorded and posted "144", then the edit posted "169": an answer to words the person had
+  # already taken back. A message no episode owns is set aside like one an episode owns when a
+  # later revision of it was recorded first, so only the newer words are answered.
+  test "a quick reply to a message edited before the reply committed is never sent" do
+    original =
+      record_input!(event_ref: "Ev-quick-original", content: %{"text" => "What is 12 times 12?"})
+
+    context = context!(original)
+
+    edit =
+      record_input!(
+        event_ref: "Ev-quick-edit",
+        event_kind: :edit,
+        revision: 2,
+        content: %{"text" => "What is 13 times 13?"}
+      )
+
+    answer = fn number ->
+      {:ok, decision} =
+        Decision.parse(%{
+          "action" => "quick_reply",
+          "episode_ref" => nil,
+          "messages" => [number],
+          "reactions" => nil,
+          "relation" => "unrelated",
+          "repository" => nil,
+          "repository_source" => nil,
+          "reason" => "A short arithmetic answer.",
+          "work_class" => nil
+        })
+
+      decision
+    end
+
+    assert {:ok, stale} = Admission.commit(context, answer.("144"), "decision-quick-original")
+    assert stale.status == :superseded
+    assert stale.episode == nil
+    assert stale.entry.status == :superseded
+    assert stale.entry.episode_id == nil
+    assert stale.entry.last_error_code == "stale_input_revision"
+
+    responses = fn input_id ->
+      Repo.aggregate(
+        from(response in Ryker.Delivery.RoutingResponse, where: response.input_id == ^input_id),
+        :count
+      )
+    end
+
+    assert responses.(original.id) == 0
+
+    assert {:ok, current} =
+             Admission.commit(context!(edit), answer.("169"), "decision-quick-edit")
+
+    assert current.status == :applied
+    assert responses.(edit.id) == 1
+  end
+
   test "a quick reply is sent as routing wrote it and starts no work" do
     # Andrew, 2026-09-26: routing may answer a simple message itself, without
     # starting the work model; "hi" gets "hi" back. It still decides every

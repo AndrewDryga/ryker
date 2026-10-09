@@ -703,6 +703,9 @@ defmodule Ryker.Admission do
     end
   end
 
+  # A message no episode owns is set aside like one an episode owns when a later revision of it
+  # was recorded first: only the newer words are answered. An edit made while routing read the
+  # first version got two quick replies, one per version (2026-10-09).
   defp apply_and_persist(
          context,
          entry,
@@ -712,7 +715,19 @@ defmodule Ryker.Admission do
          {:error, :not_found},
          work_policy
        ) do
-    apply_and_persist_current(context, entry, selection, decision, decision_ref, work_policy)
+    case Repo.one(Ingress.Inbox.Entry.Query.newest_later_revision(entry)) do
+      latest when is_integer(latest) ->
+        details = [
+          native_input_id: context.input.native_input_id,
+          submitted: context.input.revision,
+          latest: latest
+        ]
+
+        persist_superseded(entry, decision, decision_ref, nil, details)
+
+      nil ->
+        apply_and_persist_current(context, entry, selection, decision, decision_ref, work_policy)
+    end
   end
 
   defp source_owner_matches_selection?(owner, selection) do
@@ -1111,7 +1126,12 @@ defmodule Ryker.Admission do
 
   defp persist_superseded_decision(entry, decision, decision_ref, episode, details) do
     entry
-    |> Ingress.Inbox.Entry.Changeset.supersede(decision, decision_ref, episode.id, details)
+    |> Ingress.Inbox.Entry.Changeset.supersede(
+      decision,
+      decision_ref,
+      episode && episode.id,
+      details
+    )
     |> Repo.update()
     |> case do
       {:ok, decided} ->

@@ -321,6 +321,14 @@ defmodule Ryker.Ingress.Inbox.Entry.Query do
     )
   end
 
+  @doc "The newest later revision of `entry`'s message recorded in its execution mode, if any."
+  def newest_later_revision(entry) do
+    entry
+    |> later_revisions_of()
+    |> where([ingress_inbox_entries: e], e.execution_mode == ^entry.execution_mode)
+    |> select_latest_revision()
+  end
+
   @doc "A GitHub item Ryker already engaged with, by its repository and the item it is."
   def engaged_github_item(source_ref, source_item_ref) do
     where(
