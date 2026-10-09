@@ -260,7 +260,7 @@ defmodule Ryker.Slack.SavedEntity do
   defp audience(applies, sees), do: [{"Applies to", applies}, {"Who sees it", sees}]
 
   defp scope(:workspace, _ref), do: "Whole workspace"
-  defp scope(:global, _ref), do: "Every installation"
+  defp scope(:global, _ref), do: "Everywhere"
   defp scope(:conversation, _ref), do: "This conversation"
   defp scope(:repository, ref), do: "Repository #{ref}"
   defp scope(:operator, ref), do: "Operator #{ref}"
@@ -268,7 +268,7 @@ defmodule Ryker.Slack.SavedEntity do
   defp visibility("private"), do: "Private to the operator"
   defp visibility("conversation"), do: "This conversation"
   defp visibility("workspace"), do: "Whole workspace"
-  defp visibility("global"), do: "Every installation"
+  defp visibility("global"), do: "Everywhere"
   defp visibility(other), do: other
 
   defp expiry(%DateTime{} = at, _default), do: UTCDateTime.readable(at)
