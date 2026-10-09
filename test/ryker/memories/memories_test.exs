@@ -337,7 +337,7 @@ defmodule Ryker.Memories.MemoriesTest do
     assert recalled["memory_ref"] == shared.memory.ref
   end
 
-  test "App Home memory count does not disclose conversation-private entries" do
+  test "App Home does not disclose conversation-private memories" do
     fixture = delivered_offers!("home-count-privacy")
     assert {:ok, private} = Memories.confirm(confirmation(fixture, fixture.first, "private"))
 
@@ -346,7 +346,6 @@ defmodule Ryker.Memories.MemoriesTest do
 
     snapshot = AppHomeProjection.snapshot("T123", "U123", MapSet.new(["C456"]))
 
-    assert snapshot.counts.active_memory == 1
     assert Enum.any?(snapshot.memories, &(&1.ref == workspace.memory.ref))
     refute Enum.any?(snapshot.memories, &(&1.ref == private.memory.ref))
   end

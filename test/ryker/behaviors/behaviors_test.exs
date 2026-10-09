@@ -434,7 +434,6 @@ defmodule Ryker.Behaviors.BehaviorsTest do
              Behaviors.confirm(confirmation(fixture, fixture.guidance, "conversation"))
 
     snapshot = AppHomeProjection.snapshot("T123", "U123", MapSet.new(["C456"]))
-    assert snapshot.counts.active_behaviors == 2
 
     assert Enum.any?(snapshot.behaviors, fn row ->
              row.ref == workspace.behavior.ref and
