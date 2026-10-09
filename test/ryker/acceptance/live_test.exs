@@ -294,6 +294,26 @@ defmodule Ryker.Acceptance.LiveTest do
     end
   end
 
+  # Found 2026-10-09: in the Compose container the console listens on every
+  # address, so the lane asked http://0.0.0.0:4321/readyz, and the console
+  # answers only the names it is reached at: 421 Misdirected Request, and
+  # `make live-acceptance` could not start at all.
+  test "the production harness reaches a console listening on every address at its loopback" do
+    {ready_port, ready} = guarded_ready_server("0.1.0-dev")
+    {slack_url, slack} = json_server(~s({"ok":false,"error":"acceptance-stop"}))
+
+    configuration =
+      ready_port
+      |> production_configuration(slack_url)
+      |> put_in([:control_plane, :ip], {0, 0, 0, 0})
+
+    assert Live.run(configuration, "C123", run_id: "every-address") ==
+             {:error, {:slack_api_error, "acceptance-stop"}}
+
+    Task.await(ready)
+    Task.await(slack)
+  end
+
   test "the production harness requires the exact running release at readiness" do
     {port, server} = ready_server(200, "crossed-release")
 
@@ -522,6 +542,34 @@ defmodule Ryker.Acceptance.LiveTest do
             "HTTP/1.1 #{status} #{phrase}\r\n#{version_header}content-length: 0\r\nconnection: close\r\n\r\n"
           )
 
+        :gen_tcp.close(socket)
+        :gen_tcp.close(listener)
+      end)
+
+    {port, server}
+  end
+
+  # Answers as the console's browser guard does: a Host it is not reached at
+  # is a misdirected request.
+  defp guarded_ready_server(version) do
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, active: false, ip: {127, 0, 0, 1}, reuseaddr: true])
+
+    {:ok, {_ip, port}} = :inet.sockname(listener)
+
+    server =
+      Task.async(fn ->
+        {:ok, socket} = :gen_tcp.accept(listener)
+        {:ok, request} = :gen_tcp.recv(socket, 0, 5_000)
+
+        response =
+          if request =~ ~r/\r\nhost: 0\.0\.0\.0/i do
+            "HTTP/1.1 421 Misdirected Request\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+          else
+            "HTTP/1.1 200 OK\r\nx-ryker-version: #{version}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+          end
+
+        :ok = :gen_tcp.send(socket, response)
         :gen_tcp.close(socket)
         :gen_tcp.close(listener)
       end)

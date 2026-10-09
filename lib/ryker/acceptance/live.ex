@@ -346,7 +346,7 @@ defmodule Ryker.Acceptance.Live do
   @spec deployment_ready(map()) :: :ok | {:error, term()}
   defp deployment_ready(%{control_plane: %{ip: ip, port: port}})
        when is_tuple(ip) and is_integer(port) do
-    host = ip |> :inet.ntoa() |> to_string()
+    host = ip |> reachable() |> :inet.ntoa() |> to_string()
     authority = if String.contains?(host, ":"), do: "[#{host}]", else: host
     request = Delivery.HTTPClient.build(:get, "http://#{authority}:#{port}/readyz")
     expected_version = release_version()
@@ -368,6 +368,14 @@ defmodule Ryker.Acceptance.Live do
 
   defp deployment_ready(_configuration),
     do: {:error, :live_acceptance_control_plane_not_configured}
+
+  # A console listening on every address, as it does in its container, is
+  # asked at its loopback: it answers only the names it is reached at, and
+  # `0.0.0.0` got 421 Misdirected Request, so the lane never started
+  # (2026-10-09).
+  defp reachable({0, 0, 0, 0}), do: {127, 0, 0, 1}
+  defp reachable({0, 0, 0, 0, 0, 0, 0, 0}), do: {0, 0, 0, 0, 0, 0, 0, 1}
+  defp reachable(ip), do: ip
 
   defp wait_for_result(settings, event_ref, previous_turn_ids) do
     deadline = settings.operations.monotonic_ms.() + settings.timeout_ms
