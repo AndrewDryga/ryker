@@ -485,12 +485,16 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
       )
       |> Repo.update!()
 
-    {:ok, running} = Agent.start_link(fn -> {0, 0} end)
+    # Each preparation reports in and waits to be let go: all three report in
+    # only when none waits for another.
+    test = self()
 
     prepare = fn _, ref, _ ->
-      Agent.update(running, fn {now, most} -> {now + 1, max(most, now + 1)} end)
-      Process.sleep(300)
-      Agent.update(running, fn {now, most} -> {now - 1, most} end)
+      send(test, {:preparing, ref, self()})
+
+      receive do
+        :go -> :ok
+      end
 
       {:ok,
        %{
@@ -502,9 +506,18 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
        }}
     end
 
-    assert {:ok, pinned} = JobAuthority.ensure_pinned(session, nil, prepare)
-    assert {0, 3} = Agent.get(running, & &1)
+    pin = Task.async(fn -> JobAuthority.ensure_pinned(session, nil, prepare) end)
 
+    preparing =
+      for _repository <- 1..3 do
+        assert_receive {:preparing, ref, pid}, 5_000
+        {ref, pid}
+      end
+
+    assert preparing |> Enum.map(&elem(&1, 0)) |> Enum.sort() == ~w(app library tools)
+    Enum.each(preparing, fn {_ref, pid} -> send(pid, :go) end)
+
+    assert {:ok, pinned} = Task.await(pin, 10_000)
     assert pinned.worker_job_document["source"]["repository_ref"] == "app"
 
     assert Enum.map(pinned.worker_job_document["companions"], & &1["name"]) == [
