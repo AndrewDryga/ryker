@@ -692,6 +692,12 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
 
     assert {:ok, %{document: %{"task_card" => stopped}}} = TaskCardProjection.build(card_record)
     assert stopped["action_needed"] == stop
+
+    # Slack's card and the task page keep untrusted error text out, and that notice
+    # replaced the sentence too: a Stop pressed in Slack read "Task work stopped and
+    # needs a person", with no word of how to continue (manual test, 2026-10-09).
+    assert {:ok, %{document: %{"task_card" => public}}} = TaskCardProjection.page(card_record)
+    assert public["action_needed"] == stop
   end
 
   test "a stopped task offers a resume bound to the turn it was rendered against" do

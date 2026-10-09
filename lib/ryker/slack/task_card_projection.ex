@@ -360,12 +360,13 @@ defmodule Ryker.Slack.TaskCardProjection do
   # that same error, its own words are the only line an operator can act on; the
   # term still never travels, and an error naming nothing keeps the notice.
   # The cause ends in a worker's own sentence, which owes the host no full stop,
-  # so the step answering it starts its own line rather than running on.
+  # so the step answering it starts its own line rather than running on. A
+  # person's Stop keeps the sentence its control wrote, which is Ryker's own:
+  # the notice read a Stop pressed in Slack as a failure (2026-10-09).
   defp public_error(_publication, %Work.Turn{status: :blocked} = turn, _hold) do
-    case Work.FailureCause.explain(turn.last_error_detail) do
-      %{cause: cause, next_step: next_step} -> Fields.cut(cause <> "\n" <> next_step, 2_000)
-      nil -> attention("Task work stopped and needs a person")
-    end
+    turn
+    |> Work.FailureCause.summary(attention("Task work stopped and needs a person"))
+    |> Fields.cut(2_000)
   end
 
   defp public_error(_publication, _turn, _hold), do: nil
