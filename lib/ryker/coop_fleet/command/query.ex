@@ -21,6 +21,15 @@ defmodule Ryker.CoopFleet.Command.Query do
 
   def by_kind(queryable, kind), do: where(queryable, [coop_worker_commands: c], c.kind == ^kind)
 
+  @doc "The commands that succeeded under a key starting with `prefix`."
+  def succeeded_with_key_prefix(queryable, prefix) when is_binary(prefix) do
+    where(
+      queryable,
+      [coop_worker_commands: c],
+      c.status == :succeeded and fragment("starts_with(?, ?)", c.idempotency_key, ^prefix)
+    )
+  end
+
   @doc "Session `session_id`'s session creates that did not fail."
   def live_creates(session_id) do
     session_id

@@ -142,6 +142,32 @@ defmodule Ryker.Slack.WorkControlsTest do
   # observation could mention the whole channel, put a link under any label or
   # add a date token (2026-10-04 review). Only Ryker's own dates and links are
   # markup there.
+  # Manual test, 2026-10-09: the handoff of a task that had opened its draft pull request read
+  # "Completed. No update yet." A finished request has no update still to come.
+  test "a finished task's handoff never says an update is still to come" do
+    fixture = task_fixture!("finished-handoff")
+    target = attributes(fixture.card.ref).target
+
+    assert {:ok, %{"message" => working}} = WorkRecord.build(fixture.card.ref, target, :handoff)
+    assert working =~ "Working. No update yet."
+
+    {1, _rows} =
+      Repo.update_all(from(episode in Episodes.Episode, where: episode.id == ^fixture.episode.id),
+        set: [
+          state: :complete,
+          owner_kind: nil,
+          owner_ref: nil,
+          active_input_refs: [],
+          queued_input_refs: [],
+          queued_input_order_keys: []
+        ]
+      )
+
+    assert {:ok, %{"message" => finished}} = WorkRecord.build(fixture.card.ref, target, :handoff)
+    assert finished =~ "\nCompleted.\n"
+    refute finished =~ "No update yet"
+  end
+
   test "model and source text in a task's views is text, never Slack markup" do
     fixture =
       task_fixture!("markup",

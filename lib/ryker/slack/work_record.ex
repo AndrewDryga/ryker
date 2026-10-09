@@ -222,7 +222,7 @@ defmodule Ryker.Slack.WorkRecord do
 
     [
       heading("Where this stands", snapshot),
-      "#{Episodes.Words.label(snapshot.episode.state)}. " <> progress_line(progress),
+      status_line(snapshot.episode.state, progress),
       if(steps != [], do: "Steps:\n" <> Enum.join(steps, "\n")),
       Enum.map(waits, &wait_line/1),
       if(snapshot.kind == :task,
@@ -454,6 +454,14 @@ defmodule Ryker.Slack.WorkRecord do
   end
 
   defp latest(records, kind), do: records |> Enum.filter(&(&1.kind == kind)) |> List.last()
+
+  # A finished request has no update still to come: a task whose draft pull request was
+  # open read "Completed. No update yet." (2026-10-09).
+  defp status_line(state, nil) when state in [:complete, :cancelled],
+    do: "#{Episodes.Words.label(state)}."
+
+  defp status_line(state, progress),
+    do: "#{Episodes.Words.label(state)}. " <> progress_line(progress)
 
   defp progress_line(nil), do: "No update yet."
 

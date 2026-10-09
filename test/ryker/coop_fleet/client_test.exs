@@ -1059,6 +1059,89 @@ defmodule Ryker.CoopFleet.ClientTest do
     refute_receive {:fleet_command, ^replacement, "ensure_workspace", _, _, _}
   end
 
+  # Manual test, 2026-10-09: a person stopped a code task in Chat and replied to continue it,
+  # and it never ran again. Ryker had cancelled the turn and closed the session on purpose,
+  # saving no copy of its files, so the replacement was refused for want of one. A stop, or
+  # Ryker's own block, closes the session knowing the task runs again as a new run, as the
+  # Stop and Run again controls say; a session lost without that close still needs one.
+  test "a replacement after a stop closed the stopped session runs again from the source", %{
+    client: client,
+    session: session
+  } do
+    {source, workspace_task} = submitted_source!(session, "stopped-run")
+
+    close =
+      command!(source, "stopped-close",
+        kind: "close_session",
+        payload: %{"coop_session_id" => source.coop_session_id, "expected_revision" => 3},
+        key: "ryker:work:cancel-close:#{Ecto.UUID.generate()}:g1"
+      )
+
+    complete_command!(close, :succeeded, %{
+      "session" => %{"id" => source.coop_session_id, "revision" => 4, "state" => "closed"}
+    })
+
+    replacement = replacement!(source, workspace_task)
+
+    assert {:ok, %{"session" => %{"id" => "remote-resource"}}} =
+             Client.create_session(
+               client,
+               "ryker:work:create:#{replacement.id}:g1",
+               @policy,
+               workspace_task["offer_ref"],
+               replacement.repository_source
+             )
+
+    assert_receive {:fleet_command, ^replacement, "ensure_workspace", payload, _ensure_key, _}
+    refute Map.has_key?(payload, "checkpoint")
+  end
+
+  # Found with the stop above: the refused replacement was stopped in turn, its stop fenced
+  # the create, and the fence asked for the missing checkpoint again, so the stop failed on
+  # every attempt and the task card read "Stopping" for good. The created session takes no
+  # turn without its workspace, so the fence names it for the stop to close.
+  test "a create fence names a created session that had no checkpoint to restore", %{
+    client: client,
+    session: session
+  } do
+    {source, workspace_task} = submitted_source!(session, "lost-run")
+    replacement = replacement!(source, workspace_task)
+    offer = workspace_task["offer_ref"]
+    key = "ryker:work:create:#{replacement.id}:g1"
+
+    command =
+      command!(replacement, "created-without-checkpoint",
+        kind: "create_session",
+        payload: create_payload(replacement, offer),
+        key: key
+      )
+
+    complete_command!(command, :succeeded, %{
+      "id" => "operation-created-without-checkpoint",
+      "method" => "CreateRemoteSession",
+      "resource_id" => "remote:created-without-checkpoint",
+      "resource_type" => "session",
+      "state" => "succeeded"
+    })
+
+    Process.put(:coop_fleet_get_session_result, %{
+      "id" => "remote:created-without-checkpoint",
+      "revision" => 1,
+      "state" => "open"
+    })
+
+    assert {:ok, %{"resource_id" => "remote:created-without-checkpoint", "state" => "succeeded"}} =
+             Client.fence_create_session(
+               client,
+               key,
+               replacement.policy,
+               offer,
+               replacement.repository_source
+             )
+
+    refute_received {:fleet_command, _, "ensure_workspace", _, _, _}
+  end
+
   test "frozen submit preserves exact persisted prompt schema context and digest", %{
     client: client,
     session: session
@@ -2725,6 +2808,56 @@ defmodule Ryker.CoopFleet.ClientTest do
 
     session
     |> Ecto.Changeset.change(worker_job_document: job, worker_job_digest: digest)
+    |> Repo.update!()
+  end
+
+  # A task-bound session a turn was submitted to, so its workspace may hold the model's changes.
+  defp submitted_source!(session, suffix) do
+    workspace_task = %{
+      "authority_limits" => ["Change only docs/#{suffix}.md"],
+      "offer_ref" => "record:task_offer:#{suffix}",
+      "prompt" => "Add docs/#{suffix}.md.",
+      "source_refs" => [],
+      "success_checks" => ["the file exists"],
+      "title" => "Add #{suffix}"
+    }
+
+    source =
+      session
+      |> Session.Changeset.bind_workspace_task(workspace_task)
+      |> Ecto.Changeset.change(coop_session_id: "coop-session-#{suffix}")
+      |> Repo.update!()
+
+    command!(source, "#{suffix}-submission",
+      kind: "submit_turn",
+      payload: %{
+        "coop_session_id" => source.coop_session_id,
+        "expected_revision" => 2,
+        "submission" => %{"prompt" => "Add the file."}
+      }
+    )
+
+    {source, workspace_task}
+  end
+
+  # The next generation of `source`, bound to the same workspace task.
+  defp replacement!(source, workspace_task) do
+    Session.Changeset.insert(%{
+      id: Ecto.UUID.generate(),
+      episode_id: source.episode_id,
+      generation: source.generation + 1,
+      policy: source.policy,
+      policy_digest: source.policy_digest,
+      repository_ref: source.repository_ref,
+      external_ref: source.external_ref,
+      authority_digest: source.authority_digest,
+      repository_source: source.repository_source,
+      worker_job_document: source.worker_job_document,
+      worker_job_digest: source.worker_job_digest,
+      workspace_task: nil
+    })
+    |> Repo.insert!()
+    |> Session.Changeset.bind_workspace_task(workspace_task)
     |> Repo.update!()
   end
 

@@ -1037,9 +1037,13 @@ defmodule Ryker.CoopFleet.Client do
   # for good (a read-only session, 409 invalid_session_state) still exists and
   # takes no turn, so the fence names it for the stop to close: refusing the
   # fence too failed the stop on every attempt for eleven hours (2026-10-09).
+  # So does one created without the checkpoint its workspace needed: its stop
+  # asked for the checkpoint again on every attempt, and its card read
+  # "Stopping" for good (2026-10-09).
   defp fenced_workspace(client, command, operation, key) do
     case ensure_reconciled_workspace(client, command, operation, key) do
       {:error, {:coop_error, 409, "invalid_session_state", _detail}} -> :ok
+      {:error, {:coop_workspace_checkpoint_required, _session_id, _generation}} -> :ok
       result -> result
     end
   end
@@ -1154,8 +1158,16 @@ defmodule Ryker.CoopFleet.Client do
   defp missing_checkpoint(nil), do: {:ok, nil}
   defp missing_checkpoint(%Work.Session{coop_session_id: nil}), do: {:ok, nil}
 
+  # A session lost with a turn submitted may hold changes nobody chose to drop,
+  # so its replacement needs the checkpoint. A stop, a person's or Ryker's own
+  # block, cancels the turn and closes the session on purpose: the task runs
+  # again as a new run, and changes the stopped run did not save may be lost,
+  # as the Stop and Run again controls say. Its copy stays on the worker until
+  # cleanup. Requiring a checkpoint there meant a stopped code task could never
+  # run again (2026-10-09).
   defp missing_checkpoint(%Work.Session{} = previous_session) do
-    if workspace_changes_possible?(previous_session.id) do
+    if workspace_changes_possible?(previous_session.id) and
+         not closed_by_stop?(previous_session.id) do
       {:error,
        {:coop_workspace_checkpoint_required, previous_session.id, previous_session.generation}}
     else
@@ -1165,6 +1177,14 @@ defmodule Ryker.CoopFleet.Client do
 
   defp workspace_changes_possible?(session_id),
     do: turn_submission_attempted?(session_id) or checkpoint_restore_attempted?(session_id)
+
+  defp closed_by_stop?(session_id) do
+    session_id
+    |> Command.Query.by_session_id()
+    |> Command.Query.by_kind("close_session")
+    |> Command.Query.succeeded_with_key_prefix(Work.OperationKeys.cancel_close_prefix())
+    |> Repo.exists?()
+  end
 
   defp turn_submission_attempted?(session_id) do
     session_id

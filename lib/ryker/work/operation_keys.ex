@@ -38,5 +38,9 @@ defmodule Ryker.Work.OperationKeys do
   def cancel(turn_id, generation), do: "ryker:work:cancel:#{turn_id}:g#{generation}"
 
   @spec cancel_close(map()) :: String.t()
-  def cancel_close(turn), do: "ryker:work:cancel-close:#{turn.id}:g#{turn.cancel_generation}"
+  def cancel_close(turn), do: cancel_close_prefix() <> "#{turn.id}:g#{turn.cancel_generation}"
+
+  @doc "What every stop's session close key starts with: a session a stop closed on purpose."
+  @spec cancel_close_prefix() :: String.t()
+  def cancel_close_prefix, do: "ryker:work:cancel-close:"
 end
