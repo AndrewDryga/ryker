@@ -953,6 +953,15 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     "The request stays open and the person gets no answer. Ryker will not retry on its own, but a new reply in the thread starts the task again. The worker keeps the stopped run's files until the request ends."
   end
 
+  defp work_cause(%{stop_code: "invalid_coop_worker_job"}, _brief) do
+    cause(
+      "This task was started by an older Ryker, and today's workers cannot run its setup.",
+      "Start a new task for it.",
+      :stuck,
+      "A retry would run the same old setup again."
+    )
+  end
+
   defp work_cause(_row, %{not_started: true, action: nil} = brief) do
     cause(
       "The code-editing setup cannot save a recoverable copy of the work.",

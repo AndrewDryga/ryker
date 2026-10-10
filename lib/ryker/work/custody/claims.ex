@@ -61,12 +61,32 @@ defmodule Ryker.Work.Custody.Claims do
 
   # Nothing of the failed claim was kept, so this says what happened: the log
   # always, and the episode's turn, when it has one, waits a minute with the
-  # error on it instead of being tried first again on the next poll.
+  # error on it instead of being tried first again on the next poll. A claim
+  # that can never succeed stops the turn for a person instead.
   defp claim_failed(episode_id, reason) do
     Logger.warning(
       "work episode #{episode_id} could not be claimed: #{inspect(reason, limit: 8)}"
     )
 
+    if unrunnable?(reason),
+      do: stop_unrunnable(episode_id, reason),
+      else: wait_after_failed_claim(episode_id, reason)
+  end
+
+  # A new session copies the episode's frozen Coop job, so a job today's
+  # workers refuse is refused for every session the episode could have.
+  defp unrunnable?(reason), do: reason == :invalid_coop_worker_job
+
+  defp stop_unrunnable(episode_id, reason) do
+    detail = "This task was started by an older Ryker, and today's workers cannot run its setup."
+
+    with {:error, error} <-
+           Sessions.block_unrunnable_owner(episode_id, claim_failure_code(reason), detail) do
+      Logger.warning("work episode #{episode_id} could not be stopped: #{inspect(error)}")
+    end
+  end
+
+  defp wait_after_failed_claim(episode_id, reason) do
     now = Repo.now!()
 
     Repo.update_all(Turn.Query.waiting_owner(episode_id),

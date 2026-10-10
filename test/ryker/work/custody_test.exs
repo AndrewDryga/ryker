@@ -155,6 +155,40 @@ defmodule Ryker.Work.CustodyTest do
     assert authority.policy_digest == pinned.policy_digest
   end
 
+  # Found live 2026-10-10: review comments on three drafts from 2026-10-01 put
+  # their episodes back to work after their sessions were discarded. A new
+  # session copies the episode's frozen Coop job, those jobs were version 1,
+  # refused since 2026-10-08, so no claim could ever succeed. With no turn row
+  # to wait on, every poll tried them first again: 878 failed claims in ten
+  # minutes, for twelve hours, and nobody was told.
+  test "work whose frozen job can never run again stops for a person instead of being claimed forever" do
+    command = create_kernel_episode!("unrunnable")
+
+    assert {:ok, pinned} =
+             WorkSessions.pin_episode(command.episode_id, "ryker-chat", @policy_digest,
+               authority_digest: @authority_digest
+             )
+
+    pinned = WorkerJob.pin!(pinned)
+    refused = Map.put(pinned.worker_job_document, "version", 1)
+
+    pinned
+    |> Ecto.Changeset.change(
+      cleanup_status: :discarded,
+      worker_job_document: refused,
+      worker_job_digest: Ryker.CanonicalJSON.worker_digest(refused)
+    )
+    |> Repo.update!()
+
+    assert Custody.claim_next("worker:unrunnable", 60) == {:ok, nil}
+
+    stopped = Repo.get_by!(Turn, episode_id: command.episode_id, turn_ref: command.turn_ref)
+    assert stopped.status == :blocked
+    assert stopped.last_error_code == "invalid_coop_worker_job"
+    assert stopped.session_id == pinned.id
+    assert Custody.claim_next("worker:unrunnable", 60) == {:ok, nil}
+  end
+
   test "a frozen turn context and Coop session survive lease expiry" do
     create_episode!("crash-recovery")
     assert {:ok, first} = Custody.claim_next("worker:a", 30)

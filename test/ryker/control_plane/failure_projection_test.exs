@@ -541,6 +541,46 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     end
   end
 
+  # A task whose frozen job today's workers refuse stops for a person at its
+  # claim (Work.CustodyTest). Its card says why, and that a retry runs the
+  # same old setup again.
+  test "a task started by an older Ryker says a retry cannot help" do
+    command =
+      EpisodeFixtures.admit_input(%{
+        episode_id: Ecto.UUID.generate(),
+        episode_key: "work:older-ryker:#{Ecto.UUID.generate()}",
+        native_input_id: "source:older-ryker:#{Ecto.UUID.generate()}",
+        occurred_at: @now,
+        turn_ref: "turn:older-ryker:#{Ecto.UUID.generate()}"
+      })
+
+    assert {:ok, _transition} = Episodes.apply(command)
+
+    assert {:ok, pinned} =
+             WorkSessions.pin_episode(command.episode_id, "ryker-chat", String.duplicate("b", 64),
+               authority_digest: String.duplicate("f", 64)
+             )
+
+    pinned = WorkerJob.pin!(pinned)
+    refused = Map.put(pinned.worker_job_document, "version", 1)
+
+    pinned
+    |> Ecto.Changeset.change(
+      cleanup_status: :discarded,
+      worker_job_document: refused,
+      worker_job_digest: CanonicalJSON.worker_digest(refused)
+    )
+    |> Repo.update!()
+
+    assert Custody.claim_next("worker:older-ryker", 60) == {:ok, nil}
+    assert {:ok, failures} = FailureProjection.list(%{})
+    assert %{} = row = Enum.find(failures, &(&1.ref == command.episode_key and &1.kind == "work"))
+
+    explanation = FailureExplanation.explain(row)
+    assert explanation.outlook == :stuck
+    assert inspect(explanation) =~ "started by an older Ryker"
+  end
+
   # Found reading Work cancellation on 2026-09-24: a stop whose worker stopped
   # reporting was deferred once a minute forever and listed nowhere, while its
   # task card read "stopping" and its request waited behind it. A stop still

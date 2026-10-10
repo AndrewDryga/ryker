@@ -383,6 +383,53 @@ defmodule Ryker.Work.Custody.Sessions do
     |> persistence_result(:work_turn)
   end
 
+  @doc """
+  Stops an episode's owner turn for a person when no claim of it can ever
+  succeed. A claim that failed before it made the turn left nothing to wait
+  on, so the turn is made here, on the episode's latest session.
+  """
+  @spec block_unrunnable_owner(Ecto.UUID.t(), String.t(), String.t()) ::
+          {:ok, Turn.t() | nil} | {:error, term()}
+  def block_unrunnable_owner(episode_id, code, detail) do
+    Repo.transaction(fn ->
+      with {:ok, %Episodes.Episode{owner_kind: :turn} = found} <-
+             Repo.fetch(Episodes.Episode.Query.by_id(episode_id)),
+           {:ok, episode} <- fetch_and_lock_episode_owner(episode_id, :turn, found.owner_ref),
+           {:ok, session} <- fetch_and_lock_latest_session(episode_id),
+           {:ok, turn} <- owner_turn(episode, session) do
+        block_owner_turn(turn, code, detail)
+      else
+        {:ok, %Episodes.Episode{}} -> nil
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  defp owner_turn(episode, session) do
+    with {:error, :work_turn_not_found} <- fetch_and_lock_turn(episode.id, episode.owner_ref),
+         do: insert_turn(episode, session)
+  end
+
+  defp block_owner_turn(%Turn{status: :pending} = turn, code, detail) do
+    changeset =
+      Turn.Changeset.block(turn, %{
+        last_error_code: code,
+        last_error_detail: detail,
+        lease_expires_at: nil,
+        lease_owner: nil,
+        lease_ref: nil,
+        next_attempt_at: nil,
+        status: :blocked
+      })
+
+    case persist_update(changeset, :work_unrunnable_turn) do
+      {:ok, blocked} -> blocked
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp block_owner_turn(%Turn{} = turn, _code, _detail), do: turn
+
   defp isolate_transferred_owner(episode, session) do
     stale_turns =
       episode
