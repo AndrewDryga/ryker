@@ -192,6 +192,44 @@ defmodule Ryker.Retention.WorkerChangeTest do
     assert Repo.get!(Session, session.id).cleanup_status == :plan_pending
   end
 
+  # Found live 2026-10-10: the fleet keeps a request on the placement it was
+  # sent on, under its key, and answers "replacement required" for one whose
+  # placement ended. A plan request cut off that way was asked again under the
+  # same key on every retry, read that answer back, and took it for the worker
+  # being away while the worker polled every few seconds: 392 times for one
+  # session. Each such pass then skipped the worker, the cleanups due behind it
+  # never ran, and a release failed its readiness check on the stalled queue.
+  test "a cleanup request cut off by its placement's end is asked again on the worker's next one" do
+    worker = enroll!("cut-off")
+    session = terminal_session!("cut-off", worker)
+    answer = remote_session(session)
+    fleet = fleet_client(worker, @started, answer)
+
+    assert {:ok, {:executed, %{phase: :grace}}} = run(fleet, "cleanup:cut-off:grace")
+
+    for {step, phase} <- [
+          {"/close", :closed},
+          {"/discard-plan", :planned},
+          {"/discard", :discarded}
+        ] do
+      # The worker takes the request, and its placement ends before it answers.
+      unanswered =
+        fleet_client(worker, @started, fn command ->
+          if String.ends_with?(command["payload"]["path"], step),
+            do: :unanswered,
+            else: answer.(command)
+        end)
+
+      assert {:ok, {:deferred, _timeout}} = run(unanswered, "cleanup:cut-off:#{step}:unanswered")
+      expire_placements!(session)
+      retry_due!(session)
+
+      assert {:ok, {:executed, %{phase: ^phase}}} = run(fleet, "cleanup:cut-off:#{step}:back")
+    end
+
+    assert Repo.get!(Session, session.id).cleanup_status == :discarded
+  end
+
   # A worker whose Coop no longer knows the session can be asked for nothing,
   # and its own 404 is the proof that nothing is left to close or remove.
   test "a session its worker no longer knows is recorded as already gone" do
@@ -269,28 +307,36 @@ defmodule Ryker.Retention.WorkerChangeTest do
              ControlPlane.handle_poll_certificate(worker, poll(worker, digest))
 
     results =
-      Enum.map(commands, fn command ->
+      Enum.flat_map(commands, fn command ->
         case answer.(command) do
+          # The worker took the command and never answered it.
+          :unanswered ->
+            []
+
           {:ok, resource} ->
-            %{
-              "command_id" => command["command_id"],
-              "error" => nil,
-              "operation_key" => command["idempotency_key"],
-              "resource" => %{"status" => 200, "body" => resource},
-              "state" => "succeeded"
-            }
+            [
+              %{
+                "command_id" => command["command_id"],
+                "error" => nil,
+                "operation_key" => command["idempotency_key"],
+                "resource" => %{"status" => 200, "body" => resource},
+                "state" => "succeeded"
+              }
+            ]
 
           {:error, error} ->
-            %{
-              "command_id" => command["command_id"],
-              "error" => nil,
-              "operation_key" => command["idempotency_key"],
-              "resource" => %{
-                "status" => error["status"],
-                "body" => %{"error" => Map.drop(error, ["status"])}
-              },
-              "state" => "succeeded"
-            }
+            [
+              %{
+                "command_id" => command["command_id"],
+                "error" => nil,
+                "operation_key" => command["idempotency_key"],
+                "resource" => %{
+                  "status" => error["status"],
+                  "body" => %{"error" => Map.drop(error, ["status"])}
+                },
+                "state" => "succeeded"
+              }
+            ]
         end
       end)
 
@@ -491,6 +537,12 @@ defmodule Ryker.Retention.WorkerChangeTest do
     Repo.update_all(
       from(placement in Placement, where: placement.session_id == ^session.id),
       set: [lease_expires_at: DateTime.add(Ryker.Repo.now!(), -1, :second)]
+    )
+  end
+
+  defp retry_due!(session) do
+    Repo.update_all(from(value in Session, where: value.id == ^session.id),
+      set: [cleanup_next_attempt_at: DateTime.add(Ryker.Repo.now!(), -1, :second)]
     )
   end
 

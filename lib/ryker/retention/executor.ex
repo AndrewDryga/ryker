@@ -133,12 +133,21 @@ defmodule Ryker.Retention.Executor do
        when state in ["open", "exhausted"] do
     with {:ok, revision} <- Coop.Documents.revision(remote, :session_revision),
          {:ok, frozen} <- Custody.freeze_close_revision(session.id, lease_ref, revision) do
-      close_remote(frozen, lease_ref, settings)
+      frozen
+      |> close_remote(lease_ref, settings)
+      |> ask_again_if_cut_off(fn -> close_again(frozen, lease_ref, revision, settings) end)
     end
   end
 
   defp close_from_state(_state, _session, _lease_ref, _remote, _settings),
     do: {:error, {:coop_protocol_error, :session_state}}
+
+  defp close_again(frozen, lease_ref, revision, settings) do
+    with {:ok, advanced} <- Custody.advance_close(frozen.id, lease_ref, frozen.close_generation),
+         {:ok, refrozen} <- Custody.freeze_close_revision(advanced.id, lease_ref, revision) do
+      close_remote(refrozen, lease_ref, settings)
+    end
+  end
 
   defp close_remote(session, lease_ref, settings) do
     key = Custody.close_key(session)
@@ -210,24 +219,34 @@ defmodule Ryker.Retention.Executor do
     do: settle_already_discarded(session, lease_ref)
 
   defp plan_from_state("closed", session, lease_ref, remote, settings) do
-    accept_unmerged = session.discard_plan_accept_unmerged or Custody.published?(session)
-    accept_dirty = session.discard_plan_accept_dirty
-
     with {:ok, revision} <- Coop.Documents.revision(remote, :session_revision),
-         {:ok, frozen} <-
-           Custody.freeze_plan_revision(
-             session.id,
-             lease_ref,
-             revision,
-             accept_unmerged,
-             accept_dirty
-           ) do
-      plan_remote(frozen, lease_ref, settings)
+         {:ok, frozen} <- freeze_plan(session, lease_ref, revision) do
+      frozen
+      |> plan_remote(lease_ref, settings)
+      |> ask_again_if_cut_off(fn -> plan_again(frozen, lease_ref, revision, settings) end)
     end
   end
 
   defp plan_from_state(_state, _session, _lease_ref, _remote, _settings),
     do: {:error, {:coop_protocol_error, :discard_plan_session_state}}
+
+  defp plan_again(frozen, lease_ref, revision, settings) do
+    with {:ok, advanced} <-
+           Custody.advance_plan(frozen.id, lease_ref, frozen.discard_plan_generation),
+         {:ok, refrozen} <- freeze_plan(advanced, lease_ref, revision) do
+      plan_remote(refrozen, lease_ref, settings)
+    end
+  end
+
+  defp freeze_plan(session, lease_ref, revision) do
+    Custody.freeze_plan_revision(
+      session.id,
+      lease_ref,
+      revision,
+      session.discard_plan_accept_unmerged or Custody.published?(session),
+      session.discard_plan_accept_dirty
+    )
+  end
 
   defp plan_remote(session, lease_ref, settings) do
     key = Custody.plan_key(session)
@@ -296,10 +315,40 @@ defmodule Ryker.Retention.Executor do
 
   defp handle_plan_error(reason, _session, _lease_ref), do: {:error, reason}
 
+  # The fleet keeps a request on the placement it was sent on, under its key,
+  # and answers "replacement required" for one whose placement ended. Asked
+  # again under the same key, a request cut off that way reads that answer back
+  # for good while its worker polls on a newer placement: one plan was retried
+  # 392 times on 2026-10-10 as if the worker were away. Such a request is asked
+  # once more under a new key, which reaches the placement the worker holds now.
+  defp ask_again_if_cut_off(
+         {:error, {:coop_session_replacement_required, _session_id, _generation}},
+         ask_again
+       ),
+       do: ask_again.()
+
+  defp ask_again_if_cut_off(result, _ask_again), do: result
+
   defp discard_from_state("discarded", session, lease_ref, _settings),
     do: settle_already_discarded(session, lease_ref)
 
   defp discard_from_state("closed", session, lease_ref, settings) do
+    session
+    |> discard_remote(lease_ref, settings)
+    |> ask_again_if_cut_off(fn -> discard_again(session, lease_ref, settings) end)
+  end
+
+  defp discard_from_state(_state, _session, _lease_ref, _settings),
+    do: {:error, {:coop_protocol_error, :discard_session_state}}
+
+  defp discard_again(session, lease_ref, settings) do
+    with {:ok, advanced} <-
+           Custody.advance_discard(session.id, lease_ref, session.discard_generation) do
+      discard_remote(advanced, lease_ref, settings)
+    end
+  end
+
+  defp discard_remote(session, lease_ref, settings) do
     key = Custody.discard_key(session)
 
     case api_call(fn ->
@@ -314,9 +363,6 @@ defmodule Ryker.Retention.Executor do
       {:error, reason} -> {:error, reason}
     end
   end
-
-  defp discard_from_state(_state, _session, _lease_ref, _settings),
-    do: {:error, {:coop_protocol_error, :discard_session_state}}
 
   defp handle_discard_response(response, session, lease_ref, key) do
     case mutation_session(response, "Discard", session, ["discarded"]) do

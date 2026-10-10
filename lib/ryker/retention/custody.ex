@@ -309,6 +309,19 @@ defmodule Ryker.Retention.Custody do
     )
   end
 
+  @spec advance_discard(Ecto.UUID.t(), String.t(), pos_integer()) ::
+          {:ok, Work.Session.t()} | {:error, term()}
+  def advance_discard(session_id, lease_ref, generation) do
+    advance_generation(
+      session_id,
+      lease_ref,
+      :discard_pending,
+      :discard_generation,
+      generation,
+      %{}
+    )
+  end
+
   @spec close_key(Work.Session.t()) :: String.t()
   def close_key(%Work.Session{} = session),
     do: "ryker:retention:close:#{session.id}:g#{session.close_generation}"
