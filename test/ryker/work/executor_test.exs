@@ -3113,7 +3113,7 @@ defmodule Ryker.Work.ExecutorTest do
   # stopped for a person, its answer ("6") lost. The next poll renewed the same placement two
   # seconds later. A running turn waits for its session's worker instead, and stops only once
   # its attempts run out.
-  test "a running turn whose session's placement lapsed waits for its worker" do
+  test "a running turn whose session's placement lapsed stays on its session" do
     claim = bound_turn!("bound-turn-placement-lapsed")
     {:ok, fake} = fake_for(claim, [])
 
@@ -3123,7 +3123,7 @@ defmodule Ryker.Work.ExecutorTest do
     client = %{fake: fake, overrides: %{get_session: fn _fallback -> lapsed end}}
     run_options = fake |> options() |> Keyword.merge(api: ProtocolAPI, client: client)
 
-    assert {:error, {:coop_unavailable, _detail}} = Executor.run(claim, run_options)
+    assert Executor.run(claim, run_options) == lapsed
 
     assert Repo.aggregate(
              from(session in Ryker.Work.Session, where: session.episode_id == ^claim.episode.id),

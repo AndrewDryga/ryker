@@ -2,8 +2,11 @@ defmodule Ryker.Work.DispatcherTest do
   use Ryker.DataCase, async: true
   import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query
+  alias Ryker.CoopFleet.{ControlPlane, Placement}
   alias Ryker.Episodes
+  alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.WorkerJob
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Work.{Cancellation, Custody, Dispatcher, OperationKeys, Result, Submission, Turn}
   alias Ryker.Work.ValidationIntent
@@ -141,6 +144,54 @@ defmodule Ryker.Work.DispatcherTest do
     assert turn.status == :cancel_pending
     rerun_ref = "turn:rerun:#{turn.id}"
     assert %{"action" => "transfer", "new_turn_ref" => ^rerun_ref} = turn.cancellation_intent
+  end
+
+  # The bundled Coop worker was paused under a running Chat turn (2026-10-10). Each try while it
+  # was away spent one of the turn's eight attempts, 7 s, 8 s, 16 s and 32 s apart, so six were
+  # gone after ninety seconds, and a worker away for about three minutes stopped the turn for a
+  # person though its next poll would have renewed the placement and the turn would have finished.
+  test "a turn keeps its attempts while its worker is away, until the worker is gone" do
+    command = create_episode!("worker-away")
+    session = Ryker.Repo.get_by!(Ryker.Work.Session, episode_id: command.episode_id)
+    WorkerJob.pin!(session)
+    authorize_and_poll!("worker-away")
+
+    assert {:ok, placement} =
+             ControlPlane.place_session(
+               session.id,
+               %{
+                 capability_names: ["controller-tools"],
+                 repository_ref: nil,
+                 workspace_ref: "workspace-main"
+               },
+               60
+             )
+
+    lapse! = fn seconds_ago ->
+      Ryker.Repo.update_all(from(p in Placement, where: p.id == ^placement.id),
+        set: [lease_expires_at: DateTime.add(Ryker.Repo.now!(), -seconds_ago, :second)]
+      )
+    end
+
+    reason = {:coop_session_replacement_required, session.id, placement.generation}
+    lapse!.(30)
+
+    assert {:ok, {:deferred, ^reason}} = Dispatcher.run_once(options({:error, reason}))
+
+    waiting = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+    assert waiting.work_attempt_count == 0
+    assert DateTime.diff(waiting.next_attempt_at, Ryker.Repo.now!()) in 10..15
+
+    # Past the window the worker is gone: the lapse spends attempts again.
+    lapse!.(11 * 60)
+
+    {1, _rows} =
+      Ryker.Repo.update_all(from(t in Turn, where: t.id == ^waiting.id),
+        set: [next_attempt_at: nil]
+      )
+
+    assert {:ok, {:deferred, ^reason}} = Dispatcher.run_once(options({:error, reason}))
+    assert Ryker.Repo.get_by!(Turn, episode_id: command.episode_id).work_attempt_count == 1
   end
 
   # The bundled Coop worker restarted under a running Chat turn (2026-10-10). Coop failed the turn
@@ -706,6 +757,40 @@ defmodule Ryker.Work.DispatcherTest do
              )
 
     accepted
+  end
+
+  defp authorize_and_poll!(worker_id) do
+    assert {:ok, _worker} = CoopWorkers.authorize(worker_id, "workspace-main", digest(worker_id))
+
+    assert {:ok, _response} =
+             ControlPlane.handle_poll_certificate(worker_id, %{
+               "acknowledged_command_ids" => [],
+               "command_results" => [],
+               "event_batches" => [],
+               "poll_ref" => "poll:#{worker_id}:hello",
+               "version" => 2,
+               "worker" => %{
+                 "build_version" => "coop-abc123",
+                 "capabilities" => [%{"name" => "controller-tools", "version" => "1"}],
+                 "capacity" => %{
+                   "cooldown_until" => nil,
+                   "session_slots_free" => 2,
+                   "session_slots_total" => 4,
+                   "state" => "eligible",
+                   "turn_slots_free" => 2,
+                   "turn_slots_total" => 4,
+                   "workspace_slots_free" => 2,
+                   "workspace_slots_total" => 4
+                 },
+                 "clock_at" => DateTime.to_iso8601(Ryker.Repo.now!()),
+                 "id" => worker_id,
+                 "protocol_version" => "2",
+                 "sandbox_digest" => String.duplicate("a", 64),
+                 "state" => "eligible",
+                 "storage" => nil,
+                 "workspace_ref" => "workspace-main"
+               }
+             })
   end
 
   defp options(result) do

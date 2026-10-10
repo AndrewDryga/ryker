@@ -490,6 +490,32 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
     end)
   end
 
+  @doc """
+  Whether session `session_id`'s placement waits for its worker: still active, its lease run
+  out within the window `retire_abandoned_placements/2` gives a worker to poll again. The
+  worker's next poll renews it (`renew_worker_placements/3`).
+  """
+  @spec awaiting_worker?(Ecto.UUID.t()) :: boolean()
+  def awaiting_worker?(session_id) do
+    now = Repo.now!()
+
+    placement =
+      session_id
+      |> Placement.Query.by_session_id()
+      |> Placement.Query.current()
+      |> Placement.Query.limit_to(1)
+      |> Repo.peek()
+
+    case placement do
+      %Placement{state: :active, lease_expires_at: %DateTime{} = expires_at} ->
+        DateTime.compare(expires_at, now) != :gt and
+          DateTime.diff(now, expires_at) < @abandoned_seconds
+
+      _other ->
+        false
+    end
+  end
+
   @doc false
   def renew_worker_placements(worker, now, lease_seconds) do
     expires_at = DateTime.add(now, lease_seconds, :second)

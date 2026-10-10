@@ -32,8 +32,8 @@ defmodule Ryker.Work.Executor.Sessions do
           use_or_rotate_session(claim, remote_session, settings)
         end
 
-      {:error, {:coop_session_replacement_required, _session_id, _generation}} ->
-        lapsed_placement(claim, settings)
+      {:error, {:coop_session_replacement_required, _session_id, _generation} = reason} ->
+        lapsed_placement(claim, reason, settings)
 
       # The worker holding it does not have it: its state was started afresh
       # (2026-09-28). It is as lost as a session whose placement is gone.
@@ -96,17 +96,15 @@ defmodule Ryker.Work.Executor.Sessions do
     do: continue_on_next_generation(claim, settings, &Custody.rotate_session/4)
 
   # A turn Coop already runs cannot move to another session, so its session's lapsed
-  # placement is waited out: the worker's next poll renews it, and the turn stops for a person
-  # only once its attempts run out. A poll refused while a slow command held the worker let
-  # the lease run out, the rotation refused the running turn and a Chat reply's answer was
-  # lost; the same placement was renewed two seconds later (2026-10-10).
-  defp lapsed_placement(%{turn: %{coop_turn_id: turn_id}}, _settings) when is_binary(turn_id) do
-    {:error,
-     {:coop_unavailable,
-      "The worker running this turn has not reported since its session's placement lapsed."}}
-  end
+  # placement is waited out (`Ryker.Work.Dispatcher`): the worker's next poll renews it. A poll
+  # refused while a slow command held the worker let the lease run out, the rotation refused
+  # the running turn and a Chat reply's answer was lost; the same placement was renewed two
+  # seconds later (2026-10-10).
+  defp lapsed_placement(%{turn: %{coop_turn_id: turn_id}}, reason, _settings)
+       when is_binary(turn_id),
+       do: {:error, reason}
 
-  defp lapsed_placement(claim, settings), do: replace_lost_session(claim, settings)
+  defp lapsed_placement(claim, _reason, settings), do: replace_lost_session(claim, settings)
 
   # Custody mints the next session generation for this turn, which clears its
   # state tools binding, and the executor starts over from there. The binding

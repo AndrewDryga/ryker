@@ -10,10 +10,13 @@ defmodule Ryker.Work.Dispatcher do
   claims already used up its attempts.
   """
   alias Ryker.Backoff
+  alias Ryker.CoopFleet
   alias Ryker.ErrorDetail
   alias Ryker.Reference
   alias Ryker.Work.{Custody, Executor}
   require Logger
+
+  @worker_away_retry_seconds 15
 
   @type result ::
           {:ok,
@@ -62,9 +65,23 @@ defmodule Ryker.Work.Dispatcher do
         {:ok, {:executed, execution}}
 
       {:error, reason} ->
-        execution_failure(claim, reason, settings)
+        if worker_away?(reason),
+          do: wait_for_worker(claim, reason),
+          else: execution_failure(claim, reason, settings)
     end
   end
+
+  # A worker that misses its polls leaves its session's placement lapsed and kept for it, and
+  # its next poll renews that placement. The turn waits without spending attempts: each try
+  # while the bundled worker was paused spent one, and a worker away for about three minutes
+  # stopped a running turn for a person (2026-10-10). Past the window the worker is gone, and
+  # the lapse spends attempts again until the turn stops.
+  defp worker_away?({:coop_session_replacement_required, session_id, _generation}),
+    do: CoopFleet.ControlPlane.awaiting_worker?(session_id)
+
+  defp worker_away?(_reason), do: false
+
+  defp wait_for_worker(claim, reason), do: yield_for(claim, reason, @worker_away_retry_seconds)
 
   # A database that cannot answer is the outage `Ryker.PollingWorker` backs off
   # from. Anything else raised here is a bug in Ryker: the turn stops with the
@@ -205,12 +222,15 @@ defmodule Ryker.Work.Dispatcher do
     end
   end
 
-  defp yield_progress(claim, reason, settings) do
+  defp yield_progress(claim, reason, settings),
+    do: yield_for(claim, reason, settings.retry_base_seconds)
+
+  defp yield_for(claim, reason, retry_seconds) do
     case Custody.yield_progress(
            claim.episode.id,
            claim.turn.turn_ref,
            claim.lease_ref,
-           settings.retry_base_seconds
+           retry_seconds
          ) do
       {:ok, _turn} -> {:ok, {:deferred, reason}}
       {:error, yield_reason} -> custody_failed(reason, yield_reason)
