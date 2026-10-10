@@ -475,7 +475,7 @@ defmodule Ryker.Work.ValidatorTest do
     assert accepted.final.record_refs == ["record:emisar:approval:1"]
   end
 
-  test "a timer wait stays silent until the timer resumes the episode" do
+  test "a timer Ryker arms on its own stays silent, and one a person asked for is confirmed" do
     continuation = %{
       "deadline_at" => "2099-08-29T12:00:00.000000Z",
       "kind" => "wait",
@@ -502,12 +502,35 @@ defmodule Ryker.Work.ValidatorTest do
     assert {:reject, violations} =
              Validator.validate(
                premature_reply,
-               context(records: records, visible_reply_required: true),
+               context(records: records, visible_reply_required: false),
                @now
              )
 
     assert Enum.any?(violations, &String.contains?(&1, "timer wait"))
     assert Enum.any?(violations, &String.contains?(&1, "delivery to none"))
+
+    # A person who asks for something later is told when it will happen. "In 3 minutes, tell me
+    # what time it is in Berlin" was answered on time, but its arming turn's "I'll tell you the
+    # Berlin time here in three minutes." was refused, so nothing was said until then (Slack as
+    # Andrew, 2026-10-10).
+    confirmed =
+      candidate(
+        %{
+          "artifact_refs" => [],
+          "record_refs" => ["record:wait:timer"],
+          "state" => "waiting_for_event"
+        },
+        "I'll tell you the Berlin time here in three minutes."
+      )
+
+    assert {:accept, confirmed} =
+             Validator.validate(
+               confirmed,
+               context(records: records, visible_reply_required: true),
+               @now
+             )
+
+    assert confirmed.result.delivery == :reply
 
     silent_wait =
       Jason.encode!(%{
