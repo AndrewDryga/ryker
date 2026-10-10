@@ -1,6 +1,6 @@
 services:
   episode-db:
-    image: postgres:18.4-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
+    image: postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
     # Every test VM opens schedulers * 2 connections (24 on this host) and
     # several agents run suites against this one server at once; the stock
     # limit of 100 turned into too_many_connections failures across unrelated
