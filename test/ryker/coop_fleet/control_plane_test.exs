@@ -1388,6 +1388,70 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     refute Repo.get!(Command, command_id).status == :uncertain
   end
 
+  # The worker missed its polls for ninety seconds while a Chat turn ran a long command
+  # (2026-10-10, the live Coop worker paused). The next command for the turn retired the lapsed
+  # placement, the session was placed again on the same worker under a new lease, and the turn's
+  # state tools, bound under the old lease, were refused: the turn stopped for a person though
+  # its worker still ran it.
+  test "a running turn's lapsed placement is renewed by its worker, not replaced" do
+    authorize_and_poll!("worker-a")
+    session = session!("running-turn-lapse")
+    assert {:ok, claim} = Custody.claim_next("worker:running-turn-lapse", 60, :work)
+
+    requirements = %{
+      capability_names: ["controller-tools"],
+      repository_ref: "ryker",
+      workspace_ref: "workspace-main"
+    }
+
+    assert {:ok, placement} = ControlPlane.place_session(session.id, requirements, 60)
+    bind_coop_session!(session.id, "coop-running-turn-lapse")
+
+    assert {:ok, binding} =
+             StateBinding.derive(
+               session,
+               claim.turn,
+               StateBinding.placement_scope(placement),
+               "https://ryker.example/v1/state-tools/mcp",
+               Ryker.Secret.new("state-tools-secret-for-tests")
+             )
+
+    assert {:ok, _turn} =
+             Custody.bind_state_tools(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               binding.endpoint,
+               binding.token_sha256
+             )
+
+    {1, _rows} =
+      Repo.update_all(from(turn in Turn, where: turn.id == ^claim.turn.id),
+        set: [coop_turn_id: "coop-turn-running-lapse"]
+      )
+
+    Repo.update_all(
+      from(value in Placement, where: value.id == ^placement.id),
+      set: [lease_expires_at: DateTime.add(Repo.now!(), -1, :second)]
+    )
+
+    assert {:error, {:coop_session_replacement_required, _session_id, generation}} =
+             ControlPlane.place_session(session.id, requirements, 60)
+
+    assert generation == placement.generation
+    assert Repo.get!(Placement, placement.id).state == :active
+
+    assert {:ok, _response} =
+             ControlPlane.handle_poll_certificate(
+               "worker-a",
+               poll("worker-a", "workspace-main", "poll:worker-a:running-turn-lapse")
+             )
+
+    assert {:ok, renewed} = ControlPlane.place_session(session.id, requirements, 60)
+    assert {renewed.id, renewed.lease_ref} == {placement.id, placement.lease_ref}
+    assert {:ok, _resolved} = Binding.resolve(binding.token)
+  end
+
   # Only a poll by its own worker retired a placement, so a revoked worker's
   # and a vanished worker's stayed current until each session was placed
   # again, and readiness stayed red (2026-10-04 review).

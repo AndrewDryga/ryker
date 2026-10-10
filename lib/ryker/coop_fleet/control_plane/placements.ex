@@ -190,7 +190,7 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
       {:ok, %Placement{} = placement} ->
         cond do
           not current?(placement, now) ->
-            replacement_required(placement, now)
+            lapsed(session, placement, now)
 
           # A holder placement only ever stops or cleans up.
           holder_placement?(placement) and not stopping_or_cleaning?(session) ->
@@ -278,6 +278,28 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
       {:ok, placement} -> placement
       :ineligible -> {:replacement_required, previous.generation}
     end
+  end
+
+  # A turn Coop runs is addressed through its placement: its state tools are bound to it
+  # (`Ryker.Work.StateBinding`), so a placement made in its stead ends the turn. Its lapsed
+  # placement is left for the worker's next poll to renew (`renew_worker_placements/3`), or for
+  # `retire_abandoned_placements/2` once that worker is gone. Retired by the next command, it
+  # stopped a Chat turn whose worker had missed its polls for ninety seconds (2026-10-10).
+  defp lapsed(session, %Placement{state: :active} = placement, now) do
+    if running_turn?(session),
+      do: {:replacement_required, placement.generation},
+      else: replacement_required(placement, now)
+  end
+
+  defp lapsed(_session, placement, now), do: replacement_required(placement, now)
+
+  defp running_turn?(%Work.Session{id: session_id} = session) do
+    bound_session?(session) and
+      session_id
+      |> Work.Turn.Query.by_session_id()
+      |> Work.Turn.Query.by_status(:pending)
+      |> Work.Turn.Query.begun()
+      |> Repo.exists?()
   end
 
   defp replacement_required(placement, now) do
