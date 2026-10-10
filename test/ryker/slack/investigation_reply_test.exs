@@ -22,7 +22,10 @@ defmodule Ryker.Slack.InvestigationReplyTest do
                "records" => fixture["records"]
              })
 
-    assert rendered["text"] == fixture["candidate"]["message"]
+    # The reply is the message alone; its notification says the same words
+    # without the Markdown.
+    assert hd(rendered["blocks"])["text"] == fixture["candidate"]["message"]
+    assert rendered["text"] =~ ~r/\AThis run is planned and awaiting confirmation\./
     refute inspect(rendered["blocks"]) =~ "Evidence ·"
     refute inspect(rendered["blocks"]) =~ "Finding ·"
     refute inspect(rendered["blocks"]) =~ "Read tfc.run_details"
