@@ -924,6 +924,28 @@ defmodule Ryker.Admission.ExecutorTest do
     assert FakeAPI.state(fake).submit_count == 0
   end
 
+  # Slack unfurls a posted link a second later, and the unfurl arrives as an edit. Routing spent a
+  # model turn on the first version's words, set them aside as replaced, and the newer version
+  # waited behind that turn: about fifteen seconds on every linked message (Slack as Andrew,
+  # 2026-10-10).
+  test "a message replaced before routing read it is set aside without a model turn" do
+    original = record_slack_input!("Ev-unfurled")
+
+    _unfurl =
+      record_slack_revision!("Ev-unfurled-edit", :edit, "https://github.com/acme/app/pull/7")
+
+    {:ok, fake} = FakeAPI.start_link([])
+
+    assert {:ok, execution} =
+             Executor.run(Inbox.ref(original), executor_options(fake, claim!(original)))
+
+    assert execution.result.status == :superseded
+    assert execution.result.entry.status == :superseded
+    assert execution.result.entry.last_error_code == "stale_input_revision"
+    assert FakeAPI.state(fake).create_keys == []
+    assert FakeAPI.state(fake).submit_count == 0
+  end
+
   # Admitting the deletion into its work is what withdraws everything derived
   # from the deleted text; a model that chose to ignore it left those in place.
   test "a deleted message joins the work that owns it without a model turn" do

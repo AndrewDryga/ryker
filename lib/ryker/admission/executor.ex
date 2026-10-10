@@ -98,10 +98,23 @@ defmodule Ryker.Admission.Executor do
   defp host_decision(context) do
     cond do
       decision = deletion_decision(context) -> {:deletion, decision}
+      decision = replaced_decision(context) -> {:replaced, decision}
       decision = answer_decision(context) -> {:answer, decision}
       true -> nil
     end
   end
+
+  # A message replaced before routing read it is set aside for its newer version, as Slack's link
+  # unfurl replaces every posted link a second later. Routing its first words cost a model turn,
+  # which the commit then set aside, and the newer version waited behind it (2026-10-10).
+  defp replaced_decision(%Context{input_entry: %Ingress.Inbox.Entry{} = entry}) do
+    if Repo.one(Ingress.Inbox.Entry.Query.newest_later_revision(entry)) do
+      reason = "A newer version of the message arrived before Ryker read it."
+      deletion(:ignore, nil, :unrelated, nil, reason)
+    end
+  end
+
+  defp replaced_decision(_context), do: nil
 
   # An answer on Ryker's own question card goes to the work that asked it. Routing weighed each one
   # like a message: it chose "reply" for one of Andrew's answers and "quick_reply · unrelated" for
