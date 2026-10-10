@@ -139,7 +139,7 @@ defmodule Ryker.Slack.SavedEntity do
       Delivery.OfferWords.humanize(payload["key"]),
       Delivery.OfferWords.humanize(payload["value"]),
       [
-        {"Scope", scope(behavior.scope_kind, behavior.scope_ref)},
+        {"Applies to", scope(behavior.scope_kind, behavior.scope_ref)},
         {"Repository", repository(payload["repository"])},
         {"Expires", expiry(behavior.expires_at, "Until removed")}
       ],
@@ -156,13 +156,12 @@ defmodule Ryker.Slack.SavedEntity do
       "Guidance",
       payload["subject"],
       payload["text"],
-      [
-        {"Scope", scope(behavior.scope_kind, behavior.scope_ref)},
-        {"Repository", repository(payload["repository"])},
-        {"Visibility", visibility(payload["visibility"])},
-        {"Expires", expiry(behavior.expires_at, "Until removed")},
-        {"Source", source(behavior)}
-      ],
+      audience(scope(behavior.scope_kind, behavior.scope_ref), visibility(payload["visibility"])) ++
+        [
+          {"Repository", repository(payload["repository"])},
+          {"Expires", expiry(behavior.expires_at, "Until removed")},
+          {"Source", source(behavior)}
+        ],
       event
     )
   end
@@ -281,9 +280,9 @@ defmodule Ryker.Slack.SavedEntity do
   defp scope(:global, _ref), do: "Everywhere"
   defp scope(:conversation, _ref), do: "This conversation"
   defp scope(:repository, ref), do: "Repository " <> Settings.repository_name(ref)
-  defp scope(:operator, ref), do: "Operator #{ref}"
+  defp scope(:operator, _ref), do: "Just the person who saved it"
 
-  defp visibility("private"), do: "Private to the operator"
+  defp visibility("private"), do: "Just the person who saved it"
   defp visibility("conversation"), do: "This conversation"
   defp visibility("workspace"), do: "Whole workspace"
   defp visibility("global"), do: "Everywhere"

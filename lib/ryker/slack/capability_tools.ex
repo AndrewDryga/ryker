@@ -147,7 +147,7 @@ defmodule Ryker.Slack.CapabilityTools do
       },
       %{
         "description" =>
-          "Prepare one exact additional Slack message for human confirmation, but only for a destination granted by the exact current Slack instruction. This tool never posts directly; the episode's ordinary final reply keeps its host-owned route.",
+          "Prepare one exact additional Slack message for human confirmation, but only for a destination granted by the exact current Slack instruction. A person grants a channel only by writing their message as `post to #channel: the words` (after mentioning Ryker where needed); asked any other way, the call is refused, so tell them to send it in that form. This tool never posts directly; the episode's ordinary final reply keeps its host-owned route.",
         "inputSchema" => %{
           "additionalProperties" => false,
           "properties" => %{

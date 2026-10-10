@@ -895,7 +895,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     assert entity["kind"] == "preference"
     assert entity["title"] == "Response detail"
     assert entity["instructions"] == "Standard"
-    assert ["Scope", "Whole workspace"] in entity["facts"]
+    assert ["Applies to", "Whole workspace"] in entity["facts"]
 
     assert {:ok, rendered} = Renderer.render(%{"message" => "Saved.", "records" => [document]})
 
@@ -960,8 +960,10 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     assert entity["kind"] == "guidance"
     assert entity["title"] == "terraform_review_style"
     assert entity["instructions"] =~ "lead with availability risk and drift"
-    assert ["Scope", "This conversation"] in entity["facts"]
-    assert ["Visibility", "This conversation"] in entity["facts"]
+    # Whom it applies to, said once when they are also who sees it: the card
+    # said "This conversation" twice, as Scope and as Visibility (2026-10-10).
+    assert ["Applies to", "This conversation"] in entity["facts"]
+    refute Enum.any?(entity["facts"], &(hd(&1) in ["Scope", "Visibility", "Who sees it"]))
 
     assert {:ok, rendered} = Renderer.render(%{"message" => "Saved.", "records" => [document]})
 
