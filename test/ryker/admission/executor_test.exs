@@ -16,6 +16,7 @@ defmodule Ryker.Admission.ExecutorTest do
   @moduletag isolation: "REPEATABLE READ"
 
   @now ~U[2026-08-27 12:00:00.000000Z]
+  @message_ref "1787832001.000100"
 
   test "Coop schema validation and host semantic validation finish one admission turn" do
     assert {:ok, _} = Ryker.Instructions.save(:global, "Plain language.", 0, "operator:test")
@@ -946,6 +947,67 @@ defmodule Ryker.Admission.ExecutorTest do
     assert FakeAPI.state(fake).submit_count == 0
   end
 
+  # Usually the unfurl lands while routing still reads the first version, so the commit sets that
+  # version aside and the unfurl, the same words with a link preview, was routed again from
+  # scratch: a second model turn and 38 s for a one-line answer (Slack as Andrew, 2026-10-10).
+  # The model's decision on those words is reused; a decision the host made never is.
+  test "an unfurl of words routing already decided reuses that decision without a model turn" do
+    original = record_slack_input!("Ev-unfurl-raced")
+
+    assert {:ok, context} =
+             Ryker.Admission.context(Inbox.ref(original),
+               now: @now,
+               continuation_window: 30 * 60,
+               history_window: 30 * 24 * 60 * 60,
+               candidate_limit: 8
+             )
+
+    unfurl = record_slack_revision!("Ev-unfurl-raced-edit", :edit, "Please answer")
+    assert {:ok, decided} = Ryker.Admission.Decision.parse(Jason.decode!(decision("reply")))
+
+    assert {:ok, %{status: :superseded}} =
+             Ryker.Admission.commit(context, decided, "model-decision:unfurl-raced")
+
+    {:ok, fake} = FakeAPI.start_link([])
+
+    assert {:ok, execution} =
+             Executor.run(Inbox.ref(unfurl), executor_options(fake, claim!(unfurl)))
+
+    assert execution.result.status == :applied
+    assert execution.result.entry.decision_action == :reply
+    assert execution.result.episode.id == unfurl.id
+    assert FakeAPI.state(fake).submit_count == 0
+
+    # Words someone changed are routed afresh.
+    retyped = record_slack_input!("Ev-unfurl-retyped", :message, "1787832002.000100")
+
+    assert {:ok, retyped_context} =
+             Ryker.Admission.context(Inbox.ref(retyped),
+               now: @now,
+               continuation_window: 30 * 60,
+               history_window: 30 * 24 * 60 * 60,
+               candidate_limit: 8
+             )
+
+    edit =
+      record_slack_revision!(
+        "Ev-unfurl-retyped-edit",
+        :edit,
+        "Please answer the other one",
+        "1787832002.000100"
+      )
+
+    assert {:ok, %{status: :superseded}} =
+             Ryker.Admission.commit(retyped_context, decided, "model-decision:unfurl-retyped")
+
+    {:ok, routed} = FakeAPI.start_link([decision("ignore")])
+
+    assert {:ok, _execution} =
+             Executor.run(Inbox.ref(edit), executor_options(routed, claim!(edit)))
+
+    assert FakeAPI.state(routed).submit_count == 1
+  end
+
   # Admitting the deletion into its work is what withdraws everything derived
   # from the deleted text; a model that chose to ignore it left those in place.
   test "a deleted message joins the work that owns it without a model turn" do
@@ -1039,7 +1101,7 @@ defmodule Ryker.Admission.ExecutorTest do
     lease_ref
   end
 
-  defp record_slack_input!(event_ref, event_kind \\ :message) do
+  defp record_slack_input!(event_ref, event_kind \\ :message, message_ref \\ @message_ref) do
     assert {:ok, input} =
              SlackInput.new(%{
                actor: %{kind: :user, ref: "U123"},
@@ -1047,7 +1109,7 @@ defmodule Ryker.Admission.ExecutorTest do
                content: %{"text" => "Please answer"},
                event_kind: event_kind,
                event_ref: event_ref,
-               message_ref: "1787832001.000100",
+               message_ref: message_ref,
                occurred_at: @now,
                revision: 1,
                thread_ref: nil,
@@ -1061,7 +1123,7 @@ defmodule Ryker.Admission.ExecutorTest do
   defp record_slack_deletion!(event_ref),
     do: record_slack_revision!(event_ref, :delete, "Please answer")
 
-  defp record_slack_revision!(event_ref, kind, text) do
+  defp record_slack_revision!(event_ref, kind, text, message_ref \\ @message_ref) do
     assert {:ok, input} =
              SlackInput.new(%{
                actor: %{kind: :user, ref: "U123"},
@@ -1069,7 +1131,7 @@ defmodule Ryker.Admission.ExecutorTest do
                content: %{"text" => text},
                event_kind: kind,
                event_ref: event_ref,
-               message_ref: "1787832001.000100",
+               message_ref: message_ref,
                occurred_at: DateTime.add(@now, 1),
                revision: 2,
                thread_ref: nil,

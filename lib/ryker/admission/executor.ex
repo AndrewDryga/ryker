@@ -34,6 +34,7 @@ defmodule Ryker.Admission.Executor do
          {:ok, entry} <- Ingress.Inbox.fetch(input_ref),
          {:ok, entry, context} <- execution_context(input_ref, entry, settings) do
       case host_decision(context) do
+        {:unfurled, %Decision{} = decision} -> settle_unfurled(entry, context, decision, settings)
         {kind, %Decision{} = decision} -> settle_host(entry, context, kind, decision, settings)
         nil -> run_model(entry, context, settings)
       end
@@ -100,7 +101,41 @@ defmodule Ryker.Admission.Executor do
       decision = deletion_decision(context) -> {:deletion, decision}
       decision = replaced_decision(context) -> {:replaced, decision}
       decision = answer_decision(context) -> {:answer, decision}
+      decision = unfurled_decision(context) -> {:unfurled, decision}
       true -> nil
+    end
+  end
+
+  # Slack's unfurl of a posted link arrives as an edit with the same words, usually while routing
+  # reads the first version, which the commit then sets aside. The model's decision on those words
+  # is the decision on the unfurl: routing it again cost a second model turn, 38 s for a one-line
+  # answer (2026-10-10). A decision the host made, such as setting a version aside, is never reused.
+  defp unfurled_decision(%Context{
+         input: %Ingress.Input{event_kind: :edit, content: %{"text" => text}},
+         input_entry: %Ingress.Inbox.Entry{} = entry
+       })
+       when is_binary(text) do
+    with %Ingress.Inbox.Entry{
+           content: %{"text" => ^text},
+           decision_document: %{} = document,
+           decision_ref: "" <> decision_ref
+         } <- Repo.one(Ingress.Inbox.Entry.Query.superseded_earlier_revision(entry)),
+         false <- String.starts_with?(decision_ref, "host:"),
+         {:ok, decision} <- Decision.parse(document) do
+      decision
+    else
+      _not_reusable -> nil
+    end
+  end
+
+  defp unfurled_decision(_context), do: nil
+
+  # The reused decision was weighed against the first version's context; one the commit refuses
+  # now is routed like any message.
+  defp settle_unfurled(entry, context, decision, settings) do
+    case settle_host(entry, context, :unfurled, decision, settings) do
+      {:ok, settled} -> {:ok, settled}
+      {:error, _refused} -> run_model(entry, context, settings)
     end
   end
 

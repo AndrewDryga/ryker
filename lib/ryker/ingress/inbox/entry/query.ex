@@ -321,6 +321,21 @@ defmodule Ryker.Ingress.Inbox.Entry.Query do
     )
   end
 
+  @doc """
+  The newest earlier revision of `entry`'s message, in its execution mode,
+  that a later revision set aside.
+  """
+  def superseded_earlier_revision(entry) do
+    from([ingress_inbox_entries: e] in all(),
+      where:
+        e.source_kind == ^entry.source_kind and e.source_ref == ^entry.source_ref and
+          e.native_input_id == ^entry.native_input_id and e.revision < ^entry.revision and
+          e.execution_mode == ^entry.execution_mode and e.status == :superseded,
+      order_by: [desc: e.revision],
+      limit: 1
+    )
+  end
+
   @doc "The newest later revision of `entry`'s message recorded in its execution mode, if any."
   def newest_later_revision(entry) do
     entry
