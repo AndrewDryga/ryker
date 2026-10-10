@@ -1247,7 +1247,8 @@ defmodule Ryker.ControlPlane.RouterTest do
           {"/actions/episode/#{@episode_one}/rate-good",
            "You can't change the rating afterwards."},
           {"/actions/episode/#{@episode_one}/rate-needs-work", "you can't change the rating"},
-          {"/actions/retention/workspace:unmerged/discard", "This can't be undone."}
+          {"/actions/retention/workspace:unmerged/discard", "This can't be undone."},
+          {"/actions/retention/workspace:dirty/discard-changes", "This can't be undone."}
         ] do
       page = request(:get, path)
       assert page.status == 200, path
@@ -1766,6 +1767,10 @@ defmodule Ryker.ControlPlane.RouterTest do
     assert accepted_rearm.status == 303
     assert get_resp_header(accepted_rearm, "location") == ["/working-copies"]
     assert_received {:rearmed_retention, "workspace:blocked"}
+
+    changes = request(:get, "/actions/retention/workspace:dirty/discard-changes")
+    assert changes.status == 200
+    assert changes.resp_body =~ "Delete this working copy and its uncommitted changes?"
 
     discard = request(:get, "/actions/retention/workspace:unmerged/discard")
     assert discard.status == 200

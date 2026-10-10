@@ -436,7 +436,8 @@ defmodule Ryker.ControlPlane.PagesTest do
     assert workspaces.body =~ "workspace:blocked"
     assert workspaces.body =~ "/actions/retention/workspace:blocked/rearm"
     assert workspaces.body =~ "/actions/retention/workspace:unmerged/discard"
-    refute workspaces.body =~ "/actions/retention/workspace:dirty/discard"
+    refute workspaces.body =~ "/actions/retention/workspace:dirty/discard\""
+    assert workspaces.body =~ "/actions/retention/workspace:dirty/discard-changes"
   end
 
   test "failure collection errors remain unavailable instead of appearing empty" do

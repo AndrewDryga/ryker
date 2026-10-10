@@ -19,6 +19,22 @@ defmodule Ryker.Retention.PlanTest do
     assert plan["workspace"]["accepted_unmerged"]
   end
 
+  test "uncommitted changes are discardable only when a person accepted them" do
+    accepted =
+      put_in(response(true, false, false), ["plan", "plan", "workspace", "accepted_dirty"], true)
+
+    assert {:ok, plan} = Plan.prepare(accepted, "remote_123", 8, false, true)
+    assert plan["workspace"]["accepted_dirty"] == true
+    assert Plan.discardable?(plan)
+
+    # A worker asked to accept the changes must say it did, as with unmerged commits.
+    assert Plan.prepare(accepted, "remote_123", 8, false, false) ==
+             {:error, {:invalid_discard_plan, :accepted_dirty}}
+
+    assert Plan.prepare(response(true, false, false), "remote_123", 8, false, true) ==
+             {:error, {:invalid_discard_plan, :accepted_dirty}}
+  end
+
   test "crossed identity, dirty authority, running work, and malformed plans fail closed" do
     valid = response(false, false, false)
 

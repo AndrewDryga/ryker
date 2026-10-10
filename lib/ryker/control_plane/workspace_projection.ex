@@ -252,6 +252,16 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
        when blocked_from in [:close_pending, :plan_pending, :discard_pending],
        do: :rearm
 
+  # Only a person lets uncommitted changes go; the copy was kept forever otherwise (2026-10-09).
+  defp workspace_action(%Work.Session{
+         cleanup_status: :retained,
+         discard_plan: %{"workspace" => %{"dirty" => true}},
+         discard_plan_fingerprint: fingerprint,
+         retained_reason: "dirty"
+       })
+       when is_binary(fingerprint),
+       do: :discard_changes
+
   defp workspace_action(%Work.Session{
          cleanup_status: :retained,
          discard_plan: %{"workspace" => %{"dirty" => false, "unmerged" => true}},

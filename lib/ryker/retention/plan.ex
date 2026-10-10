@@ -18,11 +18,13 @@ defmodule Ryker.Retention.Plan do
   @workspace_optional ~w(accepted_dirty accepted_unmerged)
   @head ~r/\A[0-9a-f]{40,64}\z/
 
-  @spec prepare(map(), String.t(), pos_integer(), boolean()) ::
+  @spec prepare(map(), String.t(), pos_integer(), boolean(), boolean()) ::
           {:ok, map()} | {:error, {:invalid_discard_plan, atom()}}
-  def prepare(response, session_id, revision, accept_unmerged)
+  def prepare(response, session_id, revision, accept_unmerged, accept_dirty \\ false)
+
+  def prepare(response, session_id, revision, accept_unmerged, accept_dirty)
       when is_map(response) and is_binary(session_id) and is_integer(revision) and revision > 0 and
-             is_boolean(accept_unmerged) do
+             is_boolean(accept_unmerged) and is_boolean(accept_dirty) do
     with :ok <- exact_fields(response, @outer_fields, [], :envelope),
          {:ok, operation} <- operation(response["operation"], session_id) do
       plan_document(
@@ -30,24 +32,26 @@ defmodule Ryker.Retention.Plan do
         operation["id"],
         session_id,
         revision,
-        accept_unmerged
+        accept_unmerged,
+        accept_dirty
       )
     end
   end
 
-  def prepare(_response, _session_id, _revision, _accept_unmerged),
+  def prepare(_response, _session_id, _revision, _accept_unmerged, _accept_dirty),
     do: {:error, {:invalid_discard_plan, :document}}
 
   @spec discardable?(map()) :: boolean()
   def discardable?(%{
         "workspace" => %{
+          "accepted_dirty" => accepted_dirty,
           "accepted_unmerged" => accepted_unmerged,
           "dirty" => dirty,
           "running" => running,
           "unmerged" => unmerged
         }
       }) do
-    not dirty and not running and (not unmerged or accepted_unmerged)
+    (not dirty or accepted_dirty) and not running and (not unmerged or accepted_unmerged)
   end
 
   def discardable?(_plan), do: false
@@ -68,7 +72,7 @@ defmodule Ryker.Retention.Plan do
 
   defp operation(_value, _session_id), do: {:error, {:invalid_discard_plan, :operation}}
 
-  defp plan_document(value, operation_id, session_id, revision, accept_unmerged)
+  defp plan_document(value, operation_id, session_id, revision, accept_unmerged, accept_dirty)
        when is_map(value) do
     with :ok <- exact_fields(value, @plan_envelope_fields, [], :plan_envelope),
          true <- value["operation_id"] == operation_id or error(:plan_operation_identity),
@@ -76,7 +80,7 @@ defmodule Ryker.Retention.Plan do
          :ok <- exact_fields(plan, @plan_fields, [], :plan),
          true <- plan["session_id"] == session_id or error(:session_identity),
          true <- plan["revision"] == revision or error(:session_revision),
-         {:ok, workspace} <- workspace(plan["workspace"], accept_unmerged) do
+         {:ok, workspace} <- workspace(plan["workspace"], accept_unmerged, accept_dirty) do
       {:ok,
        %{
          "operation_id" => operation_id,
@@ -90,10 +94,10 @@ defmodule Ryker.Retention.Plan do
     end
   end
 
-  defp plan_document(_value, _operation_id, _session_id, _revision, _accept_unmerged),
+  defp plan_document(_value, _operation_id, _session_id, _revision, _accept_unmerged, _dirty),
     do: {:error, {:invalid_discard_plan, :plan_envelope}}
 
-  defp workspace(value, accept_unmerged) when is_map(value) do
+  defp workspace(value, accept_unmerged, accept_dirty) when is_map(value) do
     with :ok <- exact_fields(value, @workspace_required, @workspace_optional, :workspace),
          :ok <- optional_git_head(value["head"]),
          :ok <- bounded_string(value["branch"], 1_024, :branch),
@@ -104,14 +108,17 @@ defmodule Ryker.Retention.Plan do
          :ok <- boolean(Map.get(value, "accepted_dirty", false), :accepted_dirty),
          :ok <- boolean(Map.get(value, "accepted_unmerged", false), :accepted_unmerged),
          true <- not value["running"] or error(:running),
-         true <- not Map.get(value, "accepted_dirty", false) or error(:accepted_dirty),
+         expected_accepted_dirty = value["dirty"] and accept_dirty,
+         true <-
+           Map.get(value, "accepted_dirty", false) == expected_accepted_dirty or
+             error(:accepted_dirty),
          expected_accepted_unmerged = value["unmerged"] and accept_unmerged,
          true <-
            Map.get(value, "accepted_unmerged", false) == expected_accepted_unmerged or
              error(:accepted_unmerged) do
       {:ok,
        %{
-         "accepted_dirty" => false,
+         "accepted_dirty" => expected_accepted_dirty,
          "accepted_unmerged" => expected_accepted_unmerged,
          "branch" => value["branch"],
          "dirty" => value["dirty"],
@@ -126,7 +133,7 @@ defmodule Ryker.Retention.Plan do
     end
   end
 
-  defp workspace(_value, _accept_unmerged),
+  defp workspace(_value, _accept_unmerged, _accept_dirty),
     do: {:error, {:invalid_discard_plan, :workspace}}
 
   defp exact_fields(value, required, optional, field) do

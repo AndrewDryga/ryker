@@ -83,6 +83,7 @@ defmodule Ryker.Work.Session do
     field(:discard_plan_generation, :integer, default: 1)
     field(:discard_plan_expected_revision, :integer)
     field(:discard_plan_accept_unmerged, :boolean, default: false)
+    field(:discard_plan_accept_dirty, :boolean, default: false)
     field(:discard_plan_operation_id, :string)
     field(:discard_plan, Ryker.CanonicalJSON.Type)
     field(:discard_plan_fingerprint, :string)
@@ -146,6 +147,7 @@ defmodule Ryker.Work.Session do
           discard_plan_generation: pos_integer(),
           discard_plan_expected_revision: pos_integer() | nil,
           discard_plan_accept_unmerged: boolean(),
+          discard_plan_accept_dirty: boolean(),
           discard_plan_operation_id: String.t() | nil,
           discard_plan: map() | nil,
           discard_plan_fingerprint: String.t() | nil,

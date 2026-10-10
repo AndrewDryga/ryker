@@ -998,6 +998,18 @@ defmodule Ryker.ControlPlane.Router do
     end
   end
 
+  defp confirmation("retention", resource_ref, "discard-changes", options) do
+    case options.projection.workspace.(resource_ref) do
+      {:ok, %{action: :discard_changes, status: :retained}} ->
+        {:ok, "Delete this working copy and its uncommitted changes?",
+         "Ryker asks the worker to delete this working copy, including changes that were never committed and any commits that were never merged anywhere. This can't be undone.",
+         "retention:discard_changes", :danger}
+
+      _unavailable ->
+        {:error, :not_found}
+    end
+  end
+
   defp confirmation("retention", resource_ref, "discard", options) do
     case options.projection.workspace.(resource_ref) do
       {:ok, %{action: :discard_unmerged, status: :retained}} ->
@@ -1124,6 +1136,9 @@ defmodule Ryker.ControlPlane.Router do
 
   defp perform("retention", resource_ref, "discard", actions, viewer),
     do: actions.discard_retention.(resource_ref, viewer)
+
+  defp perform("retention", resource_ref, "discard-changes", actions, viewer),
+    do: actions.discard_retention_changes.(resource_ref, viewer)
 
   defp perform("slack_interaction", resource_ref, "rearm", actions, viewer),
     do: actions.rearm_slack_interaction.(resource_ref, viewer)

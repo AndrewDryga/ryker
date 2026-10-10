@@ -87,6 +87,7 @@ defmodule Ryker.ControlPlane.Actions do
       act_on_lab_record: lab_record_action(placements, task_policies),
       delete_lab_message: lab_message_deleter(placements),
       discard_retention: &discard_retention/2,
+      discard_retention_changes: &discard_retention_changes/2,
       edit_lab_message: lab_message_editor(placements),
       drop_learning: &drop_learning/3,
       forget_memory: &Memories.forget/1,
@@ -1032,6 +1033,10 @@ defmodule Ryker.ControlPlane.Actions do
     ConversationLab.react_to_message(conversation_id, message_ref, action, emoji_name,
       actor: Actor.chat_ref(viewer)
     )
+  end
+
+  defp discard_retention_changes(ref, viewer) do
+    Operator.Retention.discard_changes(ref, Actor.of(viewer), action_ref(:discard_changes))
   end
 
   defp discard_retention(ref, viewer) do

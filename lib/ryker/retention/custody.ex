@@ -122,15 +122,22 @@ defmodule Ryker.Retention.Custody do
     end
   end
 
-  @spec freeze_plan_revision(Ecto.UUID.t(), String.t(), pos_integer(), boolean()) ::
+  @spec freeze_plan_revision(Ecto.UUID.t(), String.t(), pos_integer(), boolean(), boolean()) ::
           {:ok, Work.Session.t()} | {:error, term()}
-  def freeze_plan_revision(session_id, lease_ref, revision, accept_unmerged) do
+  def freeze_plan_revision(
+        session_id,
+        lease_ref,
+        revision,
+        accept_unmerged,
+        accept_dirty \\ false
+      ) do
     with {:ok, session_id} <- uuid(session_id, :session_id),
          :ok <- reference(lease_ref, :lease_ref),
          :ok <- positive_integer(revision, :revision),
-         :ok <- boolean(accept_unmerged, :accept_unmerged) do
+         :ok <- boolean(accept_unmerged, :accept_unmerged),
+         :ok <- boolean(accept_dirty, :accept_dirty) do
       update_leased(session_id, lease_ref, :plan_pending, fn session, _now ->
-        freeze_plan_locked(session, revision, accept_unmerged)
+        freeze_plan_locked(session, revision, accept_unmerged, accept_dirty)
       end)
     end
   end
@@ -540,6 +547,7 @@ defmodule Ryker.Retention.Custody do
     persist(session, %{
       cleanup_status: :plan_pending,
       discard_plan: nil,
+      discard_plan_accept_dirty: false,
       discard_plan_accept_unmerged: false,
       discard_plan_expected_revision: nil,
       discard_plan_fingerprint: nil,
@@ -578,14 +586,7 @@ defmodule Ryker.Retention.Custody do
 
       true ->
         fingerprint = CanonicalJSON.digest(plan)
-        workspace = plan["workspace"]
-
-        {status, retained_reason} =
-          cond do
-            workspace["dirty"] -> {:retained, "dirty"}
-            not Plan.discardable?(plan) -> {:retained, "unpublished_unmerged"}
-            true -> {:discard_pending, nil}
-          end
+        {status, retained_reason} = plan_outcome(plan)
 
         # A workspace that is dirty today may be clean tomorrow. Schedule the
         # next fresh plan so the only way out of retention is new evidence.
@@ -606,6 +607,16 @@ defmodule Ryker.Retention.Custody do
           discard_plan_operation_id: plan["operation_id"],
           retained_reason: retained_reason
         })
+    end
+  end
+
+  # Uncommitted changes keep a copy unless a person let them go (Discard changes), as unmerged
+  # commits do unless accepted; a copy Coop may remove waits for the discard.
+  defp plan_outcome(%{"workspace" => workspace} = plan) do
+    cond do
+      workspace["dirty"] and not workspace["accepted_dirty"] -> {:retained, "dirty"}
+      not Plan.discardable?(plan) -> {:retained, "unpublished_unmerged"}
+      true -> {:discard_pending, nil}
     end
   end
 
@@ -642,9 +653,11 @@ defmodule Ryker.Retention.Custody do
   defp freeze_plan_locked(
          %Work.Session{discard_plan_expected_revision: nil} = session,
          revision,
-         accept_unmerged
+         accept_unmerged,
+         accept_dirty
        ) do
     persist(session, %{
+      discard_plan_accept_dirty: accept_dirty,
       discard_plan_accept_unmerged: accept_unmerged,
       discard_plan_expected_revision: revision
     })
@@ -652,15 +665,17 @@ defmodule Ryker.Retention.Custody do
 
   defp freeze_plan_locked(
          %Work.Session{
+           discard_plan_accept_dirty: accept_dirty,
            discard_plan_accept_unmerged: accept_unmerged,
            discard_plan_expected_revision: revision
          } = session,
          revision,
-         accept_unmerged
+         accept_unmerged,
+         accept_dirty
        ),
        do: session
 
-  defp freeze_plan_locked(session, _revision, _accept_unmerged),
+  defp freeze_plan_locked(session, _revision, _accept_unmerged, _accept_dirty),
     do: Repo.rollback({:retention_plan_revision_conflict, session.discard_plan_expected_revision})
 
   # Ryker never learned a worker session for it, which is not proof the

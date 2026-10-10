@@ -746,7 +746,7 @@ host rejects them for nonoperators before any repository or session mutation:
 - **Discard retained work** appears in App Home, for configured operators, on a closed engineering
   task with unpublished changes (the control plane's Working copies page offers the same as
   **Discard unmerged**). Its confirmation authorizes Coop to delete clean committed work after an exact discard-plan check.
-  Dirty uncommitted files are still refused.
+  Dirty uncommitted files are refused here; only the Working copies page's **Discard changes** lets them go.
 
 Every work card has one overflow menu that lists its records directly: **Timeline**, **Evidence**,
 **Handoff summary**, **Review recovery** on a task whose workspace or reply the host is still

@@ -3,9 +3,9 @@ defmodule Ryker.Operator.Retention do
   Audited local-operator recovery for retained Coop cleanup custody.
 
   Rearm restores the exact cleanup phase captured when automation blocked. An
-  explicit unmerged discard never skips Coop review: it clears the old plan and
-  asks Coop for a fresh plan with unmerged acceptance. Dirty work is never an
-  eligible operator discard.
+  explicit discard never skips Coop review: it clears the old plan and asks Coop
+  for a fresh plan that accepts what the person let go of, unmerged commits or
+  uncommitted changes. Automation never discards either on its own.
   """
   alias Ryker.AdvisoryLock
   alias Ryker.CanonicalJSON
@@ -38,6 +38,21 @@ defmodule Ryker.Operator.Retention do
       action_ref
     )
   end
+
+  @doc """
+  Lets a copy kept for uncommitted changes go, with any unmerged commits it also holds.
+
+  A copy with uncommitted changes was kept and checked again forever, with no
+  way for a person to end it (2026-10-09).
+  """
+  @spec discard_changes(String.t(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def discard_changes(session_ref, actor_ref, action_ref),
+    do: change(:discard_changes, session_ref, nil, actor_ref, action_ref)
+
+  @spec discard_changes(String.t(), String.t(), String.t(), String.t()) ::
+          {:ok, map()} | {:error, term()}
+  def discard_changes(session_ref, expected_plan_fingerprint, actor_ref, action_ref),
+    do: change(:discard_changes, session_ref, expected_plan_fingerprint, actor_ref, action_ref)
 
   defp change(action, session_ref, expected_plan_fingerprint, actor_ref, action_ref) do
     with :ok <- reference(session_ref, :session_ref),
@@ -197,6 +212,48 @@ defmodule Ryker.Operator.Retention do
 
   defp transition(:discard_unmerged, %Work.Session{}, _expected_plan_fingerprint),
     do: Repo.rollback(:retention_unmerged_discard_unavailable)
+
+  defp transition(
+         :discard_changes,
+         %Work.Session{
+           cleanup_status: :retained,
+           discard_plan: %{"workspace" => %{"dirty" => true} = workspace},
+           discard_plan_fingerprint: fingerprint,
+           retained_reason: "dirty"
+         } = session,
+         expected_plan_fingerprint
+       )
+       when is_map(workspace) and is_binary(fingerprint) do
+    if is_binary(expected_plan_fingerprint) and expected_plan_fingerprint != fingerprint do
+      Repo.rollback(:retention_discard_plan_stale)
+    else
+      updated =
+        Retention.Custody.persist(session, %{
+          cleanup_attempt_count: 0,
+          cleanup_blocked_from: nil,
+          cleanup_last_error_code: nil,
+          cleanup_last_error_detail: nil,
+          cleanup_lease_expires_at: nil,
+          cleanup_lease_owner: nil,
+          cleanup_lease_ref: nil,
+          cleanup_next_attempt_at: Repo.now!(),
+          cleanup_status: :plan_pending,
+          discard_plan: nil,
+          discard_plan_accept_dirty: true,
+          discard_plan_accept_unmerged: workspace["unmerged"] == true,
+          discard_plan_expected_revision: nil,
+          discard_plan_fingerprint: nil,
+          discard_plan_generation: session.discard_plan_generation + 1,
+          discard_plan_operation_id: nil,
+          retained_reason: nil
+        })
+
+      {:discard_requested, :retained, fingerprint, updated}
+    end
+  end
+
+  defp transition(:discard_changes, %Work.Session{}, _expected_plan_fingerprint),
+    do: Repo.rollback(:retention_changes_discard_unavailable)
 
   defp insert_action!(
          session,

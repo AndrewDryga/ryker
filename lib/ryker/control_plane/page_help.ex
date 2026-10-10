@@ -353,7 +353,7 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"When cleanup needs you",
        [
-         "Resume cleanup retries the step that stopped. Discard unmerged throws away commits that were never merged and keeps uncommitted changes."
+         "Resume cleanup retries the step that stopped. Discard unmerged throws away commits that were never merged and keeps uncommitted changes. Discard changes throws away uncommitted changes too, and any such commits with them."
        ]},
       {"Storage",
        ["A worker that reaches its allowed space takes no new copies until space frees up."]}

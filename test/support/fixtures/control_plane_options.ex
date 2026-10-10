@@ -43,6 +43,10 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
           send(parent, {:discarded_retention, ref})
           {:ok, %{ref: ref}}
         end,
+        discard_retention_changes: fn ref, _viewer ->
+          send(parent, {:discarded_retention_changes, ref})
+          {:ok, %{ref: ref}}
+        end,
         forget_memory: fn ref ->
           send(parent, {:forgot_memory, ref})
           {:ok, %{ref: ref}}
@@ -1149,7 +1153,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
           "workspace:dirty" ->
             {:ok,
              %{
-               action: nil,
+               action: :discard_changes,
                execution_kind: :work,
                kind: "coop_session",
                repository: "ryker",
@@ -1228,7 +1232,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                 updated_at: ~U[2026-08-28 12:00:00Z]
               },
               %{
-                action: nil,
+                action: :discard_changes,
                 execution_kind: :work,
                 kind: "coop_session",
                 repository: "ryker",

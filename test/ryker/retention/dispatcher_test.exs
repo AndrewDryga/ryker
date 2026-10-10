@@ -153,6 +153,44 @@ defmodule Ryker.Retention.DispatcherTest do
     end
   end
 
+  # A copy with uncommitted changes was kept and checked again forever, and the page offered no
+  # way to let it go: two sat since late September (manual test, 2026-10-09). A person can now
+  # discard the changes, after which Coop plans and removes the copy.
+  test "a copy kept for uncommitted changes is removed once a person discards them" do
+    session = terminal_session!("discard-changes")
+
+    {:ok, api} =
+      FakeAPI.start_link(
+        sessions: [remote_session(session)],
+        workspace: workspace(%{"dirty" => true, "unmerged" => false})
+      )
+
+    assert {:ok, {:executed, %{phase: :closed}}} = run(api, "cleanup:changes:close")
+    assert {:ok, {:executed, %{phase: :retained}}} = run(api, "cleanup:changes:plan")
+    assert Repo.get!(Session, session.id).retained_reason == "dirty"
+
+    assert {:ok, %{outcome: :discard_requested, session: requested}} =
+             Ryker.Operator.Retention.discard_changes(
+               session.external_ref,
+               "operator:local",
+               "retention-action:discard-changes:one"
+             )
+
+    assert requested.cleanup_status == :plan_pending
+    assert requested.discard_plan_accept_dirty == true
+
+    make_due!(session.id)
+    assert {:ok, {:executed, %{phase: :planned}}} = run(api, "cleanup:changes:plan-again")
+    assert {:ok, {:executed, %{phase: :discarded}}} = run(api, "cleanup:changes:discard")
+    assert Repo.get!(Session, session.id).cleanup_status == :discarded
+
+    assert [
+             {:plan, _first, %{"accept_dirty" => false}},
+             {:plan, _second, %{"accept_dirty" => true}}
+           ] =
+             Enum.filter(FakeAPI.calls(api), &match?({:plan, _, _}, &1))
+  end
+
   test "published unmerged work is explicitly accepted and then reclaimed" do
     %{episode: episode} = PublicationFixture.published!("retention-published")
 

@@ -211,10 +211,17 @@ defmodule Ryker.Retention.Executor do
 
   defp plan_from_state("closed", session, lease_ref, remote, settings) do
     accept_unmerged = session.discard_plan_accept_unmerged or Custody.published?(session)
+    accept_dirty = session.discard_plan_accept_dirty
 
     with {:ok, revision} <- Coop.Documents.revision(remote, :session_revision),
          {:ok, frozen} <-
-           Custody.freeze_plan_revision(session.id, lease_ref, revision, accept_unmerged) do
+           Custody.freeze_plan_revision(
+             session.id,
+             lease_ref,
+             revision,
+             accept_unmerged,
+             accept_dirty
+           ) do
       plan_remote(frozen, lease_ref, settings)
     end
   end
@@ -231,7 +238,7 @@ defmodule Ryker.Retention.Executor do
              session.coop_session_id,
              key,
              session.discard_plan_expected_revision,
-             false,
+             session.discard_plan_accept_dirty,
              session.discard_plan_accept_unmerged
            )
          end) do
@@ -247,7 +254,8 @@ defmodule Ryker.Retention.Executor do
                response,
                session.coop_session_id,
                session.discard_plan_expected_revision,
-               session.discard_plan_accept_unmerged
+               session.discard_plan_accept_unmerged,
+               session.discard_plan_accept_dirty
              ),
            {:ok, stored} <-
              Custody.store_plan(

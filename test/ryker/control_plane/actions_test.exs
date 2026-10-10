@@ -17,6 +17,9 @@ defmodule Ryker.ControlPlane.ActionsTest do
     assert callbacks.discard_retention.("missing-session", nil) ==
              {:error, :retention_session_not_found}
 
+    assert callbacks.discard_retention_changes.("missing-session", nil) ==
+             {:error, :retention_session_not_found}
+
     assert callbacks.run_schedule.("missing-schedule", nil) ==
              {:error, :schedule_policy_unavailable}
 

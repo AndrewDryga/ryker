@@ -7,7 +7,7 @@ defmodule Ryker.Operator.RetentionAction do
     field(:action_ref, :string)
     field(:request_fingerprint, :string)
     field(:actor_ref, :string)
-    field(:action, Ecto.Enum, values: [:rearm, :discard_unmerged])
+    field(:action, Ecto.Enum, values: [:rearm, :discard_unmerged, :discard_changes])
     field(:previous_status, Ecto.Enum, values: [:blocked, :retained])
     field(:result_status, Ecto.Enum, values: [:close_pending, :plan_pending, :discard_pending])
     field(:previous_plan_fingerprint, :string)

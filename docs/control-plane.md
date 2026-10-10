@@ -629,7 +629,9 @@ hold no checkout; `/memory/learning` lists them.
   bounded retry state, and records the operator action atomically
 - Discard unmerged is offered only for a clean copy kept because it has
   unpublished, unmerged commits. It requests a fresh exact Coop plan with
-  unmerged acceptance; uncommitted work stays kept and has no discard button
+  unmerged acceptance. Discard changes is offered for a copy kept because it
+  has uncommitted changes; its plan accepts those changes and any unmerged
+  commits the copy also holds. Automation never accepts either on its own
 - Publication remains a task/publication workflow, not a cleanup shortcut.
   The Working copies page never invents a publish or generic rerun action
 - A row with no provably safe transition says why and has no dead control

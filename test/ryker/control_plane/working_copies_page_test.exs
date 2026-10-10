@@ -35,7 +35,13 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
       status: :retained,
       summary: "unpublished_unmerged"
   }
-  @dirty %{@blocked | action: nil, ref: "workspace:dirty", status: :retained, summary: "dirty"}
+  @dirty %{
+    @blocked
+    | action: :discard_changes,
+      ref: "workspace:dirty",
+      status: :retained,
+      summary: "dirty"
+  }
   @kept %{
     @blocked
     | action: nil,
@@ -144,7 +150,15 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
     assert LazyHTML.text(discard) == "Discard unmerged"
     assert LazyHTML.attribute(discard, "class") == ["ui-button danger"]
 
-    assert Enum.empty?(LazyHTML.query(document, "[id='copy-workspace:dirty'] .entity-actions"))
+    # A copy kept for uncommitted changes had no way out (2026-10-09).
+    changes =
+      LazyHTML.query(
+        document,
+        "form.action-control[method=get][action='/actions/retention/workspace:dirty/discard-changes'] button[type=submit]"
+      )
+
+    assert LazyHTML.text(changes) == "Discard changes"
+    assert LazyHTML.attribute(changes, "class") == ["ui-button danger"]
   end
 
   test "a copy names its repository, links its request and says what cleanup does next" do

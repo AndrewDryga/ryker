@@ -184,6 +184,12 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
           label="Discard unmerged"
           tone={:danger}
         />
+        <Components.action_button
+          :if={@row.action == :discard_changes}
+          path={Paths.action("retention", @row.ref, "discard-changes")}
+          label="Discard changes"
+          tone={:danger}
+        />
       </:actions>
     </Kit.entity_row>
     """

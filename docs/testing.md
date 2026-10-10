@@ -321,8 +321,8 @@ journeys whose integration is not configured in this installation.
   reply stays in the exact thread. Request a task and verify the host-owned offer card, its status
   and progress repaints, Stop, and idempotent button retries. React with configured Unicode and
   custom emoji and confirm one normalized reaction input with no bot-loop echo. Upload a bounded
-  attachment and create an incident room; verify authenticated fetch, audience, topic, bookmarks
-  and cleanup. Card design is reviewed offline through the Slack-card workflow in
+  attachment and create an incident room; verify authenticated fetch, audience, topic and
+  cleanup. Card design is reviewed offline through the Slack-card workflow in
   `.agent/kb/rules/slack-card-design-workflow.md`, not through a runtime preview page.
 - **GitHub comments, reviews and reactions**: comment on a disposable issue and verify the reply
   binds to that issue, installation and repository. Request a PR review and verify summaries and
