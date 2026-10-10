@@ -22,6 +22,7 @@ defmodule Ryker.FakeRetentionCoopAPI do
         broken_sessions: MapSet.new(Keyword.get(options, :broken_sessions, [])),
         fail_first: MapSet.new(Keyword.get(options, :fail_first, [])),
         failed: MapSet.new(),
+        stored_failures: MapSet.new(Keyword.get(options, :stored_failures, [])),
         offline: Keyword.get(options, :offline, false),
         offline_prefix: Keyword.get(options, :offline_prefix),
         offline_sessions: MapSet.new(Keyword.get(options, :offline_sessions, [])),
@@ -194,27 +195,7 @@ defmodule Ryker.FakeRetentionCoopAPI do
   defp mutation(agent, phase, key, body, callback) do
     Agent.get_and_update(agent, fn state ->
       call = {phase, key, body}
-
-      {response, state} =
-        cond do
-          unreachable?(state, body["session_id"]) ->
-            {offline(), state}
-
-          # The worker answers, but fails this one session's cleanup, as
-          # discard did for a repository with services on 2026-09-27.
-          MapSet.member?(state.broken_sessions, body["session_id"]) ->
-            {{:error, {:coop_error, 500, "internal_error", "internal server error"}}, state}
-
-          match?(%{body: ^body, phase: ^phase}, state.operations[key]) ->
-            {state.operations[key].response, state}
-
-          is_nil(state.operations[key]) ->
-            {response, state} = callback.(state)
-            {response, store_successful_operation(state, key, phase, body, response)}
-
-          true ->
-            {{:error, {:coop_error, 409, "idempotency_conflict", "body changed"}}, state}
-        end
+      {response, state} = answer(state, phase, key, body, callback)
 
       state = %{state | mutations: state.mutations + 1}
       response = maybe_lose_response(response, phase, state)
@@ -231,6 +212,38 @@ defmodule Ryker.FakeRetentionCoopAPI do
 
       {response, %{state | calls: [call | state.calls], failed: failed}}
     end)
+  end
+
+  defp answer(state, phase, key, body, callback) do
+    cond do
+      unreachable?(state, body["session_id"]) ->
+        {offline(), state}
+
+      # The worker answers, but fails this one session's cleanup, as
+      # discard did for a repository with services on 2026-09-27.
+      MapSet.member?(state.broken_sessions, body["session_id"]) ->
+        {{:error, {:coop_error, 500, "internal_error", "internal server error"}}, state}
+
+      match?(%{body: ^body, phase: ^phase}, state.operations[key]) ->
+        {state.operations[key].response, state}
+
+      # The fleet keeps a worker's answer under its key, a failure too: the first
+      # mutation of a phase listed here fails, and its key answers that failure for good.
+      MapSet.member?(state.stored_failures, phase) and is_nil(state.operations[key]) ->
+        failure = {:error, {:coop_error, 500, "internal_error", "internal server error"}}
+
+        {failure,
+         state
+         |> put_in([:operations, key], %{body: body, phase: phase, response: failure})
+         |> Map.update!(:stored_failures, &MapSet.delete(&1, phase))}
+
+      is_nil(state.operations[key]) ->
+        {response, state} = callback.(state)
+        {response, store_successful_operation(state, key, phase, body, response)}
+
+      true ->
+        {{:error, {:coop_error, 409, "idempotency_conflict", "body changed"}}, state}
+    end
   end
 
   defp unreachable?(state, session_id) do

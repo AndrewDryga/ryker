@@ -103,6 +103,36 @@ defmodule Ryker.Retention.DispatcherTest do
     assert Enum.count(calls, &match?({:discard, _, _}, &1)) == 1
   end
 
+  # Coop answered a ready routing session's close with a 500 (2026-10-10). The fleet keeps a
+  # worker's answer under its key, so every retry, and a person's from Failures, read the same
+  # 500 back without asking the worker again: the session stayed open on the worker and its
+  # cleanup sat on Failures with a retry that could never work.
+  test "a close or plan the worker failed is asked again under a new key" do
+    session = terminal_session!("stored-failure")
+
+    {:ok, api} =
+      FakeAPI.start_link(sessions: [remote_session(session)], stored_failures: [:close, :plan])
+
+    assert {:ok, {:deferred, {:coop_error, 500, "internal_error", _}}} =
+             run(api, "cleanup:close:failed")
+
+    make_due!(session.id)
+    assert {:ok, {:executed, %{phase: :closed}}} = run(api, "cleanup:close:again")
+
+    assert {:ok, {:deferred, {:coop_error, 500, "internal_error", _}}} =
+             run(api, "cleanup:plan:failed")
+
+    make_due!(session.id)
+    assert {:ok, {:executed, %{phase: :planned}}} = run(api, "cleanup:plan:again")
+
+    calls = FakeAPI.calls(api)
+
+    for phase <- [:close, :plan] do
+      keys = for {^phase, key, _body} <- calls, do: key
+      assert length(keys) == 2 and length(Enum.uniq(keys)) == 2
+    end
+  end
+
   test "dirty and unpublished unmerged work is retained instead of destroyed" do
     for {suffix, workspace, reason} <- [
           {"dirty", %{"dirty" => true, "unmerged" => false}, "dirty"},

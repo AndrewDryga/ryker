@@ -187,6 +187,17 @@ defmodule Ryker.Retention.Executor do
     end
   end
 
+  # The fleet keeps the worker's answer under its key, so a close the worker failed reads that
+  # failure back for good under the same key: the next attempt asks under a new one. A ready
+  # session's close Coop failed with a 500 (2026-10-10) read the same 500 on every retry, a
+  # person's from Failures too, and the session stayed open on its worker.
+  defp handle_close_error({:coop_error, 500, _code, _detail} = reason, session, lease_ref) do
+    with {:ok, _advanced} <-
+           Custody.advance_close(session.id, lease_ref, session.close_generation) do
+      {:error, reason}
+    end
+  end
+
   defp handle_close_error(reason, _session, _lease_ref), do: {:error, reason}
 
   defp mark_closed(session, lease_ref) do
@@ -264,6 +275,14 @@ defmodule Ryker.Retention.Executor do
     with {:ok, _advanced} <-
            Custody.advance_plan(session.id, lease_ref, session.discard_plan_generation) do
       {:error, {:retention_generation_spent, :plan, reason}}
+    end
+  end
+
+  # A plan the worker failed, as a close (`handle_close_error/3`).
+  defp handle_plan_error({:coop_error, 500, _code, _detail} = reason, session, lease_ref) do
+    with {:ok, _advanced} <-
+           Custody.advance_plan(session.id, lease_ref, session.discard_plan_generation) do
+      {:error, reason}
     end
   end
 
