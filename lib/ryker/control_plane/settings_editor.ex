@@ -1282,7 +1282,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
       aria-describedby={@help}
       aria-invalid={to_string(@invalid)}
     >
-      <option :if={!@field[:required]} value="">Not set</option>
+      <option :if={!@field[:required]} value="">{@field[:unset] || "Not set"}</option>
       <option :if={@field[:prompt]} value="" selected={@value == ""}>{@field.prompt}</option>
       <option :for={{value, label} <- @options} value={value} selected={@value == value}>
         {label}

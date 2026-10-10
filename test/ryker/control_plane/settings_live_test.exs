@@ -2324,6 +2324,14 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
     refute has_element?(view, "#settings-policies")
 
+    # Saving the unset choice stops all routing and Work, since Ryker assembles no Work lane
+    # without a worker install; the option said only "Not set" (manual test, 2026-10-10).
+    assert has_element?(
+             view,
+             "#settings-work-workspace_ref option[value='']",
+             "Not set: Ryker takes no work"
+           )
+
     # Where the page speaks, it uses none of the worker's own terms.
     for selector <- ["header.page-header", "#settings-work"],
         term <- ["workspace", "Workspace", "execution polic", "Execution polic"] do

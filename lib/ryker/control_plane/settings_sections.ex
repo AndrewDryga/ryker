@@ -668,6 +668,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
           kind: :select,
           label: "Worker install",
           options: :workspaces,
+          # Without one, Ryker assembles no Work lane and routing runs on it.
+          unset: "Not set: Ryker takes no work",
           help:
             "Which worker install runs Ryker's work. " <>
               "A worker reports its install name when it connects. " <>
