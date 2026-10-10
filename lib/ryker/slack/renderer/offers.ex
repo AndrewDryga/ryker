@@ -469,8 +469,11 @@ defmodule Ryker.Slack.Renderer.Offers do
   defp confirmed_slack_post_summary(%{"message_url" => url}) when is_binary(url),
     do: "*Message posted* · #{link(url, "Open message")}"
 
+  # Nothing draws the card again once the post lands, so until the host has
+  # its link the card says what stays true after it has (Slack as Andrew,
+  # 2026-10-10: "Ryker is posting it" stayed after the post was out).
   defp confirmed_slack_post_summary(_payload),
-    do: "*Message confirmed*\n_Ryker is posting it._"
+    do: "*Message confirmed*\n_Ryker posts it right away._"
 
   defp behavior_offer("preference_offer", ref, payload) do
     summary =

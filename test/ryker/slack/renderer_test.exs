@@ -2411,7 +2411,7 @@ defmodule Ryker.Slack.RendererTest do
 
     unsent = Map.delete(sent, "message_url")
     assert {:ok, pending} = Renderer.render(%{"message" => "Posted.", "records" => [unsent]})
-    assert Jason.encode!(pending) =~ "Ryker is posting it."
+    assert Jason.encode!(pending) =~ "Ryker posts it right away."
 
     forged = Map.put(sent, "message_url", "http://evil.example/steal")
 
