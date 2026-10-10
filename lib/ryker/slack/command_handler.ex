@@ -116,7 +116,7 @@ defmodule Ryker.Slack.CommandHandler do
   defp assignments(_command, ["create" | _rest], _options) do
     {:ok,
      response(
-       "Ask for the standing assignment in ordinary language. Ryker will show its normalized read-only bounds for explicit confirmation."
+       "Ask me for the rule in a message. I'll show what it will do, and nothing changes until you confirm."
      )}
   end
 
@@ -134,7 +134,7 @@ defmodule Ryker.Slack.CommandHandler do
 
       {:error, reason}
       when reason in [:behavior_not_found, :behavior_terminal, :assignment_scope_mismatch] ->
-        {:ok, response("That standing assignment is not active in this channel.")}
+        {:ok, response("That standing rule is not active in this channel.")}
 
       {:error, reason} ->
         {:error, reason}
@@ -150,7 +150,7 @@ defmodule Ryker.Slack.CommandHandler do
     lines =
       case assignments do
         [] ->
-          ["No standing assignments are configured in this channel."]
+          ["No standing rules in this channel."]
 
         values when is_list(values) ->
           Enum.map(values, fn assignment ->
@@ -161,7 +161,7 @@ defmodule Ryker.Slack.CommandHandler do
           end)
       end
 
-    {:ok, response(Enum.join(["Standing assignments" | lines], "\n"))}
+    {:ok, response(Enum.join(["*Standing rules*" | lines], "\n"))}
   end
 
   defp effective(command, options) do
@@ -238,7 +238,7 @@ defmodule Ryker.Slack.CommandHandler do
   end
 
   defp assignments_usage do
-    "Use `/ryker assignments`, or `pause|resume|delete <assignment-ref>`. Creation is conversational and confirmation-backed."
+    "Use `/ryker assignments` to list this channel's standing rules, or `/ryker assignments pause|resume|delete <rule ref>`. To add one, ask me in a message."
   end
 
   # In the words the channel setup card uses for the same choices.

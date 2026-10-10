@@ -155,7 +155,8 @@ defmodule Ryker.Slack.CommandHandlerTest do
     assert {:ok, create} =
              CommandHandler.handle(command("assignments create", "event:create"), options)
 
-    assert create["text"] =~ "Ask for the standing assignment in ordinary language"
+    # Every other surface calls these standing rules (Slack as Andrew, 2026-10-10).
+    assert create["text"] =~ "Ask me for the rule in a message"
   end
 
   # "global inherit" saved the workspace default as off: the workspace has no default above it
@@ -262,7 +263,7 @@ defmodule Ryker.Slack.CommandHandlerTest do
                  empty_assignments
                )
 
-      assert response["text"] =~ "No standing assignments"
+      assert response["text"] =~ "No standing rules in this channel."
     end
 
     for {verb, status, label} <- [
@@ -283,6 +284,7 @@ defmodule Ryker.Slack.CommandHandlerTest do
              CommandHandler.handle(command("assignments rename one", "event:usage"), options)
 
     assert usage["text"] =~ "pause|resume|delete"
+    assert usage["text"] =~ "To add one, ask me in a message."
 
     assert {:ok, unknown} =
              CommandHandler.handle(command("definitely-unknown", "event:unknown"), options)
