@@ -3106,6 +3106,33 @@ defmodule Ryker.Work.ExecutorTest do
            ]
   end
 
+  # Manual test, 2026-10-10: a Chat reply's turn was running at Coop when a worker poll waited
+  # past the skew limit and was refused, so its session's placement lease ran out. The next
+  # attempt read the session as needing replacement, and a turn Coop already runs cannot move
+  # to another session: the rotation refused it (`work_turn_already_bound`) and the reply
+  # stopped for a person, its answer ("6") lost. The next poll renewed the same placement two
+  # seconds later. A running turn waits for its session's worker instead, and stops only once
+  # its attempts run out.
+  test "a running turn whose session's placement lapsed waits for its worker" do
+    claim = bound_turn!("bound-turn-placement-lapsed")
+    {:ok, fake} = fake_for(claim, [])
+
+    lapsed =
+      {:error, {:coop_session_replacement_required, claim.session.id, claim.session.generation}}
+
+    client = %{fake: fake, overrides: %{get_session: fn _fallback -> lapsed end}}
+    run_options = fake |> options() |> Keyword.merge(api: ProtocolAPI, client: client)
+
+    assert {:error, {:coop_unavailable, _detail}} = Executor.run(claim, run_options)
+
+    assert Repo.aggregate(
+             from(session in Ryker.Work.Session, where: session.episode_id == ^claim.episode.id),
+             :count
+           ) == 1
+
+    assert FakeAPI.state(fake).submit_count == 0
+  end
+
   test "a bound turn remains pollable after its immutable session becomes exhausted" do
     claim = bound_turn!("bound-turn-exhausted-session")
     {:ok, fake} = fake_for(claim, [])
