@@ -25,9 +25,14 @@ defmodule Ryker.Slack.Renderer.SavedEntityCard do
         instructions -> "#{title}\n#{escape(instructions)}"
       end
 
-    [section(body), fact_fields(Enum.map(entity["facts"], &List.to_tuple/1))] ++
-      [context(provenance(entity))] ++ controls(entity)
+    [section(body)] ++
+      facts_blocks(entity["facts"]) ++ [context(provenance(entity))] ++ controls(entity)
   end
+
+  # A deleted rule's words are redacted and leave it no facts; Slack refuses a
+  # section with no fields, and the card kept its Delete button (2026-10-10).
+  defp facts_blocks([]), do: []
+  defp facts_blocks(facts), do: [fact_fields(Enum.map(facts, &List.to_tuple/1))]
 
   @spec text(map()) :: String.t()
   def text(entity) do

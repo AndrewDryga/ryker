@@ -161,6 +161,33 @@ defmodule Ryker.Slack.SavedEntityTest do
     refute "Repository" in Enum.map(unbound["facts"], &hd/1)
   end
 
+  # Deleting a rule redacts what it said, so its card has no facts left. The card drew an empty
+  # set of fields, Slack refused it as invalid_blocks, and the card kept its Delete button after
+  # the guidance was gone (Slack as Andrew, 2026-10-10).
+  test "a deleted rule whose words are gone draws a card Slack takes" do
+    guidance = %Behavior{
+      confirmed_at: ~U[2026-10-10 01:10:07.000000Z],
+      confirmed_by_actor_ref: "slack:user:U123",
+      expires_at: nil,
+      identity_key: "pull-request-link-summaries",
+      kind: :guidance,
+      payload: %{"guidance_payload_sha256" => String.duplicate("a", 64)},
+      ref: "behavior:pull-request-link-summaries",
+      revision: 2,
+      scope_kind: :conversation,
+      scope_ref: "slack:T123:C456",
+      source_conversation_ref: "slack:T123:C456",
+      source_transport: "slack",
+      status: :deleted
+    }
+
+    document = SavedEntity.document(guidance, :saved)
+    assert document["notice"] == "Guidance deleted"
+    assert {:ok, %{"blocks" => blocks}} = Renderer.render(%{"saved_entity" => document})
+    refute Enum.any?(blocks, &(&1["fields"] == []))
+    assert Enum.all?(blocks, &((&1["type"] != "section" or &1["text"]) || &1["fields"] != []))
+  end
+
   # A schedule or rule may hold 12,000 bytes of task, but its card shows at most 2,000
   # characters. A longer one made the card invalid: the repaint after someone confirmed it
   # failed, and "View schedules" stopped at it (2026-10-04 review).
