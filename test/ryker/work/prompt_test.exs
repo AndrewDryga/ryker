@@ -339,6 +339,10 @@ defmodule Ryker.Work.PromptTest do
     # claiming the wait sits in the same sentence as the call that creates it.
     assert instructions =~ "create one durable wait by calling wait_for, and say you are waiting"
     assert instructions =~ "only in a turn where that call succeeded"
+    # "Once, 5 minutes from now, post here how many pull requests are open"
+    # armed a timer and said nothing for five minutes (Slack as Andrew,
+    # 2026-10-10): a request for later is confirmed when its wait is armed.
+    assert instructions =~ "the turn that arms its wait tells them in one short line"
     assert instructions =~ "Call validate_final"
     assert instructions =~ "exact JSON"
     assert instructions =~ "repair it in"

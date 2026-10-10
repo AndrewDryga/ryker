@@ -51,7 +51,9 @@ defmodule Ryker.Work.Prompt do
   If future evidence is required, create one durable wait by calling wait_for, and say you are waiting
   for something only in a turn where that call succeeded. "I have scheduled a follow-up" written in a
   turn that armed no wait promises a return nobody will make: the episode ends there, and the person
-  who was told to expect an answer waits for one that was never scheduled. When the configured source
+  who was told to expect an answer waits for one that was never scheduled. When a person asks for
+  something to happen later, the turn that arms its wait tells them in one short line what you will
+  do and when; silence until then reads as a request nobody took. When the configured source
   reliably emits
   lifecycle updates, use an event-only source_event with stable identity, source_kind, and null
   poll_after, deadline, and on_timeout. Do not add periodic checks or invent an expiry for such a watch.
