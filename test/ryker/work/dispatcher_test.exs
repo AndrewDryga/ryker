@@ -143,6 +143,68 @@ defmodule Ryker.Work.DispatcherTest do
     assert %{"action" => "transfer", "new_turn_ref" => ^rerun_ref} = turn.cancellation_intent
   end
 
+  # The bundled Coop worker restarted under a running Chat turn (2026-10-10). Coop failed the turn
+  # as acp_cancelled, and Ryker stopped it for a person at once, though a Retry then answered it.
+  # A run the worker interrupted runs again once; a re-run interrupted again stops for a person,
+  # so a worker that keeps failing turns cannot loop them.
+  test "a turn a worker restart interrupted runs again once, then stops" do
+    command = create_episode!("interrupted")
+    reason = {:work_turn_terminal, "failed", "acp_cancelled", "turn cancelled"}
+
+    assert {:ok, {:deferred, {:work_rerun_pending, ^reason}}} =
+             Dispatcher.run_once(options({:error, reason}))
+
+    turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+    rerun_ref = "turn:rerun:#{turn.id}"
+    assert %{"action" => "transfer", "new_turn_ref" => ^rerun_ref} = turn.cancellation_intent
+
+    assert {:ok, stop} = Custody.claim_next("worker:interrupted", 60, :work)
+
+    {:ok, receipt} =
+      Cancellation.absent_receipt(OperationKeys.create(stop.session), nil, nil, nil, nil)
+
+    assert {:ok, _settled} =
+             Custody.settle_cancellation(
+               command.episode_id,
+               command.episode_key,
+               turn.turn_ref,
+               stop.lease_ref,
+               receipt
+             )
+
+    assert {:ok, {:deferred, {:work_stop_pending, ^reason}}} =
+             Dispatcher.run_once(options({:error, reason}))
+
+    assert Ryker.Repo.get_by!(Turn, turn_ref: rerun_ref).cancellation_intent["action"] == "block"
+  end
+
+  # Coop can report a turn a person stopped the way it reports one a worker restart interrupted,
+  # so the re-run above must never replace a person's Stop.
+  test "a turn a person stopped is not run again when Coop reports it cancelled" do
+    command = create_episode!("stopped-not-rerun")
+    reason = {:work_turn_terminal, "failed", "acp_cancelled", "turn cancelled"}
+
+    before_return = fn claim ->
+      assert {:ok, _requested} =
+               Custody.request_cancel(
+                 claim.episode.id,
+                 claim.episode.key,
+                 claim.turn.turn_ref,
+                 "cancel:stopped-not-rerun:#{claim.turn.id}",
+                 "Stopped by the operator."
+               )
+    end
+
+    dispatcher_options =
+      options({:error, reason})
+      |> Keyword.update!(:executor_options, &Keyword.put(&1, :before_return, before_return))
+
+    assert {:ok, {:lease_lost, ^reason}} = Dispatcher.run_once(dispatcher_options)
+
+    turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+    assert turn.cancellation_intent["action"] == "cancel"
+  end
+
   test "healthy running Coop work crosses many poll windows without spending failure attempts" do
     Enum.each([:turn, :operation], fn phase ->
       command = create_episode!("healthy-long-#{phase}")

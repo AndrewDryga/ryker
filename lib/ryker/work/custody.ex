@@ -386,6 +386,10 @@ defmodule Ryker.Work.Custody do
   defdelegate request_rerun(episode_id, episode_key, turn_ref, turn_id, lease_ref),
     to: Cancellation
 
+  @doc "Whether turn `turn_ref` is a new run `request_rerun/5` made."
+  @spec rerun?(String.t()) :: boolean()
+  defdelegate rerun?(turn_ref), to: Cancellation
+
   @doc """
   Stops one exact active run while retaining the episode, session lineage, and
   repository workspace for a later human correction.
