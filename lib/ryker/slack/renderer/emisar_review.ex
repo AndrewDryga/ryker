@@ -93,7 +93,7 @@ defmodule Ryker.Slack.Renderer.EmisarReview do
   # One runner of a shared card: its runner and status side by side, then its
   # buttons. A status too long for a field keeps the whole width.
   defp runner_row({status, review, ref}) do
-    runner = "*Runner*\n`#{escape(status["runner_ref"])}`"
+    runner = "*Runner*\n`#{escape(Emisar.ApprovalStatus.runner_name(status["runner_ref"]))}`"
     %{"text" => %{"text" => state}} = state_block = status_block(status, review)
 
     row =
@@ -127,7 +127,7 @@ defmodule Ryker.Slack.Renderer.EmisarReview do
   defp review_blocks(status, review, block_ref) do
     shared_blocks(status, [command_kind(status)]) ++
       [
-        section("*Runner*\n`#{escape(status["runner_ref"])}`"),
+        section("*Runner*\n`#{escape(Emisar.ApprovalStatus.runner_name(status["runner_ref"]))}`"),
         status_block(status, review),
         review_actions(status, block_ref)
       ]

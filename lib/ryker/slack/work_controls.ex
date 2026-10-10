@@ -33,9 +33,11 @@ defmodule Ryker.Slack.WorkControls do
 
   def stoppable?(_episode, _turn), do: false
 
-  @doc "Whether a card offers its diff: the work has a Coop session to read the changes from."
+  # Only a session that may change its repository has changes to show: an incident's card
+  # offered View diff onto "No repository changes" (2026-10-09).
+  @doc "Whether a card offers its diff: a Coop session that may change its repository."
   @spec diff_available?(term()) :: boolean()
-  def diff_available?(%Work.Session{coop_session_id: value})
+  def diff_available?(%Work.Session{coop_session_id: value, workspace_task: %{}})
       when is_binary(value) and value != "",
       do: true
 

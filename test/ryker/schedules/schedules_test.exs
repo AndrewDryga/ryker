@@ -374,6 +374,16 @@ defmodule Ryker.Schedules.SchedulesTest do
 
     refute Enum.any?(rendered["blocks"], &(&1["type"] == "actions"))
     assert inspect(rendered) =~ "Schedule deleted"
+
+    # The deleted card read "Schedule deleted · saved by @Andrew · <when it was saved>", as if
+    # that person had deleted it then (manual test, 2026-10-09); Ryker records no deleter.
+    footer =
+      rendered["blocks"]
+      |> Enum.filter(&(&1["type"] == "context"))
+      |> Enum.map(&hd(&1["elements"])["text"])
+      |> Enum.find(&(&1 =~ "Schedule deleted"))
+
+    assert footer == "Schedule deleted"
   end
 
   test "a stale skipped occurrence is recorded without starting work" do

@@ -11,6 +11,7 @@ defmodule Ryker.ControlPlane.FailureProjection do
   alias Ryker.ConversationRef
   alias Ryker.CoopFleet
   alias Ryker.Credentials
+  alias Ryker.Emisar
   alias Ryker.Episodes
   alias Ryker.Ingress
   alias Ryker.Learning
@@ -579,7 +580,9 @@ defmodule Ryker.ControlPlane.FailureProjection do
       kind: "emisar",
       ref: item.ref,
       request_id: item.request_id,
-      source: "#{item.connection_ref} · #{item.runner_ref} · #{item.action_id}",
+      source:
+        "#{item.connection_ref} · #{Emisar.ApprovalStatus.runner_name(item.runner_ref)} · " <>
+          item.action_id,
       stall: item.stall,
       status: item.status,
       summary:

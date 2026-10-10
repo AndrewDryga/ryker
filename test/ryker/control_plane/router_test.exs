@@ -757,7 +757,7 @@ defmodule Ryker.ControlPlane.RouterTest do
       )
 
     assert diff_view.status == 200
-    assert diff_view.resp_body =~ "Workspace diff"
+    assert diff_view.resp_body =~ "Task changes"
     assert diff_view.resp_body =~ "Patch page"
 
     assert diff_view.resp_body =~

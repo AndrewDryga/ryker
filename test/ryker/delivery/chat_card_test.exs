@@ -209,6 +209,28 @@ defmodule Ryker.Delivery.ChatCardTest do
     assert {"Replaces attempt", "verify-workers"} in card.details
   end
 
+  # A governed action's card named its runner `emisar-p02r~63f5…` and its pack
+  # `docker@0.2.30/sha256:2d6b…` (manual test, 2026-10-10): Emisar's ids, where people know the
+  # runner and pack by name.
+  test "a governed action names its runner and pack as people know them" do
+    payload = %{
+      "action_id" => "docker.image_inspect",
+      "approval_url" => "https://emisar.example/app/acme/approvals/request-1",
+      "expires_at" => "2099-01-01T00:00:00.000000Z",
+      "operation_id" => "operation-1",
+      "pack_ref" =>
+        "docker@0.2.30/sha256:2d6b487daccd827f1ca4ff88e253b10f9c878571ca6c25b9bad7ce5843251fd1",
+      "request_id" => "request-1",
+      "run_id" => "run-1",
+      "runner_ref" => "emisar-p02r~63f54795da1ec7f90b34d6a688612829",
+      "status" => "pending_approval"
+    }
+
+    assert {:ok, card} = ChatCard.project(record("emisar_approval", payload))
+    assert {"Runner", "emisar-p02r"} in card.details
+    assert {"Pack", "docker@0.2.30"} in card.details
+  end
+
   test "a completed check reports the evidence it was completed on" do
     # Same audit: evidence_refs is the receipt a completion claim rests on, and the
     # card dropped it, so a completion and an unevidenced assertion looked identical.

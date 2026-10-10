@@ -291,8 +291,8 @@ defmodule Ryker.Slack.WorkRecord do
     actions = corrective_actions(snapshot.records)
 
     [
-      "Postmortem draft for #{snapshot.work_ref}",
-      "Status: draft generated from the durable record; human review is required.",
+      heading("Postmortem draft", snapshot),
+      "A draft from what this incident recorded. Review it before you share it.",
       "Impact: #{impact}",
       "Cause: #{cause}",
       section(
@@ -303,7 +303,7 @@ defmodule Ryker.Slack.WorkRecord do
       section(
         "Corrective actions",
         actions,
-        "Unknown: no durable corrective-action goals are recorded."
+        "Unknown: no corrective actions are recorded."
       ),
       section("Material unknowns", material_unknowns(snapshot, [], []), nil)
     ]
@@ -445,12 +445,11 @@ defmodule Ryker.Slack.WorkRecord do
   defp goal_state_label("blocked"), do: "blocked"
   defp goal_state_label(state), do: state |> Episodes.Words.label() |> String.downcase()
 
+  # What each action asks for; its goal's id is Ryker's (2026-10-09).
   defp corrective_actions(records) do
     records
     |> Enum.filter(&(&1.kind == "goal"))
-    |> Enum.map(fn goal ->
-      "- #{text(goal.payload["id"])}: #{compact(goal.payload["requested_outcome"], 700)}"
-    end)
+    |> Enum.map(&"- #{compact(&1.payload["requested_outcome"], 700)}")
   end
 
   defp latest(records, kind), do: records |> Enum.filter(&(&1.kind == kind)) |> List.last()

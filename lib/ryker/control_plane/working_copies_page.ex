@@ -96,8 +96,8 @@ defmodule Ryker.ControlPlane.WorkingCopiesPage do
               id={"ready-" <> item.ref}
               icon={:code}
               name={item.repository}
-              text={item.reason}
-              meta={["ready for " <> duration(item.eligible_age_seconds)]}
+              text={request(item)}
+              meta={[item.reason, "ready for " <> duration(item.eligible_age_seconds)]}
             />
           </Kit.entity_list>
         </section>

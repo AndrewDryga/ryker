@@ -8,6 +8,7 @@ defmodule Ryker.ControlPlane.WorkChanges do
   """
   alias Ryker.Crypto
   alias Ryker.Text
+  alias Ryker.Wording
 
   @path_groups ~w(committed staged unstaged untracked conflicts)
   @maximum_paths 20
@@ -28,7 +29,7 @@ defmodule Ryker.ControlPlane.WorkChanges do
          :ok <- metadata(changes, patch) do
       {:ok,
        %{
-         "message" => message(work_ref, changes, patch),
+         "message" => message(changes, patch),
          "patch_bytes" => changes["patch_bytes"],
          "patch_digest" => changes["patch_digest"],
          "patch_has_more" => changes["patch_has_more"],
@@ -43,36 +44,38 @@ defmodule Ryker.ControlPlane.WorkChanges do
 
   def render(_work_ref, _changes), do: {:error, :work_diff_invalid}
 
-  defp message(work_ref, changes, patch) do
+  # What changed, in words: Ryker's own reference, the patch digest and its byte counts are
+  # bookkeeping for the page's paging and checks, not for the person reading the change.
+  defp message(changes, patch) do
     paths = path_lines(changes)
     total_paths = Enum.sum(Enum.map(@path_groups, &length(changes[&1])))
 
-    header = [
-      "Workspace diff for #{work_ref}",
-      "Snapshot: #{changes["patch_digest"]}",
-      "Patch bytes: #{changes["patch_offset"]}-#{changes["patch_next_offset"]} of #{changes["patch_bytes"]}",
-      "Changed paths: #{total_paths}"
-    ]
+    continued =
+      if changes["patch_offset"] > 0, do: ["Continued from the previous page."], else: []
 
     body =
       cond do
         total_paths == 0 and changes["patch_bytes"] == 0 ->
-          ["No repository changes are present in this isolated working copy."]
+          ["No changes in this working copy."]
 
         patch == "" ->
-          paths ++ ["This page contains path changes but no textual patch bytes."]
+          [count_line(total_paths) | continued] ++
+            paths ++ ["These files changed, but there is no text change to show."]
 
         true ->
-          paths ++ ["Patch page:", compact_patch(patch)]
+          [count_line(total_paths) | continued] ++ paths ++ ["", compact_patch(patch)]
       end
 
     footer =
       if changes["patch_has_more"],
-        do: ["More patch bytes remain on the next page."],
-        else: ["This is the final patch page."]
+        do: ["The rest of the changes is on the next page."],
+        else: []
 
-    Enum.join(header ++ body ++ footer, "\n")
+    Enum.join(body ++ footer, "\n")
   end
+
+  defp count_line(total_paths),
+    do: Wording.count(total_paths, "changed file") <> " in this working copy."
 
   defp path_lines(changes) do
     entries =
@@ -88,7 +91,7 @@ defmodule Ryker.ControlPlane.WorkChanges do
     omitted = length(entries) - length(shown)
 
     if omitted > 0,
-      do: shown ++ ["#{omitted} additional changed paths are omitted from this compact page."],
+      do: shown ++ [Wording.count(omitted, "more changed file") <> " not listed here."],
       else: shown
   end
 
@@ -166,7 +169,7 @@ defmodule Ryker.ControlPlane.WorkChanges do
     if String.valid?(patch) and :binary.match(patch, <<0>>) == :nomatch do
       Text.shorten(patch, @maximum_patch_characters)
     else
-      "[binary patch page omitted; verify it from Coop using the snapshot digest]"
+      "This part of the changes is binary and is not shown."
     end
   end
 end

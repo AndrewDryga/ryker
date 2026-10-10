@@ -51,9 +51,11 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
     preview: [
       %{
         eligible_age_seconds: 420,
+        episode_id: "4c2b0f0e-6a4f-4c1e-9d55-2f6d5c1b7a10",
         kind: :work,
         reason: "The follow-up window ended; close the worker session",
         ref: "workspace:kept",
+        request_title: "Add a health check to the checkout API",
         repository: "acme/checkout-api",
         status: :grace,
         target: "coop-session-1"
@@ -217,10 +219,17 @@ defmodule Ryker.ControlPlane.WorkingCopiesPageTest do
     assert meta(LazyHTML.query(document, "article.entity-row")) =~ "kept until cleanup is safe"
   end
 
-  test "a copy ready for cleanup names its repository, what cleanup does and how long it waited" do
+  # Rows ready for cleanup were named by their repository and next step only, so two copies of
+  # one repository read alike and none said which request it was made for (manual test,
+  # 2026-10-09).
+  test "a copy ready for cleanup names its request, what cleanup does and how long it waited" do
     ready = render([]) |> LazyHTML.query("#ready-for-cleanup article.entity-row")
     assert Enum.count(ready) == 1
     assert LazyHTML.text(ready) =~ "acme/checkout-api"
+
+    assert ready |> LazyHTML.query("a") |> LazyHTML.text() ==
+             "Add a health check to the checkout API"
+
     assert LazyHTML.text(ready) =~ "The follow-up window ended; close the worker session"
     assert LazyHTML.text(ready) =~ "ready for 7 minutes"
   end

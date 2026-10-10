@@ -33,7 +33,7 @@ defmodule Ryker.ControlPlane.LabTaskRecordTest do
 
   test "a diff page keeps its patch as written" do
     patch = "Patch page:\ndiff --git a/README.md b/README.md\n+Manual QA run on 2026-10-09.\n"
-    page = render(%{body: patch, kind: :diff, navigation: [], title: "Workspace diff"})
+    page = render(%{body: patch, kind: :diff, navigation: [], title: "Task changes"})
 
     assert page |> LazyHTML.query("pre") |> LazyHTML.text() == patch
   end

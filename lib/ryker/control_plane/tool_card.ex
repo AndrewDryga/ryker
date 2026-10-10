@@ -10,6 +10,7 @@ defmodule Ryker.ControlPlane.ToolCard do
   alias Ryker.ControlPlane.EpisodeTrace.ToolActivity
   alias Ryker.ControlPlane.SlackMarkdown
   alias Ryker.ControlPlane.Units
+  alias Ryker.Emisar
   alias Ryker.Wording
   alias Ryker.Work
 
@@ -468,11 +469,13 @@ defmodule Ryker.ControlPlane.ToolCard do
   # own arguments, such as its project, read between where it ran and why.
   defp facts("run_action", args) do
     runners =
-      for ref <- List.wrap(args["runner_refs"]), is_binary(ref), do: runner_name(ref)
+      for ref <- List.wrap(args["runner_refs"]),
+          is_binary(ref),
+          do: Emisar.runner_name(ref)
 
     ([
        {"Action", string(args["action_id"])},
-       {"Pack", args["pack_ref"] |> string() |> then(&(&1 && fact_value("pack_ref", &1)))},
+       {"Pack", args["pack_ref"] |> string() |> Emisar.pack_name()},
        {Wording.word(length(runners), "Runner"), present_join(runners)}
      ] ++
        action_arguments(args["args"]) ++
@@ -493,7 +496,6 @@ defmodule Ryker.ControlPlane.ToolCard do
 
   # A runner as Emisar names it to people: emisar-3hgr, without the key
   # fingerprint its ref carries after "~".
-  defp runner_name(ref), do: ref |> String.split("~", parts: 2) |> hd()
 
   defp present_join([]), do: nil
   defp present_join(values), do: Enum.join(values, ", ")
@@ -521,7 +523,7 @@ defmodule Ryker.ControlPlane.ToolCard do
 
   # A pack by its name and version, as Emisar lists it: cloud-init@0.1.19,
   # without the content digest it was pinned by.
-  defp fact_value("pack_ref", value), do: value |> String.split("/sha256:", parts: 2) |> hd()
+  defp fact_value("pack_ref", value), do: Emisar.pack_name(value)
   defp fact_value(_key, value), do: value
 
   defp file_path(args, title) do

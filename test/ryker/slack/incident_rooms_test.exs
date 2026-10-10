@@ -507,7 +507,7 @@ defmodule Ryker.Slack.IncidentRoomsTest do
     assert handoff["message"] =~ "Unknown: Root cause is not established"
 
     assert {:ok, postmortem} = WorkRecord.build(room.ref, record_target, :postmortem)
-    assert postmortem["message"] =~ "human review is required"
+    assert postmortem["message"] =~ "Review it before you share it."
     assert postmortem["message"] =~ "Unknown: no alert impact assessment"
     assert postmortem["message"] =~ "Unknown: no evidence-backed root cause"
   end
@@ -2355,6 +2355,48 @@ defmodule Ryker.Slack.IncidentRoomsTest do
   # renderer refuse the whole card and the room's pinned status stopped
   # updating. The task card has cut in bytes since 2026-10-04; this card kept a
   # copy of the old cut (found 2026-10-08).
+  # The postmortem opened "Postmortem draft for record:task_offer:…" and said "draft generated
+  # from the durable record; human review is required" (manual test, 2026-10-09): Ryker's
+  # references and plumbing words where the room expects the incident's name.
+  test "an incident's postmortem is headed by the incident's title, in plain words" do
+    save_channel_configuration!()
+    %{room: room} = ready_room!("postmortem-words")
+
+    record_target = %{
+      conversation_ref: "slack:T123:#{room.channel_ref}",
+      message_ref: room.root_message_ref,
+      thread_ref: room.root_message_ref,
+      transport: "slack"
+    }
+
+    assert {:ok, %{"message" => message}} =
+             WorkRecord.build(room.ref, record_target, :postmortem)
+
+    assert message =~ "*Postmortem draft* · #{room.title}"
+    assert message =~ "A draft from what this incident recorded. Review it before you share it."
+
+    for internal <- [room.ref, "record:", "durable record"] do
+      refute message =~ internal, "the postmortem shows #{internal}"
+    end
+  end
+
+  # An incident's card offered View diff, which opened "No repository changes are present in
+  # this isolated working copy" (manual test, 2026-10-09): an investigation only reads, so its
+  # session has nothing to show.
+  test "an incident's card offers no diff, since its session only reads" do
+    save_channel_configuration!()
+    %{room: room} = ready_room!("no-diff")
+    assert {:ok, claim} = Custody.claim_next("incident-card:no-diff", 60, :work)
+    assert claim.session.workspace_task == nil
+
+    claim.session
+    |> Ecto.Changeset.change(coop_session_id: "coop-session-no-diff")
+    |> Repo.update!()
+
+    assert {:ok, projection} = IncidentRoomCard.build(Repo.get!(IncidentRoom, room.id))
+    refute "view_diff" in projection.document["incident_room"]["controls"]
+  end
+
   test "an incident card's words fit the bounds its renderer checks, in any language" do
     save_channel_configuration!()
     room = ready_room!("card-bytes")

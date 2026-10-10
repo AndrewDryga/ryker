@@ -3,6 +3,7 @@ defmodule Ryker.Delivery.ChatCard do
   alias Ryker.Behaviors
   alias Ryker.ControlPlane
   alias Ryker.Delivery.OfferWords
+  alias Ryker.Emisar
   alias Ryker.InspectionRedactor
   alias Ryker.Memories
   alias Ryker.Publication
@@ -401,8 +402,8 @@ defmodule Ryker.Delivery.ChatCard do
       payload["action_id"],
       "Paused before execution. Approval remains authoritative in Emisar.",
       [
-        {"Runner", payload["runner_ref"]},
-        {"Pack", payload["pack_ref"]},
+        {"Runner", Emisar.ApprovalStatus.runner_name(payload["runner_ref"])},
+        {"Pack", Emisar.ApprovalStatus.pack_name(payload["pack_ref"])},
         {"Expires", payload["expires_at"]}
       ],
       nil

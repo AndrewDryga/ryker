@@ -2181,6 +2181,37 @@ defmodule Ryker.Slack.RendererTest do
     assert rendered["text"] == "Emisar review · nomad.alloc_restart · 2 runners"
   end
 
+  # The review card named each runner by Emisar's whole reference, `emisar-p02r~63f5…` (manual
+  # test, 2026-10-10): the part before `~` is the runner's name, the rest is Emisar's id.
+  test "a review card names each runner by its name, not Emisar's id" do
+    assert {:ok, rendered} =
+             Renderer.render(%{
+               "emisar_approval_statuses" => [
+                 runner_status(
+                   "1",
+                   "emisar-p02r~63f54795da1ec7f90b34d6a688612829",
+                   "pending_approval",
+                   %{}
+                 ),
+                 runner_status(
+                   "2",
+                   "emisar-wnnz~b50602bc539e150aec28d429b885e4a6",
+                   "pending_approval",
+                   %{}
+                 )
+               ]
+             })
+
+    texts =
+      rendered["blocks"]
+      |> Enum.flat_map(&(List.wrap(&1["fields"]) ++ List.wrap(&1["text"])))
+      |> Enum.map(& &1["text"])
+
+    assert "*Runner*\n`emisar-p02r`" in texts
+    assert "*Runner*\n`emisar-wnnz`" in texts
+    refute Enum.any?(texts, &String.contains?(&1, "~"))
+  end
+
   # Emisar reports the command a runner ran as an executed receipt, so the
   # first runner to finish would have split the card in two.
   test "a command one runner ran and another has not keeps one card and is just the command" do

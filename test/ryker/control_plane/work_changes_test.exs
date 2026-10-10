@@ -21,7 +21,6 @@ defmodule Ryker.ControlPlane.WorkChangesTest do
     assert page["patch_has_more"] == false
     assert page["message"] =~ "lib/ryker.ex"
     assert page["message"] =~ "+safe change"
-    assert page["message"] =~ digest
 
     forged =
       patch
@@ -31,6 +30,22 @@ defmodule Ryker.ControlPlane.WorkChangesTest do
     assert WorkChanges.render(@work_ref, forged) == {:error, :work_diff_digest_mismatch}
   end
 
+  # The Chat diff page opened with "Workspace diff for record:task_offer:605e…", the patch's
+  # SHA-256 and "Patch bytes: 0-149 of 149" (manual test, 2026-10-09): Ryker's own reference
+  # and bookkeeping, shown to a person who came to read the change.
+  test "a diff page reads in words, without Ryker's references, digests or byte counts" do
+    patch = "diff --git a/lib/ryker.ex b/lib/ryker.ex\n+safe change\n"
+    digest = digest(patch)
+
+    assert {:ok, page} = WorkChanges.render(@work_ref, changes_page(patch, digest, 0, 2_400))
+    assert page["message"] =~ "1 changed file in this working copy."
+    assert page["message"] =~ "committed: lib/ryker.ex (modified)"
+
+    for internal <- [@work_ref, digest, "Snapshot", "Patch bytes", "patch page", "Workspace diff"] do
+      refute page["message"] =~ internal, "the page shows #{internal}"
+    end
+  end
+
   test "an incomplete first page keeps its continuation and never claims to be whole" do
     patch = String.duplicate("a", 2_400) <> String.duplicate("b", 600)
     digest = digest(patch)
@@ -38,13 +53,14 @@ defmodule Ryker.ControlPlane.WorkChangesTest do
     assert {:ok, first} = WorkChanges.render(@work_ref, changes_page(patch, digest, 0, 2_400))
     assert first["patch_has_more"]
     assert first["patch_next_offset"] == 2_400
-    assert first["message"] =~ "More patch bytes remain"
+    assert first["message"] =~ "The rest of the changes is on the next page."
 
     assert {:ok, last} =
              WorkChanges.render(@work_ref, changes_page(patch, digest, 2_400, 2_400))
 
     assert last["patch_has_more"] == false
-    assert last["message"] =~ "This is the final patch page."
+    assert last["message"] =~ "Continued from the previous page."
+    refute last["message"] =~ "next page"
     assert last["message"] =~ String.duplicate("b", 20)
 
     truncated =
@@ -60,7 +76,7 @@ defmodule Ryker.ControlPlane.WorkChangesTest do
     digest = digest(patch)
 
     assert {:ok, page} = WorkChanges.render(@work_ref, changes_page(patch, digest, 0, 2_400))
-    assert page["message"] =~ "binary patch page omitted"
+    assert page["message"] =~ "This part of the changes is binary and is not shown."
     refute page["message"] =~ "\0"
   end
 

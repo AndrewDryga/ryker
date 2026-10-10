@@ -101,6 +101,19 @@ defmodule Ryker.Emisar.ApprovalStatus do
 
   def review_summary(%{}), do: nil
 
+  @doc """
+  A runner as people know it: the part of Emisar's runner reference before `~`, whose rest is
+  Emisar's id (`emisar-p02r~63f5…` is `emisar-p02r`).
+  """
+  @spec runner_name(String.t() | nil) :: String.t() | nil
+  def runner_name(ref) when is_binary(ref), do: ref |> String.split("~", parts: 2) |> hd()
+  def runner_name(_ref), do: nil
+
+  @doc "A pack as people know it: its name and version, without the content digest."
+  @spec pack_name(String.t() | nil) :: String.t() | nil
+  def pack_name(ref) when is_binary(ref), do: ref |> String.split("/sha256:", parts: 2) |> hd()
+  def pack_name(_ref), do: nil
+
   @spec label(String.t()) :: String.t()
   def label("pending_approval"), do: "Approval required"
   # These four were one label, so the card rendered identically whether the

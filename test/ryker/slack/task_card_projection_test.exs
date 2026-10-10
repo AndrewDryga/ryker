@@ -994,7 +994,8 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
     %{episode: episode, publication: publication} =
       PublicationFixture.published!("unrun-gate",
         gate: "startup_error",
-        gate_error: "docker: command not found"
+        gate_error: "docker: command not found",
+        workspace_task: true
       )
 
     assert publication.status == :published
@@ -1116,7 +1117,8 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
   # working copy the host could not keep offers an older snapshot as the current
   # state of the change.
   test "a held workspace keeps an earlier draft's link and says which snapshot it is" do
-    %{episode: episode, publication: publication} = PublicationFixture.published!("held-draft")
+    %{episode: episode, publication: publication} =
+      PublicationFixture.published!("held-draft", workspace_task: true)
 
     # Force this episode's own turn into the harvested hosted-runner shape: a
     # completed worker whose working copy the host could not snapshot. The

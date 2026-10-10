@@ -28,7 +28,14 @@ defmodule Ryker.Fixtures.Publication do
 
     conversation_ref = Keyword.get(options, :conversation_ref, "slack:#{fixture_workspace}:C456")
 
-    claim = claim_episode!(suffix, repository, thread_ref, conversation_ref)
+    claim =
+      claim_episode!(
+        suffix,
+        repository,
+        thread_ref,
+        conversation_ref,
+        Keyword.get(options, :workspace_task, false)
+      )
 
     {:ok, _goal} =
       Records.create(Records.token(claim.turn), "goal-#{suffix}", "goal", %{
@@ -268,7 +275,7 @@ defmodule Ryker.Fixtures.Publication do
     %{episode: claim.episode, publication: published, receipt: receipt}
   end
 
-  defp claim_episode!(suffix, repository, thread_ref, conversation_ref) do
+  defp claim_episode!(suffix, repository, thread_ref, conversation_ref, workspace_task?) do
     id = Ecto.UUID.generate()
 
     {:ok, _transition} =
@@ -288,10 +295,18 @@ defmodule Ryker.Fixtures.Publication do
         })
       )
 
-    {:ok, _session} =
+    {:ok, session} =
       WorkSessions.pin_episode(id, "work-contributor", String.duplicate("a", 64),
         repository_ref: repository
       )
+
+    # With `workspace_task: true`, the session works in a workspace task as a confirmed code
+    # task's does (`Ryker.Records.TaskOffers`); the fake Coop of most callers binds none.
+    if workspace_task? do
+      session
+      |> Ecto.Changeset.change(workspace_task: %{"offer_ref" => "task-card:#{suffix}"})
+      |> Ryker.Repo.update!()
+    end
 
     {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60)
     bind_remote!(claim)

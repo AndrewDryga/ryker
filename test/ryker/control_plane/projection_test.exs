@@ -2497,6 +2497,8 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert preview.reason == "Keep it briefly for follow-up questions, then remove it"
     assert preview.kind == :work
     assert is_integer(preview.eligible_age_seconds)
+    assert preview.episode_id == session.episode_id
+    assert is_binary(preview.request_title)
 
     # Preview is read-only: nothing about the session changed by looking at it.
     assert Repo.get!(Session, session.id).cleanup_status == :active

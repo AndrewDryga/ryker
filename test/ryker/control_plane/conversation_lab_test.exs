@@ -352,7 +352,34 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
 
     assert postmortem.title == "Incident postmortem"
     assert postmortem.body =~ "Postmortem draft"
-    assert postmortem.body =~ "human review is required"
+    assert postmortem.body =~ "Review it before you share it."
+
+    # A corrective action is what it asks for; its goal's id is Ryker's (2026-10-09).
+    assert {:ok, incident_claim} = Custody.claim_next("lab:incident-goal", 60, :work)
+    assert incident_claim.episode.id == confirmation.episode.id
+
+    assert {:ok, _goal} =
+             Records.create(Records.token(incident_claim.turn), "scope", "goal", %{
+               "authority" => "read_only",
+               "completion_contract" => "The affected service is named from a current signal.",
+               "id" => "confirm-scope",
+               "kind" => "check",
+               "requested_outcome" => "Name the affected service",
+               "required" => true,
+               "stage" => "planning"
+             })
+
+    assert {:ok, with_goal} =
+             actions.view_lab_task_record.(
+               @conversation_id,
+               incident_offer.ref,
+               :postmortem,
+               %{}
+             )
+
+    assert with_goal.body =~ "\n- Name the affected service"
+    refute with_goal.body =~ "confirm-scope"
+    refute with_goal.body =~ incident_offer.ref
   end
 
   test "Lab edits and deletes are ordered revisions of one durable source item" do
@@ -1612,9 +1639,9 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
                %{offset: 0, snapshot_digest: nil}
              )
 
-    assert diff.title == "Workspace diff"
+    assert diff.title == "Task changes"
     assert diff.body =~ "+task view"
-    assert diff.body =~ workspace_changes(patch)["patch_digest"]
+    refute diff.body =~ workspace_changes(patch)["patch_digest"]
 
     assert diff.navigation == [
              %{

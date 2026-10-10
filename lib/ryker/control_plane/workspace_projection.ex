@@ -12,6 +12,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   alias Ryker.Config
   alias Ryker.ControlPlane.{Activity, PagedRelation, RepositoryNames, WorkingCopy}
   alias Ryker.CoopFleet
+  alias Ryker.Episodes
   alias Ryker.Learning
   alias Ryker.Repo
   alias Ryker.Retention
@@ -99,7 +100,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
           ~w(disposable_bytes_limit reclaim_target_seconds)a,
           &{&1, safe_setting(settings, &1)}
         ),
-      preview: Enum.map(next, &preview_item(&1, now, names)),
+      preview: next |> Enum.map(&preview_item(&1, now, names)) |> with_requests(),
       preview_total: due,
       workers:
         CoopFleet.Worker.Query.all()
@@ -145,6 +146,7 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
   defp preview_item({%Work.Session{} = session, eligible_at}, now, names) do
     %{
       eligible_age_seconds: UTCDateTime.age_seconds(now, eligible_at),
+      episode_id: session.episode_id,
       kind: session.execution_kind,
       reason: preview_reason(session.cleanup_status),
       ref: session.external_ref,
@@ -152,6 +154,23 @@ defmodule Ryker.ControlPlane.WorkspaceProjection do
       status: session.cleanup_status,
       target: session.coop_session_id
     }
+  end
+
+  # The request each copy was made for, named as the Activity page names it: two copies of
+  # one repository ready for cleanup read alike without it (2026-10-09).
+  defp with_requests(items) do
+    keys =
+      items
+      |> Enum.map(& &1.episode_id)
+      |> Enum.reject(&is_nil/1)
+      |> then(&Episodes.Episode.Query.by_ids/1)
+      |> Episodes.Episode.Query.select_id_keys()
+      |> Repo.all()
+      |> Map.new()
+
+    items
+    |> Enum.map(&Map.put(&1, :episode_ref, Map.get(keys, &1.episode_id)))
+    |> Activity.with_request_titles()
   end
 
   defp workspace_label(%Work.Session{execution_kind: :learning}, _names),

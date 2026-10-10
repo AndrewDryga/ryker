@@ -296,7 +296,7 @@ defmodule Ryker.ControlPlane.Actions do
          body: diff["message"],
          kind: :diff,
          navigation: diff_navigation(diff),
-         title: "Workspace diff"
+         title: "Task changes"
        }}
     else
       {:error, reason} -> {:error, reason}

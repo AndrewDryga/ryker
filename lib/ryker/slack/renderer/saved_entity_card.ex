@@ -8,6 +8,8 @@ defmodule Ryker.Slack.Renderer.SavedEntityCard do
   import Ryker.Slack.Renderer.Fields
   alias Ryker.Reference
 
+  @ended ~w(completed deleted expired superseded)
+
   @saved_entity_kinds ~w(schedule standing_rule preference guidance memory)
   @saved_entity_statuses ~w(active paused disabled completed expired deleted superseded)
   @maximum_title_characters 300
@@ -44,6 +46,12 @@ defmodule Ryker.Slack.Renderer.SavedEntityCard do
     "#{escape(entity["notice"])}: #{escape(entity["title"])}\n" <>
       "#{escape(entity["instructions"] || "")}\n#{facts}"
   end
+
+  # An ended entry's card says what happened to it. Who saved it and when describe the save,
+  # and beside "deleted" they read as who deleted it and when (2026-10-09); Ryker records no
+  # deleter.
+  defp provenance(%{"status" => status} = entity) when status in @ended,
+    do: escape(entity["notice"])
 
   defp provenance(entity) do
     saved_by =

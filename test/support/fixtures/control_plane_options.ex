@@ -152,7 +152,7 @@ defmodule Ryker.Fixtures.ControlPlaneOptions do
                ),
              kind: view,
              navigation: navigation,
-             title: if(view == :diff, do: "Workspace diff", else: "Durable timeline")
+             title: if(view == :diff, do: "Task changes", else: "Durable timeline")
            }}
         end,
         send_lab_message: fn conversation_id, message, attachments, _viewer ->

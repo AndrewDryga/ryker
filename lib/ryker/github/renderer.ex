@@ -91,7 +91,7 @@ defmodule Ryker.GitHub.Renderer do
      """
      ### Approval required in Emisar
 
-     `#{escape(payload["action_id"])}` is paused before execution on `#{escape(payload["runner_ref"])}`. Pack: `#{escape(payload["pack_ref"])}`. Expires: `#{escape(payload["expires_at"])}`.
+     `#{escape(payload["action_id"])}` is paused before execution on `#{escape(Emisar.ApprovalStatus.runner_name(payload["runner_ref"]))}`. Pack: `#{escape(Emisar.ApprovalStatus.pack_name(payload["pack_ref"]))}`. Expires: `#{escape(payload["expires_at"])}`.
 
      [Review the exact request in Emisar](#{payload["approval_url"]}). GitHub cannot approve this action.
      """
@@ -200,7 +200,7 @@ defmodule Ryker.GitHub.Renderer do
     """
     ### Governed action — #{escape(Emisar.ApprovalStatus.label(status["status"]))}
 
-    `#{escape(status["action_id"])}` on `#{escape(status["runner_ref"])}`. Pack: `#{escape(status["pack_ref"])}`.
+    `#{escape(status["action_id"])}` on `#{escape(Emisar.ApprovalStatus.runner_name(status["runner_ref"]))}`. Pack: `#{escape(Emisar.ApprovalStatus.pack_name(status["pack_ref"]))}`.
     #{review_markdown(status)}
     #{run} · [Review in Emisar](#{status["approval_url"]})#{error_markdown(status)}
     """

@@ -71,6 +71,38 @@ defmodule Ryker.GitHub.RendererTest do
     assert rendered =~ "Reply in this thread"
   end
 
+  # The comment named the runner `emisar-p02r~63f5…` and the pack `docker@0.2.30/sha256:2d6b…`
+  # (manual test, 2026-10-10): Emisar's ids, where people know the runner and pack by name.
+  test "a governed action names its runner and pack as people know them" do
+    payload = %{
+      "action_id" => "docker.image_inspect",
+      "approval_url" => "https://emisar.example/app/acme/approvals/apr-1",
+      "expires_at" => "2099-08-29T12:00:00.000000Z",
+      "operation_id" => "op-1",
+      "pack_ref" =>
+        "docker@0.2.30/sha256:2d6b487daccd827f1ca4ff88e253b10f9c878571ca6c25b9bad7ce5843251fd1",
+      "request_id" => "apr-1",
+      "run_id" => "run-1",
+      "runner_ref" => "emisar-p02r~63f54795da1ec7f90b34d6a688612829",
+      "status" => "pending_approval"
+    }
+
+    record = %{
+      "kind" => "emisar_approval",
+      "payload" => payload,
+      "ref" => "record:emisar_approval:abc123",
+      "status" => "open"
+    }
+
+    assert {:ok, rendered} =
+             Renderer.render(%{"message" => "The action has not run.", "records" => [record]})
+
+    assert rendered =~ "on `emisar-p02r`"
+    assert rendered =~ "Pack: `docker@0.2.30`"
+    refute rendered =~ "sha256"
+    refute rendered =~ "~"
+  end
+
   # Andrew, 2026-10-04, of a question asked in a reply and again under it: "in the reply". The
   # comment adds only the answers and how to give one.
   test "a question is asked once, in the reply" do
