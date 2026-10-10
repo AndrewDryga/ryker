@@ -27,6 +27,9 @@ defmodule Ryker.Slack.ThreadStatusWorker do
   @default_lease_seconds 30
   @default_max_attempts 8
   @maximum_backoff_ms 60_000
+  # Slack's words for a thread or channel that is gone: invalid_thread_ts is what it answers
+  # once the thread's first message was deleted.
+  @gone_refusals ~w(channel_not_found thread_not_found invalid_thread_ts)
 
   def start_link(options) do
     options = options!(options)
@@ -138,14 +141,28 @@ defmodule Ryker.Slack.ThreadStatusWorker do
 
       {:error, reason} ->
         _ = ThreadStatusReceipts.record(status, {:error, reason})
+        refused(status, reason, options, outcome)
+    end
+  end
 
-        case settle(status, reason, options) do
-          {:ok, _settled} ->
-            {{:error, reason}, Map.update!(outcome, :failed, &(&1 + 1))}
+  # Nothing shows in a deleted thread or channel, so a clear Slack refused for that has nothing
+  # left to do. One was tried eight times over five minutes after a person deleted the message,
+  # then sat on Failures for as long as its finished task was recent (2026-10-10).
+  defp refused(%{phase: :clear} = status, {:slack_api_error, code}, _options, outcome)
+       when code in @gone_refusals do
+    case ThreadStatuses.confirm(status.id, status.lease_ref, status.generation) do
+      {:ok, _confirmed} -> {:ok, outcome}
+      {:error, reason} -> {{:error, reason}, Map.update!(outcome, :failed, &(&1 + 1))}
+    end
+  end
 
-          {:error, reason} ->
-            {{:error, reason}, Map.update!(outcome, :failed, &(&1 + 1))}
-        end
+  defp refused(status, reason, options, outcome) do
+    case settle(status, reason, options) do
+      {:ok, _settled} ->
+        {{:error, reason}, Map.update!(outcome, :failed, &(&1 + 1))}
+
+      {:error, reason} ->
+        {{:error, reason}, Map.update!(outcome, :failed, &(&1 + 1))}
     end
   end
 
@@ -189,7 +206,7 @@ defmodule Ryker.Slack.ThreadStatusWorker do
     end
   end
 
-  @permanent_refusals ~w(channel_not_found thread_not_found is_archived)
+  @permanent_refusals ["is_archived" | @gone_refusals]
 
   defp permanent?({:slack_api_error, code}), do: code in @permanent_refusals
   defp permanent?(_reason), do: false

@@ -140,6 +140,53 @@ defmodule Ryker.Slack.ThreadStatusWorkerTest do
     assert %ThreadStatus{status: :delivered, delivered_generation: 1} = status!()
   end
 
+  # A person deleted the message whose thread showed what Ryker was doing (2026-10-10, #test).
+  # Clearing the status got invalid_thread_ts, was tried eight times over five minutes, and then
+  # sat on Failures as "Needs you", its saved error unnamed, for as long as its finished task was
+  # recent. Nothing shows in a deleted thread, so there is nothing left to clear.
+  test "a clear in a thread Slack says was deleted is settled, not retried or listed" do
+    {:ok, client} = Agent.start_link(fn -> %{result: :ok, writes: []} end)
+    {:ok, projection} = Agent.start_link(fn -> [target(:working, "is working...")] end)
+    options = options(client, projection)
+
+    assert {:ok, %{failed: 0, written: 1}} = ThreadStatusWorker.run_once(options)
+
+    Agent.update(client, &%{&1 | result: {:error, {:slack_api_error, "invalid_thread_ts"}}})
+    Agent.update(projection, fn _targets -> [target(:clear, "")] end)
+    assert {:ok, %{failed: 0, written: 0}} = ThreadStatusWorker.run_once(options)
+    make_due!(status!().id)
+    assert {:ok, %{failed: 0}} = ThreadStatusWorker.run_once(options)
+
+    assert %ThreadStatus{phase: :clear, status: :delivered, generation: generation} = status!()
+    assert status!().delivered_generation == generation
+    assert {:ok, %{failed: 0, written: 0}} = ThreadStatusWorker.run_once(options)
+    assert length(Agent.get(client, & &1.writes)) == 2
+
+    assert {:ok, failures} = FailureProjection.list(%{})
+    refute Enum.any?(failures, &(&1.kind == "slack_thread_status"))
+  end
+
+  test "a status in a thread Slack says was deleted stops at once and says so on Failures" do
+    {:ok, client} =
+      Agent.start_link(fn ->
+        %{result: {:error, {:slack_api_error, "invalid_thread_ts"}}, writes: []}
+      end)
+
+    {:ok, projection} = Agent.start_link(fn -> [target(:working, "is working...")] end)
+
+    assert {:ok, %{failed: 1, written: 0}} =
+             ThreadStatusWorker.run_once(options(client, projection))
+
+    assert %ThreadStatus{status: :blocked, attempt_count: 1} = blocked = status!()
+    assert {:ok, failures} = FailureProjection.list(%{})
+    assert %{} = row = Enum.find(failures, &(&1.ref == blocked.id))
+    assert row.provider_error == "invalid_thread_ts"
+
+    explanation = FailureExplanation.explain(row)
+    assert explanation.outlook == :stuck
+    assert Enum.join(explanation.cause, " ") =~ "the thread no longer exists"
+  end
+
   # A status Slack keeps refusing for other reasons blocks after its attempts.
   # The next thing Ryker wants to show in that thread is a new write with its
   # own budget, so the blocked row clears itself and leaves Failures.

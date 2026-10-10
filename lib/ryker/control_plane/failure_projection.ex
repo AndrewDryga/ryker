@@ -991,8 +991,8 @@ defmodule Ryker.ControlPlane.FailureProjection do
 
   @provider_errors ~w(not_in_channel channel_not_found is_archived invalid_auth token_revoked
     token_expired account_inactive missing_scope not_authed no_permission restricted_action
-    message_not_found thread_not_found cant_update_message edit_window_closed user_not_found
-    ratelimited fatal_error internal_error request_timeout service_unavailable
+    message_not_found thread_not_found invalid_thread_ts cant_update_message edit_window_closed
+    user_not_found ratelimited fatal_error internal_error request_timeout service_unavailable
     team_access_not_granted ekm_access_denied name_taken)
 
   @doc """

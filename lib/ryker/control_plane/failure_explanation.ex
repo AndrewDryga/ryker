@@ -1521,7 +1521,8 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   # --- Slack words shared by replies, message updates and incident rooms -----
 
   @auth_errors ~w(invalid_auth token_revoked token_expired account_inactive not_authed)
-  @gone_errors ~w(message_not_found thread_not_found cant_update_message edit_window_closed channel_not_found)
+  @gone_errors ~w(message_not_found thread_not_found invalid_thread_ts cant_update_message
+    edit_window_closed channel_not_found)
   @policy_errors ~w(restricted_action no_permission team_access_not_granted ekm_access_denied)
   @busy_errors ~w(ratelimited fatal_error internal_error request_timeout service_unavailable)
 
@@ -1658,7 +1659,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   end
 
   defp gone_thing("channel_not_found"), do: "channel"
-  defp gone_thing("thread_not_found"), do: "thread"
+  defp gone_thing(code) when code in ~w(thread_not_found invalid_thread_ts), do: "thread"
   defp gone_thing(_code), do: "message"
 
   defp renewed_since?(%DateTime{} = renewed, %DateTime{} = stopped),
