@@ -241,17 +241,18 @@ defmodule Ryker.Slack.CommandHandler do
     "Use `/ryker assignments`, or `pause|resume|delete <assignment-ref>`. Creation is conversational and confirmation-backed."
   end
 
+  # In the words the channel setup card uses for the same choices.
   defp help do
     """
-    Ryker emergency kit
-    `/ryker status`
-    `/ryker proactive on|off|inherit`
-    `/ryker proactive global on|off`
-    `/ryker shadow on|off|inherit`
-    `/ryker shadow global on|off`
-    `/ryker assignments [list|pause|resume|delete]`
+    *Ryker commands*
+    `/ryker status`: what I do in this channel, and why
+    `/ryker proactive on|off|inherit`: join conversations here when I think you could use my help
+    `/ryker proactive global on|off`: the same for every channel
+    `/ryker shadow on|off|inherit`: observe only here, without replying
+    `/ryker shadow global on|off`: the same for every channel
+    `/ryker assignments [list|pause|resume|delete]`: your standing rules
 
-    These commands use no model or Coop session. Create tasks, schedules, memory, preferences, guidance, and assignments conversationally, then confirm the exact host-rendered offer.
+    For anything else, ask me in a message: tasks, schedules, things to remember, preferences and rules. I'll say what I'll do, and nothing changes until you confirm.
     """
   end
 end

@@ -207,7 +207,7 @@ defmodule Ryker.Slack.CommandHandlerTest do
              CommandHandler.handle(command("incidents", "event:unknown"), options())
 
     assert unknown["text"] =~ "Unknown `/ryker` subcommand `incidents`."
-    assert unknown["text"] =~ "Ryker emergency kit"
+    assert unknown["text"] =~ "Ryker commands"
 
     assert {:ok, invalid} =
              CommandHandler.handle(command("proactive sometimes", "event:invalid"), options())
@@ -218,9 +218,14 @@ defmodule Ryker.Slack.CommandHandlerTest do
   test "the whole emergency command surface remains deterministic and fail closed" do
     options = options()
 
+    # The help said "Ryker emergency kit", "These commands use no model or Coop
+    # session" and "confirm the exact host-rendered offer" (Slack as Andrew,
+    # 2026-10-10): it says what each command does, in the setup card's words.
     for text <- ["", "help"] do
       assert {:ok, response} = CommandHandler.handle(command(text, "event:help:#{text}"), options)
-      assert response["text"] =~ "Ryker emergency kit"
+      assert response["text"] =~ "Ryker commands"
+      assert response["text"] =~ "observe only here, without replying"
+      refute response["text"] =~ ~r/Coop|model|host-rendered|emergency/
     end
 
     assert {:ok, status} = CommandHandler.handle(command("status", "event:status"), options)
