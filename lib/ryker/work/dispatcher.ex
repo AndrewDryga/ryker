@@ -265,6 +265,13 @@ defmodule Ryker.Work.Dispatcher do
   # tried again and asks a person only once its attempts run out; it stopped
   # for a person at once (2026-10-04 review).
   defp retry_class({:coop_worker_capacity_unavailable, _session_id}), do: :transient
+  # The worker missed its polls and the session's placement lapsed under a command the turn
+  # was waiting on (2026-10-10). The worker's next poll renews it, and the next attempt waits
+  # for that or moves a turn Coop does not run yet to a new session
+  # (`Ryker.Work.Executor.Sessions`).
+  defp retry_class({:coop_session_replacement_required, _session_id, _generation}),
+    do: :transient
+
   defp retry_class(_reason), do: :blocked
 
   defp reported_reason({:work_generation_spent, _phase, reason}), do: reason

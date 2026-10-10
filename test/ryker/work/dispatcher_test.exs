@@ -358,7 +358,12 @@ defmodule Ryker.Work.DispatcherTest do
       {:coop_error, 503, "unavailable", "try later"},
       # Every worker was busy or not reporting yet, and the task stopped for a
       # person at once (2026-10-04 review); that passes on its own.
-      {:coop_worker_capacity_unavailable, "1b4d2c9e-1a54-4a52-8d0f-3c1f2a9e7b10"}
+      {:coop_worker_capacity_unavailable, "1b4d2c9e-1a54-4a52-8d0f-3c1f2a9e7b10"},
+      # The worker missed its polls while a slow command held it, and its session's placement
+      # lapsed (2026-10-10). A turn whose poll was waiting on the worker then stopped for a person
+      # at once, though the worker's next poll renews that placement; the next attempt waits for
+      # it or, for a turn Coop does not run yet, moves to a new session.
+      {:coop_session_replacement_required, "6f2c1d3e-4b5a-4c69-8e7f-9a0b1c2d3e4f", 3}
     ]
 
     # A one-second retry let the previous reason's turn fall due again while
