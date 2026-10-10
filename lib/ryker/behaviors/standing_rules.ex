@@ -101,7 +101,7 @@ defmodule Ryker.Behaviors.StandingRules do
     with true <- Repo.in_transaction?(),
          :ok <- reference(input_ref, :input_ref),
          :ok <- reference(decision_ref, :decision_ref),
-         :ok <- valid_final_episode(action, episode) do
+         :ok <- valid_final_episode(action, episode, outcome) do
       finalize_assignment_runs_locked(input_ref, action, decision_ref, episode, outcome)
     else
       false -> {:error, :behavior_run_transaction_required}
@@ -332,7 +332,9 @@ defmodule Ryker.Behaviors.StandingRules do
 
   defp finalize_assignment_runs_locked(input_ref, action, decision_ref, episode, outcome) do
     now = Repo.now!()
-    episode_id = if action in [:start_episode, :continue_episode, :reply], do: episode.id
+
+    episode_id =
+      if action in [:start_episode, :continue_episode, :reply] and episode, do: episode.id
 
     StandingAssignmentRun.Query.by_source_input_ref(input_ref)
     |> StandingAssignmentRun.Query.ordered_by_oldest()
@@ -376,12 +378,19 @@ defmodule Ryker.Behaviors.StandingRules do
     Behaviors.broadcast_behavior_updated(assignment_id)
   end
 
-  defp valid_final_episode(action, %Episodes.Episode{})
+  defp valid_final_episode(action, %Episodes.Episode{}, _outcome)
        when action in [:start_episode, :continue_episode, :reply],
        do: :ok
 
-  defp valid_final_episode(action, nil) when action in [:quick_reply, :react, :ignore], do: :ok
-  defp valid_final_episode(_action, _episode), do: {:error, {:invalid_behavior_run, :episode}}
+  defp valid_final_episode(action, nil, _outcome) when action in [:quick_reply, :react, :ignore],
+    do: :ok
+
+  # A message set aside for a newer revision of it may have no episode, whatever routing chose
+  # for the words it read first.
+  defp valid_final_episode(_action, nil, :superseded), do: :ok
+
+  defp valid_final_episode(_action, _episode, _outcome),
+    do: {:error, {:invalid_behavior_run, :episode}}
 
   defp transaction(callback) do
     if Repo.in_transaction?() do

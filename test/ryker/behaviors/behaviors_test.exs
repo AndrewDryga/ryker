@@ -1032,6 +1032,59 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     end
   end
 
+  # Slack unfurls a posted link a second later, and the unfurl arrives as an edit. Routing had
+  # read the first version, and setting that version aside asked its rule run for an episode it
+  # could never have: the message retried eight times, was blocked, and its edit was answered
+  # two and a half minutes late (Slack as Andrew, 2026-10-10).
+  test "a message set aside for its newer revision settles its rule run without an episode" do
+    fixture = delivered_offers!("assignment-superseded")
+
+    assert {:ok, _confirmed} =
+             Behaviors.confirm(confirmation(fixture, fixture.assignment, "assignment-superseded"))
+
+    input = terraform_input(:app, "slack:T123:C456")
+    assert {:ok, recorded} = Inbox.record(input)
+    input_ref = Inbox.ref(recorded.entry)
+
+    assert {:ok, context} =
+             Admission.context(input_ref,
+               now: @now,
+               continuation_window: 30 * 60,
+               history_window: 30 * 24 * 60 * 60,
+               candidate_limit: 8
+             )
+
+    unfurled = %{
+      input
+      | event_kind: :edit,
+        event_ref: input.event_ref <> ":unfurl",
+        revision: 2,
+        content: Map.put(input.content, "attachments", [%{"title" => "Terraform run"}])
+    }
+
+    assert {:ok, _edit} = Inbox.record(unfurled)
+
+    assert {:ok, decision} =
+             Decision.parse(%{
+               "action" => "reply",
+               "episode_ref" => nil,
+               "messages" => nil,
+               "reactions" => nil,
+               "relation" => "unrelated",
+               "repository" => nil,
+               "repository_source" => nil,
+               "reason" => "The plan deserves a reply in its thread.",
+               "work_class" => "conversational"
+             })
+
+    assert {:ok, set_aside} = Admission.commit(context, decision, "admission-decision:first")
+    assert set_aside.status == :superseded
+    assert set_aside.episode == nil
+
+    run = Repo.get_by!(StandingAssignmentRun, source_input_ref: input_ref)
+    assert {run.outcome, run.decision_action, run.episode_id} == {:superseded, :reply, nil}
+  end
+
   test "a standing assignment match is recorded once and finalized with admission" do
     fixture = delivered_offers!("assignment-run")
 
