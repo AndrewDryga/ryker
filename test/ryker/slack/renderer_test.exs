@@ -3337,9 +3337,40 @@ defmodule Ryker.Slack.RendererTest do
            ]
 
     refute inspect(wait) =~ "Verify the new allocation is healthy."
-    assert inspect(wait) =~ "Monitoring deadline <!date^"
+    assert inspect(wait) =~ "Watching until <!date^"
     assert inspect(wait) =~ "2026-08-29 12:00 UTC"
     refute inspect(rendered) =~ ~s("deployment" => "ryker")
+  end
+
+  # "In 2 minutes, tell me how many pull requests are open" showed "Next check 03:37 · Monitoring
+  # deadline 03:42" (Slack as Andrew, 2026-10-10): the deadline is the host's own bound on a wait
+  # that fires at a set time. Such a card says when it is due, in words.
+  test "a wait for a set time says when it is due and nothing else" do
+    wait = %{
+      "kind" => "event_wait",
+      "payload" => %{
+        "deadline_at" => "2026-10-10T03:42:16.000000Z",
+        "event_matcher" => %{
+          "at" => "2026-10-10T03:37:36.000000Z",
+          "on_timeout" => "Post the open pull request count.",
+          "type" => "at"
+        },
+        "kind" => "at",
+        "verification" => "Count the open pull requests."
+      },
+      "ref" => "record:event_wait:at",
+      "status" => "open"
+    }
+
+    due = DateTime.to_unix(~U[2026-10-10 03:37:36Z])
+
+    assert {:ok, rendered} =
+             Renderer.render(%{"message" => "In two minutes.", "records" => [wait]})
+
+    assert [_message, %{"type" => "context", "elements" => [%{"text" => text}]}] =
+             rendered["blocks"]
+
+    assert text == "Next check <!date^#{due}^{date_short_pretty} at {time}|2026-10-10 03:37 UTC>"
   end
 
   test "a timed wait names the host's next check only while it is before the deadline" do
@@ -3370,12 +3401,12 @@ defmodule Ryker.Slack.RendererTest do
 
     assert text ==
              "Next check <!date^#{next_check}^{date_short_pretty} at {time}|2026-08-28 12:30 UTC>" <>
-               " · Monitoring deadline <!date^#{deadline}^{date_short_pretty} at {time}|2026-08-29 12:00 UTC>"
+               " · Watching until <!date^#{deadline}^{date_short_pretty} at {time}|2026-08-29 12:00 UTC>"
 
     late = put_in(wait, ["presentation", "next_check_at"], "2026-08-30T00:00:00.000000Z")
     assert {:ok, rendered} = Renderer.render(%{"message" => "Watching.", "records" => [late]})
 
-    assert [_message, %{"elements" => [%{"text" => "Monitoring deadline " <> _}]}] =
+    assert [_message, %{"elements" => [%{"text" => "Watching until " <> _}]}] =
              rendered["blocks"]
 
     assert {:ok, rendered} =

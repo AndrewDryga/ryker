@@ -50,7 +50,7 @@ defmodule Ryker.Slack.InvestigationReplyTest do
     refute blocks =~ "Source: 01a"
     refute blocks =~ "Backup completion has not yet been checked"
     assert blocks =~ "Next check <!date^"
-    assert blocks =~ "Monitoring deadline <!date^"
+    assert blocks =~ "Watching until <!date^"
     assert blocks =~ "2026-09-09 10:45 UTC"
     assert blocks =~ "2026-09-10 10:30 UTC"
   end

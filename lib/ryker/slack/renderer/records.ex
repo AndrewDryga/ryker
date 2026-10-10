@@ -506,13 +506,19 @@ defmodule Ryker.Slack.Renderer.Records do
 
   defp event_wait_blocks(%{"deadline_at" => nil}, _next_check), do: []
 
+  # A wait for a set time says when it is due; its deadline is the host's own
+  # bound on it, which read "Monitoring deadline" under "in 2 minutes" (2026-10-10).
+  defp event_wait_blocks(%{"event_matcher" => %{"type" => "at", "at" => at}}, _next_check)
+       when is_binary(at),
+       do: [context("Next check #{slack_date(at)}")]
+
   defp event_wait_blocks(%{"deadline_at" => deadline, "event_matcher" => matcher}, next_check) do
     next_check = next_check || scheduled_check(matcher)
 
     text =
       [
         earlier_check?(next_check, deadline) && "Next check #{slack_date(next_check)}",
-        "Monitoring deadline #{slack_date(deadline)}"
+        "Watching until #{slack_date(deadline)}"
       ]
       |> Enum.filter(&is_binary/1)
       |> Enum.join(" · ")
