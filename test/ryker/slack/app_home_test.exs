@@ -188,6 +188,20 @@ defmodule Ryker.Slack.AppHomeTest do
     assert text =~ "Checkout API latency"
     assert text =~ "Repair checkout deploy"
     assert text =~ "Daily audit"
+
+    # A schedule says where it stands and when it runs next, in each reader's
+    # own time, and a rule says its kind in words: the rows read "Daily audit ·
+    # active; 2026-08-29T12:00:00Z" and "Release checks · guidance; active"
+    # (Slack as Andrew, 2026-10-10).
+    assert text =~
+             "Daily audit · Active · next run " <>
+               "<!date^1788004800^{date_short_pretty} at {time}|2026-08-29 12:00 UTC>"
+
+    refute text =~ "2026-08-29T12:00:00"
+    assert visible =~ "Release checks · Guidance · Active"
+    assert visible =~ "checkout-api · Repository for this work"
+    assert visible =~ "Saved knowledge"
+    assert visible =~ "Rules and preferences"
     assert text =~ "checkout-api"
     assert text =~ "ryker_home_forget_memory"
     assert text =~ "ryker_home_keep_memory_review"
@@ -197,13 +211,13 @@ defmodule Ryker.Slack.AppHomeTest do
     assert text =~ "Forget all (2)"
     assert text =~ "Merge 2 entries?"
     assert text =~ "checkout-api-2"
-    assert text =~ "scope: workspace (slack:T123)"
-    assert text =~ "visibility: workspace"
+    assert text =~ "checkout-api: payments · the whole workspace"
+    refute text =~ "slack:T123)"
     assert text =~ "1 more memory review is available"
     assert text =~ "ryker_home_disable_behavior"
     assert text =~ "ryker_home_pause_schedule"
     assert text =~ "ryker_home_run_schedule"
-    assert text =~ "Replace in chat"
+    assert text =~ "Change in chat"
     assert text =~ "ryker_home_retry_publication"
     assert text =~ "publication-recovery:one:3"
     assert text =~ "ryker_home_discard_workspace"
@@ -425,7 +439,7 @@ defmodule Ryker.Slack.AppHomeTest do
     assert length(action_ids) == length(Enum.uniq(action_ids))
     rendered = Jason.encode!(blocks)
     assert rendered =~ "3 more memory reviews are available"
-    assert rendered =~ "visibility: workspace; value: VALUE-"
+    assert rendered =~ ": VALUE-"
   end
 
   test "a dashboard the host could not read says so instead of showing nothing" do

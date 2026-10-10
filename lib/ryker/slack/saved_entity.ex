@@ -131,12 +131,13 @@ defmodule Ryker.Slack.SavedEntity do
   defp kept_document(%Behaviors.Behavior{kind: :preference} = behavior, event) do
     payload = behavior.payload
 
+    # In words: the card read "response_detail = standard" (2026-10-10).
     behavior_document(
       behavior,
       "preference",
       "Preference",
-      payload["key"],
-      "#{payload["key"]} = #{payload["value"]}",
+      Delivery.OfferWords.humanize(payload["key"]),
+      Delivery.OfferWords.humanize(payload["value"]),
       [
         {"Scope", scope(behavior.scope_kind, behavior.scope_ref)},
         {"Repository", repository(payload["repository"])},
@@ -260,13 +261,16 @@ defmodule Ryker.Slack.SavedEntity do
 
   defp source(_entity), do: nil
 
-  # What was saved, in words: the card said "entity relationship" (Slack as
-  # Andrew, 2026-10-09).
-  defp memory_kind(:entity_relationship), do: "Fact"
-  defp memory_kind(:alias), do: "Another name"
-  defp memory_kind(:repository_binding), do: "Repository for this work"
-  defp memory_kind(:evidence_route), do: "Where to look"
-  defp memory_kind(kind), do: Wording.words(kind)
+  @doc """
+  What kind of fact was saved, in words: the card said "entity relationship"
+  (Slack as Andrew, 2026-10-09).
+  """
+  @spec memory_kind(atom()) :: String.t()
+  def memory_kind(:entity_relationship), do: "Fact"
+  def memory_kind(:alias), do: "Another name"
+  def memory_kind(:repository_binding), do: "Repository for this work"
+  def memory_kind(:evidence_route), do: "Where to look"
+  def memory_kind(kind), do: Wording.label(kind)
 
   # Whom it applies to, said once when it is also who sees it: the card said
   # "This conversation" twice, as Scope and as Visibility.

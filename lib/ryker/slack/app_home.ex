@@ -11,7 +11,8 @@ defmodule Ryker.Slack.AppHome do
   page at a time, which is what a channel card means when it says an operator
   can open Home for the complete list.
   """
-  alias Ryker.Slack.{Collections, ControlValue, HomeEvent, Operators}
+  alias Ryker.Slack.{Collections, ControlValue, HomeEvent, Operators, SavedEntity}
+  alias Ryker.Slack.Renderer.Blocks
   alias Ryker.Text
   alias Ryker.Wording
 
@@ -186,8 +187,8 @@ defmodule Ryker.Slack.AppHome do
       |> append_section("Incident rooms", incidents, &incident_block/1)
       |> append_control_section("Memory review", memory_reviews, &memory_review_blocks/1)
       |> append_memory_review_overflow(memory_review_count, length(memory_reviews))
-      |> append_control_section("Operational memory", memories, &memory_blocks/1)
-      |> append_control_section("Behaviors", behaviors, &behavior_blocks/1)
+      |> append_control_section("Saved knowledge", memories, &memory_blocks/1)
+      |> append_control_section("Rules and preferences", behaviors, &behavior_blocks/1)
       |> append_control_section("Schedules", schedules, &schedule_blocks/1)
       |> Kernel.++([collection_controls()])
       |> unique_action_ids()
@@ -396,7 +397,7 @@ defmodule Ryker.Slack.AppHome do
 
   defp memory_blocks(row) do
     subject = bounded(Map.get(row, :subject, Map.get(row, :ref, "Memory")))
-    kind = row |> Map.get(:kind, :memory) |> label()
+    kind = row |> Map.get(:kind, :memory) |> SavedEntity.memory_kind()
 
     [
       section("#{subject} · #{kind}", open_button(row)),
@@ -468,15 +469,25 @@ defmodule Ryker.Slack.AppHome do
     [summary | entry_blocks] ++ [actions(Enum.reject(review_actions, &is_nil/1))]
   end
 
+  # Each entry in words, saying who it is for and, only when that differs, who
+  # sees it: entries read "scope: workspace (slack:T123); visibility:
+  # workspace; value: …" (2026-10-10).
   defp memory_review_entry(entry, index, count) do
     subject = bounded_part(Map.get(entry, "subject", "Memory"), 40)
     value = bounded_part(Map.get(entry, "value") || "(redacted)", 72)
-    scope = bounded_part(Map.get(entry, "scope", "unknown"), 12)
-    scope_ref = bounded_part(Map.get(entry, "scope_ref", "unknown"), 48)
-    visibility = bounded_part(Map.get(entry, "visibility", "unknown"), 12)
+    applies = audience_words(Map.get(entry, "scope"))
+    seen = audience_words(Map.get(entry, "visibility"))
+    audience = if seen == applies, do: applies, else: "#{applies}, seen by #{seen}"
 
-    "#{index}/#{count} #{subject} · scope: #{scope} (#{scope_ref}); visibility: #{visibility}; value: #{value}"
+    "#{index}/#{count} #{subject}: #{value} · #{audience}"
   end
+
+  defp audience_words("workspace"), do: "the whole workspace"
+  defp audience_words("global"), do: "everyone"
+  defp audience_words("conversation"), do: "one conversation"
+  defp audience_words("repository"), do: "one repository"
+  defp audience_words(audience) when audience in ["operator", "private"], do: "one person"
+  defp audience_words(_audience), do: "unknown"
 
   defp editable_memory_review?(%{
          "kind" => "stale",
@@ -499,7 +510,7 @@ defmodule Ryker.Slack.AppHome do
 
   defp behavior_blocks(row) do
     subject = bounded(Map.get(row, :subject, Map.get(row, :ref, "Behavior")))
-    kind = row |> Map.get(:kind, :behavior) |> label()
+    kind = row |> Map.get(:kind, :behavior) |> behavior_kind()
     status = Map.get(row, :status, :active)
 
     status_button =
@@ -512,7 +523,7 @@ defmodule Ryker.Slack.AppHome do
       end
 
     [
-      section("#{subject} · #{kind}; #{label(status)}", open_button(row)),
+      section("#{subject} · #{kind} · #{behavior_status(status)}", open_button(row)),
       actions([
         status_button,
         button(
@@ -528,12 +539,6 @@ defmodule Ryker.Slack.AppHome do
   defp schedule_blocks(row) do
     title = bounded(Map.get(row, :title, Map.get(row, :ref, "Schedule")))
     status = Map.get(row, :status, :active)
-
-    next =
-      case Map.get(row, :next_occurrence_at) do
-        %DateTime{} = value -> DateTime.to_iso8601(value)
-        _unknown -> "next occurrence unavailable"
-      end
 
     status_button =
       case status do
@@ -561,13 +566,36 @@ defmodule Ryker.Slack.AppHome do
       [
         button("ryker_home_run_schedule", "Run now", Map.get(row, :ref)),
         status_button,
-        open_button(row, "Replace in chat"),
+        open_button(row, "Change in chat"),
         delete_button
       ]
       |> Enum.reject(&is_nil/1)
 
-    [section("#{title} · #{label(status)}; #{next}"), actions(buttons)]
+    [schedule_section(title, status, Map.get(row, :next_occurrence_at)), actions(buttons)]
   end
+
+  # In words, with the next run as the moment itself, which Slack shows in each
+  # reader's own time: the row read "active; 2026-10-12T07:00:00.000000Z"
+  # (Slack as Andrew, 2026-10-10).
+  defp schedule_section(title, :active, %DateTime{} = at) do
+    next = Blocks.slack_date(DateTime.to_iso8601(at))
+
+    %{
+      "text" => %{
+        "text" => "#{Blocks.escape(title)} · Active · next run #{next}",
+        "type" => "mrkdwn"
+      },
+      "type" => "section"
+    }
+  end
+
+  defp schedule_section(title, status, _next), do: section("#{title} · #{Wording.label(status)}")
+
+  defp behavior_kind(:standing_assignment), do: "Standing rule"
+  defp behavior_kind(kind), do: Wording.label(kind)
+
+  defp behavior_status(:disabled), do: "Paused"
+  defp behavior_status(status), do: Wording.label(status)
 
   defp append_attention_controls(blocks, %{controls: controls} = row) when is_list(controls) do
     buttons =

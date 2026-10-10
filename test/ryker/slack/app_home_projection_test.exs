@@ -93,6 +93,31 @@ defmodule Ryker.Slack.AppHomeProjectionTest do
     assert four == one
   end
 
+  # A saved preference was listed by its stored key, "response_detail ·
+  # preference; active" (Slack as Andrew, 2026-10-10). Home names it as its
+  # card does.
+  test "a Home row names a saved preference in words, not by its stored key" do
+    source = SavedEntities.source!("slack:T123:C456")
+
+    SavedEntities.behavior!(
+      source,
+      :preference,
+      %{
+        "expires_in" => "30d",
+        "key" => "response_detail",
+        "repository" => nil,
+        "scope" => "workspace",
+        "value" => "concise"
+      },
+      scope_kind: :workspace,
+      scope_ref: "slack:T123",
+      expires_at: nil
+    )
+
+    snapshot = AppHomeProjection.snapshot("T123", "U123", MapSet.new(["C456"]))
+    assert [%{kind: :preference, subject: "Response detail"}] = snapshot.behaviors
+  end
+
   test "an identity the projection cannot read is unreadable, never an empty dashboard" do
     # The 2026-09-12 coverage measurement: this returned `empty/0`, so a
     # dashboard the host could not read was indistinguishable from a person who

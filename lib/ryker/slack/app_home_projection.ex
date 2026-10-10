@@ -323,7 +323,7 @@ defmodule Ryker.Slack.AppHomeProjection do
         ref: behavior.ref,
         revision: behavior.revision,
         status: behavior.status,
-        subject: behavior.identity_key,
+        subject: SavedEntity.document(behavior)["title"],
         url: source_url(behavior, slack_workspace_ref, shared_conversations)
       }
     end)

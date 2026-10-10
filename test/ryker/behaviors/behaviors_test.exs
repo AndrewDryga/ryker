@@ -893,8 +893,8 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     assert [document] = ReplyRecords.documents("slack", fixture.episode.id, [record])
     assert %{"presentation" => %{"entity" => entity}} = document
     assert entity["kind"] == "preference"
-    assert entity["title"] == "response_detail"
-    assert entity["instructions"] == "response_detail = standard"
+    assert entity["title"] == "Response detail"
+    assert entity["instructions"] == "Standard"
     assert ["Scope", "Whole workspace"] in entity["facts"]
 
     assert {:ok, rendered} = Renderer.render(%{"message" => "Saved.", "records" => [document]})
@@ -907,7 +907,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     assert delete["confirm"]["title"]["text"] == "Delete preference?"
 
     assert delete["confirm"]["text"]["text"] ==
-             ~s(Stop applying "response_detail". Replies I already sent stay as they are.)
+             ~s(Stop applying "Response detail". Replies I already sent stay as they are.)
 
     assert delete["confirm"]["confirm"]["text"] == "Delete preference"
     assert delete["confirm"]["deny"]["text"] == "Cancel"
