@@ -119,7 +119,7 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
             "#{task_ref}|#{publication_ref}|#{recovery_generation}",
             "primary",
             "Retry the failed step",
-            "Retry the step that failed? The checked changes stay exactly as they are.",
+            "Retry the step that failed? The checked changes stay as they are.",
             "Retry"
           )
 
@@ -267,11 +267,11 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
     do: ":warning: *PR creation failed.*"
 
   defp unverified_offer(number) when is_integer(number) do
-    "I saved the newer change exactly as it is. I can add it to draft PR ##{number} marked unverified"
+    "I saved the newer change as it is. I can add it to draft PR ##{number} marked unverified"
   end
 
   defp unverified_offer(_number),
-    do: "I saved the change exactly as it is. I can open it as a draft PR marked unverified"
+    do: "I saved the change as it is. I can open it as a draft PR marked unverified"
 
   # Only where checking again could give another answer (`Ryker.Slack.TaskCardProjection`).
   defp recheck_offer(controls),
@@ -296,8 +296,8 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
   defp publish_confirmation(repository, number, unverified) do
     target =
       if is_integer(number),
-        do: "Update draft PR ##{number} in #{repository} with this exact",
-        else: "Open a draft pull request in #{repository} from this exact"
+        do: "Update draft PR ##{number} in #{repository} with this",
+        else: "Open a draft pull request in #{repository} from this"
 
     case unverified do
       nil -> "#{target} reviewed change? This does not merge or deploy it."

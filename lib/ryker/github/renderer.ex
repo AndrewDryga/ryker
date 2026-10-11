@@ -93,7 +93,7 @@ defmodule Ryker.GitHub.Renderer do
 
      `#{escape(payload["action_id"])}` is paused before execution on `#{escape(Emisar.ApprovalStatus.runner_name(payload["runner_ref"]))}`. Pack: `#{escape(Emisar.ApprovalStatus.pack_name(payload["pack_ref"]))}`. Expires: `#{escape(payload["expires_at"])}`.
 
-     [Review the exact request in Emisar](#{payload["approval_url"]}). GitHub cannot approve this action.
+     [Open approval](#{payload["approval_url"]}). GitHub cannot approve this action.
      """
      |> String.trim()}
   end
@@ -178,7 +178,7 @@ defmodule Ryker.GitHub.Renderer do
     do: {:error, {:invalid_github_render, :record}}
 
   defp confirmation(ref) do
-    "\n\nTo confirm this exact offer, reply in this discussion with:\n\n`/ryker confirm #{escape(ref)}`\n\nOnly a configured GitHub actor can confirm it. Replaying the command is safe."
+    "\n\nTo confirm this offer, reply in this discussion with:\n\n`/ryker confirm #{escape(ref)}`\n\nOnly a configured GitHub actor can confirm it. Replaying the command is safe."
   end
 
   defp escape(value) when is_binary(value) do
@@ -202,7 +202,7 @@ defmodule Ryker.GitHub.Renderer do
 
     `#{escape(status["action_id"])}` on `#{escape(Emisar.ApprovalStatus.runner_name(status["runner_ref"]))}`. Pack: `#{escape(Emisar.ApprovalStatus.pack_name(status["pack_ref"]))}`.
     #{review_markdown(status)}
-    #{run} · [Review in Emisar](#{status["approval_url"]})#{error_markdown(status)}
+    #{run} · [Open approval](#{status["approval_url"]})#{error_markdown(status)}
     """
     |> String.trim()
   end

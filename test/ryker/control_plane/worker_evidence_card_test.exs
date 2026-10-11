@@ -124,7 +124,7 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCardTest do
     # Coverage is per metric, and the run this observation belongs to is named
     # with its epoch rather than borrowed from whatever turn is on screen. Its
     # opaque identity uses the shared exact-copy treatment.
-    assert rendered =~ "All 9 measurements exact"
+    assert rendered =~ "All 9 measurements complete"
     assert rendered =~ ~s(data-copy-value="run-7f3a")
 
     assert fact_value(rendered, ".network-summary .ui-disclosure-body", "Gateway epoch") ==

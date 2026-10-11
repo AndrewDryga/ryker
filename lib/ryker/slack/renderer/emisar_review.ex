@@ -217,7 +217,7 @@ defmodule Ryker.Slack.Renderer.EmisarReview do
         status["approval_url"] &&
           url_button(
             "ryker_open_emisar_approval",
-            if(open?, do: "Review in Emisar", else: "Open in Emisar"),
+            "Open approval",
             status["request_id"],
             status["approval_url"]
           )

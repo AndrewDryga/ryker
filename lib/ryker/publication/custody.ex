@@ -349,7 +349,7 @@ defmodule Ryker.Publication.Custody do
   defp review_delivery_message(publication, false) do
     cond do
       Review.publishable?(publication.review_document) ->
-        "The committed change passed the trusted review. An operator may publish this exact candidate as a draft pull request."
+        "The committed change passed review. A person can publish it as a draft pull request."
 
       exhausted = FixLoop.exhausted(publication) ->
         exhausted

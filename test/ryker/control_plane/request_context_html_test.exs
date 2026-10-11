@@ -1179,7 +1179,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
 
     assert html =~ "Track recovery"
     assert html =~ "&lt;extra&gt;"
-    assert html =~ "Exact component"
+    assert html =~ "Saved component"
   end
 
   test "retained source notes are readable even when no conversation summary was selected" do
@@ -1198,7 +1198,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     assert LazyHTML.text(note) =~ "intended infrastructure configuration"
     assert Enum.empty?(LazyHTML.query(note, "details, pre"))
     assert LazyHTML.text(document) =~ "Conversation notes"
-    assert LazyHTML.text(document) =~ "Exact component"
+    assert LazyHTML.text(document) =~ "Saved component"
     assert Enum.empty?(LazyHTML.query(document, "details[open]"))
   end
 
@@ -1209,7 +1209,7 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
           %{"knowledge" => [nil, %{"title" => "<topic>", "summary" => "<script>fact</script>"}]}
         ] do
       document = recall_document(memory)
-      assert LazyHTML.text(document) =~ "Exact component"
+      assert LazyHTML.text(document) =~ "Saved component"
       assert Enum.empty?(LazyHTML.query(document, "script"))
     end
   end

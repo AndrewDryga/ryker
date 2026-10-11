@@ -484,7 +484,7 @@ defmodule Ryker.ControlPlane.Integrations do
   end
 
   defp account_why(:address_invalid) do
-    "its saved address is not the exact https address of its Emisar endpoint. Connect the " <>
+    "its saved address does not match the https address of its Emisar endpoint. Connect the " <>
       "account again with the right address."
   end
 

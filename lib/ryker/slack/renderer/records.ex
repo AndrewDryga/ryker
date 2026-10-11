@@ -347,7 +347,7 @@ defmodule Ryker.Slack.Renderer.Records do
               ref,
               "primary",
               "Publish reviewed draft PR",
-              "Publish only this exact reviewed candidate as a draft pull request? Merge and deployment remain separate external decisions.",
+              "Open a draft pull request from this reviewed change? Merging and deploying stay separate decisions.",
               "Publish draft"
             )
           )

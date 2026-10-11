@@ -195,7 +195,7 @@ defmodule Ryker.GitHub.EndToEndTest do
       _lifecycle_message_ref
     }
 
-    assert lifecycle_message =~ "Authenticated GitHub review feedback"
+    assert lifecycle_message =~ "GitHub review feedback arrived"
 
     assert resumed = Ryker.Inspectors.episode(episode.key)
     assert resumed.id == episode.id

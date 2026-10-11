@@ -460,7 +460,7 @@ defmodule Ryker.Slack.TaskEndToEndTest do
     # The task's card shows the task continuing, so the review feedback is
     # settled on the card and nothing is posted under it: each GitHub event
     # had posted the same notice, four in a row on 2026-09-28.
-    refute_post_containing("Authenticated GitHub review feedback")
+    refute_post_containing("GitHub review feedback arrived")
 
     assert Repo.get_by!(LifecycleEvent, ref: event_ref).delivery_receipt["message_ref"] ==
              card.message_ref

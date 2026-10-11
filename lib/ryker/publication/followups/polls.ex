@@ -97,7 +97,7 @@ defmodule Ryker.Publication.Followups.Polls do
             status,
             %{pr_state: :stale},
             {:status, :failed,
-             "The pull-request head changed outside this exact reviewed publication. Automatic tracking stopped until a new exact candidate is reviewed."},
+             "Someone changed the pull request outside Ryker, so Ryker stopped tracking it until a new change is reviewed."},
             @far_future,
             now
           )
@@ -221,7 +221,7 @@ defmodule Ryker.Publication.Followups.Polls do
 
   defp transition(followup, publication, _status, :merged) when followup.pr_state != :merged do
     {:merged, :succeeded,
-     "Draft PR ##{publication.pull_request_number} was merged. I'll keep this task linked only to deployment or Terraform signals carrying its exact PR, branch, head SHA, or merge SHA."}
+     "Draft PR ##{publication.pull_request_number} was merged. I'll keep this task linked only to deployment or Terraform signals that name its PR, branch, head SHA or merge SHA."}
   end
 
   defp transition(followup, publication, _status, :closed) when followup.pr_state != :closed do
@@ -232,7 +232,7 @@ defmodule Ryker.Publication.Followups.Polls do
   defp transition(%{checks_state: old}, publication, %{"checks_state" => "failing"}, _pr)
        when old != :failing do
     {:checks, :failed,
-     "GitHub checks are failing for PR ##{publication.pull_request_number}. Open the PR for the exact failures."}
+     "GitHub checks are failing for PR ##{publication.pull_request_number}. Open the PR to see which checks failed."}
   end
 
   defp transition(%{checks_state: old}, publication, %{"checks_state" => "passing"} = status, _pr)

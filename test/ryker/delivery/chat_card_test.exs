@@ -229,6 +229,7 @@ defmodule Ryker.Delivery.ChatCardTest do
     assert {:ok, card} = ChatCard.project(record("emisar_approval", payload))
     assert {"Runner", "emisar-p02r"} in card.details
     assert {"Pack", "docker@0.2.30"} in card.details
+    assert {"Expires", "1 Jan 2099, 00:00 UTC"} in card.details
   end
 
   test "a completed check reports the evidence it was completed on" do

@@ -152,7 +152,7 @@ defmodule Ryker.ControlPlane.PageHelp do
     page("How Activity works", [
       {"What counts as a request",
        [
-         "A Slack or Chat message, a GitHub event or an alert from another tool. Its timeline shows every step Ryker took, with the exact model calls and what they cost."
+         "A Slack or Chat message, a GitHub event or an alert from another tool. Its timeline shows every step Ryker took, with the model calls and what they cost."
        ]},
       {"When work is stuck",
        [
@@ -166,7 +166,7 @@ defmodule Ryker.ControlPlane.PageHelp do
     page("How a timeline works", [
       {"The steps",
        [
-         "Each message goes through Intake, Routing, Work and Answer. A step's card holds the exact request Ryker sent to the model and the answer it got.",
+         "Each message goes through Intake, Routing, Work and Answer. A step's card holds the request Ryker sent to the model and the answer it got.",
          "A cost marked ≈ includes an estimate from Settings › Model prices."
        ]},
       {"After the answer",

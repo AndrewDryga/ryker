@@ -21,7 +21,7 @@ defmodule Ryker.ControlPlane.LabCardLinksTest do
     [approval] =
       actions(card("emisar_approval", "https://emisar.example.invalid/approvals/1", []))
 
-    assert LazyHTML.text(approval) == "Open exact approval"
+    assert LazyHTML.text(approval) == "Open approval"
   end
 
   # Andrew, 2026-10-01, of a task card's buttons: "text in some buttons still not aligned". A link

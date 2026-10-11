@@ -1869,7 +1869,7 @@ defmodule Ryker.Slack.RendererTest do
     # card's accented primary action.
     assert [%{"elements" => [button]}] = Enum.filter(blocks, &(&1["type"] == "actions"))
     assert button["action_id"] == "ryker_open_emisar_approval"
-    assert button["text"]["text"] == "Review in Emisar"
+    assert button["text"]["text"] == "Open approval"
     assert button["style"] == "primary"
     assert button["url"] == "https://emisar.example/app/acme/approvals/apr-1"
 
@@ -2103,7 +2103,7 @@ defmodule Ryker.Slack.RendererTest do
       # primary action; once decided, the same link opens the decided record.
       assert [%{"elements" => buttons}] = Enum.filter(blocks, &(&1["type"] == "actions"))
       open? = review["status"] == "pending"
-      expected_label = if open?, do: "Review in Emisar", else: "Open in Emisar"
+      expected_label = "Open approval"
 
       assert hd(buttons)["text"]["text"] == expected_label, "#{name} control"
       assert Map.get(hd(buttons), "style") == if(open?, do: "primary"), "#{name} control style"
@@ -2173,10 +2173,10 @@ defmodule Ryker.Slack.RendererTest do
              {"emisar-approval:apr-1", "emisar-approval:apr-2"}
 
     assert Enum.map(web_1_actions["elements"], & &1["text"]["text"]) ==
-             ["Review in Emisar", "Open run"]
+             ["Open approval", "Open run"]
 
     assert Enum.map(web_2_actions["elements"], & &1["text"]["text"]) ==
-             ["Open in Emisar", "Open run"]
+             ["Open approval", "Open run"]
 
     assert rendered["text"] == "Emisar review · nomad.alloc_restart · 2 runners"
   end
@@ -3122,7 +3122,7 @@ defmodule Ryker.Slack.RendererTest do
     assert publish["text"]["text"] == "Create draft PR"
     confirmation = publish["confirm"]["text"]["text"]
     assert confirmation =~ "ryker"
-    assert confirmation =~ "Open a draft pull request in ryker from this exact saved change?"
+    assert confirmation =~ "Open a draft pull request in ryker from this saved change?"
     assert confirmation =~ "docker: command not found"
     assert confirmation =~ "does not merge or deploy"
     assert String.length(confirmation) <= 300
@@ -3774,7 +3774,7 @@ defmodule Ryker.Slack.RendererTest do
     encoded = Jason.encode!(rendered)
 
     assert encoded =~
-             "I saved the newer change exactly as it is. I can add it to draft PR #2 marked unverified, or review the latest state again."
+             "I saved the newer change as it is. I can add it to draft PR #2 marked unverified, or review the latest state again."
 
     refute encoded =~ "Create draft PR"
 
@@ -3786,7 +3786,7 @@ defmodule Ryker.Slack.RendererTest do
     assert publish["text"]["text"] == "Update draft PR"
 
     assert publish["confirm"]["text"]["text"] ==
-             "Update draft PR #2 in ryker with this exact saved change? No checks are set up for the repository. A draft does not merge or deploy anything."
+             "Update draft PR #2 in ryker with this saved change? No checks are set up for the repository. A draft does not merge or deploy anything."
   end
 
   # Since 2026-09-12 the Workspace setup row quotes the worker's own refusal when

@@ -342,7 +342,7 @@ defmodule Ryker.Publication.Review do
         git_identities(document) == :ok and
         document["candidate_tree"] != document["parent_tree"]
 
-    if exact, do: nil, else: "No exact complete snapshot of the change was retained."
+    if exact, do: nil, else: "Ryker kept no complete copy of the change."
   end
 
   # Why a required check has no result is the operator-facing half of "checks

@@ -2,6 +2,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
   use Ryker.DataCase, async: false
   alias Ryker.ControlPlane.{FailureExplanation, FailureProjection, Pages, Projection}
   alias Ryker.{Credentials, IntegrationSetup}
+  alias Ryker.Delivery.ChatCard
   alias Ryker.Emisar.{Approval, ApprovalDispatcher, Approvals, Connections, RunState}
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
@@ -112,6 +113,43 @@ defmodule Ryker.Emisar.ApprovalsTest do
     assert observed.failure_count == 0
     assert observed.lease_ref == nil
     assert %DateTime{} = observed.next_attempt_at
+  end
+
+  # Andrew, 2026-10-11: "I approved but card state did not change". The Chat card for an
+  # approval was drawn from the request alone, so after the run was approved, had run and Ryker
+  # had reported what it found, the card still said the action was paused and still offered the
+  # approval.
+  test "a Chat approval card follows its approval from waiting to the run's result" do
+    %{record: record} = approval_wait!("chat-card")
+
+    assert {:ok, waiting} = ChatCard.project(Repo.get!(Record, record.id))
+    assert waiting.summary == "Waiting for approval in Emisar."
+    assert waiting.url == "https://emisar.example/app/acme/approvals/apr-chat-card"
+    assert waiting.outcome == nil
+
+    assert {:ok, %{lease_ref: lease_ref}} =
+             Approvals.claim_next(@connection_ref, "approval-worker", 60)
+
+    assert {:ok, %{status: :resumed}} =
+             Approvals.observe(
+               @connection_ref,
+               "apr-chat-card",
+               lease_ref,
+               run_state("chat-card", "success"),
+               5
+             )
+
+    assert {:ok, ran} = ChatCard.project(Repo.get!(Record, record.id))
+    assert ran.summary == nil
+    assert ran.url == nil
+
+    assert %{
+             word: "Succeeded",
+             link: "Open run",
+             href: "https://emisar.example/app/acme/runs/run-chat-card"
+           } = ran.outcome
+
+    assert ChatCard.display_status(ran) == nil
   end
 
   test "a terminal exact run resumes the same episode once without repeating the action" do
@@ -863,7 +901,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
                episode_key: episode_key,
                expected_owner: %{kind: waiting.owner_kind, ref: waiting.owner_ref},
                occurred_at: ~U[2026-08-29 12:05:00.000000Z],
-               reason: "Closed by slack:user:U1 from the exact Slack work card."
+               reason: "Closed by slack:user:U1 from the Slack work card."
              })
   end
 

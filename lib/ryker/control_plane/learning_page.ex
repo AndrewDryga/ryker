@@ -375,7 +375,7 @@ defmodule Ryker.ControlPlane.LearningPage do
     <section id="attempts" class="memory-section">
       <Kit.section_head
         title="Attempts"
-        lede="Each attempt opens on the Timeline beside the messages it read, with the exact request Ryker sent and the answer it got back."
+        lede="Each attempt opens on the Timeline beside the messages it read, with the request Ryker sent and the answer it got back."
       />
       <Kit.entity_list :if={@batch.attempts != []} label="Attempts">
         <Kit.entity_row

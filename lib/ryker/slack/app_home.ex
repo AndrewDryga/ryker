@@ -635,7 +635,7 @@ defmodule Ryker.Slack.AppHome do
         "ryker-work-control:#{ref}:#{fingerprint}",
         destructive_confirm(
           "Discard this retained workspace?",
-          "Ryker will obtain a fresh exact plan. Dirty work remains protected."
+          "Ryker asks the worker for a new plan first. Uncommitted changes stay safe."
         )
       )
     else

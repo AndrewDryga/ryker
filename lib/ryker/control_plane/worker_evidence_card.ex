@@ -281,7 +281,7 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCard do
   # unavailable socket inventory are different problems with the same totals.
   defp coverage_detail(%{availability: %{state: :recorded}, metrics: metrics}) do
     case Enum.reject(metrics, & &1.exact?) do
-      [] -> "All #{length(metrics)} measurements exact"
+      [] -> "All #{length(metrics)} measurements complete"
       inexact -> Enum.map_join(inexact, " · ", &"#{&1.metric} #{&1.status}")
     end
   end
@@ -369,7 +369,7 @@ defmodule Ryker.ControlPlane.WorkerEvidenceCard do
     cond do
       network.loss[:unknown?] -> "Some records were lost; totals are lower bounds"
       inexact == [] -> nil
-      true -> "#{length(inexact)} of #{length(metrics)} measurements are not exact"
+      true -> "#{length(inexact)} of #{length(metrics)} measurements are incomplete"
     end
   end
 

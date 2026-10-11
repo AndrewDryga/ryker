@@ -469,7 +469,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
           <h4>What it was given</h4>
           <pre class="knowledge-run-text">{context}</pre>
         </section>
-        <p class="knowledge-copy"><.copy_exact value={@prompt} label="Copy the exact prompt" /></p>
+        <p class="knowledge-copy"><.copy_exact value={@prompt} label="Copy the prompt" /></p>
       <% nil -> %>
         <Components.copy_block label="Copy the prompt">
           <pre class="knowledge-run-text">{@prompt}</pre>

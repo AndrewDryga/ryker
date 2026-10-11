@@ -140,7 +140,7 @@ defmodule Ryker.Publication.Followups.Signals do
   defp source_summary(publication, kind, state) do
     label = if kind == "terraform", do: "Terraform", else: "Deployment"
 
-    "#{label} #{state} for draft PR ##{publication.pull_request_number}; the source carried an exact publication reference."
+    "#{label} #{state} for draft PR ##{publication.pull_request_number}; the source named this pull request."
   end
 
   # --- GitHub review feedback -----------------------------------------------
@@ -293,7 +293,7 @@ defmodule Ryker.Publication.Followups.Signals do
       },
       state: :pending,
       summary:
-        "Authenticated GitHub review feedback arrived for PR ##{publication.pull_request_number}; continuing the exact engineering task.",
+        "GitHub review feedback arrived for PR ##{publication.pull_request_number}; continuing the task.",
       wakeup?: true
     }
   end

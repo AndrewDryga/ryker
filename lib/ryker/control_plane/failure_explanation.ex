@@ -2405,7 +2405,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp publication_cause(%{summary: "publication_authorization_revoked"}) do
     cause(
       "Ryker could not authorize this publication.",
-      "Ryker could not verify permission for this exact reviewed change, so it refused a new publication grant.",
+      "Ryker could not confirm it may publish this reviewed change, so it did not publish it.",
       :fix_first,
       "Automatic retries have stopped. Review latest state on the task checks the change again before a new draft, or discard it."
     )

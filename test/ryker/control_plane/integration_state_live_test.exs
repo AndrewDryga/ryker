@@ -273,8 +273,8 @@ defmodule Ryker.ControlPlane.IntegrationStateLiveTest do
     published_left_out!(%{emisar: %{"production" => :address_invalid}})
 
     reason =
-      "Production approvals is not watched for approval decisions: its saved address is not " <>
-        "the exact https address of its Emisar endpoint. Connect the account again with the " <>
+      "Production approvals is not watched for approval decisions: its saved address does not " <>
+        "match the https address of its Emisar endpoint. Connect the account again with the " <>
         "right address."
 
     assert_same(:emisar, "Not running", reason)

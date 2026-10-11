@@ -202,7 +202,7 @@ defmodule Ryker.Slack.WorkControls do
              episode.key,
              turn_ref,
              attributes.request_ref,
-             "Closed by #{attributes.actor_ref} from the exact Slack work card."
+             "Closed by #{attributes.actor_ref} from the Slack work card."
            ) do
       {:ok,
        %{
@@ -223,7 +223,7 @@ defmodule Ryker.Slack.WorkControls do
       episode_key: episode.key,
       expected_owner: %{kind: owner_kind, ref: owner_ref},
       occurred_at: attributes.occurred_at,
-      reason: "Closed by #{attributes.actor_ref} from the exact Slack work card."
+      reason: "Closed by #{attributes.actor_ref} from the Slack work card."
     }
 
     with {:ok, _transition} <- Episodes.apply(command) do

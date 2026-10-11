@@ -76,7 +76,7 @@ defmodule Ryker.ControlPlane.PublicationLabTest do
     assert review_card.status == :reviewed
     assert review_card.action == :approve_publication
     assert {"Gate", "passed"} in review_card.details
-    assert review_message.text =~ "passed trusted review"
+    assert review_message.text =~ "passed review"
 
     assert {:ok, approved} =
              actions.act_on_lab_record.(

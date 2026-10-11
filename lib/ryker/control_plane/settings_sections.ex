@@ -417,7 +417,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
           label: "Deployment reports",
           help:
             "Lets this sender tell Ryker when a change Ryker opened was deployed or applied, " <>
-              "so Ryker can check it. List exactly what it may report; anything else is " <>
+              "so Ryker can check it. List what it may report; anything else is " <>
               "ignored.",
           errors: %{
             lifecycle:

@@ -552,9 +552,9 @@ defmodule Ryker.ControlPlane.HTML do
   defp card_link(_card), do: ""
 
   # Only an Emisar approval card links to the approval. A task and a published draft link to
-  # their pull request, which the card called "Open exact approval" on the draft Ryker had just
-  # opened (manual test, 2026-10-01).
-  defp card_link_label("emisar_approval"), do: "Open exact approval"
+  # their pull request, which the card once called by the approval's words on the draft Ryker
+  # had just opened (manual test, 2026-10-01).
+  defp card_link_label("emisar_approval"), do: "Open approval"
   defp card_link_label(_kind), do: "Open pull request"
 
   # One row saying what a confirmed offer did, as the Kit says a state: a dot and a word, then the

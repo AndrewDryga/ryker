@@ -794,7 +794,7 @@ to run an action again or start a replacement run while it verifies one; those a
 the model, not checks. No incident room is required. When an action waits for approval, the
 conversation receives an **Emisar review** card: its status ("◷ Waiting for review." or how many
 reviews are in), the reason, evidence and expected outcome from the review, the command or action,
-and the runner, with **Review in Emisar** (later **Open in Emisar**) and **Open run**. Approvals
+and the runner, with **Open approval** and **Open run**. Approvals
 one reply asks for that differ only in their runner are one card: the reason, evidence, expected
 outcome and command once, then a divider before each runner, its status beside it and its own
 buttons under them; approvals for different actions stay separate cards. An update of one approval

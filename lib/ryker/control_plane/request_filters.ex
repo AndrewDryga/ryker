@@ -314,7 +314,7 @@ defmodule Ryker.ControlPlane.RequestFilters do
         value={@current || ""}
         maxlength="512"
         autocomplete="off"
-        placeholder={"Exact #{String.downcase(@label)}"}
+        placeholder={"Full #{String.downcase(@label)}"}
       />
       <button type="submit" class="ui-button primary">Apply</button>
     </form>

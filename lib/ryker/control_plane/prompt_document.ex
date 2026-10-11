@@ -311,7 +311,7 @@ defmodule Ryker.ControlPlane.PromptDocument do
         Plug.HTML.html_escape(text),
         "</code></pre>"
       ],
-      "Copy exact text"
+      "Copy text"
     )
   end
 end

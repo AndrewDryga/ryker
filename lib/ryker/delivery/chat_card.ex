@@ -21,7 +21,8 @@ defmodule Ryker.Delivery.ChatCard do
       do: nil
 
   def display_status(%{kind: kind})
-      when kind in ~w(evidence coverage finding progress goal goal_state alert_assessment),
+      when kind in ~w(evidence coverage finding progress goal goal_state alert_assessment
+                      emisar_approval),
       do: nil
 
   # The stored status in words: "superseded" and "dismissed" mean nothing to
@@ -168,7 +169,7 @@ defmodule Ryker.Delivery.ChatCard do
   # custody re-decides both, so this only keeps the surface from offering an
   # approval the host would refuse.
   defp publication_review_summary(%{"publishable" => true}) do
-    "The exact candidate passed trusted review and is ready for explicit publication approval."
+    "The change passed review and is ready to publish once you approve it."
   end
 
   defp publication_review_summary(%{"reasons" => []}), do: "The candidate is not publishable."
@@ -387,7 +388,7 @@ defmodule Ryker.Delivery.ChatCard do
       "Waiting for event",
       payload["verification"],
       if(is_nil(record.wait_error),
-        do: "Ryker will resume when the exact trigger matches or the deadline elapses."
+        do: "Ryker continues when the awaited event arrives or the deadline passes."
       ),
       [{"Deadline", payload["deadline_at"]}, {"Trigger", payload["kind"]}],
       nil
@@ -396,19 +397,30 @@ defmodule Ryker.Delivery.ChatCard do
   end
 
   defp card(%Records.Record{kind: "emisar_approval"} = record, payload) do
+    approval = approval(record)
+    waiting? = is_nil(approval) or approval.remote_status in [nil, "pending_approval"]
+
+    details = [
+      {"Runner", Emisar.ApprovalStatus.runner_name(payload["runner_ref"])},
+      {"Pack", Emisar.ApprovalStatus.pack_name(payload["pack_ref"])}
+    ]
+
     record
     |> common(
       "Governed action",
       payload["action_id"],
-      "Paused before execution. Approval remains authoritative in Emisar.",
-      [
-        {"Runner", Emisar.ApprovalStatus.runner_name(payload["runner_ref"])},
-        {"Pack", Emisar.ApprovalStatus.pack_name(payload["pack_ref"])},
-        {"Expires", payload["expires_at"]}
-      ],
+      if(waiting?, do: "Waiting for approval in Emisar."),
+      if(waiting?,
+        do: details ++ [{"Expires", OfferWords.stamp(payload["expires_at"])}],
+        else: details
+      ),
       nil
     )
-    |> Map.put(:url, payload["approval_url"])
+    |> Map.merge(
+      if waiting?,
+        do: %{url: payload["approval_url"]},
+        else: %{outcome: approval_outcome(approval, payload)}
+    )
   end
 
   defp card(%Records.Record{kind: "evidence"} = record, payload) do
@@ -693,6 +705,27 @@ defmodule Ryker.Delivery.ChatCard do
   end
 
   defp confirmed_outcome(_record), do: nil
+
+  # The card follows the approval's own row, which the approval watcher keeps current. Drawn from
+  # the request alone, it still said the action was paused after Andrew approved it, it ran and
+  # Ryker had reported what it found (2026-10-11).
+  defp approval(%Records.Record{id: id}) when is_binary(id) do
+    case Repo.fetch(Emisar.Approval.Query.by_record_id(id)) do
+      {:ok, %Emisar.Approval{} = approval} -> approval
+      {:error, :not_found} -> nil
+    end
+  end
+
+  defp approval(_record), do: nil
+
+  defp approval_outcome(%Emisar.Approval{remote_status: status, run_url: run_url}, payload) do
+    tone = if status in ~w(pending sent running cancelling success), do: :on, else: :off
+    word = Emisar.ApprovalStatus.label(status)
+
+    if is_binary(run_url),
+      do: outcome_line(tone, word, "Open run", run_url),
+      else: outcome_line(tone, word, "Open approval", payload["approval_url"])
+  end
 
   defp schedule_outcome(%Schedules.Schedule{status: :active} = schedule) do
     cadence = Schedules.ScheduleCadence.describe(schedule.recurrence, schedule.timezone)

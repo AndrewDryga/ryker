@@ -565,7 +565,7 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
     json = Jason.encode!(rendered)
 
     assert json =~
-             "I saved the change exactly as it is. I can open it as a draft PR marked unverified."
+             "I saved the change as it is. I can open it as a draft PR marked unverified."
 
     refute json =~ "Review latest state"
     refute json =~ "review the latest state"

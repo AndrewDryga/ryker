@@ -114,7 +114,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
        "The person's messages and Ryker's answers, in order, as Ryker kept them."},
     "routing" =>
       {"Routing decisions", "memory",
-       "What routing decided about each message. Each exact routing prompt is in the submitted prompt below."},
+       "What routing decided about each message. Each routing prompt is in the submitted prompt below."},
     "work" =>
       {"Work turns", "memory",
        "Each Work turn: how it ended, the tools it called and its answer."},
@@ -1878,7 +1878,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       do: [
         recall(value),
         Components.disclosure_html(
-          "Exact component",
+          "Saved component",
           ["<pre>", escape(Jason.encode!(value, pretty: true)), "</pre>"],
           class: "context-inline-disclosure"
         )
@@ -2335,7 +2335,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   end
 
   defp recall_fields(_) do
-    "<p>Saved summary is not structured. Its retained value is in the exact component below.</p>"
+    "<p>Saved summary is not structured. Its saved value is in the component below.</p>"
   end
 
   # The people a conversation involved, as the model wrote them down: a Slack

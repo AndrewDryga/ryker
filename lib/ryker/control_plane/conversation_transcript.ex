@@ -688,7 +688,7 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
   end
 
   defp publication_review_message(:reviewed) do
-    "The committed change passed trusted review. Publish this exact candidate only after reviewing the host-owned details."
+    "The committed change passed review. Read the details before you publish it."
   end
 
   defp publication_review_message(:blocked) do
