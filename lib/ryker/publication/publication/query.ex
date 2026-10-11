@@ -17,6 +17,18 @@ defmodule Ryker.Publication.Publication.Query do
   def by_record_id(queryable \\ all(), record_id),
     do: where(queryable, [episode_publications: p], p.record_id == ^record_id)
 
+  @doc "The latest publication and its same-episode follow-up in one revision-consistent read."
+  def model_state(episode_id, repository) do
+    from(p in all(),
+      left_join: f in Followup,
+      on: f.publication_id == p.id and f.episode_id == p.episode_id,
+      where: p.episode_id == ^episode_id and p.repository == ^repository,
+      order_by: [desc: p.inserted_at, desc: p.id],
+      limit: 1,
+      select: {p, f}
+    )
+  end
+
   def by_ref(queryable \\ all(), ref),
     do: where(queryable, [episode_publications: p], p.ref == ^ref)
 

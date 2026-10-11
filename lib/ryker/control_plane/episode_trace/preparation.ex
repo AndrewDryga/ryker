@@ -822,12 +822,12 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   defp session_state(nil, _earlier_turns, _edited?, _kind),
     do: %{detail: "Not recorded"}
 
-  # A run that stopped or was replaced before any worker session existed
-  # continued nothing: the tenant retry of 2026-10-03 said the model "still has
-  # what it saw in the previous round" when no model had seen anything.
+  # Missing local linkage proves neither creation nor absence: delayed creates
+  # have succeeded after a run stopped (2026-10-11). It cannot claim the model
+  # kept an earlier round either; no remote session is linked to this run.
   defp session_state(%Work.Session{coop_session_id: nil}, _earlier_turns, _edited?, kind)
        when kind in [:blocked, :replaced],
-       do: %{detail: "Not created · no worker started a session for this run"}
+       do: %{detail: "Unknown · no worker session is linked to this run"}
 
   defp session_state(session, earlier_turns, edited?, _kind) do
     cond do

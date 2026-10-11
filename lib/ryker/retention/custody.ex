@@ -24,7 +24,7 @@ defmodule Ryker.Retention.Custody do
   alias Ryker.Reference
   alias Ryker.Repo
   alias Ryker.RepositoryKnowledge
-  alias Ryker.Retention.{Cleanup, Plan}
+  alias Ryker.Retention.{Cleanup, Creation, Plan}
   alias Ryker.Work
 
   @pending_statuses [:close_pending, :plan_pending, :discard_pending]
@@ -166,6 +166,16 @@ defmodule Ryker.Retention.Custody do
     with {:ok, session_id} <- uuid(session_id, :session_id),
          :ok <- reference(lease_ref, :lease_ref) do
       update_leased(session_id, lease_ref, :close_pending, &settle_absent_locked/2)
+    end
+  end
+
+  @doc "Recover only a proven original create identity under the cleanup lease; never starts work."
+  def recover_creation(session_id, lease_ref) do
+    with {:ok, session_id} <- uuid(session_id, :session_id),
+         :ok <- reference(lease_ref, :lease_ref) do
+      update_leased(session_id, lease_ref, :close_pending, fn session, _now ->
+        recover_creation_locked(session)
+      end)
     end
   end
 
@@ -320,6 +330,43 @@ defmodule Ryker.Retention.Custody do
       generation,
       %{}
     )
+  end
+
+  @doc "Invalidate a refused discard plan and both frozen mutation keys under their exact lease."
+  @spec invalidate_discard_plan(Ecto.UUID.t(), String.t(), pos_integer(), pos_integer()) ::
+          {:ok, Work.Session.t()} | {:error, term()}
+  def invalidate_discard_plan(session_id, lease_ref, plan_generation, discard_generation) do
+    with {:ok, session_id} <- uuid(session_id, :session_id),
+         :ok <- reference(lease_ref, :lease_ref),
+         :ok <- positive_integer(plan_generation, :plan_generation),
+         :ok <- positive_integer(discard_generation, :discard_generation) do
+      update_leased(session_id, lease_ref, :discard_pending, fn session, _now ->
+        ensure_discard_generations!(session, plan_generation, discard_generation)
+
+        persist(session, %{
+          cleanup_status: :plan_pending,
+          cleanup_attempt_count: 0,
+          cleanup_last_error_code: nil,
+          cleanup_last_error_detail: nil,
+          cleanup_lease_expires_at: nil,
+          cleanup_lease_owner: nil,
+          cleanup_lease_ref: nil,
+          cleanup_next_attempt_at: nil,
+          discard_plan_generation: plan_generation + 1,
+          discard_generation: discard_generation + 1,
+          discard_plan: nil,
+          discard_plan_expected_revision: nil,
+          discard_plan_fingerprint: nil,
+          discard_plan_operation_id: nil
+        })
+      end)
+    end
+  end
+
+  defp ensure_discard_generations!(session, plan_generation, discard_generation) do
+    if session.discard_plan_generation != plan_generation or
+         session.discard_generation != discard_generation,
+       do: Repo.rollback(:retention_discard_plan_generation_conflict)
   end
 
   @spec close_key(Work.Session.t()) :: String.t()
@@ -519,6 +566,19 @@ defmodule Ryker.Retention.Custody do
 
   defp claimable_status?(%Work.Session{cleanup_status: :active}, _now), do: true
 
+  defp claimable_status?(%Work.Session{cleanup_status: :discarded} = session, _now) do
+    case session.cleanup_receipt do
+      %{"kind" => "never_bound", "remote_state" => "unknown"} ->
+        is_nil(session.coop_session_id) and
+          session.cleanup_receipt["local_session_id"] == session.id and
+          session.cleanup_receipt_fingerprint == CanonicalJSON.digest(session.cleanup_receipt) and
+          Repo.exists?(CoopFleet.Command.Query.creates(session.id))
+
+      _ ->
+        false
+    end
+  end
+
   defp claimable_status?(%Work.Session{cleanup_status: status} = session, now)
        when status in @pending_statuses do
     is_nil(session.cleanup_next_attempt_at) or
@@ -552,6 +612,9 @@ defmodule Ryker.Retention.Custody do
 
   defp prepare_phase(%Work.Session{cleanup_status: :active} = session),
     do: persist(session, %{cleanup_status: :close_pending})
+
+  defp prepare_phase(%Work.Session{cleanup_status: :discarded} = session),
+    do: persist(session, %{cleanup_status: :close_pending, discarded_at: nil})
 
   defp prepare_phase(%Work.Session{cleanup_status: :grace} = session),
     do: persist(session, %{cleanup_status: :close_pending})
@@ -694,11 +757,14 @@ defmodule Ryker.Retention.Custody do
   # Ryker never learned a worker session for it, which is not proof the
   # worker made none: a create can succeed after its answer is lost.
   defp settle_absent_locked(%Work.Session{coop_session_id: nil} = session, now) do
+    if Creation.resolve(session) != {:ok, :absent},
+      do: Repo.rollback(:retention_creation_unresolved)
+
     receipt = %{
       "kind" => "never_bound",
       "local_session_id" => session.id,
       "remote_session_id" => nil,
-      "remote_state" => "unknown"
+      "remote_state" => "absent"
     }
 
     settle(session, receipt, now)
@@ -706,6 +772,41 @@ defmodule Ryker.Retention.Custody do
 
   defp settle_absent_locked(_session, _now),
     do: Repo.rollback(:retention_remote_session_bound)
+
+  defp recover_creation_locked(%Work.Session{coop_session_id: id} = session)
+       when is_binary(id),
+       do: {:bound, session}
+
+  defp recover_creation_locked(session) do
+    case Creation.resolve(session) do
+      {:ok, :absent} ->
+        {:absent, session}
+
+      {:ok, {:created, command, remote_id}} ->
+        unless Creation.on_original_holder?(session, command),
+          do: Repo.rollback(:retention_creation_holder_mismatch)
+
+        binding = session |> Work.Session.Changeset.bind(remote_id) |> Repo.update()
+
+        case binding do
+          {:ok, stored} ->
+            Work.Custody.broadcast_session_updated(stored)
+            {:bound, stored}
+
+          {:error, _changeset} ->
+            Repo.rollback(:retention_creation_identity_conflict)
+        end
+
+      {:pending, command} ->
+        unless Creation.on_original_holder?(session, command),
+          do: Repo.rollback(:retention_creation_holder_mismatch)
+
+        {:pending, session, command.idempotency_key}
+
+      {:error, reason} ->
+        Repo.rollback(reason)
+    end
+  end
 
   defp settle_discard_locked(session, operation_key, remote_session_id, now) do
     cond do

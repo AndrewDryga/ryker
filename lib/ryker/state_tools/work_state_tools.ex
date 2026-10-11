@@ -3,6 +3,7 @@ defmodule Ryker.StateTools.WorkStateTools do
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery
   alias Ryker.Knowledge
+  alias Ryker.Publication
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Work
@@ -31,6 +32,8 @@ defmodule Ryker.StateTools.WorkStateTools do
            "state" => Atom.to_string(binding.episode.state)
          },
          "platform_actions" => platform_actions,
+         "publication" =>
+           Publication.ModelState.snapshot(binding.episode.id, binding.session.repository_ref),
          "records" => records
        }}
     end

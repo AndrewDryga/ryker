@@ -933,6 +933,34 @@ defmodule Ryker.CoopFleet.Client do
   def operation_by_key(client, key),
     do: operation_by_key(client, key, &ensure_reconciled_workspace/4)
 
+  @doc "Reconcile an original create for cleanup without installing or restoring any workspace."
+  @impl true
+  def operation_by_key_for_cleanup(client, key) do
+    with {:ok, %Command{kind: "create_session"} = command} <-
+           Repo.fetch(Command.Query.by_idempotency_key(key)),
+         {:ok, session} <- fetch_command_session(command),
+         true <- Ryker.Retention.Creation.lookup_on_holder?(session, command.worker_id, key),
+         {:ok, result} <-
+           execute_read(client, session, "reconcile_operation", %{"operation_key" => key}) do
+      operation_result(result)
+    else
+      {:error, :not_found} -> :not_found
+      {:error, reason} -> {:error, reason}
+      false -> cleanup_creation_changed(key)
+      _ -> {:error, :retention_creation_provenance_mismatch}
+    end
+  end
+
+  defp cleanup_creation_changed(key) do
+    with {:ok, command} <- Repo.fetch(Command.Query.by_idempotency_key(key)),
+         {:ok, session} <- fetch_command_session(command) do
+      case Ryker.Retention.Creation.resolve(session) do
+        {:ok, _resolved} -> {:error, :retention_creation_resolved}
+        _ -> {:error, :retention_creation_provenance_mismatch}
+      end
+    end
+  end
+
   defp operation_by_key(client, key, ensure_workspace) do
     case Repo.fetch(Command.Query.by_idempotency_key(key)) do
       {:error, :not_found} ->

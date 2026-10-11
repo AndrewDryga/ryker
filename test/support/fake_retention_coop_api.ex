@@ -52,6 +52,18 @@ defmodule Ryker.FakeRetentionCoopAPI do
     Agent.update(agent, &put_in(&1, [:workspaces, session_id], workspace))
   end
 
+  @doc "Expire this exact session's plan, as Coop may do before discard."
+  def invalidate_plans(agent, session_id) do
+    Agent.update(agent, fn state ->
+      operations =
+        Map.reject(state.operations, fn {_key, operation} ->
+          operation.phase == :plan and operation.body["session_id"] == session_id
+        end)
+
+      %{state | operations: operations}
+    end)
+  end
+
   def add_session(agent, session, workspace \\ nil) do
     Agent.update(agent, fn state ->
       state = put_in(state, [:sessions, session["id"]], session)

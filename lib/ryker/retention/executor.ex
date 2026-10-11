@@ -60,6 +60,16 @@ defmodule Ryker.Retention.Executor do
 
   defp unreachable(
          {:error, {:coop_error, 404, "session_not_found", _detail}},
+         %Work.Session{coop_session_id: nil},
+         _lease_ref
+       ) do
+    # A lookup of the create key did not query a remote session ID. Even if
+    # another reply has since bound one, this 404 cannot prove it absent.
+    {:error, :retention_creation_unresolved}
+  end
+
+  defp unreachable(
+         {:error, {:coop_error, 404, "session_not_found", _detail}},
          session,
          lease_ref
        ) do
@@ -75,10 +85,10 @@ defmodule Ryker.Retention.Executor do
          :close_pending,
          %Work.Session{coop_session_id: nil} = session,
          lease_ref,
-         _settings
+         settings
        ) do
-    with {:ok, settled} <- Custody.settle_absent(session.id, lease_ref) do
-      {:ok, %{phase: :discarded, session: settled}}
+    with {:ok, outcome} <- Custody.recover_creation(session.id, lease_ref) do
+      recover_creation(outcome, lease_ref, settings)
     end
   end
 
@@ -122,6 +132,68 @@ defmodule Ryker.Retention.Executor do
 
   defp execute(_status, _session, _lease_ref, _settings),
     do: {:error, {:invalid_retention_executor, :status}}
+
+  defp recover_creation({:absent, session}, lease_ref, _settings) do
+    with {:ok, settled} <- Custody.settle_absent(session.id, lease_ref),
+         do: {:ok, %{phase: :discarded, session: settled}}
+  end
+
+  defp recover_creation({:bound, session}, lease_ref, settings) do
+    case execute(:close_pending, session, lease_ref, settings) do
+      {:error, {:coop_error, 404, "session_not_found", _detail}} = result ->
+        unreachable(result, session, lease_ref)
+
+      result ->
+        result
+    end
+  end
+
+  defp recover_creation({:pending, session, key}, lease_ref, settings) do
+    recover_pending_creation(
+      function_exported?(settings.api, :operation_by_key_for_cleanup, 2),
+      session,
+      key,
+      lease_ref,
+      settings
+    )
+  end
+
+  defp recover_pending_creation(false, _session, _key, _lease_ref, _settings),
+    do: {:error, :retention_creation_unresolved}
+
+  defp recover_pending_creation(true, session, key, lease_ref, settings) do
+    with {:ok, _operation} <-
+           api_call(fn -> settings.api.operation_by_key_for_cleanup(settings.client, key) end),
+         {:ok, outcome} <- Custody.recover_creation(session.id, lease_ref) do
+      recover_reconciled_creation(outcome, lease_ref, settings)
+    else
+      :not_found ->
+        recover_lookup_failure(session, lease_ref, settings)
+
+      {:error, {:coop_error, 404, "operation_not_found", _detail}} ->
+        recover_lookup_failure(session, lease_ref, settings)
+
+      {:error, :retention_creation_resolved} ->
+        recover_lookup_failure(session, lease_ref, settings)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp recover_lookup_failure(session, lease_ref, settings) do
+    # The lookup is not absence proof. A placed command may nevertheless have
+    # become a definitive never-delivered host rejection while routing it.
+    with {:ok, outcome} <- Custody.recover_creation(session.id, lease_ref) do
+      recover_reconciled_creation(outcome, lease_ref, settings)
+    end
+  end
+
+  defp recover_reconciled_creation({:pending, _session, _key}, _lease_ref, _settings),
+    do: {:error, :retention_creation_unresolved}
+
+  defp recover_reconciled_creation(resolved, lease_ref, settings),
+    do: recover_creation(resolved, lease_ref, settings)
 
   defp close_from_state("discarded", session, lease_ref, _remote, _settings),
     do: settle_already_discarded(session, lease_ref)
@@ -359,8 +431,22 @@ defmodule Ryker.Retention.Executor do
              session.discard_plan_operation_id
            )
          end) do
-      {:ok, response} -> handle_discard_response(response, session, lease_ref, key)
-      {:error, reason} -> {:error, reason}
+      {:ok, response} ->
+        handle_discard_response(response, session, lease_ref, key)
+
+      {:error, {:coop_error, 409, code, _detail}}
+      when code in ["discard_plan_stale", "revision_conflict"] ->
+        with {:ok, stored} <-
+               Custody.invalidate_discard_plan(
+                 session.id,
+                 lease_ref,
+                 session.discard_plan_generation,
+                 session.discard_generation
+               ),
+             do: {:ok, %{phase: :replan, session: stored}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

@@ -256,9 +256,9 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
          payload
        ) do
     with {:ok, request} <- Requests.encode(kind, payload, placement),
-         {:ok, %Work.Session{coop_session_id: id}} when is_binary(id) <-
+         {:ok, %Work.Session{} = session} <-
            Repo.fetch(Work.Session.Query.by_id(placement.session_id)),
-         true <- cleanup_request?(request, id) do
+         true <- cleanup_request_for_session?(session, placement, kind, payload, request) do
       :ok
     else
       _ -> {:error, :coop_cleanup_only_placement}
@@ -266,6 +266,27 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
   end
 
   defp placement_request(_placement, _kind, _payload), do: :ok
+
+  defp cleanup_request_for_session?(
+         %Work.Session{coop_session_id: id},
+         _placement,
+         _kind,
+         _payload,
+         request
+       )
+       when is_binary(id),
+       do: cleanup_request?(request, id)
+
+  defp cleanup_request_for_session?(
+         session,
+         placement,
+         "reconcile_operation",
+         %{"operation_key" => key},
+         %{"method" => "GET"}
+       ),
+       do: Ryker.Retention.Creation.lookup_on_holder?(session, placement.worker_id, key)
+
+  defp cleanup_request_for_session?(_session, _placement, _kind, _payload, _request), do: false
 
   defp cleanup_request?(%{"method" => "GET"}, _id), do: true
   defp cleanup_request?(%{"method" => "POST", "path" => "/v1/operations/fence"}, _id), do: true

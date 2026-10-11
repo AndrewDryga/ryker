@@ -372,11 +372,33 @@ defmodule Ryker.Retention.Cleanup.Query do
   defp cleanup_status_filter(now) do
     pending = pending_status_filter(now)
     retained = retained_status_filter(now)
+    contradictory = contradictory_absence_filter()
 
     dynamic(
       [episode_work_sessions: session],
       session.cleanup_status == :active or ^pending or
-        (session.cleanup_status == :grace and session.discard_after <= ^now) or ^retained
+        (session.cleanup_status == :grace and session.discard_after <= ^now) or ^retained or
+        ^contradictory
+    )
+  end
+
+  # A missing binding was once discharged with an explicitly unknown receipt.
+  # Durable create evidence contradicts that verdict; normal owner/turn/publication
+  # and lease checks still apply. Genuine remote cleanup receipts are never reopened.
+  defp contradictory_absence_filter do
+    creates =
+      from(command in CoopFleet.Command,
+        where: command.session_id == parent_as(:episode_work_sessions).id,
+        where: command.kind == "create_session",
+        select: 1
+      )
+
+    dynamic(
+      [episode_work_sessions: session],
+      session.cleanup_status == :discarded and is_nil(session.coop_session_id) and
+        fragment("?::jsonb ->> 'kind' = 'never_bound'", session.cleanup_receipt) and
+        fragment("?::jsonb ->> 'remote_state' = 'unknown'", session.cleanup_receipt) and
+        exists(subquery(creates))
     )
   end
 

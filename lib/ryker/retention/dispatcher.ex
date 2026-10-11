@@ -115,6 +115,9 @@ defmodule Ryker.Retention.Dispatcher do
 
   # A worker that just proved unreachable will fail every further call in this
   # pass identically. Stop claiming its work so the rest of the fleet drains.
+  # Identity uncertainty is per session, not evidence that its holder is away.
+  defp exclude_worker(excluded, _claim, :retention_creation_unresolved), do: excluded
+
   defp exclude_worker(excluded, %{worker_id: worker_id}, reason)
        when is_binary(worker_id) do
     if outage?(reason) and worker_id not in excluded,
@@ -218,6 +221,7 @@ defmodule Ryker.Retention.Dispatcher do
   # is away; both are the worker's state, not a verdict about the session.
   defp outage?({:coop_session_replacement_pending, _session_id, _generation, _until}), do: true
   defp outage?({:retention_worker_unavailable, _worker_id}), do: true
+  defp outage?(:retention_creation_unresolved), do: true
   defp outage?({:retention_database_unavailable, _error}), do: true
   defp outage?(_reason), do: false
 

@@ -17,7 +17,7 @@ defmodule Ryker.Retention.WorkerChangeTest do
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkerJob
   alias Ryker.Fixtures.WorkSessions
-  alias Ryker.Retention.Dispatcher
+  alias Ryker.Retention.{Creation, Custody, Dispatcher}
   alias Ryker.Work.Session
 
   # The live shapes of 2026-09-23: ryker-chat sessions pinned to a8d0aa03…,
@@ -256,6 +256,386 @@ defmodule Ryker.Retention.WorkerChangeTest do
            }
   end
 
+  # In the 2026-10-11 Slack QA two delayed creates succeeded without binding
+  # locally. Retiring a nil binding left a real native session on the worker;
+  # this uses the real placement, command outbox and authenticated poll path.
+  test "a proven unbound create is cleaned up only on its original holder" do
+    worker = enroll!("unbound-create")
+    {session, remote} = unbound_created_session!("unbound-create", worker)
+    expire_placements!(session)
+    fleet = fleet_client(worker, @started, remote_session(remote))
+
+    assert {:ok, {:executed, %{phase: :grace}}} = run(fleet, "cleanup:unbound-create:bind")
+    assert Repo.get!(Session, session.id).coop_session_id == remote.coop_session_id
+    assert {:ok, {:executed, %{phase: :closed}}} = run(fleet, "cleanup:unbound-create:close")
+    assert {:ok, {:executed, %{phase: :planned}}} = run(fleet, "cleanup:unbound-create:plan")
+    assert {:ok, {:executed, %{phase: :discarded}}} = run(fleet, "cleanup:unbound-create:discard")
+
+    assert Repo.get!(Session, session.id).cleanup_receipt["kind"] == "discarded"
+    assert current_placement!(session).worker_id == worker
+    assert commands(session) == ~w(create_session reconcile_operation get_session close_session
+             get_session plan_discard get_session discard_session)
+  end
+
+  test "unbound recovery refuses crossed creation provenance before binding" do
+    worker = enroll!("crossed-provenance")
+    {session, remote} = unbound_created_session!("crossed-provenance", worker)
+
+    create =
+      Repo.one!(
+        from(c in Command, where: c.session_id == ^session.id and c.kind == "create_session")
+      )
+
+    assert {:ok, {:created, _, id}} = Creation.resolve(session)
+    assert id == remote.coop_session_id
+
+    create
+    |> Ecto.Changeset.change(payload_fingerprint: String.duplicate("f", 64))
+    |> Repo.update!()
+
+    assert Creation.resolve(session) == {:error, :retention_creation_provenance_mismatch}
+
+    Repo.get!(Command, create.id)
+    |> Ecto.Changeset.change(payload_fingerprint: create.payload_fingerprint)
+    |> Repo.update!()
+
+    for payload <- [
+          Map.put(create.payload, "job_digest", String.duplicate("e", 64)),
+          Map.put(create.payload, "external_ref", "other-external-ref")
+        ] do
+      fingerprint =
+        Ryker.CanonicalJSON.digest(%{
+          "idempotency_key" => create.idempotency_key,
+          "kind" => create.kind,
+          "payload" => payload,
+          "placement_id" => create.placement_id,
+          "version" => create.command_version
+        })
+
+      Repo.get!(Command, create.id)
+      |> Ecto.Changeset.change(payload: payload, payload_fingerprint: fingerprint)
+      |> Repo.update!()
+
+      assert Creation.resolve(session) == {:error, :retention_creation_provenance_mismatch}
+    end
+
+    Repo.get!(Command, create.id)
+    |> Ecto.Changeset.change(
+      payload: create.payload,
+      payload_fingerprint: create.payload_fingerprint
+    )
+    |> Repo.update!()
+
+    for operation <- [
+          %{"id" => "op_other", "method" => "CreateRemoteSession", "state" => "running"},
+          %{
+            "id" => "op_created_crossed-provenance",
+            "method" => "CloseSession",
+            "state" => "running"
+          }
+        ] do
+      Repo.get!(Command, create.id)
+      |> Ecto.Changeset.change(result: %{"status" => 200, "body" => %{"operation" => operation}})
+      |> Repo.update!()
+
+      assert {:pending, _} = Creation.resolve(session)
+      assert Repo.get!(Session, session.id).coop_session_id == nil
+    end
+  end
+
+  test "an unknown never-bound receipt is reconsidered when its retained create proves a resource" do
+    worker = enroll!("false-absence")
+    {session, remote} = unbound_created_session!("false-absence", worker)
+
+    receipt = %{
+      "kind" => "never_bound",
+      "local_session_id" => session.id,
+      "remote_session_id" => nil,
+      "remote_state" => "unknown"
+    }
+
+    session
+    |> Ecto.Changeset.change(
+      cleanup_status: :discarded,
+      cleanup_receipt: receipt,
+      cleanup_receipt_fingerprint: Ryker.CanonicalJSON.digest(receipt),
+      discarded_at: Repo.now!()
+    )
+    |> Repo.update!()
+
+    expire_placements!(session)
+    fleet = fleet_client(worker, @started, remote_session(remote))
+
+    assert {:ok, {:executed, %{phase: :grace}}} = run(fleet, "cleanup:false-absence:recover")
+    recovered = Repo.get!(Session, session.id)
+    assert recovered.coop_session_id == remote.coop_session_id
+    assert is_nil(recovered.discarded_at)
+    assert recovered.cleanup_receipt == receipt
+    assert Enum.take(commands(session), 2) == ~w(create_session reconcile_operation)
+  end
+
+  test "an unresolved create is reconciled on its expired original holder without workspace work" do
+    worker = enroll!("pending-create")
+    {session, remote} = unbound_created_session!("pending-create", worker, false)
+    expire_placements!(session)
+    answer = remote_session(remote)
+
+    fleet =
+      fleet_client(worker, @started, fn command ->
+        request = command["payload"]
+
+        if String.starts_with?(request["path"], "/v1/operations?") do
+          assert request["method"] == "GET"
+          assert request["path"] =~ URI.encode_www_form("ryker:work:create:#{session.id}:g1")
+
+          {:ok,
+           operation(
+             "op_created_pending-create",
+             "CreateRemoteSession",
+             "session",
+             remote.coop_session_id
+           )}
+        else
+          answer.(command)
+        end
+      end)
+
+    assert {:ok, {:executed, %{phase: :grace}}} = run(fleet, "cleanup:pending-create:bind")
+    assert Repo.get!(Session, session.id).coop_session_id == remote.coop_session_id
+    assert current_placement!(session).worker_id == worker
+    assert commands(session) == ~w(create_session reconcile_operation)
+  end
+
+  test "a historical unbound create can be reconciled without repinning its vanished job" do
+    worker = enroll!("historical-pending")
+    {session, remote} = unbound_created_session!("historical-pending", worker, false)
+
+    session
+    |> Ecto.Changeset.change(worker_job_document: nil, worker_job_digest: nil)
+    |> Repo.update!()
+
+    fleet =
+      fleet_client(worker, @started, fn command ->
+        request = command["payload"]
+        assert request["method"] == "GET"
+        assert String.starts_with?(request["path"], "/v1/operations?")
+
+        {:ok,
+         operation(
+           "op_created_historical-pending",
+           "CreateRemoteSession",
+           "session",
+           remote.coop_session_id
+         )}
+      end)
+
+    assert {:ok, {:executed, %{phase: :grace}}} = run(fleet, "cleanup:historical-pending")
+    assert Repo.get!(Session, session.id).coop_session_id == remote.coop_session_id
+    assert Repo.get!(Session, session.id).worker_job_document == nil
+    assert current_placement!(session).requirements["purpose"] == "stop_or_cleanup"
+    assert commands(session) == ~w(create_session reconcile_operation)
+    placement = current_placement!(session)
+
+    assert ControlPlane.enqueue_command(
+             placement.id,
+             "prepare_session",
+             %{"coop_session_id" => remote.coop_session_id, "expected_revision" => 7},
+             "forbidden:historical-prepare:#{session.id}"
+           ) == {:error, :coop_cleanup_only_placement}
+  end
+
+  test "a recovered create's exact holder can prove that its remote session is already absent" do
+    worker = enroll!("recovered-absent")
+    {session, remote} = unbound_created_session!("recovered-absent", worker)
+
+    session
+    |> Ecto.Changeset.change(discard_after: Repo.now!(), close_expected_revision: 7)
+    |> Repo.update!()
+
+    expire_placements!(session)
+
+    fleet =
+      fleet_client(worker, @started, fn _command ->
+        {:error, %{"code" => "session_not_found", "status" => 404}}
+      end)
+
+    assert {:ok, {:executed, %{phase: :discarded}}} = run(fleet, "cleanup:recovered-absent")
+
+    assert Repo.get!(Session, session.id).cleanup_receipt["remote_session_id"] ==
+             remote.coop_session_id
+
+    assert Repo.get!(Session, session.id).cleanup_receipt["kind"] == "remote_absent"
+  end
+
+  test "a client-generated never-delivered fence proves absence without a worker request" do
+    worker = enroll!("local-fence")
+    session = terminal_session!("local-fence", worker)
+    session = session |> Ecto.Changeset.change(coop_session_id: nil) |> Repo.update!()
+
+    fleet =
+      fleet_client(worker, @started, fn _ -> flunk("a local fence must not call the worker") end)
+
+    key = "ryker:work:create:#{session.id}:g1"
+
+    assert {:ok, %{"state" => "failed"}} =
+             Client.fence_create_session(fleet, key, @policy, Session.coop_task_ref(session), nil)
+
+    assert Creation.resolve(Repo.get!(Session, session.id)) == {:ok, :absent}
+    assert {:ok, {:executed, %{phase: :discarded}}} = run(fleet, "cleanup:local-fence")
+    assert commands(session) == ["create_session"]
+    assert Repo.get!(Session, session.id).cleanup_receipt["remote_state"] == "absent"
+  end
+
+  test "a create-key lookup failure does not prove the remote resource absent" do
+    worker = enroll!("lookup-absent")
+    {session, _remote} = unbound_created_session!("lookup-absent", worker, false)
+
+    fleet =
+      fleet_client(worker, @started, fn _ ->
+        # Exact Coop GET /v1/operations?key wire error (sessionsvc/http_test.go).
+        {:error, %{"code" => "operation_not_found", "status" => 404}}
+      end)
+
+    assert run(fleet, "cleanup:lookup-absent") ==
+             {:ok, {:deferred, :retention_creation_unresolved}}
+
+    held = Repo.get!(Session, session.id)
+    assert held.cleanup_status == :close_pending
+    assert held.cleanup_receipt == nil
+    assert held.coop_session_id == nil
+  end
+
+  test "a host rejection cannot override a proven successful remote create" do
+    worker = enroll!("contradictory-rejection")
+    {session, remote} = unbound_created_session!("contradictory-rejection", worker)
+
+    create =
+      Repo.one!(
+        from(c in Command, where: c.session_id == ^session.id and c.kind == "create_session")
+      )
+
+    create
+    |> Ecto.Changeset.change(
+      status: :failed,
+      delivered_at: nil,
+      result: nil,
+      error: %{"code" => "invalid_command"}
+    )
+    |> Repo.update!()
+
+    assert {:ok, {:created, command, remote_id}} =
+             Creation.resolve(Repo.get!(Session, session.id))
+
+    assert command.id == create.id
+    assert remote_id == remote.coop_session_id
+  end
+
+  test "creation evidence cannot bind after its cleanup lease is lost" do
+    worker = enroll!("lost-recovery-lease")
+    {session, _remote} = unbound_created_session!("lost-recovery-lease", worker)
+    assert {:ok, claim} = Custody.claim_next("cleanup:lost-recovery-lease", 60)
+
+    Repo.update_all(from(s in Session, where: s.id == ^session.id),
+      set: [cleanup_lease_expires_at: DateTime.add(Repo.now!(), -1, :second)]
+    )
+
+    assert Custody.recover_creation(session.id, claim.lease_ref) ==
+             {:error, :retention_lease_lost}
+
+    assert Repo.get!(Session, session.id).coop_session_id == nil
+    assert Repo.get!(Session, session.id).cleanup_receipt == nil
+  end
+
+  test "a truncated creation journal never establishes a unique resource" do
+    worker = enroll!("bounded-journal")
+    {session, _remote} = unbound_created_session!("bounded-journal", worker)
+
+    reconciliation =
+      Repo.one!(
+        from(c in Command, where: c.session_id == ^session.id and c.kind == "reconcile_operation")
+      )
+
+    for index <- 1..100 do
+      key = "read:bounded-journal:#{index}:#{session.id}"
+      copy = %{reconciliation | id: Ecto.UUID.generate(), idempotency_key: key}
+
+      fingerprint =
+        Ryker.CanonicalJSON.digest(%{
+          "idempotency_key" => key,
+          "kind" => copy.kind,
+          "payload" => copy.payload,
+          "placement_id" => copy.placement_id,
+          "version" => copy.command_version
+        })
+
+      Repo.insert!(%{copy | payload_fingerprint: fingerprint})
+    end
+
+    assert Creation.resolve(Repo.get!(Session, session.id)) ==
+             {:error, :retention_creation_ambiguous}
+
+    assert Repo.get!(Session, session.id).coop_session_id == nil
+  end
+
+  # A healthy holder can keep one create unresolved while answering every other
+  # cleanup. Treating that identity uncertainty as a worker outage skipped all
+  # its siblings for the pass, needlessly holding their runtime/workspace slots.
+  test "an unresolved create does not prevent healthy sibling cleanup in the same pass" do
+    worker = enroll!("unresolved-sibling")
+    {pending, _remote} = unbound_created_session!("unresolved-sibling", worker, false)
+    sibling = terminal_session!("healthy-sibling", worker)
+    answer = remote_session(sibling)
+
+    fleet =
+      fleet_client(worker, @started, fn command ->
+        if String.starts_with?(command["payload"]["path"], "/v1/operations?") do
+          {:ok,
+           %{
+             "id" => "op_created_unresolved-sibling",
+             "method" => "CreateRemoteSession",
+             "state" => "running"
+           }}
+        else
+          answer.(command)
+        end
+      end)
+
+    assert {:ok, %{attempted: 2, deferred: 1, executed: 1}} =
+             run_pass(fleet, "cleanup:unresolved-sibling")
+
+    assert Repo.get!(Session, pending.id).cleanup_status == :close_pending
+    assert Repo.get!(Session, pending.id).coop_session_id == nil
+    assert %DateTime{} = Repo.get!(Session, sibling.id).discard_after
+  end
+
+  test "a placed create that never left Ryker can settle without inventing a remote resource" do
+    worker = enroll!("queued-create")
+    {session, _remote} = unbound_created_session!("queued-create", worker, :queued)
+
+    fleet =
+      fleet_client(worker, @started, fn command ->
+        assert command["payload"]["method"] == "GET"
+        {:error, %{"code" => "operation_not_found", "status" => 404}}
+      end)
+
+    assert {:ok, {:executed, %{phase: :discarded}}} = run(fleet, "cleanup:queued-create")
+    assert Repo.get!(Session, session.id).coop_session_id == nil
+    assert Repo.get!(Session, session.id).cleanup_receipt["remote_state"] == "absent"
+
+    create =
+      Repo.one!(
+        from(c in Command, where: c.session_id == ^session.id and c.kind == "create_session")
+      )
+
+    assert create.delivered_at == nil
+    assert create.error["code"] == "operation_not_enqueued"
+
+    refute Enum.any?(
+             commands(session),
+             &(&1 in ~w(prepare_session submit_turn close_session discard_session))
+           )
+  end
+
   defp run(fleet, worker_ref) do
     Dispatcher.run_once(
       api: Client,
@@ -355,7 +735,7 @@ defmodule Ryker.Retention.WorkerChangeTest do
   # the session was created under, whatever the worker runs now.
   defp remote_session(session) do
     document = fn state, revision ->
-      %{
+      remote = %{
         "authority_digest" => @authority,
         "external_ref" => session.external_ref,
         "id" => session.coop_session_id,
@@ -364,6 +744,10 @@ defmodule Ryker.Retention.WorkerChangeTest do
         "revision" => revision,
         "state" => state
       }
+
+      if session.worker_job_document,
+        do: Map.merge(remote, WorkerJob.receipt(session)),
+        else: remote
     end
 
     fn command ->
@@ -530,6 +914,58 @@ defmodule Ryker.Retention.WorkerChangeTest do
              )
 
     session
+  end
+
+  defp unbound_created_session!(suffix, worker, reconciled? \\ true) do
+    bound = terminal_session!(suffix, worker)
+
+    session =
+      bound |> Ecto.Changeset.change(coop_session_id: nil) |> Repo.update!() |> WorkerJob.pin!()
+
+    placement = current_placement!(session)
+    key = "ryker:work:create:#{session.id}:g1"
+    operation_id = "op_created_#{suffix}"
+
+    assert {:ok, _create} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "create_session",
+               %{
+                 "external_ref" => session.external_ref,
+                 "job" => session.worker_job_document,
+                 "job_digest" => session.worker_job_digest
+               },
+               key
+             )
+
+    if reconciled? != :queued do
+      serve(worker, @started, fn _command ->
+        {:ok,
+         %{
+           "operation" => %{
+             "id" => operation_id,
+             "method" => "CreateRemoteSession",
+             "state" => "running"
+           }
+         }}
+      end)
+    end
+
+    if reconciled? == true do
+      assert {:ok, _reconcile} =
+               ControlPlane.enqueue_command(
+                 placement.id,
+                 "reconcile_operation",
+                 %{"operation_key" => key},
+                 Command.read_key("reconcile_operation")
+               )
+
+      serve(worker, @started, fn _command ->
+        {:ok, operation(operation_id, "CreateRemoteSession", "session", bound.coop_session_id)}
+      end)
+    end
+
+    {session, %{session | coop_session_id: bound.coop_session_id}}
   end
 
   # The placement lease ran out while nothing addressed the session.

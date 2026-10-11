@@ -42,6 +42,51 @@ defmodule Ryker.Retention.DispatcherTest do
            end)
   end
 
+  # The 2026-10-11 world campaign left clean work blocked on discard_plan_stale;
+  # rearming replayed the same expired plan and key, so no retry could release it.
+  test "a stale discard plan is replaced before cleanup retries with fresh keys" do
+    session = terminal_session!("stale-plan")
+    {:ok, api} = FakeAPI.start_link(sessions: [remote_session(session)])
+    assert {:ok, {:executed, %{phase: :closed}}} = run(api, "cleanup:stale-plan:close")
+    assert {:ok, {:executed, %{phase: :planned}}} = run(api, "cleanup:stale-plan:plan")
+    before = Repo.get!(Session, session.id)
+    FakeAPI.invalidate_plans(api, session.coop_session_id)
+
+    assert {:ok, {:executed, %{phase: :replan}}} = run(api, "cleanup:stale-plan:discard")
+    invalidated = Repo.get!(Session, session.id)
+    assert invalidated.cleanup_status == :plan_pending
+    assert invalidated.discard_plan_operation_id == nil
+    assert invalidated.discard_plan_generation == before.discard_plan_generation + 1
+    assert invalidated.discard_generation == before.discard_generation + 1
+    assert {:ok, {:executed, %{phase: :planned}}} = run(api, "cleanup:stale-plan:replan")
+    assert {:ok, {:executed, %{phase: :discarded}}} = run(api, "cleanup:stale-plan:retry")
+
+    for phase <- [:plan, :discard] do
+      keys = for {^phase, key, _body} <- FakeAPI.calls(api), do: key
+      assert length(keys) == 2
+      assert length(Enum.uniq(keys)) == 2
+    end
+  end
+
+  test "a fresh plan retains changes discovered after the old plan expired" do
+    session = terminal_session!("stale-plan-dirty")
+    {:ok, api} = FakeAPI.start_link(sessions: [remote_session(session)])
+    assert {:ok, {:executed, %{phase: :closed}}} = run(api, "cleanup:stale-dirty:close")
+    assert {:ok, {:executed, %{phase: :planned}}} = run(api, "cleanup:stale-dirty:plan")
+    FakeAPI.invalidate_plans(api, session.coop_session_id)
+    FakeAPI.set_workspace(api, session.coop_session_id, workspace(%{"dirty" => true}))
+
+    assert {:ok, {:executed, %{phase: :replan}}} = run(api, "cleanup:stale-dirty:discard")
+    assert {:ok, {:executed, %{phase: :retained}}} = run(api, "cleanup:stale-dirty:replan")
+    assert Repo.get!(Session, session.id).retained_reason == "dirty"
+    assert FakeAPI.remote_session(api, session.coop_session_id)["state"] == "closed"
+    assert Enum.count(FakeAPI.calls(api), &match?({:discard, _, _}, &1)) == 1
+
+    assert Enum.all?(Enum.filter(FakeAPI.calls(api), &match?({:plan, _, _}, &1)), fn
+             {:plan, _key, body} -> body["accept_dirty"] == false
+           end)
+  end
+
   test "completed writable task sessions release their worker capacity" do
     # Two finished task sessions held both worker reservations and blocked every new Slack turn.
     session = terminal_session!("writable-task-capacity")

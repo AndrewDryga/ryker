@@ -3,7 +3,9 @@ defmodule Ryker.Retention.CustodyTest do
   import Ecto.Query
   alias Ecto.Adapters.SQL.Sandbox
   alias Ryker.CanonicalJSON
+  alias Ryker.CoopFleet.{Command, ControlPlane}
   alias Ryker.Episodes
+  alias Ryker.Fixtures.CoopWorkers
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Operator.Retention, as: RetentionOperator
@@ -162,10 +164,31 @@ defmodule Ryker.Retention.CustodyTest do
     assert pending.cleanup_status == :discard_pending
     assert pending.discard_plan_operation_id == "op_plan"
 
+    # A delayed refusal must not clear a replacement plan or another host's
+    # lease. Both mutation generations are custody, not merely retry counters.
+    assert Custody.invalidate_discard_plan(session.id, "stale", 1, 1) ==
+             {:error, :retention_lease_lost}
+
     expire_cleanup_lease!(pending.id)
+
+    assert Custody.invalidate_discard_plan(session.id, plan_claim.lease_ref, 1, 1) ==
+             {:error, :retention_lease_lost}
 
     assert {:ok, discard_claim} =
              Custody.claim_next("cleanup:c", 60)
+
+    for {plan_generation, discard_generation} <- [{2, 1}, {1, 2}] do
+      assert Custody.invalidate_discard_plan(
+               session.id,
+               discard_claim.lease_ref,
+               plan_generation,
+               discard_generation
+             ) ==
+               {:error, :retention_discard_plan_generation_conflict}
+
+      assert Repo.get!(Session, session.id).discard_plan == pending.discard_plan
+      assert Repo.get!(Session, session.id).cleanup_status == :discard_pending
+    end
 
     assert Custody.settle_discard(
              session.id,
@@ -213,6 +236,28 @@ defmodule Ryker.Retention.CustodyTest do
 
     assert Custody.settle_absent(bound.id, bound_claim.lease_ref) ==
              {:error, :retention_remote_session_bound}
+  end
+
+  # Two delayed creates succeeded during the 2026-10-11 Slack QA. One was
+  # subsequently marked discarded with an unknown remote state, leaving the
+  # real worker resource without cleanup custody after its run was replaced.
+  test "an unbound session keeps cleanup custody while creation is unresolved" do
+    session = terminal_session!("unresolved-create")
+    session = session |> Ecto.Changeset.change(coop_session_id: nil) |> Repo.update!()
+    command = create_command!(session, "unresolved-create")
+
+    assert {:ok, claim} = Custody.claim_next("cleanup:unresolved-create", 60)
+    assert claim.session.id == session.id
+
+    assert Custody.settle_absent(session.id, claim.lease_ref) ==
+             {:error, :retention_creation_unresolved}
+
+    stored = Repo.get!(Session, session.id)
+    assert stored.cleanup_status == :close_pending
+    assert stored.cleanup_lease_ref == claim.lease_ref
+    assert is_nil(stored.discarded_at)
+    assert is_nil(stored.cleanup_receipt)
+    assert Repo.get!(Command, command.id).status == :queued
   end
 
   test "invalid cleanup identities never enter a lease transaction" do
@@ -626,6 +671,64 @@ defmodule Ryker.Retention.CustodyTest do
              )
 
     session
+  end
+
+  defp create_command!(session, suffix) do
+    session = Ryker.Fixtures.WorkerJob.pin!(session)
+    worker_id = "retention-worker:#{suffix}:#{session.id}"
+    certificate_sha256 = Ryker.Crypto.sha256_hex(worker_id)
+    assert {:ok, _worker} = CoopWorkers.authorize(worker_id, "workspace-main", certificate_sha256)
+
+    poll = %{
+      "acknowledged_command_ids" => [],
+      "command_results" => [],
+      "event_batches" => [],
+      "poll_ref" => "poll:#{worker_id}",
+      "version" => 2,
+      "worker" => %{
+        "build_version" => "coop-test",
+        "capabilities" => [],
+        "capacity" => %{
+          "cooldown_until" => nil,
+          "session_slots_free" => 2,
+          "session_slots_total" => 2,
+          "state" => "eligible",
+          "turn_slots_free" => 2,
+          "turn_slots_total" => 2,
+          "workspace_slots_free" => 2,
+          "workspace_slots_total" => 2
+        },
+        "clock_at" => DateTime.to_iso8601(DateTime.utc_now()),
+        "id" => worker_id,
+        "protocol_version" => "2",
+        "sandbox_digest" => String.duplicate("a", 64),
+        "state" => "eligible",
+        "workspace_ref" => "workspace-main"
+      }
+    }
+
+    assert {:ok, _response} = ControlPlane.handle_poll_certificate(worker_id, poll)
+
+    assert {:ok, placement} =
+             ControlPlane.place_session(
+               session.id,
+               %{capability_names: [], repository_ref: nil, workspace_ref: "workspace-main"},
+               60
+             )
+
+    assert {:ok, command} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "create_session",
+               %{
+                 "external_ref" => session.external_ref,
+                 "job" => session.worker_job_document,
+                 "job_digest" => session.worker_job_digest
+               },
+               "ryker:work:create:#{session.id}:g#{session.create_generation}"
+             )
+
+    command
   end
 
   defp retained_session!(suffix, dirty, unmerged) do

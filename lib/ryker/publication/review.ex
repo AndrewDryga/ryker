@@ -90,6 +90,14 @@ defmodule Ryker.Publication.Review do
 
   def fingerprint(document), do: CanonicalJSON.digest(document)
 
+  @doc "Whether recorded implementation work is newer than the canonical review snapshot."
+  def stale_work?(publication, plan) do
+    anchor = publication.reviewed_at || publication.published_at
+    changed = plan["implementation"]["changed_at"]
+
+    not is_nil(anchor) and not is_nil(changed) and DateTime.compare(changed, anchor) == :gt
+  end
+
   def publishable?(%{"publishable" => true}), do: true
   def publishable?(_document), do: false
 

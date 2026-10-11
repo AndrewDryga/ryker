@@ -414,7 +414,30 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
     card = card(rendered(work.episode), work.turn)
     assert card =~ "Ryker couldn't get the repository's code from GitHub"
     refute card =~ "Work execution blocked"
-    assert card =~ "Not created · no worker started a session for this run"
+    assert card =~ "Unknown · no worker session is linked to this run"
+  end
+
+  # Two live QA requests were shown as never created, but their delayed worker
+  # creates succeeded while local custody stayed unbound (2026-10-11). Missing
+  # linkage is not evidence that a worker never created the session.
+  test "a missing session binding never proves the worker created nothing" do
+    work = claimed!("unresolved-create")
+
+    Repo.update_all(from(turn in Turn, where: turn.id == ^work.turn.id),
+      set: [
+        status: :blocked,
+        last_error_code: "work_remote_operation_in_flight",
+        lease_ref: nil,
+        lease_owner: nil,
+        lease_expires_at: nil
+      ]
+    )
+
+    card = card(rendered(work.episode), work.turn)
+    assert card =~ "Unknown · no worker session is linked to this run"
+    refute card =~ "no worker started a session"
+    refute card =~ "Not created"
+    refute card =~ "the model still has what it saw"
   end
 
   # The same task's first run, replaced by the retry: the transfer overwrote its saved error,

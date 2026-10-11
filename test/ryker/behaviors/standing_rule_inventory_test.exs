@@ -8,7 +8,12 @@ defmodule Ryker.Behaviors.StandingRuleInventoryTest do
   observation that changes execution is not observation: none of these tests
   may move a rule into or out of scheduling, and none may fail an input.
   """
-  use Ryker.DataCase, async: true
+  # The failure-path fixture renames the inventory table. ALTER TABLE needs
+  # an exclusive schema lock; concurrent inventory readers keep their locks
+  # until their sandbox transactions end. On 2026-10-11 that blocked the
+  # fixture past its 15-second connection ownership deadline in the gate.
+  # Keep its assertions intact and run schema mutation in the serial partition.
+  use Ryker.DataCase, async: false
   import Ecto.Query
   alias Ryker.Behaviors
   alias Ryker.Behaviors.Behavior

@@ -249,6 +249,52 @@ defmodule Ryker.Retention.DataTest do
     assert inspect(untouched.submission) =~ "active-secret"
   end
 
+  # Two manual QA creates completed remotely without a local binding; one was then
+  # marked never-bound/unknown. Pruning that row would destroy the evidence needed
+  # to recover its workspace, not prove that cleanup had actually finished.
+  test "an unknown never-bound receipt keeps operational and history custody" do
+    work = settled_work!("unknown-create-custody") |> discard_session!()
+
+    receipt = %{
+      "kind" => "never_bound",
+      "remote_state" => "unknown",
+      "local_session_id" => work.session.id
+    }
+
+    Repo.update_all(from(session in Session, where: session.id == ^work.session.id),
+      set: [
+        coop_session_id: nil,
+        cleanup_receipt: receipt,
+        cleanup_receipt_fingerprint: CanonicalJSON.digest(receipt)
+      ]
+    )
+
+    unbound = Repo.get!(Session, work.session.id)
+
+    assert {:ok, command} =
+             ControlPlane.fence_command(
+               unbound,
+               "create_session",
+               Ryker.CoopFleet.ControlPlane.Commands.create_intent(
+                 unbound,
+                 Session.coop_task_ref(unbound)
+               ),
+               "ryker:work:create:#{unbound.id}:g1"
+             )
+
+    backdate_history!(work, 120)
+    assert {:ok, result} = Data.prune(settings())
+    assert result.operational_turns == 0
+    assert result.episode_histories == 0
+
+    turn = Repo.get!(Turn, work.turn.id)
+    assert turn.operational_pruned_at == nil
+    assert inspect(turn.submission) =~ "unknown-create-custody"
+    assert turn.candidate =~ "unknown-create-custody"
+    assert Repo.get!(Session, work.session.id).cleanup_receipt == receipt
+    assert Repo.get!(Command, command.id).payload == command.payload
+  end
+
   test "input artifacts remain while referenced and retire with operational input custody" do
     suffix = Ecto.UUID.generate()
 

@@ -345,6 +345,40 @@ defmodule Ryker.WeeklyReportTest do
     refute report.text =~ "weekly-#{workspace}-closed"
   end
 
+  # The live weekly preview on 2026-10-11 showed only "and 2 more": every
+  # PR's details were withheld, so there was no visible list to be "more" of.
+  # Count the work without disclosing identities or inventing a privacy reason.
+  test "a report with no nameable PRs gives a complete count without exposing their details",
+       %{now: now, workspace: workspace} do
+    private = private_channel!(workspace, "CPRCOUNTONLY")
+    first = pull_request!(workspace, "hidden-first", private, 21)
+    second = pull_request!(workspace, "hidden-second", private, 22)
+
+    waiting = compose(now)
+
+    assert part(waiting, :pull_requests) == [
+             "I opened 2 PRs this week, and they're waiting for review:",
+             "- 2 PRs (details aren't listed here)"
+           ]
+
+    for pull_request <- [first, second] do
+      refute waiting.text =~ pr_url(pull_request)
+      set_pull_request!(pull_request, pr_state: :merged, merged_at: now)
+    end
+
+    merged = compose(now)
+
+    assert part(merged, :pull_requests) == [
+             "I opened 2 PRs this week, and both are already merged:",
+             "- 2 PRs (details aren't listed here)"
+           ]
+
+    for report <- [waiting, merged], name <- ["hidden-first", "hidden-second"] do
+      refute report.text =~ name
+      refute report.text =~ "- and 2 more"
+    end
+  end
+
   test "a week whose every question is private says how many, and names none",
        %{now: now, workspace: workspace} do
     private = private_channel!(workspace, "CONLYPRIVATE")

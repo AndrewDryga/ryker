@@ -913,13 +913,13 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     assert delete["confirm"]["deny"]["text"] == "Cancel"
 
     # A paused preference is still removable, and the control follows its
-    # revision. The notice keeps naming the save event while the entity is
-    # live, so the pause is carried by the status, not by the headline.
+    # revision. The notice keeps the save event and the current pause visible;
+    # a disabled preference must not read as if it is still being applied.
     assert {:ok, disabled} = Behaviors.set_status(behavior.ref, :disabled)
     assert [paused_document] = ReplyRecords.documents("slack", fixture.episode.id, [record])
     assert paused_document["presentation"]["entity"]["status"] == "disabled"
     assert paused_document["presentation"]["entity"]["removable"] == true
-    assert paused_document["presentation"]["entity"]["notice"] == "Preference saved"
+    assert paused_document["presentation"]["entity"]["notice"] == "Preference saved · Paused"
 
     assert {:ok, rendered} =
              Renderer.render(%{"message" => "Saved.", "records" => [paused_document]})

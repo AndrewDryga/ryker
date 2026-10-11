@@ -12,6 +12,11 @@ defmodule Ryker.Coop.API do
 
   @callback operation_by_key(client :: term(), key :: String.t()) ::
               {:ok, map()} | :not_found | {:error, term()}
+
+  @doc "Read-only creation reconciliation for cleanup; must never prepare or restore a workspace."
+  @callback operation_by_key_for_cleanup(client :: term(), key :: String.t()) ::
+              {:ok, map()} | :not_found | {:error, term()}
+  @optional_callbacks operation_by_key_for_cleanup: 2
   @doc """
   Reports the versioned repository capabilities of the worker that runs, or will
   run, a session: `repository_freshness_receipt_versions` (receipt version 2).

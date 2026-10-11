@@ -11,6 +11,7 @@ defmodule Ryker.StateTools.RouterTest do
   alias Ryker.Episodes
   alias Ryker.Episodes.{Episode, Scope}
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
+  alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Inspectors
   alias Ryker.Knowledge.KnowledgeSnapshot
@@ -1338,6 +1339,115 @@ defmodule Ryker.StateTools.RouterTest do
 
     assert {:ok, state} = Tools.call("get_work_state", %{"limit" => 2}, options)
     assert Enum.map(state["records"], & &1["ref"]) == Enum.drop(refs, 1)
+  end
+
+  # Manual QA produced a real draft PR, then a read-only follow-up was told by
+  # get_work_state that no publication existed. The model followed the incomplete
+  # host input and contradicted the canonical task card; more prompt wording
+  # cannot recover publication evidence the host never supplies.
+  test "work state keeps the published revision and actual checks beside a new task turn" do
+    %{episode: episode, publication: publication, receipt: receipt} =
+      PublicationFixture.published!("model-work-state")
+
+    assert {:ok, _} =
+             Episodes.apply(
+               EpisodeFixtures.admit_input(%{
+                 episode_id: episode.id,
+                 episode_key: episode.key,
+                 native_input_id: "source:read-published-task",
+                 destination: %{
+                   transport: episode.destination_transport,
+                   conversation_ref: episode.destination_conversation_ref,
+                   thread_ref: episode.destination_thread_ref
+                 },
+                 occurred_at: Repo.now!(),
+                 payload: %{"text" => "Read the existing publication and checks only."},
+                 turn_ref: "turn:read-published-task"
+               })
+             )
+
+    assert {:ok, claim} = Custody.claim_next("worker:read-published-task", 60)
+    assert claim.episode.id == episode.id
+
+    publication
+    |> Ecto.Changeset.change(
+      body: "PRIVATE-publication-body",
+      review_patch: "PRIVATE-patch",
+      last_error_detail: "PRIVATE-runtime-error"
+    )
+    |> Repo.update!()
+
+    assert {:ok, state} = Tools.call("get_work_state", %{"limit" => 1}, bound_options(claim))
+    assert state["episode"]["state"] == "working"
+    assert state["publication"]["status"] == "published"
+    assert state["publication"]["published_revision"] == receipt
+    assert state["publication"]["review"]["candidate_head"] == receipt["commit_sha"]
+    assert state["publication"]["review"]["gate"] == "passed"
+    assert state["publication"]["followup"]["checks_state"] == "unknown"
+    assert state["publication"]["followup"]["checks_total"] == 0
+    assert state["publication"]["followup"]["checks_for"] == "last_observed_pull_request"
+
+    assert state["publication"]["followup"]["checks_apply_to_current_review_candidate"] ==
+             "unknown"
+
+    refute Jason.encode!(state) =~ "PRIVATE-"
+
+    for checks <- [:none, :passing] do
+      Repo.update_all(
+        from(f in Ryker.Publication.Followup, where: f.publication_id == ^publication.id),
+        set: [
+          checks_state: checks,
+          checks_total: if(checks == :none, do: 0, else: 2),
+          checks_passed: if(checks == :none, do: 0, else: 2)
+        ]
+      )
+
+      assert {:ok, current} = Tools.call("get_work_state", %{"limit" => 1}, bound_options(claim))
+      assert current["publication"]["followup"]["checks_state"] == Atom.to_string(checks)
+    end
+
+    # A conflict or a re-review can keep an old PR link while commit_sha names
+    # a new unpublished candidate. Only the checked publication receipt proves
+    # a published revision; a cleared receipt must stay missing.
+    Repo.get!(Ryker.Publication.Publication, publication.id)
+    |> Ecto.Changeset.change(
+      status: :review_pending,
+      publication_receipt: nil,
+      publication_receipt_fingerprint: nil,
+      published_at: nil,
+      commit_sha: String.duplicate("c", 40),
+      published_delivery_receipt: nil,
+      published_delivery_receipt_fingerprint: nil,
+      approval_ref: nil,
+      approved_at: nil,
+      approved_by_actor_ref: nil,
+      review_document: nil,
+      review_fingerprint: nil,
+      review_patch: nil,
+      reviewed_at: nil,
+      review_delivery_receipt: nil,
+      review_delivery_receipt_fingerprint: nil
+    )
+    |> Repo.update!()
+
+    assert {:ok, rearmed} = Tools.call("get_work_state", %{"limit" => 1}, bound_options(claim))
+    assert rearmed["publication"]["published_revision"] == nil
+    assert rearmed["publication"]["existing_pull_request"]["number"] == 91
+    assert rearmed["publication"]["review"] == nil
+    assert rearmed["publication"]["followup"]["checks_state"] == "passing"
+    assert rearmed["publication"]["followup"]["checks_for"] == "last_observed_pull_request"
+
+    assert rearmed["publication"]["followup"]["checks_apply_to_current_review_candidate"] ==
+             "unknown"
+
+    refute Jason.encode!(rearmed) =~ String.duplicate("c", 40)
+
+    Repo.update_all(from(p in Ryker.Publication.Publication, where: p.id == ^publication.id),
+      set: [repository: "different-repository"]
+    )
+
+    assert {:ok, foreign} = Tools.call("get_work_state", %{"limit" => 1}, bound_options(claim))
+    assert foreign["publication"] == nil
   end
 
   test "final preflight reports semantic failures and defers output artifact existence to Coop" do

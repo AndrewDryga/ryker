@@ -198,10 +198,10 @@ defmodule Ryker.Slack.SavedEntity do
   # The notice names the event when the entity is still live; once it is gone
   # the current state matters more than what happened when it was saved.
   defp notice(label, status, :saved) when status in ~w(active paused disabled),
-    do: "#{label} saved"
+    do: event_notice("#{label} saved", status)
 
   defp notice(label, status, :updated) when status in ~w(active paused disabled),
-    do: "#{label} has been updated"
+    do: event_notice("#{label} has been updated", status)
 
   defp notice(label, "active", nil), do: "#{label} active"
   defp notice(label, status, _event) when status in ~w(paused disabled), do: "#{label} paused"
@@ -209,6 +209,9 @@ defmodule Ryker.Slack.SavedEntity do
   defp notice(label, "expired", _event), do: "#{label} expired"
   defp notice(label, "deleted", _event), do: "#{label} deleted"
   defp notice(label, "superseded", _event), do: "#{label} replaced by a newer version"
+
+  defp event_notice(notice, status) when status in ~w(paused disabled), do: "#{notice} · Paused"
+  defp event_notice(notice, _status), do: notice
 
   # A time is the moment itself, which Slack shows in each reader's own time.
   defp next_run(%Schedules.Schedule{status: :active, next_occurrence_at: %DateTime{} = at}),

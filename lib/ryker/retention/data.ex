@@ -27,6 +27,13 @@ defmodule Ryker.Retention.Data do
   @summary_compaction_seconds 7 * 86_400
   @memory_review_seconds 30 * 86_400
 
+  # Old nil bindings could be marked discarded without proving the remote
+  # create absent. Keep their history and worker journal until custody has
+  # recovered the resource or recorded genuine absence; age is not proof.
+  @unresolved_creation "COALESCE((session.coop_session_id IS NULL AND session.cleanup_receipt::jsonb ->> 'kind' = 'never_bound' AND session.cleanup_receipt::jsonb ->> 'remote_state' = 'unknown'), FALSE)"
+  @session_discarded "(session.cleanup_status = 'discarded' AND NOT #{@unresolved_creation})"
+  @session_not_discarded "(session.cleanup_status <> 'discarded' OR #{@unresolved_creation})"
+
   @type result :: %{
           audit_episodes: non_neg_integer(),
           audit_rows: non_neg_integer(),
@@ -249,7 +256,7 @@ defmodule Ryker.Retention.Data do
     as: "command",
     join: "JOIN episode_work_sessions AS session ON session.id = command.session_id",
     where: """
-    session.cleanup_status = 'discarded'
+    #{@session_discarded}
     AND NOT EXISTS (
       SELECT 1 FROM coop_worker_workspace_checkpoints AS checkpoint
       WHERE checkpoint.body_command_id = command.id
@@ -263,7 +270,7 @@ defmodule Ryker.Retention.Data do
     table: "coop_worker_events",
     as: "event",
     join: "JOIN episode_work_sessions AS session ON session.id = event.session_id",
-    where: "session.cleanup_status = 'discarded'",
+    where: @session_discarded,
     age: "inserted_at",
     horizon: :operational_data_seconds
   }
@@ -281,7 +288,7 @@ defmodule Ryker.Retention.Data do
     SELECT session.id
     FROM episode_work_sessions AS session
     WHERE session.execution_kind IN ('admission', 'learning', 'improvement', 'knowledge')
-      AND session.cleanup_status = 'discarded'
+      AND #{@session_discarded}
       AND NOT session.activity_sync_pending
       AND session.updated_at < clock_timestamp() - ($1 * interval '1 second')
       AND NOT EXISTS (
@@ -490,7 +497,7 @@ defmodule Ryker.Retention.Data do
         OR NOT EXISTS (
           SELECT 1 FROM episode_work_sessions session
           WHERE session.episode_id = input.episode_id
-            AND session.cleanup_status <> 'discarded'
+            AND #{@session_not_discarded}
         )
       )
       AND NOT EXISTS (
@@ -588,7 +595,7 @@ defmodule Ryker.Retention.Data do
     WHERE turn.operational_pruned_at IS NULL
       AND turn.status = ANY($1)
       AND turn.updated_at < clock_timestamp() - ($2 * interval '1 second')
-      AND session.cleanup_status = 'discarded'
+      AND #{@session_discarded}
     ORDER BY turn.updated_at, turn.id
     LIMIT 100
     FOR UPDATE OF turn SKIP LOCKED
@@ -763,7 +770,7 @@ defmodule Ryker.Retention.Data do
         NOT owner.state IN ('complete', 'cancelled')
         OR EXISTS (
           SELECT 1 FROM episode_work_sessions session
-          WHERE session.episode_id = owner.id AND session.cleanup_status <> 'discarded'
+          WHERE session.episode_id = owner.id AND #{@session_not_discarded}
         )
       )
   )
@@ -804,7 +811,7 @@ defmodule Ryker.Retention.Data do
     episode.state IN ('complete', 'cancelled')
       AND NOT EXISTS (
         SELECT 1 FROM episode_work_sessions session
-        WHERE session.episode_id = episode.id AND session.cleanup_status <> 'discarded'
+        WHERE session.episode_id = episode.id AND #{@session_not_discarded}
       )
     """,
     age: "updated_at",
@@ -870,7 +877,7 @@ defmodule Ryker.Retention.Data do
     AND episode.updated_at < clock_timestamp() - ($2 * interval '1 second')
     AND NOT EXISTS (
       SELECT 1 FROM episode_work_sessions session
-      WHERE session.episode_id = episode.id AND session.cleanup_status <> 'discarded'
+      WHERE session.episode_id = episode.id AND #{@session_not_discarded}
     )
     AND NOT EXISTS (
       SELECT 1 FROM episode_work_turns turn
@@ -1116,7 +1123,7 @@ defmodule Ryker.Retention.Data do
       AND NOT EXISTS (SELECT 1 FROM episode_state_record_responses response WHERE response.inbox_entry_id = input.id)
       AND NOT EXISTS (
         SELECT 1 FROM episode_work_sessions session
-        WHERE session.admission_input_id = input.id AND session.cleanup_status <> 'discarded'
+        WHERE session.admission_input_id = input.id AND #{@session_not_discarded}
       )
     """,
     age: "updated_at",
@@ -1145,7 +1152,7 @@ defmodule Ryker.Retention.Data do
     )
     AND NOT EXISTS (
       SELECT 1 FROM episode_work_sessions session
-      WHERE session.episode_id = episode.id AND session.cleanup_status <> 'discarded'
+      WHERE session.episode_id = episode.id AND #{@session_not_discarded}
     )
     AND NOT EXISTS (
       SELECT 1 FROM platform_actions action

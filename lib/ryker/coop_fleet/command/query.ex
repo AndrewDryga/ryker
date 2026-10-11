@@ -38,6 +38,33 @@ defmodule Ryker.CoopFleet.Command.Query do
     |> where([coop_worker_commands: c], c.status != :failed)
   end
 
+  @doc "Every create attempt of this exact local session, including uncertain failures."
+  def creates(session_id) do
+    session_id
+    |> by_session_id()
+    |> by_kind("create_session")
+    |> ordered_by_oldest()
+  end
+
+  @doc "Terminal create reconciliations on the original holder, including cleanup-only recovery."
+  def creation_reconciliations(command) do
+    from(c in all(),
+      join: p in Placement,
+      on:
+        p.id == c.placement_id and p.worker_id == c.worker_id and
+          p.session_id == c.session_id and p.generation == c.placement_generation,
+      where:
+        c.session_id == ^command.session_id and c.worker_id == ^command.worker_id and
+          c.kind == "reconcile_operation" and c.status == :succeeded and
+          fragment("(?::jsonb ->> 'operation_key') = ?", c.payload, ^command.idempotency_key),
+      where:
+        c.placement_id == ^command.placement_id or
+          fragment("(?::jsonb ->> 'purpose') = 'stop_or_cleanup'", p.requirements),
+      order_by: [desc: c.completed_at, desc: c.id],
+      limit: 101
+    )
+  end
+
   @doc """
   Command `command_id` while worker `worker_id` may upload its body at `now`:
   delivered under protocol 2 on the worker's active, leased placement of the
@@ -110,6 +137,7 @@ defmodule Ryker.CoopFleet.Command.Query do
     from(c in all(),
       where:
         c.session_id == ^command.session_id and
+          c.worker_id == ^command.worker_id and c.placement_id == ^command.placement_id and
           c.placement_generation == ^command.placement_generation and
           c.kind == "reconcile_operation" and c.status == :succeeded and
           fragment("(?::jsonb -> 'status') BETWEEN '200'::jsonb AND '299'::jsonb", c.result) and

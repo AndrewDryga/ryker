@@ -105,6 +105,82 @@ defmodule Ryker.Slack.SavedEntityTest do
     assert ["When", "Every Monday at 09:00 UTC"] in SavedEntity.document(weekly, :saved)["facts"]
   end
 
+  # The QA weekday reminder was paused in PostgreSQL on 2026-10-11, but its
+  # updated Slack card said only "Saved". A save/update event must never hide
+  # the current pause or imply a next run while the automation governs nothing.
+  test "saved and updated entity cards retain their current paused state" do
+    schedule = %Schedule{
+      authority: :read_only,
+      confirmed_at: ~U[2026-10-11 11:59:16.000000Z],
+      confirmed_by_actor_ref: "slack:user:U123",
+      destination_conversation_ref: "slack:T123:C456",
+      next_occurrence_at: ~U[2026-10-12 07:00:00.000000Z],
+      recurrence: %{"kind" => "weekdays", "time" => "09:00:00"},
+      ref: "schedule:qa-weekday-reminder",
+      revision: 2,
+      status: :paused,
+      task: "Post fictional morning check.",
+      timezone: "Europe/Paris",
+      title: "QA weekday reminder"
+    }
+
+    rule = %Behavior{
+      confirmed_at: schedule.confirmed_at,
+      confirmed_by_actor_ref: schedule.confirmed_by_actor_ref,
+      identity_key: "qa-review-rule",
+      kind: :standing_assignment,
+      payload: %{
+        "context_channel" => "slack:T123:C456",
+        "filter" => %{},
+        "source_kind" => "github",
+        "task" => "Summarize practice reviews.",
+        "title" => "QA review rule"
+      },
+      ref: "behavior:qa-review-rule",
+      revision: 2,
+      scope_kind: :conversation,
+      scope_ref: "slack:T123:C456",
+      status: :disabled
+    }
+
+    preference = %{
+      rule
+      | kind: :preference,
+        payload: %{"key" => "response_detail", "value" => "concise"},
+        ref: "behavior:qa-preference"
+    }
+
+    guidance = %{
+      rule
+      | kind: :guidance,
+        payload: %{
+          "subject" => "QA review guidance",
+          "text" => "Treat QA sources as fictional.",
+          "visibility" => "conversation"
+        },
+        ref: "behavior:qa-guidance"
+    }
+
+    for {entity, label} <- [
+          {schedule, "Schedule"},
+          {rule, "Standing rule"},
+          {preference, "Preference"},
+          {guidance, "Guidance"}
+        ],
+        {event, words} <- [{:saved, "saved"}, {:updated, "has been updated"}] do
+      document = SavedEntity.document(entity, event)
+      assert document["notice"] == "#{label} #{words} · Paused"
+      assert {:ok, rendered} = Renderer.render(%{"saved_entity" => document})
+      assert rendered["text"] =~ "Paused"
+      assert Jason.encode!(rendered["blocks"]) =~ "Paused"
+      refute "Next run" in Enum.map(document["facts"], &hd/1)
+    end
+
+    active = SavedEntity.document(%{schedule | status: :active, revision: 3}, :updated)
+    assert active["notice"] == "Schedule has been updated"
+    assert "Next run" in Enum.map(active["facts"], &hd/1)
+  end
+
   # A saved schedule read "Access: Repository write", "Repository:
   # andrewdryga-test" and "Next run: 12 Oct 2026, 07:00 UTC" under a schedule
   # that runs at 09:00 Berlin time, while its offer had said "Can change code"

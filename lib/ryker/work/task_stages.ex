@@ -520,10 +520,7 @@ defmodule Ryker.Work.TaskStages do
   # Repeated checks and a published draft describe the revision they ran
   # against. Implementation work recorded after them needs its own attempt.
   defp stale_work?(%{plan: plan, publication: %Publication.Publication{} = publication}) do
-    anchor = publication.reviewed_at || publication.published_at
-    changed = plan["implementation"]["changed_at"]
-
-    not is_nil(anchor) and not is_nil(changed) and DateTime.compare(changed, anchor) == :gt
+    Publication.Review.stale_work?(publication, plan)
   end
 
   defp stale_work?(_facts), do: false

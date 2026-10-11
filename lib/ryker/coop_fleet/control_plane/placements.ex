@@ -188,20 +188,32 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
 
     case fetch_and_lock_current_placement(session_id) do
       {:ok, %Placement{} = placement} ->
-        cond do
-          not current?(placement, now) ->
-            lapsed(session, placement, now)
-
-          # A holder placement only ever stops or cleans up.
-          holder_placement?(placement) and not stopping_or_cleaning?(session) ->
-            {:replacement_required, placement.generation}
-
-          true ->
-            placement
-        end
+        place_current_session(session, placement, requirements, lease_seconds, now)
 
       {:error, :not_found} ->
         place_unassigned_session(session, requirements, lease_seconds, now)
+    end
+  end
+
+  defp place_current_session(session, placement, requirements, lease_seconds, now) do
+    cond do
+      creation_lookup?(session, placement) and not holder_placement?(placement) ->
+        # Historical create lookup needs neither today's JobSpec nor a
+        # model grant. Fence the work placement before installing a holder
+        # route whose only unbound request is the exact original-key GET.
+        retired = placement |> Placement.Changeset.replace() |> Repo.update!()
+        Commands.fail_undelivered_commands(retired, now)
+        recover_cleanup_placement(session, retired, requirements, lease_seconds, now)
+
+      not current?(placement, now) ->
+        lapsed(session, placement, now)
+
+      # A holder placement only ever stops or cleans up.
+      holder_placement?(placement) and not stopping_or_cleaning?(session) ->
+        {:replacement_required, placement.generation}
+
+      true ->
+        placement
     end
   end
 
@@ -215,6 +227,9 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
             recover_cancellation_placement(session, placement, requirements, lease_seconds, now)
 
           cleaning_bound_session?(session) ->
+            recover_cleanup_placement(session, placement, requirements, lease_seconds, now)
+
+          Ryker.Retention.Creation.lookup_on_holder?(session, placement.worker_id) ->
             recover_cleanup_placement(session, placement, requirements, lease_seconds, now)
 
           bound_session?(session) ->
@@ -237,12 +252,32 @@ defmodule Ryker.CoopFleet.ControlPlane.Placements do
   end
 
   defp validate_job_for_placement!(session) do
-    unless bound_session?(session) and stopping_or_cleaning?(session) do
+    unless (bound_session?(session) and stopping_or_cleaning?(session)) or
+             creation_lookup?(session) do
       case JobAuthority.validate(session) do
         {:ok, _session} -> :ok
         {:error, reason} -> Shared.rollback(reason)
       end
     end
+  end
+
+  defp creation_lookup?(session) do
+    current =
+      session.id
+      |> Placement.Query.by_session_id()
+      |> Placement.Query.ordered_by_generation_desc()
+      |> Placement.Query.limit_to(1)
+      |> Repo.peek()
+
+    case current do
+      %Placement{} = placement -> creation_lookup?(session, placement)
+      _ -> false
+    end
+  end
+
+  defp creation_lookup?(session, placement) do
+    is_nil(session.coop_session_id) and
+      Ryker.Retention.Creation.lookup_on_holder?(session, placement.worker_id)
   end
 
   @doc "Whether this placement is active and its lease has not run out."

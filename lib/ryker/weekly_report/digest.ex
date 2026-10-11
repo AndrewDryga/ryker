@@ -148,12 +148,17 @@ defmodule Ryker.WeeklyReport.Digest do
     do: "I opened #{opened} PRs this week, and #{merged} are already merged:"
 
   defp merged_lines(merged),
-    do: Enum.map(merged.named, &pull_request_line/1) ++ more(merged.total - length(merged.named))
+    do: Enum.map(merged.named, &pull_request_line/1) ++ pull_request_remainder(merged)
 
   defp waiting_lines(waiting, now) do
     Enum.map(waiting.named, &(pull_request_line(&1) <> ", open for #{age(&1.opened_at, now)}")) ++
-      more(waiting.total - length(waiting.named))
+      pull_request_remainder(waiting)
   end
+
+  defp pull_request_remainder(%{named: [], total: total}) when total > 0,
+    do: ["- #{Wording.count(total, "PR")} (details aren't listed here)"]
+
+  defp pull_request_remainder(%{named: named, total: total}), do: more(total - length(named))
 
   defp pull_request_line(pull_request) do
     where = if pull_request.repository, do: plain(pull_request.repository), else: ""
