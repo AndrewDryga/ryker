@@ -351,6 +351,14 @@ defmodule Ryker.Work.PromptTest do
     assert instructions =~ "without counting what was"
     assert instructions =~ "durable wait for the next exact lifecycle update"
 
+    # Terraform watch updates in #infra ran to a thousand characters for "a run awaits
+    # confirmation", ended on what Ryker would check after the next notification, and hedged in
+    # process words ("Review remains partial", "revision linkage ... remain unverified") although
+    # Andrew asked for short, simple English (2026-10-11).
+    assert instructions =~ "what changed and what, if anything, a person has to do"
+    assert instructions =~ "It leaves out what you will check next"
+    assert instructions =~ "say what you could not see instead"
+
     # Six observations delivered "I have scheduled a follow-up in 10 minutes"
     # in a turn that called no wait_for. The episode ends there and the person
     # told to expect an answer waits for one nobody scheduled, so the rule about
