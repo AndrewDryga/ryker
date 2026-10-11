@@ -200,6 +200,7 @@ defmodule Ryker.Retention.Dispatcher do
   end
 
   defp transient?({:retention_generation_spent, _phase, _reason}), do: true
+  defp transient?({:retention_turn_running, _turn_id}), do: true
   defp transient?({:coop_mutation_response_unresolved, _phase, _reason}), do: true
   # The worker answered that it failed this one session: worth trying again,
   # up to the attempts, but no reason to stop cleaning its other sessions.

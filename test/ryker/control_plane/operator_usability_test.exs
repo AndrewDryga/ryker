@@ -144,6 +144,41 @@ defmodule Ryker.ControlPlane.OperatorUsabilityTest do
     refute html =~ "Create finding"
   end
 
+  # Cleanup stops a turn left running on a finished session before closing it (2026-10-11); one
+  # that would not stop is named as such, not as a refusal or an unknown error.
+  test "a cleanup held up by a turn that kept running says so" do
+    row = %{
+      kind: "retention",
+      ref: "session:running-turn",
+      episode_ref: "episode:one",
+      episode_id: @request_one,
+      status: :blocked,
+      summary: "retention_turn_running",
+      updated_at: ~U[2026-10-11 12:19:16Z],
+      request_title: "Hi",
+      request_state: :complete,
+      source: "ryker",
+      action: :rearm,
+      attempt_count: 8,
+      cleanup_phase: :close_pending,
+      closed_at: nil,
+      discarded_at: nil,
+      diagnosis: nil,
+      detail: ~s({:retention_turn_running, "turn_left_running"})
+    }
+
+    text =
+      row
+      |> FailuresPage.detail(@now)
+      |> IO.iodata_to_binary()
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.text()
+
+    assert text =~ "A turn kept running on this worker session, so Ryker couldn't close it."
+    assert text =~ "It closes the session once the turn has stopped."
+    refute text =~ "does not name a cause"
+  end
+
   # The September 2 failure was displayed as coop_error and a hash.
   test "a cleanup the worker refused says what the worker answered, never a digest" do
     row = %{

@@ -178,6 +178,51 @@ defmodule Ryker.Retention.DispatcherTest do
     end
   end
 
+  # A routing turn was still running on its session when cleanup closed it (2026-10-11). The
+  # worker refused ("session must have no active or queued turns"), cleanup stopped after that
+  # one try and listed the session for a person, and the fleet kept the refusal under the
+  # close's key, so "Try cleanup again" read it back without asking the worker again. Nobody
+  # owns the turn any more: cleanup stops it, then closes the session.
+  test "a turn still running on a finished session is stopped before the session is closed" do
+    session = terminal_session!("running-turn")
+    remote = session |> remote_session() |> Map.put("active_turn_id", "turn_left_running")
+    {:ok, api} = FakeAPI.start_link(sessions: [remote])
+
+    assert run(api, "cleanup:running-turn:stop") ==
+             {:ok, {:deferred, {:retention_turn_running, "turn_left_running"}}}
+
+    make_due!(session.id)
+    assert {:ok, {:executed, %{phase: :closed}}} = run(api, "cleanup:running-turn:close")
+
+    calls = FakeAPI.calls(api)
+    assert [%{"turn_id" => "turn_left_running"}] = for({:cancel, _key, body} <- calls, do: body)
+    assert [%{"expected_revision" => 8}] = for({:close, _key, body} <- calls, do: body)
+  end
+
+  # The same refusal when the turn started after cleanup read the session: it is asked again,
+  # under a new key, once the turn is stopped.
+  test "a close refused for a turn that started meanwhile is asked again under a new key" do
+    session = terminal_session!("late-turn")
+
+    {:ok, api} =
+      FakeAPI.start_link(sessions: [remote_session(session)], turn_starts_on_close: "turn_late")
+
+    assert {:ok, {:deferred, {:retention_generation_spent, :close, _refused}}} =
+             run(api, "cleanup:late-turn:refused")
+
+    make_due!(session.id)
+
+    assert run(api, "cleanup:late-turn:stop") ==
+             {:ok, {:deferred, {:retention_turn_running, "turn_late"}}}
+
+    make_due!(session.id)
+    assert {:ok, {:executed, %{phase: :closed}}} = run(api, "cleanup:late-turn:close")
+
+    keys = for {:close, key, _body} <- FakeAPI.calls(api), do: key
+    assert length(keys) == 2 and length(Enum.uniq(keys)) == 2
+    refute Repo.get!(Session, session.id).cleanup_status == :blocked
+  end
+
   test "dirty and unpublished unmerged work is retained instead of destroyed" do
     for {suffix, workspace, reason} <- [
           {"dirty", %{"dirty" => true, "unmerged" => false}, "dirty"},

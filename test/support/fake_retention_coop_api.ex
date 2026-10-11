@@ -23,6 +23,7 @@ defmodule Ryker.FakeRetentionCoopAPI do
         fail_first: MapSet.new(Keyword.get(options, :fail_first, [])),
         failed: MapSet.new(),
         stored_failures: MapSet.new(Keyword.get(options, :stored_failures, [])),
+        turn_starts_on_close: Keyword.get(options, :turn_starts_on_close),
         offline: Keyword.get(options, :offline, false),
         offline_prefix: Keyword.get(options, :offline_prefix),
         offline_sessions: MapSet.new(Keyword.get(options, :offline_sessions, [])),
@@ -104,6 +105,18 @@ defmodule Ryker.FakeRetentionCoopAPI do
 
         session["state"] not in ["open", "exhausted"] ->
           {invalid_state(), state}
+
+        # A turn that started after cleanup read the session.
+        is_binary(state.turn_starts_on_close) and is_nil(session["active_turn_id"]) ->
+          running = Map.put(session, "active_turn_id", state.turn_starts_on_close)
+
+          state
+          |> put_in([:sessions, session_id], running)
+          |> Map.put(:turn_starts_on_close, nil)
+          |> refuse_busy_close(key, body)
+
+        is_binary(session["active_turn_id"]) ->
+          refuse_busy_close(state, key, body)
 
         true ->
           closed = %{session | "revision" => revision + 1, "state" => "closed"}
@@ -202,6 +215,45 @@ defmodule Ryker.FakeRetentionCoopAPI do
           {{:ok, response}, put_in(state, [:sessions, session_id], discarded)}
       end
     end)
+  end
+
+  # Stopping a turn the worker still runs ends it and moves the session's revision on.
+  def cancel_turn(agent, session_id, turn_id, key, revision) do
+    body = %{"expected_revision" => revision, "session_id" => session_id, "turn_id" => turn_id}
+
+    mutation(agent, :cancel, key, body, fn state ->
+      session = state.sessions[session_id]
+
+      cond do
+        is_nil(session) ->
+          {not_found(), state}
+
+        session["revision"] != revision ->
+          {revision_conflict(), state}
+
+        session["active_turn_id"] != turn_id ->
+          {{:error, {:coop_error, 409, "invalid_turn_state", "turn is not running"}}, state}
+
+        true ->
+          stopped = %{session | "active_turn_id" => nil, "revision" => revision + 1}
+
+          response = %{
+            "operation" => operation("op_cancel_#{key}", "CancelTurn", "turn", turn_id),
+            "turn" => %{"id" => turn_id, "session_id" => session_id, "state" => "cancelled"}
+          }
+
+          {{:ok, response}, put_in(state, [:sessions, session_id], stopped)}
+      end
+    end)
+  end
+
+  # The fleet keeps the worker's answer under its key, a refusal as much as a success.
+  defp refuse_busy_close(state, key, body) do
+    refusal =
+      {:error,
+       {:coop_error, 409, "invalid_session_state", "session must have no active or queued turns"}}
+
+    {refusal, put_in(state, [:operations, key], %{body: body, phase: :close, response: refusal})}
   end
 
   defp mutation(agent, phase, key, body, callback) do

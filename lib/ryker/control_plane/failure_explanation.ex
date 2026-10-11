@@ -552,6 +552,19 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     )
   end
 
+  defp retention_cause(%{summary: "retention_turn_running"} = row) do
+    Map.put(
+      cause(
+        "A turn kept running on this worker session, so Ryker couldn't close it.",
+        "Nothing in Ryker needs the turn any more. Each time, Ryker asked the worker to stop it before closing the session, and the next time it looked the turn was still running.",
+        :unknown,
+        "It closes the session once the turn has stopped. If it stops again, the worker needs checking."
+      ),
+      :tried,
+      "Ryker tried #{attempt_words(row)}, the most it tries on its own for this, and then stopped."
+    )
+  end
+
   defp retention_cause(%{diagnosis: %{code: "session_not_found"}}) do
     cause(
       "The worker no longer knows this session.",

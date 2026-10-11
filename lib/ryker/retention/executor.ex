@@ -13,6 +13,8 @@ defmodule Ryker.Retention.Executor do
   alias Ryker.Work
 
   @session_states ~w(open exhausted closed discarded)
+  # Statuses that say the worker was not reached (`Ryker.Retention.Dispatcher` waits them out).
+  @unreached [429, 502, 503, 504]
 
   @spec run(map(), keyword() | map()) :: {:ok, map()} | {:error, term()}
   def run(%{lease_ref: lease_ref, session: %Work.Session{} = session}, options)
@@ -203,16 +205,69 @@ defmodule Ryker.Retention.Executor do
 
   defp close_from_state(state, session, lease_ref, remote, settings)
        when state in ["open", "exhausted"] do
-    with {:ok, revision} <- Coop.Documents.revision(remote, :session_revision),
-         {:ok, frozen} <- Custody.freeze_close_revision(session.id, lease_ref, revision) do
+    with {:ok, revision} <- Coop.Documents.revision(remote, :session_revision) do
+      case running_turn(remote) do
+        nil -> close_at(session, lease_ref, revision, settings)
+        turn_id -> stop_turn(session, lease_ref, turn_id, revision, settings)
+      end
+    end
+  end
+
+  defp close_from_state(_state, _session, _lease_ref, _remote, _settings),
+    do: {:error, {:coop_protocol_error, :session_state}}
+
+  defp close_at(session, lease_ref, revision, settings) do
+    with {:ok, frozen} <- Custody.freeze_close_revision(session.id, lease_ref, revision) do
       frozen
       |> close_remote(lease_ref, settings)
       |> ask_again_if_cut_off(fn -> close_again(frozen, lease_ref, revision, settings) end)
     end
   end
 
-  defp close_from_state(_state, _session, _lease_ref, _remote, _settings),
-    do: {:error, {:coop_protocol_error, :session_state}}
+  defp running_turn(%{"active_turn_id" => turn_id}) when is_binary(turn_id), do: turn_id
+  defp running_turn(_remote), do: nil
+
+  # Cleanup claims a session only once its owner is finished, so a turn still running on it
+  # is nobody's: a routing turn its message's later attempt replaced was one (2026-10-11). The
+  # worker refuses to close a session while a turn runs, so the turn is stopped first and the
+  # session closed on a later attempt, under a close of its own: stopping the turn moves the
+  # session's revision past any close frozen before it, and the fleet keeps every answer under
+  # its key, so each attempt asks under a key of its own.
+  defp stop_turn(session, lease_ref, turn_id, revision, settings) do
+    asked = ask_to_stop(session, turn_id, revision, settings)
+
+    with {:ok, _advanced} <-
+           Custody.advance_close(session.id, lease_ref, session.close_generation) do
+      case asked do
+        :answered -> {:error, {:retention_turn_running, turn_id}}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  defp ask_to_stop(session, turn_id, revision, settings) do
+    if function_exported?(settings.api, :cancel_turn, 5) do
+      key = "#{Custody.close_key(session)}:stop:#{turn_id}"
+
+      api_call(fn ->
+        settings.api.cancel_turn(settings.client, session.coop_session_id, turn_id, key, revision)
+      end)
+      |> stop_answer()
+    else
+      :answered
+    end
+  end
+
+  # Whatever the worker answers, the turn is read again on the next attempt. A worker that
+  # could not be reached gave no answer: that is an outage, waited for as one.
+  defp stop_answer({:ok, _stopping}), do: :answered
+
+  defp stop_answer({:error, {:coop_error, status, _code, _detail} = unreached})
+       when status in @unreached,
+       do: {:error, unreached}
+
+  defp stop_answer({:error, {:coop_error, _status, _code, _detail}}), do: :answered
+  defp stop_answer({:error, reason}), do: {:error, reason}
 
   defp close_again(frozen, lease_ref, revision, settings) do
     with {:ok, advanced} <- Custody.advance_close(frozen.id, lease_ref, frozen.close_generation),
@@ -245,11 +300,15 @@ defmodule Ryker.Retention.Executor do
     end
   end
 
+  # The session changed after it was read, or a turn started on it since: the worker refuses
+  # the close and keeps that refusal under its key, so the next attempt reads the session
+  # again and closes under a new one.
   defp handle_close_error(
-         {:coop_error, 409, "revision_conflict", _detail} = reason,
+         {:coop_error, 409, code, _detail} = reason,
          session,
          lease_ref
-       ) do
+       )
+       when code in ["revision_conflict", "invalid_session_state"] do
     with {:ok, _advanced} <-
            Custody.advance_close(session.id, lease_ref, session.close_generation) do
       {:error, {:retention_generation_spent, :close, reason}}
