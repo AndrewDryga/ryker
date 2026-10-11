@@ -1,0 +1,21 @@
+{
+  "payload": {
+    "conversation_ref": "slack:T0TENANT001:C0TENANTENG",
+    "destination_ref": "slack-source:v1:T0TENANT001:C0TENANTENG:channel",
+    "instruction_ref": "slack-source:v1:T0TENANT001:C0TENANTOPS:message:1791738575.151749",
+    "message": "QA confirmed-delivery marker 126.",
+    "requested_by_actor_ref": "slack:user:U0TENANTUS1",
+    "thread_ref": null,
+    "transport": "slack"
+  },
+  "delivery_document": {
+    "decision_reason": null,
+    "delivery": "reply",
+    "message": "Once you confirm, I’ll post exactly “QA confirmed-delivery marker 126.” to [#channel](slack-channel:slack:T0TENANT001:C0TENANTENG).",
+    "outcome": {
+      "artifact_refs": [],
+      "record_refs": ["record:slack_post_offer:recorded-confirmed-post"],
+      "state": "complete"
+    }
+  }
+}

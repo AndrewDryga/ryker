@@ -1,7 +1,10 @@
 defmodule Ryker.Slack.InteractionRepaintSourcesTest do
-  use Ryker.DataCase, async: true
+  # The confirmed-post projection reads installation settings; settings fixtures own
+  # the singleton and run serially rather than queuing async transactions behind it.
+  use Ryker.DataCase, async: false
   alias Ryker.Behaviors.Behavior
   alias Ryker.{CanonicalJSON, Episodes, Repo}
+  alias Ryker.Delivery.PlatformAction
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Knowledge, as: KnowledgeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
@@ -136,6 +139,120 @@ defmodule Ryker.Slack.InteractionRepaintSourcesTest do
     assert record["ref"] == fixture.record.ref
     assert record["status"] == "confirmed"
     assert record["payload"] == fixture.record.payload
+  end
+
+  test "a delivered post link does not withdraw its source-backed confirmation card" do
+    # The fresh production confirmation posted successfully, then its link made the exact
+    # source checker reject the host-enriched record and replace the entire reply (QA, 2026-10-11).
+    captured = Jason.decode!(File.read!("testdata/slack/confirmed-post-repaint.json"))
+    workspace = "T0TENANT001"
+    fixture = fixture!(:structured, workspace)
+    conversation = fixture.claim.episode.destination_conversation_ref
+    [_slack, _workspace, channel] = String.split(conversation, ":")
+
+    payload =
+      captured["payload"]
+      |> Map.put("conversation_ref", conversation)
+      |> Map.put("destination_ref", "slack-source:v1:#{workspace}:#{channel}:channel")
+
+    record =
+      fixture.record
+      |> Ecto.Changeset.change(
+        kind: "slack_post_offer",
+        payload: payload,
+        payload_fingerprint: CanonicalJSON.digest(payload),
+        status: :confirmed,
+        confirmed_by_actor_ref: payload["requested_by_actor_ref"],
+        confirmed_at: DateTime.utc_now(),
+        confirmation_ref: "captured-confirmed-post"
+      )
+      |> Repo.update!()
+
+    # Rebind opaque fixture custody only; keep the harvested decision and prose.
+    candidate =
+      captured["delivery_document"]
+      |> put_in(["outcome", "record_refs"], [record.ref])
+      |> Map.update!(
+        "message",
+        &String.replace(&1, captured["payload"]["conversation_ref"], conversation)
+      )
+
+    fixture.turn
+    |> Ecto.Changeset.change(
+      delivery_document: candidate,
+      delivery_fingerprint: CanonicalJSON.digest(candidate)
+    )
+    |> Repo.update!()
+
+    now = DateTime.utc_now()
+
+    Repo.insert!(%Ryker.Settings.Installation{
+      host_ref: "installation",
+      revision: 1,
+      saved_by: "fixture",
+      saved_at: now,
+      inserted_at: now
+    })
+
+    Repo.insert!(%Ryker.Settings.Slack{
+      id: "installation",
+      workspace_url: "https://tenant.slack.com"
+    })
+
+    message = "1791740759.096129"
+
+    action =
+      Repo.insert!(%PlatformAction{
+        episode_id: fixture.claim.episode.id,
+        turn_id: fixture.turn.id,
+        action_ref: "platform-action:captured-confirmed-post",
+        host_slot: Records.SlackPostOffers.host_slot(record),
+        tool: :post_slack_message,
+        kind: :message,
+        transport: "slack",
+        conversation_ref: payload["conversation_ref"],
+        document: %{"message" => payload["message"]},
+        intent_fingerprint: digest(),
+        status: :delivered,
+        delivered_at: DateTime.utc_now(),
+        external_receipt: %{"message_ref" => message},
+        external_receipt_fingerprint: digest()
+      })
+
+    assert repaint(fixture.audit) == :ok
+    assert_received {:updated, _, _, document, _}
+    assert document["message"] == "Confirmed."
+    assert [projected] = document["records"]
+
+    assert projected["message_url"] ==
+             "https://tenant.slack.com/archives/#{channel}/p1791740759096129"
+
+    assert {:ok, rendered} = Renderer.render(document)
+    assert inspect(rendered) =~ "Message posted"
+
+    action
+    |> Ecto.Changeset.change(
+      status: :pending,
+      delivered_at: nil,
+      external_receipt: nil,
+      external_receipt_fingerprint: nil
+    )
+    |> Repo.update!()
+
+    assert repaint(fixture.audit) == :ok
+    assert_received {:updated, _, _, pending, _}
+    assert pending["message"] == "Confirmed."
+    refute hd(pending["records"])["message_url"]
+    assert {:ok, waiting} = Renderer.render(pending)
+    assert inspect(waiting) =~ "Message confirmed"
+    refute inspect(waiting) =~ "Message posted"
+
+    KnowledgeFixtures.revoke!(fixture.source)
+    assert repaint(fixture.audit) == :ok
+    assert_received {:updated, _, _, withdrawn, _}
+    assert Map.keys(withdrawn) == ["message"]
+    assert withdrawn["message"] =~ "source context"
+    assert Repo.get!(Turn, fixture.turn.id).delivery_document == candidate
   end
 
   test "confirmation repaint removes obsolete proposal prose without rewriting the accepted answer" do

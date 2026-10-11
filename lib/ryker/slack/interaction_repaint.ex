@@ -191,7 +191,8 @@ defmodule Ryker.Slack.InteractionRepaint do
       Records.DerivedContext.delivery(Records.DerivedContext.delivery_document(turn))
       | Enum.map(
           document["records"] || [],
-          &(Map.delete(&1, "presentation") |> Records.DerivedContext.record())
+          # Host receipt links and presentation are not model-authored record content.
+          &(Map.drop(&1, ~w(presentation message_url)) |> Records.DerivedContext.record())
         )
     ]
   end
@@ -242,9 +243,16 @@ defmodule Ryker.Slack.InteractionRepaint do
   end
 
   defp confirmation_message(records, message) do
-    if Enum.any?(records, &(&1.kind in @confirmation_kinds and &1.status == :confirmed)),
-      do: "Saved.",
-      else: message
+    cond do
+      Enum.any?(records, &(&1.kind == "slack_post_offer" and &1.status == :confirmed)) ->
+        "Confirmed."
+
+      Enum.any?(records, &(&1.kind in @confirmation_kinds and &1.status == :confirmed)) ->
+        "Saved."
+
+      true ->
+        message
+    end
   end
 
   defp repaint_api?(api) do
