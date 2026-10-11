@@ -133,7 +133,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
         ),
       actions: operator_actions(episode, current_turn),
       case_file:
-        episode.id
+        episode
         |> CaseFile.build(turns, sessions, disclosed)
         |> CaseFile.with_admitted(Enum.map(admitted, & &1.message)),
       startup: startup,

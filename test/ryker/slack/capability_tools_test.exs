@@ -8,6 +8,21 @@ defmodule Ryker.Slack.CapabilityToolsTest do
   alias Ryker.StateTools.ErrorCode
   alias Ryker.Work.Turn
 
+  # The live model attempted removal while its add was still pending (QA,
+  # 2026-10-11); the host correctly refused but the advertised wording did not
+  # explain the delivery boundary or how to observe it.
+  test "reaction and search descriptions teach their actual delivery and grant boundaries" do
+    catalog = Map.new(CapabilityTools.definitions(), &{&1["name"], &1})
+    reaction = catalog["set_slack_reaction"]["description"]
+    assert reaction =~ "delivered add"
+    assert reaction =~ "get_work_state"
+    assert catalog["search_slack"]["description"] =~ "short-lived"
+    assert catalog["search_slack"]["description"] =~ "Do not retry"
+
+    assert get_in(catalog, ["search_slack", "inputSchema", "properties", "limit", "maximum"]) ==
+             20
+  end
+
   defmodule FakeActionTokens do
     def checkout(observer, event_ref, turn_id) do
       send(observer, {:token_checkout, event_ref, turn_id})

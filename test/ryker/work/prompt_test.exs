@@ -458,8 +458,9 @@ defmodule Ryker.Work.PromptTest do
   test "a few reactions are allowed when they help, and one is usually enough" do
     instructions = normalized_instructions()
 
-    assert instructions =~
-             "When set_slack_reaction is available, each call adds one emoji to a person's message"
+    assert instructions =~ "When set_slack_reaction is available, each call adds or removes"
+    assert instructions =~ "wait until get_work_state shows the add as delivered"
+    assert instructions =~ "a pending add does not authorize removal"
 
     assert instructions =~ "a turn may add a few when that helps, but one is usually enough"
     refute instructions =~ ~r/\b\d+\s*(words?|sentences?|characters?|emoji|reactions?)\b/i

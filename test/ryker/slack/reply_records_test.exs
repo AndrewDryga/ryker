@@ -13,6 +13,60 @@ defmodule Ryker.Slack.ReplyRecordsTest do
   @reply Path.expand("../../../testdata/slack/terraform-deployment-reply.json", __DIR__)
   @github_url "https://github.com/octo/example/pull/42"
 
+  # A read-only follow-up cited an old publication offer after its draft was
+  # already published; Slack showed "No branch" and "Review changes" again
+  # (manual QA, 2026-10-11). Keep history, not a second actionable offer.
+  test "an offer consumed by canonical publication is not a reply card" do
+    %{episode: episode, publication: publication} =
+      Ryker.Fixtures.Publication.published!("consumed-reply")
+
+    offer = Repo.get!(Record, publication.record_id)
+
+    assert ReplyRecords.fetch(episode.id, [offer.ref], Ecto.UUID.generate()) == {:ok, []}
+    assert {:ok, [retained]} = ReplyRecords.fetch(episode.id, [offer.ref])
+    assert retained == offer
+    assert Repo.get!(Record, offer.id) == offer
+
+    publication_query = Ryker.Publication.Publication.Query
+
+    assert [offer.id] ==
+             publication.id
+             |> publication_query.by_id()
+             |> publication_query.select_consumed_record_ids(episode.id, [offer.id])
+             |> Repo.all()
+
+    assert [] ==
+             Ecto.UUID.generate()
+             |> publication_query.by_id()
+             |> publication_query.select_consumed_record_ids(episode.id, [offer.id])
+             |> Repo.all()
+
+    # Consumption is the exact same-episode binding, not status or payload.
+    for {phase, fixture} <- [
+          {:reviewed, &Ryker.Fixtures.Publication.reviewed!/1},
+          {:review_pending, &Ryker.Fixtures.Publication.review_requested!/1}
+        ] do
+      %{publication: publication} = fixture.("consumed-#{phase}")
+      consumed = Repo.get!(Record, publication.record_id)
+
+      assert ReplyRecords.fetch(publication.episode_id, [consumed.ref], consumed.turn_id) ==
+               {:ok, []}
+    end
+
+    claim = claim!()
+
+    {:ok, orphan} =
+      Records.create(
+        Records.token(claim.turn),
+        "orphan-offer",
+        "publication_offer",
+        offer.payload
+      )
+
+    assert {:ok, [^orphan]} = ReplyRecords.fetch(claim.episode.id, [orphan.ref], claim.turn.id)
+    assert {:error, _} = ReplyRecords.fetch(claim.episode.id, [offer.ref], claim.turn.id)
+  end
+
   test "source links use retained receipts from this episode, never foreign or retired activity" do
     # A bare source UUID used to be displayed despite the exact run URL already being on disk.
     first = claim!()

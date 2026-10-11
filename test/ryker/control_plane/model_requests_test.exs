@@ -9,6 +9,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
   alias Ryker.ControlPlane.ModelRequests
   alias Ryker.CoopFleet.JobTemplates
   alias Ryker.Fixtures.WorkSessions
+  alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Ingress.{InputCustodyTransition, WorkProfile}
   alias Ryker.InspectionRedactor
   alias Ryker.Settings
@@ -598,6 +599,17 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     assert missing_request = Enum.find(missing.items, &(&1.id == "admission-#{entry.id}-2"))
     assert missing_prompt?(missing_request)
 
+    # Similar-looking and foreign host markers must not hide missing evidence.
+    for marker <- ["host:answer:#{Ecto.UUID.generate()}", "host:other:#{entry.id}"] do
+      entry.id |> Entry.Query.by_id() |> Repo.update_all(set: [decision_ref: marker])
+      {:ok, missing} = ModelRequests.timeline(episode.key, %{})
+      assert Enum.find(missing.items, &(&1.id == "admission-#{entry.id}-2"))
+    end
+
+    entry.id
+    |> Entry.Query.by_id()
+    |> Repo.update_all(set: [decision_ref: "host:answer:#{entry.id}"])
+
     for generation <- 1..2 do
       Repo.insert!(%Attempt{
         input_id: entry.id,
@@ -626,6 +638,16 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
       decision = Enum.find(result.sections, &(&1.id == "candidate"))
       assert decision.artifact.state == if(generation == 2, do: :retained, else: :not_recorded)
       assert result.at == entry.inserted_at
+    end
+
+    entry.id
+    |> Entry.Query.by_id()
+    |> Repo.update_all(set: [operational_pruned_at: DateTime.utc_now()])
+
+    {:ok, pruned} = ModelRequests.timeline(episode.key, %{})
+
+    for generation <- 1..2 do
+      assert Enum.find(pruned.items, &(&1.id == "admission-#{entry.id}-#{generation}"))
     end
 
     # A frequently retried input can consume the whole window. Older retained

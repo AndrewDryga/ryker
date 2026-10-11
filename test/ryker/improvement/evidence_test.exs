@@ -22,6 +22,106 @@ defmodule Ryker.Improvement.EvidenceTest do
   @now ~U[2026-09-27 12:00:00.000000Z]
   @bob "The payroll export still runs from the old billing box until Friday."
 
+  # QA's draft existed, but its negative-rating analysis saw no publication
+  # receipt and diagnosed from the model's wrong answer alone (2026-10-11).
+  test "self-analysis sees canonical publication evidence without rewriting historical visibility" do
+    %{episode: episode, publication: publication, receipt: receipt} =
+      Ryker.Fixtures.Publication.published!("analysis-publication")
+
+    question = message!("1790501100.000100", "Report the already opened draft.")
+    Answers.join!(question, episode.id)
+    unhappy!({:episode, episode.id}, "publication")
+    candidate = Inspectors.improvement_candidate({:episode, episode.id})
+
+    evidence = Evidence.gather(candidate)
+    assert evidence.available?
+    assert evidence.publication["state"]["published_revision"] == receipt
+    assert evidence.publication["state"]["status"] == "published"
+    assert evidence.publication["model_visibility"] == "not_proven"
+    assert {:ok, _, _} = DateTime.from_iso8601(evidence.publication["observed_at"])
+
+    prompt = evidence |> Prompt.build() |> Prompt.render()
+    assert Jason.decode!(prompt)["context"]["publication"] == evidence.publication
+    assert byte_size(prompt) <= Prompt.maximum_bytes()
+    assert Prompt.instructions() =~ "does not prove what an earlier model saw"
+    refute Map.has_key?(Evidence.case_snapshot(candidate).snapshot, "publication")
+
+    settings = %{
+      enabled: true,
+      quiet_seconds: 0,
+      lease_seconds: 60,
+      policy: "analysis-publication",
+      policy_digest: String.duplicate("a", 64)
+    }
+
+    assert {:ok, claim} = Ryker.Improvement.Analyses.claim("analysis-publication", settings)
+    assert claim.candidate.id == candidate.id
+    assert {:ok, run} = Ryker.Improvement.Analyses.prepare(claim, settings)
+
+    assert Jason.decode!(run.prompt)["context"]["publication"]["state"]["published_revision"] ==
+             receipt
+
+    assert run.manifest["publication"]
+    assert run.output_schema == Prompt.output_schema()
+
+    # A malformed digest must not certify the publication's old receipt.
+    publication.id
+    |> Ryker.Publication.Publication.Query.by_id()
+    |> Repo.update_all(set: [publication_receipt_fingerprint: String.duplicate("0", 64)])
+
+    assert Evidence.gather(candidate).publication["state"]["published_revision"] == nil
+
+    # Raw descriptions, patches and gate output are not analysis context.
+    publication.id
+    |> Ryker.Publication.Publication.Query.by_id()
+    |> Repo.update_all(
+      set: [body: "private-patch-not-context", title: "private-title-not-context"]
+    )
+
+    refute candidate |> Evidence.gather() |> Prompt.build() |> Prompt.render() =~ "private-"
+
+    session = Repo.peek(Ryker.Work.Session.Query.latest_of_episode(episode.id))
+
+    for repository <- [nil, "foreign-repository"] do
+      episode.id
+      |> Ryker.Work.Session.Query.by_episode_id()
+      |> Repo.update_all(
+        set: [
+          repository_ref: repository,
+          repository_source: if(is_nil(repository), do: nil, else: session.repository_source)
+        ]
+      )
+
+      assert Evidence.gather(candidate).publication == nil
+    end
+
+    episode.id
+    |> Ryker.Work.Session.Query.by_episode_id()
+    |> Repo.update_all(
+      set: [repository_ref: session.repository_ref, repository_source: session.repository_source]
+    )
+
+    # Oversized or malformed review metadata cannot consume the analysis bound.
+    huge_review =
+      Map.put(publication.review_document, "gate", %{"status" => String.duplicate("x", 90_000)})
+
+    publication.id
+    |> Ryker.Publication.Publication.Query.by_id()
+    |> Repo.update_all(set: [review_document: huge_review])
+
+    bounded = Evidence.gather(candidate)
+    assert bounded.publication["state"] == nil
+    assert bounded.publication["note"] =~ "safety bound"
+    assert byte_size(bounded |> Prompt.build() |> Prompt.render()) <= Prompt.maximum_bytes()
+
+    # Metadata alone must not resurrect a wordless/expired request for analysis.
+    question.id
+    |> Entry.Query.by_id()
+    |> Repo.update_all(set: [operational_pruned_at: @now, content: %{"retention" => "pruned"}])
+
+    assert %{available?: false, publication: nil} = Evidence.gather(candidate)
+  end
+
   # Found in review before it shipped (2026-09-27). Routing examples are off
   # by default, so the analysis reads most routing prompts from the routing
   # attempt itself, which deleting and forgetting never reach. A prompt that

@@ -207,7 +207,9 @@ defmodule Ryker.ControlPlane.ModelRequests do
          page: page,
          shown:
            length(turns) + length(attempts) +
-             Enum.count(entries, &(!MapSet.member?(retained_inputs, &1.id))),
+             Enum.count(entries, fn entry ->
+               not MapSet.member?(retained_inputs, entry.id) and not host_answer?(entry)
+             end),
          more: if(truncated && page < @timeline_max_pages, do: page + 1)
        }
      }}
@@ -289,7 +291,20 @@ defmodule Ryker.ControlPlane.ModelRequests do
     |> Enum.sort_by(&{&1.inserted_at, &1.id}, :desc)
   end
 
-  defp admission_events(entry, attempt, reading) do
+  defp admission_events(entry, nil, reading) do
+    if host_answer?(entry), do: [], else: recorded_admission_events(entry, nil, reading)
+  end
+
+  defp admission_events(entry, attempt, reading),
+    do: recorded_admission_events(entry, attempt, reading)
+
+  # The deterministic question-card answer path never submitted a model call.
+  # Only its exact durable marker suppresses a missing-attempt placeholder;
+  # an actual retained attempt always remains visible, including after pruning.
+  defp host_answer?(%Ingress.Inbox.Entry{id: id, decision_ref: ref}),
+    do: ref == "host:answer:#{id}"
+
+  defp recorded_admission_events(entry, attempt, reading) do
     generation = if attempt, do: attempt.generation, else: entry.execution_generation
     request = inspect_entry(entry, attempt, generation, reading)
     request = %{request | at: if(attempt, do: attempt.inserted_at, else: entry.inserted_at)}

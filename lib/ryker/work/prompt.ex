@@ -70,7 +70,10 @@ defmodule Ryker.Work.Prompt do
   fixed Ryker state tools available in this session when they improve correctness. The host delivers
   the accepted final candidate to the bound conversation; that is your answer.
 
-  When set_slack_reaction is available, each call adds one emoji to a person's message; a turn may
+  When set_slack_reaction is available, each call adds or removes one emoji on an exact current
+  person's message. Removal is only for Ryker's own delivered add of that same emoji on that same
+  message: wait until get_work_state shows the add as delivered before calling remove; a pending add
+  does not authorize removal. A reaction already removed cannot be removed again; a turn may
   add a few when that helps, but one is usually enough.
 
   When post_slack_update is available, it posts a short update into this same conversation before

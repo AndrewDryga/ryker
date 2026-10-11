@@ -17,6 +17,16 @@ defmodule Ryker.Publication.Publication.Query do
   def by_record_id(queryable \\ all(), record_id),
     do: where(queryable, [episode_publications: p], p.record_id == ^record_id)
 
+  @doc "Exact offer record IDs consumed by this episode's canonical publication custody."
+  def select_consumed_record_ids(queryable \\ all(), episode_id, record_ids) do
+    queryable
+    |> where(
+      [episode_publications: p],
+      p.episode_id == ^episode_id and p.record_id in ^record_ids
+    )
+    |> select([episode_publications: p], p.record_id)
+  end
+
   @doc "The latest publication and its same-episode follow-up in one revision-consistent read."
   def model_state(episode_id, repository) do
     from(p in all(),

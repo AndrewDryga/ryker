@@ -26,6 +26,7 @@ defmodule Ryker.Improvement.Evidence do
   alias Ryker.Improvement.Candidate
   alias Ryker.Ingress
   alias Ryker.InspectionRedactor
+  alias Ryker.Publication
   alias Ryker.Records
   alias Ryker.Reference
   alias Ryker.Repo
@@ -48,6 +49,7 @@ defmodule Ryker.Improvement.Evidence do
           conversation: [map()],
           routing: [map()],
           work: [map()],
+          publication: map() | nil,
           feedback: [map()],
           omitted: [String.t()],
           message_keys: [String.t()],
@@ -150,6 +152,7 @@ defmodule Ryker.Improvement.Evidence do
         conversation: conversation(messages, answers),
         routing: routing,
         work: work,
+        publication: if(is_nil(missing), do: publication(episode, secrets)),
         feedback: Enum.map(feedback, &Map.delete(&1, :key)),
         omitted:
           omitted(messages, routing, entries) ++ expired_answers(request, entries, answers),
@@ -484,6 +487,41 @@ defmodule Ryker.Improvement.Evidence do
   end
 
   # -- Work -------------------------------------------------------------------------
+
+  # This is the canonical host state when the analysis is prepared, not a
+  # reconstruction of what any historical Work model was allowed to see.
+  # The model-state projection excludes descriptions, patches and gate output.
+  defp publication(nil, _secrets), do: nil
+
+  defp publication(%Episodes.Episode{id: id}, secrets) do
+    session_query = Work.Session.Query.latest_of_episode(id)
+
+    with {:ok, %Work.Session{repository_ref: repository}} when is_binary(repository) <-
+           Repo.fetch(session_query),
+         %{} = state <- Publication.ModelState.snapshot(id, repository) do
+      safe = InspectionRedactor.redact(state, secrets)
+
+      evidence = %{
+        "model_visibility" => "not_proven",
+        "observed_at" => iso(Repo.now!()),
+        "source" => "same_episode_pinned_repository",
+        "state" => safe
+      }
+
+      if byte_size(Ryker.CanonicalJSON.encode!(evidence)) <= 8_192 do
+        evidence
+      else
+        evidence
+        |> Map.put("state", nil)
+        |> Map.put(
+          "note",
+          "Canonical publication state omitted because it exceeded the safety bound."
+        )
+      end
+    else
+      _unavailable -> nil
+    end
+  end
 
   defp work(nil, _secrets), do: []
 

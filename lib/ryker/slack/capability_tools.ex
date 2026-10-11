@@ -66,7 +66,7 @@ defmodule Ryker.Slack.CapabilityTools do
       },
       %{
         "description" =>
-          "Search authorized Slack workspace context for the current user-initiated turn. Results are ephemeral; call read_slack_source before citing an important result.",
+          "Search authorized Slack workspace context for the current user-initiated turn. Requires Slack's short-lived grant from that person's triggering message; it may be absent or expired even while Slack is connected. Do not retry search_unavailable: use read_slack_source on known exact sources or explain what could not be checked. Results are ephemeral; call read_slack_source before citing an important result.",
         "inputSchema" => %{
           "additionalProperties" => false,
           "properties" => %{
@@ -122,7 +122,7 @@ defmodule Ryker.Slack.CapabilityTools do
       },
       %{
         "description" =>
-          "Add or remove one deliberate reaction on an exact current human Slack message. Each call is one reaction: a turn makes at most #{Delivery.PlatformActionCustody.maximum_per_turn()}, delivered in the order called, and the same call again is the same reaction. Removal is limited to a reaction previously added by Ryker.",
+          "Add or remove one deliberate reaction on an exact current human Slack message. Each call is one reaction: a turn makes at most #{Delivery.PlatformActionCustody.maximum_per_turn()}, delivered in the order called, and the same call again is the same reaction. Removal requires Ryker's latest delivered add of that exact emoji on that exact message. Check get_work_state for delivery before removing; a pending add or an already removed reaction grants no removal authority.",
         "inputSchema" => %{
           "additionalProperties" => false,
           "properties" => %{

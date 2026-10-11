@@ -1498,6 +1498,10 @@ defmodule Ryker.ControlPlane.EpisodePage do
         <span :if={@message[:status]}>{@message.status}</span>
       </:meta>
       <div>{message_text(@message)}</div>
+      <.message_attachments
+        :if={@message[:attachments] not in [nil, []]}
+        attachments={@message.attachments}
+      />
       <:footer :if={@message[:source] || @message[:details]}>
         <%!-- The body keeps a message's own line breaks; a link to where it was
         written is the footer's, beside its details. --%>
@@ -1520,6 +1524,38 @@ defmodule Ryker.ControlPlane.EpisodePage do
         rel="noopener noreferrer"
       >{link.label} ↗</a>
     </p>
+    """
+  end
+
+  defp message_attachments(assigns) do
+    ~H"""
+    <div class="message-attachments">
+      <.message_attachment :for={attachment <- @attachments} attachment={attachment} />
+    </div>
+    """
+  end
+
+  defp message_attachment(assigns) do
+    ~H"""
+    <a :if={@attachment.path} class="attachment-download" href={@attachment.path}>
+      <img
+        :if={@attachment.media_type in ~w(image/png image/jpeg image/webp image/gif)}
+        src={@attachment.path}
+        alt={"Generated attachment: " <> @attachment.name}
+        loading="lazy"
+      />
+      <.attachment_chip attachment={@attachment} />
+    </a>
+    <.attachment_chip :if={!@attachment.path} attachment={@attachment} />
+    """
+  end
+
+  defp attachment_chip(assigns) do
+    ~H"""
+    <span class="attachment-chip">
+      <strong>{@attachment.name}</strong>
+      <span>{@attachment.media_type} · {@attachment.bytes} bytes</span>
+    </span>
     """
   end
 

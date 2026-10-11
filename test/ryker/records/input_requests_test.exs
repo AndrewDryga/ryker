@@ -182,53 +182,72 @@ defmodule Ryker.Records.InputRequestsTest do
   # Source content not recorded or expired", then "Participation: The participation decision and
   # channel settings were not recorded for this message" — "we should show what initiated the
   # episode continuation not just show 'oh it was something'".
-  @tag isolation: "REPEATABLE READ"
-  test "a card answer reads in the timeline as the answer that continued the work" do
-    fixture = delivered_question!(:control_plane)
+  for transport <- [:control_plane, :slack] do
+    @tag isolation: "REPEATABLE READ"
+    test "a #{transport} card answer continues work without inventing a model routing request" do
+      fixture = delivered_question!(unquote(transport))
 
-    assert {:ok, answer} =
-             InputRequests.answer(
-               answer(fixture, 1, "timeline")
-               |> Map.put(:actor_ref, "local-operator")
-               |> Map.put(:occurred_at, DateTime.add(DateTime.utc_now(), 1, :second))
-             )
+      assert {:ok, answer} =
+               InputRequests.answer(
+                 answer(fixture, 1, "timeline")
+                 |> Map.put(:actor_ref, "local-operator")
+                 |> Map.put(:occurred_at, DateTime.add(DateTime.utc_now(), 1, :second))
+               )
 
-    assert {:ok, %{lease_ref: lease_ref}} =
-             Inbox.claim_next("executor:timeline", DateTime.add(@now, 5, :second), 300)
+      assert {:ok, %{lease_ref: lease_ref}} =
+               Inbox.claim_next("executor:timeline", DateTime.add(@now, 5, :second), 300)
 
-    {:ok, routing} = FakeCoopAPI.start_link([])
+      {:ok, routing} = FakeCoopAPI.start_link([])
 
-    assert {:ok, _execution} =
-             Executor.run(answer.input_ref,
-               api: FakeCoopAPI,
-               client: routing,
-               lease_ref: lease_ref,
-               max_polls: 1,
-               now: fn -> DateTime.add(@now, 5, :second) end,
-               policy: "admission-read-only",
-               policy_digest: String.duplicate("a", 64),
-               poll_interval_ms: 0,
-               renew_lease: fn -> :ok end,
-               sleep: fn _milliseconds -> :ok end
-             )
+      assert {:ok, _execution} =
+               Executor.run(answer.input_ref,
+                 api: FakeCoopAPI,
+                 client: routing,
+                 lease_ref: lease_ref,
+                 max_polls: 1,
+                 now: fn -> DateTime.add(@now, 5, :second) end,
+                 policy: "admission-read-only",
+                 policy_digest: String.duplicate("a", 64),
+                 poll_interval_ms: 0,
+                 renew_lease: fn -> :ok end,
+                 sleep: fn _milliseconds -> :ok end
+               )
 
-    {:ok, detail} = EpisodeProjection.fetch(fixture.episode.key)
-    {:ok, timeline} = ModelRequests.timeline(detail.episode.ref, %{})
+      {:ok, detail} = EpisodeProjection.fetch(fixture.episode.key)
+      {:ok, timeline} = ModelRequests.timeline(detail.episode.ref, %{})
 
-    document =
-      render_component(&EpisodePage.render/1,
-        snapshot: detail,
-        timeline: timeline,
-        requests: nil,
-        params: %{}
-      )
-      |> LazyHTML.from_fragment()
+      # The exact host answer path called no model, but QA's timeline invented
+      # an expired routing briefing for it (manual qualification, 2026-10-11).
+      {:ok, entry} = Inbox.fetch(answer.input_ref)
+      assert entry.decision_ref == "host:answer:#{entry.id}"
+      refute Enum.any?(timeline.items, &String.starts_with?(&1.id, "admission-#{entry.id}-"))
 
-    text = LazyHTML.text(document)
-    assert text =~ "Answer to Ryker's question"
-    assert text =~ ~s(Answered "Stop the rollout")
-    refute text =~ "Source content not recorded or expired"
-    refute text =~ "participation decision and channel settings were not recorded"
+      expected_calls = fixture.episode.id |> Turn.Query.by_episode_id() |> Repo.aggregate(:count)
+      assert timeline.call_history.shown == expected_calls
+
+      document =
+        render_component(&EpisodePage.render/1,
+          snapshot: detail,
+          timeline: timeline,
+          requests: nil,
+          params: %{}
+        )
+        |> LazyHTML.from_fragment()
+
+      text = LazyHTML.text(document)
+      assert text =~ "Answer to Ryker's question"
+      assert text =~ ~s(Answered "Stop the rollout")
+      refute text =~ "Source content not recorded or expired"
+      refute text =~ "participation decision and channel settings were not recorded"
+
+      entry.id
+      |> Ryker.Ingress.Inbox.Entry.Query.by_id()
+      |> Repo.update_all(set: [operational_pruned_at: DateTime.utc_now()])
+
+      {:ok, pruned} = ModelRequests.timeline(detail.episode.ref, %{})
+      refute Enum.any?(pruned.items, &String.starts_with?(&1.id, "admission-#{entry.id}-"))
+      assert pruned.call_history.shown == expected_calls
+    end
   end
 
   # Andrew, 2026-10-01, on a Chat question he had answered: his answer read

@@ -5,6 +5,23 @@ defmodule Ryker.Improvement.PromptTest do
 
   @fixture "test/ryker/improvement/fixtures/emisar_access_correction.json"
 
+  test "canonical publication survives fitting as current evidence, never historical visibility" do
+    publication = %{
+      "observed_at" => "2026-10-11T16:00:00Z",
+      "model_visibility" => "not_proven",
+      "state" => %{"status" => "published", "published_revision" => %{"commit_sha" => "abc"}}
+    }
+
+    evidence = evidence(fixture!()) |> Map.put(:publication, publication)
+
+    evidence =
+      Map.update!(evidence, :conversation, &(&1 ++ [%{"text" => String.duplicate("x", 90_000)}]))
+
+    request = Prompt.build(evidence)
+    assert request["context"]["publication"] == publication
+    assert byte_size(Prompt.render(request)) <= Prompt.maximum_bytes()
+  end
+
   # A diagnosis is only as good as its evidence: the model must see what the
   # person said, what Ryker answered and what routing was told, word for
   # word, and be told plainly that it is judging, not fixing.

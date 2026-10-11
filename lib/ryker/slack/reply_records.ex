@@ -14,6 +14,7 @@ defmodule Ryker.Slack.ReplyRecords do
   alias Ryker.Delivery
   alias Ryker.GitHub
   alias Ryker.Memories
+  alias Ryker.Publication
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Schedules
@@ -53,7 +54,19 @@ defmodule Ryker.Slack.ReplyRecords do
           {:ok, [Records.Record.t()]} | {:error, term()}
   def fetch(episode_id, refs, turn_id) when is_binary(turn_id) do
     with {:ok, records} <- fetch(episode_id, refs) do
-      {:ok, Enum.reject(records, &(&1.kind == "emisar_approval" and &1.turn_id != turn_id))}
+      consumed =
+        records
+        |> Enum.filter(&(&1.kind == "publication_offer"))
+        |> Enum.map(& &1.id)
+        |> then(&Publication.Publication.Query.select_consumed_record_ids(episode_id, &1))
+        |> Repo.all()
+        |> MapSet.new()
+
+      {:ok,
+       Enum.reject(records, fn record ->
+         (record.kind == "emisar_approval" and record.turn_id != turn_id) or
+           (record.kind == "publication_offer" and MapSet.member?(consumed, record.id))
+       end)}
     end
   end
 

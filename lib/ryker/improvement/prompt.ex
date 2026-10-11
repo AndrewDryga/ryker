@@ -41,6 +41,11 @@ defmodule Ryker.Improvement.Prompt do
     the exact answer it returned, and the model. A prompt that was not kept is null, and kept says why.
   - work: each Work turn: its status, error, model, the tools it called with how each call ended,
     and the answer it delivered.
+  - publication: bounded canonical host state for this request's pinned repository, observed_at
+    the analysis preparation time. It does not prove what an earlier model saw, or that a newer
+    candidate passed checks. A published_revision is the fingerprint-verified publication receipt;
+    existing_pull_request alone is identity, not proof that the current candidate was published.
+    Null or omitted publication evidence is unknown, not proof that nothing was published.
   - feedback: every signal about the answer, positive or not: reactions added or taken back, the
     person asking the same thing again, editing or deleting their message after the answer, how
     routing read the person's next message (sentiment, with its reason), and operator reviews. by says
@@ -106,6 +111,7 @@ defmodule Ryker.Improvement.Prompt do
       "conversation" => evidence.conversation,
       "routing" => evidence.routing,
       "work" => evidence.work,
+      "publication" => Map.get(evidence, :publication),
       "feedback" => evidence.feedback,
       "omitted" => evidence.omitted
     }
@@ -115,7 +121,7 @@ defmodule Ryker.Improvement.Prompt do
 
   # The order a reader needs: what the request was, what was said, what
   # routing and Work did, what people said about it, and what is missing.
-  @context_order ~w(request conversation routing work feedback omitted)
+  @context_order ~w(request conversation routing work publication feedback omitted)
 
   @doc "The prompt text: instructions first, then the context in reading order."
   @spec render(map()) :: String.t()

@@ -1,6 +1,8 @@
 defmodule Ryker.Slack.InteractionAudits do
   @moduledoc """
-  Durable audit and repaint custody for Slack controls and typed question answers.
+  Durable audit and repaint custody for Slack controls, typed question answers,
+  and confirmed-post delivery receipts. A delivery receipt is an automatic
+  repaint event, never another human press or authorization.
 
   The Socket Mode envelope is acknowledged only after this ledger records the
   authority outcome. Denials need no shared-message mutation. Stale and confirmed controls
@@ -13,6 +15,7 @@ defmodule Ryker.Slack.InteractionAudits do
   alias Ryker.CanonicalJSON
   alias Ryker.ConversationRef
   alias Ryker.Crypto
+  alias Ryker.Delivery
   alias Ryker.ErrorDetail
   alias Ryker.Ingress
   alias Ryker.Lease
@@ -72,6 +75,72 @@ defmodule Ryker.Slack.InteractionAudits do
   end
 
   def record_answer_in_transaction(_entry, _record, _turn, _kind), do: :ok
+
+  @doc "Queue the exact confirmed post's source card once its durable delivery has landed."
+  def record_post_delivery_in_transaction(
+        %Delivery.PlatformAction{
+          status: :delivered,
+          tool: :post_slack_message,
+          transport: "slack",
+          host_slot: "confirmed-post:" <> record_id
+        } = action
+      ) do
+    if Repo.in_transaction?() do
+      record_post_delivery(action, record_id)
+    else
+      {:error, :state_record_transaction_required}
+    end
+  end
+
+  def record_post_delivery_in_transaction(_action), do: :ok
+
+  defp record_post_delivery(action, record_id) do
+    case Ecto.UUID.cast(record_id) do
+      {:ok, record_id} -> record_post_source(action, record_id)
+      :error -> :ok
+    end
+  end
+
+  defp record_post_source(action, record_id) do
+    record_query =
+      record_id
+      |> Records.Record.Query.by_id()
+      |> Records.Record.Query.by_episode_id(action.episode_id)
+      |> Records.Record.Query.by_turn_id(action.turn_id)
+
+    turn_query =
+      action.turn_id
+      |> Work.Turn.Query.by_id()
+      |> Work.Turn.Query.by_episode_id(action.episode_id)
+
+    with {:ok, %Records.Record{kind: "slack_post_offer", status: :confirmed} = record} <-
+           Repo.fetch(record_query),
+         "slack:user:" <> actor <- record.confirmed_by_actor_ref,
+         {:ok, %Work.Turn{operational_pruned_at: nil, delivered_at: %DateTime{}} = turn} <-
+           Repo.fetch(turn_query),
+         %{"transport" => "slack", "message_ref" => message, "conversation_ref" => conversation} =
+           receipt <- turn.external_receipt,
+         true <- is_binary(message) and receipt["delivery_ref"] == turn.delivery_ref,
+         {:ok, workspace, channel} <- ConversationRef.parse_slack(conversation) do
+      %{
+        action_id: "post_delivery_receipt",
+        action_value: record.ref,
+        actor_ref: actor,
+        channel_ref: channel,
+        event_ref: "post-delivery:#{action.id}",
+        message_ref: message,
+        occurred_at: action.delivered_at,
+        thread_ref: receipt["thread_ref"],
+        workspace_ref: workspace
+      }
+      |> attributes(:confirmed)
+      |> record_locked()
+
+      :ok
+    else
+      _unavailable -> :ok
+    end
+  end
 
   @doc """
   The earliest moment after `since` at which a pending repaint becomes

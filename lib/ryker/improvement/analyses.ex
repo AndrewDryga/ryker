@@ -309,6 +309,7 @@ defmodule Ryker.Improvement.Analyses do
       "routing" => length(context["routing"]),
       "routing_prompts" => Enum.count(context["routing"], &is_binary(&1["prompt"])),
       "work" => length(context["work"]),
+      "publication" => is_map(context["publication"]) and is_map(context["publication"]["state"]),
       "feedback" => length(context["feedback"]),
       "omitted" => context["omitted"],
       "message_keys" => length(evidence.message_keys)

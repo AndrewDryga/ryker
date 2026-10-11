@@ -503,6 +503,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
     case fetch_and_lock_action(action_ref) do
       {:ok,
        %PlatformAction{status: :delivered, external_receipt_fingerprint: ^fingerprint} = action} ->
+        :ok = Ryker.Slack.InteractionAudits.record_post_delivery_in_transaction(action)
         action
 
       {:ok, %PlatformAction{status: :delivered}} ->
@@ -511,9 +512,7 @@ defmodule Ryker.Delivery.PlatformActionCustody do
       {:ok, %PlatformAction{} = action} ->
         with :ok <- current_lease(action, lease_ref, now),
              :ok <- exact_receipt(action, receipt) do
-          action
-          |> PlatformAction.Changeset.confirm(now, receipt, fingerprint)
-          |> write!(:confirm)
+          confirmed_action(action, now, receipt, fingerprint)
         else
           {:error, reason} -> Repo.rollback(reason)
         end
@@ -521,6 +520,16 @@ defmodule Ryker.Delivery.PlatformActionCustody do
       {:error, :not_found} ->
         Repo.rollback(:platform_action_not_found)
     end
+  end
+
+  defp confirmed_action(action, now, receipt, fingerprint) do
+    delivered =
+      action
+      |> PlatformAction.Changeset.confirm(now, receipt, fingerprint)
+      |> write!(:confirm)
+
+    :ok = Ryker.Slack.InteractionAudits.record_post_delivery_in_transaction(delivered)
+    delivered
   end
 
   defp leased_action(action_ref, lease_ref, now) do

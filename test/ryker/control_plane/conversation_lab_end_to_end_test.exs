@@ -436,6 +436,124 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
     refute conversation.live
   end
 
+  test "a sent image remains visible in its episode without reading its bytes on refresh" do
+    # A real blue-circle reply was visible in Chat but its episode showed only
+    # the filename in prose (manual qualification, 2026-10-11). Keep the exact
+    # accepted result and image, not a hand-written approximation of that reply.
+    fixture =
+      "testdata/work/blue-circle-accepted-delivery.json" |> File.read!() |> Jason.decode!()
+
+    metadata = Map.drop(fixture["artifact"], ["body_base64"])
+    data = fixture["artifact"]["body_base64"] |> String.replace("\n", "") |> Base.decode64!()
+
+    assert {:ok, %{status: :recorded}} =
+             send_message(
+               @artifact_event_id,
+               @now,
+               "Create a blue circle on white and attach it."
+             )
+
+    {:ok, admission} = FakeCoopAPI.start_link([decision(:start_episode, nil)])
+
+    assert {:ok, {:decided, _}} =
+             AdmissionDispatcher.run_once(admission_options(admission, @now))
+
+    {:ok, work} =
+      FakeWorkCoopAPI.start_link([Jason.encode!(fixture["delivery_document"])],
+        output_artifact_metadata: [metadata],
+        output_artifacts: %{metadata["id"] => Map.put(metadata, "data", data)}
+      )
+
+    assert {:ok, {:executed, %{status: :accepted, turn: turn}}} =
+             Ryker.Work.Dispatcher.run_once(work_options(work, "episode-image"))
+
+    key = EpisodeProjection.key(turn.episode_id)
+    {:ok, before_delivery} = EpisodeProjection.fetch(key)
+    refute Enum.any?(before_delivery.trace.case_file.conversation, &(&1.actor == "Ryker"))
+
+    assert {:ok, {:delivered, :message, _}} =
+             Ryker.Delivery.Dispatcher.run_once(delivery_options("episode-image"))
+
+    {{:ok, detail}, reads} = artifact_queries(fn -> EpisodeProjection.fetch(key) end)
+
+    assert [%{attachments: [attachment]}] =
+             Enum.filter(detail.trace.case_file.conversation, &(&1.actor == "Ryker"))
+
+    path =
+      "/conversations/#{@conversation_id}/turns/#{turn.id}/artifacts/#{metadata["id"]}"
+
+    assert attachment.name == metadata["name"]
+    assert attachment.media_type == "image/png"
+    assert attachment.bytes == byte_size(data)
+    assert attachment.path == path
+    assert length(reads) == 1
+    refute Enum.any?(reads, &String.contains?(&1, ~s("data")))
+
+    {:ok, timeline} = ModelRequests.timeline(key, %{})
+
+    html =
+      render_component(&EpisodePage.render/1,
+        snapshot: detail,
+        timeline: timeline,
+        requests: nil,
+        params: %{}
+      )
+
+    document = LazyHTML.from_fragment(html)
+
+    assert LazyHTML.attribute(LazyHTML.query(document, ".message-attachments img"), "src") == [
+             path
+           ]
+
+    assert LazyHTML.attribute(
+             LazyHTML.query(document, ".message-attachments .attachment-download"),
+             "href"
+           ) == [path]
+
+    assert html =~ "2221 bytes"
+
+    assert {:ok, %{data: ^data}} =
+             ConversationProjection.artifact(@conversation_id, turn.id, metadata["id"])
+
+    assert ConversationProjection.artifact(Ecto.UUID.generate(), turn.id, metadata["id"]) ==
+             :not_found
+
+    hostile_name = "<img onerror=evil>&.png"
+    assert Ryker.Artifacts.Outputs.valid_name?(hostile_name)
+
+    turn.id
+    |> Ryker.Artifacts.OutputArtifact.Query.by_turn_id()
+    |> Repo.update_all(set: [name: hostile_name])
+
+    {:ok, renamed} = EpisodeProjection.fetch(key)
+
+    escaped =
+      render_component(&EpisodePage.render/1,
+        snapshot: renamed,
+        timeline: timeline,
+        requests: nil,
+        params: %{}
+      )
+
+    assert escaped
+           |> LazyHTML.from_fragment()
+           |> LazyHTML.query(".attachment-chip strong")
+           |> LazyHTML.text() == hostile_name
+
+    refute escaped =~ "<img onerror=evil>"
+    assert escaped =~ "&lt;img onerror=evil&gt;&amp;.png"
+
+    Repo.update_all(from(t in Turn, where: t.id == ^turn.id),
+      set: [operational_pruned_at: DateTime.utc_now()]
+    )
+
+    {:ok, pruned} = EpisodeProjection.fetch(key)
+    refute Enum.any?(pruned.trace.case_file.conversation, &(&1.actor == "Ryker"))
+
+    assert ConversationProjection.artifact(@conversation_id, turn.id, metadata["id"]) ==
+             :not_found
+  end
+
   test "a generated artifact is delivered and retrievable only through its exact Lab turn" do
     assert {:ok, %{status: :recorded}} =
              send_message(
@@ -520,6 +638,11 @@ defmodule Ryker.ControlPlane.ConversationLabEndToEndTest do
              Enum.filter(conversation.messages, &(&1.actor == :ryker))
 
     assert generated.name == "generated-1.png"
+
+    {:ok, episode} = turn.episode_id |> EpisodeProjection.key() |> EpisodeProjection.fetch()
+
+    assert [%{attachments: [%{name: "service-health.png"}]}] =
+             Enum.filter(episode.trace.case_file.conversation, &(&1.actor == "Ryker"))
 
     assert {:ok, %{data: ^unselected_data}} =
              ConversationProjection.artifact(@conversation_id, turn.id, unselected["id"])

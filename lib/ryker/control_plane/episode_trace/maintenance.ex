@@ -2,8 +2,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
   @moduledoc """
   "Cleanup": what happened afterwards to the worker session and the working
   copy, at its own time. Closing is not removing, a kept workspace is not
-  a failure, and a local session that never bound a remote one had nothing
-  to delete.
+  a failure. An unresolved remote creation is not proof that nothing exists;
+  this chapter reports only sessions whose remote identity was recovered.
 
   Each card says what happened in words; the record behind it sits in its
   Details (Andrew, 2026-09-26: the Cleanup chapter should be "fornestic and
@@ -227,8 +227,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
     compact_details([
       {"Branch", workspace["branch"]},
       {"Commit", workspace["head"], identifier: true},
-      {"Uncommitted changes", if(workspace["dirty"], do: "Yes", else: "None")},
-      {"Unpublished commits", unpublished_words(workspace)},
+      {"Uncommitted changes", flag_words(workspace["dirty"])},
+      {"Unmerged commits", unmerged_words(workspace)},
       {"Working copy fingerprint", workspace["status_digest"], identifier: true},
       {"Removal plan", session.discard_plan_fingerprint, identifier: true},
       {"Plan request", session.discard_plan_operation_id || plan["operation_id"],
@@ -256,11 +256,14 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
     ])
   end
 
-  defp unpublished_words(%{"unmerged" => true, "accepted_unmerged" => true}),
-    do: "Yes, removed because the work was published"
+  defp unmerged_words(%{"unmerged" => true, "accepted_unmerged" => true}),
+    do: "Yes, accepted for removal"
 
-  defp unpublished_words(%{"unmerged" => true}), do: "Yes"
-  defp unpublished_words(_workspace), do: "None"
+  defp unmerged_words(workspace), do: flag_words(workspace["unmerged"])
+
+  defp flag_words(true), do: "Yes"
+  defp flag_words(false), do: "None"
+  defp flag_words(_unknown), do: "Unknown"
 
   # The close, as the sentence a session's story starts with.
   defp closed_sentence(%Work.Session{closed_at: nil}), do: ""
@@ -313,12 +316,17 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
   end
 
   # What Ryker checked before it removed a working copy it removed itself.
-  defp plan_sentence(%{"workspace" => %{"unmerged" => true}}) do
-    ", after checking it held no uncommitted changes; its unmerged commits could go because the work was published."
+  defp plan_sentence(%{
+         "workspace" => %{"dirty" => false, "unmerged" => true, "accepted_unmerged" => true}
+       }) do
+    ", after checking it held no uncommitted changes and accepting its unmerged commits for removal."
   end
 
-  defp plan_sentence(%{"workspace" => %{}}),
-    do: ", after checking it held no uncommitted changes and no unpublished commits."
+  defp plan_sentence(%{"workspace" => %{"dirty" => false, "unmerged" => false}}),
+    do: ", after checking it held no uncommitted changes and no unmerged commits."
+
+  defp plan_sentence(%{"workspace" => workspace}) when is_map(workspace),
+    do: ", using the accepted removal plan."
 
   defp plan_sentence(_plan), do: "."
 
@@ -338,30 +346,31 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Maintenance do
     do: "The working copy was kept: it still holds uncommitted changes."
 
   defp retained_reason("unmerged" <> _),
-    do: "The working copy was kept: it still holds commits that were never published."
+    do: "The working copy was kept: it still holds unmerged commits."
 
   defp retained_reason("unpublished_unmerged"),
-    do: "The working copy was kept: it still holds commits that were never published."
+    do: "The working copy was kept: it still holds unmerged commits."
 
   defp retained_reason(nil), do: "The working copy was kept. No reason was recorded."
   defp retained_reason(reason), do: "The working copy was kept: " <> human(reason) <> "."
 
   defp retained_words("dirty" <> _), do: "Uncommitted changes"
-  defp retained_words("unpublished_unmerged"), do: "Commits that were never published"
-  defp retained_words("unmerged" <> _), do: "Commits that were never published"
+  defp retained_words("unpublished_unmerged"), do: "Unmerged commits"
+  defp retained_words("unmerged" <> _), do: "Unmerged commits"
   defp retained_words(nil), do: nil
   defp retained_words(reason), do: capitalize(human(reason))
 
   # A copy with uncommitted changes is checked again later; one holding
-  # unpublished commits stays until the work is published or discarded.
+  # unmerged commits stays until custody verifies it is safe to remove.
   defp recheck(%Work.Session{
          retained_reason: "dirty" <> _,
          cleanup_next_attempt_at: %DateTime{} = at
        }),
        do: " Ryker checks it again at #{clock(at)}."
 
-  defp recheck(%Work.Session{retained_reason: "unpublished_unmerged"}),
-    do: " It stays until the work is published or someone discards it on Working copies."
+  defp recheck(%Work.Session{retained_reason: "unpublished_unmerged"}) do
+    " It stays until Ryker verifies it is safe to remove or someone explicitly discards it on Working copies."
+  end
 
   defp recheck(_session), do: ""
 

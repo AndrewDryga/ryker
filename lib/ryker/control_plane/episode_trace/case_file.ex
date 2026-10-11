@@ -6,6 +6,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   """
   import Ryker.ControlPlane.EpisodeTrace.Step
   alias Ryker.ControlPlane.{ConsolePeople, EpisodeTrace, Paths, ProviderMessage}
+  alias Ryker.ControlPlane.EpisodeTrace.Attachments
   alias Ryker.ControlPlane.{SlackMarkdown, SourceText}
   alias Ryker.Delivery
   alias Ryker.Episodes
@@ -20,7 +21,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
   The case file: the latest messages and replies in display order, the
   page's title and repository, and whether a reply is still owed.
   """
-  def build(episode_id, turns, sessions, disclosed) do
+  def build(%Episodes.Episode{id: episode_id} = episode, turns, sessions, disclosed) do
     options = [
       secrets: InspectionRedactor.configured_secrets(),
       max_bytes: 12_000,
@@ -50,7 +51,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
     # still reads as the conversation does now.
     revisions = episode_id |> revisions() |> Enum.map(&revision_message(&1, options))
 
-    replies = turns |> Enum.flat_map(&case_reply(&1, options)) |> Enum.take(-20)
+    attachments = Attachments.by_turn(episode, turns)
+    replies = turns |> Enum.flat_map(&case_reply(&1, options, attachments)) |> Enum.take(-20)
     updates = case_updates(episode_id, options)
     latest_reply = List.last(replies)
     current_turn = List.last(turns)
@@ -237,7 +239,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
 
   defp case_reply(
          %{operational_pruned_at: nil, delivery_document: %{"message" => text}} = turn,
-         options
+         options,
+         attachments
        )
        when is_binary(text) do
     artifact = InspectionRedactor.artifact(text, options)
@@ -253,12 +256,13 @@ defmodule Ryker.ControlPlane.EpisodeTrace.CaseFile do
         status: case_reply_status(turn),
         text: artifact.text,
         available: artifact.state == :retained,
+        attachments: Map.get(attachments, turn.id, []),
         href: "#request-#{turn.id}"
       }
     ]
   end
 
-  defp case_reply(_, _), do: []
+  defp case_reply(_, _, _), do: []
 
   defp case_message(input, options) do
     expired = not is_nil(input.operational_pruned_at)

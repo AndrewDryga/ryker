@@ -326,7 +326,8 @@ defmodule Ryker.ControlPlane.BackgroundSectionsTest do
     summary = text(card, ".case-event-summary")
     assert summary =~ "closed"
     assert summary =~ "no uncommitted changes"
-    assert summary =~ "no unpublished commits"
+    assert summary =~ "no unmerged commits"
+    refute summary =~ "no unpublished commits"
     assert text(card, ".case-event-details") =~ "Closed at revision 7"
     assert text(card, ".case-event-details") =~ "Branch coop/session"
     # An identifier shows shortened and carries its exact value to hover and copy.

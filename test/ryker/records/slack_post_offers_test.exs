@@ -2,14 +2,90 @@ defmodule Ryker.Records.SlackPostOffersTest do
   use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
   alias Ryker.Delivery.PlatformAction
+  alias Ryker.Delivery.PlatformActionCustody
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Records
   alias Ryker.Records.SlackPostOffers
+  alias Ryker.Slack.InteractionAudit
   alias Ryker.Work.{Custody, DeliveryReceipt, Result, Submission}
 
   @now ~U[2026-08-30 12:00:00.000000Z]
+
+  # A cross-channel post delivered, but its source card stayed "confirmed"
+  # forever because only the click queued a repaint (manual QA, 2026-10-11).
+  test "delivery queues an idempotent source-card repaint with the exact post receipt" do
+    fixture = delivered_offer!("receipt-repaint")
+
+    {:ok, confirmed} =
+      SlackPostOffers.confirm(confirmation(fixture, "slack:user:U123", "confirmed"))
+
+    event_ref = "post-delivery:#{confirmed.action.id}"
+    refute event_ref |> InteractionAudit.Query.by_event_ref() |> Repo.exists?()
+
+    assert {:ok, %{action: action, lease_ref: lease_ref}} =
+             PlatformActionCustody.claim_next("post-delivery", 60)
+
+    assert {:ok, receipt} =
+             DeliveryReceipt.new(
+               action.action_ref,
+               "slack",
+               action.conversation_ref,
+               action.thread_ref,
+               "1787833000.000400"
+             )
+
+    assert {:ok, delivered} =
+             PlatformActionCustody.confirm_delivery(action.action_ref, lease_ref, receipt)
+
+    assert audit = event_ref |> InteractionAudit.Query.by_event_ref() |> Repo.peek()
+    assert audit.action_id == "post_delivery_receipt"
+    assert audit.repaint_status == :pending
+    assert audit.workspace_ref == "T123"
+    assert audit.channel_ref == "C456"
+    assert audit.thread_ref == fixture.receipt["thread_ref"]
+    assert audit.message_ref == fixture.receipt["message_ref"]
+    assert audit.actor_ref == "U123"
+
+    assert {:ok, ^delivered} =
+             PlatformActionCustody.confirm_delivery(action.action_ref, lease_ref, receipt)
+
+    assert Repo.aggregate(InteractionAudit.Query.by_event_ref(event_ref), :count) == 1
+    assert Repo.aggregate(PlatformAction, :count) == 1
+
+    for changes <- [
+          %{episode_id: Ecto.UUID.generate()},
+          %{turn_id: Ecto.UUID.generate()},
+          %{host_slot: "confirmed-post:not-an-id"},
+          %{tool: :set_slack_reaction},
+          %{transport: "github"}
+        ] do
+      id = Ecto.UUID.generate()
+      other = delivered |> Map.merge(changes) |> Map.put(:id, id)
+
+      assert Repo.transaction(fn ->
+               Ryker.Slack.InteractionAudits.record_post_delivery_in_transaction(other)
+             end) == {:ok, :ok}
+
+      refute "post-delivery:#{id}" |> InteractionAudit.Query.by_event_ref() |> Repo.exists?()
+    end
+
+    delivered.turn_id
+    |> Ryker.Work.Turn.Query.by_id()
+    |> Repo.update_all(set: [operational_pruned_at: @now])
+
+    id = Ecto.UUID.generate()
+
+    assert Repo.transaction(fn ->
+             Ryker.Slack.InteractionAudits.record_post_delivery_in_transaction(%{
+               delivered
+               | id: id
+             })
+           end) == {:ok, :ok}
+
+    refute "post-delivery:#{id}" |> InteractionAudit.Query.by_event_ref() |> Repo.exists?()
+  end
 
   test "only the exact requester confirmation enqueues one immutable additional Slack post" do
     fixture = delivered_offer!("authority")
