@@ -6,20 +6,41 @@ defmodule Ryker.Admission.CandidateSearch.Query do
   """
   use Ryker, :query
   alias Ryker.Episodes
+  alias Ryker.Ingress
 
   @active_states [:working, :waiting_for_input, :waiting_for_event]
 
   # The episodes `request` may be offered in correlation `scope`: of its
   # execution mode, in a conversation the scope allows, with history kept.
   # Active long-running work stays eligible whatever the history window says;
-  # the window only bounds how far completed history is offered.
+  # the window only bounds how far completed history is offered. Work whose
+  # every message was deleted is not offered: a question deleted and posted
+  # again joined the deleted one's work and waited 37 s behind a turn that only
+  # decided to stay silent (overnight QA, 2026-10-09).
   defp eligible(request, scope) do
     from(episode in Episodes.Episode.Query.all(),
       where:
         episode.execution_mode == ^request.execution_mode and
           episode.destination_conversation_ref in ^scope.conversation_refs and
           is_nil(episode.history_pruned_at),
-      where: episode.state in ^@active_states or episode.updated_at >= ^request.history_cutoff
+      where: episode.state in ^@active_states or episode.updated_at >= ^request.history_cutoff,
+      where: not exists(origins()) or exists(kept_origins())
+    )
+  end
+
+  defp origins do
+    from(origin in Episodes.Origin.Query.all(),
+      where: origin.episode_id == parent_as(:episode_kernel_episodes).id,
+      select: 1
+    )
+  end
+
+  defp kept_origins do
+    from(origin in Episodes.Origin.Query.all(),
+      left_join: deletion in Ingress.Inbox.Entry,
+      on: deletion.native_input_id == origin.native_input_id and deletion.event_kind == :delete,
+      where: origin.episode_id == parent_as(:episode_kernel_episodes).id and is_nil(deletion.id),
+      select: 1
     )
   end
 

@@ -173,6 +173,33 @@ defmodule Ryker.Admission.CandidateSearchTest do
     assert result.receipt["words"] == ~w(payment probe failing)
   end
 
+  # J31, overnight QA of 2026-10-09: a question deleted and posted again joined the deleted
+  # one's work, and waited 37 s behind a turn that only decided to stay silent. Work whose every
+  # message was deleted is not offered for a new one.
+  test "work whose every message was deleted is not offered to a new message" do
+    deleted =
+      episode!("routing:deleted",
+        channel_ref: "CDEVOPS",
+        thread_ref: "1789000001.000100",
+        text: "Why is the payment probe failing again?"
+      )
+
+    delete!("CDEVOPS", "1789000001.000100")
+
+    kept =
+      episode!("routing:kept",
+        channel_ref: "CDEVOPS",
+        text: "Why is the payment probe failing again?"
+      )
+
+    offered =
+      search!(channel_ref: "CDEVOPS", text: "Why is the payment probe failing again?").selected
+      |> Enum.map(& &1.episode.id)
+
+    assert kept.id in offered
+    refute deleted.id in offered
+  end
+
   # Each word's rarity was counted by a query of its own, so a long message
   # added a round trip per word to every routing decision (2026-10-04 review).
   test "a search counts how rare its words are in one query, however many words it has" do
@@ -538,6 +565,24 @@ defmodule Ryker.Admission.CandidateSearchTest do
         }
       ]
     }
+  end
+
+  defp delete!(channel_ref, message_ref) do
+    {:ok, input} =
+      SlackInput.new(%{
+        actor: %{kind: :user, ref: "U123"},
+        channel_ref: channel_ref,
+        content: %{},
+        event_kind: :delete,
+        event_ref: "Ev-delete-#{System.unique_integer([:positive])}",
+        message_ref: message_ref,
+        occurred_at: @now,
+        revision: 2,
+        thread_ref: message_ref,
+        workspace_ref: @workspace
+      })
+
+    assert {:ok, _receipt} = Ryker.Ingress.Inbox.record(input)
   end
 
   defp owner_native_input_id(episode) do
