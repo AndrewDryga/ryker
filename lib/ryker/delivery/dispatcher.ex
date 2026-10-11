@@ -199,7 +199,7 @@ defmodule Ryker.Delivery.Dispatcher do
   defp message_request(claim) do
     with {:ok, message, record_refs, artifact_refs} <-
            delivery_message(claim.turn.delivery_document),
-         {:ok, records} <- delivery_records(claim.episode.id, record_refs),
+         {:ok, records} <- delivery_records(claim.episode.id, record_refs, claim.turn.id),
          {:ok, artifacts} <- Artifacts.Outputs.fetch_many(claim.turn.id, artifact_refs) do
       document =
         if records == [],
@@ -253,10 +253,10 @@ defmodule Ryker.Delivery.Dispatcher do
 
   defp delivery_message(_document), do: {:error, {:invalid_delivery_message, :document}}
 
-  defp delivery_records(_episode_id, []), do: {:ok, []}
+  defp delivery_records(_episode_id, [], _turn_id), do: {:ok, []}
 
-  defp delivery_records(episode_id, refs) do
-    case Slack.ReplyRecords.fetch(episode_id, refs) do
+  defp delivery_records(episode_id, refs, turn_id) do
+    case Slack.ReplyRecords.fetch(episode_id, refs, turn_id) do
       {:ok, records} -> {:ok, records}
       {:error, _reason} -> {:error, {:invalid_delivery_message, :record_refs}}
     end

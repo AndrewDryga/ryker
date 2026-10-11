@@ -25,7 +25,7 @@ defmodule Ryker.Delivery.Presentation do
       ) do
     transport = Work.Custody.Delivery.answer_target(episode, turn)["transport"]
 
-    with {:ok, records} <- Slack.ReplyRecords.fetch(episode.id, final.record_refs),
+    with {:ok, records} <- Slack.ReplyRecords.fetch(episode.id, final.record_refs, turn.id),
          :ok <- validate_native_records(transport, records) do
       render(transport, episode, %{
         "message" => final.message,

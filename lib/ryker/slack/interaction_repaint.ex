@@ -219,7 +219,7 @@ defmodule Ryker.Slack.InteractionRepaint do
        )
        when map_size(document) == 4 and map_size(outcome) == 3 and is_binary(message) and
               is_list(refs) do
-    with {:ok, records} <- ReplyRecords.fetch(turn.episode_id, refs) do
+    with {:ok, records} <- ReplyRecords.fetch(turn.episode_id, refs, turn.id) do
       {:ok,
        %{
          "message" => confirmation_message(records, message),

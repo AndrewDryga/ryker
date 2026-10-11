@@ -14,6 +14,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Settings
+  alias Ryker.Slack
   alias Ryker.Waits.{EventSubscription, EventSubscriptions, EventWaits}
   alias Ryker.Work.Custody
 
@@ -150,6 +151,22 @@ defmodule Ryker.Emisar.ApprovalsTest do
            } = ran.outcome
 
     assert ChatCard.display_status(ran) == nil
+  end
+
+  # H3, overnight QA of 2026-10-09: a later reply in the same episode cites the approvals it still
+  # waits on, so their review cards were drawn again on it. Only the asking turn's own message is
+  # repainted when an approval settles, so those copies said "Waiting" for good, still waiting
+  # after the approvals were cancelled. An approval is drawn on its asking turn's reply alone.
+  test "an approval card is drawn only on the reply of the turn that asked for it" do
+    %{claim: claim, record: record} = registered!("reply-card")
+
+    assert {:ok, [%Record{ref: ref}]} =
+             Slack.ReplyRecords.fetch(claim.episode.id, [record.ref], claim.turn.id)
+
+    assert ref == record.ref
+
+    assert Slack.ReplyRecords.fetch(claim.episode.id, [record.ref], Ecto.UUID.generate()) ==
+             {:ok, []}
   end
 
   test "a terminal exact run resumes the same episode once without repeating the action" do

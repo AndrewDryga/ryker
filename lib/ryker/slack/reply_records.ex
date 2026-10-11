@@ -44,6 +44,19 @@ defmodule Ryker.Slack.ReplyRecords do
 
   def fetch(episode_id, refs), do: Records.fetch_for_episode(episode_id, refs)
 
+  @doc """
+  The records `fetch/2` returns for the reply of turn `turn_id`. An approval is drawn only on the
+  reply of the turn that asked for it, the one message repainted when it settles: copies a later
+  reply cited stayed "Waiting" for good (overnight QA, 2026-10-09).
+  """
+  @spec fetch(String.t(), [String.t()], String.t()) ::
+          {:ok, [Records.Record.t()]} | {:error, term()}
+  def fetch(episode_id, refs, turn_id) when is_binary(turn_id) do
+    with {:ok, records} <- fetch(episode_id, refs) do
+      {:ok, Enum.reject(records, &(&1.kind == "emisar_approval" and &1.turn_id != turn_id))}
+    end
+  end
+
   @spec documents(String.t(), String.t(), [map()]) :: [map()]
   def documents(transport, episode_id, records) do
     documents = Enum.map(records, &Records.Record.document/1)
