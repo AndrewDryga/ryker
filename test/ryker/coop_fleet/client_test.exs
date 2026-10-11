@@ -2941,6 +2941,44 @@ defmodule Ryker.CoopFleet.ClientTest do
     }
   end
 
+  # Every task's commit read "Reviewed changes", Coop's fixed message (2026-10-09). A worker that
+  # accepts a review's commit message is told the task's title and what was asked; an older one,
+  # which refuses fields it does not know, is sent none and keeps Coop's message.
+  test "a review names its commit only for a worker that accepts the message", %{
+    client: client,
+    session: session
+  } do
+    task = %{
+      "offer_ref" => "record:task_offer:#{Ecto.UUID.generate()}",
+      "prompt" =>
+        "Add the line 'sweep' at the end of README.md.\n\nSuccess checks: only README changes",
+      "title" => "Add the sweep line to README"
+    }
+
+    session = session |> Ecto.Changeset.change(workspace_task: task) |> Repo.update!()
+    accepting = %{"name" => "review-commit-message", "version" => "1"}
+    command!(session, "names-commits", capabilities: [accepting])
+    session = bind_session!(session, "coop-session-named-review")
+
+    assert {:ok, _} = Client.run_review(client, session.coop_session_id, "named-review-key", 4)
+    assert_receive {:fleet_command, _session, "run_review", named, "named-review-key", _options}
+
+    assert named["commit_message"] ==
+             "Add the sweep line to README\n\nAdd the line 'sweep' at the end of README.md."
+
+    assert {:ok, %{"body" => %{"commit_message" => _message}}} =
+             Ryker.CoopFleet.Requests.encode("run_review", named, nil)
+
+    older = session!()
+    older = older |> Ecto.Changeset.change(workspace_task: task) |> Repo.update!()
+    command!(older, "older-worker")
+    older = bind_session!(older, "coop-session-older-review")
+
+    assert {:ok, _} = Client.run_review(client, older.coop_session_id, "older-review-key", 4)
+    assert_receive {:fleet_command, _session, "run_review", unnamed, "older-review-key", _options}
+    refute Map.has_key?(unnamed, "commit_message")
+  end
+
   defp bind_session!(session, coop_session_id) do
     session
     |> Ecto.Changeset.change(coop_session_id: coop_session_id)
@@ -2955,7 +2993,10 @@ defmodule Ryker.CoopFleet.ClientTest do
              CoopWorkers.authorize(worker_id, "workspace-main", certificate_sha256)
 
     assert {:ok, _response} =
-             ControlPlane.handle_poll_certificate(worker_id, poll(worker_id, suffix))
+             ControlPlane.handle_poll_certificate(
+               worker_id,
+               poll(worker_id, suffix, false, Keyword.get(options, :capabilities, []))
+             )
 
     assert {:ok, placement} =
              ControlPlane.place_session(
@@ -2997,13 +3038,13 @@ defmodule Ryker.CoopFleet.ClientTest do
     |> Repo.update!()
   end
 
-  defp poll(worker_id, suffix, freshness_v2? \\ false) do
+  defp poll(worker_id, suffix, freshness_v2? \\ false, extra_capabilities \\ []) do
     capabilities =
       [%{"name" => "controller-tools", "version" => "1"}] ++
         if(freshness_v2?,
           do: [%{"name" => "repository-freshness", "version" => "2"}],
           else: []
-        )
+        ) ++ extra_capabilities
 
     %{
       "acknowledged_command_ids" => [],

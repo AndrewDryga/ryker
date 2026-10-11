@@ -162,7 +162,7 @@ defmodule Ryker.CoopFleet.Requests do
     {path, fields} =
       case kind do
         "run_review" ->
-          {session_path(payload) <> "/review", ~w(expected_revision)}
+          {session_path(payload) <> "/review", ~w(expected_revision commit_message)}
 
         # Coop starts the session's agent before it answers, and keeps it
         # running for the job's warm idle timeout.

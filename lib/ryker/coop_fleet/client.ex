@@ -13,6 +13,7 @@ defmodule Ryker.CoopFleet.Client do
   alias Ryker.CoopFleet.WorkspaceCheckpointTransfer
   alias Ryker.Crypto
   alias Ryker.Repo
+  alias Ryker.StateTools
   alias Ryker.Work
 
   @fields [:bridge, :bridge_options, :source_root]
@@ -38,6 +39,10 @@ defmodule Ryker.CoopFleet.Client do
   @type t :: %__MODULE__{bridge: module(), bridge_options: keyword()}
 
   @repository_freshness_capability "repository-freshness"
+  @review_commit_message_capability %{"name" => "review-commit-message", "version" => "1"}
+  # Coop takes at most 4,096 bytes; the title and the request share the rest.
+  @commit_title_bytes 400
+  @commit_request_bytes 3_200
 
   @doc """
   The capability versions a worker must advertise to be given a session:
@@ -383,7 +388,9 @@ defmodule Ryker.CoopFleet.Client do
   def run_review(client, coop_session_id, key, expected_revision) do
     with {:ok, %Work.Session{id: session_id} = session} <-
            fetch_session_by_coop_id(coop_session_id) do
-      payload = %{"coop_session_id" => coop_session_id, "expected_revision" => expected_revision}
+      payload =
+        %{"coop_session_id" => coop_session_id, "expected_revision" => expected_revision}
+        |> with_commit_message(session)
 
       case Repo.fetch(Command.Query.by_idempotency_key(key)) do
         {:ok,
@@ -402,6 +409,58 @@ defmodule Ryker.CoopFleet.Client do
         _not_uncertain ->
           execute(client, session, "run_review", payload, key)
       end
+    end
+  end
+
+  # Every task's commit read "Reviewed changes", Coop's fixed message (2026-10-09). A worker that
+  # advertises the field is told what the commit changes: the task's title, then what was asked.
+  # An older worker refuses fields it does not know, so it is sent none and keeps Coop's message.
+  defp with_commit_message(
+         payload,
+         %Work.Session{workspace_task: %{"title" => title} = task} = session
+       )
+       when is_binary(title) do
+    if worker_names_review_commits?(session.id),
+      do: Map.put(payload, "commit_message", commit_message(title, task["prompt"])),
+      else: payload
+  end
+
+  defp with_commit_message(payload, _session), do: payload
+
+  defp commit_message(title, prompt) do
+    title = title |> String.trim() |> Ryker.Text.cut(@commit_title_bytes)
+
+    request = prompt |> StateTools.TaskTools.request() |> request_text()
+
+    case request do
+      "" -> title
+      request -> title <> "\n\n" <> Ryker.Text.cut(request, @commit_request_bytes)
+    end
+  end
+
+  defp request_text(request) when is_binary(request), do: String.trim(request)
+  defp request_text(_request), do: ""
+
+  defp worker_names_review_commits?(session_id) do
+    session_id
+    |> Placement.Query.by_session_id()
+    |> Placement.Query.active()
+    |> Placement.Query.ordered_by_generation_desc()
+    |> Placement.Query.limit_to(1)
+    |> Repo.peek()
+    |> case do
+      %Placement{worker_id: worker_id} ->
+        advertises?(worker_id, @review_commit_message_capability)
+
+      nil ->
+        false
+    end
+  end
+
+  defp advertises?(worker_id, capability) do
+    case Repo.peek(Worker.Query.by_id(worker_id)) do
+      %Worker{capabilities: capabilities} when is_list(capabilities) -> capability in capabilities
+      _unknown -> false
     end
   end
 
