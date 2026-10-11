@@ -4,7 +4,9 @@ defmodule Ryker.Learning.BatchesTest do
   import Ryker.TestHelpers, only: [digest: 1]
   alias Ryker.Config
   alias Ryker.Defaults
+  alias Ryker.Episodes
   alias Ryker.Episodes.Episode
+  alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Learning, as: Fixtures
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox.Entry
@@ -298,7 +300,12 @@ defmodule Ryker.Learning.BatchesTest do
   # new runs after a worker outage, asked him a question at 12:08:48. A batch
   # fell due by the clock alone, so a request was learned from as soon as it
   # was routed, before its Work had said anything.
-  test "a conversation's messages are not learned while the Work they started is running" do
+  #
+  # Andrew, 2026-10-11, of a conversation waiting for an Emisar approval: "learning should not
+  # kick it if conversation is waiting for something like approval or is not fully done!"
+  # Learning read the request while it waited, and again from Ryker's question while the person
+  # had not answered it. A request is learned from once it is done.
+  test "a conversation's messages are learned only once the request they started is done" do
     # Both captured alerts started a request. They were routed two hours ago,
     # far past the quiet time and the maximum delay.
     [firing, resolved] = inputs!()
@@ -317,8 +324,13 @@ defmodule Ryker.Learning.BatchesTest do
     assert accepted.turn.status == :delivery_pending
     assert Batches.claim("learning", @settings) == {:ok, :idle}
 
-    # Sent: the request waits for the person, and its message is learned from.
+    # Sent: the request waits for the person's answer, and learning waits with it.
     deliver!(accepted)
+    rested!(firing, 1)
+    assert Batches.claim("learning", @settings) == {:ok, :idle}
+
+    # The person stops the request instead. It is done, and its message is learned from.
+    stop!(firing)
     rested!(firing, 1)
     assert {:ok, claim} = Batches.claim("learning", @settings)
     assert Enum.map(claim.inputs, & &1.id) == [firing.id]
@@ -329,15 +341,16 @@ defmodule Ryker.Learning.BatchesTest do
     refute Repo.exists?(from(m in InputMembership, where: m.input_id == ^resolved.id))
   end
 
-  # Learning is meant to run a little after Ryker's answer. Counted from the
+  # Learning is meant to run a little after the request ends. Counted from the
   # message, the quiet time had run out long before a two-hour Work rested.
-  test "the quiet time counts from when the Work comes to rest" do
+  test "the quiet time counts from when the request is done" do
     [firing, resolved] = inputs!()
     Enum.each([firing, resolved], &start_work!/1)
     routed!([firing, resolved], 7_200)
     settings = %{@settings | quiet_seconds: 10}
 
     firing |> run_work!() |> ask_question!() |> deliver!()
+    stop!(firing)
     assert Batches.claim("learning", settings) == {:ok, :idle}
 
     # An idle worker sleeps until then. The time is the database's own
@@ -404,10 +417,29 @@ defmodule Ryker.Learning.BatchesTest do
     assert Enum.map(claim.inputs, & &1.id) == [resolved.id]
   end
 
-  # A blocked request waits for a person, for days when the Slack channel it
-  # answers in was archived under it. Its episode still reads as working, but
-  # nothing runs until someone acts, so waiting for it would never end.
-  test "Work blocked waiting for a person is at rest, so its messages are learned" do
+  # A request that waits for an Emisar approval is not done, however long the
+  # approval takes. Learning read one such request on 2026-10-11 while its two
+  # approval cards were still open.
+  test "a conversation waiting for an approval is not learned from until it is done" do
+    [firing, resolved] = inputs!()
+    Enum.each([firing, resolved], &start_work!/1)
+    routed!([firing, resolved], 7_200)
+
+    firing |> run_work!() |> ask_question!("event") |> deliver!(:waiting_for_event)
+    rested!(firing, 1)
+    assert Batches.claim("learning", @settings) == {:ok, :idle}
+
+    stop!(firing)
+    rested!(firing, 1)
+    assert {:ok, claim} = Batches.claim("learning", @settings)
+    assert Enum.map(claim.inputs, & &1.id) == [firing.id]
+  end
+
+  # A request stopped for a person is not done either, though it can wait for
+  # days, for example when its Slack channel was archived under it. Until
+  # 2026-10-11 learning read it anyway, so that the wait would end; Andrew wants
+  # learning to wait until the request is done.
+  test "Work stopped for a person is not learned from until the request is done" do
     [firing, resolved] = inputs!()
     Enum.each([firing, resolved], &start_work!/1)
     routed!([firing, resolved], 7_200)
@@ -417,8 +449,7 @@ defmodule Ryker.Learning.BatchesTest do
              Custody.pause_destination(episode.id, episode.key, "slack-channel-archived")
 
     rested!(firing, 1)
-    assert {:ok, claim} = Batches.claim("learning", @settings)
-    assert Enum.map(claim.inputs, & &1.id) == [firing.id]
+    assert Batches.claim("learning", @settings) == {:ok, :idle}
   end
 
   test "a paused conversation cannot hide another conversation's ready inputs" do
@@ -566,6 +597,21 @@ defmodule Ryker.Learning.BatchesTest do
     at
   end
 
+  # A person stops the request, as Stop does: the episode ends cancelled.
+  defp stop!(entry) do
+    episode = Repo.get!(Episode, entry.episode_id)
+
+    assert {:ok, %{episode: %{state: :cancelled}}} =
+             Episodes.apply(
+               EpisodeFixtures.cancel_episode(%{
+                 cancel_ref: "cancel:#{episode.id}",
+                 episode_key: episode.key,
+                 expected_owner: %{kind: episode.owner_kind, ref: episode.owner_ref},
+                 occurred_at: Repo.now!()
+               })
+             )
+  end
+
   defp database_now do
     %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
     now
@@ -599,7 +645,10 @@ defmodule Ryker.Learning.BatchesTest do
 
   # The Work settles its request by asking a person, as it settled Andrew's:
   # the answer is accepted as a reply that then waits for input.
-  defp ask_question!(%{episode: episode, lease_ref: lease, turn: turn} = work) do
+  defp ask_question!(
+         %{episode: episode, lease_ref: lease, turn: turn} = work,
+         wait_kind \\ "input"
+       ) do
     assert {:ok, submission} =
              Submission.new(
                %{"episode_id" => episode.id, "turn_ref" => turn.turn_ref},
@@ -655,7 +704,7 @@ defmodule Ryker.Learning.BatchesTest do
     wait = %{
       "deadline_at" => nil,
       "kind" => "wait",
-      "wait_kind" => "input",
+      "wait_kind" => wait_kind,
       "wait_ref" => "question:#{turn.id}"
     }
 
@@ -679,7 +728,7 @@ defmodule Ryker.Learning.BatchesTest do
   end
 
   # The question reaches Slack, and the request waits for the person.
-  defp deliver!(%{episode: episode, turn: turn}) do
+  defp deliver!(%{episode: episode, turn: turn}, waiting \\ :waiting_for_input) do
     assert {:ok, claim} = Custody.claim_next("delivery:#{episode.id}", 60, :delivery)
     target = turn.delivery_target
 
@@ -692,7 +741,7 @@ defmodule Ryker.Learning.BatchesTest do
                "1788629000.000100"
              )
 
-    assert {:ok, %{episode: %{state: :waiting_for_input}} = delivered} =
+    assert {:ok, %{episode: %{state: ^waiting}} = delivered} =
              Custody.confirm_delivery(
                episode.id,
                episode.key,

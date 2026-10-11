@@ -10,8 +10,9 @@ defmodule Ryker.Learning.LearningInput.Query do
   alias Ryker.Work
 
   @doc """
-  Routed messages no batch holds yet, except one whose Work is still running:
-  learned then, a request is learned from before Ryker has answered it.
+  Routed messages no batch holds yet, except one whose request is not done:
+  its Work still runs, waits for a person, an answer or an approval, or was
+  stopped for a person. Learned then, a request is learned from before it ends.
   """
   def pending do
     from(e in Ingress.Inbox.Entry.Query.all(),
@@ -26,7 +27,8 @@ defmodule Ryker.Learning.LearningInput.Query do
         not exists(
           from(work in subquery(Work.OwningTurn.Query.work_rest()),
             where:
-              work.episode_id == parent_as(:ingress_inbox_entries).episode_id and work.running
+              work.episode_id == parent_as(:ingress_inbox_entries).episode_id and
+                not work.settled
           )
         )
     )

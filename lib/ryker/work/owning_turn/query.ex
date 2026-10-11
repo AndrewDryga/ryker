@@ -60,7 +60,9 @@ defmodule Ryker.Work.OwningTurn.Query do
   until something new arrives or a person acts: answered, waiting for a
   person or an event, blocked, cancelled or closed. For Work at rest the
   last change is when it came to rest, on the episode, or on the turn
-  blocked under it. Learning waits for this (`Ryker.Learning.Batches`).
+  blocked under it. Settled is narrower: the request is done, complete or
+  cancelled, with nothing it waits for. Learning waits for that
+  (`Ryker.Learning.Batches`).
   """
   def work_rest do
     from([episode_kernel_episodes: episode, episode_work_turns: turn] in owning_turns(),
@@ -77,7 +79,8 @@ defmodule Ryker.Work.OwningTurn.Query do
             ((episode.owner_kind == :turn and
                 (is_nil(turn.id) or turn.status in [:pending, :cancel_pending])) or
                (episode.owner_kind == :delivery and turn.status == :delivery_pending)),
-        rested_at: fragment("GREATEST(?, ?)", episode.updated_at, turn.updated_at)
+        rested_at: fragment("GREATEST(?, ?)", episode.updated_at, turn.updated_at),
+        settled: episode.state in [:complete, :cancelled]
       }
     )
   end
