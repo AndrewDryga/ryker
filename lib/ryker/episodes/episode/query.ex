@@ -41,6 +41,55 @@ defmodule Ryker.Episodes.Episode.Query do
   def by_execution_mode(queryable, execution_mode),
     do: where(queryable, [episode_kernel_episodes: e], e.execution_mode == ^execution_mode)
 
+  @doc "At most 32 retained same-destination/mode context IDs, starting with the caller."
+  def retained_context_lineage(queryable \\ all(), episode)
+
+  def retained_context_lineage(queryable, %Episode{} = episode) do
+    scoped =
+      where(
+        queryable,
+        [episode_kernel_episodes: e],
+        is_nil(e.history_pruned_at) and e.execution_mode == ^episode.execution_mode and
+          e.destination_transport == ^episode.destination_transport and
+          e.destination_conversation_ref == ^episode.destination_conversation_ref and
+          fragment(
+            "? IS NOT DISTINCT FROM ?",
+            e.destination_thread_ref,
+            ^episode.destination_thread_ref
+          )
+      )
+
+    initial =
+      scoped
+      |> by_id(episode.id)
+      |> select([episode_kernel_episodes: e], %{
+        depth: 0,
+        id: e.id,
+        linked_episode_id: e.linked_episode_id
+      })
+
+    previous =
+      scoped
+      |> join(:inner, [episode_kernel_episodes: e], l in "retained_context_lineage",
+        as: :context_lineage,
+        on: e.id == l.linked_episode_id and l.depth < 31
+      )
+      |> select([episode_kernel_episodes: e, context_lineage: l], %{
+        depth: l.depth + 1,
+        id: e.id,
+        linked_episode_id: e.linked_episode_id
+      })
+
+    lineage = union_all(initial, ^previous)
+
+    from(l in "retained_context_lineage", select: type(l.id, Ecto.UUID))
+    |> recursive_ctes(true)
+    |> with_cte("retained_context_lineage", as: ^lineage)
+  end
+
+  def retained_context_lineage(_queryable, _episode),
+    do: raise(ArgumentError, "context lineage requires an Episode struct")
+
   def ordered_by_id(queryable), do: order_by(queryable, [episode_kernel_episodes: e], asc: e.id)
 
   @doc "Episodes Work is running a turn of."

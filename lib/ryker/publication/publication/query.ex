@@ -41,11 +41,11 @@ defmodule Ryker.Publication.Publication.Query do
 
   @doc "At most three confirmed task children in the caller's exact retained destination and read set."
   def related_model_states(queryable \\ all(), episode, repositories) do
-    root_ids = [episode.id, episode.linked_episode_id] |> Enum.reject(&is_nil/1) |> Enum.uniq()
+    roots = Episodes.Episode.Query.retained_context_lineage(episode)
 
     queryable
     |> related_task_children()
-    |> confirmed_related_tasks(root_ids, episode.id, repositories)
+    |> confirmed_related_tasks(roots, episode.id, repositories)
     |> retained_related_tasks()
     |> in_related_execution_mode(episode.execution_mode)
     |> in_related_transport(episode.destination_transport)
@@ -74,7 +74,7 @@ defmodule Ryker.Publication.Publication.Query do
     )
   end
 
-  defp confirmed_related_tasks(query, root_ids, episode_id, repositories) do
+  defp confirmed_related_tasks(query, roots, episode_id, repositories) do
     where(
       query,
       [
@@ -83,7 +83,7 @@ defmodule Ryker.Publication.Publication.Query do
         related_task_child: c,
         related_task_root: e
       ],
-      r.kind == "task_offer" and r.status == :confirmed and e.id in ^root_ids and
+      r.kind == "task_offer" and r.status == :confirmed and e.id in subquery(roots) and
         c.id != ^episode_id and p.repository in ^repositories
     )
   end

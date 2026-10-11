@@ -23,6 +23,26 @@ defmodule Ryker.Slack.CapabilityToolsTest do
              20
   end
 
+  # A fresh live QA call used a conversation_ref for the post destination,
+  # failed before the ingress-grant check and obscured the real refusal.
+  test "post descriptions distinguish source references from conversation identifiers" do
+    post = Enum.find(CapabilityTools.definitions(), &(&1["name"] == "post_slack_message"))
+    properties = post["inputSchema"]["properties"]
+    destination = properties["destination_ref"]["description"] || ""
+    instruction = properties["instruction_ref"]["description"] || ""
+    assert destination =~ "server-issued"
+    assert destination =~ "slack-source:v1:"
+    assert destination =~ "conversation_ref"
+    assert destination =~ "local Chat"
+    assert instruction =~ "active human message"
+    assert instruction =~ "message:TIMESTAMP"
+    assert instruction =~ "prior instruction"
+    assert instruction =~ "local Chat"
+    assert post["inputSchema"]["required"] == ["destination_ref", "message", "instruction_ref"]
+    assert properties["destination_ref"]["maxLength"] == 1_024
+    assert properties["instruction_ref"]["maxLength"] == 1_024
+  end
+
   defmodule FakeActionTokens do
     def checkout(observer, event_ref, turn_id) do
       send(observer, {:token_checkout, event_ref, turn_id})

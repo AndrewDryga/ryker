@@ -152,11 +152,15 @@ defmodule Ryker.Slack.CapabilityTools do
           "additionalProperties" => false,
           "properties" => %{
             "destination_ref" => %{
+              "description" =>
+                "Exact server-issued destination source_ref. For Slack use slack-source:v1:WORKSPACE:CHANNEL:channel or slack-source:v1:WORKSPACE:CHANNEL:thread:TIMESTAMP; a Slack conversation_ref such as slack:WORKSPACE:CHANNEL is not a source_ref. In local Chat use the exact local conversation source_ref supplied by the host. Copy a supplied ref; do not manufacture an identifier or a grant.",
               "maxLength" => 1_024,
               "minLength" => 1,
               "type" => "string"
             },
             "instruction_ref" => %{
+              "description" =>
+                "Exact source_ref of the active human message granting this destination. For Slack it has the form slack-source:v1:WORKSPACE:CHANNEL:message:TIMESTAMP. In local Chat use the exact host-supplied active input ref. A prior instruction is not current authority.",
               "maxLength" => 1_024,
               "minLength" => 1,
               "type" => "string"

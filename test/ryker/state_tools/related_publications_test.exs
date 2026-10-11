@@ -108,6 +108,98 @@ defmodule Ryker.StateTools.RelatedPublicationsTest do
              |> Repo.all()
   end
 
+  # The first fresh live repeat linked the previous read-only followup rather
+  # than the task's root. A one-hop lookup again denied an existing receipt,
+  # making the person repeat the same question despite a confirmed draft.
+  test "repeated same-thread followups keep the confirmed task receipt as context",
+       %{claim: claim, root: root, published: published} do
+    earlier = admit!("earlier-followup:#{claim.episode.id}", destination(root), root.id)
+    change!(claim.episode, linked_episode_id: earlier.id)
+
+    assert {:ok, state} = work_state(claim)
+    assert [related] = state["related_publications"]
+    assert related["published_revision"] == published.receipt
+    assert related["context_only"] == true
+    assert state["records"] == []
+    refute Jason.encode!(state) =~ "PRIVATE-"
+  end
+
+  test "a followup linked directly to the confirmed task sees its saved receipt",
+       %{claim: claim, published: published} do
+    change!(claim.episode, linked_episode_id: published.episode.id)
+    assert {:ok, %{"related_publications" => [related]}} = work_state(claim)
+    assert related["published_revision"] == published.receipt
+    assert related["context_only"] == true
+  end
+
+  test "caller-supplied episode scope also narrows recursive context ancestry",
+       %{claim: claim, root: root} do
+    assert Enum.sort([claim.episode.id, root.id]) ==
+             claim.episode
+             |> Episodes.Episode.Query.retained_context_lineage()
+             |> Repo.all()
+             |> Enum.sort()
+
+    assert [claim.episode.id] ==
+             Episodes.Episode.Query.by_id(claim.episode.id)
+             |> Episodes.Episode.Query.retained_context_lineage(claim.episode)
+             |> Repo.all()
+
+    assert [] ==
+             Episodes.Episode.Query.by_id(Repo.generate_id())
+             |> Episodes.Episode.Query.retained_context_lineage(claim.episode)
+             |> Repo.all()
+  end
+
+  test "lineage lookup refuses counterfeit episode maps", %{claim: claim} do
+    # The lineage's scope must come from the owning schema, not a lookalike map
+    # whose fields happen to satisfy the query builder's dot lookups.
+    for episode <- [Map.from_struct(claim.episode), nil, %{}] do
+      assert_raise ArgumentError, "context lineage requires an Episode struct", fn ->
+        Episodes.Episode.Query.retained_context_lineage(episode)
+      end
+    end
+  end
+
+  test "every intermediate context link must retain the caller's exact destination and mode",
+       %{claim: claim, root: root} do
+    earlier = admit!("scoped-followup:#{claim.episode.id}", destination(root), root.id)
+    change!(claim.episode, linked_episode_id: earlier.id)
+    assert {:ok, %{"related_publications" => [_]}} = work_state(claim)
+
+    for {field, foreign} <- [
+          destination_transport: "control_plane",
+          destination_conversation_ref: "slack:TFOREIGN:C456",
+          destination_thread_ref: "thread:foreign",
+          execution_mode: :shadow,
+          history_pruned_at: Repo.now!()
+        ] do
+      change!(earlier, [{field, foreign}])
+      assert_empty_related(claim)
+      change!(earlier, [{field, Map.get(earlier, field)}])
+    end
+  end
+
+  test "context lineage is bounded and a cycle does not duplicate publication proof",
+       %{claim: claim, root: root, published: published} do
+    change!(root, linked_episode_id: claim.episode.id)
+    assert {:ok, %{"related_publications" => [related]}} = work_state(claim)
+    assert related["published_revision"] == published.receipt
+    change!(root, linked_episode_id: nil)
+
+    ancestor =
+      Enum.reduce(1..30, root, fn index, previous ->
+        admit!("bounded-context:#{claim.episode.id}:#{index}", destination(root), previous.id)
+      end)
+
+    change!(claim.episode, linked_episode_id: ancestor.id)
+    assert {:ok, %{"related_publications" => [_]}} = work_state(claim)
+
+    outside = admit!("outside-context:#{claim.episode.id}", destination(root), ancestor.id)
+    change!(claim.episode, linked_episode_id: outside.id)
+    assert_empty_related(claim)
+  end
+
   test "related receipt disclosure requires the exact retained confirmed edge",
        %{claim: claim, published: published, root: root, offer: offer} do
     change!(published.episode, linked_episode_id: nil)
