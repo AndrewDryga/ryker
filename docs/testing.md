@@ -312,7 +312,9 @@ journeys whose integration is not configured in this installation.
 - **Direct conversation** (`/conversations`): ask for a concise answer, then a follow-up that depends on it and
   confirm one conversation with continued episode lineage. Answer a material question and confirm
   the same task session resumes. Upload a bounded text file and an image, then ask for one generated
-  image. React locally and confirm one additional post without Slack traffic. Confirm a harmless
+  image. Ask Ryker to react to your message and post once more, and confirm both stay in the
+  conversation with no Slack traffic; a reaction you add to a reply is recorded as feedback and
+  starts no turn. Confirm a harmless
   task, inspect its diff/timeline/evidence/handoff, and exercise readiness, explicit draft
   publication and the delivery check. Confirm a local incident and read its postmortem without a
   Slack room. Restart Ryker while work is pending and confirm custody resumes from PostgreSQL
