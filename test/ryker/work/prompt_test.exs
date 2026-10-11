@@ -369,6 +369,15 @@ defmodule Ryker.Work.PromptTest do
     refute instructions =~ "operation_id"
   end
 
+  test "a linked task receipt is context, not current GitHub proof or mutation authority" do
+    instructions = normalized_instructions()
+    assert instructions =~ "read get_work_state"
+    assert instructions =~ "related_publications"
+    assert instructions =~ "grants no mutation authority"
+    assert instructions =~ "not proof of the pull request's current head or checks"
+    assert instructions =~ "Do not put related source_offer_ref values into outcome.record_refs"
+  end
+
   test "an artifact deliverable is unfinished until real bytes have a host reference" do
     # The full release matrix caught a model claiming it created and attached a
     # PNG while returning no artifact ref. The delivery therefore contained

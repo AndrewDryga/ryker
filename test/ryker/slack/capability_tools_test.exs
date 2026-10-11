@@ -1927,19 +1927,49 @@ defmodule Ryker.Slack.CapabilityToolsTest do
         {:error, :unauthorized}
       end)
 
-    assert CapabilityTools.call(
-             "post_slack_message",
-             %{
-               "destination_ref" => destination_ref,
-               "instruction_ref" => instruction_ref,
-               "message" => "This remains inert."
-             },
-             work_binding(),
-             options
-           ) == {:error, "unauthorized"}
+    assert {:error, "post_instruction_not_authorized: " <> _explanation} =
+             CapabilityTools.call(
+               "post_slack_message",
+               %{
+                 "destination_ref" => destination_ref,
+                 "instruction_ref" => instruction_ref,
+                 "message" => "This remains inert."
+               },
+               work_binding(),
+               options
+             )
 
     refute_received {:conversation_info, "C456"}
     refute_received {:post_proposed, _payload}
+  end
+
+  # QA129 was refused for a missing exact input grant, yet the generic error
+  # made the model ask to enable posting access that was already working.
+  test "a missing post instruction grant does not diagnose disabled account access" do
+    denied =
+      Map.put(options(), :current_instruction, fn _binding, _source, _destination ->
+        {:error, :unauthorized}
+      end)
+
+    assert {:error, "post_instruction_not_authorized: " <> explanation} =
+             CapabilityTools.call(
+               "post_slack_message",
+               %{
+                 "destination_ref" => SourceRef.channel("T123", "C456"),
+                 "instruction_ref" => SourceRef.message("T123", "G123", "1787832001.000200"),
+                 "message" => "This remains inert."
+               },
+               work_binding(),
+               denied
+             )
+
+    assert explanation =~ "Nothing was posted"
+    assert explanation =~ "not evidence that account access is disabled"
+    assert explanation =~ "post to #channel: message"
+    assert explanation =~ "Do not retry"
+    refute_received {:conversation_info, _channel}
+    refute_received {:post_proposed, _payload}
+    refute_received {:enqueue_action, _attributes}
   end
 
   test "malformed capability calls and authority configuration fail closed" do

@@ -3,7 +3,7 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
   alias Ryker.ControlPlane.Kit
   alias Ryker.Slack
 
-  @tokens ~r/(```[\s\S]*?```|`[^`\n]+`|\[[^\]\n]+\]\(https?:\/\/[^\s)]+\)|<!date\^[^>\n]+\|[^>\n]+>|<[@#][UWCGD][A-Z0-9]+(?:\|[^>\n]+)?>|<https?:\/\/[^>\n]+>|\*\*[^*\n]+\*\*|\*[^*\n]+\*|(?<![\p{L}\p{N}_])_[^_\n]+_(?![\p{L}\p{N}_])|~[^~\n]+~)/u
+  @tokens ~r/(```[\s\S]*?```|`[^`\n]+`|\[[^\]\n]+\]\(https?:\/\/[^\s)]+\)|\[[^\]\r\n]{1,120}\]\(slack-(?:user|channel|usergroup|broadcast):[A-Za-z0-9_.:-]{1,1024}\)|<!date\^[^>\n]+\|[^>\n]+>|<[@#][UWCGD][A-Z0-9]+(?:\|[^>\n]+)?>|<https?:\/\/[^>\n]+>|\*\*[^*\n]+\*\*|\*[^*\n]+\*|(?<![\p{L}\p{N}_])_[^_\n]+_(?![\p{L}\p{N}_])|~[^~\n]+~)/u
   @mentions ~r/(<[@#][UWCGD][A-Z0-9]+(?:\|[^>\n]+)?>)/u
 
   @doc """
@@ -258,7 +258,12 @@ defmodule Ryker.ControlPlane.SlackMarkdown do
 
   defp token("[" <> text) do
     [label, url] = text |> String.trim_trailing(")") |> String.split("](", parts: 2)
-    token("<" <> url <> "|" <> label <> ">")
+
+    # Episode history reads the recorded label, not native Slack control syntax.
+    # This neither resolves private entities nor activates a mention or pseudo-URL.
+    if String.starts_with?(url, "slack-"),
+      do: [~s(<span class="slack-mention">), Plug.HTML.html_escape(label), "</span>"],
+      else: token("<" <> url <> "|" <> label <> ">")
   end
 
   defp token(text), do: Plug.HTML.html_escape(text)

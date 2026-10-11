@@ -6,12 +6,29 @@ defmodule Ryker.StateTools.WorkStateTools do
   alias Ryker.Publication
   alias Ryker.Records
   alias Ryker.Repo
+  alias Ryker.StateTools.Binding
   alias Ryker.Work
 
   # The newest records within the limit: the oldest kept the latest evidence
   # and waits of a long episode out of reach (2026-10-04 review).
   @spec get_work_state(map(), map()) :: {:ok, map()} | {:error, term()}
   def get_work_state(%{"limit" => limit}, binding) do
+    Repo.transaction(fn ->
+      with {:ok, current} <- Binding.fetch_and_lock_current(binding),
+           {:ok, state} <- current_work_state(limit, current) do
+        state
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  rescue
+    error in Postgrex.Error ->
+      if Repo.budget_exhausted?(error),
+        do: {:error, :work_derived_context_busy},
+        else: reraise(error, __STACKTRACE__)
+  end
+
+  defp current_work_state(limit, binding) do
     records =
       Records.model_records(binding.episode, binding.session.repository_ref)
       |> Enum.take(-limit)
@@ -34,6 +51,8 @@ defmodule Ryker.StateTools.WorkStateTools do
          "platform_actions" => platform_actions,
          "publication" =>
            Publication.ModelState.snapshot(binding.episode.id, binding.session.repository_ref),
+         "related_publications" =>
+           Publication.ModelState.related(binding.episode, binding.session),
          "records" => records
        }}
     end

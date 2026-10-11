@@ -45,7 +45,7 @@ defmodule Ryker.StateTools.Catalog do
   defp get_work_state_tool do
     tool(
       "get_work_state",
-      "Read this episode's durable state: its newest records, up to limit, oldest first, and its platform actions.",
+      "Read this episode's durable state: its newest records, up to limit, oldest first, its platform actions, its publication, and up to three related confirmed-task publication receipts within the current frozen repository read set. Related receipts are context only, grant no mutation authority, and do not prove current pull-request state.",
       %{"limit" => integer(1, 100)},
       ~w(limit)
     )

@@ -39,6 +39,100 @@ defmodule Ryker.Publication.Publication.Query do
     )
   end
 
+  @doc "At most three confirmed task children in the caller's exact retained destination and read set."
+  def related_model_states(queryable \\ all(), episode, repositories) do
+    root_ids = [episode.id, episode.linked_episode_id] |> Enum.reject(&is_nil/1) |> Enum.uniq()
+
+    queryable
+    |> related_task_children()
+    |> confirmed_related_tasks(root_ids, episode.id, repositories)
+    |> retained_related_tasks()
+    |> in_related_execution_mode(episode.execution_mode)
+    |> in_related_transport(episode.destination_transport)
+    |> in_related_conversation(episode.destination_conversation_ref)
+    |> in_related_thread(episode.destination_thread_ref)
+    |> order_by([episode_publications: p], desc: p.inserted_at, desc: p.id)
+    |> limit(3)
+  end
+
+  defp related_task_children(queryable) do
+    from(p in queryable,
+      join: r in Records.Record,
+      as: :related_task_offer,
+      on: r.confirmed_episode_id == p.episode_id,
+      join: c in Episodes.Episode,
+      as: :related_task_child,
+      on: c.id == p.episode_id and c.linked_episode_id == r.episode_id,
+      join: e in Episodes.Episode,
+      as: :related_task_root,
+      on: e.id == r.episode_id,
+      join: s in Work.Session,
+      on: s.id == p.session_id and s.episode_id == c.id and s.repository_ref == p.repository,
+      left_join: f in Followup,
+      on: f.publication_id == p.id and f.episode_id == p.episode_id,
+      select: {p, f, c.id, r.ref}
+    )
+  end
+
+  defp confirmed_related_tasks(query, root_ids, episode_id, repositories) do
+    where(
+      query,
+      [
+        episode_publications: p,
+        related_task_offer: r,
+        related_task_child: c,
+        related_task_root: e
+      ],
+      r.kind == "task_offer" and r.status == :confirmed and e.id in ^root_ids and
+        c.id != ^episode_id and p.repository in ^repositories
+    )
+  end
+
+  defp retained_related_tasks(query) do
+    where(
+      query,
+      [related_task_root: e, related_task_child: c],
+      is_nil(e.history_pruned_at) and is_nil(c.history_pruned_at)
+    )
+  end
+
+  defp in_related_execution_mode(query, mode) do
+    where(
+      query,
+      [related_task_root: e, related_task_child: c],
+      e.execution_mode == ^mode and c.execution_mode == ^mode
+    )
+  end
+
+  defp in_related_transport(query, transport) do
+    where(
+      query,
+      [episode_publications: p, related_task_root: e, related_task_child: c],
+      e.destination_transport == ^transport and c.destination_transport == ^transport and
+        p.destination_transport == ^transport
+    )
+  end
+
+  defp in_related_conversation(query, conversation_ref) do
+    where(
+      query,
+      [episode_publications: p, related_task_root: e, related_task_child: c],
+      e.destination_conversation_ref == ^conversation_ref and
+        c.destination_conversation_ref == ^conversation_ref and
+        p.destination_conversation_ref == ^conversation_ref
+    )
+  end
+
+  defp in_related_thread(query, thread_ref) do
+    where(
+      query,
+      [episode_publications: p, related_task_root: e, related_task_child: c],
+      fragment("? IS NOT DISTINCT FROM ?", e.destination_thread_ref, ^thread_ref) and
+        fragment("? IS NOT DISTINCT FROM ?", c.destination_thread_ref, ^thread_ref) and
+        fragment("? IS NOT DISTINCT FROM ?", p.destination_thread_ref, ^thread_ref)
+    )
+  end
+
   def by_ref(queryable \\ all(), ref),
     do: where(queryable, [episode_publications: p], p.ref == ^ref)
 

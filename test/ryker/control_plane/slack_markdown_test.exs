@@ -153,4 +153,39 @@ defmodule Ryker.ControlPlane.SlackMarkdownTest do
     refute html =~ "<img"
     assert html =~ "&quot;"
   end
+
+  # QA129's delivered answer was correct in Slack but its episode showed the
+  # typed channel URL as source syntax. Rendering a label grants no Slack effect.
+  test "typed Slack entities read as escaped labels without activating mention authority" do
+    for text <- [
+          "[#channel](slack-channel:slack:T123:C456)",
+          "[@person](slack-user:U123)",
+          "[@group](slack-usergroup:S123)",
+          "[@here](slack-broadcast:here)",
+          "[<script>](slack-user:U123)"
+        ] do
+      html = text |> SlackMarkdown.render(nil) |> IO.iodata_to_binary()
+      assert html =~ ~s(<span class="slack-mention">)
+      refute html =~ "slack-channel:"
+      refute html =~ "slack-user:"
+      refute html =~ "slack-usergroup:"
+      refute html =~ "slack-broadcast:"
+      refute html =~ "href="
+      refute html =~ "<script>"
+      refute html =~ "<!here>"
+    end
+
+    html = "[#channel](slack-channel:slack:T123:C456)" |> SlackMarkdown.preview(nil)
+    assert IO.iodata_to_binary(html) == ~s(<p><span class="slack-mention">#channel</span></p>)
+  end
+
+  test "typed Slack source syntax stays literal in code and unknown schemes stay inert" do
+    link = "[#channel](slack-channel:slack:T123:C456)"
+    html = "`#{link}`\n```\n#{link}\n```" |> SlackMarkdown.render(nil) |> IO.iodata_to_binary()
+    assert html =~ "<code>#{link}</code>"
+    refute html =~ "slack-mention"
+
+    unknown = "[unsafe](slack-unknown:U123)" |> SlackMarkdown.render(nil)
+    assert IO.iodata_to_binary(unknown) == "[unsafe](slack-unknown:U123)"
+  end
 end

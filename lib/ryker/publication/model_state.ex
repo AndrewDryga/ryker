@@ -1,8 +1,10 @@
 defmodule Ryker.Publication.ModelState do
-  @moduledoc "Bounded canonical publication evidence disclosed to the task's own model."
+  @moduledoc "Bounded canonical publication evidence, separately scoped as own custody or context."
+  alias Ryker.Episodes
   alias Ryker.Publication.{Followup, Publication, Receipt, Review}
   alias Ryker.Records
   alias Ryker.Repo
+  alias Ryker.Work
 
   @review_fields ~w(candidate_head candidate_tree gate publishable session_revision)
   @receipt_fields ~w(branch_ref candidate_tree commit_sha pull_request_number pull_request_url repository)
@@ -11,22 +13,15 @@ defmodule Ryker.Publication.ModelState do
   def snapshot(episode_id, repository) when is_binary(repository) do
     case Repo.peek(Publication.Query.model_state(episode_id, repository)) do
       {%Publication{} = publication, followup} ->
-        %{
-          "existing_pull_request" => existing_pull_request(publication),
-          "followup" => followup_document(followup),
-          "newer_implementation_recorded" =>
-            Review.stale_work?(
-              publication,
-              Records.plan_from_records(Records.goal_records(episode_id))
-            ),
-          "published_at" => datetime(publication.published_at),
-          "published_revision" => published_revision(publication),
-          "ref" => publication.ref,
-          "repository" => publication.repository,
-          "review" => review_document(publication),
-          "review_generation" => publication.review_generation,
-          "status" => Atom.to_string(publication.status)
-        }
+        publication
+        |> document(followup)
+        |> Map.put(
+          "newer_implementation_recorded",
+          Review.stale_work?(
+            publication,
+            Records.plan_from_records(Records.goal_records(episode_id))
+          )
+        )
 
       nil ->
         nil
@@ -35,9 +30,51 @@ defmodule Ryker.Publication.ModelState do
 
   def snapshot(_episode_id, _repository), do: nil
 
+  @doc "Host operational metadata only; a confirmed same-thread task grants no new authority."
+  @spec related(Episodes.Episode.t(), Work.Session.t()) :: [map()]
+  def related(%Episodes.Episode{} = episode, %Work.Session{} = session) do
+    episode
+    |> Publication.Query.related_model_states(readable_repositories(session))
+    |> Repo.all()
+    |> Enum.map(fn {publication, followup, source_episode_id, offer_ref} ->
+      publication
+      |> document(followup)
+      |> Map.merge(%{
+        "context_only" => true,
+        "source_episode_ref" => "episode:#{source_episode_id}",
+        "source_offer_ref" => offer_ref
+      })
+    end)
+  end
+
+  defp readable_repositories(session) do
+    case Work.RepositoryContext.restore(session.repository_context, session.repository_ref) do
+      {:ok, nil} -> List.wrap(session.repository_ref)
+      {:ok, context} -> [context.primary_repository | context.read_only_repositories]
+      {:error, :invalid} -> []
+    end
+  end
+
+  # Never reuse record/goal text for linked context. These are host custody fields,
+  # not a source-backed summary, transcript, authority grant or current GitHub read.
+  defp document(publication, followup) do
+    %{
+      "existing_pull_request" => existing_pull_request(publication),
+      "followup" => followup_document(followup),
+      "published_at" => datetime(publication.published_at),
+      "published_revision" => published_revision(publication),
+      "ref" => publication.ref,
+      "repository" => publication.repository,
+      "review" => review_document(publication),
+      "review_generation" => publication.review_generation,
+      "status" => Atom.to_string(publication.status)
+    }
+  end
+
   defp published_revision(%Publication{publication_receipt: %{} = receipt} = publication) do
-    if Receipt.fingerprint(receipt) == publication.publication_receipt_fingerprint,
-      do: Map.take(receipt, @receipt_fields)
+    if receipt["repository"] == publication.repository and
+         Receipt.fingerprint(receipt) == publication.publication_receipt_fingerprint,
+       do: Map.take(receipt, @receipt_fields)
   end
 
   defp published_revision(_publication), do: nil
@@ -56,10 +93,12 @@ defmodule Ryker.Publication.ModelState do
   defp existing_pull_request(_publication), do: nil
 
   defp review_document(%Publication{review_document: %{} = review} = publication) do
-    review
-    |> Map.take(@review_fields)
-    |> Map.put("policy_findings_count", length(review["policy_findings"] || []))
-    |> Map.put("reviewed_at", datetime(publication.reviewed_at))
+    if Review.fingerprint(review) == publication.review_fingerprint do
+      review
+      |> Map.take(@review_fields)
+      |> Map.put("policy_findings_count", length(review["policy_findings"] || []))
+      |> Map.put("reviewed_at", datetime(publication.reviewed_at))
+    end
   end
 
   defp review_document(_publication), do: nil

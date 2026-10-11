@@ -4,7 +4,7 @@
       "name": "controller-tools",
       "tools": [
         {
-          "description": "Read this episode's durable state: its newest records, up to limit, oldest first, and its platform actions.",
+          "description": "Read this episode's durable state: its newest records, up to limit, oldest first, its platform actions, its publication, and up to three related confirmed-task publication receipts within the current frozen repository read set. Related receipts are context only, grant no mutation authority, and do not prove current pull-request state.",
           "inputSchema": {
             "additionalProperties": false,
             "properties": {

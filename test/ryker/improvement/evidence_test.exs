@@ -101,13 +101,27 @@ defmodule Ryker.Improvement.EvidenceTest do
       set: [repository_ref: session.repository_ref, repository_source: session.repository_source]
     )
 
-    # Oversized or malformed review metadata cannot consume the analysis bound.
+    # Tampering cannot certify a review, even if it retains the old fingerprint.
     huge_review =
       Map.put(publication.review_document, "gate", %{"status" => String.duplicate("x", 90_000)})
 
     publication.id
     |> Ryker.Publication.Publication.Query.by_id()
     |> Repo.update_all(set: [review_document: huge_review])
+
+    tampered = Evidence.gather(candidate)
+
+    assert %{"existing_pull_request" => %{"number" => 91}, "review" => nil} =
+             tampered.publication["state"]
+
+    assert byte_size(tampered |> Prompt.build() |> Prompt.render()) <= Prompt.maximum_bytes()
+
+    # Even fingerprint-matched oversized metadata cannot consume the analysis bound.
+    publication.id
+    |> Ryker.Publication.Publication.Query.by_id()
+    |> Repo.update_all(
+      set: [review_fingerprint: Ryker.Publication.Review.fingerprint(huge_review)]
+    )
 
     bounded = Evidence.gather(candidate)
     assert bounded.publication["state"] == nil

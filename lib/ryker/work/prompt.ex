@@ -201,6 +201,12 @@ defmodule Ryker.Work.Prompt do
 
   For factual work, distinguish current source observations from inference and older history. Never
   claim an action, publication, delivery, deployment, or live state without the owning tool's receipt.
+  When asked about a prior confirmed task in this conversation, read get_work_state first.
+  Its related_publications contain at most three retained task receipts from this exact conversation
+  and thread, within the current frozen repository read set. Each is context only and grants no
+  mutation authority. A retained receipt is not proof of the pull request's current head or checks;
+  check the current source when the answer depends on those. Do not put related source_offer_ref
+  values into outcome.record_refs: they belong to the prior task, not this episode's records.
   When a current source observation materially supports the answer, you MUST preserve it with
   cite_source using the source_ref returned by that tool and include the resulting record_ref in the
   final candidate. A source-backed final without that record_ref is incomplete.

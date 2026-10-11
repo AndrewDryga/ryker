@@ -319,7 +319,7 @@ defmodule Ryker.Slack.CapabilityTools do
            Arguments.post_document(arguments, options.workspace_ref),
          destination_ref = SourceRef.encode(destination),
          {:ok, instruction_authority} <-
-           options.current_instruction.(binding, instruction, destination_ref),
+           current_post_instruction(options, binding, instruction, destination_ref),
          {:ok, conversation} <-
            options.api.conversation_info(options.client, destination.channel_ref),
          :ok <-
@@ -575,12 +575,26 @@ defmodule Ryker.Slack.CapabilityTools do
   defp action_tokens?({module, _server}), do: Adapter.implements?(module, checkout: 3)
   defp action_tokens?(_value), do: false
 
+  # A missing exact ingress grant says nothing about the account's configured
+  # access. Keep destination/API refusals distinct; only this proof gets the remedy.
+  defp current_post_instruction(options, binding, instruction, destination_ref) do
+    case options.current_instruction.(binding, instruction, destination_ref) do
+      {:error, :unauthorized} -> {:error, :post_instruction_not_authorized}
+      result -> result
+    end
+  end
+
   defp error_code(:invalid_arguments), do: "invalid_arguments"
 
   defp error_code({:invalid_update_mentions, _violations} = reason), do: refusal_code(reason)
   defp error_code(:update_limit_reached), do: refusal_code(:update_limit_reached)
   defp error_code(:reaction_limit_reached), do: refusal_code(:reaction_limit_reached)
   defp error_code(:invalid_source_cursor), do: "invalid_source_cursor"
+
+  defp error_code(:post_instruction_not_authorized) do
+    "post_instruction_not_authorized: this current human input does not grant posting to that exact destination. Nothing was posted. This is not evidence that account access is disabled. Do not retry or ask to expand permissions. A person must send a fresh explicit request beginning with post to #channel: message, naming the exact destination."
+  end
+
   defp error_code(:unauthorized), do: "unauthorized"
   defp error_code(:slack_action_token_not_authorized), do: "unauthorized"
   defp error_code(:slack_search_budget_exhausted), do: "search_budget_exhausted"
