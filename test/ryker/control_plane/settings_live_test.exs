@@ -2390,7 +2390,13 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
   test "a settings draft the browser kept comes back, and never saves over a change made since" do
     initialize!()
     workspace = Settings.fetch!().work.workspace_ref
-    fields = &%{"workspace_ref" => workspace, "ready_routing_sessions" => &1}
+
+    fields =
+      &%{
+        "workspace_ref" => workspace,
+        "ready_routing_sessions" => &1,
+        "ready_work_sessions" => "2"
+      }
 
     # Another section was saved meanwhile; this one reads the same, so the
     # draft saves against the newer revision.

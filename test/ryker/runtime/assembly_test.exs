@@ -155,7 +155,8 @@ defmodule Ryker.Runtime.AssemblyTest do
                :slack,
                :slack_names,
                :webhooks,
-               :work
+               :work,
+               :work_ready
              ])
 
     # Every lease owner is keyed to the installation identity, never generated:
@@ -184,6 +185,13 @@ defmodule Ryker.Runtime.AssemblyTest do
              Map.take(configuration[:admission], [:api, :client, :policy, :policy_digest])
 
     assert configuration[:admission_ready].target == 1
+
+    # Work sessions kept ready are started through Work's own adapter, for as
+    # many pins as the saved setting asks (two on a new installation).
+    assert Map.take(configuration[:work_ready], [:api, :client]) ==
+             Map.take(configuration[:work], [:api, :client])
+
+    assert configuration[:work_ready].target == 2
     assert configuration[:learning].policy == "ryker-learning"
 
     # Self-analysis asks the learning models, on learning's own policy and
@@ -1359,6 +1367,7 @@ defmodule Ryker.Runtime.AssemblyTest do
     for lane <- [
           :admission,
           :admission_ready,
+          :work_ready,
           :control_plane,
           :coop_worker_gateway,
           :delivery,
@@ -1438,6 +1447,7 @@ defmodule Ryker.Runtime.AssemblyTest do
 
     for absent <- [
           :work,
+          :work_ready,
           :admission,
           :admission_ready,
           :learning,

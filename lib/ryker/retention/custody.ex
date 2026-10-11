@@ -486,14 +486,15 @@ defmodule Ryker.Retention.Custody do
 
   defp fetch_candidate(now, exclude), do: Repo.fetch(Cleanup.Query.next_candidate(now, exclude))
 
+  # A routing session started ahead of time has no message until one claims
+  # it, and a Work session no episode until a conversation claims it. Until
+  # then its pool owns it, and the session's own state says whether the pool
+  # gave it up; the session row is locked right after.
+  defp peek_and_lock_owner(kind, nil, _lock) when kind in [:admission, :work], do: :ready_pool
+
   defp peek_and_lock_owner(kind, id, lock)
        when kind in [:work, :learning, :improvement, :knowledge],
        do: kind |> Cleanup.Query.owner(id) |> Cleanup.Query.lock_owner(lock) |> Repo.peek()
-
-  # A routing session started ahead of time has no message until one claims
-  # it. Until then the pool owns it, and the session's own state says whether
-  # the pool gave it up; the session row is locked right after.
-  defp peek_and_lock_owner(:admission, nil, _lock), do: :ready_pool
 
   defp peek_and_lock_owner(:admission, input_id, lock) do
     :admission
@@ -507,8 +508,8 @@ defmodule Ryker.Retention.Custody do
   defp peek_and_lock_identity_owner({kind, id}) when not is_nil(id),
     do: peek_and_lock_owner(kind, id, :wait)
 
-  defp peek_and_lock_identity_owner({:admission, nil}),
-    do: peek_and_lock_owner(:admission, nil, :wait)
+  defp peek_and_lock_identity_owner({kind, nil}) when kind in [:admission, :work],
+    do: peek_and_lock_owner(kind, nil, :wait)
 
   defp peek_and_lock_identity_owner(_identity), do: nil
 
@@ -547,7 +548,11 @@ defmodule Ryker.Retention.Custody do
        }),
        do: current > generation
 
-  defp owner_finished?(:ready_pool, %Work.Session{ready_state: :retired, admission_input_id: nil}),
+  defp owner_finished?(:ready_pool, %Work.Session{
+         ready_state: :retired,
+         admission_input_id: nil,
+         episode_id: nil
+       }),
        do: true
 
   defp owner_finished?(_owner, _session), do: false

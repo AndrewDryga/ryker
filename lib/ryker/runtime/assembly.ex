@@ -53,6 +53,9 @@ defmodule Ryker.Runtime.Assembly do
       # only while RYKER_EMBEDDINGS_URL names a server and routing runs.
       {:embeddings, Ryker.Embeddings.Worker},
       {:work, Ryker.Work.Runtime},
+      # Its own key, so changing how many Work sessions are kept ready restarts
+      # only the pool, never Work's turns.
+      {:work_ready, Ryker.Work.ReadyPool},
       {:learning, Ryker.Learning.Runtime},
       # Self-analysis runs on learning's policy and models, only where learning
       # runs, in a pool of its own so its restarts never touch learning's.
@@ -133,6 +136,7 @@ defmodule Ryker.Runtime.Assembly do
     work = work(settings, bootstrap.storage_root)
     admission = admission(settings, policies, work)
     admission_ready = admission_ready(settings, admission)
+    work_ready = work_ready(settings, work, admission)
     local_routing = local_routing(settings)
     embeddings = embeddings(admission)
     learning = learning(settings, policies, work)
@@ -182,6 +186,7 @@ defmodule Ryker.Runtime.Assembly do
     |> Maps.put_present(:work, work)
     |> Maps.put_present(:admission, admission)
     |> Maps.put_present(:admission_ready, admission_ready)
+    |> Maps.put_present(:work_ready, work_ready)
     |> Maps.put_present(:control_plane, control_plane)
     |> Maps.put_present(:coop_worker_gateway, gateway)
     |> Maps.put_present(:delivery, delivery)
@@ -568,6 +573,18 @@ defmodule Ryker.Runtime.Assembly do
     admission
     |> Map.take([:api, :client, :policy, :policy_digest])
     |> Map.put(:target, settings.work.ready_routing_sessions)
+  end
+
+  # Only a new conversation takes a Work session kept ready, so the pool runs
+  # wherever Work and routing both do, even at 0, to retire what an earlier
+  # setting kept.
+  defp work_ready(_settings, nil, _admission), do: nil
+  defp work_ready(_settings, _work, nil), do: nil
+
+  defp work_ready(settings, work, _admission) do
+    work
+    |> Map.take([:api, :client])
+    |> Map.put(:target, settings.work.ready_work_sessions)
   end
 
   # The local routing model is asked only in shadow, only at the endpoint and

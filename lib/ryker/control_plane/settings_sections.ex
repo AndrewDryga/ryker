@@ -653,7 +653,8 @@ defmodule Ryker.ControlPlane.SettingsSections do
     },
     # A worker enrols under a workspace name and reports it on every sync;
     # people know it as the install the worker belongs to. Sessions kept ready
-    # are started by `Ryker.Admission.ReadyPool` on that install.
+    # are started by `Ryker.Admission.ReadyPool` and `Ryker.Work.ReadyPool` on
+    # that install.
     %{
       key: :work,
       domain: :work,
@@ -661,7 +662,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
       schema: Settings.Work,
       title: "Where work runs",
       description:
-        "The worker install that runs Ryker's work, and how many routing sessions it keeps ready.",
+        "The worker install that runs Ryker's work, and how many sessions it keeps ready.",
       fields: [
         %{
           name: :workspace_ref,
@@ -689,6 +690,23 @@ defmodule Ryker.ControlPlane.SettingsSections do
               "Choose a whole number from 0 to #{Settings.Work.maximum_ready_routing_sessions()}.",
             required:
               "Choose a whole number from 0 to #{Settings.Work.maximum_ready_routing_sessions()}."
+          }
+        },
+        %{
+          name: :ready_work_sessions,
+          kind: :integer,
+          label: "Work sessions kept ready",
+          min: 0,
+          max: Settings.Work.maximum_ready_work_sessions(),
+          help:
+            "Ryker keeps a session started for this many of the setups new conversations used " <>
+              "most in the last day, so their first answer comes sooner. Each is used for one " <>
+              "conversation only. 0 turns this off.",
+          errors: %{
+            number:
+              "Choose a whole number from 0 to #{Settings.Work.maximum_ready_work_sessions()}.",
+            required:
+              "Choose a whole number from 0 to #{Settings.Work.maximum_ready_work_sessions()}."
           }
         }
       ]

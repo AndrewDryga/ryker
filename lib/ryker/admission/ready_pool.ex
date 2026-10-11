@@ -184,7 +184,7 @@ defmodule Ryker.Admission.ReadyPool do
   # every start on the live install on 2026-09-26, one every five seconds,
   # while the worker kept creating sessions nobody used.
   defp await_created(operation, key, settings, polls_left) do
-    case created(operation) do
+    case Coop.CreateOutcome.of(operation) do
       :unknown when polls_left > 0 ->
         settings.sleep.(@operation_poll_ms)
 
@@ -243,21 +243,12 @@ defmodule Ryker.Admission.ReadyPool do
         nil
       )
 
-    case created(fenced) do
+    case Coop.CreateOutcome.of(fenced) do
       {:created, coop_session_id} -> retire(session, coop_session_id)
       :absent -> retire(session, nil)
       :unknown -> :starting
     end
   end
-
-  defp created({:ok, operation}), do: created(operation)
-
-  defp created(%{"state" => "succeeded", "resource_type" => "session", "resource_id" => id})
-       when is_binary(id),
-       do: {:created, id}
-
-  defp created(%{"state" => "failed"}), do: :absent
-  defp created(_operation), do: :unknown
 
   defp retire(session, coop_session_id) do
     case ReadySessions.retire(session, coop_session_id) do

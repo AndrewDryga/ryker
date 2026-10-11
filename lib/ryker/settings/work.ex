@@ -15,7 +15,9 @@ defmodule Ryker.Settings.Work do
   actual worker credentials when admitting the immutable job's target ladder.
   `ready_routing_sessions` is how
   many routing sessions Ryker starts ahead of time (`Ryker.Admission.ReadyPool`);
-  0 turns that off.
+  0 turns that off. `ready_work_sessions` is for how many kinds of new
+  conversation Ryker keeps a Work session started (`Ryker.Work.ReadyPool`); 0
+  turns that off.
 
   The local routing model is a model the operator runs, such as the one
   `scripts/routing-model-service.sh` runs on the Mac beside Ryker, reached at `local_routing_endpoint` and asked for
@@ -47,6 +49,7 @@ defmodule Ryker.Settings.Work do
   ]
   @model_fields Keyword.keys(@models)
   @maximum_ready_routing_sessions 5
+  @maximum_ready_work_sessions 5
   # A model as a local server lists it: qwen2.5:3b, llama3.2:3b-instruct-q4_K_M
   # or hf.co/bartowski/Qwen2.5-3B-Instruct-GGUF:Q4_K_M.
   @local_model ~r/\A[A-Za-z0-9][A-Za-z0-9._:\/@+-]{0,199}\z/
@@ -54,6 +57,7 @@ defmodule Ryker.Settings.Work do
   schema "work_settings" do
     field(:workspace_ref, :string)
     field(:ready_routing_sessions, :integer, default: 1)
+    field(:ready_work_sessions, :integer, default: 2)
     field(:model_accounts, {:array, :string}, default: ["codex@default"])
 
     for {name, default} <- @models do
@@ -73,6 +77,7 @@ defmodule Ryker.Settings.Work do
   def most_models, do: @most_models
   def most_accounts, do: @most_accounts
   def maximum_ready_routing_sessions, do: @maximum_ready_routing_sessions
+  def maximum_ready_work_sessions, do: @maximum_ready_work_sessions
 
   @doc "Whether `value` names a model the way a local server lists one."
   @spec local_model?(term()) :: boolean()

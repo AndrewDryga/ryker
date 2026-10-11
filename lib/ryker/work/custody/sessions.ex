@@ -14,12 +14,13 @@ defmodule Ryker.Work.Custody.Sessions do
   alias Ryker.Repo
   alias Ryker.Work.Custody
   alias Ryker.Work.Custody.Turns
-  alias Ryker.Work.{OperationKeys, RepositoryContext, RepositorySource, Session}
+  alias Ryker.Work.{OperationKeys, ReadySessions, RepositoryContext, RepositorySource, Session}
   alias Ryker.Work.Turn
 
   @pin_options [
     :authority_digest,
     :environment_ref,
+    :ready,
     :repository_context,
     :repository_ref,
     :repository_source
@@ -34,6 +35,10 @@ defmodule Ryker.Work.Custody.Sessions do
   `authority_digest`, `repository_ref` with its `repository_context` and
   `repository_source`, and `environment_ref`. An eight-place ladder of
   arities stood here, one a value longer each (2026-10-04 review).
+
+  `ready: true`, given only for a new conversation, lets the episode take a
+  Work session kept ready for exactly this pin as its first session
+  (`Ryker.Work.ReadySessions`) instead of creating one.
   """
   @spec pin_episode_in_transaction(Ecto.UUID.t(), String.t(), String.t(), keyword()) ::
           {:ok, Session.t()} | {:error, term()}
@@ -60,6 +65,7 @@ defmodule Ryker.Work.Custody.Sessions do
          environment_ref: environment_ref,
          policy: policy,
          policy_digest: policy_digest,
+         ready: options[:ready] == true,
          repository_context: repository_context,
          repository_ref: repository_ref,
          repository_source: repository_source
@@ -233,26 +239,12 @@ defmodule Ryker.Work.Custody.Sessions do
   defp pin_session_locked(episode, authority) do
     case fetch_and_lock_latest_session(episode.id) do
       {:error, :not_found} ->
-        session_id = Repo.generate_id()
         emisar = emisar_pin(authority.environment_ref)
 
-        Session.Changeset.insert(%{
-          id: session_id,
-          episode_id: episode.id,
-          generation: 1,
-          policy: authority.policy,
-          policy_digest: authority.policy_digest,
-          repository_ref: authority.repository_ref,
-          external_ref: session_external_ref(episode.id, 1),
-          authority_digest: authority.authority_digest,
-          environment_ref: authority.environment_ref,
-          repository_context: authority.repository_context,
-          repository_source: authority.repository_source,
-          emisar: emisar,
-          workspace_task: nil
-        })
-        |> Repo.insert()
-        |> unwrap_or_rollback(:work_session)
+        case claim_ready(episode, authority, emisar) do
+          {:ok, session} -> session
+          :none -> insert_first_session!(episode, authority, emisar)
+        end
 
       {:ok, %Session{cleanup_status: :active} = session} ->
         session
@@ -273,6 +265,40 @@ defmodule Ryker.Work.Custody.Sessions do
           session_authority(session)
         )
     end
+  end
+
+  defp claim_ready(
+         %Episodes.Episode{execution_mode: :live} = episode,
+         %{ready: true} = authority,
+         emisar
+       ) do
+    if ReadySessions.pooled_source?(authority.repository_source),
+      do: ReadySessions.claim_in_transaction(episode.id, ReadySessions.pin(authority, emisar)),
+      else: :none
+  end
+
+  defp claim_ready(_episode, _authority, _emisar), do: :none
+
+  defp insert_first_session!(episode, authority, emisar) do
+    session_id = Repo.generate_id()
+
+    Session.Changeset.insert(%{
+      id: session_id,
+      episode_id: episode.id,
+      generation: 1,
+      policy: authority.policy,
+      policy_digest: authority.policy_digest,
+      repository_ref: authority.repository_ref,
+      external_ref: session_external_ref(episode.id, 1),
+      authority_digest: authority.authority_digest,
+      environment_ref: authority.environment_ref,
+      repository_context: authority.repository_context,
+      repository_source: authority.repository_source,
+      emisar: emisar,
+      workspace_task: nil
+    })
+    |> Repo.insert()
+    |> unwrap_or_rollback(:work_session)
   end
 
   defp reuse_or_replace_grace(episode, session) do

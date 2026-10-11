@@ -94,16 +94,73 @@ defmodule Ryker.Work.Session.Query do
   end
 
   @doc "Sessions of the ready routing pool, whatever their state."
-  def in_ready_pool(queryable \\ all()),
-    do: where(queryable, [episode_work_sessions: s], not is_nil(s.ready_state))
+  def in_ready_pool(queryable \\ all()) do
+    where(
+      queryable,
+      [episode_work_sessions: s],
+      s.execution_kind == :admission and not is_nil(s.ready_state)
+    )
+  end
 
-  def by_ready_state(queryable \\ all(), states)
+  @doc "Routing sessions kept ready in `states` (`Ryker.Admission.ReadySessions`)."
+  def admission_ready(states) when is_list(states) do
+    where(
+      all(),
+      [episode_work_sessions: s],
+      s.execution_kind == :admission and s.ready_state in ^states
+    )
+  end
 
-  def by_ready_state(queryable, states) when is_list(states),
-    do: where(queryable, [episode_work_sessions: s], s.ready_state in ^states)
+  @doc "Work sessions kept ready in `states` (`Ryker.Work.ReadySessions`)."
+  def work_ready(states) when is_list(states) do
+    where(
+      all(),
+      [episode_work_sessions: s],
+      s.execution_kind == :work and s.ready_state in ^states
+    )
+  end
 
-  def by_ready_state(queryable, state),
-    do: where(queryable, [episode_work_sessions: s], s.ready_state == ^state)
+  def work_ready(state), do: work_ready([state])
+
+  @doc """
+  The oldest open Work session kept ready for exactly `pin` and inserted after
+  `cutoff`, locked and skipped while another claim holds it.
+  """
+  def next_work_ready(pin, cutoff) do
+    :ready
+    |> work_ready()
+    |> where([episode_work_sessions: s], is_nil(s.episode_id) and s.cleanup_status == :active)
+    |> with_pin(pin)
+    |> inserted_after(cutoff)
+    |> ordered_by_oldest()
+    |> limit(1)
+    |> lock("FOR UPDATE SKIP LOCKED")
+  end
+
+  @doc "Sessions whose every field in `pin` equals it, an absent one included."
+  def with_pin(queryable, pin) do
+    Enum.reduce(pin, queryable, fn
+      {field, nil}, query ->
+        where(query, [episode_work_sessions: s], is_nil(field(s, ^field)))
+
+      {field, value}, query ->
+        where(query, [episode_work_sessions: s], field(s, ^field) == ^value)
+    end)
+  end
+
+  @doc """
+  The first session of each live episode a message started since `since`, with
+  no workspace task: the pins new conversations froze (`Ryker.Work.ReadySessions`).
+  """
+  def conversation_first_sessions(since) do
+    from(s in all(),
+      join: e in Ryker.Episodes.Episode,
+      on: e.id == s.episode_id,
+      where: s.execution_kind == :work and s.generation == 1 and is_nil(s.workspace_task),
+      where: s.inserted_at > ^since,
+      where: like(e.key, "ingress-input:%") and e.execution_mode == :live
+    )
+  end
 
   @doc "Ready sessions Coop has not been asked to prepare yet."
   def unprepared(queryable),

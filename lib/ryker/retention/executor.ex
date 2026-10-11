@@ -94,16 +94,20 @@ defmodule Ryker.Retention.Executor do
     end
   end
 
+  # A conversation's session waits out a grace period, so a follow-up can take it up again. A
+  # session kept ready that no conversation claimed has nobody to come back for it.
   defp execute(
          :close_pending,
          %Work.Session{
            execution_kind: :work,
+           episode_id: episode_id,
            close_expected_revision: nil,
            discard_after: nil
          } = session,
          lease_ref,
          settings
-       ) do
+       )
+       when not is_nil(episode_id) do
     with {:ok, stored} <-
            Custody.begin_grace(
              session.id,

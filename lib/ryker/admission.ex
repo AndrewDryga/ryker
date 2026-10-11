@@ -1188,6 +1188,8 @@ defmodule Ryker.Admission do
   defp maybe_pin_episode(nil, _work_policy, _decision), do: :ok
   defp maybe_pin_episode(_episode, nil, _decision), do: :ok
 
+  # A new conversation may take a Work session kept ready for its exact pin
+  # (`Ryker.Work.ReadySessions`); a later message finds the episode's own.
   defp maybe_pin_episode(
          %Episodes.Episode{id: episode_id},
          %{digest: policy_digest, name: policy} = work_policy,
@@ -1196,6 +1198,7 @@ defmodule Ryker.Admission do
     case Work.Custody.pin_episode_in_transaction(episode_id, policy, policy_digest,
            authority_digest: Map.get(work_policy, :authority_digest),
            environment_ref: Map.get(work_policy, :environment_ref),
+           ready: true,
            repository_context: Map.get(work_policy, :repository_context),
            repository_ref: Map.get(work_policy, :repository_ref),
            repository_source: decision.repository_source

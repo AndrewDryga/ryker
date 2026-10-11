@@ -12,7 +12,12 @@ defmodule Ryker.Settings.Work.Changeset do
   # counts the provider and account of each model, in order, as part of it.
   @shared_accounts [:conversation_models, :standard_models, :deep_models]
   @local_routing_fields [:local_routing_mode, :local_routing_endpoint, :local_routing_model]
-  @fields [:workspace_ref, :ready_routing_sessions, :model_accounts | @model_fields] ++
+  @fields [
+            :workspace_ref,
+            :ready_routing_sessions,
+            :ready_work_sessions,
+            :model_accounts | @model_fields
+          ] ++
             @local_routing_fields
 
   @impl true
@@ -23,7 +28,11 @@ defmodule Ryker.Settings.Work.Changeset do
     work
     |> cast(attributes, @fields)
     |> validate_length(:workspace_ref, min: 1, max: 256, count: :codepoints)
-    |> validate_required([:ready_routing_sessions, :model_accounts | @model_fields])
+    |> validate_required([
+      :ready_routing_sessions,
+      :ready_work_sessions,
+      :model_accounts | @model_fields
+    ])
     |> validate_number(:ready_routing_sessions,
       greater_than_or_equal_to: 0,
       less_than_or_equal_to: Work.maximum_ready_routing_sessions()
@@ -31,6 +40,11 @@ defmodule Ryker.Settings.Work.Changeset do
     |> check_constraint(:ready_routing_sessions,
       name: :work_settings_ready_routing_sessions_valid
     )
+    |> validate_number(:ready_work_sessions,
+      greater_than_or_equal_to: 0,
+      less_than_or_equal_to: Work.maximum_ready_work_sessions()
+    )
+    |> check_constraint(:ready_work_sessions, name: :work_settings_ready_work_sessions_valid)
     |> validate_accounts()
     |> validate_models(work, snapshot)
     |> validate_shared_accounts()

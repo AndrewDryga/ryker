@@ -28,9 +28,18 @@ defmodule Ryker.ControlPlane.WorkingCopy.Query do
     )
   end
 
-  @doc "Sessions that check out a repository for Work."
-  def working_copies(queryable),
-    do: where(queryable, [session: s], s.execution_kind == :work and not is_nil(s.repository_ref))
+  @doc """
+  Sessions that check out a repository for a request's Work. A session kept
+  ready is no request's copy until a conversation claims it
+  (`Ryker.Work.ReadySessions`); a cleanup of one that stops shows on Failures.
+  """
+  def working_copies(queryable) do
+    where(
+      queryable,
+      [session: s],
+      s.execution_kind == :work and not is_nil(s.repository_ref) and not is_nil(s.episode_id)
+    )
+  end
 
   def learning(queryable), do: where(queryable, [session: s], s.execution_kind == :learning)
   def removed(queryable), do: where(queryable, [session: s], s.cleanup_status == :discarded)

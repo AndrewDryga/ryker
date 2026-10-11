@@ -190,7 +190,7 @@ defmodule Ryker.Admission.ReadySessions do
     cutoff = DateTime.add(Repo.now!(), -maximum_age_seconds(), :second)
 
     [:starting, :ready]
-    |> Work.Session.Query.by_ready_state()
+    |> Work.Session.Query.admission_ready()
     |> Work.Session.Query.by_policy(policy, digest)
     |> Work.Session.Query.inserted_after(cutoff)
     |> Repo.aggregate(:count)
@@ -217,8 +217,8 @@ defmodule Ryker.Admission.ReadySessions do
   def unprepared(%{name: policy, digest: digest}) do
     cutoff = DateTime.add(Repo.now!(), -maximum_age_seconds(), :second)
 
-    :ready
-    |> Work.Session.Query.by_ready_state()
+    [:ready]
+    |> Work.Session.Query.admission_ready()
     |> Work.Session.Query.unprepared()
     |> Work.Session.Query.by_policy(policy, digest)
     |> Work.Session.Query.inserted_after(cutoff)
@@ -311,8 +311,8 @@ defmodule Ryker.Admission.ReadySessions do
     running_past = DateTime.add(now, @claim_margin_seconds, :second)
 
     {usable, unusable} =
-      :ready
-      |> Work.Session.Query.by_ready_state()
+      [:ready]
+      |> Work.Session.Query.admission_ready()
       |> Work.Session.Query.ordered_by_recent()
       |> Repo.all()
       |> Enum.split_with(fn session ->
@@ -334,8 +334,8 @@ defmodule Ryker.Admission.ReadySessions do
   def stranded(seconds) when is_integer(seconds) and seconds >= 0 do
     cutoff = DateTime.add(Repo.now!(), -seconds, :second)
 
-    :starting
-    |> Work.Session.Query.by_ready_state()
+    [:starting]
+    |> Work.Session.Query.admission_ready()
     |> Work.Session.Query.inserted_by(cutoff)
     |> Work.Session.Query.ordered_by_oldest()
     |> Repo.all()

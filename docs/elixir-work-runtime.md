@@ -540,7 +540,11 @@ network service. It covers:
 - question and event-wait continuation after delivery;
 - bounded retry and permanent blocked custody;
 - separate work and delivery claim phases;
-- a supervised optional worker pool reaching a validated delivery intent; and
+- a supervised optional worker pool reaching a validated delivery intent;
+- Work sessions kept ready: a new conversation's first answer runs on one without a create, one
+  for another pin is never claimed and is retired, a task never takes one, two conversations
+  pinned at once never share one, routing's pool leaves them alone, and cleanup closes one past
+  its age; and
 - generic Slack/GitHub delivery settling only after an exact typed receipt.
 
 The Work-runtime suite claims only the cases its tests already prove. Typed state-tool carry and privileged GitHub completion guards are
@@ -697,6 +701,29 @@ records the placement durably, so no slot addresses a Coop daemon of its own.
 
 The worker never accepts a policy, repository, provider, credential, Slack destination, or tool set
 from an incoming event. Those are admitted and pinned by their owning boundaries.
+
+### Work sessions kept ready
+
+Creating a new conversation's Work session was most of the wait before its first answer: 18-55 s
+of create command and create operation over 25 new conversations measured on 2026-10-11. So Ryker
+keeps a Work session started for the setups new conversations use most (Settings › Advanced, "Work
+sessions kept ready": 0 to 5, two by default, 0 turns it off). A setup is the whole pin a
+conversation's first session freezes: policy and digests, environment and its Emisar pin,
+repository with its context and source. `Ryker.Work.ReadyPool` reads the pins of the first sessions
+of episodes messages started in the last day, keeps the most used of those the current settings
+still give, and keeps one session per pin, created under that exact pin with an external ref of its
+own (`ryker-work-ready:<id>`) and no episode. Only the default branch or no repository is kept ready:
+a pull request, branch or commit a request names is that request's alone.
+
+When admission pins a new conversation's episode, the episode takes the oldest open session kept
+ready for exactly its pin, under a row lock that passes over one another claim holds, and makes it
+its first session; with none it creates one exactly as before. A task, a schedule and an incident
+room never take one, and a session is never prompted before its claim, so it carries no other
+conversation's knowledge or transcript. The pool retires a session no conversation claimed once it
+is an hour old (its repository is frozen at the commit its default branch had when it started),
+once its pin is no longer kept, or when it is a second for one pin; cleanup closes and removes what
+it retires, with no follow-up grace. Unlike routing's, these sessions are not prepared: a Work job
+stops its agent after each turn, and an agent kept running would hold a runtime slot while it waits.
 
 ## Worker inspection evidence
 

@@ -250,6 +250,32 @@ defmodule Ryker.Work.Session.Changeset do
     |> check_constraint(:ready_state, name: :episode_work_session_ready_state_valid)
   end
 
+  @doc "A Work session the ready pool starts ahead of any conversation (`Ryker.Work.ReadySessions`)."
+  @spec reserve_work_ready(map()) :: Ecto.Changeset.t()
+  def reserve_work_ready(attributes) do
+    %Session{}
+    |> change(attributes)
+    |> validate_emisar_pin()
+    |> RepositoryContext.validate()
+    |> check_constraint(:execution_kind, name: :episode_work_session_owner_valid)
+    |> check_constraint(:ready_state, name: :episode_work_session_ready_state_valid)
+    |> check_constraint(:policy, name: :episode_work_session_identity_valid)
+    |> check_constraint(:repository_context, name: :episode_work_session_repository_context_valid)
+    |> check_constraint(:repository_source, name: :episode_work_session_repository_source_valid)
+    |> check_constraint(:emisar_connection_ref, name: :episode_work_session_emisar_pin_valid)
+    |> check_constraint(:environment_ref, name: :episode_work_session_environment_valid)
+  end
+
+  @doc "A conversation's episode takes the Work session kept ready at `at`, as its first session."
+  @spec claim_work_ready(Session.t(), Ecto.UUID.t(), DateTime.t()) :: Ecto.Changeset.t()
+  def claim_work_ready(%Session{} = session, episode_id, at) do
+    session
+    |> change(episode_id: episode_id, ready_state: :claimed, updated_at: at)
+    |> unique_constraint([:episode_id, :generation])
+    |> foreign_key_constraint(:episode_id)
+    |> check_constraint(:ready_state, name: :episode_work_session_ready_state_valid)
+  end
+
   @doc "The reserved session's Coop session is open at `at`; a message may claim it."
   @spec mark_ready(Session.t(), String.t(), DateTime.t()) :: Ecto.Changeset.t()
   def mark_ready(%Session{} = session, coop_session_id, at) do

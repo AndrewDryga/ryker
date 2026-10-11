@@ -359,13 +359,15 @@ defmodule Ryker.Retention.Cleanup.Query do
     )
   end
 
-  # A routing session started ahead of time that no message claimed is
-  # finished once the pool retires it (`Ryker.Admission.ReadySessions`).
+  # A routing session started ahead of time that no message claimed, or a
+  # Work session no conversation claimed, is finished once its pool retires it
+  # (`Ryker.Admission.ReadySessions`, `Ryker.Work.ReadySessions`).
   defp ready_retired do
     dynamic(
       [episode_work_sessions: session],
-      session.execution_kind == :admission and is_nil(session.admission_input_id) and
-        session.ready_state == :retired
+      session.ready_state == :retired and
+        ((session.execution_kind == :admission and is_nil(session.admission_input_id)) or
+           (session.execution_kind == :work and is_nil(session.episode_id)))
     )
   end
 
