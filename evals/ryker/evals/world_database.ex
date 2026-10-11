@@ -8,10 +8,10 @@ defmodule Ryker.Evals.WorldDatabase do
   Coop sessions were discarded. Failed runs keep their rows: they are the
   fixtures the next fix needs.
   """
-  import Ecto.Query
   alias Ryker.Episodes
   alias Ryker.Episodes.{Command, Episode}
   alias Ryker.Repo
+  alias Ryker.Work
 
   @reference_tables ~w(pricing_rates)
 
@@ -69,28 +69,44 @@ defmodule Ryker.Evals.WorldDatabase do
   end
 
   @doc false
-  @spec terminalize_waiting_episodes() :: :ok | {:error, term()}
-  def terminalize_waiting_episodes do
+  @spec request_episode_cancellation() :: :ok | {:error, term()}
+  def request_episode_cancellation do
     now = Repo.now!()
 
-    Episode
-    |> where([episode], episode.state in [:waiting_for_input, :waiting_for_event])
-    |> order_by([episode], [episode.inserted_at, episode.id])
+    Episode.Query.all()
+    |> Episode.Query.by_states([:working, :waiting_for_input, :waiting_for_event])
+    |> Episode.Query.ordered_by_id()
     |> Repo.all()
     |> Enum.reduce_while(:ok, fn episode, :ok ->
-      command = %Command.CancelEpisode{
-        cancel_ref: "model-world-cleanup:#{episode.id}:v#{episode.semantic_version}",
-        episode_key: episode.key,
-        expected_owner: %{kind: episode.owner_kind, ref: episode.owner_ref},
-        occurred_at: now,
-        reason: "The disposable model-world observation finished."
-      }
-
-      case Episodes.apply(command) do
+      case cancel_episode(episode, now) do
         {:ok, _transition} -> {:cont, :ok}
         {:error, reason} -> {:halt, {:error, {:world_cleanup_cancel_failed, episode.id, reason}}}
       end
     end)
+  end
+
+  # A failed observation may still own a remote turn. Only its normal cancellation
+  # worker's exact terminal proof can release that owner; a kernel-only cancel cannot.
+  defp cancel_episode(%Episode{state: :working, owner_kind: :turn} = episode, _now) do
+    Work.Custody.request_cancel(
+      episode.id,
+      episode.key,
+      episode.owner_ref,
+      "model-world-cleanup:#{episode.id}:v#{episode.semantic_version}",
+      "The disposable model-world observation finished."
+    )
+  end
+
+  defp cancel_episode(%Episode{} = episode, now) do
+    command = %Command.CancelEpisode{
+      cancel_ref: "model-world-cleanup:#{episode.id}:v#{episode.semantic_version}",
+      episode_key: episode.key,
+      expected_owner: %{kind: episode.owner_kind, ref: episode.owner_ref},
+      occurred_at: now,
+      reason: "The disposable model-world observation finished."
+    }
+
+    Episodes.apply(command)
   end
 
   defp cleanup_failure(report, cleanup) do

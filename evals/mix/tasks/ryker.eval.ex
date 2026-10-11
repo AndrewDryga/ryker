@@ -901,6 +901,9 @@ defmodule Mix.Tasks.Ryker.Eval do
   defp baseline_configured(_policies, _paired), do: :ok
 
   defp cleanup_world_sessions(work, observation) do
+    worker_ref =
+      "model-world-cleanup:#{observation.lane}:#{observation.scenario.id}:#{observation.repeat_index}"
+
     options = [
       api: work.api,
       client: work.client,
@@ -908,11 +911,17 @@ defmodule Mix.Tasks.Ryker.Eval do
       max_attempts: 1,
       retry_base_seconds: 1,
       retry_max_seconds: 1,
-      worker_ref:
-        "model-world-cleanup:#{observation.lane}:#{observation.scenario.id}:#{observation.repeat_index}"
+      worker_ref: worker_ref
     ]
 
-    with :ok <- WorldDatabase.terminalize_waiting_episodes(),
+    work_options = [
+      executor_options: [api: work.api, client: work.client],
+      lease_seconds: 120,
+      worker_ref: worker_ref
+    ]
+
+    with :ok <- WorldDatabase.request_episode_cancellation(),
+         :ok <- SessionCleanup.drain_work(work_options, 16),
          do: SessionCleanup.drain(options, 16)
   end
 

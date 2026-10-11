@@ -514,7 +514,7 @@ defmodule Ryker.Evals.WorldRunnerTest do
 
     assert WorldDatabase.run_cleanup(
              {:error, {:world_eval_assertions, report}},
-             &WorldDatabase.terminalize_waiting_episodes/0,
+             &WorldDatabase.request_episode_cancellation/0,
              fn ->
                Repo.delete_all(Turn)
                :ok
@@ -1163,8 +1163,8 @@ defmodule Ryker.Evals.WorldRunnerTest do
     assert waiting = Ryker.Inspectors.episode(episode_key)
     assert waiting.state == :waiting_for_event
 
-    assert WorldDatabase.terminalize_waiting_episodes() == :ok
-    assert WorldDatabase.terminalize_waiting_episodes() == :ok
+    assert WorldDatabase.request_episode_cancellation() == :ok
+    assert WorldDatabase.request_episode_cancellation() == :ok
 
     assert cancelled = Ryker.Inspectors.episode(episode_key)
     assert cancelled.state == :cancelled

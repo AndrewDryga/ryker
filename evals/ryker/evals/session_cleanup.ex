@@ -9,6 +9,7 @@ defmodule Ryker.Evals.SessionCleanup do
   import Ecto.Query
   alias Ryker.Repo
   alias Ryker.Retention.Dispatcher
+  alias Ryker.Work
   alias Ryker.Work.Session
 
   @doc """
@@ -21,6 +22,42 @@ defmodule Ryker.Evals.SessionCleanup do
     options
     |> Keyword.put_new(:closed_session_grace_seconds, 0)
     |> drain_passes(passes)
+  end
+
+  @doc "Drain requested Work cancellations before retaining or discarding their sessions."
+  @spec drain_work(keyword(), pos_integer()) :: :ok | {:error, term()}
+  def drain_work(options, passes) when is_integer(passes) and passes > 0 do
+    case Work.Dispatcher.run_once(options) do
+      {:ok, :idle} ->
+        all_work_stopped()
+
+      {:ok, {:executed, _execution}} when passes > 1 ->
+        drain_work(options, passes - 1)
+
+      {:ok, {:executed, _execution}} ->
+        {:error, :world_work_cleanup_did_not_drain}
+
+      {:ok, {:deferred, reason}} ->
+        {:error, {:world_work_cleanup_deferred, reason}}
+
+      {:ok, {:blocked, reason}} ->
+        {:error, {:world_work_cleanup_blocked, reason}}
+
+      {:ok, {:lease_lost, reason}} ->
+        {:error, {:world_work_cleanup_lease_lost, reason}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp all_work_stopped do
+    query = Work.Turn.Query.all() |> Work.Turn.Query.cancelling()
+
+    case Repo.aggregate(query, :count) do
+      0 -> :ok
+      pending -> {:error, {:world_work_cleanup_incomplete, pending}}
+    end
   end
 
   defp drain_passes(_options, 0), do: {:error, :session_cleanup_did_not_drain}
