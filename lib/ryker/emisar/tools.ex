@@ -39,6 +39,8 @@ defmodule Ryker.Emisar.Tools do
   # not wait on an Emisar that just refused or did not answer.
   @catalog_ttl_ms 5 * 60 * 1_000
   @failure_ttl_ms 30 * 1_000
+  # What Emisar last listed for a key is kept a day longer, for when it does not answer.
+  @listed_ttl_ms 24 * 60 * 60 * 1_000
 
   # Emisar's wait_for_run may block for 60 seconds; leave room for transport latency.
   @call_timeout_ms 75_000
@@ -71,11 +73,27 @@ defmodule Ryker.Emisar.Tools do
   def catalog(_pin), do: {:error, :not_configured}
 
   defp cached_catalog(cache_key, client, key) do
-    case ToolCache.get(cache_key) do
-      {:ok, answer} -> answer
-      :miss -> remember(cache_key, bounded_read(client, key))
+    answer =
+      case ToolCache.get(cache_key) do
+        {:ok, answer} -> answer
+        :miss -> remember(cache_key, bounded_read(client, key))
+      end
+
+    last_listed(answer, cache_key)
+  end
+
+  # An Emisar that does not answer while a session starts would leave the session without one
+  # Emisar tool, and the model told a person to enable access it had (2026-10-11). The tools
+  # Emisar last listed for the same key still name what the key may call; Emisar decides each
+  # call when it is made. A refused key lists nothing.
+  defp last_listed({:error, :unavailable} = answer, cache_key) do
+    case ToolCache.get({:listed, cache_key}) do
+      {:ok, listed} -> listed
+      :miss -> answer
     end
   end
+
+  defp last_listed(answer, _cache_key), do: answer
 
   defp bounded_read(client, key) do
     task = Task.async(fn -> safe_read(client, key) end)
@@ -97,9 +115,14 @@ defmodule Ryker.Emisar.Tools do
       {:error, :unavailable}
   end
 
+  defp remember(cache_key, {:ok, _catalog} = answer) do
+    :ok = ToolCache.put(cache_key, answer, @catalog_ttl_ms)
+    :ok = ToolCache.put({:listed, cache_key}, answer, @listed_ttl_ms)
+    answer
+  end
+
   defp remember(cache_key, answer) do
-    ttl = if match?({:ok, _catalog}, answer), do: @catalog_ttl_ms, else: @failure_ttl_ms
-    :ok = ToolCache.put(cache_key, answer, ttl)
+    :ok = ToolCache.put(cache_key, answer, @failure_ttl_ms)
     answer
   end
 

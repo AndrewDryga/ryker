@@ -3,7 +3,9 @@ defmodule Ryker.Emisar.ToolsTest do
   # as emisar.dev did on 2026-09-27 and tells this process what it was sent.
   use Ryker.DataCase, async: true
   alias Ryker.Credentials
-  alias Ryker.Emisar.Tools
+  alias Ryker.Crypto
+  alias Ryker.Emisar.{ToolCache, Tools}
+  alias Ryker.TestSupport.EmisarMCP
 
   @actor "control-plane:local"
   @tools_list "testdata/emisar/tools_list.json" |> File.read!() |> Jason.decode!()
@@ -72,6 +74,24 @@ defmodule Ryker.Emisar.ToolsTest do
     drain_requests()
     assert Tools.catalog(pin) == {:error, :unavailable}
     refute_received {:emisar_mcp, _request}
+  end
+
+  # 2026-10-11: a Work turn asked for a runner's uptime two minutes after that runner lost touch
+  # with Emisar. Emisar did not answer the catalog read in time, the session was offered no
+  # Emisar tool, and Ryker told the person to enable Emisar access it already had. The tools
+  # Emisar last listed for the same key still name what that key may call; Emisar decides each
+  # call when it is made.
+  test "an Emisar that stops answering keeps offering the tools it last listed for the key" do
+    key = key!("emk-")
+    pin = pin!(key)
+    assert {:ok, catalog} = Tools.catalog(pin)
+
+    # The listing grows old, and Emisar stops answering.
+    :ets.delete(ToolCache, {pin.connection_ref, pin.rpc_url, Crypto.sha256_hex(key)})
+    EmisarMCP.down!()
+    drain_requests()
+
+    assert Tools.catalog(pin) == {:ok, catalog}
   end
 
   test "a call reaches Emisar with the environment's key and returns Emisar's answer unchanged" do

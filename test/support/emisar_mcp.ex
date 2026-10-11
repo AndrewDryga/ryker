@@ -41,11 +41,11 @@ defmodule Ryker.TestSupport.EmisarMCP do
           {:ok, map()} | {:error, term()}
   def request(%JSONClient{} = client, :post, path, body, headers) do
     host = URI.parse(client.base_url).host
+    # A request made from a task is still the test's to see.
+    recipient = List.first(Process.get(:"$callers", [])) || self()
 
-    with false <- host == "unreachable.example",
+    with false <- host == "unreachable.example" or down?(recipient),
          {:ok, token} <- client.token_provider.() do
-      # A request made from a task is still the test's to see.
-      recipient = List.first(Process.get(:"$callers", [])) || self()
       send(recipient, {:emisar_mcp, %{body: body, headers: headers, path: path, token: token}})
 
       # A host that never answers in the time anyone waits for it.
@@ -70,6 +70,11 @@ defmodule Ryker.TestSupport.EmisarMCP do
         {:error, {:delivery_credentials_unavailable, reason}}
     end
   end
+
+  @doc "Turns this test's Emisar off: from now on it refuses every connection, whatever the host."
+  def down!, do: :persistent_term.put({__MODULE__, :down, self()}, true)
+
+  defp down?(test), do: :persistent_term.get({__MODULE__, :down, test}, false)
 
   @spec answer(map(), String.t()) :: {:ok, map()}
   def answer(%{"id" => id}, "refused-" <> _token),
