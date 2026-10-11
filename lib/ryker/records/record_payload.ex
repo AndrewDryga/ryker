@@ -163,9 +163,9 @@ defmodule Ryker.Records.RecordPayload do
              ~w(alias repository_binding evidence_route entity_relationship),
              :kind
            ),
-         :ok <- enum(payload["scope"], ~w(conversation repository workspace), :scope),
+         :ok <- enum(payload["scope"], ~w(conversation repository workspace global), :scope),
          :ok <- enum(payload["expires_in"], ~w(7d 30d 90d 365d), :expires_in),
-         :ok <- enum(payload["visibility"], ~w(conversation workspace), :visibility),
+         :ok <- enum(payload["visibility"], ~w(conversation workspace global), :visibility),
          :ok <- text(payload["subject"], 120, :subject),
          :ok <- text(payload["value"], 4_000, :value),
          :ok <- scoped_repository(payload["scope"], payload["repository"]),
@@ -495,7 +495,9 @@ defmodule Ryker.Records.RecordPayload do
     do: {:error, {:invalid_state_record, :preference}}
 
   defp scoped_repository("repository", value), do: reference(value, :repository)
-  defp scoped_repository(scope, nil) when scope in ~w(operator conversation workspace), do: :ok
+
+  defp scoped_repository(scope, nil) when scope in ~w(operator conversation workspace global),
+    do: :ok
 
   defp scoped_repository(_scope, _value),
     do: {:error, {:invalid_state_record, :repository}}
@@ -514,6 +516,7 @@ defmodule Ryker.Records.RecordPayload do
     do: {:error, {:invalid_state_record, :visibility}}
 
   defp memory_visibility("conversation", "conversation"), do: :ok
+  defp memory_visibility("global", "global"), do: :ok
 
   defp memory_visibility(scope, "workspace") when scope in ~w(repository workspace),
     do: :ok

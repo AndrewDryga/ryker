@@ -257,6 +257,68 @@ defmodule Ryker.Memories.MemoriesTest do
              {:error, :memory_offer_stale}
   end
 
+  # J19, overnight QA of 2026-10-10: a fact a person saved in Chat for everywhere was kept for that
+  # one chat, since every Chat conversation is its own workspace, so no other chat recalled it.
+  # Andrew, 2026-10-11: "if we need that do that". It is kept installation-wide now, as a
+  # remembered answer is, and it still expires like any offered fact.
+  test "a fact saved in Chat for everywhere is recalled in every other conversation" do
+    episode_id = Ecto.UUID.generate()
+    conversation_ref = "control-plane:lab:#{episode_id}"
+
+    assert {:ok, transition} =
+             Episodes.apply(
+               EpisodeFixtures.admit_input(%{
+                 destination: %{
+                   conversation_ref: conversation_ref,
+                   thread_ref: conversation_ref,
+                   transport: "control_plane"
+                 },
+                 episode_id: episode_id,
+                 episode_key: "memory-offer:chat-everywhere:#{episode_id}",
+                 native_input_id: "control-plane-item:#{episode_id}",
+                 occurred_at: @now,
+                 turn_ref: "turn:memory:chat-everywhere:#{episode_id}"
+               })
+             )
+
+    assert {:ok, _session} =
+             WorkSessions.pin_episode(episode_id, "ryker-read", String.duplicate("a", 64))
+
+    assert {:ok, claim} = Custody.claim_next("worker:memory:chat-everywhere", 60, :work)
+
+    assert {:ok, offer} =
+             Records.create(Records.token(claim.turn), "everywhere", "memory_offer", %{
+               "expires_in" => "90d",
+               "kind" => "entity_relationship",
+               "repository" => nil,
+               "scope" => "global",
+               "subject" => "qa_marker",
+               "value" => "The QA marker for October is mint-rocket.",
+               "visibility" => "global"
+             })
+
+    fixture =
+      bind_and_deliver!(claim, transition.episode, "chat-everywhere", [offer], conversation_ref)
+
+    assert {:ok, %{memory: memory}} =
+             Memories.confirm(%{
+               confirmation(fixture, offer, "chat-everywhere")
+               | actor_ref: "control_plane:user:local-operator"
+             })
+
+    assert {memory.scope_kind, memory.visibility, memory.workspace_ref} ==
+             {:global, :global, "installation"}
+
+    assert %DateTime{} = memory.expires_at
+
+    other = "control-plane:lab:#{Ecto.UUID.generate()}"
+
+    assert [entry] =
+             Recall.recall(%{conversation_ref: other, repository: nil, workspace_ref: other})
+
+    assert entry["value"] == "The QA marker for October is mint-rocket."
+  end
+
   test "a memory offer delivered to a joined input's origin thread can be confirmed from that thread" do
     # Found live 2026-09-11: routing delivered a correction card to the joined
     # root's thread and the Save press was refused as "no longer current"; a
@@ -1590,9 +1652,9 @@ defmodule Ryker.Memories.MemoriesTest do
     Repo.get_by!(Turn, episode_id: episode.id, turn_ref: turn.turn_ref)
     |> Ecto.Changeset.change(
       delivery_target: %{
-        "conversation_ref" => "slack:T123:C456",
+        "conversation_ref" => episode.destination_conversation_ref,
         "thread_ref" => delivery_thread_ref,
-        "transport" => "slack"
+        "transport" => episode.destination_transport
       }
     )
     |> Repo.update!()
@@ -1600,8 +1662,8 @@ defmodule Ryker.Memories.MemoriesTest do
     assert {:ok, receipt} =
              DeliveryReceipt.new(
                accepted.turn.delivery_ref,
-               "slack",
-               "slack:T123:C456",
+               episode.destination_transport,
+               episode.destination_conversation_ref,
                delivery_thread_ref,
                "1787832001.000200"
              )

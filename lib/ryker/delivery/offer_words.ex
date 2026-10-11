@@ -20,6 +20,7 @@ defmodule Ryker.Delivery.OfferWords do
     do: "Work in " <> repository
 
   def applies_to("workspace", _repository), do: "Everyone in this workspace"
+  def applies_to("global", _repository), do: "Everywhere"
   def applies_to(_scope, _repository), do: nil
 
   @doc "Who may see it, only where that differs from who it applies to."

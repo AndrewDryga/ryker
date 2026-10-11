@@ -467,14 +467,20 @@ defmodule Ryker.Memories do
   end
 
   defp prepare(payload, episode, attributes) do
-    workspace = Episodes.Scope.workspace_ref(episode)
     scope_kind = String.to_existing_atom(payload["scope"])
+
+    # A fact kept for everywhere belongs to the installation, as a remembered answer does.
+    workspace =
+      if scope_kind == :global,
+        do: "installation",
+        else: Episodes.Scope.workspace_ref(episode)
 
     scope_ref =
       case scope_kind do
         :conversation -> episode.destination_conversation_ref
         :repository -> payload["repository"]
         :workspace -> workspace
+        :global -> "installation:" <> CanonicalJSON.digest(%{"scope" => "everywhere"})
       end
 
     %{

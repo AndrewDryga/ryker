@@ -1262,6 +1262,44 @@ defmodule Ryker.StateTools.RouterTest do
     assert {proposal["scope"], proposal["visibility"]} == {"conversation", "conversation"}
   end
 
+  # J19 (2026-10-11): a fact said in Chat for everywhere was kept for that chat alone, since each
+  # Chat conversation is its own workspace. It is offered installation-wide now. Guidance said
+  # there keeps the conversation, which the offer still says.
+  test "a fact offered in Chat for everywhere is kept installation-wide" do
+    conversation_ref = "control-plane:lab:#{Ecto.UUID.generate()}"
+
+    claim =
+      claim!("chat-fact-everywhere", %{
+        destination: %{
+          conversation_ref: conversation_ref,
+          thread_ref: conversation_ref,
+          transport: "control_plane"
+        }
+      })
+
+    options = bound_options(claim)
+
+    proposal = fn kind, subject ->
+      assert {:ok, %{"proposal" => proposal}} =
+               Tools.call(
+                 "propose_memory",
+                 %{
+                   "expires_at" => nil,
+                   "kind" => kind,
+                   "scope" => "workspace",
+                   "subject" => subject,
+                   "value" => "The QA marker for October is mint-rocket."
+                 },
+                 options
+               )
+
+      {proposal["scope"], proposal["visibility"]}
+    end
+
+    assert proposal.("fact", "qa_marker") == {"global", "global"}
+    assert proposal.("guidance", "qa_guidance") == {"conversation", "conversation"}
+  end
+
   # get_work_state advertised types, history and since and read none of them,
   # and its limit kept the oldest records, so the latest evidence and waits of
   # a long episode were out of reach (2026-10-04 review). It takes a limit
@@ -2386,11 +2424,10 @@ defmodule Ryker.StateTools.RouterTest do
 
     assert lab_tools == slack_tools
 
-    # Every Chat conversation is a workspace of its own, so a fact offered
-    # there for everyone is kept for that conversation, and the offer the model
-    # reads says so: it replied "I'll remember for everyone" over a card that
-    # said "This conversation" (Chat, 2026-10-09).
-    assert {:ok, %{"proposal" => %{"scope" => "conversation", "visibility" => "conversation"}}} =
+    # The offer the model reads names the scope that is kept: it replied "I'll remember for
+    # everyone" over a card that said "This conversation" (Chat, 2026-10-09). Since J19
+    # (2026-10-11) a fact offered there for everyone is kept installation-wide.
+    assert {:ok, %{"proposal" => %{"scope" => "global", "visibility" => "global"}}} =
              Tools.call(
                "propose_memory",
                %{

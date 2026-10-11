@@ -63,6 +63,8 @@ defmodule Ryker.StateTools.MemoryTools do
         )
 
       "fact" ->
+        scope = fact_reach(arguments["scope"], scope, binding.episode)
+
         payload = %{
           "expires_in" => expires_in,
           "kind" => "entity_relationship",
@@ -143,6 +145,14 @@ defmodule Ryker.StateTools.MemoryTools do
 
   defp effective_memory_scope(scope, _episode), do: scope
 
+  # A fact said in Chat for everywhere is the exception: kept installation-wide, every Chat
+  # conversation recalls it, where kept for the chat it was said in no other chat did (J19,
+  # 2026-10-11).
+  defp fact_reach("workspace", _effective, %{destination_transport: "control_plane"}),
+    do: "global"
+
+  defp fact_reach(_asked, effective, _episode), do: effective
+
   defp public_slack_destination?(%{destination_conversation_ref: conversation_ref}) do
     case ConversationRef.parse_slack(conversation_ref) do
       {:ok, workspace_ref, channel_ref} ->
@@ -171,6 +181,7 @@ defmodule Ryker.StateTools.MemoryTools do
   # A fact has no owner of its own: "mine" keeps it to the conversation it was
   # said in. Paired with workspace visibility, no fact record accepted it.
   defp fact_visibility(scope) when scope in ["mine", "current_channel"], do: "conversation"
+  defp fact_visibility("global"), do: "global"
   defp fact_visibility(_scope), do: "workspace"
 
   defp expiry(nil), do: {:ok, "90d"}

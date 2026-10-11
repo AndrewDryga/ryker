@@ -38,8 +38,11 @@ defmodule Ryker.Memories.MemoryEntry.Changeset do
     |> validate()
   end
 
+  # A remembered answer is global and has no offer; a fact a person confirmed for everywhere is
+  # global too, but came from an offer and expires like every offered fact.
   defp required_fields(changeset) do
-    if get_field(changeset, :scope_kind) == :global do
+    if get_field(changeset, :scope_kind) == :global and
+         is_nil(get_field(changeset, :offer_record_id)) do
       validate_required(changeset, [
         :answer_provenance | @normal_required -- [:offer_record_id, :expires_at]
       ])

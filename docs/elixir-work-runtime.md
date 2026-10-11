@@ -227,8 +227,10 @@ repository follows; one from a private channel or a direct message is refused wi
 or navigation. Active global facts have no automatic expiry and survive ordinary transcript
 cleanup. Explicit answer edits/deletions and source-channel deletion revoke the saved fact;
 reviewed corrections and Forget use the existing memory controls. A delayed answer cannot override
-a later answer, reviewed correction or explicit Forget. Memory never grants execution access or
-proves live health.
+a later answer, reviewed correction or explicit Forget. A fact a person confirms from a Chat offer
+for everywhere is kept installation-wide too: each Chat conversation is its own workspace, so a
+workspace fact would reach that chat alone. Unlike an answer, it keeps the expiry its offer named.
+Memory never grants execution access or proves live health.
 
 Questions support up to ten full choices. Up to five render as distinct short buttons; longer
 answers remain visible above their numbered controls. Six to ten use a native radio group and
