@@ -52,6 +52,7 @@ defmodule Ryker.Admission.Dispatcher do
 
     case settings.executor.run(input_ref, executor_options) do
       {:ok, execution} ->
+        recover_after_worker_failure(settings)
         {:ok, {:decided, execution}}
 
       {:error, {:admission_execution_blocked, reason}} ->
@@ -59,9 +60,10 @@ defmodule Ryker.Admission.Dispatcher do
 
       {:error, {:admission_generation_spent, {:coop_turn_failed, _, _, _} = reason}} ->
         # Coop owns provider failover and in-turn recovery. Once it declares
-        # failure, the frozen request cannot fix its runtime or account. Keep
-        # the next occurrence for an explicit retry after operator repair.
-        with {:ok, _blocked} = blocked <- block(claim, input_ref, reason, :execution) do
+        # failure, the frozen request cannot fix its runtime or account, so the
+        # message waits, and is read again once a later reading shows the
+        # worker works (`Ingress.Inbox.recover_after_worker_failure/1`).
+        with {:ok, _blocked} = blocked <- block_after_worker_failure(claim, input_ref, reason) do
           tell_unavailable(claim.entry, reason, settings)
           blocked
         end
@@ -101,6 +103,35 @@ defmodule Ryker.Admission.Dispatcher do
     end
 
     :ok
+  end
+
+  defp block_after_worker_failure(claim, input_ref, reason) do
+    {error_code, error_detail} = describe_error(reason)
+
+    case Ingress.Inbox.block_after_worker_failure(
+           input_ref,
+           claim.lease_ref,
+           error_code,
+           error_detail
+         ) do
+      {:ok, _entry} -> {:ok, {:blocked, input_ref, reason}}
+      {:error, block_reason} -> {:error, {:admission_dispatch_failed, reason, block_reason}}
+    end
+  end
+
+  # A reading just finished, so the worker works: messages a worker failure stopped in the hour
+  # before are read again. Reading them is courtesy to this one's outcome, so a failure here is
+  # logged and changes nothing about it.
+  defp recover_after_worker_failure(settings) do
+    case Ingress.Inbox.recover_after_worker_failure(settings.now.()) do
+      {:ok, _recovered} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "messages stopped by a worker failure not read again: #{inspect(reason, limit: 5)}"
+        )
+    end
   end
 
   defp block(claim, input_ref, reason, generation \\ :same) do

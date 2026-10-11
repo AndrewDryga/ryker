@@ -142,6 +142,29 @@ defmodule Ryker.ControlPlane.InputQueueCardTest do
     assert Enum.map([intake, stopped, recovery], & &1.band) == [:routing, :routing, :routing]
   end
 
+  # A message a worker failure stopped is read again by Ryker itself once the worker works
+  # (2026-10-11). The timeline said an operator had done it.
+  test "a message Ryker read again after a worker failure does not credit an operator" do
+    {entry, _input} = pending!()
+    claimed_at = DateTime.add(entry.inserted_at, 60, :millisecond)
+    transition!(entry, :claimed, claimed_at, attempt: 1, owner_ref: "routing:first")
+
+    transition!(entry, :blocked, DateTime.add(claimed_at, 20, :second),
+      attempt: 1,
+      error_code: "acp_process_error",
+      owner_ref: "worker:failure"
+    )
+
+    recovered_at = DateTime.add(claimed_at, 600, :second)
+    transition!(entry, :rearmed, recovered_at, attempt: 0, owner_ref: Inbox.worker_recovery_ref())
+
+    [_intake, _stopped, recovery] = queue_steps(entry)
+    [read_again | _current] = recovery.queue.events
+    assert read_again.label == "Read again"
+    assert read_again.reason =~ "Ryker read the message again by itself"
+    refute read_again.reason =~ "operator"
+  end
+
   test "a retried input reads in time order with each attempt named and its failure said" do
     # The page filed every queue card under intake, so the failure and the
     # operator's retry appeared above the routing call they followed; the

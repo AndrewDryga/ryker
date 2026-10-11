@@ -294,7 +294,8 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
   end
 
   defp queue_event(%{kind: :rearmed} = transition) do
-    queue_event(transition, "Rearmed", "An operator returned the input to the routing queue.")
+    {label, reason} = rearm_words(transition.owner_ref)
+    queue_event(transition, label, reason)
   end
 
   defp queue_event(%{kind: :superseded} = transition) do
@@ -314,6 +315,14 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
       href: Keyword.get(options, :href),
       link_label: Keyword.get(options, :link_label)
     }
+  end
+
+  defp rearm_words(owner_ref) do
+    if owner_ref == Ingress.Inbox.worker_recovery_ref() do
+      {"Read again", "The worker was working again, so Ryker read the message again by itself."}
+    else
+      {"Rearmed", "An operator returned the input to the routing queue."}
+    end
   end
 
   defp current_queue_event(_input, _last, false, _now), do: []

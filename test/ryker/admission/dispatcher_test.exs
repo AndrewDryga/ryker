@@ -300,6 +300,50 @@ defmodule Ryker.Admission.DispatcherTest do
     assert Enum.any?(state.turn_keys, &String.contains?(&1, ":g2:"))
   end
 
+  # The worker's agent could not start from 12:48 to 13:27 UTC on 2026-10-11: every message in
+  # that window stopped for a person and stayed stopped after the worker worked again, five of
+  # them waiting on "Read the message again". Andrew: once the worker works again, Ryker answers
+  # them itself, for messages from the last hour only.
+  test "a message a worker failure stopped is read again once a later message is read" do
+    stopped = record_input!("Ev-outage-stopped", message_ref: "1787832201.000100")
+    stopped_ref = Inbox.ref(stopped)
+    {:ok, fake} = FakeAPI.start_link([decision(), decision()], fail_first_turn: true)
+
+    assert {:ok, {:blocked, ^stopped_ref, {:coop_turn_failed, "failed", _, _}}} =
+             Dispatcher.run_once(real_options(fake, @now))
+
+    record_input!("Ev-outage-later", message_ref: "1787832202.000100")
+    later = DateTime.add(@now, 60, :second)
+    assert {:ok, {:decided, _execution}} = Dispatcher.run_once(real_options(fake, later))
+
+    assert {:ok, %{status: :pending}} = Inbox.fetch(stopped_ref)
+
+    assert {:ok, {:decided, execution}} =
+             Dispatcher.run_once(real_options(fake, DateTime.add(later, 1, :second)))
+
+    assert Inbox.ref(execution.result.entry) == stopped_ref
+  end
+
+  # Read again once only: a message that stops the worker every time would otherwise be read
+  # again after each later message, and an old one is answered by no one by now.
+  test "a message is read again after a worker failure once, and only within the hour" do
+    repeat_ref = Inbox.ref(record_input!("Ev-outage-repeat", message_ref: "1787832301.000100"))
+    {:ok, stub} = ExecutorStub.start_link({:fail, {:admission_generation_spent, crashed()}})
+    assert {:ok, {:blocked, ^repeat_ref, _reason}} = Dispatcher.run_once(options(stub))
+
+    assert Inbox.recover_after_worker_failure(@now) == {:ok, 1}
+    assert {:ok, {:blocked, ^repeat_ref, _reason}} = Dispatcher.run_once(options(stub))
+    assert Inbox.recover_after_worker_failure(@now) == {:ok, 0}
+    assert {:ok, %{status: :blocked}} = Inbox.fetch(repeat_ref)
+
+    old = record_input!("Ev-outage-old", message_ref: "1787832302.000100")
+    assert {:ok, {:blocked, old_ref, _reason}} = Dispatcher.run_once(options(stub))
+    assert Inbox.ref(old) == old_ref
+    two_hours_on = DateTime.add(Repo.now!(), 2 * 3_600, :second)
+    assert Inbox.recover_after_worker_failure(two_hours_on) == {:ok, 0}
+    assert {:ok, %{status: :blocked}} = Inbox.fetch(old_ref)
+  end
+
   test "a terminal worker failure still spends its generation when session cleanup fails" do
     # A broken Compose mount made the model process exit, then cleanup of that
     # same broken session returned 500. The cleanup error used to replace the
@@ -996,6 +1040,9 @@ defmodule Ryker.Admission.DispatcherTest do
     assert {:ok, %{entry: entry}} = Inbox.record(input, record_options)
     entry
   end
+
+  defp crashed,
+    do: {:coop_turn_failed, "failed", "acp_process_error", "ACP child closed before its response"}
 
   defp decision(action \\ "reply") do
     Jason.encode!(%{

@@ -100,6 +100,9 @@ defmodule Ryker.Ingress.Inbox.Entry.Query do
   def blocked(queryable \\ all()),
     do: where(queryable, [ingress_inbox_entries: e], e.status == :blocked)
 
+  def inserted_since(queryable, %DateTime{} = since),
+    do: where(queryable, [ingress_inbox_entries: e], e.inserted_at >= ^since)
+
   def ordered_by_recently_updated(queryable),
     do: order_by(queryable, [ingress_inbox_entries: e], desc: e.updated_at, desc: e.id)
 

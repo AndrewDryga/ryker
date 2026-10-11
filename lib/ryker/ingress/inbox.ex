@@ -43,6 +43,12 @@ defmodule Ryker.Ingress.Inbox do
   @type claim :: %{entry: Entry.t(), lease_ref: String.t()}
   @maximum_record_batch 500
   @maximum_revision 9_223_372_036_854_775_807
+  # A message a worker failure stopped is read again by itself once a later reading finishes,
+  # once, and only while it is recent (`recover_after_worker_failure/1`).
+  @worker_failure_ref "worker:failure"
+  @recovered_ref "host:worker-recovered"
+  @recovery_window_seconds 3_600
+  @recovery_batch 50
 
   @spec record(Input.t(), keyword()) :: {:ok, receipt()} | {:error, term()}
   def record(%Input{} = input, options \\ []) do
@@ -229,16 +235,91 @@ defmodule Ryker.Ingress.Inbox do
           {:ok, Entry.t()} | {:error, term()}
   @spec block(String.t(), String.t(), String.t(), String.t(), :same | :execution | :validation) ::
           {:ok, Entry.t()} | {:error, term()}
-  def block(input_ref, lease_ref, error_code, error_detail, generation \\ :same) do
+  def block(input_ref, lease_ref, error_code, error_detail, generation \\ :same),
+    do: block(input_ref, lease_ref, error_code, error_detail, generation, nil)
+
+  @doc """
+  Stops a message whose reading the worker failed: Coop declared its turn failed because the
+  agent could not start or its account ran out. Its generation is spent, as for any confirmed
+  terminal outcome, and the stop is marked so `recover_after_worker_failure/1` reads the
+  message again once the worker works.
+  """
+  @spec block_after_worker_failure(String.t(), String.t(), String.t(), String.t()) ::
+          {:ok, Entry.t()} | {:error, term()}
+  def block_after_worker_failure(input_ref, lease_ref, error_code, error_detail),
+    do: block(input_ref, lease_ref, error_code, error_detail, :execution, @worker_failure_ref)
+
+  defp block(input_ref, lease_ref, error_code, error_detail, generation, owner_ref) do
     with {:ok, id} <- input_id(input_ref),
          :ok <- bounded_reference(lease_ref, :lease_ref),
          :ok <- bounded_text(error_code, 128, :error_code),
          :ok <- bounded_text(error_detail, 4_096, :error_detail),
          :ok <- block_generation(generation) do
       Repo.transaction(fn ->
-        block_locked(id, lease_ref, error_code, error_detail, generation)
+        block_locked(id, lease_ref, error_code, error_detail, generation, owner_ref)
       end)
     end
+  end
+
+  @doc "Who read a message again after a worker failure, on its `:rearmed` transition."
+  @spec worker_recovery_ref() :: String.t()
+  def worker_recovery_ref, do: @recovered_ref
+
+  @doc """
+  Reads again, once, each message a worker failure stopped in the hour before `now`: a later
+  reading finished, so the worker works again. The worker could not start its agent from 12:48
+  to 13:27 UTC on 2026-10-11, and every message in that window stayed stopped until a person
+  pressed "Read the message again" (Andrew: Ryker answers them itself, for messages from the
+  last hour only). A message stopped again after that waits for a person.
+  """
+  @spec recover_after_worker_failure(DateTime.t()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def recover_after_worker_failure(%DateTime{} = now) do
+    Entry.Query.blocked()
+    |> Entry.Query.inserted_since(DateTime.add(now, -@recovery_window_seconds, :second))
+    |> Entry.Query.ordered_by_oldest()
+    |> Entry.Query.limit_to(@recovery_batch)
+    |> Entry.Query.select_ids()
+    |> Repo.all()
+    |> Enum.reduce_while({:ok, 0}, &recover_one/2)
+  end
+
+  defp recover_one(id, {:ok, count}) do
+    case Repo.transaction(fn -> recover_locked(id) end) do
+      {:ok, :recovered} -> {:cont, {:ok, count + 1}}
+      {:ok, :kept} -> {:cont, {:ok, count}}
+      {:error, reason} -> {:halt, {:error, reason}}
+    end
+  end
+
+  defp recover_locked(id) do
+    with {:ok, %Entry{status: :blocked} = entry} <- fetch_and_lock_entry(id),
+         true <- stopped_by_worker_and_never_recovered?(id) do
+      changeset = Entry.Changeset.rearm(entry)
+
+      case Repo.update(changeset) do
+        {:ok, rearmed} ->
+          append_transition!(rearmed, :rearmed, owner_ref: @recovered_ref)
+          :recovered
+
+        {:error, changeset} ->
+          Repo.rollback({:persistence_failed, :ingress_recover, changeset.errors})
+      end
+    else
+      _not_recoverable -> :kept
+    end
+  end
+
+  defp stopped_by_worker_and_never_recovered?(id) do
+    transitions =
+      id
+      |> InputCustodyTransition.Query.by_input_id()
+      |> InputCustodyTransition.Query.ordered_by_input_and_sequence()
+      |> Repo.all()
+
+    last_stop = transitions |> Enum.filter(&(&1.kind == :blocked)) |> List.last()
+
+    match?(%InputCustodyTransition{owner_ref: @worker_failure_ref}, last_stop) and
+      not Enum.any?(transitions, &(&1.kind == :rearmed and &1.owner_ref == @recovered_ref))
   end
 
   defp block_generation(generation) when generation in [:same, :execution, :validation], do: :ok
@@ -558,7 +639,7 @@ defmodule Ryker.Ingress.Inbox do
     end
   end
 
-  defp block_locked(id, lease_ref, error_code, error_detail, generation) do
+  defp block_locked(id, lease_ref, error_code, error_detail, generation, owner_ref) do
     case fetch_and_lock_entry(id) do
       {:error, :not_found} ->
         Repo.rollback({:ingress_block_failed, :input_not_found})
@@ -590,7 +671,8 @@ defmodule Ryker.Ingress.Inbox do
             append_transition!(blocked, :blocked,
               attempt: entry.attempt_count,
               error_code: error_code,
-              detail: error_detail
+              detail: error_detail,
+              owner_ref: owner_ref
             )
 
             blocked
