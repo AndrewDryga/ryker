@@ -161,9 +161,17 @@ defmodule Ryker.CoopFleet.PublicationGrants do
       review.worker_id == placement.worker_id and
       review.placement_generation <= placement.generation and
       review.status in [:succeeded, :uncertain] and
-      review.payload == %{
+      reviewed_revision(review.payload) == %{
         "coop_session_id" => session.coop_session_id,
         "expected_revision" => publication.review_expected_revision
       }
   end
+
+  # A review sent to a worker that names reviewed commits also carries the commit's message
+  # (`Ryker.CoopFleet.Client.run_review/4`). The message names the commit; the session and the
+  # revision are what the grant rests on.
+  defp reviewed_revision(%{"commit_message" => message} = payload) when is_binary(message),
+    do: Map.delete(payload, "commit_message")
+
+  defp reviewed_revision(payload), do: payload
 end

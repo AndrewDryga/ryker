@@ -253,6 +253,34 @@ defmodule Ryker.CoopFleet.PublicationGrantsTest do
     assert id == replaced.id
   end
 
+  # 2026-10-12: the first worker that names reviewed commits (ryker-coop:36ea4007) was refused
+  # every publish as revoked. Its review command carries the commit message
+  # (`Ryker.CoopFleet.Client.run_review/4`), and the grant compared that command with a payload
+  # that has none, so no task's draft pull request could open.
+  test "a review that named its commit grants the publish that follows it",
+       %{
+         certificate: certificate,
+         placement: placement,
+         publication: publication,
+         request: request,
+         review: review,
+         session: session
+       } do
+    Repo.delete!(review)
+
+    {:ok, named} =
+      ControlPlane.enqueue_command(
+        placement.id,
+        "run_review",
+        Map.put(review.payload, "commit_message", "Append a line to README\n\nAppend one line."),
+        Executor.review_key(publication)
+      )
+
+    complete!(named, 200)
+    assert {:ok, %{placement: {id, _generation}}} = authority(certificate, session, request)
+    assert id == placement.id
+  end
+
   # Andrew's PR #2, 2026-10-01: Coop pushed the commit, then its first attempt ended before
   # GitHub showed the new head. Each retry asked for a grant at :44 past the minute while Ryker
   # held the publication's lease for a second at :48 to check on it, so every retry was refused
