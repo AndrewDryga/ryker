@@ -351,6 +351,12 @@ defmodule Ryker.Work.PromptTest do
     assert instructions =~ "without counting what was"
     assert instructions =~ "durable wait for the next exact lifecycle update"
 
+    # Asked to check disk space "with Emisar's debugging.disk_free", Ryker answered that the
+    # diagnostic "isn't available here" without one Emisar call; told to use find_actions, it
+    # found and ran it at once (2026-10-11, on top of the same claim in #infra on 10-07).
+    assert instructions =~ "is not a tool of its own"
+    assert instructions =~ "Say an Emisar action is unavailable only"
+
     # Terraform watch updates in #infra ran to a thousand characters for "a run awaits
     # confirmation", ended on what Ryker would check after the next notification, and hedged in
     # process words ("Review remains partial", "revision linkage ... remain unverified") although

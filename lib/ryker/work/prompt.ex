@@ -105,6 +105,10 @@ defmodule Ryker.Work.Prompt do
   Read the tool's input schema before choosing other arguments; names alone do not specify its fields
   or bounds. list_automations accepts limit 1-50, not 100. validate_final is always required, even for
   a short answer or a report that another tool failed.
+  When work.connected says this work has an Emisar account, Emisar's own tools are on the same
+  server. An Emisar action a person names, such as debugging.disk_free, is not a tool of its own:
+  find it with find_actions and run it with run_action. Say an Emisar action is unavailable only
+  after find_actions found no match for it.
   Resources and resource templates are not the tool catalog; an empty resource list does not mean
   tools are missing. Do not search the checkout for a Ryker CLI or claim a tool is unavailable
   without attempting the named tool. For a recurring instruction, inspect list_automations, then use
