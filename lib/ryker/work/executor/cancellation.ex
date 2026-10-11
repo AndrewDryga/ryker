@@ -39,21 +39,11 @@ defmodule Ryker.Work.Executor.Cancellation do
     end
   end
 
-  # No turn of this request can be running: Coop never bound one, and either
-  # the worker no longer has the session or the session was never bound and the
-  # worker lease that held it ended, so nothing can reach it again. Its stop
-  # asked again every attempt for eleven hours (2026-10-09).
-  defp absent?(reason, claim) do
-    is_nil(claim.turn.coop_turn_id) and
-      (session_gone?(reason) or (is_nil(claim.session.coop_session_id) and lease_ended?(reason)))
-  end
-
-  defp lease_ended?({:coop_session_replacement_required, _session_id, _generation}), do: true
-
-  defp lease_ended?(reason) when is_tuple(reason),
-    do: reason |> Tuple.to_list() |> Enum.any?(&lease_ended?/1)
-
-  defp lease_ended?(_reason), do: false
+  # Only the worker's missing-session proof establishes absence. An unbound
+  # create can still succeed after its placement lease expires, so a lost
+  # lease must retain the mutation fence until the create is reconciled.
+  defp absent?(reason, claim),
+    do: is_nil(claim.turn.coop_turn_id) and session_gone?(reason)
 
   # The worker holding the session says it does not have it (its state was
   # started afresh, 2026-09-28), so no turn of this one can be running there.

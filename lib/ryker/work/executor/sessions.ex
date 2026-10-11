@@ -85,11 +85,20 @@ defmodule Ryker.Work.Executor.Sessions do
        do: repository_capabilities(claim, settings)
 
   defp replace_lost_session(claim, settings) do
-    continue_on_next_generation(
-      claim,
-      settings,
-      &Custody.replace_session_after_placement_loss/4
-    )
+    case continue_on_next_generation(
+           claim,
+           settings,
+           &Custody.replace_session_after_placement_loss/4
+         ) do
+      # A slow worker can lose its placement while the first create is still
+      # running. Keep its fence and defer the lapse, not stop the request for a
+      # person (2026-10-11: a preference request blocked after two attempts).
+      {:error, :work_remote_operation_in_flight} ->
+        {:error, {:coop_session_replacement_required, claim.session.id, claim.session.generation}}
+
+      result ->
+        result
+    end
   end
 
   defp rotate_session(claim, settings),

@@ -2,6 +2,19 @@ defmodule Ryker.Work.PromptTest do
   use ExUnit.Case, async: true
   alias Ryker.Work.Prompt
 
+  test "the generic tool example is a call its advertised schema accepts" do
+    # The live prompt taught list_automations a relationship field it never accepted
+    # (manual qualification, 2026-10-11). An example must not teach a failed call.
+    instructions = Prompt.build(%{}) |> Jason.decode!() |> Map.fetch!("instructions")
+    [_, example] = Regex.run(~r/Generic MCP call example: (\{[^\n]+\})/, instructions)
+    call = Jason.decode!(example)
+
+    tool =
+      Enum.find(Ryker.StateTools.Catalog.tools([:event_waits]), &(&1["name"] == call["tool"]))
+
+    assert {:ok, _} = JSV.validate(call["arguments"], JSV.build!(tool["inputSchema"]))
+  end
+
   test "Work is asked to name its episode, and to keep the name with null" do
     # Episodes had no name. Work names the episode in its final candidate and
     # sees the current name, so it revises it only when the work changes.
@@ -204,8 +217,13 @@ defmodule Ryker.Work.PromptTest do
     assert instructions =~ "Read the tool's input schema before choosing other arguments"
     assert [_, example] = Regex.run(~r/Generic MCP call example: (.+)/, instructions)
 
-    assert Jason.decode!(example) ==
-             Map.put(recorded["generic_list_call"], "server", "controller-tools")
+    # Preserve the harvested call, but do not keep teaching an argument that
+    # the current tool contract removed. The schema assertion above guards it.
+    assert Jason.decode!(example) == %{
+             "server" => "controller-tools",
+             "tool" => recorded["generic_list_call"]["tool"],
+             "arguments" => Map.take(recorded["generic_list_call"]["arguments"], ["limit"])
+           }
 
     refute instructions =~ "Use the named tools in\nwork.controller_tools directly"
   end
@@ -365,11 +383,23 @@ defmodule Ryker.Work.PromptTest do
     assert instructions =~
              "For a conversational image deliverable, return the built-in image result inline"
 
-    assert instructions =~ "Do not copy it into the repository or .coop-output"
+    assert instructions =~ "save the actual final image there, never in repository source"
     assert instructions =~ "An explicit artifact deliverable is not complete when you only name"
     assert instructions =~ "Use the artifact-producing capability before validate_final"
-    assert instructions =~ "returns no host-issued artifact ref"
+    assert instructions =~ "A reference assigned at turn completion is not a failed creation"
     assert instructions =~ "never substitute an invented filename"
+  end
+
+  # The 2026-10-11 smoke matrix delivered text instead of its harvested PNG
+  # chart: the prompt forbade Coop's writable output folder and required a
+  # reference that Coop assigns only after the provider turn completes.
+  test "artifact instructions honor the runtime output directory and late-issued references" do
+    instructions = normalized_instructions()
+
+    assert instructions =~ "runtime advertises a writable output directory"
+    assert instructions =~ "Coop assigns artifact references at turn completion"
+    refute instructions =~ "Do not copy it into the repository or .coop-output"
+    refute instructions =~ "If it returns no host-issued artifact ref, say that creation failed"
   end
 
   test "universal instructions treat unknown authenticated payloads as bounded evidence" do

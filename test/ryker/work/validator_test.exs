@@ -222,6 +222,8 @@ defmodule Ryker.Work.ValidatorTest do
 
       assert violation =~ "Do not claim or present a generated file"
       assert violation =~ "outcome.artifact_refs"
+      assert violation =~ "runtime's writable output directory"
+      refute violation =~ "instead of copying it into the repository or .coop-output"
     end
   end
 

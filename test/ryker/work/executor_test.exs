@@ -2305,13 +2305,10 @@ defmodule Ryker.Work.ExecutorTest do
     assert stopped.cancellation_receipt["session_state"] == "discarded"
   end
 
-  # Found live 2026-10-09: a local incident's create was refused its workspace
-  # task, and its stop fenced that create while the worker lease that held the
-  # session ran out. From then on the fence answered that the session needs a
-  # replacement, on every attempt for eleven hours, and the request read
-  # "stopping" throughout. Ryker never bound a remote session to the turn, so
-  # no turn of it can be running anywhere: the stop completes.
-  test "a stop whose unbound session lost its worker lease completes" do
+  # A create proved failed has no resource to close. Missing local binding or
+  # an expired worker lease alone is not that proof: a live create can finish
+  # later and must retain its custody until its actual outcome is resolved.
+  test "a stop whose create is proved failed completes without a remote session" do
     work = claim_episode!("cancel-create-replacement")
     {:ok, fake} = fake_for(work, [reply("unused")])
     key = create_key(work)
@@ -2335,14 +2332,15 @@ defmodule Ryker.Work.ExecutorTest do
                work.episode.key,
                work.turn.turn_ref,
                "cancel:create-replacement:#{work.turn.id}",
-               "Stop a turn whose session's worker lease ended."
+               "Stop a turn whose create was proved failed."
              )
 
     assert {:ok, cancel_claim} = Custody.claim_next("worker:cancel-create-replacement", 60)
 
     lost =
       protocol_options(fake, %{
-        fence_create_session: {:error, {:coop_session_replacement_required, work.session.id, 1}}
+        fence_create_session:
+          {:ok, failed_operation("operation_not_enqueued", "CreateRemoteSession")}
       })
 
     assert {:ok, execution} = Executor.run(cancel_claim, lost)
@@ -2352,6 +2350,62 @@ defmodule Ryker.Work.ExecutorTest do
     stopped = Repo.get!(Ryker.Work.Turn, work.turn.id)
     assert stopped.cancellation_receipt["kind"] == "absent_turn"
     assert stopped.cancellation_receipt["remote_session_id"] == nil
+  end
+
+  # Found live 2026-10-11: a preference request was declared absent when its
+  # worker lease lapsed, but its unresolved create later succeeded. The false
+  # cancellation receipt left that remote session without local custody.
+  test "a lost worker lease cannot prove an unresolved create absent" do
+    work = claim_episode!("cancel-unresolved-create-placement-lapse")
+    {:ok, fake} = fake_for(work, [reply("unused")])
+    key = create_key(work)
+
+    assert Custody.with_mutation_fence(
+             work.episode.id,
+             work.turn.turn_ref,
+             work.lease_ref,
+             %{
+               kind: :create_session,
+               lease_seconds: 60,
+               operation_key: key,
+               operation_revision: nil
+             },
+             fn -> {:error, :simulated_lost_create_response} end
+           ) == {:error, :simulated_lost_create_response}
+
+    assert {:ok, _requested} =
+             Custody.request_cancel(
+               work.episode.id,
+               work.episode.key,
+               work.turn.turn_ref,
+               "cancel:unresolved-create:#{work.turn.id}",
+               "Stop must first resolve the create already in flight."
+             )
+
+    assert {:ok, cancel_claim} = Custody.claim_next("worker:cancel-unresolved-create", 60)
+
+    assert {:error, {:coop_session_replacement_required, _, 1}} =
+             Executor.run(
+               cancel_claim,
+               protocol_options(fake, %{
+                 fence_create_session: {:ok, running_operation("CreateRemoteSession")},
+                 operation_by_key: placement_lost(work)
+               })
+             )
+
+    assert {:error,
+            {:work_cancellation_unresolved,
+             {:session_create_fence, {:error, {:coop_session_replacement_required, _, 1}}}}} =
+             Executor.run(
+               cancel_claim,
+               protocol_options(fake, %{fence_create_session: placement_lost(work)})
+             )
+
+    stopped = Repo.get!(Ryker.Work.Turn, work.turn.id)
+    assert stopped.status == :cancel_pending
+    assert stopped.cancellation_receipt == nil
+    assert stopped.remote_operation_kind == :create_session
+    assert stopped.remote_operation_key == key
   end
 
   # The same worker reset, before any stop: a turn whose bound session the
@@ -3033,10 +3087,42 @@ defmodule Ryker.Work.ExecutorTest do
                create_session: fn _fallback -> placement_lost(unreachable) end,
                operation_by_key: lose_reconciliation
              })
-           ) == {:error, :work_remote_operation_in_flight}
+           ) == placement_lost(unreachable)
 
     assert FakeAPI.state(unreachable_fake).create_count == 0
     assert Enum.map(episode_sessions(unreachable), & &1.generation) == [1]
+  end
+
+  # Found live 2026-10-11: an ordinary preference request stopped after two
+  # attempts when a slow worker missed its heartbeat during session creation.
+  # Its create was still running; losing the placement was not proof it failed.
+  test "a placement lapse during an unresolved create preserves custody without blocking" do
+    claim = claim_episode!("unresolved-create-placement-lapse")
+    {:ok, fake} = fake_for(claim, [reply("unused")])
+    {:ok, reads} = Agent.start_link(fn -> 0 end)
+
+    lose_reconciliation = fn _fallback ->
+      Agent.get_and_update(reads, fn
+        0 -> {:not_found, 1}
+        1 -> {{:ok, running_operation("CreateRemoteSession")}, 2}
+        count -> {placement_lost(claim), count + 1}
+      end)
+    end
+
+    assert Executor.run(
+             claim,
+             protocol_options(fake, %{
+               create_session: fn fallback ->
+                 {:ok, _created} = fallback.()
+                 {:ok, %{"operation" => running_operation("CreateRemoteSession")}}
+               end,
+               operation_by_key: lose_reconciliation
+             })
+           ) == placement_lost(claim)
+
+    assert FakeAPI.state(fake).create_count == 1
+    assert Enum.map(episode_sessions(claim), & &1.generation) == [1]
+    assert reloaded(claim).turn.remote_operation_kind == :create_session
   end
 
   test "a reconciled create leaves nothing behind that blocks the next attempt" do

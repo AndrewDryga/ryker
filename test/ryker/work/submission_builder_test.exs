@@ -668,6 +668,66 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert submission["prompt"] =~ "source_and_action_tools"
   end
 
+  test "an access briefing names only the environment and repositories this work has" do
+    # A two-minute live answer named internal repository codes and omitted the
+    # environment altogether (manual qualification, 2026-10-11). The model needs
+    # names people recognize without treating display metadata as new authority.
+    {:ok, _} = Settings.initialize("control-plane:local")
+
+    for {ref, name} <- [
+          {"qa-primary", "example/app"},
+          {"qa-docs", "example/docs"},
+          {"qa-other", "example/unrelated"}
+        ] do
+      assert {:ok, _} =
+               Settings.put_repository(
+                 %{ref: ref, github_repository: name},
+                 :current,
+                 "control-plane:local"
+               )
+    end
+
+    assert {:ok, _} =
+             Settings.put_environment(
+               %{
+                 ref: "qa-environment",
+                 display_name: "Practice",
+                 repositories: ["qa-primary", "qa-docs", "qa-other"]
+               },
+               :current,
+               "control-plane:local"
+             )
+
+    claim =
+      claim_episode!("connected-names", "What environment and repository access do you have?")
+
+    session = %{
+      claim.session
+      | environment_ref: "qa-environment",
+        repository_ref: "qa-primary",
+        repository_context: %{
+          "primary_repository" => "qa-primary",
+          "read_only_repositories" => ["qa-docs"]
+        }
+    }
+
+    assert {:ok, submission} =
+             Inspectors.submission(%{claim | session: session},
+               connected: %{github: true, slack: true}
+             )
+
+    connected = submission["context"]["connected"]
+    assert connected["environment"] == %{"ref" => "qa-environment", "name" => "Practice"}
+    assert connected["repositories"] == ["qa-primary", "qa-docs"]
+
+    assert connected["repository_names"] == %{
+             "qa-primary" => "example/app",
+             "qa-docs" => "example/docs"
+           }
+
+    refute submission["prompt"] =~ "example/unrelated"
+  end
+
   test "the frozen Lab briefing exposes generic and Slack-compatible local tools but not GitHub authority" do
     conversation_ref = "control-plane:lab:#{Ecto.UUID.generate()}"
 

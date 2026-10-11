@@ -20,6 +20,7 @@ defmodule Ryker.Work.SubmissionBuilder do
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.RepositoryKnowledge
+  alias Ryker.Settings
   alias Ryker.Slack
   alias Ryker.StateTools
   alias Ryker.Work.{Contract, PlatformTools, Prompt, Session, Submission, Turn}
@@ -192,12 +193,35 @@ defmodule Ryker.Work.SubmissionBuilder do
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
 
-    Map.put(context, "connected", %{
+    connected = %{
       "emisar" => not is_nil(session.emisar_connection_ref),
       "github" => github,
       "repositories" => repositories,
       "slack" => slack
-    })
+    }
+
+    # Labels describe only what the session already pinned. The environment's
+    # current membership must never add repositories or change workspace access.
+    names =
+      Settings.Repository.Query.named()
+      |> Settings.Repository.Query.by_refs(repositories)
+      |> Repo.all()
+      |> Map.new()
+
+    connected =
+      if names == %{}, do: connected, else: Map.put(connected, "repository_names", names)
+
+    connected =
+      case session.environment_ref &&
+             Repo.peek(Settings.Environment.Query.by_ref(session.environment_ref)) do
+        %Settings.Environment{ref: ref, display_name: name} ->
+          Map.put(connected, "environment", %{"ref" => ref, "name" => name})
+
+        _absent ->
+          connected
+      end
+
+    Map.put(context, "connected", connected)
   end
 
   defp workspace(options) do

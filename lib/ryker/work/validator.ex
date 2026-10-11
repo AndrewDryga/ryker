@@ -350,7 +350,7 @@ defmodule Ryker.Work.Validator do
 
     if filename? and claim? do
       [
-        "Do not claim or present a generated file without its host-issued reference. For a conversational image, return the built-in image result inline instead of copying it into the repository or .coop-output, then include the returned reference in outcome.artifact_refs; if creation failed, say so without presenting a filename as delivered."
+        "Do not claim or present a generated file without its reference. Return an available built-in image result inline, or render a chart into the runtime's writable output directory when advertised. Include the returned reference in outcome.artifact_refs; if Coop has not assigned it yet, include only the exact filename actually saved there and repair it to the host-issued reference at completion. If creation failed, say so without presenting a filename as delivered."
         | violations
       ]
     else
