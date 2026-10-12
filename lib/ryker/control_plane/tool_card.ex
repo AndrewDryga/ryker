@@ -108,7 +108,7 @@ defmodule Ryker.ControlPlane.ToolCard do
 
   @emisar_tools ~w(find_actions get_action run_action wait_for_run list_runners list_packs list_runbooks get_runbook recent_runs get_operation cancel_run execute_runbook create_runbook_draft update_runbook_draft)
   @slack_tools ~w(list_slack_channels search_slack read_slack_source set_slack_reaction post_slack_message post_slack_update)
-  @github_tools ~w(read_github_conversation search_github read_github_pull_request read_github_ci rerun_github_ci cancel_github_ci submit_github_review set_github_reaction)
+  @github_tools ~w(read_github_conversation search_github read_github_pull_request read_github_ci find_github_ci rerun_github_ci cancel_github_ci submit_github_review set_github_reaction)
 
   @doc """
   One step of a run of tool calls or status updates as one line: whose it

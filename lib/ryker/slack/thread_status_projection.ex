@@ -36,7 +36,7 @@ defmodule Ryker.Slack.ThreadStatusProjection do
     {"is reading GitHub…", ~w(read_github_conversation)},
     {"is reading a pull request…", ~w(read_github_pull_request)},
     {"is searching GitHub…", ~w(search_github)},
-    {"is checking CI…", ~w(read_github_ci)},
+    {"is checking CI…", ~w(read_github_ci find_github_ci)},
     {"is rerunning CI…", ~w(rerun_github_ci)},
     {"is stopping a CI run…", ~w(cancel_github_ci)},
     {"is submitting a review…", ~w(submit_github_review)},

@@ -13,6 +13,7 @@ defmodule Ryker.GitHub.CapabilityTools.Arguments do
   @repository_context_fields ~w(cursor limit number review_root_id section)
   @search_fields ~w(cursor kind limit query state)
   @ci_fields ~w(attempt run_id)
+  @find_ci_fields ~w(head_sha)
   @review_fields ~w(body comments event head_sha number)
   @context_sections ~w(subject issue_comments reviews review_comments review_thread files)
   # Every repository-bound tool takes an optional repository of the session's
@@ -108,6 +109,20 @@ defmodule Ryker.GitHub.CapabilityTools.Arguments do
   end
 
   def ci_document(_arguments), do: {:error, :invalid_arguments}
+
+  @spec find_ci_document(term()) :: {:ok, map()} | {:error, :invalid_arguments}
+  def find_ci_document(%{} = arguments) do
+    with true <- Maps.exact_keys?(arguments, @find_ci_fields, @optional_repository),
+         {:ok, repository} <- repository_argument(arguments["repository"]),
+         head_sha when is_binary(head_sha) <- arguments["head_sha"],
+         true <- Regex.match?(~r/\A[a-f0-9]{40}\z/, head_sha) do
+      {:ok, %{head_sha: head_sha, repository: repository}}
+    else
+      _invalid -> {:error, :invalid_arguments}
+    end
+  end
+
+  def find_ci_document(_arguments), do: {:error, :invalid_arguments}
 
   @spec review_document(term()) :: {:ok, map()} | {:error, :invalid_arguments}
   def review_document(%{} = arguments) do

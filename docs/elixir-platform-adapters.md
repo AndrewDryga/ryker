@@ -83,6 +83,9 @@ files. The host derives repository, subject number, and review root from the epi
 the model supplies none of those authority fields. Pages contain at most 20 items, cursors stop after
 page 10, text is bounded per item, search rejects repository/org/user qualifiers, and every search
 result is checked against the configured repository.
+`find_github_ci` lists the GitHub Actions runs of one commit, at most 30, each with the run id
+and latest attempt `read_github_ci` reads, so a turn that knows only a pull request's head can still
+check its CI. An empty list is GitHub's answer that nothing ran for that commit.
 Discussion and review sections also include the bound subject body. Review context reuses parents
 already returned and fetches at most four missing parents, checking their exact PR identity; deleted
 or omitted parents remain explicitly unavailable/partial. Search attaches up to five discussion items

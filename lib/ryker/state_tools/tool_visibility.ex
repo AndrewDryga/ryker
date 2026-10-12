@@ -7,6 +7,7 @@ defmodule Ryker.StateTools.ToolVisibility do
     "read_github_conversation" => MapSet.new(["github"]),
     "read_github_pull_request" => MapSet.new(["control_plane", "github", "slack"]),
     "read_github_ci" => MapSet.new(["control_plane", "github", "slack"]),
+    "find_github_ci" => MapSet.new(["control_plane", "github", "slack"]),
     "search_github" => MapSet.new(["control_plane", "github", "slack"]),
     "submit_github_review" => MapSet.new(["control_plane", "github", "slack"]),
     "rerun_github_ci" => MapSet.new(["control_plane", "github", "slack"]),

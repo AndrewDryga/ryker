@@ -21,6 +21,18 @@ defmodule Ryker.GitHub.CapabilityToolsTest do
       {:ok, %{"attempt" => attempt, "run_id" => run_id, "status" => "completed"}}
     end
 
+    def find_ci_runs(client, repository, head_sha) do
+      send(client, {:find_ci, repository, head_sha})
+
+      {:ok,
+       %{
+         "head_sha" => head_sha,
+         "repository" => repository,
+         "runs" => [%{"attempt" => 2, "run_id" => 91, "status" => "completed"}],
+         "total_count" => 1
+       }}
+    end
+
     def rerun_failed_ci(client, repository, run_id, attempt) do
       send(client, {:rerun_ci, repository, run_id, attempt})
       {:ok, %{"requested_attempt" => attempt + 1, "run_id" => run_id}}
@@ -302,6 +314,32 @@ defmodule Ryker.GitHub.CapabilityToolsTest do
              )
 
     assert_received {:rerun_ci, "octo/example", 91, 1}
+  end
+
+  # Audit F10, 2026-10-12: read_github_ci takes a run id, and a task that knew
+  # only its pull request's head commit had no way to find one, so it told the
+  # person CI could not be checked.
+  test "a task that knows only a commit finds that commit's CI runs to read" do
+    options = context_options()
+    binding = slack_work_binding()
+    sha = String.duplicate("c", 40)
+
+    assert {:ok, %{"runs" => [%{"attempt" => 2, "run_id" => 91}]}} =
+             CapabilityTools.call("find_github_ci", %{"head_sha" => sha}, binding, options)
+
+    assert_received {:find_ci, "octo/example", ^sha}
+
+    for arguments <- [
+          %{"head_sha" => "main"},
+          %{"head_sha" => String.upcase(sha)},
+          %{},
+          %{"head_sha" => sha, "run_id" => 91}
+        ] do
+      assert CapabilityTools.call("find_github_ci", arguments, binding, options) ==
+               {:error, "invalid_arguments"}
+    end
+
+    refute_received {:find_ci, _repository, _sha}
   end
 
   # A review went to GitHub in the model's own words, so it could notify
@@ -713,6 +751,24 @@ defmodule Ryker.GitHub.CapabilityToolsTest do
 
     assert_received {:read_ci, "octo/docs", 99, 1}
 
+    assert {:ok, _result} =
+             CapabilityTools.call(
+               "find_github_ci",
+               %{"head_sha" => String.duplicate("a", 40), "repository" => "repo-docs"},
+               binding,
+               options
+             )
+
+    assert_received {:find_ci, "octo/docs", _sha}
+
+    # A repository outside the environment stays out of reach.
+    assert CapabilityTools.call(
+             "find_github_ci",
+             %{"head_sha" => String.duplicate("a", 40), "repository" => "repo-other"},
+             binding,
+             options
+           ) == {:error, "unauthorized"}
+
     # The same GitHub grants do not make a read-only companion writable.
     assert CapabilityTools.call(
              "submit_github_review",
@@ -742,8 +798,8 @@ defmodule Ryker.GitHub.CapabilityToolsTest do
     refute_received {:cancel_ci, "octo/docs", _, _}
 
     # The tool contracts offer the choice without requiring it.
-    for name <- ~w(search_github read_github_pull_request read_github_ci rerun_github_ci
-                   cancel_github_ci submit_github_review) do
+    for name <- ~w(search_github read_github_pull_request read_github_ci find_github_ci
+                   rerun_github_ci cancel_github_ci submit_github_review) do
       tool = Enum.find(CapabilityTools.list(options), &(&1["name"] == name))
 
       assert get_in(tool, ["inputSchema", "properties", "repository", "description"]) =~

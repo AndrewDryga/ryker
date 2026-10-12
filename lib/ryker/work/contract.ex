@@ -15,6 +15,7 @@ defmodule Ryker.Work.Contract do
   # An evaluation run only observes: the platform tools it may use are listed,
   # so a tool added later stays out of it until someone says it only reads.
   @shadow_platform_tools MapSet.new(~w(
+    find_github_ci
     list_slack_channels
     read_github_ci
     read_github_conversation

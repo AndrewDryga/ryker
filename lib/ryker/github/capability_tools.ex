@@ -78,6 +78,20 @@ defmodule Ryker.GitHub.CapabilityTools do
       },
       %{
         "description" =>
+          "Find the GitHub Actions runs for one commit of the session's repository, or of another repository of its environment named by repository: each run's run_id and latest attempt, for read_github_ci, with its name, status, conclusion and link. An empty list means GitHub reports no run for that commit. Read-only.",
+        "inputSchema" => %{
+          "additionalProperties" => false,
+          "properties" => %{
+            "head_sha" => %{"pattern" => "^[a-f0-9]{40}$", "type" => "string"},
+            "repository" => repository_property()
+          },
+          "required" => ["head_sha"],
+          "type" => "object"
+        },
+        "name" => "find_github_ci"
+      },
+      %{
+        "description" =>
           "Rerun failed jobs for the exact current GitHub Actions attempt when this repository grants reruns. The host refuses stale attempts.",
         "inputSchema" => ci_schema(),
         "name" => "rerun_github_ci"
@@ -211,6 +225,29 @@ defmodule Ryker.GitHub.CapabilityTools do
 
   def call("read_github_ci", arguments, binding, options),
     do: call_ci(:read, arguments, binding, options)
+
+  def call("find_github_ci", arguments, binding, options) do
+    options = options!(options)
+
+    with {:ok, arguments} <- Arguments.find_ci_document(arguments),
+         {:ok, _current, configured} <-
+           Authority.repository_target(binding, options, arguments.repository),
+         :ok <- Authority.ci_grant(configured, :read),
+         true <- Adapter.implements?(configured.api, find_ci_runs: 3),
+         {:ok, result} <-
+           configured.api.find_ci_runs(
+             configured.ci_client,
+             configured.repository_full_name,
+             arguments.head_sha
+           ) do
+      {:ok, result}
+    else
+      false -> {:error, "temporarily_unavailable"}
+      {:error, reason} -> {:error, error_code(reason)}
+    end
+  rescue
+    error -> raised("find_github_ci", error, __STACKTRACE__)
+  end
 
   def call("rerun_github_ci", arguments, binding, options),
     do: call_ci(:rerun, arguments, binding, options)

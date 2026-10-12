@@ -869,6 +869,62 @@ defmodule Ryker.GitHub.ClientTest do
              {:error, {:github_action_unavailable, :stale_attempt}}
   end
 
+  # Audit F10, 2026-10-12: a task that knew its pull request's head but no run
+  # id could not look that head's CI up; read_ci_attempt/4 needs the run id.
+  test "finds the Actions runs of one commit, and only of that commit" do
+    sha = String.duplicate("a", 40)
+    other = String.duplicate("b", 40)
+
+    {:ok, requester} =
+      FakeRequester.start([
+        response(200, %{
+          "total_count" => 2,
+          "workflow_runs" => [
+            Map.merge(workflow_run(91, 2, "completed", sha), %{
+              "event" => "pull_request",
+              "name" => "test"
+            }),
+            Map.put(workflow_run(92, 1, "in_progress", sha), "name", "lint")
+          ]
+        }),
+        response(200, %{"total_count" => 0, "workflow_runs" => []}),
+        response(200, %{
+          "total_count" => 1,
+          "workflow_runs" => [Map.put(workflow_run(93, 1, "completed", other), "name", "test")]
+        })
+      ])
+
+    github = client(requester)
+
+    assert {:ok, %{"runs" => [first, second], "total_count" => 2}} =
+             Client.find_ci_runs(github, "octo/example", sha)
+
+    assert %{
+             "attempt" => 2,
+             "conclusion" => "failure",
+             "event" => "pull_request",
+             "name" => "test",
+             "run_id" => 91,
+             "url" => "https://github.com/octo/example/actions/runs/91"
+           } = first
+
+    assert %{"conclusion" => nil, "run_id" => 92, "status" => "in_progress"} = second
+
+    # Nothing ran for that commit: GitHub's answer, not a failure.
+    assert {:ok, %{"runs" => [], "total_count" => 0}} =
+             Client.find_ci_runs(github, "octo/example", sha)
+
+    # A run of another commit answers a different question.
+    assert Client.find_ci_runs(github, "octo/example", sha) ==
+             {:error, {:github_protocol_error, :workflow_run}}
+
+    assert [{:get, path, nil, _headers} | _rest] = FakeRequester.requests(requester)
+    assert path == "/repos/octo/example/actions/runs?head_sha=#{sha}&per_page=30"
+
+    assert Client.find_ci_runs(github, "octo/example", "main") ==
+             {:error, {:invalid_github_api_request, :sha}}
+  end
+
   test "publishes a review only while the requested head is current" do
     current = String.duplicate("a", 40)
     stale = String.duplicate("b", 40)

@@ -40,6 +40,34 @@ defmodule Ryker.GitHub.Client.Actions do
     end
   end
 
+  @doc """
+  The workflow runs GitHub reports for one exact commit, newest first and at
+  most thirty, each with the id and latest attempt `read_ci_attempt/4` takes.
+  An empty list is GitHub's own answer that nothing ran for that commit. A
+  task that knew its pull request's head but no run id could not look its CI
+  up at all (F10, 2026-10-12).
+  """
+  def find_ci_runs(client, repository, head_sha) do
+    with :ok <- Fields.repository(repository),
+         :ok <- Fields.sha(head_sha),
+         {:ok, response} <-
+           Transport.request(
+             client,
+             :get,
+             "/repos/#{repository}/actions/runs?head_sha=#{head_sha}&per_page=30",
+             nil
+           ),
+         {:ok, runs, total} <- ci_runs(response, head_sha) do
+      {:ok,
+       %{
+         "head_sha" => head_sha,
+         "repository" => repository,
+         "runs" => runs,
+         "total_count" => total
+       }}
+    end
+  end
+
   def rerun_failed_ci(client, repository, run_id, attempt) do
     with {:ok, current} <- current_ci_attempt(client, repository, run_id, attempt),
          true <- current["status"] == "completed",
@@ -149,6 +177,58 @@ defmodule Ryker.GitHub.Client.Actions do
     do: {:error, {:github_protocol_error, :workflow_run}}
 
   defp ci_run(response, _repository, _run_id, _attempt), do: Transport.error(response)
+
+  defp ci_runs(
+         %{body: %{"total_count" => total, "workflow_runs" => runs}, status: 200},
+         head_sha
+       )
+       when is_integer(total) and total >= 0 and is_list(runs) and length(runs) <= 30 do
+    Enum.reduce_while(runs, {:ok, [], total}, fn run, {:ok, found, total} ->
+      case listed_run(run, head_sha) do
+        {:ok, listed} -> {:cont, {:ok, found ++ [listed], total}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp ci_runs(%{status: 200}, _head_sha), do: {:error, {:github_protocol_error, :workflow_runs}}
+  defp ci_runs(response, _head_sha), do: Transport.error(response)
+
+  # A run listed for another commit is GitHub answering a different question.
+  defp listed_run(
+         %{
+           "conclusion" => conclusion,
+           "head_sha" => head_sha,
+           "html_url" => url,
+           "id" => run_id,
+           "name" => name,
+           "run_attempt" => attempt,
+           "status" => status
+         } = run,
+         head_sha
+       )
+       when is_integer(run_id) and run_id > 0 and is_integer(attempt) and attempt > 0 and
+              status in ~w(queued in_progress completed pending requested waiting) do
+    with :ok <- Fields.context_url(url),
+         true <- is_nil(conclusion) or is_binary(conclusion),
+         true <- is_binary(name) and byte_size(name) in 1..500 do
+      {:ok,
+       %{
+         "attempt" => attempt,
+         "conclusion" => conclusion,
+         "event" => if(is_binary(run["event"]), do: run["event"]),
+         "name" => name,
+         "run_id" => run_id,
+         "status" => status,
+         "updated_at" => if(is_binary(run["updated_at"]), do: run["updated_at"]),
+         "url" => url
+       }}
+    else
+      _invalid -> {:error, {:github_protocol_error, :workflow_run}}
+    end
+  end
+
+  defp listed_run(_run, _head_sha), do: {:error, {:github_protocol_error, :workflow_run}}
 
   defp ci_jobs(%{body: %{"jobs" => jobs, "total_count" => total}, status: 200}, repository)
        when is_list(jobs) and is_integer(total) and total >= 0 and total <= 100 do

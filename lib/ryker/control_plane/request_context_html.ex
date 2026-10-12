@@ -164,6 +164,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     "search_github" => "Searches issues and pull requests in a repository of this environment.",
     "read_github_pull_request" => "Reads one pull request in a repository of this environment.",
     "read_github_ci" => "Reads a GitHub Actions run and its jobs, with links to logs.",
+    "find_github_ci" => "Finds the GitHub Actions runs for one commit.",
     "rerun_github_ci" => "Reruns the failed jobs of a GitHub Actions run, when allowed.",
     "cancel_github_ci" => "Cancels a GitHub Actions run that is still going, when allowed.",
     "submit_github_review" => "Submits a review on a pull request, with inline comments.",

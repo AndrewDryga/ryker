@@ -97,6 +97,9 @@ defmodule Ryker.GitHub.Client do
           {:ok, map()} | {:error, term()}
   defdelegate read_ci_attempt(client, repository, run_id, attempt), to: Actions
 
+  @spec find_ci_runs(t(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  defdelegate find_ci_runs(client, repository, head_sha), to: Actions
+
   @doc "Reruns failed jobs only when the named attempt is still current."
   @spec rerun_failed_ci(t(), String.t(), pos_integer(), pos_integer()) ::
           {:ok, map()} | {:error, term()}
