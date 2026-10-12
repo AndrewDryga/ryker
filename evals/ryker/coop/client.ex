@@ -327,12 +327,13 @@ defmodule Ryker.Coop.Client do
 
   # The standalone jobs, by the runner namespace their creates use.
   @standalone_jobs %{
+    "ryker-eval-admission" => "world-admission",
     "ryker-eval-judge" => "world-judge",
     "ryker-eval-routing" => "routing-replay",
     "ryker-eval-improvement" => "improvement-replay"
   }
 
-  # Standalone evaluations have no Work row: a world judge, a routing replay and a
+  # Standalone evaluations have no Work row: a world admission, a judge, a routing replay and a
   # self-analysis replay (`Ryker.Evals.CoopRunner`). Each create pins its own kind's job on
   # the task of the run its key names. All Work/learning creates must first
   # pin the job on their exact durable execution identity, even through Unix.

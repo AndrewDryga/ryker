@@ -7,6 +7,30 @@ defmodule Ryker.Evals.WorldAdmissionCaseTest do
   alias Ryker.Slack
   alias Ryker.TestSupport.FakeCoopAPI
 
+  defmodule RealCreateBoundary do
+    alias Ryker.Coop.Client
+
+    def create_session(fake, key, job, task, source) do
+      {:ok, client} =
+        Client.new(finch: NoNetwork, receive_timeout: 100, socket: "/tmp/eval-never-dialed.sock")
+
+      with :ok <- Client.prepare_create_session(client, key, job, task, source),
+           {:ok, bound, digest} <- Job.bind(job, task) do
+        Agent.update(fake, &Map.merge(&1, %{real_create_job: bound, real_create_digest: digest}))
+        FakeCoopAPI.create_session(fake, key, job, task, source)
+      end
+    end
+
+    defdelegate operation_by_key(client, key), to: FakeCoopAPI
+    defdelegate get_session(client, session), to: FakeCoopAPI
+    defdelegate get_turn(client, session, turn), to: FakeCoopAPI
+    defdelegate submit_turn(client, session, key, revision, prompt, schema), to: FakeCoopAPI
+    defdelegate validate_candidate(client, session, turn, key, digest, verdict), to: FakeCoopAPI
+    defdelegate close_session(client, session, key, revision), to: FakeCoopAPI
+    defdelegate plan_discard(client, session, key, revision, dirty, unmerged), to: FakeCoopAPI
+    defdelegate discard_session(client, session, key, plan), to: FakeCoopAPI
+  end
+
   setup do
     {:ok, input} =
       Slack.Input.new(%{
@@ -132,5 +156,44 @@ defmodule Ryker.Evals.WorldAdmissionCaseTest do
     assert state.submitted_prompt == eval.prompt
     assert state.closed
     assert state.discarded
+  end
+
+  # Four real-client admission creates stopped a 198-observation campaign before
+  # a model was called; fake-only creation did not enforce the namespace/job boundary.
+  test "each selected lane reaches admission with coherent empty authority through the real client",
+       %{
+         context: context,
+         captured: captured
+       } do
+    {:ok, eval} = WorldAdmissionCase.new(context)
+
+    for {lane, target} <- [world: "codex:fixture/high@eval", baseline: "codex:baseline/low@eval"] do
+      {:ok, fake} = FakeCoopAPI.start_link([captured])
+      {:ok, selected} = Job.new(lane, target)
+
+      result =
+        CoopRunner.run_case(eval,
+          api: RealCreateBoundary,
+          client: fake,
+          job: selected,
+          id_generator: fn -> "admission-#{lane}" end,
+          max_polls: 10,
+          poll_interval_ms: 0,
+          sleep: fn 0 -> :ok end
+        )
+
+      assert result.status == :passed, inspect(result)
+      assert result.decision == Jason.decode!(captured)
+      assert result.cleanup_error == nil
+      state = FakeCoopAPI.state(fake)
+      assert state.real_create_job["targets"] == [target]
+      assert state.real_create_job["source"] == nil
+      assert state.real_create_job["repository_read_only"]
+      refute state.real_create_job["project_env"]
+      refute state.real_create_job["project_mcp"]
+      assert state.session["job_digest"] == state.real_create_digest
+      assert state.closed
+      assert state.discarded
+    end
   end
 end

@@ -80,7 +80,8 @@ defmodule Ryker.Evals.CoopRunner do
     external_ref = "ryker-eval:#{namespace}:#{run_ref}:#{eval.eval_id}"
     create_key = "ryker:eval:#{namespace}:#{run_ref}:create"
 
-    with :ok <- reference(run_ref, :run_ref),
+    with {:ok, settings} <- case_settings(module, settings),
+         :ok <- reference(run_ref, :run_ref),
          :ok <- reference(external_ref, :external_ref),
          {:ok, session} <- create_session(create_key, external_ref, settings) do
       execute_owned_session(eval, namespace, run_ref, session, settings)
@@ -92,6 +93,12 @@ defmodule Ryker.Evals.CoopRunner do
   catch
     kind, reason -> failed(eval, {:eval_runner_caught, kind, inspect(reason)})
   end
+
+  defp case_settings(WorldAdmissionCase, settings) do
+    with {:ok, job} <- Job.admission(settings.job), do: {:ok, %{settings | job: job}}
+  end
+
+  defp case_settings(_module, settings), do: {:ok, settings}
 
   defp execute_owned_session(eval, namespace, run_ref, session, settings) do
     result =

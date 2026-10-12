@@ -451,11 +451,40 @@ defmodule Mix.Tasks.Ryker.Eval do
     # custody. Each observation now gets its own copy of the migrated campaign
     # database: a pass drops it, and a failure keeps exactly its own rows under
     # the name the report carries.
-    database = "#{template}_o#{System.unique_integer([:positive, :monotonic])}"
+    with :ok <- ensure_world_support() do
+      database = "#{template}_o#{System.unique_integer([:positive, :monotonic])}"
 
-    case Postgres.storage_up(storage_config(database, template)) do
-      :ok -> {:ok, preserved_or_dropped(observe.(database), database)}
-      {:error, reason} -> {:error, {:world_eval_database_not_created, database, reason}}
+      case Postgres.storage_up(storage_config(database, template)) do
+        :ok -> {:ok, preserved_or_dropped(observe.(database), database)}
+        {:error, reason} -> {:error, {:world_eval_database_not_created, database, reason}}
+      end
+    end
+  end
+
+  # Standalone Mix does not start Ryker.Application. Committed domain announcements
+  # and gateway response dates still need their own support, never runtime dispatchers.
+  defp ensure_world_support do
+    with {:ok, _applications} <- Application.ensure_all_started(:phoenix_pubsub),
+         {:ok, _applications} <- Application.ensure_all_started(:bandit),
+         :ok <- ensure_world_pubsub() do
+      :ok
+    else
+      {:error, reason} -> {:error, {:world_eval_support_not_started, reason}}
+    end
+  end
+
+  defp ensure_world_pubsub do
+    if Process.whereis(Ryker.PubSub.Server) do
+      :ok
+    else
+      case Supervisor.start_link([Ryker.PubSub],
+             name: Ryker.Evals.SupportSupervisor,
+             strategy: :one_for_one
+           ) do
+        {:ok, _supervisor} -> :ok
+        {:error, {:already_started, _supervisor}} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
     end
   end
 

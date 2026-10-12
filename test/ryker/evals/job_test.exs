@@ -45,6 +45,44 @@ defmodule Ryker.Evals.JobTest do
     assert {:ok, %{baseline: nil}} = Job.world()
   end
 
+  test "admission retains the exact selected lane target and canonical empty authority" do
+    for {kind, target} <- [world: "codex:selected/high@eval", baseline: "codex:other/low@eval"] do
+      {:ok, selected} = Job.new(kind, target)
+      assert {:ok, admission} = Job.admission(selected)
+      assert {:ok, ^admission} = Job.new(:admission, target)
+      assert {:ok, bound, _digest} = Job.bind(admission, "admission:exact-run")
+      assert bound["targets"] == [target]
+      assert bound["source"] == nil
+      refute "RYKER_EVAL_ADMISSION_TARGET" in Job.variables()
+    end
+  end
+
+  test "admission cannot borrow staged source, unrelated kinds or tampered lane authority" do
+    {:ok, world} = Job.new(:world, "codex:selected/high@eval")
+    {:ok, judge} = Job.new(:judge, "codex:selected/high@eval")
+    {:ok, admission} = Job.new(:admission, "codex:selected/high@eval")
+
+    base_commit = String.duplicate("1", 40)
+    selected_commit = String.duplicate("2", 40)
+
+    source =
+      WorldSource.source(
+        "tenant-rivals-scraper",
+        base_commit,
+        selected_commit,
+        ~U[2026-08-21 02:21:46Z]
+      )
+
+    {:ok, sourced} = Job.with_source(world, source)
+    altered_document = Map.put(world.document, "project_env", true)
+    altered_digest = Ryker.CanonicalJSON.worker_digest(altered_document)
+    altered = %{world | document: altered_document, digest: altered_digest}
+
+    for invalid <- [sourced, judge, admission, altered, %{world | digest: "wrong"}, nil] do
+      assert Job.admission(invalid) == {:error, :invalid_model_eval_job}
+    end
+  end
+
   test "changing a template's execution authority is refused even with a recomputed digest" do
     {:ok, template} = Job.new(:learning, "codex:fixture/high@eval")
 

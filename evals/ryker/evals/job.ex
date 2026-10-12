@@ -51,7 +51,7 @@ defmodule Ryker.Evals.Job do
   def improvement, do: required(:improvement)
 
   def new(kind, target)
-      when kind in [:judge, :world, :baseline, :learning, :routing, :improvement] do
+      when kind in [:judge, :world, :baseline, :admission, :learning, :routing, :improvement] do
     if is_binary(target) and String.valid?(target) and byte_size(target) in 1..256 and
          not Regex.match?(~r/\s|\x00/u, target) do
       name = "ryker-eval-#{kind}"
@@ -69,6 +69,15 @@ defmodule Ryker.Evals.Job do
   end
 
   def new(_kind, _target), do: {:error, :invalid_model_eval_kind}
+
+  @doc "A source-free admission job on the exact fully validated world lane target."
+  def admission(%{name: name, document: %{"source" => nil, "targets" => [target]}} = template)
+      when name in ["ryker-eval-world", "ryker-eval-baseline"] do
+    with {:ok, _job, _digest} <- bind(template, "eval-admission-validation"),
+         do: new(:admission, target)
+  end
+
+  def admission(_template), do: {:error, :invalid_model_eval_job}
 
   @doc """
   The same world job, reading one staged scenario checkout (`Ryker.Evals.WorldSource`). Only a
@@ -95,7 +104,7 @@ defmodule Ryker.Evals.Job do
     with [target] <- document["targets"],
          kind when not is_nil(kind) <-
            Enum.find(
-             [:judge, :world, :baseline, :learning, :routing, :improvement],
+             [:judge, :world, :baseline, :admission, :learning, :routing, :improvement],
              &(name == "ryker-eval-#{&1}")
            ),
          {:ok, template} <- new(kind, target),

@@ -92,6 +92,57 @@ defmodule Ryker.Coop.ClientTest do
     end
   end
 
+  # A paid world campaign lost all routing observations because only the fake
+  # accepted the selected lane's job; verify the actual transmitted admission job.
+  test "world admission transmits its exact lane target and bound digest through Unix" do
+    response = %{"operation" => %{"id" => "op_admission", "state" => "running"}}
+    task = "ryker-eval:world-admission:789:world-admission:input"
+    key = "ryker:eval:world-admission:789:create"
+
+    for {kind, target} <- [world: "codex:selected/high@eval", baseline: "codex:other/low@eval"] do
+      {:ok, selected} = Job.new(kind, target)
+      {:ok, admission} = Job.admission(selected)
+      {:ok, job, digest} = Job.bind(admission, task)
+
+      with_unix_server(response, fn client, request ->
+        assert {:ok, ^response} = Client.create_session(client, key, admission, task, nil)
+        captured = request.()
+        assert captured.headers["idempotency-key"] == key
+
+        assert Jason.decode!(captured.body) == %{
+                 "expected_job_digest" => digest,
+                 "job" => job,
+                 "task" => task
+               }
+      end)
+    end
+  end
+
+  test "admission creation never bypasses durable Work pins or crosses run authority" do
+    {:ok, world} = Job.new(:world, "codex:selected/high@eval")
+    {:ok, baseline} = Job.new(:baseline, "codex:other/low@eval")
+    {:ok, admission} = Job.admission(world)
+    key = "ryker:eval:world-admission:789:create"
+    task = "ryker-eval:world-admission:789:world-admission:input"
+
+    for {job, attempted_key, attempted_task} <- [
+          {world, key, task},
+          {baseline, key, task},
+          {admission, key, String.replace(task, ":789:", ":other:")},
+          {admission, "ryker:eval:routing-replay:789:create", task},
+          {%{admission | digest: String.duplicate("a", 64)}, key, task}
+        ] do
+      assert Client.prepare_create_session(
+               unreachable_client(),
+               attempted_key,
+               job,
+               attempted_task,
+               nil
+             ) ==
+               {:error, :invalid_model_eval_job}
+    end
+  end
+
   test "create and fence send one byte-identical job for the same session" do
     response = %{"operation" => %{"id" => "op_create", "state" => "running"}}
     {:ok, template} = Job.new(:judge, "codex:fixture/low@eval")
