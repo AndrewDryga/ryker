@@ -262,6 +262,24 @@ defmodule Ryker.Work.DispatcherTest do
     assert Ryker.Repo.get_by!(Turn, turn_ref: rerun_ref).cancellation_intent["action"] == "block"
   end
 
+  # Three eval turns finished their tools, then sent nothing for 12-18 minutes while their
+  # provider pulsed, until their harness gave up (2026-10-12); a live turn would have held its
+  # conversation for up to an hour. Coop now stops such a turn as acp_quiet, and Ryker runs it
+  # again once on a fresh agent instead of stopping it for a person.
+  test "a turn whose model went quiet runs again once" do
+    command = create_episode!("quiet")
+
+    reason =
+      {:work_turn_terminal, "failed", "acp_quiet", "the model sent nothing for 15m0s"}
+
+    assert {:ok, {:deferred, {:work_rerun_pending, ^reason}}} =
+             Dispatcher.run_once(options({:error, reason}))
+
+    turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+    rerun_ref = "turn:rerun:#{turn.id}"
+    assert %{"action" => "transfer", "new_turn_ref" => ^rerun_ref} = turn.cancellation_intent
+  end
+
   # Coop can report a turn a person stopped the way it reports one a worker restart interrupted,
   # so the re-run above must never replace a person's Stop.
   test "a turn a person stopped is not run again when Coop reports it cancelled" do
