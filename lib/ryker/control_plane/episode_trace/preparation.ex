@@ -728,6 +728,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
           {repositories_label(repositories), repositories_words(repositories, context.names)},
           {"Emisar", emisar_words(session, context.names)},
           {"Session", session_state.detail},
+          {"Processing attempts", processing_attempts(turn, outcome.kind)},
           {"Current step", outcome.current_step}
         ]),
       diagnostics: setup_diagnostics(outcome.kind, turn, session, placement)
@@ -784,8 +785,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
 
   defp setup_diagnostics(:blocked, turn, nil, _placement) do
     compact_details([
-      {"Run ID", turn.turn_ref, identifier: true},
-      {"Start attempts", turn.work_attempt_count}
+      {"Run ID", turn.turn_ref, identifier: true}
     ])
   end
 
@@ -796,10 +796,17 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
       {"Run ID", turn.turn_ref, identifier: true},
       {"Session ID", session.id, identifier: true},
       {"Remote session", session.coop_session_id, identifier: true},
-      {"Worker run", turn.coop_turn_id, identifier: true},
-      {"Start attempts", turn.work_attempt_count}
+      {"Worker run", turn.coop_turn_id, identifier: true}
     ])
   end
+
+  # Custody increments this on a claim, including recovery of the same remote
+  # turn. It is not evidence that the model was submitted again.
+  defp processing_attempts(%Work.Turn{work_attempt_count: count}, kind)
+       when is_integer(count) and count > 0 and (count > 1 or kind == :blocked),
+       do: "#{Wording.count(count, "host attempt")} · not model calls"
+
+  defp processing_attempts(_turn, _kind), do: nil
 
   defp selected_setup(session, context) do
     repositories = repositories(nil, session)

@@ -17,7 +17,8 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
   import Ecto.Query
   import Phoenix.LiveViewTest
   alias Ryker.CanonicalJSON
-  alias Ryker.ControlPlane.{ConversationLab, EpisodePage, EpisodeProjection, ModelRequests}
+  alias Ryker.ControlPlane.{ConversationLab, EpisodePage, EpisodeProjection}
+  alias Ryker.ControlPlane.{EpisodeTrace, ModelRequests}
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.WorkSessions
@@ -92,6 +93,75 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
     assert card =~ "Session"
     assert card =~ "New · the model starts with only this briefing"
     refute html =~ "Workspace selected"
+  end
+
+  # Overnight live QA had two and three host claims for one model submission
+  # each; recovery erased the retry count from setup and hid minutes of delay.
+  test "recovered host retries stay visible without becoming extra model runs" do
+    work = submitted!("recovered-host-retry")
+    turn_query = from(turn in Turn, where: turn.id == ^work.turn.id)
+
+    Repo.update_all(turn_query, set: [work_attempt_count: 3])
+
+    html = rendered(work.episode)
+    assert ready?(html, work.turn)
+
+    assert fact(html, work.turn, "Processing attempts") ==
+             "3 host attempts · not model calls"
+
+    assert labels(html, work.turn) == [
+             "Environment",
+             "Repositories",
+             "Session",
+             "Processing attempts"
+           ]
+
+    refute card(html, work.turn) =~ "Start attempts"
+
+    episode_turns = from(turn in Turn, where: turn.episode_id == ^work.episode.id)
+    assert Repo.aggregate(episode_turns, :count) == 1
+  end
+
+  test "an ordinary first host attempt does not add diagnostic noise" do
+    work = submitted!("first-host-attempt")
+    html = rendered(work.episode)
+    assert work.turn.work_attempt_count == 1
+    refute "Processing attempts" in labels(html, work.turn)
+  end
+
+  test "an unrecorded processing count is not invented" do
+    work = submitted!("unrecorded-host-count")
+    origin = %{episode: work.episode, inputs: %{}, first_input: nil}
+
+    for count <- [nil, 0] do
+      turn = %{work.turn | work_attempt_count: count}
+      [step] = EpisodeTrace.Preparation.setup_steps([work.session], [turn], origin)
+      refute Enum.any?(step.setup.rows, &(&1.label == "Processing attempts"))
+    end
+  end
+
+  test "a blocked host attempt keeps one accurate processing count" do
+    work = claimed!("blocked-host-attempt")
+    turn_query = from(turn in Turn, where: turn.id == ^work.turn.id)
+
+    Repo.update_all(turn_query,
+      set: [
+        status: :blocked,
+        last_error_code: "coop_worker_capacity_unavailable",
+        lease_ref: nil,
+        lease_owner: nil,
+        lease_expires_at: nil
+      ]
+    )
+
+    html = rendered(work.episode)
+    processing_labels = labels(html, work.turn)
+
+    assert fact(html, work.turn, "Processing attempts") ==
+             "1 host attempt · not model calls"
+
+    assert Enum.count(processing_labels, &(&1 == "Processing attempts")) == 1
+    refute card(html, work.turn) =~ "Start attempts"
   end
 
   test "a ready setup says what the model started with and what code it could see, nothing else" do
