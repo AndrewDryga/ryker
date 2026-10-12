@@ -1,6 +1,7 @@
 defmodule Ryker.Work.Recovery do
   @moduledoc "A shared recovery brief: host facts and attributed final output, never raw diagnostics or thoughts."
   alias Ryker.InspectionRedactor
+  alias Ryker.Settings
   alias Ryker.Work.{CodeEditingSetup, Custody, FailureCause, Turn}
 
   # What a brief says when the saved error names no cause. A surface with its
@@ -24,9 +25,16 @@ defmodule Ryker.Work.Recovery do
     # brief per row, so the fleet is asked once for the rows that could resume
     # rather than once for every row on the page.
     if base.action == :retry and base.kind == :execution,
-      do: project(turn, recovery, supported?, Custody.portable_workspace(turn)),
+      do: project(turn, recovery, supported?, named(Custody.portable_workspace(turn))),
       else: base
   end
+
+  # People know a repository by its GitHub name, not the ref Ryker keeps for it
+  # (audit F07, 2026-10-12).
+  defp named(%{repository_ref: ref} = workspace),
+    do: Map.put(workspace, :repository, Settings.repository_name(ref))
+
+  defp named(workspace), do: workspace
 
   def project(
         %Turn{} = turn,
@@ -128,8 +136,8 @@ defmodule Ryker.Work.Recovery do
   # starting from the repository. Saying what the resume does not do matters as
   # much: a snapshot whose checks never ran is the thing an operator is most
   # likely to read as a waiver.
-  defp retry_effect(_finalizing, %{byte_size: bytes, repository_ref: repository}) do
-    "Ryker restores the saved working copy of #{repository} (#{size(bytes)}) onto another eligible worker and continues the task there. Every check still runs, and nothing is merged or deployed."
+  defp retry_effect(_finalizing, %{byte_size: bytes, repository_ref: ref} = workspace) do
+    "Ryker restores the saved working copy of #{Map.get(workspace, :repository, ref)} (#{size(bytes)}) onto another eligible worker and continues the task there. Every check still runs, and nothing is merged or deployed."
   end
 
   defp size(bytes) when bytes < 1_024, do: "#{bytes} bytes"

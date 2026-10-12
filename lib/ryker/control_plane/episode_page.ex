@@ -130,7 +130,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
           <p class="metric-group-label">Time</p>
           <dl class="metric-group-items">
             <div class="metric metric-wall">
-              <dt>{task_time_label(@snapshot.episode)}</dt>
+              <dt>{task_time_label(@snapshot.episode, @snapshot.trace.state)}</dt>
               <dd>{task_time(@snapshot.episode)}</dd>
             </div>
           </dl>
@@ -2082,9 +2082,14 @@ defmodule Ryker.ControlPlane.EpisodePage do
   # A task names the request it was asked in, the way its Slack thread does.
   defp task_relation(%{title: title}), do: "Asked in " <> title
 
-  # How long a task took, or has been running, from its confirmation.
-  defp task_time_label(%{state: state}) when state in [:complete, :cancelled], do: "Took"
-  defp task_time_label(_episode), do: "Running for"
+  # How long a task took, has been running, or has been open, from its
+  # confirmation. A stopped task said "Running for", which read as work still
+  # going on (audit F07, 2026-10-12).
+  defp task_time_label(%{state: state}, _page_state) when state in [:complete, :cancelled],
+    do: "Took"
+
+  defp task_time_label(_episode, "working"), do: "Running for"
+  defp task_time_label(_episode, _page_state), do: "Open for"
 
   defp task_time(%{state: state, created_at: from, updated_at: to})
        when state in [:complete, :cancelled],

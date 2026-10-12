@@ -108,6 +108,11 @@ defmodule Ryker.Work.RecoveryTest do
     refute resumable.retry_effect =~ "unfinished changes"
     assert resumable.retry_effect =~ "4.0 KB"
 
+    # Audit F07, 2026-10-12: the confirmation named the repository by the ref
+    # Ryker keeps for it rather than the name people know it by.
+    named = Recovery.project(turn, :ok, true, Map.put(snapshot(), :repository, "octo/example"))
+    assert named.retry_effect =~ "saved working copy of octo/example (4.0 KB)"
+
     # A state with no action of its own is not given one by a snapshot.
     held = Recovery.project(incident_turn(), :ok, false, snapshot())
     assert held.action == nil

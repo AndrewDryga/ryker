@@ -1232,6 +1232,30 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     refute html =~ "End of retained execution"
   end
 
+  # Audit F07, 2026-10-12: a stopped task said "Running for" beside its age,
+  # which read as work still going on. Time open is not time running.
+  test "a task that is not running says how long it has been open" do
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
+    snapshot = Map.put(snapshot, :task, %{repository: nil, repository_url: nil, stages: []})
+
+    for {state, label} <- [
+          {"working", "Running for"},
+          {"blocked", "Open for"},
+          {"waiting_for_input", "Open for"}
+        ] do
+      timing =
+        snapshot
+        |> put_in([:trace, :state], state)
+        |> render_episode([])
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.query(".metric-wall dt")
+        |> LazyHTML.text()
+
+      assert timing == label, state
+    end
+  end
+
   test "a sent response keeps its text when it matches the checked answer" do
     # The latest-outcome shortcut landed on an empty message surface: the link
     # to the validated attempt replaced the very reply the operator came to see.
