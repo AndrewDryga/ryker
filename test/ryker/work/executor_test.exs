@@ -1047,6 +1047,56 @@ defmodule Ryker.Work.ExecutorTest do
     assert FakeAPI.state(fake).validations == []
   end
 
+  # 2026-10-12 live: a Chat watch's deadline turn was bound to its session's placement, its
+  # submit failed undelivered when the worker missed its polls and the placement ended, and
+  # every later attempt derived the new placement's binding and stopped on
+  # work_state_tools_binding_conflict. The person never heard the watch had ended. A turn
+  # whose submit never reached a worker gave its old token to no model.
+  test "a turn whose submit never reached a worker takes the current state tools binding" do
+    claim = claim_episode!("unsent-rebind")
+    stale = String.duplicate("e", 64)
+
+    assert {:ok, _turn} =
+             Custody.bind_state_tools(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               "https://ryker.example/v1/state-tools/mcp",
+               stale
+             )
+
+    candidate = reply("Answered after its placement changed.")
+
+    assert {:ok, _turn} =
+             Custody.record_final_preflight(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               FinalPreflight.candidate_sha256(Jason.decode!(candidate)),
+               FinalPreflight.ledger_sha256(
+                 claim.episode.id,
+                 claim.episode.semantic_version,
+                 []
+               ),
+               claim.episode.semantic_version
+             )
+
+    claim = %{claim | turn: Repo.get!(Ryker.Work.Turn, claim.turn.id)}
+    {:ok, fake} = FakeAPI.start_link([candidate])
+
+    run_options =
+      options(fake)
+      |> Keyword.put(:state_tools_endpoint, "https://ryker.example/v1/state-tools/mcp")
+      |> Keyword.put(:state_tools_secret, Ryker.Secret.new("controller-state-tools-secret"))
+
+    assert {:ok, %{status: :accepted}} = Executor.run(claim, run_options)
+
+    [binding] = FakeAPI.state(fake).bindings
+    persisted = Repo.get!(Ryker.Work.Turn, claim.turn.id)
+    refute persisted.state_tools_token_sha256 == stale
+    assert persisted.state_tools_token_sha256 == Crypto.sha256_hex(binding["token"])
+  end
+
   test "a completed writable session closed before checkpointing cannot be blindly replayed" do
     # The September 9 incident is already closed. Retrying would create a new
     # session without the stranded patch, so both UI and host must refuse it.

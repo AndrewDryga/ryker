@@ -139,6 +139,16 @@ defmodule Ryker.Work.Custody do
   defdelegate bind_state_tools(episode_id, turn_ref, lease_ref, endpoint, token_sha256),
     to: Turns
 
+  @doc """
+  Replaces the state-tools binding of a turn Coop never took, once the caller has
+  proved its submit never reached a worker. A binding is scoped to the placement
+  it was made for, so the turn could not continue after that placement ended.
+  """
+  @spec rebind_unsent_state_tools(Ecto.UUID.t(), String.t(), String.t(), String.t(), String.t()) ::
+          {:ok, Turn.t()} | {:error, term()}
+  defdelegate rebind_unsent_state_tools(episode_id, turn_ref, lease_ref, endpoint, token_sha256),
+    to: Turns
+
   @spec bind_session(
           Ecto.UUID.t(),
           String.t(),

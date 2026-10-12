@@ -688,6 +688,34 @@ defmodule Ryker.Work.Custody.Turns do
     end
   end
 
+  @doc false
+  def rebind_unsent_state_tools(episode_id, turn_ref, lease_ref, endpoint, token_sha256) do
+    with {:ok, episode_id} <- uuid(episode_id, :episode_id),
+         :ok <- reference(turn_ref, :turn_ref),
+         :ok <- reference(lease_ref, :lease_ref),
+         :ok <- bounded_text(endpoint, 2_048, :state_tools_endpoint),
+         :ok <- sha256(token_sha256, :state_tools_token_sha256) do
+      Repo.transaction(fn ->
+        rebind_unsent_state_tools_locked(episode_id, turn_ref, lease_ref, endpoint, token_sha256)
+      end)
+    end
+  end
+
+  # Only a turn Coop never took: its caller has proved the submit never reached a
+  # worker, so no model holds the token this binding replaces.
+  defp rebind_unsent_state_tools_locked(episode_id, turn_ref, lease_ref, endpoint, token_sha256) do
+    {_session, turn} = leased!(episode_id, turn_ref, lease_ref)
+
+    if is_nil(turn.coop_turn_id) do
+      turn
+      |> Turn.Changeset.bind_state_tools(endpoint, token_sha256)
+      |> Repo.update()
+      |> unwrap_or_rollback(:work_state_tools_binding)
+    else
+      Repo.rollback(:work_state_tools_binding_conflict)
+    end
+  end
+
   defp bind_state_tools_locked(episode_id, turn_ref, lease_ref, endpoint, token_sha256) do
     {_session, turn} = leased!(episode_id, turn_ref, lease_ref)
 

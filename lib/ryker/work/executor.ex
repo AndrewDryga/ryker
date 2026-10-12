@@ -197,17 +197,59 @@ defmodule Ryker.Work.Executor do
              settings.state_tools_endpoint,
              settings.state_tools_secret
            ),
-         {:ok, turn} <-
-           Custody.bind_state_tools(
-             claim.episode.id,
-             claim.turn.turn_ref,
-             claim.lease_ref,
-             binding.endpoint,
-             binding.token_sha256
-           ) do
+         {:ok, turn} <- bind_state_tools(claim, binding, settings) do
       {:ok, claim |> Map.put(:turn, turn) |> Map.put(:state_binding, binding)}
     end
   end
+
+  # A binding is scoped to the placement it was made for. A Chat watch's deadline
+  # turn was bound, its submit failed undelivered when the worker missed its polls
+  # and the placement ended, and every later attempt stopped on the conflict with
+  # the new placement's binding (2026-10-12). A turn whose submit never reached a
+  # worker gave its old token to no model, so it takes the new binding.
+  defp bind_state_tools(claim, binding, settings) do
+    case Custody.bind_state_tools(
+           claim.episode.id,
+           claim.turn.turn_ref,
+           claim.lease_ref,
+           binding.endpoint,
+           binding.token_sha256
+         ) do
+      {:error, :work_state_tools_binding_conflict} = conflict ->
+        if unsent_submit?(claim.turn, settings) do
+          Custody.rebind_unsent_state_tools(
+            claim.episode.id,
+            claim.turn.turn_ref,
+            claim.lease_ref,
+            binding.endpoint,
+            binding.token_sha256
+          )
+        else
+          conflict
+        end
+
+      bound ->
+        bound
+    end
+  end
+
+  defp unsent_submit?(%{coop_turn_id: nil, remote_operation_kind: nil}, _settings), do: true
+
+  defp unsent_submit?(
+         %{coop_turn_id: nil, remote_operation_kind: :submit_turn, remote_operation_key: key},
+         settings
+       )
+       when is_binary(key) do
+    case Remote.operation_by_key(settings, key) do
+      {:ok, operation} when is_map(operation) ->
+        operation["state"] == "failed" and operation["error_code"] == "operation_not_enqueued"
+
+      _unknown ->
+        false
+    end
+  end
+
+  defp unsent_submit?(_turn, _settings), do: false
 
   defp ensure_submission(%{turn: %{submission: nil}} = claim, remote_session, settings) do
     with {:ok, workspace} <- Workspace.session_workspace(claim, remote_session, settings),
