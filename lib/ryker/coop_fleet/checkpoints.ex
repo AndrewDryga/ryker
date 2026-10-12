@@ -18,12 +18,14 @@ defmodule Ryker.CoopFleet.Checkpoints do
     with {:ok, producer} <- fetch_producer_command(key, session_id),
          %{"checkpoint" => checkpoint, "operation" => %{"id" => operation_id}} <- response,
          :ok <- producer_authority(producer, checkpoint, operation_id),
+         bundle_key = "ryker:checkpoint:bundle:#{producer.id}:#{operation_id}",
+         {:ok, placement_id} <- bundle_placement(producer, bundle_key, options),
          {:ok, command} <-
            ControlPlane.enqueue_command(
-             producer.placement_id,
+             placement_id,
              "get_checkpoint_bundle",
              %{"operation_id" => operation_id},
-             "ryker:checkpoint:bundle:#{producer.id}:#{operation_id}"
+             bundle_key
            ),
          {:ok, result} <- Bridge.await_command(command.id, options),
          {:ok, transfer} <- store(producer, command, checkpoint, result, options) do
@@ -38,6 +40,41 @@ defmodule Ryker.CoopFleet.Checkpoints do
     else
       {:error, reason} -> {:error, reason}
       _ -> {:error, :checkpoint_not_available}
+    end
+  end
+
+  # The bundle stays in the worker's session after the placement that saved it
+  # ends. A finished answer's save, retried after the Mac slept and the worker's
+  # placements were replaced, asked for it on the replaced placement and
+  # stopped (2026-10-12). It is asked for on the placement that saved it while
+  # that lasts, then on the session's current placement on the same worker; a
+  # placement on any other worker has no bundle to give.
+  defp bundle_placement(producer, bundle_key, options) do
+    case Repo.peek(Command.Query.by_idempotency_key(bundle_key)) do
+      %Command{placement_id: placement_id} -> {:ok, placement_id}
+      nil -> fresh_bundle_placement(producer, options)
+    end
+  end
+
+  defp fresh_bundle_placement(producer, options) do
+    placement = Repo.peek(Placement.Query.by_id(producer.placement_id))
+
+    if placement && ControlPlane.Placements.current?(placement, Repo.now!()),
+      do: {:ok, producer.placement_id},
+      else: holder_placement(producer, options)
+  end
+
+  defp holder_placement(%Command{worker_id: worker_id} = producer, options) do
+    with {:ok, session} <- Repo.fetch(Work.Session.Query.by_id(producer.session_id)),
+         {:ok, %Placement{worker_id: ^worker_id} = placement} <- Bridge.place(session, options) do
+      {:ok, placement.id}
+    else
+      {:ok, %Placement{}} ->
+        {:error,
+         {:coop_session_replacement_required, producer.session_id, producer.placement_generation}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

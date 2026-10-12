@@ -842,7 +842,13 @@ defmodule Ryker.CoopFleet.RouterTest do
     assert Repo.aggregate(WorkspaceCheckpointTransfer, :count) == 0
   end
 
-  defp capture_checkpoint(command, checkpoint, bundle, certificate) do
+  defp capture_checkpoint(
+         command,
+         checkpoint,
+         bundle,
+         certificate,
+         before_capture \\ fn -> :ok end
+       ) do
     root = Path.join(System.tmp_dir!(), "checkpoint-api-#{Ecto.UUID.generate()}")
     on_exit(fn -> File.rm_rf!(root) end)
     key = Ryker.Secret.new(:binary.copy(<<7>>, 32))
@@ -877,6 +883,7 @@ defmodule Ryker.CoopFleet.RouterTest do
     end
 
     finish.(command.id, command.idempotency_key, %{"status" => 200, "body" => response})
+    before_capture.()
 
     options = [
       body_root: root,
@@ -917,6 +924,45 @@ defmodule Ryker.CoopFleet.RouterTest do
 
     {Checkpoints.capture(command.session_id, command.idempotency_key, response, options), options,
      response}
+  end
+
+  # 2026-10-12: a finished answer's checkpoint succeeded, and its save was retried hours later,
+  # after the Mac had slept and the worker's placements had been replaced. Its bundle was asked
+  # for on the replaced placement, so the save stopped with coop_session_placement_not_current
+  # while the worker still held the session and the bundle.
+  test "a checkpoint saved after its placement ended fetches its bundle from the worker holding it" do
+    certificate = authorize_and_poll!()
+
+    command =
+      command!(certificate, "checkpoint_workspace", %{
+        "coop_session_id" => "coop-session-replaced",
+        "expected_revision" => 4,
+        "repository_ref" => "ryker"
+      })
+
+    {checkpoint, bundle} =
+      WorkspaceCheckpointFixture.build(%{
+        session_ref: command.session_id,
+        placement_generation: command.placement_generation
+      })
+
+    replace = fn ->
+      Repo.get!(Placement, command.placement_id)
+      |> Ecto.Changeset.change(state: :replaced)
+      |> Repo.update!()
+    end
+
+    {result, _options, _response} =
+      capture_checkpoint(command, checkpoint, bundle, certificate, replace)
+
+    assert {:ok, %{"state" => "stored", "transfer_id" => transfer_id}} = result
+    transfer = Repo.get!(WorkspaceCheckpointTransfer, transfer_id)
+    assert transfer.command_id == command.id
+    assert transfer.placement_generation == command.placement_generation
+
+    fetch = Repo.get!(Ryker.CoopFleet.Command, transfer.body_command_id)
+    assert fetch.worker_id == command.worker_id
+    refute fetch.placement_id == command.placement_id
   end
 
   test "worker HTTP boundaries return typed errors before accepting malformed authority or bytes" do
