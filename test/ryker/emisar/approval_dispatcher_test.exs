@@ -29,6 +29,12 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
       send(test_pid, {:wait_for_run, run_id, wait_seconds})
       result
     end
+
+    @impl true
+    def cancel_run({test_pid, result}, run_id, reason) do
+      send(test_pid, {:cancel_run, run_id, reason})
+      result
+    end
   end
 
   defmodule RacingAPI do
@@ -40,6 +46,9 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
       before_return.()
       result
     end
+
+    @impl true
+    def cancel_run(_client, _run_id, _reason), do: {:error, :not_expected}
   end
 
   defmodule Presenter do
@@ -58,6 +67,12 @@ defmodule Ryker.Emisar.ApprovalDispatcherTest do
     @impl true
     def wait_for_run({test_pid, states}, run_id, wait_seconds) do
       send(test_pid, {:wait_for_run, run_id, wait_seconds})
+      {:ok, Map.fetch!(states, run_id)}
+    end
+
+    @impl true
+    def cancel_run({test_pid, states}, run_id, reason) do
+      send(test_pid, {:cancel_run, run_id, reason})
       {:ok, Map.fetch!(states, run_id)}
     end
   end

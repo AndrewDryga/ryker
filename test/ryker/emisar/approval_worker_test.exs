@@ -25,6 +25,11 @@ defmodule Ryker.Emisar.ApprovalWorkerTest do
       send(test_pid, {:worker_wait_for_run, run_id})
       result
     end
+
+    def cancel_run({test_pid, result}, run_id, reason) do
+      send(test_pid, {:worker_cancel_run, run_id, reason})
+      result
+    end
   end
 
   defmodule Presenter do

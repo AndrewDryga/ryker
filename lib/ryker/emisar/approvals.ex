@@ -194,9 +194,11 @@ defmodule Ryker.Emisar.Approvals do
   page for good, and a monitoring one was never claimed again. Each is closed
   with the reason and kept as history, never deleted. A watch whose task has
   not started waiting yet is left alone: its turn registers it before the
-  delivered result starts the wait. Returns the closed request IDs.
+  delivered result starts the wait. Returns the closed watches as they stood
+  before closing, so a run still waiting in Emisar can be withdrawn
+  (`Ryker.Emisar.ApprovalDispatcher`).
   """
-  @spec close_ended(String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  @spec close_ended(String.t()) :: {:ok, [Approval.t()]} | {:error, term()}
   def close_ended(connection_ref) do
     with :ok <- reference(connection_ref, 64, :connection_ref) do
       connection_ref |> ended_watches() |> close_watches()
@@ -235,8 +237,49 @@ defmodule Ryker.Emisar.Approvals do
         lease_ref: nil,
         next_attempt_at: nil,
         status: :closed
-      }).request_id
+      })
+
+      approval
     end)
+  end
+
+  @doc """
+  Keeps on a closed watch what Emisar answered when Ryker withdrew its run, so
+  the card says how the request ended instead of still waiting for a review.
+  """
+  @spec record_withdrawal(String.t(), String.t(), RunState.t()) ::
+          {:ok, Approval.t()} | {:error, term()}
+  def record_withdrawal(connection_ref, request_id, %RunState{} = state) do
+    with :ok <- reference(connection_ref, 64, :connection_ref),
+         :ok <- reference(request_id, 80, :request_id) do
+      Repo.transaction(fn -> record_withdrawal_locked(connection_ref, request_id, state) end)
+    end
+  end
+
+  def record_withdrawal(_connection_ref, _request_id, _state),
+    do: {:error, {:invalid_emisar_approval_observation, :state}}
+
+  defp record_withdrawal_locked(connection_ref, request_id, state) do
+    closed =
+      connection_ref
+      |> Approval.Query.by_request(request_id)
+      |> Approval.Query.lock_for_update()
+      |> fetch_approval_row()
+
+    with {:ok, %Approval{status: :closed} = approval} <- closed,
+         :ok <- exact_run(approval, state) do
+      update!(approval, %{
+        last_observed_at: Repo.now!(),
+        remote_error: state.error_message,
+        remote_status: state.status,
+        review: state.review,
+        review_digest: Review.digest(state.review),
+        run_url: state.run_url
+      })
+    else
+      {:ok, %Approval{}} -> Repo.rollback(:emisar_approval_not_closed)
+      {:error, reason} -> Repo.rollback(reason)
+    end
   end
 
   @doc """

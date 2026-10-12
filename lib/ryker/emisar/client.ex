@@ -1,6 +1,7 @@
 defmodule Ryker.Emisar.Client do
   @moduledoc """
-  Bounded MCP client for the single read-only `wait_for_run` operation.
+  Bounded MCP client for `wait_for_run`, and for `cancel_run` of a run no
+  task waits for any more (`Ryker.Emisar.API`).
 
   Credentials and the exact RPC endpoint come from trusted runtime
   configuration. Run URLs are accepted only from that same HTTPS origin.
@@ -66,6 +67,27 @@ defmodule Ryker.Emisar.Client do
   def wait_for_run(_client, _run_id, _wait_seconds),
     do: {:error, {:invalid_emisar_client, :client}}
 
+  # Emisar answers with the run's summary, the one `wait_for_run` reads, now
+  # cancelled, or as it already ended. It refuses a run already sent to a
+  # runner (`run_not_cancellable`), which only a console operator can stop.
+  @impl true
+  def cancel_run(%__MODULE__{} = client, run_id, reason) when is_binary(reason) do
+    with :ok <- reference(run_id, 200, :run_id),
+         {:ok, response} <-
+           client.requester.request(
+             client.http,
+             :post,
+             client.rpc_path,
+             cancel_document(run_id, reason),
+             @headers
+           ),
+         {:ok, structured} <- tool_document(response) do
+      run_state(structured, client.rpc_origin)
+    end
+  end
+
+  def cancel_run(_client, _run_id, _reason), do: {:error, {:invalid_emisar_client, :client}}
+
   # Emisar answers a wait at once for a finished run, or when the run changes,
   # or after the wait.
   defp request_document(run_id, wait_seconds) do
@@ -84,6 +106,36 @@ defmodule Ryker.Emisar.Client do
 
   defp timeout(0), do: "0"
   defp timeout(seconds), do: "#{seconds}s"
+
+  defp cancel_document(run_id, reason) do
+    %{
+      "id" => "ryker-cancel-run-#{Crypto.sha256_hex(run_id)}",
+      "jsonrpc" => "2.0",
+      "method" => "tools/call",
+      "params" => %{
+        "arguments" => %{"reason" => reason, "run_id" => run_id},
+        "name" => "cancel_run"
+      }
+    }
+  end
+
+  # Emisar's refusal is a tool result too: `ok: false` with its error, marked
+  # isError (`run_state/2` reads it).
+  defp tool_document(%{
+         body: %{
+           "id" => id,
+           "jsonrpc" => "2.0",
+           "result" => %{
+             "isError" => true,
+             "structuredContent" => %{"ok" => false} = structured
+           }
+         },
+         status: 200
+       })
+       when is_binary(id),
+       do: {:ok, structured}
+
+  defp tool_document(response), do: response_document(response)
 
   defp response_document(%{
          body: %{

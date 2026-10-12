@@ -8,9 +8,10 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
   """
   alias Ryker.Adapter
   alias Ryker.Backoff
-  alias Ryker.Emisar.Approvals
+  alias Ryker.Emisar.{Approval, Approvals}
   alias Ryker.Maps
   alias Ryker.Reference
+  require Logger
 
   @fields [
     :api,
@@ -26,6 +27,8 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
     :worker_ref
   ]
   @card_lock_poll_ms 50
+  # What approvers read in Emisar about a request Ryker withdrew.
+  @withdrawal_reason "The Ryker request that asked for this no longer needs it."
 
   @type result ::
           {:ok,
@@ -51,12 +54,19 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
   end
 
   # With nothing to observe, close this account's watches that nothing waits
-  # for any more, so none sits blocked under a retry that is always refused.
+  # for any more, so none sits blocked under a retry that is always refused,
+  # and withdraw their runs that still wait in Emisar.
   defp execute(nil, settings) do
     case Approvals.close_ended(settings.connection_ref) do
-      {:ok, []} -> {:ok, :idle}
-      {:ok, closed} -> {:ok, {:closed, closed}}
-      {:error, reason} -> {:error, reason}
+      {:ok, []} ->
+        {:ok, :idle}
+
+      {:ok, closed} ->
+        Enum.each(closed, &withdraw(&1, settings))
+        {:ok, {:closed, Enum.map(closed, & &1.request_id)}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -70,6 +80,44 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
 
       invalid ->
         handle_error(claim, {:emisar_protocol_error, {:api_result, invalid}}, settings)
+    end
+  end
+
+  # Emisar asks a client to cancel a run it no longer needs rather than leave
+  # the request open until someone decides or it expires. A closed Chat task's
+  # approval stayed open (2026-10-12): anyone could still approve it, and the
+  # action would have run with nothing waiting for its result. A blocked watch
+  # cannot reach Emisar, and a run already sent to a runner is the console
+  # operator's to stop, so only a watched run still waiting is withdrawn.
+  defp withdraw(%Approval{status: :monitoring, remote_status: status} = approval, settings)
+       when status in ["pending", "pending_approval"] do
+    case settings.api.cancel_run(settings.client, approval.run_id, @withdrawal_reason) do
+      {:ok, state} ->
+        withdrawn(approval, state, settings)
+
+      {:error, reason} ->
+        Logger.warning(
+          "Emisar approval #{approval.request_id} stays open until it expires: " <>
+            "withdrawing its run failed: #{inspect(reason)}"
+        )
+    end
+  end
+
+  defp withdraw(_approval, _settings), do: :ok
+
+  # The card shows the withdrawn run like any other that ended; a card that
+  # cannot be drawn now keeps the row, which Chat reads, and logs why.
+  defp withdrawn(approval, state, settings) do
+    with {:ok, _closed} <-
+           Approvals.record_withdrawal(settings.connection_ref, approval.request_id, state),
+         :ok <- settings.presenter.publish(approval, state, settings.presentation) do
+      :ok
+    else
+      failure ->
+        Logger.info(
+          "Emisar approval #{approval.request_id} was withdrawn; its card was not redrawn: " <>
+            inspect(failure)
+        )
     end
   end
 
@@ -223,7 +271,7 @@ defmodule Ryker.Emisar.ApprovalDispatcher do
   defp settings(%{} = options) do
     with true <- Maps.exact_keys?(options, @fields),
          api when is_atom(api) <- options.api,
-         true <- Adapter.implements?(api, wait_for_run: 3),
+         true <- Adapter.implements?(api, wait_for_run: 3, cancel_run: 3),
          presenter when is_atom(presenter) <- options.presenter,
          true <- Adapter.implements?(presenter, publish: 3),
          true <- function_exported?(presenter, :permanent?, 1),

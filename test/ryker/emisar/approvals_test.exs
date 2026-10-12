@@ -33,6 +33,9 @@ defmodule Ryker.Emisar.ApprovalsTest do
 
     @impl true
     def wait_for_run(_client, _run_id, _wait_seconds), do: {:error, :not_expected}
+
+    @impl true
+    def cancel_run(_client, _run_id, _reason), do: {:error, :not_expected}
   end
 
   defmodule UnusedPresenter do
@@ -46,6 +49,12 @@ defmodule Ryker.Emisar.ApprovalsTest do
     @impl true
     def wait_for_run({test_pid, state}, run_id, _wait_seconds) do
       send(test_pid, {:wait_for_run, run_id})
+      {:ok, state}
+    end
+
+    @impl true
+    def cancel_run({test_pid, state}, run_id, reason) do
+      send(test_pid, {:cancel_run, run_id, reason})
       {:ok, state}
     end
   end
@@ -593,6 +602,31 @@ defmodule Ryker.Emisar.ApprovalsTest do
              {:error, :emisar_approval_not_blocked}
 
     assert ApprovalDispatcher.run_once(dispatcher()) == {:ok, :idle}
+  end
+
+  # Emisar asks a client to cancel a run it no longer needs instead of leaving
+  # the request open until someone decides or it expires (cancel_run in its
+  # MCP API). On 2026-10-12, closing a Chat task that waited on an approval
+  # left the request open in Emisar: anyone could still approve it, and the
+  # action would have run with nothing waiting for its result.
+  test "a request closed while its approval waits withdraws that approval in Emisar" do
+    %{claim: claim} = approval_wait!("withdrawn")
+    close_task!(claim.episode.key)
+
+    assert ApprovalDispatcher.run_once(observer("withdrawn", "cancelled")) ==
+             {:ok, {:closed, ["apr-withdrawn"]}}
+
+    assert_received {:cancel_run, "run-withdrawn", reason}
+    assert reason =~ "no longer needs it"
+
+    withdrawn = Inspectors.emisar_approval(@connection_ref, "apr-withdrawn")
+    assert withdrawn.status == :closed
+    assert withdrawn.closed_reason == :wait_ended
+    assert withdrawn.remote_status == "cancelled"
+
+    # Withdrawn once: the next pass has nothing left to close or cancel.
+    assert ApprovalDispatcher.run_once(observer("withdrawn", "cancelled")) == {:ok, :idle}
+    refute_received {:cancel_run, _run_id, _reason}
   end
 
   test "a watch whose wait has not started yet is never closed as if nothing waited for it" do

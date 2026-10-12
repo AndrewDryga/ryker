@@ -54,21 +54,50 @@ defmodule Ryker.Emisar.ClientTest do
     end
   end
 
-  defp client_for(run) do
-    response =
-      {:ok,
-       %{
-         body: %{
-           "id" => "response-1",
-           "jsonrpc" => "2.0",
-           "result" => %{
-             "isError" => false,
-             "structuredContent" => %{"ok" => true, "run" => run}
+  # A run nothing waits for is withdrawn with Emisar's cancel_run, which answers
+  # with the same summary wait_for_run reads; one already sent to a runner is
+  # refused, and only a console operator can stop it.
+  test "withdraws a run with cancel_run and reads what Emisar answers" do
+    run =
+      "test/ryker/emisar/fixtures/wait_for_run_review_v1.json"
+      |> File.read!()
+      |> Jason.decode!()
+      |> Map.fetch!("run")
+      |> Map.put("status", "cancelled")
+
+    assert {:ok, client} = client_for(run)
+    reason = "The Ryker request that asked for this no longer needs it."
+
+    assert {:ok, %RunState{status: "cancelled"}} =
+             Client.cancel_run(client, run["run_id"], reason)
+
+    assert_received {:request, :post, "/api/mcp/rpc", document, _headers}
+
+    assert document["params"] == %{
+             "arguments" => %{"reason" => reason, "run_id" => run["run_id"]},
+             "name" => "cancel_run"
            }
-         },
-         headers: [],
-         status: 200
-       }}
+
+    refused =
+      tool_answer(true, %{
+        "error" => %{
+          "code" => "run_not_cancellable",
+          "message" => "The run was already sent to its runner.",
+          "retryable" => false
+        },
+        "ok" => false
+      })
+
+    assert {:ok, client} = Client.new(%{client | http: {self(), refused}} |> Map.from_struct())
+
+    assert Client.cancel_run(client, run["run_id"], reason) ==
+             {:error,
+              {:emisar_tool_error, "run_not_cancellable",
+               "The run was already sent to its runner."}}
+  end
+
+  defp client_for(run) do
+    response = tool_answer(false, %{"ok" => true, "run" => run})
 
     Client.new(%{
       http: {self(), response},
@@ -339,5 +368,18 @@ defmodule Ryker.Emisar.ClientTest do
       rpc_origin: "https://emisar.example",
       rpc_path: "/api/mcp/rpc"
     }
+  end
+
+  defp tool_answer(error?, structured) do
+    {:ok,
+     %{
+       body: %{
+         "id" => "response-1",
+         "jsonrpc" => "2.0",
+         "result" => %{"isError" => error?, "structuredContent" => structured}
+       },
+       headers: [],
+       status: 200
+     }}
   end
 end

@@ -62,6 +62,11 @@ defmodule Ryker.Emisar.EndToEndTest do
       send(test_pid, {:wait_for_run, run_id})
       {:ok, state}
     end
+
+    def cancel_run({test_pid, state}, run_id, reason) do
+      send(test_pid, {:cancel_run, run_id, reason})
+      {:ok, state}
+    end
   end
 
   test "a governed action waits for Emisar and resumes the same episode after the exact run terminates" do

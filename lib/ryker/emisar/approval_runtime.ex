@@ -140,8 +140,9 @@ defmodule Ryker.Emisar.ApprovalRuntime do
   end
 
   defp validate_api!(api) do
-    unless Adapter.implements?(api, wait_for_run: 3),
-      do: raise(ArgumentError, "Emisar approval API must implement wait_for_run/3")
+    unless Adapter.implements?(api, wait_for_run: 3, cancel_run: 3) do
+      raise ArgumentError, "Emisar approval API must implement wait_for_run/3 and cancel_run/3"
+    end
   end
 
   defp validate_presenter!(presenter) do

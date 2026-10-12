@@ -4,6 +4,7 @@ defmodule Ryker.Emisar.ApprovalRuntimeTest do
 
   defmodule API do
     def wait_for_run(_client, _run_id, _wait_seconds), do: {:error, :not_used}
+    def cancel_run(_client, _run_id, _reason), do: {:error, :not_used}
   end
 
   test "builds a bounded independent approval worker pool" do

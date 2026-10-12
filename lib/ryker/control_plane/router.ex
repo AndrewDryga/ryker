@@ -976,7 +976,7 @@ defmodule Ryker.ControlPlane.Router do
       {:ok, %{trace: %{actions: actions}}} ->
         if Enum.any?(actions, &String.ends_with?(&1.href, "/resolve")) do
           {:ok, "Close this request as no longer needed?",
-           "Ryker ends this request and stops waiting for an answer, an event or a retry. Its history stays here, and nothing is posted or changed anywhere else. You can't reopen it; to continue, ask again in the conversation.",
+           "Ryker ends this request and stops waiting for an answer, an event or a retry. Its history stays here and nothing is posted. An Emisar approval it was waiting for is withdrawn. You can't reopen it; to continue, ask again in the conversation.",
            "episode:resolve", :primary}
         else
           {:error, :not_found}
