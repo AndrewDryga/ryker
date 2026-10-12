@@ -53,7 +53,11 @@ defmodule Ryker.Work.Recovery do
     {headline, cause, next_step, depends} =
       explanation(turn, unsupported, finalizing, closed, saved)
 
-    action = recovery_action(stranded, unsupported, checkpoint_supported?)
+    action =
+      if unrunnable?(turn),
+        do: nil,
+        else: recovery_action(stranded, unsupported, checkpoint_supported?)
+
     resumable = if action == :retry and not finalizing, do: portable_workspace
 
     brief = %{
@@ -144,6 +148,13 @@ defmodule Ryker.Work.Recovery do
   defp size(bytes) when bytes < 1_048_576, do: "#{Float.round(bytes / 1_024, 1)} KB"
   defp size(bytes), do: "#{Float.round(bytes / 1_048_576, 1)} MB"
 
+  # Every run of a task copies the setup it was started with, so a task whose
+  # setup today's workers refuse stops again however it is restarted. Its page
+  # offered "Run the task again" and an unexplained cause, while the Failures
+  # page already said to start a new task (audit F07, 2026-10-12).
+  defp unrunnable?(%Turn{last_error_code: "invalid_coop_worker_job"}), do: true
+  defp unrunnable?(_turn), do: false
+
   defp recovery_action(true, _, _), do: nil
   defp recovery_action(_, true, false), do: nil
   defp recovery_action(_, _, _), do: :retry
@@ -231,6 +242,12 @@ defmodule Ryker.Work.Recovery do
       code when code in ~w(coop_unavailable coop_transport_error) ->
         {"The worker connection failed", "Ryker could not confirm what the worker did.",
          "Reconnect the worker and check its last confirmed step before trying again.", nil}
+
+      "invalid_coop_worker_job" ->
+        {"This task was started by an older Ryker",
+         "Today's workers can't run the setup this task was started with.",
+         "Start a new task for it, then close this one. Running it again, or replying in the thread, uses the same old setup and stops again.",
+         nil}
 
       _ ->
         {cause, step, depends} = execution_failure(turn.last_error_detail || "")

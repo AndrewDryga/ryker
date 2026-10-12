@@ -579,6 +579,19 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     explanation = FailureExplanation.explain(row)
     assert explanation.outlook == :stuck
     assert inspect(explanation) =~ "started by an older Ryker"
+
+    # Audit F07, 2026-10-12: both pages promised that a reply in the thread
+    # starts the task again, and the request page offered "Run the task again"
+    # under an unexplained cause. Every run copies the same old setup.
+    refute inspect(explanation) =~ "starts the task again"
+    assert row.action == nil
+
+    turn = Repo.get_by!(Ryker.Work.Turn, episode_id: command.episode_id)
+    brief = Ryker.Work.Recovery.brief(turn)
+    assert brief.action == nil
+    assert brief.headline == "This task was started by an older Ryker"
+    assert brief.next_step =~ "Start a new task for it"
+    assert brief.explained
   end
 
   # Found reading Work cancellation on 2026-09-24: a stop whose worker stopped

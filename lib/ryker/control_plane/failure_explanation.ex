@@ -931,6 +931,12 @@ defmodule Ryker.ControlPlane.FailureExplanation do
     "Ryker retried eight times over about two minutes, the most it tries on its own, and then stopped. A reply in the thread also starts the task again."
   end
 
+  # A reply runs the same old setup, so neither line may promise it restarts
+  # the task (audit F07, 2026-10-12).
+  defp work_tried(%{stop_code: "invalid_coop_worker_job"}, _brief) do
+    "Ryker stopped at once without retrying: every run of this task uses the same old setup."
+  end
+
   defp work_tried(%{stop_code: "operator_stop"}, _brief) do
     "Ryker does not restart a task someone stopped. A reply in the thread, or the button below, starts it again."
   end
@@ -958,6 +964,10 @@ defmodule Ryker.ControlPlane.FailureExplanation do
          _brief
        ),
        do: "Ryker closes the request on its own and tells the alert thread. Its history stays."
+
+  defp work_left(%{stop_code: "invalid_coop_worker_job"}, _brief) do
+    "The request stays open and the person gets no answer. A reply in the thread uses the same old setup and stops again, so start a new task for it and close this one."
+  end
 
   defp work_left(%{stop_code: "destination_paused" <> _}, _brief),
     do: "Ryker resumes the task when the incident room is active again."
