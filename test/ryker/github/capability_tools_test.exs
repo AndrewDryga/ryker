@@ -173,6 +173,25 @@ defmodule Ryker.GitHub.CapabilityToolsTest do
     assert attributes.document == %{"action" => "add", "emoji_name" => "+1"}
   end
 
+  # Manual test, 2026-10-12: asked for a thumbs-up on a pull request comment,
+  # the model passed the comment's raw source_item_ref
+  # (github:issue_comment:6117629643) instead of its source_ref, was told
+  # "unauthorized", and told the person it lacked the permission. Nothing in
+  # that answer said what to send instead.
+  test "a reaction given the comment's raw item reference is told which reference to send" do
+    assert {:error, %{"code" => "invalid_item_ref", "message" => message}} =
+             CapabilityTools.call(
+               "set_github_reaction",
+               %{"emoji" => "+1", "item_ref" => "github:issue_comment:9001"},
+               work_binding(),
+               options()
+             )
+
+    assert message =~ "source_ref"
+    assert message =~ "github-source:v1:"
+    refute_received {:enqueue_action, _attributes}
+  end
+
   test "reads the exact bound pull request and searches only its configured repository" do
     options = context_options()
     binding = work_binding()
@@ -799,12 +818,13 @@ defmodule Ryker.GitHub.CapabilityToolsTest do
       CapabilityTools.options!(bindings: %{"Not Valid" => :trusted})
     end
 
-    assert CapabilityTools.call(
-             "set_github_reaction",
-             %{"emoji" => "eyes", "item_ref" => "not-a-source-ref"},
-             work_binding(),
-             options
-           ) == {:error, "unauthorized"}
+    assert {:error, %{"code" => "invalid_item_ref"}} =
+             CapabilityTools.call(
+               "set_github_reaction",
+               %{"emoji" => "eyes", "item_ref" => "not-a-source-ref"},
+               work_binding(),
+               options
+             )
 
     unavailable = %{options | current_input: fn _binding, _source -> {:error, :offline} end}
 

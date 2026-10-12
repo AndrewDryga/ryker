@@ -538,6 +538,18 @@ defmodule Ryker.GitHub.CapabilityTools do
   defp error_code(:not_configured), do: "temporarily_unavailable"
   defp error_code(:invalid_arguments), do: "invalid_arguments"
 
+  # A reaction names its comment by the input's source_ref. Given the input's
+  # raw source_item_ref, the model was told "unauthorized" and told the person
+  # it lacked the permission (2026-10-12); the correction says what to send.
+  defp error_code(:invalid_item_ref) do
+    %{
+      "code" => "invalid_item_ref",
+      "message" =>
+        "Use the source_ref of the current GitHub comment input " <>
+          "(github-source:v1:<binding>:<kind>:<id>) as item_ref."
+    }
+  end
+
   defp error_code({:github_action_unavailable, reason}),
     do: %{"code" => "action_unavailable", "reason" => to_string(reason)}
 

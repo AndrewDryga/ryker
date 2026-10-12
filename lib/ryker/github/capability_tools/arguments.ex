@@ -48,7 +48,7 @@ defmodule Ryker.GitHub.CapabilityTools.Arguments do
          emoji_name when emoji_name in @emoji_names <- arguments["emoji"] do
       {:ok, source, emoji_name}
     else
-      {:error, :invalid_github_source_ref} -> {:error, :unauthorized}
+      {:error, :invalid_github_source_ref} -> {:error, :invalid_item_ref}
       _invalid -> {:error, :invalid_arguments}
     end
   end
