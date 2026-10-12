@@ -30,6 +30,13 @@ defmodule Ryker.Slack.WorkControlsTest do
     assert result.turn.status == :cancel_pending
     assert result.turn.cancellation_intent["action"] == "block"
 
+    # V2: the card read "The operator stopped the current run" under a warning sign. It
+    # names who stopped it and the card's own next steps.
+    assert result.turn.cancellation_intent["reason"] =~
+             ~r/^.+ stopped this run\. Run it again to continue where it left off, or close the task\.$/
+
+    refute result.turn.cancellation_intent["reason"] =~ "operator"
+
     episode = Repo.get!(Ryker.Episodes.Episode, fixture.episode.id)
     assert episode.state == :working
     assert episode.owner_ref == fixture.claim.turn.turn_ref

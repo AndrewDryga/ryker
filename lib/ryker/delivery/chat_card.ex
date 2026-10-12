@@ -578,7 +578,7 @@ defmodule Ryker.Delivery.ChatCard do
       []
       |> optional_detail("Repository", task["repository"])
       |> optional_detail("Pull request", discarded(task["publication"]))
-      |> optional_detail("Action needed", task["action_needed"])
+      |> optional_detail(next_label(task["status"]), task["action_needed"])
 
     card = %{
       action: nil,
@@ -601,6 +601,10 @@ defmodule Ryker.Delivery.ChatCard do
 
   defp optional_card_ref(card, key, value) when is_binary(value), do: Map.put(card, key, value)
   defp optional_card_ref(card, _key, _value), do: card
+
+  # A run a person stopped is their choice; what comes next is not an alarm (V2).
+  defp next_label("stopped"), do: "Next step"
+  defp next_label(_status), do: "Action needed"
 
   # A discarded change says why, in the words Slack's card uses: the Chat
   # card said only "Completed" (2026-10-12).

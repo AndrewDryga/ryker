@@ -440,6 +440,15 @@ defmodule Ryker.Slack.TaskCardProjection do
     |> Repo.peek()
   end
 
+  # A run a person stopped is their choice, not a fault to act on (V2).
+  defp status(
+         _episode,
+         %Work.Turn{status: :blocked, last_error_code: "operator_stop"},
+         _publication,
+         _offer
+       ),
+       do: "stopped"
+
   defp status(
          %Episodes.Episode{state: :working},
          %Work.Turn{status: :blocked},

@@ -12,7 +12,7 @@ defmodule Ryker.Slack.WorkControls do
   alias Ryker.Operator
   alias Ryker.Publication
   alias Ryker.Repo
-  alias Ryker.Slack.{IncidentRooms, WorkRecord, WorkTarget}
+  alias Ryker.Slack.{IncidentRooms, Names, WorkRecord, WorkTarget}
   alias Ryker.Work
 
   @control_fields [:actor_ref, :occurred_at, :request_ref, :target, :work_ref]
@@ -54,7 +54,7 @@ defmodule Ryker.Slack.WorkControls do
              resolved.episode.key,
              turn_ref,
              attributes.request_ref,
-             "The operator stopped the current run. Reply in the same thread to continue this work."
+             stopped_sentence(resolved, attributes.actor_ref)
            ) do
       {:ok,
        %{
@@ -63,6 +63,15 @@ defmodule Ryker.Slack.WorkControls do
          work_ref: resolved.work_ref
        }}
     end
+  end
+
+  # Who stopped the run and what comes next, in the card's own buttons (V2,
+  # Andrew approved the mock 2026-10-12). It said "The operator stopped the
+  # current run" under a warning sign, as if something had broken; a Slack card
+  # is read by the whole channel, so it names the person rather than "You".
+  defp stopped_sentence(resolved, actor_ref) do
+    Names.person(resolved.workspace_ref, actor_ref).name <>
+      " stopped this run. Run it again to continue where it left off, or close the task."
   end
 
   @doc """

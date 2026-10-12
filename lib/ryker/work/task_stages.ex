@@ -431,6 +431,10 @@ defmodule Ryker.Work.TaskStages do
   end
 
   defp run_state(%{episode: %Episodes.Episode{state: :cancelled}}), do: "stopped"
+
+  defp run_state(%{turn: %Turn{status: :blocked, last_error_code: "operator_stop"}}),
+    do: "stopped"
+
   defp run_state(%{turn: %Turn{status: :blocked}}), do: "failed"
 
   defp run_state(%{episode: %Episodes.Episode{state: state}})

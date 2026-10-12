@@ -16,7 +16,7 @@ defmodule Ryker.Slack.Renderer.WorkCards do
   @incident_goals 8
   @goal_outcome 200
   @incident_statuses ~w(provisioning investigating action_required waiting_for_input waiting_for_event stopping resolved cancelled paused)
-  @task_statuses ~w(queued working waiting_for_input waiting_for_event action_required stopping reviewing ready_to_publish published completed discarded cancelled)
+  @task_statuses ~w(queued working waiting_for_input waiting_for_event action_required stopping stopped reviewing ready_to_publish published completed discarded cancelled)
   # Every key a task card may carry. The function head requires all but the
   # optional links, the request and the resume reference.
   @task_fields ~w(action_needed controls publication question_url repository repository_url request resume_ref stages status summary task_ref title ui_revision updated_at)
@@ -158,7 +158,7 @@ defmodule Ryker.Slack.Renderer.WorkCards do
       # Slack truncates a notification, so what survives is the front of this
       # string: the title, which is how a person recognizes the work.
       text =
-        "#{escape(title)}: #{label}. #{escape(summary)}" <> action_needed_text(action_needed)
+        "#{escape(title)}: #{label}. #{escape(summary)}" <> notice_text(status, action_needed)
 
       {publication_blocks, controls_block} =
         one_row(
@@ -169,10 +169,13 @@ defmodule Ryker.Slack.Renderer.WorkCards do
       blocks =
         ([section("*#{escape(title)}*")] ++
            TaskCardDetails.blocks(task) ++
-           [fact_fields([{"Repository", %{"ref" => repository, "url" => repository_url}}])] ++
+           [
+             stopped_line(status, action_needed),
+             fact_fields([{"Repository", %{"ref" => repository, "url" => repository_url}}])
+           ] ++
            publication_blocks ++
            [
-             task_action_block(action_needed, task["question_url"]),
+             action_line(status, action_needed, task["question_url"]),
              controls_block,
              context("_Updated #{display_time(updated_at)}_")
            ])
@@ -345,6 +348,7 @@ defmodule Ryker.Slack.Renderer.WorkCards do
   defp task_status_label("waiting_for_event"), do: "Waiting for verification"
   defp task_status_label("action_required"), do: "Action required"
   defp task_status_label("stopping"), do: "Stopping current work"
+  defp task_status_label("stopped"), do: "Stopped"
   # Every publication status folded in here is a step before the change is
   # public. "Review or publication in progress" named the host's two internal
   # phases and left the reader unable to say when they would see it.
@@ -395,6 +399,18 @@ defmodule Ryker.Slack.Renderer.WorkCards do
       ":warning: *Action needed*\n#{escape(value)}\n#{link(question_url, "Open the question")}"
     )
   end
+
+  # A run a person stopped says so plainly under its progress, as the approved
+  # mock put it (V2, 2026-10-12): under a warning sign it read like a fault.
+  # Anything else that needs a person keeps the warning.
+  defp stopped_line("stopped", value) when is_binary(value), do: section(escape(value))
+  defp stopped_line(_status, _value), do: nil
+
+  defp action_line("stopped", _value, _question_url), do: nil
+  defp action_line(_status, value, question_url), do: task_action_block(value, question_url)
+
+  defp notice_text("stopped", value) when is_binary(value), do: " " <> escape(value)
+  defp notice_text(_status, value), do: action_needed_text(value)
 
   # Slack reads the notification line as markup too, so it escapes the same
   # values the blocks do.

@@ -767,7 +767,8 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
              "The task stopped and needs a person. The cause is on Ryker's Failures page."
 
     # A person's Stop saves the sentence its control wrote, and the card keeps it.
-    stop = "Andrew Example stopped this run. Reply in this conversation to continue."
+    stop =
+      "@Andrew stopped this run. Run it again to continue where it left off, or close the task."
 
     {1, _rows} =
       Repo.update_all(
@@ -775,8 +776,31 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
         set: [last_error_code: "operator_stop", last_error_detail: stop]
       )
 
-    assert {:ok, %{document: %{"task_card" => stopped}}} = TaskCardProjection.build(card_record)
+    assert {:ok, %{document: %{"task_card" => stopped} = document}} =
+             TaskCardProjection.build(card_record)
+
     assert stopped["action_needed"] == stop
+
+    # V2, the mock Andrew approved on 2026-10-12: a run a person stopped read "Action required"
+    # under a warning sign, as if something had broken. It is stopped, says who stopped it and
+    # what comes next, plainly, and its stage reads stopped rather than failed.
+    assert stopped["status"] == "stopped"
+    assert Enum.any?(stopped["stages"], &(&1["state"] == "stopped"))
+    refute Enum.any?(stopped["stages"], &(&1["state"] == "failed"))
+
+    assert {:ok, rendered} = Renderer.render(document)
+    json = Jason.encode!(rendered)
+
+    assert json =~
+             "stopped this run. Run it again to continue where it left off, or close the task."
+
+    refute json =~ "Action needed"
+    refute json =~ ":warning:"
+    assert rendered["text"] =~ "Investigate checkout failures: Stopped."
+
+    assert {:ok, chat} = ChatCard.project(card_record)
+    assert ChatCard.display_status(chat) == "Stopped"
+    assert {"Next step", stop} in chat.details
 
     # Slack's card and the task page keep untrusted error text out, and that notice
     # replaced the sentence too: a Stop pressed in Slack read "Task work stopped and
