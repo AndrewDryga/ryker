@@ -104,13 +104,16 @@ defmodule Ryker.Retention.Creation do
 
     results = if terminal?(operation), do: [operation | reconciled], else: reconciled
 
+    # A refused create made nothing however often cleanup asked about it since; only an answer
+    # naming an operation could say otherwise. Counting the questions first turned a worker's
+    # refusal into "ambiguous" once cleanup had asked 100 times (2026-10-12, 116 asks).
     cond do
-      length(reconciliations) > 100 ->
-        {:error, :retention_creation_ambiguous}
-
-      locally_rejected?(command) and is_nil(operation) and
+      refused?(command) and is_nil(operation) and
           Enum.all?(reconciliations, &is_nil(operation(&1.result))) ->
         :absent
+
+      length(reconciliations) > 100 ->
+        {:error, :retention_creation_ambiguous}
 
       true ->
         terminal_result(results, command)
@@ -125,7 +128,10 @@ defmodule Ryker.Retention.Creation do
     end
   end
 
-  defp locally_rejected?(%CoopFleet.Command{
+  # Ryker refused the create before delivering it, or the worker refused it before sending it to
+  # its daemon: Coop reports that as invalid_command, a definite failure its daemon never saw
+  # (workerconnector.ErrRequestRejected).
+  defp refused?(%CoopFleet.Command{
          status: :failed,
          delivered_at: nil,
          error: %{"code" => code},
@@ -133,7 +139,14 @@ defmodule Ryker.Retention.Creation do
        })
        when code in ["invalid_command", "operation_not_enqueued"], do: true
 
-  defp locally_rejected?(_command), do: false
+  defp refused?(%CoopFleet.Command{
+         status: :failed,
+         error: %{"code" => "invalid_command"},
+         result: nil
+       }),
+       do: true
+
+  defp refused?(_command), do: false
 
   defp exact_create?(session, command) do
     command.payload_fingerprint == command_fingerprint(command) and

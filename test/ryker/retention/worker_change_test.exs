@@ -608,6 +608,45 @@ defmodule Ryker.Retention.WorkerChangeTest do
     assert %DateTime{} = Repo.get!(Session, sibling.id).discard_after
   end
 
+  # 2026-10-12: a request's second session (made 2026-09-28) had 24 creates the worker refused
+  # before sending them ("fetch job source: controller body request returned HTTP 404"). Coop
+  # documents that refusal as definite: its daemon never saw the request. Cleanup read the
+  # delivered refusal as pending, asked the worker about the create on every pass, 116 times and
+  # each "operation not found", until more than 100 records made it "ambiguous" and it stopped
+  # for a person.
+  test "a create the worker refused before sending settles absent, however often cleanup asked" do
+    worker = enroll!("refused-create")
+    {session, _remote} = unbound_created_session!("refused-create", worker, :refused)
+    placement = current_placement!(session)
+    key = "ryker:work:create:#{session.id}:g1"
+
+    for _attempt <- 1..101 do
+      assert {:ok, _reconcile} =
+               ControlPlane.enqueue_command(
+                 placement.id,
+                 "reconcile_operation",
+                 %{"operation_key" => key},
+                 Command.read_key("reconcile_operation")
+               )
+
+      serve(worker, @started, fn _command ->
+        {:error, %{"code" => "operation_not_found", "status" => 404}}
+      end)
+    end
+
+    assert Creation.resolve(Repo.get!(Session, session.id)) == {:ok, :absent}
+
+    fleet =
+      fleet_client(worker, @started, fn _command ->
+        {:error, %{"code" => "operation_not_found", "status" => 404}}
+      end)
+
+    assert {:ok, {:executed, %{phase: :discarded}}} = run(fleet, "cleanup:refused-create")
+    settled = Repo.get!(Session, session.id)
+    assert settled.cleanup_receipt["remote_state"] == "absent"
+    assert settled.coop_session_id == nil
+  end
+
   test "a placed create that never left Ryker can settle without inventing a remote resource" do
     worker = enroll!("queued-create")
     {session, _remote} = unbound_created_session!("queued-create", worker, :queued)
@@ -715,6 +754,18 @@ defmodule Ryker.Retention.WorkerChangeTest do
                   "body" => %{"error" => Map.drop(error, ["status"])}
                 },
                 "state" => "succeeded"
+              }
+            ]
+
+          # The worker refused the command itself: nothing reached its daemon.
+          {:failed, error} ->
+            [
+              %{
+                "command_id" => command["command_id"],
+                "error" => error,
+                "operation_key" => command["idempotency_key"],
+                "resource" => nil,
+                "state" => "failed"
               }
             ]
         end
@@ -938,17 +989,33 @@ defmodule Ryker.Retention.WorkerChangeTest do
                key
              )
 
-    if reconciled? != :queued do
-      serve(worker, @started, fn _command ->
-        {:ok,
-         %{
-           "operation" => %{
-             "id" => operation_id,
-             "method" => "CreateRemoteSession",
-             "state" => "running"
-           }
-         }}
-      end)
+    case reconciled? do
+      :queued ->
+        :ok
+
+      # The worker refused the create before sending it to its daemon (Coop's ErrRequestRejected).
+      :refused ->
+        serve(worker, @started, fn _command ->
+          {:failed,
+           %{
+             "code" => "invalid_command",
+             "detail" =>
+               "private Coop API request was rejected before it was sent: fetch job source: " <>
+                 "controller body request returned HTTP 404"
+           }}
+        end)
+
+      _created ->
+        serve(worker, @started, fn _command ->
+          {:ok,
+           %{
+             "operation" => %{
+               "id" => operation_id,
+               "method" => "CreateRemoteSession",
+               "state" => "running"
+             }
+           }}
+        end)
     end
 
     if reconciled? == true do
