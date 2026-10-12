@@ -46,6 +46,7 @@ defmodule Ryker.Evals.WorldCassette do
 
       {id, rule} ->
         {reply, outcome, next_rule} = next_response(rule)
+        reply = interface(tool, arguments, reply, {id, rule.offset})
         rules = Map.put(state.rules, id, next_rule)
 
         recorded = call |> Map.put(:outcome, outcome) |> Map.put(:result, result(reply))
@@ -82,6 +83,36 @@ defmodule Ryker.Evals.WorldCassette do
 
   defp next_response(rule),
     do: {{:error, %{"code" => "rule_exhausted"}}, :exhausted, rule}
+
+  # Emisar answers run_action with the operation and its runs, each run with
+  # its link and its output inside. A world rule holds only the output, and a
+  # turn that read all 148 alert rules from one had no link to cite (audit F01,
+  # 2026-10-12), so the cassette answers in Emisar's envelope: the prompt has a
+  # turn cite an Emisar result by its run_url.
+  defp interface("run_action", arguments, {:ok, output}, call) do
+    operation = "op_" <> binary_part(CanonicalJSON.digest(%{"call" => inspect(call)}), 0, 16)
+    run = "run_" <> binary_part(CanonicalJSON.digest(%{"operation" => operation}), 0, 16)
+
+    {:ok,
+     %{
+       "action_id" => arguments["action_id"],
+       "ok" => true,
+       "operation_id" => operation,
+       "pack_ref" => arguments["pack_ref"],
+       "runs" => [
+         %{
+           "action_id" => arguments["action_id"],
+           "operation_id" => operation,
+           "run_id" => run,
+           "run_url" => "https://emisar.example/app/world/runs/#{run}",
+           "status" => "succeeded",
+           "structured_output" => output
+         }
+       ]
+     }}
+  end
+
+  defp interface(_tool, _arguments, reply, _call), do: reply
 
   defp result({:ok, value}), do: Evidence.sanitize(value)
   defp result({:error, value}), do: Evidence.sanitize(%{"error" => value})

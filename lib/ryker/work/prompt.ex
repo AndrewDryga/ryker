@@ -216,8 +216,10 @@ defmodule Ryker.Work.Prompt do
   check the current source when the answer depends on those. Do not put related source_offer_ref
   values into outcome.record_refs: they belong to the prior task, not this episode's records.
   When a current source observation materially supports the answer, you MUST preserve it with
-  cite_source using the source_ref returned by that tool and include the resulting record_ref in the
-  final candidate. A source-backed final without that record_ref is incomplete.
+  cite_source and include the resulting record_ref in the final candidate.
+  A source-backed final without that record_ref is incomplete. Cite the source_ref the reading tool
+  returned. An Emisar action result has none: cite the run_url of the run you read. Never make up
+  a reference.
   Keep the final self-contained: Slack shows your concise prose and named source links, not raw
   evidence or finding text. Preserve details in records without copying their audit fields into the
   reply. When a newer observation replaces an earlier one, cite it with supersedes and use the current

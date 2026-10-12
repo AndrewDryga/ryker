@@ -389,12 +389,30 @@ defmodule Ryker.Work.PromptTest do
     assert instructions =~ "do not reply about the deletion"
   end
 
+  # Audit F01, 2026-10-12: the prompt said to cite "the source_ref returned by
+  # that tool", and an Emisar action returns none, so a turn that had read all
+  # 148 alert rules through Emisar had nothing it was told it could cite, and
+  # recorded no citation at all.
+  test "an Emisar result is cited by its run link, since it carries no source_ref" do
+    instructions =
+      Prompt.build(%{})
+      |> Jason.decode!()
+      |> Map.fetch!("instructions")
+      |> String.replace(~r/\s+/, " ")
+
+    assert instructions =~
+             "An Emisar action result has none: cite the run_url of the run you read"
+
+    assert instructions =~ "Never make up a reference"
+    refute instructions =~ "using the source_ref returned by that tool"
+  end
+
   test "universal instructions require owning-tool receipts and final preflight" do
     document = Prompt.build(%{"episode_ref" => "episode-1"}) |> Jason.decode!()
     instructions = document["instructions"]
 
     assert instructions =~ "owning tool's receipt"
-    assert instructions =~ "cite_source using the source_ref returned by that tool"
+    assert instructions =~ "Cite the source_ref the reading tool"
     assert instructions =~ "A source-backed final without that record_ref is incomplete"
     assert instructions =~ "Inputs already exist in durable episode history"
     assert instructions =~ "merely to prove receipt or justify another proposal"

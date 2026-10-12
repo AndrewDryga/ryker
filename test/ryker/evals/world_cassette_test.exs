@@ -35,7 +35,7 @@ defmodule Ryker.Evals.WorldCassetteTest do
     ]
 
     Enum.each(queries, fn {query, expected} ->
-      assert {:ok, result} =
+      assert {:ok, %{"runs" => [%{"structured_output" => result}]}} =
                WorldCassette.call(cassette, "run_action", %{
                  "action_id" => "vm.query_instant",
                  "args" => %{"query" => query}
@@ -43,6 +43,40 @@ defmodule Ryker.Evals.WorldCassetteTest do
 
       assert Map.take(result, Map.keys(expected)) == expected
     end)
+  end
+
+  # Audit F01, 2026-10-12: the world answered run_action with the bare output,
+  # where Emisar answers with the operation and each run's link, so a turn that
+  # read all 148 alert rules had nothing to cite.
+  test "an Emisar action answers with its operation and each run's link, as Emisar does" do
+    {:ok, scenario} = WorldCase.fetch("deep-check-finds-its-sources-through-search")
+    {:ok, cassette} = start_supervised({WorldCassette, scenario})
+
+    arguments = %{
+      "action_id" => "vm.query_instant",
+      "args" => %{"query" => "sum by (folder) (grafana_alerting_rule_group_rules)"}
+    }
+
+    assert {:ok, first} = WorldCassette.call(cassette, "run_action", arguments)
+    assert {:ok, second} = WorldCassette.call(cassette, "run_action", arguments)
+
+    assert %{
+             "action_id" => "vm.query_instant",
+             "ok" => true,
+             "operation_id" => "op_" <> _operation,
+             "runs" => [
+               %{
+                 "run_url" => "https://emisar.example/app/world/runs/run_" <> _run,
+                 "status" => "succeeded",
+                 "structured_output" => %{"rules_scheduled" => 148}
+               }
+             ]
+           } = first
+
+    # Each call is its own operation, and a rerun of the case names the same ones.
+    refute first["operation_id"] == second["operation_id"]
+    assert [%{result: recorded} | _rest] = WorldCassette.calls(cassette)
+    assert recorded["operation_id"] == first["operation_id"]
   end
 
   test "matches an explicitly reviewed set of normalized argument aliases" do
