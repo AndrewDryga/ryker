@@ -12,7 +12,7 @@ RUN git clone https://github.com/AndrewDryga/coop.git /build/coop \
       -o /out/coop .
 
 # The image the worker's Docker daemon runs (compose.yml `ryker-coop-docker`), by the same digest.
-FROM docker:27.5.1-dind-alpine3.21@sha256:aa3df78ecf320f5fafdce71c659f1629e96e9de0968305fe1de670e0ca9176ce AS docker
+FROM docker:28.2.2-dind-alpine3.21@sha256:bbc590727c1e4fe707877314ff4f0f977bdda2985c485f2b044db0e18979efb3 AS docker
 
 FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
 
