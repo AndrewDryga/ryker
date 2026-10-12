@@ -684,6 +684,50 @@ defmodule Ryker.Slack.TaskCardProjectionTest do
     assert json =~ "ryker_task_discard_publication"
   end
 
+  # Manual test, 2026-10-12: after Discard on a Chat task card, the card said "Completed", and
+  # nothing on it said the change was discarded or that no pull request was made. Slack's card
+  # had the line but its notification said "Completed" too, as if the change had shipped.
+  test "a task whose change was discarded says Discarded on Slack and in Chat, and why" do
+    %{episode: episode, publication: publication} =
+      PublicationFixture.review_requested!("discarded-card")
+
+    assert {:ok, %{publication: %{status: :discarded}}} =
+             PublicationCustody.recover(
+               publication.ref,
+               :discard,
+               publication.recovery_generation
+             )
+
+    source = %Record{
+      kind: "task_offer",
+      status: :confirmed,
+      confirmed_episode_id: episode.id,
+      confirmed_at: DateTime.utc_now(),
+      confirmed_by_actor_ref: "slack:user:U1",
+      ref: "task-card:discarded-card",
+      payload:
+        TaskOffer.payload(%{
+          "title" => "Implement discarded-card",
+          "repository" => "ryker",
+          "prompt" => "Implement the change."
+        })
+    }
+
+    assert {:ok, projection} = TaskCardProjection.build(source)
+    assert projection.document["task_card"]["status"] == "discarded"
+
+    assert {:ok, rendered} = Renderer.render(projection.document)
+    assert rendered["text"] =~ "Implement discarded-card: Discarded."
+    assert Jason.encode!(rendered) =~ "Someone discarded these changes"
+
+    assert {:ok, card} = ChatCard.project(source)
+    assert ChatCard.display_status(card) == "Discarded"
+
+    assert {"Pull request",
+            "Someone discarded these changes, so I stopped preparing their PR. " <>
+              "The review history is saved."} in card.details
+  end
+
   # Found live 2026-10-09: a local incident's card read "Action needed: coop_error:
   # {:coop_error, 409, \"invalid_session_state\", …}", the saved error term printed
   # whole, in Chat and on Slack's task card alike. It says in words what Ryker can

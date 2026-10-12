@@ -16,7 +16,7 @@ defmodule Ryker.Slack.Renderer.WorkCards do
   @incident_goals 8
   @goal_outcome 200
   @incident_statuses ~w(provisioning investigating action_required waiting_for_input waiting_for_event stopping resolved cancelled paused)
-  @task_statuses ~w(queued working waiting_for_input waiting_for_event action_required stopping reviewing ready_to_publish published completed cancelled)
+  @task_statuses ~w(queued working waiting_for_input waiting_for_event action_required stopping reviewing ready_to_publish published completed discarded cancelled)
   # Every key a task card may carry. The function head requires all but the
   # optional links, the request and the resume reference.
   @task_fields ~w(action_needed controls publication question_url repository repository_url request resume_ref stages status summary task_ref title ui_revision updated_at)
@@ -352,6 +352,7 @@ defmodule Ryker.Slack.Renderer.WorkCards do
   defp task_status_label("ready_to_publish"), do: "Reviewed and ready for operator publication"
   defp task_status_label("published"), do: "Draft pull request published"
   defp task_status_label("completed"), do: "Completed"
+  defp task_status_label("discarded"), do: "Discarded"
   defp task_status_label("cancelled"), do: "Closed"
 
   defp incident_status_label("provisioning"), do: "Provisioning"

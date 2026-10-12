@@ -474,8 +474,10 @@ defmodule Ryker.Slack.TaskCardProjection do
   defp status(_episode, _turn, %Publication.Publication{status: :blocked}, _offer),
     do: "action_required"
 
+  # A discarded change is not a finished one: "Completed" read as if it had
+  # shipped (2026-10-12).
   defp status(_episode, _turn, %Publication.Publication{status: :discarded}, _offer),
-    do: "completed"
+    do: "discarded"
 
   defp status(%Episodes.Episode{state: :cancelled}, _turn, _publication, _offer), do: "cancelled"
 

@@ -577,6 +577,7 @@ defmodule Ryker.Delivery.ChatCard do
     details =
       []
       |> optional_detail("Repository", task["repository"])
+      |> optional_detail("Pull request", discarded(task["publication"]))
       |> optional_detail("Action needed", task["action_needed"])
 
     card = %{
@@ -600,6 +601,13 @@ defmodule Ryker.Delivery.ChatCard do
 
   defp optional_card_ref(card, key, value) when is_binary(value), do: Map.put(card, key, value)
   defp optional_card_ref(card, _key, _value), do: card
+
+  # A discarded change says why, in the words Slack's card uses: the Chat
+  # card said only "Completed" (2026-10-12).
+  defp discarded(%{"status" => "discarded", "discarded_reason" => reason}),
+    do: Slack.Renderer.TaskPublication.discarded_message(reason)
+
+  defp discarded(_publication), do: nil
 
   defp task_label(%Records.Record{payload: %{"kind" => "incident"}}), do: "Local incident"
   defp task_label(%Records.Record{}), do: "Engineering task"

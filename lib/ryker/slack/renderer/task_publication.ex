@@ -285,11 +285,13 @@ defmodule Ryker.Slack.Renderer.TaskPublication do
 
   # A closed worker session can never be reviewed, so Ryker ends that request
   # itself; the task's next finished run is checked afresh.
-  defp discarded_message("review_session_closed") do
+  @doc "Why a discarded change ended, in the words both task cards use."
+  @spec discarded_message(String.t() | nil) :: String.t()
+  def discarded_message("review_session_closed") do
     "I stopped preparing the PR: the worker session holding these changes closed before they could be checked, so no PR was made from them. When the task runs again, its new changes are checked then."
   end
 
-  defp discarded_message(nil) do
+  def discarded_message(nil) do
     "Someone discarded these changes, so I stopped preparing their PR. The review history is saved."
   end
 
