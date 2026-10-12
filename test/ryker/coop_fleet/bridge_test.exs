@@ -232,15 +232,35 @@ defmodule Ryker.CoopFleet.BridgeTest do
     |> Ecto.Changeset.change(state: :replaced)
     |> Repo.update!()
 
-    assert {:error, {:coop_session_replacement_required, session_id, placement_generation}} =
+    # A result settles only while its placement is current, so it still answers
+    # once that placement is replaced. A finished answer's checkpoint that had
+    # succeeded at 08:19:53 was refused at 15:47 as needing a new session: the
+    # worker's identity had expired while the Mac slept and its placements were
+    # replaced (2026-10-12, draft PR AndrewDryga/test#24).
+    assert {:ok, %{"id" => "remote-result"}} =
              Bridge.await_command(succeeded.id,
                max_waits: 1,
                poll_interval_ms: 1,
                workspace_ref: "workspace-main"
              )
 
-    assert session_id == succeeded.session_id
-    assert placement_generation == succeeded.placement_generation
+    # A command still in flight on a replaced placement needs a new session.
+    in_flight = queued_command!()
+
+    Placement
+    |> Repo.get!(in_flight.placement_id)
+    |> Ecto.Changeset.change(state: :replaced)
+    |> Repo.update!()
+
+    assert {:error, {:coop_session_replacement_required, session_id, placement_generation}} =
+             Bridge.await_command(in_flight.id,
+               max_waits: 1,
+               poll_interval_ms: 1,
+               workspace_ref: "workspace-main"
+             )
+
+    assert session_id == in_flight.session_id
+    assert placement_generation == in_flight.placement_generation
 
     assert {:error, {:coop_worker_command_not_found, missing_id}} =
              Bridge.await_command(Ecto.UUID.generate(),

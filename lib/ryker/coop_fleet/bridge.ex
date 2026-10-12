@@ -178,6 +178,14 @@ defmodule Ryker.CoopFleet.Bridge do
            command} ->
         await_result(command, command_id, settings, left)
 
+      # A result settles only while its placement is current
+      # (`ControlPlane.Commands.apply_command_result/4`), so a succeeded command
+      # answers after that placement ends. A finished answer's checkpoint was
+      # refused as needing a new session hours after it succeeded, once the
+      # worker's placements were replaced (2026-10-12).
+      {:ok, %Command{status: :succeeded} = command} ->
+        await_result(command, command_id, settings, left)
+
       {:ok, %Command{} = command} ->
         with :ok <- current_command_placement(command) do
           await_result(command, command_id, settings, left)
