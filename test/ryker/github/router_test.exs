@@ -528,7 +528,15 @@ defmodule Ryker.GitHub.RouterTest do
     assert get_in(input_event.payload, ["payload", "content", "payload"]) == payload()
 
     assert get_in(input_event.payload, ["payload", "source", "kind"]) == "github"
-    assert get_in(input_event.payload, ["payload", "source_capabilities"]) == %{}
+
+    # The comment keeps which comment it is and that GitHub takes reactions on
+    # it, so a reaction can answer it (2026-10-12).
+    assert get_in(input_event.payload, ["payload", "source_capabilities", "react"]) == %{
+             "emoji_names" => ~w(+1 -1 confused eyes heart hooray laugh rocket)
+           }
+
+    assert get_in(input_event.payload, ["payload", "source_item_ref"]) ==
+             "github:issue_comment:9001"
 
     assert {:ok, work_claim} =
              Custody.claim_next("github-review-feedback-work", 60, :work)

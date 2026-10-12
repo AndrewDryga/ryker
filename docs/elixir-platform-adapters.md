@@ -181,7 +181,9 @@ the host first.
 
 GitHub reactions use the distinct issue-comment and pull-request review-comment reaction endpoints.
 The supported model choices are exactly `+1`, `-1`, `laugh`, `confused`, `heart`, `hooray`, `rocket`,
-and `eyes`.
+and `eyes`. A reaction answers one of the turn's current inputs, so `set_github_reaction` is offered
+whenever a current input is a GitHub comment that takes one, not only to work that started on
+GitHub: a comment on the pull request of a task started in Slack or Chat can take a reaction too.
 
 An engineering `request_task` proposal requires a non-null configured Ryker repository
 reference; an incident proposal may use null. The task interface accepts 1–256 letters, digits,

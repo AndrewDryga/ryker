@@ -6,13 +6,14 @@ defmodule Ryker.GitHub.EndToEndTest do
   alias Ryker.Delivery.{Adapters, RoutingResponse}
   alias Ryker.Fixtures.Publication, as: PublicationFixture
   alias Ryker.Fixtures.WorkerJob
-  alias Ryker.GitHub.{Auth, Binding, Client, Publisher, Router}
+  alias Ryker.GitHub.{Auth, Binding, CapabilityTools, Client, Publisher, Router, SourceRef}
   alias Ryker.Ingress.Inbox
   alias Ryker.Inspectors
   alias Ryker.Publication.{FollowupDispatcher, LifecycleEvent}
   alias Ryker.Records
   alias Ryker.Repo
   alias Ryker.Slack.Publisher, as: SlackPublisher
+  alias Ryker.StateTools.Router, as: StateToolsRouter
   alias Ryker.TestSupport.{FakeCoopAPI, FakeSlackAPI, FakeWorkCoopAPI, GitHubRequester}
   alias Ryker.Work.{Custody, Dispatcher, Executor, Final, Session, Turn}
 
@@ -314,6 +315,116 @@ defmodule Ryker.GitHub.EndToEndTest do
     assert receipt["transport"] == "github"
     assert receipt["thread_ref"] == "github:github-main:pull:42:review-thread:9000"
     assert receipt["message_ref"] == "github:pull_request_review_comment:9200"
+  end
+
+  # Manual test, 2026-10-12: a comment on the pull request of a task started
+  # in Slack asked for a thumbs-up, and Ryker answered "I can't add a
+  # thumbs-up reaction to the GitHub comment with the actions available
+  # here." No comment on a Slack or Chat task's pull request could take a
+  # reaction: the wakeup kept the comment's words but dropped which comment it
+  # was and that GitHub takes reactions on it, and the tools followed the
+  # task's Slack home.
+  test "a comment on a Slack task's pull request can take the reaction it asks for" do
+    %{episode: episode} =
+      PublicationFixture.published!("github-reaction-e2e",
+        conversation_ref: "slack:TB14ADAF3E1AF:C456",
+        github_repository: "octo/example",
+        pull_request_number: 42,
+        thread_ref: "1787832001.000200"
+      )
+
+    Repo.get_by!(Session, episode_id: episode.id, generation: 1) |> WorkerJob.pin!()
+    comment = payload(9_004, "Please acknowledge this comment with a thumbs-up.")
+    assert post(comment, "github-delivery-reaction-feedback").status == 202
+
+    {:ok, slack} =
+      FakeSlackAPI.start_link(
+        observer: self(),
+        message_ref: fn n -> "1787918400.000#{n}" end
+      )
+
+    assert {:ok, {:executed, %{phase: :delivery}}} =
+             FollowupDispatcher.run_once(
+               executor_options: [
+                 adapters: slack_adapters(slack),
+                 api: FollowupStatusAPI,
+                 client: :not_used
+               ],
+               interval_seconds: 120,
+               lease_seconds: 60,
+               retry_base_seconds: 1,
+               retry_max_seconds: 60,
+               worker_ref: "github-reaction-followup-e2e"
+             )
+
+    assert {:ok, claim} = Custody.claim_next("github-reaction-work-e2e", 60, :work)
+    assert claim.episode.id == episode.id
+    assert claim.episode.destination_transport == "slack"
+
+    tools = CapabilityTools.options!(bindings: %{"github-main" => :trusted})
+    item_ref = SourceRef.item("github-main", "issue_comment", 9_004)
+
+    assert {:ok, submission} =
+             Inspectors.submission(claim, platform_tools: CapabilityTools.list(tools))
+
+    assert "set_github_reaction" in submission["context"]["source_and_action_tools"]
+    assert [%{"source_ref" => ^item_ref}] = submission["context"]["current_inputs"]["items"]
+
+    assert {:ok, turn} =
+             Custody.freeze_submission(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               submission
+             )
+
+    state_tools =
+      StateToolsRouter.init(
+        binding: %{
+          episode: claim.episode,
+          session: claim.session,
+          state_token: Records.token(turn),
+          turn: turn
+        },
+        additional_tools: CapabilityTools.list(tools),
+        additional_call: fn name, arguments, binding ->
+          CapabilityTools.call(name, arguments, binding, tools)
+        end
+      )
+
+    assert "set_github_reaction" in Enum.map(
+             mcp(state_tools, "tools/list", %{})["tools"],
+             & &1["name"]
+           )
+
+    assert %{"isError" => false, "structuredContent" => %{"status" => "pending"}} =
+             mcp(state_tools, "tools/call", %{
+               "arguments" => %{"emoji" => "+1", "item_ref" => item_ref},
+               "name" => "set_github_reaction"
+             })
+
+    {:ok, requester} = GitHubRequester.start([github_response(201, %{"id" => 78})])
+
+    assert {:ok, {:delivered, :action, _action_ref}} =
+             Ryker.Delivery.Dispatcher.run_once(
+               delivery_options(:action, requester, "reaction-feedback")
+             )
+
+    assert [
+             {:post, "/repos/octo/example/issues/comments/9004/reactions", %{"content" => "+1"},
+              _}
+           ] = GitHubRequester.requests(requester)
+  end
+
+  defp mcp(router, method, params) do
+    request = %{"id" => 1, "jsonrpc" => "2.0", "method" => method, "params" => params}
+
+    conn(:post, "/mcp", Jason.encode!(request))
+    |> put_req_header("content-type", "application/json")
+    |> StateToolsRouter.call(router)
+    |> Map.fetch!(:resp_body)
+    |> Jason.decode!()
+    |> Map.fetch!("result")
   end
 
   defp post(payload, delivery_ref, event_name \\ "issue_comment") do

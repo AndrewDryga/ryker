@@ -10,6 +10,7 @@ defmodule Ryker.StateTools.Router do
   import Plug.Conn
   alias Ryker.{CanonicalJSON, Secret}
   alias Ryker.Emisar
+  alias Ryker.Episodes
   alias Ryker.HTTPConnection
   alias Ryker.StateTools.{CallLog, Capabilities, LookupContext, Tools, ToolVisibility}
   require Logger
@@ -359,18 +360,26 @@ defmodule Ryker.StateTools.Router do
     do: callback.(name, arguments)
 
   defp visible_additional_tools(options) do
-    {transport, mode} =
+    {transport, mode, reactions} =
       case options.binding do
-        %{episode: %{destination_transport: value, execution_mode: mode}}
+        %{episode: %{destination_transport: value, execution_mode: mode} = episode}
         when is_binary(value) and mode in [:live, :shadow] ->
-          {value, mode}
+          {value, mode, reaction_transports(episode)}
 
         _unbound_or_synthetic ->
-          {nil, :live}
+          {nil, :live, []}
       end
 
-    Enum.filter(options.additional_tools, &ToolVisibility.visible?(&1["name"], transport, mode))
+    Enum.filter(
+      options.additional_tools,
+      &ToolVisibility.visible?(&1["name"], transport, mode, reactions)
+    )
   end
+
+  defp reaction_transports(%Episodes.Episode{} = episode),
+    do: episode |> Episodes.active_input_events() |> ToolVisibility.reaction_transports()
+
+  defp reaction_transports(_episode), do: []
 
   defp json_content_type(conn) do
     case get_req_header(conn, "content-type") do

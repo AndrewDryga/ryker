@@ -60,7 +60,8 @@ defmodule Ryker.Work.SubmissionBuilder do
          {:ok, contract} <- Contract.select(episode.execution_mode),
          :ok <- Contract.authorize_continuation(contract, previous, session),
          records <- Records.model_records(episode, session.repository_ref),
-         {:ok, metadata} <- context_metadata(episode, session, contract.mode, options),
+         {:ok, metadata} <-
+           context_metadata(episode, session, snapshot.active, contract.mode, options),
          {:ok, context, eligible} <-
            submission_context(episode, session, snapshot, records, previous, metadata),
          {:ok, submission} <-
@@ -153,9 +154,9 @@ defmodule Ryker.Work.SubmissionBuilder do
     }
   end
 
-  defp context_metadata(episode, session, mode, options) do
+  defp context_metadata(episode, session, active, mode, options) do
     with {:ok, state_tools} <- state_tool_names(episode, options),
-         {:ok, platform_tools} <- platform_tool_names(episode, mode, options),
+         {:ok, platform_tools} <- platform_tool_names(episode, active, mode, options),
          {:ok, workspace} <- workspace(options) do
       # Capture required fields once so history fitting reserves their exact bytes.
       metadata = %{
@@ -243,14 +244,17 @@ defmodule Ryker.Work.SubmissionBuilder do
   defp maybe_put_workspace(context, nil), do: context
   defp maybe_put_workspace(context, workspace), do: Map.put(context, "workspace", workspace)
 
-  # The platform tools Work was assembled with (`Ryker.Runtime.Assembly`).
-  defp platform_tool_names(episode, mode, options) do
+  # The platform tools Work was assembled with (`Ryker.Runtime.Assembly`), as
+  # the state tools offer them to this turn (`Ryker.StateTools.Router`).
+  defp platform_tool_names(episode, active, mode, options) do
     case PlatformTools.names(Keyword.get(options, :platform_tools)) do
       {:ok, names} ->
+        reactions = StateTools.ToolVisibility.reaction_transports(active)
+
         {:ok,
          Enum.filter(
            names,
-           &StateTools.ToolVisibility.visible?(&1, episode.destination_transport, mode)
+           &StateTools.ToolVisibility.visible?(&1, episode.destination_transport, mode, reactions)
          )}
 
       :error ->

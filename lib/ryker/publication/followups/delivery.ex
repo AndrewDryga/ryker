@@ -131,8 +131,10 @@ defmodule Ryker.Publication.Followups.Delivery do
         occurred_at_source: :source,
         revision: Map.fetch!(observation, "revision"),
         source: feedback_source(observation),
-        source_capabilities: %{},
-        source_item_ref: nil
+        # Which comment this is, and what GitHub lets Ryker do with it, so a
+        # reaction can answer it (2026-10-12).
+        source_capabilities: Map.get(observation, "source_capabilities", %{}),
+        source_item_ref: Map.get(observation, "source_item_ref")
       })
 
     input
