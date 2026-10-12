@@ -621,7 +621,14 @@ changes is chosen per task, from the environment's read and write repositories: 
 repository_ref)` returns that repository's policy for the class with the session's
 `repository_context`: the chosen repository as the working copy and every other repository of the
 environment mounted read-only beside it, so every session in an environment sees all of its
-repositories. A session records the `environment_ref` it ran in; history outlives the settings row,
+repositories. Work that only reads a repository on its default branch, which is what routing starts
+(Chat, questions, investigations), needs no working copy of its own:
+`WorkProfile.reading_placement/3` places it in the environment's default placement and keeps the
+chosen repository as the session's `repository_ref`, the repository the work is about, which may be
+the working copy or one mounted beside it (`Ryker.Work.RepositoryContext`). Its knowledge, memory
+and records follow that repository; only the Coop job follows the working copy. A request that names
+a pull request, branch or commit makes that repository the working copy, as a task does. A session
+records the `environment_ref` it ran in; history outlives the settings row,
 so neither is a foreign key. Work outside any environment keeps its single-repository or bare shape.
 
 A Slack channel's work runs in the environment the channel chose, or in none; each Chat conversation
@@ -708,8 +715,12 @@ Creating a new conversation's Work session was most of the wait before its first
 of create command and create operation over 25 new conversations measured on 2026-10-11. So Ryker
 keeps a Work session started for the setups new conversations use most (Settings › Advanced, "Work
 sessions kept ready": 0 to 5, two by default, 0 turns it off). A setup is the whole pin a
-conversation's first session freezes: policy and digests, environment and its Emisar pin,
-repository with its context and source. `Ryker.Work.ReadyPool` reads the pins of the first sessions
+conversation's first session freezes: policy and digests, environment and its Emisar pin, the
+working copy with the repositories mounted beside it, and the source. The repository a conversation
+is about is not part of it, so in an environment one setup serves a conversation about any of its
+repositories (Andrew, 2026-10-12: "any session should be able to serve any repo"); before that, a
+conversation about a repository other than the busiest one created its own session in 17 of 18
+cases on the pool's first day and waited about 33 s instead of 4 s. `Ryker.Work.ReadyPool` reads the pins of the first sessions
 of episodes messages started in the last day, keeps the most used of those the current settings
 still give, and keeps one session per pin, created under that exact pin with an external ref of its
 own (`ryker-work-ready:<id>`) and no episode. Only the default branch or no repository is kept ready:
@@ -717,7 +728,8 @@ a pull request, branch or commit a request names is that request's alone.
 
 When admission pins a new conversation's episode, the episode takes the oldest open session kept
 ready for exactly its pin, under a row lock that passes over one another claim holds, and makes it
-its first session; with none it creates one exactly as before. A task, a schedule and an incident
+its first session, about the conversation's own repository; with none it creates one exactly as
+before. A task, a schedule and an incident
 room never take one, and a session is never prompted before its claim, so it carries no other
 conversation's knowledge or transcript. The pool retires a session no conversation claimed once it
 is an hour old (its repository is frozen at the commit its default branch had when it started),

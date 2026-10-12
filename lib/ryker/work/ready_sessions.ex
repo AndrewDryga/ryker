@@ -7,10 +7,13 @@ defmodule Ryker.Work.ReadySessions do
   command 8-20 s, create operation 10-35 s). A session kept ready is created
   with exactly the pin a conversation would freeze for itself
   (`Ryker.Work.Custody.Sessions.pin_episode_in_transaction/4`): the policy and
-  its digests, the environment and its Emisar pin, the repository with its
-  context and source. A conversation takes one only on an exact match, so
-  nothing is resolved twice or widened, and one never prompted carries no
-  other conversation's knowledge or transcript.
+  its digests, the environment and its Emisar pin, the working copy with the
+  repositories mounted beside it, and its source. A conversation takes one
+  only on an exact match, so nothing is resolved twice or widened, and one
+  never prompted carries no other conversation's knowledge or transcript.
+  The repository a conversation is about is not part of its pin: it may be
+  any one the session mounts (`Ryker.Work.RepositoryContext`), and the
+  session takes it when the conversation claims it.
 
   Each is a Work session on the shared session table with no episode:
   `starting` while Coop creates it, `ready` once it is open, `claimed` by
@@ -47,7 +50,10 @@ defmodule Ryker.Work.ReadySessions do
     :emisar_rpc_url
   ]
 
-  @typedoc "Every field a conversation's first session freezes, as `@pin_fields` lists them."
+  @typedoc """
+  Every field a conversation's first session freezes, as `@pin_fields` lists
+  them, with its working copy as `repository_ref`.
+  """
   @type pin :: %{required(atom()) => term()}
 
   @doc "The Coop task reference of a Work session kept ready."
@@ -66,12 +72,18 @@ defmodule Ryker.Work.ReadySessions do
     |> Map.merge(%{
       emisar_connection_ref: emisar && emisar.connection_ref,
       emisar_account_ref: emisar && emisar.account_ref,
-      emisar_rpc_url: emisar && emisar.rpc_url
+      emisar_rpc_url: emisar && emisar.rpc_url,
+      repository_ref: Work.RepositoryContext.working_copy(authority)
     })
   end
 
-  # The pin a session was started or created with.
-  defp pin_of(%Work.Session{} = session), do: Map.take(session, @pin_fields)
+  # The pin a session was started or created with. One kept ready is about
+  # its working copy until a conversation claims it.
+  defp pin_of(%Work.Session{} = session) do
+    session
+    |> Map.take(@pin_fields)
+    |> Map.put(:repository_ref, Work.RepositoryContext.working_copy(session))
+  end
 
   @doc """
   Whether a conversation's pin may be served by a session kept ready: one
@@ -84,13 +96,15 @@ defmodule Ryker.Work.ReadySessions do
 
   @doc """
   Gives `episode_id` the oldest open session kept ready for exactly `pin`,
-  younger than the maximum age, inside the caller's transaction. The episode
-  is already locked by the caller, so a claim never races the episode it is
-  for; a session another claim holds is passed over. `:none` leaves the
-  episode to create its own.
+  younger than the maximum age, inside the caller's transaction, as the
+  session of its work about `repository_ref`. The episode is already locked
+  by the caller, so a claim never races the episode it is for; a session
+  another claim holds is passed over. `:none` leaves the episode to create
+  its own.
   """
-  @spec claim_in_transaction(Ecto.UUID.t(), pin()) :: {:ok, Work.Session.t()} | :none
-  def claim_in_transaction(episode_id, pin) do
+  @spec claim_in_transaction(Ecto.UUID.t(), pin(), String.t() | nil) ::
+          {:ok, Work.Session.t()} | :none
+  def claim_in_transaction(episode_id, pin, repository_ref) do
     cutoff = DateTime.add(Repo.now!(), -@maximum_age_seconds, :second)
 
     case Repo.fetch(Work.Session.Query.next_work_ready(pin, cutoff)) do
@@ -99,7 +113,7 @@ defmodule Ryker.Work.ReadySessions do
 
       {:ok, %Work.Session{} = session} ->
         session
-        |> Work.Session.Changeset.claim_work_ready(episode_id, Repo.now!())
+        |> Work.Session.Changeset.claim_work_ready(episode_id, repository_ref, Repo.now!())
         |> Repo.update()
         |> case do
           {:ok, claimed} ->

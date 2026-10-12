@@ -441,6 +441,77 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
     assert JobAuthority.validate(pinned) == {:ok, pinned}
   end
 
+  # Work that only reads runs in its environment's default placement and stays about the
+  # repository it chose (2026-10-12), so one session kept ready serves a conversation about any
+  # repository of the environment. Its job checks out the working copy with the chosen repository
+  # mounted beside it; read as the job's own source, the chosen repository matched no setting of
+  # the environment and the session could never be created.
+  test "a conversation about a repository mounted beside the working copy runs on the working copy's job",
+       %{session: session} do
+    add_repository!("library", 18)
+    snapshot = add_repository!("tools", 19)
+
+    {:ok, snapshot} =
+      Settings.put_environment(
+        %{
+          ref: "production",
+          display_name: "Production",
+          repositories: ["app", "library", "tools"]
+        },
+        snapshot.installation.revision,
+        @actor
+      )
+
+    template =
+      Enum.find(
+        JobTemplates.from_settings(snapshot),
+        &(&1.purpose == :conversational and &1.scope_kind == :environment and
+            &1.repository_ref == "app")
+      )
+
+    session =
+      session
+      |> Ecto.Changeset.change(
+        environment_ref: "production",
+        policy: template.policy_name,
+        policy_digest: template.policy_digest,
+        authority_digest: template.authority_digest,
+        repository_ref: "library",
+        repository_context: %{
+          "context_ref" => "production",
+          "primary_repository" => "app",
+          "read_only_repositories" => ["library", "tools"],
+          "parallel_goal_limit" => 1
+        }
+      )
+      |> Repo.update!()
+
+    assert {:ok, pinned} =
+             JobAuthority.ensure_pinned(session, nil, fn _, ref, _ ->
+               {:ok,
+                %{
+                  source:
+                    source()
+                    |> Map.put("repository_ref", ref)
+                    |> Map.put("github_repository", "example/" <> ref)
+                    |> Map.put(
+                      "github_repository_id",
+                      %{"app" => 17, "library" => 18, "tools" => 19}[ref]
+                    )
+                }}
+             end)
+
+    assert pinned.repository_ref == "library"
+    assert pinned.worker_job_document["source"]["repository_ref"] == "app"
+
+    assert Enum.map(pinned.worker_job_document["companions"], & &1["name"]) == [
+             "library",
+             "tools"
+           ]
+
+    assert JobAuthority.validate(pinned) == {:ok, pinned}
+  end
+
   # A new session's repositories were fetched from GitHub one after another
   # before it could be created: in an environment of four repositories a
   # one-line question waited about 11 s for them (Slack as Andrew,

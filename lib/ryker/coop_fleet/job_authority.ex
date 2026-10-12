@@ -338,15 +338,19 @@ defmodule Ryker.CoopFleet.JobAuthority do
   defp source_matches?(nil, %Work.Session{repository_ref: nil, repository_source: nil}), do: true
 
   defp source_matches?(%{} = source, session) do
-    source["repository_ref"] == session.repository_ref and
+    source["repository_ref"] == Work.RepositoryContext.working_copy(session) and
       source["binding"]["requested"] ==
         (session.repository_source || Work.RepositorySource.default())
   end
 
   defp source_matches?(_source, _session), do: false
 
+  # A job checks out its working copy, which is the session's own repository
+  # unless the session only reads one mounted beside it
+  # (`Ryker.Work.RepositoryContext`).
   defp purpose(snapshot, session, companions) do
-    repositories = if session.repository_ref, do: [session.repository_ref | companions], else: []
+    working_copy = Work.RepositoryContext.working_copy(session)
+    repositories = if working_copy, do: [working_copy | companions], else: []
 
     bindings =
       Enum.filter(JobTemplates.from_settings(snapshot), fn binding ->
@@ -372,19 +376,21 @@ defmodule Ryker.CoopFleet.JobAuthority do
   # verify that context against current settings before resolving any source.
   defp incident_repository_scope?(
          %{purpose: :incident, scope_kind: :installation},
-         %{repository_ref: ref, repository_context: context, environment_ref: environment_ref},
+         %{repository_context: context, environment_ref: environment_ref} = session,
          repositories,
          snapshot
-       )
-       when is_binary(ref) do
-    case {context, environment_ref} do
-      {nil, nil} ->
+       ) do
+    case {Work.RepositoryContext.working_copy(session), context, environment_ref} do
+      {nil, _context, _environment_ref} ->
+        false
+
+      {ref, nil, nil} ->
         repositories == [ref]
 
-      {nil, environment_ref} ->
+      {ref, nil, environment_ref} ->
         incident_environment_scope?(snapshot, environment_ref, ref, repositories, false)
 
-      {%{"context_ref" => ^environment_ref}, environment_ref} ->
+      {ref, %{"context_ref" => ^environment_ref}, environment_ref} ->
         incident_environment_scope?(snapshot, environment_ref, ref, repositories, true)
 
       _other ->
@@ -411,13 +417,14 @@ defmodule Ryker.CoopFleet.JobAuthority do
 
   defp scope_matches?(%{scope_kind: :environment} = binding, session) do
     binding.scope_ref == session.environment_ref and
-      binding.repository_ref == session.repository_ref
+      binding.repository_ref == Work.RepositoryContext.working_copy(session)
   end
 
   defp scope_matches?(%{scope_kind: :repository} = binding, session),
-    do: binding.scope_ref == session.repository_ref
+    do: binding.scope_ref == Work.RepositoryContext.working_copy(session)
 
-  defp scope_matches?(%{scope_kind: :installation}, session), do: is_nil(session.repository_ref)
+  defp scope_matches?(%{scope_kind: :installation}, session),
+    do: is_nil(Work.RepositoryContext.working_copy(session))
 
   defp companion_refs(session) do
     case Work.RepositoryContext.restore(session.repository_context, session.repository_ref) do
@@ -459,7 +466,13 @@ defmodule Ryker.CoopFleet.JobAuthority do
   defp sources(snapshot, session, refs, root, prepare) do
     own =
       Task.async(fn ->
-        source(snapshot, session.repository_ref, session.repository_source, root, prepare)
+        source(
+          snapshot,
+          Work.RepositoryContext.working_copy(session),
+          session.repository_source,
+          root,
+          prepare
+        )
       end)
 
     companions = companions(snapshot, refs, root, prepare)

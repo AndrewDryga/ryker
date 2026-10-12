@@ -266,14 +266,25 @@ defmodule Ryker.Work.Session.Changeset do
     |> check_constraint(:environment_ref, name: :episode_work_session_environment_valid)
   end
 
-  @doc "A conversation's episode takes the Work session kept ready at `at`, as its first session."
-  @spec claim_work_ready(Session.t(), Ecto.UUID.t(), DateTime.t()) :: Ecto.Changeset.t()
-  def claim_work_ready(%Session{} = session, episode_id, at) do
+  @doc """
+  A conversation's episode takes the Work session kept ready at `at`, as the
+  first session of its work about `repository_ref`, one the session mounts.
+  """
+  @spec claim_work_ready(Session.t(), Ecto.UUID.t(), String.t() | nil, DateTime.t()) ::
+          Ecto.Changeset.t()
+  def claim_work_ready(%Session{} = session, episode_id, repository_ref, at) do
     session
-    |> change(episode_id: episode_id, ready_state: :claimed, updated_at: at)
+    |> change(
+      episode_id: episode_id,
+      ready_state: :claimed,
+      repository_ref: repository_ref,
+      updated_at: at
+    )
+    |> RepositoryContext.validate()
     |> unique_constraint([:episode_id, :generation])
     |> foreign_key_constraint(:episode_id)
     |> check_constraint(:ready_state, name: :episode_work_session_ready_state_valid)
+    |> check_constraint(:repository_context, name: :episode_work_session_repository_context_valid)
   end
 
   @doc "The reserved session's Coop session is open at `at`; a message may claim it."

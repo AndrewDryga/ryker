@@ -87,6 +87,10 @@ defmodule Ryker.Work.Prompt do
   person needs. Never ask a question in an update; request_input asks. The final is accepted only
   after every update has been delivered.
 
+  work.repository_ref is the repository this work is about. It is usually the checkout you start
+  in, work.workspace.primary; when it names one of work.workspace.companions instead, read that
+  repository at its path there.
+
   work.workspace records where this checkout actually starts. When the episode selected a source,
   work.workspace.source names its kind, the exact requested branch, pull request number or object id,
   the resolved commit, the comparison base against the configured default branch, and the admitted

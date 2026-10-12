@@ -309,18 +309,25 @@ defmodule Ryker.Admission.Executor do
 
   defp work_policy(_entry, %Decision{work_class: nil}, _settings), do: {:ok, nil}
 
-  # A new episode in an environment with several repositories is placed in
-  # the one the decision chose; every other decision, and every other route,
+  # A new episode in an environment with several repositories is about the
+  # one the decision chose. On its default branch the work only reads it, so
+  # it runs in the profile's default placement, which mounts it too; another
+  # source of it is that repository's own working copy. Every other route
   # takes the profile's default placement.
   defp work_policy(
          %{work_profile: profile},
-         %Decision{work_class: work_class, repository: repository},
+         %Decision{work_class: work_class, repository: repository} = decision,
          _settings
        )
        when is_map(profile) do
     case Ingress.WorkProfile.restore(profile) do
-      {:ok, restored} -> Ingress.WorkProfile.policy_for(restored, work_class, repository)
-      {:error, reason} -> {:error, reason}
+      {:ok, restored} ->
+        if Work.ReadySessions.pooled_source?(decision.repository_source),
+          do: Ingress.WorkProfile.reading_placement(restored, work_class, repository),
+          else: Ingress.WorkProfile.policy_for(restored, work_class, repository)
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

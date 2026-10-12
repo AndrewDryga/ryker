@@ -13,8 +13,8 @@ defmodule Ryker.Work.Custody.CurrentAuthority do
 
   The policy is found by its name, which settings never change; its digests,
   the environment's repositories and its Emisar account are taken as they are
-  now. A session whose policy or working repository settings no longer have
-  keeps what it had, and its retry says why.
+  now. A session whose policy, working copy or own repository settings no
+  longer have keeps what it had, and its retry says why.
   """
   alias Ryker.CoopFleet
   alias Ryker.Emisar
@@ -57,17 +57,19 @@ defmodule Ryker.Work.Custody.CurrentAuthority do
 
   defp context(_snapshot, %Session{repository_context: nil}), do: {:ok, nil}
 
-  defp context(snapshot, %Session{environment_ref: ref, repository_ref: primary})
-       when is_binary(ref) do
+  defp context(snapshot, %Session{environment_ref: ref} = session) when is_binary(ref) do
+    primary = RepositoryContext.working_copy(session)
+
     with %Settings.Environment{} = environment <- Settings.environment(snapshot, ref),
-         true <- primary in Settings.Environment.writable_refs(environment) do
+         true <- primary in Settings.Environment.writable_refs(environment),
+         repositories = Settings.Environment.repository_refs(environment),
+         true <- session.repository_ref in repositories do
       {:ok,
        RepositoryContext.document(%{
          context_ref: environment.ref,
          parallel_goal_limit: environment.parallel_goal_limit,
          primary_repository: primary,
-         read_only_repositories:
-           List.delete(Settings.Environment.repository_refs(environment), primary)
+         read_only_repositories: List.delete(repositories, primary)
        })}
     else
       _gone -> :unavailable

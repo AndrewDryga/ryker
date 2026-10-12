@@ -359,11 +359,12 @@ defmodule Ryker.Admission.ExecutorTest do
   end
 
   # A route in an environment with several repositories requires the new
-  # episode to name the one it changes, from the list the prompt offered, and
-  # the session is pinned to exactly that choice: its working copy, with the
-  # others read-only. Before, every episode there changed the environment's
-  # first repository whatever the event was about, so a task on any other
-  # repository ran against the wrong working copy.
+  # episode to name the one it is about, from the list the prompt offered, and
+  # the session is pinned to exactly that choice. Before, every episode there
+  # was about the environment's first repository whatever the event was about.
+  # On the default branch the work only reads, so it runs in the default
+  # placement, which mounts the chosen repository too, and a session kept
+  # ready for it serves any choice (2026-10-12).
   test "a shared environment's route requires the repository choice and pins the session to it" do
     assert {:ok, input} =
              SlackInput.new(%{
@@ -436,7 +437,75 @@ defmodule Ryker.Admission.ExecutorTest do
     assert hd(required) =~ "repository is required"
     assert hd(unknown) =~ ~s("billing", "ledger")
 
-    assert %Session{policy: "ledger-standard", repository_ref: "ledger"} =
+    assert %Session{policy: "billing-standard", repository_ref: "ledger"} =
+             session =
+             Repo.one!(
+               from(session in Session,
+                 where: session.episode_id == ^execution.result.episode.id
+               )
+             )
+
+    assert session.repository_context["primary_repository"] == "billing"
+    assert session.repository_context["read_only_repositories"] == ["ledger"]
+  end
+
+  # A pull request, branch or commit is checked out as the working copy, so a
+  # request that names one makes the chosen repository the working copy.
+  test "a source the decision names makes the chosen repository the working copy" do
+    assert {:ok, input} =
+             SlackInput.new(%{
+               actor: %{kind: :user, ref: "U123"},
+               channel_ref: "C456",
+               content: %{"text" => "Review ledger pull request 12 before it merges."},
+               event_kind: :message,
+               event_ref: "Ev-executor-repository-source-choice",
+               message_ref: "1787832005.000100",
+               occurred_at: @now,
+               revision: 1,
+               thread_ref: nil,
+               workspace_ref: "TE5D7C8842D32"
+             })
+
+    repositories = ["billing", "ledger"]
+
+    work_profile = %{
+      environment_ref: "platform",
+      parallel_goal_limit: 2,
+      policies:
+        Map.new(repositories, fn repository ->
+          {repository,
+           Map.new([:conversational, :standard, :deep], fn work_class ->
+             {work_class,
+              %{
+                authority_digest: String.duplicate("e", 64),
+                policy: "#{repository}-#{work_class}",
+                policy_digest: String.duplicate("b", 64)
+              }}
+           end)}
+        end),
+      repositories: repositories
+    }
+
+    assert {:ok, %{entry: entry}} = Inbox.record(input, work_profile: work_profile)
+    lease_ref = claim!(entry)
+    pull_request = %{"kind" => "pull_request", "number" => 12}
+
+    {:ok, fake} =
+      FakeAPI.start_link([
+        decision("start_episode")
+        |> Jason.decode!()
+        |> Map.merge(%{"repository" => "ledger", "repository_source" => pull_request})
+        |> Jason.encode!()
+      ])
+
+    assert {:ok, execution} =
+             Executor.run(Inbox.ref(entry), executor_options(fake, lease_ref))
+
+    assert %Session{
+             policy: "ledger-standard",
+             repository_ref: "ledger",
+             repository_source: ^pull_request
+           } =
              session =
              Repo.one!(
                from(session in Session,

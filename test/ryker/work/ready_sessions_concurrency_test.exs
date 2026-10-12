@@ -25,7 +25,9 @@ defmodule Ryker.Work.ReadySessionsConcurrencyTest do
 
             receive do
               :claim ->
-                Repo.transaction(fn -> ReadySessions.claim_in_transaction(episode.id, pin()) end)
+                Repo.transaction(fn ->
+                  ReadySessions.claim_in_transaction(episode.id, pin(), nil)
+                end)
             end
           end)
         end)

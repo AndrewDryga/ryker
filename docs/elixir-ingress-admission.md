@@ -386,8 +386,11 @@ frozen with the context, so the receipt shows exactly the choices the model had.
 action, and every route with one repository or none, sends `null` (`invalid_decision: repository`
 for another action, `admission_rejected: repository_not_available` for a route without choices); a
 missing or unlisted choice is rejected in the same Coop turn (`admission_rejected:
-repository_required` / `repository_not_allowed`). The chosen repository selects the frozen Work
-profile's policy for the class and the session's working copy. Decisions recorded before
+repository_required` / `repository_not_allowed`). On its default branch the chosen repository
+becomes the work's own repository in the frozen Work profile's default placement, which mounts
+every repository of the environment, so a Work session kept ready serves it; a `repository_source`
+naming a pull request, branch or commit selects the chosen repository's policy for the class and
+makes it the session's working copy. Decisions recorded before
 2026-09-25 had no `repository` key; the 2026-09-27 migration wrote it as `null`.
 
 When the route already selected a repository, the context carries `repository_source_kinds` and a

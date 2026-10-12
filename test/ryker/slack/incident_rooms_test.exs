@@ -647,6 +647,33 @@ defmodule Ryker.Slack.IncidentRoomsTest do
              WorkProfile.policy_for(profile, :standard)
   end
 
+  # A conversation that only reads runs in its environment's default placement and stays about
+  # the repository it chose (2026-10-12). A room asked for from one about a repository mounted
+  # beside the working copy works on that repository with the same ones mounted: a room's working
+  # copy must be its own repository, so copying the conversation's mounts unchanged would refuse
+  # the request.
+  test "an incident room works on the repository its conversation was about" do
+    fixture = delivered_offer!(:user, repository: "docs")
+    save_channel_configuration!()
+    agent = incident_agent!()
+
+    centered = %{
+      @source_context
+      | "primary_repository" => "docs",
+        "read_only_repositories" => ["ryker"]
+    }
+
+    assert {:ok, %{room: requested}} = IncidentRooms.request(request(fixture))
+    assert requested.repository_ref == "docs"
+    assert requested.repository_context == centered
+
+    assert {:ok, {:ready, room_ref}} = IncidentRoomWorker.run_once(worker_options(agent))
+    room = Repo.get_by!(IncidentRoom, ref: room_ref)
+
+    assert %Session{repository_context: ^centered, repository_ref: "docs"} =
+             Repo.get_by!(Session, episode_id: room.episode_id)
+  end
+
   # A conversation in no environment works without a repository, and asking
   # for an incident room there failed: a room had to name a repository, so
   # the request rolled back (2026-10-04 review).

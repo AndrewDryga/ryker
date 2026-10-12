@@ -959,7 +959,7 @@ defmodule Ryker.Slack.IncidentRooms do
       prompt: prompt,
       record_id: record.id,
       ref: room_ref,
-      repository_context: source_session.repository_context,
+      repository_context: room_context(source_session),
       repository_ref: source_session.repository_ref,
       requested_at: attributes.occurred_at,
       requested_by_actor_ref: attributes.actor_ref,
@@ -978,6 +978,14 @@ defmodule Ryker.Slack.IncidentRooms do
       {:error, changeset} -> Repo.rollback({:incident_room_persistence_failed, changeset.errors})
     end
   end
+
+  # A room works on the repository its conversation was about. A conversation
+  # that only read one mounted beside its working copy hands the room the same
+  # repositories with that one as the room's working copy.
+  defp room_context(%Work.Session{repository_context: nil}), do: nil
+
+  defp room_context(%Work.Session{repository_context: context, repository_ref: repository_ref}),
+    do: Work.RepositoryContext.centered(context, repository_ref)
 
   defp configuration(workspace_ref, channel_ref) do
     case Repo.fetch(ChannelConfiguration.Query.by_channel(workspace_ref, channel_ref)) do

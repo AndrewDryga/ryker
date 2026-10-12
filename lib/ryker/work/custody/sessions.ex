@@ -272,9 +272,15 @@ defmodule Ryker.Work.Custody.Sessions do
          %{ready: true} = authority,
          emisar
        ) do
-    if ReadySessions.pooled_source?(authority.repository_source),
-      do: ReadySessions.claim_in_transaction(episode.id, ReadySessions.pin(authority, emisar)),
-      else: :none
+    if ReadySessions.pooled_source?(authority.repository_source) do
+      ReadySessions.claim_in_transaction(
+        episode.id,
+        ReadySessions.pin(authority, emisar),
+        authority.repository_ref
+      )
+    else
+      :none
+    end
   end
 
   defp claim_ready(_episode, _authority, _emisar), do: :none

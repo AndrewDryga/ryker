@@ -185,6 +185,40 @@ defmodule Ryker.Ingress.WorkProfile do
   def policy_for(%__MODULE__{}, _work_class, _repository_ref),
     do: {:error, {:invalid_work_profile, :repository_ref}}
 
+  @doc """
+  The placement of work that only reads `repository_ref` on its default
+  branch: the default placement of its class, with `repository_ref` as the
+  repository the work is about.
+
+  Every placement of an environment mounts all of its repositories, and work
+  that only reads changes none of them, so it needs no working copy of its
+  own. The pool kept sessions ready only for the busiest placement, so a
+  conversation about another repository of the same environment created its
+  own: its first turn reached the worker after about 33 s instead of 4 s, for
+  17 of the 18 such conversations in the pool's first day (2026-10-12). In the default
+  placement one session kept ready serves them all (Andrew, 2026-10-12: "any
+  session should be able to serve any repo"). A repository work may not
+  change is refused as `policy_for/3` refuses it.
+  """
+  @spec reading_placement(t(), atom(), String.t() | nil) :: {:ok, map()} | {:error, term()}
+  def reading_placement(
+        %__MODULE__{policies: %{} = policies} = profile,
+        work_class,
+        repository_ref
+      )
+      when is_binary(repository_ref) do
+    with true <- Map.has_key?(policies, repository_ref),
+         {:ok, placement} <- policy_for(profile, work_class) do
+      {:ok, %{placement | repository_ref: repository_ref}}
+    else
+      false -> {:error, {:invalid_work_profile, :repository_ref}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def reading_placement(%__MODULE__{} = profile, work_class, repository_ref),
+    do: policy_for(profile, work_class, repository_ref)
+
   @spec document(t()) :: map()
   def document(%__MODULE__{policies: %{} = policies} = profile) do
     %{

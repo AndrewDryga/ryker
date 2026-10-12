@@ -259,6 +259,52 @@ defmodule Ryker.ProductContractsTest do
     assert WorkProfile.restore(:invalid) == {:error, {:invalid_work_profile, :fields}}
   end
 
+  # The pool kept Work sessions ready for the busiest placement only, so a conversation about
+  # another repository of the same environment created its own and waited about 33 s instead of
+  # 4 s (17 of 18 such conversations on 2026-10-12). Every placement mounts every repository, and
+  # work that only reads changes none, so it runs in the default placement and stays about the
+  # repository it chose (Andrew: "any session should be able to serve any repo").
+  test "work that only reads a repository runs in the default placement and stays about it" do
+    assert {:ok, profile} =
+             WorkProfile.new(%{
+               emisar_connection_ref: nil,
+               environment_ref: "platform",
+               parallel_goal_limit: 2,
+               policies: %{
+                 "application" => class_policies("application"),
+                 "infrastructure" => class_policies("infrastructure")
+               },
+               repositories: ["infrastructure", "application", "runbooks"]
+             })
+
+    assert {:ok, default} = WorkProfile.policy_for(profile, :standard)
+    assert {:ok, reading} = WorkProfile.reading_placement(profile, :standard, "application")
+    assert reading == %{default | repository_ref: "application"}
+    assert reading.name == "infrastructure-standard"
+
+    assert reading.repository_context == %{
+             "context_ref" => "platform",
+             "parallel_goal_limit" => 2,
+             "primary_repository" => "infrastructure",
+             "read_only_repositories" => ["application", "runbooks"]
+           }
+
+    assert WorkProfile.reading_placement(profile, :standard, nil) == {:ok, default}
+
+    # Routing never offers a repository its environment only reads, or one outside it.
+    for refused <- ["runbooks", "elsewhere"] do
+      assert WorkProfile.reading_placement(profile, :deep, refused) ==
+               {:error, {:invalid_work_profile, :repository_ref}}
+    end
+
+    # Outside any environment there is one placement to read in.
+    assert {:ok, outside} =
+             WorkProfile.new(%{policy: "ryker", policy_digest: @digest, repository_ref: "ryker"})
+
+    assert WorkProfile.reading_placement(outside, :deep, "ryker") ==
+             WorkProfile.policy_for(outside, :deep, "ryker")
+  end
+
   # Andrew, 2026-09-27: "can we here limit read or read/write access per
   # repo?" A repository its environment only reads carries no policies of its
   # own in the frozen profile: every session mounts it read-only beside the

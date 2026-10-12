@@ -13,7 +13,7 @@ defmodule Ryker.Work.Executor.Workspace do
   alias Ryker.Maps
   alias Ryker.UTCDateTime
   alias Ryker.Work.Executor.Remote
-  alias Ryker.Work.RepositorySource
+  alias Ryker.Work.{RepositoryContext, RepositorySource}
 
   @companion_name_regex ~r/\A[a-z0-9][a-z0-9_-]{0,63}\z/
 
@@ -66,7 +66,7 @@ defmodule Ryker.Work.Executor.Workspace do
          "repository_read_only" => read_only
        })
        when is_boolean(read_only) do
-    name = session.repository_ref || "primary"
+    name = RepositoryContext.working_copy(session) || "primary"
 
     if Remote.reference?(name) and GitObject.id?(base_commit) do
       {:ok,
@@ -113,13 +113,7 @@ defmodule Ryker.Work.Executor.Workspace do
   defp repository_context_workspace(%{repository_context: nil}, _companions), do: :ok
 
   defp repository_context_workspace(
-         %{
-           repository_ref: repository_ref,
-           repository_context: %{
-             "primary_repository" => repository_ref,
-             "read_only_repositories" => expected
-           }
-         },
+         %{repository_context: %{"read_only_repositories" => expected}},
          companions
        )
        when is_list(expected) do

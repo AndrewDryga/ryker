@@ -107,10 +107,11 @@ defmodule Ryker.StateTools.TaskTools do
         _none -> []
       end
 
-    expected_read_only = [session.repository_ref | expected_read_only] |> Enum.reject(&is_nil/1)
+    working_copy = Work.RepositoryContext.working_copy(session)
+    expected_read_only = [working_copy | expected_read_only] |> Enum.reject(&is_nil/1)
 
     writable_valid =
-      arguments["authority"] != "repository_write" or writable == session.repository_ref
+      arguments["authority"] != "repository_write" or writable == working_copy
 
     read_only_valid =
       is_list(read_only) and Enum.all?(read_only, &(&1 in expected_read_only))

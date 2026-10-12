@@ -57,6 +57,40 @@ defmodule Ryker.Work.ReadySessionsTest do
     assert claim.session.repository_source == %{"kind" => "default"}
   end
 
+  # The pool kept sessions ready only for the busiest pin, an environment's default repository,
+  # and a conversation about another repository of the same environment created its own: its
+  # first turn reached the worker after about 33 s instead of 4 s, for 17 of the 18 such
+  # conversations on the pool's first day (2026-10-12). Every session of an environment mounts
+  # all of its repositories and a conversation only reads them, so the session kept ready serves
+  # it (Andrew: "any session should be able to serve any repo"), and the conversation keeps its own
+  # repository for everything it recalls and records.
+  test "a conversation about another repository of the environment answers on the session kept ready" do
+    companion = %{
+      "base_commit" => "41af103a96d71c93887fe2b4dc9eed2d75f8fcb7",
+      "name" => "docs",
+      "path" => "/coop/repositories/docs"
+    }
+
+    {:ok, fake} = FakeAPI.start_link([answer()], companions: [companion])
+    platform = context(["docs"])
+    assert {:ok, %{started: 1}} = ReadyPool.keep(pool(fake, [pin(@digest, platform)]))
+    assert [ready] = ready_sessions()
+
+    claim = start_conversation!("other-repository", @digest, platform, "docs")
+
+    assert claim.session.id == ready.id
+    assert claim.session.repository_ref == "docs"
+    assert claim.session.repository_context == platform
+    assert {:ok, %{status: :accepted, turn: turn}} = Executor.run(claim, executor(fake))
+    assert get_in(turn.submission, ["context", "repository_ref"]) == "docs"
+    assert get_in(turn.submission, ["context", "workspace", "primary", "name"]) == "repo:one"
+    assert FakeAPI.state(fake).create_count == 1
+
+    # The next conversation about either repository is kept ready for by the same pin.
+    assert ReadySessions.recent_pins(DateTime.add(Repo.now!(), -3_600, :second)) ==
+             [pin(@digest, platform)]
+  end
+
   # A session started under another policy digest froze another model ladder
   # and other permissions: answering on it would run the conversation with
   # what the settings no longer say. It is never claimed, and the pool retires
@@ -187,12 +221,17 @@ defmodule Ryker.Work.ReadySessionsTest do
 
   # A message starts a conversation: admission pins its episode with
   # `ready: true`, and a Work worker claims its first turn.
-  defp start_conversation!(suffix, digest, repository_context \\ nil) do
+  defp start_conversation!(
+         suffix,
+         digest,
+         repository_context \\ nil,
+         repository_ref \\ "repo:one"
+       ) do
     command = admit!(suffix)
 
     repository =
       if repository_context,
-        do: [repository_ref: "repo:one", repository_context: repository_context],
+        do: [repository_ref: repository_ref, repository_context: repository_context],
         else: []
 
     assert {:ok, _session} =

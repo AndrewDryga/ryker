@@ -1,5 +1,15 @@
 defmodule Ryker.Work.RepositoryContext do
-  @moduledoc false
+  @moduledoc """
+  The repositories one piece of work mounts: the primary one is the working
+  copy its Coop job checks out, and every other one is mounted read-only
+  beside it.
+
+  The work's own repository, `repository_ref`, is the one it is about. Work
+  that changes a repository has it as the working copy. Work that only reads
+  runs in its environment's default placement, so its repository may be any
+  one of those mounted: one session kept ready then serves a conversation
+  about any repository of the environment (`Ryker.Work.ReadySessions`).
+  """
   alias Ryker.CanonicalJSON
   alias Ryker.Maps
   alias Ryker.Reference
@@ -83,9 +93,9 @@ defmodule Ryker.Work.RepositoryContext do
   end
 
   defp valid?(context_ref, parallel_goal_limit, primary, read_only, repository_ref) do
-    Reference.valid?(context_ref, 256) and primary == repository_ref and
-      Reference.valid?(primary, 1_024) and valid_limit?(parallel_goal_limit) and
-      valid_companions?(read_only, primary) and
+    Reference.valid?(context_ref, 256) and Reference.valid?(primary, 1_024) and
+      valid_limit?(parallel_goal_limit) and valid_companions?(read_only, primary) and
+      repository_ref in [primary | read_only] and
       CanonicalJSON.validate(
         document(%{
           context_ref: context_ref,
@@ -103,6 +113,31 @@ defmodule Ryker.Work.RepositoryContext do
     is_list(repositories) and length(repositories) <= 32 and
       repositories == Enum.uniq(repositories) and primary not in repositories and
       Enum.all?(repositories, &Reference.valid?(&1, 1_024))
+  end
+
+  @doc """
+  The repository the work's Coop job checks out as its working copy: the
+  primary one of its context, or its own repository without one.
+  """
+  @spec working_copy(%{repository_context: map() | nil, repository_ref: String.t() | nil}) ::
+          String.t() | nil
+  def working_copy(%{repository_context: %{"primary_repository" => primary}}), do: primary
+  def working_copy(%{repository_ref: repository_ref}), do: repository_ref
+
+  @doc """
+  The same repositories with `repository_ref`, one of them, as the working
+  copy and every other one read-only, in the order they were mounted.
+  """
+  @spec centered(map(), String.t()) :: map()
+  def centered(
+        %{"primary_repository" => primary, "read_only_repositories" => read_only} = document,
+        repository_ref
+      ) do
+    %{
+      document
+      | "primary_repository" => repository_ref,
+        "read_only_repositories" => List.delete([primary | read_only], repository_ref)
+    }
   end
 
   @doc """
