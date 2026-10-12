@@ -57,6 +57,7 @@ defmodule Ryker.ControlPlane.PeopleProjection do
        %{
          id: fact.id,
          text: fact.fact,
+         name: name(fact.person_ref, fact.conversation_ref),
          person_ref: fact.person_ref,
          others: length(People.facts(fact.person_ref)) - 1
        }}

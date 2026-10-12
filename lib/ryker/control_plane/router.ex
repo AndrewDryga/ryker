@@ -789,7 +789,7 @@ defmodule Ryker.ControlPlane.Router do
     case options.projection.person.(resource_ref) do
       {:ok, person} ->
         {:ok, "Forget what Ryker learned about #{object(person.name)}?",
-         "Ryker stops using all of it and erases the words. Nothing they said before brings it back; what they say about themselves later is learned again. You can't undo this.",
+         "Ryker stops using all of it and erases the words. " <> forget_person_words(person.name),
          "person:forget", :danger}
 
       :error ->
@@ -803,7 +803,8 @@ defmodule Ryker.ControlPlane.Router do
     case options.projection.person_fact.(resource_ref) do
       {:ok, fact} ->
         {:ok, "Forget \"#{fact.text}\"?",
-         "Ryker stops using it and erases the words. Nothing said before brings it back; if they say it again later, it is learned again. You can't undo this.",
+         "Ryker stops using it and erases the words. Nothing said before brings it back; " <>
+           "if #{subject(fact.name)} say it again later, it is learned again. You can't undo this.",
          "person-fact:forget", :danger}
 
       :error ->
@@ -1634,6 +1635,20 @@ defmodule Ryker.ControlPlane.Router do
   # The person using this console is "You" on every page, and "you" mid-sentence.
   defp object("You"), do: "you"
   defp object(name), do: name
+
+  # The console's own person is "You" (`PeopleProjection`), and a question
+  # about you stays about you: it asked "Forget what Ryker learned about you?"
+  # and went on "Nothing they said before brings it back" (2026-10-12).
+  defp subject("You"), do: "you"
+  defp subject(_name), do: "they"
+
+  defp forget_person_words("You") do
+    "Nothing you said before brings it back; what you say about yourself later is learned again. You can't undo this."
+  end
+
+  defp forget_person_words(_name) do
+    "Nothing they said before brings it back; what they say about themselves later is learned again. You can't undo this."
+  end
 
   defp editable_memory_review(resource_ref, options) do
     case options.projection.memory_review.(resource_ref) do

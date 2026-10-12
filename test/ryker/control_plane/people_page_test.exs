@@ -105,6 +105,24 @@ defmodule Ryker.ControlPlane.PeoplePageTest do
     assert Plug.Conn.get_resp_header(last, "location") == ["/memory/people"]
   end
 
+  # Manual test, 2026-10-12, on the console's own page: "Forget what Ryker
+  # learned about you? ... Nothing they said before brings it back; what they
+  # say about themselves later is learned again." One question, two people.
+  test "forgetting what you said about yourself asks about you all the way through" do
+    person = "control_plane:user:local-operator"
+    drink = fact!(person, "favourite-drink", "Favourite drink is green tea.", false)
+
+    whole = confirmation("/actions/person/#{person}/forget").resp_body
+    assert whole =~ "Forget what Ryker learned about you?"
+    assert whole =~ "Nothing you said before brings it back"
+    assert whole =~ "what you say about yourself later is learned again"
+    refute whole =~ "they said"
+
+    one = confirmation("/actions/person-fact/#{drink.id}/forget").resp_body
+    assert one =~ "if you say it again later, it is learned again"
+    refute one =~ "if they say"
+  end
+
   test "an empty page says what will appear there" do
     html = render_component(&PeoplePage.render/1, view: PeopleProjection.list())
     assert html =~ "Nobody yet"
