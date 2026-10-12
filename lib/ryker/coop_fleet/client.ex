@@ -1051,8 +1051,10 @@ defmodule Ryker.CoopFleet.Client do
       when kind in ["create_session", "submit_turn"] ->
         {:ok, worker_rejected_operation(command)}
 
+      # Never sent, so no worker has anything to reconcile: fenced before it was
+      # enqueued, or failed undelivered when its placement ended.
       {:ok,
-       %Command{placement_id: nil, status: :failed, error: %{"code" => "operation_not_enqueued"}} =
+       %Command{status: :failed, delivered_at: nil, error: %{"code" => "operation_not_enqueued"}} =
            command} ->
         {:ok, worker_rejected_operation(command)}
 
@@ -1114,8 +1116,13 @@ defmodule Ryker.CoopFleet.Client do
     end
   end
 
+  # A command that never reached a worker says what Coop did, whatever the fence
+  # carries now. A Chat watch's deadline turn queued its submit, the worker
+  # missed its polls, and the submit failed undelivered when its placement
+  # ended; the stop's fence then carried other controller tools and was refused
+  # as a conflict on every attempt (2026-10-12).
   defp fenced_command(client, command, key, payload) do
-    if Commands.local_fence?(command) or command.payload == payload,
+    if Commands.never_sent?(command) or command.payload == payload,
       do: operation_by_key(client, key, &fenced_workspace/4),
       else: {:error, {:coop_worker_command_conflict, key}}
   end

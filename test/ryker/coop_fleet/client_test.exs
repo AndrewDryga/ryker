@@ -1892,6 +1892,61 @@ defmodule Ryker.CoopFleet.ClientTest do
     assert Repo.aggregate(Command, :count) == 1
   end
 
+  # 2026-10-12 live: a Chat watch's deadline turn queued its submit, the worker missed its
+  # polls, and the submit failed undelivered when its placement ended. Stopping the turn
+  # fenced that submit to learn what Coop did, carrying other controller tools than the
+  # original, and the fence refused it as a conflict on every attempt: the stop never
+  # finished and the person never heard the watch had ended.
+  test "a submit that never left Ryker is fenced as never sent, whatever the fence carries", %{
+    client: client,
+    session: session
+  } do
+    session = bind_session!(session, "coop-session-unsent")
+    key = "ryker:work:turn:unsent:g1"
+
+    submission = %{
+      "contract_version" => "work-final-live-v3",
+      "context" => %{"turn_ref" => "turn-unsent", "input_refs" => ["input-1"]},
+      "input_artifact_refs" => [],
+      "output_schema" => %{"type" => "object"},
+      "prompt" => "frozen prompt"
+    }
+
+    original = %{
+      "coop_session_id" => "coop-session-unsent",
+      "controller_tools" => %{
+        "endpoint" => "https://ryker.example/v1/state-tools/mcp",
+        "token_sha256" => String.duplicate("a", 64)
+      },
+      "expected_revision" => 4,
+      "submission" => submission,
+      "turn_ref" => "turn-unsent"
+    }
+
+    queued = command!(session, "unsent", kind: "submit_turn", payload: original, key: key)
+    placement = Repo.get!(Placement, queued.placement_id)
+    :ok = ControlPlane.Commands.fail_undelivered_commands(placement, Repo.now!())
+
+    assert %Command{status: :failed, delivered_at: nil} = Repo.get!(Command, queued.id)
+
+    assert {:ok, %{"state" => "failed", "error_code" => "operation_not_enqueued"}} =
+             Client.fence_frozen_turn(
+               client,
+               session.coop_session_id,
+               key,
+               4,
+               submission,
+               nil,
+               []
+             )
+
+    assert {:ok, %{"state" => "failed", "error_code" => "operation_not_enqueued"}} =
+             Client.operation_by_key(client, key)
+
+    # Nothing was asked of a worker to find that out.
+    refute_receive {:fleet_command, _session, "reconcile_operation", _payload, _key, _options}
+  end
+
   test "a recovered review must match the original session revision and operation", %{
     client: client,
     session: session

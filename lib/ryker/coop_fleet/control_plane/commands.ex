@@ -114,6 +114,20 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
 
   def local_fence?(_command), do: false
 
+  @doc """
+  Whether `command` never reached a worker: fenced before it was enqueued, or
+  failed undelivered when its placement ended (`fail_undelivered_commands/2`).
+  """
+  @spec never_sent?(Command.t()) :: boolean()
+  def never_sent?(%Command{
+        status: :failed,
+        delivered_at: nil,
+        error: %{"code" => "operation_not_enqueued"}
+      }),
+      do: true
+
+  def never_sent?(_command), do: false
+
   @doc false
   def fence_command(%Work.Session{} = session, kind, intent, key)
       when kind in ~w(create_session submit_turn) do
