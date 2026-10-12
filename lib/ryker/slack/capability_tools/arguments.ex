@@ -162,20 +162,41 @@ defmodule Ryker.Slack.CapabilityTools.Arguments do
   def post_document(%{} = arguments, workspace_ref) do
     with true <- Maps.exact_keys?(arguments, @post_fields),
          {:ok, destination_ref} <- text(arguments["destination_ref"], 1_024),
-         {:ok, destination} <- SourceRef.parse(destination_ref, workspace_ref),
+         {:ok, destination} <-
+           post_source(destination_ref, workspace_ref, :invalid_destination_ref),
          true <- destination.kind in [:channel, :thread],
          {:ok, instruction_ref} <- text(arguments["instruction_ref"], 1_024),
          {:ok, %{kind: :message} = instruction} <-
-           SourceRef.parse(instruction_ref, workspace_ref),
+           post_source(instruction_ref, workspace_ref, :invalid_instruction_ref),
          {:ok, message} <- text(arguments["message"], 20_000) do
       {:ok, destination, instruction, message}
     else
-      {:error, :invalid_slack_source_ref} -> {:error, :unauthorized}
-      _invalid -> {:error, :invalid_arguments}
+      {:error, reason}
+      when reason in [:unauthorized, :invalid_destination_ref, :invalid_instruction_ref] ->
+        {:error, reason}
+
+      _invalid ->
+        {:error, :invalid_arguments}
     end
   end
 
   def post_document(_arguments, _workspace_ref), do: {:error, :invalid_arguments}
+
+  # A raw Slack id such as the conversation ref "slack:T…:C…" is no source
+  # reference at all. Told only "unauthorized", a model asked the person to paste
+  # the note instead of posting it (What to fix, 2026-10-10 and 2026-10-11). A
+  # source reference of another workspace stays unauthorized.
+  defp post_source(value, workspace_ref, misformed) do
+    case SourceRef.parse(value, workspace_ref) do
+      {:ok, parsed} ->
+        {:ok, parsed}
+
+      {:error, :invalid_slack_source_ref} ->
+        if String.starts_with?(value, "slack-source:v1:"),
+          do: {:error, :unauthorized},
+          else: {:error, misformed}
+    end
+  end
 
   @doc """
   The words of one Work update: a short message the Work model posts into its

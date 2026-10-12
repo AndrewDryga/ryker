@@ -1912,6 +1912,42 @@ defmodule Ryker.Slack.CapabilityToolsTest do
     refute_received {:post_proposed, _payload}
   end
 
+  # What to fix, 2026-10-10 and 2026-10-11: given the conversation ref
+  # "slack:T…:C…" instead of the channel's source_ref, post_slack_message
+  # answered only "unauthorized", and the model asked the person to paste the
+  # note. A raw id is told which reference to send; a source reference of
+  # another workspace stays unauthorized.
+  test "a post given a raw Slack id is told which reference to send" do
+    instruction_ref = SourceRef.message("T123", "G123", "1787832001.000200")
+    channel_ref = SourceRef.channel("T123", "G123")
+
+    attempt = fn destination_ref, instruction_ref ->
+      CapabilityTools.call(
+        "post_slack_message",
+        %{
+          "destination_ref" => destination_ref,
+          "instruction_ref" => instruction_ref,
+          "message" => "The deployment is healthy."
+        },
+        work_binding(),
+        options()
+      )
+    end
+
+    assert {:error, "invalid_destination_ref: " <> hint} =
+             attempt.("slack:T123:G123", instruction_ref)
+
+    assert hint =~ "slack-source:v1:<team>:<channel>:channel"
+
+    assert {:error, "invalid_instruction_ref: " <> _hint} =
+             attempt.(channel_ref, "slack:T123:G123:1787832001.000200")
+
+    assert attempt.(SourceRef.channel("T999", "G123"), instruction_ref) ==
+             {:error, "unauthorized"}
+
+    refute_received {:conversation_info, _channel}
+  end
+
   test "post authority is an exact ingress grant rather than instruction prose" do
     destination_ref = SourceRef.channel("T123", "C456")
 

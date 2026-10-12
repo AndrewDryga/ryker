@@ -595,6 +595,14 @@ defmodule Ryker.Slack.CapabilityTools do
   defp error_code(:reaction_limit_reached), do: refusal_code(:reaction_limit_reached)
   defp error_code(:invalid_source_cursor), do: "invalid_source_cursor"
 
+  defp error_code(:invalid_destination_ref) do
+    "invalid_destination_ref: use the source_ref of the channel or thread to post in, as list_slack_channels and read_slack_source return it (slack-source:v1:<team>:<channel>:channel). Nothing was posted."
+  end
+
+  defp error_code(:invalid_instruction_ref) do
+    "invalid_instruction_ref: use the source_ref of the person's message that asked for this post (slack-source:v1:<team>:<channel>:message:<ts>). Nothing was posted."
+  end
+
   defp error_code(:post_instruction_not_authorized) do
     "post_instruction_not_authorized: this current human input does not grant posting to that exact destination. Nothing was posted. This is not evidence that account access is disabled. Do not retry or ask to expand permissions. A person must send a fresh explicit request beginning with post to #channel: message, naming the exact destination."
   end
