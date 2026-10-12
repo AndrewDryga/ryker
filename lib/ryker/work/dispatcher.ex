@@ -126,10 +126,10 @@ defmodule Ryker.Work.Dispatcher do
   # A worker restart cancels the agent under a running turn, and Coop fails the turn as
   # acp_cancelled. Such a turn stopped for a person at once, though a new run answered it
   # (2026-10-10, the bundled Coop worker restarted under a Chat turn). Coop fails a turn as
-  # acp_quiet when its model sends nothing of its own for 15 minutes: three eval turns sat 12-18
-  # minutes that way after their tools, their provider pulsing, until their harness gave up
-  # (2026-10-12). Either runs again once, on a fresh agent; a re-run that ends the same way stops
-  # for a person, so a worker that keeps failing turns cannot loop them.
+  # acp_quiet when its model sends nothing of its own for 15 minutes after its tools answered:
+  # three eval turns sat 12-18 minutes that way, their provider pulsing, until their harness gave
+  # up (2026-10-12). Either runs again once, on a fresh agent; a re-run that ends the same way
+  # stops for a person, so a worker that keeps failing turns cannot loop them.
   defp execution_failure(
          %{turn: %{status: :pending, turn_ref: turn_ref}} = claim,
          {:work_turn_terminal, "failed", code, _detail} = reason,

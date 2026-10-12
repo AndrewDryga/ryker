@@ -1,8 +1,8 @@
 # Base images are pinned by digest as well as tag (2026-10-04 review).
-FROM golang:1.27.1-bookworm@sha256:8d48e12ec56735e9358640898b9d9b9fcca110612ed8a5567438c0a1baa24e66 AS build
+FROM golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61 AS build
 
-ARG COOP_VERSION=v10.1.2-122-g5b112ce7
-ARG COOP_REVISION=5b112ce7250039c8753b20cbf8c2502619f7924c
+ARG COOP_VERSION=v11.1.0-9-g9cdadd9b
+ARG COOP_REVISION=9cdadd9b0e09e67c7e4fe1acde003b315d69c3df
 
 RUN git clone https://github.com/AndrewDryga/coop.git /build/coop \
  && cd /build/coop \

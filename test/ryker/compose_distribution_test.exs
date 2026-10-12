@@ -133,9 +133,10 @@ defmodule Ryker.ComposeDistributionTest do
     # the worker from the recipe would have produced one that could not talk to Ryker at all.
     # Coop main runs the version-2 jobs Ryker sends since 2026-10-04; d019c807 also holds a
     # command back while a repository's first download runs, and 5b112ce7 runs filtered jobs
-    # on a Docker-in-Docker worker.
-    assert worker_image =~ "COOP_REVISION=5b112ce7250039c8753b20cbf8c2502619f7924c"
-    assert worker_image =~ "COOP_VERSION=v10.1.2-122-g5b112ce7"
+    # on a Docker-in-Docker worker. The live worker ran Coop v11 from layered images for days while
+    # this still built v10 (2026-10-12); the pin now names the Coop it runs.
+    assert worker_image =~ "COOP_REVISION=9cdadd9b0e09e67c7e4fe1acde003b315d69c3df"
+    assert worker_image =~ "COOP_VERSION=v11.1.0-9-g9cdadd9b"
     # The Coop pin lives in one place, the worker Dockerfile. Two copies of the
     # default once had to be bumped together, and compose.yml's COOP_VERSION
     # override relabeled the pinned revision as whatever it named (2026-10-04
