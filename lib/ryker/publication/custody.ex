@@ -175,6 +175,24 @@ defmodule Ryker.Publication.Custody do
 
   defp ended_pull_request(_publication), do: %{}
 
+  @doc """
+  Whether completed task turn `turn` left its workspace as the turn that armed
+  the task's published draft left it. Such a turn has nothing to publish, so
+  Work offers nothing for it. A workspace that was not saved is never the same.
+  """
+  @spec unchanged_since_published?(Work.Turn.t()) :: boolean()
+  def unchanged_since_published?(%Work.Turn{episode_id: episode_id} = turn)
+      when is_binary(episode_id) do
+    episode_id
+    |> Publication.Query.by_episode_id()
+    |> Publication.Query.ordered_by_recent()
+    |> Publication.Query.limit_to(1)
+    |> Repo.peek()
+    |> unchanged_since_published?(turn)
+  end
+
+  def unchanged_since_published?(_turn), do: false
+
   # Answering a question on the pull request is a completed task turn too. It
   # re-armed the published draft with nothing changed, and Ryker force-pushed a
   # new commit of the same tree to AndrewDryga/test#4 (manual test,

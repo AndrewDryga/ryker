@@ -13,6 +13,7 @@ defmodule Ryker.Work.Executor.Turns do
   alias Ryker.Coop
   alias Ryker.CoopFleet
   alias Ryker.Crypto
+  alias Ryker.Publication
   alias Ryker.Records
   alias Ryker.StateTools
   alias Ryker.Work.{Activity, Custody, Measurement, OperationKeys, StateBinding, ValidationIntent}
@@ -373,11 +374,21 @@ defmodule Ryker.Work.Executor.Turns do
 
   defp maybe_create_publication_offer(_task, _turn, %{continuation: %{"kind" => "wait"}}), do: :ok
 
+  # A turn that left the workspace as the published draft's turn left it has
+  # nothing to publish. Custody leaves that draft alone, so its offer stayed
+  # open for good and put "ready to publish" back on the task's card (audit
+  # F09, 2026-10-12).
   defp maybe_create_publication_offer(
          task,
          turn,
          %{continuation: %{"kind" => "complete"}} = result
        ) do
+    if Publication.Custody.unchanged_since_published?(turn),
+      do: :ok,
+      else: create_publication_offer(task, turn, result)
+  end
+
+  defp create_publication_offer(task, turn, result) do
     with {:ok, body} <- publication_offer_body(result, task),
          {:ok, _record} <-
            Records.create(

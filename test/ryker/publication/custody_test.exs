@@ -1415,6 +1415,25 @@ defmodule Ryker.Publication.CustodyTest do
     assert rearmed.review_request_ref == "task-readiness:#{changed.id}"
   end
 
+  # Audit F09, 2026-10-12: custody left an unchanged published draft alone,
+  # but Work still offered every such turn as ready to publish, and the offer
+  # nobody would consume put "ready" back on the task's card. A changed or
+  # unsaved workspace is still offered.
+  test "a turn that changed nothing since the published draft has nothing to offer" do
+    for {suffix, checkpoint, unchanged?} <- [
+          {"offer-same", "1", true},
+          {"offer-changed", "2", false},
+          {"offer-unsaved", nil, false}
+        ] do
+      %{claim: claim} = task_episode!(suffix)
+      %{claim: first} = corrected_candidate!(claim, suffix, "one", checkpoint: "1")
+      publish_task_publication!(first, suffix, "one")
+
+      %{turn: turn} = staged_candidate!(first, suffix, "answer", checkpoint: checkpoint)
+      assert PublicationCustody.unchanged_since_published?(turn) == unchanged?, suffix
+    end
+  end
+
   # Two review generations of one publication are two facts, not one. The
   # delivery ref named only the publication, and a repeat delivery ref
   # reconciles onto the message that already carries it, so a fresh review
@@ -1648,6 +1667,47 @@ defmodule Ryker.Publication.CustodyTest do
   # One accepted completed turn carrying the host's own `host:publication:ready`
   # offer, exactly as `Work.Executor` writes it after a checkpointed workspace.
   defp corrected_candidate!(claim, suffix, label, options \\ []) do
+    %{claim: work, sha256: candidate_sha256} = staged_candidate!(claim, suffix, label, options)
+
+    assert {:ok, accepted} =
+             Custody.accept_result(
+               work.episode.id,
+               work.episode.key,
+               work.turn.turn_ref,
+               work.lease_ref,
+               candidate_sha256,
+               1,
+               "validation:#{work.turn.id}"
+             )
+
+    assert {:ok, delivery} =
+             Custody.claim_next("delivery:#{suffix}:#{label}", 60, :delivery)
+
+    assert {:ok, receipt} =
+             DeliveryReceipt.new(
+               accepted.turn.delivery_ref,
+               "slack",
+               work.episode.destination_conversation_ref,
+               work.episode.destination_thread_ref,
+               "message:#{suffix}:#{label}:reply"
+             )
+
+    assert {:ok, _settled} =
+             Custody.confirm_delivery(
+               work.episode.id,
+               work.episode.key,
+               work.turn.turn_ref,
+               delivery.lease_ref,
+               receipt
+             )
+
+    %{claim: work, sha256: candidate_sha256, turn: accepted.turn}
+  end
+
+  # A corrected task turn up to its acceptance, as Work holds it when it
+  # decides whether the turn has anything to offer: staged, validated and, with
+  # `checkpoint:`, its workspace saved.
+  defp staged_candidate!(claim, suffix, label, options) do
     admit_followup!(claim, label)
     assert {:ok, work} = Custody.claim_next("work:#{suffix}:#{label}", 60, :work)
     work = bind_remote!(work)
@@ -1700,39 +1760,7 @@ defmodule Ryker.Publication.CustodyTest do
 
     if revision = options[:checkpoint], do: checkpoint!(work, candidate_sha256, revision)
 
-    assert {:ok, accepted} =
-             Custody.accept_result(
-               work.episode.id,
-               work.episode.key,
-               work.turn.turn_ref,
-               work.lease_ref,
-               candidate_sha256,
-               1,
-               "validation:#{work.turn.id}"
-             )
-
-    assert {:ok, delivery} =
-             Custody.claim_next("delivery:#{suffix}:#{label}", 60, :delivery)
-
-    assert {:ok, receipt} =
-             DeliveryReceipt.new(
-               accepted.turn.delivery_ref,
-               "slack",
-               work.episode.destination_conversation_ref,
-               work.episode.destination_thread_ref,
-               "message:#{suffix}:#{label}:reply"
-             )
-
-    assert {:ok, _settled} =
-             Custody.confirm_delivery(
-               work.episode.id,
-               work.episode.key,
-               work.turn.turn_ref,
-               delivery.lease_ref,
-               receipt
-             )
-
-    %{claim: work, sha256: candidate_sha256, turn: accepted.turn}
+    %{claim: work, sha256: candidate_sha256, turn: Repo.get!(Turn, work.turn.id)}
   end
 
   # The workspace checkpoint Work stores for a completed task turn before it is
