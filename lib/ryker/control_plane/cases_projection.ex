@@ -6,7 +6,8 @@ defmodule Ryker.ControlPlane.CasesProjection do
   where a person reads one and forgets it. Nobody could delete a kept case
   before it (2026-10-04 review).
   """
-  alias Ryker.ControlPlane.{PagedRelation, Search}
+  alias Ryker.ControlPlane.{PagedRelation, Paths, Search}
+  alias Ryker.ConversationRef
   alias Ryker.Memories
   alias Ryker.Repo
   alias Ryker.Slack
@@ -63,12 +64,42 @@ defmodule Ryker.ControlPlane.CasesProjection do
       cause: record.cause,
       outcome: record.outcome,
       checked: record.attempted_actions,
-      links: record.links,
+      links: links(record),
       where: Slack.Names.destination(record.conversation_ref),
       repository: record.repository_ref,
       shadow?: record.execution_mode == :shadow,
       forgotten?: record.status == :deleted,
       at: record.closed_at
     }
+  end
+
+  # Where a person can open what a case was built from: its Chat conversation,
+  # or each Slack message, when the work came from one place. A case keeps each
+  # message's own reference (`Ryker.Memories.Cases`), which alone opens nothing:
+  # the first Chat cases listed `control-plane-item:<id>` as links (2026-10-12).
+  defp links(%Memories.CaseRecord{} = record) do
+    case Enum.uniq([record.conversation_ref | record.conversation_refs]) do
+      ["control-plane:lab:" <> conversation_id] ->
+        [{"Open in Chat", Paths.conversation(conversation_id)}]
+
+      ["slack:" <> _rest = conversation] ->
+        slack_links(conversation, record.links)
+
+      _several_or_elsewhere ->
+        []
+    end
+  end
+
+  defp slack_links(conversation, refs) do
+    case ConversationRef.parse_slack(conversation) do
+      {:ok, workspace, channel} ->
+        for ref <- refs,
+            url = Slack.app_redirect(workspace, channel, ref),
+            uniq: true,
+            do: {"Slack message", url}
+
+      :error ->
+        []
+    end
   end
 end

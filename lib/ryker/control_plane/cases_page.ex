@@ -122,9 +122,9 @@ defmodule Ryker.ControlPlane.CasesPage do
         <Kit.section_head title="Links" lede="Where the work and its sources were." />
         <div class="entity-list" role="list" aria-label="Links">
           <MemoryFormat.row
-            :for={{link, index} <- Enum.with_index(@item.links, 1)}
+            :for={{{label, href}, index} <- Enum.with_index(@item.links, 1)}
             id={"case-link-#{index}"}
-            name={MemoryFormat.link(link, link)}
+            name={MemoryFormat.external(label, href)}
           />
         </div>
       </section>

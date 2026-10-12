@@ -52,6 +52,35 @@ defmodule Ryker.ControlPlane.CasesPageTest do
     assert {:ok, %{forgotten?: false}} = CasesProjection.fetch(other.episode_id)
   end
 
+  # Manual test, 2026-10-12: the first cases retention kept on this install,
+  # all from Chat, listed each link as `control-plane-item:<id>`, an internal
+  # reference shown to people and a link to nowhere; a Slack case's links were
+  # bare message timestamps. A case links to where its messages can be opened.
+  test "a case links to where its messages can be opened, never to an internal reference" do
+    chat_id = Ecto.UUID.generate()
+
+    from_chat =
+      case!("Wait for 30 seconds, then reply WAIT VALIDATION FIRED.",
+        conversation_ref: "control-plane:lab:" <> chat_id,
+        transport: "control_plane",
+        links: [
+          "control-plane-item:" <> Ecto.UUID.generate(),
+          "control-plane-item:" <> Ecto.UUID.generate()
+        ]
+      )
+
+    from_slack = case!("Checkout returns 502 after the deploy", links: ["1787832001.000200"])
+
+    chat_page = case_page(from_chat)
+    assert case_links(chat_page) == [{"Open in Chat", "/conversations/" <> chat_id}]
+    refute chat_page =~ "control-plane-item:"
+
+    assert case_links(case_page(from_slack)) == [
+             {"Slack message ↗",
+              Ryker.Slack.app_redirect("TCASES", "CALERTS", "1787832001.000200")}
+           ]
+  end
+
   test "cases are searched by their problem, cause and how they ended" do
     case!("Checkout returns 502 after the deploy", outcome: "Rolled back to the previous image.")
     case!("The build runner's disk filled up", cause: "Old Docker layers were never pruned.")
@@ -104,8 +133,9 @@ defmodule Ryker.ControlPlane.CasesPageTest do
       episode_id: episode_id,
       episode_key: "cases-page:" <> episode_id,
       execution_mode: :live,
-      transport: "slack",
-      conversation_ref: "slack:TCASES:CALERTS",
+      transport: Keyword.get(options, :transport, "slack"),
+      conversation_ref: Keyword.get(options, :conversation_ref, "slack:TCASES:CALERTS"),
+      links: Keyword.get(options, :links, []),
       workspace_ref: "slack:TCASES",
       problem: problem,
       cause: options[:cause],
@@ -118,6 +148,18 @@ defmodule Ryker.ControlPlane.CasesPageTest do
       inserted_at: @now,
       updated_at: @now
     })
+  end
+
+  defp case_page(record) do
+    assert {:ok, item} = CasesProjection.fetch(record.episode_id)
+    item |> CasesPage.case_html() |> IO.iodata_to_binary()
+  end
+
+  defp case_links(html) do
+    html
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query("#case-links a")
+    |> Enum.map(&{LazyHTML.text(&1), &1 |> LazyHTML.attribute("href") |> List.first()})
   end
 
   defp cases(params \\ %{}) do
