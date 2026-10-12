@@ -27,6 +27,238 @@ defmodule Ryker.Evals.WorldRunnerTest do
 
   @policy_digest String.duplicate("a", 64)
 
+  test "model-world routing scenarios cannot silently use forced host routing" do
+    {:ok, scenario} = WorldCase.fetch("similar-alert-different-environment-stays-separate")
+    {:ok, fake} = FakeWorkCoopAPI.start_link([])
+
+    assert WorldRunner.run(scenario, routing_options(fake)) ==
+             {:error, {:invalid_world_runner, :routing_required}}
+
+    assert Repo.aggregate(Ryker.Episodes.Episode, :count) == 0
+    assert FakeWorkCoopAPI.state(fake).submit_count == 0
+  end
+
+  test "routing a different lifecycle starts its own work without consuming the prior episode" do
+    # The full paired matrix forced staging into production three times in
+    # each lane. This host double chooses independently, not an expected answer
+    # baked into the authored scenario or the real model's prompt.
+    {:ok, scenario} = WorldCase.fetch("similar-alert-different-environment-stays-separate")
+    {:ok, fake} = FakeWorkCoopAPI.start_link([])
+    {:ok, decisions} = Agent.start_link(fn -> [] end)
+    on_exit(fn -> if Process.alive?(decisions), do: Agent.stop(decisions) end)
+
+    router = fn context ->
+      Agent.update(decisions, &[context.input.content["run_id"] | &1])
+      {:ok, routing_decision(:start_episode, nil, :unrelated)}
+    end
+
+    answer = captured_answer(fake)
+
+    before_execute = fn claim, scenario ->
+      assert {:ok, _record} =
+               Records.create(
+                 Records.token(claim.turn),
+                 "routing-host-double:#{claim.episode.id}",
+                 "progress",
+                 %{
+                   "phase" => "read-only-test",
+                   "summary" => "The deterministic host double reached this lifecycle.",
+                   "next_due_at" => nil
+                 }
+               )
+
+      answer.(claim, scenario)
+    end
+
+    assert {:ok, report} =
+             WorldRunner.run(
+               scenario,
+               routing_options(fake) ++
+                 [
+                   router: router,
+                   before_execute: before_execute
+                 ]
+             )
+
+    assert length(Agent.get(decisions, & &1)) == 2
+    assert Repo.aggregate(Ryker.Episodes.Episode, :count) == 2
+    assert length(Enum.uniq(Enum.map(report.runtime.turns, & &1.session_id))) == 2
+    assert Enum.all?(report.runtime.turns, &(&1.routing.mode == "model_admission"))
+    assert report.failures == []
+    assert length(report.records) == 2
+    assert length(report.record_history) == 2
+    assert FakeWorkCoopAPI.state(fake).submit_count == 2
+  end
+
+  test "unoffered model routing is refused before creating or submitting work" do
+    {:ok, scenario} = WorldCase.fetch("similar-alert-different-environment-stays-separate")
+    {:ok, fake} = FakeWorkCoopAPI.start_link([])
+
+    router = fn _context ->
+      {:ok, routing_decision(:start_episode, "candidate:unoffered", :history_only)}
+    end
+
+    assert {:error, {:world_eval_assertions, report}} =
+             WorldRunner.run(scenario, routing_options(fake) ++ [router: router])
+
+    assert match?({:admission_rejected, _reason}, report.execution_error)
+    assert Repo.aggregate(Ryker.Episodes.Episode, :count) == 0
+    assert FakeWorkCoopAPI.state(fake).submit_count == 0
+  end
+
+  test "a model choosing no work is a scored routing failure, not a crash or an unrun case" do
+    {:ok, scenario} = WorldCase.fetch("similar-alert-different-environment-stays-separate")
+    {:ok, fake} = FakeWorkCoopAPI.start_link([])
+    decision = %{routing_decision(:ignore, nil, :unrelated) | work_class: nil}
+
+    assert {:error, {:world_eval_assertions, report}} =
+             WorldRunner.run(
+               scenario,
+               routing_options(fake) ++ [router: fn _context -> {:ok, decision} end]
+             )
+
+    assert {:world_eval_failed,
+            {:admission_without_work, %{action: "ignore", mode: "model_admission"}}} =
+             report.execution_error
+
+    assert report.status == :failed
+    assert FakeWorkCoopAPI.state(fake).submit_count == 0
+  end
+
+  test "model-selected same-work routing continues the offered episode and session" do
+    {:ok, scenario} = WorldCase.fetch("one-outage-two-channels-joins-one-episode")
+    {:ok, fake} = FakeWorkCoopAPI.start_link([])
+
+    router = fn context ->
+      case context.candidates do
+        [] ->
+          {:ok, routing_decision(:start_episode, nil, :unrelated)}
+
+        candidates ->
+          candidate = Enum.find(candidates, &(:same_work in &1.allowed_relations))
+          assert candidate
+          {:ok, routing_decision(:continue_episode, candidate.ref, :same_work)}
+      end
+    end
+
+    assert {:ok, report} =
+             WorldRunner.run(
+               scenario,
+               routing_options(fake) ++
+                 [
+                   router: router,
+                   before_execute: captured_answer(fake)
+                 ]
+             )
+
+    assert Repo.aggregate(Ryker.Episodes.Episode, :count) == 1
+    assert length(Enum.uniq(Enum.map(report.runtime.turns, & &1.session_id))) == 1
+    assert Enum.all?(report.runtime.turns, &(&1.routing.mode == "model_admission"))
+    assert report.failures == []
+    assert FakeWorkCoopAPI.state(fake).submit_count == 2
+  end
+
+  test "history-only model routing links background without reusing its session or destination" do
+    {:ok, scenario} = WorldCase.fetch("similar-alert-different-environment-stays-separate")
+    {:ok, fake} = FakeWorkCoopAPI.start_link([])
+
+    router = fn context ->
+      case context.candidates do
+        [] ->
+          {:ok, routing_decision(:start_episode, nil, :unrelated)}
+
+        candidates ->
+          candidate = Enum.find(candidates, &(:history_only in &1.allowed_relations))
+          assert candidate
+          {:ok, routing_decision(:start_episode, candidate.ref, :history_only)}
+      end
+    end
+
+    assert {:ok, report} =
+             WorldRunner.run(
+               scenario,
+               routing_options(fake) ++ [router: router, before_execute: captured_answer(fake)]
+             )
+
+    [first, second] = report.runtime.turns
+    assert first.session_id != second.session_id
+    assert first.episode_id != second.episode_id
+
+    assert Repo.get!(Ryker.Episodes.Episode, second.episode_id).linked_episode_id ==
+             first.episode_id
+
+    assert second.routing.decision["relation"] == "history_only"
+    assert report.failures == []
+  end
+
+  test "model-selected exact lifecycle continuation resumes its durable source wait" do
+    {:ok, scenario} = WorldCase.fetch("terraform-run-update-stays-in-one-session")
+    scenario = %{scenario | tags: ["routing" | scenario.tags]}
+    {:ok, fake} = FakeWorkCoopAPI.start_link([])
+    assert {:ok, before_execute} = WorldHostReplay.before_execute(scenario, fake)
+
+    router = fn context ->
+      case context.candidates do
+        [] -> {:ok, routing_decision(:start_episode, nil, :unrelated)}
+        [candidate] -> {:ok, routing_decision(:continue_episode, candidate.ref, :same_work)}
+      end
+    end
+
+    assert {:ok, report} =
+             WorldRunner.run(
+               scenario,
+               routing_options(fake) ++ [router: router, before_execute: before_execute]
+             )
+
+    assert length(report.runtime.turns) == 2
+    assert length(Enum.uniq(Enum.map(report.runtime.turns, & &1.session_id))) == 1
+
+    assert [%{"kind" => "event_wait", "status" => "answered"}] =
+             Enum.filter(report.record_history, &(&1["kind"] == "event_wait"))
+
+    assert report.failures == []
+    assert FakeWorkCoopAPI.state(fake).submit_count == 2
+  end
+
+  defp routing_options(fake) do
+    [
+      api: FakeWorkCoopAPI,
+      client: fake,
+      expectation_mode: :model_world,
+      policy: "world-eval-read-only",
+      policy_digest: @policy_digest,
+      state_tools_endpoint: "https://eval.example/v1/state-tools/mcp",
+      state_tools_secret: Ryker.Secret.new("world-eval-state-tools-secret"),
+      worker_ref: "world-model-routing"
+    ]
+  end
+
+  defp routing_decision(action, episode_ref, relation) do
+    %Ryker.Admission.Decision{
+      action: action,
+      episode_ref: episode_ref,
+      relation: relation,
+      reason: "Handle the current lifecycle independently of similar wording.",
+      repository_source: nil,
+      work_class: :standard
+    }
+  end
+
+  defp captured_answer(fake) do
+    {:ok, captured} = WorldCase.fetch("ordinary-thread-question-gets-natural-answer")
+    [event] = captured.host_replay["model_events"]
+    [%{"document" => candidate}] = event["candidates"]
+    candidate = Map.put(candidate, "title", nil)
+
+    fn claim, _scenario ->
+      assert {:ok, %{"accepted" => true}} =
+               Tools.call("validate_final", %{"candidate" => candidate}, binding_options(claim))
+
+      FakeWorkCoopAPI.update(fake, &%{&1 | candidates: [Jason.encode!(candidate)]})
+      :ok
+    end
+  end
+
   test "shipped token-rate reference data does not make a disposable world dirty" do
     assert Repo.aggregate(PricingRate, :count) == 3
     assert WorldDatabase.disposable_database(false) == :ok

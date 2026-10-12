@@ -2,7 +2,7 @@ defmodule Ryker.Evals.RoutingReplayCase do
   @moduledoc """
   One recorded routing decision asked again under today's prompt and contract.
 
-  Routing had no model eval: the world eval routes with a deterministic stand-in,
+  Most Work world scenarios route with a deterministic stand-in,
   so a change to routing's instructions or contract (the addressing wording, a
   sender's sentiment) could only be tried on live traffic. The routing
   examples Ryker keeps for training hold the exact request each decision was

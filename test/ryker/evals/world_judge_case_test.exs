@@ -80,6 +80,48 @@ defmodule Ryker.Evals.WorldJudgeCaseTest do
     assert Enum.any?(prompt["instructions"], &String.contains?(&1, "state calls"))
   end
 
+  test "identical replies cannot hide different committed routing ownership from the judge" do
+    # The review reproduced byte-identical judge prompts for separate episodes
+    # and a wrongly merged episode. That blind spot could falsely qualify the
+    # cross-environment rubric without changing a single delivered sentence.
+    {:ok, scenario} = WorldCase.fetch("similar-alert-different-environment-stays-separate")
+
+    first = routing_turn("episode:production", "session:production", "turn:one", "input:one")
+    second = routing_turn("episode:staging", "session:staging", "turn:two", "input:two")
+    separate_report = put_in(report(), [:runtime, :turns], [first, second])
+
+    merged_second =
+      second
+      |> Map.put(:episode_id, first.episode_id)
+      |> Map.put(:session_id, first.session_id)
+      |> put_in([:routing, :action], "continue_episode")
+      |> put_in([:routing, :relation], "same_work")
+
+    merged_report = put_in(separate_report, [:runtime, :turns], [first, merged_second])
+    {:ok, separate} = WorldJudgeCase.new(scenario, separate_report)
+    {:ok, merged} = WorldJudgeCase.new(scenario, merged_report)
+
+    refute separate.prompt == merged.prompt
+    prompt = Jason.decode!(separate.prompt)
+    assert [first_evidence, second_evidence] = prompt["evidence"]["routing"]
+    assert first_evidence["episode_id"] == "episode:production"
+    assert second_evidence["episode_id"] == "episode:staging"
+    assert second_evidence["session_id"] == "session:staging"
+    assert second_evidence["turn_id"] == "turn:two"
+    assert second_evidence["input_provenance"]["source_item_ref"] == "input:two"
+    assert second_evidence["input_clock"]["mode"] == "simulated"
+    assert second_evidence["routing"]["mode"] == "model_admission"
+    assert second_evidence["routing"]["action"] == "start_episode"
+    refute Map.has_key?(second_evidence, "submission")
+
+    assert Enum.any?(
+             prompt["instructions"],
+             &String.contains?(&1, "committed episode and session")
+           )
+
+    assert Enum.any?(prompt["instructions"], &String.contains?(&1, "forced_host_scenario"))
+  end
+
   test "malformed quality judgments are repaired through the same bounded contract" do
     {:ok, scenario} = WorldCase.fetch("va1-health-review-repairs-and-finishes")
     {:ok, judge} = WorldJudgeCase.new(scenario, report())
@@ -116,6 +158,18 @@ defmodule Ryker.Evals.WorldJudgeCaseTest do
     assert message =~ "overall_pass"
 
     assert {:reject, [_message]} = WorldJudgeCase.validate(:invalid, :invalid)
+  end
+
+  defp routing_turn(episode_id, session_id, turn_id, input_ref) do
+    %{
+      episode_id: episode_id,
+      session_id: session_id,
+      turn_id: turn_id,
+      input_clock: %{mode: "simulated", source_occurred_at: "2026-08-27T12:00:00Z"},
+      input_provenance: %{source_item_ref: input_ref, source: %{kind: "slack"}},
+      routing: %{action: "start_episode", mode: "model_admission", relation: "unrelated"},
+      submission: "Not part of the judge evidence boundary."
+    }
   end
 
   defp report do

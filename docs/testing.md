@@ -195,8 +195,10 @@ Passing deterministic and model gates does not deploy the runtime.
 
 ### Routing replay
 
-The world evaluation routes with a deterministic stand-in, so a change to routing's instructions
-or answer contract needs a routing replay. It asks the routing decisions Ryker kept for training
+Most Work world scenarios route with a deterministic stand-in. The two routing-tagged scenarios
+use the current Admission prompt and host validation on the selected isolated eval lane; they do
+not qualify the installation's separate routing model. A change to routing's instructions
+or answer contract still needs a routing replay. It asks the routing decisions Ryker kept for training
 again, each with the instructions today's routing gives its recorded context and under the
 contract its source was offered, rebuilt with today's shapes, on the eval worker. Download the
 examples with **Download routing examples** on Settings › Data retention, then:

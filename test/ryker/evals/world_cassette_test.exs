@@ -14,6 +14,37 @@ defmodule Ryker.Evals.WorldCassetteTest do
     %{cassette: cassette}
   end
 
+  test "specific metric observations remain reachable before the empty-series fallback" do
+    # Two full-world observations lost alert inventory and resource evidence:
+    # their valid queries reached the alphabetically earlier catch-all instead.
+    {:ok, scenario} = WorldCase.fetch("deep-check-finds-its-sources-through-search")
+    {:ok, cassette} = start_supervised({WorldCassette, scenario})
+
+    queries = [
+      {"sum by (folder) (grafana_alerting_rule_group_rules)",
+       %{"rules_scheduled" => 148, "evaluation_failures_last_hour" => 0}},
+      {"1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes",
+       %{"max_memory_percent" => 66, "oom_kills_24h" => 0}},
+      {"sum by (service) (rate(http_requests_total{status=~\"5..\"}[1h])) / sum by (service) (rate(http_requests_total[1h]))",
+       %{
+         "services" => [
+           %{"service" => "arena", "error_ratio" => 0.945},
+           %{"service" => "website", "error_ratio" => 1.0e-7}
+         ]
+       }}
+    ]
+
+    Enum.each(queries, fn {query, expected} ->
+      assert {:ok, result} =
+               WorldCassette.call(cassette, "run_action", %{
+                 "action_id" => "vm.query_instant",
+                 "args" => %{"query" => query}
+               })
+
+      assert Map.take(result, Map.keys(expected)) == expected
+    end)
+  end
+
   test "matches an explicitly reviewed set of normalized argument aliases" do
     {:ok, scenario} = WorldCase.fetch("va1-health-review-repairs-and-finishes")
 

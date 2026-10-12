@@ -1758,6 +1758,26 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     refute text =~ "min 0s"
   end
 
+  test "conversational routing does not claim its tool-using answer had no investigation" do
+    # Two live follow-ups spent several minutes reading saved receipts and
+    # GitHub. Calling those answers quick and tool-free contradicted the trace.
+    document =
+      :admission
+      |> render_request(:result, [
+        section("candidate", "Decision", %{
+          "action" => "reply",
+          "relation" => "unrelated",
+          "work_class" => "conversational",
+          "reason" => "Read the saved receipt and check the current pull request."
+        })
+      ])
+      |> LazyHTML.from_fragment()
+
+    text = document |> LazyHTML.query(".request-decision") |> LazyHTML.text() |> words()
+    assert text =~ "an answer that can use tools"
+    refute text =~ "a quick answer, no investigation"
+  end
+
   defp render_request(kind, phase, sections),
     do: render_component(&EpisodeRequest.render/1, request: request(kind, phase, sections))
 

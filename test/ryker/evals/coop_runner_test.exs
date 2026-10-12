@@ -50,15 +50,17 @@ defmodule Ryker.Evals.CoopRunnerTest do
       call(client, :close_session, &FakeCoopAPI.close_session(&1, session_id, key, revision))
     end
 
-    def plan_discard({fake, _faults}, session_id, key, revision, accept_dirty, accept_unmerged) do
-      FakeCoopAPI.plan_discard(
-        fake,
-        session_id,
-        key,
-        revision,
-        accept_dirty,
-        accept_unmerged
-      )
+    def plan_discard(client, session_id, key, revision, accept_dirty, accept_unmerged) do
+      call(client, :plan_discard, fn fake ->
+        FakeCoopAPI.plan_discard(
+          fake,
+          session_id,
+          key,
+          revision,
+          accept_dirty,
+          accept_unmerged
+        )
+      end)
     end
 
     def discard_session({fake, _faults}, session_id, key, plan_operation_id),
@@ -70,8 +72,83 @@ defmodule Ryker.Evals.CoopRunnerTest do
         {:return, result} -> result
         {:raise, message} -> raise message
         {:throw, reason} -> throw(reason)
+        {:transform, transform} -> transform.(fallback.(fake))
       end
     end
+  end
+
+  test "a failed submission releases its verified empty evaluation session" do
+    # A paid world run must not leave source-free judge or routing sessions
+    # open just because an adapter failed after creation and before submission.
+    eval = eval_case()
+
+    for failure <- [
+          {:return, {:error, :submission_unavailable}},
+          {:raise, "submission unavailable"},
+          {:throw, :submission_unavailable}
+        ] do
+      {:ok, fake} = FakeCoopAPI.start_link([])
+      runner_options = options({fake, %{submit_turn: failure}}) |> Keyword.put(:api, FaultAPI)
+      result = CoopRunner.run_case(eval, runner_options)
+
+      assert result.status == :failed
+      assert result.decision == nil
+      assert result.session_id == @session_id
+      assert result.cleanup_error == nil
+      assert FakeCoopAPI.state(fake).closed
+      assert FakeCoopAPI.state(fake).discarded
+    end
+  end
+
+  test "execution and cleanup failures remain separately visible without discarding work" do
+    eval = eval_case()
+
+    for field <- ["dirty", "unmerged", "running"] do
+      {:ok, fake} = FakeCoopAPI.start_link([])
+
+      faults = %{
+        submit_turn: {:return, {:error, :submission_unavailable}},
+        plan_discard:
+          {:transform,
+           fn {:ok, response} ->
+             {:ok, put_in(response, ["plan", "plan", "workspace", field], true)}
+           end}
+      }
+
+      runner_options = options({fake, faults}) |> Keyword.put(:api, FaultAPI)
+      result = CoopRunner.run_case(eval, runner_options)
+
+      assert result.reason == :submission_unavailable
+      assert result.status == :failed
+      assert result.decision == nil
+      assert result.cleanup_error != nil
+      assert FakeCoopAPI.state(fake).closed
+      refute FakeCoopAPI.state(fake).discarded
+      assert FakeCoopAPI.state(fake).discard_keys == []
+    end
+  end
+
+  test "a session with crossed identity never authorizes a cleanup mutation" do
+    eval = eval_case()
+    {:ok, fake} = FakeCoopAPI.start_link([])
+
+    faults = %{
+      get_session:
+        {:transform,
+         fn {:ok, session} ->
+           {:ok, Map.put(session, "external_ref", "foreign-session")}
+         end}
+    }
+
+    runner_options = options({fake, faults}) |> Keyword.put(:api, FaultAPI)
+    result = CoopRunner.run_case(eval, runner_options)
+
+    assert result.status == :failed
+    assert result.decision == nil
+    refute FakeCoopAPI.state(fake).closed
+    refute FakeCoopAPI.state(fake).discarded
+    assert FakeCoopAPI.state(fake).close_keys == []
+    assert FakeCoopAPI.state(fake).discard_plan_keys == []
   end
 
   test "runs one judgment through one real Coop-shaped session and scores its verdict" do
@@ -185,7 +262,7 @@ defmodule Ryker.Evals.CoopRunnerTest do
              status: :failed
            } = CoopRunner.run_case(eval, options(fake))
 
-    refute FakeCoopAPI.state(fake).closed
+    assert FakeCoopAPI.state(fake).closed
     assert FakeCoopAPI.state(fake).validations == []
   end
 

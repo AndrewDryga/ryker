@@ -277,10 +277,12 @@ defmodule Ryker.Slack.AppHome do
 
   defp collection_summary(collection) do
     total = Map.get(collection, :total, 0)
+    kind = Map.get(collection, :kind)
+    label = collection_count_label(kind, total)
     page_size = collection_page_size(collection)
     pages = max(ceil(total / page_size), 1)
     page = div(Map.get(collection, :offset, 0), page_size) + 1
-    counted = "#{total} #{collection_label(Map.get(collection, :kind))} in the channels we share"
+    counted = "#{total} #{label} in the channels we share"
 
     if pages > 1, do: "#{counted} · page #{page} of #{pages}", else: "#{counted}."
   end
@@ -292,8 +294,8 @@ defmodule Ryker.Slack.AppHome do
     end
   end
 
-  defp collection_title(:schedules), do: "All active schedules"
-  defp collection_title(:standing_rules), do: "All active standing rules"
+  defp collection_title(:schedules), do: "All schedules"
+  defp collection_title(:standing_rules), do: "All standing rules"
   defp collection_title(:knowledge), do: "All saved knowledge"
   defp collection_title(_kind), do: "Saved items"
 
@@ -302,8 +304,19 @@ defmodule Ryker.Slack.AppHome do
   defp collection_label(:knowledge), do: "saved knowledge items"
   defp collection_label(_kind), do: "saved items"
 
+  defp collection_count_label(:schedules, count),
+    do: Wording.word(count, "schedule", "schedules")
+
+  defp collection_count_label(:standing_rules, count),
+    do: Wording.word(count, "standing rule", "standing rules")
+
+  defp collection_count_label(:knowledge, count),
+    do: Wording.word(count, "saved knowledge item", "saved knowledge items")
+
+  defp collection_count_label(_kind, count), do: Wording.word(count, "saved item", "saved items")
+
   defp collection_empty(:schedules),
-    do: "No active schedules are set up in the channels we share."
+    do: "No schedules are set up in the channels we share."
 
   defp collection_empty(:standing_rules),
     do: "No standing rules are set up in the channels we share."

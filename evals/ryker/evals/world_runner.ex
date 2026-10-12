@@ -31,6 +31,7 @@ defmodule Ryker.Evals.WorldRunner do
     :policy,
     :policy_digest,
     :repository_ref,
+    :router,
     :source_and_action_tools,
     :state_tools_endpoint,
     :state_tools_secret,
@@ -42,6 +43,7 @@ defmodule Ryker.Evals.WorldRunner do
   @spec run(WorldCase.t(), keyword() | map()) :: {:ok, map()} | {:error, term()}
   def run(%WorldCase{} = scenario, options) do
     with {:ok, settings} <- settings(options),
+         :ok <- routing_available(scenario, settings),
          {:ok, delivery_agent} <- Agent.start_link(fn -> WorldInputs.delivery_state(scenario) end) do
       try do
         execute(scenario, settings, delivery_agent)
@@ -140,6 +142,7 @@ defmodule Ryker.Evals.WorldRunner do
       policy: Map.get(options, :policy),
       policy_digest: Map.get(options, :policy_digest),
       repository_ref: Map.get(options, :repository_ref),
+      router: Map.get(options, :router),
       source_and_action_tools: Map.get(options, :source_and_action_tools),
       state_tools_endpoint: Map.get(options, :state_tools_endpoint),
       state_tools_secret: Map.get(options, :state_tools_secret),
@@ -160,6 +163,7 @@ defmodule Ryker.Evals.WorldRunner do
       settings.expectation_mode in [:host_replay, :model_world],
       is_function(settings.id_generator, 0),
       is_nil(settings.judge) or is_function(settings.judge, 2),
+      is_nil(settings.router) or is_function(settings.router, 1),
       reference(settings.policy, :policy) == :ok,
       digest?(settings.policy_digest),
       is_nil(settings.repository_ref) or
@@ -176,6 +180,13 @@ defmodule Ryker.Evals.WorldRunner do
     if Enum.all?(checks),
       do: {:ok, settings},
       else: {:error, {:invalid_world_runner, :options}}
+  end
+
+  defp routing_available(scenario, settings) do
+    if settings.expectation_mode == :model_world and "routing" in scenario.tags and
+         is_nil(settings.router),
+       do: {:error, {:invalid_world_runner, :routing_required}},
+       else: :ok
   end
 
   defp reference(value, field),

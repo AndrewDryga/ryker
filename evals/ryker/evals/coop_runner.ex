@@ -1,7 +1,8 @@
 defmodule Ryker.Evals.CoopRunner do
   @moduledoc """
   Executes isolated one-turn eval cases against a real Coop job: a model-world
-  quality judgment (`Ryker.Evals.WorldJudgeCase`), a recorded routing
+  quality judgment (`Ryker.Evals.WorldJudgeCase`), a current world admission
+  decision (`Ryker.Evals.WorldAdmissionCase`), a recorded routing
   decision asked again (`Ryker.Evals.RoutingReplayCase`), or a recorded
   improvement analysis asked again (`Ryker.Evals.ImprovementReplayCase`).
 
@@ -12,7 +13,8 @@ defmodule Ryker.Evals.CoopRunner do
   the case, never on explanatory prose.
   """
   alias Ryker.Crypto
-  alias Ryker.Evals.{ImprovementReplayCase, Job, RoutingReplayCase, WorldJudgeCase}
+  alias Ryker.Evals.{ImprovementReplayCase, Job, RoutingReplayCase}
+  alias Ryker.Evals.{WorldAdmissionCase, WorldJudgeCase}
   alias Ryker.Reference
   alias Ryker.Retention.Plan
 
@@ -30,8 +32,12 @@ defmodule Ryker.Evals.CoopRunner do
     :sleep
   ]
 
-  @type eval_case :: WorldJudgeCase.t() | RoutingReplayCase.t() | ImprovementReplayCase.t()
-  @cases [WorldJudgeCase, RoutingReplayCase, ImprovementReplayCase]
+  @type eval_case ::
+          WorldJudgeCase.t()
+          | WorldAdmissionCase.t()
+          | RoutingReplayCase.t()
+          | ImprovementReplayCase.t()
+  @cases [WorldJudgeCase, WorldAdmissionCase, RoutingReplayCase, ImprovementReplayCase]
 
   @spec run([eval_case()], keyword() | map()) :: {:ok, map()} | {:error, term()}
   def run(cases, options) when is_list(cases) do
@@ -76,17 +82,8 @@ defmodule Ryker.Evals.CoopRunner do
 
     with :ok <- reference(run_ref, :run_ref),
          :ok <- reference(external_ref, :external_ref),
-         {:ok, session} <- create_session(create_key, external_ref, settings),
-         {:ok, turn} <- submit_turn(namespace, run_ref, session, eval, settings),
-         {:ok, turn, candidate} <- await_candidate(session, turn, settings),
-         {:ok, result} <- judge_candidate(eval, run_ref, session, turn, candidate, settings),
-         :ok <- close_session(namespace, run_ref, session, settings),
-         :ok <- discard_clean_session(namespace, run_ref, session, settings) do
-      Map.merge(result, %{
-        eval_id: eval.eval_id,
-        session_id: session["id"],
-        turn_id: turn["id"]
-      })
+         {:ok, session} <- create_session(create_key, external_ref, settings) do
+      execute_owned_session(eval, namespace, run_ref, session, settings)
     else
       {:error, reason} -> failed(eval, reason)
     end
@@ -94,6 +91,62 @@ defmodule Ryker.Evals.CoopRunner do
     error -> failed(eval, {:eval_runner_exception, Exception.message(error)})
   catch
     kind, reason -> failed(eval, {:eval_runner_caught, kind, inspect(reason)})
+  end
+
+  defp execute_owned_session(eval, namespace, run_ref, session, settings) do
+    result =
+      case safely(fn -> submit_turn(namespace, run_ref, session, eval, settings) end) do
+        {:ok, turn} ->
+          execute_owned_turn(eval, run_ref, session, turn, settings)
+
+        {:error, reason} ->
+          failed(eval, reason)
+      end
+
+    # Creation proved ownership and the source-free policy. Recheck both at
+    # each normal cleanup boundary even when execution failed. Never force a
+    # running turn closed or accept dirty/unmerged workspace loss.
+    cleanup =
+      safely(fn ->
+        with :ok <- close_session(namespace, run_ref, session, settings),
+             do: discard_clean_session(namespace, run_ref, session, settings)
+      end)
+
+    result
+    |> Map.merge(%{eval_id: eval.eval_id, session_id: session["id"]})
+    |> finish_cleanup(cleanup)
+  end
+
+  defp execute_owned_turn(eval, run_ref, session, turn, settings) do
+    result =
+      safely(fn ->
+        with {:ok, current_turn, candidate} <- await_candidate(session, turn, settings),
+             do: judge_candidate(eval, run_ref, session, current_turn, candidate, settings)
+      end)
+
+    case result do
+      {:ok, judged} -> Map.put(judged, :turn_id, turn["id"])
+      {:error, reason} -> Map.put(failed(eval, reason), :turn_id, turn["id"])
+    end
+  end
+
+  defp finish_cleanup(result, :ok), do: Map.put(result, :cleanup_error, nil)
+
+  defp finish_cleanup(result, {:error, reason}) do
+    result
+    |> Map.put(:accepted_decision, result.decision)
+    |> Map.put(:decision, nil)
+    |> Map.put(:reason, if(result.status == :passed, do: reason, else: result.reason))
+    |> Map.put(:cleanup_error, reason)
+    |> Map.put(:status, :failed)
+  end
+
+  defp safely(operation) do
+    operation.()
+  rescue
+    error -> {:error, {:eval_runner_exception, Exception.message(error)}}
+  catch
+    kind, reason -> {:error, {:eval_runner_caught, kind, inspect(reason)}}
   end
 
   defp create_session(key, external_ref, settings) do

@@ -3,8 +3,8 @@ defmodule Ryker.Evals.WorldJudgeCase do
   Bounded quality judgment for one completed model-world run, with no controller tools.
 
   Hard safety and trajectory assertions are evaluated before this case exists.
-  The judge can only score the human-language rubric; it cannot override a host
-  failure or invent source evidence.
+  The judge scores the quality rubric against delivered language and trusted
+  host evidence; it cannot override a host failure or invent source evidence.
   """
   alias Ryker.CanonicalJSON
   alias Ryker.Evals.WorldCase
@@ -37,8 +37,9 @@ defmodule Ryker.Evals.WorldJudgeCase do
     prompt_document = %{
       "evidence" => evidence(scenario, report),
       "instructions" => [
-        "Judge only the delivered human-language result against each rubric criterion.",
-        "Treat trusted source events, source calls, state calls, and durable records as the complete evidence boundary.",
+        "Judge the delivered result against each rubric criterion using the trusted evidence, not claims in the reply alone.",
+        "Treat trusted source events, source calls, state calls, durable records, and per-input routing custody as the complete evidence boundary.",
+        "For joining or separation criteria, use the committed episode and session identities, routing decision, and input provenance. Separate-sounding replies do not prove separate ownership. model_admission records a model's accepted route; forced_host_scenario records harness routing, not a model routing decision.",
         "Input clocks separate historical source dates from simulated host receipt and wakeup times. Judge source chronology using original source dates; shifted receipt times do not date a deployment or establish present-day health.",
         "Do not override host safety or trajectory checks and do not reward unsupported claims.",
         "Return exactly one criterion result for every zero-based rubric index."
@@ -90,17 +91,38 @@ defmodule Ryker.Evals.WorldJudgeCase do
     do: {:reject, ["Return one valid quality judgment JSON object."]}
 
   defp evidence(%WorldCase{} = scenario, report) do
+    clocks = input_clocks(report)
+    inputs = Enum.filter(scenario.events, &(&1["kind"] == "input"))
+    calls = state_calls(report)
+    routing = routing_evidence(report)
+
     %{
       "deliveries" => sanitize(report[:deliveries]),
       "records" => sanitize(report[:records]),
-      "input_clocks" => sanitize(input_clocks(report)),
+      "input_clocks" => sanitize(clocks),
       # The events the run was driven by: a recorded host correction is provenance of
       # the harvested run, not something this run did (2026-10-04 review).
-      "source_events" => sanitize(Enum.filter(scenario.events, &(&1["kind"] == "input"))),
+      "source_events" => sanitize(inputs),
       "source_calls" => sanitize(report[:source_calls]),
-      "state_calls" => sanitize(state_calls(report))
+      "state_calls" => sanitize(calls),
+      "routing" => sanitize(routing)
     }
   end
+
+  defp routing_evidence(%{runtime: %{turns: turns}}) do
+    Enum.map(turns, fn turn ->
+      Map.take(turn, [
+        :episode_id,
+        :session_id,
+        :turn_id,
+        :input_clock,
+        :input_provenance,
+        :routing
+      ])
+    end)
+  end
+
+  defp routing_evidence(_report), do: []
 
   defp input_clocks(%{runtime: %{turns: turns}}), do: Enum.map(turns, & &1.input_clock)
   defp input_clocks(_report), do: []

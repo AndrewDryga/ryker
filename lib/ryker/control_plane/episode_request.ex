@@ -679,7 +679,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     }
   end
 
-  defp work_meaning("conversational"), do: "a quick answer, no investigation"
+  defp work_meaning("conversational"), do: "an answer that can use tools"
   defp work_meaning("standard"), do: "an investigation with tools"
   defp work_meaning("deep"), do: "a deeper investigation"
   # A kind this viewer does not know is still the decision it recorded.

@@ -52,7 +52,8 @@ defmodule Mix.Tasks.Ryker.Eval do
   alias Ryker.Evals.{CoopRunner, ImprovementReplay, Job, RoutingReplay, WorldCase, WorldCassette}
   alias Ryker.Evals.{PrivateFile, SessionCleanup}
   alias Ryker.Evals.Runtime, as: EvalRuntime
-  alias Ryker.Evals.{WorldCoverage, WorldDatabase, WorldJudgeCase, WorldReport, WorldRunner}
+  alias Ryker.Evals.{WorldAdmissionCase, WorldCoverage, WorldDatabase}
+  alias Ryker.Evals.{WorldJudgeCase, WorldReport, WorldRunner}
   alias Ryker.Evals.{WorldSource, WorldSuite, WorldTools}
   alias Ryker.Repo
 
@@ -544,6 +545,8 @@ defmodule Mix.Tasks.Ryker.Eval do
   end
 
   defp run_world_case(scenario, runtime, policy, judge_policy, eval_client, observation) do
+    router = world_router(scenario, eval_client, policy)
+
     with {:ok, policy, repository_ref} <- world_source(scenario, policy, eval_client),
          {:ok, cassette} <- WorldCassette.start_link(scenario),
          {:ok, gateway} <- start_world_gateway(runtime, scenario, cassette) do
@@ -561,6 +564,7 @@ defmodule Mix.Tasks.Ryker.Eval do
           policy: policy.name,
           policy_digest: policy.digest,
           repository_ref: repository_ref,
+          router: router,
           source_and_action_tools: gateway.source_and_action_tools,
           state_tools_endpoint: runtime.state_tools_endpoint,
           state_tools_secret: runtime.state_tools_secret,
@@ -571,6 +575,23 @@ defmodule Mix.Tasks.Ryker.Eval do
       after
         Supervisor.stop(gateway.supervisor)
         GenServer.stop(cassette)
+      end
+    end
+  end
+
+  defp world_router(scenario, eval_client, policy) do
+    if "routing" in scenario.tags,
+      do: &world_admission(&1, eval_client, policy)
+  end
+
+  defp world_admission(context, eval_client, policy) do
+    with {:ok, admission} <- WorldAdmissionCase.new(context) do
+      case CoopRunner.run_case(admission, client: eval_client, job: policy) do
+        %{status: :passed, decision: %{} = document} ->
+          Ryker.Admission.Decision.parse(document)
+
+        result ->
+          {:error, {:world_eval_admission, result}}
       end
     end
   end

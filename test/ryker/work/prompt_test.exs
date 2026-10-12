@@ -2,6 +2,38 @@ defmodule Ryker.Work.PromptTest do
   use ExUnit.Case, async: true
   alias Ryker.Work.Prompt
 
+  test "operational answers lead with material problems and carry the evidence a person needs" do
+    # Four full-world judgments rejected reassuring openings, comparison-only
+    # recaps, count-only environment choices and stale-looking recurring promises.
+    instructions = normalized_instructions()
+    assert instructions =~ "Lead with the most consequential verified problem"
+    assert instructions =~ "An application comparison link is not a recap"
+
+    assert instructions =~
+             "each grouped choice at least one real candidate name and exact identifier"
+
+    assert instructions =~ "gathering fresh observations on each run"
+  end
+
+  test "a source watch is checked against raw content before creating its immutable wait" do
+    instructions = normalized_instructions()
+    assert instructions =~ "match uses only the raw item.content.content payload"
+    assert instructions =~ "do not put actor in match unless the raw payload itself contains it"
+    assert instructions =~ "a different matcher is not an amendment to an already-created wait"
+  end
+
+  test "Terraform source watches never require a bot absent from the raw payload" do
+    # Both eval lanes created an immutable Terraform wait containing an envelope
+    # actor absent from the recorded raw payload; the later corrected wait could
+    # not amend it. Vendor-specific guidance must agree with the generic rule.
+    instructions = normalized_instructions()
+
+    refute instructions =~ "keep the exact run identity and bot in the source_event matcher"
+    assert instructions =~ "keep the exact run identity from the raw payload"
+    assert instructions =~ "Include a bot field only if it exists in that raw payload"
+    assert instructions =~ "never copy an envelope actor into the matcher"
+  end
+
   test "the generic tool example is a call its advertised schema accepts" do
     # The live prompt taught list_automations a relationship field it never accepted
     # (manual qualification, 2026-10-11). An example must not teach a failed call.

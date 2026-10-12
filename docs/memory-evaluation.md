@@ -199,6 +199,26 @@ answer, a tool result or a Slack receipt. The world runner joins the channels a 
 inputs arrive in as ordinary non-private, non-shared channels; correlation reaches nothing the
 scenario did not declare.
 
+In model-world runs, these two `routing`-tagged scenarios use today's real
+Admission prompt, source-specific response schema and `Admission.validate`;
+the isolated candidate or baseline lane model chooses the route. Each routing
+decision runs in a source-free, read-only Coop job with no controller or project
+tools, then closes and discards only its verified clean session. The report names
+this mode `model_admission`; missing routing configuration fails closed. No
+expected route is injected into the model input. Other Work scenarios deliberately
+retain `forced_host_scenario`, including scheduled exact-wait wakeups. These cases
+qualify the selected eval lane's routing behavior, not the installation's separate
+routing model or real platform publishing. Routing replay remains the broader
+recorded-context check for admission prompt/contract changes.
+
+The quality judge receives a bounded projection of actual per-input routing,
+committed episode/session/turn identities, source provenance and clocks. Joining
+and separation criteria are judged against that custody, not separate-sounding
+replies alone. The projection preserves `model_admission` versus
+`forced_host_scenario`; it does not include model submissions or inject the
+expected route. Hard host checks remain authoritative and the rubric and pass
+thresholds are unchanged.
+
 The world scenarios pin the production Ryker tool schemas separately from their recorded
 external tool world. When a host tool schema changes, refresh only that generated portion:
 

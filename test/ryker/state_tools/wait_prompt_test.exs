@@ -66,4 +66,20 @@ defmodule Ryker.StateTools.WaitPromptTest do
     assert description =~ "within the raw payload"
     assert trigger["properties"]["source_kind"]["description"] =~ "item.content.source.kind"
   end
+
+  test "envelope actor metadata cannot be invented inside a raw-payload matcher", %{tool: tool} do
+    # A full-world Terraform run invented actor inside content, then tried
+    # changing the durable wait. The conflicting second call did not replace it.
+    trigger =
+      Enum.find(
+        tool["inputSchema"]["properties"]["trigger"]["oneOf"],
+        &Map.has_key?(&1["properties"], "source_kind")
+      )
+
+    assert trigger["properties"]["match"]["description"] =~
+             "Actor metadata belongs to the envelope"
+
+    assert tool["description"] =~ "Choose the matcher before the first call"
+    assert tool["description"] =~ "does not amend the existing wait"
+  end
 end

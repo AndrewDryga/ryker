@@ -187,7 +187,8 @@ defmodule Ryker.Evals.WorldDriver do
              lease_ref: lease_ref,
              now: WorldInputs.max_datetime(input.occurred_at, now)
            ),
-         {:ok, decision, waiting_event} <- world_decision(context, expected_episode_id, input),
+         {:ok, decision, waiting_event, routing_mode} <-
+           admission_decision(context, expected_episode_id, input, settings.router),
          {:ok, result} <-
            Admission.commit(
              context,
@@ -200,11 +201,43 @@ defmodule Ryker.Evals.WorldDriver do
                repository_ref: settings.repository_ref
              }
            ),
-         :ok <- ensure_world_wait_resumed(waiting_event, result.episode, input) do
-      {:ok, %{episode: result.episode, routing: routing_evidence(decision)}}
+         :ok <- ensure_world_wait_resumed(waiting_event, result.episode, input),
+         :ok <- work_admission(result.episode, decision, routing_mode) do
+      {:ok, %{episode: result.episode, routing: routing_evidence(decision, routing_mode)}}
     else
       {:error, reason} -> {:error, reason}
       _invalid -> {:error, {:invalid_world_runner, :admission}}
+    end
+  end
+
+  defp work_admission(%Episode{}, _decision, _routing_mode), do: :ok
+
+  defp work_admission(nil, decision, routing_mode) do
+    {:error,
+     {:world_eval_failed, {:admission_without_work, routing_evidence(decision, routing_mode)}}}
+  end
+
+  defp admission_decision(context, expected_episode_id, input, nil) do
+    with {:ok, decision, waiting_event} <- world_decision(context, expected_episode_id, input),
+         do: {:ok, decision, waiting_event, "forced_host_scenario"}
+  end
+
+  defp admission_decision(context, _expected_episode_id, input, router) do
+    with {:ok, %Decision{} = decision} <- router.(context),
+         {:ok, %{candidate: candidate, decision: decision}} <-
+           Admission.validate(context, decision) do
+      waiting_event =
+        if decision.action == :continue_episode and candidate.episode.state == :waiting_for_event do
+          %{
+            matches?: Records.user_resumable_wait?(candidate.episode.owner_ref, input),
+            ref: candidate.episode.owner_ref
+          }
+        end
+
+      {:ok, decision, waiting_event, "model_admission"}
+    else
+      {:error, reason} -> {:error, reason}
+      _invalid -> {:error, {:invalid_world_runner, :router_decision}}
     end
   end
 
@@ -250,16 +283,17 @@ defmodule Ryker.Evals.WorldDriver do
   defp world_decision(_context, _expected_episode_id, _input),
     do: {:error, {:invalid_world_runner, :admission_context}}
 
-  defp routing_evidence(%Decision{} = decision) do
+  defp routing_evidence(%Decision{} = decision, mode) do
     %{
       action: Atom.to_string(decision.action),
-      mode: "forced_host_scenario",
+      decision: Decision.document(decision),
+      mode: mode,
       reason: decision.reason,
       relation: Atom.to_string(decision.relation)
     }
   end
 
-  defp ensure_world_wait_resumed(nil, %Episode{}, _input), do: :ok
+  defp ensure_world_wait_resumed(nil, _episode, _input), do: :ok
 
   defp ensure_world_wait_resumed(%{matches?: false, ref: wait_ref}, %Episode{} = episode, input) do
     if episode.state == :waiting_for_event and episode.owner_ref == wait_ref do

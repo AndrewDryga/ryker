@@ -23,18 +23,20 @@ defmodule Ryker.Evals.WorldEvidence do
   def report_data(scenario, executions, delivery_agent, settings, skipped) do
     execution = List.last(executions)
     episode_id = if execution, do: execution.episode.id
+    episode_ids = executions |> Enum.map(& &1.episode.id) |> Enum.uniq()
+    state_call_evidence = Enum.flat_map(episode_ids, &state_calls/1)
 
     %{
       deliveries: delivery_agent |> Agent.get(&delivery_attempts/1) |> Enum.map(&delivery/1),
       episode_id: episode_id,
       failures: [],
       quality: %{status: :unrun},
-      record_history: if(episode_id, do: record_history(episode_id), else: []),
-      records: if(episode_id, do: Records.retained_records(episode_id), else: []),
+      record_history: record_history(episode_ids),
+      records: Enum.flat_map(episode_ids, &Records.retained_records/1),
       runtime:
         scenario
         |> runtime_evidence(executions, settings, skipped)
-        |> Map.put(:state_calls, if(episode_id, do: state_calls(episode_id), else: [])),
+        |> Map.put(:state_calls, state_call_evidence),
       scenario_id: scenario.id,
       source_calls: if(settings.cassette, do: WorldCassette.calls(settings.cassette), else: []),
       status: :unrun,
@@ -64,13 +66,18 @@ defmodule Ryker.Evals.WorldEvidence do
   def retain_failure_report({:error, reason}, scenario, identity, settings, agent) do
     # Snapshot before cleanup can cancel the wait. Only turns with a remote turn
     # receipt count as model execution; preparation or failed authority checks do not.
-    first_event_ref = "world-event:#{scenario.id}:#{identity}:1"
+    event_refs =
+      scenario
+      |> WorldInputs.scenario_inputs()
+      |> Enum.with_index(1)
+      |> Enum.map(fn {_event, index} -> "world-event:#{scenario.id}:#{identity}:#{index}" end)
 
     executions =
       from(turn in Turn,
         join: input in Entry,
-        on: input.episode_id == turn.episode_id and input.event_ref == ^first_event_ref,
+        on: input.episode_id == turn.episode_id and input.event_ref in ^event_refs,
         where: not is_nil(turn.coop_turn_id),
+        distinct: true,
         order_by: [asc: turn.inserted_at, asc: turn.id],
         preload: [:episode, :session]
       )
@@ -90,8 +97,14 @@ defmodule Ryker.Evals.WorldEvidence do
   # A judge session that never decided failed for the harness, not the model:
   # read as a rubric failure, it set no execution_error and a judge outage
   # kept spending every remaining case (2026-10-04 review).
-  def apply_judgment({:ok, %{decision: nil} = judgment}, report),
-    do: execution_failure(report, {:world_eval_judge, Map.get(judgment, :reason)})
+  def apply_judgment({:ok, %{decision: nil} = judgment}, report) do
+    report =
+      if judgment[:cleanup_error],
+        do: Map.put(report, :cleanup_error, {:world_eval_judge, judgment.cleanup_error}),
+        else: report
+
+    execution_failure(report, {:world_eval_judge, Map.get(judgment, :reason)})
+  end
 
   def apply_judgment({:ok, %{decision: decision, status: status} = judgment}, report)
       when status in [:passed, :failed] do
@@ -153,22 +166,44 @@ defmodule Ryker.Evals.WorldEvidence do
 
   defp execution_failure(report, reason) do
     report =
+      case reason do
+        {:world_eval_admission, %{cleanup_error: cleanup}} when not is_nil(cleanup) ->
+          Map.put(report, :cleanup_error, {:world_eval_admission, cleanup})
+
+        _other ->
+          report
+      end
+
+    executed? = report.runtime.turns != [] or admission_executed?(reason)
+
+    report =
       report
       |> Map.put(:execution_error, reason)
-      |> Map.put(:status, if(report.runtime.turns == [], do: :unrun, else: :failed))
+      |> Map.put(:status, if(executed?, do: :failed, else: :unrun))
 
     {:error, {:world_eval_assertions, report}}
   end
 
-  defp record_history(episode_id) do
+  defp admission_executed?({:world_eval_admission, %{turn_id: turn_id}}),
+    do: is_binary(turn_id) and turn_id != ""
+
+  defp admission_executed?(
+         {:world_eval_failed, {:admission_without_work, %{mode: "model_admission"}}}
+       ),
+       do: true
+
+  defp admission_executed?(_reason), do: false
+
+  defp record_history(episode_ids) do
     Repo.all(
       from(record in Record,
-        where: record.episode_id == ^episode_id,
+        where: record.episode_id in ^episode_ids,
         order_by: [asc: record.inserted_at, asc: record.id]
       )
     )
     |> Enum.map(fn record ->
       %{
+        "episode_id" => record.episode_id,
         "kind" => record.kind,
         "payload" => record.payload,
         "ref" => record.ref,
@@ -237,6 +272,7 @@ defmodule Ryker.Evals.WorldEvidence do
     target = Measurement.target_parts(turn.execution_target)
 
     %{
+      episode_id: turn.episode_id,
       cached_input_tokens: turn.usage_cached_input_tokens,
       candidate: candidate_evidence(turn.candidate),
       candidate_attempt: turn.candidate_attempt,

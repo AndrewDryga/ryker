@@ -274,7 +274,7 @@ defmodule Ryker.Slack.AppHomeTest do
     assert length(blocks) < 100
     text = Jason.encode!(blocks)
 
-    assert text =~ "All active schedules"
+    assert text =~ "All schedules"
     assert text =~ "27 schedules in the channels we share"
     assert text =~ "page 2 of 3"
     assert text =~ "Check 11 · Schedule active"
@@ -319,6 +319,46 @@ defmodule Ryker.Slack.AppHomeTest do
     assert "home-collection:schedules:10" in values
     refute "home-collection:schedules:30" in values
     assert Jason.encode!(last) =~ "page 3 of 3"
+  end
+
+  test "complete collections name one item naturally and do not hide paused states behind active headings" do
+    # Native Home showed "1 schedules" above the paused QA reminder, and the
+    # active-only heading contradicted the query's intentionally wider lifecycle.
+    for {kind, heading, singular, plural} <- [
+          {:schedules, "All schedules", "schedule", "schedules"},
+          {:standing_rules, "All standing rules", "standing rule", "standing rules"},
+          {:knowledge, "All saved knowledge", "saved knowledge item", "saved knowledge items"}
+        ],
+        total <- [1, 2] do
+      view =
+        published_collection(%{
+          kind: kind,
+          offset: 0,
+          outcome: :listed,
+          page_size: 10,
+          rows: [%{detail: "Paused", ref: "preview:one", title: "Daily review", url: nil}],
+          total: total
+        })
+
+      text = Jason.encode!(view)
+      label = if total == 1, do: singular, else: plural
+      assert text =~ heading
+      assert text =~ "#{total} #{label} in the channels we share"
+      assert text =~ "Daily review · Paused"
+      refute text =~ "All active"
+    end
+
+    empty =
+      published_collection(%{
+        kind: :schedules,
+        offset: 0,
+        outcome: :empty,
+        page_size: 10,
+        rows: [],
+        total: 0
+      })
+
+    assert Jason.encode!(empty) =~ "No schedules are set up in the channels we share."
   end
 
   # A complete list that could not be read must not read as "you have none":

@@ -140,7 +140,7 @@ defmodule Ryker.StateTools.Catalog do
             "match" =>
               describe(
                 open_object(),
-                "Recursive subset of input.content (the raw event payload), using exact values for stable lifecycle identity (for example run_id). In work.inputs.items or work.current_inputs.items, the raw payload is item.content.content, below the ingress envelope. Do not wrap match in content. If that payload contains run_id and status, match only run_id, not {content: {run_id: ...}}. Preserve any nesting within the raw payload. This is not JSONPath or a query language. Do not match a transient status that the next update will change."
+                "Recursive subset of input.content (the raw event payload), using exact values for stable lifecycle identity (for example run_id). In work.inputs.items or work.current_inputs.items, the raw payload is item.content.content, below the ingress envelope. Do not wrap match in content. If that payload contains run_id and status, match only run_id, not {content: {run_id: ...}}. Actor metadata belongs to the envelope: do not put actor in match unless the raw payload itself contains it. Preserve any nesting within the raw payload. This is not JSONPath or a query language. Do not match a transient status that the next update will change."
               ),
             "poll_after" =>
               describe(
@@ -161,7 +161,7 @@ defmodule Ryker.StateTools.Catalog do
 
     tool(
       "wait_for",
-      "Create one durable wait. For reliable lifecycle notifications use an event-only source_event: set poll_after, deadline, and on_timeout to null, specify source_kind and a nonempty stable identity match. No timer or polling is scheduled; the next matching notification resumes this episode. Add an explicit deadline and timeout action only when a timeout is required; a null poll_after then wakes only at that deadline. A non-null poll_after adds a fallback check at or before deadline. after and at require a future deadline and timeout action.",
+      "Create one durable wait. Choose the matcher before the first call: another call with different arguments does not amend the existing wait. For reliable lifecycle notifications use an event-only source_event: set poll_after, deadline, and on_timeout to null, specify source_kind and a nonempty stable identity match. No timer or polling is scheduled; the next matching notification resumes this episode. Add an explicit deadline and timeout action only when a timeout is required; a null poll_after then wakes only at that deadline. A non-null poll_after adds a fallback check at or before deadline. after and at require a future deadline and timeout action.",
       %{
         "deadline" => JSONSchema.nullable(timestamp()),
         "on_timeout" => JSONSchema.nullable(text(2_000)),

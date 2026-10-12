@@ -110,6 +110,11 @@ defmodule Ryker.Evals.WorldDatabase do
   end
 
   defp cleanup_failure(report, cleanup) do
+    cleanup =
+      if report[:cleanup_error],
+        do: {:world_eval_cleanup_errors, report.cleanup_error, cleanup},
+        else: cleanup
+
     report =
       report
       |> Map.put(:cleanup_error, cleanup)

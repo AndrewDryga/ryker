@@ -1,10 +1,87 @@
 defmodule Ryker.Evals.WorldEvidenceTest do
   use Ryker.DataCase, async: true
   alias Ryker.{Episodes, Repo}
-  alias Ryker.Evals.WorldEvidence
+  alias Ryker.Evals.{WorldDatabase, WorldEvidence}
   alias Ryker.Fixtures.Episodes, as: Fixtures
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Work.{ActivityEvent, Custody}
+
+  test "a routing model turn remains failed execution rather than unpaid unrun work" do
+    report = %{runtime: %{turns: []}, status: :unrun}
+
+    result = %{
+      turn_id: "owned-admission-turn",
+      decision: nil,
+      reason: :routing_failed,
+      cleanup_error: :close_unavailable,
+      status: :failed
+    }
+
+    # The Work lane may never start, but a known remote admission turn still
+    # ran and its separate cleanup diagnostic must reach the matrix summary.
+    scenario =
+      elem(Ryker.Evals.WorldCase.fetch("similar-alert-different-environment-stays-separate"), 1)
+
+    {:ok, agent} = Agent.start_link(fn -> %{deliveries: %{}, order: []} end)
+    on_exit(fn -> if Process.alive?(agent), do: Agent.stop(agent) end)
+
+    assert {:error, {:world_eval_assertions, failed}} =
+             WorldEvidence.retain_failure_report(
+               {:error, {:world_eval_admission, result}},
+               scenario,
+               "failed-admission-test",
+               %{
+                 policy: "world-test",
+                 policy_digest: String.duplicate("a", 64),
+                 cassette: nil,
+                 tool_catalog_sha256: nil,
+                 tool_names: nil
+               },
+               agent
+             )
+
+    assert failed.status == :failed
+    assert failed.cleanup_error == {:world_eval_admission, :close_unavailable}
+    assert failed.runtime.turns == report.runtime.turns
+  end
+
+  test "a failed judge preserves its independent remote cleanup failure" do
+    report = %{runtime: %{turns: [%{id: "completed-world-turn"}]}, status: :unrun}
+
+    judgment = %{
+      decision: nil,
+      reason: :judge_submission_unavailable,
+      status: :failed,
+      cleanup_error: {:eval_workspace_not_discardable, "owned-eval-session"}
+    }
+
+    assert {:error, {:world_eval_assertions, failed}} =
+             WorldEvidence.apply_judgment({:ok, judgment}, report)
+
+    assert failed.status == :failed
+    assert failed.execution_error == {:world_eval_judge, :judge_submission_unavailable}
+    assert failed.cleanup_error == {:world_eval_judge, judgment.cleanup_error}
+  end
+
+  test "later world cleanup cannot erase an earlier judge cleanup failure" do
+    report = %{
+      runtime: %{turns: [%{id: "completed-world-turn"}]},
+      status: :failed,
+      execution_error: {:world_eval_judge, :submission_unavailable},
+      cleanup_error: {:world_eval_judge, :close_unavailable}
+    }
+
+    assert {:error, {:world_eval_assertions, failed}} =
+             WorldDatabase.finish_result(
+               {:error, {:world_eval_assertions, report}},
+               {:error, :world_discard_unavailable}
+             )
+
+    assert failed.execution_error == report.execution_error
+
+    assert failed.cleanup_error ==
+             {:world_eval_cleanup_errors, report.cleanup_error, :world_discard_unavailable}
+  end
 
   test "state-call evidence keeps only tool identity and outcome" do
     claim = claim!()
