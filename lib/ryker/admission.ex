@@ -1018,6 +1018,14 @@ defmodule Ryker.Admission do
           {:ok, transitions}
         end
 
+      # V7, Andrew 2026-10-12: a person writing while the task waits on an
+      # Emisar approval wakes it now, where "never mind" used to wait up to a
+      # day. The approval stays open, since only Emisar answers it: its result
+      # still resumes the task, which waits on it again (`Ryker.Work.Validator`),
+      # and closing it would cancel the run in Emisar (`Ryker.Emisar.Approvals`).
+      person_wakes_approval?(context.input, current) ->
+        resume_wait(context, admit, current)
+
       # A watch beside the watch the task waits on heard its event: the task
       # wakes as it would for its own, and the wait it held stays open for its
       # next turn. Several watches may wait together (`Ryker.Work.Validator`).
@@ -1028,6 +1036,11 @@ defmodule Ryker.Admission do
         {:ok, []}
     end
   end
+
+  defp person_wakes_approval?(%{actor: %{kind: :user}}, current),
+    do: Records.open_approval_wait?(current.id, current.owner_ref)
+
+  defp person_wakes_approval?(_input, _current), do: false
 
   defp resume_wait(context, admit, current) do
     Episodes.apply_batch_in_transaction([

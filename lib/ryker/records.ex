@@ -463,6 +463,24 @@ defmodule Ryker.Records do
     end
   end
 
+  @doc """
+  Whether `wait_ref` is an Emisar approval of `episode_id` still open. Only
+  Emisar answers it; a person's message wakes the task waiting on it and leaves
+  it open (`Ryker.Admission`).
+  """
+  @spec open_approval_wait?(Ecto.UUID.t(), String.t()) :: boolean()
+  def open_approval_wait?(episode_id, wait_ref)
+      when is_binary(episode_id) and is_binary(wait_ref) do
+    episode_id
+    |> Record.Query.by_episode_id()
+    |> Record.Query.open()
+    |> Record.Query.by_ref(wait_ref)
+    |> Record.Query.by_kind("emisar_approval")
+    |> Repo.exists?()
+  end
+
+  def open_approval_wait?(_episode_id, _wait_ref), do: false
+
   @doc "Whether `wait_ref` is an open event wait of `episode_id`: a watch or a timer."
   @spec open_event_wait?(Ecto.UUID.t(), String.t()) :: boolean()
   def open_event_wait?(episode_id, wait_ref) when is_binary(episode_id) and is_binary(wait_ref),
@@ -521,7 +539,8 @@ defmodule Ryker.Records do
   @doc """
   Internal — whether `input` may resume the wait `wait_ref`. A person may
   answer a question or end an event wait; another source only ends an event
-  wait whose matcher it meets; an Emisar approval waits for Emisar.
+  wait whose matcher it meets; only Emisar answers an Emisar approval, though a
+  person's message wakes its task (`open_approval_wait?/2`).
   Admission calls it before it lets a message resume an episode.
   """
   @spec user_resumable_wait?(String.t(), Ingress.Input.t()) :: boolean()

@@ -300,6 +300,62 @@ defmodule Ryker.Admission.CommitTest do
     assert Repo.get!(Ryker.Records.Record, owner.id).status == :open
   end
 
+  # V7, Andrew 2026-10-12: "yes". While a task waited on an Emisar approval, a person's message
+  # in its thread waited with it until the approval was decided or expired, up to a day: "Please
+  # cancel both pending requests" sat unanswered for 3.5 hours in a manual test. The message
+  # wakes the task now. The approval stays open, since only Emisar answers it, so its result
+  # still resumes the task, and closing the wait would have cancelled the run in Emisar.
+  test "a person's message wakes a task waiting on an Emisar approval, which stays open" do
+    original = create_episode!(thread_ref: "1787830000.000001")
+
+    assert {:ok, _} =
+             WorkSessions.pin_episode(original.id, "work-read-only", String.duplicate("a", 64))
+
+    assert {:ok, claim} = Custody.claim_next("approval-waiting", 60, :work)
+    payload = %{"action_id" => "debugging.disk_free", "request_id" => "apr-person-wakes"}
+
+    approval =
+      Repo.insert!(%Ryker.Records.Record{
+        id: Ecto.UUID.generate(),
+        episode_id: original.id,
+        turn_id: claim.turn.id,
+        kind: "emisar_approval",
+        operation_id: "approval-person-wakes",
+        payload: payload,
+        payload_fingerprint: Ryker.CanonicalJSON.digest(payload),
+        ref: "record:emisar-approval:#{Ecto.UUID.generate()}",
+        status: :open
+      })
+
+    %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
+
+    assert {:ok, %{episode: %{state: :waiting_for_event}}} =
+             Episodes.apply(%Command.StartWait{
+               episode_key: original.key,
+               expected_turn_ref: original.owner_ref,
+               kind: :event,
+               wait_ref: approval.ref,
+               occurred_at: now
+             })
+
+    entry =
+      record_input!(
+        content: %{"text" => "Never mind, I don't need the disk check any more."},
+        thread_ref: original.destination_thread_ref,
+        message_ref: "1787832000.005000",
+        occurred_at: DateTime.add(now, 1)
+      )
+
+    context = context!(entry)
+    candidate = candidate!(context, original.id)
+    decision = decision!(:continue_episode, candidate.ref, :same_work)
+    assert {:ok, result} = Admission.commit(context, decision, "person-wakes-approval")
+
+    assert result.episode.state == :working
+    assert result.episode.queued_input_refs == []
+    assert Repo.get!(Ryker.Records.Record, approval.id).status == :open
+  end
+
   for next_actor <- [:app, :bot, :user] do
     @next_actor next_actor
     test "an admitted #{@next_actor} input resumes the same event-only episode" do
