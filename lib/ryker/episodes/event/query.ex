@@ -18,8 +18,8 @@ defmodule Ryker.Episodes.Event.Query do
   def by_kind(queryable, kind), do: where(queryable, [episode_kernel_events: e], e.kind == ^kind)
 
   @doc """
-  The events that started wait `wait_ref`, or confirmed a delivery that went
-  on to wait on it: the moments a later input answers it.
+  The events that started wait `wait_ref`, accepted a silent result that went
+  on to wait on it, or confirmed a delivery that did: the moments a later input answers it.
   """
   def wait_marks(queryable, wait_ref) do
     wait_kinds = [:input_wait_started, :event_wait_started]
@@ -29,6 +29,8 @@ defmodule Ryker.Episodes.Event.Query do
       [episode_kernel_events: e],
       (e.kind in ^wait_kinds and fragment("(?::jsonb)->>'wait_ref' = ?", e.payload, ^wait_ref)) or
         (e.kind == :delivery_confirmed and
+           fragment("(?::jsonb)->'next_wait'->>'ref' = ?", e.payload, ^wait_ref)) or
+        (e.kind == :result_accepted and fragment("(?::jsonb)->>'delivery' = 'none'", e.payload) and
            fragment("(?::jsonb)->'next_wait'->>'ref' = ?", e.payload, ^wait_ref))
     )
   end

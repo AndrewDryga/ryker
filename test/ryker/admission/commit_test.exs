@@ -20,6 +20,86 @@ defmodule Ryker.Admission.CommitTest do
 
   @now ~U[2026-08-27 12:00:00.000000Z]
 
+  for {timing, offset, state, record_status} <- [
+        {:before, -1, :waiting_for_event, :open},
+        {:after, 1, :working, :answered}
+      ] do
+    @silent_wait_timing timing
+    @silent_wait_offset offset
+    @silent_wait_state state
+    @silent_wait_record_status record_status
+
+    test "a human input #{@silent_wait_timing} a silent accepted wait respects its actual start" do
+      # Two paid cross-channel observations continued the right episode but
+      # could not wake its silent wait: wait_marks omitted result_accepted.
+      # The before case prevents consuming an older input after adding that mark.
+      original = create_episode!(thread_ref: "1787830000.009901")
+      policy_digest = String.duplicate("a", 64)
+
+      assert {:ok, session} =
+               WorkSessions.pin_episode(original.id, "work-read-only", policy_digest)
+
+      assert {:ok, claim} = Custody.claim_next("silent-wait", 60, :work)
+      now = Repo.now!()
+      deadline = DateTime.add(now, 600)
+      deadline_at = DateTime.to_iso8601(deadline)
+      token = Records.token(claim.turn)
+
+      assert {:ok, wait} =
+               Records.create(token, "silent-timer", "event_wait", %{
+                 "deadline_at" => deadline_at,
+                 "event_matcher" => %{
+                   "delay" => "5m",
+                   "on_timeout" =>
+                     "Recheck production pgsql-prod-01 connectivity and replication; report any verified change or continued inability to read health.",
+                   "type" => "after"
+                 },
+                 "kind" => "after",
+                 "verification" =>
+                   "Retry monitoring and service health for production pgsql-prod-01 to establish whether primary connections and replication have recovered."
+               })
+
+      assert {:ok, waiting} =
+               Episodes.apply(%Command.AcceptResult{
+                 decision_reason:
+                   "Health and deployment reads yielded no usable observations; retry after five minutes before reporting a verified outcome.",
+                 delivery: :none,
+                 episode_key: original.key,
+                 expected_turn_ref: original.owner_ref,
+                 next_wait: %{deadline_at: deadline, kind: :event, ref: wait.ref},
+                 occurred_at: now,
+                 result_ref: "silent-wait-result"
+               })
+
+      assert waiting.episode.state == :waiting_for_event
+      input_occurred_at = DateTime.add(now, @silent_wait_offset)
+
+      entry =
+        record_input!(
+          event_ref: "Ev-silent-wait-#{@silent_wait_timing}",
+          message_ref: "1787830000.009902",
+          occurred_at: input_occurred_at,
+          thread_ref: original.destination_thread_ref
+        )
+
+      context = context!(entry)
+      candidate = candidate!(context, original.id)
+      decision = decision!(:continue_episode, candidate.ref, :same_work)
+      assert {:ok, result} = Admission.commit(context, decision, "silent-wait-follow-up")
+      assert result.episode.state == @silent_wait_state
+      assert result.episode.id == original.id
+      assert Repo.get!(Ryker.Records.Record, wait.id).status == @silent_wait_record_status
+      assert Repo.get_by!(Session, episode_id: original.id).id == session.id
+
+      expected_events =
+        if @silent_wait_timing == :after,
+          do: [:input_admitted, :wait_resumed],
+          else: [:input_admitted]
+
+      assert Enum.map(result.transitions, & &1.event.kind) == expected_events
+    end
+  end
+
   test "a source notification stays queued while the episode is waiting for a human fact" do
     # Terraform updates must not consume the project-ID question before the
     # operator answers it. The source event still belongs to this investigation.

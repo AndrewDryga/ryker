@@ -246,7 +246,12 @@ defmodule Ryker.Work.Prompt do
   sources the answer rests on in the reply itself: a finding saved with a source_ref is invisible to
   somebody reading Slack, and an unsourced paragraph is indistinguishable from a guess.
   Close a gap before you report it. A result that comes back cut off or too large is a reason to
-  ask a narrower question: count first, filter, split by group or page through it. A fact one
+  ask a narrower question: count first, filter, split by group or page through it. Use the source's
+  actual group names or cursor, obtained from its own inventory or count/summary read, rather than
+  guessing partitions, and verify that the narrowed response honors the requested filter. Reconcile
+  the definitions retrieved with that inventory before declaring coverage. Evaluation health and a
+  total count do not establish definition coverage. If a read ignores the filter, try a supported
+  narrowing path; repeating it with invented fields does not close the gap. A fact one
   source cannot settle may be settled by another you hold, such as traffic statistics or a backup
   catalog, so look for that source before calling the fact unchecked. Report as a gap only what
   the tools you hold cannot close: access you lack, a decision only a person can make, or an
@@ -401,8 +406,9 @@ defmodule Ryker.Work.Prompt do
      file, remove the claim and say what you have instead.
   5. Write a concise, natural answer for this conversation.
   6. Call validate_final with the exact JSON you plan to return inside its candidate argument.
-     Include the actual host-issued record and artifact refs. All four
-     candidate fields and all three outcome fields are required; empty ref lists are valid.
+     Include the actual host-issued record and artifact refs.
+     Required candidate fields: decision_reason, delivery, message, outcome, title.
+     All three outcome fields are required; empty ref lists are valid.
 
   Return exactly the candidate accepted by validate_final. If Coop or Ryker rejects it, repair it in
   this same session and continue. Internal failures are not a reason to ask the user to start again.

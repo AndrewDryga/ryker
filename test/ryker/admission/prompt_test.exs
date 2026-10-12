@@ -6,6 +6,24 @@ defmodule Ryker.Admission.PromptTest do
   alias Ryker.Ingress.Input
   alias Ryker.Slack.Input, as: SlackInput
 
+  test "an explicit human follow-up can establish the same ongoing problem across conversations" do
+    # Both lanes split a production outage from its ten-minute-later human
+    # follow-up: the prompt treated the shared hostname as the only evidence.
+    instructions =
+      lean_context!()
+      |> Prompt.build()
+      |> Map.fetch!("instructions")
+      |> String.replace(~r/\s+/, " ")
+
+    assert instructions =~ "A human follow-up can establish the same ongoing problem"
+    assert instructions =~ "the same affected environment and resource"
+
+    assert instructions =~
+             "A different environment, explicit occurrence, or new onset stays separate"
+
+    assert instructions =~ "Only choose same_work when that relation is offered"
+  end
+
   test "required custom instructions survive fitting before optional conversation knowledge" do
     text = String.duplicate("\"\\\n🌱", 500)
 

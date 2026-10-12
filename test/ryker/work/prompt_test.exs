@@ -1,6 +1,34 @@
 defmodule Ryker.Work.PromptTest do
   use ExUnit.Case, async: true
-  alias Ryker.Work.Prompt
+  alias Ryker.Work.{Final, Prompt}
+
+  test "finishing instructions name exactly the provider's required candidate fields" do
+    # Every Work turn still said four fields after title became a fifth required
+    # field. A valid example must not contradict the final-call checklist.
+    for mode <- [:live, :shadow] do
+      instructions =
+        Prompt.build(%{}, mode)
+        |> Jason.decode!()
+        |> Map.fetch!("instructions")
+        |> String.replace(~r/\s+/, " ")
+
+      assert [_, declared] = Regex.run(~r/Required candidate fields: ([^.]+)\./, instructions)
+      declared_fields = declared |> String.split(", ") |> Enum.sort()
+      required_fields = mode |> Final.json_schema() |> Map.fetch!("required") |> Enum.sort()
+      assert declared_fields == required_fields
+    end
+  end
+
+  test "narrowed source reads must cover the actual inventory rather than guessed groups" do
+    # The full world run left 117 of 148 alert definitions unread after guessed
+    # folder names and a metrics query that returned evaluation health, not groups.
+    instructions = normalized_instructions()
+    assert instructions =~ "Use the source's actual group names or cursor"
+    assert instructions =~ "verify that the narrowed response honors the requested filter"
+
+    assert instructions =~
+             "Evaluation health and a total count do not establish definition coverage"
+  end
 
   test "operational answers lead with material problems and carry the evidence a person needs" do
     # Four full-world judgments rejected reassuring openings, comparison-only
