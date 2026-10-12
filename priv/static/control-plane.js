@@ -9,6 +9,7 @@ import {FilterMenu} from "/assets/filter-menu.mjs"
 import {ElapsedTime} from "/assets/elapsed-time.mjs"
 import {RepositoryPicker} from "/assets/repository-picker.mjs"
 import {copyValueFromEvent} from "/assets/copy-value.mjs"
+import {markOutboundFromEvent} from "/assets/outbound-links.mjs"
 import {setupTooltips} from "/assets/tooltips.mjs"
 import {setupPromptParts} from "/assets/prompt-parts.mjs"
 import {composerDraft} from "/assets/conversation.mjs"
@@ -22,6 +23,7 @@ import {createToggleHook, setupPageHelp, wideQuery} from "/assets/page-help.mjs"
 // so their dropdowns are handled at the document, not inside the hook.
 document.addEventListener("change", applyFilterChange)
 document.addEventListener("click", copyValueFromEvent)
+document.addEventListener("click", event => markOutboundFromEvent(event))
 setupTooltips()
 setupPromptParts()
 setupPageHelp(document, window.matchMedia(wideQuery), () => window.localStorage)

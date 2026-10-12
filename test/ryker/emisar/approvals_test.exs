@@ -159,6 +159,13 @@ defmodule Ryker.Emisar.ApprovalsTest do
              href: "https://emisar.example/app/acme/runs/run-chat-card"
            } = ran.outcome
 
+    # Andrew, 2026-10-12: a link to another site opens in a new window; this
+    # one replaced the console with Emisar's page.
+    html = Ryker.ControlPlane.HTML.lab_message_extras(%{cards: [ran]}) |> IO.iodata_to_binary()
+
+    assert html =~
+             ~s(<a class="lab-card-outcome-link" href="https://emisar.example/app/acme/runs/run-chat-card" target="_blank" rel="noopener noreferrer">Open run</a>)
+
     assert ChatCard.display_status(ran) == nil
   end
 

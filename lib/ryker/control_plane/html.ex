@@ -570,7 +570,9 @@ defmodule Ryker.ControlPlane.HTML do
         do: [
           "<a class=\"lab-card-outcome-link\" href=\"",
           escape(outcome.href),
-          "\">",
+          "\"",
+          outbound(outcome.href),
+          ">",
           escape(outcome.link),
           "</a>"
         ],
@@ -581,6 +583,11 @@ defmodule Ryker.ControlPlane.HTML do
   end
 
   defp lab_card_outcome(nil), do: ""
+
+  # A link to another site opens in a new window, so the console stays where it
+  # was (Andrew, 2026-10-12, of "Open run"); a page of Ryker's own opens in place.
+  defp outbound("http" <> _rest), do: " target=\"_blank\" rel=\"noopener noreferrer\""
+  defp outbound(_path), do: ""
 
   defp lab_card_control(control) do
     if Map.get(control, :method, :post) == :get do
