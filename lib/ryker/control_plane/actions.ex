@@ -874,8 +874,11 @@ defmodule Ryker.ControlPlane.Actions do
 
   # A stopped task's card says who stopped it, by the name their sign-in gave
   # them; the console reached without one has nobody in particular.
+  # Without sign-in the console has one person, the one reading the card, and
+  # "Someone stopped this run" told them about their own click (manual test,
+  # 2026-10-12).
   defp stopper(%{name: name}), do: name
-  defp stopper(nil), do: "Someone"
+  defp stopper(nil), do: "You"
 
   defp lab_publication(record, source_target, expected_status, receipt_kind) do
     case Repo.fetch(Publication.Publication.Query.by_record_id(record.id)) do

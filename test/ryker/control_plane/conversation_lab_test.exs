@@ -1702,6 +1702,11 @@ defmodule Ryker.ControlPlane.ConversationLabTest do
     assert stopping.status == :pending
     assert stopping.turn.status == :cancel_pending
 
+    # Manual test, 2026-10-12: the console without sign-in has one person, and
+    # the card told them "Someone stopped this run" about their own click.
+    assert stopping.turn.cancellation_intent["reason"] ==
+             "You stopped this run. Reply in this conversation to continue."
+
     refute inspect(conversation) =~ candidate
     assert ConversationProjection.fetch("not-a-uuid") == :not_found
   end
