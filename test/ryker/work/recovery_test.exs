@@ -252,7 +252,8 @@ defmodule Ryker.Work.RecoveryTest do
     explanations = [
       {"coop_transport_error", "connection failed while Ryker was saving"},
       {"coop_session_replacement_required", "no longer available on its recorded worker"},
-      {"coop_protocol_error", "did not match what Ryker recorded for the completed run"}
+      {"coop_protocol_error", "did not match what Ryker recorded for the completed run"},
+      {"coop_worker_command_timeout", "did not take one of the steps of saving"}
     ]
 
     for {code, cause} <- explanations do

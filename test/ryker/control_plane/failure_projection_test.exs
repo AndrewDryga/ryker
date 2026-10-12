@@ -534,6 +534,11 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
 
     assert FailureExplanation.explain(row).outlook == :ready
 
+    # A passing failure while saving is tried again on its own (2026-10-12), so a
+    # stopped one no longer says Ryker never retries it.
+    refute inspect(FailureExplanation.explain(row)) =~ "does not retry saving"
+    assert inspect(FailureExplanation.explain(row)) =~ "without running the model again"
+
     for changed <- [%{projected | job_valid: false}, %{projected | setup_current: false}] do
       explanation = FailureExplanation.explain(%{row | worker: changed})
       assert explanation.outlook == :stuck

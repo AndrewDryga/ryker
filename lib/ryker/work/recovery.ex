@@ -283,6 +283,13 @@ defmodule Ryker.Work.Recovery do
      "Recover the original session and its working copy. A new session would lose the finished work."}
   end
 
+  # Its page said "The saved error doesn't say more" for the answer to a
+  # question on PR AndrewDryga/test#24 (2026-10-12).
+  defp completion_failure("coop_worker_command_timeout") do
+    {"The worker did not take one of the steps of saving the finished answer in time.",
+     "Check that the worker is reporting. The step is saved, so finishing the save picks up the same one."}
+  end
+
   defp completion_failure("coop_protocol_error") do
     {"The worker response did not match what Ryker recorded for the completed run.",
      "Check that worker run and settle the difference before continuing."}

@@ -92,6 +92,39 @@ defmodule Ryker.Work.DispatcherTest do
     assert turn.completion_receipt == %{"state" => "completed"}
   end
 
+  # 2026-10-12, a question on draft PR AndrewDryga/test#24: the worker picked a finished
+  # answer's checkpoint up 42 s late, after Ryker had stopped waiting at 30 s. The checkpoint
+  # then succeeded, but the answer was never sent and the task waited for a click. The executor
+  # reports every failure to save a finished answer as work_completion_blocked, a shape the
+  # retry above never saw: its test returned the bare error.
+  test "a finished answer whose saving timed out on the worker is tried again, not stopped" do
+    command = create_episode!("completion-timeout")
+    proof = finished!(command)
+    reason = {:coop_worker_command_timeout, "command:late-checkpoint"}
+
+    assert {:ok, {:deferred, ^reason}} = Dispatcher.run_once(saving_fails(proof, reason))
+
+    turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+    assert turn.status == :pending
+    assert turn.completion_receipt == proof
+    assert turn.last_error_code == "coop_worker_command_timeout"
+
+    # A failure no retry can change still stops at once, and so does a passing one
+    # once the turn's attempts run out.
+    refused = {:coop_protocol_error, :completed_turn_state_changed}
+    other = create_episode!("completion-refused")
+
+    assert {:ok, {:blocked, ^refused}} =
+             Dispatcher.run_once(saving_fails(finished!(other), refused))
+
+    spent = create_episode!("completion-spent")
+
+    assert {:ok, {:blocked, ^reason}} =
+             Dispatcher.run_once(
+               Keyword.put(saving_fails(finished!(spent), reason), :max_attempts, 2)
+             )
+  end
+
   # A person edited or deleted the message after Coop had the turn, or a fact the briefing used
   # was forgotten. Acceptance refused the finished answer, the turn stopped for a person, and
   # "finish saving" refused it again: the answer was stranded (2026-10-04 review). The answer is
@@ -791,6 +824,58 @@ defmodule Ryker.Work.DispatcherTest do
                  "workspace_ref" => "workspace-main"
                }
              })
+  end
+
+  # A turn as the executor holds it once Coop finished it and Ryker accepted
+  # the answer, and the receipt it saves before checkpointing the workspace.
+  defp finished!(command) do
+    {:ok, result} =
+      Result.new(:reply, %{
+        "decision_reason" => nil,
+        "delivery" => "reply",
+        "message" => "Done.",
+        "outcome" => %{"artifact_refs" => [], "record_refs" => [], "state" => "complete"}
+      })
+
+    {:ok, accepted} = ValidationIntent.new(:accept, result)
+    sha256 = String.duplicate("c", 64)
+    remote_id = "coop-turn:#{command.episode_id}"
+    assert {:ok, _claim} = Custody.claim_next("worker:#{command.episode_id}", 60, :work)
+
+    {1, _rows} =
+      Ryker.Repo.update_all(from(saved in Turn, where: saved.episode_id == ^command.episode_id),
+        set: [
+          candidate: ~s({"delivery":"reply","message":"Done."}),
+          candidate_attempt: 1,
+          candidate_sha256: sha256,
+          coop_turn_id: remote_id,
+          lease_expires_at: nil,
+          lease_owner: nil,
+          lease_ref: nil,
+          validation_intent: accepted
+        ]
+      )
+
+    %{
+      "candidate_attempt" => 1,
+      "candidate_sha256" => sha256,
+      "remote_turn_id" => remote_id,
+      "validation_receipt" => "validation:#{command.episode_id}"
+    }
+  end
+
+  # The executor saves the completion receipt, then fails to save the rest, and
+  # reports that as work_completion_blocked (`Executor.Turns.completion_result/2`).
+  defp saving_fails(proof, reason) do
+    record = fn claim ->
+      {:ok, _turn} =
+        Custody.record_completion(claim.episode.id, claim.turn.turn_ref, claim.lease_ref, proof)
+    end
+
+    {:error, {:work_completion_blocked, proof, reason}}
+    |> options()
+    |> Keyword.update!(:executor_options, &Keyword.put(&1, :before_return, record))
+    |> Keyword.merge(retry_base_seconds: 3_600, retry_max_seconds: 3_600)
   end
 
   defp options(result) do

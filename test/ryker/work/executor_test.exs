@@ -980,16 +980,50 @@ defmodule Ryker.Work.ExecutorTest do
     end
   end
 
+  # 2026-10-12, a question on draft PR AndrewDryga/test#24: the worker picked the finished
+  # answer's checkpoint up 42 s late, and the answer waited unsent for a click. A passing
+  # failure while saving is tried again on its own, from the saved answer.
+  test "a passing checkpoint failure saves the finished answer on the next attempt by itself" do
+    {claim, fake} = completed_runner_wait!("checkpoint-retry")
+    FakeAPI.update(fake, &Map.put(&1, :checkpoint_error, {:coop_unavailable, :checkpoint_store}))
+
+    assert Dispatcher.run_claim(claim,
+             worker_ref: "completion-retry",
+             executor_options: options(fake)
+           ) == {:ok, {:deferred, {:coop_unavailable, :checkpoint_store}}}
+
+    waiting = Repo.get!(Ryker.Work.Turn, claim.turn.id)
+    assert waiting.status == :pending
+    assert waiting.cancellation_intent == nil
+    assert waiting.completion_receipt["candidate_sha256"] == claim.turn.candidate_sha256
+    assert FakeAPI.state(fake).session["state"] == "open"
+
+    waiting
+    |> Ecto.Changeset.change(next_attempt_at: DateTime.add(DateTime.utc_now(), -60, :second))
+    |> Repo.update!()
+
+    FakeAPI.update(fake, &Map.put(&1, :checkpoint_error, nil))
+    assert {:ok, resumed} = Custody.claim_next("completion-retry-resume", 60, :work)
+    assert resumed.turn.id == claim.turn.id
+
+    assert {:ok, %{status: :accepted}} = Executor.run(resumed, options(fake))
+    assert FakeAPI.state(fake).submit_count == 0
+    assert FakeAPI.state(fake).create_count == 0
+    assert FakeAPI.state(fake).validations == []
+  end
+
   test "a completed checkpoint failure preserves the answer and retries finalization without model replay" do
     # The generic stop path closed the completed runner session and stranded its
     # patch. Finalization recovery must retain the exact turn, answer and worker.
+    # Its attempts spent, a passing failure stops for a person like any other.
     {claim, fake} = completed_runner_wait!("checkpoint-recovery")
     FakeAPI.update(fake, &Map.put(&1, :checkpoint_error, {:coop_unavailable, :checkpoint_store}))
 
     assert {:ok, {:blocked, _reason}} =
              Dispatcher.run_claim(claim,
                worker_ref: "completion-test",
-               executor_options: options(fake)
+               executor_options: options(fake),
+               max_attempts: 1
              )
 
     blocked = Repo.get!(Ryker.Work.Turn, claim.turn.id)
@@ -1124,7 +1158,8 @@ defmodule Ryker.Work.ExecutorTest do
     assert {:ok, {:blocked, _}} =
              Dispatcher.run_claim(claim,
                worker_ref: "stale-confirmation",
-               executor_options: options(fake)
+               executor_options: options(fake),
+               max_attempts: 1
              )
 
     fingerprint = Repo.get!(Ryker.Work.Turn, claim.turn.id) |> Custody.recovery_fingerprint()
@@ -1134,7 +1169,8 @@ defmodule Ryker.Work.ExecutorTest do
     assert {:ok, {:blocked, _}} =
              Dispatcher.run_claim(next,
                worker_ref: "stale-confirmation",
-               executor_options: options(fake)
+               executor_options: options(fake),
+               max_attempts: 2
              )
 
     assert Custody.retry_blocked(claim.episode.key, fingerprint) ==
@@ -1153,7 +1189,8 @@ defmodule Ryker.Work.ExecutorTest do
     assert {:ok, {:blocked, _}} =
              Dispatcher.run_claim(claim,
                worker_ref: "completion-settings",
-               executor_options: options(fake)
+               executor_options: options(fake),
+               max_attempts: 1
              )
 
     assert {:ok, _} = retry_inspected_work(claim)
@@ -1232,7 +1269,8 @@ defmodule Ryker.Work.ExecutorTest do
       assert {:ok, {:blocked, _}} =
                Dispatcher.run_claim(claim,
                  worker_ref: "completion-fence",
-                 executor_options: options(fake)
+                 executor_options: options(fake),
+                 max_attempts: 1
                )
 
       # The recovery page explains a stopped completion from this code alone;

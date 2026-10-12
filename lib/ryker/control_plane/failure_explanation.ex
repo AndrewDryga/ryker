@@ -924,7 +924,7 @@ defmodule Ryker.ControlPlane.FailureExplanation do
   defp work_happened(_row, _brief), do: "The task stopped before the worker finished it."
 
   defp work_tried(_row, %{kind: :completion}) do
-    "Ryker does not retry saving a finished result on its own: it stops at the first failure so finished work is never redone or lost."
+    "Ryker tries saving a finished answer again by itself while the worker is down or slow, up to eight times, without running the model again. It stopped because a retry could not help or the tries ran out."
   end
 
   defp work_tried(%{stop_code: "work_retry_exhausted" <> _}, _brief) do
