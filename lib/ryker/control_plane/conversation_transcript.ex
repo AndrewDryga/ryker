@@ -476,6 +476,15 @@ defmodule Ryker.ControlPlane.ConversationTranscript do
     ]
   end
 
+  # A decision a person made with a button is kept for learning as Ryker's own message
+  # (`Ryker.Learning.Decisions`). The card the button was on already shows the decision, so the
+  # transcript does not repeat it as a message from an integration.
+  defp input_message(
+         %{source_kind: "system", source_ref: "ryker", content: %{"kind" => "decision_receipt"}},
+         _reactions
+       ),
+       do: []
+
   defp input_message(%{source_kind: source_kind, source_ref: source_ref} = input, _reactions)
        when is_binary(source_kind) and is_binary(source_ref),
        do: [integration_message(input)]

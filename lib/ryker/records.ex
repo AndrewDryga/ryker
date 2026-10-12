@@ -18,6 +18,7 @@ defmodule Ryker.Records do
   alias Ryker.Emisar
   alias Ryker.Episodes
   alias Ryker.Ingress
+  alias Ryker.Learning
   alias Ryker.Maps
   alias Ryker.Records.DerivedContext
   alias Ryker.Records.InvestigationPayload
@@ -1242,6 +1243,7 @@ defmodule Ryker.Records do
 
     with {:ok, confirmed} <- Repo.update(changeset) do
       broadcast_record_updated(confirmed)
+      :ok = Learning.Decisions.offer_confirmed(confirmed, answer.occurred_at)
       {:ok, confirmed}
     end
   end

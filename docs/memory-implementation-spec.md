@@ -321,6 +321,19 @@ release or system (that it looks stuck, down or slow) is worth keeping, attribut
 until a later message settles it: on the recorded starfall-correction case the model had skipped
 the worry as transient noise. Every recorded learning scenario passes with both changes.
 
+### Decisions made without a message
+
+Since 2026-10-12 a person's decision made with a button reaches learning too. Learning reads what
+people said, and a button says nothing: a topic still said a memory offer "remains pending" after
+it was confirmed, and another called a reminder's pause "unverified" after it was paused
+(2026-10-11). Confirming an offer, and pausing, resuming or deleting an automation, now records a
+message from Ryker (`source` system/ryker, content kind `decision_receipt`) in the conversation the
+offer or automation came from, with that conversation's repository and execution mode, so it falls
+in the same learning scope (`Ryker.Learning.Decisions`). It is written after the decision commits
+and never undoes one. Routing settles it as `ignore` without a model and starts no work, and the
+next pass reads it like any message; the instructions say such a receipt settles what earlier
+messages left pending. A receipt is never a person's message, so it teaches no person facts.
+
 ### What people say about themselves
 
 Since 2026-09-30 the same pass also returns `people`: what the author of a message says about

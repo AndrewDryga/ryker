@@ -14,6 +14,7 @@ defmodule Ryker.Schedules do
   alias Ryker.Episodes
   alias Ryker.ErrorDetail
   alias Ryker.Ingress
+  alias Ryker.Learning
   alias Ryker.Lease
   alias Ryker.Maps
   alias Ryker.Operator
@@ -842,14 +843,18 @@ defmodule Ryker.Schedules do
        do: Repo.rollback(:schedule_terminal)
 
   defp update_schedule_status(%Schedule{} = schedule, status) do
-    update_schedule!(schedule, %{
-      lease_expires_at: nil,
-      lease_owner: nil,
-      lease_ref: nil,
-      next_attempt_at: nil,
-      revision: schedule.revision + 1,
-      status: status
-    })
+    updated =
+      update_schedule!(schedule, %{
+        lease_expires_at: nil,
+        lease_owner: nil,
+        lease_ref: nil,
+        next_attempt_at: nil,
+        revision: schedule.revision + 1,
+        status: status
+      })
+
+    :ok = Learning.Decisions.automation_changed(updated, status)
+    updated
   end
 
   defp status_scope(%{conversation_prefix: prefix, transport: transport} = scope) do

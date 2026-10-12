@@ -95,9 +95,25 @@ defmodule Ryker.Admission.Executor do
 
   defp deletion_decision(_context), do: nil
 
+  # A decision a person made with a button reaches learning as Ryker's own
+  # message (`Ryker.Learning.Decisions`). It asks for nothing: no model weighs
+  # it and no work starts.
+  defp decision_receipt(%Context{input: input}) do
+    if Learning.Decisions.receipt?(input) do
+      deletion(
+        :ignore,
+        nil,
+        :unrelated,
+        nil,
+        "Ryker recorded a decision a person made without a message, for learning."
+      )
+    end
+  end
+
   # Some inputs leave a model nothing to decide.
   defp host_decision(context) do
     cond do
+      decision = decision_receipt(context) -> {:decision, decision}
       decision = deletion_decision(context) -> {:deletion, decision}
       decision = replaced_decision(context) -> {:replaced, decision}
       decision = answer_decision(context) -> {:answer, decision}
