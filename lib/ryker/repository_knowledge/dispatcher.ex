@@ -42,6 +42,8 @@ defmodule Ryker.RepositoryKnowledge.Dispatcher do
     "invalid_repository_knowledge_candidate" => :invalid_repository_knowledge_candidate,
     "repository_knowledge_unusable" => :repository_knowledge_unusable,
     "repository_knowledge_provider_failed" => :repository_knowledge_provider_failed,
+    "repository_knowledge_network_unavailable" => :repository_knowledge_network_unavailable,
+    "repository_knowledge_worker_refused" => :repository_knowledge_worker_refused,
     "repository_knowledge_execution_timeout" => :repository_knowledge_execution_timeout,
     "repository_knowledge_session_not_isolated" => :repository_knowledge_session_not_isolated,
     "repository_knowledge_session_unaddressable" => :repository_knowledge_session_unaddressable,

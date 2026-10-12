@@ -615,8 +615,12 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
              }}
         end
 
-      state.fail_first_operation and is_nil(state.failed_operation_key) ->
-        operation = failed_operation(operation_method(key))
+      state.fail_first_operation != false and is_nil(state.failed_operation_key) ->
+        operation =
+          key
+          |> operation_method()
+          |> failed_operation()
+          |> Map.merge(failure_reason(state.fail_first_operation))
 
         {{:ok, operation},
          %{
@@ -693,6 +697,10 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
 
     {{:ok, response}, next}
   end
+
+  # `fail_first_operation: true` fails with a generic reason; a map names the worker's own.
+  defp failure_reason(%{} = reason), do: Map.take(reason, ~w(error_code error_detail))
+  defp failure_reason(_reason), do: %{}
 
   defp failed_operation(method) do
     %{

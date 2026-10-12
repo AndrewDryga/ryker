@@ -759,7 +759,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
       drain(settings(coop))
 
       [failed, written] = runs()
-      assert failed.error_code == "repository_knowledge_provider_failed"
+      assert failed.error_code == "repository_knowledge_worker_refused"
 
       assert %{
                "kind" => "failed_operation",
@@ -769,6 +769,35 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
                failed.stop_receipt
 
       assert written.status == :applied
+    end
+
+    # Eight repository reads in the three weeks to 2026-10-12 ended because the worker refused
+    # them (box image not built, its agent closed, no network setup) and each said "the model
+    # stopped before it answered", which sent the reader to the provider. On 2026-10-11 the
+    # bundled worker refused every read for hours because its restricted network was not set up.
+    test "a worker without the restricted network a read needs says so, not that the model stopped" do
+      ready!()
+
+      coop =
+        coop!([answer_json()],
+          fail_first_operation: %{
+            "error_code" => "network_unavailable",
+            "error_detail" =>
+              "network_unavailable: this host is not set up for filtered runs with this Docker " <>
+                "and these agents — run 'coop net setup' first"
+          }
+        )
+
+      drain(settings(coop))
+
+      [failed, written] = runs()
+      assert failed.error_code == "repository_knowledge_network_unavailable"
+      assert written.status == :applied
+
+      assert RepositoryKnowledge.failure(:repository_knowledge_network_unavailable) =~
+               "the worker is not set up for the restricted network"
+
+      refute RepositoryKnowledge.failure(:repository_knowledge_worker_refused) =~ "model"
     end
 
     test "a session the worker cannot address before the turn is sent is given up" do
@@ -849,7 +878,7 @@ defmodule Ryker.RepositoryKnowledge.LaneTest do
       drain(settings(coop, api: StopAPI))
 
       [failed, written] = runs()
-      assert failed.error_code == "repository_knowledge_provider_failed"
+      assert failed.error_code == "repository_knowledge_worker_refused"
 
       assert %{"kind" => "failed_operation", "phase" => "submit", "method" => "SubmitTurn"} =
                failed.stop_receipt

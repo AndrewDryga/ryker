@@ -843,7 +843,7 @@ defmodule Ryker.RepositoryKnowledge.Custody do
           run
           |> Ecto.Changeset.change(
             status: :rejected,
-            error_code: "repository_knowledge_provider_failed"
+            error_code: failed_operation_code(operation)
           )
           |> Repo.update!()
         else
@@ -864,6 +864,14 @@ defmodule Ryker.RepositoryKnowledge.Custody do
 
   def record_failed_operation(_claim, _run_id, _phase, _operation),
     do: {:error, :repository_knowledge_absence_unconfirmed}
+
+  # The worker refused the session or the turn, so no model ever read the repository. Every
+  # such run read "the model stopped before it answered" until 2026-10-12, which sent the reader
+  # to the provider for what was the worker's own setup.
+  defp failed_operation_code(%{"error_code" => "network_unavailable"}),
+    do: "repository_knowledge_network_unavailable"
+
+  defp failed_operation_code(_operation), do: "repository_knowledge_worker_refused"
 
   @doc """
   Closes a run none of whose turns can still be running, on local proof

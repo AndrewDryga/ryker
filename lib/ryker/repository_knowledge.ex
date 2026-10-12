@@ -129,6 +129,12 @@ defmodule Ryker.RepositoryKnowledge do
             ],
        do: "the worker could not give the model a read-only copy of the repository."
 
+  defp cause(:repository_knowledge_network_unavailable),
+    do: "the worker is not set up for the restricted network a repository read runs in."
+
+  defp cause(:repository_knowledge_worker_refused),
+    do: "the worker did not start the read."
+
   defp cause(_reason), do: "Ryker could not finish reading the repository."
 
   # -- PubSub ------------------------------------------------------------------
