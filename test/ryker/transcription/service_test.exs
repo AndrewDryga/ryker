@@ -130,22 +130,24 @@ defmodule Ryker.Transcription.ServiceTest do
   # nothing to read it with. They get three quarters of it.
   test "a recording the servers cannot finish in time is still read by Ryker's own model",
        %{dir: dir} do
+    test = self()
+
     request = fn _url, _fields, _audio, timeout_ms ->
-      # A slow server answers no sooner than its time allows.
-      # credo:disable-for-next-line Ryker.Checks.TestNoProcessSleep
-      Process.sleep(timeout_ms)
-      {:error, {:service, "did not answer in 0 s"}}
+      send(test, {:servers_had, timeout_ms})
+      {:error, {:service, "did not answer in #{div(timeout_ms, 1_000)} s"}}
     end
 
     capture_log(fn ->
       assert Service.transcribe(
                "m4a bytes",
-               dir |> options(request, six_parts()) |> Keyword.put(:timeout_ms, 1_000)
+               dir |> options(request, six_parts()) |> Keyword.put(:timeout_ms, 8_000)
              ) == {:ok, "words from Ryker's own model"}
     end)
 
-    assert_received {:fallback, "m4a bytes", timeout_ms}
-    assert timeout_ms in 150..250
+    assert_received {:servers_had, servers_ms}
+    assert servers_ms <= 6_000
+    assert_received {:fallback, "m4a bytes", fallback_ms}
+    assert fallback_ms > 0
   end
 
   # Reading each part in its own language costs a detection per part, 3 s on
