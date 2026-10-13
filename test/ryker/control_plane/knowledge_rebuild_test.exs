@@ -1,6 +1,7 @@
 defmodule Ryker.ControlPlane.KnowledgeRebuildTest do
   use Ryker.DataCase, async: false
-  import Phoenix.ConnTest, only: [build_conn: 0, get: 2]
+  import Ryker.ConsoleSignIn, only: [signed_in_conn: 0]
+  import Phoenix.ConnTest, only: [get: 2]
 
   import Phoenix.LiveViewTest,
     only: [form: 2, form: 3, has_element?: 2, has_element?: 3, live: 2, render_submit: 1]
@@ -455,7 +456,7 @@ defmodule Ryker.ControlPlane.KnowledgeRebuildTest do
        }}
     )
 
-    build_conn() |> Map.put(:host, "localhost")
+    signed_in_conn() |> Map.put(:host, "localhost")
   end
 
   defp relearn_value(id) do

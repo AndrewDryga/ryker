@@ -694,7 +694,7 @@ if [[ -n $port6 ]]; then
   seed
   publish_on_ipv6
   out=$(cd "$repo" && sh scripts/compose.sh start 2>&1; echo "exit=$?")
-  check "start finds a console published on IPv6 loopback" "Ryker is ready: http://[::1]:$port6/setup" "$out"
+  check "start finds a console published on IPv6 loopback" "Ryker is ready: http://[::1]:$port6" "$out"
   check "start of a console on IPv6 loopback succeeds" "exit=0" "$out"
   seed
   publish_on_ipv6
@@ -716,7 +716,7 @@ quote_port() {
 seed
 quote_port
 out=$(cd "$repo" && sh scripts/compose.sh start 2>&1; echo "exit=$?")
-check "start reads a quoted port as Compose does" "Ryker is ready: http://127.0.0.1:$port/setup" "$out"
+check "start reads a quoted port as Compose does" "Ryker is ready: http://127.0.0.1:$port" "$out"
 seed
 quote_port
 out=$(run)

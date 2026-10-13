@@ -6,6 +6,7 @@ defmodule Ryker.ControlPlane.ActivityLiveTest do
   the reader, and a view switch that reloaded the page would drop its filters.
   """
   use Ryker.DataCase, async: false
+  import Ryker.ConsoleSignIn, only: [signed_in_conn: 0]
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
@@ -76,7 +77,7 @@ defmodule Ryker.ControlPlane.ActivityLiveTest do
   test "a query parameter that is not text is ignored rather than crashing the page" do
     for query <- ["q[x]=y", "mode[x]=all", "filter[]=running", "page[x]=2"] do
       {:ok, view, _html} =
-        live(build_conn() |> Map.put(:host, "localhost"), "/activity?" <> query)
+        live(signed_in_conn() |> Map.put(:host, "localhost"), "/activity?" <> query)
 
       assert has_element?(view, "#activity-stream")
     end
@@ -85,7 +86,7 @@ defmodule Ryker.ControlPlane.ActivityLiveTest do
   test "activity rows stay a live stream inside the Kit list and its views patch in place", %{
     items: items
   } do
-    {:ok, view, _html} = live(build_conn() |> Map.put(:host, "localhost"), "/")
+    {:ok, view, _html} = live(signed_in_conn() |> Map.put(:host, "localhost"), "/")
     rows = "#activity-stream[phx-update=stream] > article.entity-row.entity-row-link"
     assert has_element?(view, rows <> "#activity-episode-id-1")
 
@@ -131,7 +132,7 @@ defmodule Ryker.ControlPlane.ActivityLiveTest do
 
     {view, _log} =
       ExUnit.CaptureLog.with_log(fn ->
-        {:ok, view, _html} = live(build_conn() |> Map.put(:host, "localhost"), "/")
+        {:ok, view, _html} = live(signed_in_conn() |> Map.put(:host, "localhost"), "/")
         view
       end)
 

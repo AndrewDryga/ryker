@@ -3,9 +3,10 @@ defmodule Ryker.ControlPlane.Server do
   Local control plane. Host-native deployments listen on loopback only; the
   Compose deployment listens on its container interface, publishes only to the
   host loopback address, and admits only its own loopback and the address that
-  published traffic arrives from (`BrowserGuard`). Whoever reaches it that way
-  is the operator; Tailscale Serve and Cloudflare Access add a name. Every form
-  post carries a CSRF token bound to its action.
+  published traffic arrives from (`BrowserGuard`). A tunnel reaches it the same
+  way, so whoever uses it signs in (`SignInGate`, `Ryker.ConsoleAccess`), unless
+  Tailscale Serve or Cloudflare Access names them. Every form post carries a
+  CSRF token bound to its action.
   """
   alias Ryker.Adapter
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection}

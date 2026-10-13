@@ -205,6 +205,24 @@ defmodule Ryker.Release do
     end)
   end
 
+  @doc """
+  Prints a link that signs the host's owner in to the console once, within the hour, and then
+  opens `:return_to`, a page of the console (`Ryker.ConsoleAccess.owner_link/1`). Whoever can
+  run this on the host can already read everything Ryker keeps, so the link grants nothing new.
+  `scripts/compose.sh sign-in` runs it inside the container, and the install prints one for setup.
+  """
+  @spec sign_in_link(keyword()) :: :ok
+  def sign_in_link(options \\ []) do
+    settings = settings!(Keyword.delete(options, :return_to))
+
+    with_repo!(settings, fn _repo ->
+      {:ok, url} = Ryker.ConsoleAccess.owner_link(Keyword.get(options, :return_to))
+      IO.puts(url)
+    end)
+
+    :ok
+  end
+
   defp preflight(configuration) do
     Operator.Preflight.run(
       configuration: configuration,

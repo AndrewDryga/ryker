@@ -5,8 +5,8 @@
 # function it covers.
 #
 # Config.HTTPS is the one ignored check: the console listens on loopback or a
-# container network and is published through Tailscale Serve or Cloudflare
-# Access, which terminate TLS (docs/operations.md); the endpoint never serves
+# container network and is published through Tailscale Serve or a Cloudflare
+# tunnel, which terminate TLS (docs/operations.md); the endpoint never serves
 # HTTPS itself.
 [
   verbose: false,

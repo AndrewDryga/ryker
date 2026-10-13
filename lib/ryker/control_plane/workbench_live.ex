@@ -16,6 +16,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   use Phoenix.LiveView, layout: false
   alias Phoenix.HTML.Safe
   alias Ryker.Backoff
+  alias Ryker.ConsoleAccess
   alias Ryker.ControlPlane.{Activity, ActivityPage, Actor, BehaviorPage, ChannelDetail}
   alias Ryker.ControlPlane.{ChannelPage, Components, ConfigurationGuide, ConsolePeople}
   alias Ryker.ControlPlane.{ConversationLab, ConversationProjection, Endpoint, Environments}
@@ -46,6 +47,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
     ["settings", "retention"] => :retention,
     ["settings", "prices"] => :pricing,
     ["settings", "report"] => :report,
+    ["settings", "access"] => :access,
     ["settings", "advanced"] => :system
   }
 
@@ -74,10 +76,17 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
   @doc false
   def page_events, do: @page_events
 
+  # Nobody uses the console without signing in (`SignInGate`): a page whose session no longer
+  # signs anyone in, ended or signed out in another tab, goes to the sign-in page.
   @impl true
-  def mount(_params, session, socket) do
-    viewer = Viewer.from_session(session)
+  def mount(params, session, socket) do
+    case Viewer.from_session(session) do
+      nil -> {:ok, redirect(socket, to: "/sign-in")}
+      viewer -> mount_signed_in(params, session, viewer, socket)
+    end
+  end
 
+  defp mount_signed_in(_params, session, viewer, socket) do
     # The person's name is kept so every page can name them on what they did;
     # every action the page takes is recorded as them (`actor/1`).
     if connected?(socket) do
@@ -89,6 +98,9 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
      socket
      |> assign(
        viewer: viewer,
+       # The token this browser's sign-in holds, which Sign out ends.
+       session_token: Map.get(session, Viewer.session_key()),
+       access: nil,
        connected_draft_id: connected_draft(socket),
        path: "/",
        location: "/",
@@ -664,6 +676,73 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
 
       {:error, reason} ->
         {:noreply, assign(socket, :settings_error, initialize_error(reason))}
+    end
+  end
+
+  # Signing out ends this browser's session, and every page it has open goes to the sign-in
+  # page with it.
+  def handle_event("sign-out", _params, socket) do
+    {:ok, session_id} = ConsoleAccess.sign_out(socket.assigns.session_token)
+    if session_id, do: disconnect_session(session_id)
+    {:noreply, redirect(socket, to: "/sign-in")}
+  end
+
+  # An invite is shown once, as a secret is: the link signs whoever holds it in.
+  def handle_event("invite-person", %{"invite" => %{"name" => name}}, socket) do
+    case ConsoleAccess.invite(name, actor(socket)) do
+      {:ok, url} ->
+        {:noreply,
+         socket
+         |> load_access()
+         |> assign(
+           setup_notice: nil,
+           setup_failure: nil,
+           setup_reveal: %{
+             label: "Invite link for #{String.trim(name)}. It signs them in once, within 7 days.",
+             value: url
+           }
+         )}
+
+      {:error, :invalid_name} ->
+        {:noreply,
+         assign(socket,
+           setup_failure: "Write the person's name, on one line and up to 120 characters.",
+           setup_reveal: nil
+         )}
+
+      {:error, _reason} ->
+        {:noreply,
+         assign(socket, setup_failure: "Ryker could not make the invite.", setup_reveal: nil)}
+    end
+  end
+
+  def handle_event("withdraw-invite", %{"id" => id}, socket) do
+    notice =
+      case ConsoleAccess.withdraw_invite(id) do
+        :ok -> "Withdrawn. The link no longer signs anyone in."
+        {:error, :not_found} -> "That invite was already used or has expired."
+      end
+
+    {:noreply, socket |> load_access() |> assign(setup_notice: notice, setup_reveal: nil)}
+  end
+
+  # Signing someone out ends their session at once; signing this browser out is Sign out.
+  def handle_event("end-session", %{"id" => id}, socket) do
+    case ConsoleAccess.end_session(id) do
+      :ok ->
+        disconnect_session(id)
+
+        if id == socket.assigns.viewer[:session_id],
+          do: {:noreply, redirect(socket, to: "/sign-in")},
+          else:
+            {:noreply,
+             socket
+             |> load_access()
+             |> assign(setup_notice: "Signed out. That browser needs a new link to come back.")}
+
+      {:error, :not_found} ->
+        {:noreply,
+         socket |> load_access() |> assign(setup_notice: "That browser was already signed out.")}
     end
   end
 
@@ -1761,9 +1840,20 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
           do: options.projection.weekly_report_preview.()
         ),
       running_system:
-        if(section == :system and is_nil(form), do: running_system(options, settings))
+        if(section == :system and is_nil(form), do: running_system(options, settings)),
+      access: if(section == :access, do: access_people())
     )
   end
+
+  # Who is signed in and who is invited, for Settings › Access.
+  defp access_people,
+    do: %{sessions: ConsoleAccess.sessions(), invites: ConsoleAccess.open_invites()}
+
+  defp load_access(socket), do: assign(socket, :access, access_people())
+
+  # Every page a session has open closes its socket, and reconnecting finds nobody signed in.
+  defp disconnect_session(session_id),
+    do: Endpoint.broadcast("console_session:" <> session_id, "disconnect", %{})
 
   defp load_conversation(socket, snapshot, token, options) do
     reset =
@@ -2635,7 +2725,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
       <Navigation.sidebar path={@path} live={true} setup={@setup_progress} viewer={@viewer} />
       <div class="app-workspace">
         <div class="mobile-navigation">
-          <Navigation.mobile path={@path} live={true} setup={@setup_progress} />
+          <Navigation.mobile path={@path} live={true} setup={@setup_progress} viewer={@viewer} />
         </div>
         <div class="connection-offline app-warning" role="status">
           Reconnecting… Your view will update automatically.
@@ -2705,6 +2795,8 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             params={@params}
             preview={@weekly_preview}
             preview_sent={@weekly_sent}
+            access={@access}
+            viewer={@viewer}
           />
           <div :if={@native == :instructions} class="secondary-page instructions-page">
             <Components.page_header

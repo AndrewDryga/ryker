@@ -2,18 +2,20 @@ defmodule Ryker.ControlPlane.ViewerLiveTest do
   @moduledoc """
   Andrew, 2026-10-03: "console shows who is using it, from Tailscale". Served
   through Tailscale Serve, each request names the tailnet user; the sidebar
-  shows them, what they change is recorded as theirs, and a console reached any
-  other way shows nobody and acts as the local console.
+  shows them and what they change is recorded as theirs. Andrew, 2026-10-13:
+  Ryker signs people in itself, and Tailscale only carries the console, so a
+  request Serve did not name asks its sender to sign in.
   """
   use Ryker.DataCase, async: false
   import Phoenix.ConnTest
+  import Ryker.ConsoleSignIn, only: [signed_in_conn: 0]
   import Plug.Conn, only: [put_req_header: 3]
   import Phoenix.LiveViewTest
   alias Ryker.ControlPlane.{Actions, ConsolePeople, Endpoint, Projection, Viewer}
   alias Ryker.{Instructions, Settings}
 
   @endpoint Endpoint
-  @published "ryker.tailnet.example"
+  @published "ryker.tailnet-example.ts.net"
 
   setup do
     start_supervised!(
@@ -51,8 +53,7 @@ defmodule Ryker.ControlPlane.ViewerLiveTest do
 
     assert has_element?(view, ".app-viewer strong", "Zoë Smith")
 
-    {:ok, view, _html} = served() |> live("/environments")
-    refute has_element?(view, ".app-viewer")
+    assert {:error, {:redirect, %{to: "/sign-in"}}} = served() |> live("/environments")
   end
 
   # Pages name a person on what they sent or changed, so the name Tailscale gives them is kept
@@ -89,17 +90,28 @@ defmodule Ryker.ControlPlane.ViewerLiveTest do
   # loopback name never passed through Serve. On mac-server, curl with
   # `Tailscale-User-Login: mallory@example.com` at http://127.0.0.1:4321 was
   # shown as signed in as mallory (2026-10-03).
-  test "a Tailscale header sent to a loopback name names nobody and acts as the local console" do
-    {:ok, view, _html} =
-      build_conn()
-      |> Map.put(:host, "localhost")
-      |> put_req_header("tailscale-user-login", "mallory@example.com")
-      |> put_req_header("tailscale-user-name", "Mallory")
-      |> live("/setup")
+  test "a Tailscale header sent to a loopback name names nobody, who must sign in" do
+    assert {:error, {:redirect, %{to: "/sign-in"}}} =
+             build_conn()
+             |> Map.put(:host, "localhost")
+             |> put_req_header("tailscale-user-login", "mallory@example.com")
+             |> put_req_header("tailscale-user-name", "Mallory")
+             |> live("/setup")
+  end
 
-    refute has_element?(view, ".app-viewer")
-    view |> element("button[phx-click=initialize-settings]") |> render_click()
-    assert Settings.fetch!().installation.saved_by == "control-plane:local"
+  # Serve's headers are not signed, and a Cloudflare tunnel passes on whatever a sender writes.
+  # Published at a name only Cloudflare routes, a request through the tunnel carrying
+  # `Tailscale-User-Login` would sign its sender in as anyone they named (2026-10-13).
+  test "a Tailscale header at a published name Tailscale does not serve names nobody" do
+    request =
+      build_conn()
+      |> Map.put(:host, "ryker.example.com")
+      |> put_req_header("tailscale-user-login", "andrew@example.com")
+
+    assert Viewer.from_conn(request, %{public_host: "ryker.example.com"}) == nil
+
+    assert Viewer.from_conn(%{request | host: @published}, %{public_host: @published}).login ==
+             "andrew@example.com"
   end
 
   # The learning forms post to plain HTTP routes, which read the request itself.
@@ -118,7 +130,7 @@ defmodule Ryker.ControlPlane.ViewerLiveTest do
   # (2026-10-04).
   test "a page without settings in its header reads the settings view once a read" do
     {:ok, _snapshot} = Settings.initialize("control-plane:local")
-    {:ok, view, _html} = served() |> live("/memory/people")
+    {:ok, view, _html} = signed_in_conn() |> Map.put(:host, "localhost") |> live("/memory/people")
 
     sources =
       queries_of(view, fn ->

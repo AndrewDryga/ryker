@@ -4,6 +4,7 @@ defmodule Ryker.ControlPlane.LearningSwitchTest do
   uses it.
   """
   use Ryker.DataCase, async: false
+  import Ryker.ConsoleSignIn, only: [signed_in_conn: 0]
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
   alias Ryker.Config
@@ -40,7 +41,7 @@ defmodule Ryker.ControlPlane.LearningSwitchTest do
     # QA, 2026-09-25: one click turned learning off with no question, and the
     # page's "Learning is on" stayed one step behind the button until a reload,
     # because the line read the running configuration before it had changed.
-    {:ok, view, _html} = live(build_conn() |> Map.put(:host, "localhost"), "/memory/learning")
+    {:ok, view, _html} = live(signed_in_conn() |> Map.put(:host, "localhost"), "/memory/learning")
     refute has_element?(view, ".kit-status-line .state-word", "Learning is off")
 
     # It asks over the page, so the page head never grows (Andrew, 2026-09-27).
@@ -84,7 +85,7 @@ defmodule Ryker.ControlPlane.LearningSwitchTest do
         completed_at: DateTime.utc_now()
       })
 
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
     {:ok, page, _html} = live(conn, "/memory/learning?batch=#{batch.id}")
     refute has_element?(page, ".learning-switch")
 

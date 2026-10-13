@@ -1,7 +1,8 @@
 // Read-only browser acceptance. Screenshots contain local organization data;
 // keep the output private and outside the repository. No writes or model calls.
 // Configured display names can refresh using read-only Slack directory calls.
-// Usage: node scripts/control-plane-visual.cjs http://127.0.0.1:4321 OUTPUT [--filters]
+// Usage: RYKER_SIGN_IN_LINK=$(scripts/compose.sh sign-in) \
+//   node scripts/control-plane-visual.cjs http://127.0.0.1:4321 OUTPUT [--filters]
 // Install Playwright separately, or set RYKER_PLAYWRIGHT_MODULE to its path.
 const { chromium } = require(process.env.RYKER_PLAYWRIGHT_MODULE || 'playwright');
 const fs = require('node:fs/promises');
@@ -9,6 +10,7 @@ const path = require('node:path');
 const assert = require('node:assert/strict');
 const {createCaptureDirectory} = require('./visual-artifacts.cjs');
 const {liveRoutes} = require('./visual-routes.cjs');
+const {signedInState, signOut} = require('./visual-sign-in.cjs');
 
 const origin = new URL(process.argv[2] || 'http://127.0.0.1:4321');
 assert(['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname), 'Loopback only');
@@ -187,8 +189,10 @@ async function discover(page) {
     executablePath: process.env.RYKER_PLAYWRIGHT_EXECUTABLE || undefined
   });
   const report = {origin: origin.origin, capturedAt: new Date().toISOString(), absent: [], captures: []};
+  let storageState;
   try {
-    const discovery = await browser.newPage();
+    storageState = await signedInState(browser, origin);
+    const discovery = await browser.newPage({storageState});
     if (!filtersOnly) report.absent = await discover(discovery);
     await discovery.close();
     const viewports = [
@@ -199,7 +203,7 @@ async function discover(page) {
       {width: 320, height: 720, label: '320', mode: 'minimum', deviceScaleFactor: 1}
     ];
     for (const {width, height, label, mode, deviceScaleFactor} of viewports) {
-      const context = await browser.newContext({viewport: {width, height}, reducedMotion: 'reduce', deviceScaleFactor});
+      const context = await browser.newContext({viewport: {width, height}, reducedMotion: 'reduce', deviceScaleFactor, storageState});
       const page = await context.newPage();
       page.setDefaultTimeout(5000);
       for (const [name, route] of routes) {
@@ -282,6 +286,7 @@ async function discover(page) {
       await context.close();
     }
   } finally {
+    await signOut(browser, origin, storageState);
     await browser.close();
     await fs.writeFile(path.join(output, 'manifest.json'), JSON.stringify(report, null, 2), {mode: 0o600});
   }

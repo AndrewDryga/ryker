@@ -10,6 +10,7 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
   so a page that offers a destination the routes refuse fails here first.
   """
   use Ryker.DataCase, async: false
+  import Ryker.ConsoleSignIn, only: [signed_in_conn: 0]
   import Ecto.Query, only: [from: 2]
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
@@ -261,7 +262,7 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
   end
 
   defp open_live(href) do
-    conn = get(build_conn() |> Map.put(:host, "localhost"), href)
+    conn = get(signed_in_conn() |> Map.put(:host, "localhost"), href)
 
     # The page as it is sent: the test client's rendering drops whitespace a
     # browser lays out.
@@ -304,7 +305,7 @@ defmodule Ryker.ControlPlane.LinkCrawlTest do
   end
 
   defp open_http(href) do
-    conn = get(build_conn() |> Map.put(:host, "localhost"), href)
+    conn = get(signed_in_conn() |> Map.put(:host, "localhost"), href)
 
     case conn.status do
       200 -> {:ok, conn.resp_body |> LazyHTML.from_document() |> links()}

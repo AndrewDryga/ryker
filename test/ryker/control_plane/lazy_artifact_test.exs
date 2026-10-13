@@ -13,6 +13,7 @@ defmodule Ryker.ControlPlane.LazyArtifactTest do
   removes the content, and no reading state may bring it back.
   """
   use Ryker.DataCase, async: true
+  import Ryker.ConsoleSignIn, only: [signed_in_conn: 0]
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
   alias Ryker.CanonicalJSON
@@ -123,7 +124,7 @@ defmodule Ryker.ControlPlane.LazyArtifactTest do
     work = work_with_prompt!("live", String.duplicate("a", 30_000))
     id = prompt_section(work).artifact_id
 
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
     {:ok, view, _html} = live(conn, "/timeline/" <> work.episode.id)
 
     refute render(view) =~ String.duplicate("a", 200)
@@ -144,7 +145,7 @@ defmodule Ryker.ControlPlane.LazyArtifactTest do
     event = tool_call!(work.episode, "call-response", response)
     id = "activity-#{event.id}-output"
 
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
     {:ok, view, _html} = live(conn, "/timeline/" <> work.episode.id)
     assert render(view) =~ ~s(data-artifact="#{id}")
 
@@ -166,7 +167,7 @@ defmodule Ryker.ControlPlane.LazyArtifactTest do
 
   test "an unknown or oversized artifact reference discloses nothing" do
     work = work_with_prompt!("guarded", String.duplicate("a", 30_000))
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
     {:ok, view, _html} = live(conn, "/timeline/" <> work.episode.id)
 
     render_hook(view, "disclose", %{"artifact" => String.duplicate("x", 512)})

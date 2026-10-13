@@ -1,5 +1,6 @@
 defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
   use Ryker.DataCase, async: false
+  import Ryker.ConsoleSignIn, only: [signed_in_conn: 0]
   import Ecto.Query
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
@@ -282,7 +283,7 @@ defmodule Ryker.ControlPlane.SubscriptionProjectionTest do
     )
 
     {:ok, view, _} =
-      live(build_conn() |> Map.put(:host, "localhost"), "/follow-ups?q=run-k9&view=current")
+      live(signed_in_conn() |> Map.put(:host, "localhost"), "/follow-ups?q=run-k9&view=current")
 
     assert has_element?(view, ".entity-name", "An update on Run run-k9CpPp3nWjQrkCMG")
 

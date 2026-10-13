@@ -58,7 +58,7 @@ features:
   slash_commands:
     - command: /ryker
       description: Check Ryker's status and control how it takes part in this channel
-      usage_hint: status | proactive | shadow | assignments | help
+      usage_hint: status | sign-in | proactive | shadow | assignments | help
       should_escape: false
   shortcuts:
     - name: Investigate message

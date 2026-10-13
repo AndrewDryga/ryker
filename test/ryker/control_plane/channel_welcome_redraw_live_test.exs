@@ -13,6 +13,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
   would show.
   """
   use Ryker.DataCase, async: false
+  import Ryker.ConsoleSignIn, only: [signed_in_conn: 0]
   import Ryker.TestHelpers, only: [eventually: 1, eventually: 2]
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
@@ -143,7 +144,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
   # and the page reads Disconnected at once.
   test "Ryker is removed from a channel on its page, after the question", %{agent: agent} do
     {:ok, view, _html} =
-      live(build_conn() |> Map.put(:host, "localhost"), "/channels/#{@workspace}/C456")
+      live(signed_in_conn() |> Map.put(:host, "localhost"), "/channels/#{@workspace}/C456")
 
     assert has_element?(view, "#leave-channel.kit-remove-card", "Leave channel")
     view |> element("#leave-channel button", "Leave channel") |> render_click()
@@ -166,7 +167,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
     Agent.update(running, fn _running -> false end)
 
     {:ok, view, _html} =
-      live(build_conn() |> Map.put(:host, "localhost"), "/channels/#{@workspace}/C456")
+      live(signed_in_conn() |> Map.put(:host, "localhost"), "/channels/#{@workspace}/C456")
 
     view |> element("#leave-channel button", "Leave channel") |> render_click()
     view |> element("#confirm-leave-channel button", "Leave channel") |> render_click()
@@ -178,7 +179,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
 
   test "an environment chosen on the channel's page redraws its welcome in Slack", %{agent: agent} do
     {:ok, view, _html} =
-      live(build_conn() |> Map.put(:host, "localhost"), "/channels/#{@workspace}/C456")
+      live(signed_in_conn() |> Map.put(:host, "localhost"), "/channels/#{@workspace}/C456")
 
     view |> form("#channel-environment", environment: "staging") |> render_change()
 
@@ -210,7 +211,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
   test "how Ryker takes part and what it does with alerts, chosen on the page, reach the welcome",
        %{agent: agent} do
     {:ok, view, _html} =
-      live(build_conn() |> Map.put(:host, "localhost"), "/channels/#{@workspace}/C456")
+      live(signed_in_conn() |> Map.put(:host, "localhost"), "/channels/#{@workspace}/C456")
 
     view |> form("#channel-participation", participation: "proactive") |> render_change()
     assert eventually(fn -> length(FakeSlackAPI.state(agent).updates) == 1 end)
@@ -239,7 +240,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
     Agent.update(slow, fn _fast -> true end)
 
     {:ok, view, _html} =
-      live(build_conn() |> Map.put(:host, "localhost"), "/channels/#{@workspace}/C456")
+      live(signed_in_conn() |> Map.put(:host, "localhost"), "/channels/#{@workspace}/C456")
 
     {elapsed, _html} =
       :timer.tc(
@@ -278,7 +279,7 @@ defmodule Ryker.ControlPlane.ChannelWelcomeRedrawLiveTest do
     Agent.update(running, fn _running -> false end)
 
     {:ok, view, _html} =
-      live(build_conn() |> Map.put(:host, "localhost"), "/channels/#{@workspace}/C456")
+      live(signed_in_conn() |> Map.put(:host, "localhost"), "/channels/#{@workspace}/C456")
 
     view |> form("#channel-environment", environment: "staging") |> render_change()
 

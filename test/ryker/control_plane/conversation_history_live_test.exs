@@ -9,6 +9,7 @@ defmodule Ryker.ControlPlane.ConversationHistoryLiveTest do
   change of conversation resets anything.
   """
   use Ryker.DataCase, async: false
+  import Ryker.ConsoleSignIn, only: [signed_in_conn: 0]
   import Ecto.Query
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
@@ -207,7 +208,7 @@ defmodule Ryker.ControlPlane.ConversationHistoryLiveTest do
   end
 
   defp open(id) do
-    build_conn() |> Map.put(:host, "localhost") |> live("/conversations/#{id}")
+    signed_in_conn() |> Map.put(:host, "localhost") |> live("/conversations/#{id}")
   end
 
   defp load_older(view, id, before \\ :current) do

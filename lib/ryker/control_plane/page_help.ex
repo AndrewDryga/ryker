@@ -75,6 +75,7 @@ defmodule Ryker.ControlPlane.PageHelp do
     {"/settings/retention", :retention},
     {"/settings/prices", :prices},
     {"/settings/report", :report},
+    {"/settings/access", :access},
     {"/settings/advanced", :advanced},
     {"/setup", :setup},
     # A page of one form shares the help of the list it adds to or edits.
@@ -707,6 +708,24 @@ defmodule Ryker.ControlPlane.PageHelp do
       {"Before you turn it on",
        [
          "Invite Ryker to the channel. If Slack refuses a post, it shows on Failures, where Post the report again sends it."
+       ]}
+    ])
+  end
+
+  defp help(:access) do
+    page("How signing in works", [
+      {"Links, not passwords",
+       [
+         "Everyone who opens the console signs in, on this computer too. A link signs one person in once, and that browser stays signed in until 30 days after it was last used.",
+         "Ryker's operators get a link in Slack: they send Ryker /ryker sign-in, or open Ryker's App Home and press Open the console. The link works for 15 minutes."
+       ]},
+      {"Tunnels and sign-in services",
+       [
+         "Cloudflare Tunnel or Tailscale Serve can carry the console to a browser elsewhere. When Cloudflare Access or Tailscale says who someone is, Ryker signs them in without a link."
+       ]},
+      {"When nobody can sign in",
+       [
+         "On the machine Ryker runs on, scripts/compose.sh sign-in prints a link that works for an hour."
        ]}
     ])
   end

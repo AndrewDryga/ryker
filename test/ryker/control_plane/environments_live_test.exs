@@ -6,6 +6,7 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
   person sees what each environment holds and who uses it, and changes it.
   """
   use Ryker.DataCase, async: false
+  import Ryker.ConsoleSignIn, only: [signed_in_conn: 0]
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
   alias Plug.Conn.Query
@@ -293,7 +294,7 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
       |> element("#environment-staging .entity-name a", "Staging")
       |> render_click()
       |> follow_redirect(
-        build_conn() |> Map.put(:host, "localhost"),
+        signed_in_conn() |> Map.put(:host, "localhost"),
         "/environments/staging/edit"
       )
 
@@ -576,7 +577,7 @@ defmodule Ryker.ControlPlane.EnvironmentsLiveTest do
     refute Enum.any?(Settings.fetch!().environments, &(&1.display_name == "Mixed"))
   end
 
-  defp open(path), do: live(build_conn() |> Map.put(:host, "localhost"), path)
+  defp open(path), do: live(signed_in_conn() |> Map.put(:host, "localhost"), path)
 
   # What the browser keeps of the form while its page is away
   # (`settings-draft.mjs`): the revision and saved values it began from, and

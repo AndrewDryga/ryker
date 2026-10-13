@@ -1,24 +1,25 @@
 defmodule Ryker.ControlPlane.ConsolePeople do
   @moduledoc """
-  The people Tailscale Serve or Cloudflare Access named
-  (`Ryker.ControlPlane.Viewer`), by login, with the name it last gave each, so
-  the console names a person on everything they sent or changed. Chat called
-  everyone "You" while Serve said who they were (Andrew, 2026-10-04: "now when
-  we have tailscale auth why not to properly track user everywhere?"). A person
-  is remembered when their page connects (`seen/1`). Access names a person by
-  their email alone.
+  The people signed in to the console (`Ryker.ControlPlane.Viewer`), by login,
+  with the name their sign-in last gave each, so the console names a person on
+  everything they sent or changed. Chat called everyone "You" while Serve said
+  who they were (Andrew, 2026-10-04: "now when we have tailscale auth why not
+  to properly track user everywhere?"). A person is remembered when their page
+  connects (`seen/1`). Access names a person by their email alone; a Slack
+  sign-in by the name Slack shows, and an invite by the name it was given.
 
   `person/1` names whoever is behind any reference the console records for a
-  person, where `<via>` is `tailscale` or `cloudflare`:
+  person, where `<via>` is how they signed in (`slack_operator`, `invite`,
+  `owner`, `tailscale` or `cloudflare`):
 
   - a Chat message's author, `<via>:<login>`;
   - the person a turn is for, or a Chat reaction's,
     `control_plane:user:<via>:<login>`;
   - a change made on a page, `control-plane:<via>:<login>`.
 
-  The console reached any other way names nobody: its references are the same
-  with `local-operator` (or `control-plane:local`) in place of the person, and
-  a page calls it "You", as before.
+  What the console did before anyone signed in names nobody: its references are
+  the same with `local-operator` (or `control-plane:local`) in place of the
+  person, and a page calls it "You".
   """
   alias Ryker.ControlPlane.{Actor, ConsolePerson, PageRead}
   alias Ryker.Repo

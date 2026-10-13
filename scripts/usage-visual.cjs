@@ -1,7 +1,10 @@
 // Read-only acceptance against a running Ryker console, with private screenshots.
+// Usage: RYKER_SIGN_IN_LINK=$(scripts/compose.sh sign-in) \
+//   node scripts/usage-visual.cjs http://127.0.0.1:4321 PRIVATE_OUTPUT_PREFIX
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const {createCaptureDirectory} = require('./visual-artifacts.cjs');
+const {signedInState, signOut} = require('./visual-sign-in.cjs');
 const {chromium} = require(process.env.RYKER_PLAYWRIGHT_MODULE || 'playwright');
 
 (async () => {
@@ -9,9 +12,11 @@ const {chromium} = require(process.env.RYKER_PLAYWRIGHT_MODULE || 'playwright');
   assert(['127.0.0.1', 'localhost', '[::1]'].includes(new URL(origin).hostname));
   const output = await createCaptureDirectory(process.argv[3] || '/tmp/ryker-usage-visual', path.resolve(__dirname, '..'));
   const browser = await chromium.launch({headless: true});
+  let storageState;
   try {
+    storageState = await signedInState(browser, origin);
     for (const width of [1440, 1024, 390]) {
-      const page = await browser.newPage({viewport: {width, height: 1050}, reducedMotion: 'reduce'});
+      const page = await browser.newPage({viewport: {width, height: 1050}, reducedMotion: 'reduce', storageState});
       const errors = [];
       page.on('pageerror', error => errors.push(error.message));
       page.on('console', message => {if (message.type() === 'error') errors.push(message.text());});
@@ -121,6 +126,9 @@ const {chromium} = require(process.env.RYKER_PLAYWRIGHT_MODULE || 'playwright');
       console.log(`Usage ${width}: PASS`);
       await page.close();
     }
-  } finally {await browser.close();}
+  } finally {
+    await signOut(browser, origin, storageState);
+    await browser.close();
+  }
   console.log(`Screenshots: ${output}`);
 })().catch(error => {console.error(error); process.exitCode = 1;});

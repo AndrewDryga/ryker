@@ -3,12 +3,14 @@ defmodule Ryker.ControlPlane.CloudflareViewerLiveTest do
   Andrew, 2026-10-04: two client teams sign in to the second install's console
   with Google through Cloudflare Access, since joining his tailnet would make
   them switch Tailscale accounts back and forth. Published that way, the console
-  names the person Access let in, records what they change as theirs, and turns
-  away a request at that address that did not come through Access.
+  names the person Access let in and records what they change as theirs.
+  Andrew, 2026-10-13: Ryker signs people in itself and Access is not required,
+  so a request Access did not sign signs in as any other does.
   """
   use Ryker.DataCase, async: false
   import Phoenix.ConnTest
-  import Plug.Conn, only: [get_session: 1, put_req_header: 3]
+  import Ryker.ConsoleSignIn, only: [session_token: 0]
+  import Plug.Conn, only: [get_resp_header: 2, get_session: 1, put_req_header: 3]
   import Phoenix.LiveViewTest
   alias Ryker.ControlPlane.{Actions, ConsolePeople, Endpoint, LiveSocket, Projection, Viewer}
   alias Ryker.Settings
@@ -81,9 +83,10 @@ defmodule Ryker.ControlPlane.CloudflareViewerLiveTest do
   end
 
   # Access adds its token to every request it lets through, so a request at the published address
-  # without a valid one came some other way. Tailscale's headers there name nobody: the console
-  # trusts the service it is published through, and only that one.
-  test "a request at the published address without a token Access signed is turned away",
+  # without a valid one came some other way, and names nobody. Tailscale's headers there name
+  # nobody either: the console trusts the service it is published through, and only that one.
+  # Such a request signs in as any other does (Andrew, 2026-10-13: Access is not required).
+  test "a request at the published address without a token Access signed must sign in",
        %{key: key} do
     for conn <- [
           build_conn() |> Map.put(:host, @published),
@@ -99,21 +102,30 @@ defmodule Ryker.ControlPlane.CloudflareViewerLiveTest do
           )
         ] do
       refused = get(conn, "/environments")
-      assert refused.status == 403
-      assert refused.resp_body == "Sign in through Cloudflare Access"
+      assert refused.status == 303
+      assert get_resp_header(refused, "location") == ["/sign-in"]
     end
 
-    # The local console is reached by loopback and needs no sign-in, as before.
+    # The local console needs a sign-in too: a tunnel's requests arrive the same way.
     local = build_conn() |> Map.put(:host, "localhost") |> get("/setup")
-    assert local.status == 200
+    assert get_resp_header(local, "location") == ["/sign-in"]
 
     assert signed_in(key, "dev@tenant.example") |> get("/setup") |> Map.get(:status) == 200
+
+    # A browser a sign-in link signed in needs no Access token.
+    linked =
+      build_conn()
+      |> Map.put(:host, @published)
+      |> init_test_session(%{"console_session" => session_token()})
+      |> get("/setup")
+
+    assert linked.status == 200
   end
 
   # Phoenix answers the live socket before the endpoint's plugs, so the check that turns away a
   # page request at the published address without an Access token never saw the socket: a held
   # session cookie reconnected there with no current sign-in (2026-10-04 review).
-  test "the live socket at the published address needs a current Access sign-in", %{key: key} do
+  test "the live socket needs a current sign-in, Access's or a link's", %{key: key} do
     socket = %Phoenix.Socket{}
 
     at = fn host, session ->
@@ -128,15 +140,18 @@ defmodule Ryker.ControlPlane.CloudflareViewerLiveTest do
     page = key |> signed_in("dev@tenant.example") |> get("/environments")
     session = get_session(page)
     expired = put_in(session, ["viewer", "until"], System.os_time(:second) - 1)
-    tailscale = %{"viewer" => %{"login" => "m@example.com", "name" => "M", "via" => "tailscale"}}
+    ended = %{"console_session" => String.duplicate("a", 43)}
+    linked = %{"console_session" => session_token()}
 
     assert {:ok, _socket} = LiveSocket.connect(%{}, socket, at.(@published, session))
+    assert {:ok, _socket} = LiveSocket.connect(%{}, socket, at.(@published, linked))
+    assert {:ok, _socket} = LiveSocket.connect(%{}, socket, at.("localhost", linked))
 
-    for refused <- [%{}, expired, tailscale],
+    for refused <- [%{}, expired, ended],
         do: assert(LiveSocket.connect(%{}, socket, at.(@published, refused)) == :error)
 
-    # The local console needs no sign-in, its socket included.
-    assert {:ok, _socket} = LiveSocket.connect(%{}, socket, at.("localhost", %{}))
+    # The local console's socket needs a sign-in too.
+    assert LiveSocket.connect(%{}, socket, at.("localhost", %{})) == :error
   end
 
   # The socket checks the sign-in when it connects, so a page left open went on

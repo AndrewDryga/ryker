@@ -7,6 +7,7 @@ defmodule Ryker.ControlPlane.ConfirmModalTest do
   rule, which until then opened a bare confirmation page of its own.
   """
   use Ryker.DataCase, async: false
+  import Ryker.ConsoleSignIn, only: [signed_in_conn: 0]
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
   alias Ryker.Behaviors.Behavior
@@ -70,7 +71,7 @@ defmodule Ryker.ControlPlane.ConfirmModalTest do
     assert Repo.get!(Behavior, rule.id).status == :active
 
     response =
-      build_conn()
+      signed_in_conn()
       |> Map.put(:host, "localhost")
       |> Plug.Conn.put_req_header("content-type", "application/x-www-form-urlencoded")
       |> post(path, URI.encode_query(%{"_token" => token}))
@@ -91,7 +92,7 @@ defmodule Ryker.ControlPlane.ConfirmModalTest do
     refute has_element?(view, "#action-question")
   end
 
-  defp open(path), do: live(build_conn() |> Map.put(:host, "localhost"), path)
+  defp open(path), do: live(signed_in_conn() |> Map.put(:host, "localhost"), path)
 
   defp rule!(source, task) do
     SavedEntities.behavior!(

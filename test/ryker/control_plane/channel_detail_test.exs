@@ -9,8 +9,9 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
   never collapsed into "unknown", and loading the page changes nothing.
   """
   use Ryker.DataCase, async: false
+  import Ryker.ConsoleSignIn, only: [actor: 0, signed_in_conn: 0]
   import Ecto.Query
-  import Phoenix.ConnTest, only: [build_conn: 0, get: 2]
+  import Phoenix.ConnTest, only: [get: 2]
   import Phoenix.LiveViewTest
   alias Ryker.Accounting.Execution
   alias Ryker.Behaviors.Behavior
@@ -1389,7 +1390,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       episodes!("slack:T123:C456", 26, updated_at: @now)
       for _ <- 1..26, do: summary!("slack:T123", "slack:T123:C456", [])
 
-      conn = build_conn() |> Map.put(:host, "localhost")
+      conn = signed_in_conn() |> Map.put(:host, "localhost")
       {:ok, view, html} = live(conn, "/channels/T123/C456?episode_page=2&summary_page=2")
       second = %{"episodes" => "Page 2 of 2", "summaries" => "Page 2 of 2"}
       assert pages(html) == second
@@ -1409,7 +1410,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       membership!("T123", "C456", private: false, external_shared: false)
 
       {:ok, view, _html} =
-        live(build_conn() |> Map.put(:host, "localhost"), "/channels/T123/C456")
+        live(signed_in_conn() |> Map.put(:host, "localhost"), "/channels/T123/C456")
 
       assert has_element?(
                view,
@@ -1430,7 +1431,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       membership!("T123", "C456", private: false, external_shared: false)
       configuration!("T123", "C456", environment_ref: "production", alert_policy: :reply)
 
-      conn = build_conn() |> Map.put(:host, "localhost")
+      conn = signed_in_conn() |> Map.put(:host, "localhost")
       {:ok, view, html} = live(conn, "/channels/T123/C456")
 
       assert chosen(html, "Conversations") == "Replies when mentioned"
@@ -1460,8 +1461,10 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
 
       view |> form("#channel-environment", environment: "staging") |> render_change()
 
-      assert %{environment_ref: "staging", actor_ref: "control-plane:local", revision: 4} =
+      assert %{environment_ref: "staging", actor_ref: actor_ref, revision: 4} =
                saved_configuration()
+
+      assert actor_ref == actor()
 
       assert chosen(render(view), "Environment") == "Staging"
       assert fact(render(view), "Code") == "acme/api Read and write · default"
@@ -1508,7 +1511,7 @@ defmodule Ryker.ControlPlane.ChannelDetailTest do
       # back to the secondary page (which decodes) and rendered the channel
       # without its instructions editor. The two spellings are one address.
       membership!("T123", "C456", private: false, external_shared: false)
-      conn = build_conn() |> Map.put(:host, "localhost")
+      conn = signed_in_conn() |> Map.put(:host, "localhost")
 
       for path <- ["/channels/T123/C456", "/channels/T%31%32%33/C%34%35%36"] do
         {:ok, view, _html} = live(conn, path)

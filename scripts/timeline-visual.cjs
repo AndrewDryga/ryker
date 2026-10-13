@@ -1,10 +1,12 @@
 // Read-only, real-episode regression for the timeline rail and prompt provenance.
-// Usage: node scripts/timeline-visual.cjs EPISODE_URL PRIVATE_OUTPUT_PREFIX
+// Usage: RYKER_SIGN_IN_LINK=$(scripts/compose.sh sign-in) \
+//   node scripts/timeline-visual.cjs EPISODE_URL PRIVATE_OUTPUT_PREFIX
 const {chromium} = require(process.env.RYKER_PLAYWRIGHT_MODULE || 'playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const {createCaptureDirectory} = require('./visual-artifacts.cjs');
+const {signedInState, signOut} = require('./visual-sign-in.cjs');
 
 (async () => {
   const url = new URL(process.argv[2]);
@@ -16,9 +18,11 @@ const {createCaptureDirectory} = require('./visual-artifacts.cjs');
   console.log(output);
   const browser = await chromium.launch({headless: true});
   const results = [];
+  let storageState;
   try {
+    storageState = await signedInState(browser, url.origin);
     for (const width of [1440, 900, 390]) {
-      const page = await browser.newPage({viewport: {width, height: 1000}, reducedMotion: 'reduce'});
+      const page = await browser.newPage({viewport: {width, height: 1000}, reducedMotion: 'reduce', storageState});
       const errors = [];
       page.on('pageerror', error => errors.push(error.message));
       page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
@@ -61,6 +65,7 @@ const {createCaptureDirectory} = require('./visual-artifacts.cjs');
       await page.close();
     }
   } finally {
+    await signOut(browser, url.origin, storageState);
     await browser.close();
     await fs.writeFile(path.join(output, 'manifest.json'), JSON.stringify(results, null, 2), {mode: 0o600});
   }

@@ -477,18 +477,17 @@ The App Home stays as it is. Nothing here replaces it.
 ## Audience
 
 The people who run one Ryker installation: whoever runs it on their own
-machine, and the people it lets in through Cloudflare Access or Tailscale
-Serve, such as a client team. Not multi-tenant: there are no accounts, roles or
-invitations, and everyone who reaches an install's console can see and change
-everything in it.
+machine, its operators in Slack, and the people they invite, such as a client
+team. Not multi-tenant: there are no accounts or roles, and everyone signed in
+to an install's console can see and change everything in it.
 
 ## Reach and trust
 
 **Published on `127.0.0.1` only**, on the port Ryker already serves
 (`RYKER_CONTROL_BIND` and `RYKER_CONTROL_PORT` in `.ryker/compose.env`); Ryker does not
 start with any other bind. Reached in a browser on the same machine, or
-through an SSH tunnel. On loopback there is no sign-in: reaching the machine is
-the check. Inside Compose the console listens on its container interface,
+through a tunnel such as Cloudflare Tunnel, Tailscale Serve or SSH. Inside
+Compose the console listens on its container interface,
 so it admits only its own loopback and the address published traffic arrives
 from, the network gateway (`RYKER_CONTROL_PEER`, 172.30.42.1 by default). Every
 other container on that network is refused, including the boxes the worker runs
@@ -498,22 +497,30 @@ Ryker never binds to the tailnet itself: the tailnet carries tagged service
 devices, so a bind without an identity check would put production episode
 content, evidence and prompts in reach of any node on it.
 
-An install published through Cloudflare Access (operations.md, "The console
-through Cloudflare Access") answers at its hostname only with a token Access
-signed for the application: Ryker checks the signature against the team's keys,
-the application's audience tag, the team as issuer and the token's lifetime, and
-refuses any other request there. The person is the token's email, and what they
-change is recorded as `control-plane:cloudflare:<email>`. Cloudflare decides who
-may sign in; Ryker never sees a password.
+**Everyone signs in** (`Ryker.ConsoleAccess`, operations.md, "Signing in"). A
+tunnel's requests arrive the same way a browser on the host does, so where a
+request came from says nothing about who sent it (Andrew, 2026-10-13: "CF/Tailscale
+should be only used for tunneling by default"). A one-time link signs one person
+in on one browser for 30 days from its last use: Ryker's operators get one from
+Slack (`/ryker sign-in`, or Open the console in App Home), the host prints one
+for its owner (`scripts/compose.sh sign-in`), and anyone signed in can invite
+someone on Settings › Access. Opening a link changes nothing until its page's
+button is pressed, since Slack opens links to preview them. Health and readiness
+need no sign-in, and metrics answer without one only at a loopback name. What a
+person changes is recorded as `control-plane:<how>:<login>`: `slack_operator`,
+`invite` or `owner` for a link's session.
 
-An install published through Tailscale Serve (`RYKER_CONTROL_PUBLIC_URL`) also
-answers at that host. Serve sets `Tailscale-User-Login` and `Tailscale-User-Name`
-on each request and replaces any a client sent, so a
-request at the published host names its tailnet user: the sidebar shows them,
-and everything they change is recorded as `control-plane:tailscale:<login>`. A
-request at a loopback name never passed through Serve, so its headers are
-ignored and it acts as `control-plane:local`. The name grants nothing; who may
-use the console is still decided by who can reach it.
+A service that publishes the console can name a person instead of a link. Under
+Cloudflare Access (operations.md, "The console through Cloudflare"), a request at
+the published host with a token Access signed for the application names its
+email: Ryker checks the signature against the team's keys, the application's
+audience tag, the team as issuer and the token's lifetime, and records what they
+change as `control-plane:cloudflare:<email>`. Under Tailscale Serve, a request at
+a `*.ts.net` published host names the tailnet user Serve put in
+`Tailscale-User-Login` and `Tailscale-User-Name`, replacing any a client sent;
+what they change is recorded as `control-plane:tailscale:<login>`. Serve's
+headers are not signed, so Ryker reads them at no other name: through any other
+tunnel, anyone could send them.
 
 Consequences to respect:
 - **Destructive steps ask first.** Settings save from their forms, and anything
@@ -873,13 +880,12 @@ Only backed projections appear in navigation.
 | Memory | Five pages beside Findings. Facts: what people asked Ryker to remember, where each applies and how often it was used, with confirmed forget and a Needs review section (keep, merge, edit, forget) for stale or repeated facts. Learned: topics and conversation summaries with their source messages; a topic Ryker stopped using says why on hover over Not used, and each topic's row opens its page. One topic is a page of its own under its name: whether Ryker uses it, its text, its facts, relearning when its sources are gone, its update history with each update linked to the Timeline learning card that wrote it, and Forget topic, the last card, which asks first. Learning: whether background learning runs here, what waits, batches that need attention, recent passes by outcome, handovers that were not saved, and learning worker sessions, with the on/off switch opposite the list's title (turning it off asks first). One batch is a page of its own: its state and facts, what happened, what Ryker learned (the model's reason in its own words and each topic it created, updated or left as it was, with its key and summary, each opening the topic, and a link to the attempt's card on the Timeline), what you can do (one more start, relearn or forget the topic it stopped on, or drop the batch, each confirmed and audited) and its attempts, each linked to its Timeline learning card. People (`/memory/people`): what people said about themselves, such as a birthday or the name they go by, which background learning keeps without anyone approving it: one row a person, opening their page (`?person=<ref>`, "← All people"), which lists each thing with where it was said, where it may be used and a link to the message, then Forget this person, the last card, which asks first; nothing they said before brings it back. Cases (`/memory/cases`): what Ryker kept of finished requests once their history was cleaned up (the problem, the cause it found, what it checked and how it ended), which later requests about the same problem read: one row a case, searchable, opening its page (`?case=<id>`, "← All cases"), whose last card, Forget case, asks first, erases the case's words and keeps that it was kept, marked forgotten |
 | Setup | Live onboarding at `/setup`: the six required steps as an ordered list with one open step (why it matters, what it needs, about how long, one action), the Slack-side steps checked off when Ryker notices them, the channel's environment chosen on the channel's page (done once a joined channel has one; adding a repository creates the Default environment, so there is no step for that), Emisar as the one recommended step with its own panel that never blocks ready, and a calm ready state; the sidebar keeps a way back while required steps are open |
 | Integrations | Live: an overview of Slack, GitHub, Emisar and webhooks, each with its state in words, what it gives Ryker and what is connected, each row opening the integration's page to connect, repair, manage or disconnect it (disconnects and removals ask first); each Emisar account says which environments use it and opens its own page (name, key, New work with Pause or Resume, approval monitoring, Remove account last), and the environments without one are counted with a link to Environments; each webhook source opens its page with its address to copy, its form and Remove source last, and Add signing credential opens its own page (`/integrations/webhooks/credentials/new`) for the shared secret a sender signs with |
-| Settings | Live: an overview of Models, Data retention, Model prices, Weekly report and Advanced, each with what it sets and what it is set to now (the models in use, how many days data is kept, how many prices, when and where the weekly report posts or Off, where work runs), and each page's live editors for every product decision; Weekly report (`/settings/report`) turns the weekly report on or off and sets its channel, day, time and zone, and Preview this week's report (`?preview=week`) shows under it what a report sent now would say, rendered as Slack shows it, without posting or recording anything, with Send to the channel, which posts it there at once titled as a preview and never as the week's report ([Weekly report](operations.md#weekly-report)); Data retention also turns keeping routing examples and, separately, work examples for training on or off and downloads each as JSON Lines ([Training data](training-data.md)), each with explicit Save/Cancel, preserved drafts, revision conflicts, and saved-versus-running state; each kind of work says under its title where Ryker uses its models; the local routing model has its own page (`/settings/models/local-routing`) with how its answers compare with the provider's and what to do next; Model prices leads with how many prices it holds, each row opening its price's page with Remove price last, and Add price opposite the title; Advanced says in plain words where work runs and what each kind of work may do, then Running now: the Ryker version and each worker's state, Coop version, free work slots and free disk against the line where it stops taking new work, with why when it has stopped; when tasks that change code cannot run, a card above says so and what to check. Secrets, endpoints, callbacks, and raw policy documents are never shown, and credentials appear only as configured, missing or unusable |
+| Settings | Live: an overview of Models, Data retention, Model prices, Weekly report, Access and Advanced; Access (`/settings/access`) says how operators sign in from Slack, invites someone outside Slack with a link shown once, lists the invites not used yet with Withdraw, and lists the browsers signed in with Sign out; each with what it sets and what it is set to now (the models in use, how many days data is kept, how many prices, when and where the weekly report posts or Off, where work runs), and each page's live editors for every product decision; Weekly report (`/settings/report`) turns the weekly report on or off and sets its channel, day, time and zone, and Preview this week's report (`?preview=week`) shows under it what a report sent now would say, rendered as Slack shows it, without posting or recording anything, with Send to the channel, which posts it there at once titled as a preview and never as the week's report ([Weekly report](operations.md#weekly-report)); Data retention also turns keeping routing examples and, separately, work examples for training on or off and downloads each as JSON Lines ([Training data](training-data.md)), each with explicit Save/Cancel, preserved drafts, revision conflicts, and saved-versus-running state; each kind of work says under its title where Ryker uses its models; the local routing model has its own page (`/settings/models/local-routing`) with how its answers compare with the provider's and what to do next; Model prices leads with how many prices it holds, each row opening its price's page with Remove price last, and Add price opposite the title; Advanced says in plain words where work runs and what each kind of work may do, then Running now: the Ryker version and each worker's state, Coop version, free work slots and free disk against the line where it stops taking new work, with why when it has stopped; when tasks that change code cannot run, a card above says so and what to check. Secrets, endpoints, callbacks, and raw policy documents are never shown, and credentials appear only as configured, missing or unusable |
 
 Every administrative action is a POST behind a native two-step confirm and
 writes its store transition and audit row in the same act, attributed to the
-person who confirmed it (`control-plane:tailscale:<login>` through Tailscale
-Serve, `control-plane:cloudflare:<email>` through Cloudflare Access, `control-plane:local`
-otherwise). A direct-conversation message is intentionally a
+person who confirmed it (`control-plane:<how>:<login>`, for the way they signed
+in; `control-plane:local` before sign-in existed). A direct-conversation message is intentionally a
 single CSRF-protected POST: it is an ordinary user input, not an administrative
 state mutation or a shortcut to the model.
 

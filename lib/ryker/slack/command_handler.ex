@@ -9,6 +9,7 @@ defmodule Ryker.Slack.CommandHandler do
   alias Ryker.Slack.{Command, Operators, Renderer}
 
   @sources [:channel, :incident_room, :installation]
+  @sign_in ~w(sign-in signin login)
 
   @spec handle(Command.t(), map()) :: {:ok, map()} | {:error, term()}
   def handle(%Command{} = command, options) when is_map(options) do
@@ -17,7 +18,7 @@ defmodule Ryker.Slack.CommandHandler do
       dispatch(command, options)
     else
       {:error, :operator_required} ->
-        {:ok, response("Only a configured Ryker operator can use `/ryker`.")}
+        {:ok, response(operator_required(command))}
 
       {:ok, false} ->
         {:ok, response("Commands require an active full workspace member.")}
@@ -42,6 +43,9 @@ defmodule Ryker.Slack.CommandHandler do
       ["status"] ->
         status(command, options)
 
+      [word] when word in @sign_in ->
+        sign_in(command, options)
+
       ["proactive" | arguments] ->
         change_setting(command, :proactive, arguments, options)
 
@@ -53,6 +57,32 @@ defmodule Ryker.Slack.CommandHandler do
 
       [name | _arguments] ->
         {:ok, response("Unknown `/ryker` subcommand `#{name}`.\n\n#{help()}")}
+    end
+  end
+
+  # A link that signs the operator in to Ryker's console, in a reply only they see. Slack
+  # previews a link before anyone opens it, so the link signs nobody in until its page's button
+  # is pressed (`Ryker.ControlPlane.SignIn`).
+  defp sign_in(command, options) do
+    case options.sign_in_link.(command.workspace_ref, command.actor_ref) do
+      {:ok, url} ->
+        {:ok,
+         response(
+           "Here's your link to Ryker's console. It signs you in once, in the next 15 minutes: " <>
+             "<#{url}|Sign in to Ryker>"
+         )}
+
+      {:error, _reason} ->
+        {:ok, response("Ryker couldn't make a sign-in link just now. Try again in a moment.")}
+    end
+  end
+
+  defp operator_required(%Command{text: text}) do
+    if String.trim(String.downcase(text)) in @sign_in do
+      "Only Ryker's operators can sign in from Slack. Ask someone who is signed in to Ryker's " <>
+        "console to invite you."
+    else
+      "Only a configured Ryker operator can use `/ryker`."
     end
   end
 
@@ -251,6 +281,7 @@ defmodule Ryker.Slack.CommandHandler do
     `/ryker shadow on|off|inherit`: observe only here, without replying
     `/ryker shadow global on|off`: the same for every channel
     `/ryker assignments [list|pause|resume|delete]`: your standing rules
+    `/ryker sign-in`: a link that signs you in to Ryker's console
 
     For anything else, ask me in a message: tasks, schedules, things to remember, preferences and rules. I'll say what I'll do, and nothing changes until you confirm.
     """

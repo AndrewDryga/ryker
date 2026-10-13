@@ -13,6 +13,7 @@ defmodule Ryker.ControlPlane.IntegrationStateLiveTest do
   saved settings, and hold them to one word and one reason.
   """
   use Ryker.DataCase, async: false
+  import Ryker.ConsoleSignIn, only: [signed_in_conn: 0]
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
   alias Ryker.Config
@@ -404,7 +405,7 @@ defmodule Ryker.ControlPlane.IntegrationStateLiveTest do
     |> Enum.map(fn {surface, nodes} -> {surface, text(nodes)} end)
   end
 
-  defp open(path), do: live(build_conn() |> Map.put(:host, "localhost"), path)
+  defp open(path), do: live(signed_in_conn() |> Map.put(:host, "localhost"), path)
 
   # Text as a reader sees it: HTML collapses the line breaks of the template.
   defp text(nodes), do: nodes |> LazyHTML.text() |> String.split() |> Enum.join(" ")

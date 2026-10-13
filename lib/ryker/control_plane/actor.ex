@@ -1,9 +1,11 @@
 defmodule Ryker.ControlPlane.Actor do
   @moduledoc """
-  Who a console action is recorded as: the person Tailscale Serve or Cloudflare
-  Access named (`Ryker.ControlPlane.Viewer`), or the local console when nobody
-  was named. A person's references say which of the two named them, so a
-  Cloudflare sign-in never reads as a tailnet one.
+  Who a console action is recorded as: the person signed in
+  (`Ryker.ControlPlane.Viewer`), by a sign-in link from Slack, the host or an
+  invite, or by Tailscale Serve or Cloudflare Access. Nobody uses the console
+  without signing in now; the local console's references are those made
+  before. A person's references say how they signed in, so a Cloudflare
+  sign-in never reads as a tailnet one.
 
   The console hands every action the person who took it, the viewer its page
   or request has: nobody is read from the process running it. A viewer of nil
@@ -19,8 +21,8 @@ defmodule Ryker.ControlPlane.Actor do
   alias Ryker.ControlPlane.Viewer
 
   @local "control-plane:local"
-  # The services that name a person to the console (`Viewer`).
-  @sources ~w(tailscale cloudflare)
+  # How a person signs in to the console (`Viewer`).
+  @sources ~w(slack_operator invite owner tailscale cloudflare)
   @maximum_login_bytes 200
 
   @doc "What `viewer`'s actions are recorded as."

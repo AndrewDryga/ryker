@@ -1588,7 +1588,22 @@
 .ryker-app .app-sidebar .app-viewer { display:grid; gap:2px; margin:auto 0 0; padding:16px 10px 0; border-top:1px solid var(--ryker-stroke); min-width:0; }
 .app-viewer strong { color:var(--ryker-text); font-size:13px; line-height:18px; font-weight:600; overflow-wrap:anywhere; }
 .app-viewer small { color:var(--ryker-text-secondary); font-size:12px; line-height:16px; overflow-wrap:anywhere; }
+.app-sign-out { justify-self:start; margin-top:6px; padding:0; border:0; background:none; color:var(--ryker-text-secondary); font:inherit; font-size:12px; line-height:16px; cursor:pointer; }
+.app-sign-out:hover { color:var(--ryker-text); text-decoration:underline; }
+.app-sign-out:focus-visible, #mobile-sign-out:focus-visible { outline:2px solid var(--ryker-focus-ring); outline-offset:2px; }
+#mobile-sign-out { display:block; padding:6px 0; border:0; background:none; color:var(--ryker-text); font:inherit; font-size:14px; cursor:pointer; }
 @media (max-width:800px) { .app-viewer { display:none; } }
+
+/* Signing in: Ryker's mark over one card, without the sidebar. */
+.sign-in-shell { box-sizing:border-box; display:grid; justify-items:center; align-content:start; gap:28px; min-height:100vh; padding:12vh 20px 40px; }
+.sign-in-brand { height:36px; width:auto; }
+.sign-in-card { width:100%; max-width:440px; margin:0; }
+.sign-in-card h1 { margin:0 0 12px; color:var(--ryker-text); font-size:20px; line-height:28px; font-weight:600; }
+.sign-in-card p { margin:0 0 12px; color:var(--ryker-text-secondary); font-size:14px; line-height:21px; }
+.sign-in-card p strong { color:var(--ryker-text); }
+.sign-in-card code { font:13px/1.4 var(--ryker-font-mono); color:var(--ryker-text); }
+.sign-in-card form { margin:16px 0 0; }
+.sign-in-card .sign-in-note { margin-top:18px; padding-top:14px; border-top:1px solid var(--ryker-stroke); font-size:13px; }
 
 /* A secondary page header keeps its action over the content column, not the far edge. */
 .secondary-page > .page-header { max-width:1040px; }
@@ -1950,6 +1965,7 @@ a.entity-icon:hover { box-shadow:inset 0 0 0 1px var(--ryker-stroke-strong); }
 
 .settings-form, .settings-editor > form { display:grid; gap:20px; max-width:720px; min-width:0; }
 .settings-form fieldset { display:grid; gap:20px; min-width:0; margin:0; padding:0; border:0; }
+.access-invite-form { gap:12px; margin:0 0 20px; }
 .settings-field { display:grid; gap:6px; min-width:0; margin:0; padding:0; border:0; }
 .settings-field > label, .settings-field > legend { padding:0; font-size:14px; line-height:20px; font-weight:600; color:var(--ryker-text); }
 .settings-field > legend { margin:0 0 6px; }

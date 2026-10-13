@@ -14,6 +14,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
   seconds for the page to show it.
   """
   use Ryker.DataCase, async: false
+  import Ryker.ConsoleSignIn, only: [signed_in_conn: 0]
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
   import Ryker.TestHelpers, only: [eventually: 2]
@@ -372,7 +373,7 @@ defmodule Ryker.ControlPlane.RealtimePagesTest do
            )
   end
 
-  defp open(path), do: live(build_conn() |> Map.put(:host, "localhost"), path)
+  defp open(path), do: live(signed_in_conn() |> Map.put(:host, "localhost"), path)
 
   # Well inside the five seconds the old poll took, so a page that caught up
   # only on a timer fails here, and wide enough for a loaded host's reload.

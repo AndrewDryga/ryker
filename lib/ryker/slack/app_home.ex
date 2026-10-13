@@ -31,7 +31,7 @@ defmodule Ryker.Slack.AppHome do
   def handle(%HomeEvent{} = event, %{} = options) do
     with {:ok, true} <- allowed?(event, options),
          {:ok, access, view} <- view(event, options),
-         :ok <- publish(event, view, options) do
+         :ok <- publish(event, with_console(view, access, event, options), options) do
       {:ok, %{access: access, outcome: :published}}
     else
       {:ok, false} -> {:ok, %{access: :denied, outcome: :ignored}}
@@ -62,6 +62,21 @@ defmodule Ryker.Slack.AppHome do
 
   def publish_collection(_event, _kind, _offset, _options),
     do: {:error, {:invalid_app_home, :request}}
+
+  # An operator's Home opens the console with a link made as Home is drawn, the way
+  # `/ryker sign-in` makes one (Andrew, 2026-10-13). Home is drawn again each time it is opened,
+  # so the link is new each time; one that cannot be made leaves Home without the button.
+  defp with_console(%{"blocks" => [first | rest]} = view, :operator, event, options) do
+    with link when is_function(link, 2) <- Map.get(options, :console_link),
+         {:ok, url} <- link.(event.workspace_ref, event.actor_ref) do
+      button = button("ryker_home_console", "Open the console", "console", nil, url)
+      %{view | "blocks" => [first, actions([button]) | rest]}
+    else
+      _unavailable -> view
+    end
+  end
+
+  defp with_console(view, _access, _event, _options), do: view
 
   defp allowed?(event, options) do
     with directory when is_atom(directory) <- Map.get(options, :directory),

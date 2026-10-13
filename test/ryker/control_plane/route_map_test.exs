@@ -9,6 +9,7 @@ defmodule Ryker.ControlPlane.RouteMapTest do
   domains and the removal of the superseded paths.
   """
   use Ryker.DataCase, async: false
+  import Ryker.ConsoleSignIn, only: [signed_in_conn: 0]
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
   import Plug.Conn, only: [get_resp_header: 2]
@@ -40,7 +41,7 @@ defmodule Ryker.ControlPlane.RouteMapTest do
     :ok
   end
 
-  defp conn, do: build_conn() |> Map.put(:host, "localhost")
+  defp conn, do: signed_in_conn() |> Map.put(:host, "localhost")
 
   test "Activity and Timeline answer while the duplicate Model calls route is removed" do
     {:ok, %{episode: episode}} =

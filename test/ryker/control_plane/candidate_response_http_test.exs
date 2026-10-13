@@ -1,5 +1,6 @@
 defmodule Ryker.ControlPlane.CandidateResponseHTTPTest do
   use Ryker.DataCase, async: false
+  import Ryker.ConsoleSignIn, only: [signed_in_conn: 0]
   import Phoenix.ConnTest
   alias Ryker.ControlPlane.{Endpoint, Projection}
   alias Ryker.Fixtures.WorkSessions
@@ -79,7 +80,7 @@ defmodule Ryker.ControlPlane.CandidateResponseHTTPTest do
   defp raw_get(path) do
     # Pass the URL, not a pre-decoded params map: the latter hides a missing
     # fetch_query_params plug in the real HTTP pipeline.
-    conn = build_conn() |> Map.put(:host, "localhost") |> get(path)
+    conn = signed_in_conn() |> Map.put(:host, "localhost") |> get(path)
     assert conn.status == 200
     assert conn.resp_body =~ "data-connection-state=\"connecting\""
     conn.resp_body

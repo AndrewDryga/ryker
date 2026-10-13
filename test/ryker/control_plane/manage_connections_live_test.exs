@@ -10,6 +10,7 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
   integration pages, not in a disclosure under these lists.
   """
   use Ryker.DataCase, async: false
+  import Ryker.ConsoleSignIn, only: [actor: 0, signed_in_conn: 0]
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection, RepositoryImport}
@@ -490,7 +491,7 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
            )
 
     entry = Inspectors.repository_knowledge("acme-api")
-    assert {entry.phase, entry.requested_by} == {:write, @actor}
+    assert {entry.phase, entry.requested_by} == {:write, actor()}
 
     # While it is written, the page says so and it cannot be asked again.
     assert has_element?(view, "#repository-knowledge", "being rewritten now")
@@ -655,7 +656,7 @@ defmodule Ryker.ControlPlane.ManageConnectionsLiveTest do
     assert [%{repository_ref: "acme-site"}] = Settings.fetch!().github_bindings
   end
 
-  defp open(path), do: live(build_conn() |> Map.put(:host, "localhost"), path)
+  defp open(path), do: live(signed_in_conn() |> Map.put(:host, "localhost"), path)
 
   defp answer!(github, repositories),
     do: Agent.update(github, &%{&1 | answer: {:ok, repositories}})

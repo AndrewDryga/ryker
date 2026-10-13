@@ -2,6 +2,7 @@ defmodule Ryker.ControlPlane.Navigation do
   @moduledoc "Shared navigation for live inspection and confirmed HTTP actions."
   use Phoenix.Component
   import Ryker.ControlPlane.Components
+  alias Ryker.ControlPlane.Viewer
 
   @primary [
     {:chat, "Chat", "/conversations"},
@@ -58,6 +59,7 @@ defmodule Ryker.ControlPlane.Navigation do
        {"Data retention", "/settings/retention"},
        {"Model prices", "/settings/prices"},
        {"Weekly report", "/settings/report"},
+       {"Access", "/settings/access"},
        {"Advanced", "/settings/advanced"}
      ]}
   ]
@@ -73,7 +75,7 @@ defmodule Ryker.ControlPlane.Navigation do
     doc: "While required setup steps are open, %{done: count or nil, total: count}"
   )
 
-  attr(:viewer, :map, default: nil, doc: "The tailnet user Tailscale Serve named, if any")
+  attr(:viewer, :map, default: nil, doc: "The person signed in (`Viewer`), on a live page")
 
   def sidebar(assigns) do
     assigns =
@@ -134,10 +136,19 @@ defmodule Ryker.ControlPlane.Navigation do
           </details>
         <% end %>
       </nav>
-      <p :if={@viewer} class="app-viewer" title={signed_in(@viewer)}>
+      <div :if={@viewer} class="app-viewer" title={signed_in(@viewer)}>
         <strong>{@viewer.name}</strong>
-        <small :if={@viewer.name != @viewer.login}>{@viewer.login}</small>
-      </p>
+        <small :if={detail(@viewer)}>{detail(@viewer)}</small>
+        <button
+          :if={@live and Viewer.signed_in_by_link?(@viewer)}
+          id="sign-out"
+          type="button"
+          class="app-sign-out"
+          phx-click="sign-out"
+        >
+          Sign out
+        </button>
+      </div>
     </aside>
     """
   end
@@ -145,6 +156,7 @@ defmodule Ryker.ControlPlane.Navigation do
   attr(:path, :string, required: true)
   attr(:live, :boolean, default: true)
   attr(:setup, :map, default: nil)
+  attr(:viewer, :map, default: nil, doc: "The person signed in (`Viewer`), on a live page")
 
   def mobile(assigns) do
     groups =
@@ -187,6 +199,10 @@ defmodule Ryker.ControlPlane.Navigation do
             aria-current={if selected?(@path, href), do: "page"}
           >{name}</.link>
         </section>
+        <section :if={@live and Viewer.signed_in_by_link?(@viewer)}>
+          <strong>{@viewer.name}</strong>
+          <button id="mobile-sign-out" type="button" phx-click="sign-out">Sign out</button>
+        </section>
       </nav>
     </details>
     """
@@ -202,7 +218,17 @@ defmodule Ryker.ControlPlane.Navigation do
   defp signed_in(%{via: :cloudflare, login: login}),
     do: "Signed in through Cloudflare Access as #{login}"
 
-  defp signed_in(%{login: login}), do: "Signed in to Tailscale as #{login}"
+  defp signed_in(%{via: :tailscale, login: login}), do: "Signed in to Tailscale as #{login}"
+  defp signed_in(%{via: :slack_operator}), do: "Signed in with a link from Slack"
+  defp signed_in(%{via: :invite}), do: "Signed in with an invite"
+  defp signed_in(%{via: :owner}), do: "Signed in with the host's link"
+
+  # The line under the name: the login a service gave, when it is not the name itself. A link's
+  # login is Ryker's own reference, which says nothing to a reader.
+  defp detail(%{via: via, name: name, login: login}) when via in [:tailscale, :cloudflare],
+    do: if(name != login, do: login)
+
+  defp detail(_viewer), do: nil
 
   defp selected?(path, "/") do
     path in ["/", "/activity"] or String.starts_with?(path, "/activity?") or

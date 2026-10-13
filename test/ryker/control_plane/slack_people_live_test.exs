@@ -9,6 +9,7 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
   had not asked Slack yet, and nothing drew the page again once it had.
   """
   use Ryker.DataCase, async: false
+  import Ryker.ConsoleSignIn, only: [signed_in_conn: 0]
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
   import Ryker.TestHelpers, only: [eventually: 1, eventually: 2]
@@ -438,5 +439,5 @@ defmodule Ryker.ControlPlane.SlackPeopleLiveTest do
     |> LazyHTML.text()
   end
 
-  defp open(path), do: live(build_conn() |> Map.put(:host, "localhost"), path)
+  defp open(path), do: live(signed_in_conn() |> Map.put(:host, "localhost"), path)
 end

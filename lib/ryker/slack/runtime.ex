@@ -15,6 +15,7 @@ defmodule Ryker.Slack.Runtime do
   alias Ryker.Artifacts
   alias Ryker.Behaviors
   alias Ryker.Config
+  alias Ryker.ConsoleAccess
   alias Ryker.ConversationRef
   alias Ryker.Crypto
   alias Ryker.Delivery
@@ -259,6 +260,7 @@ defmodule Ryker.Slack.Runtime do
       api: Client,
       client: bot_client,
       collection: &AppHomeProjection.collection/4,
+      console_link: &console_link(bot_client, &1, &2),
       directory: Client,
       operators: operators,
       projection: &AppHomeProjection.snapshot/3,
@@ -385,7 +387,8 @@ defmodule Ryker.Slack.Runtime do
         list_assignments: &Behaviors.assignments_for_channel/2,
         manage_assignment: &manage_assignment/3,
         operators: operators,
-        settings_view: settings_view(catalog, default_participation)
+        settings_view: settings_view(catalog, default_participation),
+        sign_in_link: &console_link(bot_client, &1, &2)
       },
       continuation: &Engagement.continuation?/1,
       conversation_actor_allowed: &incident_actor_allowed/1,
@@ -792,6 +795,18 @@ defmodule Ryker.Slack.Runtime do
       channel_ref = ConversationRef.slack_channel(conversation_ref)
       {:ok, is_nil(channel_ref) or not IncidentRooms.managed_channel?(workspace_ref, channel_ref)}
     end
+  end
+
+  # A link that signs a Slack operator in to the console, under the name Slack shows for them
+  # (`Ryker.ConsoleAccess`). Only operators reach it: `/ryker` and Home ask `Operators` first.
+  defp console_link(client, workspace_ref, user_ref) do
+    name =
+      case Client.directory_name(client, workspace_ref, user_ref) do
+        {:ok, name} when is_binary(name) -> name
+        _unknown -> user_ref
+      end
+
+    ConsoleAccess.slack_link(workspace_ref, user_ref, name)
   end
 
   defp manage_assignment(ref, status, scope) do

@@ -1,5 +1,6 @@
 defmodule Ryker.ControlPlane.LiveTest do
   use Ryker.DataCase, async: false
+  import Ryker.ConsoleSignIn, only: [chat_ref: 0, session_token: 0, signed_in_conn: 0]
   import Ryker.TestHelpers, only: [digest: 1, outline: 2]
   import Ecto.Query
   import Phoenix.ConnTest
@@ -24,6 +25,8 @@ defmodule Ryker.ControlPlane.LiveTest do
   @active_count ".kit-count[href$='?filter=running'] b"
 
   @endpoint Endpoint
+  # The person `signed_in_conn/0` signs in as, as Chat records them.
+  @me chat_ref()
 
   # Andrew approved these ten strings on 2026-09-09, in the order the page
   # groups them since 2026-09-19: Investigate, Build, Remember. They are UI
@@ -141,7 +144,7 @@ defmodule Ryker.ControlPlane.LiveTest do
   test "a connected control plane reflects committed-state notifications without navigation", %{
     counters: counters
   } do
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
     assert {:ok, view, html} = live(conn, "/")
     assert html =~ "Activity"
     assert html =~ "No activity yet"
@@ -165,18 +168,20 @@ defmodule Ryker.ControlPlane.LiveTest do
           {"/rules?q=emisar&view=past", ["Past"]},
           {"/instructions?show=guidance&view=past", ["Guidance", "Past"]}
         ] do
-      {:ok, view, html} = live(build_conn() |> Map.put(:host, "localhost"), path)
+      {:ok, view, html} = live(signed_in_conn() |> Map.put(:host, "localhost"), path)
       assert current_segments(html) == selected, path
       send(view.pid, :reload_page)
       assert current_segments(render(view)) == selected, path
     end
 
-    {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), "/rules?q=emisar")
+    {:ok, view, _} = live(signed_in_conn() |> Map.put(:host, "localhost"), "/rules?q=emisar")
     assert has_element?(view, ".kit-toolbar form.filter-toolbar input[name=q][value=emisar]")
     send(view.pid, :reload_page)
     assert has_element?(view, ".kit-toolbar form.filter-toolbar input[name=q][value=emisar]")
 
-    {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), "/rules?q[x]=1&page[x]=2")
+    {:ok, view, _} =
+      live(signed_in_conn() |> Map.put(:host, "localhost"), "/rules?q[x]=1&page[x]=2")
+
     assert has_element?(view, ".behavior-page")
     refute has_element?(view, ".document-unavailable")
   end
@@ -188,7 +193,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     source = SavedEntities.source!("slack:T123:C456")
     SavedEntities.memory!(source, "checkout owner", "The payments team owns checkout.")
 
-    {:ok, view, _html} = live(build_conn() |> Map.put(:host, "localhost"), "/memory")
+    {:ok, view, _html} = live(signed_in_conn() |> Map.put(:host, "localhost"), "/memory")
 
     view
     |> form(".kit-toolbar form.filter-toolbar", %{q: "payments"})
@@ -223,7 +228,7 @@ defmodule Ryker.ControlPlane.LiveTest do
       scope_ref: "slack:T123:C456"
     )
 
-    {:ok, view, html} = live(build_conn() |> Map.put(:host, "localhost"), "/rules")
+    {:ok, view, html} = live(signed_in_conn() |> Map.put(:host, "localhost"), "/rules")
     document = LazyHTML.from_document(html)
     headings = LazyHTML.query(document, "main h1")
     assert Enum.count(headings) == 1
@@ -271,7 +276,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     before = Repo.get!(Ryker.Behaviors.Behavior, active.id)
     rows = "main .behavior-page > .entity-list article.entity-row"
 
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
     {:ok, view, _} = live(conn, "/rules?view=past")
     assert has_element?(view, "nav.segmented a[aria-current=page]", "Past")
     assert has_element?(view, rows, "Retired: page the old rota.")
@@ -315,7 +320,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     rule!(source, "Deleted rule.", status: :deleted)
     rule!(source, "Superseded rule.", status: :superseded)
     rule!(source, "Expired rule.", expires_at: DateTime.add(DateTime.utc_now(), -60, :second))
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
 
     for {query, states} <- [
           {"", ["On", "On", "Paused"]},
@@ -354,7 +359,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     # concludes the rule they are looking for does not exist.
     source = SavedEntities.source!("slack:T123:C456")
     rule!(source, "Watch Terraform applies and report readiness.")
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
 
     {:ok, empty, _} = live(conn, "/rules?q=nothing-here")
     assert has_element?(empty, "main .behavior-page > .kit-empty", "No rules match")
@@ -406,7 +411,7 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     rows = "section.instructions-saved article.entity-row"
     pager = "section.instructions-saved nav.pagination"
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
     {:ok, view, html} = live(conn, "/instructions?show=guidance")
     document = LazyHTML.from_document(html)
     assert Enum.count(LazyHTML.query(document, rows)) == 25
@@ -445,7 +450,7 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     source = SavedEntities.source!("slack:T123:C456")
     rule = rule!(source, long)
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
     {:ok, view, html} = live(conn, "/rules")
     document = LazyHTML.from_document(html)
 
@@ -476,7 +481,7 @@ defmodule Ryker.ControlPlane.LiveTest do
           "usage_profile=x&usage_window[x]=a",
           "usage_profile=" <> String.duplicate("x", 513)
         ] do
-      conn = build_conn() |> Map.put(:host, "localhost")
+      conn = signed_in_conn() |> Map.put(:host, "localhost")
       assert {:ok, view, _html} = live(conn, "/activity?" <> query)
       assert render(view) =~ "Activity"
       view |> element("#activity-filters") |> render_change(%{"q" => "hello", "mode" => "live"})
@@ -494,7 +499,7 @@ defmodule Ryker.ControlPlane.LiveTest do
           {"/repositories", nil}
         ] do
       query = URI.encode_query(%{"q" => "emisar", "status" => status || ""})
-      {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), path <> "?" <> query)
+      {:ok, view, _} = live(signed_in_conn() |> Map.put(:host, "localhost"), path <> "?" <> query)
       assert has_element?(view, "form.filter-toolbar input[name=q][value=emisar]")
       assert has_element?(view, "form.filter-toolbar a[href='#{path}']", "Clear filters")
 
@@ -509,7 +514,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     # refresh keeps the view as well as the search.
     for path <- ["/schedules", "/follow-ups"] do
       {:ok, view, _} =
-        live(build_conn() |> Map.put(:host, "localhost"), path <> "?q=emisar&view=past")
+        live(signed_in_conn() |> Map.put(:host, "localhost"), path <> "?q=emisar&view=past")
 
       assert has_element?(view, "nav.segmented a[aria-current=page]", "Past")
       send(view.pid, :reload_page)
@@ -522,7 +527,7 @@ defmodule Ryker.ControlPlane.LiveTest do
   test "usage drilldowns show each filter as a chip and removing one keeps the others" do
     # The old banner hid the selected profile, model and scope behind generic text.
     path = "/activity?mode=all&q=health&usage_profile=emisar&usage_window=30d"
-    {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), path)
+    {:ok, view, _} = live(signed_in_conn() |> Map.put(:host, "localhost"), path)
 
     assert has_element?(
              view,
@@ -561,11 +566,11 @@ defmodule Ryker.ControlPlane.LiveTest do
   end
 
   test "the LiveView endpoint preserves the loopback and host boundary" do
-    conn = build_conn() |> Map.put(:host, "attacker.example") |> get("/")
+    conn = signed_in_conn() |> Map.put(:host, "attacker.example") |> get("/")
     assert conn.status == 421
 
     conn =
-      build_conn()
+      signed_in_conn()
       |> Map.put(:host, "localhost")
       |> Map.put(:remote_ip, {203, 0, 113, 1})
       |> get("/")
@@ -576,8 +581,8 @@ defmodule Ryker.ControlPlane.LiveTest do
     # the same boundary headers. Until 2026-09-13 the HTTP router added
     # cross-origin-resource-policy from a header list of its own and the live
     # pages went without it.
-    live = build_conn() |> Map.put(:host, "localhost") |> get("/")
-    http = build_conn() |> Map.put(:host, "localhost") |> get("/never-a-page")
+    live = signed_in_conn() |> Map.put(:host, "localhost") |> get("/")
+    http = signed_in_conn() |> Map.put(:host, "localhost") |> get("/never-a-page")
     assert live.status == 200
     assert http.status == 404
 
@@ -592,7 +597,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     # Andrew, 2026-09-19: the add dropdown sat first and reset as it added, and
     # nothing applied until a separate button. + Filter now comes last, each
     # field opens its values beside the list, and a value applies immediately.
-    {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), "/activity?q=old")
+    {:ok, view, _} = live(signed_in_conn() |> Map.put(:host, "localhost"), "/activity?q=old")
     view |> element("#filter-add") |> render_click()
     view |> element("#filter-values-transport button[phx-value-choice=slack]") |> render_click()
     assert_patch(view, "/activity?q=old&transport=slack")
@@ -614,7 +619,7 @@ defmodule Ryker.ControlPlane.LiveTest do
   test "a search within a usage drilldown keeps its empty effort filter" do
     {:ok, view, _} =
       live(
-        build_conn() |> Map.put(:host, "localhost"),
+        signed_in_conn() |> Map.put(:host, "localhost"),
         "/activity?usage_effort=&usage_model=opus"
       )
 
@@ -623,7 +628,7 @@ defmodule Ryker.ControlPlane.LiveTest do
   end
 
   test "a free-text filter applies when its value is submitted and Escape closes the menu" do
-    {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), "/activity")
+    {:ok, view, _} = live(signed_in_conn() |> Map.put(:host, "localhost"), "/activity")
     view |> element("#filter-add") |> render_click()
     view |> form("#filter-values-repository form", %{"choice" => "emisar"}) |> render_submit()
     assert_patch(view, "/activity?repository=emisar")
@@ -636,7 +641,7 @@ defmodule Ryker.ControlPlane.LiveTest do
   end
 
   test "the execution console refreshes without a standing live toolbar" do
-    {:ok, view, html} = live(build_conn() |> Map.put(:host, "localhost"), "/")
+    {:ok, view, html} = live(signed_in_conn() |> Map.put(:host, "localhost"), "/")
     refute html =~ "Local operator"
     refute html =~ "Local workspace"
     refute html =~ "app-breadcrumb"
@@ -653,7 +658,7 @@ defmodule Ryker.ControlPlane.LiveTest do
   end
 
   test "native directory entry points and missing records remain usable across live navigation" do
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
 
     # A missing record answers 404 on its first load (the next test), so it is
     # reached here the way a reader navigating inside the page reaches it.
@@ -681,13 +686,13 @@ defmodule Ryker.ControlPlane.LiveTest do
           "/failures/work/bogus",
           "/channels/T1/C1"
         ] do
-      conn = build_conn() |> Map.put(:host, "localhost") |> get(path)
+      conn = signed_in_conn() |> Map.put(:host, "localhost") |> get(path)
       assert conn.status == 404, path
       assert conn.resp_body =~ "data-phx-main", path
       assert conn.resp_body =~ "Back to activity", path
     end
 
-    assert (build_conn() |> Map.put(:host, "localhost") |> get("/schedules")).status == 200
+    assert (signed_in_conn() |> Map.put(:host, "localhost") |> get("/schedules")).status == 200
   end
 
   test "retired Card Lab and Test journeys routes cannot mount a live page or redirect" do
@@ -696,7 +701,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     # route here would quietly keep the specimen workbench and the
     # qualification checklist alive behind their old links.
     for path <- ["/card-lab", "/card-lab/task-card/working", "/manual-tests"] do
-      conn = build_conn() |> Map.put(:host, "localhost") |> get(path)
+      conn = signed_in_conn() |> Map.put(:host, "localhost") |> get(path)
       assert conn.status == 404, path
       assert Plug.Conn.get_resp_header(conn, "location") == []
       refute conn.resp_body =~ "data-phx-main"
@@ -711,7 +716,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     id = Ecto.UUID.generate()
 
     for path <- ["/lab", "/lab/new", "/lab/#{id}"] do
-      conn = build_conn() |> Map.put(:host, "localhost") |> get(path)
+      conn = signed_in_conn() |> Map.put(:host, "localhost") |> get(path)
       assert conn.status == 404, path
       assert Plug.Conn.get_resp_header(conn, "location") == []
       refute conn.resp_body =~ "data-phx-main"
@@ -722,7 +727,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     # The navigation, browser title, accessible labels and action labels said
     # Conversation Lab / Test a message / Send a test message; the surface is
     # an ordinary way to talk to the agent, not a test bench.
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
     {:ok, view, html} = live(conn, "/conversations")
     assert page_title(view) == "Conversations · Ryker"
 
@@ -765,7 +770,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     # no record behind it, and once the first message is durable the view moves
     # to that conversation instead of quietly posting the next message into it
     # from a page whose directory still says nothing is selected.
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
     {:ok, view, html} = live(conn, "/conversations")
     draft_id = composer_conversation(render(view))
     assert {:ok, ^draft_id} = Ecto.UUID.cast(draft_id)
@@ -844,7 +849,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     Agent.update(counters, &Map.put(&1, :chat_readiness, :worker_unavailable))
 
     {:ok, view, _html} =
-      live(build_conn() |> Map.put(:host, "localhost"), "/conversations")
+      live(signed_in_conn() |> Map.put(:host, "localhost"), "/conversations")
 
     assert has_element?(view, ".lab-readiness", "Chat is waiting for its worker")
 
@@ -869,7 +874,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     # Attach files, and Send looked ready over an empty box. The composer now
     # asks plainly, names chosen files itself, and holds Send until there is
     # something to send (composer.mjs keeps that true as the reader types).
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
 
     for path <- ["/conversations", "/conversations/#{Ecto.UUID.generate()}"] do
       {:ok, view, html} = live(conn, path)
@@ -898,7 +903,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     # space, between the transcript and the composer, so the composer keeps the
     # place it has in an open conversation. Each one only fills the composer.
 
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
     {:ok, draft, _} = live(conn, "/conversations")
     html = render(draft)
 
@@ -929,7 +934,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     # Andrew, 2026-09-19: a plain black list of ten sentences was loud and dull.
     # He chose, from rendered alternatives, quiet columns headed by what Ryker
     # does, so the empty state also says what the agent is for.
-    {:ok, draft, _} = live(build_conn() |> Map.put(:host, "localhost"), "/conversations")
+    {:ok, draft, _} = live(signed_in_conn() |> Map.put(:host, "localhost"), "/conversations")
 
     groups =
       render(draft)
@@ -958,7 +963,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     # nothing he needed. The bar remains only to open the directory on phones;
     # the file limits are explained beside the composer when a choice breaks
     # them, and the only hint left is how to send.
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
 
     for path <- ["/conversations", "/conversations/#{Ecto.UUID.generate()}"] do
       {:ok, view, _} = live(conn, path)
@@ -995,7 +1000,7 @@ defmodule Ryker.ControlPlane.LiveTest do
   end
 
   test "the directory reads as grouped titles and says when it is empty" do
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
 
     # A new conversation is the one entry of an empty list while it is written.
     {:ok, writing, _} = live(conn, "/conversations")
@@ -1119,7 +1124,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     )
     |> Repo.update!()
 
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
     {:ok, view, _} = live(conn, "/conversations")
     row = fn id -> ".lab-directory-list a[href='/conversations/#{id}']" end
 
@@ -1148,7 +1153,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     })
 
     ChannelEnvironments.environment!("staging", %{repositories: ["acme-api"]})
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
 
     # A new conversation starts in the default environment, chosen under its
     # message box; nothing sits above the messages (Andrew, 2026-09-27: "we
@@ -1218,7 +1223,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     composer = Ecto.UUID.generate()
 
     conn =
-      build_conn()
+      signed_in_conn()
       |> Map.put(:host, "localhost")
       |> put_connect_params(%{"draft" => composer})
 
@@ -1242,7 +1247,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     id = Ecto.UUID.generate()
     {:ok, %{entry: first}} = ConversationLab.send_message(id, "First question", profile)
     accepted_reply!(id, first, "The first answer.", profile)
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
     {:ok, view, _} = live(conn, "/conversations/#{id}")
 
     links =
@@ -1272,7 +1277,7 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     id = Ecto.UUID.generate()
     {:ok, %{entry: first}} = ConversationLab.send_message(id, "First question", profile)
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
     {:ok, view, _} = live(conn, "/conversations/#{id}")
 
     assert has_element?(
@@ -1362,7 +1367,7 @@ defmodule Ryker.ControlPlane.LiveTest do
 
     id = Ecto.UUID.generate()
     {:ok, %{entry: entry}} = ConversationLab.send_message(id, "Track this work", profile)
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
     {:ok, view, _html} = live(conn, "/conversations/#{id}")
 
     assert has_element?(
@@ -1446,7 +1451,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     )
     |> Repo.update!()
 
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
     {:ok, view, _} = live(conn, "/conversations/#{id}")
 
     assert has_element?(view, "#lab-messages .lab-message-state", "Needs attention")
@@ -1518,7 +1523,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     )
     |> Repo.update!()
 
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
     {:ok, view, _} = live(conn, "/conversations/#{id}")
 
     retry = "/actions/admission/#{entry.id}/rearm?back=/conversations/#{id}"
@@ -1551,7 +1556,7 @@ defmodule Ryker.ControlPlane.LiveTest do
         repository_ref: nil
       })
 
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
     unsent = Ecto.UUID.generate()
     {:ok, unsent_view, _html} = live(conn, "/conversations/#{unsent}")
     assert page_title(unsent_view) == "Conversations · Ryker"
@@ -1567,7 +1572,9 @@ defmodule Ryker.ControlPlane.LiveTest do
     id = Ecto.UUID.generate()
 
     assert {:ok, %{entry: entry}} =
-             ConversationLab.send_message(id, "Keep this history across the rename", profile)
+             ConversationLab.send_message(id, "Keep this history across the rename", profile,
+               actor: @me
+             )
 
     assert entry.destination_conversation_ref == "control-plane:lab:#{id}"
     "control-plane-item:" <> item_id = entry.source_item_ref
@@ -1612,10 +1619,10 @@ defmodule Ryker.ControlPlane.LiveTest do
       })
 
     id = Ecto.UUID.generate()
-    {:ok, %{entry: first}} = ConversationLab.send_message(id, "Question", profile)
+    {:ok, %{entry: first}} = ConversationLab.send_message(id, "Question", profile, actor: @me)
     {episode, _turn} = accepted_reply!(id, first, "Answer with reactions.", profile)
     message_ref = "control-plane-message:#{episode.id}"
-    {:ok, _} = ConversationLab.react_to_message(id, message_ref, :add, "heart")
+    {:ok, _} = ConversationLab.react_to_message(id, message_ref, :add, "heart", actor: @me)
 
     {:ok, _} =
       Reactions.record(%{
@@ -1632,7 +1639,7 @@ defmodule Ryker.ControlPlane.LiveTest do
         }
       })
 
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
     {:ok, view, html} = live(conn, "/conversations/#{id}")
     document = LazyHTML.from_document(html)
     reply = LazyHTML.query(document, ".lab-chat-message.actor-ryker")
@@ -1787,7 +1794,7 @@ defmodule Ryker.ControlPlane.LiveTest do
       DateTime.utc_now()
     )
 
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
     {:ok, view, html} = live(conn, "/conversations/#{id}")
 
     quick_picker = picker_id!(html, "Hi! What can I help with?")
@@ -1909,15 +1916,18 @@ defmodule Ryker.ControlPlane.LiveTest do
     id = Ecto.UUID.generate()
 
     {:ok, %{entry: first}} =
-      ConversationLab.send_message(id, "Stored body with **markdown**", profile)
+      ConversationLab.send_message(id, "Stored body with **markdown**", profile, actor: @me)
 
     "control-plane-item:" <> item_id = first.source_item_ref
-    {:ok, %{entry: second}} = ConversationLab.send_message(id, "To be deleted", profile)
+
+    {:ok, %{entry: second}} =
+      ConversationLab.send_message(id, "To be deleted", profile, actor: @me)
+
     "control-plane-item:" <> deleted_id = second.source_item_ref
-    {:ok, _} = ConversationLab.delete_message(id, deleted_id, profile)
+    {:ok, _} = ConversationLab.delete_message(id, deleted_id, profile, actor: @me)
     {_episode, _turn} = accepted_reply!(id, first, "A reply nobody can edit.", profile)
 
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
     {:ok, view, html} = live(conn, "/conversations/#{id}")
     document = LazyHTML.from_document(html)
 
@@ -1998,7 +2008,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     # WorkflowGuide's ten workflows linked eighteen /card-lab previews and the
     # workbench answered card-family/card-state/card-transition events. None of
     # that may survive as a hidden catalog behind the surviving conversation page.
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
     {:ok, view, html} = live(conn, "/conversations")
     refute html =~ "/card-lab"
     refute html =~ "What you can do"
@@ -2028,7 +2038,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     })
 
     assert UsageProjection.page(%{}).totals.attempts == 1
-    {:ok, view, html} = live(build_conn() |> Map.put(:host, "localhost"), "/usage")
+    {:ok, view, html} = live(signed_in_conn() |> Map.put(:host, "localhost"), "/usage")
     assert String.valid?(html)
     assert {:ok, _json} = Jason.encode(html)
     assert has_element?(view, "[data-connection-state=connected]")
@@ -2042,7 +2052,7 @@ defmodule Ryker.ControlPlane.LiveTest do
       Ryker.Episodes.apply(Ryker.Fixtures.Episodes.admit_input())
 
     path = "/timeline/" <> episode.id
-    {:ok, view, _html} = live(build_conn() |> Map.put(:host, "localhost"), path)
+    {:ok, view, _html} = live(signed_in_conn() |> Map.put(:host, "localhost"), path)
     assert has_element?(view, "#execution-timeline", "Execution timeline")
     assert has_element?(view, ".case-event", "Message added")
     refute has_element?(view, "button.execution-event")
@@ -2054,7 +2064,7 @@ defmodule Ryker.ControlPlane.LiveTest do
   test "native episode details distinguish missing records from unavailable projections", %{
     counters: counters
   } do
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
 
     {:ok, missing, _} = live(conn, "/")
 
@@ -2084,7 +2094,7 @@ defmodule Ryker.ControlPlane.LiveTest do
 
   test "the native Lab never claims admission before a message exists and streams committed messages" do
     id = Ecto.UUID.generate()
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
     {:ok, view, html} = live(conn, "/conversations/#{id}")
     refute html =~ "Ready for your message"
     refute html =~ "Awaiting admission"
@@ -2099,7 +2109,9 @@ defmodule Ryker.ControlPlane.LiveTest do
       })
 
     assert {:ok, _receipt} =
-             ConversationLab.send_message(id, "Inspect the request behind this answer", profile)
+             ConversationLab.send_message(id, "Inspect the request behind this answer", profile,
+               actor: @me
+             )
 
     # A fixture guard, not a latency measurement: nothing here is timing the
     # projection, it is waiting for one that must happen. The path is a 25ms
@@ -2125,7 +2137,9 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert has_element?(view, ".lab-native-composer[phx-update=ignore]")
 
     {:ok, _} =
-      ConversationLab.send_message(id, "**Evidence** [Run](https://example.invalid/run)", profile)
+      ConversationLab.send_message(id, "**Evidence** [Run](https://example.invalid/run)", profile,
+        actor: @me
+      )
 
     render_hook(view, "refresh", %{})
     assert has_element?(view, ".chat-message-text strong", "Evidence")
@@ -2138,7 +2152,7 @@ defmodule Ryker.ControlPlane.LiveTest do
   test "presentation always follows durable updates and remounts with current data", %{
     counters: counters
   } do
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
     {:ok, view, _html} = live(conn, "/")
     Agent.update(counters, &Map.put(&1, :active, 9))
 
@@ -2155,7 +2169,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     local = %{
       peer_data: %{address: {127, 0, 0, 1}},
       uri: URI.parse("http://localhost:4321/live"),
-      session: %{}
+      session: %{"console_session" => session_token()}
     }
 
     assert {:ok, connected} = LiveSocket.connect(%{}, socket, local)
@@ -2182,7 +2196,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     tailnet = %{
       peer_data: %{address: {127, 0, 0, 1}},
       uri: URI.parse("https://mac-server.example.ts.net/live"),
-      session: %{}
+      session: %{"console_session" => session_token()}
     }
 
     assert {:ok, _connected} = LiveSocket.connect(%{}, socket, tailnet)
@@ -2195,7 +2209,7 @@ defmodule Ryker.ControlPlane.LiveTest do
 
   test "an input keeps one canonical timeline while routing adds evidence and becomes work" do
     {entry, _id} = lab_input!()
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
     {:ok, view, _} = live(conn, "/timeline/#{entry.id}")
 
     assert has_element?(view, "#execution-timeline")
@@ -2265,7 +2279,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     |> Ecto.Changeset.change(status: :blocked, last_error_code: "provider_unavailable")
     |> Repo.update!()
 
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
     {:ok, view, _} = live(conn, "/timeline/#{entry.id}")
     assert has_element?(view, ".admission-recovery", "Provider unavailable")
     href = "/actions/admission/#{entry.id}/rearm"
@@ -2282,7 +2296,7 @@ defmodule Ryker.ControlPlane.LiveTest do
   end
 
   test "activity search and status links preserve existing Usage drill-down filters" do
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
 
     {:ok, view, _} =
       live(conn, "/activity?usage_model=gpt-5.6-sol&repository=emisar&state=active")
@@ -2353,14 +2367,14 @@ defmodule Ryker.ControlPlane.LiveTest do
   end
 
   test "the removed audit route does not mount a live page" do
-    conn = build_conn() |> Map.put(:host, "localhost") |> get("/audit")
+    conn = signed_in_conn() |> Map.put(:host, "localhost") |> get("/audit")
     assert conn.status == 404
     refute conn.resp_body =~ "audit-feed"
   end
 
   test "removed incident routes cannot mount a live page or redirect" do
     for path <- ["/incidents", "/incidents/incident%3Aone"] do
-      conn = build_conn() |> Map.put(:host, "localhost") |> get(path)
+      conn = signed_in_conn() |> Map.put(:host, "localhost") |> get(path)
       assert conn.status == 404
       assert Plug.Conn.get_resp_header(conn, "location") == []
       refute conn.resp_body =~ "data-phx-main"
@@ -2368,7 +2382,7 @@ defmodule Ryker.ControlPlane.LiveTest do
   end
 
   test "mobile workspace navigation preserves every secondary destination" do
-    {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), "/")
+    {:ok, view, _} = live(signed_in_conn() |> Map.put(:host, "localhost"), "/")
     assert has_element?(view, "details.mobile-manage summary", "More")
 
     for path <- ~w(memory memory/findings repositories channels follow-ups working-copies) do
@@ -2393,7 +2407,7 @@ defmodule Ryker.ControlPlane.LiveTest do
     # Until 2026-09-24 the only learning control was a closed "Learning
     # settings" drawer at the foot of /memory, below every learned topic.
     assert {:ok, _snapshot} = Ryker.Settings.initialize("control-plane:local")
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
 
     for path <- ~w(/memory /memory/learned /memory/findings /memory/learning) do
       {:ok, view, _html} = live(conn, path)
@@ -2423,7 +2437,7 @@ defmodule Ryker.ControlPlane.LiveTest do
 
   test "the learning switch shows a change made elsewhere instead of overwriting it" do
     assert {:ok, snapshot} = Ryker.Settings.initialize("control-plane:local")
-    {:ok, view, _html} = live(build_conn() |> Map.put(:host, "localhost"), "/memory/learning")
+    {:ok, view, _html} = live(signed_in_conn() |> Map.put(:host, "localhost"), "/memory/learning")
 
     # Someone else turns learning off after this page was read.
     assert {:ok, _changed} =
@@ -2443,7 +2457,7 @@ defmodule Ryker.ControlPlane.LiveTest do
   test "projection failures preserve stale state but log only a safe diagnostic category", %{
     counters: counters
   } do
-    {:ok, view, _} = live(build_conn() |> Map.put(:host, "localhost"), "/")
+    {:ok, view, _} = live(signed_in_conn() |> Map.put(:host, "localhost"), "/")
     Agent.update(counters, &Map.put(&1, :fail, true))
 
     log =
@@ -2470,7 +2484,10 @@ defmodule Ryker.ControlPlane.LiveTest do
     assert LabPage.announcement(after_reply, after_reply) == nil
 
     {:ok, view, _} =
-      live(build_conn() |> Map.put(:host, "localhost"), "/conversations/#{Ecto.UUID.generate()}")
+      live(
+        signed_in_conn() |> Map.put(:host, "localhost"),
+        "/conversations/#{Ecto.UUID.generate()}"
+      )
 
     assert has_element?(view, "#lab-announcement[role=status][aria-live=polite]")
     assert has_element?(view, "#lab-messages[role=log][aria-live=off]")

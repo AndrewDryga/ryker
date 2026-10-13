@@ -112,19 +112,17 @@ defmodule Ryker.ControlPlane.Usage.Query do
   def in_slack(queryable), do: where(queryable, [usage: e], e.transport == "slack")
 
   @doc """
-  The executions a person asked for. Someone in Chat is a person once
-  Tailscale or Cloudflare Access named them (`Ryker.ControlPlane.Actor.chat_ref/1`);
-  the console reached without either has one shared operator, who is nobody
-  in particular. Apps, bots, hooks and missing senders still count toward
-  every overall total.
+  The executions a person asked for. Someone in Chat is the person they signed in as
+  (`Ryker.ControlPlane.Actor.chat_ref/1`); the console used before anyone signed in had one
+  shared operator, who is nobody in particular. Apps, bots, hooks and missing senders still
+  count toward every overall total.
   """
   def people(queryable) do
     where(
       queryable,
       [usage: e],
       e.actor_kind == "user" and not is_nil(e.actor) and e.actor != "" and
-        (e.source != "control_plane" or like(e.actor, "tailscale:%") or
-           like(e.actor, "cloudflare:%"))
+        (e.source != "control_plane" or e.actor != "local-operator")
     )
   end
 

@@ -28,8 +28,9 @@ defmodule Ryker.Settings do
   alias Ryker.Work
 
   @actor "control-plane:local"
-  @tailnet_actor "control-plane:tailscale:"
-  @cloudflare_actor "control-plane:cloudflare:"
+  # How a person signs in to the console (`Ryker.ControlPlane.Actor`): with a link from Slack,
+  # the host or an invite, or through Tailscale Serve or Cloudflare Access.
+  @console_sign_ins ~w(slack_operator invite owner tailscale cloudflare)
   @lock_tag "ryker-settings"
   @day 86_400
   # Keeping routing or work examples for training is off until a person turns it on.
@@ -279,10 +280,17 @@ defmodule Ryker.Settings do
   def saved_by_person?(%{installation: %{saved_by: saved_by}}), do: person?(saved_by)
 
   defp person?(@actor), do: true
-  defp person?(@tailnet_actor <> _login), do: true
-  defp person?(@cloudflare_actor <> _login), do: true
+  defp person?("control-plane:" <> person), do: console_person?(person)
   defp person?("slack:user:" <> _user_ref), do: true
   defp person?(_system), do: false
+
+  # `<sign-in>:<login>`: someone signed in to the console.
+  defp console_person?(person) do
+    case String.split(person, ":", parts: 2) do
+      [sign_in, login] when sign_in in @console_sign_ins -> byte_size(login) in 1..200
+      _other -> false
+    end
+  end
 
   @doc """
   Whether the runtime has applied the snapshot's revision: `:applied`,
@@ -1082,14 +1090,17 @@ defmodule Ryker.Settings do
     end)
   end
 
-  # The local console is trusted by reach, and so is the person Tailscale Serve
-  # or Cloudflare Access named there (`Ryker.ControlPlane.Viewer`). A Slack actor is trusted
-  # only when the saved settings let that person manage Ryker: chosen by name, or
-  # an admin of the saved workspace while admins may (`Ryker.Slack.Operators`).
-  # The payload's own claim of who sent it is never the grant.
+  # Anyone signed in to the console may change settings (`Ryker.ControlPlane.SignInGate`), and
+  # the local console of a release before sign-in. A Slack actor is trusted only when the saved
+  # settings let that person manage Ryker: chosen by name, or an admin of the saved workspace
+  # while admins may (`Ryker.Slack.Operators`). The payload's own claim of who sent it is never
+  # the grant.
   defp authorize(@actor), do: :ok
-  defp authorize(@tailnet_actor <> login) when byte_size(login) in 1..200, do: :ok
-  defp authorize(@cloudflare_actor <> login) when byte_size(login) in 1..200, do: :ok
+
+  defp authorize("control-plane:" <> person) do
+    if console_person?(person), do: :ok, else: {:error, :settings_forbidden}
+  end
+
   defp authorize("github:webhook"), do: :ok
   defp authorize("github:onboarding"), do: :ok
 

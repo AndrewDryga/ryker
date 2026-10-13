@@ -221,6 +221,9 @@ defmodule Ryker.Retention.Data do
 
     memory = execute_count(@prune_operational_memory, [memory_seconds])
     rollups = prune_expired("conversation_rollups")
+    # Sign-in links and signed-in browsers leave at their own expiry (`Ryker.ConsoleAccess`).
+    _links = prune_expired("console_sign_in_links")
+    _sessions = prune_expired("console_sessions")
     _drafts = prune_aged(@settled_summary_drafts, settings)
     _behaviors = prune_expired("operator_behaviors")
     _ended_behaviors = prune_aged(@ended_behaviors, settings)

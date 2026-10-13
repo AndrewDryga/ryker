@@ -1,5 +1,6 @@
 defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
   use Ryker.DataCase, async: false
+  import Ryker.ConsoleSignIn, only: [signed_in_conn: 0]
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
@@ -564,7 +565,10 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
     installation!()
 
     {:ok, view, _html} =
-      live(build_conn() |> Map.put(:host, "localhost"), "/integrations/webhooks/credentials/new")
+      live(
+        signed_in_conn() |> Map.put(:host, "localhost"),
+        "/integrations/webhooks/credentials/new"
+      )
 
     view
     |> form("form[phx-submit=create-webhook-credential]", %{
@@ -587,7 +591,10 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
     installation!()
 
     {:ok, view, _html} =
-      live(build_conn() |> Map.put(:host, "localhost"), "/integrations/webhooks/credentials/new")
+      live(
+        signed_in_conn() |> Map.put(:host, "localhost"),
+        "/integrations/webhooks/credentials/new"
+      )
 
     view
     |> form("form[phx-submit=create-webhook-credential]", %{
@@ -651,7 +658,7 @@ defmodule Ryker.ControlPlane.SettingsWebhooksLiveTest do
 
   defp open, do: live(conn(), "/integrations/webhooks")
 
-  defp conn, do: build_conn() |> Map.put(:host, "localhost")
+  defp conn, do: signed_in_conn() |> Map.put(:host, "localhost")
 
   # A source's row opens its own page from anywhere on the row.
   defp edit_source(view) do

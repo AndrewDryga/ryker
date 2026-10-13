@@ -5,8 +5,13 @@ Chromium. The harness does not install dependencies, start runtime workers,
 send messages, post to Slack, or call a model.
 
 ```sh
-node scripts/control-plane-visual.cjs http://127.0.0.1:4321 /tmp/ryker-visual-review
+RYKER_SIGN_IN_LINK=$(scripts/compose.sh sign-in) \
+  node scripts/control-plane-visual.cjs http://127.0.0.1:4321 /tmp/ryker-visual-review
 ```
+
+Every console page needs someone signed in, so each harness signs in first. It opens the link in
+`RYKER_SIGN_IN_LINK`, presses Sign in, uses that browser session for every page, and signs it out
+at the end. A link works once, so get a new one for each run.
 
 If Playwright is installed outside Node's normal module search path, set
 `RYKER_PLAYWRIGHT_MODULE` to that installation's `playwright` directory.
@@ -36,7 +41,8 @@ visual-quality verdict, nor does it establish backend or live Slack parity.
 For a focused timeline regression, use a populated real episode:
 
 ```sh
-node scripts/timeline-visual.cjs http://127.0.0.1:4321/timeline/REQUEST_ID /tmp/ryker-timeline-review
+RYKER_SIGN_IN_LINK=$(scripts/compose.sh sign-in) \
+  node scripts/timeline-visual.cjs http://127.0.0.1:4321/timeline/REQUEST_ID /tmp/ryker-timeline-review
 ```
 
 This captures 1440px, 900px and 390px layouts, asserts that message/event/request
@@ -48,5 +54,6 @@ For the Usage page with real execution data (populated profile, model and people
 tables, the token chart, the rates disclosure and a profile drill-down):
 
 ```sh
-node scripts/usage-visual.cjs http://127.0.0.1:4321 /tmp/ryker-usage-review
+RYKER_SIGN_IN_LINK=$(scripts/compose.sh sign-in) \
+  node scripts/usage-visual.cjs http://127.0.0.1:4321 /tmp/ryker-usage-review
 ```

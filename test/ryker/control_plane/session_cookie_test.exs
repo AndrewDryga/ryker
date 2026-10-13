@@ -6,7 +6,7 @@ defmodule Ryker.ControlPlane.SessionCookieTest do
   alias Ryker.Settings
 
   @endpoint Endpoint
-  @published "ryker.tailnet.example"
+  @published "ryker.tailnet-example.ts.net"
 
   setup do
     start_supervised!(

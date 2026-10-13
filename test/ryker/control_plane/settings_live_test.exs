@@ -1,5 +1,6 @@
 defmodule Ryker.ControlPlane.SettingsLiveTest do
   use Ryker.DataCase, async: false
+  import Ryker.ConsoleSignIn, only: [signed_in_conn: 0]
   import Ecto.Query, only: [from: 2]
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
@@ -187,7 +188,8 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     refute has_element?(emisar, "input[name='connection[ref]']")
     assert has_element?(emisar, "input[name='connection[display_name]']:not([required])")
 
-    assert get(build_conn() |> Map.put(:host, "localhost"), "/settings/connections").status == 404
+    assert get(signed_in_conn() |> Map.put(:host, "localhost"), "/settings/connections").status ==
+             404
 
     {:ok, repositories, _html} = open("/repositories")
     assert has_element?(repositories, "a[href='/integrations/github']", "Connect GitHub")
@@ -202,7 +204,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     initialize!()
 
     for path <- ~w(/settings/slack /settings/github /settings/emisar /settings/webhooks) do
-      assert get(build_conn() |> Map.put(:host, "localhost"), path).status == 404, path
+      assert get(signed_in_conn() |> Map.put(:host, "localhost"), path).status == 404, path
     end
 
     for path <-
@@ -218,7 +220,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     prices = length(initialize!().pricing_rates)
     assert prices > 1
 
-    conn = build_conn() |> Map.put(:host, "localhost") |> get("/settings")
+    conn = signed_in_conn() |> Map.put(:host, "localhost") |> get("/settings")
     assert conn.status == 200
 
     {:ok, _view, html} = open("/settings")
@@ -230,13 +232,13 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     rows = LazyHTML.query(document, "main .settings-list .entity-row")
 
     assert rows |> LazyHTML.query(".entity-name a") |> LazyHTML.attribute("href") ==
-             ~w(/settings/models /settings/retention /settings/prices /settings/report /settings/advanced)
+             ~w(/settings/models /settings/retention /settings/prices /settings/report /settings/access /settings/advanced)
 
     assert rows |> LazyHTML.query(".entity-name a") |> texts() ==
-             ["Models", "Data retention", "Model prices", "Weekly report", "Advanced"]
+             ["Models", "Data retention", "Model prices", "Weekly report", "Access", "Advanced"]
 
     # Each row says what its page sets, and where it is now.
-    assert rows |> LazyHTML.query(".entity-text") |> Enum.count() == 5
+    assert rows |> LazyHTML.query(".entity-text") |> Enum.count() == 6
     assert LazyHTML.query(document, "#setting-report .entity-meta") |> LazyHTML.text() =~ "Off"
     models = LazyHTML.query(document, "#setting-model .entity-meta") |> LazyHTML.text()
     assert models =~ "gpt-5.6-sol"
@@ -250,7 +252,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     settings_links = LazyHTML.query(document, "details#nav-settings a")
 
     assert LazyHTML.attribute(settings_links, "href") ==
-             ~w(/settings /settings/models /settings/retention /settings/prices /settings/report /settings/advanced)
+             ~w(/settings /settings/models /settings/retention /settings/prices /settings/report /settings/access /settings/advanced)
 
     assert LazyHTML.query(document, "details#nav-settings a[aria-current=page]")
            |> LazyHTML.attribute("href") == ["/settings"]
@@ -656,7 +658,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
       |> element("#emisar-account-production .entity-name a", "Production approvals")
       |> render_click()
       |> follow_redirect(
-        build_conn() |> Map.put(:host, "localhost"),
+        signed_in_conn() |> Map.put(:host, "localhost"),
         "/integrations/emisar/production/edit"
       )
 
@@ -2493,7 +2495,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
 
   defp open(path \\ "/setup"), do: live(conn(), path)
 
-  defp conn, do: build_conn() |> Map.put(:host, "localhost")
+  defp conn, do: signed_in_conn() |> Map.put(:host, "localhost")
 
   defp page_description(html) do
     html

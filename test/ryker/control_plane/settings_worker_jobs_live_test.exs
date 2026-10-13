@@ -1,5 +1,6 @@
 defmodule Ryker.ControlPlane.SettingsWorkerJobsLiveTest do
   use Ryker.DataCase, async: false
+  import Ryker.ConsoleSignIn, only: [signed_in_conn: 0]
   import Ryker.TestHelpers, only: [digest: 1]
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
@@ -39,7 +40,9 @@ defmodule Ryker.ControlPlane.SettingsWorkerJobsLiveTest do
     assert {:ok, %{worker_installs: [%{ref: "fleet-main", workers: 2, eligible: 1}]}} =
              SettingsView.fetch()
 
-    {:ok, view, _html} = live(build_conn() |> Map.put(:host, "localhost"), "/settings/advanced")
+    {:ok, view, _html} =
+      live(signed_in_conn() |> Map.put(:host, "localhost"), "/settings/advanced")
+
     assert has_element?(view, "#settings-work-workspace_ref option[value=fleet-main]")
     refute has_element?(view, "#settings-work-workspace_ref option[value=retired]")
     refute has_element?(view, "#settings-policies")

@@ -549,6 +549,37 @@ defmodule Ryker.Slack.AppHomeTest do
     refute text =~ "incident-room"
   end
 
+  # Andrew, 2026-10-13: an operator opens Ryker's console from Home, with a sign-in link made as
+  # Home is drawn. Anyone else would read the private conversations Home keeps from them.
+  test "an operator's Home opens the console with a fresh link, and nobody else's does" do
+    {:ok, calls} = Agent.start_link(fn -> [] end)
+    test = self()
+
+    options =
+      calls
+      |> options(fn _workspace_ref, _actor_ref, _shared_conversations -> %{} end)
+      |> Map.put(:console_link, fn workspace_ref, actor_ref ->
+        send(test, {:link_for, workspace_ref, actor_ref})
+        {:ok, "https://ryker.example.com/sign-in/token"}
+      end)
+
+    assert {:ok, %{access: :operator}} = AppHome.handle(event("U123"), options)
+    assert {:ok, %{access: :restricted}} = AppHome.handle(event("U456"), options)
+
+    [{"U456", %{"blocks" => restricted}}, {"U123", %{"blocks" => operator}}] =
+      Agent.get(calls, & &1)
+
+    assert [%{"type" => "header"}, %{"type" => "actions", "elements" => [button]} | _rest] =
+             operator
+
+    assert button["text"]["text"] == "Open the console"
+    assert button["url"] == "https://ryker.example.com/sign-in/token"
+    assert_received {:link_for, "T123", "U123"}
+
+    refute Jason.encode!(restricted) =~ "sign-in"
+    refute_received {:link_for, _workspace_ref, "U456"}
+  end
+
   test "inactive or guest users cannot cause a Home publication" do
     {:ok, calls} = Agent.start_link(fn -> [] end)
 

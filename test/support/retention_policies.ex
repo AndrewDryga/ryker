@@ -167,6 +167,18 @@ defmodule Ryker.RetentionPolicies do
         "each Chat conversation's chosen environment: a current setting without message content, read for every new message in that conversation"
     },
     %{
+      table: "console_sign_in_links",
+      class: :operational,
+      why:
+        "a link that signs one person in to the console once, kept as its token's digest; it leaves when it expires, used or not"
+    },
+    %{
+      table: "console_sessions",
+      class: :operational,
+      why:
+        "a browser signed in to the console, kept as its cookie token's digest; it leaves 30 days after its last use, or when it signs out"
+    },
+    %{
       table: "control_plane_people",
       class: :kept,
       why:

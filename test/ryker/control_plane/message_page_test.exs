@@ -14,6 +14,7 @@ defmodule Ryker.ControlPlane.MessagePageTest do
   It is, but the page has to show the conversation the message is part of.
   """
   use Ryker.DataCase, async: false
+  import Ryker.ConsoleSignIn, only: [signed_in_conn: 0]
   import Ecto.Query
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
@@ -382,7 +383,7 @@ defmodule Ryker.ControlPlane.MessagePageTest do
 
   defp open(entry) do
     live(
-      build_conn() |> Map.put(:host, "localhost"),
+      signed_in_conn() |> Map.put(:host, "localhost"),
       "/timeline/" <> entry.id
     )
   end

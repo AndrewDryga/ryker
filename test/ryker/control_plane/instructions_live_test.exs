@@ -1,5 +1,6 @@
 defmodule Ryker.ControlPlane.InstructionsLiveTest do
   use Ryker.DataCase, async: false
+  import Ryker.ConsoleSignIn, only: [actor: 0, signed_in_conn: 0]
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
   import Plug.Conn, only: [get_resp_header: 2]
@@ -66,7 +67,8 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     render_click(view, "refresh")
     assert has_element?(view, "#instructions-text", "First draft 🌱")
     submit(view, "First draft 🌱")
-    assert {:ok, %{saved_by: "control-plane:local"}} = Instructions.get(:global)
+    assert {:ok, %{saved_by: saved_by}} = Instructions.get(:global)
+    assert saved_by == actor()
     assert has_element?(view, "[role=status]", "Instructions saved")
     render_click(view, "refresh")
     assert has_element?(view, "[role=status]", "Instructions saved")
@@ -231,7 +233,7 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
 
   test "the Preferences and Guidance pages are removed rather than redirected" do
     for path <- ["/preferences", "/guidance"] do
-      response = get(build_conn() |> Map.put(:host, "localhost"), path)
+      response = get(signed_in_conn() |> Map.put(:host, "localhost"), path)
       assert response.status == 404, path
       assert get_resp_header(response, "location") == [], path
     end
@@ -304,7 +306,7 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     {:ok, _, roster} = open("/channels")
     assert roster =~ "own instructions"
     refute roster =~ "CHANNEL_PRIVATE_INSTRUCTION"
-    other = build_conn() |> Map.put(:host, "localhost") |> get("/channels/TOTHER/CTEST")
+    other = signed_in_conn() |> Map.put(:host, "localhost") |> get("/channels/TOTHER/CTEST")
     assert other.status == 404
     refute other.resp_body =~ "instructions-form"
     refute other.resp_body =~ "CHANNEL_PRIVATE_INSTRUCTION"
@@ -569,7 +571,7 @@ defmodule Ryker.ControlPlane.InstructionsLiveTest do
     assert {:ok, %{revision: 3}} = Instructions.get(:global)
   end
 
-  defp open(path), do: live(build_conn() |> Map.put(:host, "localhost"), path)
+  defp open(path), do: live(signed_in_conn() |> Map.put(:host, "localhost"), path)
 
   defp edit(view, text),
     do: view |> element("#instructions-form") |> render_change(%{"text" => text})

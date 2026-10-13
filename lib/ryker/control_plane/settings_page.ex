@@ -4,8 +4,8 @@ defmodule Ryker.ControlPlane.SettingsPage do
   `SetupPage`), the environments Ryker works in (see `EnvironmentsPage`), the
   Integrations overview and a page per integration (Slack, GitHub, Emisar,
   Webhooks), and the Settings overview and a page per installation setting
-  (Models, Data retention, Model prices, Weekly report, Advanced). The sidebar is the only
-  menu; each page has one title, one sentence and its parts in Kit section
+  (Models, Data retention, Model prices, Weekly report, Access, Advanced). The sidebar is the
+  only menu; each page has one title, one sentence and its parts in Kit section
   cards, the overviews and one-part pages included.
 
   Adding or editing one thing in a list, an environment, a price, an Emisar
@@ -23,7 +23,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
   alias Ryker.BundledCoop
   alias Ryker.ControlPlane.{Components, Environments, EnvironmentsPage, Integrations, Kit, Paths}
   alias Ryker.ControlPlane.{RunningSystem, SettingsEditor, SettingsRows, SettingsSections}
-  alias Ryker.ControlPlane.SetupPage
+  alias Ryker.ControlPlane.{SetupPage, ShortTime}
   alias Ryker.ControlPlane.{SlackMarkdown, WebhookPreview}
   alias Ryker.ConversationRef
   alias Ryker.GitHub
@@ -78,6 +78,13 @@ defmodule Ryker.ControlPlane.SettingsPage do
     default: nil,
     doc: "What became of the preview last sent to the channel: {:ok | :error, words}"
   )
+
+  attr(:access, :map,
+    default: nil,
+    doc: "On Access: the browsers signed in and the invites nobody has used yet"
+  )
+
+  attr(:viewer, :map, default: nil, doc: "The person signed in, to tell their own browser apart")
 
   def render(%{view: {:error, :settings_not_initialized}} = assigns) do
     assigns = assign(assigns, :page, page(assigns.section))
@@ -245,6 +252,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
         <div :if={@section == :system and @running_system} class="settings-running">
           <RunningSystem.card {@running_system} />
         </div>
+        <.access :if={@section == :access and @access} access={@access} viewer={@viewer} />
         <.weekly_preview
           :if={@section == :report}
           preview={@preview}
@@ -255,6 +263,116 @@ defmodule Ryker.ControlPlane.SettingsPage do
     </div>
     """
   end
+
+  # Access ---------------------------------------------------------------------
+
+  attr(:access, :map, required: true)
+  attr(:viewer, :map, default: nil)
+
+  # Signing in from Slack, inviting someone, and the browsers signed in now (Andrew,
+  # 2026-10-13: Ryker signs people in itself). An invite's link is shown once, above the page's
+  # cards, the way a secret is; a list's buttons act on their own row.
+  defp access(assigns) do
+    assigns = assign(assigns, :now, DateTime.utc_now())
+
+    ~H"""
+    <Kit.section_card
+      id="access-slack"
+      title="Sign in from Slack"
+      lede="Ryker's operators send Ryker /ryker sign-in, or open Ryker's App Home and press Open the console. Ryker replies with a link that signs them in on that browser."
+    >
+      <p class="settings-lede">
+        The operators are the people chosen on <.link navigate="/integrations/slack">Slack</.link>,
+        and the workspace's admins unless that page turns them off.
+      </p>
+    </Kit.section_card>
+
+    <Kit.section_card
+      id="access-invite"
+      title="Invite someone"
+      lede="For someone who isn't one of Ryker's operators in Slack. Their link signs them in once, within 7 days, under the name you give."
+    >
+      <form id="invite-form" class="settings-form access-invite-form" phx-submit="invite-person">
+        <div class="settings-field">
+          <label for="invite-name">Name</label>
+          <input
+            id="invite-name"
+            name="invite[name]"
+            type="text"
+            maxlength="120"
+            autocomplete="off"
+            placeholder="Dana from Acme"
+            required
+          />
+        </div>
+        <div>
+          <button type="submit" class="ui-button primary" phx-disable-with="Creating…">
+            Create invite link
+          </button>
+        </div>
+      </form>
+      <Kit.entity_list :if={@access.invites != []} id="open-invites" label="Invites not used yet">
+        <Kit.entity_row
+          :for={invite <- @access.invites}
+          id={"invite-#{invite.id}"}
+          name={invite.person_name}
+          text={"Works until " <> ShortTime.stamp(invite.expires_at, @now)}
+        >
+          <:actions>
+            <button
+              type="button"
+              class="ui-button quiet"
+              phx-click="withdraw-invite"
+              phx-value-id={invite.id}
+            >
+              Withdraw
+            </button>
+          </:actions>
+        </Kit.entity_row>
+      </Kit.entity_list>
+    </Kit.section_card>
+
+    <Kit.section_card
+      id="access-sessions"
+      title="Signed in"
+      lede="Browsers a link signed in. Each stays signed in until 30 days after it was last used."
+    >
+      <Kit.empty
+        :if={@access.sessions == []}
+        icon={:smile}
+        title="Nobody is signed in with a link"
+        text="People who sign in from Slack or with an invite show here."
+      />
+      <Kit.entity_list :if={@access.sessions != []} id="signed-in" label="Signed-in browsers">
+        <Kit.entity_row
+          :for={session <- @access.sessions}
+          id={"session-#{session.id}"}
+          name={session.person_name}
+          text={signed_in_with(session.person_via)}
+          meta={[used(session, @viewer, @now)]}
+        >
+          <:actions>
+            <button
+              type="button"
+              class="ui-button quiet"
+              phx-click="end-session"
+              phx-value-id={session.id}
+            >
+              Sign out
+            </button>
+          </:actions>
+        </Kit.entity_row>
+      </Kit.entity_list>
+    </Kit.section_card>
+    """
+  end
+
+  defp signed_in_with(:slack_operator), do: "Signed in with a link from Slack"
+  defp signed_in_with(:invite), do: "Signed in with an invite"
+  defp signed_in_with(:owner), do: "Signed in with the host's link"
+
+  defp used(session, %{session_id: id}, _now) when id == session.id, do: "This browser"
+  defp used(session, _viewer, now), do: "Last used " <> ShortTime.text(session.last_seen_at, now)
 
   # Weekly report preview ------------------------------------------------------
 
@@ -499,6 +617,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
     retention: "/settings/retention",
     pricing: "/settings/prices",
     report: "/settings/report",
+    access: "/settings/access",
     system: "/settings/advanced"
   ]
 
@@ -526,6 +645,9 @@ defmodule Ryker.ControlPlane.SettingsPage do
     do: "Whether Ryker posts a weekly report of how its week went, where and when."
 
   defp sets(:system), do: "Where work runs and what each kind of work may do."
+
+  defp sets(:access),
+    do: "Who can open this console: Ryker's operators from Slack, and the people they invite."
 
   # The first model of each kind of work, then which kinds have fallbacks.
   defp set_now(:model, view) do
@@ -612,6 +734,8 @@ defmodule Ryker.ControlPlane.SettingsPage do
 
   defp set_now(:pricing, %{snapshot: %{pricing_rates: rates}}),
     do: Wording.count(length(rates), "price")
+
+  defp set_now(:access, _view), do: nil
 
   defp set_now(:system, _view) do
     if BundledCoop.distribution?(),
@@ -1795,6 +1919,14 @@ defmodule Ryker.ControlPlane.SettingsPage do
         "Once a week Ryker can post a short update in a Slack channel, written the way a " <>
           "teammate would: the PRs it opened and merged, the ones waiting for review, how " <>
           "much it handled and how fast, what it cost, and what it is waiting on people for."
+    }
+
+  defp page(:access),
+    do: %{
+      title: "Access",
+      description:
+        "Who can open this console. Ryker's operators sign in from Slack; anyone else needs " <>
+          "an invite from someone signed in."
     }
 
   defp page(:pricing),

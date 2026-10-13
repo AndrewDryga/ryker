@@ -1,7 +1,8 @@
 defmodule Ryker.ControlPlane.FindingsPageTest do
   use Ryker.DataCase, async: false
+  import Ryker.ConsoleSignIn, only: [signed_in_conn: 0]
   import Ryker.TestHelpers, only: [outline: 2]
-  import Phoenix.ConnTest, only: [build_conn: 0, get: 2]
+  import Phoenix.ConnTest, only: [get: 2]
   import Phoenix.LiveViewTest
   alias Ryker.ControlPlane.{Actions, Endpoint, EpisodeProjection, FindingsPage}
   alias Ryker.ControlPlane.{FindingsProjection, Pages, Projection, Router}
@@ -480,7 +481,7 @@ defmodule Ryker.ControlPlane.FindingsPageTest do
        }}
     )
 
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
     {:ok, view, _html} = live(conn, "/memory/findings?finding=#{finding.id}")
 
     assert page_title(view) == "Checkout pods restart after every deploy · Ryker"

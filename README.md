@@ -73,8 +73,8 @@ The installer creates owner-only state in `.ryker/`, generates the database pass
 cryptographic roots once, builds the Ryker and bundled Coop worker images from the checkout, starts
 them with PostgreSQL and the worker's private Docker daemon, signs the worker in to a model account
 of its own (never the host's sign-in, which would share one refresh token), verifies health,
-readiness and the exact running version, then prints the local setup URL. Running it again keeps the same
-keys and volumes.
+readiness and the running version, then prints a link that signs you in and opens setup. Running
+it again keeps the same keys and volumes.
 
 Slack, GitHub, Emisar and webhook credentials are entered in the setup UI and encrypted in
 PostgreSQL. They never belong in Compose or `.ryker/compose.env`. The control UI and ingress ports
@@ -110,9 +110,9 @@ bindings, [`docs/operations.md`](docs/operations.md) for backup, restore and rec
 ## Webhooks
 
 The service listens on loopback. Publish only `/v1/github` (GitHub App events) and `/v1/hooks/`
-through a TLS reverse proxy (`deploy/nginx/ryker.conf` is an example). The console, with health
-and metrics, stays local unless it is published through Cloudflare Access or Tailscale Serve,
-which decide who reaches it ([`docs/operations.md`](docs/operations.md)).
+through a TLS reverse proxy (`deploy/nginx/ryker.conf` is an example). The console signs people
+in itself, so a tunnel such as Cloudflare Tunnel or Tailscale Serve can carry it to browsers
+elsewhere ([`docs/operations.md`](docs/operations.md)).
 
 Grafana route:
 

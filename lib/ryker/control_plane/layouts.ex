@@ -58,6 +58,35 @@ defmodule Ryker.ControlPlane.Layouts do
     """
   end
 
+  # The shell a person sees before signing in: Ryker's mark and one card, without the sidebar,
+  # since nothing it leads to opens yet. `@body` is markup `SignIn` made, escaping every value.
+  # sobelow_skip ["XSS.Raw"]
+  def sign_in(assigns) do
+    assigns = assign(assigns, :stylesheets, @stylesheets)
+
+    ~H"""
+    <!DOCTYPE html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" /><meta name="viewport" content="width=device-width,initial-scale=1" />
+        <title>{@title} · Ryker</title><link
+          :for={href <- @stylesheets}
+          rel="stylesheet"
+          href={href}
+        /><link rel="icon" type="image/svg+xml" href="/assets/brand/avatar.svg" />
+      </head><body class="control-room">
+        <main class="sign-in-shell">
+          <img class="sign-in-brand" src="/assets/brand/lockup-color.svg" alt="Ryker" />
+          <section class="kit-card sign-in-card" aria-label={@title}>
+            <h1>{@title}</h1>
+            {Phoenix.HTML.raw(@body)}
+          </section>
+        </main>
+      </body>
+    </html>
+    """
+  end
+
   # The live shell. page-help-early.js is a classic script so it runs here,
   # before the body is parsed: it shows or hides the page's help as this
   # browser chose before anything paints. The module runs after parsing.

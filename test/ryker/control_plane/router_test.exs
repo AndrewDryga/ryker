@@ -362,7 +362,7 @@ defmodule Ryker.ControlPlane.RouterTest do
 
     options =
       options()
-      |> Map.put(:public_host, "ryker.tailnet.example")
+      |> Map.put(:public_host, "ryker.tailnet-example.ts.net")
       |> put_in([:actions, :send_lab_message], fn _id, _message, _attachments, viewer ->
         send(parent, {:sent_as, Actor.chat_ref(viewer), Actor.of(viewer)})
         {:ok, %{status: :recorded}}
@@ -382,7 +382,7 @@ defmodule Ryker.ControlPlane.RouterTest do
       |> Router.call(Router.init(options))
     end
 
-    assert post.("ryker.tailnet.example").status == 303
+    assert post.("ryker.tailnet-example.ts.net").status == 303
 
     assert_received {:sent_as, "tailscale:andrew@example.com",
                      "control-plane:tailscale:andrew@example.com"}

@@ -98,10 +98,12 @@ separately sourced.
 
 Slack displays only the manifest's static slash-command usage hint; it does not ask the app for
 dynamic subcommand completions. Keep the hint short, and keep it to verbs that exist. The hint names
-the emergency kit — `status`, `proactive`, `shadow`, and `help` — and the full guide comes from
-`/ryker` or `/ryker help` rather than from the picker. `assignments` is the one verb the
-guide carries that the hint does not: it lists a channel's standing rules and pauses, resumes or
-deletes one. Creating one is a conversation: the model's `propose_automation` offer and its
+the emergency kit — `status`, `sign-in`, `proactive`, `shadow`, `assignments` and `help` — and the
+full guide comes from `/ryker` or `/ryker help`. `sign-in` replies, privately, with a link that
+signs an operator in to Ryker's console once in the next 15 minutes; anyone else is told to ask for
+an invite (operations.md, "Signing in"). App Home's **Open the console** button does the same with
+a link made each time Home is drawn. `assignments` lists a channel's standing rules and pauses,
+resumes or deletes one. Creating one is a conversation: the model's `propose_automation` offer and its
 confirmation card, not a verb. Anything else the command used to do is now on App Home, on a pinned
 card's buttons, in the web control plane, or in the saved Slack connection; a retired verb answers
 "Unknown `/ryker` subcommand" followed by the guide.

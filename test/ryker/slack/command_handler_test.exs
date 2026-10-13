@@ -182,6 +182,35 @@ defmodule Ryker.Slack.CommandHandlerTest do
     assert_receive {:assignment_changed, "behavior:assignment:terraform", :disabled, _scope}
   end
 
+  # Andrew, 2026-10-13: Ryker signs people in to its console itself, and its operators get the
+  # link from Slack, in a reply nobody else sees. Anyone else would read every conversation
+  # Ryker keeps, the private ones included, so they need an invite instead.
+  test "an operator gets a sign-in link privately, and nobody else gets one" do
+    options =
+      Map.put(options(), :sign_in_link, fn workspace_ref, user_ref ->
+        send(self(), {:link_for, workspace_ref, user_ref})
+        {:ok, "https://ryker.example.com/sign-in/token"}
+      end)
+
+    for word <- ["sign-in", "Sign-In", "login"] do
+      assert {:ok, reply} = CommandHandler.handle(command(word, "event:#{word}"), options)
+      assert reply["response_type"] == "ephemeral"
+      assert reply["text"] =~ "<https://ryker.example.com/sign-in/token|Sign in to Ryker>"
+      assert reply["text"] =~ "once, in the next 15 minutes"
+      assert_received {:link_for, "T123", "U123"}
+    end
+
+    stranger = %{options | operators: chosen_operators([])}
+    assert {:ok, refused} = CommandHandler.handle(command("sign-in", "event:stranger"), stranger)
+    assert refused["text"] =~ "Only Ryker's operators can sign in from Slack"
+    assert refused["text"] =~ "invite you"
+    refute_received {:link_for, _workspace_ref, _user_ref}
+
+    broken = %{options | sign_in_link: fn _workspace_ref, _user_ref -> {:error, :down} end}
+    assert {:ok, apology} = CommandHandler.handle(command("sign-in", "event:broken"), broken)
+    assert apology["text"] =~ "couldn't make a sign-in link"
+  end
+
   test "non-operators and non-members are denied before any write" do
     denied_operator = %{options() | operators: chosen_operators([])}
 

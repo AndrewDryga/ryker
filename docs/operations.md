@@ -35,7 +35,8 @@ repository run:
 The installer creates `.ryker/` with mode `0700` and `compose.env` with mode `0600`. On the first
 run it generates the database password, checkpoint key, credential-encryption key and state-tools
 token. Later runs reuse them. It starts the project, waits for `/healthz` and `/readyz`, verifies
-the `x-ryker-version` header, and prints one setup URL.
+the `x-ryker-version` header, and prints a link that signs you in and opens setup. The link works
+once, within the hour; `scripts/compose.sh sign-in` prints another.
 
 Beside Ryker the project runs the models it uses for voice messages and for routing's search by
 meaning, on the CPU, each in its own image with the model inside: about 4 GB of images and 3.5 GB
@@ -53,17 +54,18 @@ RYKER_GITHUB_PUBLIC_URL=https://ryker.example.com/v1/github
 RYKER_WEBHOOK_PUBLIC_URL=https://ryker.example.com
 ```
 
-Publish the console only through Cloudflare Access or Tailscale Serve, described below. A plain
-reverse proxy or tunnel to it would hand everyone who reaches it the whole console, with health,
-readiness and metrics.
+The console signs people in itself (Signing in, below), so a tunnel such as Cloudflare Tunnel
+or Tailscale Serve can carry it to browsers elsewhere. Health and readiness answer anyone who
+reaches them; metrics answer only at a loopback address, as the watchdog reads them.
 
 Inside Compose the console admits only its own loopback and `RYKER_CONTROL_PEER`, the address
 published traffic arrives from: the network's gateway, `172.30.42.1` (measured under OrbStack).
 A Docker runtime that forwards published ports from another address answers every page with
 "Loopback access only"; set `RYKER_CONTROL_PEER` in `.ryker/compose.env` to that
 address and run `scripts/compose.sh start`. Every published request arrives from that one
-address, so the console cannot tell who sent it: Ryker refuses to start unless
-`RYKER_CONTROL_BIND` is loopback, since any other bind would admit anyone who can reach the host.
+address, a tunnel's included, so where a request came from says nothing about who sent it, and
+every page asks its person to sign in. The console still listens only on loopback: Ryker refuses
+to start unless `RYKER_CONTROL_BIND` is loopback, and a tunnel reaches it there.
 
 Links Ryker posts into Slack, such as the weekly report's, open the control UI at
 `RYKER_CONTROL_PUBLIC_URL`, which is `http://127.0.0.1:` and `RYKER_CONTROL_PORT` unless
@@ -72,8 +74,8 @@ an SSH tunnel's local port. It must be HTTPS or a loopback HTTP address.
 
 ## Setup and connection states
 
-Open the setup URL printed by the installer (`/setup`). It leads through six required steps, one
-at a time:
+Open the sign-in link the installer prints. It signs you in and opens setup (`/setup`), which
+leads through six required steps, one at a time:
 
 1. connect and verify Slack;
 2. connect and verify the GitHub App: github.com's, or a GitHub Enterprise one given by its API
@@ -119,6 +121,7 @@ scripts/compose.sh logs
 scripts/compose.sh stop
 scripts/compose.sh start
 scripts/compose.sh restart
+scripts/compose.sh sign-in   # a link that signs you in to the console, for an hour
 ```
 
 `stop` and `uninstall` retain PostgreSQL data, Ryker state and encryption roots. `uninstall`
@@ -263,38 +266,62 @@ This removes the Compose volumes and generated environment. It cannot recover en
 credentials, checkpoints or historical evidence without a backup. The helper says exactly what it
 removed after the operation.
 
-## The console through Cloudflare Access
+## Signing in
 
-People who should not join your tailnet, such as another company's team, reach the console through
-Cloudflare Access instead. Cloudflare signs them in with Google (or a one-time code sent to their
-email), and only the people its policy names get through. Ryker checks each request's Access token
-and records what each person changes under their email. Ryker has no roles: everyone the policy
-lets in can see and change everything in this install.
+Everyone who opens the console signs in, on this host too: a tunnel's requests reach Ryker the
+same way a browser here does. A link signs one person in once, and that browser stays signed in
+until 30 days after it was last used. Ryker keeps links and sessions only as digests of their
+tokens.
 
-In Cloudflare Zero Trust:
+- Ryker's operators get a link in Slack: they send Ryker `/ryker sign-in`, or open Ryker's App Home
+  and press **Open the console**. The link works for 15 minutes. The operators are the people
+  chosen on Integrations › Slack, and the workspace's admins unless that page turns them off.
+- Anyone signed in can invite someone outside Slack on Settings › Access. The invite link works
+  once, within 7 days, under the name it was given.
+- On this host, `scripts/compose.sh sign-in` prints a link that works for an hour. The installer
+  prints one that opens setup.
+
+Settings › Access lists the browsers signed in and signs any of them out. Ryker has no roles:
+everyone signed in can see and change everything in this install.
+
+A service that publishes the console can name a person too, and then nobody needs a link: a token
+Cloudflare Access signed, at the published address, or Tailscale Serve's `Tailscale-User-Login`,
+at a `*.ts.net` address. Serve's headers aren't signed, so Ryker ignores them anywhere else: through
+another tunnel, anyone could send them.
+
+## The console through Cloudflare
+
+A Cloudflare Tunnel carries the console to people outside your network, such as another company's
+team, without opening a port on this host. In Cloudflare Zero Trust, Networks › Tunnels: create a
+cloudflared tunnel and run the install command it shows on this host. Give the tunnel a public
+hostname, such as `ryker.example.com`, whose service is `http://localhost:4321`. Then set the
+address in `.ryker/compose.env` and run `scripts/compose.sh start`, which recreates the container
+with it:
+
+```bash
+RYKER_CONTROL_PUBLIC_URL=https://ryker.example.com
+```
+
+The links Ryker posts now open that address, and people sign in there as anywhere else.
+
+Cloudflare Access is optional. With it, Cloudflare signs people in with Google (or a one-time code
+sent to their email) before they reach the console, and Ryker signs them in from its token:
 
 1. Settings › Authentication: add Google as a login method. It needs an OAuth client from Google
    Cloud whose redirect URI is `https://<team>.cloudflareaccess.com/cdn-cgi/access/callback`.
    Access's built-in one-time PIN needs no setup.
-2. Networks › Tunnels: create a cloudflared tunnel and run the install command it shows on this
-   host. Give the tunnel a public hostname, such as `ryker.example.com`, whose service is
-   `http://localhost:4321`.
-3. Access › Applications: add a self-hosted application for that hostname, with a policy that
-   allows the people or email domains who may use the console. The application's overview shows
-   its audience (AUD) tag.
-
-Then set, in `.ryker/compose.env`:
+2. Access › Applications: add a self-hosted application for the tunnel's hostname, with a policy
+   that allows the people or email domains who may use the console. The application's overview
+   shows its audience (AUD) tag.
+3. Add to `.ryker/compose.env`, then run `scripts/compose.sh start`:
 
 ```bash
-RYKER_CONTROL_PUBLIC_URL=https://ryker.example.com
 RYKER_CLOUDFLARE_ACCESS_TEAM_DOMAIN=<team>.cloudflareaccess.com
 RYKER_CLOUDFLARE_ACCESS_AUD=<the application's audience tag>
 ```
 
-and run `scripts/compose.sh start`, which recreates the container with the new settings. The
-links Ryker posts now open that address. A request there
-without a token Access signed for the application is refused; the console at `127.0.0.1` works as
-before.
+Ryker checks each request's Access token and records what each person changes under their email.
+A request without one signs in with a link, as anyone else does.
 
 ## Health and recovery
 

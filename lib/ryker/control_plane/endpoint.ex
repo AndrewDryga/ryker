@@ -17,6 +17,7 @@ defmodule Ryker.ControlPlane.Endpoint do
 
   plug(Ryker.ControlPlane.BrowserGuard, access: :endpoint)
   plug(:session)
+  plug(Ryker.ControlPlane.SignInGate)
   plug(Ryker.ControlPlane.WebRouter)
 
   # Secure at the published HTTPS address, so a browser never sends the cookie

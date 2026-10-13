@@ -1,6 +1,7 @@
 defmodule Ryker.ControlPlane.CasesPageTest do
   use Ryker.DataCase, async: false
-  import Phoenix.ConnTest, only: [build_conn: 0, get: 2]
+  import Ryker.ConsoleSignIn, only: [signed_in_conn: 0]
+  import Phoenix.ConnTest, only: [get: 2]
   import Phoenix.LiveViewTest
   alias Ryker.ControlPlane.{Actions, CasesPage, CasesProjection, Endpoint, Projection, Router}
   alias Ryker.Memories.CaseRecord
@@ -113,7 +114,7 @@ defmodule Ryker.ControlPlane.CasesPageTest do
        }}
     )
 
-    conn = build_conn() |> Map.put(:host, "localhost")
+    conn = signed_in_conn() |> Map.put(:host, "localhost")
     {:ok, view, _html} = live(conn, "/memory/cases?case=#{kept.episode_id}")
 
     assert page_title(view) == "Checkout returns 502 after the deploy · Ryker"

@@ -1,9 +1,10 @@
 defmodule Ryker.ControlPlane.WebRouter do
   @moduledoc """
   The one route map: every page is a `WorkbenchLive` route, `/assets` is the
-  packaged allowlist, and everything else is forwarded to `HttpPlug` for the
-  confirmed actions, downloads, record views and observability endpoints.
-  A path answered here is never also answered there.
+  packaged allowlist, signing in is `SignIn`'s, and everything else is
+  forwarded to `HttpPlug` for the confirmed actions, downloads, record views
+  and observability endpoints. A path answered here is never also answered
+  there.
   """
   use Phoenix.Router
   import Phoenix.Controller
@@ -24,6 +25,9 @@ defmodule Ryker.ControlPlane.WebRouter do
 
   scope "/" do
     pipe_through(:browser)
+    get("/sign-in", Ryker.ControlPlane.SignIn, :page)
+    get("/sign-in/:token", Ryker.ControlPlane.SignIn, :link)
+    post("/sign-in/:token", Ryker.ControlPlane.SignIn, :use_link)
     live("/", Ryker.ControlPlane.WorkbenchLive)
 
     for path <-
@@ -42,7 +46,7 @@ defmodule Ryker.ControlPlane.WebRouter do
       live("/integrations/#{page}", Ryker.ControlPlane.WorkbenchLive)
     end
 
-    for page <- ~w(models retention prices report advanced) do
+    for page <- ~w(models retention prices report access advanced) do
       live("/settings/#{page}", Ryker.ControlPlane.WorkbenchLive)
     end
 

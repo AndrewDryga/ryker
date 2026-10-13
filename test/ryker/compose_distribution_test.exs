@@ -549,7 +549,13 @@ defmodule Ryker.ComposeDistributionTest do
     assert built < worker
 
     # The models start last, built from this checkout; Ryker does not wait for them.
-    assert index!(calls, "up --detach --build --wait whisper whisper-detect embeddings") > worker
+    models = index!(calls, "up --detach --build --wait whisper whisper-detect embeddings")
+    assert models > worker
+
+    # Nobody uses the console without signing in (2026-10-13), so the install ends with a link
+    # that signs its owner in and opens setup.
+    assert index!(calls, ~s|Ryker.Release.sign_in_link(return_to: "/setup")|) > models
+    assert output =~ "Open this link to sign in and finish setting up Ryker"
 
     assert Enum.at(calls, built) =~
              ~s(run --rm --no-deps -w /tmp --entrypoint /bin/sh ryker-coop -c umask 077; mkdir -p "$TMPDIR"; coop build)

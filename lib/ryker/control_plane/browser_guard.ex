@@ -12,9 +12,10 @@ defmodule Ryker.ControlPlane.BrowserGuard do
   `local_host?/2`. There is one copy of the host list, the loopback test and
   the header set, here.
 
-  Published through Cloudflare Access, the console answers at its published
-  host only with a token Access signed for it (`CloudflareAccess`): a request
-  there without one did not come through Access.
+  Who may use the console is decided after this, by sign-in
+  (`Ryker.ControlPlane.SignInGate`). Published through Cloudflare Access, a
+  request at the published host with a token Access signed for it names its
+  person (`CloudflareAccess`); one without it signs in as any other does.
   """
   import Plug.Conn
   alias Ryker.ControlPlane.{CloudflareAccess, Endpoint}
@@ -69,15 +70,16 @@ defmodule Ryker.ControlPlane.BrowserGuard do
   def peer_allowed?(address, {:network, published}) when is_tuple(published),
     do: loopback?(address) or address == published
 
-  # Under Access, a request at the published host needs a token Access signed.
+  # Under Access, a token Access signed names a person at the published host.
   # The person it names stays on the request (`CloudflareAccess.viewer/2`), so
   # no later step checks the signature again: the router's own guard, the
   # person the request acts for and each action's record of who took it each
-  # did, up to four RSA checks for one click (2026-10-04 review).
+  # did, up to four RSA checks for one click (2026-10-04 review). Without one,
+  # the request goes on to sign in.
   defp sign_in(%Plug.Conn{host: host} = conn, host, %{} = cloudflare_access) do
     case CloudflareAccess.viewer(conn, cloudflare_access) do
       {:ok, viewer} -> CloudflareAccess.signed_in(conn, viewer)
-      :error -> refuse(conn, 403, "Sign in through Cloudflare Access")
+      :error -> conn
     end
   end
 

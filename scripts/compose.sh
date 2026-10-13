@@ -19,7 +19,7 @@ lock_lifecycle() {
 }
 
 usage() {
-  echo "usage: scripts/compose.sh install|status|logs|stop|start|restart|upgrade|model-login [PROVIDER]|worker-token WORKER_ID WORKSPACE_REF OPERATOR_REF|worker-drain|worker-resume|worker-revoke WORKER_ID OPERATOR_REF|replay SOURCE_INPUT_REF REQUEST_REF OPERATOR ACTION_REF|replay-show REPLAY_INPUT_REF|doctor|backup|restore FILE|uninstall|destroy" >&2
+  echo "usage: scripts/compose.sh install|status|logs|stop|start|restart|upgrade|sign-in|model-login [PROVIDER]|worker-token WORKER_ID WORKSPACE_REF OPERATOR_REF|worker-drain|worker-resume|worker-revoke WORKER_ID OPERATOR_REF|replay SOURCE_INPUT_REF REQUEST_REF OPERATOR ACTION_REF|replay-show REPLAY_INPUT_REF|doctor|backup|restore FILE|uninstall|destroy" >&2
   exit 2
 }
 
@@ -83,7 +83,7 @@ wait_ready() {
   while :; do
     probe_console "$origin"
     if [ "$healthz_code" = 200 ] && [ "$readyz_code" = 200 ] && [ "$running_version" = "$expected" ]; then
-      echo "Ryker is ready: $origin/setup"
+      echo "Ryker is ready: $origin"
       return 0
     fi
     if [ "$(date +%s)" -ge "$deadline" ]; then
@@ -253,6 +253,20 @@ install_ryker() {
     echo "Ryker started, but the exact version did not become ready. Run: ./scripts/compose.sh status" >&2
     exit 1
   }
+
+  # Nobody uses the console without signing in, and nobody is an operator in Slack yet.
+  echo "Open this link to sign in and finish setting up Ryker. It works once, within the hour:"
+  sign_in_link /setup
+}
+
+# sign_in_link [PAGE] prints a link that signs the host's owner in to the console once, within
+# the hour, and then opens PAGE.
+sign_in_link() {
+  if [ -n "${1:-}" ]; then
+    compose exec -T ryker /opt/ryker/bin/ryker eval "Ryker.Release.sign_in_link(return_to: \"$1\")"
+  else
+    compose exec -T ryker /opt/ryker/bin/ryker eval 'Ryker.Release.sign_in_link()'
+  fi
 }
 
 # A path an operator names is read from where they stood, before this moves
@@ -416,6 +430,11 @@ case "$command" in
     compose up --detach --wait ryker ryker-coop
     start_models --build
     wait_ready
+    ;;
+  sign-in)
+    [ "$#" -eq 1 ] || usage
+    require_install
+    sign_in_link
     ;;
   model-login)
     require_install
