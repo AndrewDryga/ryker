@@ -31,6 +31,7 @@ defmodule Ryker.ControlPlane.Server do
     :port,
     :public_url,
     :schedule_policies,
+    :session_secret,
     :task_policies
   ]
 
@@ -44,7 +45,7 @@ defmodule Ryker.ControlPlane.Server do
       http: [ip: options.ip, port: options.port],
       url: [host: "localhost", port: options.port],
       check_origin: origins(options.port, options.public_url),
-      secret_key_base: Base.encode64(Crypto.sha512(options.csrf_secret)),
+      secret_key_base: Base.encode64(options.session_secret),
       control_plane: %{
         access: options.access,
         cloudflare_access: options.cloudflare_access,
@@ -74,7 +75,15 @@ defmodule Ryker.ControlPlane.Server do
   defp listener(configuration) do
     configuration
     |> normalize!()
-    |> Map.take([:access, :cloudflare_access, :csrf_secret, :ip, :port, :public_url])
+    |> Map.take([
+      :access,
+      :cloudflare_access,
+      :csrf_secret,
+      :ip,
+      :port,
+      :public_url,
+      :session_secret
+    ])
   end
 
   defp actions(options) do
@@ -97,6 +106,9 @@ defmodule Ryker.ControlPlane.Server do
     csrf_secret =
       Map.get_lazy(configuration, :csrf_secret, fn -> Crypto.random_bytes(32) end)
 
+    session_secret =
+      Map.get_lazy(configuration, :session_secret, fn -> Crypto.random_bytes(64) end)
+
     task_policies = Map.get(configuration, :task_policies, %{})
 
     schedule_policy_resolver =
@@ -111,6 +123,7 @@ defmodule Ryker.ControlPlane.Server do
     validate_public_url!(public_url)
     validate_cloudflare_access!(cloudflare_access)
     validate_csrf_secret!(csrf_secret)
+    validate_session_secret!(session_secret)
 
     # A fresh installation has no reviewed policy yet. The console still starts
     # so setup is reachable; it simply cannot submit Work until one exists.
@@ -133,6 +146,7 @@ defmodule Ryker.ControlPlane.Server do
       port: port,
       public_url: public_url,
       schedule_policy_resolver: schedule_policy_resolver,
+      session_secret: session_secret,
       task_policies: task_policies
     }
   end
@@ -228,6 +242,12 @@ defmodule Ryker.ControlPlane.Server do
   defp validate_csrf_secret!(secret) do
     unless is_binary(secret) and byte_size(secret) == 32,
       do: raise(ArgumentError, "control-plane CSRF secret must be 32 bytes")
+  end
+
+  # Signs the session cookie, so it must outlive a restart (`Ryker.Runtime.Owner`).
+  defp validate_session_secret!(secret) do
+    unless is_binary(secret) and byte_size(secret) == 64,
+      do: raise(ArgumentError, "control-plane session secret must be 64 bytes")
   end
 
   defp normalize!(configuration) when is_list(configuration) do

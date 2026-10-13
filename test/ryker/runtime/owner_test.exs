@@ -1,13 +1,15 @@
 defmodule Ryker.Runtime.OwnerTest do
   use Ryker.DataCase, async: false
+  import Phoenix.ConnTest, only: [build_conn: 0, get: 2, post: 3, recycle: 1]
   import Ryker.TestHelpers, only: [eventually: 1, eventually: 2]
   alias Ecto.Adapters.SQL.Sandbox
-  alias Ryker.{Bootstrap, Config, Credentials, Repo, Settings}
+  alias Ryker.{Bootstrap, Config, ConsoleAccess, Credentials, Repo, Settings}
   alias Ryker.ControlPlane.Endpoint
   alias Ryker.Runtime.{Assembly, Owner}
   alias Ryker.Slack.Names
 
   @actor "control-plane:local"
+  @endpoint Endpoint
 
   setup do
     # The local MCP token is deployment-injected material, not a product
@@ -47,6 +49,36 @@ defmodule Ryker.Runtime.OwnerTest do
     assert console_running?(supervisor)
     assert Config.get_env(:work) == nil
     assert Config.get_env(:slack) == nil
+  end
+
+  # Andrew, 2026-10-13, on the tenant install: "it signs me out all the time (on each update?)
+  # it's annoying". The console signed its session cookie with a key drawn at each start, so every
+  # deploy and every restart signed every browser out. The key now comes from the credential root,
+  # which a restart keeps; a different root still turns the old cookies away.
+  test "a browser signed in before a restart is still signed in after it",
+       %{supervisor: supervisor, bootstrap: bootstrap} do
+    owner = start_owner(supervisor, bootstrap)
+    assert Owner.reconcile(owner) == {:ok, :not_initialized}
+
+    {:ok, url} = ConsoleAccess.owner_link()
+    path = URI.parse(url).path
+    page = build_conn() |> Map.put(:host, "localhost") |> get(path)
+    signed = page |> recycle() |> Map.put(:host, "localhost") |> post(path, %{})
+    assert signed.status == 303
+
+    stop_supervised!(Owner)
+    restarted = start_owner(supervisor, bootstrap)
+    assert Owner.reconcile(restarted) == {:ok, :not_initialized}
+
+    after_restart = signed |> recycle() |> Map.put(:host, "localhost") |> get("/activity")
+    assert after_restart.status == 200
+
+    stop_supervised!(Owner)
+    other_root = start_owner(supervisor, %{bootstrap | credential_key: :binary.copy(<<74>>, 32)})
+    assert Owner.reconcile(other_root) == {:ok, :not_initialized}
+
+    elsewhere = signed |> recycle() |> Map.put(:host, "localhost") |> get("/activity")
+    assert elsewhere.status == 303
   end
 
   # mac-server, 2026-10-01: a setup page reached at the address Compose published, not the

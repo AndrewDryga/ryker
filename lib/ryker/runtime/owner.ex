@@ -77,9 +77,12 @@ defmodule Ryker.Runtime.Owner do
     supervisor = Keyword.get(options, :supervisor, Ryker.Runtime.Supervisor)
     stop_leftovers(supervisor)
 
+    bootstrap = Keyword.get_lazy(options, :bootstrap, &bootstrap/0)
+
     state = %{
-      bootstrap: Keyword.get_lazy(options, :bootstrap, &bootstrap/0),
+      bootstrap: bootstrap,
       csrf_secret: Crypto.random_bytes(32),
+      session_secret: session_secret(bootstrap),
       revision: nil,
       supervisor: supervisor,
       running: %{},
@@ -280,6 +283,7 @@ defmodule Ryker.Runtime.Owner do
     %{
       access: Map.get(state.bootstrap.control_plane, :access, :loopback),
       csrf_secret: state.csrf_secret,
+      session_secret: state.session_secret,
       ip: state.bootstrap.control_plane.ip,
       port: state.bootstrap.control_plane.port,
       public_url: state.bootstrap.control_public_url,
@@ -287,8 +291,18 @@ defmodule Ryker.Runtime.Owner do
     }
   end
 
-  defp console(state, control_plane),
-    do: Map.put(control_plane, :csrf_secret, state.csrf_secret)
+  defp console(state, control_plane) do
+    Map.merge(control_plane, %{
+      csrf_secret: state.csrf_secret,
+      session_secret: state.session_secret
+    })
+  end
+
+  # The console signs its session cookie with a key from the credential root, which a restart
+  # keeps. Drawn at each start, it signed every browser out at every deploy (Andrew, 2026-10-13:
+  # "it signs me out all the time (on each update?) it's annoying").
+  defp session_secret(%{credential_key: key}) when is_binary(key),
+    do: Crypto.hmac_sha512(key, "ryker console session cookie")
 
   # Starts, replaces and stops children in dependency order and reports every
   # child that would not start as `{:runtime_start_failed, key, reason}`.

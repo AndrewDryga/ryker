@@ -31,13 +31,13 @@ defmodule Ryker.Crypto do
   @spec sha256(iodata()) :: binary()
   def sha256(data), do: :crypto.hash(:sha256, data)
 
-  @doc "SHA-512 of `data`, the raw 64 bytes."
-  @spec sha512(iodata()) :: binary()
-  def sha512(data), do: :crypto.hash(:sha512, data)
-
   @doc "HMAC-SHA-256 of `data` under `secret`, the raw 32 bytes."
   @spec hmac_sha256(iodata(), iodata()) :: binary()
   def hmac_sha256(secret, data), do: :crypto.mac(:hmac, :sha256, secret, data)
+
+  @doc "HMAC-SHA-512 of `data` under `secret`: 64 bytes, such as a key derived from a root key."
+  @spec hmac_sha512(iodata(), iodata()) :: binary()
+  def hmac_sha512(secret, data), do: :crypto.mac(:hmac, :sha512, secret, data)
 
   @doc "`count` bytes from the operating system's secure random source."
   @spec random_bytes(pos_integer()) :: binary()
