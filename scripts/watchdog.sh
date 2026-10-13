@@ -305,3 +305,43 @@ if [[ $blocked =~ ^[0-9]+$ ]]; then
   fi
   echo "$blocked" >"$blocked_file"
 fi
+
+# Installs on other machines, watched from this one through the address each is published at.
+# The tenant install runs on a machine where a notification reaches nobody, and nothing watched
+# it until 2026-10-14. RYKER_WATCH_REMOTE in compose.env names their origins, separated by
+# spaces. Only readiness is public there: metrics need a person signed in. Each keeps its own
+# strikes and repeats, apart from this Mac's install.
+remote_check() {
+  local origin="$1" state="$2" key strikes_path alerted_path strikes now last
+  key=$(printf '%s' "$origin" | /usr/bin/shasum | cut -c1-12)
+  strikes_path="$state_dir/remote-$key.strikes"
+  alerted_path="$state_dir/remote-$key.alerted"
+  strikes=$(cat "$strikes_path" 2>/dev/null || echo 0)
+  if [[ $state == "ready" ]]; then
+    if [[ -f $alerted_path ]]; then
+      alarm "Ryker at $origin recovered" "It reports ready again."
+      note "$origin recovered after $strikes strikes"
+    fi
+    rm -f "$strikes_path" "$alerted_path"
+    return
+  fi
+  strikes=$((strikes + 1))
+  echo "$strikes" >"$strikes_path"
+  note "$origin unhealthy (strike $strikes/$strikes_required): $state"
+  [[ $strikes -ge $strikes_required ]] || return
+  now=$(date +%s)
+  last=$(cat "$alerted_path" 2>/dev/null || echo 0)
+  if [[ $((now - last)) -ge $((renotify_minutes * 60)) ]]; then
+    echo "$now" >"$alerted_path"
+    alarm "Ryker at $origin is not working" "$state"
+  fi
+}
+
+for origin in $(compose_env_value RYKER_WATCH_REMOTE "$env_file"); do
+  if [[ ! $origin =~ ^https?://[A-Za-z0-9.-]+(:[0-9]+)?$ ]]; then
+    note "RYKER_WATCH_REMOTE names something that is not an origin, skipped: $origin"
+    continue
+  fi
+  readiness "$origin"
+  remote_check "$origin" "$readiness_state"
+done

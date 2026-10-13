@@ -346,6 +346,12 @@ them. A failed check becomes a macOS notification and a line in its log; a model
 reported as Ryker working with less. If the watchdog has gone, run the installer again; it reports
 success only once the agent is registered.
 
+The same watchdog can watch installs on other machines, where its notification would reach
+nobody. Name their published origins in `RYKER_WATCH_REMOTE` in `compose.env`, separated by
+spaces, such as `RYKER_WATCH_REMOTE=https://ryker.example.com`. Only `/readyz` is public at such an
+address, so the watchdog asks that, keeps strikes and repeats for each install on its own, and
+says when one is ready again.
+
 ## Local routing model
 
 Ryker can try a small model you run yourself on routing, beside the provider model, to see

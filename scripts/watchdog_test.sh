@@ -18,9 +18,10 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d)
 server_pid=""
 server6_pid=""
+remote_pid=""
 cleanup() {
   local pid
-  for pid in $server_pid $server6_pid; do
+  for pid in $server_pid $server6_pid $remote_pid; do
     kill "$pid" 2>/dev/null
     wait "$pid" 2>/dev/null
   done
@@ -363,6 +364,36 @@ check "nothing to watch fails the run" "exit=1" "$nothing"
 again=$(WATCHDOG_ENV_FILE="$work/nowhere/compose.env" run)
 refute "nothing to watch repeats only after the renotify interval" "ALERT" "$again"
 check "nothing to watch still fails every run" "exit=1" "$again"
+
+# ---------------------------------------------------------------------------
+# An install on another machine, watched from this one through the address it is published at.
+# The tenant install runs where a notification reaches nobody, and nothing watched it until
+# 2026-10-14. Only its readiness is public there, so that is what is asked.
+remote="$work/remote"
+mkdir -p "$remote"
+python3 "$work/server.py" "$remote" &
+remote_pid=$!
+for _ in $(seq 1 50); do [[ -s $remote/port ]] && break; sleep 0.1; done
+remote_origin="http://127.0.0.1:$(cat "$remote/port")"
+printf 'RYKER_WATCH_REMOTE=%s\n' "$remote_origin" >>"$install/compose.env"
+reset; ready; metrics 'ryker_work_total{status="settled"} 1'
+printf '503' >"$remote/readyz.code"
+printf 'not ready: no_eligible_workers\n' >"$remote/readyz.body"
+remote_down="$(run)$(run)"
+check "a remote install that is not ready alarms with its reasons" \
+  "ALERT Ryker at $remote_origin is not working — not ready: no_eligible_workers" "$remote_down"
+refute "the local install stays quiet while a remote one is down" "ALERT Ryker is not working" "$remote_down"
+quiet=$(run)
+refute "a remote outage repeats only after the renotify interval" "ALERT" "$quiet"
+printf '200' >"$remote/readyz.code"
+printf 'ready\n' >"$remote/readyz.body"
+remote_back=$(run)
+check "a remote install ready again says so" "ALERT Ryker at $remote_origin recovered" "$remote_back"
+kill "$remote_pid" 2>/dev/null
+wait "$remote_pid" 2>/dev/null
+remote_pid=""
+gone="$(run)$(run)"
+check "an unreachable remote install alarms" "ALERT Ryker at $remote_origin is not working — unreachable" "$gone"
 
 if [[ $failures -gt 0 ]]; then
   echo "$failures watchdog check(s) failed"
