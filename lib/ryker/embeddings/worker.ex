@@ -22,7 +22,11 @@ defmodule Ryker.Embeddings.Worker do
 
   @fields [:url, :model, :poll_interval_ms]
   @optional [:embed, :idle_interval_ms, :name]
-  @batch 16
+  # bge-m3 on the CPU took 27.6 s for sixteen digests of 2,000 characters, the
+  # most a digest holds, beside Compose's other models (2026-10-13). A batch
+  # that cannot answer within its 30 s is asked again every minute and stops
+  # every digest behind it, so a batch is four.
+  @batch 4
 
   def child_spec(configuration) do
     _options = options!(configuration)

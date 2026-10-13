@@ -44,6 +44,26 @@ defmodule Ryker.Embeddings.WorkerTest do
     assert Worker.embed_next(options(embed)) == :idle
   end
 
+  # On the CPU, bge-m3 took 27.6 s for sixteen digests of 2,000 characters
+  # beside Compose's other models, against the batch's 30 s. A batch that
+  # never answers in time is asked again every minute, and no digest behind it
+  # ever gets a vector.
+  test "a backlog is embedded a few digests at a time, so a server on the CPU answers in time" do
+    for index <- 1..6, do: admit!("Request #{index}: checkout returns 502 on the cart page")
+    test = self()
+
+    embed = fn texts, _options ->
+      send(test, {:asked, length(texts)})
+      {:ok, Enum.map(texts, fn _text -> [1.0, 0.0] end)}
+    end
+
+    assert Worker.embed_next(options(embed)) == {:ok, 4}
+    assert Worker.embed_next(options(embed)) == {:ok, 2}
+    assert Worker.embed_next(options(embed)) == :idle
+    assert_received {:asked, 4}
+    assert_received {:asked, 2}
+  end
+
   test "a request whose text changed while its vector was computed keeps waiting for the new one" do
     episode = admit!("Checkout returns 502 on the cart page")
 
