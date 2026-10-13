@@ -12,6 +12,8 @@ defmodule Ryker.Work.DispatcherTest do
   alias Ryker.Work.ValidationIntent
 
   @now ~U[2026-08-28 12:00:00.000000Z]
+  @at_capacity "provider service unavailable: Selected model is at capacity. " <>
+                 "Please try a different model."
 
   defmodule ExecutorStub do
     @moduledoc false
@@ -278,6 +280,70 @@ defmodule Ryker.Work.DispatcherTest do
     turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
     rerun_ref = "turn:rerun:#{turn.id}"
     assert %{"action" => "transfer", "new_turn_ref" => ^rerun_ref} = turn.cancellation_intent
+  end
+
+  # OpenAI's model was "at capacity" from about 05:25 to 06:10 UTC on 2026-10-13: a question in
+  # Slack stopped for a person at once, and a run started by hand at 06:12 answered it. A
+  # provider outage passes, so the task runs again by itself once its wait is over.
+  test "a task the provider couldn't serve waits, then runs again by itself" do
+    command = create_episode!("provider-outage")
+    detail = @at_capacity
+    reason = {:work_turn_terminal, "failed", "acp_protocol_error", detail}
+    failed = {:work_provider_unavailable, DateTime.utc_now(), "acp_protocol_error", detail}
+
+    assert {:ok, {:deferred, ^reason}} = Dispatcher.run_once(options({:error, failed}))
+
+    turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+    assert turn.status == :pending
+    assert turn.cancellation_intent == nil
+    assert turn.work_attempt_count == 0
+    assert DateTime.diff(turn.next_attempt_at, DateTime.utc_now()) in 30..90
+
+    Ryker.Repo.update_all(
+      from(saved in Turn, where: saved.id == ^turn.id),
+      set: [next_attempt_at: ~U[2000-01-01 00:00:00.000000Z]]
+    )
+
+    a_minute_on =
+      {:work_provider_unavailable, DateTime.add(DateTime.utc_now(), -61, :second),
+       "acp_protocol_error", detail}
+
+    assert {:ok, {:deferred, {:work_rerun_pending, ^reason}}} =
+             Dispatcher.run_once(options({:error, a_minute_on}))
+
+    turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+    rerun_ref = "turn:rerun:#{turn.id}"
+    assert %{"action" => "transfer", "new_turn_ref" => ^rerun_ref} = turn.cancellation_intent
+  end
+
+  # Each run again after an outage carries its number, so the turn says how many came before it.
+  test "a task the provider refuses again runs again under the next number" do
+    reason = {:work_turn_terminal, "failed", "acp_protocol_error", @at_capacity}
+    command = create_episode!("provider-fourth", "turn:rerun:4:#{Ecto.UUID.generate()}")
+
+    assert {:ok, {:deferred, {:work_rerun_pending, ^reason}}} =
+             Dispatcher.run_once(options(provider_failed_long_ago()))
+
+    turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+    fifth = "turn:rerun:5:#{turn.id}"
+    assert %{"action" => "transfer", "new_turn_ref" => ^fifth} = turn.cancellation_intent
+  end
+
+  # The ninth run asks a person: by then the provider has been out for about an hour.
+  test "a task the provider keeps refusing asks a person after about an hour" do
+    reason = {:work_turn_terminal, "failed", "acp_protocol_error", @at_capacity}
+    command = create_episode!("provider-last", "turn:rerun:8:#{Ecto.UUID.generate()}")
+
+    assert {:ok, {:deferred, {:work_stop_pending, ^reason}}} =
+             Dispatcher.run_once(options(provider_failed_long_ago()))
+
+    turn = Ryker.Repo.get_by!(Turn, episode_id: command.episode_id)
+    assert turn.cancellation_intent["action"] == "block"
+  end
+
+  defp provider_failed_long_ago do
+    long_ago = DateTime.add(DateTime.utc_now(), -3_600, :second)
+    {:error, {:work_provider_unavailable, long_ago, "acp_protocol_error", @at_capacity}}
   end
 
   # Coop can report a turn a person stopped the way it reports one a worker restart interrupted,
@@ -703,7 +769,7 @@ defmodule Ryker.Work.DispatcherTest do
     assert Dispatcher.run_once(:invalid) == {:error, {:invalid_work_dispatcher, :options}}
   end
 
-  defp create_episode!(suffix) do
+  defp create_episode!(suffix, turn_ref \\ nil) do
     id = Ecto.UUID.generate()
 
     command =
@@ -712,7 +778,7 @@ defmodule Ryker.Work.DispatcherTest do
         episode_key: "work-dispatcher:#{suffix}:#{id}",
         native_input_id: "source:dispatcher:#{suffix}:#{id}",
         occurred_at: @now,
-        turn_ref: "turn:dispatcher:#{suffix}:#{id}"
+        turn_ref: turn_ref || "turn:dispatcher:#{suffix}:#{id}"
       })
 
     assert {:ok, _transition} = Episodes.apply(command)

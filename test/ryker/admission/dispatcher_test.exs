@@ -1,5 +1,6 @@
 defmodule Ryker.Admission.DispatcherTest do
   use Ryker.DataCase, async: true
+  import Ecto.Query, only: [from: 2]
   alias Ryker.Admission
   alias Ryker.Admission.{Decision, Dispatcher, Executor}
   alias Ryker.Admission.DispatcherTest.ExecutorStub
@@ -326,6 +327,43 @@ defmodule Ryker.Admission.DispatcherTest do
 
   # Read again once only: a message that stops the worker every time would otherwise be read
   # again after each later message, and an old one is answered by no one by now.
+  # OpenAI's model was at capacity from about 05:25 to 06:10 UTC on 2026-10-13. A question in
+  # Slack ran its routing turn five minutes without a word and stopped, and it was read again
+  # only because another message came within the hour.
+  test "a message the provider couldn't read is read again on its own after a wait" do
+    for {channel, code, detail} <- [
+          {"CTIMEOUT", "acp_timeout", "turn deadline exceeded"},
+          {"CCAPACITY", "acp_protocol_error",
+           "provider service unavailable: Selected model is at capacity. Please try a different model."}
+        ] do
+      input_ref = Inbox.ref(record_input!("Ev-provider-#{channel}", channel_ref: channel))
+      reason = {:coop_turn_failed, "failed", code, detail}
+      {:ok, stub} = ExecutorStub.start_link({:fail, {:admission_generation_spent, reason}})
+
+      assert {:ok, {:deferred, ^input_ref, ^reason}} = Dispatcher.run_once(options(stub))
+      assert {:ok, waiting} = Inbox.fetch(input_ref)
+      assert waiting.status == :pending
+      assert waiting.execution_generation == 2
+      assert DateTime.diff(waiting.next_attempt_at, @now) == 60
+    end
+  end
+
+  # After about an hour of runs the provider refused, the message waits for the worker to prove
+  # it works, as any worker failure does.
+  test "a message the provider keeps refusing waits for a reading that works" do
+    entry = record_input!("Ev-provider-spent", channel_ref: "CSPENT")
+    input_ref = Inbox.ref(entry)
+
+    Repo.update_all(from(saved in Inbox.Entry, where: saved.id == ^entry.id),
+      set: [execution_generation: 9]
+    )
+
+    reason = {:coop_turn_failed, "failed", "acp_timeout", "turn deadline exceeded"}
+    {:ok, stub} = ExecutorStub.start_link({:fail, {:admission_generation_spent, reason}})
+
+    assert {:ok, {:blocked, ^input_ref, ^reason}} = Dispatcher.run_once(options(stub))
+  end
+
   test "a message is read again after a worker failure once, and only within the hour" do
     repeat_ref = Inbox.ref(record_input!("Ev-outage-repeat", message_ref: "1787832301.000100"))
     {:ok, stub} = ExecutorStub.start_link({:fail, {:admission_generation_spent, crashed()}})

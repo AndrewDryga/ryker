@@ -49,23 +49,46 @@ defmodule Ryker.Work.Custody.Cancellation do
   @rerun_prefix "turn:rerun:"
 
   @doc false
-  @spec request_rerun(Ecto.UUID.t(), String.t(), String.t(), Ecto.UUID.t(), String.t()) ::
-          {:ok, map()} | {:error, term()}
-  def request_rerun(episode_id, episode_key, turn_ref, turn_id, lease_ref) do
+  @spec request_rerun(
+          Ecto.UUID.t(),
+          String.t(),
+          String.t(),
+          Ecto.UUID.t(),
+          String.t(),
+          pos_integer()
+        ) :: {:ok, map()} | {:error, term()}
+  def request_rerun(episode_id, episode_key, turn_ref, turn_id, lease_ref, run \\ 1) do
     with {:ok, episode_id} <- uuid(episode_id, :episode_id),
          {:ok, turn_id} <- uuid(turn_id, :turn_id),
          :ok <- reference(episode_key, :episode_key),
          :ok <- reference(turn_ref, :turn_ref),
          :ok <- reference(lease_ref, :lease_ref),
+         :ok <- positive_integer(run, :run),
          {:ok, intent} <-
-           WorkCancellation.new_transfer(@rerun_prefix <> turn_id, "transfer:rerun:#{turn_id}") do
+           WorkCancellation.new_transfer(rerun_ref(run, turn_id), "transfer:rerun:#{turn_id}") do
       request_cancellation(episode_id, episode_key, turn_ref, intent, lease_ref)
     end
   end
 
+  # The first rerun keeps the reference it always had; a later one carries its number, so the
+  # turn says how many reruns came before it without reading any other.
+  defp rerun_ref(1, turn_id), do: @rerun_prefix <> turn_id
+  defp rerun_ref(run, turn_id), do: "#{@rerun_prefix}#{run}:#{turn_id}"
+
   @doc false
   @spec rerun?(String.t()) :: boolean()
   def rerun?(turn_ref) when is_binary(turn_ref), do: String.starts_with?(turn_ref, @rerun_prefix)
+
+  @doc false
+  @spec reruns(String.t()) :: non_neg_integer()
+  def reruns(@rerun_prefix <> rest) do
+    case Integer.parse(rest) do
+      {run, ":" <> _turn_id} when run > 1 -> run
+      _first -> 1
+    end
+  end
+
+  def reruns(turn_ref) when is_binary(turn_ref), do: 0
 
   @doc false
   @spec request_stop(Ecto.UUID.t(), String.t(), String.t(), String.t(), String.t()) ::

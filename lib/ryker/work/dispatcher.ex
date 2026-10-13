@@ -17,6 +17,8 @@ defmodule Ryker.Work.Dispatcher do
   require Logger
 
   @worker_away_retry_seconds 15
+  # How long a task the provider couldn't serve waits after each failure before it runs again.
+  @provider_waits [60, 120, 240, 480, 600, 600, 600, 600]
 
   @type result ::
           {:ok,
@@ -141,6 +143,29 @@ defmodule Ryker.Work.Dispatcher do
       else: rerun(claim, reason)
   end
 
+  # The provider couldn't serve the model. OpenAI's was "at capacity" from about 05:25 to 06:10
+  # UTC on 2026-10-13: a question in Slack stopped for a person at once, and a run started by
+  # hand at 06:12 answered it. Coop leaves a provider outage to Ryker when its model ladder has
+  # nowhere else to go, so the task runs again by itself on a fresh agent once its wait after
+  # the failure is over: 1, 2, 4 and 8 minutes, then every 10, about an hour in all. A run that
+  # fails the same way after those asks a person.
+  defp execution_failure(
+         %{turn: %{status: :pending}} = claim,
+         {:work_provider_unavailable, failed_at, code, detail},
+         settings
+       ) do
+    reason = {:work_turn_terminal, "failed", code, detail}
+    reruns = Custody.reruns(claim.turn.turn_ref)
+
+    case Enum.at(@provider_waits, reruns) do
+      nil -> stop_or_defer(claim, reason, settings)
+      wait -> rerun_after(claim, reason, failed_at, wait, reruns + 1)
+    end
+  end
+
+  defp execution_failure(claim, {:work_provider_unavailable, _failed_at, code, detail}, settings),
+    do: execution_failure(claim, {:work_turn_terminal, "failed", code, detail}, settings)
+
   # A finished turn whose saving hit Coop down, a 5xx, a 429 or a command
   # timeout stopped at once and waited for a click, though trying again
   # finishes it (2026-10-04 review). Such a failure is tried again until the
@@ -182,18 +207,33 @@ defmodule Ryker.Work.Dispatcher do
       else: block_completion(claim, receipt, reason)
   end
 
-  defp rerun(claim, reason) do
+  defp rerun(claim, reason, run \\ 1) do
     case Custody.request_rerun(
            claim.episode.id,
            claim.episode.key,
            claim.turn.turn_ref,
            claim.turn.id,
-           claim.lease_ref
+           claim.lease_ref,
+           run
          ) do
       {:ok, _request} -> {:ok, {:deferred, {:work_rerun_pending, reason}}}
       {:error, rerun_reason} -> custody_failed(reason, rerun_reason)
     end
   end
+
+  # Waiting is not a failed attempt: the turn yields as a running one does, until the wait
+  # after its failure is over. A failure with no time of its own runs again at once.
+  defp rerun_after(claim, reason, failed_at, wait, run) do
+    case remaining_seconds(failed_at, wait) do
+      seconds when seconds > 0 -> yield_for(claim, reason, seconds)
+      _over -> rerun(claim, reason, run)
+    end
+  end
+
+  defp remaining_seconds(nil, _wait), do: 0
+
+  defp remaining_seconds(failed_at, wait),
+    do: DateTime.diff(DateTime.add(failed_at, wait, :second), DateTime.utc_now(), :second)
 
   defp retry_or_block(claim, reason, settings) do
     cond do

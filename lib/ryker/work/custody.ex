@@ -389,16 +389,28 @@ defmodule Ryker.Work.Custody do
   @doc """
   Hands the turn a worker holds to a new turn built from what is current, by the
   same exact stop a transfer makes: its finished answer can no longer be
-  accepted because what its briefing carried was withdrawn.
+  accepted because what its briefing carried was withdrawn, or its provider
+  could not serve it. `run` numbers the rerun when a task runs again more than
+  once.
   """
-  @spec request_rerun(Ecto.UUID.t(), String.t(), String.t(), Ecto.UUID.t(), String.t()) ::
-          {:ok, map()} | {:error, term()}
-  defdelegate request_rerun(episode_id, episode_key, turn_ref, turn_id, lease_ref),
+  @spec request_rerun(
+          Ecto.UUID.t(),
+          String.t(),
+          String.t(),
+          Ecto.UUID.t(),
+          String.t(),
+          pos_integer()
+        ) :: {:ok, map()} | {:error, term()}
+  defdelegate request_rerun(episode_id, episode_key, turn_ref, turn_id, lease_ref, run \\ 1),
     to: Cancellation
 
-  @doc "Whether turn `turn_ref` is a new run `request_rerun/5` made."
+  @doc "Whether turn `turn_ref` is a new run `request_rerun/6` made."
   @spec rerun?(String.t()) :: boolean()
   defdelegate rerun?(turn_ref), to: Cancellation
+
+  @doc "How many reruns came before turn `turn_ref`, its own among them: 0 for a first run."
+  @spec reruns(String.t()) :: non_neg_integer()
+  defdelegate reruns(turn_ref), to: Cancellation
 
   @doc """
   Stops one exact active run while retaining the episode, session lineage, and

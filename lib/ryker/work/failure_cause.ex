@@ -24,6 +24,11 @@ defmodule Ryker.Work.FailureCause do
   # when. Coop has worded it two ways (recorded 2026-09-09 and 2026-09-26).
   @provider_limit ~r/"provider (?:rate limited the turn|limit prevented the turn): ((?:[^"\\]|\\.)*)"/
 
+  # Coop's words for a provider that could not serve the model for a while: it was at capacity
+  # ("provider service unavailable: Selected model is at capacity. Please try a different
+  # model.", 2026-10-13), or the worker could not reach it.
+  @provider_outage ["provider service unavailable", "provider connection failed"]
+
   # A repository whose submodule comes from a repository Ryker was never given,
   # as the saved term names both: the task's own or a read-only one from its
   # environment (tenantcorp/tenant-core and skypjack/entt, 2026-10-03).
@@ -63,6 +68,25 @@ defmodule Ryker.Work.FailureCause do
            "than answer from the old one.",
        next_step: "Run the task again. It reads the briefing as it is now.",
        depends: "It works: a new run reads the current briefing."
+     }},
+    # A question in Slack stopped while the provider's model was at capacity, from about 05:25
+    # to 06:10 UTC on 2026-10-13, and its page said the saved error named no cause.
+    {"provider service unavailable",
+     %{
+       cause:
+         "The model provider couldn't serve the model, for example because it was at " <>
+           "capacity, so the task got no answer.",
+       next_step:
+         "Ryker already ran it again over about an hour. Run it again once the provider is back.",
+       depends: "It works once the provider serves the model again."
+     }},
+    {"provider connection failed",
+     %{
+       cause: "The worker couldn't reach the model provider, so the task got no answer.",
+       next_step:
+         "Ryker already ran it again over about an hour. Run it again once the worker can " <>
+           "reach the provider.",
+       depends: "It works once the worker can reach the provider again."
      }},
     {"coop_worker_capacity_unavailable",
      %{
@@ -191,6 +215,16 @@ defmodule Ryker.Work.FailureCause do
     do: provider_limit(detail) != nil or String.contains?(detail, "Failed to refresh token")
 
   def account_problem?(_detail), do: false
+
+  @doc """
+  Whether the saved error says the model provider couldn't serve the model for
+  a while, which passes: it was at capacity, or the worker couldn't reach it.
+  """
+  @spec provider_outage?(String.t() | nil) :: boolean()
+  def provider_outage?(detail) when is_binary(detail),
+    do: String.contains?(detail, @provider_outage)
+
+  def provider_outage?(_detail), do: false
 
   # The checkpoint guard's refusal, as the dispatcher records it: a blocked turn
   # carries the code before the term, a deferred one the term alone.

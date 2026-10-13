@@ -16,8 +16,9 @@ defmodule Ryker.Work.Executor.Turns do
   alias Ryker.Publication
   alias Ryker.Records
   alias Ryker.StateTools
-  alias Ryker.Work.{Activity, Custody, Measurement, OperationKeys, StateBinding, ValidationIntent}
+  alias Ryker.Work.{Activity, Custody}
   alias Ryker.Work.Executor.{Remote, Validation}
+  alias Ryker.Work.{FailureCause, Measurement, OperationKeys, StateBinding, ValidationIntent}
 
   @turn_waiting_states Remote.turn_waiting_states()
   @stopped_turn_states Remote.terminal_turn_states() -- ["completed"]
@@ -203,12 +204,31 @@ defmodule Ryker.Work.Executor.Turns do
        do: {:error, {:work_poll_window_elapsed, :turn}}
 
   defp continue_await_turn(_claim, %{"state" => state} = turn, _settings, _left)
-       when state in @stopped_turn_states do
-    {:error, {:work_turn_terminal, state, turn["error_code"], turn["error_detail"]}}
-  end
+       when state in @stopped_turn_states,
+       do: {:error, terminal(state, turn)}
 
   defp continue_await_turn(_claim, _turn, _settings, _left),
     do: {:error, {:coop_protocol_error, :turn_state}}
+
+  # A provider that couldn't serve the model passes, so the dispatcher runs the task again once
+  # its wait from the failure is over (`Ryker.Work.Dispatcher`).
+  defp terminal("failed", %{"error_code" => code, "error_detail" => detail} = turn) do
+    if FailureCause.provider_outage?(detail),
+      do: {:work_provider_unavailable, finished_at(turn), code, detail},
+      else: {:work_turn_terminal, "failed", code, detail}
+  end
+
+  defp terminal(state, turn),
+    do: {:work_turn_terminal, state, turn["error_code"], turn["error_detail"]}
+
+  defp finished_at(%{"finished_at" => finished_at}) when is_binary(finished_at) do
+    case DateTime.from_iso8601(finished_at) do
+      {:ok, at, _offset} -> at
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp finished_at(_turn), do: nil
 
   defp handle_candidate(claim, candidate, artifacts, settings, left) do
     with {:ok, message, sha256, attempt} <- Coop.Documents.candidate(candidate),

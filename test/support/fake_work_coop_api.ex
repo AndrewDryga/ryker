@@ -154,16 +154,20 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
     end)
   end
 
-  def seed_turn(agent, session_id, turn_id, state \\ "running") do
+  def seed_turn(agent, session_id, turn_id, state \\ "running", fields \\ %{}) do
     Agent.update(agent, fn current ->
       session = %{current.session | "id" => session_id, "revision" => 2}
 
-      turn = %{
-        "candidate" => nil,
-        "id" => turn_id,
-        "session_id" => session_id,
-        "state" => state
-      }
+      turn =
+        Map.merge(
+          %{
+            "candidate" => nil,
+            "id" => turn_id,
+            "session_id" => session_id,
+            "state" => state
+          },
+          fields
+        )
 
       %{current | session: session, turn: turn}
     end)

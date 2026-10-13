@@ -29,6 +29,20 @@ defmodule Ryker.Work.FailureCauseTest do
     assert depends == "It works if the model's next answer passes Ryker's checks."
   end
 
+  # OpenAI's model was at capacity on 2026-10-13, and the task it stopped said on its Failures
+  # page that the saved error named no cause.
+  test "a task the provider couldn't serve says the provider couldn't serve the model" do
+    detail =
+      ~s(work_turn_terminal: {:work_turn_terminal, "failed", "acp_protocol_error", ) <>
+        ~s("provider service unavailable: Selected model is at capacity. Please try a ) <>
+        ~s(different model."})
+
+    assert FailureCause.cause(detail) =~ "couldn't serve the model"
+    assert FailureCause.provider_outage?(detail)
+    refute FailureCause.account_problem?(detail)
+    refute FailureCause.provider_outage?("ACP child closed before its response")
+  end
+
   # The task 82633a80 would now run again read "stopped before Ryker could
   # confirm why" on the Failures page, though the saved error says why.
   test "a task stopped by a stale briefing says the briefing changed" do

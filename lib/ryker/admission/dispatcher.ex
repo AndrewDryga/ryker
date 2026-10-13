@@ -12,9 +12,18 @@ defmodule Ryker.Admission.Dispatcher do
   alias Ryker.ErrorDetail
   alias Ryker.Ingress
   alias Ryker.Reference
+  alias Ryker.Work
   require Logger
 
   @maximum_attempts 8
+  # A provider that couldn't serve the model passes. OpenAI's was at capacity from about 05:25
+  # to 06:10 UTC on 2026-10-13, when a question in Slack ran its five minutes without a word
+  # and stopped, and it was read again only because another message came within the hour. Such
+  # a message is read again by a fresh run after 1, 2, 4 and 8 minutes, then every 10, about an
+  # hour in all, and only then waits for the worker to prove it works, as any worker failure
+  # does. A waiting message holds back the later ones in its conversation, so no wait is longer
+  # than 10 minutes past the provider's return.
+  @provider_waits_ms [60_000, 120_000, 240_000, 480_000, 600_000, 600_000, 600_000, 600_000]
 
   @spec run_once(keyword()) ::
           {:ok,
@@ -62,11 +71,9 @@ defmodule Ryker.Admission.Dispatcher do
         # Coop owns provider failover and in-turn recovery. Once it declares
         # failure, the frozen request cannot fix its runtime or account, so the
         # message waits, and is read again once a later reading shows the
-        # worker works (`Ingress.Inbox.recover_after_worker_failure/1`).
-        with {:ok, _blocked} = blocked <- block_after_worker_failure(claim, input_ref, reason) do
-          tell_unavailable(claim.entry, reason, settings)
-          blocked
-        end
+        # worker works (`Ingress.Inbox.recover_after_worker_failure/1`). A
+        # provider outage passes, so it is read again on its own first.
+        worker_failed(claim, input_ref, reason, settings)
 
       {:error, {:coop_timeout, _phase} = reason} ->
         # Coop was still creating the session or running the turn when this
@@ -103,6 +110,43 @@ defmodule Ryker.Admission.Dispatcher do
     end
 
     :ok
+  end
+
+  defp worker_failed(claim, input_ref, {:coop_turn_failed, _, code, detail} = reason, settings) do
+    case provider_wait(claim.entry, code, detail) do
+      nil ->
+        with {:ok, _blocked} = blocked <- block_after_worker_failure(claim, input_ref, reason) do
+          tell_unavailable(claim.entry, reason, settings)
+          blocked
+        end
+
+      delay_ms ->
+        wait_for_provider(claim, input_ref, reason, delay_ms, settings.now.())
+    end
+  end
+
+  # A run the provider couldn't serve, or that ran out of time without a word from the model,
+  # waits by the number of runs the message has had.
+  defp provider_wait(entry, code, detail) do
+    if code == "acp_timeout" or Work.FailureCause.provider_outage?(detail),
+      do: Enum.at(@provider_waits_ms, entry.execution_generation - 1)
+  end
+
+  defp wait_for_provider(claim, input_ref, reason, delay_ms, now) do
+    {error_code, error_detail} = describe_error(reason)
+
+    case defer_input(
+           :execution,
+           input_ref,
+           claim.lease_ref,
+           now,
+           delay_ms,
+           error_code,
+           error_detail
+         ) do
+      {:ok, _entry} -> {:ok, {:deferred, input_ref, reason}}
+      {:error, defer_reason} -> {:error, {:admission_dispatch_failed, reason, defer_reason}}
+    end
   end
 
   defp block_after_worker_failure(claim, input_ref, reason) do

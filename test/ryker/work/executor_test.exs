@@ -3963,6 +3963,28 @@ defmodule Ryker.Work.ExecutorTest do
              {:error, {:coop_protocol_error, :turn_state}}
   end
 
+  # OpenAI's model was "at capacity" on 2026-10-13. A turn Coop failed for that says when it
+  # failed, so the dispatcher can run it again once its wait from then is over.
+  test "a turn the provider couldn't serve says when it failed" do
+    work = bound_turn!("provider-outage")
+    {:ok, fake} = fake_for(work, [])
+
+    detail =
+      "provider service unavailable: Selected model is at capacity. Please try a different model."
+
+    FakeAPI.seed_turn(fake, work.session.coop_session_id, work.turn.coop_turn_id, "failed", %{
+      "error_code" => "acp_protocol_error",
+      "error_detail" => detail,
+      "finished_at" => "2026-10-13T06:08:35Z"
+    })
+
+    assert Executor.run(work, options(fake)) ==
+             {:error,
+              {:work_provider_unavailable, ~U[2026-10-13 06:08:35Z], "acp_protocol_error", detail}}
+
+    assert FakeAPI.state(fake).submit_count == 0
+  end
+
   test "a queued remote turn has a bounded wait and renews a long-lived local lease" do
     work = bound_turn!("queued-timeout")
     {:ok, fake} = fake_for(work, [])
