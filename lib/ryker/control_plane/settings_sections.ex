@@ -699,7 +699,7 @@ defmodule Ryker.ControlPlane.SettingsSections do
           max: Settings.Work.maximum_ready_work_sessions(),
           help:
             "Ryker keeps a session started for this many of the setups new conversations used " <>
-              "most in the last day, so their first answer comes sooner. Each is used for one " <>
+              "most in the last week, so their first answer comes sooner. Each is used for one " <>
               "conversation only. 0 turns this off.",
           errors: %{
             number:
