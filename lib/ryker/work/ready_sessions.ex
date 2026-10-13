@@ -37,6 +37,11 @@ defmodule Ryker.Work.ReadySessions do
   # a pin nobody uses is started again.
   @maximum_age_seconds 60 * 60
 
+  # The pins worth keeping are the ones conversations used in the last week. A day was too short
+  # for an install people use now and then: the first conversation after a quiet day found
+  # nothing ready and waited minutes for its first answer (2026-10-13).
+  @window_seconds 7 * 24 * 60 * 60
+
   @pin_fields [
     :policy,
     :policy_digest,
@@ -285,6 +290,9 @@ defmodule Ryker.Work.ReadySessions do
   most recent of equals first: each first session of an episode a message
   started, with no workspace task and a source a session kept ready may serve.
   """
+  @spec recent_pins() :: [pin()]
+  def recent_pins, do: recent_pins(DateTime.add(Repo.now!(), -@window_seconds, :second))
+
   @spec recent_pins(DateTime.t()) :: [pin()]
   def recent_pins(%DateTime{} = since) do
     since

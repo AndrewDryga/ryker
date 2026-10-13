@@ -179,6 +179,23 @@ defmodule Ryker.Work.ReadySessionsTest do
   end
 
   # Only a pin a new conversation used is kept, and only the most used ones.
+  # The tenant install, 2026-10-13: a pin counted for a day only. People there use Ryker now and
+  # then, so the first conversation after a quiet day found nothing ready and waited for Coop to
+  # fetch the environment's 17 repositories, four minutes and more, before its first answer.
+  test "a pin a conversation used days ago is still kept ready, one past a week is not" do
+    recent = start_conversation!("three-days-ago", @digest)
+    stale = start_conversation!("nine-days-ago", @other_digest)
+    now = Repo.now!()
+
+    for {claim, days} <- [{recent, 3}, {stale, 9}] do
+      Repo.update_all(from(session in Session, where: session.id == ^claim.session.id),
+        set: [inserted_at: DateTime.add(now, -days * 86_400, :second)]
+      )
+    end
+
+    assert ReadySessions.recent_pins() == [pin(@digest)]
+  end
+
   test "the pins kept are the ones new conversations used most" do
     for suffix <- ~w(one two) do
       start_conversation!("most-#{suffix}", @digest)

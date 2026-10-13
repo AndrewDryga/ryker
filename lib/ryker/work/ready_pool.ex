@@ -4,7 +4,7 @@ defmodule Ryker.Work.ReadyPool do
 
   "Work sessions kept ready" (Settings › Advanced) says for how many pins; 0
   turns it off. Each pass reads the pins new conversations froze in the last
-  day (`Ryker.Work.ReadySessions.recent_pins/1`), keeps the most used of those
+  week (`Ryker.Work.ReadySessions.recent_pins/0`), keeps the most used of those
   current settings still give, retires the sessions that can no longer serve
   one (another pin, past their age, or a second for the same pin), opens any
   whose create Coop finished after its pass stopped waiting, settles any a
@@ -44,7 +44,6 @@ defmodule Ryker.Work.ReadyPool do
   # Well past the longest a start can wait on the worker, so a pass never
   # settles a start another pass is still making.
   @stranded_seconds 600
-  @window_seconds 24 * 60 * 60
   @retry_base_seconds 5
   @retry_max_seconds 300
 
@@ -105,7 +104,7 @@ defmodule Ryker.Work.ReadyPool do
   end
 
   # `:pins` answers the pins to keep for a target; tests give their own. By
-  # default they are the most used pins of the last day that current settings still give: a
+  # default they are the most used pins of the last week that current settings still give: a
   # policy, its digests and the environment's Emisar pin exactly as a new
   # conversation would freeze them now. One they no longer give would only
   # fail to start, or be started for nobody.
@@ -114,11 +113,9 @@ defmodule Ryker.Work.ReadyPool do
   defp kept_pins(target) do
     with {:ok, snapshot} <- Settings.fetch() do
       bindings = CoopFleet.JobTemplates.from_settings(snapshot)
-      since = DateTime.add(Repo.now!(), -@window_seconds, :second)
 
       {:ok,
-       since
-       |> ReadySessions.recent_pins()
+       ReadySessions.recent_pins()
        |> Enum.filter(&current?(&1, snapshot, bindings))
        |> Enum.take(target)}
     end
