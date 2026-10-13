@@ -18,7 +18,7 @@ defmodule Ryker.Slack.CommandHandler do
       dispatch(command, options)
     else
       {:error, :operator_required} ->
-        {:ok, response(operator_required(command))}
+        {:ok, response(operator_required(command, options.operators))}
 
       {:ok, false} ->
         {:ok, response("Commands require an active full workspace member.")}
@@ -77,13 +77,23 @@ defmodule Ryker.Slack.CommandHandler do
     end
   end
 
-  defp operator_required(%Command{text: text}) do
-    if String.trim(String.downcase(text)) in @sign_in do
-      "Only Ryker's operators can sign in from Slack. Ask someone who is signed in to Ryker's " <>
-        "console to invite you."
-    else
-      "Only a configured Ryker operator can use `/ryker`."
-    end
+  defp operator_required(%Command{text: text}, operators) do
+    if String.trim(String.downcase(text)) in @sign_in,
+      do: sign_in_refused(operators),
+      else: "Only a configured Ryker operator can use `/ryker`."
+  end
+
+  # Says who can sign in here, so a refusal never reads as if the workspace's admins could not
+  # (Andrew, 2026-10-13: "slack admins should be able to do that for sure").
+  defp sign_in_refused(%Operators{workspace_admins: true}) do
+    "Only the people who manage Ryker can sign in from Slack: this workspace's admins and " <>
+      "owners, and the people chosen in Ryker's Slack settings. Ask one of them to invite you " <>
+      "to Ryker's console."
+  end
+
+  defp sign_in_refused(_operators) do
+    "Only the people chosen to manage Ryker can sign in from Slack. Ask one of them to invite " <>
+      "you to Ryker's console."
   end
 
   defp change_setting(command, setting, arguments, options) do

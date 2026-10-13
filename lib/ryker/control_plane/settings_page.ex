@@ -817,7 +817,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
       :if={@verified}
       class="settings-section"
       title="Who can manage Ryker"
-      lede="These people can change Ryker's settings from Slack."
+      lede="These people can change Ryker's settings from Slack, and sign in to this console with /ryker sign-in."
     >
       <:actions :if={!is_map(@slack_people)}>
         <button

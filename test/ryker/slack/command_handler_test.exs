@@ -202,13 +202,32 @@ defmodule Ryker.Slack.CommandHandlerTest do
 
     stranger = %{options | operators: chosen_operators([])}
     assert {:ok, refused} = CommandHandler.handle(command("sign-in", "event:stranger"), stranger)
-    assert refused["text"] =~ "Only Ryker's operators can sign in from Slack"
+    assert refused["text"] =~ "Only the people chosen to manage Ryker can sign in from Slack"
     assert refused["text"] =~ "invite you"
+    refute refused["text"] =~ "admins"
     refute_received {:link_for, _workspace_ref, _user_ref}
 
     broken = %{options | sign_in_link: fn _workspace_ref, _user_ref -> {:error, :down} end}
     assert {:ok, apology} = CommandHandler.handle(command("sign-in", "event:broken"), broken)
     assert apology["text"] =~ "couldn't make a sign-in link"
+  end
+
+  # Andrew, 2026-10-13, refused in a workspace where Slack lists him as a member, not an admin:
+  # "slack admins should be able to do that for sure". They could, but the refusal named only
+  # "Ryker's operators", so it read as if a workspace admin would be turned away too.
+  test "a refused sign-in names who can sign in, the workspace's admins whenever they count" do
+    options =
+      Map.put(options(), :sign_in_link, fn _workspace_ref, _user_ref -> flunk("no link") end)
+
+    admins_count = %{options | operators: Operators.new([], true, "T123")}
+
+    assert {:ok, refused} =
+             CommandHandler.handle(command("sign-in", "event:member"), admins_count)
+
+    assert refused["text"] =~ "Only the people who manage Ryker can sign in from Slack"
+    assert refused["text"] =~ "this workspace's admins and owners"
+    assert refused["text"] =~ "the people chosen in Ryker's Slack settings"
+    assert refused["text"] =~ "invite you"
   end
 
   test "non-operators and non-members are denied before any write" do

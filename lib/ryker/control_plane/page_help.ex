@@ -572,7 +572,7 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"Who can manage Ryker",
        [
-         "They can change Ryker's settings from Slack, such as a channel's setup or a new rule. Workspace admins and owners can too, unless you turn that off.",
+         "They can change Ryker's settings from Slack, such as a channel's setup or a new rule, and sign in to this console with /ryker sign-in. Workspace admins and owners can too, unless you turn that off.",
          "Tokens for a different workspace switch Slack off until you choose people there."
        ]},
       {"What the states mean", [Integrations.meanings(:slack)]},
