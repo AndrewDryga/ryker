@@ -1,7 +1,8 @@
 defmodule Ryker.Transcription.Service do
   @moduledoc """
-  Transcribes a recording on whisper.cpp servers outside Ryker's container,
-  such as whisper large-v3 on the Mac's GPU (`scripts/voice-service.sh`).
+  Transcribes a recording on whisper.cpp servers beside Ryker's container:
+  Compose's `whisper` and `whisper-detect` on the CPU, or whisper large-v3 on
+  a Mac's GPU (`scripts/voice-service.sh`).
 
   Andrew's voice message of 2026-09-28 switched from Ukrainian to English to
   Spanish and back; Ryker's own small model wrote it as Russian and
@@ -13,29 +14,45 @@ defmodule Ryker.Transcription.Service do
   Two servers, because whisper.cpp's server either writes words or, started
   with `-dl`, only detects the language, fast: `RYKER_WHISPER_DETECT_URL`
   gives whisper's language probabilities for the whole recording and for each
-  part, and `RYKER_WHISPER_URL` writes each part in the language chosen for
-  it. The recording is converted and cut at its pauses in the container, as
-  Ryker's own model does (`Ryker.Transcription.Local.with_parts/3`), and each
-  part goes to the servers as 16 kHz WAV. Every request is bounded in time and
-  in the size of its answer.
+  part, and `RYKER_WHISPER_URL` writes the words. The recording is converted
+  and cut at its pauses in the container, as Ryker's own model does
+  (`Ryker.Transcription.Local.with_parts/3`), and audio goes to the servers as
+  16 kHz WAV. Every request is bounded in time and in the size of its answer.
+
+  Reading each part in its own language costs a detection per part: about
+  1.4 s on the Mac's GPU, 3 s with the small model on the CPU. Only a team
+  that names several languages in `RYKER_VOICE_LANGUAGES` has use for it;
+  anywhere else the recording is read in the language of the whole.
+
+  Neighbouring parts read in the same language are written together, up to
+  whisper's 30-second window. whisper reads 30 seconds at a time however short
+  the audio, and on the CPU each of those passes costs large-v3-turbo about
+  15 seconds: written part by part, a 33-second message took six passes and
+  ran past the recording's time, while written by language it takes one pass
+  for each language heard in turn.
 
   A recording has `Ryker.Transcription.recording_seconds/0` whichever model
-  reads it. When the servers cannot be reached, answer with an error or with
-  something Ryker cannot read, or stop answering, Ryker's own model reads the
-  recording in the time left, so a voice message is never lost to a stopped
-  or changed service; the log says why.
+  reads it. The servers get three quarters of it, which on the CPU is enough
+  for about a minute of speech. When they cannot be reached, answer with an
+  error or with something Ryker cannot read, stop answering, or run out of
+  their time, Ryker's own model reads the recording in the time left, so a
+  voice message is never lost to a stopped, changed or slow service; the log
+  says why.
   """
   @behaviour Ryker.Transcription
   alias Ryker.Crypto
   alias Ryker.Delivery
   alias Ryker.Transcription
-  alias Ryker.Transcription.{Languages, Local}
+  alias Ryker.Transcription.{Languages, Local, Parts}
   require Logger
 
-  # One request answers in 1.4 to 5.4 s on an M3 Pro; one still going after
+  # One request answers in 1.4 to 5.4 s on an M3 Pro's GPU, and in 3 s
+  # (detecting) or 15 s (writing) on its CPU in Compose; one still going after
   # half a minute is stuck, and Ryker's own model gets the time left.
   @request_timeout_ms 30_000
   @maximum_response_bytes 1_024 * 1_024
+  # whisper's window: 30 s of 16 kHz mono 16-bit samples.
+  @window_bytes 30 * 16_000 * 2
 
   @impl true
   def transcribe(data, options \\ [])
@@ -43,9 +60,10 @@ defmodule Ryker.Transcription.Service do
   def transcribe(data, options) when is_binary(data) and data != "" and is_list(options) do
     settings = settings(options)
     deadline = System.monotonic_time(:millisecond) + settings.timeout_ms
+    servers_deadline = deadline - div(settings.timeout_ms, 4)
 
     if url?(settings.url) and url?(settings.detect_url) do
-      case Local.with_parts(data, options, &read(&1, &2, settings, deadline)) do
+      case Local.with_parts(data, options, &read(&1, &2, settings, servers_deadline)) do
         {:error, {:service, reason}} ->
           Logger.warning("whisper service #{reason}; Ryker's own model reads the recording")
           fallback(data, options, settings, deadline)
@@ -76,9 +94,11 @@ defmodule Ryker.Transcription.Service do
   @spec read(String.t(), [String.t()], map(), integer()) ::
           Transcription.result() | {:error, {:service, String.t()}}
   def read(wav, parts, settings, deadline) do
-    with {:ok, whole} <- detect(settings, wav, deadline),
+    with {:ok, recording} <- read_file(wav),
+         {:ok, whole} <- detect(settings, recording, deadline),
          main = Languages.main(whole, settings.languages),
-         {:ok, texts} <- read_parts(parts, main, settings, deadline) do
+         {:ok, heard} <- hear_parts(parts, whole, main, settings, deadline),
+         {:ok, texts} <- each(runs(heard), &write(settings, &1, deadline)) do
       case Transcription.words(Enum.join(texts, "\n")) do
         {:ok, words} -> {:ok, words}
         :error -> {:error, :no_speech}
@@ -86,24 +106,72 @@ defmodule Ryker.Transcription.Service do
     end
   end
 
-  defp read_parts(parts, main, settings, deadline) do
-    Enum.reduce_while(parts, {:ok, []}, fn part, {:ok, texts} ->
-      with {:ok, probabilities} <- detect(settings, part, deadline),
-           language = Languages.part(probabilities, main, settings.languages) || "auto",
-           {:ok, text} <- write(settings, part, language, deadline) do
-        {:cont, {:ok, [text | texts]}}
-      else
+  # Each part's language and samples. Parts are heard on their own only where
+  # the team named several languages, and only when there are several: a
+  # short message is one part, the whole recording.
+  defp hear_parts(parts, whole, main, settings, deadline) do
+    if length(settings.languages) > 1 and length(parts) > 1 do
+      each(parts, &hear(&1, main, settings, deadline))
+    else
+      language = Languages.part(whole, main, settings.languages)
+      each(parts, &in_language(&1, language))
+    end
+  end
+
+  defp in_language(part, language) do
+    with {:ok, audio} <- read_file(part),
+         {:ok, pcm} <- samples(audio),
+         do: {:ok, {language, pcm}}
+  end
+
+  # One part's language, heard on its own, and its samples.
+  defp hear(part, main, settings, deadline) do
+    with {:ok, audio} <- read_file(part),
+         {:ok, pcm} <- samples(audio),
+         {:ok, probabilities} <- detect(settings, audio, deadline) do
+      {:ok, {Languages.part(probabilities, main, settings.languages), pcm}}
+    end
+  end
+
+  # Parts are in order and cover every byte of the recording, so neighbours
+  # joined are the recording between them, pauses included. A part whose
+  # language was not heard is written on its own.
+  defp runs(heard) do
+    heard
+    |> Enum.reduce([], fn
+      {language, pcm}, [{language, run} | rest]
+      when is_binary(language) and byte_size(run) + byte_size(pcm) <= @window_bytes ->
+        [{language, run <> pcm} | rest]
+
+      part, runs ->
+        [part | runs]
+    end)
+    |> Enum.reverse()
+  end
+
+  # `function` on each item in order, or the first error.
+  defp each(items, function) do
+    Enum.reduce_while(items, {:ok, []}, fn item, {:ok, results} ->
+      case function.(item) do
+        {:ok, result} -> {:cont, {:ok, [result | results]}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> case do
-      {:ok, texts} -> {:ok, Enum.reverse(texts)}
+      {:ok, results} -> {:ok, Enum.reverse(results)}
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp detect(settings, path, deadline) do
-    case post(settings, settings.detect_url, path, "auto", deadline) do
+  defp samples(audio) do
+    case Parts.samples(audio) do
+      {:ok, pcm} -> {:ok, pcm}
+      :error -> {:error, :failed}
+    end
+  end
+
+  defp detect(settings, audio, deadline) do
+    case post(settings, settings.detect_url, audio, "auto", deadline) do
       {:ok, %{"language_probabilities" => probabilities}} when is_map(probabilities) ->
         {:ok, probabilities}
 
@@ -115,21 +183,22 @@ defmodule Ryker.Transcription.Service do
     end
   end
 
-  defp write(settings, path, language, deadline) do
-    case post(settings, settings.url, path, language, deadline) do
+  defp write(settings, {language, pcm}, deadline) do
+    case post(settings, settings.url, Parts.wav(pcm), language || "auto", deadline) do
       {:ok, %{"text" => text}} when is_binary(text) -> {:ok, text}
       {:ok, _answer} -> {:error, {:service, "answered without words"}}
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp post(settings, base, path, language, deadline) do
-    remaining = deadline - System.monotonic_time(:millisecond)
+  defp post(settings, base, audio, language, deadline) do
+    case deadline - System.monotonic_time(:millisecond) do
+      remaining when remaining > 0 ->
+        fields = [{"language", language}, {"response_format", "verbose_json"}]
+        settings.request.(inference(base), fields, audio, min(remaining, @request_timeout_ms))
 
-    with true <- remaining > 0 || {:error, {:service, "ran out of time"}},
-         {:ok, audio} <- read_file(path) do
-      fields = [{"language", language}, {"response_format", "verbose_json"}]
-      settings.request.(inference(base), fields, audio, min(remaining, @request_timeout_ms))
+      _spent ->
+        {:error, {:service, "ran out of time"}}
     end
   end
 
