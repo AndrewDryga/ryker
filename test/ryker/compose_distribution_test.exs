@@ -31,7 +31,7 @@ defmodule Ryker.ComposeDistributionTest do
     assert public =~ ~s(127.0.0.1)
     assert public =~ "restart: unless-stopped"
     assert public =~ "healthcheck:"
-    assert public =~ "postgres:18.4-bookworm"
+    assert public =~ "postgres:18.6-bookworm"
     assert public =~ "ryker-database:/var/lib/postgresql"
     assert public =~ "ryker-database:"
     assert public =~ "ryker-state:"
