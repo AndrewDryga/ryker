@@ -2,11 +2,13 @@ defmodule Ryker.ControlPlane.Endpoint do
   @moduledoc "Loopback Phoenix endpoint; durable owners remain outside browser processes."
   use Phoenix.Endpoint, otp_app: :ryker
 
+  # The cookie carries who is signed in, so it is Lax: it goes along when someone opens a console
+  # link from another site, such as Slack in a browser, and stays behind on another site's form.
   @session_options [
     store: :cookie,
     key: "_ryker_control",
     signing_salt: "control-browser",
-    same_site: "Strict",
+    same_site: "Lax",
     http_only: true
   ]
 

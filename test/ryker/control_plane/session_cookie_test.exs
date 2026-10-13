@@ -49,4 +49,16 @@ defmodule Ryker.ControlPlane.SessionCookieTest do
     for cookie <- get_resp_header(local, "set-cookie"),
         do: refute(String.downcase(cookie) =~ "; secure")
   end
+
+  # Signing in made the cookie say who someone is (2026-10-13). Kept Strict, a browser left it
+  # behind on a console link opened from another site, such as Slack in a browser: the person
+  # reached the sign-in page as nobody, and the session the gate began there replaced theirs.
+  # Lax goes along on such a link and still stays behind on another site's form.
+  test "the session cookie goes along on a console link opened from another site" do
+    asked = build_conn() |> Map.put(:host, "localhost") |> get("/activity")
+
+    assert asked.status == 303
+    assert [cookie] = get_resp_header(asked, "set-cookie")
+    assert cookie =~ "; SameSite=Lax"
+  end
 end
