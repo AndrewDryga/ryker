@@ -10,6 +10,10 @@ defmodule Ryker.Delivery.Request do
   copy of it can have been posted before then, so a publisher searching for
   an earlier copy need not look further back.
 
+  `also_answered` names the other places this message answers: a message that
+  answers questions from several threads is posted in the newest one's, and
+  the publisher points each of the others at it (2026-10-13).
+
   `upload_refs` are the platform's ids for the artifacts an earlier attempt
   uploaded and has not yet seen shared. A publisher waits for that share
   rather than upload the artifacts again, and answers
@@ -30,16 +34,18 @@ defmodule Ryker.Delivery.Request do
     :thread_ref,
     :transport
   ]
-  @optional [artifacts: [], frozen_at: nil, upload_refs: []]
+  @optional [also_answered: [], artifacts: [], frozen_at: nil, upload_refs: []]
   @fields @enforce_keys ++ Keyword.keys(@optional)
   @maximum_document_bytes 512 * 1_024
   @maximum_message_characters 20_000
   @maximum_records 64
   @maximum_artifacts 5
   @maximum_artifact_bytes 8 * 1_024 * 1_024
+  @maximum_also_answered 10
   defstruct @enforce_keys ++ @optional
 
   @type t :: %__MODULE__{
+          also_answered: [map()],
           conversation_ref: String.t(),
           artifacts: [map()],
           document: map(),
@@ -90,6 +96,7 @@ defmodule Ryker.Delivery.Request do
          :ok <- frozen_at(request.frozen_at),
          :ok <- artifacts(request.artifacts),
          :ok <- upload_refs(request.upload_refs, request.artifacts),
+         :ok <- also_answered(request),
          :ok <- CanonicalJSON.validate(request.document, max_bytes: @maximum_document_bytes) do
       validate_kind(request)
     else
@@ -137,6 +144,35 @@ defmodule Ryker.Delivery.Request do
   end
 
   defp reaction_document(_document), do: {:error, {:invalid_delivery_request, :reaction}}
+
+  # Each another place in this request's own transport, never the place it is posted in.
+  defp also_answered(%__MODULE__{also_answered: []}), do: :ok
+
+  defp also_answered(%__MODULE__{also_answered: places, kind: :message} = request)
+       when is_list(places) and length(places) <= @maximum_also_answered do
+    if Enum.uniq(places) == places and Enum.all?(places, &other_place?(&1, request)),
+      do: :ok,
+      else: {:error, {:invalid_delivery_request, :also_answered}}
+  end
+
+  defp also_answered(_request), do: {:error, {:invalid_delivery_request, :also_answered}}
+
+  defp other_place?(
+         %{
+           "conversation_ref" => conversation_ref,
+           "thread_ref" => thread_ref,
+           "transport" => transport
+         } =
+           place,
+         request
+       )
+       when map_size(place) == 3 do
+    transport == request.transport and reference(conversation_ref, :also_answered) == :ok and
+      optional_reference(thread_ref, :also_answered) == :ok and
+      {conversation_ref, thread_ref} != {request.conversation_ref, request.thread_ref}
+  end
+
+  defp other_place?(_place, _request), do: false
 
   defp message_document(%{"message" => message} = document) when map_size(document) == 1,
     do: bounded_message(message)

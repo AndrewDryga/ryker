@@ -626,6 +626,40 @@ defmodule Ryker.Work.Custody.Delivery do
   end
 
   @doc """
+  The other places this turn's answer answers, oldest first: where each input
+  it selected was asked, in the answer's own transport, other than the place
+  the answer is posted in. Someone who asked twice, ten seconds apart and so in
+  two threads, was answered in the second and saw the first go unanswered
+  (2026-10-13); the answer's publisher points each of these at it.
+  """
+  @spec also_answered(Episodes.Episode.t(), Turn.t()) :: [map()]
+  def also_answered(
+        %Episodes.Episode{} = episode,
+        %Turn{selected_input_refs: [_, _ | _] = refs} = turn
+      ) do
+    target = Map.take(delivery_target(episode, turn), ~w(conversation_ref thread_ref transport))
+
+    episode.id
+    |> Episodes.Origin.Query.by_episode_id()
+    |> Episodes.Origin.Query.by_input_refs(refs)
+    |> Episodes.Origin.Query.ordered_by_occurred_at()
+    |> Repo.all()
+    |> Enum.map(&place/1)
+    |> Enum.uniq()
+    |> Enum.filter(&(&1["transport"] == target["transport"] and &1 != target))
+    |> Enum.take(10)
+  end
+
+  def also_answered(_episode, _turn), do: []
+
+  defp place(origin),
+    do: %{
+      "conversation_ref" => origin.conversation_ref,
+      "thread_ref" => origin.thread_ref,
+      "transport" => origin.transport
+    }
+
+  @doc """
   Where this turn's answer goes, as its delivery target will name it: the
   conversation and thread of the input it answers, over the episode's home.
   A Work update posted before the answer goes to the same place.

@@ -183,6 +183,32 @@ defmodule Ryker.Delivery.DispatcherTest do
     assert settled.delivery_target["conversation_ref"] == "slack:T123:C-engineering"
   end
 
+  # The tenant install, 2026-10-13: someone asked two questions ten seconds apart, each a message
+  # of its own and so a thread of its own. Ryker answered both in the second one's thread and
+  # nothing in the first's, which read as the first message going unanswered. The answer still
+  # goes to the newest question's thread, and names every other thread it answers.
+  test "an answer to questions from several threads names the threads it is not posted in" do
+    accepted = delivery_pending!("two-threads", also_question_from: "slack:T123:C456")
+    {:ok, publisher} = Agent.start_link(fn -> %{calls: [], responses: []} end)
+
+    assert {:ok, {:delivered, :message, _delivery_ref}} =
+             Dispatcher.run_once(dispatcher_options(:message, publisher))
+
+    assert [{:message, request}] = Agent.get(publisher, &Enum.reverse(&1.calls))
+    assert request.conversation_ref == "slack:T123:C456"
+    assert request.thread_ref == "1787832500.000100"
+
+    assert request.also_answered == [
+             %{
+               "conversation_ref" => "slack:T123:C456",
+               "thread_ref" => "1787832000.000100",
+               "transport" => "slack"
+             }
+           ]
+
+    assert Repo.get!(Turn, accepted.turn.id).status == :settled
+  end
+
   test "a cited task offer is materialized from the owning episode for platform rendering" do
     task =
       TaskOffer.payload(%{
@@ -936,9 +962,16 @@ defmodule Ryker.Delivery.DispatcherTest do
   end
 
   defp joined_question_refs(command, options) do
-    case Keyword.fetch(options, :question_from) do
-      {:ok, conversation_ref} -> [join_question!(command, conversation_ref)]
-      :error -> nil
+    case {Keyword.fetch(options, :question_from), Keyword.fetch(options, :also_question_from)} do
+      {{:ok, conversation_ref}, _also} ->
+        [join_question!(command, conversation_ref)]
+
+      # A second question the same answer covers, asked in a thread of its own.
+      {:error, {:ok, conversation_ref}} ->
+        [Command.dedupe_key(command), join_question!(command, conversation_ref)]
+
+      {:error, :error} ->
+        nil
     end
   end
 

@@ -217,6 +217,7 @@ defmodule Ryker.Delivery.Dispatcher do
       target = Work.Custody.delivery_target(claim.episode, claim.turn)
 
       Request.new(%{
+        also_answered: Work.Custody.also_answered(claim.episode, claim.turn),
         artifacts: Enum.map(artifacts, &artifact_document/1),
         conversation_ref: target["conversation_ref"],
         document: document,

@@ -27,6 +27,43 @@ defmodule Ryker.Slack.PublisherTest do
     assert state.finds == 2
   end
 
+  # The tenant install, 2026-10-13: two questions in two threads were answered in the second one's
+  # thread only, and the first read as if Ryker had ignored it. The answer is posted once, and
+  # each other thread it answers gets a short note linking to it. A retry finds both and posts
+  # neither again.
+  test "an answer posted in one thread points every other thread it answers at it" do
+    {:ok, api} = FakeSlackAPI.start_link(message_ref: &"1787832001.00020#{&1}")
+
+    assert {:ok, request} =
+             message_attributes()
+             |> Map.put(:also_answered, [
+               %{
+                 "conversation_ref" => "slack:T123:C456",
+                 "thread_ref" => "1787831990.000100",
+                 "transport" => "slack"
+               }
+             ])
+             |> Request.new()
+
+    binding = publisher_binding(api)
+    assert {:ok, receipt} = Publisher.publish_message(request, binding)
+    assert receipt["thread_ref"] == "1787832000.000100"
+
+    assert [answer, note] = FakeSlackAPI.state(api).posts
+    assert answer.thread == "1787832000.000100"
+    assert answer.message_ref == receipt["message_ref"]
+    assert {note.channel, note.thread} == {"C456", "1787831990.000100"}
+
+    link =
+      "https://slack.com/archives/C456/p#{String.replace(answer.message_ref, ".", "")}" <>
+        "?cid=C456&thread_ts=1787832000.000100"
+
+    assert note.document["message"] =~ "(#{link})"
+
+    assert {:ok, ^receipt} = Publisher.publish_message(request, binding)
+    assert length(FakeSlackAPI.state(api).posts) == 2
+  end
+
   test "a Slack refusal of the post is a definite failure, not an uncertain delivery" do
     # Slack answering ok:false means nothing was posted, yet the publisher
     # wrapped every non-rate-limit error as delivery_uncertain, which the

@@ -13,8 +13,9 @@ defmodule Ryker.Slack.Publisher do
   alias Ryker.Crypto
   alias Ryker.Delivery
   alias Ryker.Slack.Client.Messages
-  alias Ryker.Slack.{Mentions, Target}
+  alias Ryker.Slack.{Mentions, Permalink, Target}
   alias Ryker.Work
+  require Logger
 
   @impl true
   def transport, do: "slack"
@@ -25,7 +26,8 @@ defmodule Ryker.Slack.Publisher do
          {:ok, target} <- Target.parse(request),
          :ok <- destination_allowed(binding, target),
          {:ok, api, client} <- client(binding, target.workspace_ref),
-         {:ok, message_ref} <- reconcile_message(api, client, request, target) do
+         {:ok, message_ref} <- reconcile_message(api, client, request, target),
+         :ok <- point_other_threads(binding, request, target, message_ref) do
       Work.DeliveryReceipt.new(
         request.ref,
         request.transport,
@@ -233,6 +235,70 @@ defmodule Ryker.Slack.Publisher do
 
   defp digest(value),
     do: value |> Crypto.sha256_hex()
+
+  # Each other thread this answer answers gets a short note linking to it, under a reference of
+  # its own, so a retry finds a note it already posted (2026-10-13: a question answered only in
+  # a later question's thread read as ignored). A note Slack refuses, such as one for a channel
+  # Ryker has left, never holds the answer back; one Slack may not have taken is tried again.
+  defp point_other_threads(_binding, %Delivery.Request{also_answered: []}, _target, _message_ref),
+    do: :ok
+
+  defp point_other_threads(binding, request, target, message_ref) do
+    link = Permalink.archive_url(target.channel_ref, message_ref, target.thread_ref)
+
+    Enum.reduce_while(request.also_answered, :ok, fn place, :ok ->
+      case point(binding, request, place, link) do
+        {:ok, _message_ref} -> {:cont, :ok}
+        {:error, reason} -> settle_note(reason)
+      end
+    end)
+  end
+
+  defp settle_note(reason) do
+    if retry_note?(reason) do
+      {:halt, {:error, reason}}
+    else
+      Logger.warning("a note pointing at an answer was not posted: #{inspect(reason, limit: 5)}")
+      {:cont, :ok}
+    end
+  end
+
+  defp retry_note?({kind, _reason})
+       when kind in [:delivery_uncertain, :delivery_reconciliation_failed],
+       do: true
+
+  defp retry_note?({:delivery_rate_limited, _delay, _error}), do: true
+  defp retry_note?(_reason), do: false
+
+  defp point(binding, request, place, link) do
+    with {:ok, note} <- note_request(request, place, link),
+         {:ok, target} <- Target.parse(note),
+         :ok <- destination_allowed(binding, target),
+         {:ok, api, client} <- client(binding, target.workspace_ref) do
+      reconcile_plain_message(api, client, note, target)
+    end
+  end
+
+  defp note_request(request, place, link) do
+    Delivery.Request.new(%{
+      conversation_ref: place["conversation_ref"],
+      document: %{"message" => note(link)},
+      frozen_at: request.frozen_at,
+      kind: :message,
+      ref:
+        request.ref <>
+          ":also:" <>
+          binary_part(digest([place["conversation_ref"], " ", place["thread_ref"] || ""]), 0, 16),
+      source_item_ref: nil,
+      thread_ref: place["thread_ref"],
+      transport: request.transport
+    })
+  end
+
+  defp note(nil), do: "I answered this together with a related message, in its thread."
+
+  defp note(link),
+    do: "I answered this together with a related message: [see the answer](#{link})"
 
   defp post_message(api, client, request, target) do
     client

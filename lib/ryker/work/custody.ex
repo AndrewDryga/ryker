@@ -669,6 +669,10 @@ defmodule Ryker.Work.Custody do
   @spec delivery_target(Episodes.Episode.t(), Turn.t()) :: map()
   defdelegate delivery_target(episode, turn), to: Delivery
 
+  @doc "The other places this turn's answer answers, which its publisher points at it."
+  @spec also_answered(Episodes.Episode.t(), Turn.t()) :: [map()]
+  defdelegate also_answered(episode, turn), to: Delivery
+
   # -- PubSub ------------------------------------------------------------------
 
   @doc """
