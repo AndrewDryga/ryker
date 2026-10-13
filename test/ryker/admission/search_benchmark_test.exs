@@ -229,9 +229,16 @@ defmodule Ryker.Admission.SearchBenchmarkTest do
   defp pct(value), do: "#{round(value * 100)}%"
 
   # bge-m3's vectors for every text, recorded once from the real model
-  # (`scripts/embedding-service.sh`) and kept as 8-bit numbers with a scale.
-  # A text that has none yet is recorded when RYKER_EMBEDDINGS_RECORD=1 and
-  # RYKER_EMBEDDINGS_URL names the server; otherwise the benchmark says so.
+  # (Compose's `embeddings`) and kept as 8-bit numbers with a scale. A text
+  # that has none yet is recorded when RYKER_EMBEDDINGS_RECORD=1 and
+  # RYKER_EMBEDDINGS_URL names the server, such as its image published on
+  # this machine with compose.yml's command for it:
+  #
+  #     docker run --rm -p 127.0.0.1:8180:8080 ryker-embeddings:local \
+  #       -m /models/bge-m3-q8_0.gguf --embeddings --pooling cls \
+  #       -c 8192 -b 8192 -ub 8192 --host 0.0.0.0 --port 8080
+  #
+  # Otherwise the benchmark says so.
   defp vectors!(episodes, messages) do
     texts =
       Enum.map(episodes, &embedding_text/1) ++ Enum.map(messages, &message_text/1)

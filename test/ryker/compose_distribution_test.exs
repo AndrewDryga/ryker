@@ -390,6 +390,58 @@ defmodule Ryker.ComposeDistributionTest do
   # the server's certificate (2026-10-08). A runtime bump moves the local
   # toolchain, the release's builder and the Debian snapshot that builder was
   # made on together; `scripts/runtime-releases.sh` says each day when one is due.
+  # The models moved from launch agents on the Mac into Compose (2026-10-13). The worker's boxes
+  # run code from the repositories Ryker works on, so the models answer only Ryker: they sit on
+  # an internal network no other service joins. Ryker works without them and starts without
+  # waiting for one, and each model file is fetched at a fixed revision and checked by digest.
+  test "the models run beside Ryker, reachable only from it, from files pinned by digest" do
+    compose = YamlElixir.read_from_string!(read("compose.yml"))
+    services = compose["services"]
+    models = ~w(whisper whisper-detect embeddings routing-model)
+
+    assert compose["networks"]["models"]["internal"] == true
+
+    for {name, service} <- services do
+      joined? =
+        case service["networks"] do
+          %{} = networks -> Map.has_key?(networks, "models")
+          networks -> "models" in List.wrap(networks)
+        end
+
+      assert joined? == name in ["ryker" | models], "#{name} on the models network"
+    end
+
+    for name <- models do
+      args = services[name]["build"]["args"]
+      assert args["MODEL_URL"] =~ ~r"\Ahttps://huggingface\.co/[^/]+/[^/]+/resolve/[0-9a-f]{40}/"
+      assert args["MODEL_SHA256"] =~ ~r/\A[0-9a-f]{64}\z/
+      refute Map.has_key?(services[name], "ports")
+    end
+
+    refute Enum.any?(Map.keys(services["ryker"]["depends_on"]), &(&1 in models))
+    assert services["routing-model"]["profiles"] == ["routing-model"]
+
+    environment = services["ryker"]["environment"]
+    assert environment["RYKER_WHISPER_URL"] == "${RYKER_WHISPER_URL:-http://whisper:8080}"
+
+    assert environment["RYKER_WHISPER_DETECT_URL"] ==
+             "${RYKER_WHISPER_DETECT_URL:-http://whisper-detect:8080}"
+
+    assert environment["RYKER_EMBEDDINGS_URL"] ==
+             "${RYKER_EMBEDDINGS_URL:-http://embeddings:8080}"
+
+    assert Ryker.LocalRouting.Endpoint.check("http://routing-model:8080/v1") == :ok
+
+    assert read("deploy/compose/models/whisper.Dockerfile") =~
+             ~S[echo "$MODEL_SHA256  /opt/whisper/model.bin" | sha256sum -c -]
+
+    assert read("deploy/compose/models/whisper.Dockerfile") =~
+             ~S[test "$(git -C /src rev-parse HEAD)" = "$WHISPER_CPP_COMMIT"]
+
+    assert read("deploy/compose/models/llama.Dockerfile") =~
+             "ADD --chmod=0644 --checksum=sha256:${MODEL_SHA256} ${MODEL_URL}"
+  end
+
   test "the release builds on the .tool-versions runtime and that runtime's Debian snapshot" do
     versions =
       for line <- String.split(read(".tool-versions"), "\n", trim: true), into: %{} do
@@ -452,7 +504,10 @@ defmodule Ryker.ComposeDistributionTest do
     # A fresh host: no other checkout's database volume.
     fake!(bin, "docker", """
     printf '%s\\n' "$*" >>"$FAKE_LOG"
-    case "$*" in "volume inspect "*) exit 1 ;; esac
+    case "$*" in
+      "volume inspect "*) exit 1 ;;
+      *"config --services") printf 'database\\nryker\\nwhisper\\nwhisper-detect\\nembeddings\\n' ;;
+    esac
     """)
 
     # A ready console, as the readiness probe asks it: the status on stdout and the
@@ -492,6 +547,9 @@ defmodule Ryker.ComposeDistributionTest do
 
     assert prepared < restarted and restarted < worker
     assert built < worker
+
+    # The models start last, built from this checkout; Ryker does not wait for them.
+    assert index!(calls, "up --detach --build --wait whisper whisper-detect embeddings") > worker
 
     assert Enum.at(calls, built) =~
              ~s(run --rm --no-deps -w /tmp --entrypoint /bin/sh ryker-coop -c umask 077; mkdir -p "$TMPDIR"; coop build)

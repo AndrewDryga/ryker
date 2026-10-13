@@ -140,6 +140,9 @@ of their own, and replaces only the `ryker` container with
 header, and only then pins the new version in `.ryker/compose.env` and keeps the newest ten
 pre-deploy backups and the newest of each of the last seven days. On failure it prints the
 container's log tail, stops the unverified replacement and leaves the previous version pinned.
+Last it builds and starts the models beside Ryker (voice and search by meaning), replacing only
+those whose image or settings changed; Ryker works without them, with less, so a model that does
+not start is reported and the release stays.
 It also says whether the failed release migrated the database; if it did, restore the pre-deploy
 backup before restarting the previous image, which refuses a schema a newer release migrated. PostgreSQL
 custody resumes pending admission, Work, delivery, schedule, and remote-worker state after the

@@ -88,27 +88,27 @@ services:
       RYKER_BUNDLED_COOP_WORKSPACE: ryker-compose
       RYKER_BUNDLED_COOP_SHARED: /var/lib/ryker-coop
       LOG_LEVEL: ${RYKER_LOG_LEVEL:-info}
-      # Voice messages on whisper servers outside the container, such as the
-      # Mac's GPU (scripts/voice-service.sh); empty uses Ryker's own model.
-      RYKER_WHISPER_URL: ${RYKER_WHISPER_URL:-}
-      RYKER_WHISPER_DETECT_URL: ${RYKER_WHISPER_DETECT_URL:-}
+      # Voice messages on the whisper services below. A Mac can name its GPU instead, much
+      # faster (scripts/voice-service.sh); while they cannot answer, Ryker's own small model
+      # reads the recording.
+      RYKER_WHISPER_URL: ${RYKER_WHISPER_URL:-http://whisper:8080}
+      RYKER_WHISPER_DETECT_URL: ${RYKER_WHISPER_DETECT_URL:-http://whisper-detect:8080}
       RYKER_VOICE_LANGUAGES: ${RYKER_VOICE_LANGUAGES:-}
-      # Routing's search for earlier work by meaning, on an embedding server
-      # outside the container (scripts/embedding-service.sh); empty searches
-      # by words and identifiers alone.
-      RYKER_EMBEDDINGS_URL: ${RYKER_EMBEDDINGS_URL:-}
+      # Routing's search for earlier work by meaning, on the embeddings service below; while it
+      # cannot answer, routing searches by words and identifiers alone.
+      RYKER_EMBEDDINGS_URL: ${RYKER_EMBEDDINGS_URL:-http://embeddings:8080}
       RYKER_EMBEDDINGS_MODEL: ${RYKER_EMBEDDINGS_MODEL:-}
     volumes:
       - ryker-state:/var/lib/ryker
       - ryker-coop-config:/var/lib/ryker-coop
-    # The Mac's helpers run on the host: voice, search by meaning and the local
-    # routing model (docs/operations.md). Docker Desktop and OrbStack name the host
-    # already; Docker on Linux needs this.
+    # A Mac's GPU whisper runs on the host (scripts/voice-service.sh). Docker Desktop and
+    # OrbStack name the host already; Docker on Linux needs this.
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
       default:
         ipv4_address: 172.30.42.10
+      models: {}
     ports:
       - "${RYKER_CONTROL_BIND:-127.0.0.1}:${RYKER_CONTROL_PORT:-4321}:4321"
       - "${RYKER_GITHUB_BIND:-127.0.0.1}:${RYKER_GITHUB_PORT:-4319}:4319"
@@ -194,6 +194,121 @@ services:
         max-size: 10m
         max-file: "3"
 
+  # The models Ryker runs beside it, on the CPU: nothing is installed on the host, and each model
+  # is in its image, pinned by revision and digest. They sit on a network of their own that only
+  # Ryker joins, so the worker's boxes cannot reach them, and the network reaches nothing outside.
+  # Ryker works without them, with less, and never waits for one to start.
+  #
+  # Voice messages (`Ryker.Transcription.Service`): `whisper` writes the words with
+  # large-v3-turbo, about 15 s for each 30 s of speech, and `whisper-detect` only hears the
+  # language, with whisper's small model, in about 3 s.
+  whisper:
+    image: ryker-whisper:local
+    build:
+      context: .
+      dockerfile: deploy/compose/models/whisper.Dockerfile
+      args:
+        MODEL_URL: https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-large-v3-turbo.bin
+        MODEL_SHA256: 1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69
+    restart: unless-stopped
+    networks:
+      - models
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--output", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  whisper-detect:
+    image: ryker-whisper-detect:local
+    build:
+      context: .
+      dockerfile: deploy/compose/models/whisper.Dockerfile
+      args:
+        MODEL_URL: https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/ggml-small.bin
+        MODEL_SHA256: 1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b
+    command: ["-dl"]
+    restart: unless-stopped
+    networks:
+      - models
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--output", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  # Routing's search for earlier work by meaning: bge-m3 reads more than a hundred languages
+  # into one space, so a Ukrainian or Spanish message finds work discussed in English. It reads
+  # up to 8192 tokens and pools its first token (CLS), as the model was trained.
+  embeddings:
+    image: ryker-embeddings:local
+    build:
+      context: .
+      dockerfile: deploy/compose/models/llama.Dockerfile
+      args:
+        MODEL_URL: https://huggingface.co/ggml-org/bge-m3-Q8_0-GGUF/resolve/9eba04c5d75ba5a1595e45de734d36bef4e5cb98/bge-m3-q8_0.gguf
+        MODEL_SHA256: aa473d51f451a22f0fcf39ba3330c14bed38a385712b1113440f69df4047a173
+        MODEL_FILE: bge-m3-q8_0.gguf
+    command: ["-m", "/models/bge-m3-q8_0.gguf", "--embeddings", "--pooling", "cls", "-c", "8192",
+              "-b", "8192", "-ub", "8192", "--host", "0.0.0.0", "--port", "8080"]
+    user: "1000:1000"
+    restart: unless-stopped
+    networks:
+      - models
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--output", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  # The local routing comparison (Settings › Models › Local routing model): Qwen2.5 3B answers
+  # the routing question in the background, one request at a time with room for a whole routing
+  # prompt; routing always decides with the provider model. Off unless COMPOSE_PROFILES in
+  # .ryker/compose.env names routing-model. On the CPU a routing prompt keeps every core busy
+  # for about a minute, so it gets them only when nothing else in the project wants them.
+  routing-model:
+    profiles: ["routing-model"]
+    cpu_shares: 256
+    image: ryker-routing-model:local
+    build:
+      context: .
+      dockerfile: deploy/compose/models/llama.Dockerfile
+      args:
+        MODEL_URL: https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/7dabda4d13d513e3e842b20f0d435c732f172cbe/qwen2.5-3b-instruct-q4_k_m.gguf
+        MODEL_SHA256: 626b4a6678b86442240e33df819e00132d3ba7dddfe1cdc4fbb18e0a9615c62d
+        MODEL_FILE: qwen2.5-3b-instruct-q4_k_m.gguf
+    command: ["-m", "/models/qwen2.5-3b-instruct-q4_k_m.gguf", "--alias", "qwen2.5:3b", "-c", "16384",
+              "-np", "1", "--jinja", "--host", "0.0.0.0", "--port", "8080"]
+    user: "1000:1000"
+    restart: unless-stopped
+    networks:
+      - models
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--output", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 60
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
 volumes:
   ryker-database:
   ryker-state:
@@ -207,3 +322,5 @@ networks:
     ipam:
       config:
         - subnet: 172.30.42.0/24
+  models:
+    internal: true

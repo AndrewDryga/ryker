@@ -72,6 +72,17 @@ compose_env_value() {
     sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/"
 }
 
+# The models Compose runs beside Ryker (compose.yml): voice, search by meaning
+# and, while COMPOSE_PROFILES in compose.env turns its profile on, the local
+# routing model. Ryker works without them, with less, so one that does not
+# build or start is said and stops nothing, and the watchdog keeps saying it.
+#
+# model_services COMPOSE... prints the models the installation turns on, one
+# per line.
+model_services() {
+  "$@" config --services | grep -Fx -e whisper -e whisper-detect -e embeddings -e routing-model || true
+}
+
 # Where the host reaches the console: the address it is published on
 # (RYKER_CONTROL_BIND, which Ryker requires to be 127.0.0.1 or ::1) and its
 # port. The probes asked 127.0.0.1 whatever the bind, or wrote ::1 into a URL

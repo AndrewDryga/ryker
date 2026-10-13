@@ -52,7 +52,7 @@ defmodule Ryker.Fixtures.LocalRouting do
   @doc """
   qwen2.5:3b's answer to "Which repositories can you read in this
   environment?" in the first comparison on the live install (2026-09-30,
-  served by scripts/routing-model-service.sh; the provider chose a quick
+  served by llama.cpp on the Mac beside Ryker; the provider chose a quick
   reply). It starts work on earlier work named `same_work`, which routing
   never offered, so routing's checks refuse it (`rejected:unknown_candidate`).
   """

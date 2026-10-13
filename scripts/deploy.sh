@@ -20,7 +20,11 @@
 #      x-ryker-version header, and only then pin the new version in
 #      compose.env — a failed deploy prints the container's log tail, stops
 #      the unverified replacement and leaves the previous version pinned;
-#   6. remove the worktree whatever happened, and say what is running.
+#   6. build and start the models beside Ryker (voice, search by meaning),
+#      replacing only those whose image or settings changed; Ryker works
+#      without them, with less, so one that does not start is said and the
+#      release stays;
+#   7. remove the worktree whatever happened, and say what is running.
 #
 # PostgreSQL custody resumes pending admission, Work, delivery, schedule and
 # remote-worker state after the normal one-writer restart; there is no
@@ -231,6 +235,19 @@ done
 pin_release "$version" "$image"
 say "pinned RYKER_VERSION=$version and RYKER_IMAGE=$image in $env_file"
 
+# --- the models beside it ------------------------------------------------------
+models=()
+while IFS= read -r model; do
+  models+=("$model")
+done < <(model_services "${compose[@]}")
+models_note=
+if ((${#models[@]} > 0)); then
+  say "building and starting the models beside it: ${models[*]}"
+  if ! "${compose[@]}" up --detach --build --wait "${models[@]}"; then
+    models_note="not every model beside it started, so Ryker works with less until they do (scripts/compose.sh logs ${models[*]})"
+  fi
+fi
+
 # Every deploy leaves a 240 MB image behind, and a host that filled up once
 # refused Coop workspaces and corrupted the Go cache. Keep the pinned image,
 # the previous one for a rollback and a few more recent commit builds; tagged
@@ -278,6 +295,9 @@ fi
 
 elapsed=$((SECONDS - started))
 say "ryker $version is running at $origin (image $image): healthy, ready, version header verified"
+if [[ -n $models_note ]]; then
+  say "$models_note"
+fi
 "${compose[@]}" ps ryker 2>/dev/null || true
 say "done in $((elapsed / 60))m $((elapsed % 60))s"
 say "PostgreSQL custody resumes pending work after the normal restart"

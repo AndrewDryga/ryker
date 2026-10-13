@@ -1,8 +1,7 @@
 # shellcheck shell=bash
-# What scripts/voice-service.sh, embedding-service.sh and routing-model-service.sh
-# share: a model file fetched at a pinned revision and kept only when its bytes
-# are the pinned ones. They fetched `resolve/main` and kept whatever came back
-# (2026-10-04 review).
+# How scripts/voice-service.sh fetches its model: at a pinned revision, kept
+# only when its bytes are the pinned ones. The Mac's model helpers fetched
+# `resolve/main` and kept whatever came back (2026-10-04 review).
 
 # download_model URL SHA256 FILE DESCRIPTION leaves FILE holding the bytes whose
 # SHA-256 is SHA256: it keeps an installed file that already does, and otherwise

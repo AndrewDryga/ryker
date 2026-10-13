@@ -28,15 +28,17 @@
 #             Readiness folds a lost worker in only once its lease lapses; a
 #             container that exited or restarts in a loop shows here first,
 #             and a Docker that has stopped answering is itself news.
+#   models    Are the models Compose runs beside Ryker running and healthy?
+#             Without whisper, Ryker reads voice messages with its own small
+#             model, which wrote Andrew's Ukrainian as Russian (2026-09-28);
+#             without embeddings, routing finds earlier work by words alone.
+#             Nothing else says so.
 #   /metrics  Did work stop and wait for a person? A request whose retries
 #             are spent is blocked and waits on the Failures page; a crash-
 #             looping turn ends there too, which is what readiness alone would
 #             miss between its retries.
-#   helpers   Do the servers on this Mac that compose.env names answer? When
-#             the whisper servers stop, Ryker reads voice messages with its own
-#             small model, which wrote Andrew's Ukrainian as Russian
-#             (2026-09-28); when the embedding server stops, routing finds
-#             earlier work by words alone. Nothing else says so.
+#   helpers   Do the whisper servers on this Mac's GPU that compose.env names
+#             instead (scripts/voice-service.sh) answer?
 #
 # It does not read the database or integration credentials: an unreachable
 # control plane is itself the alarm. It speaks through a macOS notification
@@ -117,23 +119,24 @@ within_deadline() {
   /usr/bin/perl -e 'alarm shift @ARGV; exec @ARGV or exit 127' "$@"
 }
 
-# containers prints what is wrong with the project's containers, one reason
-# per line, or nothing. `volume-init` exits by design and is not listed.
-containers() {
-  local listing service line state health status
-  listing=$(within_deadline "$docker_timeout" "$docker_command" compose --env-file "$env_file" \
+# list_containers sets container_listing to the project's containers, one
+# "SERVICE<tab>STATE<tab>HEALTH" line each, and container_status to how the
+# Docker call ended: 142 when it did not answer in time.
+container_listing=
+container_status=0
+list_containers() {
+  container_listing=$(within_deadline "$docker_timeout" "$docker_command" compose --env-file "$env_file" \
     --file "$repository/compose.yml" \
     ps --all --format $'{{.Service}}\t{{.State}}\t{{.Health}}' 2>/dev/null)
-  status=$?
-  if ((status == 142)); then
-    echo "Docker is not answering"
-    return
-  elif ((status != 0)); then
-    echo "docker compose cannot list the project's containers"
-    return
-  fi
-  for service in ryker database ryker-coop ryker-coop-docker; do
-    line=$(printf '%s\n' "$listing" | /usr/bin/awk -F '\t' -v service="$service" '$1 == service { print; exit }')
+  container_status=$?
+}
+
+# container_problems SERVICE... prints what is wrong with each service's
+# container in the listing, one reason per line, or nothing.
+container_problems() {
+  local service line state health
+  for service in "$@"; do
+    line=$(printf '%s\n' "$container_listing" | /usr/bin/awk -F '\t' -v service="$service" '$1 == service { print; exit }')
     if [[ -z $line ]]; then
       echo "container $service is missing"
       continue
@@ -148,24 +151,52 @@ containers() {
   done
 }
 
-# helpers prints what is wrong with the servers on this Mac that compose.env
-# names, one reason per line, or nothing. Ryker's container reaches them
-# through host.docker.internal, which is this host.
-helpers() {
-  local name url
-  for name in RYKER_WHISPER_URL RYKER_WHISPER_DETECT_URL RYKER_EMBEDDINGS_URL; do
-    url=$(compose_env_value "$name" "$env_file")
-    [[ -z $url ]] && continue
-    url=${url/host.docker.internal/127.0.0.1}
-    /usr/bin/curl -s -o /dev/null --max-time 5 "$url/" 2>/dev/null && continue
-    case $name in
-      RYKER_EMBEDDINGS_URL)
-        echo "the embedding server at $url is not answering, so routing finds earlier work by words alone (scripts/embedding-service.sh status)"
+# containers prints what is wrong with the project's containers, one reason
+# per line, or nothing. `volume-init` exits by design and is not listed.
+containers() {
+  if ((container_status == 142)); then
+    echo "Docker is not answering"
+  elif ((container_status != 0)); then
+    echo "docker compose cannot list the project's containers"
+  else
+    container_problems ryker database ryker-coop ryker-coop-docker
+  fi
+}
+
+# models prints what is wrong with the models Compose runs beside Ryker, one
+# reason per line with what Ryker does without it, or nothing. The local
+# routing model counts only while compose.env turns its profile on.
+models() {
+  local services=(whisper whisper-detect embeddings) reason
+  ((container_status == 0)) || return 0
+  [[ ,$(compose_env_value COMPOSE_PROFILES "$env_file"), == *,routing-model,* ]] && services+=(routing-model)
+  container_problems "${services[@]}" | while IFS= read -r reason; do
+    case $reason in
+      "container whisper "* | "container whisper-detect "*)
+        echo "$reason, so voice messages are read by Ryker's own small model"
+        ;;
+      "container embeddings "*)
+        echo "$reason, so routing finds earlier work by words alone"
         ;;
       *)
-        echo "whisper at $url is not answering, so voice messages are read by Ryker's own small model (scripts/voice-service.sh status)"
+        echo "$reason, so the local routing model is not compared"
         ;;
     esac
+  done
+}
+
+# helpers prints what is wrong with the whisper servers on this Mac that
+# compose.env names instead of Compose's own, one reason per line, or nothing.
+# Ryker's container reaches them through host.docker.internal, which is this
+# host.
+helpers() {
+  local name url
+  for name in RYKER_WHISPER_URL RYKER_WHISPER_DETECT_URL; do
+    url=$(compose_env_value "$name" "$env_file")
+    [[ $url == *host.docker.internal* ]] || continue
+    url=${url/host.docker.internal/127.0.0.1}
+    /usr/bin/curl -s -o /dev/null --max-time 5 "$url/" 2>/dev/null && continue
+    echo "whisper at $url is not answering, so voice messages are read by Ryker's own small model (scripts/voice-service.sh status)"
   done
 }
 
@@ -218,6 +249,7 @@ if [[ $state == "ready" && -n $pinned && $running_version != "$pinned" ]]; then
 elif [[ $state == "unreachable" ]]; then
   state="control plane unreachable at $base"
 fi
+list_containers
 problems=$(containers | paste -sd ';' - | sed 's/;/; /g')
 if [[ -n $problems ]]; then
   if [[ $state == "ready" ]]; then
@@ -226,13 +258,16 @@ if [[ -n $problems ]]; then
     state="$state; $problems"
   fi
 fi
-# A helper that stopped makes Ryker worse, not stopped, and says so.
+# A model that stopped makes Ryker worse, not stopped, and says so.
 title="Ryker is not working"
-helper_problems=$(helpers | paste -sd ';' - | sed 's/;/; /g')
+helper_problems=$({
+  models
+  helpers
+} | paste -sd ';' - | sed 's/;/; /g')
 if [[ -n $helper_problems ]]; then
   if [[ $state == "ready" ]]; then
     state=$helper_problems
-    title="Ryker is working with less: a server on this Mac stopped"
+    title="Ryker is working with less: a model stopped"
   else
     state="$state; $helper_problems"
   fi

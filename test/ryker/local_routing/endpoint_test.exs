@@ -4,11 +4,13 @@ defmodule Ryker.LocalRouting.EndpointTest do
 
   # Every routing prompt holds a person's message and the conversation around
   # it. Plain http is fine to the Mac running Ryker (host.docker.internal from
-  # inside Compose) or across a private network; across the internet it would
-  # hand every conversation to whoever is on the path, so it needs https.
+  # inside Compose), to Compose's own routing model, or across a private
+  # network; across the internet it would hand every conversation to whoever
+  # is on the path, so it needs https.
   test "plain http reaches only this machine or a private network, anywhere else needs https" do
     for url <- [
           "http://host.docker.internal:11434/v1",
+          "http://routing-model:8080/v1",
           "http://localhost:11434/v1",
           "http://127.0.0.1:11434/v1",
           "http://[::1]:11434/v1",
@@ -28,7 +30,9 @@ defmodule Ryker.LocalRouting.EndpointTest do
           "http://8.8.8.8/v1",
           "http://172.32.0.1/v1",
           "http://192.169.0.1/v1",
-          "http://localhost.example.com/v1"
+          "http://localhost.example.com/v1",
+          "http://routing-model.example.com/v1",
+          "http://llm:8080/v1"
         ] do
       assert Endpoint.check(url) == {:error, :insecure}, url
     end

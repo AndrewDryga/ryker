@@ -19,8 +19,9 @@ defmodule Ryker.Settings.Work do
   conversation Ryker keeps a Work session started (`Ryker.Work.ReadyPool`); 0
   turns that off.
 
-  The local routing model is a model the operator runs, such as the one
-  `scripts/routing-model-service.sh` runs on the Mac beside Ryker, reached at `local_routing_endpoint` and asked for
+  The local routing model is a model the operator runs, such as Qwen2.5 3B,
+  which Compose runs beside Ryker as `routing-model` once its profile is on,
+  reached at `local_routing_endpoint` and asked for
   `local_routing_model`. At `local_routing_mode` `:shadow` it is asked each
   routing prompt after the provider has decided (`Ryker.LocalRouting`); it
   never decides anything. Comparing needs both an endpoint and a model, and

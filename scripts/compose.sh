@@ -172,6 +172,18 @@ generate_env() {
   chmod 0600 "$env_file"
 }
 
+# start_models [--build] starts the models beside Ryker, building those whose
+# image is missing, or every one with --build. One that does not start is said
+# and stops nothing (compose-lifecycle.sh).
+start_models() {
+  models=$(model_services compose)
+  [ -n "$models" ] || return 0
+  # shellcheck disable=SC2086 # one service name per word
+  if ! compose up --detach "$@" --wait $models; then
+    echo "Some models beside Ryker did not start, so Ryker works with less until they do. See: scripts/compose.sh logs" $models >&2
+  fi
+}
+
 install_ryker() {
   need docker
   need openssl
@@ -236,6 +248,7 @@ install_ryker() {
     exit 1
   }
 
+  start_models --build
   wait_ready || {
     echo "Ryker started, but the exact version did not become ready. Run: ./scripts/compose.sh status" >&2
     exit 1
@@ -370,14 +383,16 @@ case "$command" in
   start)
     require_install
     lock_lifecycle start
-    compose up --detach --no-build --wait
+    compose up --detach --no-build --wait ryker ryker-coop
+    start_models
     wait_ready
     ;;
   restart)
     require_install
     lock_lifecycle restart
     compose restart
-    compose up --detach --no-build --wait
+    compose up --detach --no-build --wait ryker ryker-coop
+    start_models
     wait_ready
     ;;
   upgrade)
@@ -398,7 +413,8 @@ case "$command" in
       echo "The database did not migrate, and Ryker is stopped. Restore the backup you took before upgrading: scripts/compose.sh restore FILE" >&2
       exit 1
     }
-    compose up --detach --wait
+    compose up --detach --wait ryker ryker-coop
+    start_models --build
     wait_ready
     ;;
   model-login)

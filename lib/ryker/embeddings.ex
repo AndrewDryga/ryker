@@ -5,14 +5,14 @@ defmodule Ryker.Embeddings do
   Andrew, 2026-09-30: routing's search for earlier work "won't actually work
   in real life". It compared words, so a message that says the same thing in
   other words, or in Ukrainian or Spanish about work discussed in English,
-  never found its work. A multilingual embedding model (bge-m3, run beside
-  Ryker by `scripts/embedding-service.sh`) reads more than a hundred languages
-  into one space: the routing search benchmark's Ukrainian "is the production
+  never found its work. A multilingual embedding model (bge-m3, which Compose
+  runs beside Ryker as `embeddings`) reads more than a hundred languages into
+  one space: the routing search benchmark's Ukrainian "is the production
   database still down?" lands nearest the English Postgres outage.
 
   `RYKER_EMBEDDINGS_URL` names any server that answers the OpenAI embeddings
-  API (`POST /v1/embeddings`); `RYKER_EMBEDDINGS_MODEL` names the model, bge-m3
-  unless set. Without it, or while it does not answer, routing searches by
+  API (`POST /v1/embeddings`), Compose's own unless set otherwise;
+  `RYKER_EMBEDDINGS_MODEL` names the model, bge-m3 unless set. Without it, or while it does not answer, routing searches by
   words and identifiers alone. Every request is bounded in time and in the
   size of its answer, and every vector comes back normalized to length one,
   so a dot product is the cosine.

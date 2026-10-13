@@ -8,10 +8,10 @@ defmodule Ryker.Transcription do
   `maximum_bytes/0` and `maximum_seconds/0` long, read in
   `recording_seconds/0` whichever model reads it. `Ryker.Transcription.Service`
   sends it to whisper servers outside the container when they are configured
-  (large-v3 on the Mac's GPU, `scripts/voice-service.sh`), and
-  `Ryker.Transcription.Local` runs Ryker's own small model inside the
-  container otherwise, or in the time left when those servers fail. Tests use
-  a stand-in that runs no model.
+  (Compose's own on the CPU, or large-v3 on a Mac's GPU,
+  `scripts/voice-service.sh`), and `Ryker.Transcription.Local` runs Ryker's
+  own small model inside the container otherwise, or in the time left when
+  those servers fail. Tests use a stand-in that runs no model.
 
   A recording's file descriptor carries the outcome beside the stored file:
   `"transcript"` with the words, or `"transcript_unavailable"` saying plainly

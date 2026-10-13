@@ -172,6 +172,12 @@ case " $* " in
     # deploy.sh names the version it starts; compose.sh starts the pinned one.
     [[ -f $fake/up.stale || -z ${RYKER_VERSION:-} ]] || printf '%s\n' "${RYKER_VERSION:-}" >"$fake/version"
     ;;
+  *" config --services "*)
+    printf '%s\n' database volume-init ryker ryker-coop-docker ryker-coop whisper whisper-detect embeddings
+    ;;
+  *" up --detach --build --wait "*)
+    [[ -f $fake/models.fail ]] && { echo "fake: whisper did not become healthy" >&2; exit 1; }
+    ;;
   *" stop ryker "*) rm -f "$fake/controller.running" ;;
   *" start ryker "*) touch "$fake/controller.running" ;;
   *" logs "*) echo "fake container log line" ;;
@@ -197,7 +203,7 @@ seed() {
   # still serves the previous version until the fake Docker "starts" a new one.
   rm -f "$fake/calls" "$fake/build.env" "$fake/build.fail" "$fake/up.env" "$fake/up.fail" "$fake/up.stale" "$fake/database.down" \
     "$fake/schema" "$fake/up.migrates" "$fake/image.missing" "$fake/volume.exists" \
-    "$fake/migrate.env" "$fake/migrate.migrates" "$fake/migrate.fail"
+    "$fake/migrate.env" "$fake/migrate.migrates" "$fake/migrate.fail" "$fake/models.fail"
   touch "$fake/controller.running"
   rm -rf "$state/backups" "$state/lifecycle.lock"
   printf '%s\n' "$old_version" >"$fake/version"
@@ -285,6 +291,13 @@ else
   printf 'FAIL the database is backed up before the container is replaced\n     calls:\n%s\n' "$calls"
   failures=$((failures + 1))
 fi
+models_line=$(grep -n 'up --detach --build --wait whisper whisper-detect embeddings$' <<<"$calls" | head -n 1 | cut -d: -f1)
+if [[ -n $models_line && -n $up_line && $up_line -lt $models_line ]]; then
+  printf 'ok   the models beside Ryker are built and started after the release is verified\n'
+else
+  printf 'FAIL the models beside Ryker are built and started after the release is verified\n     calls:\n%s\n' "$calls"
+  failures=$((failures + 1))
+fi
 check "the build carries the commit version" \
   "RYKER_VERSION=$version RYKER_IMAGE=ryker:$version" "$(cat "$fake/build.env")"
 check "the container runs the image just built" \
@@ -323,6 +336,16 @@ refute "the previous image is kept for a rollback" "image rm ryker:$old_version"
 refute "recent commit images stay" "image rm ryker:0.1.0-g$(printf 'b%.0s' $(seq 1 40))" "$calls"
 refute "a tagged release is never pruned" "image rm ryker:1.0.0" "$calls"
 refute "a hand-made tag is never pruned" "image rm ryker:production-audit" "$calls"
+
+# 2026-10-13: voice and search by meaning run in Compose beside Ryker, which works without
+# them, with less. A model that does not start is said, and the verified release stays.
+seed
+touch "$fake/models.fail"
+out=$(run)
+check "a model that does not start leaves the deploy done" "exit=0" "$out"
+check "a model that does not start is said" \
+  "not every model beside it started, so Ryker works with less until they do" "$out"
+check "the release stays pinned when a model does not start" "RYKER_VERSION=$version" "$(cat "$state/compose.env")"
 
 # ---------------------------------------------------------------------------
 # Old backups. Every deploy writes one of about 20 MB and none was ever

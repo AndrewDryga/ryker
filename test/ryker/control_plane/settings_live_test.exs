@@ -1333,21 +1333,17 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert has_element?(
              view,
              "#{card} .settings-form-help",
-             "scripts/routing-model-service.sh install"
+             "add COMPOSE_PROFILES=routing-model to .ryker/compose.env"
            )
 
-    assert has_element?(
-             view,
-             "#{card} .settings-form-help",
-             "http://host.docker.internal:8181/v1"
-           )
+    assert has_element?(view, "#{card} .settings-form-help", "http://routing-model:8080/v1")
 
     assert has_element?(view, "#{card} input[name=local_routing_mode][value=off][checked]")
     assert has_element?(view, "#{card} .settings-option", "Compare in the background")
 
     assert has_element?(
              view,
-             "#{card} input[name=local_routing_endpoint][placeholder='http://host.docker.internal:8181/v1']"
+             "#{card} input[name=local_routing_endpoint][placeholder='http://routing-model:8080/v1']"
            )
 
     assert has_element?(view, "#{card} input[name=local_routing_model][placeholder='qwen2.5:3b']")
@@ -1359,7 +1355,7 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     assert has_element?(
              view,
              "#{card} .settings-error",
-             "Enter the local model's endpoint, such as http://host.docker.internal:8181/v1."
+             "Enter the local model's endpoint, such as http://routing-model:8080/v1."
            )
 
     assert has_element?(
@@ -1387,14 +1383,14 @@ defmodule Ryker.ControlPlane.SettingsLiveTest do
     view
     |> form("#settings-local_routing-form", %{
       "local_routing_mode" => "shadow",
-      "local_routing_endpoint" => "http://host.docker.internal:8181/v1",
+      "local_routing_endpoint" => "http://routing-model:8080/v1",
       "local_routing_model" => "qwen2.5:3b"
     })
     |> render_submit()
 
     work = Settings.fetch!().work
     assert work.local_routing_mode == :shadow
-    assert work.local_routing_endpoint == "http://host.docker.internal:8181/v1"
+    assert work.local_routing_endpoint == "http://routing-model:8080/v1"
     assert work.local_routing_model == "qwen2.5:3b"
     refute has_element?(view, "#{card} .settings-error")
   end

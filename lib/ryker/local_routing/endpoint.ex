@@ -1,15 +1,16 @@
 defmodule Ryker.LocalRouting.Endpoint do
   @moduledoc """
   Where the local routing model answers: an OpenAI-compatible base address,
-  such as `http://host.docker.internal:8181/v1` for the model
-  `scripts/routing-model-service.sh` runs on the Mac beside Ryker's Compose
-  install. Requests go to its `/chat/completions`.
+  such as `http://routing-model:8080/v1` for the model Compose runs beside
+  Ryker once its `routing-model` profile is on. Requests go to its
+  `/chat/completions`.
 
   Every routing prompt sent there holds a person's message and the
   conversation around it. Like `Ryker.Delivery.JSONClient`, which keeps plain
   http for loopback, plain http is accepted only where it never crosses an
-  untrusted network: this machine (`localhost`, or the Docker host as
-  `host.docker.internal` or `host.containers.internal`), a private address
+  untrusted network: this machine (`localhost`, the Docker host as
+  `host.docker.internal` or `host.containers.internal`, or Compose's own
+  `routing-model`, on a network only Ryker joins), a private address
   (10/8, 172.16/12, 192.168/16, IPv6 fc00::/7), a Tailscale address
   (100.64/10), or a name under `.local`, `.lan`, `.internal`, `.home.arpa` or
   `.ts.net`. Anywhere else needs https. An address never carries a user
@@ -17,7 +18,7 @@ defmodule Ryker.LocalRouting.Endpoint do
   """
 
   @maximum_bytes 2_048
-  @local_names ~w(localhost host.docker.internal host.containers.internal)
+  @local_names ~w(localhost host.docker.internal host.containers.internal routing-model)
   @local_suffixes ~w(.localhost .local .lan .internal .home.arpa .ts.net)
 
   @spec check(term()) :: :ok | {:error, :format | :insecure}

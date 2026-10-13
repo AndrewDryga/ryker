@@ -67,10 +67,10 @@ message and does not start repository work.
 
 Voice messages and videos (m4a/mp4/aac, webm/ogg/opus, mp3, wav, flac, mov) are kept too and reach the
 models as words. Ryker uses Slack's own transcript when Slack finished one; otherwise Ryker
-transcribes the recording itself, with whisper large-v3 on the Mac's GPU when
-`scripts/voice-service.sh` runs it (see Voice messages in [operations](operations.md)), else in its
-container with ffmpeg and whisper.cpp's multilingual base model shipped in the image, so a voice
-message is handled like typed text. The gateway downloads and keeps
+transcribes the recording itself, with whisper large-v3-turbo, which Compose runs beside it, or
+large-v3 on a Mac's GPU when `scripts/voice-service.sh` runs it (see Voice messages in
+[operations](operations.md)), else in its container with ffmpeg and whisper.cpp's multilingual
+base model shipped in the image, so a voice message is handled like typed text. The gateway downloads and keeps
 the recording, records the message with its transcript pending and acknowledges the envelope at
 once; a transcription worker then transcribes one recording at a time and fills in the words, and
 routing waits for them before it decides. A transcript not ready three minutes after the message

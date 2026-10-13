@@ -37,6 +37,11 @@ run it generates the database password, checkpoint key, credential-encryption ke
 token. Later runs reuse them. It starts the project, waits for `/healthz` and `/readyz`, verifies
 the `x-ryker-version` header, and prints one setup URL.
 
+Beside Ryker the project runs the models it uses for voice messages and for routing's search by
+meaning, on the CPU, each in its own image with the model inside: about 4 GB of images and 3.5 GB
+of memory. The first install builds them, which downloads 2.8 GB. Ryker works without them, with
+less: see Voice messages and Search by meaning below.
+
 The control UI, GitHub listener and universal webhook listener bind to `127.0.0.1` by default.
 Change a bind address only when the surrounding network boundary is understood. External GitHub
 and webhook senders need an HTTPS reverse proxy to the exact signed ingress paths. Then set the
@@ -118,7 +123,8 @@ scripts/compose.sh restart
 
 `stop` and `uninstall` retain PostgreSQL data, Ryker state and encryption roots. `uninstall`
 removes the stopped containers and network while leaving the named volumes and `.ryker/compose.env`
-in place.
+in place. `start` builds a model's image the first time it is turned on, and a model that does not
+start is reported without stopping Ryker.
 
 ## Upgrade
 
@@ -304,10 +310,11 @@ leases, operation keys, receipts or episode rows by hand; the typed retry and re
 preserve the fences that make recovery safe.
 
 On a Mac, `scripts/install-watchdog.sh` installs `scripts/watchdog.sh` as a launch agent. Once a
-minute it checks `/readyz` and the pinned version, the project's containers, blocked work in
-`/metrics` and the helper servers `compose.env` names. A failed check becomes a macOS notification
-and a line in its log. If the watchdog has gone, run the installer again; it reports success only
-once the agent is registered.
+minute it checks `/readyz` and the pinned version, the project's containers, the models beside
+Ryker, blocked work in `/metrics` and the whisper servers on the Mac's GPU when `compose.env` names
+them. A failed check becomes a macOS notification and a line in its log; a model that stopped is
+reported as Ryker working with less. If the watchdog has gone, run the installer again; it reports
+success only once the agent is registered.
 
 ## Local routing model
 
@@ -331,20 +338,25 @@ agreed on, the latest disagreements, and the latest answers routing's checks ref
 as earlier work that was never offered; each opens its request. Comparisons are operational data and
 leave with their message's bodies.
 
-**Enable it on a Mac that runs Ryker.**
+**Turn it on.** Compose runs Qwen2.5 3B Instruct beside Ryker once `.ryker/compose.env` turns its
+profile on. `start` builds its image the first time, which downloads 2.1 GB:
 
 ```bash
-scripts/routing-model-service.sh install    # llama.cpp from Homebrew, Qwen2.5 3B Instruct (2.1 GB), one launchd service
+COMPOSE_PROFILES=routing-model    # in .ryker/compose.env
+scripts/compose.sh start
 ```
 
 Then in Settings › Models › Local routing model choose Compare in the background, set the endpoint
-to `http://host.docker.internal:8181/v1` and the model to `qwen2.5:3b`. The server holds 16k tokens
-of context; a routing prompt runs to several thousand. On an M3 Pro it answers a routing prompt in
-3 to 6 s. Any other server that answers the OpenAI chat API with structured output works too, such as
-Ollama, vLLM or LM Studio; give it at least 16k tokens of context, or it cuts the prompt's start.
-The Compose project names the host `host.docker.internal` on Linux too. Every routing prompt, with
-the message and its conversation, goes to that endpoint, so plain http is accepted only for this
-machine or a private network; anywhere else needs https.
+to `http://routing-model:8080/v1` and the model to `qwen2.5:3b`. The server holds 16k tokens of
+context; a routing prompt runs to several thousand. It runs on the CPU at a lower priority than
+everything else in the project, and takes 4.4 GB of memory: in Docker on an M3 Pro it answered a
+routing prompt of 4,500 tokens in 68 s, so the longest prompts run past the 120 s limit, where a
+Mac's GPU took 3 to 6 s. Any other server that answers the OpenAI chat API with structured output
+works too, such as Ollama, vLLM or LM Studio; give it at least 16k tokens of context, or it cuts the
+prompt's start. From Ryker's container the machine it runs on is `host.docker.internal`, on Linux
+too. Every routing prompt, with the message and its conversation, goes to that endpoint, so plain
+http is accepted only for this machine, Compose's own `routing-model`, or a private network;
+anywhere else needs https.
 
 **Phase 2, the cascade, is not built.** The local model would answer first, and routing would fall
 back to the provider model when the local answer is invalid or unsure, or for work that needs the
@@ -354,11 +366,38 @@ model agreed on, say whether that is worth building and what it would save.
 ## Voice messages
 
 Ryker reads Slack voice messages, and audio or video sent to Chat, as the words spoken in them.
-Out of the box it transcribes inside its container with whisper's small base model, which is
-quick and good with English, and weak with other languages: it wrote a message that went from
-Ukrainian to English to Spanish as Russian and Portuguese.
+Compose runs whisper beside Ryker on the CPU: `whisper` writes the words with large-v3-turbo, and
+`whisper-detect` hears the language with whisper's small model. Ryker cuts a recording at its
+pauses, hears the language of the whole, and writes it half a minute at a time, since whisper reads
+30 seconds at a time however short the audio. In Docker on an M3 Pro each of those passes takes
+about 15 s: a 7-second message took 21 s and a 33-second one 40 s. Given the language of the whole,
+large-v3-turbo still wrote an English sentence in a Ukrainian message in English, and garbled two
+words of Spanish.
 
-On a Mac, run whisper's large-v3 on the GPU instead:
+A recording gets 90 seconds whichever model reads it, and the servers three quarters of that, about
+two minutes of speech on the CPU. Routing waits three minutes for a message's words, two
+recordings' worth. When whisper cannot be reached, fails, answers something Ryker cannot read, or
+runs out of its time, Ryker's own model inside its container reads the recording in the time left,
+so no voice message is lost to a stopped, upgraded or slow service; the log says
+`whisper service ...` with the reason. That model is whisper's base, quick and good with English,
+and weak with other languages: it wrote a message that went from Ukrainian to English to Spanish as
+Russian and Portuguese.
+
+**Several languages.** Name the languages people speak here in `.ryker/compose.env` and run
+`scripts/compose.sh start`:
+
+```bash
+RYKER_VOICE_LANGUAGES=uk,en,es   # two-letter codes
+```
+
+With several named, Ryker hears each part of a recording on its own and reads it in its own
+language, chosen among them, preferring the language of the whole recording: whisper is sure of a
+whole recording and unsure of a few seconds of it, and read short Ukrainian parts as Portuguese,
+Croatian or Russian until the choice was narrowed. Neighbouring parts in one language are written
+together. Each part costs 3 s on the CPU, and the small model heard a Spanish sentence as English,
+so mixing languages is best served by a GPU.
+
+**A Mac's GPU.** On a Mac, run whisper's large-v3 on the GPU instead:
 
 ```bash
 scripts/voice-service.sh install    # whisper.cpp from Homebrew, the 3.1 GB model, two launchd services
@@ -370,46 +409,27 @@ Ryker container with them:
 ```bash
 RYKER_WHISPER_URL=http://host.docker.internal:8178
 RYKER_WHISPER_DETECT_URL=http://host.docker.internal:8179
-RYKER_VOICE_LANGUAGES=uk,en,es   # the languages people speak here, as two-letter codes
 ```
 
-Ryker cuts a recording at its pauses and reads each part in its own language, chosen among the
-languages people speak here, preferring the language of the whole recording: whisper is sure of
-a whole recording and unsure of a few seconds of it, and read short Ukrainian parts as
-Portuguese, Croatian or Russian until the choice was narrowed. Both servers listen only on
-127.0.0.1; `scripts/voice-service.sh status` says whether they answer, and `uninstall` stops
-them.
-
-On an M3 Pro a 33-second message takes 24 seconds and a five-minute one 67, after Slack has been
-answered. A recording gets 90 seconds whichever model reads it, and routing waits three minutes
-for a message's words, two recordings' worth. When whisper cannot be reached, fails, answers
-something Ryker cannot read, or stops answering, Ryker's own model reads the recording in the time
-left, so no voice message is lost to a stopped or upgraded service; the log says
-`whisper service ...` with the reason.
+On an M3 Pro the GPU wrote a 33-second message in Ukrainian, English and Spanish in 21 seconds,
+every part in the language spoken. Both servers listen only on 127.0.0.1;
+`scripts/voice-service.sh status` says whether they answer, and `uninstall` stops them. The
+Compose services keep running, unused.
 
 ## Search by meaning
 
 When a message arrives, routing looks for the earlier work it may belong to. By words and
 identifiers alone it misses a message that says the same thing in other words, or in Ukrainian or
-Spanish about work discussed in English. On a Mac, run a multilingual embedding model (bge-m3) on
-the GPU and routing also searches by meaning:
+Spanish about work discussed in English. Compose runs a multilingual embedding model (bge-m3) beside
+Ryker as `embeddings`, and routing also searches by meaning.
 
-```bash
-scripts/embedding-service.sh install    # llama.cpp from Homebrew, the 635 MB model, a launchd service
-```
-
-Then set in `.ryker/compose.env` and run `scripts/compose.sh start`:
-
-```bash
-RYKER_EMBEDDINGS_URL=http://host.docker.internal:8180
-```
-
-Ryker computes a vector for each request as its text changes, in the background, and one for each
-message as it arrives, in about 30 ms. The server listens only on 127.0.0.1; `status` says whether
-it answers and `uninstall` stops it. While it is down, routing searches by words and identifiers,
-each request's "How" card says why the search by meaning did not run, and the watchdog alerts. Any
-server that answers the OpenAI embeddings API works; `RYKER_EMBEDDINGS_MODEL` names its model when
-it is not bge-m3.
+Ryker computes a vector for each request as its text changes, in the background, four requests at
+a time, and one for each message as it arrives: in Docker on an M3 Pro a short message took 0.3 to
+0.7 s. While the model is down, or a message's vector takes over 3 s, routing searches by words and
+identifiers, each request's "How" card says why the search by meaning did not run, and the
+watchdog alerts. Any server that answers the OpenAI embeddings API works: set
+`RYKER_EMBEDDINGS_URL` in `.ryker/compose.env`, and `RYKER_EMBEDDINGS_MODEL` when its model is not
+bge-m3.
 
 ## Weekly report
 

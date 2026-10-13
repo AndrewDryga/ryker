@@ -604,10 +604,10 @@ defmodule Ryker.ControlPlane.SettingsSections do
         "A small model you run yourself, asked to route each message after the provider model " <>
           "has, to see how often the two agree. Routing doesn't use its answers.",
       help:
-        "To try one on the Mac that runs Ryker, run scripts/routing-model-service.sh install, " <>
-          "then save http://host.docker.internal:8181/v1 and qwen2.5:3b here. Any server that " <>
-          "answers the OpenAI chat API with structured output works too. Every routing prompt, " <>
-          "with the message and its conversation, is sent to this endpoint.",
+        "To try one, add COMPOSE_PROFILES=routing-model to .ryker/compose.env and run " <>
+          "scripts/compose.sh start, then save http://routing-model:8080/v1 and qwen2.5:3b here. " <>
+          "Any server that answers the OpenAI chat API with structured output works too. Every " <>
+          "routing prompt, with the message and its conversation, is sent to this endpoint.",
       fields: [
         %{
           name: :local_routing_mode,
@@ -620,20 +620,19 @@ defmodule Ryker.ControlPlane.SettingsSections do
           name: :local_routing_endpoint,
           kind: :text,
           label: "Endpoint",
-          placeholder: "http://host.docker.internal:8181/v1",
+          placeholder: "http://routing-model:8080/v1",
           help:
             "The server's OpenAI-compatible address, ending in /v1. From Ryker's container, " <>
-              "the Mac itself is host.docker.internal.",
+              "the machine it runs on is host.docker.internal.",
           errors: %{
-            required:
-              "Enter the local model's endpoint, such as http://host.docker.internal:8181/v1.",
+            required: "Enter the local model's endpoint, such as http://routing-model:8080/v1.",
             format:
               "Write the endpoint as one http:// or https:// address, such as " <>
-                "http://host.docker.internal:8181/v1, without a user name or query.",
+                "http://routing-model:8080/v1, without a user name or query.",
             insecure:
               "Use https for a server on another network. Plain http is only for this " <>
-                "machine (localhost, host.docker.internal) or a private address such as " <>
-                "192.168.1.20."
+                "machine (localhost, host.docker.internal, routing-model) or a private " <>
+                "address such as 192.168.1.20."
           }
         },
         %{

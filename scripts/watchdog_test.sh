@@ -152,9 +152,11 @@ containers() {
     shift 3
   done
 }
+# The models Compose runs beside Ryker, healthy.
+models=(whisper running healthy whisper-detect running healthy embeddings running healthy)
 all_healthy() {
   containers ryker running healthy database running healthy \
-    ryker-coop running healthy ryker-coop-docker running healthy
+    ryker-coop running healthy ryker-coop-docker running healthy "${models[@]}"
 }
 
 # run prints only the log lines this run wrote, then its exit status.
@@ -244,19 +246,19 @@ check "the pinned version serving again is a recovery" "ALERT Ryker recovered" "
 # Readiness lags a lost worker by its lease; the container listing does not.
 reset; ready
 containers ryker running healthy database running healthy \
-  ryker-coop exited "" ryker-coop-docker running unhealthy
+  ryker-coop exited "" ryker-coop-docker running unhealthy "${models[@]}"
 run >/dev/null
 gone=$(run)
 check "an exited container alarms while readiness still says ready" \
   "ALERT Ryker is not working — container ryker-coop is exited; container ryker-coop-docker is unhealthy" "$gone"
 reset; ready
-containers ryker running healthy database running healthy ryker-coop-docker running healthy
+containers ryker running healthy database running healthy ryker-coop-docker running healthy "${models[@]}"
 run >/dev/null
 missing=$(run)
 check "a container that is not in the project at all is named" "container ryker-coop is missing" "$missing"
 reset; ready
 containers ryker running starting database running healthy \
-  ryker-coop running healthy ryker-coop-docker running healthy
+  ryker-coop running healthy ryker-coop-docker running healthy "${models[@]}"
 starting=$(run)
 refute "a container still starting its health check is not a problem" "strike" "$starting"
 
@@ -296,20 +298,35 @@ printf 'RYKER_WHISPER_DETECT_URL=http://host.docker.internal:%s\n' "$((port + 1)
 WATCHDOG_ENV_FILE="$install/compose.env.voice" run >/dev/null
 silent=$(WATCHDOG_ENV_FILE="$install/compose.env.voice" run)
 check "a whisper server that stopped answering alarms, as worse rather than stopped" \
-  "ALERT Ryker is working with less: a server on this Mac stopped — whisper at http://127.0.0.1:$((port + 1)) is not answering" \
+  "ALERT Ryker is working with less: a model stopped — whisper at http://127.0.0.1:$((port + 1)) is not answering" \
   "$silent"
 refute "the whisper server that answers is not named" "127.0.0.1:$port is not answering" "$silent"
 
-# 2026-09-30: routing searches earlier work by meaning on an embedding server
-# on this Mac, and by words alone when it stops.
+# 2026-10-13: the models run in Compose beside Ryker, where the host cannot
+# reach them by name. Their containers say whether they run; one that stopped
+# makes Ryker worse, not stopped, and the alarm says what Ryker does without it.
 reset; ready
-cp "$install/compose.env" "$install/compose.env.embeddings"
-printf 'RYKER_EMBEDDINGS_URL=http://host.docker.internal:%s\n' "$((port + 1))" >>"$install/compose.env.embeddings"
-WATCHDOG_ENV_FILE="$install/compose.env.embeddings" run >/dev/null
-words=$(WATCHDOG_ENV_FILE="$install/compose.env.embeddings" run)
-check "an embedding server that stopped answering alarms" \
-  "the embedding server at http://127.0.0.1:$((port + 1)) is not answering, so routing finds earlier work by words alone" \
-  "$words"
+containers ryker running healthy database running healthy ryker-coop running healthy \
+  ryker-coop-docker running healthy whisper exited "" whisper-detect running healthy \
+  embeddings running unhealthy
+run >/dev/null
+worse=$(run)
+check "a model container that stopped alarms, as worse rather than stopped" \
+  "ALERT Ryker is working with less: a model stopped — container whisper is exited, so voice messages are read by Ryker's own small model; container embeddings is unhealthy, so routing finds earlier work by words alone" \
+  "$worse"
+reset; ready
+cp "$install/compose.env" "$install/compose.env.routing"
+printf 'COMPOSE_PROFILES=routing-model\n' >>"$install/compose.env.routing"
+WATCHDOG_ENV_FILE="$install/compose.env.routing" run >/dev/null
+comparing=$(WATCHDOG_ENV_FILE="$install/compose.env.routing" run)
+check "the local routing model is watched once its profile is on" \
+  "container routing-model is missing, so the local routing model is not compared" "$comparing"
+offprofile=$(run)
+refute "the local routing model is not watched while its profile is off" "routing-model" "$offprofile"
+cp "$install/compose.env" "$install/compose.env.service"
+printf 'RYKER_WHISPER_URL=http://whisper:8080\n' >>"$install/compose.env.service"
+named=$(WATCHDOG_ENV_FILE="$install/compose.env.service" run)
+refute "a whisper address only Compose can resolve is not probed from the host" "strike" "$named"
 
 # ---------------------------------------------------------------------------
 # Work whose retries are spent waits for a person on the Failures page. That
