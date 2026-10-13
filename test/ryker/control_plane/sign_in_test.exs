@@ -9,7 +9,7 @@ defmodule Ryker.ControlPlane.SignInTest do
   use Ryker.DataCase, async: false
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
-  import Plug.Conn, only: [get_resp_header: 2]
+  import Plug.Conn, only: [get_resp_header: 2, put_private: 3, put_req_header: 3]
   import Ryker.ConsoleSignIn, only: [session_token: 1, signed_in_conn: 0]
   alias Ryker.ConsoleAccess
   alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
@@ -80,12 +80,11 @@ defmodule Ryker.ControlPlane.SignInTest do
     assert preview.resp_body =~ "This link signs you in as <strong>Dana</strong>"
     assert {:ok, _link} = ConsoleAccess.fetch_link(token(path))
 
-    signed =
-      preview
-      |> recycle()
-      |> Map.put(:host, "localhost")
-      |> post(path, %{"_csrf_token" => csrf_token(preview)})
+    # Another site's form can't sign this browser in as whoever's link it holds.
+    assert_error_sent(403, fn -> press(preview, path, %{}) end)
+    assert {:ok, _link} = ConsoleAccess.fetch_link(token(path))
 
+    signed = press(preview, path, %{"_csrf_token" => csrf_token(preview)})
     assert signed.status == 303
     assert get_resp_header(signed, "location") == ["/activity?q=deploy"]
     assert ConsoleAccess.fetch_link(token(path)) == {:error, :used}
@@ -162,6 +161,19 @@ defmodule Ryker.ControlPlane.SignInTest do
 
     assert ConsoleAccess.fetch_session(other) == {:error, :not_found}
     refute has_element?(view, "#session-#{dana.id}")
+  end
+
+  # The Sign in button as a browser presses it: the form's body still to be read, and the forgery
+  # check on, which Phoenix's test connections switch off. Posted as a map with the check off, the
+  # first deploy's sign-in passed here while every browser got a bare 403: the console never
+  # parsed the form, so the check never saw its token.
+  defp press(conn, path, form) do
+    conn
+    |> recycle()
+    |> Map.put(:host, "localhost")
+    |> put_private(:plug_skip_csrf_protection, false)
+    |> put_req_header("content-type", "application/x-www-form-urlencoded")
+    |> post(path, URI.encode_query(form))
   end
 
   defp local, do: Map.put(build_conn(), :host, "localhost")

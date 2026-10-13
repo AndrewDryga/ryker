@@ -23,11 +23,21 @@ defmodule Ryker.ControlPlane.WebRouter do
 
   forward("/assets", Ryker.ControlPlane.Assets)
 
+  # The Sign in button posts the one form a route here reads. LiveView carries every other form,
+  # and `HttpPlug` reads its own bodies, so nothing before this parses one.
+  pipeline :form do
+    plug(Plug.Parsers, parsers: [:urlencoded], length: 4_096)
+  end
+
+  scope "/" do
+    pipe_through([:form, :browser])
+    post("/sign-in/:token", Ryker.ControlPlane.SignIn, :use_link)
+  end
+
   scope "/" do
     pipe_through(:browser)
     get("/sign-in", Ryker.ControlPlane.SignIn, :page)
     get("/sign-in/:token", Ryker.ControlPlane.SignIn, :link)
-    post("/sign-in/:token", Ryker.ControlPlane.SignIn, :use_link)
     live("/", Ryker.ControlPlane.WorkbenchLive)
 
     for path <-
