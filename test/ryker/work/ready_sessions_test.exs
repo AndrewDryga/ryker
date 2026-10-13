@@ -40,6 +40,28 @@ defmodule Ryker.Work.ReadySessionsTest do
     assert episode_id == claim.episode.id
   end
 
+  # The tenant install, 2026-10-13: a Work create fetches every repository the environment mounts,
+  # 17 there, and Coop took about 90 s for it, while a pass stops waiting for a create after a
+  # minute. The session it left starting was retired once Coop had made it, and another started:
+  # every ten minutes a create held the worker for 90 s, raced conversations' own creates, and no
+  # session was ever ready for a first answer.
+  test "a session Coop finishes creating after its pass stopped waiting is kept ready" do
+    {:ok, fake} = FakeAPI.start_link([answer()], create_finishes_later: true)
+    assert {:ok, %{started: 0}} = ReadyPool.keep(pool(fake, [pin(@digest)]))
+    assert [%Session{ready_state: :starting}] = starting_sessions()
+
+    FakeAPI.finish_creates(fake)
+    assert {:ok, %{retired: 0}} = ReadyPool.keep(pool(fake, [pin(@digest)]))
+
+    assert [%Session{ready_state: :ready, coop_session_id: coop_session_id}] = ready_sessions()
+    assert is_binary(coop_session_id)
+    assert starting_sessions() == []
+    assert FakeAPI.state(fake).create_count == 1
+
+    claim = start_conversation!("after-a-slow-create", @digest)
+    assert claim.session.coop_session_id == coop_session_id
+  end
+
   # Every live pin names a repository and the environment's context around it, and a claim
   # compares each stored as canonical JSON. A context with one more read-only repository is
   # another environment's view of the work and must not be served the same session.
@@ -271,6 +293,14 @@ defmodule Ryker.Work.ReadySessionsTest do
       "message" => "The README describes the install steps.",
       "outcome" => %{"artifact_refs" => [], "record_refs" => [], "state" => "complete"}
     })
+  end
+
+  defp starting_sessions do
+    Repo.all(
+      from(session in Session,
+        where: session.execution_kind == :work and session.ready_state == :starting
+      )
+    )
   end
 
   defp ready_sessions do

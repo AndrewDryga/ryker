@@ -25,8 +25,13 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
         session_evidence: Keyword.get(options, :session_evidence),
         session_evidence_reads: 0,
         create_count: 0,
+        # A worker that finishes a create after it answered the command, as one fetching many
+        # repositories does: the create answers with a running operation, and
+        # `finish_creates/1` finishes every one of them.
+        create_finishes_later: Keyword.get(options, :create_finishes_later, false),
         create_keys: [],
         create_sources: [],
+        pending_creates: [],
         fence_create_keys: [],
         fence_create_sources: [],
         fence_frozen_keys: [],
@@ -220,12 +225,19 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
           "state" => "open"
         })
 
-      operation = succeeded_operation("CreateRemoteSession", "session", session["id"])
+      {operation, response, pending} =
+        if state.create_finishes_later do
+          operation = %{
+            "id" => "op_running_create_#{state.create_count + 1}",
+            "method" => "CreateRemoteSession",
+            "state" => "running"
+          }
 
-      response = %{
-        "operation" => operation,
-        "session" => session
-      }
+          {operation, %{"operation" => operation}, [{key, session["id"]}]}
+        else
+          operation = succeeded_operation("CreateRemoteSession", "session", session["id"])
+          {operation, %{"operation" => operation, "session" => session}, []}
+        end
 
       next = %{
         state
@@ -233,10 +245,23 @@ defmodule Ryker.TestSupport.FakeWorkCoopAPI do
           create_keys: state.create_keys ++ [key],
           create_sources: state.create_sources ++ [source],
           known_operations: Map.put(state.known_operations, key, operation),
+          pending_creates: state.pending_creates ++ pending,
           session: session
       }
 
       {{{:ok, response}, state.on_create_session}, next}
+    end)
+  end
+
+  @doc "Finishes every create still running, as the worker does once its repositories are in."
+  def finish_creates(agent) do
+    Agent.update(agent, fn state ->
+      known =
+        Enum.reduce(state.pending_creates, state.known_operations, fn {key, session_id}, known ->
+          Map.put(known, key, succeeded_operation("CreateRemoteSession", "session", session_id))
+        end)
+
+      %{state | known_operations: known, pending_creates: []}
     end)
   end
 

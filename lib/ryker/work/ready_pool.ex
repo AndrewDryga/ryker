@@ -6,9 +6,10 @@ defmodule Ryker.Work.ReadyPool do
   turns it off. Each pass reads the pins new conversations froze in the last
   day (`Ryker.Work.ReadySessions.recent_pins/1`), keeps the most used of those
   current settings still give, retires the sessions that can no longer serve
-  one (another pin, past their age, or a second for the same pin), settles any
-  a stopped pass left starting, and starts one for each kept pin that has
-  none. Cleanup closes what the pass retires. The pool never hands a session
+  one (another pin, past their age, or a second for the same pin), opens any
+  whose create Coop finished after its pass stopped waiting, settles any a
+  stopped pass left starting, and starts one for each kept pin that has none.
+  Cleanup closes what the pass retires. The pool never hands a session
   out: a conversation claims one itself when its episode is pinned
   (`Ryker.Work.Custody.Sessions`), and the next pass replaces it.
 
@@ -35,7 +36,8 @@ defmodule Ryker.Work.ReadyPool do
   # than routing's: a claimed session is replaced within this, plus its create.
   @poll_interval_ms 10_000
   # A Work create fetches the session's repositories before the worker opens
-  # it; waiting up to 60 s stays well inside `@stranded_seconds`.
+  # it. A pass waits up to 60 s, and a later one opens a session Coop made after
+  # that: an environment of 17 repositories took about 90 s (2026-10-13).
   @operation_polls 120
   @operation_poll_ms 500
   @idle_interval_ms 60_000
@@ -46,7 +48,11 @@ defmodule Ryker.Work.ReadyPool do
   @retry_base_seconds 5
   @retry_max_seconds 300
 
-  @type pass :: %{retired: non_neg_integer(), started: non_neg_integer()}
+  @type pass :: %{
+          opened: non_neg_integer(),
+          retired: non_neg_integer(),
+          started: non_neg_integer()
+        }
 
   @spec child_spec(keyword() | map()) :: Supervisor.child_spec()
   def child_spec(configuration) do
@@ -83,16 +89,18 @@ defmodule Ryker.Work.ReadyPool do
   end
 
   @doc """
-  One pass: retire what can no longer serve a conversation, settle what a
-  stopped pass left starting, then start a session for each kept pin that has
-  none.
+  One pass: retire what can no longer serve a conversation, open what Coop
+  finished creating since an earlier pass stopped waiting, settle what a stopped
+  pass left starting, then start a session for each kept pin that has none.
   """
   @spec keep(keyword() | map()) :: {:ok, pass()} | {:error, term()}
   def keep(options) do
     with {:ok, settings} <- settings(options),
          {:ok, pins} <- settings.pins.(settings.target) do
-      retired = retire_unusable(pins) + settle_stranded(settings)
-      {:ok, %{retired: retired, started: start(settings, pins, 0)}}
+      unusable = retire_unusable(pins)
+      opened = open_finished(settings)
+      retired = unusable + settle_stranded(settings)
+      {:ok, %{opened: opened, retired: retired, started: start(settings, pins, 0)}}
     end
   end
 
@@ -149,6 +157,26 @@ defmodule Ryker.Work.ReadyPool do
     |> Enum.count(&match?({:ok, _retired}, ReadySessions.retire(&1)))
   end
 
+  # The tenant install, 2026-10-13: every create there outlasted its pass's wait, and each
+  # session was retired once stranded although Coop had made it, so none was ever ready and a
+  # new create held the worker every ten minutes.
+  defp open_finished(settings) do
+    0
+    |> ReadySessions.stranded()
+    |> Enum.count(&(open_if_created(&1, settings) == :ready))
+  end
+
+  defp open_if_created(session, settings) do
+    with {:ok, operation} <-
+           settings.api.operation_by_key(settings.client, OperationKeys.create(session)),
+         {:created, coop_session_id} <- Coop.CreateOutcome.of(operation) do
+      fetch(session, coop_session_id, settings)
+    else
+      :absent -> retire(session, nil)
+      _still_running -> :starting
+    end
+  end
+
   defp settle_stranded(settings) do
     @stranded_seconds
     |> ReadySessions.stranded()
@@ -198,7 +226,8 @@ defmodule Ryker.Work.ReadyPool do
         case await_created(operation, key, settings, settings.operation_polls) do
           {:created, coop_session_id} -> fetch(session, coop_session_id, settings)
           :absent -> failed(session, {:coop_operation_failed, operation}, settings)
-          :unknown -> failed(session, {:coop_operation_unfinished, operation}, settings)
+          # Still running: a later pass opens it once Coop has made it.
+          :unknown -> :starting
         end
 
       {:ok, _response} ->
