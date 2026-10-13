@@ -109,7 +109,26 @@ defmodule Ryker.Work.ReadySessions do
   """
   @spec claim_in_transaction(Ecto.UUID.t(), pin(), String.t() | nil) ::
           {:ok, Work.Session.t()} | :none
-  def claim_in_transaction(episode_id, pin, repository_ref) do
+  def claim_in_transaction(episode_id, pin, repository_ref),
+    do: claim(episode_id, pin, repository_ref, 1)
+
+  @doc """
+  Gives `episode_id` a session kept ready for exactly the pin of `previous`, its
+  session that closed, as its next one, inside the caller's transaction. A
+  conversation picked up again after its session's grace starts on it instead
+  of waiting for Coop to create one: a follow-up on the tenant install waited
+  four minutes for Coop to fetch 17 repositories again (2026-10-13). A task's
+  workspace and a pinned branch, commit or pull request are never served so.
+  """
+  @spec claim_successor_in_transaction(Ecto.UUID.t(), Work.Session.t()) ::
+          {:ok, Work.Session.t()} | :none
+  def claim_successor_in_transaction(episode_id, %Work.Session{} = previous) do
+    if is_nil(previous.workspace_task) and pooled_source?(previous.repository_source),
+      do: claim(episode_id, pin_of(previous), previous.repository_ref, previous.generation + 1),
+      else: :none
+  end
+
+  defp claim(episode_id, pin, repository_ref, generation) do
     cutoff = DateTime.add(Repo.now!(), -@maximum_age_seconds, :second)
 
     case Repo.fetch(Work.Session.Query.next_work_ready(pin, cutoff)) do
@@ -118,7 +137,12 @@ defmodule Ryker.Work.ReadySessions do
 
       {:ok, %Work.Session{} = session} ->
         session
-        |> Work.Session.Changeset.claim_work_ready(episode_id, repository_ref, Repo.now!())
+        |> Work.Session.Changeset.claim_work_ready(
+          episode_id,
+          repository_ref,
+          generation,
+          Repo.now!()
+        )
         |> Repo.update()
         |> case do
           {:ok, claimed} ->

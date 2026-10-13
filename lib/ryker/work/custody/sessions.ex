@@ -259,11 +259,7 @@ defmodule Ryker.Work.Custody.Sessions do
         reuse_or_replace_grace(episode, session)
 
       {:ok, %Session{} = session} ->
-        insert_session_or_rollback(
-          episode.id,
-          session.generation + 1,
-          session_authority(session)
-        )
+        successor_or_rollback(episode, session)
     end
   end
 
@@ -310,13 +306,33 @@ defmodule Ryker.Work.Custody.Sessions do
   defp reuse_or_replace_grace(episode, session) do
     if reusable_grace?(session),
       do: reactivate_grace!(session),
-      else:
-        insert_session_or_rollback(
-          episode.id,
-          session.generation + 1,
-          session_authority(session)
-        )
+      else: successor_or_rollback(episode, session)
   end
+
+  # A conversation picked up again after its session closed takes a session kept ready for the
+  # same pin, as a new conversation does, before Coop is asked to create one
+  # (`ReadySessions.claim_successor_in_transaction/2`).
+  defp successor(episode, session) do
+    case claim_ready_successor(episode, session) do
+      {:ok, claimed} -> {:ok, claimed}
+      :none -> insert_session(episode.id, session.generation + 1, session_authority(session))
+    end
+  end
+
+  defp successor_or_rollback(episode, session) do
+    case successor(episode, session) do
+      {:ok, next} -> next
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp claim_ready_successor(
+         %Episodes.Episode{execution_mode: :live, key: "ingress-input:" <> _input} = episode,
+         session
+       ),
+       do: ReadySessions.claim_successor_in_transaction(episode.id, session)
+
+  defp claim_ready_successor(_episode, _session), do: :none
 
   @doc false
   def current_session(episode) do
@@ -336,10 +352,10 @@ defmodule Ryker.Work.Custody.Sessions do
        } = session} ->
         if reusable_grace?(session),
           do: {:ok, reactivate_grace!(session)},
-          else: insert_session(episode.id, session.generation + 1, session_authority(session))
+          else: successor(episode, session)
 
       {:ok, %Session{} = session} ->
-        insert_session(episode.id, session.generation + 1, session_authority(session))
+        successor(episode, session)
     end
   end
 
@@ -593,13 +609,6 @@ defmodule Ryker.Work.Custody.Sessions do
        do: %{connection_ref: ref, account_ref: account, rpc_url: url}
 
   defp present_emisar(_pin), do: nil
-
-  defp insert_session_or_rollback(episode_id, generation, authority) do
-    case insert_session(episode_id, generation, authority) do
-      {:ok, session} -> session
-      {:error, reason} -> Repo.rollback(reason)
-    end
-  end
 
   defp bind_session_locked(
          episode_id,

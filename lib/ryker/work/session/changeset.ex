@@ -267,15 +267,23 @@ defmodule Ryker.Work.Session.Changeset do
   end
 
   @doc """
-  A conversation's episode takes the Work session kept ready at `at`, as the
-  first session of its work about `repository_ref`, one the session mounts.
+  A conversation's episode takes the Work session kept ready at `at`, as its
+  session `generation` (1 for its first) of its work about `repository_ref`,
+  one the session mounts.
   """
-  @spec claim_work_ready(Session.t(), Ecto.UUID.t(), String.t() | nil, DateTime.t()) ::
+  @spec claim_work_ready(
+          Session.t(),
+          Ecto.UUID.t(),
+          String.t() | nil,
+          pos_integer(),
+          DateTime.t()
+        ) ::
           Ecto.Changeset.t()
-  def claim_work_ready(%Session{} = session, episode_id, repository_ref, at) do
+  def claim_work_ready(%Session{} = session, episode_id, repository_ref, generation, at) do
     session
     |> change(
       episode_id: episode_id,
+      generation: generation,
       ready_state: :claimed,
       repository_ref: repository_ref,
       updated_at: at

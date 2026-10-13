@@ -62,6 +62,34 @@ defmodule Ryker.Work.ReadySessionsTest do
     assert claim.session.coop_session_id == coop_session_id
   end
 
+  # The tenant install, 2026-10-13: a conversation's session closes 15 minutes after its answer,
+  # and a follow-up after that waited four minutes for Coop to fetch the environment's 17
+  # repositories again, although a session for the same pin stood ready. A conversation picked
+  # up again takes it, as its next session.
+  test "a conversation picked up again after its session's grace takes a session kept ready" do
+    {:ok, fake} = FakeAPI.start_link([answer()])
+    first = start_conversation!("picked-up-again", @digest)
+
+    Repo.update_all(from(session in Session, where: session.id == ^first.session.id),
+      set: [cleanup_status: :grace, discard_after: DateTime.add(Repo.now!(), -60, :second)]
+    )
+
+    assert {:ok, %{started: 1}} = ReadyPool.keep(pool(fake, [pin(@digest)]))
+    assert [%Session{id: ready_id, coop_session_id: coop_session_id}] = ready_sessions()
+
+    episode = Repo.get!(Episodes.Episode, first.episode.id)
+
+    assert {:ok, {:ok, %Session{} = next}} =
+             Repo.transaction(fn -> Custody.Sessions.current_session(episode) end)
+
+    assert next.id == ready_id
+    assert next.episode_id == episode.id
+    assert next.generation == 2
+    assert next.coop_session_id == coop_session_id
+    assert ready_sessions() == []
+    assert FakeAPI.state(fake).create_count == 1
+  end
+
   # Every live pin names a repository and the environment's context around it, and a claim
   # compares each stored as canonical JSON. A context with one more read-only repository is
   # another environment's view of the work and must not be served the same session.
