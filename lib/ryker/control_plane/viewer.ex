@@ -82,7 +82,11 @@ defmodule Ryker.ControlPlane.Viewer do
   @spec actor_ref(Plug.Conn.t(), map()) :: String.t()
   def actor_ref(conn, control_plane), do: conn |> from_conn(control_plane) |> Actor.of()
 
-  @doc "The person a page's session is signed in as, or nil."
+  @doc """
+  The person a page's session is signed in as now, or nil: a link's session while it lasts, the
+  person Serve named, or the person Access named until that sign-in ends. The socket carries no
+  Access token to check, so the session keeps the time that sign-in ends.
+  """
   @spec from_session(map()) :: t() | nil
   def from_session(%{"viewer" => %{"login" => login, "name" => name, "via" => "tailscale"}})
       when is_binary(login) and is_binary(name),
@@ -91,8 +95,10 @@ defmodule Ryker.ControlPlane.Viewer do
   def from_session(%{
         "viewer" => %{"login" => login, "name" => name, "via" => "cloudflare", "until" => until}
       })
-      when is_binary(login) and is_binary(name) and is_integer(until),
+      when is_binary(login) and is_binary(name) and is_integer(until) do
+    if until >= System.os_time(:second),
       do: %{login: login, name: name, via: :cloudflare, until: until}
+  end
 
   def from_session(%{@session_key => token}), do: from_token(token)
   def from_session(_session), do: nil

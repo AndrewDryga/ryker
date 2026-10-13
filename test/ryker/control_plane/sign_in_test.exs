@@ -12,7 +12,7 @@ defmodule Ryker.ControlPlane.SignInTest do
   import Plug.Conn, only: [get_resp_header: 2, put_private: 3, put_req_header: 3]
   import Ryker.ConsoleSignIn, only: [session_token: 1, signed_in_conn: 0]
   alias Ryker.ConsoleAccess
-  alias Ryker.ControlPlane.{Actions, Endpoint, Projection}
+  alias Ryker.ControlPlane.{Actions, Endpoint, LiveSocket, Projection, WorkbenchLive}
   alias Ryker.Settings
 
   @endpoint Endpoint
@@ -137,6 +137,27 @@ defmodule Ryker.ControlPlane.SignInTest do
     assert_redirect(view, "/sign-in")
     assert ConsoleAccess.sessions() == []
     assert {:error, {:redirect, %{to: "/sign-in"}}} = live(conn, "/activity")
+  end
+
+  # Sign out ended the session and closed the page's socket before its redirect reached Chrome,
+  # which reconnected over and over: the socket refused every try, so the page never left
+  # (2026-10-13, the first deploy). The socket takes the page back, and the page, mounting with a
+  # session that signs nobody in, goes to the sign-in page. A session ended from Settings › Access
+  # reaches its other pages the same way.
+  test "a page whose session ended reconnects and goes to the sign-in page" do
+    token = session_token("Dana")
+    page = %{"console_session" => token}
+    {:ok, _id} = ConsoleAccess.sign_out(token)
+
+    assert {:ok, _socket} =
+             LiveSocket.connect(%{}, %Phoenix.Socket{}, %{
+               peer_data: %{address: {127, 0, 0, 1}},
+               uri: URI.parse("http://localhost:4321/live"),
+               session: page
+             })
+
+    assert {:ok, %{redirected: {:redirect, %{to: "/sign-in"}}}} =
+             WorkbenchLive.mount(%{}, page, %Phoenix.LiveView.Socket{endpoint: Endpoint})
   end
 
   # People outside Slack get in by an invite, and anyone signed in can end a browser's session.

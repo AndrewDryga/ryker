@@ -10,7 +10,7 @@ defmodule Ryker.ControlPlane.SignInGate do
   the stylesheets and pictures, and signing in. The watchdog reads `/metrics` at a loopback
   name; anywhere else metrics need a person too. A page asked for without a sign-in is sent to
   `/sign-in`, which brings the person back to it afterwards; anything else is refused.
-  The live socket is held to the same rule where it connects (`LiveSocket`).
+  A page's live socket is held to the same rule where the page mounts (`WorkbenchLive.mount/3`).
   """
   @behaviour Plug
   import Plug.Conn

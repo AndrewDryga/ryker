@@ -12,7 +12,8 @@ defmodule Ryker.ControlPlane.CloudflareViewerLiveTest do
   import Ryker.ConsoleSignIn, only: [session_token: 0]
   import Plug.Conn, only: [get_resp_header: 2, get_session: 1, put_req_header: 3]
   import Phoenix.LiveViewTest
-  alias Ryker.ControlPlane.{Actions, ConsolePeople, Endpoint, LiveSocket, Projection, Viewer}
+  alias Ryker.ControlPlane.{Actions, ConsolePeople, Endpoint, LiveSocket, Projection}
+  alias Ryker.ControlPlane.{Viewer, WorkbenchLive}
   alias Ryker.Settings
 
   @endpoint Endpoint
@@ -124,18 +125,10 @@ defmodule Ryker.ControlPlane.CloudflareViewerLiveTest do
 
   # Phoenix answers the live socket before the endpoint's plugs, so the check that turns away a
   # page request at the published address without an Access token never saw the socket: a held
-  # session cookie reconnected there with no current sign-in (2026-10-04 review).
-  test "the live socket needs a current sign-in, Access's or a link's", %{key: key} do
-    socket = %Phoenix.Socket{}
-
-    at = fn host, session ->
-      %{
-        peer_data: %{address: {127, 0, 0, 1}},
-        uri: URI.parse("https://#{host}/live"),
-        session: session
-      }
-    end
-
+  # session cookie reconnected there with no current sign-in (2026-10-04 review). A page checks
+  # the sign-in as it mounts, and one whose sign-in no longer counts goes to the sign-in page.
+  # Refused at the socket instead, such a page reconnected over and over (2026-10-13).
+  test "a page mounts again only on a current sign-in, Access's or a link's", %{key: key} do
     {:ok, _snapshot} = Settings.initialize("control-plane:local")
     page = key |> signed_in("dev@tenant.example") |> get("/environments")
     session = get_session(page)
@@ -143,18 +136,25 @@ defmodule Ryker.ControlPlane.CloudflareViewerLiveTest do
     ended = %{"console_session" => String.duplicate("a", 43)}
     linked = %{"console_session" => session_token()}
 
-    assert {:ok, _socket} = LiveSocket.connect(%{}, socket, at.(@published, session))
-    assert {:ok, _socket} = LiveSocket.connect(%{}, socket, at.(@published, linked))
-    assert {:ok, _socket} = LiveSocket.connect(%{}, socket, at.("localhost", linked))
+    for page <- [session, linked, %{}, expired, ended] do
+      assert {:ok, _socket} =
+               LiveSocket.connect(%{}, %Phoenix.Socket{}, %{
+                 peer_data: %{address: {127, 0, 0, 1}},
+                 uri: URI.parse("https://#{@published}/live"),
+                 session: page
+               })
+    end
 
-    for refused <- [%{}, expired, ended],
-        do: assert(LiveSocket.connect(%{}, socket, at.(@published, refused)) == :error)
+    assert %{via: :cloudflare, login: "dev@tenant.example"} = Viewer.from_session(session)
+    assert %{via: :slack_operator} = Viewer.from_session(linked)
 
-    # The local console's socket needs a sign-in too.
-    assert LiveSocket.connect(%{}, socket, at.("localhost", %{})) == :error
+    for refused <- [%{}, expired, ended] do
+      assert {:ok, %{redirected: {:redirect, %{to: "/sign-in"}}}} =
+               WorkbenchLive.mount(%{}, refused, %Phoenix.LiveView.Socket{endpoint: Endpoint})
+    end
   end
 
-  # The socket checks the sign-in when it connects, so a page left open went on
+  # A page checks the sign-in as it mounts, so a page left open went on
   # taking actions after the sign-in ended (IL-15, 2026-10-07).
   test "an open page reloads through Access when its sign-in ends", %{key: key} do
     {:ok, _snapshot} = Settings.initialize("control-plane:local")
