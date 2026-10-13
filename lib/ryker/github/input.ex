@@ -11,7 +11,6 @@ defmodule Ryker.GitHub.Input do
   alias Ryker.Ingress
   alias Ryker.Maps
   alias Ryker.Reference
-  alias Ryker.UTCDateTime
 
   @event_fields [:delivery_ref, :event_name, :event_ref, :payload]
   # The input's content holds 48 KiB; the delivery reference, up to 1 KiB, and
@@ -390,11 +389,13 @@ defmodule Ryker.GitHub.Input do
   # the 28th).
   @occurred_at_fields ~w(updated_at submitted_at completed_at published_at created_at timestamp started_at)
 
+  # A push's head commit is dated in its committer's own offset, where GitHub's other times are
+  # UTC: read as UTC or nothing, 880 pushes from people outside UTC were refused (2026-10-13).
   defp occurred_at(item) do
     value = Enum.find_value(@occurred_at_fields, &item[&1])
 
-    case UTCDateTime.parse(value || "") do
-      {:ok, datetime} -> {:ok, datetime}
+    case DateTime.from_iso8601(value || "") do
+      {:ok, datetime, _offset} -> {:ok, datetime}
       _invalid -> {:error, {:invalid_github_input, :occurred_at}}
     end
   end

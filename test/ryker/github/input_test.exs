@@ -205,6 +205,28 @@ defmodule Ryker.GitHub.InputTest do
     assert input.source_item_ref == "github:check_run:109892829204"
   end
 
+  # The tenant install refused 880 of its 1,590 pushes as invalid_event from 2026-10-03 on: a
+  # push's head commit is dated in its committer's own offset, and every time an item carries
+  # was read as UTC or nothing. A push from anyone outside UTC was dropped.
+  test "a push dated in its committer's own offset is dated at the same instant in UTC" do
+    payload = %{
+      "after" => "5f3c0d2b9a8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a",
+      "head_commit" => %{
+        "id" => "5f3c0d2b9a8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a",
+        "message" => "Raise the cache limit",
+        "timestamp" => "2026-10-13T14:48:22-07:00"
+      },
+      "installation" => %{"id" => 41},
+      "ref" => "refs/heads/main",
+      "repository" => %{"full_name" => "octo/example", "id" => 99, "pushed_at" => 1_791_928_102},
+      "sender" => %{"id" => 7, "login" => "octocat", "type" => "User"}
+    }
+
+    assert {:ok, input} = normalize("push", payload)
+    assert DateTime.compare(input.occurred_at, ~U[2026-10-13 21:48:22Z]) == :eq
+    assert input.occurred_at.time_zone == "Etc/UTC"
+  end
+
   test "the adapter rejects unsupported actions and payload-selected installation or repository" do
     assert normalize("push", issue_comment_payload()) == {:error, {:invalid_github_input, :event}}
 
