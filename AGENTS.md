@@ -56,8 +56,8 @@ Use the narrowest validation that proves the current edit while iterating:
 4. `make check` is the full gate: dev-check plus the deterministic host replay in an
    isolated database, the watchdog, deploy, live-acceptance and runtime-release script
    self-tests, the thirty-day retention simulation, slow capacity tests, the eval-trend
-   self-test, and the advisory and retirement audits of the locked Hex packages. CI runs it on
-   pull requests and on every push to `main`.
+   self-test, and the advisory and retirement audits of the locked Hex packages. CI runs its
+   parts as parallel jobs on pull requests and on every push to `main`.
    Run it locally before a tagged release or when a change touches retention custody or the
    release scripts, not before every deploy.
 5. Run live Slack, Coop, or Emisar acceptance only when the changed integration boundary

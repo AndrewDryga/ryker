@@ -45,7 +45,8 @@ it, requires safe paths, the executable, every migration in the tree and the lic
 `make release-dist` then lays the archive and its checksum manifest out under `dist/` the way
 CI publishes them. Production deployment is the Docker Compose project described in
 [`operations.md`](operations.md); durable recovery is in PostgreSQL, not in canary/promote
-metadata. CI still runs the full gate independently on a clean runner.
+metadata. CI runs the full gate's parts as parallel jobs on a clean runner for every push to
+`main`.
 
 ## Repository setup
 
@@ -53,7 +54,8 @@ Before the first release:
 
 1. create `AndrewDryga/ryker` and configure this checkout's `origin`;
 2. enable GitHub private vulnerability reporting;
-3. protect `main`, require the CI `check` and `release-snapshot` jobs, require current branches,
+3. protect `main`, require every CI job (`static`, `tests`, `eval-replay`, `retention` and
+   `release-snapshot`), require current branches,
    and block force pushes and branch deletion;
 4. add a tag ruleset for `v*` that restricts tag creation and deletion to release maintainers;
 5. create a protected `release` environment with required reviewers and no deployment branches

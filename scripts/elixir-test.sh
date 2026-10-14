@@ -100,7 +100,9 @@ fi
 # that run beside it, each with a database of its own. Mix's own --partitions
 # put async files in every VM: four of them ran ~96 async tests at once and
 # turned a loaded host's local test servers into timeouts. About one serial VM
-# per three cores, so a small CI runner keeps one.
+# per three cores, so a small CI runner keeps one. RYKER_TEST_PARTITION=N runs
+# partition N alone (0 is the async files), which is how CI gives each
+# partition a runner of its own.
 test_partitions() {
   local count=${RYKER_TEST_PARTITIONS:-$(($(getconf _NPROCESSORS_ONLN) / 3))}
   local logs partition file dealt=0 status=0 red="" noisy=""
@@ -114,7 +116,7 @@ test_partitions() {
   logs=$(mktemp -d "${TMPDIR:-/tmp}/ryker-test-partitions.XXXXXX")
 
   selected() {
-    [[ -s $logs/$1.files ]]
+    [[ -s $logs/$1.files ]] && [[ -z ${RYKER_TEST_PARTITION:-} || $1 == "$RYKER_TEST_PARTITION" ]]
   }
 
   while IFS= read -r file; do

@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := dev-check
 
-.PHONY: quick retention-simulation product-e2e live-acceptance live-acceptance-wrapper-check eval-world-smoke eval-world eval-routing-replay eval-improvement-replay eval-replay eval-trend customer-check elixir-test elixir-static elixir-partitions static-check coverage elixir-release elixir-release-check release-dist control-plane-js-check shellcheck watchdog-check launch-agent-check model-download-check deploy-check backup-schedule-check keep-awake-check runtime-releases-check gate-check quick-check-check deps-audit test-db-ready dev-check check release-check clean
+.PHONY: quick retention-simulation product-e2e live-acceptance live-acceptance-wrapper-check eval-world-smoke eval-world eval-routing-replay eval-improvement-replay eval-replay eval-trend customer-check elixir-test elixir-static elixir-partitions static-check coverage elixir-release elixir-release-check release-dist control-plane-js-check shellcheck script-checks watchdog-check launch-agent-check model-download-check deploy-check backup-schedule-check keep-awake-check runtime-releases-check gate-check quick-check-check eval-trend-check deps-audit test-db-ready dev-check check release-check clean
 
 LIVE_CHANNEL ?=
 DEV_CHECK_JOBS ?= 4
@@ -194,6 +194,12 @@ gate-check:
 quick-check-check:
 	scripts/quick-check_test.sh
 
+eval-trend-check:
+	scripts/test-eval-trend.sh
+
+# Every script self-test; the full gate and CI's static job run them.
+script-checks: watchdog-check launch-agent-check model-download-check live-acceptance-wrapper-check deploy-check backup-schedule-check keep-awake-check runtime-releases-check gate-check quick-check-check eval-trend-check
+
 # Known advisories for the locked Hex packages, and packages their maintainers
 # retired. Both read the network, so the full gate runs them and dev-check
 # does not. Nothing ran either until 2026-10-08 (Emisar's gate runs both).
@@ -223,12 +229,11 @@ static-check:
 dev-check: static-check
 	+$(MAKE) --no-print-directory elixir-partitions
 
+# CI runs the same parts as jobs of their own (.github/workflows/ci.yml).
 check: test-db-ready
-	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) \
-		static-check watchdog-check launch-agent-check model-download-check live-acceptance-wrapper-check deploy-check backup-schedule-check keep-awake-check runtime-releases-check gate-check quick-check-check deps-audit
+	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) static-check script-checks deps-audit
 	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) ELIXIR_CHECK_ARGS= elixir-partitions eval-replay
 	+$(MAKE) --no-print-directory retention-simulation
-	scripts/test-eval-trend.sh
 
 release-check: check elixir-release-check
 

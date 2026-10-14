@@ -114,9 +114,16 @@ make check
 It adds the isolated host replay, the watchdog, deploy, live-acceptance and runtime-release script
 self-tests, the accelerated thirty-day retention simulation, the evaluation-trend script's
 self-test, and two audits of the locked Hex packages that read the network: known advisories
-(`mix deps.audit`) and packages their maintainers retired (`mix hex.audit`). CI runs it on pull
-requests and every push to `main`. Run it locally before a tagged release or when a
-change touches retention custody or the release scripts, not before every deploy.
+(`mix deps.audit`) and packages their maintainers retired (`mix hex.audit`). Run it locally before a
+tagged release or when a change touches retention custody or the release scripts, not before every
+deploy.
+
+CI runs the same parts as parallel jobs on pull requests and every push to `main`
+(`.github/workflows/ci.yml`): the static checks with the script self-tests and package audits, the
+suite in five jobs (`RYKER_TEST_PARTITION` 0 is the async files, 1 to 4 deal the serial files),
+the host replay, and the retention simulation, each restoring the compiled dependencies and build
+the newest push to `main` saved. `test/ryker/ci_workflow_test.exs` fails when a part of `make check`
+has no job.
 
 ## Model evaluation
 

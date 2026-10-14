@@ -12,12 +12,16 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# The full gate (`make check`) as jobs of their own. As one job it took a median
+# 38.5 minutes in October 2026: one serial ExUnit VM on the runner's four cores for
+# 15 to 20 minutes, then the retention simulation alone for 13 to 18, with nothing
+# cached, and 9 of 12 failures were database checkouts timing out in that one
+# overloaded VM. test/ryker/release_test.exs holds this list to `make check`.
 jobs:
-  check:
+  static:
+    name: static checks and script self-tests
     runs-on: ubuntu-latest
-    # The full gate carries the whole suite plus the nine-minute retention
-    # simulation; on a shared runner that does not fit in fifteen minutes.
-    timeout-minutes: 45
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -27,8 +31,121 @@ jobs:
         with:
           version-file: .tool-versions
           version-type: strict
-      - name: full gate
-        run: make check
+      - name: restore the compiled dependencies and build
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            deps
+            _build/test
+            .elixir
+          key: mix-test-${{ runner.os }}-${{ hashFiles('.tool-versions', 'mix.lock') }}-${{ github.sha }}
+          restore-keys: |
+            mix-test-${{ runner.os }}-${{ hashFiles('.tool-versions', 'mix.lock') }}-
+            mix-test-${{ runner.os }}-
+      - name: format, compile warnings, cycles, Credo, Sobelow, JavaScript and ShellCheck
+        run: make static-check
+      # The test jobs compile from this; main's newest build is the one each run starts from.
+      - name: save the compiled dependencies and build
+        if: github.event_name == 'push'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            deps
+            _build/test
+            .elixir
+          key: mix-test-${{ runner.os }}-${{ hashFiles('.tool-versions', 'mix.lock') }}-${{ github.sha }}
+      - name: script self-tests and the locked packages' audits
+        run: make -j4 script-checks deps-audit
+
+  tests:
+    name: tests ${{ matrix.partition == 0 && '(async files)' || format('(serial files {0} of 4)', matrix.partition) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        partition: [0, 1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Set up Erlang and Elixir
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          version-file: .tool-versions
+          version-type: strict
+      - name: restore the compiled dependencies and build
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            deps
+            _build/test
+            .elixir
+          key: mix-test-${{ runner.os }}-${{ hashFiles('.tool-versions', 'mix.lock') }}-${{ github.sha }}
+          restore-keys: |
+            mix-test-${{ runner.os }}-${{ hashFiles('.tool-versions', 'mix.lock') }}-
+            mix-test-${{ runner.os }}-
+      # Partition 0 is the async files; the serial files are dealt across 1 to 4.
+      - name: the suite's partition ${{ matrix.partition }}
+        run: make elixir-partitions ELIXIR_CHECK_ARGS=
+        env:
+          RYKER_TEST_PARTITIONS: 4
+          RYKER_TEST_PARTITION: ${{ matrix.partition }}
+
+  eval-replay:
+    name: host replay
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Set up Erlang and Elixir
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          version-file: .tool-versions
+          version-type: strict
+      - name: restore the compiled dependencies and build
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            deps
+            _build/test
+            .elixir
+          key: mix-test-${{ runner.os }}-${{ hashFiles('.tool-versions', 'mix.lock') }}-${{ github.sha }}
+          restore-keys: |
+            mix-test-${{ runner.os }}-${{ hashFiles('.tool-versions', 'mix.lock') }}-
+            mix-test-${{ runner.os }}-
+      - name: the scenario bundles' deterministic host replay
+        run: make eval-replay
+
+  retention:
+    name: thirty-day retention simulation
+    runs-on: ubuntu-latest
+    # A green run took 717 s on a GitHub runner, and one slow runner took longer.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Set up Erlang and Elixir
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          version-file: .tool-versions
+          version-type: strict
+      - name: restore the compiled dependencies and build
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            deps
+            _build/test
+            .elixir
+          key: mix-test-${{ runner.os }}-${{ hashFiles('.tool-versions', 'mix.lock') }}-${{ github.sha }}
+          restore-keys: |
+            mix-test-${{ runner.os }}-${{ hashFiles('.tool-versions', 'mix.lock') }}-
+            mix-test-${{ runner.os }}-
+      - name: thirty accelerated days of workspace cleanup
+        run: make retention-simulation
 
   release-snapshot:
     runs-on: ubuntu-latest
