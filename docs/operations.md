@@ -372,6 +372,18 @@ spaces, such as `RYKER_WATCH_REMOTE=https://ryker.example.com`. Only `/readyz` i
 address, so the watchdog asks that, keeps strikes and repeats for each install on its own, and
 says when one is ready again.
 
+A Mac that sleeps pauses Ryker until someone wakes it. `scripts/install-keep-awake.sh` installs a
+launch agent that runs `caffeinate -i -s` from login on, so the Mac doesn't sleep when idle or on
+power, after a restart too, and a laptop rides out a power cut on its battery. A laptop still sleeps
+when its lid is closed without an external display.
+
+After a restart, Ryker comes back once someone logs in: Docker starts at login if it's set to (for
+colima, `brew services start colima`), and Compose restarts Ryker's containers. With FileVault on, a
+Mac waits at its unlock screen after a restart until someone types the password, and macOS doesn't
+log in by itself. Restart such a host with `sudo fdesetup authrestart`, which unlocks the disk once
+on the way back up. A crash, or a power cut longer than the battery lasts, still needs someone at
+the Mac.
+
 ## Local routing model
 
 Ryker can try a small model you run yourself on routing, beside the provider model, to see
