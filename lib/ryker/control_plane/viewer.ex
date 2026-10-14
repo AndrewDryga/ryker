@@ -39,6 +39,9 @@ defmodule Ryker.ControlPlane.Viewer do
         }
 
   @session_key "console_session"
+  # The Unix second a sign-in's cookie was last written.
+  @written_key "console_session_written"
+  @rewrite_seconds 3_600
   @resolved :ryker_viewer
 
   @impl true
@@ -51,16 +54,40 @@ defmodule Ryker.ControlPlane.Viewer do
   def call(conn, _options) do
     conn = fetch_session(conn)
 
-    case {stored(published(conn)), get_session(conn, "viewer")} do
-      {same, same} -> conn
-      {nil, _previous} -> delete_session(conn, "viewer")
-      {viewer, _previous} -> put_session(conn, "viewer", viewer)
-    end
+    conn =
+      case {stored(published(conn)), get_session(conn, "viewer")} do
+        {same, same} -> conn
+        {nil, _previous} -> delete_session(conn, "viewer")
+        {viewer, _previous} -> put_session(conn, "viewer", viewer)
+      end
+
+    if signed_in_by_link?(from_conn(conn, Endpoint.config(:control_plane))),
+      do: keep_signed_in(conn),
+      else: conn
   end
 
   @doc "The session key a signed-in browser's token is kept under."
   @spec session_key() :: String.t()
   def session_key, do: @session_key
+
+  @doc """
+  The request, its sign-in cookie written again when that was more than an hour ago. The cookie
+  lasts 30 days from when it is written (`Ryker.ControlPlane.Endpoint`), as a link's session
+  does from its last use, so a browser that uses the console stays signed in, and an ordinary
+  page load sends no new cookie.
+  """
+  @spec keep_signed_in(Plug.Conn.t()) :: Plug.Conn.t()
+  def keep_signed_in(conn) do
+    now = System.os_time(:second)
+
+    case get_session(conn, @written_key) do
+      written when is_integer(written) and written <= now and written > now - @rewrite_seconds ->
+        conn
+
+      _stale ->
+        put_session(conn, @written_key, now)
+    end
+  end
 
   @doc """
   Who a request is: the person a service that published the console named on it, or the

@@ -40,6 +40,10 @@ defmodule Ryker.ConsoleAccess do
           name: String.t()
         }
 
+  @doc "How long a session lasts from its last use, in seconds: 30 days."
+  @spec session_seconds() :: pos_integer()
+  def session_seconds, do: @session_seconds
+
   @doc "A link that signs a Slack operator in once in the next 15 minutes."
   @spec slack_link(String.t(), String.t(), String.t()) :: {:ok, String.t()} | {:error, term()}
   def slack_link(workspace_ref, user_ref, name)

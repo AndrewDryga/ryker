@@ -93,6 +93,33 @@ defmodule Ryker.ControlPlane.SignInTest do
     assert opened.status == 200
   end
 
+  # Andrew, 2026-10-14: "for sign in via slack i don't want to be signed out more than once a
+  # month". A sign-in's session lasted 30 days from its last use, but the cookie holding it had
+  # no lifetime, so a browser dropped it whenever it quit, and Slack's browser on a phone
+  # whenever it closed: a Slack sign-in lasted only as long as that browser stayed open.
+  test "a browser a Slack link signed in stays signed in for 30 days from its last page" do
+    {:ok, url} = ConsoleAccess.slack_link("T123", "U456", "Dana")
+    path = URI.parse(url).path
+    preview = get(local(), path)
+    signed = press(preview, path, %{"_csrf_token" => csrf_token(preview)})
+    assert cookie_lifetime(signed) == 30 * 86_400
+
+    first = signed |> recycle() |> Map.put(:host, "localhost") |> get("/activity")
+    ordinary = first |> recycle() |> Map.put(:host, "localhost") |> get("/activity")
+    assert ordinary.status == 200
+    assert cookie_lifetime(ordinary) == nil
+
+    later =
+      ordinary
+      |> recycle()
+      |> written_ago(3_601)
+      |> Map.put(:host, "localhost")
+      |> get("/activity")
+
+    assert later.status == 200
+    assert cookie_lifetime(later) == 30 * 86_400
+  end
+
   test "a link that was used, expired or never was says where a new one comes from" do
     {:ok, url} = ConsoleAccess.slack_link("T123", "U456", "Dana")
     path = URI.parse(url).path
@@ -195,6 +222,32 @@ defmodule Ryker.ControlPlane.SignInTest do
     |> put_private(:plug_skip_csrf_protection, false)
     |> put_req_header("content-type", "application/x-www-form-urlencoded")
     |> post(path, URI.encode_query(form))
+  end
+
+  # The browser as it is `seconds` after its cookie was written, the time `Viewer` keeps in the
+  # session. Setting a test session's value marks the session changed, which writes the cookie
+  # whatever the console does, so the mark comes off again.
+  defp written_ago(conn, seconds) do
+    written = System.os_time(:second) - seconds
+    conn = init_test_session(conn, %{"console_session_written" => written})
+    %{conn | private: Map.delete(conn.private, :plug_session_info)}
+  end
+
+  # How long the browser keeps the console's cookie this response sets, or nil for none set.
+  defp cookie_lifetime(conn) do
+    conn
+    |> get_resp_header("set-cookie")
+    |> Enum.find(&String.starts_with?(&1, "_ryker_control="))
+    |> lifetime()
+  end
+
+  defp lifetime(nil), do: nil
+
+  defp lifetime(cookie) do
+    case Regex.run(~r/max-age=(\d+)/, cookie) do
+      [_cookie, seconds] -> String.to_integer(seconds)
+      nil -> :until_the_browser_quits
+    end
   end
 
   defp local, do: Map.put(build_conn(), :host, "localhost")

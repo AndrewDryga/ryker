@@ -42,6 +42,7 @@ defmodule Ryker.ControlPlane.SignIn do
         |> clear_session()
         |> put_session(Viewer.session_key(), session_token)
         |> put_session("live_socket_id", "console_session:" <> session.id)
+        |> Viewer.keep_signed_in()
         |> go(if SignInGate.return_path?(destination), do: destination, else: "/")
 
       {:error, reason} ->

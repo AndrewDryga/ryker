@@ -298,8 +298,10 @@ tokens.
 Settings › Access lists the browsers signed in and signs any of them out. Ryker has no roles:
 everyone signed in can see and change everything in this install.
 
-The browser's cookie is signed with a key derived from `RYKER_CREDENTIAL_KEY`, so signing in lasts
-through restarts, deploys and upgrades. A new credential key signs every browser out.
+The browser keeps its cookie for 30 days, and Ryker writes it again at most once an hour while the
+console is in use, so quitting the browser doesn't sign anyone out. The cookie is signed with a key
+derived from `RYKER_CREDENTIAL_KEY`, so signing in lasts through restarts, deploys and upgrades. A
+new credential key signs every browser out.
 
 A service that publishes the console can name a person too, and then nobody needs a link: a token
 Cloudflare Access signed, at the published address, or Tailscale Serve's `Tailscale-User-Login`,
