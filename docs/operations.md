@@ -386,6 +386,13 @@ says when one is ready again. It also reads the version that answer names: once 
 install runs a commit that this checkout's `main` has left behind, and the oldest commit it lacks
 is older than a day (`WATCHDOG_REMOTE_LAG_HOURS`), it says how many commits behind it is.
 
+`scripts/doctor.sh` checks this checkout and host for the faults that each once cost an afternoon:
+Docker not answering, the test PostgreSQL not as `compose.test.yml` says, test databases and gate
+locks that stopped runs left, a stopped run's work in the shared test database, `deps` or `.elixir`
+turned into links, worktrees that no longer exist, a disk under 50 GB free, a missing watchdog, and
+a worker behind the Coop the Dockerfile pins. `--fix` repairs what is safe without a person; it never
+restarts Docker, the install or a worker, nor touches the live database.
+
 `scripts/status.sh` answers what runs where in one screen, read-only: `main` and whether it is
 pushed, CI's run on it, this checkout's install (the version it serves against `main`, the version
 `compose.env` pins, the bundled worker, the Docker disk, the newest backup and whether daily backups
