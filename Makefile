@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := dev-check
 
-.PHONY: retention-simulation product-e2e live-acceptance live-acceptance-wrapper-check eval-world-smoke eval-world eval-routing-replay eval-improvement-replay eval-replay eval-trend customer-check elixir-test elixir-check coverage elixir-release elixir-release-check release-dist control-plane-js-check shellcheck watchdog-check launch-agent-check model-download-check deploy-check backup-schedule-check keep-awake-check runtime-releases-check deps-audit test-db-ready dev-check check release-check clean
+.PHONY: quick retention-simulation product-e2e live-acceptance live-acceptance-wrapper-check eval-world-smoke eval-world eval-routing-replay eval-improvement-replay eval-replay eval-trend customer-check elixir-test elixir-check coverage elixir-release elixir-release-check release-dist control-plane-js-check shellcheck watchdog-check launch-agent-check model-download-check deploy-check backup-schedule-check keep-awake-check runtime-releases-check quick-check-check deps-audit test-db-ready dev-check check release-check clean
 
 LIVE_CHANNEL ?=
 DEV_CHECK_JOBS ?= 4
@@ -25,6 +25,11 @@ $(EVAL_HISTORY):
 
 elixir-test:
 	scripts/elixir-test.sh $(ELIXIR_TEST)
+
+# Seconds, on the files changed since HEAD; the pre-commit hook runs it on the
+# files a commit takes. scripts/quick-check.sh says what it covers.
+quick:
+	scripts/quick-check.sh
 
 # Thirty accelerated days of workspace cleanup through real custody; minutes, not
 # hours, and deliberately outside the fast gate. Evidence lands in artifacts/.
@@ -148,9 +153,10 @@ eval-trend:
 control-plane-js-check:
 	node --test test/js/*_test.mjs
 
-# Every tracked shell file, the container entrypoints and install.sh included.
+# Every tracked shell file, the container entrypoints, install.sh and the Git
+# hooks included.
 shellcheck:
-	shellcheck $(shell git ls-files '*.sh')
+	shellcheck $(shell git ls-files '*.sh' '.githooks/*')
 
 # The script self-tests: each breaks its subject on purpose, against a fake
 # control plane and a fake Docker, and watches it complain.
@@ -174,6 +180,9 @@ keep-awake-check:
 
 runtime-releases-check:
 	scripts/runtime-releases_test.sh
+
+quick-check-check:
+	scripts/quick-check_test.sh
 
 # Known advisories for the locked Hex packages, and packages their maintainers
 # retired. Both read the network, so the full gate runs them and dev-check
@@ -201,7 +210,7 @@ dev-check:
 
 check: test-db-ready
 	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) \
-		elixir-check control-plane-js-check shellcheck eval-replay watchdog-check launch-agent-check model-download-check live-acceptance-wrapper-check deploy-check backup-schedule-check keep-awake-check runtime-releases-check deps-audit
+		elixir-check control-plane-js-check shellcheck eval-replay watchdog-check launch-agent-check model-download-check live-acceptance-wrapper-check deploy-check backup-schedule-check keep-awake-check runtime-releases-check quick-check-check deps-audit
 	+$(MAKE) --no-print-directory retention-simulation
 	scripts/test-eval-trend.sh
 

@@ -39,6 +39,11 @@ Use the narrowest validation that proves the current edit while iterating:
    `scripts/elixir-test.sh test/ryker/work/executor_test.exs:120`. It runs against the
    shared test database and finishes in about a second. `scripts/elixir-test.sh --stale` runs
    only the test files that reference what changed since its previous `--stale` run.
+   `make quick` checks everything changed since HEAD in about ten seconds: format and Credo
+   on the changed files, compile warnings, the compile-time cycle check, ShellCheck and the
+   self-test of each changed script, the three source audits and each changed file's owning
+   test. The pre-commit hook runs it on what the commit takes; `git commit --no-verify`
+   skips it.
 2. Run `make dev-check` once before committing. It is the deterministic repository gate:
    formatting, warnings-as-errors, no compile-time dependency cycle, Credo, Sobelow, ExUnit
    except slow capacity tests in parallel partitions with a fresh database each,

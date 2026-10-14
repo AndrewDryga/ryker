@@ -1,0 +1,10 @@
+#!/bin/sh
+# The quick check on the files this commit takes (scripts/quick-check.sh): a
+# format slip or a public function nothing calls fails here in seconds instead
+# of minutes into the gate. `git commit --no-verify` skips it.
+build=${MIX_BUILD_ROOT:-_build}/test/lib/ryker
+if [ ! -d "$build" ]; then
+  echo "pre-commit: no test build in this checkout, so no quick check; run scripts/quick-check.sh once to build one" >&2
+  exit 0
+fi
+exec scripts/quick-check.sh --staged

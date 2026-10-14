@@ -37,6 +37,15 @@ never reaches it. Credo refuses `Application.put_env` in lib, evals and test: th
 environment is one table for the whole VM, and a write races every async test reading it. Only
 the runtime's own `Ryker.Config.publish/2` writes it, when settings are applied.
 
+`make quick` (`scripts/quick-check.sh`) checks the files changed since HEAD, untracked ones
+included, in about ten seconds: one compile with warnings as errors, then side by side format and
+Credo on the changed Elixir files, the compile-time cycle check, ShellCheck and the self-test
+(`scripts/<name>_test.sh`) of each changed script, the browser tests when a script they cover
+changed, and one ExUnit run of the three source audits (public functions, the rename, Slack
+identifiers) plus each changed file's owning test: `test/<path>_test.exs`, else the nearest
+enclosing module's. The pre-commit hook in `.githooks/` runs `scripts/quick-check.sh --staged` on
+what the commit takes; `git commit --no-verify` skips it.
+
 ## Deterministic repository gates
 
 Before committing, run:
