@@ -94,6 +94,34 @@ wait_ready() {
   done
 }
 
+# The image the Ryker container runs, read before an upgrade replaces it.
+running_image() {
+  container=$(compose ps --all --quiet ryker 2>/dev/null | head -n 1)
+  [ -n "$container" ] || return 0
+  docker inspect --format '{{.Config.Image}}' "$container" 2>/dev/null || true
+}
+
+# Every upgrade builds a Ryker image of about 650 MB, and nothing removed one:
+# an installation upgraded for two weeks held 50 old Ryker and worker images,
+# about 16 GB (2026-10-14). Once an upgrade's release is ready, the
+# installation's older source builds go. The release it replaced stays, since
+# a restore of the backup taken before the upgrade runs it, and a tagged
+# release or a hand-made tag is never touched. Nothing goes when the replaced
+# release is unknown.
+remove_older_releases() {
+  current=$1
+  replaced=$2
+  [ -n "$replaced" ] || return 0
+  docker image ls --format '{{.Repository}}:{{.Tag}}' ryker 2>/dev/null |
+    grep -E '^ryker:0\.1\.0-source\.g[0-9a-f]{12}(\.dirty)?$' |
+    while IFS= read -r tag; do
+      if [ "$tag" != "$current" ] && [ "$tag" != "$replaced" ] &&
+         docker image rm "$tag" >/dev/null 2>&1; then
+        echo "Removed the older release image $tag."
+      fi
+    done
+}
+
 # The project's name is fixed in compose.yml, so an install or restore from a
 # second checkout acted on this host's live project: new keys and a new
 # database password for containers that could then not read their own data,
@@ -413,6 +441,7 @@ case "$command" in
     require_install
     require_clean_checkout upgrade
     lock_lifecycle upgrade
+    replaced=$(running_image)
     compose pull --ignore-buildable
     if supplied_worker_image; then
       compose build --pull ryker
@@ -430,6 +459,7 @@ case "$command" in
     compose up --detach --wait ryker ryker-coop
     start_models --build
     wait_ready
+    remove_older_releases "$(compose_env_value RYKER_IMAGE "$env_file")" "$replaced"
     ;;
   sign-in)
     [ "$#" -eq 1 ] || usage

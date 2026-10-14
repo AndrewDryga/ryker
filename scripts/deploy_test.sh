@@ -181,6 +181,8 @@ case " $* " in
   *" stop ryker "*) rm -f "$fake/controller.running" ;;
   *" start ryker "*) touch "$fake/controller.running" ;;
   *" logs "*) echo "fake container log line" ;;
+  *" ps --all --quiet ryker "*) [[ -f $fake/running.image ]] && echo fake-ryker-container ;;
+  *" inspect --format {{.Config.Image}} fake-ryker-container "*) cat "$fake/running.image" ;;
   *" ps --status running --services "*) [[ -f $fake/controller.stopped ]] || echo "ryker" ;;
   *" exec -T database psql "*"schema_migrations"*) cat "$fake/schema" 2>/dev/null || echo 20261005000000 ;;
   *" exec -T database psql "*) echo 1 ;;
@@ -802,6 +804,44 @@ touch "$fake/migrate.fail"
 out=$(cd "$repo" && sh scripts/compose.sh upgrade 2>&1; echo "exit=$?")
 check "an upgrade whose migration fails says to restore" "The database did not migrate" "$out"
 refute "an upgrade whose migration fails starts nothing new" "up --detach --wait" "$(cat "$fake/calls")"
+
+# compose.sh upgrade kept every image it built: an installation upgraded for two weeks held 50
+# old Ryker and worker images, about 16 GB (2026-10-14). An upgrade that started its release keeps
+# it and the release it replaced, which a restore of the backup taken before it needs, and removes
+# the installation's older source builds. A tagged release or a hand-made tag is never touched.
+build() { printf '0.1.0-source.g%s%s' "$(printf "$1%.0s" $(seq 1 12))" "${2:-}"; }
+seed_images() {
+  seed
+  sed -i.bak "s/^RYKER_VERSION=.*/RYKER_VERSION=$(build c)/; s/^RYKER_IMAGE=.*/RYKER_IMAGE=ryker:$(build c)/" "$state/compose.env"
+  build c >"$fake/version"
+  printf 'ryker:%s\n' "$(build c)" "$(build b)" "$(build a)" "$(build d .dirty)" 1.0.0 production-audit >"$fake/images"
+}
+upgrade_with_images() {
+  out=$(cd "$repo" && sh scripts/compose.sh upgrade 2>&1; echo "exit=$?")
+  calls=$(cat "$fake/calls")
+}
+printf 'ryker:%s\n' "$(build b)" >"$fake/running.image"
+seed_images
+upgrade_with_images
+check "an upgrade that removes older images succeeds" "exit=0" "$out"
+check "an upgrade removes an older source build" "image rm ryker:$(build a)" "$calls"
+check "an upgrade removes an older build of a dirty checkout" "image rm ryker:$(build d .dirty)" "$calls"
+refute "an upgrade keeps the release it started" "image rm ryker:$(build c)" "$calls"
+refute "an upgrade keeps the release it replaced" "image rm ryker:$(build b)" "$calls"
+refute "an upgrade never removes a tagged release" "image rm ryker:1.0.0" "$calls"
+refute "an upgrade never removes a hand-made tag" "image rm ryker:production-audit" "$calls"
+rm "$fake/running.image"
+seed_images
+upgrade_with_images
+check "an upgrade that cannot tell which release it replaced succeeds" "exit=0" "$out"
+refute "an upgrade that cannot tell which release it replaced removes nothing" "image rm" "$calls"
+printf 'ryker:%s\n' "$(build b)" >"$fake/running.image"
+seed_images
+printf '503' >"$fake/readyz.code"
+upgrade_with_images
+check "an upgrade whose release never becomes ready fails" "exit=1" "$out"
+refute "an upgrade whose release never becomes ready removes nothing" "image rm" "$calls"
+rm -f "$fake/running.image" "$fake/images"
 
 # ---------------------------------------------------------------------------
 # One lifecycle command at a time (2026-10-04 review): two deploys, or a backup

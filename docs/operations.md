@@ -154,6 +154,10 @@ worker's image from the Dockerfile's Coop pin only when `RYKER_COOP_IMAGE` is un
 there is a supplied build, and its Coop may keep the worker's state in a schema the pinned one
 refuses. Enrolled remote workers are not restarted or modified.
 
+Once the new release is ready, upgrade removes this installation's older source builds
+(`ryker:0.1.0-source.*`). It keeps the release it started and the one it replaced, which a restore
+of the backup taken before the upgrade runs, and it never removes a tagged release or another tag.
+
 A supplied worker image is built and swapped by hand, and nothing removes the ones before it: 18
 of them held 8.5 GB here on 2026-10-04. After a swap, keep the running image and the one before
 it, which is the way back, and remove the rest (`docker image ls ryker-coop` lists them,
