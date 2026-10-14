@@ -70,17 +70,16 @@ defmodule Ryker.CoopFleet.JobAuthority do
 
   # A session's job is pinned once, and a replacement copies its predecessor's,
   # so each companion repository stayed at the commit its default branch had
-  # when the task began. The worker proves every source it stages against its
-  # branch as it is now and refuses one that moved (Coop's
-  # TestSourceStagingRefusesChangedOrUnprovenFrozenObjects), unless it still
-  # holds the copy it staged before: a task woken the next day by review
-  # feedback on its pull request failed eight times on companions that had
-  # simply advanced (2026-09-28). Companions are read-only context, so before a
-  # session is created each is resolved again and a changed one is pinned anew.
-  # So is the repository of a conversation, a session that reads its default
-  # branch outside a task's workspace: nothing restores its old workspace, and
-  # once the worker's copies were removed to free its disk, a conversation
-  # picked up again failed every create the moment its branch moved
+  # when the task began. Until Coop 11.2.0-4 the worker refused a frozen source
+  # whose branch had moved since, unless it still held its copy: a task woken
+  # the next day by review feedback on its pull request failed eight times on
+  # companions that had simply advanced (2026-09-28). The worker now takes a
+  # commit still in its branch's history, and refuses only one a force push
+  # rewrote away. Companions are read-only context, so before a session is
+  # created each is resolved again and a changed one is pinned anew. So is the
+  # repository of a conversation, a session that reads its default branch
+  # outside a task's workspace: nothing restores its old workspace, so a
+  # conversation picked up again works from the code as it is now
   # (2026-10-14). A task's own source stays as it began; its checkpoint holds
   # the tree it was taken from.
   defp refresh_sources(
