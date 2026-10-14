@@ -37,6 +37,12 @@ defmodule Ryker.Work.ReadySessions do
   # a pin nobody uses is started again.
   @maximum_age_seconds 60 * 60
 
+  # A pin's next session starts this long before its current one reaches the
+  # maximum age, and the current one serves until the next is ready. Coop
+  # takes about five minutes to create one on the tenant install, and retiring
+  # first left each pin with none for that long every hour (2026-10-14).
+  @renewal_seconds 10 * 60
+
   # The pins worth keeping are the ones conversations used in the last week. A day was too short
   # for an install people use now and then: the first conversation after a quiet day found
   # nothing ready and waited minutes for its first answer (2026-10-13).
@@ -156,8 +162,8 @@ defmodule Ryker.Work.ReadySessions do
   end
 
   @doc """
-  Reserves a session to start for `pin` unless one is already starting or
-  ready for it. The pool is the only writer of these rows and runs one pass
+  Reserves a session to start for `pin` unless one is already starting for
+  it, or is ready and not yet due for renewal. The pool is the only writer of these rows and runs one pass
   at a time, so the count and the insert need no lock of their own; were two
   pools ever to run at once, the next pass retires what they started beyond
   one a pin.
@@ -190,7 +196,7 @@ defmodule Ryker.Work.ReadySessions do
   end
 
   defp kept?(pin) do
-    cutoff = DateTime.add(Repo.now!(), -@maximum_age_seconds, :second)
+    cutoff = DateTime.add(Repo.now!(), @renewal_seconds - @maximum_age_seconds, :second)
 
     [:starting, :ready]
     |> Work.Session.Query.work_ready()

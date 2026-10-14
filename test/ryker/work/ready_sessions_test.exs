@@ -180,6 +180,29 @@ defmodule Ryker.Work.ReadySessionsTest do
   # Nothing ends an open Coop session nobody prompts: a session kept ready
   # past its age, or one the setting no longer keeps, must be closed and
   # removed on its worker, or each would hold a workspace there for good.
+  # The tenant install, 2026-10-14: Coop takes about five minutes to create a Work session there.
+  # The pool retired a pin's session at its hour and only then started the next, so each pin had
+  # none for five minutes of every hour, and a first answer then waited for a whole create.
+  test "a pin's next session starts before the hour, and the old one serves until then" do
+    {:ok, fake} = FakeAPI.start_link([answer()], create_finishes_later: true)
+    assert {:ok, %{started: 0}} = ReadyPool.keep(pool(fake, [pin(@digest)]))
+    FakeAPI.finish_creates(fake)
+    assert {:ok, %{opened: 1}} = ReadyPool.keep(pool(fake, [pin(@digest)]))
+    assert [old] = ready_sessions()
+
+    age!(old, 55 * 60)
+    assert {:ok, %{retired: 0}} = ReadyPool.keep(pool(fake, [pin(@digest)]))
+    assert [%Session{id: next_id}] = starting_sessions()
+    assert next_id != old.id
+
+    assert start_conversation!("while-the-next-starts", @digest).session.id == old.id
+
+    FakeAPI.finish_creates(fake)
+    assert {:ok, %{opened: 1, retired: 0}} = ReadyPool.keep(pool(fake, [pin(@digest)]))
+    assert [%Session{id: ^next_id}] = ready_sessions()
+    assert FakeAPI.state(fake).create_count == 2
+  end
+
   test "cleanup closes a session kept ready once it is past its age" do
     {:ok, fake} = FakeAPI.start_link([answer()])
     assert {:ok, %{started: 1}} = ReadyPool.keep(pool(fake, [pin(@digest)]))
@@ -355,6 +378,13 @@ defmodule Ryker.Work.ReadySessionsTest do
         order_by: [asc: session.inserted_at, asc: session.id]
       )
     )
+  end
+
+  defp age!(%Session{id: id}, seconds) do
+    {1, nil} =
+      Repo.update_all(from(session in Session, where: session.id == ^id),
+        set: [inserted_at: DateTime.add(Repo.now!(), -seconds, :second)]
+      )
   end
 
   defp age_past_maximum!(%Session{id: id}) do

@@ -9,6 +9,8 @@ defmodule Ryker.Work.ReadyPool do
   one (another pin, past their age, or a second for the same pin), opens any
   whose create Coop finished after its pass stopped waiting, settles any a
   stopped pass left starting, and starts one for each kept pin that has none.
+  A pin's next session starts ten minutes before its current one is past its
+  age, and the current one serves until the next is ready.
   Cleanup closes what the pass retires. The pool never hands a session
   out: a conversation claims one itself when its episode is pinned
   (`Ryker.Work.Custody.Sessions`), and the next pass replaces it.
