@@ -36,6 +36,11 @@ case $1 in
 esac
 FAKE
 chmod 0755 "$work/bin/launchctl"
+# Off a Mac, as in CI, there is no plutil to lint the plist; plistlib reads it below either way.
+if ! command -v plutil >/dev/null 2>&1; then
+  printf '#!/bin/sh\nexit 0\n' >"$work/bin/plutil"
+  chmod 0755 "$work/bin/plutil"
+fi
 
 install() {
   HOME="$work/home" PATH="$work/bin:$PATH" KEEP_AWAKE_TEST_STATE="$work" \
@@ -45,11 +50,16 @@ install() {
 install
 check "the install succeeds" 0 "$?"
 plist="$work/home/Library/LaunchAgents/ai.emisar.ryker.awake.plist"
-value() { /usr/bin/plutil -extract "$1" "$2" -o - "$plist" 2>/dev/null; }
+# A key of the plist as launchd reads it, as JSON.
+value() {
+  python3 -c 'import json, plistlib, sys
+with open(sys.argv[1], "rb") as handle:
+    print(json.dumps(plistlib.load(handle)[sys.argv[2]]))' "$plist" "$1" 2>/dev/null
+}
 check "the agent holds off idle sleep, and any sleep on power" \
-  '["/usr/bin/caffeinate","-i","-s"]' "$(value ProgramArguments json | sed 's#\\/#/#g')"
-check "the agent starts at login" true "$(value RunAtLoad raw)"
-check "the agent starts again whenever it stops" true "$(value KeepAlive raw)"
+  '["/usr/bin/caffeinate", "-i", "-s"]' "$(value ProgramArguments)"
+check "the agent starts at login" true "$(value RunAtLoad)"
+check "the agent starts again whenever it stops" true "$(value KeepAlive)"
 check "the agent is registered" "bootstrap gui/$(id -u) $plist" "$(grep bootstrap "$work/calls")"
 
 # Running the install again replaces the agent rather than failing on the one that runs.

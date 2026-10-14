@@ -40,6 +40,6 @@ cat >"$plist" <<PLIST
 </plist>
 PLIST
 
-/usr/bin/plutil -lint "$plist" >/dev/null
+plutil -lint "$plist" >/dev/null
 "$here/launch-agent.sh" load "$label" "$plist"
 echo "keep-awake: this Mac stays awake from login on, through restarts ($label)"
