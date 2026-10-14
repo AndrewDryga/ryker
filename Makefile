@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := dev-check
 
-.PHONY: quick retention-simulation product-e2e live-acceptance live-acceptance-wrapper-check eval-world-smoke eval-world eval-routing-replay eval-improvement-replay eval-replay eval-trend customer-check elixir-test elixir-static elixir-partitions serial-times static-check coverage elixir-release elixir-release-check release-dist control-plane-js-check shellcheck script-checks watchdog-check launch-agent-check model-download-check deploy-check backup-schedule-check keep-awake-check runtime-releases-check gate-check quick-check-check eval-trend-check deps-audit test-db-ready dev-check check release-check clean
+.PHONY: quick retention-simulation product-e2e live-acceptance live-acceptance-wrapper-check eval-world-smoke eval-world eval-routing-replay eval-improvement-replay eval-replay eval-trend customer-check elixir-test elixir-static elixir-partitions serial-times static-check coverage elixir-release elixir-release-check release-dist control-plane-js-check shellcheck script-checks watchdog-check launch-agent-check model-download-check deploy-check backup-schedule-check keep-awake-check runtime-releases-check gate-check quick-check-check agent-guard-check land-check memory-lint-check eval-trend-check deps-audit test-db-ready dev-check check release-check clean
 
 LIVE_CHANNEL ?=
 DEV_CHECK_JOBS ?= 4
@@ -200,11 +200,20 @@ gate-check:
 quick-check-check:
 	scripts/quick-check_test.sh
 
+agent-guard-check:
+	scripts/agent-guard_test.sh
+
+land-check:
+	scripts/land_test.sh
+
+memory-lint-check:
+	scripts/memory-lint_test.sh
+
 eval-trend-check:
 	scripts/test-eval-trend.sh
 
 # Every script self-test; the full gate and CI's static job run them.
-script-checks: watchdog-check launch-agent-check model-download-check live-acceptance-wrapper-check deploy-check backup-schedule-check keep-awake-check runtime-releases-check gate-check quick-check-check eval-trend-check
+script-checks: watchdog-check launch-agent-check model-download-check live-acceptance-wrapper-check deploy-check backup-schedule-check keep-awake-check runtime-releases-check gate-check quick-check-check agent-guard-check land-check memory-lint-check eval-trend-check
 
 # Known advisories for the locked Hex packages, and packages their maintainers
 # retired. Both read the network, so the full gate runs them and dev-check

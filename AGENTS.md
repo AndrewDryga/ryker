@@ -67,6 +67,14 @@ Do not repeatedly run credentialed model evals during ordinary edit-test cycles.
 working in parallel run their owning tests; one `scripts/gate.sh` on the merged tree before
 the commit is the gate, not one per agent.
 
+Others commit in this checkout too. An agent that needs a tree of its own makes one with
+`scripts/agent-worktree.sh NAME` (from local main, with its own build) and moves main to its
+commit with `scripts/land.sh COMMIT`, which refuses rather than overwrite a file someone is
+editing. A hook in `.claude/settings.json` (`scripts/agent-guard.sh`) refuses `git stash`,
+`pkill` and `killall`, `coop login`, and `compose.sh replay` over SSH, each of which once lost
+someone's work, sign-in or install. `scripts/memory-lint.sh` checks the agents' memory notes
+against their index and the tree.
+
 The same commands work inside a Coop box: Coop starts the test PostgreSQL as the box's sidecar
 and the box builds into `_build/box` (`.agent/project.yaml`, "Focused development tests" in
 `docs/testing.md`).
