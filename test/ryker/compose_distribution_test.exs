@@ -128,15 +128,21 @@ defmodule Ryker.ComposeDistributionTest do
     assert gateway_pki =~ "grep -q 'does match certificate'"
     refute worker =~ "capabilities:"
     refute worker =~ "slots_free:"
-    # The recipe builds the newest Coop on GitHub that the live worker is built from. It pinned
-    # cb5178eb, worker protocol v1, for days after Ryker spoke only v2 (2026-09-27): rebuilding
-    # the worker from the recipe would have produced one that could not talk to Ryker at all.
-    # Coop main runs the version-2 jobs Ryker sends since 2026-10-04; d019c807 also holds a
-    # command back while a repository's first download runs, and 5b112ce7 runs filtered jobs
-    # on a Docker-in-Docker worker. The live worker ran Coop v11 from layered images for days while
-    # this still built v10 (2026-10-12); the pin now names the Coop it runs.
-    assert worker_image =~ "COOP_REVISION=244b51c2232f7070d494227f30e51f92a79d10e8"
-    assert worker_image =~ "COOP_VERSION=v11.2.0-6-g244b51c2"
+    # The recipe pins the Coop the live workers run: `scripts/compose.sh worker-upgrade` builds
+    # the worker from it, so the pin is what a worker becomes, and it is pinned here alone. It
+    # pinned cb5178eb, worker protocol v1, for days after Ryker spoke only v2 (2026-09-27), and
+    # copies of the pin in this test and four scripts were bumped by hand at every swap. The
+    # version a worker reports is the revision's own.
+    [revision] =
+      Regex.run(~r/^ARG COOP_REVISION=([0-9a-f]{40})$/m, worker_image, capture: :all_but_first)
+
+    [version] = Regex.run(~r/^ARG COOP_VERSION=(\S+)$/m, worker_image, capture: :all_but_first)
+    assert version =~ ~r/^v\d+\.\d+\.\d+(-\d+-g[0-9a-f]{7,})?$/
+
+    if suffix = Regex.run(~r/-g([0-9a-f]+)$/, version, capture: :all_but_first) do
+      assert String.starts_with?(revision, hd(suffix))
+    end
+
     # The Coop pin lives in one place, the worker Dockerfile. Two copies of the
     # default once had to be bumped together, and compose.yml's COOP_VERSION
     # override relabeled the pinned revision as whatever it named (2026-10-04

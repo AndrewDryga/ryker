@@ -56,7 +56,7 @@ git init -q --initial-branch=main "$repo"
 git -C "$repo" config user.email deploy-test@example.invalid
 git -C "$repo" config user.name "deploy test"
 cp "$root/scripts/deploy.sh" "$root/scripts/compose.sh" "$root/scripts/compose-lifecycle.sh" \
-  "$root/scripts/elixir-release-version.sh" "$repo/scripts/"
+  "$root/scripts/elixir-release-version.sh" "$root/scripts/elixir-live-acceptance.sh" "$repo/scripts/"
 printf 'name: ryker\n' >"$repo/compose.yml"
 git -C "$repo" add -A
 git -C "$repo" commit -q -m "first"
@@ -172,6 +172,19 @@ case " $* " in
     # deploy.sh names the version it starts; compose.sh starts the pinned one.
     [[ -f $fake/up.stale || -z ${RYKER_VERSION:-} ]] || printf '%s\n' "${RYKER_VERSION:-}" >"$fake/version"
     ;;
+  # compose.sh upgrade starts the release compose.env pins.
+  *" up --detach --wait "*)
+    env_file=$(sed -n 's/.*--env-file \([^ ]*\).*/\1/p' <<<"$*")
+    sed -n 's/^RYKER_VERSION=//p' "$env_file" | tail -n 1 >"$fake/version"
+    ;;
+  *" run --rm --no-deps -T --entrypoint sh ryker-coop -s "*)
+    printf 'RYKER_COOP_IMAGE=%s\n' "${RYKER_COOP_IMAGE:-}" >>"$fake/prewarm.env"
+    cat >/dev/null
+    ;;
+  *"Ryker.Acceptance.Live.run_from_env!()"*)
+    printf '%s\n' "$*" >>"$fake/live.calls"
+    [[ -f $fake/live.fail ]] && { echo "fake: no reply in the test channel" >&2; exit 1; }
+    ;;
   *" config --services "*)
     printf '%s\n' database volume-init ryker ryker-coop-docker ryker-coop whisper whisper-detect embeddings
     ;;
@@ -183,6 +196,9 @@ case " $* " in
   *" logs "*) echo "fake container log line" ;;
   *" ps --all --quiet ryker "*) [[ -f $fake/running.image ]] && echo fake-ryker-container ;;
   *" inspect --format {{.Config.Image}} fake-ryker-container "*) cat "$fake/running.image" ;;
+  *" ps --all --quiet ryker-coop "*) [[ -f $fake/worker.image ]] && echo fake-worker-container ;;
+  *" inspect --format {{.Config.Image}} fake-worker-container "*) cat "$fake/worker.image" ;;
+  *" exec -T database psql "*"coop_worker_commands"*) cat "$fake/inflight" 2>/dev/null || echo 0 ;;
   *" ps --status running --services "*) [[ -f $fake/controller.stopped ]] || echo "ryker" ;;
   *" exec -T database psql "*"schema_migrations"*) cat "$fake/schema" 2>/dev/null || echo 20261005000000 ;;
   *" exec -T database psql "*) echo 1 ;;
@@ -205,7 +221,8 @@ seed() {
   # still serves the previous version until the fake Docker "starts" a new one.
   rm -f "$fake/calls" "$fake/build.env" "$fake/build.fail" "$fake/up.env" "$fake/up.fail" "$fake/up.stale" "$fake/database.down" \
     "$fake/schema" "$fake/up.migrates" "$fake/image.missing" "$fake/volume.exists" \
-    "$fake/migrate.env" "$fake/migrate.migrates" "$fake/migrate.fail" "$fake/models.fail"
+    "$fake/migrate.env" "$fake/migrate.migrates" "$fake/migrate.fail" "$fake/models.fail" \
+    "$fake/worker.image" "$fake/inflight" "$fake/prewarm.env" "$fake/live.calls" "$fake/live.fail"
   touch "$fake/controller.running"
   rm -rf "$state/backups" "$state/lifecycle.lock"
   printf '%s\n' "$old_version" >"$fake/version"
@@ -810,11 +827,11 @@ refute "an upgrade whose migration fails starts nothing new" "up --detach --wait
 # it and the release it replaced, which a restore of the backup taken before it needs, and removes
 # the installation's older source builds. A tagged release or a hand-made tag is never touched.
 build() { printf '0.1.0-source.g%s%s' "$(printf "$1%.0s" $(seq 1 12))" "${2:-}"; }
+# The release an upgrade starts is HEAD's.
+started="0.1.0-source.g$(git -C "$repo" rev-parse --short=12 HEAD)"
 seed_images() {
   seed
-  sed -i.bak "s/^RYKER_VERSION=.*/RYKER_VERSION=$(build c)/; s/^RYKER_IMAGE=.*/RYKER_IMAGE=ryker:$(build c)/" "$state/compose.env"
-  build c >"$fake/version"
-  printf 'ryker:%s\n' "$(build c)" "$(build b)" "$(build a)" "$(build d .dirty)" 1.0.0 production-audit >"$fake/images"
+  printf 'ryker:%s\n' "$started" "$(build b)" "$(build a)" "$(build d .dirty)" 1.0.0 production-audit >"$fake/images"
 }
 upgrade_with_images() {
   out=$(cd "$repo" && sh scripts/compose.sh upgrade 2>&1; echo "exit=$?")
@@ -826,7 +843,7 @@ upgrade_with_images
 check "an upgrade that removes older images succeeds" "exit=0" "$out"
 check "an upgrade removes an older source build" "image rm ryker:$(build a)" "$calls"
 check "an upgrade removes an older build of a dirty checkout" "image rm ryker:$(build d .dirty)" "$calls"
-refute "an upgrade keeps the release it started" "image rm ryker:$(build c)" "$calls"
+refute "an upgrade keeps the release it started" "image rm ryker:$started" "$calls"
 refute "an upgrade keeps the release it replaced" "image rm ryker:$(build b)" "$calls"
 refute "an upgrade never removes a tagged release" "image rm ryker:1.0.0" "$calls"
 refute "an upgrade never removes a hand-made tag" "image rm ryker:production-audit" "$calls"
@@ -842,6 +859,102 @@ upgrade_with_images
 check "an upgrade whose release never becomes ready fails" "exit=1" "$out"
 refute "an upgrade whose release never becomes ready removes nothing" "image rm" "$calls"
 rm -f "$fake/running.image" "$fake/images"
+
+# The tenant install's upgrades pinned the release and the worker by hand, from a script that
+# named the worker tag of the day: forgetting to update it rolled the worker back (2026-10-14).
+seed
+out=$(cd "$repo" && sh scripts/compose.sh upgrade 2>&1; echo "exit=$?")
+check "an upgrade succeeds" "exit=0" "$out"
+check "an upgrade pins HEAD's release" "RYKER_VERSION=$started" "$(cat "$state/compose.env")"
+check "and its image" "RYKER_IMAGE=ryker:$started" "$(cat "$state/compose.env")"
+seed
+printf 'ryker-coop:running\n' >"$fake/worker.image"
+out=$(cd "$repo" && sh scripts/compose.sh upgrade 2>&1; echo "exit=$?")
+check "an upgrade beside a running worker succeeds" "exit=0" "$out"
+check "an upgrade pins the worker that runs" "RYKER_COOP_IMAGE=ryker-coop:running" "$(cat "$state/compose.env")"
+refute "and builds no other worker" "ryker-coop" "$(grep ' build ' "$fake/calls")"
+
+# An upgrade runs only a commit origin's main holds.
+git init -q --bare "$work/origin.git"
+git -C "$repo" remote add origin "$work/origin.git"
+git -C "$repo" push -q origin main
+git -C "$repo" commit -q --allow-empty -m "only here"
+seed
+out=$(cd "$repo" && sh scripts/compose.sh upgrade 2>&1; echo "exit=$?")
+check "an upgrade of a commit origin's main lacks is refused" "is not on origin's main" "$out"
+refute "and builds nothing" " build " "$(cat "$fake/calls")"
+git -C "$repo" push -q origin main
+started="0.1.0-source.g$(git -C "$repo" rev-parse --short=12 HEAD)"
+seed
+out=$(cd "$repo" && sh scripts/compose.sh upgrade 2>&1; echo "exit=$?")
+check "once pushed it upgrades" "exit=0" "$out"
+git -C "$repo" remote remove origin
+
+# One command moves the bundled worker to the Coop the worker Dockerfile pins: about a dozen
+# steps by hand, on each install, five times on 2026-10-14.
+mkdir -p "$repo/deploy/compose/coop"
+printf 'ARG COOP_REVISION=1234abcd%s\n' "$(printf '0%.0s' $(seq 1 32))" >"$repo/deploy/compose/coop/Dockerfile"
+cp "$root/deploy/compose/coop/prewarm.sh" "$repo/deploy/compose/coop/prewarm.sh"
+git -C "$repo" add -A && git -C "$repo" commit -q -m "worker recipe"
+worker_upgrade() {
+  out=$(cd "$repo" && RYKER_WORKER_IDLE_TIMEOUT=0 sh scripts/compose.sh worker-upgrade 2>&1; echo "exit=$?")
+  calls=$(cat "$fake/calls")
+}
+seed
+printf 'ryker-coop:old\n' >"$fake/worker.image"
+printf 'ryker-coop:%s\n' 1234abcd old older >"$fake/images"
+touch "$fake/image.missing"
+worker_upgrade
+check "a worker upgrade succeeds" "exit=0" "$out"
+check "it builds the pinned Coop's worker" "deploy/compose/coop/Dockerfile --tag ryker-coop:1234abcd" "$calls"
+check "it keeps the model sign-in aside" "cp -a agents agents.pre-1234abcd-" "$calls"
+check "it prepares the new worker's box with the new image" "RYKER_COOP_IMAGE=ryker-coop:1234abcd" "$(cat "$fake/prewarm.env")"
+check "it pins the new worker" "RYKER_COOP_IMAGE=ryker-coop:1234abcd" "$(cat "$state/compose.env")"
+check "it restarts only the worker" "up --detach --no-build --wait --no-deps ryker-coop" "$calls"
+check "it removes a worker image older than the one it replaced" "image rm ryker-coop:older" "$calls"
+refute "it keeps the worker it replaced" "image rm ryker-coop:old"$'\n' "$calls"$'\n'
+prewarm_line=$(grep -n 'entrypoint sh ryker-coop -s' <<<"$calls" | head -n 1 | cut -d: -f1)
+swap_line=$(grep -n 'up --detach --no-build --wait --no-deps ryker-coop' <<<"$calls" | head -n 1 | cut -d: -f1)
+if [[ -n $prewarm_line && -n $swap_line && $prewarm_line -lt $swap_line ]]; then
+  printf 'ok   the box is prepared before the swap\n'
+else
+  printf 'FAIL the box is prepared before the swap\n'
+  failures=$((failures + 1))
+fi
+rm -f "$fake/image.missing" "$fake/images"
+seed
+printf 'ryker-coop:old\n' >"$fake/worker.image"
+printf '2\n' >"$fake/inflight"
+worker_upgrade
+check "a worker carrying out commands is not swapped" "still carrying out 2 commands" "$out"
+check "and the upgrade fails" "exit=1" "$out"
+refute "and keeps the worker's pin" "RYKER_COOP_IMAGE=ryker-coop:1234abcd" "$(cat "$state/compose.env")"
+refute "and restarts nothing" "up --detach" "$(cat "$fake/calls")"
+seed
+printf 'ryker-coop:1234abcd\n' >"$fake/worker.image"
+worker_upgrade
+check "a worker on the pin already is left alone" "The worker already runs ryker-coop:1234abcd" "$out"
+refute "and nothing is built or restarted" "up --detach" "$calls"
+
+# A ready release is not proof that a message goes through it. Where compose.env names the
+# Slack test channel, the deploy runs the live lane there and fails when it does; elsewhere it
+# posts nothing.
+seed
+out=$(run)
+check "a deploy with no test channel succeeds" "exit=0" "$out"
+check "and runs no live acceptance" "absent" "$([[ -e $fake/live.calls ]] && echo present || echo absent)"
+seed
+printf 'RYKER_LIVE_CHANNEL=C0TEST\n' >>"$state/compose.env"
+out=$(run)
+check "a deploy runs live acceptance in the test channel" "RYKER_LIVE_CHANNEL=C0TEST" "$(cat "$fake/live.calls" 2>/dev/null)"
+check "and says it passed" "live acceptance passed" "$out"
+check "and succeeds" "exit=0" "$out"
+seed
+printf 'RYKER_LIVE_CHANNEL=C0TEST\n' >>"$state/compose.env"
+touch "$fake/live.fail"
+out=$(run)
+check "a release that fails live acceptance fails the deploy" "exit=1" "$out"
+check "and the deploy says it still runs" "is running, but live acceptance failed" "$out"
 
 # ---------------------------------------------------------------------------
 # One lifecycle command at a time (2026-10-04 review): two deploys, or a backup

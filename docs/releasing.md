@@ -27,7 +27,8 @@ it, two of them TLS clients that skipped the server certificate check (bumped 20
 
 The bundled worker copies `Box.Dockerfile` into its own image, and builds the box Ryker's own
 repository runs `make dev-check` in from that copy. So a bump reaches the box only with the next
-worker image, swapped by hand ([`operations.md`](operations.md), "Upgrade"); until then
+worker image, from `scripts/compose.sh worker-upgrade` ([`operations.md`](operations.md),
+"Upgrade"); until then
 `scripts/elixir-mix.sh` in the box refuses the older Elixir, and a review of Ryker's repository
 fails its gate.
 

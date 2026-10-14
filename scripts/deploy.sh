@@ -301,3 +301,19 @@ fi
 "${compose[@]}" ps ryker 2>/dev/null || true
 say "done in $((elapsed / 60))m $((elapsed % 60))s"
 say "PostgreSQL custody resumes pending work after the normal restart"
+
+# Ready is not proof that a message goes through: the live lane posts one in
+# the test channel RYKER_LIVE_CHANNEL names and waits for two settled turns
+# (docs/testing.md, "Live acceptance"). It posts to Slack and asks a model, so
+# it runs only where compose.env names that channel. A release that is ready
+# but fails it stays running, and the deploy says so and fails.
+live_channel=$(compose_env_value RYKER_LIVE_CHANNEL "$env_file")
+if [[ -n $live_channel ]]; then
+  say "live acceptance in $live_channel"
+  if "$repository/scripts/elixir-live-acceptance.sh" "$live_channel"; then
+    say "live acceptance passed: a message went through ryker $version end to end"
+  else
+    say "ryker $version is running, but live acceptance failed (above)"
+    exit 1
+  fi
+fi

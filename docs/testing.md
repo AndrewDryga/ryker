@@ -321,7 +321,9 @@ make live-acceptance LIVE_CHANNEL=C0123TEST
 `docker compose exec ryker /opt/ryker/bin/ryker eval 'Ryker.Acceptance.Live.run_from_env!()'`
 with the channel and `RYKER_LIVE_TIMEOUT_SECONDS` (default 600) as the container's environment.
 Nothing is copied out of `.ryker/compose.env`, no second Ryker runs, and the lane requires the
-running release to report the version it was built as.
+running release to report the version it was built as. Name the test channel in `compose.env` as
+`RYKER_LIVE_CHANNEL` and `scripts/deploy.sh` runs the lane after every release it makes ready; a
+release that fails it keeps running, and the deploy says so and fails.
 
 The lane injects uniquely identified synthetic configured-operator inputs because a bot token
 cannot impersonate a human. It asks for work in the environment the test channel runs in, as

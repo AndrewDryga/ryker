@@ -19,7 +19,7 @@ lock_lifecycle() {
 }
 
 usage() {
-  echo "usage: scripts/compose.sh install|status|logs|stop|start|restart|upgrade|sign-in|model-login [PROVIDER]|worker-token WORKER_ID WORKSPACE_REF OPERATOR_REF|worker-drain|worker-resume|worker-revoke WORKER_ID OPERATOR_REF|replay SOURCE_INPUT_REF REQUEST_REF OPERATOR ACTION_REF|replay-show REPLAY_INPUT_REF|doctor|backup|restore FILE|uninstall|destroy" >&2
+  echo "usage: scripts/compose.sh install|status|logs|stop|start|restart|upgrade|worker-upgrade|sign-in|model-login [PROVIDER]|worker-token WORKER_ID WORKSPACE_REF OPERATOR_REF|worker-drain|worker-resume|worker-revoke WORKER_ID OPERATOR_REF|replay SOURCE_INPUT_REF REQUEST_REF OPERATOR ACTION_REF|replay-show REPLAY_INPUT_REF|doctor|backup|restore FILE|uninstall|destroy" >&2
   exit 2
 }
 
@@ -99,6 +99,70 @@ running_image() {
   container=$(compose ps --all --quiet ryker 2>/dev/null | head -n 1)
   [ -n "$container" ] || return 0
   docker inspect --format '{{.Config.Image}}' "$container" 2>/dev/null || true
+}
+
+# The image the bundled worker runs.
+running_worker_image() {
+  container=$(compose ps --all --quiet ryker-coop 2>/dev/null | head -n 1)
+  [ -n "$container" ] || return 0
+  docker inspect --format '{{.Config.Image}}' "$container" 2>/dev/null || true
+}
+
+# Sets KEY to VALUE in compose.env, as pin_release does the release.
+pin_value() {
+  pinned=$(mktemp "$state_dir/.compose.env.XXXXXX")
+  awk -v key="$1" -v value="$2" '
+    index($0, key "=") == 1 { print key "=" value; seen = 1; next }
+    { print }
+    END { if (!seen) print key "=" value }' "$env_file" >"$pinned"
+  chmod 0600 "$pinned"
+  mv -f "$pinned" "$env_file"
+}
+
+# The release HEAD builds: an annotated tag's version, else
+# 0.1.0-source.g<12 hex digits>. The tenant install's upgrades set these by
+# hand, from a script holding the tag of the day (2026-10-14).
+head_release() {
+  if tag=$(git -C "$repository" describe --exact-match --tags --match 'v[0-9]*' HEAD 2>/dev/null) &&
+     [ "$(git -C "$repository" cat-file -t "$tag")" = tag ]; then
+    echo "${tag#v}"
+  else
+    echo "0.1.0-source.g$(git -C "$repository" rev-parse --short=12 HEAD)"
+  fi
+}
+
+# An upgrade runs a commit origin's main holds: one only this checkout has is a
+# release nobody else can review, rebuild or restore.
+require_published_head() {
+  git -C "$repository" remote get-url origin >/dev/null 2>&1 || return 0
+  if ! git -C "$repository" fetch --quiet origin main; then
+    echo "Could not fetch origin's main to check this checkout against it." >&2
+    exit 1
+  fi
+  if ! git -C "$repository" merge-base --is-ancestor HEAD FETCH_HEAD; then
+    echo "This checkout's HEAD is not on origin's main. Push it, or check out a commit that is, then upgrade." >&2
+    exit 1
+  fi
+}
+
+# Work the bundled worker is carrying out. A swap restarts it, so it waits
+# for none to be left.
+worker_commands_in_flight() {
+  compose exec -T database psql -X -U ryker -d ryker -Atc \
+    "SELECT count(*) FROM coop_worker_commands WHERE worker_id = 'ryker-compose' AND status IN ('delivered', 'acknowledged')" \
+    2>/dev/null | tr -d '[:space:]'
+}
+
+# Keeps the running worker image and the one before it, the way back, and
+# removes other worker images: 18 of them held 8.5 GB here (2026-10-04).
+remove_older_worker_images() {
+  [ -n "$2" ] || return 0
+  docker image ls --format '{{.Repository}}:{{.Tag}}' ryker-coop 2>/dev/null |
+    while IFS= read -r tag; do
+      if [ "$tag" != "$1" ] && [ "$tag" != "$2" ] && docker image rm "$tag" >/dev/null 2>&1; then
+        echo "Removed the older worker image $tag."
+      fi
+    done
 }
 
 # Every upgrade builds a Ryker image of about 650 MB, and nothing removed one:
@@ -440,8 +504,20 @@ case "$command" in
   upgrade)
     require_install
     require_clean_checkout upgrade
+    require_published_head
     lock_lifecycle upgrade
     replaced=$(running_image)
+    release=$(head_release)
+    pin_release "$release" "ryker:$release"
+    echo "Upgrading to $release."
+    # The worker moves only with worker-upgrade, which prepares its box first;
+    # an upgrade that rebuilt or repinned it restarted it unprepared, or put
+    # back an older image a script still named (2026-10-14).
+    worker=$(running_worker_image)
+    if [ -n "$worker" ] && [ "$worker" != "$(compose_env_value RYKER_COOP_IMAGE "$env_file")" ]; then
+      pin_value RYKER_COOP_IMAGE "$worker"
+      echo "Kept the running worker image $worker."
+    fi
     compose pull --ignore-buildable
     if supplied_worker_image; then
       compose build --pull ryker
@@ -460,6 +536,53 @@ case "$command" in
     start_models --build
     wait_ready
     remove_older_releases "$(compose_env_value RYKER_IMAGE "$env_file")" "$replaced"
+    ;;
+  worker-upgrade)
+    # The bundled worker moves to the Coop the worker Dockerfile pins: build
+    # it, keep the model sign-in aside, prepare its box on the live worker's
+    # volumes while that worker keeps working, then swap only the worker. By
+    # hand this was a dozen steps across five copies of the pin (2026-10-14).
+    [ "$#" -eq 1 ] || usage
+    require_install
+    require_clean_checkout worker-upgrade
+    lock_lifecycle worker-upgrade
+    revision=$(sed -n 's/^ARG COOP_REVISION=//p' "$repository/deploy/compose/coop/Dockerfile")
+    case $revision in
+      *[!0-9a-f]* | "") echo "deploy/compose/coop/Dockerfile names no COOP_REVISION." >&2; exit 1 ;;
+    esac
+    image=ryker-coop:$(printf '%s' "$revision" | cut -c1-8)
+    replaced=$(running_worker_image)
+    if [ "$replaced" = "$image" ]; then
+      pin_value RYKER_COOP_IMAGE "$image"
+      echo "The worker already runs $image."
+      exit 0
+    fi
+    if ! docker image inspect "$image" >/dev/null 2>&1; then
+      docker build --file "$repository/deploy/compose/coop/Dockerfile" --tag "$image" "$repository"
+    fi
+    # Coop 11 moved its sign-in one way (2026-10-11); a copy is the way back.
+    # The two newest copies stay.
+    stamp=$(date -u +%Y%m%dT%H%M%SZ)
+    compose run --rm --no-deps -T --entrypoint sh ryker-coop -c \
+      "cd /var/lib/coop && cp -a agents agents.pre-${image#ryker-coop:}-$stamp && ls -dt agents.pre-* | tail -n +3 | xargs rm -rf"
+    # The new image in the worker's own place: its volumes, network and the
+    # Docker daemon it builds boxes with. The environment wins over the file.
+    env RYKER_COOP_IMAGE="$image" docker compose --env-file "$env_file" run --rm --no-deps -T \
+      --entrypoint sh ryker-coop -s <"$repository/deploy/compose/coop/prewarm.sh"
+    deadline=$(($(date +%s) + ${RYKER_WORKER_IDLE_TIMEOUT:-600}))
+    while busy=$(worker_commands_in_flight) && [ "${busy:-0}" != 0 ]; do
+      if [ "$(date +%s)" -ge "$deadline" ]; then
+        echo "The worker is still carrying out $busy commands; it runs ${replaced:-nothing} still. Run worker-upgrade again later." >&2
+        exit 1
+      fi
+      echo "Waiting for the worker's $busy commands in flight."
+      sleep 10
+    done
+    pin_value RYKER_COOP_IMAGE "$image"
+    compose up --detach --no-build --wait --no-deps ryker-coop
+    wait_ready
+    remove_older_worker_images "$image" "$replaced"
+    echo "The worker runs $image; it ran ${replaced:-nothing}, which stays as the way back."
     ;;
   sign-in)
     [ "$#" -eq 1 ] || usage

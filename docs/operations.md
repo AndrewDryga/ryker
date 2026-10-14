@@ -133,36 +133,48 @@ start is reported without stopping Ryker.
 
 Upgrades build from the checkout: no Ryker container image is published, and a GitHub Release
 carries the verified release archive ([releasing.md](releasing.md)). Move the checkout to the
-release you intend to run (for example `git checkout vX.Y.Z`), set `RYKER_VERSION` in
-`.ryker/compose.env` to that version and `RYKER_IMAGE` to the local tag to build (for example
-`ryker:X.Y.Z`), then:
+release you intend to run (for example `git checkout vX.Y.Z`, or `git pull` for main), then:
 
 ```bash
 scripts/compose.sh backup
 scripts/compose.sh upgrade
 ```
 
+Upgrade pins the release HEAD builds in `.ryker/compose.env`: an annotated `vX.Y.Z` tag's version,
+else `0.1.0-source.g` and twelve digits of the commit, with the image `ryker:` and that version.
 Upgrade, like install, builds the checkout as it is, so it refuses a checkout with uncommitted
-changes. `start`, `restart` and `restore` never build: they run the pinned image, and fail if it
-is missing.
+changes, and when the checkout has an `origin` it refuses a HEAD that origin's `main` does not hold.
+`start`, `restart` and `restore` never build: they run the pinned image, and fail if it is missing.
 
 Upgrade pulls the pinned third-party images (such as PostgreSQL and the worker's Docker daemon), rebuilds
 the Ryker image from the checkout, stops Ryker and runs the migrations with the new image as a step of
 their own, as a deploy does, then starts the replacements and verifies health, readiness and the exact
-version header. A migration that fails leaves Ryker stopped; restore the backup taken before. It rebuilds the bundled
-worker's image from the Dockerfile's Coop pin only when `RYKER_COOP_IMAGE` is unset: an image named
-there is a supplied build, and its Coop may keep the worker's state in a schema the pinned one
-refuses. Enrolled remote workers are not restarted or modified.
+version header. A migration that fails leaves Ryker stopped; restore the backup taken before. It keeps
+the bundled worker that runs, and pins its image in `RYKER_COOP_IMAGE`; only a first upgrade with no
+worker running builds one from the Dockerfile's Coop pin. A worker moves with `worker-upgrade`.
+Enrolled remote workers are not restarted or modified.
+
+```bash
+scripts/compose.sh worker-upgrade
+```
+
+moves the bundled worker to the Coop `deploy/compose/coop/Dockerfile` pins, the one place that pin
+lives: it builds `ryker-coop:` and the revision's first eight digits, copies the model sign-in aside
+in the worker's volume (`agents.pre-*`, the newest two kept), prepares the new worker's box on the
+live worker's volumes and Docker daemon while that worker keeps working
+(`deploy/compose/coop/prewarm.sh`), waits up to ten minutes for the commands the worker is carrying
+out (`RYKER_WORKER_IDLE_TIMEOUT`), then pins the image and replaces only the worker, which is back in
+seconds. It keeps the image it replaced as the way back and removes older worker images. Run it on
+the host of each install, after `git pull`.
 
 Once the new release is ready, upgrade removes this installation's older source builds
 (`ryker:0.1.0-source.*`). It keeps the release it started and the one it replaced, which a restore
 of the backup taken before the upgrade runs, and it never removes a tagged release or another tag.
 
-A supplied worker image is built and swapped by hand, and nothing removes the ones before it: 18
-of them held 8.5 GB here on 2026-10-04. After a swap, keep the running image and the one before
-it, which is the way back, and remove the rest (`docker image ls ryker-coop` lists them,
-`docker image rm ryker-coop:TAG` removes one). Inside the worker's own Docker, the entrypoint
-removes the box bases of older Coop builds and the images nothing is tagged as.
+A worker image built another way, for example from a Coop checkout ahead of the pin, is named in
+`RYKER_COOP_IMAGE` by hand, and its Coop may keep the worker's state in a schema an older pinned
+Coop refuses. Inside the worker's own Docker, the entrypoint removes the box bases of older Coop
+builds and the images nothing is tagged as.
 
 Repository knowledge runs with filtered networking: the model reaches its provider and nothing
 else. Coop takes a filtered job only on a Docker daemon that `coop net setup` qualified, so the
