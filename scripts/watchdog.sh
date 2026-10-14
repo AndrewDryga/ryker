@@ -337,6 +337,39 @@ remote_check() {
   fi
 }
 
+# A remote install left behind main. Every release reaches the tenant install by hand, and on
+# 2026-10-14 "is blitz on the new release?" was answered from memory more than once. Once a day,
+# while the oldest commit of main it lacks is older than WATCHDOG_REMOTE_LAG_HOURS, it says so.
+# main is this checkout's, the branch deploy.sh ships.
+lag_hours="${WATCHDOG_REMOTE_LAG_HOURS:-24}"
+main_repository="${WATCHDOG_MAIN_REPOSITORY:-$repository}"
+remote_lag_check() {
+  local origin="$1" version="$2" key lagged_path commit main oldest behind now last
+  key=$(printf '%s' "$origin" | /usr/bin/shasum | cut -c1-12)
+  lagged_path="$state_dir/remote-$key.lagged"
+  # deploy.sh's versions end in -g<sha>, a source install's in .g<sha>.
+  commit=$(printf '%s' "$version" | sed -n 's/.*[.-]g\([0-9a-f]\{7,40\}\)$/\1/p')
+  main=$(git -C "$main_repository" rev-parse -q --verify 'main^{commit}' 2>/dev/null)
+  [[ -n $commit && -n $main ]] || return
+  if ! commit=$(git -C "$main_repository" rev-parse -q --verify "$commit^{commit}" 2>/dev/null) ||
+    [[ $commit == "$main" ]] || ! git -C "$main_repository" merge-base --is-ancestor "$commit" "$main"; then
+    rm -f "$lagged_path"
+    return
+  fi
+  oldest=$(git -C "$main_repository" log --format=%ct --reverse "$commit..$main" | head -n 1)
+  behind=$(git -C "$main_repository" rev-list --count "$commit..$main")
+  now=$(date +%s)
+  [[ $((now - oldest)) -ge $((lag_hours * 3600)) ]] || return
+  last=$(cat "$lagged_path" 2>/dev/null || echo 0)
+  if [[ $((now - last)) -ge 86400 ]]; then
+    echo "$now" >"$lagged_path"
+    local commits="commits"
+    [[ $behind -ne 1 ]] || commits="commit"
+    alarm "Ryker at $origin is $behind $commits behind main" \
+      "It runs $version; the oldest commit it lacks is $(((now - oldest) / 3600)) h old."
+  fi
+}
+
 for origin in $(compose_env_value RYKER_WATCH_REMOTE "$env_file"); do
   if [[ ! $origin =~ ^https?://[A-Za-z0-9.-]+(:[0-9]+)?$ ]]; then
     note "RYKER_WATCH_REMOTE names something that is not an origin, skipped: $origin"
@@ -344,4 +377,5 @@ for origin in $(compose_env_value RYKER_WATCH_REMOTE "$env_file"); do
   fi
   readiness "$origin"
   remote_check "$origin" "$readiness_state"
+  [[ -z $running_version ]] || remote_lag_check "$origin" "$running_version"
 done

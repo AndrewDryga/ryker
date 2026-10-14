@@ -389,6 +389,26 @@ printf '200' >"$remote/readyz.code"
 printf 'ready\n' >"$remote/readyz.body"
 remote_back=$(run)
 check "a remote install ready again says so" "ALERT Ryker at $remote_origin recovered" "$remote_back"
+
+# A remote install that main has left behind for longer than the lag allows: a history of two
+# commits, the remote serving the first.
+history="$work/history"
+git init -q "$history"
+git -C "$history" -c user.email=w@example.com -c user.name=w commit -q --allow-empty -m first
+first=$(git -C "$history" rev-parse HEAD)
+git -C "$history" -c user.email=w@example.com -c user.name=w commit -q --allow-empty -m second
+git -C "$history" branch -q -M main
+printf '0.1.0-source.g%s\n' "${first:0:12}" >"$remote/version"
+behind=$(WATCHDOG_MAIN_REPOSITORY="$history" WATCHDOG_REMOTE_LAG_HOURS=0 run)
+check "a remote install behind main says how far" "ALERT Ryker at $remote_origin is 1 commit behind main" "$behind"
+again=$(WATCHDOG_MAIN_REPOSITORY="$history" WATCHDOG_REMOTE_LAG_HOURS=0 run)
+refute "being behind main repeats only once a day" "behind main" "$again"
+fresh=$(WATCHDOG_MAIN_REPOSITORY="$history" run)
+refute "a lag younger than the allowed hours stays quiet" "behind main" "$fresh"
+printf '0.1.0-source.g%s\n' "$(git -C "$history" rev-parse --short=12 main)" >"$remote/version"
+caught_up=$(WATCHDOG_MAIN_REPOSITORY="$history" WATCHDOG_REMOTE_LAG_HOURS=0 run)
+refute "a remote install on main is not behind" "behind main" "$caught_up"
+
 kill "$remote_pid" 2>/dev/null
 wait "$remote_pid" 2>/dev/null
 remote_pid=""

@@ -370,7 +370,15 @@ The same watchdog can watch installs on other machines, where its notification w
 nobody. Name their published origins in `RYKER_WATCH_REMOTE` in `compose.env`, separated by
 spaces, such as `RYKER_WATCH_REMOTE=https://ryker.example.com`. Only `/readyz` is public at such an
 address, so the watchdog asks that, keeps strikes and repeats for each install on its own, and
-says when one is ready again.
+says when one is ready again. It also reads the version that answer names: once a day while an
+install runs a commit that this checkout's `main` has left behind, and the oldest commit it lacks
+is older than a day (`WATCHDOG_REMOTE_LAG_HOURS`), it says how many commits behind it is.
+
+`scripts/status.sh` answers what runs where in one screen, read-only: `main` and whether it is
+pushed, CI's run on it, this checkout's install (the version it serves against `main`, the version
+`compose.env` pins, the bundled worker, the Docker disk, the newest backup and whether daily backups
+are scheduled, and the watchdog's last check), and the readiness and version of every install
+`RYKER_WATCH_REMOTE` names.
 
 A Mac that sleeps pauses Ryker until someone wakes it. `scripts/install-keep-awake.sh` installs a
 launch agent that runs `caffeinate -i -s` from login on, so the Mac doesn't sleep when idle or on

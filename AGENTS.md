@@ -165,4 +165,5 @@ protocol. Do not make the Ryker deployment restart or install Coop.
 Say plainly what is running. "The gate is green" and "the fix is live" are different claims, and
 reporting the first as if it were the second sends an operator to debug a Slack failure against
 code that is not the code producing it — which is exactly what happened, and why this rule exists.
-Never describe something you have not deployed as deployed.
+Never describe something you have not deployed as deployed. `scripts/status.sh` says what runs
+where: main and CI on it, this install's served and pinned versions, and every remote install's.
