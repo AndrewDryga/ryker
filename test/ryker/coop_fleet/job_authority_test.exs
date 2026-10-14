@@ -603,9 +603,10 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
   # companion at the commit its branch had when the task began, and the worker
   # refuses a branch that has moved since. Companions are read-only context:
   # before a session is first placed, each is resolved again.
-  test "a session not yet placed follows its companions' branches, keeping its own source", %{
-    session: session
-  } do
+  test "a task's session not yet placed follows its companions' branches, keeping its own source",
+       %{
+         session: session
+       } do
     add_repository!("library", 18)
     snapshot = add_repository!("tools", 19)
 
@@ -639,7 +640,8 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
           "primary_repository" => "app",
           "read_only_repositories" => ["library", "tools"],
           "parallel_goal_limit" => 1
-        }
+        },
+        workspace_task: %{"offer_ref" => "offer:woken"}
       )
       |> Repo.update!()
 
@@ -766,6 +768,44 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
              end)
 
     assert kept.worker_job_digest == refreshed.worker_job_digest
+  end
+
+  # A worker stages each repository once and reuses that copy for every later session with the
+  # same job; one it no longer holds it stages again only if the branch is still at the job's
+  # commit. A conversation's next session copied its predecessor's job, so once the copy was gone
+  # (removed to free the tenant install's disk, 2026-10-14) a conversation picked up again would
+  # have failed every create the moment its branch moved. Nothing restores a conversation's old
+  # workspace, so its own repository is resolved again like its companions.
+  test "a conversation's session not yet created follows its own repository's branch too", %{
+    session: session
+  } do
+    session = pinned_with_companions!(session)
+    began = session.worker_job_document["source"]["binding"]["default_commit"]
+    moved = String.duplicate("2", 40)
+
+    assert {:ok, refreshed} = JobAuthority.ensure_pinned(session, nil, prepared_at(moved))
+    assert commits(refreshed) == [moved, moved, moved]
+    refute began == moved
+    assert JobAuthority.validate(refreshed) == {:ok, refreshed}
+    assert Repo.get!(Session, session.id).worker_job_digest == refreshed.worker_job_digest
+  end
+
+  test "a conversation in a one-repository environment follows its repository's branch", %{
+    session: session
+  } do
+    began = String.duplicate("1", 40)
+    moved = String.duplicate("2", 40)
+
+    assert {:ok, pinned} = JobAuthority.ensure_pinned(session, nil, prepared_at(began))
+    assert pinned.worker_job_document["companions"] == []
+    assert commits(pinned) == [began]
+
+    assert {:ok, same} = JobAuthority.ensure_pinned(pinned, nil, prepared_at(began))
+    assert same.worker_job_digest == pinned.worker_job_digest
+
+    assert {:ok, refreshed} = JobAuthority.ensure_pinned(pinned, nil, prepared_at(moved))
+    assert commits(refreshed) == [moved]
+    assert JobAuthority.validate(refreshed) == {:ok, refreshed}
   end
 
   test "a session Coop runs directly has no worker job to adopt", %{session: session} do
@@ -1148,5 +1188,33 @@ defmodule Ryker.CoopFleet.JobAuthorityTest do
              end)
 
     pinned
+  end
+
+  # A preparation that finds every repository's default branch at `commit`.
+  defp prepared_at(commit) do
+    fn _root, ref, _selector ->
+      binding =
+        Map.merge(source()["binding"], %{
+          "default_commit" => commit,
+          "selected_commit" => commit,
+          "base_commit" => commit
+        })
+
+      {:ok,
+       %{
+         source:
+           Map.merge(source(), %{
+             "repository_ref" => ref,
+             "github_repository" => "example/" <> ref,
+             "github_repository_id" => %{"app" => 17, "library" => 18, "tools" => 19}[ref],
+             "binding" => binding
+           })
+       }}
+    end
+  end
+
+  defp commits(%Session{worker_job_document: job}) do
+    [job["source"] | Enum.map(job["companions"], & &1["source"])]
+    |> Enum.map(& &1["binding"]["default_commit"])
   end
 end

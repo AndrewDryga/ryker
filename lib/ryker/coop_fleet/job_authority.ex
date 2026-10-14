@@ -37,8 +37,8 @@ defmodule Ryker.CoopFleet.JobAuthority do
     end
   end
 
-  def ensure_pinned(%Work.Session{} = session, root, prepare, _reader) do
-    with {:ok, session} <- validate(session), do: refresh_companions(session, root, prepare)
+  def ensure_pinned(%Work.Session{} = session, root, prepare, reader) do
+    with {:ok, session} <- validate(session), do: refresh_sources(session, root, prepare, reader)
   end
 
   defp check_reader, do: Config.get_env(:job_check_reader, GitHub.RepositoryFiles)
@@ -72,25 +72,38 @@ defmodule Ryker.CoopFleet.JobAuthority do
   # so each companion repository stayed at the commit its default branch had
   # when the task began. The worker proves every source it stages against its
   # branch as it is now and refuses one that moved (Coop's
-  # TestSourceStagingRefusesChangedOrUnprovenFrozenObjects): a task woken the
-  # next day by review feedback on its pull request failed eight times on
-  # companions that had simply advanced (2026-09-28). Companions are read-only
-  # context, so before a session is created each is resolved again and a
-  # changed one is pinned anew. The task's own source stays as it began.
-  defp refresh_companions(
-         %Work.Session{worker_job_document: %{"companions" => [_ | _] = pinned} = job} = session,
+  # TestSourceStagingRefusesChangedOrUnprovenFrozenObjects), unless it still
+  # holds the copy it staged before: a task woken the next day by review
+  # feedback on its pull request failed eight times on companions that had
+  # simply advanced (2026-09-28). Companions are read-only context, so before a
+  # session is created each is resolved again and a changed one is pinned anew.
+  # So is the repository of a conversation, a session that reads its default
+  # branch outside a task's workspace: nothing restores its old workspace, and
+  # once the worker's copies were removed to free its disk, a conversation
+  # picked up again failed every create the moment its branch moved
+  # (2026-10-14). A task's own source stays as it began; its checkpoint holds
+  # the tree it was taken from.
+  defp refresh_sources(
+         %Work.Session{worker_job_document: %{} = job} = session,
          root,
-         prepare
+         prepare,
+         reader
        ) do
+    if conversation?(session, job) or match?([_ | _], job["companions"]),
+      do: refresh_job(session, job, root, prepare, reader),
+      else: {:ok, session}
+  end
+
+  defp refresh_sources(session, _root, _prepare, _reader), do: {:ok, session}
+
+  defp refresh_job(session, job, root, prepare, reader) do
     with :ok <- uncreated(session),
          {:ok, snapshot} <- Settings.fetch(),
-         {:ok, current} <- companions(snapshot, Enum.map(pinned, & &1["name"]), root, prepare) do
-      if Enum.map(current, &source_commits/1) == Enum.map(pinned, &source_commits/1) do
-        {:ok, session}
-      else
-        repinned = Map.put(job, "companions", current)
-        repin(session, repinned)
-      end
+         source = current_source(snapshot, session, job, root, prepare),
+         {:ok, companions} <- current_companions(snapshot, job["companions"], root, prepare),
+         refreshed = %{job | "source" => source, "companions" => companions},
+         {:ok, refreshed} <- rechecked(refreshed, job, snapshot, reader) do
+      if refreshed == job, do: {:ok, session}, else: repin(session, refreshed)
     else
       # A placed session keeps the job the worker was already asked with.
       {:error, :coop_worker_job_requires_new_session} -> {:ok, session}
@@ -98,9 +111,52 @@ defmodule Ryker.CoopFleet.JobAuthority do
     end
   end
 
-  defp refresh_companions(session, _root, _prepare), do: {:ok, session}
+  defp conversation?(%Work.Session{workspace_task: nil} = session, %{"source" => %{}}) do
+    session.repository_source in [nil, Work.RepositorySource.default()]
+  end
 
-  defp source_commits(%{"source" => %{"binding" => binding}}) do
+  defp conversation?(_session, _job), do: false
+
+  # A repository that can't be read now keeps the source the job froze, as it
+  # did before conversations followed their branch.
+  defp current_source(snapshot, session, %{"source" => pinned} = job, root, prepare) do
+    with true <- conversation?(session, job),
+         {:ok, current} <-
+           source(
+             snapshot,
+             Work.RepositoryContext.working_copy(session),
+             session.repository_source,
+             root,
+             prepare
+           ),
+         false <- commits(current) == commits(pinned) do
+      current
+    else
+      _unchanged_or_unreadable -> pinned
+    end
+  end
+
+  defp current_companions(_snapshot, [], _root, _prepare), do: {:ok, []}
+
+  defp current_companions(snapshot, pinned, root, prepare) do
+    with {:ok, current} <- companions(snapshot, Enum.map(pinned, & &1["name"]), root, prepare) do
+      if Enum.map(current, &source_commits/1) == Enum.map(pinned, &source_commits/1),
+        do: {:ok, pinned},
+        else: {:ok, current}
+    end
+  end
+
+  # A working copy's check is its gate as of the job's base commit, so a
+  # source pinned anew is checked anew.
+  defp rechecked(%{"source" => same} = job, %{"source" => same}, _snapshot, _reader),
+    do: {:ok, job}
+
+  defp rechecked(job, _pinned, snapshot, reader),
+    do: job |> Map.delete("check") |> with_check(snapshot, reader)
+
+  defp source_commits(%{"source" => source}), do: commits(source)
+
+  defp commits(%{"binding" => binding}) do
     Map.take(
       binding,
       ~w(default_ref default_commit selected_ref selected_commit base_commit admitted_tree)
