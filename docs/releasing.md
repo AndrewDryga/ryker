@@ -46,7 +46,8 @@ it, requires safe paths, the executable, every migration in the tree and the lic
 CI publishes them. Production deployment is the Docker Compose project described in
 [`operations.md`](operations.md); durable recovery is in PostgreSQL, not in canary/promote
 metadata. CI runs the full gate's parts as parallel jobs on a clean runner for every push to
-`main`.
+`main`, and the release workflow takes that result for the tagged commit instead of running the
+gate again.
 
 ## Repository setup
 
@@ -107,7 +108,10 @@ git push origin main
 git push origin vX.Y.Z
 ```
 
-Watch `.github/workflows/release.yml` to completion, then confirm the GitHub Release contains:
+Watch `.github/workflows/release.yml` to completion, then confirm the GitHub Release contains the
+assets below. The workflow first finds CI's run for the tagged commit's push to `main`, waiting while
+it runs: a green run stands in for the gate, a red one refuses the release, and only when no run
+finished (a later push cancels the one before it) does the workflow run CI itself. It contains:
 
 - `ryker_X.Y.Z_elixir_linux_amd64.tar.gz`;
 - `checksums.txt`;

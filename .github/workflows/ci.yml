@@ -4,6 +4,8 @@ on:
   pull_request:
   push:
     branches: [main]
+  # A release reruns this only when no finished CI run proved its commit.
+  workflow_call:
 
 permissions:
   contents: read

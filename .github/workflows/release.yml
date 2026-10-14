@@ -12,28 +12,54 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  verify:
+  # The tagged commit reached main, and CI ran the full gate on that push. A
+  # release takes that result instead of spending the gate's time again, waiting
+  # for it while it still runs. A red result refuses the release; only a run that
+  # never finished (a later push cancels the one before it) leaves the release to
+  # run CI itself.
+  ci-result:
     runs-on: ubuntu-latest
-    # The same full gate CI runs, with the time CI gives it.
     timeout-minutes: 45
+    permissions:
+      actions: read
+    outputs:
+      passed: ${{ steps.find.outputs.passed }}
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Set up Erlang and Elixir
-        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
-        with:
-          version-file: .tool-versions
-          version-type: strict
-      - name: full gate
-        run: make check
+      - name: CI's result for the tagged commit
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -eu
+          while :; do
+            runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$SHA&event=push" \
+              --jq '[.workflow_runs[] | {status, conclusion}]')
+            echo "$runs" | jq -e 'any(.status != "completed")' >/dev/null || break
+            sleep 30
+          done
+          if echo "$runs" | jq -e 'any(.conclusion == "success")' >/dev/null; then
+            echo "CI passed on $SHA"
+            echo passed=true >>"$GITHUB_OUTPUT"
+          elif echo "$runs" | jq -e 'any(.conclusion == "failure")' >/dev/null; then
+            echo "CI failed on $SHA; fix main and tag a commit CI passed" >&2
+            exit 1
+          else
+            echo "no finished CI run on $SHA, so the release runs it"
+            echo passed=false >>"$GITHUB_OUTPUT"
+          fi
+
+  verify:
+    needs: ci-result
+    if: needs.ci-result.outputs.passed != 'true'
+    uses: ./.github/workflows/ci.yml
 
   # The build runs Ryker's own code and its dependencies' (Mix tasks, compile-time
   # macros), so it gets no signing rights: it hands the publish job only what it
   # built (2026-10-04 review).
   build:
-    needs: verify
+    needs: [ci-result, verify]
+    if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
