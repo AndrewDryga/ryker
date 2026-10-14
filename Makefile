@@ -1,9 +1,12 @@
 .DEFAULT_GOAL := dev-check
 
-.PHONY: quick retention-simulation product-e2e live-acceptance live-acceptance-wrapper-check eval-world-smoke eval-world eval-routing-replay eval-improvement-replay eval-replay eval-trend customer-check elixir-test elixir-check coverage elixir-release elixir-release-check release-dist control-plane-js-check shellcheck watchdog-check launch-agent-check model-download-check deploy-check backup-schedule-check keep-awake-check runtime-releases-check quick-check-check deps-audit test-db-ready dev-check check release-check clean
+.PHONY: quick retention-simulation product-e2e live-acceptance live-acceptance-wrapper-check eval-world-smoke eval-world eval-routing-replay eval-improvement-replay eval-replay eval-trend customer-check elixir-test elixir-static elixir-partitions static-check coverage elixir-release elixir-release-check release-dist control-plane-js-check shellcheck watchdog-check launch-agent-check model-download-check deploy-check backup-schedule-check keep-awake-check runtime-releases-check gate-check quick-check-check deps-audit test-db-ready dev-check check release-check clean
 
 LIVE_CHANNEL ?=
 DEV_CHECK_JOBS ?= 4
+# How dev-check leaves the `slow` capacity tests to the full gate; `make check`
+# runs elixir-partitions with nothing excluded.
+ELIXIR_CHECK_ARGS ?= --exclude slow
 EVAL_HISTORY ?= $(HOME)/.local/state/ryker/eval-history
 # How many world-eval shards run at once; each is its own VM, campaign database
 # and listener-port pair. Override with RYKER_WORLD_EVAL_SHARDS=8 on the
@@ -37,10 +40,14 @@ retention-simulation:
 	RYKER_TEST_ISOLATED=1 scripts/elixir-test.sh --include simulation \
 		test/ryker/retention/thirty_day_simulation_test.exs
 
-# ELIXIR_CHECK_ARGS is how dev-check leaves the `slow` capacity tests to the
-# full gate; `make check` runs the same target with nothing excluded.
-elixir-check:
-	RYKER_TEST_ISOLATED=1 scripts/elixir-test.sh --check $(ELIXIR_CHECK_ARGS)
+# Format, compile warnings, compile-time cycles, Credo and Sobelow: no
+# database, about half a minute.
+elixir-static:
+	scripts/elixir-test.sh --static
+
+# The suite, each partition in a fresh database.
+elixir-partitions:
+	RYKER_TEST_ISOLATED=1 scripts/elixir-test.sh --partitions $(ELIXIR_CHECK_ARGS)
 
 # Coverage instrumentation slows the suite and gates nothing; run it on demand.
 coverage:
@@ -181,6 +188,9 @@ keep-awake-check:
 runtime-releases-check:
 	scripts/runtime-releases_test.sh
 
+gate-check:
+	scripts/gate_test.sh
+
 quick-check-check:
 	scripts/quick-check_test.sh
 
@@ -200,17 +210,23 @@ test-db-ready:
 		docker compose --project-name ryker-kernel --file compose.test.yml up --detach --wait episode-db >/dev/null; \
 	fi
 
+# The checks that need no test database, side by side; dev-check runs them
+# before the suite, so a format slip fails in half a minute, not six.
+static-check:
+	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) elixir-static control-plane-js-check shellcheck
+
 # The commit and deploy gate: everything deterministic that the suite itself
 # proves, minus the `slow` capacity tests, and nothing that is already inside
 # it. The full gate runs the suite complete, the host replay again in its own
-# database, the script self-tests, and the simulation.
-dev-check:
-	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) ELIXIR_CHECK_ARGS="--exclude slow" \
-		elixir-check control-plane-js-check shellcheck
+# database, the script self-tests, and the simulation. scripts/gate.sh runs
+# dev-check on a snapshot of the checkout.
+dev-check: static-check
+	+$(MAKE) --no-print-directory elixir-partitions
 
 check: test-db-ready
 	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) \
-		elixir-check control-plane-js-check shellcheck eval-replay watchdog-check launch-agent-check model-download-check live-acceptance-wrapper-check deploy-check backup-schedule-check keep-awake-check runtime-releases-check quick-check-check deps-audit
+		static-check watchdog-check launch-agent-check model-download-check live-acceptance-wrapper-check deploy-check backup-schedule-check keep-awake-check runtime-releases-check gate-check quick-check-check deps-audit
+	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) ELIXIR_CHECK_ARGS= elixir-partitions eval-replay
 	+$(MAKE) --no-print-directory retention-simulation
 	scripts/test-eval-trend.sh
 

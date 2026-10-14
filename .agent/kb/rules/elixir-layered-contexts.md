@@ -570,7 +570,7 @@ Emisar's test rules Ryker follows (`elixir-layered-contexts.md` §7 there):
 - A passing run prints no log line: each test captures its own, and a
   failing test prints what it captured, so a line in a passing VM's output
   escaped every test, from a process still running after its test ended.
-  `scripts/elixir-test.sh --check` turns that VM red and names the lines
+  `scripts/elixir-test.sh --partitions` turns that VM red and names the lines
   (Emisar's "test output stays boring"); DBConnection's report of a stopped
   client is filtered out (`Ryker.TestSupport.LogFilters`).
 - A LiveView's async work settles with one `render_async/2`: the console's

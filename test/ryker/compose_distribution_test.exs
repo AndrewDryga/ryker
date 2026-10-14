@@ -198,7 +198,7 @@ defmodule Ryker.ComposeDistributionTest do
     script = File.read!("scripts/elixir-test.sh")
 
     [check] =
-      Regex.run(~r/if \[\[ \$\{1:-\} == "--check" \]\]; then\n(.*?)\nelse/s, script,
+      Regex.run(~r/if \[\[ \$\{1:-\} == "--partitions" \]\]; then\n(.*?)\nelse/s, script,
         capture: :all_but_first
       )
 

@@ -51,10 +51,19 @@ what the commit takes; `git commit --no-verify` skips it.
 Before committing, run:
 
 ```bash
-make dev-check
+scripts/gate.sh
 ```
 
-It checks formatting, compilation warnings, that no compile-time dependency cycle exists, Credo,
+It runs `make dev-check` on a snapshot of the checkout: HEAD plus every change in the working tree,
+new files included, written through a temporary index and checked out in a worktree under
+`~/.cache/ryker-gate` with a build directory of its own, kept between runs so a gate compiles only
+what changed. Editing on, other sessions' tests and their compiles cannot change the tree under it.
+One gate runs on the host at a time and none beside a model-world eval; a second one waits. The
+static checks run first, so a format slip fails in about half a minute. A test file that fails is run
+again alone; passing then means the host's load failed it, and the gate says so and passes. A tree
+that passed once passes again without rerunning. The whole output is in `~/.cache/ryker-gate/last.log`.
+
+`make dev-check` checks formatting, compilation warnings, that no compile-time dependency cycle exists, Credo,
 Sobelow's security checks, migrations, and the ExUnit suite except slow capacity tests, plus the
 control-plane JavaScript tests and ShellCheck. Sobelow fails on any finding; a reviewed false
 positive carries `# sobelow_skip ["Check"]` with its reason above the function (`.sobelow-conf`). Nothing in it calls a model. Plugs initialize at runtime in development and

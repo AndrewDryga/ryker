@@ -22,8 +22,11 @@ fi
 # Hex 2.5.1's published archive does not load completely on the pinned OTP 28 toolchain.
 hex_version=2.4.1
 
-export HEX_HOME=${RYKER_HEX_HOME:-$root/.elixir/hex}
-export MIX_HOME=${RYKER_MIX_HOME:-$root/.elixir/mix-$hex_version}
+# The checkout's own Hex and Mix homes; scripts/gate.sh points its worktree at
+# the source checkout's, so a gate never installs Hex again.
+elixir_home=${RYKER_ELIXIR_HOME:-$root/.elixir}
+export HEX_HOME=$elixir_home/hex
+export MIX_HOME=$elixir_home/mix-$hex_version
 
 if [[ ! -d "$MIX_HOME/archives/hex-$hex_version" ]]; then
   mix local.hex "$hex_version" --force >/dev/null
@@ -42,7 +45,7 @@ if [[ ${MIX_ENV:-dev} == test ]]; then
 fi
 
 for dependency in "${required_dependencies[@]}"; do
-  if [[ ! -d "$root/deps/$dependency" ]]; then
+  if [[ ! -d "${MIX_DEPS_PATH:-$root/deps}/$dependency" ]]; then
     mix deps.get --only "${MIX_ENV:-dev}" --check-locked >/dev/null
     break
   fi

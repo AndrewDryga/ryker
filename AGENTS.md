@@ -44,10 +44,14 @@ Use the narrowest validation that proves the current edit while iterating:
    self-test of each changed script, the three source audits and each changed file's owning
    test. The pre-commit hook runs it on what the commit takes; `git commit --no-verify`
    skips it.
-2. Run `make dev-check` once before committing. It is the deterministic repository gate:
-   formatting, warnings-as-errors, no compile-time dependency cycle, Credo, Sobelow, ExUnit
-   except slow capacity tests in parallel partitions with a fresh database each,
-   control-plane JavaScript, and ShellCheck. It takes a few minutes and never calls a model.
+2. Run `scripts/gate.sh` once before committing. It runs `make dev-check`, the
+   deterministic repository gate, on a snapshot of the checkout (HEAD plus every change,
+   new files included) in a worktree and build directory of its own, one gate per host:
+   formatting, warnings-as-errors, no compile-time dependency cycle, Credo, Sobelow,
+   control-plane JavaScript and ShellCheck first, then ExUnit except slow capacity tests in
+   parallel partitions with a fresh database each. A file that fails is run again alone,
+   and passing then means the host's load failed it. It takes a few minutes and never
+   calls a model. Do not copy the tree into a worktree by hand or stash to gate it.
 3. Commit, then run `scripts/deploy.sh` (see "Finish by deploying").
 4. `make check` is the full gate: dev-check plus the deterministic host replay in an
    isolated database, the watchdog, deploy, live-acceptance and runtime-release script
@@ -60,7 +64,7 @@ Use the narrowest validation that proves the current edit while iterating:
    requires it. Do not substitute live smoke tests for focused offline tests.
 
 Do not repeatedly run credentialed model evals during ordinary edit-test cycles. Agents
-working in parallel run their owning tests; one `make dev-check` on the merged tree before
+working in parallel run their owning tests; one `scripts/gate.sh` on the merged tree before
 the commit is the gate, not one per agent.
 
 The same commands work inside a Coop box: Coop starts the test PostgreSQL as the box's sidecar

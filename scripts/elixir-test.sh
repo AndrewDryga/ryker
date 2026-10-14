@@ -5,6 +5,19 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 
 cd "$root"
 
+# The static half of the gate needs no database. No compile-time dependency
+# cycle, as Emisar's gate: every file in one recompiles on any change to any of
+# them, and until 2026-10-08 one cycle held 124 files. Sobelow's security checks
+# run as Emisar's do (.sobelow-conf).
+if [[ ${1:-} == "--static" ]]; then
+  exec env MIX_ENV=test scripts/elixir-mix.sh "do" \
+    format --check-formatted + \
+    compile --warnings-as-errors + \
+    xref graph --format cycles --label compile --fail-above 0 + \
+    credo --strict + \
+    sobelow --config
+fi
+
 databases=()
 private_postgres=
 
@@ -100,6 +113,10 @@ test_partitions() {
   ((count >= 1)) || count=1
   logs=$(mktemp -d "${TMPDIR:-/tmp}/ryker-test-partitions.XXXXXX")
 
+  selected() {
+    [[ -s $logs/$1.files ]]
+  }
+
   while IFS= read -r file; do
     if grep -q -E '^[[:space:]]*use [A-Za-z.]+,.*async: true' "$file"; then
       echo "$file" >>"$logs/0.files"
@@ -110,7 +127,7 @@ test_partitions() {
   done < <(find test -name '*_test.exs' | LC_ALL=C sort)
 
   for ((partition = 0; partition <= count; partition++)); do
-    [[ -s $logs/$partition.files ]] || continue
+    selected "$partition" || continue
 
     if [[ $isolate == 1 ]]; then
       databases+=("${PGDATABASE}_p$partition")
@@ -122,7 +139,7 @@ test_partitions() {
   done
 
   for ((partition = 0; partition <= count; partition++)); do
-    [[ -s $logs/$partition.files ]] || continue
+    selected "$partition" || continue
 
     if wait "${pids[partition]}"; then
       if grep -E -q "$noise" "$logs/$partition.log"; then
@@ -168,18 +185,9 @@ test_files() {
     test "$@" "${files[@]}"
 }
 
-if [[ ${1:-} == "--check" ]]; then
+if [[ ${1:-} == "--partitions" ]]; then
   shift
-  # No compile-time dependency cycle, as Emisar's gate: every file in one
-  # recompiles on any change to any of them, and until 2026-10-08 one cycle held
-  # 124 files. Sobelow's security checks run as Emisar's do (.sobelow-conf).
-  env MIX_ENV=test scripts/elixir-mix.sh "do" \
-    format --check-formatted + \
-    compile --warnings-as-errors + \
-    xref graph --format cycles --label compile --fail-above 0 + \
-    credo --strict + \
-    sobelow --config
-  # A test file that compiles with a warning fails the gate, as lib does above.
+  # A test file that compiles with a warning fails the gate, as lib does in --static.
   test_partitions --warnings-as-errors "$@"
 else
   if [[ $isolate == 1 ]]; then

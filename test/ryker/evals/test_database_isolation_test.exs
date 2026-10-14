@@ -14,7 +14,7 @@ defmodule Ryker.Evals.TestDatabaseIsolationTest do
       # Read the recipe with a clean make environment: inside `make check` this
       # child would otherwise inherit the parent's jobserver flags and warn.
       {commands, 0} =
-        System.cmd("make", ["-s", "-n", "elixir-check"],
+        System.cmd("make", ["-s", "-n", "elixir-partitions"],
           cd: @repository,
           env: [{"MAKEFLAGS", nil}, {"MFLAGS", nil}, {"MAKELEVEL", nil}]
         )
@@ -22,7 +22,7 @@ defmodule Ryker.Evals.TestDatabaseIsolationTest do
       command =
         commands
         |> String.split("\n")
-        |> Enum.find(&String.contains?(&1, "elixir-test.sh --check"))
+        |> Enum.find(&String.contains?(&1, "elixir-test.sh --partitions"))
 
       assert command
       root = Path.join(System.tmp_dir!(), "test-database-isolation-#{Ecto.UUID.generate()}")
@@ -142,7 +142,7 @@ defmodule Ryker.Evals.TestDatabaseIsolationTest do
     """)
 
     {output, status} =
-      System.cmd("bash", ["scripts/elixir-test.sh", "--check"],
+      System.cmd("bash", ["scripts/elixir-test.sh", "--partitions"],
         cd: root,
         stderr_to_stdout: true,
         env: [
