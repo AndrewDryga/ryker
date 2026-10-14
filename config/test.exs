@@ -35,6 +35,10 @@ config :logger, level: :warning
 
 config :ryker, :credential_key, :binary.copy(<<73>>, 32)
 
+# The HTTP pool lets go of a connection idle this long instead of reusing it
+# (`Ryker.Delivery.HTTPClient.pool_options/0`); short, so a test waits little.
+config :ryker, :http_idle_connection_ms, 200
+
 # Voice messages are transcribed by a deterministic stand-in: no test runs a
 # speech model.
 config :ryker, :transcriber, Ryker.TestTranscriber

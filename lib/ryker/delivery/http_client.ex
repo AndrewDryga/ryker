@@ -46,6 +46,21 @@ defmodule Ryker.Delivery.HTTPClient do
   end
 
   @pool Ryker.CoopFinch
+  # The shortest time any server Ryker talks to keeps an idle connection is the
+  # model servers' five seconds.
+  @idle_connection_ms 4_000
+
+  @doc """
+  The options the HTTP pool starts with. A connection idle longer than any server
+  keeps one is closed rather than reused: the pool kept idle connections for good,
+  and one in fourteen of the tenant install's GitHub polls went out on a connection
+  GitHub was closing, and failed with `closed` (2026-10-14).
+  """
+  @spec pool_options() :: keyword()
+  def pool_options do
+    idle_ms = Application.get_env(:ryker, :http_idle_connection_ms, @idle_connection_ms)
+    [name: @pool, pools: %{default: [conn_max_idle_time: idle_ms]}]
+  end
 
   @doc "A request for `stream/4`."
   @spec build(atom(), String.t(), [{String.t(), String.t()}], iodata() | nil) ::
@@ -60,7 +75,7 @@ defmodule Ryker.Delivery.HTTPClient do
   @spec with_pool((-> result)) :: result | {:error, {:http_pool_unavailable, term()}}
         when result: term()
   def with_pool(function) do
-    case Finch.start_link(name: @pool) do
+    case Finch.start_link(pool_options()) do
       {:ok, pid} ->
         try do
           function.()

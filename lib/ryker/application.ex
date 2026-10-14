@@ -19,7 +19,7 @@ defmodule Ryker.Application do
     children =
       [
         Ryker.Repo,
-        {Finch, name: Ryker.CoopFinch},
+        {Finch, Ryker.Delivery.HTTPClient.pool_options()},
         Ryker.PubSub,
         Ryker.Emisar.ToolCache,
         {DynamicSupervisor, name: Ryker.Runtime.Supervisor, strategy: :one_for_one}
