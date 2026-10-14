@@ -15,9 +15,10 @@
 # It only moves forward: a branch that does not build on what runs is refused.
 # It backs up, upgrades with scripts/compose.sh (which pins the release and
 # keeps the worker), and moves the worker when the commit pins another Coop.
-# A failed upgrade restores the backup it took and puts the checkout back, and
-# that commit is not tried again; the next move of the branch is. Each attempt
-# is a line in ~/.local/state/ryker-upgrade/upgrades.log.
+# A failed upgrade puts the checkout back and the release before back in its
+# pin; when that release no longer serves, it restores the backup it took. That
+# commit is not tried again; the next move of the branch is. Each attempt is a
+# line in ~/.local/state/ryker-upgrade/upgrades.log.
 set -uo pipefail
 
 repository=$(cd "$(dirname "$0")/.." && pwd)
@@ -62,6 +63,8 @@ fi
 
 record "upgrading ${current:0:12} -> ${target:0:12}"
 pin_before=$(coop_pin)
+previous_version=$(compose_env_value RYKER_VERSION "$env_file")
+previous_image=$(compose_env_value RYKER_IMAGE "$env_file")
 if ! scripts/compose.sh backup </dev/null; then
   record "FAILED ${target:0:12}: the backup before it did not complete; nothing changed"
   echo "$target" >"$upgrade_state/failed"
@@ -71,24 +74,29 @@ fi
 backup=$(ls -t "$state_dir"/backups/*.tar.gz | head -n 1)
 git merge --ff-only --quiet "$target"
 
-failed=
 if ! scripts/compose.sh upgrade </dev/null; then
-  failed="the upgrade"
-elif [[ $(coop_pin) != "$pin_before" ]] && ! scripts/compose.sh worker-upgrade </dev/null; then
-  failed="the worker upgrade"
+  echo "$target" >"$upgrade_state/failed"
+  git reset --quiet --hard "$current"
+  # An upgrade that failed before it replaced Ryker (an image that did not
+  # build) left the release before it serving and the database untouched:
+  # only the pin goes back, and nothing written since the backup is lost.
+  control_port=$(compose_env_value RYKER_CONTROL_PORT "$env_file")
+  probe_console "$(control_origin "$(compose_env_value RYKER_CONTROL_BIND "$env_file")" "${control_port:-4321}")"
+  if [[ $readyz_code == 200 && $running_version == "$previous_version" ]]; then
+    pin_release "$previous_version" "$previous_image"
+    record "FAILED ${target:0:12}: the upgrade failed before it replaced $previous_version, which still runs"
+  elif scripts/compose.sh restore "$backup" </dev/null; then
+    record "FAILED ${target:0:12}: the upgrade failed; restored ${current:0:12} from $(basename "$backup")"
+  else
+    record "FAILED ${target:0:12}: the upgrade failed, and so did restoring $(basename "$backup"); the install needs a person"
+  fi
+  exit 1
 fi
 
-if [[ -z $failed ]]; then
-  rm -f "$upgrade_state/failed"
-  record "upgraded ${current:0:12} -> ${target:0:12}"
-  exit 0
+# Ryker runs the new release; a worker that did not move keeps the one it ran.
+if [[ $(coop_pin) != "$pin_before" ]] && ! scripts/compose.sh worker-upgrade </dev/null; then
+  record "upgraded ${current:0:12} -> ${target:0:12}, but the worker upgrade failed; the worker runs the Coop it ran"
+  exit 1
 fi
-
-echo "$target" >"$upgrade_state/failed"
-git reset --quiet --hard "$current"
-if scripts/compose.sh restore "$backup" </dev/null; then
-  record "FAILED ${target:0:12}: $failed failed; restored ${current:0:12} from $(basename "$backup")"
-else
-  record "FAILED ${target:0:12}: $failed failed, and so did restoring $(basename "$backup"); the install needs a person"
-fi
-exit 1
+rm -f "$upgrade_state/failed"
+record "upgraded ${current:0:12} -> ${target:0:12}"

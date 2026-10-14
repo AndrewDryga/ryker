@@ -178,8 +178,9 @@ git push origin main:tenant/blitz
 
 It moves only forward: a branch that does not build on the commit that runs is refused. It takes a
 backup, runs `upgrade`, and runs `worker-upgrade` when the commit pins another Coop. A failed upgrade
-restores the backup it took and puts the checkout back, and that commit is not tried again; the next
-push of the branch is. Each attempt is a line in `~/.local/state/ryker-upgrade/upgrades.log` on the
+puts the checkout and the pin back, and restores the backup it took only when the release before no
+longer serves, so an image that did not build loses nothing written since. That commit is not tried
+again; the next push of the branch is. A worker that did not move leaves Ryker on the new release. Each attempt is a line in `~/.local/state/ryker-upgrade/upgrades.log` on the
 host, and the watchdog here sees the new version through the install's readiness.
 
 Once the new release is ready, upgrade removes this installation's older source builds
