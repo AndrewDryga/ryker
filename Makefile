@@ -1,12 +1,9 @@
 .DEFAULT_GOAL := dev-check
 
-.PHONY: quick retention-simulation product-e2e live-acceptance live-acceptance-wrapper-check eval-world-smoke eval-world eval-routing-replay eval-improvement-replay eval-replay eval-trend customer-check elixir-test elixir-static elixir-partitions serial-times static-check coverage elixir-release elixir-release-check release-dist control-plane-js-check shellcheck script-checks watchdog-check launch-agent-check model-download-check deploy-check backup-schedule-check keep-awake-check runtime-releases-check gate-check quick-check-check agent-guard-check land-check memory-lint-check doctor-check auto-upgrade-check eval-trend-check deps-audit test-db-ready dev-check check release-check clean
+.PHONY: quick retention-simulation product-e2e live-acceptance live-acceptance-wrapper-check eval-world-smoke eval-world eval-routing-replay eval-improvement-replay eval-replay eval-trend customer-check elixir-test elixir-static elixir-partitions slow-tests serial-times static-check coverage elixir-release elixir-release-check release-dist control-plane-js-check shellcheck script-checks watchdog-check launch-agent-check model-download-check deploy-check backup-schedule-check keep-awake-check runtime-releases-check gate-check quick-check-check agent-guard-check land-check memory-lint-check doctor-check auto-upgrade-check eval-trend-check deps-audit test-db-ready dev-check check release-check clean
 
 LIVE_CHANNEL ?=
 DEV_CHECK_JOBS ?= 4
-# How dev-check leaves the `slow` capacity tests to the full gate; `make check`
-# runs elixir-partitions with nothing excluded.
-ELIXIR_CHECK_ARGS ?= --exclude slow
 EVAL_HISTORY ?= $(HOME)/.local/state/ryker/eval-history
 # How many world-eval shards run at once; each is its own VM, campaign database
 # and listener-port pair. Override with RYKER_WORLD_EVAL_SHARDS=8 on the
@@ -45,9 +42,15 @@ retention-simulation:
 elixir-static:
 	scripts/elixir-test.sh --static
 
-# The suite, each partition in a fresh database.
+# The suite but its `slow` capacity tests, each partition in a fresh database.
 elixir-partitions:
-	RYKER_TEST_ISOLATED=1 scripts/elixir-test.sh --partitions $(ELIXIR_CHECK_ARGS)
+	RYKER_TEST_ISOLATED=1 scripts/elixir-test.sh --partitions --exclude slow
+
+# The `slow` capacity tests, which only the full gate runs, in a VM of their
+# own: run inside the partitions they made one of CI's shards twice as long as
+# the others, beyond the times the partitions are dealt by (2026-10-14).
+slow-tests:
+	RYKER_TEST_ISOLATED=1 scripts/elixir-test.sh --warnings-as-errors --only slow
 
 # Measures each serial test file, so the partitions are dealt to end together.
 # Run it and commit test/serial-times.txt when dev-check's serial partitions
@@ -253,7 +256,7 @@ dev-check: static-check
 # CI runs the same parts as jobs of their own (.github/workflows/ci.yml).
 check: test-db-ready
 	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) static-check script-checks deps-audit
-	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) ELIXIR_CHECK_ARGS= elixir-partitions eval-replay
+	+$(MAKE) --no-print-directory -j$(DEV_CHECK_JOBS) elixir-partitions slow-tests eval-replay
 	+$(MAKE) --no-print-directory retention-simulation
 
 release-check: check elixir-release-check

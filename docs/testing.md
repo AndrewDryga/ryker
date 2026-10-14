@@ -125,7 +125,8 @@ deploy.
 CI runs the same parts as parallel jobs on pull requests and every push to `main`
 (`.github/workflows/ci.yml`): the static checks with the script self-tests and package audits, the
 suite in five jobs (`RYKER_TEST_PARTITION` 0 is the async files, 1 to 4 deal the serial files),
-the host replay, and the retention simulation, each restoring the compiled dependencies and build
+the slow capacity tests (`make slow-tests`; every partition leaves them out, so the measured times
+that deal the files hold on CI too), the host replay, and the retention simulation, each restoring the compiled dependencies and build
 the newest push to `main` saved. `test/ryker/ci_workflow_test.exs` fails when a part of `make check`
 has no job.
 

@@ -89,10 +89,37 @@ jobs:
             mix-test-${{ runner.os }}-
       # Partition 0 is the async files; the serial files are dealt across 1 to 4.
       - name: the suite's partition ${{ matrix.partition }}
-        run: make elixir-partitions ELIXIR_CHECK_ARGS=
+        run: make elixir-partitions
         env:
           RYKER_TEST_PARTITIONS: 4
           RYKER_TEST_PARTITION: ${{ matrix.partition }}
+
+  slow-tests:
+    name: slow capacity tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Set up Erlang and Elixir
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          version-file: .tool-versions
+          version-type: strict
+      - name: restore the compiled dependencies and build
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            deps
+            _build/test
+            .elixir
+          key: mix-test-${{ runner.os }}-${{ hashFiles('.tool-versions', 'mix.lock') }}-${{ github.sha }}
+          restore-keys: |
+            mix-test-${{ runner.os }}-${{ hashFiles('.tool-versions', 'mix.lock') }}-
+            mix-test-${{ runner.os }}-
+      - name: the capacity tests the partitions leave out
+        run: make slow-tests
 
   eval-replay:
     name: host replay
