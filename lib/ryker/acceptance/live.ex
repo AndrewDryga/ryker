@@ -23,6 +23,7 @@ defmodule Ryker.Acceptance.Live do
   @maximum_timeout_ms 30 * 60 * 1_000
   @operation_fields [
     :admit,
+    :channel_environment,
     :conversation_info,
     :monotonic_ms,
     :now,
@@ -49,6 +50,7 @@ defmodule Ryker.Acceptance.Live do
          :ok <- settings.operations.ready.(),
          {:ok, channel} <- settings.operations.conversation_info.(channel_ref),
          :ok <- safe_channel(channel, channel_ref),
+         {:ok, settings} <- in_channel_environment(settings),
          {:ok, root_message_ref} <- post_root(settings),
          {:ok, first} <- execute_input(settings, root_message_ref, :first, []),
          {:ok, followup} <-
@@ -141,8 +143,9 @@ defmodule Ryker.Acceptance.Live do
          execution_mode: execution_mode,
          operations: operations,
          operator_ref: operator_ref,
-         environment_ref: slack.default_environment,
-         repository_ref: environment_repository(slack),
+         environment_ref: nil,
+         environments: Map.get(slack, :environments, %{}),
+         repository_ref: nil,
          run_id: run_id,
          timeout_ms: timeout_ms,
          workspace_ref: slack.identity.workspace_ref
@@ -164,25 +167,43 @@ defmodule Ryker.Acceptance.Live do
 
   defp options(_options), do: {:error, {:invalid_live_acceptance, :options}}
 
-  defp slack(%{
-         slack:
-           %{default_environment: environment, identity: identity, operators: operators} = slack
-       })
-       when is_binary(environment) and is_map(identity) and is_list(operators) do
-    with :ok <- reference(environment, :environment_ref),
-         :ok <- identity(identity) do
-      {:ok, slack}
-    end
+  # An install need not have a default environment: each channel can choose its own
+  # (2026-10-14). The lane runs in the one its test channel runs in (`in_channel_environment/1`).
+  defp slack(%{slack: %{identity: identity, operators: operators} = slack})
+       when is_map(identity) and is_list(operators) do
+    with :ok <- identity(identity), do: {:ok, slack}
   end
 
   defp slack(_configuration), do: {:error, :live_acceptance_slack_not_configured}
 
-  # The repository the default environment changes by default, its first,
+  # The lane works in the environment its test channel runs in. One that runs in no environment
+  # can prove no work, so the lane refuses it before it posts anything.
+  defp in_channel_environment(settings) do
+    case settings.operations.channel_environment.(settings.channel_ref) do
+      {:ok, nil} ->
+        {:error, :live_acceptance_channel_has_no_environment}
+
+      {:ok, environment_ref} ->
+        with :ok <- reference(environment_ref, :environment_ref) do
+          {:ok,
+           %{
+             settings
+             | environment_ref: environment_ref,
+               repository_ref: environment_repository(settings.environments, environment_ref)
+           }}
+        end
+
+      _invalid ->
+        {:error, {:invalid_live_acceptance, :channel_environment}}
+    end
+  end
+
+  # The repository the channel's environment changes by default, its first,
   # when it has one. An environment's work profile lists its repositories; a
   # single repository_ref is a shape environments no longer have, and reading
   # it said every environment had none (2026-10-04 review).
-  defp environment_repository(slack) do
-    case get_in(slack, [:environments, slack.default_environment]) do
+  defp environment_repository(environments, environment_ref) do
+    case Map.get(environments, environment_ref) do
       %{work_profile: %{repositories: [repository_ref | _read_only]}} -> repository_ref
       _none -> nil
     end
@@ -219,6 +240,7 @@ defmodule Ryker.Acceptance.Live do
 
     operations(configuration, slack, %{
       admit: &production_admit(&1, gateway),
+      channel_environment: &channel_environment_ref(slack, &1),
       conversation_info: &Slack.Client.conversation_info(client, &1),
       monotonic_ms: fn -> System.monotonic_time(:millisecond) end,
       now: &DateTime.utc_now/0,
@@ -234,8 +256,22 @@ defmodule Ryker.Acceptance.Live do
   defp operations(_configuration, _slack, _operations),
     do: {:error, {:invalid_live_acceptance, :operations}}
 
+  # The environment the channel's messages run in, as the product reads it.
+  defp channel_environment_ref(slack, channel_ref) do
+    {:ok,
+     Slack.ChannelConfigurations.channel_environment_ref(
+       slack.identity.workspace_ref,
+       channel_ref,
+       slack.default_environment
+     )}
+  end
+
   defp operation_arity(name) when name in [:monotonic_ms, :now, :ready], do: 0
-  defp operation_arity(name) when name in [:admit, :conversation_info, :sleep], do: 1
+
+  defp operation_arity(name)
+       when name in [:admit, :channel_environment, :conversation_info, :sleep],
+       do: 1
+
   defp operation_arity(:observe), do: 2
   defp operation_arity(:post_message), do: 4
 

@@ -228,6 +228,17 @@ defmodule Ryker.Slack.ChannelConfigurations do
   defp configuration(workspace_ref, channel_ref),
     do: Repo.peek(ChannelConfiguration.Query.by_channel(workspace_ref, channel_ref))
 
+  @doc """
+  The environment a channel's work runs in: the one a configured channel chose, or none, and
+  `default_environment` for a channel on the defaults.
+  """
+  @spec channel_environment_ref(String.t(), String.t(), String.t() | nil) :: String.t() | nil
+  def channel_environment_ref(workspace_ref, channel_ref, default_environment) do
+    workspace_ref
+    |> configuration(channel_ref)
+    |> environment_ref(%{default_environment: default_environment})
+  end
+
   @spec fetch_membership(String.t(), String.t()) ::
           {:ok, ChannelMembership.t()} | {:error, :not_found}
   def fetch_membership(workspace_ref, channel_ref) do

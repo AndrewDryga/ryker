@@ -27,6 +27,7 @@ defmodule Ryker.Acceptance.LiveTest do
         send(parent, {:envelope, envelope})
         {:ok, "ingress-input:#{get_in(envelope, ["payload", "event_id"])}"}
       end,
+      channel_environment: fn "C-TEST" -> {:ok, "ryker"} end,
       conversation_info: fn "C-TEST" ->
         {:ok,
          %{
@@ -244,6 +245,52 @@ defmodule Ryker.Acceptance.LiveTest do
                timeout_ms: 1
              ) == expected
     end
+  end
+
+  # The tenant install, 2026-10-14: two environments, each chosen by its own channels, and no
+  # default. The lane required a default environment and refused that healthy install as
+  # `:live_acceptance_slack_not_configured`, so the one end-to-end proof of a release could not
+  # run where it was needed. A channel runs in the environment it chose, as the product reads it.
+  test "an install with no default environment is proved in the environment its test channel chose" do
+    parent = self()
+
+    configuration =
+      update_in(configuration(), [:slack], fn slack ->
+        %{
+          slack
+          | default_environment: nil,
+            environments: %{
+              "ops" => %{work_profile: %{repositories: ["ops-tools"]}},
+              "web" => %{work_profile: %{repositories: ["web-app", "shared-ui"]}}
+            }
+        }
+      end)
+
+    operations =
+      parent
+      |> base_operations()
+      |> Map.put(:channel_environment, fn "C-TEST" -> {:ok, "web"} end)
+
+    assert Live.run(configuration, "C-TEST",
+             operations: operations,
+             run_id: "no-default",
+             timeout_ms: 1
+           ) == {:error, {:live_acceptance_timeout, "no-default:first"}}
+
+    assert_received :posted
+    assert_receive {:envelope, first}
+
+    assert get_in(first, ["payload", "event", "text"]) =~
+             "Read the first line of README.md in the repository web-app of the environment web"
+
+    # A test channel that runs in no environment can prove no work, so the lane refuses it before
+    # posting anything.
+    nowhere = Map.put(operations, :channel_environment, fn "C-TEST" -> {:ok, nil} end)
+
+    assert Live.run(configuration, "C-TEST", operations: nowhere, run_id: "nowhere") ==
+             {:error, :live_acceptance_channel_has_no_environment}
+
+    refute_received :posted
   end
 
   test "invalid, empty, and timed out observations fail with an exact reason" do
@@ -464,6 +511,7 @@ defmodule Ryker.Acceptance.LiveTest do
         send(parent, {:envelope, envelope})
         {:ok, "ingress-input:accepted"}
       end,
+      channel_environment: fn "C-TEST" -> {:ok, "ryker"} end,
       conversation_info: fn "C-TEST" ->
         {:ok,
          %{

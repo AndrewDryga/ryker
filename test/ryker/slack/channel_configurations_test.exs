@@ -141,6 +141,34 @@ defmodule Ryker.Slack.ChannelConfigurationsTest do
     end
   end
 
+  # Live acceptance asks which environment its test channel's work runs in, the way the product
+  # reads it. It read only the default, so it refused the tenant install, which has none
+  # (2026-10-14).
+  test "a channel works in the environment it chose, or none, and in the default without a setting" do
+    assert ChannelConfigurations.channel_environment_ref("TCE3E523134AD", "C456", "production") ==
+             "production"
+
+    assert {:ok, _joined} =
+             ChannelConfigurations.observe_membership(
+               membership(:joined, "event:join-environment-ref"),
+               %{default_environment: nil, environments: []}
+             )
+
+    assert ChannelConfigurations.channel_environment_ref("TCE3E523134AD", "C456", "production") ==
+             nil
+
+    assert {:ok, %{status: :saved}} =
+             ChannelConfigurations.select_environment(
+               "TCE3E523134AD",
+               "C456",
+               "staging",
+               "control-plane:local"
+             )
+
+    assert ChannelConfigurations.channel_environment_ref("TCE3E523134AD", "C456", "production") ==
+             "staging"
+  end
+
   # The channel page on the web chooses an environment the same way the
   # welcome's Customize saves one: a new revision, attributed to who chose it.
   # An environment nobody saved can never become a channel's.

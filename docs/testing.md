@@ -295,7 +295,8 @@ Nothing is copied out of `.ryker/compose.env`, no second Ryker runs, and the lan
 running release to report the version it was built as.
 
 The lane injects uniquely identified synthetic configured-operator inputs because a bot token
-cannot impersonate a human. It does not start a second Slack socket or product runtime. The proof
+cannot impersonate a human. It asks for work in the environment the test channel runs in, as
+the product resolves it, and refuses a channel that runs in no environment. It does not start a second Slack socket or product runtime. The proof
 requires two settled turns in one episode, one Coop session, the exact root thread, nonempty rendered
 replies, and typed external receipts.
 
