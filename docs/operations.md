@@ -167,6 +167,21 @@ out (`RYKER_WORKER_IDLE_TIMEOUT`), then pins the image and replaces only the wor
 seconds. It keeps the image it replaced as the way back and removes older worker images. Run it on
 the host of each install, after `git pull`.
 
+An install on another machine can upgrade itself instead, with nobody on its host:
+`scripts/install-auto-upgrade.sh` installs a launch agent there that runs `scripts/auto-upgrade.sh`
+every five minutes, and `RYKER_UPGRADE_REF` in its `compose.env` names the branch of `origin` it
+follows, for example `tenant/blitz`. Pushing that branch is the upgrade:
+
+```bash
+git push origin main:tenant/blitz
+```
+
+It moves only forward: a branch that does not build on the commit that runs is refused. It takes a
+backup, runs `upgrade`, and runs `worker-upgrade` when the commit pins another Coop. A failed upgrade
+restores the backup it took and puts the checkout back, and that commit is not tried again; the next
+push of the branch is. Each attempt is a line in `~/.local/state/ryker-upgrade/upgrades.log` on the
+host, and the watchdog here sees the new version through the install's readiness.
+
 Once the new release is ready, upgrade removes this installation's older source builds
 (`ryker:0.1.0-source.*`). It keeps the release it started and the one it replaced, which a restore
 of the backup taken before the upgrade runs, and it never removes a tagged release or another tag.
