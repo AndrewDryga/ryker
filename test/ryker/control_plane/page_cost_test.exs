@@ -23,4 +23,12 @@ defmodule Ryker.ControlPlane.PageCostTest do
       refute log =~ ~r/T0123456789|C0123456789|0b0c3590/
     end
   end
+
+  test "a page read slower than the configured time is logged as slow" do
+    Ryker.Config.put_override(:page_slow_ms, 0)
+
+    log = capture_log(fn -> PageCost.measure("/timeline", false, fn -> :ok end) end)
+
+    assert log =~ "Slow page /timeline (first render): "
+  end
 end

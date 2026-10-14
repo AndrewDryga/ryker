@@ -39,6 +39,12 @@ config :ryker, :credential_key, :binary.copy(<<73>>, 32)
 # (`Ryker.Delivery.HTTPClient.pool_options/0`); short, so a test waits little.
 config :ryker, :http_idle_connection_ms, 200
 
+# A console page read slower than this is logged as slow (Ryker.ControlPlane.PageCost).
+# Under a loaded gate host test pages took a second, and the warning, logged by a LiveView
+# that outlived its test, failed the gate's rule that a passing run prints nothing
+# (2026-10-14). A page that runs too many queries is still logged at any speed.
+config :ryker, :page_slow_ms, 60_000
+
 # Voice messages are transcribed by a deterministic stand-in: no test runs a
 # speech model.
 config :ryker, :transcriber, Ryker.TestTranscriber

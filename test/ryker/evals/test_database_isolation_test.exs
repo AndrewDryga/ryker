@@ -22,11 +22,25 @@ defmodule Ryker.Evals.TestDatabaseIsolationTest do
       databases = for [database, "do ecto.create" <> _] <- calls, do: database
       assert Enum.all?(databases, &(&1 =~ ~r/^ryker_test_\d+_\d+_p[012]$/))
       assert length(Enum.uniq(databases)) == 3
-      dropped = for [database, "ecto.drop --quiet"] <- calls, do: database
+      dropped = for [database, "ecto.drop --quiet --force-drop"] <- calls, do: database
       assert Enum.sort(dropped) == Enum.sort(databases)
       refute Enum.any?(calls, &(hd(&1) == "inherited_database_must_not_be_touched"))
       assert status == @exit_status
     end
+  end
+
+  test "serial files are dealt by their measured time, the longest first, to the least loaded" do
+    # In path order, four partitions ended 103 s apart (2026-10-14). b takes as
+    # long as d and e together, so it gets a partition of its own; c, an async
+    # file, is never dealt; a file with no time counts as the median.
+    times = "100 test/ryker/b_test.exs\n10 test/ryker/d_test.exs\n7 test/ryker/c_test.exs\n"
+    {calls, 37} = run_partitions(%{"ISOLATION_EXIT" => "37"}, times)
+
+    assert suites(calls) == %{
+             "p0" => ["test/ryker/a_test.exs", "test/ryker/c_test.exs"],
+             "p1" => ["test/ryker/b_test.exs"],
+             "p2" => ["test/ryker/d_test.exs", "test/ryker/e_test.exs"]
+           }
   end
 
   test "a CI job runs its one partition's files and no other's" do
@@ -82,7 +96,9 @@ defmodule Ryker.Evals.TestDatabaseIsolationTest do
           {"PATH", Path.join(root, "bin") <> ":" <> System.fetch_env!("PATH")},
           {"RYKER_TEST_ISOLATED", "0"},
           {"RYKER_TEST_PARTITIONS", "1"},
-          {"RYKER_TEST_PARTITION", nil}
+          {"RYKER_TEST_PARTITION", nil},
+          {"RYKER_TEST_TIMES_OUT", nil},
+          {"RYKER_TEST_TIMES", nil}
         ]
       )
 
@@ -162,7 +178,7 @@ defmodule Ryker.Evals.TestDatabaseIsolationTest do
   # two serial partitions, against a stand-in Mix that fails the VM holding
   # d_test.exs with ISOLATION_EXIT, as a real red gate usually does. Answers
   # each Mix call as [database, arguments], and the exit status.
-  defp run_partitions(environment) do
+  defp run_partitions(environment, serial_times \\ nil) do
     # Read the recipe with a clean make environment: inside `make check` this
     # child would otherwise inherit the parent's jobserver flags and warn.
     {commands, 0} =
@@ -184,6 +200,7 @@ defmodule Ryker.Evals.TestDatabaseIsolationTest do
     on_exit(fn -> File.rm_rf!(root) end)
 
     stage_scripts!(root)
+    if serial_times, do: File.write!(Path.join(root, "test/serial-times.txt"), serial_times)
 
     for {name, use} <- [
           a: "use ExUnit.Case, async: true",
@@ -227,9 +244,12 @@ defmodule Ryker.Evals.TestDatabaseIsolationTest do
             {"PGDATABASE", "inherited_database_must_not_be_touched"},
             {"RYKER_TEST_ISOLATED", "0"},
             {"RYKER_TEST_PARTITIONS", "2"},
-            # A CI job runs this test with its own partition named; the run
-            # under test must not inherit it.
+            # A CI job runs this test with its own partition named, and
+            # `make serial-times` with its times file; the run under test
+            # must inherit neither.
             {"RYKER_TEST_PARTITION", nil},
+            {"RYKER_TEST_TIMES_OUT", nil},
+            {"RYKER_TEST_TIMES", nil},
             {"ISOLATION_LOG", log}
           ] ++ Enum.to_list(environment)
       )

@@ -237,7 +237,7 @@ defmodule Ryker.Runtime.OwnerTest do
     assert applied(owner, saved)
 
     crashed = retention_pid(supervisor)
-    Process.exit(crashed, :kill)
+    kill_runtime_between_messages(crashed)
     assert eventually(fn -> retention_pid(supervisor) not in [nil, crashed] end)
     restarted = retention_pid(supervisor)
 
@@ -432,6 +432,19 @@ defmodule Ryker.Runtime.OwnerTest do
   defp kill_between_messages(pid) do
     :sys.suspend(pid)
     Process.exit(pid, :kill)
+  catch
+    :exit, _gone -> :ok
+  end
+
+  # A runtime that is a supervisor takes its workers down with it, and its retention poller
+  # may be mid-query: under gate load on 2026-10-14 that killed the shared connection and the
+  # next reconcile failed as unowned. Its workers are suspended first.
+  defp kill_runtime_between_messages(runtime) do
+    for {_id, worker, :worker, _modules} <- Supervisor.which_children(runtime),
+        is_pid(worker),
+        do: :sys.suspend(worker)
+
+    Process.exit(runtime, :kill)
   catch
     :exit, _gone -> :ok
   end

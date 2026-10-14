@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := dev-check
 
-.PHONY: quick retention-simulation product-e2e live-acceptance live-acceptance-wrapper-check eval-world-smoke eval-world eval-routing-replay eval-improvement-replay eval-replay eval-trend customer-check elixir-test elixir-static elixir-partitions static-check coverage elixir-release elixir-release-check release-dist control-plane-js-check shellcheck script-checks watchdog-check launch-agent-check model-download-check deploy-check backup-schedule-check keep-awake-check runtime-releases-check gate-check quick-check-check eval-trend-check deps-audit test-db-ready dev-check check release-check clean
+.PHONY: quick retention-simulation product-e2e live-acceptance live-acceptance-wrapper-check eval-world-smoke eval-world eval-routing-replay eval-improvement-replay eval-replay eval-trend customer-check elixir-test elixir-static elixir-partitions serial-times static-check coverage elixir-release elixir-release-check release-dist control-plane-js-check shellcheck script-checks watchdog-check launch-agent-check model-download-check deploy-check backup-schedule-check keep-awake-check runtime-releases-check gate-check quick-check-check eval-trend-check deps-audit test-db-ready dev-check check release-check clean
 
 LIVE_CHANNEL ?=
 DEV_CHECK_JOBS ?= 4
@@ -48,6 +48,12 @@ elixir-static:
 # The suite, each partition in a fresh database.
 elixir-partitions:
 	RYKER_TEST_ISOLATED=1 scripts/elixir-test.sh --partitions $(ELIXIR_CHECK_ARGS)
+
+# Measures each serial test file, so the partitions are dealt to end together.
+# Run it and commit test/serial-times.txt when dev-check's serial partitions
+# finish far apart.
+serial-times:
+	RYKER_TEST_TIMES_OUT=$(CURDIR)/test/serial-times.txt $(MAKE) --no-print-directory elixir-partitions
 
 # Coverage instrumentation slows the suite and gates nothing; run it on demand.
 coverage:

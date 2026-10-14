@@ -73,12 +73,15 @@ defmodule Ryker.ControlPlane.PageCost do
   # credo:disable-for-next-line Ryker.Checks.NoProcessDictionary
   defp restore(previous), do: Process.put(@key, previous)
 
-  defp log(label, queries, db_ms, ms) when ms >= @slow_ms or queries >= @many_queries do
-    Logger.warning(
-      "Slow page #{label}: #{ms} ms, #{queries} queries, #{db_ms} ms in the database"
-    )
+  # The tests set the time far higher (config/test.exs): a host loaded by a
+  # gate made test pages slow, and the warnings failed its quiet-output rule.
+  defp log(label, queries, db_ms, ms) do
+    if ms >= Ryker.Config.get_env(:page_slow_ms, @slow_ms) or queries >= @many_queries do
+      Logger.warning(
+        "Slow page #{label}: #{ms} ms, #{queries} queries, #{db_ms} ms in the database"
+      )
+    else
+      Logger.debug("Page #{label}: #{ms} ms, #{queries} queries, #{db_ms} ms in the database")
+    end
   end
-
-  defp log(label, queries, db_ms, ms),
-    do: Logger.debug("Page #{label}: #{ms} ms, #{queries} queries, #{db_ms} ms in the database")
 end

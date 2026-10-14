@@ -25,10 +25,13 @@ cleanup() {
   status=$?
   trap - EXIT
 
-  # A private server goes whole, so only a shared one needs its databases dropped.
+  # A private server goes whole, so only a shared one needs its databases dropped,
+  # by force: a run stopped part-way leaves its VMs' connections open for a
+  # moment, and a plain drop then refused and left five databases behind
+  # (2026-10-14).
   if [[ -z $private_postgres ]]; then
     for database in ${databases[@]+"${databases[@]}"}; do
-      PGDATABASE=$database env MIX_ENV=test scripts/elixir-mix.sh ecto.drop --quiet >/dev/null 2>&1 &
+      PGDATABASE=$database env MIX_ENV=test scripts/elixir-mix.sh ecto.drop --quiet --force-drop >/dev/null 2>&1 &
     done
     wait
   fi
@@ -103,9 +106,18 @@ fi
 # per three cores, so a small CI runner keeps one. RYKER_TEST_PARTITION=N runs
 # partition N alone (0 is the async files), which is how CI gives each
 # partition a runner of its own.
+#
+# The serial files are dealt by the time test/serial-times.txt measured for
+# each, longest first, each to the partition with the least so far, so the
+# partitions end together; a file it has no time for counts as the median.
+# Dealt in path order, four partitions ended 103 s apart (2026-10-14). Every
+# CI job deals from the same file, so each runs exactly its own share.
+# RYKER_TEST_TIMES_OUT=FILE writes this run's serial times there
+# (make serial-times).
 test_partitions() {
   local count=${RYKER_TEST_PARTITIONS:-$(($(getconf _NPROCESSORS_ONLN) / 3))}
-  local logs partition file dealt=0 status=0 red="" noisy=""
+  local logs partition file status=0 red="" noisy="" median
+  local times=test/serial-times.txt
   # Emisar's rule: test output stays boring. Logs are captured per test, and a
   # failing test prints what it captured, so a passing VM that printed a log
   # line let one escape every test: a defect, or a process still running
@@ -119,20 +131,40 @@ test_partitions() {
     [[ -s $logs/$1.files ]] && [[ -z ${RYKER_TEST_PARTITION:-} || $1 == "$RYKER_TEST_PARTITION" ]]
   }
 
+  : >"$logs/serial"
   while IFS= read -r file; do
     if grep -q -E '^[[:space:]]*use [A-Za-z.]+,.*async: true' "$file"; then
       echo "$file" >>"$logs/0.files"
     else
-      echo "$file" >>"$logs/$((dealt % count + 1)).files"
-      dealt=$((dealt + 1))
+      echo "$file" >>"$logs/serial"
     fi
   done < <(find test -name '*_test.exs' | LC_ALL=C sort)
+
+  if [[ -s $times ]]; then
+    median=$(awk '{ print $1 }' "$times" | sort -n | awk '{ t[NR] = $1 } END { print t[int((NR + 1) / 2)] }')
+    awk -v median="$median" 'NR == FNR { t[$2] = $1; next } { print (($0 in t) ? t[$0] : median), $0 }' \
+      "$times" "$logs/serial" | LC_ALL=C sort -k1,1nr -k2,2
+  else
+    # Without times every file weighs the same, which deals them in path order.
+    awk '{ print 1, $0 }' "$logs/serial"
+  fi | awk -v count="$count" -v logs="$logs" '{
+    best = 1
+    for (p = 2; p <= count; p++) if (load[p] < load[best]) best = p
+    load[best] += $1
+    print $2 >> (logs "/" best ".files")
+  }'
 
   for ((partition = 0; partition <= count; partition++)); do
     selected "$partition" || continue
 
     if [[ $isolate == 1 ]]; then
       databases+=("${PGDATABASE}_p$partition")
+    fi
+
+    if [[ -n ${RYKER_TEST_TIMES_OUT:-} && $partition != 0 ]]; then
+      export RYKER_TEST_TIMES=$logs/$partition.times
+    else
+      unset RYKER_TEST_TIMES
     fi
 
     PGDATABASE="${PGDATABASE}_p$partition" \
@@ -169,6 +201,22 @@ test_partitions() {
   done
 
   echo "== red partitions:${red:- none}"
+  # A failed test still took the time it took; only a serial VM that never
+  # finished leaves the times incomplete.
+  if [[ -n ${RYKER_TEST_TIMES_OUT:-} ]]; then
+    local recorded=0 expected=0
+    for ((partition = 1; partition <= count; partition++)); do
+      selected "$partition" || continue
+      expected=$((expected + 1))
+      [[ ! -s $logs/$partition.times ]] || recorded=$((recorded + 1))
+    done
+    if ((recorded > 0 && recorded == expected)); then
+      cat "$logs"/*.times | LC_ALL=C sort -k2,2 >"$RYKER_TEST_TIMES_OUT"
+      echo "== serial file times in $RYKER_TEST_TIMES_OUT"
+    else
+      echo "== $recorded of $expected serial partitions recorded times, so none were written"
+    fi
+  fi
   rm -rf "$logs"
   return "$status"
 }
