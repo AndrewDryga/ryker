@@ -28,6 +28,10 @@ defmodule Ryker.CoopFleet.ManagedSources do
   # How long a preparation waits for another one to finish with its mirror.
   @mirror_lock_wait_ms :timer.minutes(30)
   @mirror_lock_poll_ms 250
+  # The resolutions a mirror remembers, newest first: enough for its default
+  # branch and the few branches and pull requests asked for beside it.
+  @resolutions "ryker-resolutions.json"
+  @resolutions_kept 16
 
   # Every failure is the same error to the caller, which retries it; the log
   # says which step failed. On 2026-10-03 a task on tenant gave up on
@@ -222,12 +226,13 @@ defmodule Ryker.CoopFleet.ManagedSources do
     end
   end
 
-  # How one preparation runs git and waits for a mirror. Tests stand a program
-  # of their own in for git and shorten the bounds.
+  # How one preparation runs git, waits for a mirror and reads the time. Tests
+  # stand a program of their own in for git, shorten the bounds and set the time.
   defp git_runner(options) do
     %{
       executable: Keyword.get_lazy(options, :git, fn -> System.find_executable("git") end),
       mirror_lock_wait_ms: Keyword.get(options, :mirror_lock_wait_ms, @mirror_lock_wait_ms),
+      now: Keyword.get(options, :now, fn -> DateTime.utc_now(:second) end),
       timeout_ms: Keyword.get(options, :git_timeout_ms, @git_timeout_ms)
     }
   end
@@ -302,8 +307,10 @@ defmodule Ryker.CoopFleet.ManagedSources do
           selected_ref,
           selected_commit,
           base_commit,
-          admitted_tree
+          admitted_tree,
+          git.now.()
         )
+        |> as_resolved_before(mirror)
 
       {:ok,
        %{
@@ -738,7 +745,8 @@ defmodule Ryker.CoopFleet.ManagedSources do
          selected_ref,
          selected_commit,
          base_commit,
-         tree
+         tree,
+         resolved_at
        ) do
     %{
       "version" => 1,
@@ -751,9 +759,65 @@ defmodule Ryker.CoopFleet.ManagedSources do
       "selected_commit" => selected_commit,
       "base_commit" => base_commit,
       "admitted_tree" => tree,
-      "resolved_at" => DateTime.utc_now(:second) |> DateTime.to_iso8601()
+      "resolved_at" => resolved_at |> DateTime.truncate(:second) |> DateTime.to_iso8601()
     }
     |> maybe_put_pull_request(requested)
+  end
+
+  # A worker names the copy it stages after the whole source, the resolution
+  # time included, and keeps every copy. A resolution that matches an earlier
+  # one keeps that one's time, so the worker reuses the copy it already has
+  # instead of fetching and storing the repository again: a new time for each
+  # session added 17 repositories and about 3 GB an hour to the tenant
+  # install's worker (2026-10-13). The record lives in the mirror and goes
+  # with it; one that can't be read is started again.
+  defp as_resolved_before(binding, mirror) do
+    record = Path.join(mirror, @resolutions)
+    same? = &(Map.delete(&1, "resolved_at") == Map.delete(binding, "resolved_at"))
+    earlier = read_resolutions(record)
+
+    binding =
+      case Enum.find(earlier, same?) do
+        %{"resolved_at" => resolved_at} -> Map.put(binding, "resolved_at", resolved_at)
+        nil -> binding
+      end
+
+    write_resolutions(
+      record,
+      Enum.take([binding | Enum.reject(earlier, same?)], @resolutions_kept)
+    )
+
+    binding
+  end
+
+  # A fixed file name in the mirror the caller already holds the lock on.
+  # sobelow_skip ["Traversal.FileModule"]
+  defp read_resolutions(record) do
+    with {:ok, contents} <- File.read(record),
+         {:ok, [_ | _] = bindings} <- Jason.decode(contents),
+         true <- Enum.all?(bindings, &valid_binding?/1) do
+      bindings
+    else
+      _absent_or_unreadable -> []
+    end
+  end
+
+  defp valid_binding?(binding),
+    do: Work.RepositorySource.parse_binding(binding) == {:ok, binding}
+
+  # sobelow_skip ["Traversal.FileModule"]
+  defp write_resolutions(record, bindings) do
+    temporary = record <> ".tmp"
+
+    with :ok <- File.write(temporary, Jason.encode!(bindings)),
+         :ok <- File.rename(temporary, record) do
+      :ok
+    else
+      {:error, reason} ->
+        Logger.warning("could not record a source resolution: #{inspect(reason)}")
+        File.rm(temporary)
+        :ok
+    end
   end
 
   defp maybe_put_pull_request(binding, %{"kind" => "pull_request", "number" => number}),

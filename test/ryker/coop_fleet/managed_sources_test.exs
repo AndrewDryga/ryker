@@ -181,6 +181,59 @@ defmodule Ryker.CoopFleet.ManagedSourcesTest do
            ) == {:error, :invalid_coop_worker_source}
   end
 
+  # A worker names the copy it stages after the whole source, the resolution time included, and
+  # keeps every copy. Each session froze a new time, so Coop fetched and stored all 17
+  # repositories again for every one: the tenant install's ready sessions, replaced hourly,
+  # added about 3 GB an hour, and the worker would have refused new work by morning
+  # (2026-10-13).
+  test "a repository that has not moved keeps the resolution its worker already staged" do
+    directory = fixture_root()
+    remote = remote!(directory, "remote")
+    storage = Path.join(directory, "state")
+
+    prepare = &prepare_at(storage, identity("repo:one", remote, 1, "test/repository"), &1)
+
+    assert {:ok, %{binding: binding}} = prepare.(~U[2026-10-13 21:47:55Z])
+    assert binding["resolved_at"] == "2026-10-13T21:47:55Z"
+    assert {:ok, %{binding: ^binding}} = prepare.(~U[2026-10-13 22:56:43Z])
+
+    File.write!(Path.join(remote, "README.md"), "moved\n")
+    git!(["-C", remote, "add", "README.md"])
+    commit!(remote, "moved")
+
+    assert {:ok, %{binding: moved}} = prepare.(~U[2026-10-13 23:28:40Z])
+    assert moved["default_commit"] == git!(["-C", remote, "rev-parse", "HEAD"])
+    assert moved["resolved_at"] == "2026-10-13T23:28:40Z"
+  end
+
+  test "an unreadable record of earlier resolutions resolves anew" do
+    directory = fixture_root()
+    remote = remote!(directory, "remote")
+    storage = Path.join(directory, "state")
+
+    assert {:ok, %{binding: binding}} =
+             prepare_at(
+               storage,
+               identity("repo:one", remote, 1, "test/repository"),
+               ~U[2026-10-13 21:47:55Z]
+             )
+
+    [record] =
+      Path.wildcard(Path.join([storage, "coop-source-mirrors", "repo:one.git", "*.json"]))
+
+    File.write!(record, "[{\"resolved_at\": \"yesterday\"}")
+
+    assert {:ok, %{binding: again}} =
+             prepare_at(
+               storage,
+               identity("repo:one", remote, 1, "test/repository"),
+               ~U[2026-10-13 22:56:43Z]
+             )
+
+    assert Map.delete(again, "resolved_at") == Map.delete(binding, "resolved_at")
+    assert again["resolved_at"] == "2026-10-13T22:56:43Z"
+  end
+
   test "an exact commit must still be served by the authenticated remote" do
     directory =
       Path.join(System.tmp_dir!(), "ryker-managed-sources-#{System.unique_integer([:positive])}")
@@ -474,6 +527,9 @@ defmodule Ryker.CoopFleet.ManagedSourcesTest do
     git!(["-C", repository, "add", ".gitmodules"])
     commit!(repository, "child")
   end
+
+  defp prepare_at(storage, identity, at),
+    do: ManagedSources.prepare_from_remote(storage, identity, "main", nil, nil, now: fn -> at end)
 
   defp identity(ref, remote, id, github_repository \\ nil),
     do: %{
