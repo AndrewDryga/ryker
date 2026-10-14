@@ -10,6 +10,13 @@ defmodule Ryker.Retention.ThirtyDaySimulationTest do
   clock barely moves. Bytes are scaled: one fork is 64 MiB against a 10 GiB
   per-worker inactive-disposable bound, so a month of forks is proved without
   allocating a month of forks.
+
+  The month commits, in the database of its own `make retention-simulation`
+  creates and drops, so PostgreSQL vacuums it as autovacuum keeps a live
+  install's tables lean. Inside one test transaction nothing could be vacuumed:
+  every claim read every dead row the days before had left, the last day took
+  six times the first, and on 2026-10-14 the run took 965 s on CI, 67% of it in
+  the claim's candidate query.
   """
   use Ryker.DataCase, async: false
   import Ryker.TestHelpers, only: [digest: 1]
@@ -59,7 +66,14 @@ defmodule Ryker.Retention.ThirtyDaySimulationTest do
   # suite of that run 40 to 80% slower too.
   @tag timeout: 1_500_000
   @tag ownership_timeout: 1_500_000
+  @tag sandbox: false
   test "thirty days of sustained use plateau under the disposable bound without losing work" do
+    if System.get_env("RYKER_TEST_ISOLATED") != "1" do
+      flunk("the month commits, so run it in a database of its own: make retention-simulation")
+    end
+
+    on_exit(&forget_the_month!/0)
+
     {:ok, api} =
       FakeAPI.start_link(
         sessions: [],
@@ -122,6 +136,8 @@ defmodule Ryker.Retention.ThirtyDaySimulationTest do
       end)
 
     state = end_outage(state, day)
+    # The day's autovacuum, which a month squeezed into minutes would outrun.
+    Repo.query!("VACUUM (ANALYZE)")
     row = measure(state, day)
 
     IO.puts(
@@ -259,7 +275,8 @@ defmodule Ryker.Retention.ThirtyDaySimulationTest do
   # The injected clock. `pg_catalog` is searched after the simulation schema, so
   # every unqualified `clock_timestamp()` and `now()` custody issues on this
   # connection answers with the offset applied. SET and DDL are transactional,
-  # so the sandbox rollback removes both without touching any other test.
+  # so a sandboxed test's rollback removes both; the month, which commits,
+  # drops them itself (forget_the_month!/0).
   defp install_clock! do
     Repo.query!("CREATE SCHEMA simulation")
 
@@ -274,6 +291,25 @@ defmodule Ryker.Retention.ThirtyDaySimulationTest do
     end
 
     Repo.query!("SET search_path TO simulation, pg_catalog, public")
+  end
+
+  # The month committed, so it leaves nothing for the next test: no rows, no
+  # clock schema, and a connection back on PostgreSQL's own clock.
+  defp forget_the_month! do
+    Repo.query!("""
+    DO $$
+    BEGIN
+      EXECUTE (
+        SELECT 'TRUNCATE ' || string_agg(format('%I', tablename), ', ') || ' CASCADE'
+        FROM pg_tables
+        WHERE schemaname = 'public' AND tablename <> 'schema_migrations'
+      );
+    END $$
+    """)
+
+    Repo.query!("DROP SCHEMA IF EXISTS simulation CASCADE")
+    Repo.query!("RESET search_path")
+    Repo.query!("RESET simulation.offset_seconds")
   end
 
   defp advance!(offset_seconds) do

@@ -35,6 +35,11 @@ defmodule Ryker.DataCase do
         do: [{:ownership_timeout, timeout} | options],
         else: options
 
+    # `@tag sandbox: false` commits instead of rolling back, for a test that
+    # runs in a database of its own and must let PostgreSQL vacuum as a live
+    # install's does (the retention simulation).
+    options = if tags[:sandbox] == false, do: [{:sandbox, false} | options], else: options
+
     owner = Sandbox.start_owner!(Ryker.Repo, options)
 
     on_exit(fn ->
