@@ -11,86 +11,9 @@ defmodule Ryker.Evals.TestDatabaseIsolationTest do
       # Since 2026-10-02 the async files run in one VM and the serial files are
       # dealt across others beside it, so each needs a database of its own, every
       # one is dropped, no file is lost or run twice, and one red VM is a red gate.
-      # Read the recipe with a clean make environment: inside `make check` this
-      # child would otherwise inherit the parent's jobserver flags and warn.
-      {commands, 0} =
-        System.cmd("make", ["-s", "-n", "elixir-partitions"],
-          cd: @repository,
-          env: [{"MAKEFLAGS", nil}, {"MFLAGS", nil}, {"MAKELEVEL", nil}]
-        )
+      {calls, status} = run_partitions(%{"ISOLATION_EXIT" => Integer.to_string(@exit_status)})
 
-      command =
-        commands
-        |> String.split("\n")
-        |> Enum.find(&String.contains?(&1, "elixir-test.sh --partitions"))
-
-      assert command
-      root = Path.join(System.tmp_dir!(), "test-database-isolation-#{Ecto.UUID.generate()}")
-      File.mkdir_p!(Path.join(root, "scripts"))
-      File.mkdir_p!(Path.join(root, "bin"))
-      File.mkdir_p!(Path.join(root, "test/ryker"))
-      on_exit(fn -> File.rm_rf!(root) end)
-
-      stage_scripts!(root)
-
-      for {name, use} <- [
-            a: "use ExUnit.Case, async: true",
-            b: "use Ryker.DataCase",
-            c: "use Ryker.DataCase, async: true",
-            d: "use ExUnit.Case, async: false",
-            e: "use Ryker.DataCase"
-          ] do
-        File.write!(
-          Path.join(root, "test/ryker/#{name}_test.exs"),
-          "defmodule T do\n  #{use}\nend\n"
-        )
-      end
-
-      executable!(root, "bin/docker", """
-      #!/bin/bash
-      case "$*" in
-        *'up --detach --wait episode-db') ;;
-        *'port episode-db 5432') echo 127.0.0.1:5432 ;;
-        *) exit 91 ;;
-      esac
-      """)
-
-      # Only the VM holding d_test.exs fails, as a real red gate usually does.
-      executable!(root, "scripts/elixir-mix.sh", """
-      #!/bin/bash
-      printf '%s|%s\\n' "$PGDATABASE" "$*" >> "$ISOLATION_LOG"
-      case "$*" in
-        *'+ test '*d_test.exs*) exit "$ISOLATION_EXIT" ;;
-        *) exit 0 ;;
-      esac
-      """)
-
-      log = Path.join(root, "calls.log")
-
-      {_output, status} =
-        System.cmd("bash", ["-c", command],
-          cd: root,
-          env: [
-            {"PATH", Path.join(root, "bin") <> ":" <> System.fetch_env!("PATH")},
-            {"PGDATABASE", "inherited_database_must_not_be_touched"},
-            {"RYKER_TEST_ISOLATED", "0"},
-            {"RYKER_TEST_PARTITIONS", "2"},
-            {"ISOLATION_LOG", log},
-            {"ISOLATION_EXIT", Integer.to_string(@exit_status)}
-          ]
-        )
-
-      calls =
-        File.read!(log) |> String.split("\n", trim: true) |> Enum.map(&String.split(&1, "|"))
-
-      suites =
-        for [database, "do ecto.create --quiet + ecto.migrate --quiet + test " <> files] <- calls,
-            into: %{} do
-          {String.replace(database, ~r/^ryker_test_\d+_\d+_/, ""),
-           files |> String.split() |> Enum.filter(&String.ends_with?(&1, "_test.exs"))}
-        end
-
-      assert suites == %{
+      assert suites(calls) == %{
                "p0" => ["test/ryker/a_test.exs", "test/ryker/c_test.exs"],
                "p1" => ["test/ryker/b_test.exs", "test/ryker/e_test.exs"],
                "p2" => ["test/ryker/d_test.exs"]
@@ -104,6 +27,16 @@ defmodule Ryker.Evals.TestDatabaseIsolationTest do
       refute Enum.any?(calls, &(hd(&1) == "inherited_database_must_not_be_touched"))
       assert status == @exit_status
     end
+  end
+
+  test "a CI job runs its one partition's files and no other's" do
+    # CI gives each partition a runner (.github/workflows/ci.yml) and names it
+    # in RYKER_TEST_PARTITION; partition 0 is the async files.
+    {calls, 37} = run_partitions(%{"RYKER_TEST_PARTITION" => "2", "ISOLATION_EXIT" => "37"})
+    assert suites(calls) == %{"p2" => ["test/ryker/d_test.exs"]}
+
+    {calls, 0} = run_partitions(%{"RYKER_TEST_PARTITION" => "0", "ISOLATION_EXIT" => "37"})
+    assert suites(calls) == %{"p0" => ["test/ryker/a_test.exs", "test/ryker/c_test.exs"]}
   end
 
   test "a gate whose tests pass is red when a log line escaped every test's capture" do
@@ -148,7 +81,8 @@ defmodule Ryker.Evals.TestDatabaseIsolationTest do
         env: [
           {"PATH", Path.join(root, "bin") <> ":" <> System.fetch_env!("PATH")},
           {"RYKER_TEST_ISOLATED", "0"},
-          {"RYKER_TEST_PARTITIONS", "1"}
+          {"RYKER_TEST_PARTITIONS", "1"},
+          {"RYKER_TEST_PARTITION", nil}
         ]
       )
 
@@ -222,6 +156,97 @@ defmodule Ryker.Evals.TestDatabaseIsolationTest do
 
     assert output =~ "no docker, no PGHOST and no pg_ctl"
     refute File.exists?(Path.join(root, "calls.log"))
+  end
+
+  # Runs `make elixir-partitions`'s command over five stand-in test files with
+  # two serial partitions, against a stand-in Mix that fails the VM holding
+  # d_test.exs with ISOLATION_EXIT, as a real red gate usually does. Answers
+  # each Mix call as [database, arguments], and the exit status.
+  defp run_partitions(environment) do
+    # Read the recipe with a clean make environment: inside `make check` this
+    # child would otherwise inherit the parent's jobserver flags and warn.
+    {commands, 0} =
+      System.cmd("make", ["-s", "-n", "elixir-partitions"],
+        cd: @repository,
+        env: [{"MAKEFLAGS", nil}, {"MFLAGS", nil}, {"MAKELEVEL", nil}]
+      )
+
+    command =
+      commands
+      |> String.split("\n")
+      |> Enum.find(&String.contains?(&1, "elixir-test.sh --partitions"))
+
+    assert command
+    root = Path.join(System.tmp_dir!(), "test-database-isolation-#{Ecto.UUID.generate()}")
+    File.mkdir_p!(Path.join(root, "scripts"))
+    File.mkdir_p!(Path.join(root, "bin"))
+    File.mkdir_p!(Path.join(root, "test/ryker"))
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    stage_scripts!(root)
+
+    for {name, use} <- [
+          a: "use ExUnit.Case, async: true",
+          b: "use Ryker.DataCase",
+          c: "use Ryker.DataCase, async: true",
+          d: "use ExUnit.Case, async: false",
+          e: "use Ryker.DataCase"
+        ] do
+      File.write!(
+        Path.join(root, "test/ryker/#{name}_test.exs"),
+        "defmodule T do\n  #{use}\nend\n"
+      )
+    end
+
+    executable!(root, "bin/docker", """
+    #!/bin/bash
+    case "$*" in
+      *'up --detach --wait episode-db') ;;
+      *'port episode-db 5432') echo 127.0.0.1:5432 ;;
+      *) exit 91 ;;
+    esac
+    """)
+
+    executable!(root, "scripts/elixir-mix.sh", """
+    #!/bin/bash
+    printf '%s|%s\\n' "$PGDATABASE" "$*" >> "$ISOLATION_LOG"
+    case "$*" in
+      *'+ test '*d_test.exs*) exit "$ISOLATION_EXIT" ;;
+      *) exit 0 ;;
+    esac
+    """)
+
+    log = Path.join(root, "calls.log")
+
+    {_output, status} =
+      System.cmd("bash", ["-c", command],
+        cd: root,
+        env:
+          [
+            {"PATH", Path.join(root, "bin") <> ":" <> System.fetch_env!("PATH")},
+            {"PGDATABASE", "inherited_database_must_not_be_touched"},
+            {"RYKER_TEST_ISOLATED", "0"},
+            {"RYKER_TEST_PARTITIONS", "2"},
+            # A CI job runs this test with its own partition named; the run
+            # under test must not inherit it.
+            {"RYKER_TEST_PARTITION", nil},
+            {"ISOLATION_LOG", log}
+          ] ++ Enum.to_list(environment)
+      )
+
+    calls =
+      log |> File.read!() |> String.split("\n", trim: true) |> Enum.map(&String.split(&1, "|"))
+
+    {calls, status}
+  end
+
+  # The test files each partition's VM ran, by the database suffix it ran on.
+  defp suites(calls) do
+    for [database, "do ecto.create --quiet + ecto.migrate --quiet + test " <> files] <- calls,
+        into: %{} do
+      {String.replace(database, ~r/^ryker_test_\d+_\d+_/, ""),
+       files |> String.split() |> Enum.filter(&String.ends_with?(&1, "_test.exs"))}
+    end
   end
 
   # A checkout whose PATH holds only what the script needs, so no Docker or

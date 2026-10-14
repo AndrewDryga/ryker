@@ -75,7 +75,7 @@ holding=0
 groups=()
 
 # Stops what the gate started, removes its worktree and gives up the lock.
-# shellcheck disable=SC2329 # the EXIT trap runs it
+# shellcheck disable=SC2317,SC2329 # the EXIT trap runs it
 finish() {
   local status=$?
   trap - EXIT INT TERM
@@ -159,7 +159,7 @@ in_group() {
   set +m
 }
 
-# shellcheck disable=SC2329 # run through in_group
+# shellcheck disable=SC2317,SC2329 # run through in_group
 tree_make() {
   cd "$tree" && exec make --no-print-directory "$@" >>"$log" 2>&1
 }
@@ -172,7 +172,7 @@ run_make() {
 }
 
 # Each partition's result as it lands: the async files first, about a minute in.
-# shellcheck disable=SC2329 # run through in_group
+# shellcheck disable=SC2317,SC2329 # run through in_group
 show_progress() {
   tail -n 0 -F "$log" 2>/dev/null |
     awk '/^== (async|serial)|^Finished in|^[0-9]+ tests?, / { print "  " $0; fflush() }'
