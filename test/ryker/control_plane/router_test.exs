@@ -2524,7 +2524,9 @@ defmodule Ryker.ControlPlane.RouterTest do
       {:ok, head}
     else
       _incomplete ->
-        case :gen_tcp.recv(socket, 0, 5_000) do
+        # A reply returns at once; the wait only bounds a failing test. Five
+        # seconds timed out under the gate's async burst (2026-10-14).
+        case :gen_tcp.recv(socket, 0, 30_000) do
           {:ok, data} -> socket_response(socket, received <> data)
           {:error, reason} -> {:error, reason}
         end

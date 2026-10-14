@@ -102,8 +102,10 @@ fi
 # together in one VM, as before, and the serial files are dealt across more VMs
 # that run beside it, each with a database of its own. Mix's own --partitions
 # put async files in every VM: four of them ran ~96 async tests at once and
-# turned a loaded host's local test servers into timeouts. About one serial VM
-# per three cores, so a small CI runner keeps one. RYKER_TEST_PARTITION=N runs
+# turned a loaded host's local test servers into timeouts. One serial VM per
+# two cores: a serial VM keeps about one core busy, and on this Mac's twelve
+# six of them took the gate from 4 min 27 s with four to 3 min 45 s
+# (2026-10-14, quiet host). CI names its own count. RYKER_TEST_PARTITION=N runs
 # partition N alone (0 is the async files), which is how CI gives each
 # partition a runner of its own.
 #
@@ -115,7 +117,7 @@ fi
 # RYKER_TEST_TIMES_OUT=FILE writes this run's serial times there
 # (make serial-times).
 test_partitions() {
-  local count=${RYKER_TEST_PARTITIONS:-$(($(getconf _NPROCESSORS_ONLN) / 3))}
+  local count=${RYKER_TEST_PARTITIONS:-$(($(getconf _NPROCESSORS_ONLN) / 2))}
   local logs partition file status=0 red="" noisy="" median
   local times=test/serial-times.txt
   # Emisar's rule: test output stays boring. Logs are captured per test, and a

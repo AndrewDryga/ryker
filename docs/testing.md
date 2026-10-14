@@ -73,7 +73,7 @@ tests.
 
 Most of the suite's time is `async: false` modules, which one VM runs one at a time. So the gate
 runs every async file together in one VM and deals the serial files across more VMs beside it,
-about one per three cores; `RYKER_TEST_PARTITIONS` overrides that count. Mix's own `--partitions`
+one per two cores; `RYKER_TEST_PARTITIONS` overrides that count. Mix's own `--partitions`
 put async files in every VM and overloaded a busy host. The serial files are dealt by the time
 `test/serial-times.txt` measured for each, longest first, each to the partition with the least so
 far, so the partitions end together (304 s each instead of 285 to 376 s in path order, 2026-10-14);
