@@ -7,8 +7,9 @@ defmodule Ryker.GitHub.Payload do
   the whole pull request it was left on, description included. Past 40,000
   bytes the router refused such a delivery for good, so a comment on a pull
   request with a long description never reached Ryker (2026-10-04 review).
-  The API links go first; then the longest text is cut until the payload
-  fits. The same payload is always cut the same way.
+  The API links go first, and a push's lists of the files each commit
+  touched; then the longest text is cut until the payload fits. The same
+  payload is always cut the same way.
   """
   alias Ryker.{CanonicalJSON, GitHub, Text}
 
@@ -17,7 +18,7 @@ defmodule Ryker.GitHub.Payload do
 
   @spec fit(map(), pos_integer()) :: {:ok, map()} | {:error, :too_large}
   def fit(payload, budget) when is_map(payload) and is_integer(budget) and budget > 0,
-    do: payload |> without_api_links() |> cut_to(budget)
+    do: payload |> without_api_links() |> without_file_lists() |> cut_to(budget)
 
   defp without_api_links(%{} = map) do
     for {key, value} <- map, not api_link?(key, value), into: %{} do
@@ -34,6 +35,21 @@ defmodule Ryker.GitHub.Payload do
   end
 
   defp api_link?(_key, _value), do: false
+
+  # No reader looks at the files a push's commits touched. A push that touched
+  # a few thousand files is all short paths, which cutting text never fits, and
+  # GitHub does not send a refused delivery again.
+  defp without_file_lists(payload) do
+    payload
+    |> Map.replace_lazy("head_commit", &without_files/1)
+    |> Map.replace_lazy("commits", fn
+      commits when is_list(commits) -> Enum.map(commits, &without_files/1)
+      other -> other
+    end)
+  end
+
+  defp without_files(%{} = commit), do: Map.drop(commit, ~w(added modified removed))
+  defp without_files(other), do: other
 
   # Each pass cuts the longest text by what is still too much, so a text's
   # escaped size only costs another pass.

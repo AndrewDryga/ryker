@@ -227,6 +227,46 @@ defmodule Ryker.GitHub.InputTest do
     assert input.occurred_at.time_zone == "Etc/UTC"
   end
 
+  # A push lists every file each of its commits touched, and nothing reads those lists. A push
+  # that touched a few thousand files is all short paths, which cutting the longest text never
+  # fits into an input, so it was refused, and GitHub does not send a refused delivery again.
+  test "a push that touched thousands of files is taken without its file lists" do
+    files = for n <- 1..200, do: "packages/package-#{n}/CHANGELOG.md"
+
+    commits =
+      for n <- 1..20 do
+        %{
+          "added" => [],
+          "id" => n |> Integer.to_string() |> String.pad_leading(40, "a"),
+          "message" => "Version packages",
+          "modified" => files,
+          "removed" => [],
+          "timestamp" => "2026-10-13T16:50:43-07:00"
+        }
+      end
+
+    head = List.last(commits)
+
+    payload = %{
+      "after" => head["id"],
+      "commits" => commits,
+      "head_commit" => head,
+      "installation" => %{"id" => 41},
+      "ref" => "refs/heads/main",
+      "repository" => %{"full_name" => "octo/example", "id" => 99, "pushed_at" => 1_791_928_102},
+      "sender" => %{"id" => 7, "login" => "octocat", "type" => "User"}
+    }
+
+    assert byte_size(Jason.encode!(payload)) > 100_000
+    assert {:ok, input} = normalize("push", payload)
+    assert input.source_item_ref == "github:push:" <> head["id"]
+
+    kept = input.content["payload"]
+    assert kept["head_commit"] == Map.drop(head, ~w(added modified removed))
+    assert kept["commits"] == Enum.map(commits, &Map.drop(&1, ~w(added modified removed)))
+    assert kept["ref"] == "refs/heads/main"
+  end
+
   test "the adapter rejects unsupported actions and payload-selected installation or repository" do
     assert normalize("push", issue_comment_payload()) == {:error, {:invalid_github_input, :event}}
 

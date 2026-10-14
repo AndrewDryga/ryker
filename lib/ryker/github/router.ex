@@ -227,8 +227,8 @@ defmodule Ryker.GitHub.Router do
         outcome
       )
     else
-      {:error, {:invalid_github_input, _field}} ->
-        Ingress.InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
+      {:error, {:invalid_github_input, field}} ->
+        refused(conn, field)
 
       {:error, _reason} ->
         Ingress.InboundHTTP.respond(conn, 503, %{"error" => "temporarily_unavailable"})
@@ -306,14 +306,14 @@ defmodule Ryker.GitHub.Router do
           "status" => "ignored"
         })
 
-      {:error, {:invalid_github_input, _field}} ->
-        Ingress.InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
+      {:error, {:invalid_github_input, field}} ->
+        refused(conn, field)
 
-      {:error, {:invalid_input, _field}} ->
-        Ingress.InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
+      {:error, {:invalid_input, field}} ->
+        refused(conn, field)
 
-      {:error, {:invalid_input, _field, _reason}} ->
-        Ingress.InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
+      {:error, {:invalid_input, field, _reason}} ->
+        refused(conn, field)
 
       {:error, {:github_input_ignored, _reason}} ->
         Ingress.InboundHTTP.respond(conn, 200, %{"status" => "ignored"})
@@ -413,11 +413,8 @@ defmodule Ryker.GitHub.Router do
     })
   end
 
-  defp route_record_error(conn, {:invalid_input, _field}),
-    do: Ingress.InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
-
-  defp route_record_error(conn, {:invalid_input, _field, _reason}),
-    do: Ingress.InboundHTTP.respond(conn, 400, %{"error" => "invalid_event"})
+  defp route_record_error(conn, {:invalid_input, field}), do: refused(conn, field)
+  defp route_record_error(conn, {:invalid_input, field, _reason}), do: refused(conn, field)
 
   defp route_record_error(conn, {:input_conflict, _details}),
     do: Ingress.InboundHTTP.respond(conn, 409, %{"error" => "event_conflict"})
@@ -469,6 +466,14 @@ defmodule Ryker.GitHub.Router do
       %{"error" => reason} when is_binary(reason) -> reason
       _other -> nil
     end
+  end
+
+  # The check that refused a delivery, so its record and GitHub's delivery log
+  # say why. Two pushes refused on the tenant install (2026-10-13) said only
+  # "invalid_event".
+  defp refused(conn, field) do
+    reason = if is_atom(field) or is_binary(field), do: to_string(field), else: "input"
+    Ingress.InboundHTTP.respond(conn, 400, %{"error" => "invalid_event", "reason" => reason})
   end
 
   defp unconfigured_repository_access(_binding, _payload),

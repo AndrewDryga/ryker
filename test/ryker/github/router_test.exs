@@ -271,6 +271,33 @@ defmodule Ryker.GitHub.RouterTest do
            ).status == 400
   end
 
+  # A refused delivery was recorded as "invalid_event" whatever refused it. Two of the tenant
+  # install's pushes were still refused after the fix for their committers' offsets
+  # (2026-10-13), and nothing said which check, so the cause could only be guessed.
+  test "a refused delivery records which check refused it" do
+    payload = %{
+      "after" => String.duplicate("a", 40),
+      "head_commit" => %{"id" => String.duplicate("a", 40), "timestamp" => "yesterday"},
+      "installation" => %{"id" => 41},
+      "ref" => "refs/heads/main",
+      "repository" => %{"full_name" => "octo/example", "id" => 99, "pushed_at" => 1_791_928_102},
+      "sender" => %{"id" => 7, "login" => "octocat", "type" => "User"}
+    }
+
+    response =
+      request(Jason.encode!(payload), delivery_ref: "delivery-undated", event_name: "push")
+
+    assert response.status == 400
+
+    assert Jason.decode!(response.resp_body) == %{
+             "error" => "invalid_event",
+             "reason" => "occurred_at"
+           }
+
+    assert %{disposition: "failed", reason: "occurred_at"} =
+             Repo.get_by!(Ryker.GitHub.Event, delivery_ref: "delivery-undated")
+  end
+
   test "an authenticated lifecycle webhook nudges only its exact published pull request" do
     %{publication: publication} =
       PublicationFixture.published!("github-lifecycle-router",
