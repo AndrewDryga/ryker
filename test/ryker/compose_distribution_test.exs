@@ -135,8 +135,8 @@ defmodule Ryker.ComposeDistributionTest do
     # command back while a repository's first download runs, and 5b112ce7 runs filtered jobs
     # on a Docker-in-Docker worker. The live worker ran Coop v11 from layered images for days while
     # this still built v10 (2026-10-12); the pin now names the Coop it runs.
-    assert worker_image =~ "COOP_REVISION=c90ceca72e32b8cf63e48c4f1e48fc136d42072d"
-    assert worker_image =~ "COOP_VERSION=v11.2.0-4-gc90ceca7"
+    assert worker_image =~ "COOP_REVISION=1a48d98c6d1a6faa09dead5207fa4c52920ddc80"
+    assert worker_image =~ "COOP_VERSION=v11.2.0-5-g1a48d98c"
     # The Coop pin lives in one place, the worker Dockerfile. Two copies of the
     # default once had to be bumped together, and compose.yml's COOP_VERSION
     # override relabeled the pinned revision as whatever it named (2026-10-04
