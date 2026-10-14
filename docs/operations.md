@@ -216,6 +216,20 @@ last seven days; the backups you take yourself are never removed. Each archive i
 hidden name and renamed once it is whole, so one cut short never looks like a good one. Store
 these owner-only archives as sensitive material.
 
+Take one every day on its own:
+
+```bash
+scripts/install-backup-schedule.sh 03:30
+```
+
+It installs a launch agent on this Mac that runs `scripts/scheduled-backup.sh` at that time of
+day, in the Mac's time zone, 03:30 unless you give another. Each run takes the backup above,
+pausing Ryker for under a minute, names it `scheduled-YYYYMMDDTHHMMSSZ.tar.gz`, and keeps the
+newest 14 scheduled backups (`RYKER_KEEP_SCHEDULED_BACKUPS`). Backups you take yourself and
+pre-deploy backups are never touched. The log is `~/.local/state/ryker-backup/backup.log`. Run the
+install again to change the time. The archives stay on this disk, so copy one elsewhere now and
+then: they are what a lost disk is restored from.
+
 Restore with:
 
 ```bash

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Loads or unloads one of Ryker's launch agents on this Mac: the helper
-# servers (voice, search by meaning, the local routing model) and the
-# watchdog.
+# servers (voice, search by meaning, the local routing model), the
+# watchdog and the daily backup.
 #
 # `launchctl bootout` returns while the agent's process is still exiting, and
 # bootstrapping a label that is still registered fails with "5: Input/output
