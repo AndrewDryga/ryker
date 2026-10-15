@@ -358,14 +358,29 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
     refute card =~ "Preparing"
   end
 
-  test "a claimed turn with no remote session yet is preparing, at its recorded step" do
+  # Andrew, 2026-10-15, on a run still setting up: "I also don't like badge
+  # Preparing · current, current card is the last one." Its step says what is
+  # happening, and the last card is the current one.
+  test "a setup still preparing says its current step and carries no state badge" do
     work = claimed!("preparing")
     html = rendered(work.episode)
     card = card(html, work.turn)
 
-    assert card =~ "Preparing"
     assert card =~ "Creating worker session"
+    refute card =~ "Preparing"
+    refute card =~ "current"
     refute ready?(html, work.turn)
+  end
+
+  # Andrew, 2026-10-15: a Work briefing card showed every part "Not recorded"
+  # beside a setup still creating its worker session. The card shows what the
+  # model is given, so it appears once the briefing is recorded, not before.
+  test "a run has no Work briefing card until its briefing is recorded" do
+    unbriefed = claimed!("unbriefed")
+    refute briefing?(rendered(unbriefed.episode), unbriefed.turn)
+
+    briefed = submitted!("briefed")
+    assert briefing?(rendered(briefed.episode), briefed.turn)
   end
 
   test "a replaced session says so and keeps its reason unknown" do
@@ -531,6 +546,12 @@ defmodule Ryker.ControlPlane.WorkSetupCardTest do
     refute card =~ "Preparation outcome not recorded"
     # The run that replaced it is the current one (tenant showed "Replaced · current").
     refute card =~ "current"
+  end
+
+  defp briefing?(html, %{id: id}) do
+    LazyHTML.from_document(html)
+    |> LazyHTML.query("#request-#{id}")
+    |> Enum.count() == 1
   end
 
   defp ready?(html, %{id: id}) do

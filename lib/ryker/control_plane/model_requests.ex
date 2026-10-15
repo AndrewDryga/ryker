@@ -152,7 +152,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
     work =
       turns
-      |> Enum.reject(&Work.Recovery.retained_absent_submission?/1)
+      |> Enum.filter(&briefed?/1)
       |> Enum.flat_map(fn turn ->
         request = inspect_turn(turn, reading)
 
@@ -373,6 +373,23 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
   # What a Work turn was sent was chosen before its briefing; the choice and
   # what it left out are their own card, first.
+  # A Work briefing card shows what the model was given, so a run with no
+  # briefing recorded yet has none: one still setting up its worker session
+  # showed a card whose every part read "Not recorded" (Andrew, 2026-10-15).
+  # A run whose briefing retention pruned after it reached the worker keeps
+  # its card.
+  defp briefed?(%Work.Turn{
+         submission: nil,
+         submission_fingerprint: nil,
+         coop_turn_id: nil,
+         remote_queued_at: nil,
+         remote_started_at: nil,
+         operational_pruned_at: nil
+       }),
+       do: false
+
+  defp briefed?(%Work.Turn{}), do: true
+
   defp selection_event(%Work.Turn{} = turn, request) do
     context = request.sections |> Enum.find(&(&1.id == "context")) |> section_document()
 

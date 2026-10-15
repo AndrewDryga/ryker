@@ -189,28 +189,28 @@ defmodule Ryker.Work.Recovery do
   # Absence alone is not evidence: retention also clears submission and result
   # fields. The explicit absent-session receipt proves no start even after a
   # close or retry replaces the turn's status and error, but not after pruning.
-  def retained_absent_submission?(%Turn{
-        operational_pruned_at: nil,
-        submission: nil,
-        submission_fingerprint: nil,
-        coop_turn_id: nil,
-        remote_started_at: nil,
-        remote_finished_at: nil,
-        candidate: nil,
-        validation_intent: nil,
-        completion_receipt: nil,
-        result_ref: nil,
-        delivery_ref: nil,
-        external_receipt: nil,
-        cancellation_receipt: %{
-          "kind" => "absent_turn",
-          "remote_session_id" => nil,
-          "submit_operation_ref" => nil
-        }
-      }),
-      do: true
+  defp retained_absent_submission?(%Turn{
+         operational_pruned_at: nil,
+         submission: nil,
+         submission_fingerprint: nil,
+         coop_turn_id: nil,
+         remote_started_at: nil,
+         remote_finished_at: nil,
+         candidate: nil,
+         validation_intent: nil,
+         completion_receipt: nil,
+         result_ref: nil,
+         delivery_ref: nil,
+         external_receipt: nil,
+         cancellation_receipt: %{
+           "kind" => "absent_turn",
+           "remote_session_id" => nil,
+           "submit_operation_ref" => nil
+         }
+       }),
+       do: true
 
-  def retained_absent_submission?(_), do: false
+  defp retained_absent_submission?(_), do: false
 
   defp explanation(_turn, true, _finalizing, closed, saved) do
     headline =

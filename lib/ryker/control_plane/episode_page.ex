@@ -1281,16 +1281,16 @@ defmodule Ryker.ControlPlane.EpisodePage do
   # How the run's message joined the request, the environment the work ran in
   # and what it gave the work, and the session it used. Ready is the ordinary
   # case and carries no state at all (Andrew, 2026-09-26: the green check said
-  # nothing); a setup that is not ready names its state, and the failure reason
-  # and the current preparation step are the only sentences on the face.
+  # nothing), and neither does a setup still preparing, whose current step says
+  # what is happening (2026-10-15: "Preparing · current" said no more, and the
+  # current card is the last one). A setup that stopped names its state, and
+  # the failure reason and the current step are the only sentences on the face.
   defp work_setup(assigns) do
     ~H"""
     <div class="case-event-content work-setup" data-state={@step.setup.kind}>
       <.card_heading title="Work setup">
-        <:meta :if={@step.setup.kind != :ready}>
-          <span class={"event-state tone-#{@step.tone}"}>
-            {@step.setup.label}<small :if={@step.setup.current}> · current</small>
-          </span>
+        <:meta :if={@step.setup.kind not in [:ready, :preparing]}>
+          <span class={"event-state tone-#{@step.tone}"}>{@step.setup.label}</span>
         </:meta>
       </.card_heading>
       <p :if={@step.summary} class="case-event-summary">{@step.summary}</p>
@@ -1310,14 +1310,14 @@ defmodule Ryker.ControlPlane.EpisodePage do
 
   # A queue card is one contiguous retained custody run. Only the unsealed tail
   # may carry a current row; a later retry gets another card instead of
-  # rewriting the run that preceded Routing.
+  # rewriting the run that preceded Routing. That row says it is current, so
+  # the heading carries no badge as well: the current card is the last one.
   defp input_queue(assigns) do
     ~H"""
     <div class="case-event-content input-queue" data-state={@step.queue.kind}>
       <.card_heading title="Queue">
         <:detail :if={@step.queue.qualifier}>{@step.queue.qualifier}</:detail>
         <:meta>
-          <span :if={@step.queue.current} class="event-state">Current</span>
           <span
             :if={
               !@step.queue.current && is_number(@step.queue.duration_ms) &&

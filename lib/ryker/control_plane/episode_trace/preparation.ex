@@ -748,7 +748,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
       label: label,
       summary: summary,
       tone: tone,
-      current: kind not in [:ready, :replaced],
       current_step: current_step
     }
   end
@@ -816,7 +815,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Preparation do
       label: "Setup selected",
       summary: "Waiting for a worker to pick it up. Preparation has not started.",
       tone: nil,
-      current: true,
       ordinal: nil,
       current_step: nil,
       rows:
