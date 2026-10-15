@@ -133,7 +133,7 @@ defmodule Ryker.Evals.ClientJobTest do
 
   test "learning uses the real preparation callback with no scratch checkout", %{client: client} do
     {:ok, job} = Job.new(:learning, "codex:fixture/high@eval")
-    inputs = LearningFixtures.inputs!()
+    inputs = LearningFixtures.inputs!(isolate: true)
 
     {:ok, run} =
       Ryker.Learning.prepare(Enum.map(inputs, & &1.id), %{

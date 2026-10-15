@@ -1,5 +1,5 @@
 defmodule Ryker.Continuity.ContinuityTest do
-  use Ryker.DataCase, async: false
+  use Ryker.DataCase, async: true
   import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query
   alias Ryker.CanonicalJSON
@@ -773,7 +773,7 @@ defmodule Ryker.Continuity.ContinuityTest do
   end
 
   defp raw_work! do
-    [entry | _] = LearningFixtures.inputs!()
+    [entry | _] = LearningFixtures.inputs!(isolate: true)
     ["slack", workspace, channel] = String.split(entry.destination_conversation_ref, ":")
     joined!(workspace, channel)
     episode = Repo.get!(Ryker.Episodes.Episode, entry.episode_id)

@@ -27,7 +27,9 @@ review runs the `gate:` in `.agent/project.yaml`, `make dev-check`.
 Parallel PostgreSQL tests must use suite-owned conversation and workspace identities. Sandbox
 rollback does not release transaction-scoped advisory locks until the test ends, so unrelated tests
 must not reuse shared fixture identities. Do not increase production lock timeouts to hide fixture
-collisions.
+collisions. `Ryker.Fixtures.Episodes.conversation_ref/0` and `channel_ref/0` give each test its
+own conversation, and `Ryker.Fixtures.Learning.inputs!(isolate: true)` its own copy of the
+harvested inputs, whose fixed ids and conversation otherwise deadlock two async tests.
 
 A test that needs different configuration calls `Ryker.Config.put_override/2`. The override holds
 for the test's process and for the tasks, LiveViews and supervised children it starts, which find

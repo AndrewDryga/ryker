@@ -161,7 +161,7 @@ defmodule Ryker.Fixtures.Learning do
   @doc "Rebind only replay custody identities; retain captured content and source clocks unchanged."
   def isolate_retained_input(raw, workspace \\ nil) do
     id = Ecto.UUID.generate()
-    workspace = workspace || "T" <> String.replace(id, "-", "")
+    workspace = workspace || workspace_for(id)
     ["slack", _workspace, channel] = String.split(raw["destination_conversation_ref"], ":")
 
     Map.merge(raw, %{
@@ -177,6 +177,9 @@ defmodule Ryker.Fixtures.Learning do
     })
   end
 
+  # A Slack team ID: upper case, or a source read refuses the anchor it names.
+  defp workspace_for(id), do: "T" <> String.upcase(String.replace(id, "-", ""))
+
   def inputs!(options \\ []) do
     inputs =
       "testdata/learning/retained-haproxy-lifecycle.json"
@@ -186,7 +189,7 @@ defmodule Ryker.Fixtures.Learning do
 
     inputs =
       if Keyword.get(options, :isolate, false) do
-        workspace = "T" <> String.replace(Ecto.UUID.generate(), "-", "")
+        workspace = workspace_for(Ecto.UUID.generate())
         Enum.map(inputs, &isolate_retained_input(&1, workspace))
       else
         inputs

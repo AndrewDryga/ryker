@@ -1,5 +1,5 @@
 defmodule Ryker.Knowledge.KnowledgeTest do
-  use Ryker.DataCase, async: false
+  use Ryker.DataCase, async: true
   import Ecto.Query
   alias Ryker.{Admission, Config, Repo}
   alias Ryker.Admission.{Context, Decision, Prompt}

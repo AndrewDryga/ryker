@@ -240,7 +240,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
   # no operator could open one to retry it.
   test "a blocked learning cleanup is listed and can be opened for retry" do
     assert {:ok, run} =
-             Learning.prepare(Enum.map(LearningFixtures.inputs!(), & &1.id), %{
+             Learning.prepare(Enum.map(LearningFixtures.inputs!(isolate: true), & &1.id), %{
                policy: "recorded-read-only-policy",
                policy_digest: String.duplicate("a", 64)
              })
@@ -298,7 +298,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
   # One still waiting on its worker moves on by itself and stays off the page.
   test "learning only a person can restart is listed, and learning that restarts itself is not" do
     assert {:ok, run} =
-             Learning.prepare(Enum.map(LearningFixtures.inputs!(), & &1.id), %{
+             Learning.prepare(Enum.map(LearningFixtures.inputs!(isolate: true), & &1.id), %{
                policy: "recorded-read-only-policy",
                policy_digest: String.duplicate("c", 64)
              })
@@ -406,7 +406,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
     # so every attempt stopped on it, and Failures sent the reader to "Grant
     # one more start", which ran again and stopped the same way. Relearning the
     # topic from messages that still exist is the step that moves it.
-    [old, _current] = LearningFixtures.inputs!()
+    [old, _current] = LearningFixtures.inputs!(isolate: true)
 
     proposal = %{
       "topic_key" => "checkout-readiness-history",
@@ -457,7 +457,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
 
   test "an unresolved learning worker reports the scheduled retry instead of being in use" do
     assert {:ok, run} =
-             Learning.prepare(Enum.map(LearningFixtures.inputs!(), & &1.id), %{
+             Learning.prepare(Enum.map(LearningFixtures.inputs!(isolate: true), & &1.id), %{
                policy: "recorded-read-only-policy",
                policy_digest: String.duplicate("b", 64)
              })
@@ -795,7 +795,7 @@ defmodule Ryker.ControlPlane.FailureProjectionTest do
 
   defp blocked_learning_cleanup!(code) do
     assert {:ok, run} =
-             Learning.prepare(Enum.map(LearningFixtures.inputs!(), & &1.id), %{
+             Learning.prepare(Enum.map(LearningFixtures.inputs!(isolate: true), & &1.id), %{
                policy: "recorded-read-only-policy",
                policy_digest: String.duplicate("a", 64)
              })

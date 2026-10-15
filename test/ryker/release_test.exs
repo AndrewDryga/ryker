@@ -1,5 +1,5 @@
 defmodule Ryker.ReleaseTest do
-  use Ryker.DataCase, async: false
+  use Ryker.DataCase, async: true
   import Ryker.TestHelpers, only: [digest: 1]
   import Ecto.Query
   alias Ryker.Fixtures.CoopWorkers
