@@ -9,6 +9,7 @@ defmodule Ryker.ControlPlane.ConfirmModalTest do
   use Ryker.DataCase, async: false
   import Ryker.ConsoleSignIn, only: [signed_in_conn: 0]
   import Phoenix.ConnTest
+  import Phoenix.Component, only: [sigil_H: 2]
   import Phoenix.LiveViewTest
   alias Ryker.Behaviors.Behavior
   alias Ryker.ControlPlane.{Actions, CSRF, Endpoint, Projection}
@@ -48,6 +49,14 @@ defmodule Ryker.ControlPlane.ConfirmModalTest do
 
     refute has_element?(view, "#action-question")
 
+    # From the press until the question is open, the button says so, disabled
+    # (2026-10-15: a confirmed rating looked as if the click had not
+    # registered). LiveView's own lifecycle shows and clears it.
+    assert has_element?(
+             view,
+             "form.action-control[action='#{path}'][method=get] button[type=submit][phx-disable-with='Opening…']"
+           )
+
     view |> element("form.action-control[action='#{path}']") |> render_submit()
 
     assert has_element?(view, "#action-question[role=alertdialog] h2", "Delete ")
@@ -55,6 +64,13 @@ defmodule Ryker.ControlPlane.ConfirmModalTest do
     # The row that asked is as it was: the question is over the page, not in it.
     refute has_element?(view, "article[id='behavior-#{rule.ref}'] #action-question")
     assert has_element?(view, "#action-question button.danger[type=submit]", "Delete")
+
+    # Its button says Working…, disabled, until the next page loads, and a
+    # second press sends nothing (pending.mjs; test/js/pending_test.mjs).
+    assert has_element?(
+             view,
+             "#action-question form[method=post] button[type=submit][phx-disable-with='Working…']"
+           )
 
     [token] =
       view
@@ -90,6 +106,35 @@ defmodule Ryker.ControlPlane.ConfirmModalTest do
     view |> element("form.action-control[action='#{path}']") |> render_submit()
 
     refute has_element?(view, "#action-question")
+  end
+
+  # A question whose button sends an event says what it is doing in its own
+  # words while LiveView waits for the answer, and Cancel never does.
+  test "a question's button sends its event once and says what it is doing until the answer" do
+    assigns = %{}
+
+    html =
+      rendered_to_string(~H"""
+      <Ryker.ControlPlane.Kit.confirm_modal
+        id="confirm-remove"
+        title="Remove Staging?"
+        label="Remove environment"
+        pending="Removing…"
+        cancel="cancel"
+        phx-click="delete-environment"
+        phx-value-ref="staging"
+      />
+      """)
+
+    document = LazyHTML.from_fragment(html)
+
+    assert document
+           |> LazyHTML.query("button[phx-click='delete-environment'][phx-value-ref='staging']")
+           |> LazyHTML.attribute("phx-disable-with") == ["Removing…"]
+
+    assert document
+           |> LazyHTML.query("button[phx-click='cancel']")
+           |> LazyHTML.attribute("phx-disable-with") == []
   end
 
   defp open(path), do: live(signed_in_conn() |> Map.put(:host, "localhost"), path)

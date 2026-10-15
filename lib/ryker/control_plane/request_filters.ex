@@ -316,7 +316,7 @@ defmodule Ryker.ControlPlane.RequestFilters do
         autocomplete="off"
         placeholder={"Full #{String.downcase(@label)}"}
       />
-      <button type="submit" class="ui-button primary">Apply</button>
+      <button type="submit" class="ui-button primary" phx-disable-with="Applying…">Apply</button>
     </form>
     <form
       :if={@searchable}

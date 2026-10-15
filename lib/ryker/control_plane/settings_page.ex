@@ -97,7 +97,12 @@ defmodule Ryker.ControlPlane.SettingsPage do
           title="Start setup"
           lede="Ryker has no settings yet. Setup starts with safe defaults: learning is on, Ryker replies in Slack only when mentioned, and pull requests, joining conversations and weekly reports stay off."
         />
-        <button type="button" class="ui-button primary" phx-click="initialize-settings">
+        <button
+          type="button"
+          class="ui-button primary"
+          phx-click="initialize-settings"
+          phx-disable-with="Starting…"
+        >
           Start setup
         </button>
         <Components.form_feedback :if={@error} message={@error} tone={:error} />
@@ -118,7 +123,12 @@ defmodule Ryker.ControlPlane.SettingsPage do
           Nothing was changed, and the running configuration keeps working. Try again when the
           database is back.
         </p>
-        <button type="button" class="ui-button secondary" phx-click="refresh">Try again</button>
+        <button
+          type="button"
+          class="ui-button secondary"
+          phx-click="refresh"
+          phx-disable-with="Trying again…"
+        >Try again</button>
       </section>
     </div>
     """
@@ -324,6 +334,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
               class="ui-button quiet"
               phx-click="withdraw-invite"
               phx-value-id={invite.id}
+              phx-disable-with="Withdrawing…"
             >
               Withdraw
             </button>
@@ -357,6 +368,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
               class="ui-button quiet"
               phx-click="end-session"
               phx-value-id={session.id}
+              phx-disable-with="Signing out…"
             >
               Sign out
             </button>
@@ -801,6 +813,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
       label={if @connected, do: "Disconnect Slack", else: "Remove the tokens"}
       cancel="cancel-settings-action"
       phx-click="disconnect-integration"
+      pending="Disconnecting…"
       phx-value-kind="slack"
     />
 
@@ -941,11 +954,17 @@ defmodule Ryker.ControlPlane.SettingsPage do
         </label>
       </div>
       <p :if={@matching == 0} class="settings-help">Nobody's name matches "{@people.query}".</p>
-      <button :if={@rest > 0} type="button" class="ui-button quiet" phx-click="slack-people-more">
+      <button
+        :if={@rest > 0}
+        type="button"
+        class="ui-button quiet"
+        phx-click="slack-people-more"
+        phx-disable-with="Loading…"
+      >
         Show {min(@rest, 50)} more
       </button>
       <div class="settings-actions">
-        <button class="ui-button primary" type="submit">Save changes</button>
+        <button class="ui-button primary" type="submit" phx-disable-with="Saving…">Save changes</button>
         <button type="button" class="ui-button secondary" phx-click="cancel-slack-members">
           Cancel
         </button>
@@ -992,7 +1011,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
         />
       </div>
       <div class="settings-actions">
-        <button class="ui-button primary" type="submit">{@label}</button>
+        <button class="ui-button primary" type="submit" phx-disable-with="Connecting…">{@label}</button>
       </div>
     </form>
     """
@@ -1054,6 +1073,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
       label="Disconnect GitHub"
       cancel="cancel-settings-action"
       phx-click="disconnect-integration"
+      pending="Disconnecting…"
       phx-value-kind="github"
     />
 
@@ -1233,7 +1253,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
         </div>
       </details>
       <div class="settings-actions">
-        <button class="ui-button primary" type="submit">{@label}</button>
+        <button class="ui-button primary" type="submit" phx-disable-with="Connecting…">{@label}</button>
       </div>
     </form>
     """
@@ -1347,7 +1367,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
             required
           />
         </div>
-        <button class="ui-button secondary" type="submit">Save name</button>
+        <button class="ui-button secondary" type="submit" phx-disable-with="Saving…">Save name</button>
       </form>
     </Kit.section_card>
 
@@ -1368,7 +1388,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
             required
           />
         </div>
-        <button class="ui-button secondary" type="submit">Replace key</button>
+        <button class="ui-button secondary" type="submit" phx-disable-with="Replacing…">Replace key</button>
       </form>
     </Kit.section_card>
 
@@ -1389,6 +1409,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
           class="ui-button secondary"
           phx-click={if @account.enabled_for_new_work, do: "disable-emisar", else: "enable-emisar"}
           phx-value-ref={@account.ref}
+          phx-disable-with={if @account.enabled_for_new_work, do: "Pausing…", else: "Resuming…"}
         >{if @account.enabled_for_new_work, do: "Pause", else: "Resume"}</button>
       </:actions>
     </Kit.section_card>
@@ -1414,6 +1435,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
               else: "enable-emisar-monitoring"
           }
           phx-value-ref={@account.ref}
+          phx-disable-with={if @account.monitoring_enabled, do: "Turning off…", else: "Turning on…"}
         >{if @account.monitoring_enabled, do: "Turn off", else: "Turn on"}</button>
       </:actions>
     </Kit.section_card>
@@ -1434,6 +1456,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
       label="Remove account"
       cancel="cancel-settings-action"
       phx-click="delete-emisar"
+      pending="Removing…"
       phx-value-ref={@account.ref}
     />
     """
@@ -1568,6 +1591,7 @@ defmodule Ryker.ControlPlane.SettingsPage do
       label="Delete credential"
       cancel="cancel-settings-action"
       phx-click="delete-webhook-credential"
+      pending="Deleting…"
       phx-value-name={@deleting}
     />
 

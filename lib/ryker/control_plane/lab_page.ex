@@ -207,6 +207,7 @@ defmodule Ryker.ControlPlane.LabPage do
                 <button
                   type="button"
                   phx-click="load-older"
+                  phx-disable-with="Trying again…"
                   phx-value-conversation={@snapshot.conversation_id}
                   phx-value-before={@history.before}
                 >

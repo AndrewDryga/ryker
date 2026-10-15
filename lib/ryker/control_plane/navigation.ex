@@ -145,6 +145,7 @@ defmodule Ryker.ControlPlane.Navigation do
           type="button"
           class="app-sign-out"
           phx-click="sign-out"
+          phx-disable-with="Signing out…"
         >
           Sign out
         </button>
@@ -201,7 +202,12 @@ defmodule Ryker.ControlPlane.Navigation do
         </section>
         <section :if={@live and Viewer.signed_in_by_link?(@viewer)}>
           <strong>{@viewer.name}</strong>
-          <button id="mobile-sign-out" type="button" phx-click="sign-out">Sign out</button>
+          <button
+            id="mobile-sign-out"
+            type="button"
+            phx-click="sign-out"
+            phx-disable-with="Signing out…"
+          >Sign out</button>
         </section>
       </nav>
     </details>

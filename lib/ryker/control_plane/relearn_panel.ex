@@ -142,7 +142,7 @@ defmodule Ryker.ControlPlane.RelearnPanel do
             it does not reset the amount already spent.
           </p>
           <.form_feedback :if={@error} id="relearn-error" message={@error} tone={:error} />
-          <button type="submit" class="ui-button primary">{@submission.label}</button>
+          <button type="submit" class="ui-button primary" phx-disable-with="Starting…">{@submission.label}</button>
         </form>
         <.pager
           page={@preview.page}

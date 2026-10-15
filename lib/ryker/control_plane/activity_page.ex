@@ -116,7 +116,12 @@ defmodule Ryker.ControlPlane.ActivityPage do
           disabled={!@activity.searchable}
         />
       </Kit.toolbar>
-      <button :if={@new_items > 0} class="new-activity" phx-click="show-new">
+      <button
+        :if={@new_items > 0}
+        class="new-activity"
+        phx-click="show-new"
+        phx-disable-with="Loading…"
+      >
         {@new_items} new or reordered items · Show latest <.icon name={:arrow} />
       </button>
       <Kit.empty

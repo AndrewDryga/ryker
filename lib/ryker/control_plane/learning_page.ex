@@ -356,7 +356,7 @@ defmodule Ryker.ControlPlane.LearningPage do
                   )
                 }
               />
-              <button type="submit" class="ui-button primary">Grant one more start</button>
+              <button type="submit" class="ui-button primary" phx-disable-with="Granting…">Grant one more start</button>
             </form>
           </:actions>
         </Kit.entity_row>

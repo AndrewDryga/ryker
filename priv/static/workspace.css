@@ -1142,6 +1142,21 @@
   background:var(--ryker-disabled-bg);
 }
 
+/* A control on its way. LiveView's phx-disable-with, or pending.mjs for a form the browser
+   submits, gives it its words; it reads as disabled and the pointer says it is working. While
+   the live page has lost its connection, its live controls look unavailable, and the
+   Reconnecting… notice says why. */
+.ui-button[aria-disabled=true],
+.ui-button[aria-disabled=true]:is(:hover, :focus-visible) {
+  cursor:progress;
+  color:var(--ryker-disabled-text);
+  border-color:var(--ryker-disabled-border);
+  background:var(--ryker-disabled-bg);
+}
+.ryker-app button[data-phx-disable-with-restore] { cursor:progress; }
+.ryker-app button.phx-click-loading:not(:disabled) { cursor:progress; opacity:.7; }
+.phx-disconnected :is(button[phx-click], form[phx-submit] button[type=submit]) { cursor:not-allowed; opacity:.55; }
+
 .lab-directory-empty {
   display:grid;
   justify-items:start;

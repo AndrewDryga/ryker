@@ -181,7 +181,7 @@ defmodule Ryker.ControlPlane.FactsPage do
       </div>
       <.form_feedback :if={@error} id="memory-edit-error" message={@error} tone={:error} />
       <div class="memory-edit-actions">
-        <button type="submit" class="ui-button primary">Save changes</button>
+        <button type="submit" class="ui-button primary" phx-disable-with="Saving…">Save changes</button>
         <a class="ui-button secondary" href="/memory#review">Cancel</a>
       </div>
     </form>

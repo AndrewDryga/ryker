@@ -102,7 +102,7 @@ defmodule Ryker.ControlPlane.HTML do
       escape(action),
       "\"><input type=\"hidden\" name=\"_token\" value=\"",
       escape(token),
-      "\"><button class=\"ui-button primary\" type=\"submit\">Confirm</button> ",
+      "\"><button class=\"ui-button primary\" type=\"submit\" phx-disable-with=\"Working…\">Confirm</button> ",
       "<a href=\"",
       escape(cancel_path),
       "\">Cancel</a></form></section>"
@@ -615,7 +615,7 @@ defmodule Ryker.ControlPlane.HTML do
           ],
           else: ""
         ),
-        "<button type=\"submit\">",
+        "<button type=\"submit\" phx-disable-with=\"Working…\">",
         escape(control.label),
         "</button></form>"
       ]

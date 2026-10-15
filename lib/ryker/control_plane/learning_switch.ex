@@ -85,6 +85,7 @@ defmodule Ryker.ControlPlane.LearningSwitch do
         title="Turn off learning?"
         text="Ryker stops learning from new messages, and stops analyzing requests people were unhappy with, until you turn it on again. What it already learned stays, and passes already running finish."
         label="Turn off learning"
+        pending="Turning off…"
         cancel="cancel-settings-action"
         phx-click="switch"
         phx-value-enabled="false"

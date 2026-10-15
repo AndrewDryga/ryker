@@ -553,6 +553,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         cancel="cancel-remove"
         target={@myself}
         phx-click="delete-item"
+        pending="Removing…"
         phx-value-item={@item_key}
         phx-target={@myself}
       />
@@ -829,6 +830,7 @@ defmodule Ryker.ControlPlane.SettingsEditor do
         cancel="cancel-impact"
         target={@myself}
         phx-click="confirm"
+        pending="Saving…"
         phx-target={@myself}
       >
         <ul :if={impact_lines(@section, @impact) != []}>

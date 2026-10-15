@@ -165,11 +165,12 @@ defmodule Ryker.ControlPlane.WebhookPreview do
           >{@sample}</textarea>
         </div>
         <div class="settings-actions">
-          <button type="submit" class="ui-button primary">Check this payload</button>
+          <button type="submit" class="ui-button primary" phx-disable-with="Checking…">Check this payload</button>
           <button
             type="button"
             class="ui-button secondary"
             phx-click="load-sample"
+            phx-disable-with="Loading…"
             phx-target={@myself}
           >
             Use an example

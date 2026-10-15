@@ -14,6 +14,7 @@ import {setupTooltips} from "/assets/tooltips.mjs"
 import {setupPromptParts} from "/assets/prompt-parts.mjs"
 import {composerDraft} from "/assets/conversation.mjs"
 import {createToggleHook, setupPageHelp, wideQuery} from "/assets/page-help.mjs"
+import {createPendingForms} from "/assets/pending.mjs"
 
 // The shell: one LiveView socket and the hooks that keep a reader's place,
 // drafts and unsaved edits across patches. Each hook's behaviour lives in its
@@ -63,3 +64,5 @@ const liveSocket = new LiveSocket("/live", Socket, {
   hooks: {PreserveReadingState, InstructionDraft, SettingsDraft, PageHelp, PrivateKeyFile, RepositoryPicker, ConversationHistory, FilterMenu, ElapsedTime}
 })
 liveSocket.connect()
+// After connect, so LiveView sees a submit first and its own forms stay its own.
+createPendingForms().start()

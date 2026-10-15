@@ -2732,7 +2732,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
         </div>
         <div :if={@unavailable} class="app-warning" role="status">
           This view could not refresh. Showing the last observed state; execution continues independently.
-          <button phx-click="refresh">Try again</button>
+          <button phx-click="refresh" phx-disable-with="Trying again…">Try again</button>
         </div>
         <main
           id="operator-page"
@@ -2862,6 +2862,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
                   type="button"
                   class="ui-button secondary"
                   phx-click="refresh-github-repositories"
+                  phx-disable-with="Refreshing…"
                   disabled={@github_repository_discovery in [:idle, :loading]}
                 >{if @github_repository_discovery in [:idle, :loading] and @github_repositories != [],
                   do: "Refreshing…",
@@ -2917,6 +2918,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             label="Remove repository"
             cancel="cancel-settings-action"
             phx-click="remove-repository"
+            pending="Removing…"
             phx-value-repository={elem(@settings_confirm, 1)}
           />
           <Kit.confirm_modal
@@ -2931,6 +2933,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             tone={:primary}
             cancel="cancel-settings-action"
             phx-click="refresh-knowledge"
+            pending="Refreshing…"
             phx-value-repository={elem(@settings_confirm, 1)}
           />
           <Kit.confirm_modal
@@ -2948,6 +2951,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             tone={:primary}
             cancel="cancel-settings-action"
             phx-click={elem(@settings_confirm, 0)}
+            pending="Saving…"
             phx-value-repository={elem(@settings_confirm, 1)}
           />
           <Kit.confirm_modal
@@ -2958,6 +2962,7 @@ defmodule Ryker.ControlPlane.WorkbenchLive do
             label="Leave channel"
             cancel="cancel-settings-action"
             phx-click="leave-channel"
+            pending="Leaving…"
             phx-value-ref={elem(@settings_confirm, 1)}
           />
           <Kit.confirm_modal

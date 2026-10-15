@@ -118,6 +118,7 @@ defmodule Ryker.ControlPlane.RepositoryImport do
               name="import_mode"
               value="selected"
               data-repository-add-selected
+              phx-disable-with="Adding…"
               disabled
             >
               Add 0 selected
@@ -128,6 +129,7 @@ defmodule Ryker.ControlPlane.RepositoryImport do
               type="submit"
               name="import_mode"
               value="all"
+              phx-disable-with="Adding…"
             >Add all {@addable}</button>
             <.link patch="/repositories" class="ui-button secondary">Cancel</.link>
           </div>

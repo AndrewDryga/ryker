@@ -124,6 +124,7 @@ defmodule Ryker.ControlPlane.EnvironmentsPage do
       label="Remove environment"
       cancel="cancel-settings-action"
       phx-click="delete-environment"
+      pending="Removing…"
       phx-value-ref={@environment.ref}
     />
     <Kit.empty

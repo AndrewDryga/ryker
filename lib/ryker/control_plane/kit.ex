@@ -636,6 +636,12 @@ defmodule Ryker.ControlPlane.Kit do
   )
 
   attr(:token, :string, default: nil)
+
+  attr(:pending, :string,
+    default: "Working…",
+    doc: "What the button that does it says, disabled, from the click until the answer: Removing…"
+  )
+
   attr(:rest, :global, doc: "The event, and its values, of the button that does it")
 
   slot(:inner_block,
@@ -656,6 +662,12 @@ defmodule Ryker.ControlPlane.Kit do
   posts to that address with its `token`, as a confirmed action's page does.
   Without a `label` nothing can be done: it says why, as when a removal is
   refused, and its one button, OK, closes it the way Cancel does.
+
+  The button that does it turns disabled and says `pending` the moment it is
+  pressed, until the answer comes: a sent event by LiveView's own lifecycle,
+  a posted form by `pending.mjs` until the next page loads. A second press,
+  click, Enter or Space, sends nothing (2026-10-15: a confirmed rating looked
+  as if the click had not registered).
   """
   def confirm_modal(assigns) do
     ~H"""
@@ -692,13 +704,18 @@ defmodule Ryker.ControlPlane.Kit do
             :if={@label && !@action}
             type="button"
             class={["ui-button", Atom.to_string(@tone)]}
+            phx-disable-with={@pending}
             {@rest}
           >
             {@label}
           </button>
           <form :if={@label && @action} method="post" action={@action} class="kit-modal-form">
             <input type="hidden" name="_token" value={@token} />
-            <button type="submit" class={["ui-button", Atom.to_string(@tone)]}>{@label}</button>
+            <button
+              type="submit"
+              class={["ui-button", Atom.to_string(@tone)]}
+              phx-disable-with={@pending}
+            >{@label}</button>
           </form>
         </div>
       </.focus_wrap>

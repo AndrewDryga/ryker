@@ -503,6 +503,10 @@ defmodule Ryker.ControlPlane.Components do
   fields, so the query of `path`, such as `back`, the page the confirmation
   returns to, rides along as hidden fields. Before 2026-09-27 it was dropped,
   and Retry work on a request's timeline returned to Failures.
+
+  The button says "Opening…", disabled, from the press until the question is
+  open, by LiveView's lifecycle in the live page and by `pending.mjs` when the
+  browser opens the confirmation page itself.
   """
   def action_button(assigns) do
     uri = URI.parse(assigns.path)
@@ -521,7 +525,7 @@ defmodule Ryker.ControlPlane.Components do
       phx-submit={JS.push("ask-action", value: %{path: @path, label: @label})}
     >
       <input :for={{name, value} <- @fields} type="hidden" name={name} value={value} />
-      <button type="submit" class={"ui-button #{@tone}"}>{@label}</button>
+      <button type="submit" class={"ui-button #{@tone}"} phx-disable-with="Opening…">{@label}</button>
     </form>
     """
   end

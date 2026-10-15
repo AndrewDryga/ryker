@@ -102,7 +102,7 @@ defmodule Ryker.ControlPlane.SignIn do
       escape(action),
       "\"><input type=\"hidden\" name=\"_csrf_token\" value=\"",
       escape(Plug.CSRFProtection.get_csrf_token()),
-      "\"><button class=\"ui-button primary\" type=\"submit\">Sign in</button></form>"
+      "\"><button class=\"ui-button primary\" type=\"submit\" phx-disable-with=\"Signing in…\">Sign in</button></form>"
     ]
   end
 
