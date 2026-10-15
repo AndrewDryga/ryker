@@ -972,7 +972,7 @@
 .plan-step-line, .plan-step-evidence { margin:4px 0 0; color:var(--ryker-text-secondary); font-size:14px; line-height:20px; overflow-wrap:anywhere; }
 .plan-step-label { margin-right:6px; color:var(--ryker-text); font-weight:500; }
 .record-links { display:inline-flex; flex-wrap:wrap; min-width:0; }
-.record-links > span + span::before { content:",\00a0"; color:var(--ryker-text-secondary); }
+.record-links > span + span::before { content:","; color:var(--ryker-text-secondary); }
 .record-links code { font:13px/20px var(--ryker-font-mono); overflow-wrap:anywhere; }
 .plan-history-goal + .plan-history-goal { margin-top:16px; padding-top:12px; border-top:1px solid var(--stroke); }
 .plan-history-goal h4 { margin:0 0 8px; color:var(--ink); font-size:14px; line-height:20px; font-weight:600; overflow-wrap:anywhere; }
