@@ -252,7 +252,7 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
     {:ok, input} =
       Input.new(%{
         actor: Keyword.get(overrides, :actor, %{kind: :user, ref: "U123"}),
-        channel_ref: "C456",
+        channel_ref: EpisodeFixtures.channel_ref(),
         content: Keyword.get(overrides, :content, %{"text" => "Terraform plan: 2 to add"}),
         event_kind: :message,
         event_ref: "Ev-received-#{Ecto.UUID.generate()}",
@@ -270,7 +270,7 @@ defmodule Ryker.ControlPlane.ReceivedInputCardTest do
         EpisodeFixtures.admit_input(%{
           actor_ref: "slack:user:U123",
           destination: %{
-            conversation_ref: "slack:TC9F5B40D364C:C456",
+            conversation_ref: "slack:TC9F5B40D364C:#{EpisodeFixtures.channel_ref()}",
             thread_ref: "1788562304.000100",
             transport: "slack"
           },

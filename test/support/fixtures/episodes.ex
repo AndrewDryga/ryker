@@ -15,18 +15,26 @@ defmodule Ryker.Fixtures.Episodes do
   conversation no live episode has, which the channel fence let through
   unread.
   """
-  def conversation_ref do
+  def conversation_ref, do: "slack:T-#{owner_suffix()}:C-alerts"
+
+  @doc """
+  A channel of the test's own, for a test that keeps a named workspace.
+
+  Two async suites admitted the same message into "C456": each held its
+  conversation lock and the message's dedupe key for a whole sandboxed test,
+  and under a loaded gate the other waited until its query was cancelled.
+  """
+  def channel_ref, do: "C-#{owner_suffix()}"
+
+  defp owner_suffix do
     owner = List.last(Process.get(:"$callers", [])) || self()
 
-    suffix =
-      owner
-      |> :erlang.pid_to_list()
-      |> to_string()
-      |> String.trim_leading("<")
-      |> String.trim_trailing(">")
-      |> String.replace(".", "-")
-
-    "slack:T-#{suffix}:C-alerts"
+    owner
+    |> :erlang.pid_to_list()
+    |> to_string()
+    |> String.trim_leading("<")
+    |> String.trim_trailing(">")
+    |> String.replace(".", "-")
   end
 
   @doc "The workspace `conversation_ref/0` is in, as an episode's scope names it."
