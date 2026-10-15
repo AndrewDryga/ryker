@@ -1,10 +1,8 @@
 #!/bin/bash
 # The install's own half of an upgrade: moves this checkout's install to the
 # commit a branch on origin names, whenever that branch moves, so nobody needs
-# a shell on its host. RYKER_UPGRADE_REF in compose.env names the branch, for
-# example tenant/blitz, and moving it is the upgrade:
-#
-#   git push origin main:tenant/blitz
+# a shell on its host. RYKER_UPGRADE_REF in compose.env names the branch, main
+# on the tenant install, and a push to it is the upgrade.
 #
 # On 2026-10-14 each upgrade of the tenant install went through Tailscale SSH:
 # a profile switch on this Mac, a check approval only Andrew could give, step
@@ -26,9 +24,13 @@ cd "$repository" || exit 1
 state_dir=${RYKER_INSTALL_STATE:-$repository/.ryker}
 env_file=$state_dir/compose.env
 upgrade_state=${RYKER_UPGRADE_STATE:-$HOME/.local/state/ryker-upgrade}
+# Each upgrade takes a backup, and an install that follows main upgrades many
+# times a day: only the newest of these stay. Backups taken otherwise are kept.
+keep_backups=${RYKER_KEEP_UPGRADE_BACKUPS:-5}
 # shellcheck source=scripts/compose-lifecycle.sh
 . "$repository/scripts/compose-lifecycle.sh"
-export PATH="$PATH:/usr/local/bin:/opt/homebrew/bin"
+# launchd starts it with a bare PATH; the tenant host's Docker is Homebrew's.
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
 ref=$(compose_env_value RYKER_UPGRADE_REF "$env_file")
 [[ -n $ref ]] || exit 0
@@ -51,6 +53,12 @@ current=$(git rev-parse HEAD)
 if [[ $(cat "$upgrade_state/failed" 2>/dev/null) == "$target" ]]; then
   exit 0
 fi
+# The daily backup or a person's restore holds the lifecycle lock; the next
+# round, five minutes on, tries again rather than calling the commit failed.
+holder=$(cat "$state_dir/lifecycle.lock/owner" 2>/dev/null)
+if [[ -n $holder ]] && kill -0 "${holder%% *}" 2>/dev/null; then
+  exit 0
+fi
 if ! git merge-base --is-ancestor "$current" "$target"; then
   record "refused ${target:0:12}: origin's $ref does not build on ${current:0:12}, which runs"
   echo "$target" >"$upgrade_state/failed"
@@ -65,13 +73,17 @@ record "upgrading ${current:0:12} -> ${target:0:12}"
 pin_before=$(coop_pin)
 previous_version=$(compose_env_value RYKER_VERSION "$env_file")
 previous_image=$(compose_env_value RYKER_IMAGE "$env_file")
-if ! scripts/compose.sh backup </dev/null; then
+# The backup prints the archive it wrote as its last line.
+taken=$(scripts/compose.sh backup </dev/null | tail -n 1)
+if [[ ! -f $taken ]]; then
   record "FAILED ${target:0:12}: the backup before it did not complete; nothing changed"
   echo "$target" >"$upgrade_state/failed"
   exit 1
 fi
-# shellcheck disable=SC2012 # backups are named by their time, nothing else
-backup=$(ls -t "$state_dir"/backups/*.tar.gz | head -n 1)
+backup="$(dirname "$taken")/pre-upgrade-$(basename "$taken" | sed 's/^ryker-//')"
+mv -- "$taken" "$backup"
+find "$(dirname "$backup")" -maxdepth 1 -name 'pre-upgrade-*.tar.gz' | sort -r | tail -n +$((keep_backups + 1)) |
+  while IFS= read -r old; do rm -f -- "$old"; done
 git merge --ff-only --quiet "$target"
 
 if ! scripts/compose.sh upgrade </dev/null; then

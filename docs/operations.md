@@ -170,17 +170,17 @@ the host of each install, after `git pull`.
 An install on another machine can upgrade itself instead, with nobody on its host:
 `scripts/install-auto-upgrade.sh` installs a launch agent there that runs `scripts/auto-upgrade.sh`
 every five minutes, and `RYKER_UPGRADE_REF` in its `compose.env` names the branch of `origin` it
-follows, for example `tenant/blitz`. Pushing that branch is the upgrade:
-
-```bash
-git push origin main:tenant/blitz
-```
+follows. With `RYKER_UPGRADE_REF=main`, as the tenant install has, every push to main reaches it
+within minutes; a branch of its own, pushed on purpose (`git push origin main:tenant/NAME`), makes
+each upgrade a choice.
 
 It moves only forward: a branch that does not build on the commit that runs is refused. It takes a
 backup, runs `upgrade`, and runs `worker-upgrade` when the commit pins another Coop. A failed upgrade
 puts the checkout and the pin back, and restores the backup it took only when the release before no
 longer serves, so an image that did not build loses nothing written since. That commit is not tried
-again; the next push of the branch is. A worker that did not move leaves Ryker on the new release. Each attempt is a line in `~/.local/state/ryker-upgrade/upgrades.log` on the
+again; the next push of the branch is. A worker that did not move leaves Ryker on the new release. Its backups are
+named `pre-upgrade-*` and the newest five stay (`RYKER_KEEP_UPGRADE_BACKUPS`); while another lifecycle
+command, such as the daily backup, holds the lock, it waits for the next round. Each attempt is a line in `~/.local/state/ryker-upgrade/upgrades.log` on the
 host, and the watchdog here sees the new version through the install's readiness.
 
 Once the new release is ready, upgrade removes this installation's older source builds

@@ -77,7 +77,13 @@ cat >"$source/scripts/compose.sh" <<'FAKE'
 #!/bin/sh
 echo "compose.sh $*" >>"$UPGRADE_TEST_STATE/calls"
 case $1 in
-  backup) touch "$RYKER_INSTALL_STATE/backups/backup-$(date +%s).tar.gz" ;;
+  backup)
+    n=$(($(cat "$UPGRADE_TEST_STATE/backups.count" 2>/dev/null || echo 0) + 1))
+    echo "$n" >"$UPGRADE_TEST_STATE/backups.count"
+    archive="$RYKER_INSTALL_STATE/backups/ryker-20261015T0000$(printf '%02d' "$n")Z.tar.gz"
+    touch "$archive"
+    echo "$archive"
+    ;;
   upgrade)
     sed 's/^RYKER_VERSION=.*/RYKER_VERSION=new/' "$RYKER_INSTALL_STATE/compose.env" >"$RYKER_INSTALL_STATE/env.new"
     mv "$RYKER_INSTALL_STATE/env.new" "$RYKER_INSTALL_STATE/compose.env"
@@ -153,7 +159,7 @@ touch "$work/upgrade.fail"
 printf '503' >"$work/console/code"
 upgrade
 check "a failed upgrade that stopped the release restores the backup it took" \
-  "compose.sh restore $work/state/backups/backup-" "$(cat "$work/calls")"
+  "compose.sh restore $work/state/backups/pre-upgrade-" "$(cat "$work/calls")"
 check "and puts the checkout back too" "$before" "$(head_of)"
 rm "$work/upgrade.fail" "$work/console/code"
 
@@ -170,12 +176,33 @@ check "and Ryker stays on the new release" "$coop" "$(head_of)"
 refute "and nothing is restored" "compose.sh restore" "$(cat "$work/calls")"
 rm "$work/worker-upgrade.fail"
 
+# The daily backup holds the lifecycle lock: this round waits for the next.
+sleep 30 &
+holder=$!
+mkdir -p "$work/state/lifecycle.lock" && echo "$holder backup" >"$work/state/lifecycle.lock/owner"
+push "while a backup runs"
+waiting=$(s rev-parse HEAD)
+upgrade
+check "an install that is busy is left for the next round" "" "$(cat "$work/calls")"
+kill "$holder" 2>/dev/null
+wait "$holder" 2>/dev/null
+rm -rf "$work/state/lifecycle.lock"
+upgrade
+check "and upgraded once it is free" "$waiting" "$(head_of)"
+
+for _ in 1 2 3 4 5 6; do
+  push more
+  upgrade
+done
+check "only the newest five upgrade backups stay" "5" "$(find "$work/state/backups" -name 'pre-upgrade-*' | wc -l | tr -d ' ')"
+
+last=$(head_of)
 s reset -q --hard HEAD~1
 s commit -q --allow-empty -m elsewhere
 s push -q -f origin main:tenant/test
 upgrade
 check "a branch that does not build on what runs is refused" "does not build on" "$(cat "$work/out")"
-check "and nothing is changed" "$coop" "$(head_of)"
+check "and nothing is changed" "$last" "$(head_of)"
 
 if ((failures > 0)); then
   echo "auto-upgrade_test: $failures failure(s)"

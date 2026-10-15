@@ -2,9 +2,9 @@
 # Installs scripts/auto-upgrade.sh as a launch agent on this Mac, run every five minutes, or
 # reinstalls it. It upgrades only once compose.env names the branch to follow:
 #
-#   RYKER_UPGRADE_REF=tenant/blitz
+#   RYKER_UPGRADE_REF=main
 #
-# after which `git push origin main:tenant/blitz` from anywhere upgrades this install. Like the
+# after which every push to that branch, from anywhere, upgrades this install. Like the
 # watchdog's, the agent is checked to be registered, not merely accepted (scripts/launch-agent.sh).
 set -euo pipefail
 
