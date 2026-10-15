@@ -2,11 +2,12 @@ defmodule Ryker.Slack.MembershipReconcilerTest do
   use Ryker.DataCase, async: false
   import ExUnit.CaptureLog
   import Ryker.TestHelpers, only: [settled: 1]
+  alias Ryker.CanonicalJSON
   alias Ryker.Fixtures.ChannelEnvironments
   alias Ryker.Repo
   alias Ryker.Slack.{ChannelConfiguration, ChannelConfigurations, ChannelMembership}
   alias Ryker.Slack.{ChannelSettings, ChannelSetup, ConfigurationSession, MembershipReconciler}
-  alias Ryker.Slack.Operators
+  alias Ryker.Slack.{Operators, Renderer}
   alias Ryker.TestSupport.FakeSlackAPI
 
   defmodule FailingAPI do
@@ -115,6 +116,32 @@ defmodule Ryker.Slack.MembershipReconcilerTest do
 
     assert {:ok, %{prompted: 0}} = MembershipReconciler.run_once(changed)
     assert length(updates(agent)) == 1
+  end
+
+  # A welcome remembered the settings it was drawn from, so a release that
+  # reworded it left every posted welcome saying the old words: the console
+  # line reached only channels joined after it (2026-10-15). It remembers what
+  # it says, so new wording draws each one again on the next sweep.
+  test "a welcome remembers what it says, so a release that rewords it draws it again" do
+    agent =
+      start_supervised!(
+        {FakeSlackAPI, channels: [%{channel_ref: "C456", external_shared: false, private: false}]}
+      )
+
+    assert {:ok, %{prompted: 1}} = MembershipReconciler.run_once(options(agent))
+    assert [%{document: document}] = FakeSlackAPI.state(agent).posts
+    assert {:ok, said} = Renderer.render(document)
+    configuration = Repo.get_by!(ChannelConfiguration, channel_ref: "C456")
+    assert configuration.welcome_digest == CanonicalJSON.digest(said)
+
+    # What an earlier release's words left behind.
+    configuration
+    |> Ecto.Changeset.change(welcome_digest: CanonicalJSON.digest(%{"text" => "earlier words"}))
+    |> Repo.update!()
+
+    assert {:ok, %{prompted: 0}} = MembershipReconciler.run_once(options(agent))
+    assert [{"C456", "1.000001", _document, _ref}] = updates(agent)
+    assert Repo.reload!(configuration).welcome_digest == CanonicalJSON.digest(said)
   end
 
   test "managed incident rooms are excluded from generic channel onboarding" do

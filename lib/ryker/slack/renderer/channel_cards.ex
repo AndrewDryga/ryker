@@ -11,6 +11,10 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
   alias Ryker.Wording
 
   @greeting "Hey there, I'm your AI teammate. I'm here to help with work in this channel."
+  # Nothing in a channel said the console existed or how to get in (Andrew,
+  # 2026-10-15). Only Ryker's operators can sign in from Slack; anyone else is
+  # told whom to ask for an invitation.
+  @console "My console shows what I'm working on, what I remember and how I'm set up. Type `/ryker sign-in` for a link to it."
   @settings_sources ~w(channel incident_room installation)
 
   @spec welcome(map()) :: {:ok, map()} | {:error, term()}
@@ -83,7 +87,7 @@ defmodule Ryker.Slack.Renderer.ChannelCards do
       environment_access(settings),
       "*#{heading("How to work with me")}*\n" <>
         conversation_sentence(settings, bot_user_ref) <>
-        "\n\n" <> alert_sentence(settings),
+        "\n\n" <> alert_sentence(settings) <> "\n\n" <> @console,
       "*#{heading("What I can help with")}*\n" <>
         "• *Tasks*: \"Add per-worker memory metrics to the website.\" I'll plan the work, implement it, run checks and open a draft PR.\n" <>
         "• *Scheduled tasks*: \"Check our infrastructure every morning and flag any issues.\"\n" <>

@@ -17,7 +17,7 @@ defmodule Ryker.Slack.ChannelSetup do
   alias Ryker.ConversationRef
   alias Ryker.Slack.{ChannelConfiguration, Collections, ConfigurationSession}
   alias Ryker.Slack.Client.Messages
-  alias Ryker.Slack.{MembershipTransition, Operators}
+  alias Ryker.Slack.{MembershipTransition, Operators, Renderer}
   alias Ryker.Slack.Renderer.Fields
 
   @environment_action ~r/\Aryker_setup_environment_([0-9]{1,3})\z/
@@ -345,8 +345,9 @@ defmodule Ryker.Slack.ChannelSetup do
 
   def refresh_welcome(%ChannelConfiguration{} = configuration, options) do
     with {:ok, document} <-
-           welcome_document(configuration, refresh_notice(configuration), options) do
-      redraw_changed(configuration, document, CanonicalJSON.digest(document), options)
+           welcome_document(configuration, refresh_notice(configuration), options),
+         {:ok, digest} <- welcome_digest(document) do
+      redraw_changed(configuration, document, digest, options)
     end
   end
 
@@ -367,11 +368,21 @@ defmodule Ryker.Slack.ChannelSetup do
   defp refresh_notice(_configuration), do: nil
 
   defp remember_welcome(configuration, document, options) do
-    options.configurations.record_welcome(
-      configuration.workspace_ref,
-      configuration.channel_ref,
-      CanonicalJSON.digest(document)
-    )
+    with {:ok, digest} <- welcome_digest(document) do
+      options.configurations.record_welcome(
+        configuration.workspace_ref,
+        configuration.channel_ref,
+        digest
+      )
+    end
+  end
+
+  # What the welcome says, not only the settings it is drawn from: a release
+  # that rewords it draws every posted welcome again on the next sweep, as a
+  # change to its settings does. The console line reached only channels joined
+  # after it while the digest was of the settings (2026-10-15).
+  defp welcome_digest(document) do
+    with {:ok, said} <- Renderer.render(document), do: {:ok, CanonicalJSON.digest(said)}
   end
 
   # Redraws a channel's welcome after its settings were saved, with a line

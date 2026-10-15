@@ -461,6 +461,34 @@ defmodule Ryker.Slack.RendererTest do
     refute text =~ "…"
   end
 
+  # Andrew, 2026-10-15: "add a line on /ryker sign-in and console to the
+  # welcome message of the channels". Nothing in a channel said the console
+  # existed or how to get into it.
+  test "every welcome says how to open the console" do
+    observing =
+      settings_document()
+      |> put_in(["participation"], %{"source" => "channel", "value" => "shadow"})
+      |> put_in(["observation"], %{"on" => true, "source" => "channel"})
+
+    proactive =
+      put_in(settings_document(), ["participation"], %{
+        "source" => "channel",
+        "value" => "proactive"
+      })
+
+    for settings <- [settings_document(), proactive, observing] do
+      assert {:ok, rendered} = Renderer.render(welcome_document(Ecto.UUID.generate(), settings))
+
+      text =
+        rendered["blocks"]
+        |> Enum.filter(&(&1["type"] == "section" and is_map(&1["text"])))
+        |> Enum.map_join("\n", & &1["text"]["text"])
+
+      assert text =~
+               "My console shows what I'm working on, what I remember and how I'm set up. Type `/ryker sign-in` for a link to it."
+    end
+  end
+
   test "settings on request share the welcome's projection in both audiences" do
     configuration_ref = Ecto.UUID.generate()
 
