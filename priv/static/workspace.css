@@ -960,6 +960,51 @@
 .setup-facts { grid-column:1 / -1; margin:8px 0 0; }
 .work-setup[data-state="blocked"] .case-event-summary { color:var(--ryker-text-secondary); }
 
+/* Work plan: the request's goals as compact steps; their history sits behind one disclosure. */
+.plan-steps { grid-column:1 / -1; list-style:none; margin:0; padding:0; }
+.plan-step { padding:10px 0; border-top:1px solid var(--stroke); }
+.plan-step:first-child { padding-top:0; border-top:0; }
+.plan-step[data-depth="1"] { margin-left:20px; }
+.plan-step:is([data-depth="2"], [data-depth="3"], [data-depth="4"]) { margin-left:40px; }
+.plan-step-head { display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:4px 16px; }
+.plan-step-title { min-width:0; color:var(--ink); font-size:14px; line-height:20px; font-weight:600; overflow-wrap:anywhere; }
+.plan-step-flags { display:flex; flex-wrap:wrap; gap:4px 12px; margin:2px 0 0; color:var(--ryker-text-secondary); font-size:12px; line-height:18px; }
+.plan-step-line, .plan-step-evidence { margin:4px 0 0; color:var(--ryker-text-secondary); font-size:14px; line-height:20px; overflow-wrap:anywhere; }
+.plan-step-label { margin-right:6px; color:var(--ryker-text); font-weight:500; }
+.record-links > span + span::before { content:", "; color:var(--ryker-text-secondary); }
+.record-links code { font:13px/20px var(--ryker-font-mono); overflow-wrap:anywhere; }
+.plan-history-goal + .plan-history-goal { margin-top:16px; padding-top:12px; border-top:1px solid var(--stroke); }
+.plan-history-goal h4 { margin:0 0 8px; color:var(--ink); font-size:14px; line-height:20px; font-weight:600; overflow-wrap:anywhere; }
+.plan-history-note { color:var(--ryker-text-secondary); font-weight:400; }
+.plan-history-changes { list-style:none; margin:8px 0 0; padding:0; }
+.plan-history-changes li { padding:8px 0; border-top:1px solid var(--stroke); }
+.plan-history-changes time { color:var(--ryker-text-secondary); font-size:12px; line-height:20px; font-variant-numeric:tabular-nums; }
+.plan-history-changes p { margin:4px 0 0; color:var(--ryker-text-secondary); font-size:14px; line-height:20px; overflow-wrap:anywhere; }
+
+/* Observations: one compact row per piece of evidence; opening a row shows all of it. */
+.observation-rows { grid-column:1 / -1; }
+.observation-row { border-top:1px solid var(--stroke); }
+.observation-row:first-child { border-top:0; }
+.observation-row > summary { display:grid; grid-template-columns:16px minmax(0,1fr); gap:2px 8px; align-items:start; padding:10px 0; cursor:pointer; list-style:none; }
+.observation-row:first-child > summary { padding-top:0; }
+.observation-row > summary::-webkit-details-marker { display:none; }
+.observation-row > summary::marker { content:""; }
+.observation-row > summary:focus-visible { outline:2px solid var(--ryker-focus-ring); outline-offset:2px; border-radius:3px; }
+.observation-row > summary .ui-icon { width:14px; height:14px; margin-top:3px; color:var(--ryker-text-secondary); }
+.observation-row[open] > summary .ui-icon { transform:rotate(90deg); }
+@media (prefers-reduced-motion:no-preference) { .observation-row > summary .ui-icon { transition:transform .12s ease; } }
+.observation-summary { display:grid; min-width:0; gap:2px; }
+.observation-head { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px; }
+.observation-area { min-width:0; color:var(--ink); font-size:14px; line-height:20px; font-weight:600; overflow-wrap:anywhere; }
+.observation-flag { color:var(--ryker-warning); font-size:13px; line-height:18px; }
+.observation-text { color:var(--ink); font-size:14px; line-height:20px; overflow-wrap:anywhere; white-space:pre-line; }
+.observation-row:not([open]) .observation-text { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+.observation-meta { color:var(--ryker-text-secondary); font-size:12px; line-height:18px; overflow-wrap:anywhere; }
+.observation-scope { color:var(--ryker-text-secondary); font-size:13px; line-height:18px; overflow-wrap:anywhere; }
+.observation-scope-label { margin-right:4px; color:var(--ryker-text); font-weight:500; }
+.observation-body { padding:0 0 12px 24px; }
+.observation-body > .plan-step-evidence { margin:0 0 8px; }
+
 /* Counted partial summaries: what a row counted over, before opening it. */
 .prompt-source-count { font-size:13px; color:var(--ryker-text-secondary); }
 .prompt-source-count-unknown { color:var(--ryker-text-secondary); }

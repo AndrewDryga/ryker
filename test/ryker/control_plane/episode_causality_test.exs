@@ -80,11 +80,17 @@ defmodule Ryker.ControlPlane.EpisodeCausalityTest do
         "target" => "checkout-api"
       })
 
+    # Evidence is a row of its turn's Observations card (2026-10-15).
     record_chapter =
       episode
       |> chapters()
       |> Enum.find(fn chapter ->
-        Enum.any?(chapter.steps, &(&1.id == "event-record-#{record.id}"))
+        Enum.any?(chapter.steps, fn entry ->
+          Enum.any?(
+            get_in(entry, [:step, :observations]) || [],
+            &(&1.id == "record-#{record.id}")
+          )
+        end)
       end)
 
     assert record_chapter, "the record must still be rendered"

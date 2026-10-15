@@ -1305,11 +1305,12 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert progress.operation_id in Enum.map(detail.records, & &1.summary)
     assert goal.subject_ref in Enum.map(detail.records, & &1.summary)
     assert Enum.any?(detail.trace.steps, &(&1.title == "Progress · investigating"))
-    # A goal's card is titled by its outcome (2026-09-29).
-    assert Enum.any?(detail.trace.steps, &(&1.title == "Goal · Verify the current runtime state"))
-    assert Enum.any?(detail.trace.steps, &(&1.stage == "Evidence"))
+    # Goals are steps of one Work plan card, titled by their outcomes, and
+    # evidence rows of an Observations card (2026-10-15).
+    assert [plan] = Enum.filter(detail.trace.steps, &(&1.stage == "Work plan"))
+    assert [%{title: "Verify the current runtime state", status: "Blocked"}] = plan.plan.steps
+    assert Enum.any?(detail.trace.steps, &(&1.stage == "Observations"))
     assert Enum.any?(detail.trace.steps, &(&1.stage == "Coverage"))
-    assert Enum.any?(detail.trace.steps, &(&1.stage == "Plan" and &1.state == ""))
     assert Enum.any?(detail.trace.steps, &(&1.stage == "Wait"))
 
     assert Enum.any?(

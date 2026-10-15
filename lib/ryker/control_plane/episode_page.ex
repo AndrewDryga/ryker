@@ -3,7 +3,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
   use Phoenix.Component
   import Ryker.ControlPlane.Components
   alias Ryker.ControlPlane.{EpisodeRequest, EpisodeTrace, FeedbackPage, Kit, Paths}
-  alias Ryker.ControlPlane.{RequestContextHTML, ThreadContext, ToolCard, Units}
+  alias Ryker.ControlPlane.{RequestContextHTML, ShortTime, ThreadContext, ToolCard, Units}
   alias Ryker.ControlPlane.SlackMarkdown
   alias Ryker.Episodes
   alias Ryker.Slack
@@ -1161,6 +1161,14 @@ defmodule Ryker.ControlPlane.EpisodePage do
           :if={@entry.kind == :event && @entry.step.stage == "Work setup"}
           step={@entry.step}
         />
+        <.work_plan
+          :if={@entry.kind == :event && @entry.step.stage == "Work plan"}
+          step={@entry.step}
+        />
+        <.observations
+          :if={@entry.kind == :event && @entry.step.stage == "Observations"}
+          step={@entry.step}
+        />
         <.event :if={@entry.kind == :event && !card_stage?(@entry.step.stage)} step={@entry.step} />
         <EpisodeRequest.render :if={@entry.kind == :request} request={@entry} />
         <.feedback :if={@entry.kind == :feedback} feedback={@entry.feedback} />
@@ -1241,7 +1249,9 @@ defmodule Ryker.ControlPlane.EpisodePage do
       "Queue",
       "Search",
       "Selection",
-      "Work setup"
+      "Work setup",
+      "Work plan",
+      "Observations"
     ]
   end
 
@@ -1306,6 +1316,161 @@ defmodule Ryker.ControlPlane.EpisodePage do
       </.disclosure>
     </div>
     """
+  end
+
+  # The request's goals as one card (`EpisodeTrace.Work`): each step's outcome,
+  # its status in words, what finishes it or what it found, and its evidence.
+  # What a reader needs to audit it (completion criteria, authority, kind,
+  # record IDs, earlier attempts and every change) is under Details and
+  # history, never on the face (Andrew, 2026-10-15).
+  defp work_plan(assigns) do
+    ~H"""
+    <div class="case-event-content work-plan">
+      <.card_heading title="Work plan" />
+      <ol class="plan-steps">
+        <li
+          :for={goal <- @step.plan.steps}
+          id={"event-" <> goal.id}
+          class="plan-step"
+          data-state={goal.state}
+          data-depth={goal.depth}
+        >
+          <div class="plan-step-head">
+            <strong class="plan-step-title">{goal.title}</strong>
+            <Kit.state tone={goal.tone} word={goal.status} />
+          </div>
+          <p :if={goal.optional || goal.attempt > 1} class="plan-step-flags">
+            <span :if={goal.optional}>Optional</span>
+            <span :if={goal.attempt > 1}>Attempt {goal.attempt}</span>
+          </p>
+          <p :if={plan_line(goal)} class="plan-step-line">
+            <span :if={elem(plan_line(goal), 0)} class="plan-step-label">
+              {elem(plan_line(goal), 0)}
+            </span>
+            {elem(plan_line(goal), 1)}
+          </p>
+          <p :if={goal.evidence != []} class="plan-step-evidence">
+            <span class="plan-step-label">Evidence</span>
+            <.record_links items={goal.evidence} />
+          </p>
+        </li>
+      </ol>
+      <.disclosure
+        id={"plan-history-#{@step.id}"}
+        label="Details and history"
+        class="case-event-details"
+      >
+        <section
+          :for={goal <- @step.plan.history}
+          id={"event-" <> goal.id <> "-history"}
+          class="plan-history-goal"
+        >
+          <h4>
+            {goal.title}<span :if={goal.replaced} class="plan-history-note"> · Earlier attempt</span>
+          </h4>
+          <.fact_list facts={goal.facts} />
+          <ol :if={goal.changes != []} class="plan-history-changes">
+            <li :for={change <- goal.changes} id={"event-" <> change.id}>
+              <div class="plan-step-head">
+                <time datetime={DateTime.to_iso8601(change.at)} title={timestamp(change.at)}>
+                  {clock_time(change.at)}
+                </time>
+                <Kit.state tone={change.tone} word={change.status} />
+              </div>
+              <p :if={change.detail}>{change.detail}</p>
+              <p :if={change.evidence != []} class="plan-step-evidence">
+                <span class="plan-step-label">Evidence</span>
+                <.record_links items={change.evidence} />
+              </p>
+              <.fact_list facts={change.facts} />
+            </li>
+          </ol>
+        </section>
+      </.disclosure>
+    </div>
+    """
+  end
+
+  # What a step says under its title: before it is done, what finishes it,
+  # labelled so it never reads as work already done; once it waits, stops
+  # or ends, what it recorded, and nothing when it recorded nothing.
+  defp plan_line(%{state: state, contract: contract})
+       when state in ["ready", "working"] and is_binary(contract),
+       do: {"Done when", contract}
+
+  defp plan_line(%{detail: detail}) when is_binary(detail) and detail != "",
+    do: {nil, detail}
+
+  defp plan_line(%{state: state, contract: contract})
+       when state in ["waiting", "blocked"] and is_binary(contract),
+       do: {"Done when", contract}
+
+  defp plan_line(_goal), do: nil
+
+  attr(:items, :list, required: true)
+
+  # Records a step cites, each a link to its place on this page, or its
+  # reference when this page does not show it.
+  defp record_links(assigns) do
+    ~H"""
+    <span class="record-links">
+      <span :for={item <- @items}>
+        <a :if={item.href} href={item.href}>{item.title}</a><code :if={!item.href}>{item.title}</code>
+      </span>
+    </span>
+    """
+  end
+
+  # Evidence from one turn, written one after another, as one card of compact
+  # rows (`EpisodeTrace.Work.observations/1`): what each is about and what was
+  # observed, where it came from and when it was measured, and any limit on
+  # what it covers. Opening a row shows the whole observation and its record.
+  defp observations(assigns) do
+    ~H"""
+    <div class="case-event-content observations">
+      <.card_heading title="Observations" />
+      <div class="observation-rows">
+        <details :for={row <- @step.observations} id={"event-" <> row.id} class="observation-row">
+          <summary>
+            <.icon name={:chevron} />
+            <span class="observation-summary">
+              <span class="observation-head">
+                <span class="observation-area">{row.area}</span>
+                <Kit.state :if={row.effect} tone={elem(row.effect, 0)} word={elem(row.effect, 1)} />
+                <span :if={row.contradicts} class="observation-flag">Contradicts its claim</span>
+              </span>
+              <span class="observation-text">{row.text}</span>
+              <span :if={observation_meta(row)} class="observation-meta">
+                {observation_meta(row)}
+              </span>
+              <span :if={row.scope_note} class="observation-scope">
+                <span class="observation-scope-label">Scope</span> {row.scope_note}
+              </span>
+            </span>
+          </summary>
+          <div class="observation-body">
+            <p :if={row.replaces != []} class="plan-step-evidence">
+              <span class="plan-step-label">Replaces</span>
+              <.record_links items={row.replaces} />
+            </p>
+            <.fact_list facts={row.details} />
+          </div>
+        </details>
+      </div>
+    </div>
+    """
+  end
+
+  # Where an observation came from, when it was measured and how fresh the
+  # source says it is; a measurement with no recorded time has none here.
+  defp observation_meta(row) do
+    measured =
+      row.measured_at && "Measured " <> ShortTime.stamp(row.measured_at, DateTime.utc_now())
+
+    case Enum.reject([row.source, measured, row.freshness], &(&1 in [nil, ""])) do
+      [] -> nil
+      parts -> Enum.join(parts, " · ")
+    end
   end
 
   # A queue card is one contiguous retained custody run. Only the unsealed tail
@@ -1898,12 +2063,35 @@ defmodule Ryker.ControlPlane.EpisodePage do
   defp chapter_description(:maintenance),
     do: "What happened afterwards to the worker Ryker used and its working copy."
 
+  # Where a record's ref is read on this page: a goal and its changes in the
+  # Work plan card, evidence at its Observations row, any other record at its
+  # own card.
+  defp step_record_links(%{plan: %{history: goals}}) do
+    for goal <- goals,
+        {ref, id} <-
+          [{goal[:record_ref], if(goal.replaced, do: goal.id <> "-history", else: goal.id)}] ++
+            Enum.map(goal.changes, &{&1[:record_ref], &1.id}),
+        is_binary(ref),
+        do: {ref, %{href: "#event-" <> id, title: goal.title}}
+  end
+
+  defp step_record_links(%{observations: rows}) when is_list(rows) do
+    for row <- rows, is_binary(row.record_ref) do
+      {row.record_ref, %{href: "#event-" <> row.id, title: row.area}}
+    end
+  end
+
+  defp step_record_links(%{record_ref: ref} = step) when is_binary(ref),
+    do: [{ref, %{href: "#event-#{step.id}", title: step.title}}]
+
+  defp step_record_links(_step), do: []
+
   defp entries(snapshot, timeline) do
     record_links =
       for step <- snapshot.trace.steps,
-          step[:record_ref],
+          link <- step_record_links(step),
           into: %{},
-          do: {step.record_ref, %{href: "#event-#{step.id}", title: step.title}}
+          do: link
 
     requests = requests_with_links(timeline.items, record_links)
 

@@ -121,6 +121,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace do
       |> Kernel.++(Outcome.schedule_steps(episode.id))
       |> Kernel.++(Maintenance.steps(sessions))
       |> chronological()
+      |> EpisodeTrace.Work.observations()
       |> name_repositories()
 
     %{

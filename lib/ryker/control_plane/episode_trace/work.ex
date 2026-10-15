@@ -14,6 +14,7 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   alias Ryker.Slack
   alias Ryker.Text
   alias Ryker.UTCDateTime
+  alias Ryker.Wording
   alias Ryker.Work
 
   @doc "Each Work turn from queueing through its result and delivery."
@@ -232,45 +233,438 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
     ]
   end
 
-  @doc "One step per state record the model wrote, with its card when it has one."
+  @doc """
+  One step per state record the model wrote, with its card when it has one,
+  except the plan: every goal and goal update is one Work plan card. A piece
+  of evidence carries the row its Observations card shows (`observations/1`).
+  """
   def record_steps(records) do
-    records
-    |> Enum.with_index(1)
-    |> Enum.map(fn {record, index} ->
-      card =
-        case Delivery.ChatCard.project(%{
-               record
-               | status: :open,
-                 updated_at: record.inserted_at,
-                 wait_error: nil
-             }) do
-          {:ok, projected} -> projected
-          none when none in [:none, :ignore] -> nil
+    anchors = record_anchors(records)
+    {goals, others} = Enum.split_with(records, &(&1.kind in ~w(goal goal_state)))
+
+    plan_steps(goals, anchors) ++
+      (others
+       |> Enum.with_index(1)
+       |> Enum.map(fn {record, index} -> record_step(record, index, anchors) end))
+  end
+
+  defp record_step(record, index, anchors) do
+    card =
+      case Delivery.ChatCard.project(%{
+             record
+             | status: :open,
+               updated_at: record.inserted_at,
+               wait_error: nil
+           }) do
+        {:ok, projected} -> projected
+        none when none in [:none, :ignore] -> nil
+      end
+
+    # Creating an offer or a question is model work; only a delivery receipt
+    # proves one was sent, so every record sits in the work chapter, with the
+    # turn that saved it rather than the message read last before it.
+    step(
+      "record-#{record.id || index}",
+      :work,
+      record.inserted_at,
+      %{
+        actor: "Ryker state",
+        owner: record_owner(record),
+        record_ref: record.ref,
+        details: compact_details(record_details(record, card)),
+        href: nil,
+        stage: record_stage(record.kind),
+        state: "",
+        summary: record_summary(record, card),
+        title: record_title(record, card),
+        current_warning: Delivery.ChatCard.wait_warning(record),
+        observation: observation(record, anchors),
+        tone: nil
+      }
+    )
+  end
+
+  defp record_owner(%Records.Record{turn_id: turn_id}) when is_binary(turn_id),
+    do: {:turn, turn_id}
+
+  defp record_owner(_record), do: :episode
+
+  # Where each record's ref is read on the timeline, and the words a link to
+  # it shows: a goal and its updates at the goal's step, evidence at its row.
+  defp record_anchors(records) do
+    goal_rows =
+      for %Records.Record{kind: "goal", subject_ref: goal_id} = goal <- records,
+          into: %{},
+          do: {goal_id, goal}
+
+    Enum.reduce(records, %{}, fn
+      %Records.Record{ref: ref} = record, anchors when is_binary(ref) ->
+        case anchor(record, goal_rows) do
+          nil -> anchors
+          anchor -> Map.put(anchors, ref, anchor)
         end
 
-      # Creating an offer or a question is model work; only a delivery receipt
-      # proves one was sent, so every record sits in the work chapter, with the
-      # turn that saved it rather than the message read last before it.
-      step(
-        "record-#{record.id || index}",
-        :work,
-        record.inserted_at,
-        %{
-          actor: "Ryker state",
-          owner: if(record.turn_id, do: {:turn, record.turn_id}, else: :episode),
-          record_ref: record.ref,
-          details: compact_details(record_details(record, card)),
-          href: nil,
-          stage: record_stage(record.kind),
-          state: "",
-          summary: record_summary(record, card),
-          title: record_title(record, card),
-          current_warning: Delivery.ChatCard.wait_warning(record),
-          tone: nil
-        }
-      )
+      _record, anchors ->
+        anchors
     end)
   end
+
+  defp anchor(%Records.Record{kind: "evidence", id: id, payload: payload}, _goals),
+    do: %{href: "#event-record-#{id}", title: observation_area(payload)}
+
+  defp anchor(%Records.Record{kind: "goal", id: id, payload: payload}, _goals),
+    do: %{href: "#event-record-#{id}", title: payload["requested_outcome"]}
+
+  defp anchor(%Records.Record{kind: "goal_state", subject_ref: goal_id}, goals) do
+    case goals[goal_id] do
+      %Records.Record{} = goal -> anchor(goal, goals)
+      nil -> nil
+    end
+  end
+
+  defp anchor(_record, _goals), do: nil
+
+  @doc """
+  Adjacent evidence from one turn as one Observations card: a compact row per
+  record, in the order they were written, instead of a framed card each
+  (Andrew approved the card, 2026-10-15). Evidence with other work between it,
+  or from another turn, starts a card of its own, so nothing reads as a
+  summary of work it was not part of. Each row keeps its record's anchor.
+  """
+  def observations(steps) do
+    steps
+    |> Enum.chunk_by(fn
+      %{stage: "Evidence", observation: %{}, owner: owner} -> {:evidence, owner}
+      step -> {:step, step.id}
+    end)
+    |> Enum.flat_map(fn
+      [%{stage: "Evidence", observation: %{}} | _] = run -> [observations_step(run)]
+      run -> run
+    end)
+  end
+
+  defp observations_step([first | _] = run) do
+    step(
+      "observations-" <> String.replace_prefix(first.id, "record-", ""),
+      first.band,
+      first.at,
+      %{
+        actor: "Ryker state",
+        owner: first.owner,
+        details: [],
+        stage: "Observations",
+        state: "",
+        summary: nil,
+        title: "Observations",
+        observations: Enum.map(run, & &1.observation),
+        tone: nil
+      }
+    )
+  end
+
+  # What a piece of evidence is about, what was observed, where it came from
+  # and when it was measured, and any limit on what it covers. `observed_at` is
+  # the measurement; the record's own time is only when it was written down,
+  # so a missing measurement stays missing. A health effect is shown only
+  # when it names a problem or says it is unknown: "none" proves no health.
+  defp observation(%Records.Record{kind: "evidence", payload: payload} = record, anchors) do
+    area = observation_area(payload)
+
+    %{
+      id: "record-#{record.id}",
+      record_ref: record.ref,
+      area: area,
+      text: payload["observation"],
+      source: payload["source_name"],
+      measured_at: observed_at(payload["observed_at"]),
+      freshness: payload["freshness"],
+      scope_note: payload["scope_note"],
+      effect: health_effect(payload["health_effect"]),
+      contradicts: payload["relation"] == "contradicts",
+      replaces:
+        Enum.map(payload["supersedes"] || [], fn ref ->
+          Map.get(anchors, ref, %{href: nil, title: ref})
+        end),
+      details:
+        compact_details(
+          [
+            {"Claim", if(payload["claim"] != area, do: payload["claim"])},
+            {"Measured", payload["observed_at"] || "Not recorded"},
+            {"Recorded", record.inserted_at},
+            {"Source type", payload["source_type"] && human(payload["source_type"])},
+            {"Confidence", payload["confidence"]},
+            {"Health effect", payload["health_effect"]},
+            {"Relation", payload["relation"]}
+          ] ++
+            measurements(payload["dimensions"]) ++
+            [
+              {"Source reference", payload["source_id"], identifier: true},
+              {"Claim ID", payload["claim_id"], identifier: true},
+              {"Record", record.ref, identifier: true},
+              {"Operation", record.operation_id, identifier: true}
+            ]
+        )
+    }
+  end
+
+  defp observation(_record, _anchors), do: nil
+
+  defp observation_area(payload),
+    do: payload["target"] || payload["claim"] || payload["source_name"] || "Observation"
+
+  defp observed_at(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, at, _offset} -> at
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp observed_at(_value), do: nil
+
+  defp health_effect("unhealthy"), do: {:bad, "Unhealthy"}
+  defp health_effect("degraded"), do: {:warn, "Degraded"}
+  defp health_effect("risk"), do: {:warn, "Risk"}
+  defp health_effect("unknown"), do: {nil, "Unknown"}
+  defp health_effect(_none), do: nil
+
+  defp measurements(%{} = dimensions) do
+    dimensions
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Enum.map(fn {name, value} -> {"Measured " <> human(name), value} end)
+  end
+
+  defp measurements(_dimensions), do: []
+
+  # The request's goals as one Work plan card where the first was planned:
+  # each goal's latest attempt is a step with its status, what finishes it
+  # and, once done, its recorded result and evidence. Authority, kind,
+  # record IDs, earlier attempts and every state change stay under Details
+  # and history (Andrew approved the card, 2026-10-15: Read only stays out of
+  # the face). Successful plan and update calls fold into it (`SavedRecords`).
+  defp plan_steps([], _anchors), do: []
+
+  defp plan_steps(records, anchors) do
+    goals = for %Records.Record{kind: "goal"} = record <- records, do: record
+
+    states =
+      records
+      |> Enum.filter(&(&1.kind == "goal_state"))
+      |> Enum.group_by(& &1.subject_ref)
+
+    successors =
+      for %Records.Record{subject_ref: id, payload: %{"successor_of" => predecessor}} <- goals,
+          is_binary(predecessor),
+          into: %{},
+          do: {predecessor, id}
+
+    by_id = Map.new(goals, &{&1.subject_ref, &1})
+
+    planned =
+      Enum.map(goals, fn goal ->
+        plan_goal(goal, Map.get(states, goal.subject_ref, []), by_id, successors, anchors)
+      end)
+
+    # A goal whose plan record this page does not hold still shows its updates.
+    unplanned =
+      for {goal_id, updates} <- states, not Map.has_key?(by_id, goal_id) do
+        unplanned_goal(goal_id, updates, anchors)
+      end
+
+    first = List.first(goals) || List.first(records)
+
+    [
+      step("plan-#{first.id}", :work, first.inserted_at, %{
+        actor: "Ryker state",
+        owner: record_owner(first),
+        details: [],
+        stage: "Work plan",
+        state: "",
+        summary: nil,
+        title: "Work plan",
+        plan: %{
+          steps: current_steps(planned ++ unplanned, by_id),
+          history: planned ++ unplanned
+        },
+        tone: nil
+      })
+    ]
+  end
+
+  defp plan_goal(%Records.Record{payload: payload} = goal, updates, by_id, successors, anchors) do
+    latest = List.last(updates)
+    state = (latest && latest.payload["state"]) || "ready"
+    {status, tone} = goal_status(state)
+
+    %{
+      id: "record-#{goal.id}",
+      record_ref: goal.ref,
+      goal_id: goal.subject_ref,
+      title: payload["requested_outcome"],
+      state: state,
+      status: status,
+      tone: tone,
+      optional: payload["required"] == false,
+      contract: payload["completion_contract"],
+      detail: latest && latest.payload["detail"],
+      evidence: goal_evidence(latest, anchors),
+      parent: payload["parent_goal_id"],
+      attempt: attempt(goal.subject_ref, by_id),
+      replaced: Map.has_key?(successors, goal.subject_ref),
+      facts:
+        compact_details([
+          {"Done when", payload["completion_contract"]},
+          {"Kind", payload["kind"] && human(payload["kind"])},
+          {"Authority", payload["authority"] && human(payload["authority"])},
+          {"Membership", if(payload["required"] == false, do: "Optional", else: "Required")},
+          {"Stage", payload["stage"] && human(payload["stage"])},
+          {"Changes", payload["writable_repository"]},
+          {"Reads", read_only(payload["read_only_repositories"])},
+          {"Part of", goal_name(payload["parent_goal_id"], by_id)},
+          {"After", goal_names(payload["prerequisite_goal_ids"], by_id)},
+          {"Repeats", goal_name(payload["successor_of"], by_id)},
+          {"Repeated by", goal_name(successors[goal.subject_ref], by_id)},
+          {"Planned", goal.inserted_at},
+          {"Goal ID", goal.subject_ref, identifier: true},
+          {"Record", goal.ref, identifier: true},
+          {"Operation", goal.operation_id, identifier: true}
+        ]),
+      changes: Enum.map(updates, &goal_change(&1, anchors))
+    }
+  end
+
+  defp unplanned_goal(goal_id, updates, anchors) do
+    latest = List.last(updates)
+    {status, tone} = goal_status(latest.payload["state"])
+
+    %{
+      id: "record-#{latest.id}",
+      record_ref: nil,
+      goal_id: goal_id,
+      title: goal_id,
+      state: latest.payload["state"],
+      status: status,
+      tone: tone,
+      optional: false,
+      contract: nil,
+      detail: latest.payload["detail"],
+      evidence: goal_evidence(latest, anchors),
+      parent: nil,
+      attempt: 1,
+      replaced: false,
+      facts:
+        compact_details([
+          {"Plan", "Its plan record is not on this page."},
+          {"Goal ID", goal_id, identifier: true}
+        ]),
+      changes: Enum.map(updates, &goal_change(&1, anchors))
+    }
+  end
+
+  # The steps the card shows: each goal's latest attempt, where its first
+  # attempt was planned, and a subgoal under the goal it belongs to. A goal
+  # another attempt replaced stays in the history, so it never counts as the
+  # work's result.
+  defp current_steps(goals, by_id) do
+    order = goals |> Enum.with_index() |> Map.new(fn {goal, index} -> {goal.goal_id, index} end)
+
+    current =
+      goals
+      |> Enum.reject(& &1.replaced)
+      |> Enum.sort_by(&Map.get(order, root(&1.goal_id, by_id), 0))
+
+    ids = MapSet.new(current, & &1.goal_id)
+    children = Enum.group_by(current, &if(&1.parent in ids, do: &1.parent))
+
+    children
+    |> Map.get(nil, [])
+    |> Enum.flat_map(&with_children(&1, children, 0))
+  end
+
+  defp with_children(goal, children, depth) do
+    [
+      Map.put(goal, :depth, depth)
+      | Enum.flat_map(
+          Map.get(children, goal.goal_id, []),
+          &with_children(&1, children, depth + 1)
+        )
+    ]
+  end
+
+  # The first attempt a repeated goal goes back to.
+  defp root(goal_id, by_id) do
+    case by_id[goal_id] do
+      %Records.Record{payload: %{"successor_of" => predecessor}} when is_binary(predecessor) ->
+        root(predecessor, by_id)
+
+      _first ->
+        goal_id
+    end
+  end
+
+  defp attempt(goal_id, by_id) do
+    case by_id[goal_id] do
+      %Records.Record{payload: %{"successor_of" => predecessor}} when is_binary(predecessor) ->
+        attempt(predecessor, by_id) + 1
+
+      _first ->
+        1
+    end
+  end
+
+  defp goal_change(%Records.Record{payload: payload} = update, anchors) do
+    {status, tone} = goal_status(payload["state"])
+
+    %{
+      id: "record-#{update.id}",
+      record_ref: update.ref,
+      at: update.inserted_at,
+      status: status,
+      tone: tone,
+      detail: payload["detail"],
+      evidence: goal_evidence(update, anchors),
+      facts:
+        compact_details([
+          {"Record", update.ref, identifier: true},
+          {"Operation", update.operation_id, identifier: true}
+        ])
+    }
+  end
+
+  defp goal_evidence(nil, _anchors), do: []
+
+  defp goal_evidence(%Records.Record{payload: payload}, anchors) do
+    Enum.map(payload["evidence_refs"] || [], fn ref ->
+      Map.get(anchors, ref, %{href: nil, title: ref})
+    end)
+  end
+
+  # The words a status is read in, as text with its tone: a skipped or
+  # cancelled goal is never shown as done.
+  defp goal_status("ready"), do: {"Not started", nil}
+  defp goal_status("working"), do: {"In progress", :busy}
+  defp goal_status("waiting"), do: {"Waiting", :warn}
+  defp goal_status("blocked"), do: {"Blocked", :bad}
+  defp goal_status("completed"), do: {"Done", :on}
+  defp goal_status("excluded"), do: {"Skipped", nil}
+  defp goal_status("cancelled"), do: {"Cancelled", nil}
+  defp goal_status(other), do: {capitalize(human(other)), nil}
+
+  defp goal_name(nil, _by_id), do: nil
+
+  defp goal_name(goal_id, by_id) do
+    case by_id[goal_id] do
+      %Records.Record{payload: %{"requested_outcome" => outcome}} -> outcome
+      _missing -> goal_id
+    end
+  end
+
+  defp goal_names(ids, by_id) when is_list(ids) and ids != [],
+    do: Enum.map_join(ids, ", ", &goal_name(&1, by_id))
+
+  defp goal_names(_ids, _by_id), do: nil
+
+  defp read_only(names) when is_list(names) and names != [], do: Wording.list(names)
+  defp read_only(_names), do: nil
 
   @doc "The worker fleet's own events for the episode's sessions."
   def coop_steps([]), do: []
@@ -339,8 +733,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
   defp record_stage("evidence"), do: "Evidence"
   defp record_stage("coverage"), do: "Coverage"
   defp record_stage("progress"), do: "Progress"
-  defp record_stage("goal"), do: "Plan"
-  defp record_stage("goal_state"), do: "Plan"
   defp record_stage("input_request"), do: "Wait"
   defp record_stage("event_wait"), do: "Wait"
   defp record_stage(_kind), do: "State record"
@@ -351,8 +743,6 @@ defmodule Ryker.ControlPlane.EpisodeTrace.Work do
 
   defp record_title(%Records.Record{kind: "evidence"}, %{title: title}),
     do: "Evidence recorded · #{title}"
-
-  defp record_title(%Records.Record{kind: "goal_state"}, %{title: title}), do: "Goal · #{title}"
 
   defp record_title(_record, %{label: label, title: title}) when is_binary(title),
     do: "#{label} · #{title}"
