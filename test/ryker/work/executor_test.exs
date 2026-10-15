@@ -1,5 +1,8 @@
 defmodule Ryker.Work.ExecutorTest do
-  use Ryker.DataCase, async: false
+  # Async since 2026-10-14: the two tests that change installation-wide
+  # state, a saved setting and the global instructions, run serially in
+  # executor_installation_test.exs.
+  use Ryker.DataCase, async: true
   import Ryker.TestHelpers, only: [clocks_past!: 2, digest: 1, eventually: 2]
   import Ecto.Query
   alias Ryker.Artifacts
@@ -17,7 +20,6 @@ defmodule Ryker.Work.ExecutorTest do
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Repo
-  alias Ryker.Settings
   alias Ryker.StateTools.FixedTools
   alias Ryker.TestSupport.FakeWorkCoopAPI, as: FakeAPI
   alias Ryker.Work.{Activity, Cancellation, Custody, DeliveryReceipt, Dispatcher, Executor, Final}
@@ -589,53 +591,6 @@ defmodule Ryker.Work.ExecutorTest do
              fn -> Repo.get!(Ryker.Work.Turn, claim.turn.id).lease_expires_at != expiry end,
              700
            )
-  end
-
-  test "one frozen turn reaches a validated durable delivery intent" do
-    assert {:ok, _} =
-             Ryker.Instructions.save(:global, "Explain the evidence.", 0, "operator:test")
-
-    claim = claim_episode!("valid")
-    session_id = "remote_work_#{System.unique_integer([:positive])}"
-
-    activity = [
-      %{
-        "id" => "event:valid:1",
-        "occurred_at" => DateTime.to_iso8601(@now),
-        "payload" => %{"text" => "Checking the requested evidence."},
-        "sequence" => 1,
-        "session_id" => session_id,
-        "turn_id" => "work_turn_#{session_id}_1",
-        "type" => "model.thought",
-        "version" => 1
-      }
-    ]
-
-    {:ok, fake} =
-      FakeAPI.start_link([reply("Investigation complete.")],
-        activity_events: activity,
-        session_id: session_id
-      )
-
-    assert {:ok, execution} = Executor.run(claim, options(fake))
-    assert execution.status == :accepted
-    assert execution.turn.status == :delivery_pending
-    assert execution.episode.owner_kind == :delivery
-
-    state = FakeAPI.state(fake)
-
-    assert Jason.decode!(hd(state.submissions).prompt)["work"]["custom_instructions"]["global"][
-             "text"
-           ] == "Explain the evidence."
-
-    assert state.create_count == 1
-    assert state.submit_count == 1
-    assert Enum.map(state.validations, & &1.verdict) == [:accept]
-    assert state.submissions |> hd() |> Map.fetch!(:schema) == Final.json_schema()
-    refute state.submissions |> hd() |> Map.fetch!(:prompt) =~ ~s("$schema")
-    assert [{^session_id, 0, 1_000} | _rest] = state.activity_requests
-
-    assert [%{kind: "model.thought"}] = Activity.page_for_episode(claim.episode.id).events
   end
 
   test "the Timeline shows a Work turn the exact prompt Coop received" do
@@ -2928,25 +2883,6 @@ defmodule Ryker.Work.ExecutorTest do
     assert binding["endpoint"] == endpoint
     assert StateBinding.scope_matches?(binding["token"], StateBinding.placement_scope(placement))
     assert turn.state_tools_token_sha256 == Crypto.sha256_hex(binding["token"])
-  end
-
-  test "changing model settings does not rotate a running immutable job" do
-    claim = claim_with_bound_empty_session!("model-setting-frozen", String.duplicate("f", 64))
-    {:ok, fake} = fake_for(claim, [reply("The frozen model answered.")])
-    saved = Repo.reload!(claim.session)
-    {:ok, snapshot} = Settings.initialize("control-plane:local")
-
-    assert {:ok, _} =
-             Settings.save_work(
-               %{conversation_models: ["codex:gpt-5.6-terra/high@default"]},
-               snapshot.installation.revision,
-               "control-plane:local"
-             )
-
-    assert {:ok, %{status: :accepted}} = Executor.run(claim, options(fake))
-    assert Repo.get!(Ryker.Work.Turn, claim.turn.id).session_id == claim.session.id
-    assert Repo.reload!(claim.session).worker_job_document == saved.worker_job_document
-    assert FakeAPI.state(fake).create_count == 0
   end
 
   test "a new repository session waits for freshness v2 before remote creation" do
