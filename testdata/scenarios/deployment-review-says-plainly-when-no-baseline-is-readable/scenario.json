@@ -409,6 +409,11 @@
                 "$contains_all": [
                   "digest"
                 ]
+              },
+              {
+                "$contains_all": [
+                  "log"
+                ]
               }
             ]
           }
@@ -1364,6 +1369,14 @@
             "value": {
               "actions": [
                 {
+                  "action_id": "tfc.list_runs",
+                  "summary": "Recent runs of a workspace with status, commit and apply time",
+                  "args": {
+                    "workspace": "name",
+                    "limit": "count"
+                  }
+                },
+                {
                   "action_id": "tfc.run_details",
                   "summary": "One Terraform run: status, workspace and the commit it was queued from",
                   "args": {
@@ -1385,6 +1398,14 @@
                   }
                 },
                 {
+                  "action_id": "linux.journalctl_grep",
+                  "summary": "Search the instances' system journal since boot",
+                  "args": {
+                    "pattern": "regex",
+                    "since": "time"
+                  }
+                },
+                {
                   "action_id": "docker.ps",
                   "summary": "Containers running on the application instances",
                   "args": {}
@@ -1401,6 +1422,15 @@
                   "summary": "Application versions a running release reports",
                   "args": {
                     "container": "name"
+                  }
+                },
+                {
+                  "action_id": "github.compare",
+                  "summary": "Compare two commits of a repository: commits and changed files",
+                  "args": {
+                    "repository": "owner/name",
+                    "base": "commit",
+                    "head": "commit"
                   }
                 }
               ]
@@ -1411,6 +1441,14 @@
             "value": {
               "actions": [
                 {
+                  "action_id": "tfc.list_runs",
+                  "summary": "Recent runs of a workspace with status, commit and apply time",
+                  "args": {
+                    "workspace": "name",
+                    "limit": "count"
+                  }
+                },
+                {
                   "action_id": "tfc.run_details",
                   "summary": "One Terraform run: status, workspace and the commit it was queued from",
                   "args": {
@@ -1432,6 +1470,14 @@
                   }
                 },
                 {
+                  "action_id": "linux.journalctl_grep",
+                  "summary": "Search the instances' system journal since boot",
+                  "args": {
+                    "pattern": "regex",
+                    "since": "time"
+                  }
+                },
+                {
                   "action_id": "docker.ps",
                   "summary": "Containers running on the application instances",
                   "args": {}
@@ -1448,6 +1494,15 @@
                   "summary": "Application versions a running release reports",
                   "args": {
                     "container": "name"
+                  }
+                },
+                {
+                  "action_id": "github.compare",
+                  "summary": "Compare two commits of a repository: commits and changed files",
+                  "args": {
+                    "repository": "owner/name",
+                    "base": "commit",
+                    "head": "commit"
                   }
                 }
               ]
@@ -1458,6 +1513,14 @@
             "value": {
               "actions": [
                 {
+                  "action_id": "tfc.list_runs",
+                  "summary": "Recent runs of a workspace with status, commit and apply time",
+                  "args": {
+                    "workspace": "name",
+                    "limit": "count"
+                  }
+                },
+                {
                   "action_id": "tfc.run_details",
                   "summary": "One Terraform run: status, workspace and the commit it was queued from",
                   "args": {
@@ -1479,6 +1542,14 @@
                   }
                 },
                 {
+                  "action_id": "linux.journalctl_grep",
+                  "summary": "Search the instances' system journal since boot",
+                  "args": {
+                    "pattern": "regex",
+                    "since": "time"
+                  }
+                },
+                {
                   "action_id": "docker.ps",
                   "summary": "Containers running on the application instances",
                   "args": {}
@@ -1495,6 +1566,15 @@
                   "summary": "Application versions a running release reports",
                   "args": {
                     "container": "name"
+                  }
+                },
+                {
+                  "action_id": "github.compare",
+                  "summary": "Compare two commits of a repository: commits and changed files",
+                  "args": {
+                    "repository": "owner/name",
+                    "base": "commit",
+                    "head": "commit"
                   }
                 }
               ]
@@ -1505,6 +1585,14 @@
             "value": {
               "actions": [
                 {
+                  "action_id": "tfc.list_runs",
+                  "summary": "Recent runs of a workspace with status, commit and apply time",
+                  "args": {
+                    "workspace": "name",
+                    "limit": "count"
+                  }
+                },
+                {
                   "action_id": "tfc.run_details",
                   "summary": "One Terraform run: status, workspace and the commit it was queued from",
                   "args": {
@@ -1526,6 +1614,14 @@
                   }
                 },
                 {
+                  "action_id": "linux.journalctl_grep",
+                  "summary": "Search the instances' system journal since boot",
+                  "args": {
+                    "pattern": "regex",
+                    "since": "time"
+                  }
+                },
+                {
                   "action_id": "docker.ps",
                   "summary": "Containers running on the application instances",
                   "args": {}
@@ -1542,6 +1638,15 @@
                   "summary": "Application versions a running release reports",
                   "args": {
                     "container": "name"
+                  }
+                },
+                {
+                  "action_id": "github.compare",
+                  "summary": "Compare two commits of a repository: commits and changed files",
+                  "args": {
+                    "repository": "owner/name",
+                    "base": "commit",
+                    "head": "commit"
                   }
                 }
               ]
@@ -1552,6 +1657,14 @@
             "value": {
               "actions": [
                 {
+                  "action_id": "tfc.list_runs",
+                  "summary": "Recent runs of a workspace with status, commit and apply time",
+                  "args": {
+                    "workspace": "name",
+                    "limit": "count"
+                  }
+                },
+                {
                   "action_id": "tfc.run_details",
                   "summary": "One Terraform run: status, workspace and the commit it was queued from",
                   "args": {
@@ -1573,6 +1686,14 @@
                   }
                 },
                 {
+                  "action_id": "linux.journalctl_grep",
+                  "summary": "Search the instances' system journal since boot",
+                  "args": {
+                    "pattern": "regex",
+                    "since": "time"
+                  }
+                },
+                {
                   "action_id": "docker.ps",
                   "summary": "Containers running on the application instances",
                   "args": {}
@@ -1589,6 +1710,15 @@
                   "summary": "Application versions a running release reports",
                   "args": {
                     "container": "name"
+                  }
+                },
+                {
+                  "action_id": "github.compare",
+                  "summary": "Compare two commits of a repository: commits and changed files",
+                  "args": {
+                    "repository": "owner/name",
+                    "base": "commit",
+                    "head": "commit"
                   }
                 }
               ]
@@ -1599,6 +1729,14 @@
             "value": {
               "actions": [
                 {
+                  "action_id": "tfc.list_runs",
+                  "summary": "Recent runs of a workspace with status, commit and apply time",
+                  "args": {
+                    "workspace": "name",
+                    "limit": "count"
+                  }
+                },
+                {
                   "action_id": "tfc.run_details",
                   "summary": "One Terraform run: status, workspace and the commit it was queued from",
                   "args": {
@@ -1620,6 +1758,14 @@
                   }
                 },
                 {
+                  "action_id": "linux.journalctl_grep",
+                  "summary": "Search the instances' system journal since boot",
+                  "args": {
+                    "pattern": "regex",
+                    "since": "time"
+                  }
+                },
+                {
                   "action_id": "docker.ps",
                   "summary": "Containers running on the application instances",
                   "args": {}
@@ -1636,6 +1782,15 @@
                   "summary": "Application versions a running release reports",
                   "args": {
                     "container": "name"
+                  }
+                },
+                {
+                  "action_id": "github.compare",
+                  "summary": "Compare two commits of a repository: commits and changed files",
+                  "args": {
+                    "repository": "owner/name",
+                    "base": "commit",
+                    "head": "commit"
                   }
                 }
               ]
@@ -1646,6 +1801,14 @@
             "value": {
               "actions": [
                 {
+                  "action_id": "tfc.list_runs",
+                  "summary": "Recent runs of a workspace with status, commit and apply time",
+                  "args": {
+                    "workspace": "name",
+                    "limit": "count"
+                  }
+                },
+                {
                   "action_id": "tfc.run_details",
                   "summary": "One Terraform run: status, workspace and the commit it was queued from",
                   "args": {
@@ -1667,6 +1830,14 @@
                   }
                 },
                 {
+                  "action_id": "linux.journalctl_grep",
+                  "summary": "Search the instances' system journal since boot",
+                  "args": {
+                    "pattern": "regex",
+                    "since": "time"
+                  }
+                },
+                {
                   "action_id": "docker.ps",
                   "summary": "Containers running on the application instances",
                   "args": {}
@@ -1683,6 +1854,15 @@
                   "summary": "Application versions a running release reports",
                   "args": {
                     "container": "name"
+                  }
+                },
+                {
+                  "action_id": "github.compare",
+                  "summary": "Compare two commits of a repository: commits and changed files",
+                  "args": {
+                    "repository": "owner/name",
+                    "base": "commit",
+                    "head": "commit"
                   }
                 }
               ]
@@ -1693,6 +1873,14 @@
             "value": {
               "actions": [
                 {
+                  "action_id": "tfc.list_runs",
+                  "summary": "Recent runs of a workspace with status, commit and apply time",
+                  "args": {
+                    "workspace": "name",
+                    "limit": "count"
+                  }
+                },
+                {
                   "action_id": "tfc.run_details",
                   "summary": "One Terraform run: status, workspace and the commit it was queued from",
                   "args": {
@@ -1714,6 +1902,14 @@
                   }
                 },
                 {
+                  "action_id": "linux.journalctl_grep",
+                  "summary": "Search the instances' system journal since boot",
+                  "args": {
+                    "pattern": "regex",
+                    "since": "time"
+                  }
+                },
+                {
                   "action_id": "docker.ps",
                   "summary": "Containers running on the application instances",
                   "args": {}
@@ -1730,6 +1926,15 @@
                   "summary": "Application versions a running release reports",
                   "args": {
                     "container": "name"
+                  }
+                },
+                {
+                  "action_id": "github.compare",
+                  "summary": "Compare two commits of a repository: commits and changed files",
+                  "args": {
+                    "repository": "owner/name",
+                    "base": "commit",
+                    "head": "commit"
                   }
                 }
               ]
@@ -1753,7 +1958,8 @@
               "confirmable": true,
               "source": {
                 "branch": "main",
-                "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa"
+                "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+                "deploys": "This workspace deploys the application image built from the commit a run is queued from."
               },
               "observed_at": "2026-10-13T21:07:30Z",
               "source_ref": "source:tfc:run-details:Q7wT2nYb8cKd3mPx"
@@ -1768,7 +1974,8 @@
               "confirmable": true,
               "source": {
                 "branch": "main",
-                "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa"
+                "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+                "deploys": "This workspace deploys the application image built from the commit a run is queued from."
               },
               "observed_at": "2026-10-13T21:07:30Z",
               "source_ref": "source:tfc:run-details:Q7wT2nYb8cKd3mPx"
@@ -1783,7 +1990,8 @@
               "confirmable": true,
               "source": {
                 "branch": "main",
-                "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa"
+                "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+                "deploys": "This workspace deploys the application image built from the commit a run is queued from."
               },
               "observed_at": "2026-10-13T21:07:30Z",
               "source_ref": "source:tfc:run-details:Q7wT2nYb8cKd3mPx"
@@ -1798,7 +2006,8 @@
               "confirmable": true,
               "source": {
                 "branch": "main",
-                "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa"
+                "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+                "deploys": "This workspace deploys the application image built from the commit a run is queued from."
               },
               "observed_at": "2026-10-13T21:07:30Z",
               "source_ref": "source:tfc:run-details:Q7wT2nYb8cKd3mPx"
@@ -1813,7 +2022,8 @@
               "confirmable": true,
               "source": {
                 "branch": "main",
-                "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa"
+                "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+                "deploys": "This workspace deploys the application image built from the commit a run is queued from."
               },
               "observed_at": "2026-10-13T21:07:30Z",
               "source_ref": "source:tfc:run-details:Q7wT2nYb8cKd3mPx"
@@ -1828,7 +2038,8 @@
               "confirmable": true,
               "source": {
                 "branch": "main",
-                "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa"
+                "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+                "deploys": "This workspace deploys the application image built from the commit a run is queued from."
               },
               "observed_at": "2026-10-13T21:07:30Z",
               "source_ref": "source:tfc:run-details:Q7wT2nYb8cKd3mPx"
@@ -1843,7 +2054,8 @@
               "confirmable": true,
               "source": {
                 "branch": "main",
-                "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa"
+                "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+                "deploys": "This workspace deploys the application image built from the commit a run is queued from."
               },
               "observed_at": "2026-10-13T21:07:30Z",
               "source_ref": "source:tfc:run-details:Q7wT2nYb8cKd3mPx"
@@ -1858,7 +2070,8 @@
               "confirmable": true,
               "source": {
                 "branch": "main",
-                "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa"
+                "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+                "deploys": "This workspace deploys the application image built from the commit a run is queued from."
               },
               "observed_at": "2026-10-13T21:07:30Z",
               "source_ref": "source:tfc:run-details:Q7wT2nYb8cKd3mPx"
