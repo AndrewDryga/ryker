@@ -1332,10 +1332,10 @@
         "tool": "cite_source"
       },
       {
-        "kind": "state_tool_not_recorded",
+        "kind": "state_tool_recorded",
         "tool": "record_finding",
         "payload": {
-          "status": "unexplained"
+          "status": "expected"
         }
       }
     ],

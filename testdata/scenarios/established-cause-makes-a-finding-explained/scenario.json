@@ -634,11 +634,10 @@
           },
           "service": {
             "$one_of": [
-              {
-                "$contains_all": [
-                  "arena"
-                ]
-              }
+              "arena",
+              "Arena",
+              "arena-api",
+              "arena-service"
             ]
           }
         },
