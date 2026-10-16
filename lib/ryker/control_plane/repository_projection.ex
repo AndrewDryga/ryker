@@ -98,7 +98,7 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
       |> RepositoryKnowledge.Run.Query.select_cards()
       |> Repo.all()
 
-    ids = Enum.map(runs, fn {run, _prompt, _result} -> run.id end)
+    ids = Enum.map(runs, fn {run, _prompt, _result, _schema} -> run.id end)
 
     executions =
       "knowledge"
@@ -108,7 +108,7 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
 
     texts = opened_texts(runs, disclosed)
 
-    Enum.map(runs, fn {run, prompt_bytes, result_bytes} ->
+    Enum.map(runs, fn {run, prompt_bytes, result_bytes, schema_bytes} ->
       %{
         id: run.id,
         at: run.started_at || run.inserted_at,
@@ -118,16 +118,19 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
         error_code: run.error_code,
         dropped: run.dropped_count,
         prompt: part(run.id, "prompt", prompt_bytes, texts),
-        result: part(run.id, "answer", result_bytes, texts)
+        result: part(run.id, "answer", result_bytes, texts),
+        schema: part(run.id, "schema", schema_bytes, texts)
       }
     end)
   end
 
-  # The prompts and answers the reader opened, read and redacted alone.
+  # The prompts, answers and response formats the reader opened, read and
+  # redacted alone. A response format is shown as the JSON the run kept,
+  # formatted; it went to the model as its own part of the request.
   defp opened_texts(runs, disclosed) do
     opened =
-      for {run, _prompt, _result} <- runs,
-          part <- ["prompt", "answer"],
+      for {run, _prompt, _result, _schema} <- runs,
+          part <- ["prompt", "answer", "schema"],
           MapSet.member?(disclosed, part_id(run.id, part)),
           do: {run.id, part}
 
@@ -141,8 +144,12 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
       |> RepositoryKnowledge.Run.Query.by_ids()
       |> RepositoryKnowledge.Run.Query.select_texts()
       |> Repo.all()
-      |> Enum.flat_map(fn {id, prompt, result} ->
-        [{{id, "prompt"}, prompt}, {{id, "answer"}, result}]
+      |> Enum.flat_map(fn {id, prompt, result, schema} ->
+        [
+          {{id, "prompt"}, prompt},
+          {{id, "answer"}, result},
+          {{id, "schema"}, schema && Jason.encode!(schema, pretty: true)}
+        ]
       end)
       |> Enum.filter(fn {key, _text} -> key in opened end)
       |> Map.new(fn {key, text} -> {key, exact(text, secrets)} end)

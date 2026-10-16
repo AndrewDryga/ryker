@@ -56,13 +56,18 @@ defmodule Ryker.RepositoryKnowledge.Run.Query do
       queryable,
       [repository_knowledge_runs: r],
       {struct(r, ^@card_fields), fragment("octet_length(?)", r.prompt),
-       fragment("octet_length(?)", r.result)}
+       fragment("octet_length(?)", r.result), fragment("octet_length(?::text)", r.output_schema)}
     )
   end
 
-  @doc "Each run's prompt and answer, as `{id, prompt, result}`."
-  def select_texts(queryable),
-    do: select(queryable, [repository_knowledge_runs: r], {r.id, r.prompt, r.result})
+  @doc "Each run's prompt, answer and response format, as `{id, prompt, result, output_schema}`."
+  def select_texts(queryable) do
+    select(
+      queryable,
+      [repository_knowledge_runs: r],
+      {r.id, r.prompt, r.result, r.output_schema}
+    )
+  end
 
   def ordered_by_generation(queryable),
     do: order_by(queryable, [repository_knowledge_runs: r], asc: r.generation)

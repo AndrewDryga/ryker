@@ -394,7 +394,8 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
         error_code: nil,
         dropped: 2,
         prompt: opened("run-2", "prompt", prompt),
-        result: opened("run-2", "answer", answer)
+        result: opened("run-2", "answer", answer),
+        schema: opened("run-2", "schema", ~s({\n  "type": "object"\n}))
       },
       %{
         id: "run-1",
@@ -414,7 +415,8 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
         dropped: nil,
         prompt: opened("run-1", "prompt", "An older prompt, not JSON."),
         # Not opened yet: read once the reader opens it.
-        result: %{artifact_id: "knowledge-run-run-1-answer", bytes: 13, text: nil}
+        result: %{artifact_id: "knowledge-run-run-1-answer", bytes: 13, text: nil},
+        schema: nil
       }
     ]
 
@@ -474,6 +476,16 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
              "An older prompt, not JSON."
 
     assert card |> LazyHTML.query("#knowledge-run-run-2-answer pre") |> LazyHTML.text() == answer
+
+    # The response format it was given beside the prompt, as every other
+    # model call shows it.
+    format = LazyHTML.query(card, "#knowledge-run-run-2-schema")
+
+    assert format |> LazyHTML.query("summary") |> LazyHTML.text() |> squeeze() =~
+             "Response format JSON · 22 bytes"
+
+    assert format |> LazyHTML.query("pre") |> LazyHTML.text() == ~s({\n  "type": "object"\n})
+    assert card |> LazyHTML.query("#knowledge-run-run-1-schema") |> Enum.count() == 0
     refute squeeze(LazyHTML.text(card)) =~ "repository_knowledge_result_invalid"
 
     # An answer not opened yet asks for itself when it is opened.

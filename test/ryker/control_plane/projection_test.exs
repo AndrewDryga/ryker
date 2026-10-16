@@ -2209,6 +2209,16 @@ defmodule Ryker.ControlPlane.ProjectionTest do
     assert newest.prompt.text == prompt
     assert newest.result.text == ~s({"purpose":"Ryker."})
     assert oldest.prompt.text == nil
+
+    # The response format went to the model beside the prompt, and is read
+    # the same way (2026-10-16: it was shown for every other model call).
+    assert %{artifact_id: schema_id, text: nil} = newest.schema
+
+    assert {:ok, %{knowledge_runs: [newest, _oldest]}} =
+             RepositoryProjection.detail("ryker", MapSet.new([schema_id]))
+
+    assert newest.schema.text == ~s({\n  "type": "object"\n})
+    assert newest.prompt.text == nil
     assert RepositoryProjection.detail("ryk") == :error
 
     assert {:ok, episode_detail} = EpisodeProjection.fetch(source.episode.key)

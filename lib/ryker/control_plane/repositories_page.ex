@@ -695,7 +695,10 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
                   )}</span>
                 </:fact>
               </CallRun.table>
-              <div :if={run.prompt || run.result} class="kit-rows knowledge-run-parts">
+              <div
+                :if={run.prompt || run.result || run.schema}
+                class="kit-rows knowledge-run-parts"
+              >
                 <Components.disclosure
                   :if={run.prompt}
                   id={run.prompt.artifact_id}
@@ -706,6 +709,19 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
                   <:meta>{CallRun.estimated_tokens({:bytes, run.prompt.bytes})}</:meta>
                   <.prompt_view :if={run.prompt.text} prompt={run.prompt.text} />
                   <p :if={!run.prompt.text} class="artifact-loading" role="status">Loading…</p>
+                </Components.disclosure>
+                <Components.disclosure
+                  :if={run.schema}
+                  id={run.schema.artifact_id}
+                  label="Response format"
+                  kind={:source}
+                  data-artifact={run.schema.artifact_id}
+                >
+                  <:meta>JSON · {Units.bytes(run.schema.bytes)}</:meta>
+                  <Components.copy_block :if={run.schema.text} label="Copy JSON">
+                    <pre class="model-document-text" tabindex="0">{run.schema.text}</pre>
+                  </Components.copy_block>
+                  <p :if={!run.schema.text} class="artifact-loading" role="status">Loading…</p>
                 </Components.disclosure>
                 <Components.disclosure
                   :if={run.result}
