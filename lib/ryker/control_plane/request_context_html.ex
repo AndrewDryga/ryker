@@ -434,7 +434,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   @doc "The retained prompt and separately supplied output format, without rebuilding either."
   def submitted(sections, prefix, artifact_id \\ nil) do
     [
-      "<p class=\"prompt-legend\">Provider-owned instructions and wrappers are not part of this record.</p>",
+      "<p class=\"prompt-legend\">The model provider's own instructions are not part of this record.</p>",
       Enum.map(
         [
           {"request", "Prompt text", "$.prompt"},

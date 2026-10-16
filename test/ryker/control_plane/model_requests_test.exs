@@ -4,9 +4,10 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
   import Ryker.TestHelpers, only: [digest: 1]
   import Phoenix.LiveViewTest
   alias Ryker.Admission.Attempt
+  alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.ConversationLab
   alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, EpisodeRequest}
-  alias Ryker.ControlPlane.ModelRequests
+  alias Ryker.ControlPlane.{ModelRequests, Units}
   alias Ryker.CoopFleet.JobTemplates
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.Inbox.Entry
@@ -30,10 +31,87 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     full = html |> LazyHTML.from_fragment() |> LazyHTML.query(".final-prompt")
 
     assert LazyHTML.text(full) =~
-             "Provider-owned instructions and wrappers are not part of this record."
+             "The model provider's own instructions are not part of this record."
 
     refute html =~ raw.artifact.sha256
     refute html =~ "xoxb-recorded-credential"
+  end
+
+  test "a Work request shows each prompt the worker sent, rebuilt from its saved prompt and checked" do
+    # Ryker showed its own saved prompt as the prompt the model was given. The
+    # worker sent more: the output contract and the output-folder note after
+    # it, and a correction of its own when the first answer failed the schema
+    # (2026-10-15). A call whose worker kept no record says so, and nothing is
+    # rebuilt from today's templates.
+    {episode, turn, original} = frozen_turn!()
+
+    Repo.update_all(from(t in Turn, where: t.id == ^turn.id),
+      set: [coop_turn_id: "coop-turn-sent"]
+    )
+
+    unrecorded = timeline_request(episode, turn)
+    assert unrecorded.sent == []
+
+    assert render_component(&EpisodeRequest.render/1, request: unrecorded) =~
+             "Not recorded for this call."
+
+    # The response format as the worker holds it: Go's encoding of the saved map.
+    schema = ~s({"type":"object"})
+
+    opening =
+      "\n\n<coop-output-contract sha256=\"#{digest(schema)}\">\nReturn one JSON value.\n\n<json-schema>"
+
+    closing =
+      "</json-schema>\n</coop-output-contract>\n\n<coop-output>Save only final generated images in .coop-output/turn-1.</coop-output>"
+
+    head =
+      "Your previous final response was rejected: «ünïcode» ✓\nThis is correction attempt 2 of 3.\n\n<json-schema>"
+
+    sent!(episode, turn, 1, original <> opening <> schema <> closing, [
+      digest_part("caller_prompt", original),
+      text_part(opening),
+      digest_part("output_schema", schema),
+      text_part(closing)
+    ])
+
+    sent!(episode, turn, 2, head <> schema <> "</json-schema>", [
+      text_part(head),
+      digest_part("output_schema", schema),
+      text_part("</json-schema>")
+    ])
+
+    # A send whose prompt is not the one this call saved is shown, never
+    # passed off as checked.
+    sent!(episode, turn, 3, "another prompt" <> closing, [
+      digest_part("caller_prompt", "another prompt"),
+      text_part(closing)
+    ])
+
+    request = timeline_request(episode, turn)
+
+    assert [
+             %{title: "First message", matches?: true},
+             %{title: "Correction 1", matches?: true},
+             %{title: "Sent again from the start", matches?: false}
+           ] = request.sent
+
+    html = render_component(&EpisodeRequest.render/1, request: request)
+    sent = html |> LazyHTML.from_fragment() |> LazyHTML.query(".sent-prompts")
+    text = LazyHTML.text(sent)
+
+    assert text =~ "Sent to the model"
+    assert text =~ "As above, unchanged"
+    assert text =~ "<coop-output>Save only final generated images in .coop-output/turn-1."
+    assert text =~ "«ünïcode» ✓"
+    assert text =~ "Differs from the prompt text above"
+
+    assert sent |> LazyHTML.query(".ui-disclosure-meta") |> Enum.map(&LazyHTML.text/1) == [
+             "#{Units.bytes(byte_size(original <> opening <> schema <> closing))} · matches what was sent",
+             "#{Units.bytes(byte_size(head <> schema <> "</json-schema>"))} · matches what was sent",
+             "#{Units.bytes(byte_size("another prompt" <> closing))} · could not be checked against what was sent"
+           ]
+
+    refute text =~ "xoxb-recorded-credential"
   end
 
   test "a request that held a credential shows it removed, with no secrets disclaimer anywhere" do
@@ -783,6 +861,39 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
       params: %{}
     )
   end
+
+  defp sent!(episode, turn, sequence, text, parts) do
+    payload = %{
+      "version" => 1,
+      "state" => "sent",
+      "text_sha256" => digest(text),
+      "text_bytes" => byte_size(text),
+      "parts" => parts,
+      "blocks" => []
+    }
+
+    %{
+      coop_turn_id: "coop-turn-sent",
+      episode_id: episode.id,
+      session_id: turn.session_id,
+      kind: "prompt.sent",
+      occurred_at: DateTime.add(~U[2026-10-16 09:00:00.000000Z], sequence, :second),
+      payload: payload,
+      payload_fingerprint: CanonicalJSON.digest(payload),
+      remote_event_id: "prompt-#{sequence}",
+      remote_session_id: "remote-session",
+      sequence: sequence,
+      version: 1
+    }
+    |> Ryker.Work.ActivityEvent.Changeset.insert()
+    |> Repo.insert!()
+  end
+
+  defp digest_part(kind, text),
+    do: %{"kind" => kind, "sha256" => digest(text), "bytes" => byte_size(text)}
+
+  defp text_part(text),
+    do: %{"kind" => "text", "text" => text, "sha256" => digest(text), "bytes" => byte_size(text)}
 
   defp frozen_turn! do
     id = Ecto.UUID.generate()

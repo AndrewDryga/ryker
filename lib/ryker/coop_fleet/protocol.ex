@@ -38,7 +38,9 @@ defmodule Ryker.CoopFleet.Protocol do
   # The kinds whose payload the worker narrates (Coop's operatorActivityEvent).
   # Any other kind crosses without one, so a raw lifecycle payload such as an
   # assistant message cannot ride along.
-  @activity_event_kinds ~w(tool.started tool.completed model.plan model.thought model.progress permission.decided activity.elided provider.backoff provider.alive network)
+  # `prompt.sent` is what one prompt carried, recorded at the send
+  # (`Ryker.Work.Activity`); this list learns a kind before any worker sends it.
+  @activity_event_kinds ~w(tool.started tool.completed model.plan model.thought model.progress permission.decided activity.elided provider.backoff provider.alive network prompt.sent)
   @reference ~r/\A[A-Za-z0-9_.:-]+\z/
 
   @spec version() :: 2

@@ -2871,3 +2871,12 @@ html[data-page-help=open] .ryker-app main > .page-help { display:block; }
 .ryker-app .json-disclosure[open] > summary { border-radius:6px 6px 0 0; }
 .ryker-app .request-selection > .ui-disclosure-body > .ui-facts { margin:4px 0 12px; }
 @media (max-width:760px) { .ryker-app .run-groups { grid-template-columns:minmax(0,1fr); gap:16px; } .ryker-app .run-group + .run-group { padding:16px 0 0; border-left:0; border-top:1px solid var(--ryker-stroke); } .ryker-app .finding-header, .ryker-app .finding-body { padding-left:16px; padding-right:16px; } .ryker-app .finding > .finding-run { margin:0 16px 16px; } .ryker-app .finding-footer { padding:12px 16px; } .ryker-app .finding-review > .finding-footer { padding:12px 0 0; } .ryker-app .finding-actions { margin-left:0; } }
+.ryker-app .sent-prompts { margin-top:16px; }
+.ryker-app .sent-prompts > h5 { margin:0 0 8px; font-size:13px; line-height:20px; font-weight:600; }
+.ryker-app .sent-prompts-none { margin:0; color:var(--ryker-text-secondary); font-size:13px; }
+.ryker-app .sent-prompt { border:1px solid var(--ryker-stroke); border-radius:6px; background:var(--ryker-surface); }
+.ryker-app .sent-prompt + .sent-prompt { margin-top:8px; }
+.ryker-app .sent-prompt-parts { display:grid; gap:12px; margin:0; padding:0; list-style:none; }
+.ryker-app .sent-prompt-parts p { display:flex; flex-wrap:wrap; gap:4px 10px; margin:0; font-size:13px; line-height:20px; }
+.ryker-app .sent-prompt-parts p span { color:var(--ryker-text-secondary); }
+.ryker-app .sent-prompt-parts .copy-block { margin-top:6px; }

@@ -599,6 +599,98 @@ defmodule Ryker.Work.ActivityTest do
     refute inspect(stored.payload) =~ "do not export"
   end
 
+  test "a sent prompt's record is kept for its model call, off the timeline, and an unreadable one does not stop the stream" do
+    # The worker records what each prompt it sends carried: Ryker's prompt and
+    # response format by digest, and the text Coop wrote around them as sent.
+    # Ryker showed only its own saved prompt as the prompt a model was given
+    # (2026-10-15). A record this cannot read is kept as unreadable: refusing
+    # it would refuse the page, and a refused page stops the worker's stream.
+    {:ok, started} = Episodes.apply(EpisodeFixtures.admit_input())
+
+    {:ok, session} =
+      WorkSessions.pin_episode(started.episode.id, "policy:prompts", String.duplicate("a", 64))
+
+    {:ok, claim} = Custody.claim_next("prompt-records", 60, :work)
+
+    {:ok, session} =
+      Custody.bind_session(
+        started.episode.id,
+        claim.turn.turn_ref,
+        claim.lease_ref,
+        session.generation,
+        session.create_generation,
+        "remote:prompt-records"
+      )
+
+    note =
+      "\n\n<coop-output>Save only final generated images in .coop-output/turn-1.</coop-output>"
+
+    token = "ghp_" <> String.duplicate("aB7C", 9)
+    quoted = "Your previous final response was rejected: " <> token
+
+    sent = %{
+      "version" => 1,
+      "state" => "sent",
+      "text_sha256" => digest("prompt" <> note),
+      "text_bytes" => byte_size("prompt" <> note),
+      "parts" => [
+        %{"kind" => "caller_prompt", "sha256" => digest("prompt"), "bytes" => 6},
+        %{"kind" => "text", "text" => note, "sha256" => digest(note), "bytes" => byte_size(note)},
+        %{
+          "kind" => "text",
+          "text" => quoted,
+          "sha256" => digest(quoted),
+          "bytes" => byte_size(quoted)
+        }
+      ],
+      "blocks" => [
+        %{
+          "type" => "image",
+          "name" => "chart.png",
+          "media_type" => "image/png",
+          "sha256" => digest("png"),
+          "bytes" => 3,
+          "data" => "cG5n"
+        }
+      ],
+      "checkout_root" => "/private/workspace"
+    }
+
+    unreadable =
+      put_in(sent, ["parts"], [
+        %{"kind" => "text", "text" => note, "sha256" => digest("other"), "bytes" => 9}
+      ])
+
+    events = [
+      event(session, 1, "tool.started", %{"tool_call_id" => "exec-1", "title" => "Run git status"}),
+      event(session, 2, "prompt.sent", sent),
+      event(session, 3, "prompt.sent", unreadable)
+    ]
+
+    assert {:ok, %{cursor: 3, inserted: 3}} = Activity.ingest(session.id, events)
+
+    assert [narrated] = Activity.page_for_episode(started.episode.id).events
+    assert narrated.kind == "tool.started"
+
+    [kept, unread] =
+      Ryker.Work.ActivityEvent
+      |> Repo.all()
+      |> Enum.filter(&(&1.kind == "prompt.sent"))
+      |> Enum.sort_by(& &1.sequence)
+
+    assert unread.payload == %{"unreadable" => true}
+    assert kept.payload["state"] == "sent"
+    assert kept.payload["text_sha256"] == digest("prompt" <> note)
+    assert [prompt, folder, correction] = kept.payload["parts"]
+    assert prompt == %{"kind" => "caller_prompt", "sha256" => digest("prompt"), "bytes" => 6}
+    assert folder["text"] == note
+    assert correction["redacted"] == true
+    refute inspect(kept.payload) =~ token
+    refute inspect(kept.payload) =~ "/private/workspace"
+    assert [%{"name" => "chart.png", "bytes" => 3} = block] = kept.payload["blocks"]
+    refute Map.has_key?(block, "data")
+  end
+
   test "a learning session's narration is acknowledged without an activity owner" do
     # Retained activity belongs to exactly one owner, an episode or an admission
     # input, and a learning session has neither. On 2026-09-13 the first learning
@@ -637,6 +729,8 @@ defmodule Ryker.Work.ActivityTest do
 
     assert Repo.aggregate(Ryker.Work.ActivityEvent, :count) == 0
   end
+
+  defp digest(text), do: :crypto.hash(:sha256, text) |> Base.encode16(case: :lower)
 
   defp event(session, sequence, type, payload) do
     %{

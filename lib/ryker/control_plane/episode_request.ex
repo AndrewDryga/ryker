@@ -7,6 +7,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   alias Ryker.ControlPlane.FindingCard
   alias Ryker.ControlPlane.Paths
   alias Ryker.ControlPlane.RequestContextHTML
+  alias Ryker.ControlPlane.SentPrompts
   alias Ryker.ControlPlane.Units
   alias Ryker.Episodes
   alias Ryker.Wording
@@ -137,6 +138,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
           </h4>
         </header>
         {Phoenix.HTML.raw(submitted(@request, @prompt_section))}
+        <SentPrompts.list id={"#{@request.id}-sent"} sends={@request[:sent]} />
       </section>
       <Components.disclosure
         :if={!@result? && @request[:selection]}

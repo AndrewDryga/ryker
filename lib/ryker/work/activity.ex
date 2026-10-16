@@ -9,6 +9,7 @@ defmodule Ryker.Work.Activity do
   """
   alias Ryker.Admission
   alias Ryker.CanonicalJSON
+  alias Ryker.Crypto
   alias Ryker.Episodes
   alias Ryker.Ingress
   alias Ryker.InspectionRedactor
@@ -29,6 +30,7 @@ defmodule Ryker.Work.Activity do
     provider.backoff
     provider.alive
     network
+    prompt.sent
   )
   @event_fields ~w(id session_id sequence turn_id type version occurred_at payload)
   @required_event_fields ~w(id session_id sequence type version occurred_at)
@@ -39,6 +41,9 @@ defmodule Ryker.Work.Activity do
   # Loading older activity stays bounded: ten pages of retained events, not an
   # unbounded "expand everything" that hands the reader the whole table.
   @maximum_pages 10
+  @prompt_part_kinds ~w(caller_prompt output_schema text omitted withheld)
+  @prompt_record_items 16
+  @prompt_record_text_bytes 32 * 1_024
 
   @doc "Capture routing activity without requiring or inventing a kernel episode."
   def sync_admission(entry, remote_id, settings) do
@@ -180,7 +185,12 @@ defmodule Ryker.Work.Activity do
   def page_for_episode(episode_id, pages \\ 1)
 
   def page_for_episode(episode_id, pages) when is_binary(episode_id) do
-    query = episode_id |> ActivityEvent.Query.by_episode_id() |> ActivityEvent.Query.visible()
+    query =
+      episode_id
+      |> ActivityEvent.Query.by_episode_id()
+      |> ActivityEvent.Query.visible()
+      |> ActivityEvent.Query.narration()
+
     totals = query |> ActivityEvent.Query.select_totals() |> Repo.one!()
 
     events =
@@ -606,6 +616,110 @@ defmodule Ryker.Work.Activity do
      |> optional_public_integer("frames", payload["frames"])
      |> optional_public_integer("bytes", payload["bytes"])}
   end
+
+  # What one prompt carried, recorded by the worker at the send: Ryker's prompt
+  # and output schema by digest, and the text Coop wrote around them as sent,
+  # each part with its digest (`ControlPlane.SentPrompts` rebuilds the text).
+  # A record this cannot read is kept as unreadable rather than refused: a
+  # refused page stops the worker's whole event stream.
+  defp public_payload("prompt.sent", payload) do
+    case prompt_record(payload) do
+      {:ok, record} -> {:ok, record}
+      :error -> {:ok, %{"unreadable" => true}}
+    end
+  end
+
+  defp prompt_record(%{"version" => 1} = payload) do
+    with state when state in ~w(sent failed uncertain) <- payload["state"],
+         digest when is_binary(digest) <- prompt_digest(payload["text_sha256"]),
+         bytes when is_integer(bytes) and bytes >= 0 <- payload["text_bytes"],
+         parts when is_list(parts) and length(parts) <= @prompt_record_items <- payload["parts"],
+         {:ok, parts} <- prompt_parts(parts),
+         blocks when is_list(blocks) and length(blocks) <= @prompt_record_items <-
+           payload["blocks"] || [] do
+      {:ok,
+       %{
+         "version" => 1,
+         "state" => state,
+         "text_sha256" => digest,
+         "text_bytes" => bytes,
+         "parts" => parts,
+         "blocks" => Enum.flat_map(blocks, &prompt_block/1)
+       }}
+    else
+      _unreadable -> :error
+    end
+  end
+
+  defp prompt_record(_payload), do: :error
+
+  # Every part readable, and the text they carry inside its bound.
+  defp prompt_parts(parts) do
+    kept = Enum.map(parts, &prompt_part/1)
+    text_bytes = kept |> Enum.map(&prompt_text_bytes/1) |> Enum.sum()
+
+    if Enum.all?(kept, &match?({:ok, _part}, &1)) and text_bytes <= @prompt_record_text_bytes,
+      do: {:ok, Enum.map(kept, fn {:ok, part} -> part end)},
+      else: :error
+  end
+
+  defp prompt_text_bytes({:ok, %{"text" => text}}), do: byte_size(text)
+  defp prompt_text_bytes(_part), do: 0
+
+  defp prompt_part(%{"kind" => kind, "bytes" => bytes} = part)
+       when kind in @prompt_part_kinds and is_integer(bytes) and bytes >= 0 do
+    case prompt_digest(part["sha256"]) do
+      nil -> :error
+      digest -> prompt_part(kind, %{"kind" => kind, "sha256" => digest, "bytes" => bytes}, part)
+    end
+  end
+
+  defp prompt_part(_part), do: :error
+
+  defp prompt_part("text", base, part), do: prompt_text(base, part["text"])
+
+  defp prompt_part("withheld", base, part),
+    do: {:ok, optional_public_text(base, "reason", part["reason"], 256)}
+
+  defp prompt_part(_digest_only, base, _part), do: {:ok, base}
+
+  # Kept as sent unless Ryker's redactor finds a secret in it; then kept
+  # redacted and marked, so its model call says the copy is not exact.
+  defp prompt_text(base, text) when is_binary(text) and byte_size(text) > 0 do
+    if String.valid?(text) and Crypto.sha256_hex(text) == base["sha256"] do
+      redacted = InspectionRedactor.redact(text, InspectionRedactor.configured_secrets())
+
+      {:ok,
+       base
+       |> Map.put("text", redacted)
+       |> then(&if(redacted == text, do: &1, else: Map.put(&1, "redacted", true)))}
+    else
+      :error
+    end
+  end
+
+  defp prompt_text(_base, _text), do: :error
+
+  defp prompt_block(%{} = block) do
+    [
+      %{}
+      |> optional_public_text("type", block["type"], 32)
+      |> optional_public_text("name", block["name"], 256)
+      |> optional_public_text("media_type", block["media_type"], 256)
+      |> optional_public_integer("bytes", block["bytes"])
+      |> then(
+        &if(digest = prompt_digest(block["sha256"]), do: Map.put(&1, "sha256", digest), else: &1)
+      )
+    ]
+  end
+
+  defp prompt_block(_block), do: []
+
+  defp prompt_digest(value) when is_binary(value) do
+    if value =~ ~r/\A[0-9a-f]{64}\z/, do: value
+  end
+
+  defp prompt_digest(_value), do: nil
 
   defp enrich_tool(base, payload) do
     evidence =

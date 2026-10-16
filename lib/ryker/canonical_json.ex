@@ -26,7 +26,14 @@ defmodule Ryker.CanonicalJSON do
   stopped every Work turn of a task whose webhook JSON held one (2026-10-09).
   """
   @spec worker_digest(Jason.Encoder.t()) :: String.t()
-  def worker_digest(value) do
+  def worker_digest(value), do: value |> worker_encode!() |> Crypto.sha256_hex()
+
+  @doc """
+  `value` as the worker holds it: the bytes `worker_digest/1` hashes, which
+  are the bytes a worker puts in a prompt when it quotes the value.
+  """
+  @spec worker_encode!(Jason.Encoder.t()) :: String.t()
+  def worker_encode!(value) do
     case order(value, "$") do
       {:ok, ordered} ->
         ordered
@@ -37,7 +44,6 @@ defmodule Ryker.CanonicalJSON do
         |> String.replace(">", "\\u003e")
         |> String.replace(<<0x2028::utf8>>, "\\u2028")
         |> String.replace(<<0x2029::utf8>>, "\\u2029")
-        |> Crypto.sha256_hex()
 
       {:error, reason} ->
         raise ArgumentError, format_error(reason)

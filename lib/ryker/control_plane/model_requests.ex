@@ -6,7 +6,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
   alias Ryker.ControlPlane.{BackgroundCards, ThreadContext, Units, UsageProjection}
   alias Ryker.ControlPlane.{EpisodeTrace, FeedbackProjection, ImprovementRequests}
   alias Ryker.ControlPlane.EpisodeTrace.{CaseFile, Input, Step}
-  alias Ryker.ControlPlane.{LearningRequests, PagedRelation, Paths, RepositoryNames}
+  alias Ryker.ControlPlane.{LearningRequests, PagedRelation, Paths, RepositoryNames, SentPrompts}
   alias Ryker.CoopFleet
   alias Ryker.Crypto
   alias Ryker.Delivery
@@ -41,6 +41,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
                   title_updates: %{},
                   candidate_episodes: nil,
                   saved_messages: %{},
+                  sent_prompts: %{},
                   response_windows: %{},
                   responses: %{},
                   responses_limited: false,
@@ -148,7 +149,12 @@ defmodule Ryker.ControlPlane.ModelRequests do
         previous_failures: previous_failures,
         opened: disclosed,
         title_updates: title_updates,
-        saved_messages: saved_messages(episode.id, turns)
+        saved_messages: saved_messages(episode.id, turns),
+        sent_prompts:
+          sent_prompts(
+            Work.ActivityEvent.Query.by_episode_id(episode.id),
+            Enum.map(turns, & &1.coop_turn_id) ++ Enum.map(attempts, & &1.turn_ref)
+          )
       }
       |> with_responses(turns, params)
 
@@ -606,6 +612,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
       sort_at: request.at,
       counts: Map.get(request, :counts, %{}),
       selection: Map.get(request, :selection),
+      sent: Map.get(request, :sent),
       title: request.title,
       target: request.target,
       status: request.status,
@@ -868,16 +875,51 @@ defmodule Ryker.ControlPlane.ModelRequests do
         do: [nil],
         else: attempts
 
+    ran = Enum.reject(attempts, &is_nil/1)
+
     reading = %Reading{
       secrets: secrets,
       request_id: entry.id,
       execution_mode: entry.execution_mode,
-      admission_failures: admission_failures([entry.id], Enum.reject(attempts, &is_nil/1)),
+      admission_failures: admission_failures([entry.id], ran),
       opened: disclosed,
-      candidate_episodes: candidate_episodes(entry.admission_context)
+      candidate_episodes: candidate_episodes(entry.admission_context),
+      sent_prompts:
+        sent_prompts(
+          Work.ActivityEvent.Query.by_admission_input_id(entry.id),
+          Enum.map(ran, & &1.turn_ref)
+        )
     }
 
     Enum.flat_map(attempts, &admission_events(entry, &1, reading))
+  end
+
+  # What the worker recorded sending for each Coop turn on the page, read
+  # once for all of them.
+  defp sent_prompts(owned, coop_turn_ids) do
+    ids = coop_turn_ids |> Enum.filter(&is_binary/1) |> Enum.uniq()
+
+    if ids == [] do
+      %{}
+    else
+      owned
+      |> Work.ActivityEvent.Query.visible()
+      |> Work.ActivityEvent.Query.prompts_sent(ids)
+      |> Repo.all()
+      |> Enum.group_by(& &1.coop_turn_id)
+    end
+  end
+
+  # A call's sends are shown against the prompt it saved, so an expired call,
+  # which keeps none, and a call never submitted show nothing.
+  defp sent(_reading, nil, _submission), do: nil
+  defp sent(%Reading{expired: true}, _coop_turn_id, _submission), do: nil
+  defp sent(_reading, _coop_turn_id, submission) when submission == %{}, do: nil
+
+  defp sent(%Reading{} = reading, coop_turn_id, submission) do
+    reading.sent_prompts
+    |> Map.get(coop_turn_id, [])
+    |> SentPrompts.present(submission, reading.secrets)
   end
 
   defp inspect_turn(%Work.Turn{} = turn, %Reading{} = reading) do
@@ -928,6 +970,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
       id: turn.id,
       counts: work_counts(context, selection, saved),
       selection: selection && Map.take(selection, [:limits, :record]),
+      sent: sent(reading, turn.coop_turn_id, submission),
       title: "Work request",
       at: turn.inserted_at,
       status: turn.status,
@@ -957,6 +1000,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
     %{
       id: entry.id,
       counts: admission_counts(entry, prompt["context"], reading),
+      sent: sent(reading, attempt_value(attempt, :turn_ref), submission),
       title: "Admission · execution #{generation}",
       generation: generation,
       generations: entry.execution_generation,

@@ -48,6 +48,27 @@ defmodule Ryker.Work.ActivityEvent.Query do
     )
   end
 
+  @doc "Routing input `input_id`'s events."
+  def by_admission_input_id(input_id),
+    do: where(all(), [episode_work_activity: a], a.admission_input_id == ^input_id)
+
+  @doc """
+  What a timeline narrates: every kind but `prompt.sent`, the record of a sent
+  prompt, which its model call shows instead.
+  """
+  def narration(queryable),
+    do: where(queryable, [episode_work_activity: a], a.kind != "prompt.sent")
+
+  @doc "The `prompt.sent` records of Coop turns `coop_turn_ids`, in the order each session sent them."
+  def prompts_sent(queryable, coop_turn_ids) do
+    queryable
+    |> where(
+      [episode_work_activity: a],
+      a.kind == "prompt.sent" and a.coop_turn_id in ^coop_turn_ids
+    )
+    |> order_by([episode_work_activity: a], asc: a.remote_session_id, asc: a.sequence)
+  end
+
   @doc "Events still shown: not pruned, and whose owner has not expired."
   def visible(queryable) do
     expired = expired_ids()

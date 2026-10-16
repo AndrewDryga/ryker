@@ -508,4 +508,51 @@ defmodule Ryker.CoopFleet.ProtocolTest do
              %{"destination" => "name withheld", "basis" => "tls", "count" => 3}
            ]
   end
+
+  test "a sent prompt's record is carried, so a worker that records its sends keeps polling" do
+    # A worker records what each prompt it sends carried (`prompt.sent`). This
+    # protocol refused any payload on a kind it did not list, and one refused
+    # poll stops the worker's every command, so the kind is listed here before
+    # any worker sends it.
+    poll = @fixture |> File.read!() |> Jason.decode!() |> Map.fetch!("poll")
+    digest = String.duplicate("a", 64)
+
+    record = %{
+      "version" => 1,
+      "state" => "sent",
+      "text_sha256" => digest,
+      "text_bytes" => 120,
+      "parts" => [
+        %{"kind" => "caller_prompt", "sha256" => digest, "bytes" => 100},
+        %{
+          "kind" => "text",
+          "text" => "\n\n<coop-output>note</coop-output>",
+          "sha256" => digest,
+          "bytes" => 20
+        }
+      ],
+      "blocks" => []
+    }
+
+    event = %{
+      "id" => "event-prompt-1",
+      "session_id" => "coop-session-1",
+      "sequence" => 1,
+      "type" => "prompt.sent",
+      "version" => 1,
+      "occurred_at" => "2026-10-16T09:00:00Z",
+      "payload" => record
+    }
+
+    batch = %{
+      "session_ref" => "018f04f4-2222-7000-8000-000000000001",
+      "placement_generation" => 1,
+      "after_sequence" => 0,
+      "events" => [%{"sequence" => 1, "kind" => "session_event", "payload" => event}]
+    }
+
+    assert {:ok, prepared} = Protocol.poll(Map.put(poll, "event_batches", [batch]))
+    [carried] = prepared["event_batches"]
+    assert [%{"payload" => %{"payload" => ^record}}] = carried["events"]
+  end
 end
