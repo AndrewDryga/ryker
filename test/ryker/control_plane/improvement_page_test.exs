@@ -256,6 +256,20 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
     assert confirmation("/actions/improvement/#{github.id}/accept").status == 404
   end
 
+  # The page's stylesheet styles every header and footer as the page's own: a
+  # sticky, blurred bar and a footer pushed 32px down. A finding's header and
+  # footer are the card's, and its first deploy scrolled a sticky header over
+  # the findings below it (2026-10-16).
+  test "a finding's header and footer stay inside its card" do
+    css = File.read!("priv/static/workspace.css")
+    page = File.read!("priv/static/control-plane.css")
+
+    assert page =~ ~r/header\{position:sticky/
+    assert page =~ ~r/footer\{[^}]*margin:2rem auto/
+    assert css =~ ~r/\.ryker-app \.finding-header \{[^}]*position:static[^}]*backdrop-filter:none/
+    assert css =~ ~r/\.ryker-app \.finding-footer \{[^}]*margin:0;/
+  end
+
   # A category's own link, from the Feedback page's counts, still narrows the
   # view; the page says what it shows and how to see the rest.
   test "a category view says what it narrows to, with the way back to all of them",

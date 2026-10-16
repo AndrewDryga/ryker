@@ -2829,7 +2829,7 @@ html[data-page-help=open] .ryker-app main > .page-help { display:block; }
 .ryker-app .finding-filter { margin:-8px 0 16px; color:var(--ryker-text-secondary); font-size:13px; }
 .ryker-app .findings { display:grid; gap:16px; }
 .ryker-app .finding { min-width:0; border:1px solid var(--ryker-stroke); border-radius:8px; background:var(--ryker-surface-raised); }
-.ryker-app .finding-header { padding:18px 24px 14px; border-bottom:1px solid var(--ryker-stroke); }
+.ryker-app .finding-header { position:static; z-index:auto; padding:18px 24px 14px; border-bottom:1px solid var(--ryker-stroke); background:transparent; backdrop-filter:none; }
 .ryker-app .finding-header h3 { margin:0; color:var(--ryker-text); font-size:16px; line-height:24px; font-weight:600; overflow-wrap:anywhere; }
 .ryker-app .finding-meta { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 16px; margin:4px 0 0; color:var(--ryker-text-secondary); font-size:12px; line-height:18px; }
 .ryker-app .finding-body { padding:20px 24px 4px; color:var(--ryker-text); font-size:15px; line-height:24px; }
@@ -2858,13 +2858,13 @@ html[data-page-help=open] .ryker-app main > .page-help { display:block; }
 .ryker-app a.inline-link > span { text-decoration:underline; text-underline-offset:3px; }
 .ryker-app a.inline-link:hover { text-decoration:none; }
 .ryker-app a.inline-link:hover > span { color:var(--ryker-accent-strong); }
-.ryker-app .finding-footer { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; padding:14px 24px; border-top:1px solid var(--ryker-stroke); }
+.ryker-app .finding-footer { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; margin:0; padding:14px 24px; border-top:1px solid var(--ryker-stroke); }
 .ryker-app .finding-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-left:auto; }
 .ryker-app .finding-actions:empty { display:none; }
 .ryker-app .finding-unsupported { margin:0; color:var(--ryker-text-secondary); font-size:13px; }
 .ryker-app .finding-review .finding-body { padding:12px 0 0; }
 .ryker-app .finding-review > .finding-run { margin:4px 0 0; }
-.ryker-app .finding-review > .finding-footer { margin-top:16px; padding:14px 0 0; }
+.ryker-app .finding-review > .finding-footer { margin:16px 0 0; padding:14px 0 0; }
 .ryker-app .finding-cause { color:var(--ryker-text-secondary); }
 .ryker-app .json-disclosure { border:1px solid var(--ryker-stroke); border-radius:6px; background:var(--ryker-surface); }
 .ryker-app .json-disclosure > summary { border-radius:6px; }
