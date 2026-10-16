@@ -2,6 +2,7 @@ defmodule Ryker.ControlPlane.Activity do
   @moduledoc "A bounded conversation-first inbox, including work not yet admitted."
   alias Ryker.ControlPlane.{Activity, ConversationProjection, PagedRelation, Paths}
   alias Ryker.ControlPlane.{RepositoryNames, Search, ShortTime, SlackMarkdown, UsageProjection}
+  alias Ryker.ConversationRef
   alias Ryker.Episodes
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
@@ -33,11 +34,50 @@ defmodule Ryker.ControlPlane.Activity do
     if count > 1,
       do: %{
         href: conversation_path(transport, conversation_ref),
-        label: "All #{count} requests in this conversation"
+        label: "All #{count} requests in #{scope_phrase(conversation_ref)}"
       }
   end
 
   def conversation_link(_transport, _conversation_ref, _execution_mode), do: nil
+
+  @doc """
+  What a conversation's Activity scope is, in the words its links and chips
+  use: a Slack channel, with its name once Slack has said it; a Slack direct
+  message; or any other conversation, such as a chat or a pull request.
+
+  "All 7 requests in this conversation" opened a channel's every thread and
+  read as one thread (Andrew, 2026-10-16): a channel says it is one, and only
+  a thread filter says thread.
+  """
+  @spec destination_scope(String.t() | nil) :: %{
+          kind: :channel | :direct_message | :conversation,
+          name: String.t() | nil
+        }
+  def destination_scope("slack:" <> _rest = ref) do
+    case ConversationRef.parse_slack(ref) do
+      {:ok, _workspace, <<prefix, _::binary>>} when prefix in [?C, ?G] ->
+        %{kind: :channel, name: if(Slack.Names.named?(ref), do: Slack.Names.destination(ref))}
+
+      {:ok, _workspace, "D" <> _channel} ->
+        %{kind: :direct_message, name: nil}
+
+      _other ->
+        %{kind: :conversation, name: nil}
+    end
+  end
+
+  def destination_scope(_ref), do: %{kind: :conversation, name: nil}
+
+  @doc ~s(Where a conversation's requests are: "#emisar-test", "this channel" or "this direct message".)
+  @spec scope_phrase(String.t() | nil) :: String.t()
+  def scope_phrase(ref) do
+    case destination_scope(ref) do
+      %{kind: :channel, name: name} when is_binary(name) -> name
+      %{kind: :channel} -> "this channel"
+      %{kind: :direct_message} -> "this direct message"
+      %{kind: :conversation} -> "this conversation"
+    end
+  end
 
   def conversation_path(transport, conversation, thread \\ nil) do
     params = %{

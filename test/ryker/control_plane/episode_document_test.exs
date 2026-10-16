@@ -1381,7 +1381,8 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
         })
       )
 
-    assert %{label: "All 2 requests in this conversation", href: "/activity?" <> _query} =
+    # A Slack channel says it is one; ConversationScopeTest covers its name.
+    assert %{label: "All 2 requests in this channel", href: "/activity?" <> _query} =
              Activity.conversation_link(
                episode.destination_transport,
                episode.destination_conversation_ref,

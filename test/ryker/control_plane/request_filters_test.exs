@@ -301,6 +301,47 @@ defmodule Ryker.ControlPlane.RequestFiltersTest do
     assert add > last_chip
   end
 
+  # Andrew, 2026-10-16: "Conversation #emisar-test" read as one thread while
+  # it listed every thread of the channel. A channel says it is one, and only a
+  # real thread filter, part of the channel's chip, says thread.
+  test "a Slack channel's chip says Channel, and only a thread filter says Thread in" do
+    channel = %{"transport" => "slack", "conversation" => "slack:T123:C456"}
+
+    assert chips(channel) == [
+             {"conversation", "Channel", "Slack channel C456",
+              "Channel Slack channel C456. Change", "Remove the Channel filter"},
+             {"transport", "Source", "Slack", "Source: Slack. Change", "Remove the Source filter"}
+           ]
+
+    thread = Map.put(channel, "thread", "1788562304.000100")
+
+    assert [
+             {"conversation", "Thread in", "Slack channel C456",
+              "Thread in Slack channel C456. Change", "Remove the Thread filter"},
+             {"transport", "Source", "Slack", _edit, _remove}
+           ] = chips(thread)
+  end
+
+  test "a direct message, a chat or a pull request stays a conversation" do
+    for ref <- ["slack:T123:D456", "control-plane:lab:#{Ecto.UUID.generate()}", "github:pr:42"] do
+      assert [{"conversation", "Conversation", _value, _edit, "Remove the Conversation filter"}] =
+               chips(%{"conversation" => ref})
+    end
+  end
+
+  test "a thread leaves with its channel, and never carries over to another conversation" do
+    thread = %{
+      "transport" => "slack",
+      "conversation" => "slack:T123:C456",
+      "thread" => "1.000100"
+    }
+
+    assert RequestFilters.remove(thread, "conversation") == %{"transport" => "slack"}
+
+    assert RequestFilters.set(thread, "conversation", "slack:T123:C789") ==
+             %{"transport" => "slack", "conversation" => "slack:T123:C789"}
+  end
+
   test "the menu offers only fields not already filtered, in request and usage groups" do
     document =
       render_filters(%{params: %{"state" => "complete"}, menu: "fields"})
@@ -400,5 +441,20 @@ defmodule Ryker.ControlPlane.RequestFiltersTest do
 
     assert html =~ "&lt;script&gt;"
     refute html =~ "<script>"
+  end
+
+  # Each chip as {filter, its words, its value, the edit control's name, the remove control's name}.
+  defp chips(params) do
+    params
+    |> then(&render_filters(%{params: &1}))
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query(".filter-chip")
+    |> Enum.map(fn chip ->
+      {LazyHTML.attribute(chip, "data-filter") |> hd(),
+       LazyHTML.query(chip, ".filter-chip-key") |> LazyHTML.text(),
+       LazyHTML.query(chip, ".filter-chip-value") |> LazyHTML.text(),
+       LazyHTML.query(chip, ".filter-chip-edit") |> LazyHTML.attribute("aria-label") |> hd(),
+       LazyHTML.query(chip, ".filter-chip-remove") |> LazyHTML.attribute("aria-label") |> hd()}
+    end)
   end
 end

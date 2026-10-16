@@ -15,7 +15,7 @@ defmodule Ryker.ControlPlane.RequestFilters do
   use Phoenix.Component
   import Ryker.ControlPlane.Components
   alias Phoenix.LiveView.JS
-  alias Ryker.ControlPlane.{UsagePage, UsageProjection}
+  alias Ryker.ControlPlane.{Activity, UsagePage, UsageProjection}
   alias Ryker.Episodes
   alias Ryker.Slack
   alias Ryker.UTCDateTime
@@ -58,6 +58,7 @@ defmodule Ryker.ControlPlane.RequestFilters do
   # Parameters that only narrow another filter: they read as part of its
   # chip and are removed with it, unless another chip still needs them.
   @companions %{
+    "conversation" => ~w(thread),
     "usage_actor" => ~w(usage_actor_kind usage_workspace usage_source),
     "usage_model" => ~w(usage_provider),
     "usage_profile" => ~w(usage_provider)
@@ -72,9 +73,15 @@ defmodule Ryker.ControlPlane.RequestFilters do
   def set(params, key, value)
       when key in @keys and is_binary(value) and byte_size(value) <= 512 do
     params = params |> base() |> Map.put(key, value)
-    # The user list holds people only, so a chosen account never also matches
-    # a bot that retained the same actor string.
-    if key == "usage_actor", do: Map.put(params, "usage_actor_kind", "user"), else: params
+
+    cond do
+      # The user list holds people only, so a chosen account never also matches
+      # a bot that retained the same actor string.
+      key == "usage_actor" -> Map.put(params, "usage_actor_kind", "user")
+      # A thread belongs to its conversation and never carries over to another.
+      key == "conversation" -> Map.delete(params, "thread")
+      true -> params
+    end
   end
 
   def set(params, _key, _value), do: base(params)
@@ -140,14 +147,14 @@ defmodule Ryker.ControlPlane.RequestFilters do
             phx-click="filter-menu"
             phx-value-key={chip.key}
             aria-expanded={to_string(@menu == chip.key)}
-            aria-label={"#{chip.label}: #{chip.value}. Change"}
+            aria-label={"#{chip.name}. Change"}
           ><span class="filter-chip-key">{chip.label}</span><span class="filter-chip-value">{chip.value}</span></button><button
             type="button"
             class="filter-chip-remove"
             disabled={@disabled}
             phx-click="remove-filter"
             phx-value-key={chip.key}
-            aria-label={"Remove the #{chip.label} filter"}
+            aria-label={"Remove the #{chip.noun} filter"}
           ><.icon name={:close} /></button>
         </span>
         <.popover
@@ -364,9 +371,44 @@ defmodule Ryker.ControlPlane.RequestFilters do
       for {primary, parts} <- @companions, is_binary(params[primary]), part <- parts, do: part
 
     for {key, label, type} <- @fields, is_binary(params[key]), key not in folded do
-      %{key: key, label: label, value: value_label(type, params[key], params, values)}
+      chip(key, label, value_label(type, params[key], params, values), params)
     end
   end
+
+  # A conversation's chip says what it is: a Slack channel reads "Channel
+  # #emisar-test", and only a real thread filter, which is part of that chip,
+  # reads "Thread in #emisar-test". "Conversation #emisar-test" read as one
+  # thread while it listed the whole channel (Andrew, 2026-10-16). A chat, a
+  # direct message or a pull request stays a conversation.
+  defp chip("conversation", _label, value, %{"thread" => thread}) when is_binary(thread),
+    do: %{
+      key: "conversation",
+      label: "Thread in",
+      value: value,
+      name: "Thread in " <> value,
+      noun: "Thread"
+    }
+
+  defp chip("conversation", label, value, params) do
+    case Activity.destination_scope(params["conversation"]) do
+      %{kind: :channel} ->
+        %{
+          key: "conversation",
+          label: "Channel",
+          value: value,
+          name: "Channel " <> value,
+          noun: "Channel"
+        }
+
+      _other ->
+        plain_chip("conversation", label, value)
+    end
+  end
+
+  defp chip(key, label, value, _params), do: plain_chip(key, label, value)
+
+  defp plain_chip(key, label, value),
+    do: %{key: key, label: label, value: value, name: "#{label}: #{value}", noun: label}
 
   # A retained link can still carry an empty value for a field that was never
   # recorded; it reads as "none" so the chip can be seen and removed.

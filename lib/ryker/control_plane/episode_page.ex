@@ -227,7 +227,9 @@ defmodule Ryker.ControlPlane.EpisodePage do
               @snapshot.episode.transport,
               @snapshot.episode.conversation_ref
             )
-          }>Browse all activity in this conversation →</a>
+          }>Browse all activity in {Ryker.ControlPlane.Activity.scope_phrase(
+            @snapshot.episode.conversation_ref
+          )} →</a>
         </p>
       </section>
       <section :if={@snapshot.trace.case_file[:expired_at]} class="story-stop">
