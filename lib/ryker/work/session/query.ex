@@ -25,6 +25,24 @@ defmodule Ryker.Work.Session.Query do
     )
   end
 
+  @doc "The sessions of repository-knowledge runs `run_ids`."
+  def by_knowledge_run_ids(queryable \\ all(), run_ids) do
+    where(
+      queryable,
+      [episode_work_sessions: s],
+      s.execution_kind == :knowledge and s.knowledge_run_id in ^run_ids
+    )
+  end
+
+  @doc "The sessions of improvement analysis runs `run_ids`."
+  def by_improvement_run_ids(queryable \\ all(), run_ids) do
+    where(
+      queryable,
+      [episode_work_sessions: s],
+      s.execution_kind == :improvement and s.improvement_run_id in ^run_ids
+    )
+  end
+
   @doc "The session of improvement analysis run `run_id`."
   def by_improvement_run_id(queryable \\ all(), run_id) do
     where(

@@ -285,7 +285,9 @@ defmodule Ryker.Retention.Data do
   # aborted this phase and every later one for good.
   #
   # Written out because the session leaves with its activity and placement
-  # rows in one statement, and only once nothing else names it.
+  # rows in one statement, and only once nothing else names it. A background
+  # session's records of what its worker sent have no other owner and leave
+  # with it; any other activity must have expired first.
   @prune_non_work_sessions """
   WITH candidates AS (
     SELECT session.id
@@ -305,6 +307,7 @@ defmodule Ryker.Retention.Data do
       AND NOT EXISTS (
         SELECT 1 FROM episode_work_activity activity
         WHERE activity.session_id = session.id AND activity.operational_pruned_at IS NULL
+          AND (activity.episode_id IS NOT NULL OR activity.admission_input_id IS NOT NULL)
       )
       AND NOT EXISTS (
         SELECT 1 FROM retention_operator_actions action

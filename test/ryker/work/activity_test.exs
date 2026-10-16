@@ -691,7 +691,7 @@ defmodule Ryker.Work.ActivityTest do
     refute Map.has_key?(block, "data")
   end
 
-  test "a learning session's narration is acknowledged without an activity owner" do
+  test "a learning session keeps only what its worker sent, and its narration is acknowledged" do
     # Retained activity belongs to exactly one owner, an episode or an admission
     # input, and a learning session has neither. On 2026-09-13 the first learning
     # session to narrate a tool call tripped that check constraint as a raised
@@ -699,6 +699,7 @@ defmodule Ryker.Work.ActivityTest do
     # fleet delivered no command for the next thirty-seven minutes: 2,625 raises,
     # twenty-one expired placements, and both Slack inputs blocked. The worker
     # must be acknowledged and move on; ownerless narration is not retained.
+    # The record of what its worker sent is, for its run's card (2026-10-16).
     entries = LearningFixtures.inputs!()
 
     assert {:ok, run} =
@@ -721,13 +722,29 @@ defmodule Ryker.Work.ActivityTest do
         "tool_call_id" => "exec-learn",
         "status" => "completed",
         "output" => %{}
+      }),
+      event(session, 3, "prompt.sent", %{
+        "version" => 1,
+        "state" => "sent",
+        "text_sha256" => digest("prompt"),
+        "text_bytes" => 6,
+        "parts" => [%{"kind" => "caller_prompt", "sha256" => digest("prompt"), "bytes" => 6}],
+        "blocks" => []
       })
     ]
 
-    assert {:ok, %{cursor: 2, inserted: 0}} =
+    assert {:ok, %{cursor: 3, inserted: 1}} =
              Activity.ingest_fleet(session.id, "remote:learning", 0, events)
 
-    assert Repo.aggregate(Ryker.Work.ActivityEvent, :count) == 0
+    assert [kept] = Repo.all(Ryker.Work.ActivityEvent)
+
+    assert {kept.kind, kept.session_id, kept.episode_id, kept.admission_input_id} ==
+             {"prompt.sent", session.id, nil, nil}
+
+    # A replayed page finds the record it kept, and the narration it never
+    # kept does not refuse the page: a refused page stops the worker's stream.
+    assert {:ok, %{cursor: 3, inserted: 0}} =
+             Activity.ingest_fleet(session.id, "remote:learning", 3, events)
   end
 
   defp digest(text), do: :crypto.hash(:sha256, text) |> Base.encode16(case: :lower)

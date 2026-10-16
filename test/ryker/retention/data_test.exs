@@ -801,6 +801,70 @@ defmodule Ryker.Retention.DataTest do
     assert Repo.get(Session, session.id) == nil
   end
 
+  test "a background session leaves with the records of what its worker sent" do
+    # A learning, self-analysis or repository-reading session keeps its
+    # worker's prompt.sent records, the one activity it keeps, and they have
+    # no other owner to expire with. The prune waited for every unexpired
+    # activity row of a session, so such a session would have stayed for good.
+    assert {:ok, run} =
+             Learning.prepare(Enum.map(LearningFixtures.inputs!(), & &1.id), %{
+               policy: "recorded-read-only-policy",
+               policy_digest: String.duplicate("a", 64)
+             })
+
+    assert {:ok, _session} = LearningFleetSession.ensure(run)
+    assert {:ok, session} = LearningFleetSession.bind(run, "coop-learning-sent")
+
+    record = %{
+      "version" => 1,
+      "state" => "sent",
+      "text_sha256" => digest("prompt"),
+      "text_bytes" => 6,
+      "parts" => [%{"kind" => "caller_prompt", "sha256" => digest("prompt"), "bytes" => 6}],
+      "blocks" => []
+    }
+
+    event = %{
+      "id" => "event-sent-1",
+      "session_id" => "coop-learning-sent",
+      "sequence" => 1,
+      "turn_id" => "coop-turn-sent",
+      "type" => "prompt.sent",
+      "version" => 1,
+      "occurred_at" => DateTime.to_iso8601(DateTime.utc_now()),
+      "payload" => record
+    }
+
+    assert {:ok, %{inserted: 1}} =
+             Activity.ingest_fleet(session.id, "coop-learning-sent", 0, [event])
+
+    run
+    |> Ecto.Changeset.change(
+      remote_stopped_at: DateTime.utc_now(),
+      stop_receipt: %{"kind" => "terminal_turn", "state" => "completed"}
+    )
+    |> Repo.update!()
+
+    assert {:ok, claim} = RetentionCustody.claim_next("cleanup", 60)
+    assert claim.session.id == session.id
+
+    assert {:ok, _discarded} =
+             RetentionCustody.settle_remote_discarded(
+               session.id,
+               claim.lease_ref,
+               "coop-learning-sent"
+             )
+
+    Repo.query!(
+      "UPDATE episode_work_sessions SET updated_at = $1 WHERE id = $2",
+      [@old, uuid!(session.id)]
+    )
+
+    assert {:ok, _result} = Data.prune(settings())
+    assert Repo.get(Session, session.id) == nil
+    assert Repo.all(from(a in ActivityEvent, where: a.session_id == ^session.id)) == []
+  end
+
   test "a closed incident room stays while the thread episode that offered it is still open" do
     # A room has two episode owners: the thread episode that offered it and the
     # incident episode that ran in it. History pruning pins on either; the

@@ -30,7 +30,7 @@ defmodule Ryker.ControlPlane.LearningRequests do
 
   alias Ryker.Accounting
   alias Ryker.ControlPlane.{BackgroundCards, CallRun, ConversationMemory, LearningActivity}
-  alias Ryker.ControlPlane.{LearningRequests, Paths}
+  alias Ryker.ControlPlane.{LearningRequests, Paths, SentPrompts}
   alias Ryker.InspectionRedactor, as: Redactor
   alias Ryker.Learning
   alias Ryker.Repo
@@ -123,6 +123,12 @@ defmodule Ryker.ControlPlane.LearningRequests do
     ids = Enum.map(runs, & &1.id)
     secrets = Keyword.get(options, :secrets, [])
 
+    sessions =
+      ids
+      |> Work.Session.Query.by_learning_run_ids()
+      |> Repo.all()
+      |> Map.new(&{&1.learning_run_id, &1})
+
     context = %{
       secrets: secrets,
       disclosed: Keyword.get(options, :disclosed),
@@ -135,11 +141,12 @@ defmodule Ryker.ControlPlane.LearningRequests do
         |> Accounting.Execution.Query.by_sources(ids)
         |> Repo.all()
         |> Map.new(&{&1.source_id, &1}),
-      sessions:
-        ids
-        |> Work.Session.Query.by_learning_run_ids()
-        |> Repo.all()
-        |> Map.new(&{&1.learning_run_id, &1}),
+      sessions: sessions,
+      sent:
+        Work.Activity.prompts_sent(
+          Enum.map(Map.values(sessions), & &1.id),
+          Enum.map(runs, & &1.coop_turn_id)
+        ),
       changes: changes(runs, secrets)
     }
 
@@ -223,7 +230,8 @@ defmodule Ryker.ControlPlane.LearningRequests do
         section("context", "What learning was given", briefing_context(prompt), options),
         section("contract", "Required output contract", run.output_schema, options),
         submitted(run.prompt, request_id, :learning, context, options)
-      ]
+      ],
+      sent: SentPrompts.of_run(run, context.sessions[run.id], context.sent, context.secrets)
     })
   end
 

@@ -9,12 +9,16 @@ defmodule Ryker.ControlPlane.ImprovementRequestsTest do
   use Ryker.DataCase, async: true
   import Phoenix.LiveViewTest
   alias Ryker.Accounting.Execution
+  alias Ryker.CanonicalJSON
   alias Ryker.ControlPlane.{EpisodePage, EpisodeProjection, ImprovementRequests, ModelRequests}
   alias Ryker.ControlPlane.Units
+  alias Ryker.Crypto
   alias Ryker.Feedback
   alias Ryker.Fixtures.Answers
+  alias Ryker.Improvement
   alias Ryker.Improvement.{AnalysisRun, Prompt}
   alias Ryker.Inspectors
+  alias Ryker.Work.Activity
 
   @workspace "TSELFANALYSIS"
 
@@ -95,6 +99,52 @@ defmodule Ryker.ControlPlane.ImprovementRequestsTest do
     refute text =~ "Custom instructions"
     refute text =~ "Continuation candidates"
     refute text =~ "Thread summary"
+  end
+
+  # A self-analysis showed its saved prompt as the prompt its model was given;
+  # its worker sent the output contract after it too. The session keeps the
+  # worker's record of each send, as it has no other activity owner.
+  test "a self-analysis shows each prompt its worker sent, checked against the prompt it saved" do
+    %{reply: reply, prompt: prompt, run: run} = analyzed_request!()
+    run = run |> Ecto.Changeset.change(coop_turn_id: "coop-turn-analysis") |> Repo.update!()
+    assert {:ok, _session} = Improvement.FleetSession.ensure(run)
+    assert {:ok, session} = Improvement.FleetSession.bind(run, "coop-analysis-sent")
+
+    schema = CanonicalJSON.worker_encode!(run.output_schema)
+    opening = "\n\n<coop-output-contract>\n<json-schema>"
+    closing = "</json-schema>\n</coop-output-contract>"
+    text = prompt <> opening <> schema <> closing
+
+    record = %{
+      "version" => 1,
+      "state" => "sent",
+      "text_sha256" => Crypto.sha256_hex(text),
+      "text_bytes" => byte_size(text),
+      "parts" => [
+        digest_part("caller_prompt", prompt),
+        text_part(opening),
+        digest_part("output_schema", schema),
+        text_part(closing)
+      ],
+      "blocks" => []
+    }
+
+    event = %{
+      "id" => "event-analysis-1",
+      "session_id" => "coop-analysis-sent",
+      "sequence" => 1,
+      "turn_id" => "coop-turn-analysis",
+      "type" => "prompt.sent",
+      "version" => 1,
+      "occurred_at" => DateTime.to_iso8601(DateTime.utc_now()),
+      "payload" => record
+    }
+
+    assert {:ok, %{inserted: 1}} =
+             Activity.ingest_fleet(session.id, "coop-analysis-sent", 0, [event])
+
+    assert [briefing, _result] = ImprovementRequests.entries(episode_id: reply.episode.id)
+    assert [%{title: "First message", matches?: true}] = briefing.sent
   end
 
   test "an attempt Ryker could not use says so in words, never as a code" do
@@ -192,6 +242,17 @@ defmodule Ryker.ControlPlane.ImprovementRequestsTest do
 
   defp group(card, label),
     do: words(card, ".run-group[aria-label='#{label}']")
+
+  defp digest_part(kind, text),
+    do: %{"kind" => kind, "sha256" => Crypto.sha256_hex(text), "bytes" => byte_size(text)}
+
+  defp text_part(text),
+    do: %{
+      "kind" => "text",
+      "text" => text,
+      "sha256" => Crypto.sha256_hex(text),
+      "bytes" => byte_size(text)
+    }
 
   defp words(node, selector),
     do: node |> LazyHTML.query(selector) |> LazyHTML.text() |> String.split() |> Enum.join(" ")

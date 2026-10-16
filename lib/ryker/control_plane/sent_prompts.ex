@@ -14,18 +14,63 @@ defmodule Ryker.ControlPlane.SentPrompts do
   alias Ryker.ControlPlane.{Components, Units}
   alias Ryker.Crypto
   alias Ryker.InspectionRedactor, as: Redactor
+  alias Ryker.Work
 
   @doc """
-  The sends of one call, oldest first, from its `prompt.sent` events and the
-  submission they were sent for.
+  What a background run's worker recorded sending, from
+  `Ryker.Work.Activity.prompts_sent/2`; nil
+  while the run has no Coop turn, once retention removed its prompt, or when
+  its session is gone and with it the records.
   """
-  @spec present([map()], map(), [String.t()]) :: [map()]
-  def present(events, submission, secrets) do
-    prompt = if is_binary(submission["prompt"]), do: submission["prompt"]
-    schema = worker_schema(submission["output_schema"])
+  @spec of_run(map(), Work.Session.t() | nil, map(), [String.t()]) :: [map()] | nil
+  def of_run(%{coop_turn_id: turn} = run, %Work.Session{id: session_id}, records, secrets)
+      when is_binary(turn) do
+    if is_nil(Map.get(run, :pruned_at)) do
+      records
+      |> Map.get(session_id, [])
+      |> Enum.filter(&(&1.coop_turn_id == turn))
+      |> present(
+        %{
+          prompt: Map.get(run, :prompt),
+          prompt_sha256: run.prompt_sha256,
+          output_schema: run.output_schema
+        },
+        secrets
+      )
+    end
+  end
+
+  def of_run(_run, _session, _records, _secrets), do: nil
+
+  @typedoc """
+  What a call saved: its prompt, or only the prompt's digest where the page
+  has not read the prompt, and its response format.
+  """
+  @type saved :: %{
+          optional(:prompt) => String.t() | nil,
+          optional(:prompt_sha256) => String.t() | nil,
+          optional(:output_schema) => map() | nil
+        }
+
+  @doc """
+  The sends of one call, oldest first, from its `prompt.sent` events and what
+  the call saved. A send matches when every part is the call's own prompt or
+  response format by digest, or Coop's text as recorded, and together they
+  are the size the worker sent; with the prompt at hand, the rebuilt text's
+  digest is the one the worker sent too.
+  """
+  @spec present([map()], saved(), [String.t()]) :: [map()]
+  def present(events, saved, secrets) do
+    prompt = if is_binary(saved[:prompt]), do: saved[:prompt]
+    schema = worker_schema(saved[:output_schema])
+
+    digests = %{
+      "caller_prompt" => (prompt && Crypto.sha256_hex(prompt)) || saved[:prompt_sha256],
+      "output_schema" => schema && Crypto.sha256_hex(schema)
+    }
 
     events
-    |> Enum.map(&send_view(&1.payload, prompt, schema, secrets))
+    |> Enum.map(&send_view(&1.payload, digests, {prompt, schema}, secrets))
     |> titled()
   end
 
@@ -37,91 +82,87 @@ defmodule Ryker.ControlPlane.SentPrompts do
     ArgumentError -> nil
   end
 
-  defp send_view(%{"parts" => parts} = record, prompt, schema, secrets) do
-    matches? =
-      case rebuild(parts, prompt, schema) do
-        {:ok, text} -> Crypto.sha256_hex(text) == record["text_sha256"]
-        :missing -> false
-      end
-
+  defp send_view(%{"parts" => parts} = record, digests, texts, secrets) do
     %{
       state: record["state"],
       bytes: record["text_bytes"],
       first?: Enum.any?(parts, &(&1["kind"] == "caller_prompt")),
-      matches?: matches?,
-      parts: Enum.map(parts, &part(&1, prompt, schema, secrets)),
+      matches?: matches?(parts, record, digests, texts),
+      parts: Enum.map(parts, &part(&1, digests, secrets)),
       blocks: Enum.map(record["blocks"] || [], &block/1)
     }
   end
 
-  defp send_view(_unreadable, _prompt, _schema, _secrets),
+  defp send_view(_unreadable, _digests, _texts, _secrets),
     do: %{state: nil, bytes: nil, first?: false, matches?: false, parts: [], blocks: []}
 
-  defp rebuild(parts, prompt, schema) do
-    parts
-    |> Enum.reduce_while([], fn part, text ->
-      case rebuilt_part(part, prompt, schema) do
-        nil -> {:halt, nil}
-        value -> {:cont, [text | value]}
-      end
-    end)
-    |> case do
-      nil -> :missing
-      text -> {:ok, IO.iodata_to_binary(text)}
-    end
+  defp matches?(parts, record, digests, texts) do
+    Enum.all?(parts, &same?(&1, digests)) and
+      Enum.sum_by(parts, &(&1["bytes"] || 0)) == record["text_bytes"] and
+      rebuilt?(parts, record, texts)
   end
 
-  defp rebuilt_part(%{"kind" => "caller_prompt"} = part, prompt, _schema),
-    do: if(same?(prompt, part), do: prompt)
-
-  defp rebuilt_part(%{"kind" => "output_schema"} = part, _prompt, schema),
-    do: if(same?(schema, part), do: schema)
-
-  defp rebuilt_part(%{"kind" => "text", "text" => text}, _prompt, _schema), do: text
-  defp rebuilt_part(_part, _prompt, _schema), do: nil
-
-  defp same?(text, %{"sha256" => digest}) when is_binary(text),
+  # A part is the call's own when its digest is the one the call saved, and
+  # Coop's text is as the worker sent it when it still has its digest.
+  defp same?(%{"kind" => "text", "text" => text, "sha256" => digest}, _digests),
     do: Crypto.sha256_hex(text) == digest
 
-  defp same?(_text, _part), do: false
+  defp same?(%{"kind" => kind, "sha256" => digest}, digests)
+       when kind in ["caller_prompt", "output_schema"],
+       do: is_binary(digests[kind]) and digests[kind] == digest
 
-  defp part(%{"kind" => "caller_prompt"} = part, prompt, _schema, _secrets) do
+  defp same?(_part, _digests), do: false
+
+  defp rebuilt?(_parts, _record, {nil, _schema}), do: true
+
+  defp rebuilt?(parts, record, {prompt, schema}) do
+    text =
+      Enum.map(parts, fn
+        %{"kind" => "caller_prompt"} -> prompt
+        %{"kind" => "output_schema"} -> schema || ""
+        %{"kind" => "text", "text" => text} -> text
+      end)
+
+    Crypto.sha256_hex(IO.iodata_to_binary(text)) == record["text_sha256"]
+  end
+
+  defp part(%{"kind" => "caller_prompt"} = part, digests, _secrets) do
     %{
       label: "Prompt text",
       note:
         cond do
-          is_nil(prompt) -> "No longer kept"
-          same?(prompt, part) -> "As above, unchanged"
+          is_nil(digests["caller_prompt"]) -> "No longer kept"
+          same?(part, digests) -> "As above, unchanged"
           true -> "Differs from the prompt text above"
         end,
       bytes: part["bytes"]
     }
   end
 
-  defp part(%{"kind" => "output_schema"} = part, _prompt, schema, _secrets) do
+  defp part(%{"kind" => "output_schema"} = part, digests, _secrets) do
     %{
       label: "Response format",
       note:
         cond do
-          is_nil(schema) -> "No longer kept"
-          same?(schema, part) -> "As above, unchanged"
+          is_nil(digests["output_schema"]) -> "No longer kept"
+          same?(part, digests) -> "As above, unchanged"
           true -> "Differs from the response format above"
         end,
       bytes: part["bytes"]
     }
   end
 
-  defp part(%{"kind" => "text", "text" => text} = part, _prompt, _schema, secrets),
+  defp part(%{"kind" => "text", "text" => text} = part, _digests, secrets),
     do: %{label: "Added by Coop", text: Redactor.redact(text, secrets), bytes: part["bytes"]}
 
-  defp part(%{"kind" => "withheld"} = part, _prompt, _schema, _secrets),
+  defp part(%{"kind" => "withheld"} = part, _digests, _secrets),
     do: %{
       label: "Added by Coop",
       note: "Withheld by the worker" <> reason(part["reason"]),
       bytes: part["bytes"]
     }
 
-  defp part(part, _prompt, _schema, _secrets),
+  defp part(part, _digests, _secrets),
     do: %{label: "Added by Coop", note: "Too large to record", bytes: part["bytes"]}
 
   defp reason(reason) when is_binary(reason), do: ": " <> reason

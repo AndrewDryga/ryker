@@ -19,10 +19,12 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
 
   alias Ryker.Accounting
   alias Ryker.ControlPlane.{BackgroundCards, CallRun, FindingCard, ImprovementPage, Paths}
+  alias Ryker.ControlPlane.SentPrompts
   alias Ryker.Improvement
   alias Ryker.InspectionRedactor, as: Redactor
   alias Ryker.Repo
   alias Ryker.UTCDateTime
+  alias Ryker.Work
 
   @limit 20
 
@@ -60,8 +62,20 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
   defp cards(runs, options) do
     ids = Enum.map(runs, & &1.id)
 
+    sessions =
+      ids
+      |> Work.Session.Query.by_improvement_run_ids()
+      |> Repo.all()
+      |> Map.new(&{&1.improvement_run_id, &1})
+
     context = %{
       secrets: Keyword.get(options, :secrets, []),
+      sessions: sessions,
+      sent:
+        Work.Activity.prompts_sent(
+          Enum.map(Map.values(sessions), & &1.id),
+          Enum.map(runs, & &1.coop_turn_id)
+        ),
       disclosed: Keyword.get(options, :disclosed),
       totals: Enum.frequencies_by(runs, & &1.candidate_id),
       # Generations count up from one, so the newest says how many attempts
@@ -108,7 +122,8 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
         section("context", "The evidence it was given", prompt["context"], options),
         section("contract", "Required output contract", run.output_schema, options),
         submitted(run.prompt, request_id, :improvement, context, options)
-      ]
+      ],
+      sent: SentPrompts.of_run(run, context.sessions[run.id], context.sent, context.secrets)
     })
   end
 

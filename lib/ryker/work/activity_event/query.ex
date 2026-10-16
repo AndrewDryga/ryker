@@ -48,6 +48,10 @@ defmodule Ryker.Work.ActivityEvent.Query do
     )
   end
 
+  @doc "Sessions `session_ids`' events."
+  def by_session_ids(session_ids),
+    do: where(all(), [episode_work_activity: a], a.session_id in ^session_ids)
+
   @doc "Routing input `input_id`'s events."
   def by_admission_input_id(input_id),
     do: where(all(), [episode_work_activity: a], a.admission_input_id == ^input_id)

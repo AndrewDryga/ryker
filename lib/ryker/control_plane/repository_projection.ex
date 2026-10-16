@@ -9,7 +9,7 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
   are the channels whose environment holds it.
   """
   alias Ryker.Accounting
-  alias Ryker.ControlPlane.{CallRun, Environments, RepositoryPage, Search}
+  alias Ryker.ControlPlane.{CallRun, Environments, RepositoryPage, Search, SentPrompts}
   alias Ryker.GitHub
   alias Ryker.InspectionRedactor, as: Redactor
   alias Ryker.Publication
@@ -100,6 +100,16 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
 
     ids = Enum.map(runs, fn {run, _prompt, _result, _schema} -> run.id end)
 
+    sessions =
+      ids
+      |> Work.Session.Query.by_knowledge_run_ids()
+      |> Repo.all()
+      |> Map.new(&{&1.knowledge_run_id, &1})
+
+    turns = Enum.map(runs, fn {run, _prompt, _result, _schema} -> run.coop_turn_id end)
+    sent = Work.Activity.prompts_sent(Enum.map(Map.values(sessions), & &1.id), turns)
+    secrets = Redactor.configured_secrets()
+
     executions =
       "knowledge"
       |> Accounting.Execution.Query.by_sources(ids)
@@ -119,7 +129,8 @@ defmodule Ryker.ControlPlane.RepositoryProjection do
         dropped: run.dropped_count,
         prompt: part(run.id, "prompt", prompt_bytes, texts),
         result: part(run.id, "answer", result_bytes, texts),
-        schema: part(run.id, "schema", schema_bytes, texts)
+        schema: part(run.id, "schema", schema_bytes, texts),
+        sent: SentPrompts.of_run(run, sessions[run.id], sent, secrets)
       }
     end)
   end

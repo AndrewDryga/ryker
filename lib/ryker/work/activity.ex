@@ -175,6 +175,28 @@ defmodule Ryker.Work.Activity do
 
   def retry_once(_api, _client), do: {:error, {:invalid_coop_activity, :api}}
 
+  @doc """
+  The `prompt.sent` records of Coop turns `coop_turn_ids` in sessions
+  `session_ids`, by session, in the order each session sent them: a page of
+  background runs reads them once for all its runs.
+  """
+  @spec prompts_sent([Ecto.UUID.t()], [String.t() | nil]) :: %{
+          Ecto.UUID.t() => [ActivityEvent.t()]
+        }
+  def prompts_sent(session_ids, coop_turn_ids) do
+    turns = Enum.filter(coop_turn_ids, &is_binary/1)
+
+    if session_ids == [] or turns == [] do
+      %{}
+    else
+      session_ids
+      |> ActivityEvent.Query.by_session_ids()
+      |> ActivityEvent.Query.prompts_sent(turns)
+      |> Repo.all()
+      |> Enum.group_by(& &1.session_id)
+    end
+  end
+
   @spec page_for_episode(Ecto.UUID.t(), pos_integer()) :: %{
           events: [ActivityEvent.t()],
           shown: non_neg_integer(),
@@ -344,9 +366,13 @@ defmodule Ryker.Work.Activity do
     end
   end
 
+  # Only what the session kept can be compared: a learning session's replayed
+  # narration was never stored, and refusing it would stop the worker's stream.
   defp verify_replay(session, events) do
+    kinds = retained_kinds(session)
+
     Enum.reduce_while(events, :ok, fn event, :ok ->
-      if event.kind in @activity_kinds do
+      if event.kind in kinds do
         verify_replayed_activity(session.id, event)
       else
         {:cont, :ok}
@@ -386,15 +412,20 @@ defmodule Ryker.Work.Activity do
       else: {:error, {:coop_activity_cursor_gap, cursor + 1, first.sequence}}
   end
 
-  # Retained activity has exactly one owner, an episode or an admission input;
-  # a learning session has neither, so its narration is acknowledged and not
-  # kept. Nothing reads ownerless activity, and refusing it wedged the fleet:
-  # every worker sync of that session answered 500 until the placement expired.
-  defp insert_fresh(%Session{episode_id: nil, admission_input_id: nil}, _events), do: {:ok, 0}
+  # Retained activity has exactly one owner, an episode or an admission input.
+  # A learning, self-analysis or repository-reading session has neither, so
+  # it keeps only the record of each prompt its worker sent, which its run's
+  # card shows, and its narration is acknowledged and not kept. Refusing that
+  # narration wedged the fleet: every worker sync of a learning session
+  # answered 500 until the placement expired.
+  defp retained_kinds(%Session{episode_id: nil, admission_input_id: nil}), do: ["prompt.sent"]
+  defp retained_kinds(_session), do: @activity_kinds
 
   defp insert_fresh(session, events) do
+    kinds = retained_kinds(session)
+
     events
-    |> Enum.filter(&(&1.kind in @activity_kinds))
+    |> Enum.filter(&(&1.kind in kinds))
     |> Enum.reduce_while({:ok, 0}, fn event, {:ok, count} ->
       attributes =
         event
@@ -415,6 +446,9 @@ defmodule Ryker.Work.Activity do
 
   # What a turn is doing shows on its request's page, and what routing is
   # doing on its message's.
+  defp announce_inserted({:ok, inserted}, %Session{episode_id: nil, admission_input_id: nil}),
+    do: {:ok, inserted}
+
   defp announce_inserted({:ok, inserted}, session) when inserted > 0 do
     Episodes.broadcast_episode_updated(session.episode_id)
 

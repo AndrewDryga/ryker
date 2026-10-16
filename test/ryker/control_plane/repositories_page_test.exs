@@ -395,7 +395,21 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
         dropped: 2,
         prompt: opened("run-2", "prompt", prompt),
         result: opened("run-2", "answer", answer),
-        schema: opened("run-2", "schema", ~s({\n  "type": "object"\n}))
+        schema: opened("run-2", "schema", ~s({\n  "type": "object"\n})),
+        sent: [
+          %{
+            title: "First message",
+            state: "sent",
+            bytes: 2_048,
+            first?: true,
+            matches?: true,
+            parts: [
+              %{label: "Prompt text", note: "As above, unchanged", bytes: 2_000},
+              %{label: "Added by Coop", text: "<coop-output-contract>", bytes: 48}
+            ],
+            blocks: []
+          }
+        ]
       },
       %{
         id: "run-1",
@@ -416,7 +430,8 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
         prompt: opened("run-1", "prompt", "An older prompt, not JSON."),
         # Not opened yet: read once the reader opens it.
         result: %{artifact_id: "knowledge-run-run-1-answer", bytes: 13, text: nil},
-        schema: nil
+        schema: nil,
+        sent: nil
       }
     ]
 
@@ -486,6 +501,15 @@ defmodule Ryker.ControlPlane.RepositoriesPageTest do
 
     assert format |> LazyHTML.query("pre") |> LazyHTML.text() == ~s({\n  "type": "object"\n})
     assert card |> LazyHTML.query("#knowledge-run-run-1-schema") |> Enum.count() == 0
+
+    # What its worker sent, checked against the prompt it saved.
+    sent = LazyHTML.query(card, "#knowledge-run-run-2 .sent-prompts")
+
+    assert sent |> LazyHTML.query("summary") |> LazyHTML.text() |> squeeze() =~
+             "First message 2 KiB · matches what was sent"
+
+    assert sent |> LazyHTML.query("pre") |> LazyHTML.text() == "<coop-output-contract>"
+    assert card |> LazyHTML.query("#knowledge-run-run-1 .sent-prompts") |> Enum.count() == 0
     refute squeeze(LazyHTML.text(card)) =~ "repository_knowledge_result_invalid"
 
     # An answer not opened yet asks for itself when it is opened.

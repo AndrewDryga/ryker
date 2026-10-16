@@ -18,7 +18,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
   use Phoenix.Component
   alias Phoenix.HTML.Safe
   alias Ryker.ControlPlane.{CallRun, Components, Integrations, Kit, Search}
-  alias Ryker.ControlPlane.{KnowledgeDocument, Paths, SettingsView, ShortTime, Units}
+  alias Ryker.ControlPlane.{KnowledgeDocument, Paths, SentPrompts, SettingsView, ShortTime, Units}
   alias Ryker.{Episodes, RepositoryKnowledge, Schedules}
   alias Ryker.GitHub
   alias Ryker.Publication
@@ -737,6 +737,7 @@ defmodule Ryker.ControlPlane.RepositoriesPage do
                   <p :if={!run.result.text} class="artifact-loading" role="status">Loading…</p>
                 </Components.disclosure>
               </div>
+              <SentPrompts.list id={"knowledge-run-#{run.id}-sent"} sends={run.sent} />
             </Components.disclosure>
           </div>
         </Kit.card_part>

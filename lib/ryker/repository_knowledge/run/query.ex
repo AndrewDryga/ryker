@@ -48,8 +48,8 @@ defmodule Ryker.RepositoryKnowledge.Run.Query do
   @card_fields Run.__schema__(:fields) -- [:prompt, :result, :document]
 
   @doc """
-  Each run as its card reads it, with the size of its prompt and answer, as
-  `{run, prompt_bytes, result_bytes}`.
+  Each run as its card reads it, with the size of its prompt, answer and
+  response format, as `{run, prompt_bytes, result_bytes, schema_bytes}`.
   """
   def select_cards(queryable) do
     select(

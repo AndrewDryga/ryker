@@ -919,7 +919,10 @@ defmodule Ryker.ControlPlane.ModelRequests do
   defp sent(%Reading{} = reading, coop_turn_id, submission) do
     reading.sent_prompts
     |> Map.get(coop_turn_id, [])
-    |> SentPrompts.present(submission, reading.secrets)
+    |> SentPrompts.present(
+      %{prompt: submission["prompt"], output_schema: submission["output_schema"]},
+      reading.secrets
+    )
   end
 
   defp inspect_turn(%Work.Turn{} = turn, %Reading{} = reading) do
