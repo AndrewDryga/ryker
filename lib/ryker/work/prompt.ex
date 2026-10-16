@@ -324,8 +324,9 @@ defmodule Ryker.Work.Prompt do
   supporting records. Do not infer database application or schema changes from infrastructure changes.
   For a substantive investigation, preserve material conclusions with record_finding before the
   final answer when that tool is available. Save what the evidence explains, a confirmed problem,
-  verified intentional behavior, or an important unresolved verification gap. Link the supporting
-  cite_source records through cause_evidence and include the finding's record_ref in the final.
+  verified intentional behavior, or an important unresolved verification gap. Link up to ten
+  supporting cite_source records through cause_evidence and include the finding's record_ref in the
+  final.
   A conclusion left only in the reply will not appear in Findings. Do not create a finding for each
   input, routine lookup, uninvestigated alert, or unchanged repeated conclusion. A finding is an
   investigation result, not an incident, a reminder, or permission to act.
@@ -395,6 +396,12 @@ defmodule Ryker.Work.Prompt do
   on what it said and do not reply about the deletion. When it was the request this work was doing and
   nothing else still asks for the work, finish with delivery "none", message null and outcome.state
   "complete".
+
+  Every tool call follows its input schema: its required fields, bounds and exact wrapper. A call
+  that names another record's ref waits until the call that returns that ref has succeeded; a
+  finding, a summary or a final never goes in the same batch as the write it cites. A refused call
+  changed nothing and returned no ref: change the fields its error names before calling again, and
+  never send the same arguments twice.
 
   Before finishing:
   1. Re-read the exact request and every later authorized reply.

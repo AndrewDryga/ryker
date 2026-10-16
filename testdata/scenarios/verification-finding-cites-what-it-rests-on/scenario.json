@@ -1,0 +1,1096 @@
+{
+  "version": 1,
+  "id": "verification-finding-cites-what-it-rests-on",
+  "provenance": {
+    "kind": "production",
+    "episode_refs": [
+      "episode_run_2e4a6c8e0b1d3f5a7c9e1b3d5f7a9c1e"
+    ],
+    "captured_at": "2026-10-13T21:24:46Z"
+  },
+  "clock": {
+    "start": "2026-10-13T21:23:00Z"
+  },
+  "actors": [
+    {
+      "actor_ref": "slack:user:U-operator",
+      "authority": "read_only",
+      "input_profile": {
+        "actor": {
+          "kind": "user",
+          "ref": "U-operator"
+        },
+        "event_kind": "message",
+        "occurred_at_source": "source",
+        "source": {
+          "kind": "slack",
+          "ref": "TEVAL"
+        },
+        "source_capabilities": {
+          "react": {
+            "emoji_names": null
+          }
+        }
+      },
+      "kind": "human"
+    }
+  ],
+  "events": [
+    {
+      "actor_ref": "slack:user:U-operator",
+      "destination": {
+        "conversation_ref": "slack:TEVAL:CEVAL",
+        "thread_ref": "1791925599.563809",
+        "transport": "slack"
+      },
+      "kind": "input",
+      "occurred_at": "2026-10-13T21:23:00Z",
+      "payload": {
+        "text": "The arena rollout in VA1 finished at 21:22 UTC. Verify it now on both replicas, arena-a and arena-b: readiness, liveness, running version, image digest and errors in the last two minutes of logs, and save what you find."
+      }
+    }
+  ],
+  "world": {
+    "repositories": [],
+    "scheduled_events": [],
+    "tool_rules": [
+      {
+        "id": "readiness",
+        "tool": "monitoring.query",
+        "match": {
+          "environment": {
+            "$one_of": [
+              "VA1",
+              "va1",
+              "VA1 production",
+              "prod",
+              "production",
+              "va1-prod"
+            ]
+          },
+          "query": {
+            "$one_of": [
+              {
+                "$contains_all": [
+                  "ready"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "readiness"
+                ]
+              }
+            ]
+          }
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "readiness",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:readiness:20261013T2124Z",
+                  "ready": true,
+                  "port": 4000
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:readiness:20261013T2124Z",
+                  "ready": true,
+                  "port": 4000
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "readiness",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:readiness:20261013T2124Z",
+                  "ready": true,
+                  "port": 4000
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:readiness:20261013T2124Z",
+                  "ready": true,
+                  "port": 4000
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "readiness",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:readiness:20261013T2124Z",
+                  "ready": true,
+                  "port": 4000
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:readiness:20261013T2124Z",
+                  "ready": true,
+                  "port": 4000
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "readiness",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:readiness:20261013T2124Z",
+                  "ready": true,
+                  "port": 4000
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:readiness:20261013T2124Z",
+                  "ready": true,
+                  "port": 4000
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "readiness",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:readiness:20261013T2124Z",
+                  "ready": true,
+                  "port": 4000
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:readiness:20261013T2124Z",
+                  "ready": true,
+                  "port": 4000
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "readiness",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:readiness:20261013T2124Z",
+                  "ready": true,
+                  "port": 4000
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:readiness:20261013T2124Z",
+                  "ready": true,
+                  "port": 4000
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "liveness",
+        "tool": "monitoring.query",
+        "match": {
+          "environment": {
+            "$one_of": [
+              "VA1",
+              "va1",
+              "VA1 production",
+              "prod",
+              "production",
+              "va1-prod"
+            ]
+          },
+          "query": {
+            "$one_of": [
+              {
+                "$contains_all": [
+                  "live"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "liveness"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "health"
+                ]
+              }
+            ]
+          }
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "liveness",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:liveness:20261013T2124Z",
+                  "healthy": true
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:liveness:20261013T2124Z",
+                  "healthy": true
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "liveness",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:liveness:20261013T2124Z",
+                  "healthy": true
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:liveness:20261013T2124Z",
+                  "healthy": true
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "liveness",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:liveness:20261013T2124Z",
+                  "healthy": true
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:liveness:20261013T2124Z",
+                  "healthy": true
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "liveness",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:liveness:20261013T2124Z",
+                  "healthy": true
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:liveness:20261013T2124Z",
+                  "healthy": true
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "liveness",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:liveness:20261013T2124Z",
+                  "healthy": true
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:liveness:20261013T2124Z",
+                  "healthy": true
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "liveness",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:liveness:20261013T2124Z",
+                  "healthy": true
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:liveness:20261013T2124Z",
+                  "healthy": true
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "version",
+        "tool": "monitoring.query",
+        "match": {
+          "environment": {
+            "$one_of": [
+              "VA1",
+              "va1",
+              "VA1 production",
+              "prod",
+              "production",
+              "va1-prod"
+            ]
+          },
+          "query": {
+            "$one_of": [
+              {
+                "$contains_all": [
+                  "version"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "release"
+                ]
+              }
+            ]
+          }
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "version",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:version:20261013T2124Z",
+                  "version": "2.14.0"
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:version:20261013T2124Z",
+                  "version": "2.14.0"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "version",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:version:20261013T2124Z",
+                  "version": "2.14.0"
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:version:20261013T2124Z",
+                  "version": "2.14.0"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "version",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:version:20261013T2124Z",
+                  "version": "2.14.0"
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:version:20261013T2124Z",
+                  "version": "2.14.0"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "version",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:version:20261013T2124Z",
+                  "version": "2.14.0"
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:version:20261013T2124Z",
+                  "version": "2.14.0"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "version",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:version:20261013T2124Z",
+                  "version": "2.14.0"
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:version:20261013T2124Z",
+                  "version": "2.14.0"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "version",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:version:20261013T2124Z",
+                  "version": "2.14.0"
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:version:20261013T2124Z",
+                  "version": "2.14.0"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "digest",
+        "tool": "monitoring.query",
+        "match": {
+          "environment": {
+            "$one_of": [
+              "VA1",
+              "va1",
+              "VA1 production",
+              "prod",
+              "production",
+              "va1-prod"
+            ]
+          },
+          "query": {
+            "$one_of": [
+              {
+                "$contains_all": [
+                  "digest"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "image"
+                ]
+              }
+            ]
+          }
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "image",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:image:20261013T2124Z",
+                  "digest": "sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5"
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:image:20261013T2124Z",
+                  "digest": "sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "image",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:image:20261013T2124Z",
+                  "digest": "sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5"
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:image:20261013T2124Z",
+                  "digest": "sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "image",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:image:20261013T2124Z",
+                  "digest": "sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5"
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:image:20261013T2124Z",
+                  "digest": "sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "image",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:image:20261013T2124Z",
+                  "digest": "sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5"
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:image:20261013T2124Z",
+                  "digest": "sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "image",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:image:20261013T2124Z",
+                  "digest": "sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5"
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:image:20261013T2124Z",
+                  "digest": "sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "image",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:image:20261013T2124Z",
+                  "digest": "sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5"
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:image:20261013T2124Z",
+                  "digest": "sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "logs",
+        "tool": "monitoring.query",
+        "match": {
+          "environment": {
+            "$one_of": [
+              "VA1",
+              "va1",
+              "VA1 production",
+              "prod",
+              "production",
+              "va1-prod"
+            ]
+          },
+          "query": {
+            "$one_of": [
+              {
+                "$contains_all": [
+                  "log"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "error"
+                ]
+              }
+            ]
+          }
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "logs",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:logs:20261013T2124Z",
+                  "window": "2m",
+                  "error_lines": 0
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:logs:20261013T2124Z",
+                  "window": "2m",
+                  "error_lines": 0
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "logs",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:logs:20261013T2124Z",
+                  "window": "2m",
+                  "error_lines": 0
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:logs:20261013T2124Z",
+                  "window": "2m",
+                  "error_lines": 0
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "logs",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:logs:20261013T2124Z",
+                  "window": "2m",
+                  "error_lines": 0
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:logs:20261013T2124Z",
+                  "window": "2m",
+                  "error_lines": 0
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "logs",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:logs:20261013T2124Z",
+                  "window": "2m",
+                  "error_lines": 0
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:logs:20261013T2124Z",
+                  "window": "2m",
+                  "error_lines": 0
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "logs",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:logs:20261013T2124Z",
+                  "window": "2m",
+                  "error_lines": 0
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:logs:20261013T2124Z",
+                  "window": "2m",
+                  "error_lines": 0
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "check": "logs",
+              "replicas": [
+                {
+                  "replica": "arena-a",
+                  "source_ref": "source:va1:arena-a:logs:20261013T2124Z",
+                  "window": "2m",
+                  "error_lines": 0
+                },
+                {
+                  "replica": "arena-b",
+                  "source_ref": "source:va1:arena-b:logs:20261013T2124Z",
+                  "window": "2m",
+                  "error_lines": 0
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "deployments",
+        "tool": "nomad.deployments",
+        "match": {
+          "environment": {
+            "$one_of": [
+              "VA1",
+              "va1",
+              "VA1 production",
+              "prod",
+              "production",
+              "va1-prod"
+            ]
+          }
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "source_ref": "source:va1:nomad-deployments:20261013T2124Z",
+              "deployments": [
+                {
+                  "job": "arena",
+                  "id": "7c2e",
+                  "status": "successful",
+                  "finished_at": "2026-10-13T21:22:43Z"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "source_ref": "source:va1:nomad-deployments:20261013T2124Z",
+              "deployments": [
+                {
+                  "job": "arena",
+                  "id": "7c2e",
+                  "status": "successful",
+                  "finished_at": "2026-10-13T21:22:43Z"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "source_ref": "source:va1:nomad-deployments:20261013T2124Z",
+              "deployments": [
+                {
+                  "job": "arena",
+                  "id": "7c2e",
+                  "status": "successful",
+                  "finished_at": "2026-10-13T21:22:43Z"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "source_ref": "source:va1:nomad-deployments:20261013T2124Z",
+              "deployments": [
+                {
+                  "job": "arena",
+                  "id": "7c2e",
+                  "status": "successful",
+                  "finished_at": "2026-10-13T21:22:43Z"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "source_ref": "source:va1:nomad-deployments:20261013T2124Z",
+              "deployments": [
+                {
+                  "job": "arena",
+                  "id": "7c2e",
+                  "status": "successful",
+                  "finished_at": "2026-10-13T21:22:43Z"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "source_ref": "source:va1:nomad-deployments:20261013T2124Z",
+              "deployments": [
+                {
+                  "job": "arena",
+                  "id": "7c2e",
+                  "status": "successful",
+                  "finished_at": "2026-10-13T21:22:43Z"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "arena-allocation",
+        "tool": "nomad.service_health",
+        "match": {
+          "environment": {
+            "$one_of": [
+              "VA1",
+              "va1",
+              "VA1 production",
+              "prod",
+              "production",
+              "va1-prod"
+            ]
+          },
+          "service": {
+            "$one_of": [
+              {
+                "$contains_all": [
+                  "arena"
+                ]
+              }
+            ]
+          }
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "source_ref": "source:va1:nomad-arena:20261013T2124Z",
+              "service": "arena",
+              "desired_allocations": 2,
+              "running_allocations": 2,
+              "task_restarts_last_hour": 0
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "source_ref": "source:va1:nomad-arena:20261013T2124Z",
+              "service": "arena",
+              "desired_allocations": 2,
+              "running_allocations": 2,
+              "task_restarts_last_hour": 0
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "source_ref": "source:va1:nomad-arena:20261013T2124Z",
+              "service": "arena",
+              "desired_allocations": 2,
+              "running_allocations": 2,
+              "task_restarts_last_hour": 0
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "source_ref": "source:va1:nomad-arena:20261013T2124Z",
+              "service": "arena",
+              "desired_allocations": 2,
+              "running_allocations": 2,
+              "task_restarts_last_hour": 0
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "source_ref": "source:va1:nomad-arena:20261013T2124Z",
+              "service": "arena",
+              "desired_allocations": 2,
+              "running_allocations": 2,
+              "task_restarts_last_hour": 0
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:24:00Z",
+              "source_ref": "source:va1:nomad-arena:20261013T2124Z",
+              "service": "arena",
+              "desired_allocations": 2,
+              "running_allocations": 2,
+              "task_restarts_last_hour": 0
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "host_replay": {
+    "model_events": []
+  },
+  "expect": {
+    "hard": [
+      {
+        "kind": "state_tool_recorded",
+        "tool": "cite_source"
+      },
+      {
+        "kind": "state_tool_recorded",
+        "tool": "record_finding"
+      },
+      {
+        "kind": "state_tool_not_refused",
+        "tool": "record_finding"
+      },
+      {
+        "kind": "state_tool_not_refused",
+        "tool": "update_conversation_summary"
+      },
+      {
+        "kind": "refusal_repaired_before_retry"
+      }
+    ],
+    "trajectory": [
+      {
+        "kind": "required_tool_call",
+        "tool": "monitoring.query",
+        "arguments": {
+          "environment": {
+            "$one_of": [
+              "VA1",
+              "va1",
+              "VA1 production",
+              "prod",
+              "production",
+              "va1-prod"
+            ]
+          },
+          "query": {
+            "$one_of": [
+              {
+                "$contains_all": [
+                  "digest"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "image"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "quality_rubric": [
+      {
+        "criterion": "Reports readiness, liveness, version, image digest and recent errors for both replicas in a few lines.",
+        "weight": 2
+      },
+      {
+        "criterion": "Saves the verification as one finding that cites the observations it rests on.",
+        "weight": 2
+      },
+      {
+        "criterion": "The reply is short.",
+        "weight": 1
+      }
+    ]
+  },
+  "tags": [
+    "model-world",
+    "health-review",
+    "tool-schemas"
+  ]
+}

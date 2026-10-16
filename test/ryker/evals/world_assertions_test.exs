@@ -30,6 +30,46 @@ defmodule Ryker.Evals.WorldAssertionsTest do
     assert failures(scenario, report(records: [finding("unexplained")])) == []
   end
 
+  # 2026-10-13: a finding over its ten-citation bound was refused twice with
+  # the same error, and the summary sent in the same batch was refused for the
+  # null standing where the finding's ref would have been.
+  test "a refusal sent again unchanged, and a refused write that depended on it, fail the run" do
+    scenario =
+      scenario([
+        %{"kind" => "refusal_repaired_before_retry"},
+        %{"kind" => "state_tool_not_refused", "tool" => "update_conversation_summary"}
+      ])
+
+    bound = "invalid_arguments: 1 issue. /cause_evidence (max_items): takes at most 10 items."
+
+    repeated =
+      report(
+        calls: [
+          call("record_finding", "failed", bound),
+          call("record_finding", "failed", bound),
+          call(
+            "update_conversation_summary",
+            "failed",
+            "invalid_arguments: 1 issue. /state/evidence_refs/11 (type): must be a string."
+          )
+        ]
+      )
+
+    assert scenario |> failures(repeated) |> kinds() ==
+             ["refusal_repaired_before_retry", "state_tool_not_refused"]
+
+    repaired =
+      report(
+        calls: [
+          call("record_finding", "failed", bound),
+          call("record_finding", "succeeded", nil),
+          call("update_conversation_summary", "succeeded", nil)
+        ]
+      )
+
+    assert failures(scenario, repaired) == []
+  end
+
   defp scenario(hard) do
     {:ok, scenario} = WorldCase.fetch("confirmed-failure-with-unknown-cause-stays-unexplained")
     %{scenario | expect: %{"hard" => hard, "trajectory" => [], "quality_rubric" => []}}
@@ -49,6 +89,11 @@ defmodule Ryker.Evals.WorldAssertionsTest do
 
   defp finding(status),
     do: %{"kind" => "finding", "payload" => %{"status" => status, "what" => "Arena fails."}}
+
+  defp call(tool, outcome, error),
+    do: %{"error_digest" => error && digest(error), "outcome" => outcome, "tool" => tool}
+
+  defp digest(text), do: :crypto.hash(:sha256, text) |> Base.encode16(case: :lower)
 
   defp kinds(failures), do: Enum.map(failures, & &1["kind"])
 end

@@ -83,7 +83,9 @@ defmodule Ryker.Evals.WorldEvidenceTest do
              {:world_eval_cleanup_errors, report.cleanup_error, :world_discard_unavailable}
   end
 
-  test "state-call evidence keeps only tool identity and outcome" do
+  # A refusal's digest, never its words, tells a call sent again unchanged
+  # from one that was repaired (`refusal_repaired_before_retry`).
+  test "state-call evidence keeps only tool identity, outcome and a refusal's digest" do
     claim = claim!()
 
     event!(claim, 1, "controller-tools", "remember_answer", nil, %{
@@ -95,8 +97,12 @@ defmodule Ryker.Evals.WorldEvidenceTest do
     event!(claim, 3, "github", "create_pull_request", nil, %{})
 
     assert WorldEvidence.state_calls(claim.episode.id) == [
-             %{"outcome" => "succeeded", "tool" => "remember_answer"},
-             %{"outcome" => "failed", "tool" => "complete_task"}
+             %{"error_digest" => nil, "outcome" => "succeeded", "tool" => "remember_answer"},
+             %{
+               "error_digest" => Ryker.Crypto.sha256_hex(~s({"message":"denied"})),
+               "outcome" => "failed",
+               "tool" => "complete_task"
+             }
            ]
   end
 

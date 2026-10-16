@@ -155,7 +155,9 @@ defmodule Ryker.Evals.WorldEvidence do
             do: "succeeded",
             else: "failed"
 
-        [%{"outcome" => outcome, "tool" => tool}]
+        # A digest of the refusal, never its words, tells a call sent again
+        # unchanged from one that was repaired.
+        [%{"error_digest" => error_digest(payload), "outcome" => outcome, "tool" => tool}]
 
       _other ->
         []
@@ -163,6 +165,13 @@ defmodule Ryker.Evals.WorldEvidence do
   end
 
   def state_calls(_episode_id), do: []
+
+  defp error_digest(payload) do
+    case get_in(payload, ["output", "error"]) do
+      nil -> nil
+      error -> Crypto.sha256_hex(Ryker.CanonicalJSON.encode!(error))
+    end
+  end
 
   defp execution_failure(report, reason) do
     report =

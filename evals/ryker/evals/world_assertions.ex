@@ -41,13 +41,21 @@ defmodule Ryker.Evals.WorldAssertions do
         scoped_hard_checks(scenario.expect["hard"], expectation_mode),
         report.record_history,
         executions,
-        report.deliveries
+        report.deliveries,
+        get_in(report, [:runtime, :state_calls]) || []
       ) ++
       trajectory_failures(scenario.expect["trajectory"], report.source_calls)
   end
 
-  defp hard_failures(checks, records, executions, deliveries) do
-    Enum.flat_map(checks, &hard_failure(&1, records, executions, deliveries))
+  defp hard_failures(checks, records, executions, deliveries, state_calls) do
+    Enum.flat_map(checks, fn
+      %{"kind" => kind} = check
+      when kind in ~w(refusal_repaired_before_retry state_tool_not_refused) ->
+        state_call_failure(check, state_calls)
+
+      check ->
+        hard_failure(check, records, executions, deliveries)
+    end)
   end
 
   # A record of the tool's kind, and with `payload` one whose payload holds
@@ -317,6 +325,33 @@ defmodule Ryker.Evals.WorldAssertions do
   defp recorded?(record, tool, check) do
     record["kind"] in tool_record_kinds(tool) and
       WorldMatch.matches?(Map.get(check, "payload", %{}), record["payload"])
+  end
+
+  # A refused call wrote nothing. Sent again unchanged it is refused the same
+  # way, and a later write that names what it would have returned names
+  # nothing (2026-10-13: a finding over its ten-citation bound was refused
+  # twice, and the summary and final in the same batch carried a null in its
+  # place).
+  defp state_call_failure(%{"kind" => "refusal_repaired_before_retry"} = check, calls) do
+    repeated? =
+      calls
+      |> Enum.group_by(& &1["tool"])
+      |> Enum.any?(fn {_tool, calls} ->
+        calls
+        |> Enum.chunk_every(2, 1, :discard)
+        |> Enum.any?(fn [first, next] ->
+          first["outcome"] == "failed" and next["outcome"] == "failed" and
+            first["error_digest"] == next["error_digest"]
+        end)
+      end)
+
+    if repeated?, do: [check], else: []
+  end
+
+  defp state_call_failure(%{"kind" => "state_tool_not_refused", "tool" => tool} = check, calls) do
+    if Enum.any?(calls, &(&1["tool"] == tool and &1["outcome"] == "failed")),
+      do: [check],
+      else: []
   end
 
   defp record_identity(%Record{kind: "goal", episode_id: episode_id, payload: %{"id" => id}}),

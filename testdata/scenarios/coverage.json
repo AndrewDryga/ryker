@@ -95,7 +95,8 @@
       "va1-health-review-repairs-and-finishes"
     ],
     "terraform": [
-      "terraform-run-update-stays-in-one-session"
+      "terraform-run-update-stays-in-one-session",
+      "verification-finding-cites-what-it-rests-on"
     ],
     "uptime": [
       "current-uptime-check-uses-fresh-source"
