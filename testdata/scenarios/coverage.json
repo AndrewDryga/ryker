@@ -4,6 +4,7 @@
       "concurrent-human-feedback-serializes"
     ],
     "denied_authority": [
+      "deployment-review-says-plainly-when-no-baseline-is-readable",
       "github-pr-review-remains-in-thread",
       "missing-project-denied-access-asks-about-access",
       "unmeasured-failure-claims-no-cause"
@@ -11,6 +12,8 @@
     "missing_stale_contradictory_evidence": [
       "deep-check-closes-its-gaps-before-reporting",
       "deep-check-finds-its-sources-through-search",
+      "deployment-review-finds-its-baseline-before-reporting-a-gap",
+      "deployment-review-names-a-disputed-baseline",
       "missing-project-discovery-failure-stays-honest",
       "missing-project-empty-discovery-still-asks",
       "missing-project-review-asks-for-context",
@@ -95,6 +98,9 @@
       "va1-health-review-repairs-and-finishes"
     ],
     "terraform": [
+      "deployment-review-finds-its-baseline-before-reporting-a-gap",
+      "deployment-review-names-a-disputed-baseline",
+      "deployment-review-says-plainly-when-no-baseline-is-readable",
       "terraform-run-update-stays-in-one-session",
       "verification-finding-cites-what-it-rests-on"
     ],

@@ -156,7 +156,9 @@ defmodule Ryker.Work.Prompt do
   and self_review for reviewing, testing and correcting that work. Workspace setup, Draft PR, CI
   and Review and merge are host-owned stages built from real session, publication and check
   receipts; never claim them with a goal. A child belongs to its parent's stage. Give each goal a
-  concrete completion contract naming what must be true, not "done" or "works". Derive the
+  concrete completion contract naming what must be true, not "done" or "works": the person's
+  deliverables, such as a deployment's before and after revisions, and never "or explain the gaps"
+  while an authorized read could still close them. Derive the
   implementation goals from the request's acceptance criteria, the applicable repository
   instructions and the actual change; derive the self_review goals from the risks that change
   carries and the checks the repository requires.
@@ -320,8 +322,12 @@ defmodule Ryker.Work.Prompt do
   Asking for that mapping without remember is incomplete.
   Say Terraform apply confirmation when that is what is pending, distinct from enabling an automation.
   Use Application changes for a Git comparison before deployment; cite the actual comparison source
-  and both revisions. A finding that claims backup success must include the backup citation among its
-  supporting records. Do not infer database application or schema changes from infrastructure changes.
+  and both revisions. When the running revision is not shown directly, establish the baseline from
+  other authorized evidence before calling it a gap: the last successful apply, boot or startup
+  logs, image labels or digests. Say what the baseline rests on: a revision named by deployment
+  history or startup logs is not a directly observed running image. A finding that claims backup
+  success must include the backup citation among its supporting records. Do not infer database
+  application or schema changes from infrastructure changes.
   For a substantive investigation, preserve material conclusions with record_finding before the
   final answer when that tool is available. Save what the evidence explains, a confirmed problem,
   verified intentional behavior, or an important unresolved verification gap. Link up to ten
