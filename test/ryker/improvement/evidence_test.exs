@@ -478,6 +478,40 @@ defmodule Ryker.Improvement.EvidenceTest do
     assert violations =~ "Cite the run."
   end
 
+  # Gathering today's evidence for the ten recorded analyses raised on one
+  # (2026-10-16): a shell command's recorded output was the text it printed,
+  # not a map, and reading its error as a map's key stopped the whole analysis.
+  test "a command's printed output reads as its result, and text output never stops an analysis" do
+    question = message!("1790501200.000100", "Where is the project configured?")
+    reply = Answers.work_reply!(question, "In infra/versions.tf.", "1790501200.000200", @now)
+    unhappy!({:episode, reply.episode.id}, "native-calls")
+
+    Repo.update_all(from(t in Turn, where: t.id == ^reply.turn.id),
+      set: [coop_turn_id: "coop-turn-native"]
+    )
+
+    printed = "infra/versions.tf:29:  # State lives in Terraform Cloud.\n"
+    native_call!(reply, 1, "Run grep -rn project infra/", printed)
+
+    native_call!(reply, 2, "Run git status", %{
+      "formatted_output" => " M lib/a.ex\n",
+      "exit_code" => 0
+    })
+
+    native_call!(reply, 3, "Run make", %{"preview" => "line of build output", "truncated" => true})
+
+    evidence = Evidence.gather(Inspectors.improvement_candidate({:episode, reply.episode.id}))
+    assert [%{"calls" => [grep, status, make]}] = evidence.work
+
+    assert {grep["tool"], grep["status"], grep["error"]} ==
+             {"Run grep -rn project infra/", "completed", nil}
+
+    assert grep["arguments"] =~ "grep -rn project infra/"
+    assert grep["result"] == printed
+    assert status["result"] == " M lib/a.ex\n"
+    assert make["result"] == "line of build output"
+  end
+
   test "a call's arguments and result stay out once a person deleted a message of the request" do
     question = message!("1790501100.000100", "Check the payroll export host.")
 
@@ -539,6 +573,39 @@ defmodule Ryker.Improvement.EvidenceTest do
              "input" => input,
              "output" => output,
              "status" => "completed",
+             "tool_call_id" => call
+           }}
+        ] do
+      Repo.insert!(%Ryker.Work.ActivityEvent{
+        coop_turn_id: Repo.get!(Turn, reply.turn.id).coop_turn_id,
+        episode_id: reply.episode.id,
+        kind: kind,
+        occurred_at: DateTime.add(@now, sequence * 2 + offset, :second),
+        payload: payload,
+        payload_fingerprint: CanonicalJSON.digest(payload),
+        remote_event_id: "#{call}:#{kind}",
+        remote_session_id: "remote-session:#{reply.turn.session_id}",
+        sequence: sequence * 2 + offset,
+        session_id: reply.turn.session_id,
+        version: 1
+      })
+    end
+  end
+
+  # A native tool, such as a shell command, as the worker reports it: a title,
+  # the command it ran, and what it printed.
+  defp native_call!(reply, sequence, title, output) do
+    call = "native-#{reply.turn.id}-#{sequence}"
+    input = %{"command" => String.replace_prefix(title, "Run ", ""), "cwd" => "/workspace"}
+
+    for {kind, offset, payload} <- [
+          {"tool.started", 0,
+           %{"input" => input, "kind" => "execute", "title" => title, "tool_call_id" => call}},
+          {"tool.completed", 1,
+           %{
+             "output" => output,
+             "status" => "completed",
+             "title" => title,
              "tool_call_id" => call
            }}
         ] do

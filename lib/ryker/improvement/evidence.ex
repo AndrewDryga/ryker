@@ -615,17 +615,30 @@ defmodule Ryker.Improvement.Evidence do
   end
 
   defp call(started, ended, secrets, quoting?) do
-    error = ended && get_in(ended, ["output", "error"])
+    error = ended && error(ended["output"])
 
     %{
-      "tool" => tool_name(started),
+      "tool" => tool_name(started, secrets),
       "status" => if(ended, do: ended["status"] || "completed", else: "unfinished"),
-      "arguments" =>
-        unless(quoting?, do: bounded(get_in(started, ["input", "arguments"]), secrets)),
+      "arguments" => unless(quoting?, do: bounded(arguments(started["input"]), secrets)),
       "result" => unless(quoting? or error, do: bounded(result(ended), secrets)),
       "error" => bounded(error, secrets)
     }
   end
+
+  # A controller tool reports its error and result. A native tool, such as a
+  # command, reports what it printed: as text, as its formatted output, or as
+  # a cut preview of a long one. Its input is what it ran.
+  defp error(%{"error" => error}), do: error
+  defp error(_output), do: nil
+
+  defp arguments(%{"arguments" => arguments}), do: arguments
+  defp arguments(%{} = input), do: Map.drop(input, ["server", "tool"])
+  defp arguments(_input), do: nil
+
+  defp result(%{"output" => output}) when is_binary(output), do: output
+  defp result(%{"output" => %{"formatted_output" => text}}) when is_binary(text), do: text
+  defp result(%{"output" => %{"preview" => text}}) when is_binary(text), do: text
 
   defp result(%{"output" => %{"result" => %{"content" => content}}}) when is_list(content) do
     content
@@ -667,11 +680,14 @@ defmodule Ryker.Improvement.Evidence do
 
   defp corrections(_history, _secrets), do: []
 
-  defp tool_name(%{"input" => %{"server" => server, "tool" => tool}})
+  defp tool_name(%{"input" => %{"server" => server, "tool" => tool}}, _secrets)
        when is_binary(server) and is_binary(tool),
        do: "#{server}.#{tool}"
 
-  defp tool_name(%{"tool_call_id" => call}), do: call
+  defp tool_name(%{"title" => title}, secrets) when is_binary(title),
+    do: bounded_text(title, secrets, 200)
+
+  defp tool_name(%{"tool_call_id" => call}, _secrets), do: call
 
   defp withheld_calls(true, work) do
     if Enum.any?(work, &(&1["calls"] != [])),
