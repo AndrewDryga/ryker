@@ -14,7 +14,7 @@
   "actors": [
     {
       "actor_ref": "slack:user:U-operator",
-      "authority": "read_only",
+      "authority": "operator",
       "input_profile": {
         "actor": {
           "kind": "user",
