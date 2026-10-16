@@ -67,6 +67,17 @@ defmodule Ryker.PromptDocument do
   @spec cut(String.t(), non_neg_integer()) :: String.t()
   def cut(text, max_bytes) when is_binary(text), do: Text.bytes(text, max_bytes) <> @cut_marker
 
+  @doc "A stored prompt or JSON document as a map; anything unreadable is an empty one."
+  @spec decode(term()) :: map()
+  def decode(value) when is_binary(value) do
+    case Jason.decode(value) do
+      {:ok, %{} = document} -> document
+      _unreadable -> %{}
+    end
+  end
+
+  def decode(_value), do: %{}
+
   @doc "`context` with `note` in its `\"omitted\"` list, once."
   @spec omit(%{String.t() => term()}, String.t()) :: %{String.t() => term()}
   def omit(context, note) do

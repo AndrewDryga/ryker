@@ -577,7 +577,7 @@ defmodule Ryker.Improvement.Evidence do
     texts =
       for %Work.Turn{operational_pruned_at: nil, submission: %{"prompt" => prompt}} = turn <-
             turns,
-          %{"instructions" => text} when is_binary(text) <- [decode(prompt)],
+          %{"instructions" => text} when is_binary(text) <- [PromptDocument.decode(prompt)],
           do: {turn.id, text}
 
     unique = texts |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
@@ -590,15 +590,6 @@ defmodule Ryker.Improvement.Evidence do
     {Enum.map(unique, &%{"id" => ids[&1], "text" => redact(&1, secrets)}),
      Map.new(texts, fn {turn, text} -> {turn, ids[text]} end)}
   end
-
-  defp decode(prompt) when is_binary(prompt) do
-    case Jason.decode(prompt) do
-      {:ok, %{} = document} -> document
-      _unreadable -> %{}
-    end
-  end
-
-  defp decode(_prompt), do: %{}
 
   # The calls each turn made, in order: the tool, how the call ended, its
   # arguments and what came back or the error, each bounded. Only what the

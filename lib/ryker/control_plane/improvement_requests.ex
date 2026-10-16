@@ -15,13 +15,14 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
   retention says what it removed.
   """
   import Ryker.ControlPlane.BackgroundCards,
-    only: [artifact_options: 2, decode: 1, present: 1, submitted: 5, target: 2]
+    only: [artifact_options: 2, present: 1, submitted: 5, target: 2]
 
   alias Ryker.Accounting
   alias Ryker.ControlPlane.{BackgroundCards, CallRun, FindingCard, ImprovementPage, Paths}
   alias Ryker.ControlPlane.SentPrompts
   alias Ryker.Improvement
   alias Ryker.InspectionRedactor, as: Redactor
+  alias Ryker.PromptDocument
   alias Ryker.Repo
   alias Ryker.UTCDateTime
   alias Ryker.Work
@@ -101,7 +102,7 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
   end
 
   defp briefing(run, context) do
-    prompt = decode(run.prompt)
+    prompt = PromptDocument.decode(run.prompt)
     options = artifact_options(run, context)
     request_id = "self-analysis-#{run.id}-request"
 
@@ -130,7 +131,7 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
   defp result(run, context) do
     if BackgroundCards.result?(run) do
       options = artifact_options(run, context)
-      document = run.result |> decode() |> Redactor.document(context.secrets)
+      document = run.result |> PromptDocument.decode() |> Redactor.document(context.secrets)
       ended = run.remote_stopped_at || run.updated_at
       response = section("response", "Model response", run.result, options)
 

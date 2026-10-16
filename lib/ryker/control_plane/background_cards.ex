@@ -103,15 +103,4 @@ defmodule Ryker.ControlPlane.BackgroundCards do
   end
 
   def present(_value), do: nil
-
-  @doc "A stored JSON document as a map; anything unreadable is an empty one."
-  @spec decode(term()) :: map()
-  def decode(value) when is_binary(value) do
-    case Jason.decode(value) do
-      {:ok, %{} = document} -> document
-      _unreadable -> %{}
-    end
-  end
-
-  def decode(_value), do: %{}
 end

@@ -19,7 +19,6 @@ defmodule Ryker.ControlPlane.LearningRequests do
   import Ryker.ControlPlane.BackgroundCards,
     only: [
       artifact_options: 2,
-      decode: 1,
       identifier: 2,
       present: 1,
       record_text: 2,
@@ -33,6 +32,7 @@ defmodule Ryker.ControlPlane.LearningRequests do
   alias Ryker.ControlPlane.{LearningRequests, Paths, SentPrompts}
   alias Ryker.InspectionRedactor, as: Redactor
   alias Ryker.Learning
+  alias Ryker.PromptDocument
   alias Ryker.Repo
   alias Ryker.Slack
   alias Ryker.UTCDateTime
@@ -207,7 +207,7 @@ defmodule Ryker.ControlPlane.LearningRequests do
   end
 
   defp briefing(run, context) do
-    prompt = decode(run.prompt)
+    prompt = PromptDocument.decode(run.prompt)
     options = artifact_options(run, context)
     request_id = "learning-#{run.id}-request"
 
@@ -238,7 +238,7 @@ defmodule Ryker.ControlPlane.LearningRequests do
   defp result(run, context) do
     if BackgroundCards.result?(run) do
       options = artifact_options(run, context)
-      document = run.result |> decode() |> Redactor.document(context.secrets)
+      document = run.result |> PromptDocument.decode() |> Redactor.document(context.secrets)
       ended = run.applied_at || run.remote_stopped_at || run.updated_at
 
       [

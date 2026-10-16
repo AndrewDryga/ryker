@@ -3,16 +3,17 @@ defmodule Ryker.ControlPlane.ModelRequests do
   alias Ryker.Accounting
   alias Ryker.Admission
   alias Ryker.ControlPlane.{Activity, CallRun, ContextSearch, ContextSelection, EpisodeProjection}
-  alias Ryker.ControlPlane.{BackgroundCards, ThreadContext, Units, UsageProjection}
   alias Ryker.ControlPlane.{EpisodeTrace, FeedbackProjection, ImprovementRequests}
   alias Ryker.ControlPlane.EpisodeTrace.{CaseFile, Input, Step}
   alias Ryker.ControlPlane.{LearningRequests, PagedRelation, Paths, RepositoryNames, SentPrompts}
+  alias Ryker.ControlPlane.{ThreadContext, Units, UsageProjection}
   alias Ryker.CoopFleet
   alias Ryker.Crypto
   alias Ryker.Delivery
   alias Ryker.Episodes
   alias Ryker.Ingress
   alias Ryker.InspectionRedactor, as: Redactor
+  alias Ryker.PromptDocument
   alias Ryker.Repo
   alias Ryker.Settings
   alias Ryker.Slack
@@ -472,7 +473,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
   end
 
   defp work_context(%Work.Turn{submission: %{"prompt" => prompt}}) do
-    case BackgroundCards.decode(prompt) do
+    case PromptDocument.decode(prompt) do
       %{"work" => %{} = context} -> context
       _unreadable -> nil
     end
@@ -930,7 +931,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
     expired = not is_nil(turn.operational_pruned_at)
     reading = %{reading | expired: expired}
     submission = if expired, do: %{}, else: turn.submission || %{}
-    prompt = BackgroundCards.decode(submission["prompt"])
+    prompt = PromptDocument.decode(submission["prompt"])
     context = prompt["work"]
     work = if is_map(context), do: context, else: %{}
 
@@ -997,7 +998,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
     generation = min(generation, entry.execution_generation)
     submission = admission_submission(attempt, expired)
 
-    prompt = BackgroundCards.decode(submission["prompt"])
+    prompt = PromptDocument.decode(submission["prompt"])
     response = if not expired, do: attempt_value(attempt, :response)
 
     %{
