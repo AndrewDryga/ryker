@@ -4,6 +4,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   alias Ryker.Admission
   alias Ryker.ControlPlane.CallRun
   alias Ryker.ControlPlane.Components
+  alias Ryker.ControlPlane.FindingCard
   alias Ryker.ControlPlane.Paths
   alias Ryker.ControlPlane.RequestContextHTML
   alias Ryker.ControlPlane.Units
@@ -14,6 +15,11 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   # messages, and the self-analysis of a request a person was unhappy with.
   # Their cards carry what they decided under `background`.
   @background_kinds [:learning, :improvement]
+
+  # A self-analysis's result is a review of the request, drawn as What to fix
+  # draws its finding.
+  def render(%{request: %{source_kind: :improvement, phase: :result, review: %{}}} = assigns),
+    do: FindingCard.review(assigns)
 
   # `briefing/1` and `submitted/2` are `RequestContextHTML`'s markup, which escapes every value it
   # writes.

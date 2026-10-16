@@ -11,7 +11,8 @@ defmodule Ryker.ControlPlane.CallRun do
   work that came after it; the timeline's later cards say that.
 
   `table/1` draws it the one way the timeline's model cards and a
-  repository's knowledge runs both show it.
+  repository's knowledge runs both show it; `groups/1` draws the same run as
+  three groups for a review of a request people were unhappy with.
   """
   use Phoenix.Component
   alias Ryker.Accounting
@@ -19,12 +20,24 @@ defmodule Ryker.ControlPlane.CallRun do
   alias Ryker.Wording
   alias Ryker.Work
 
-  @type segment :: %{kind: :prepare | :model | :save, label: String.t(), ms: non_neg_integer()}
+  @type segment :: %{
+          kind: :prepare | :model | :save,
+          label: String.t(),
+          short: String.t(),
+          ms: non_neg_integer()
+        }
+  @typedoc "The provider's token counts one by one, input with what was read from cache."
+  @type usage :: %{
+          input: non_neg_integer(),
+          output: non_neg_integer(),
+          reasoning: non_neg_integer() | nil
+        }
   @typedoc "An answer Ryker sent back, and the card on the timeline that shows it."
   @type correction :: %{attempt: pos_integer(), href: String.t()}
   @type t :: %{
           target: String.t() | nil,
           tokens: String.t() | nil,
+          usage: usage() | nil,
           cost: String.t() | nil,
           checks: String.t() | nil,
           corrections: [correction()],
@@ -45,6 +58,7 @@ defmodule Ryker.ControlPlane.CallRun do
     %{
       target: target,
       tokens: tokens(usage),
+      usage: usage_counts(usage),
       cost: cost(usage, target, attempt.inserted_at),
       checks: routing_checks(attempt.response),
       # Routing's own corrections happen inside one call and have no card.
@@ -115,6 +129,7 @@ defmodule Ryker.ControlPlane.CallRun do
     %{
       target: turn.execution_target,
       tokens: tokens(usage),
+      usage: usage_counts(usage),
       cost: cost(usage, turn.execution_target, turn.inserted_at),
       checks: work_checks(turn),
       corrections: work_corrections(turn),
@@ -148,6 +163,7 @@ defmodule Ryker.ControlPlane.CallRun do
     %{
       target: target,
       tokens: tokens(usage),
+      usage: usage_counts(usage),
       cost: cost(usage, target, started),
       checks: background_checks(run),
       corrections: [],
@@ -183,13 +199,20 @@ defmodule Ryker.ControlPlane.CallRun do
     ryker = if total && measured > 0 && total > measured, do: total - measured
 
     [
-      {:prepare, "Waiting in the worker's queue", execution[:usage_queued_ms]},
-      {:model, "Model", execution[:usage_provider_ms]},
-      {:save, "Ryker preparing, checking and saving", ryker}
+      {:prepare, "Waiting in the worker's queue", "Worker queue", execution[:usage_queued_ms]},
+      {:model, "Model", "Model", execution[:usage_provider_ms]},
+      {:save, "Ryker preparing, checking and saving", "Prepare, check, save", ryker}
     ]
-    |> Enum.flat_map(fn
-      {kind, label, ms} when is_integer(ms) -> [%{kind: kind, label: label, ms: ms}]
-      _unmeasured -> []
+    |> measured_segments()
+  end
+
+  defp measured_segments(segments) do
+    Enum.flat_map(segments, fn
+      {kind, label, short, ms} when is_integer(ms) ->
+        [%{kind: kind, label: label, short: short, ms: ms}]
+
+      _unmeasured ->
+        []
     end)
   end
 
@@ -241,6 +264,103 @@ defmodule Ryker.ControlPlane.CallRun do
     """
   end
 
+  attr(:run, :map, required: true)
+
+  attr(:attempts, :map,
+    default: nil,
+    doc: "%{count:, href:}: every attempt at this call, counted from its own records"
+  )
+
+  @doc """
+  The same run as three groups side by side, stacked on a narrow screen: the
+  model and how many attempts there were, where the time went, and the
+  tokens and what they cost (Andrew, 2026-10-15). A table that alternated
+  unrelated figures was hard to read. A value nobody recorded is left out,
+  never shown as zero.
+  """
+  def groups(assigns) do
+    assigns =
+      assigns
+      |> assign(:model, assigns.run.target && Work.target_parts(assigns.run.target))
+      |> assign(:times, times(assigns.run))
+      |> assign(:usage, assigns.run[:usage])
+
+    ~H"""
+    <div class="run-groups">
+      <section class="run-group" aria-label="Model and attempts">
+        <h4>Model &amp; attempts</h4>
+        <p :if={@model} class="run-model">{@model.model}</p>
+        <p :if={@model && @model[:effort]} class="run-note">
+          {String.capitalize(@model.effort)} reasoning
+        </p>
+        <p :if={!@model && @run.target} class="run-model">{@run.target}</p>
+        <p :if={!@run.target} class="run-note">Not recorded</p>
+        <p :if={@attempts} class="run-attempts">
+          <span>{Wording.count(@attempts.count, "attempt")}</span>
+          <a :if={@attempts[:href]} href={@attempts.href} class="inline-link"><span>View all attempts
+          <span aria-hidden="true">→</span></span></a>
+        </p>
+      </section>
+      <section class="run-group" aria-label="Timing">
+        <h4>Timing</h4>
+        <dl :if={@times != []} class="run-values">
+          <div :for={{label, ms, total?} <- @times} class={total? && "run-total"}>
+            <dt>{label}</dt>
+            <dd>{Units.duration(ms)}</dd>
+          </div>
+        </dl>
+        <p :if={@times == []} class="run-note">Not recorded</p>
+      </section>
+      <section class="run-group" aria-label="Tokens and cost">
+        <h4>Tokens &amp; cost</h4>
+        <dl :if={@usage || @run.cost} class="run-values">
+          <div :if={@usage}>
+            <dt>Input tokens</dt>
+            <dd>{Wording.number(@usage.input)}</dd>
+          </div>
+          <div :if={@usage}>
+            <dt>Output tokens</dt>
+            <dd>{Wording.number(@usage.output)}</dd>
+          </div>
+          <div :if={@usage && is_integer(@usage.reasoning) && @usage.reasoning > 0}>
+            <dt>Reasoning tokens</dt>
+            <dd>{Wording.number(@usage.reasoning)}</dd>
+          </div>
+          <div :if={@run.cost} class="run-total">
+            <dt>{cost_label(@run.cost)}</dt>
+            <dd title={cost_title(@run.cost)}>{@run.cost}</dd>
+          </div>
+        </dl>
+        <p :if={!@usage && !@run.cost} class="run-note">Not recorded</p>
+      </section>
+    </div>
+    """
+  end
+
+  @doc "How long a run took and what it cost, for a line that names the run: \"25.7 s · ≈ $0.11\"."
+  @spec summary(t()) :: String.t() | nil
+  def summary(run) do
+    [run.total_ms && Units.duration(run.total_ms), run.cost]
+    |> Enum.filter(&is_binary/1)
+    |> case do
+      [] -> nil
+      parts -> Enum.join(parts, " · ")
+    end
+  end
+
+  # The whole first, then the model's own time, Ryker's, and the queue.
+  defp times(run) do
+    parts =
+      for kind <- [:model, :save, :prepare],
+          %{short: label, ms: ms} <- Enum.filter(run.segments, &(&1.kind == kind)),
+          do: {label, ms, false}
+
+    if is_integer(run.total_ms), do: [{"Total", run.total_ms, true} | parts], else: parts
+  end
+
+  defp cost_label("≈" <> _rest), do: "Estimated cost"
+  defp cost_label(_cost), do: "Cost"
+
   @doc "A model target in words: \"gpt-5.6-sol · medium reasoning\"."
   @spec model_words(String.t()) :: String.t()
   def model_words(target) do
@@ -270,15 +390,11 @@ defmodule Ryker.ControlPlane.CallRun do
   def estimated_tokens(text) when is_binary(text), do: estimated_tokens({:bytes, byte_size(text)})
 
   defp segments(before, model, after_model, saving) do
-    [
-      {:prepare, "Preparing and waiting for the worker", before},
-      {:model, "Model", model},
-      {:save, saving, after_model}
-    ]
-    |> Enum.flat_map(fn
-      {kind, label, ms} when is_integer(ms) -> [%{kind: kind, label: label, ms: ms}]
-      _unmeasured -> []
-    end)
+    measured_segments([
+      {:prepare, "Preparing and waiting for the worker", "Prepare and queue", before},
+      {:model, "Model", "Model", model},
+      {:save, saving, "Check and save", after_model}
+    ])
   end
 
   # Codex reports fresh input and cache reads separately, so the prompt the
@@ -302,6 +418,12 @@ defmodule Ryker.ControlPlane.CallRun do
   end
 
   defp tokens(_usage), do: nil
+
+  defp usage_counts(%{recorded: true, input: input, cached: cached, output: output} = usage)
+       when is_integer(input) and is_integer(output),
+       do: %{input: input + (cached || 0), output: output, reasoning: usage.reasoning}
+
+  defp usage_counts(_usage), do: nil
 
   defp cost(%{cost_recorded: true, cost: cost}, _target, _started) when not is_nil(cost),
     do: Units.money(Decimal.new(cost))

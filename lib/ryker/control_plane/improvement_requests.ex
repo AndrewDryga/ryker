@@ -7,31 +7,22 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
 
   Each attempt is a briefing card, with the instructions, the evidence it was
   given, the output contract and the exact prompt, and, once it ended, a
-  result card: the model's response, what it found and how sure it was, what
-  it cost and where its time went. Everything is read from the attempt's own
-  frozen record and the execution ledger its worker's report was metered
-  into; nothing is rebuilt from today's evidence, and retention says what it
-  removed.
+  review card (`Ryker.ControlPlane.FindingCard.review/1`): what went wrong and
+  what Ryker should have done, the suspected cause and how sure it was, and
+  how the attempt ran, with the model's raw response. Everything is read from
+  the attempt's own frozen record and the execution ledger its worker's
+  report was metered into; nothing is rebuilt from today's evidence, and
+  retention says what it removed.
   """
   import Ryker.ControlPlane.BackgroundCards,
-    only: [
-      artifact_options: 2,
-      decode: 1,
-      identifier: 2,
-      present: 1,
-      record_text: 2,
-      submitted: 5,
-      target: 2,
-      time: 2
-    ]
+    only: [artifact_options: 2, decode: 1, present: 1, submitted: 5, target: 2]
 
   alias Ryker.Accounting
-  alias Ryker.ControlPlane.{BackgroundCards, CallRun, ImprovementPage, Paths}
+  alias Ryker.ControlPlane.{BackgroundCards, CallRun, FindingCard, ImprovementPage, Paths}
   alias Ryker.Improvement
   alias Ryker.InspectionRedactor, as: Redactor
   alias Ryker.Repo
   alias Ryker.UTCDateTime
-  alias Ryker.Work
 
   @limit 20
 
@@ -73,16 +64,23 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
       secrets: Keyword.get(options, :secrets, []),
       disclosed: Keyword.get(options, :disclosed),
       totals: Enum.frequencies_by(runs, & &1.candidate_id),
+      # Generations count up from one, so the newest says how many attempts
+      # there were, and the oldest shown is where their history starts.
+      attempts:
+        runs
+        |> Enum.group_by(& &1.candidate_id)
+        |> Map.new(fn {id, runs} ->
+          {id,
+           %{
+             count: runs |> Enum.map(& &1.generation) |> Enum.max(),
+             href: "#self-analysis-" <> Enum.min_by(runs, & &1.generation).id
+           }}
+        end),
       executions:
         "improvement"
         |> Accounting.Execution.Query.by_sources(ids)
         |> Repo.all()
-        |> Map.new(&{&1.source_id, &1}),
-      sessions:
-        ids
-        |> Work.Session.Query.by_improvement_run_ids()
-        |> Repo.all()
-        |> Map.new(&{&1.improvement_run_id, &1})
+        |> Map.new(&{&1.source_id, &1})
     }
 
     Enum.flat_map(runs, fn run -> [briefing(run, context) | result(run, context)] end)
@@ -100,7 +98,6 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
       phase: :submission,
       at: run.inserted_at,
       sort_at: run.inserted_at,
-      identity: if(not BackgroundCards.result?(run), do: identity(run, context)),
       retention_note:
         if run.pruned_at do
           "Retention removed the evidence and prompt this attempt was sent on " <>
@@ -120,6 +117,7 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
       options = artifact_options(run, context)
       document = run.result |> decode() |> Redactor.document(context.secrets)
       ended = run.remote_stopped_at || run.updated_at
+      response = section("response", "Model response", run.result, options)
 
       [
         run
@@ -135,13 +133,8 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
               "Retention removed the model's response on #{UTCDateTime.readable(run.pruned_at)}. " <>
                 "What it cost and how long it took stay recorded."
             end,
-          sections: [section("response", "Model response", run.result, options)],
-          background: %{
-            headline: headline(run, document),
-            reason: present(document["what_went_wrong"]),
-            facts: facts(run, document)
-          },
-          identity: identity(run, context)
+          sections: [response],
+          review: review(run, document, response.artifact, context)
         })
       ]
     else
@@ -167,54 +160,48 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
     }
   end
 
-  # An attempt still waiting on its model has only its briefing.
+  # An attempt still waiting on its model has only its briefing. One that
+  # ended reads as What to fix reads its finding: what went wrong, what Ryker
+  # should have done, and the suspected cause, with how many attempts there
+  # were. One Ryker could not use says why in words.
+  defp review(run, document, artifact, context) do
+    category = category(document)
+    found? = run.status in [:applied, :responded]
 
-  defp headline(%Improvement.AnalysisRun{status: :applied}, document) do
-    case category(document) do
-      nil -> "Self-analysis"
-      category -> Improvement.category_label(category)
-    end
+    %{
+      title: if(found?, do: "Review", else: "No usable answer"),
+      attempt: if(context.attempts[run.candidate_id].count > 1, do: "Attempt #{run.generation}"),
+      meta: meta(run, category, document["confidence"]),
+      hint: if(run.status == :applied, do: FindingCard.hint(category)),
+      what_went_wrong: if(found?, do: present(document["what_went_wrong"])),
+      expected: if(found?, do: present(document["expected"])),
+      note: outcome(run),
+      attempts: context.attempts[run.candidate_id],
+      response:
+        if(artifact.state == :retained,
+          do: %{text: artifact.text, note: if(artifact.truncated, do: "Partial display")}
+        ),
+      finding_href: if(run.status == :applied, do: finding_path(run))
+    }
   end
 
-  defp headline(%Improvement.AnalysisRun{status: :responded}, _document),
+  defp meta(%Improvement.AnalysisRun{status: :applied}, category, confidence),
+    do: FindingCard.cause(category, confidence)
+
+  defp meta(%Improvement.AnalysisRun{status: :responded}, _category, _confidence),
     do: "Ryker is checking the answer"
 
-  defp headline(_run, _document), do: "No usable answer"
+  defp meta(_run, _category, _confidence), do: nil
 
-  # What the analysis found, in the words the What to fix page uses, and how
-  # sure it was; an attempt Ryker could not use says why instead.
-  defp facts(%Improvement.AnalysisRun{status: status} = run, document)
-       when status in [:applied, :responded] do
-    [
-      category_fact(category(document)),
-      step_fact(document["step"]),
-      present(document["expected"]) && %{label: "Should have", value: document["expected"]},
-      confidence_fact(document["confidence"]),
-      status == :applied &&
-        %{label: "What to fix", value: "Open the finding", href: finding_path(run)}
-    ]
-    |> Enum.filter(&is_map/1)
-  end
-
-  defp facts(%Improvement.AnalysisRun{status: :rejected, result_sha256: digest}, _document)
+  defp outcome(%Improvement.AnalysisRun{status: :rejected, result_sha256: digest})
        when is_binary(digest),
-       do: [
-         %{
-           label: "Outcome",
-           value: "Not used",
-           note: "the answer did not match the format asked for"
-         }
-       ]
+       do: "Ryker did not use this answer: it did not match the format asked for."
 
-  defp facts(%Improvement.AnalysisRun{status: :rejected}, _document),
-    do: [
-      %{label: "Outcome", value: "No answer", note: "the attempt ended before the model answered"}
-    ]
+  defp outcome(%Improvement.AnalysisRun{status: :rejected}),
+    do: "The attempt ended before the model answered."
 
-  defp facts(%Improvement.AnalysisRun{status: :stale}, _document),
-    do: [%{label: "Outcome", value: "Never started"}]
-
-  defp facts(_run, _document), do: []
+  defp outcome(%Improvement.AnalysisRun{status: :stale}), do: "The attempt never started."
+  defp outcome(_run), do: nil
 
   defp finding_path(run) do
     Paths.query(ImprovementPage.path(), %{"candidate" => run.candidate_id}) <>
@@ -225,60 +212,6 @@ defmodule Ryker.ControlPlane.ImprovementRequests do
     do: Enum.find(Improvement.Candidate.categories(), &(Atom.to_string(&1) == value))
 
   defp category(_document), do: nil
-
-  defp category_fact(nil), do: nil
-
-  defp category_fact(category),
-    do: %{
-      label: "Finding",
-      value: Improvement.category_label(category),
-      note: ImprovementPage.category_hint(category)
-    }
-
-  defp step_fact(step) when step in ["routing", "work", "delivery"],
-    do: %{label: "Went wrong at", value: String.capitalize(step)}
-
-  defp step_fact(_step), do: nil
-
-  defp confidence_fact(confidence) when confidence in ["high", "medium", "low"],
-    do: %{label: "Confidence", value: String.capitalize(confidence)}
-
-  defp confidence_fact(_confidence), do: nil
-
-  # The exact identities behind the card, for a reader checking the record.
-  defp identity(run, context) do
-    session = context.sessions[run.id]
-
-    record =
-      %{
-        "validation_receipt" => run.validation_receipt,
-        "stop_receipt" => run.stop_receipt,
-        "error_code" => run.error_code
-      }
-      |> Map.reject(fn {_key, value} -> is_nil(value) end)
-
-    %{
-      facts:
-        Enum.reject(
-          [
-            identifier("Attempt", run.id),
-            identifier("Worker session", session && session.coop_session_id),
-            identifier("Worker run", run.coop_turn_id),
-            identifier("Prompt fingerprint", run.prompt_sha256),
-            identifier("Response fingerprint", run.result_sha256),
-            identifier("Diagnostic code", run.error_code),
-            time("Prepared", run.inserted_at),
-            time("Started", run.started_at),
-            time("Worker's run confirmed stopped", run.remote_stopped_at),
-            time("Prompt and response removed", run.pruned_at)
-          ],
-          &is_nil/1
-        ),
-      link: %{href: finding_path(run), label: "The finding on What to fix"},
-      record: if(record != %{}, do: record_text(record, context.secrets)),
-      record_label: "Validation and stop receipts (JSON)"
-    }
-  end
 
   defp section(id, title, value, options),
     do: BackgroundCards.section(id, title, value, :improvement, options)

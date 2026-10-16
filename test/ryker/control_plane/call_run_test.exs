@@ -2,6 +2,7 @@ defmodule Ryker.ControlPlane.CallRunTest do
   # An estimate reads the prices saved in Settings, whose writes hold its lock
   # until the test ends, so these run apart from the asynchronous suites.
   use Ryker.DataCase, async: false
+  import Phoenix.LiveViewTest, only: [render_component: 2]
   alias Ryker.ControlPlane.{CallRun, Units}
   alias Ryker.Settings
 
@@ -195,6 +196,42 @@ defmodule Ryker.ControlPlane.CallRunTest do
 
     assert CallRun.from_turn(returned).corrections == [
              %{attempt: 1, href: "#event-turn-#{corrected.id}-validation-1"}
+           ]
+  end
+
+  # The three groups of a review's Model run (approved 2026-10-15) leave out
+  # what the worker never reported rather than show it as zero.
+  test "a run's groups say Not recorded where nothing was reported, never zero" do
+    run =
+      CallRun.from_background(
+        %{
+          started_at: nil,
+          inserted_at: ~U[2026-10-15 09:00:00.000000Z],
+          producer: nil,
+          remote_stopped_at: nil,
+          status: :rejected,
+          candidate_attempt: nil,
+          result_sha256: nil
+        },
+        nil
+      )
+
+    html =
+      render_component(&CallRun.groups/1,
+        run: run,
+        attempts: %{count: 1, href: nil}
+      )
+
+    groups =
+      html
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query(".run-group")
+      |> Enum.map(&(&1 |> LazyHTML.text() |> String.split() |> Enum.join(" ")))
+
+    assert groups == [
+             "Model & attempts Not recorded 1 attempt",
+             "Timing Not recorded",
+             "Tokens & cost Not recorded"
            ]
   end
 

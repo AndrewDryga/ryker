@@ -210,37 +210,6 @@ defmodule Ryker.Improvement do
     broadcast_improvement_updated(id)
   end
 
-  @doc """
-  What `from` up to `to` brought, among the candidates nobody forgot: how many
-  were `found` (created then), by what Ryker made of them (`categories`, in
-  the order the page lists them, only those with any; `waiting` still to
-  analyze; `not_analyzed` the rest), and how many were `accepted` or
-  `dismissed` then. What to fix says it for the last seven days.
-  """
-  @spec week(DateTime.t(), DateTime.t()) :: map()
-  def week(%DateTime{} = from, %DateTime{} = to) do
-    found = Candidate.Query.kept() |> Candidate.Query.created_between(from, to)
-    decided = Candidate.Query.kept() |> Candidate.Query.decided_between(from, to)
-    categories = found |> Candidate.Query.count_by_category() |> Repo.all() |> Map.new()
-
-    counts = %{
-      found: Repo.aggregate(found, :count),
-      waiting: found |> Candidate.Query.awaiting_analysis() |> Repo.aggregate(:count),
-      accepted: decided |> Candidate.Query.by_status(:accepted) |> Repo.aggregate(:count),
-      dismissed: decided |> Candidate.Query.by_status(:dismissed) |> Repo.aggregate(:count)
-    }
-
-    Map.merge(counts, %{
-      categories:
-        for(
-          category <- Candidate.categories(),
-          Map.has_key?(categories, category),
-          do: {category, Map.fetch!(categories, category)}
-        ),
-      not_analyzed: counts.found - (categories |> Map.values() |> Enum.sum()) - counts.waiting
-    })
-  end
-
   # -- Words -----------------------------------------------------------------------
 
   @doc "A category's name: Host bug, Prompt bug, …"
@@ -257,49 +226,6 @@ defmodule Ryker.Improvement do
     do: category_label(category)
 
   def category_plural(category, count), do: Wording.word(count, category_label(category))
-
-  @doc """
-  What a week brought (`week/2`), in words: what was found and what Ryker
-  made of it, then what people decided. A quiet week says so rather than
-  leaving the line out, which would read as a good week. What to fix's Last
-  7 days line reads it.
-  """
-  @spec week_words(map()) :: String.t()
-  def week_words(%{found: 0, accepted: 0, dismissed: 0}),
-    do: "Nothing new, and nothing accepted or dismissed."
-
-  def week_words(week), do: found(week) <> " " <> decided(week)
-
-  defp found(%{found: 0}), do: "Nothing new."
-
-  defp found(week) do
-    kinds =
-      Enum.map(week.categories, fn {category, count} ->
-        "#{count} #{String.downcase(category_plural(category, count))}"
-      end) ++
-        Enum.reject(
-          [
-            week.waiting > 0 && "#{week.waiting} still to analyze",
-            week.not_analyzed > 0 && "#{week.not_analyzed} not analyzed"
-          ],
-          &(&1 == false)
-        )
-
-    "#{week.found} new: #{Wording.list(kinds)}."
-  end
-
-  defp decided(%{accepted: 0, dismissed: 0}), do: "None accepted or dismissed."
-
-  defp decided(week) do
-    [
-      week.accepted == 1 && "1 accepted as an eval case",
-      week.accepted > 1 && "#{week.accepted} accepted as eval cases",
-      week.dismissed > 0 && "#{week.dismissed} dismissed"
-    ]
-    |> Enum.reject(&(&1 == false))
-    |> Wording.list()
-    |> Kernel.<>(".")
-  end
 
   # -- Decisions -------------------------------------------------------------------
 

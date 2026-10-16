@@ -52,6 +52,15 @@ defmodule Ryker.Improvement.AnalysisRun.Query do
     )
   end
 
+  def by_candidate_ids(queryable \\ all(), candidate_ids),
+    do: where(queryable, [improvement_analysis_runs: r], r.candidate_id in ^candidate_ids)
+
+  @doc "Every field but the prompt, the largest, which a finding's card never shows."
+  def without_prompt(queryable) do
+    fields = AnalysisRun.__schema__(:fields) -- [:prompt]
+    select(queryable, [improvement_analysis_runs: r], struct(r, ^fields))
+  end
+
   def ordered_by_generation(queryable),
     do: order_by(queryable, [improvement_analysis_runs: r], asc: r.generation)
 

@@ -6,36 +6,37 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
 
   The list shows one decision at a time, open by default, or what was
   accepted or dismissed. It reads newest first by day, and within a day the
-  surest diagnoses first, so the ones worth deciding on are on top. Each row
-  names its request as Activity names it and opens its Timeline; an open one
-  can be accepted as an eval case or dismissed.
+  surest diagnoses first, so the ones worth deciding on are on top. Each
+  finding names its request as Activity names it and opens its Timeline, says
+  how the analysis ran, and an open one can be accepted as an eval case or
+  dismissed.
   """
-  alias Ryker.ControlPlane.{FeedbackProjection, PagedRelation, PathRef}
+  alias Ryker.Accounting
+  alias Ryker.ControlPlane.{BackgroundCards, CallRun, FeedbackProjection, PagedRelation, PathRef}
   alias Ryker.Improvement
   alias Ryker.InspectionRedactor
   alias Ryker.Repo
+  alias Ryker.UTCDateTime
 
   @page_size 50
   @statuses [:open, :accepted, :dismissed]
-  @week_seconds 7 * 86_400
+  @response_bytes 2 * 1_024 * 1_024
 
   @doc "The query keys the page reads."
   def query_keys, do: ["status", "category", "page", "candidate"]
 
   @doc """
-  One read of the page for `params`: the counts of each decision and of each
-  category in the view, what the last seven days brought, and one page of
-  candidates.
+  One read of the page for `params`: the counts of each decision, and one
+  page of candidates.
   """
   @spec page(map()) :: map()
   def page(params) when is_map(params) do
     visible = Improvement.Candidate.Query.kept()
 
-    {status, category, in_status, listed} =
+    {status, category, listed} =
       case linked(visible, params["candidate"]) do
         {id, status} ->
-          {status, nil, Improvement.Candidate.Query.by_status(visible, status),
-           Improvement.Candidate.Query.by_id(visible, id)}
+          {status, nil, Improvement.Candidate.Query.by_id(visible, id)}
 
         nil ->
           status = pick(params["status"], @statuses) || :open
@@ -47,7 +48,7 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
               do: Improvement.Candidate.Query.by_category(in_status, category),
               else: in_status
 
-          {status, category, in_status, listed}
+          {status, category, listed}
       end
 
     paged =
@@ -59,8 +60,6 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
       status: status,
       category: category,
       counts: status_counts(visible),
-      categories: category_counts(in_status),
-      week: week(),
       exportable: exportable(),
       items: present(paged.items),
       listed: paged.total,
@@ -129,31 +128,27 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
   defp category_counts(query),
     do: query |> Improvement.Candidate.Query.count_by_category() |> Repo.all() |> Map.new()
 
-  # What the last seven days brought, by the database clock that stamps a
-  # candidate and its decision: the candidates found, by what Ryker made of
-  # them (a category, still to analyze, or not analyzed), and the ones
-  # accepted or dismissed (`Ryker.Improvement.week/2`).
-  defp week do
-    now = Repo.now!()
-    Improvement.week(DateTime.add(now, -@week_seconds, :second), DateTime.add(now, 1, :second))
-  end
-
   defp exportable, do: Repo.aggregate(Improvement.Candidate.Query.exportable_cases(), :count)
 
-  # Each candidate with the request it is about, named as Activity names it.
+  # Each candidate with the request it is about, named as Activity names it,
+  # and how its analysis ran.
   defp present([]), do: []
 
   defp present(candidates) do
     requests = FeedbackProjection.requests(candidates)
+    runs = analysis_runs(candidates)
 
     Enum.map(candidates, fn %Improvement.Candidate{} = candidate ->
+      request = FeedbackProjection.request(requests, candidate)
+
       %{
         id: candidate.id,
         at: candidate.last_signal_at,
         status: candidate.status,
         reasons: candidate.reasons,
         signal_count: candidate.signal_count,
-        request: FeedbackProjection.request(requests, candidate),
+        request: request,
+        analysis_run: analysis_run(Map.get(runs.by_candidate, candidate.id, []), runs, request),
         transport: candidate.transport,
         analysis: candidate.analysis,
         error_code: candidate.error_code,
@@ -169,6 +164,66 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
       }
     end)
   end
+
+  defp analysis_runs(candidates) do
+    runs =
+      candidates
+      |> Enum.map(& &1.id)
+      |> Improvement.AnalysisRun.Query.by_candidate_ids()
+      |> Improvement.AnalysisRun.Query.without_prompt()
+      |> Repo.all()
+
+    %{
+      by_candidate: Enum.group_by(runs, & &1.candidate_id),
+      executions:
+        "improvement"
+        |> Accounting.Execution.Query.by_sources(Enum.map(runs, & &1.id))
+        |> Repo.all()
+        |> Map.new(&{&1.source_id, &1})
+    }
+  end
+
+  # The attempt the finding came from, the newest that applied its diagnosis,
+  # or else the newest that ended; how many attempts there were, counted by
+  # their generations; and where the request's timeline shows them all.
+  defp analysis_run(runs, %{executions: executions}, request) do
+    ended = Enum.filter(runs, &BackgroundCards.result?/1)
+    applied = Enum.filter(ended, &(&1.status == :applied))
+
+    case Enum.max_by(if(applied != [], do: applied, else: ended), & &1.generation, fn -> nil end) do
+      nil ->
+        nil
+
+      run ->
+        first = Enum.min_by(runs, & &1.generation)
+
+        artifact =
+          InspectionRedactor.artifact(run.result,
+            secrets: InspectionRedactor.configured_secrets(),
+            max_bytes: @response_bytes,
+            expired: not is_nil(run.pruned_at)
+          )
+
+        %{
+          id: run.id,
+          run: CallRun.from_background(run, executions[run.id]),
+          attempts: %{
+            count: runs |> Enum.map(& &1.generation) |> Enum.max(),
+            href: request[:href] && request.href <> "#self-analysis-" <> first.id
+          },
+          response:
+            if(artifact.state == :retained,
+              do: %{text: artifact.text, note: if(artifact.truncated, do: "Partial display")}
+            ),
+          response_note: pruned_note(run.pruned_at)
+        }
+    end
+  end
+
+  defp pruned_note(nil), do: nil
+
+  defp pruned_note(at),
+    do: "Retention removed the model's response on #{UTCDateTime.readable(at)}."
 
   defp redacted(nil), do: nil
 

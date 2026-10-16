@@ -13,7 +13,7 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
   alias Ryker.Feedback
   alias Ryker.Fixtures.Answers
   alias Ryker.Improvement
-  alias Ryker.Improvement.Candidate
+  alias Ryker.Improvement.{AnalysisRun, Candidate}
   alias Ryker.Inspectors
 
   @workspace "TIMPROVEPAGE"
@@ -71,38 +71,49 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
 
     document = LazyHTML.from_fragment(page.body)
 
-    assert counts(document) == [
-             {"3 to decide", nil},
-             {"1 host bug", "/feedback/fix?category=host_bug&status=open"},
-             {"1 prompt bug", "/feedback/fix?category=prompt_bug&status=open"}
+    # The three decisions are tabs with their counts, said once
+    # (approved 2026-10-15); no row of counts repeats them.
+    assert tabs(document) == [
+             {"To decide 3", "/feedback/fix", "page"},
+             {"Accepted 0", "/feedback/fix?status=accepted", nil},
+             {"Dismissed 0", "/feedback/fix?status=dismissed", nil}
            ]
 
-    assert document |> LazyHTML.query(".segmented a") |> Enum.map(&text/1) ==
-             ["To decide", "Accepted", "Dismissed"]
+    assert Enum.empty?(LazyHTML.query(document, ".kit-counts"))
 
     # Newest day first; within the day the surest diagnosis first, and a
     # request Ryker has not analyzed yet last.
     assert ids(document) == [access.id, staging.id, waiting.id]
 
-    row = row(document, access.id)
-    assert text(LazyHTML.query(row, "h3 .state-word")) == "Host bug"
+    # The request and what went wrong lead, with what Ryker should have done
+    # under it; the category is a suspected cause with its confidence in the
+    # line under the title, and no stage tag.
+    card = row(document, access.id)
+    assert text(LazyHTML.query(card, ".finding-header h3")) == "Check health of our infra"
 
-    assert LazyHTML.attribute(LazyHTML.query(row, "h3 .state-word"), "title") |> hd() =~
-             "tool was missing"
+    cause = LazyHTML.query(card, ".finding-meta .finding-cause")
+    assert text(cause) == "Suspected cause: Ryker's code (high confidence)"
+    assert LazyHTML.attribute(cause, "title") |> hd() =~ "tool was missing"
 
-    assert text(row) =~ "Ryker asked for access it had"
-    assert text(row) =~ "Ryker should have"
-    assert text(row) =~ "Checks health through the connected Emisar runners"
-    assert text(row) =~ "In Work"
-    assert text(row) =~ "High confidence"
-    assert text(row) =~ "Frustrated, reacted with a thumbs down"
+    assert text(LazyHTML.query(card, ".finding-meta")) =~
+             "Feedback: frustrated, reacted with a thumbs down"
 
-    assert row |> LazyHTML.query(".entity-name a") |> LazyHTML.attribute("href") ==
+    refute text(card) =~ "In Work"
+    refute text(card) =~ "Host bug"
+
+    assert text(LazyHTML.query(card, ".finding-explanation")) =~ "Ryker asked for access it had"
+
+    assert text(LazyHTML.query(card, ".finding-expected")) ==
+             "What Ryker should have done Checks health through the connected Emisar runners without asking for access."
+
+    # The footer holds the way to the request and the decision.
+    assert card |> LazyHTML.query(".finding-footer a.inline-link") |> LazyHTML.attribute("href") ==
              ["/timeline/" <> access.episode_id]
 
-    assert actions(row) == ["Accept as eval case", "Dismiss"]
+    assert actions(card) == ["Dismiss", "Accept as eval case"]
 
-    assert text(LazyHTML.query(row(document, waiting.id), "h3 .state-word")) == "Waiting"
+    assert text(LazyHTML.query(row(document, waiting.id), ".finding-cause")) ==
+             "Waiting to be analyzed"
   end
 
   test "accepting and dismissing each ask first, and move the request between views",
@@ -130,6 +141,12 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
     document = LazyHTML.from_fragment(decided.body)
     assert ids(document) == [access.id]
     assert actions(row(document, access.id)) == ["Dismiss"]
+
+    assert tabs(document) == [
+             {"To decide 1", "/feedback/fix", nil},
+             {"Accepted 1", "/feedback/fix?status=accepted", "page"},
+             {"Dismissed 1", "/feedback/fix?status=dismissed", nil}
+           ]
 
     dismissed = Pages.page(["feedback", "fix"], %{"status" => "dismissed"}, options())
     document = LazyHTML.from_fragment(dismissed.body)
@@ -175,8 +192,8 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
         |> LazyHTML.from_fragment()
 
       row = row(document, waiting.id)
-      assert text(LazyHTML.query(row, "h3 .state-word")) == "Not analyzed"
-      assert row |> LazyHTML.query("h3 .state-word") |> LazyHTML.attribute("title") == [why]
+      assert text(LazyHTML.query(row, ".finding-cause")) == "Not analyzed"
+      assert text(LazyHTML.query(row, ".finding-note")) == why
       assert actions(row) == ["Dismiss"], code
       assert confirmation("/actions/improvement/#{waiting.id}/accept").status == 404
     end
@@ -226,40 +243,62 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
       |> LazyHTML.from_fragment()
 
     row = row(document, github.id)
-    assert text(LazyHTML.query(row, "h3 .state-word")) == "Model mistake"
+
+    assert text(LazyHTML.query(row, ".finding-cause")) ==
+             "Suspected cause: a model mistake (medium confidence)"
+
     assert text(row) =~ "It blamed a timeout"
-    assert text(row) =~ "Eval case GitHub requests cannot be kept as eval cases yet."
+
+    assert text(LazyHTML.query(row, ".finding-unsupported")) ==
+             "GitHub requests cannot be kept as eval cases yet."
+
     assert actions(row) == ["Dismiss"]
     assert confirmation("/actions/improvement/#{github.id}/accept").status == 404
   end
 
-  # The page says what the loop did in the last seven days, in words: what
-  # was found and what people decided (`Ryker.Improvement.week/2`).
-  test "the page says what the last seven days brought and what was decided",
-       %{staging: staging, access: access} do
-    old = unhappy!("COLDWEEK", 1_790_000_000, "Old question", "Old answer", diagnosis: nil)
-    assert {:ok, _dismissed} = Improvement.dismiss(old.id, "control-plane:local")
-    eight_days_ago = DateTime.add(DateTime.utc_now(), -8 * 86_400, :second)
+  # A category's own link, from the Feedback page's counts, still narrows the
+  # view; the page says what it shows and how to see the rest.
+  test "a category view says what it narrows to, with the way back to all of them",
+       %{access: access} do
+    document =
+      Pages.page(["feedback", "fix"], %{"category" => "host_bug"}, options())
+      |> Map.fetch!(:body)
+      |> LazyHTML.from_fragment()
 
-    Repo.update_all(from(c in Candidate, where: c.id == ^old.id),
-      set: [inserted_at: eight_days_ago, decided_at: eight_days_ago]
-    )
+    assert ids(document) == [access.id]
+    assert text(LazyHTML.query(document, ".finding-filter")) == "1 host bug · Show all"
 
-    assert {:ok, _accepted} = Improvement.accept(access.id, "control-plane:local")
-    assert {:ok, _dismissed} = Improvement.dismiss(staging.id, "control-plane:local")
+    assert document |> LazyHTML.query(".finding-filter a") |> LazyHTML.attribute("href") ==
+             ["/feedback/fix"]
 
-    assert week(Pages.page(["feedback", "fix"], %{}, options())) ==
-             "Last 7 days 3 new: 1 host bug, 1 prompt bug and 1 still to analyze. 1 accepted as an eval case and 1 dismissed."
+    refute text(document) =~ "Last 7 days"
+  end
 
-    # A quiet week says so, rather than leaving the line out.
-    Repo.update_all(Candidate, set: [inserted_at: eight_days_ago])
+  # The finding's Model run says how its analysis ran, from the attempt the
+  # finding came from: the model, every attempt with the way to them on the
+  # request's timeline, and the raw response.
+  test "a finding's Model run reads the attempt it came from and links every attempt",
+       %{access: access} do
+    first = analysis_run!(access, 1, :rejected)
+    applied = analysis_run!(access, 2, :applied)
 
-    Repo.update_all(from(c in Candidate, where: c.status != :open),
-      set: [decided_at: eight_days_ago]
-    )
+    card =
+      Pages.page(["feedback", "fix"], %{}, options())
+      |> Map.fetch!(:body)
+      |> LazyHTML.from_fragment()
+      |> row(access.id)
 
-    assert week(Pages.page(["feedback", "fix"], %{"status" => "accepted"}, options())) ==
-             "Last 7 days Nothing new, and nothing accepted or dismissed."
+    run = LazyHTML.query(card, "details.finding-run")
+    assert LazyHTML.attribute(run, "open") == []
+
+    assert text(LazyHTML.query(run, ".run-group[aria-label='Model and attempts']")) ==
+             "Model & attempts gpt-5.6-sol Medium reasoning 2 attempts View all attempts →"
+
+    assert run |> LazyHTML.query(".run-attempts a") |> LazyHTML.attribute("href") ==
+             ["/timeline/#{access.episode_id}#self-analysis-#{first.id}"]
+
+    raw = run |> LazyHTML.query(".json-disclosure pre") |> LazyHTML.text()
+    assert Jason.decode!(raw)["what_went_wrong"] == "From attempt #{applied.generation}."
   end
 
   test "the Feedback page says how many are to decide, accepted and dismissed, and what went wrong",
@@ -321,21 +360,44 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
 
   defp time(unix), do: DateTime.from_unix!(unix * 1_000_000, :microsecond)
 
-  defp week(page) do
-    page.body
-    |> LazyHTML.from_fragment()
-    |> LazyHTML.query("#improvement-week")
-    |> text()
+  defp analysis_run!(candidate, generation, status) do
+    at = DateTime.add(DateTime.utc_now(), generation * 60, :second)
+
+    Repo.insert!(%AnalysisRun{
+      id: Ecto.UUID.generate(),
+      candidate_id: candidate.id,
+      generation: generation,
+      status: status,
+      policy: "ryker-learning",
+      policy_digest: String.duplicate("a", 64),
+      prompt: "{}",
+      prompt_sha256: String.duplicate("b", 64),
+      output_schema: %{},
+      manifest: %{},
+      started_at: at,
+      producer: %{"target" => "codex:gpt-5.6-sol/medium@emisar"},
+      result: Jason.encode!(%{"what_went_wrong" => "From attempt #{generation}."}),
+      result_sha256: String.duplicate("c", 64),
+      stop_receipt: %{"kind" => "terminal_turn"},
+      remote_stopped_at: DateTime.add(at, 30, :second),
+      inserted_at: at,
+      updated_at: DateTime.add(at, 30, :second)
+    })
   end
 
   defp options, do: %{projection: Projection.callbacks()}
 
-  defp counts(document),
-    do: Enum.map(LazyHTML.query(document, ".kit-count"), &{text(&1), href(&1)})
+  defp tabs(document) do
+    document
+    |> LazyHTML.query(".kit-tabs a")
+    |> Enum.map(fn tab ->
+      {text(tab), href(tab), tab |> LazyHTML.attribute("aria-current") |> List.first()}
+    end)
+  end
 
   defp ids(document) do
     document
-    |> LazyHTML.query(".entity-row")
+    |> LazyHTML.query(".finding")
     |> LazyHTML.attribute("id")
     |> Enum.map(&String.replace_prefix(&1, "improvement-", ""))
   end
@@ -344,7 +406,7 @@ defmodule Ryker.ControlPlane.ImprovementPageTest do
 
   defp actions(row) do
     row
-    |> LazyHTML.query(".entity-actions form[method=get] button")
+    |> LazyHTML.query(".finding-actions form[method=get] button")
     |> Enum.map(&text/1)
   end
 

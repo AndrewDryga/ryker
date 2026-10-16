@@ -409,6 +409,23 @@ defmodule Ryker.ControlPlane.Kit do
     """
   end
 
+  attr(:label, :string, required: true)
+  attr(:options, :list, required: true, doc: "[%{label:, count:, href:, current:}]")
+
+  @doc """
+  The views of one list as tabs, each with how many it holds: To decide 3,
+  Accepted 2, Dismissed 9. A page that has them says its counts here, once.
+  """
+  def tabs(assigns) do
+    ~H"""
+    <nav class="kit-tabs" aria-label={@label}>
+      <a :for={option <- @options} href={option.href} aria-current={if option.current, do: "page"}>
+        {option.label} <span class="kit-tab-count">{option.count}</span>
+      </a>
+    </nav>
+    """
+  end
+
   attr(:facts, :list, required: true, doc: "[{label, value}]; a missing value drops its line")
   attr(:id, :string, default: nil)
   attr(:class, :any, default: nil)

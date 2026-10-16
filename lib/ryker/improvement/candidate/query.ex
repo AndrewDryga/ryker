@@ -19,22 +19,6 @@ defmodule Ryker.Improvement.Candidate.Query do
   def kept(queryable \\ all()),
     do: where(queryable, [improvement_candidates: c], is_nil(c.forgotten_at))
 
-  def created_between(queryable, from, to) do
-    where(
-      queryable,
-      [improvement_candidates: c],
-      c.inserted_at >= ^from and c.inserted_at < ^to
-    )
-  end
-
-  def decided_between(queryable, from, to) do
-    where(
-      queryable,
-      [improvement_candidates: c],
-      c.decided_at >= ^from and c.decided_at < ^to
-    )
-  end
-
   def by_status(queryable, status),
     do: where(queryable, [improvement_candidates: c], c.status == ^status)
 
@@ -157,15 +141,6 @@ defmodule Ryker.Improvement.Candidate.Query do
     from(c in all(),
       where: c.status == :accepted and is_nil(c.forgotten_at) and not is_nil(c.case_evidence),
       order_by: [asc: c.decided_at, asc: c.id]
-    )
-  end
-
-  @doc "Still to analyze, and not dismissed."
-  def awaiting_analysis(queryable) do
-    where(
-      queryable,
-      [improvement_candidates: c],
-      c.analysis in [:pending, :running] and c.status != :dismissed
     )
   end
 

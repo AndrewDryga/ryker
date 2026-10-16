@@ -2820,7 +2820,54 @@ html[data-page-help=open] .ryker-app main > .page-help { display:block; }
 .ryker-app .kit-saved-noted .ui-icon { margin-right:4px; vertical-align:-2px; }
 .ryker-app .kit-saved-note { color:var(--ryker-warning); }
 @media (prefers-reduced-motion:no-preference) { .ryker-app .kit-saved-mark { animation:kit-saved-fade 2.6s ease-in forwards; } .ryker-app .kit-saved-noted { animation:none; } @keyframes kit-saved-fade { 0%, 65% { opacity:1; } 100% { opacity:0; visibility:hidden; } } }
+/* Feedback findings and their reviews (approved 2026-10-15): the request and what went wrong at the full width, the suspected cause in the line under the title, how the analysis ran behind Model run, and the decision in the footer. */
+.ryker-app .kit-tabs { display:flex; flex-wrap:wrap; gap:4px 20px; margin:8px 0 20px; border-bottom:1px solid var(--ryker-stroke); }
+.ryker-app .kit-tabs a { display:inline-flex; align-items:center; gap:8px; min-height:44px; box-sizing:border-box; margin-bottom:-1px; padding:8px 0; border-bottom:2px solid transparent; color:var(--ryker-text-secondary); font-size:14px; }
+.ryker-app .kit-tabs a:hover { color:var(--ryker-text); text-decoration:none; }
+.ryker-app .kit-tabs a[aria-current=page] { border-bottom-color:var(--ryker-accent); color:var(--ryker-text); }
+.ryker-app .kit-tab-count { color:var(--ryker-text-secondary); font-size:12px; font-variant-numeric:tabular-nums; }
+.ryker-app .finding-filter { margin:-8px 0 16px; color:var(--ryker-text-secondary); font-size:13px; }
+.ryker-app .findings { display:grid; gap:16px; }
+.ryker-app .finding { min-width:0; border:1px solid var(--ryker-stroke); border-radius:8px; background:var(--ryker-surface-raised); }
+.ryker-app .finding-header { padding:18px 24px 14px; border-bottom:1px solid var(--ryker-stroke); }
+.ryker-app .finding-header h3 { margin:0; color:var(--ryker-text); font-size:16px; line-height:24px; font-weight:600; overflow-wrap:anywhere; }
+.ryker-app .finding-meta { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 16px; margin:4px 0 0; color:var(--ryker-text-secondary); font-size:12px; line-height:18px; }
+.ryker-app .finding-body { padding:20px 24px 4px; color:var(--ryker-text); font-size:15px; line-height:24px; }
+.ryker-app .finding-body p { max-width:72ch; margin:0 0 16px; overflow-wrap:anywhere; }
+.ryker-app .finding-body .finding-note { color:var(--ryker-text-secondary); }
+.ryker-app .finding-expected h4 { margin:0 0 6px; color:var(--ryker-text); font-size:14px; line-height:20px; font-weight:600; }
+.ryker-app .finding > .finding-run { margin:0 24px 20px; }
+.ryker-app .finding-run { border:1px solid var(--ryker-stroke); border-radius:6px; background:var(--ryker-surface-emphasis); }
+.ryker-app .finding-run > summary { min-height:48px; padding:12px 16px; border-radius:6px; color:var(--ryker-text); font-size:14px; font-weight:400; }
+.ryker-app .finding-run[open] > summary { border-bottom:1px solid var(--ryker-stroke); border-radius:6px 6px 0 0; }
+.ryker-app .finding-run > .ui-disclosure-body { padding:16px; }
+.ryker-app .run-groups { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:20px; margin:0 0 16px; }
+.ryker-app .run-group { min-width:0; color:var(--ryker-text-secondary); font-size:13px; line-height:20px; }
+.ryker-app .run-group + .run-group { padding-left:20px; border-left:1px solid var(--ryker-stroke); }
+.ryker-app .run-group h4 { margin:0 0 10px; color:var(--ryker-text); font-size:14px; line-height:20px; font-weight:600; }
+.ryker-app .run-group p { margin:0; }
+.ryker-app .run-model { color:var(--ryker-text); font-size:14px; overflow-wrap:anywhere; }
+.ryker-app .run-note { font-size:12px; }
+.ryker-app .run-group .run-attempts { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px; margin-top:10px; color:var(--ryker-text); }
+.ryker-app .run-values { display:grid; gap:6px; margin:0; }
+.ryker-app .run-values > div { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:baseline; gap:12px; }
+.ryker-app .run-values dt { margin:0; font-size:12px; }
+.ryker-app .run-values dd { margin:0; color:var(--ryker-text); text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.ryker-app .run-values .run-total dt, .ryker-app .run-values .run-total dd { color:var(--ryker-text); font-weight:600; }
+.ryker-app a.inline-link { color:var(--ryker-accent); }
+.ryker-app a.inline-link > span { text-decoration:underline; text-underline-offset:3px; }
+.ryker-app a.inline-link:hover { text-decoration:none; }
+.ryker-app a.inline-link:hover > span { color:var(--ryker-accent-strong); }
+.ryker-app .finding-footer { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; padding:14px 24px; border-top:1px solid var(--ryker-stroke); }
+.ryker-app .finding-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-left:auto; }
+.ryker-app .finding-actions:empty { display:none; }
+.ryker-app .finding-unsupported { margin:0; color:var(--ryker-text-secondary); font-size:13px; }
+.ryker-app .finding-review .finding-body { padding:12px 0 0; }
+.ryker-app .finding-review > .finding-run { margin:4px 0 0; }
+.ryker-app .finding-review > .finding-footer { margin-top:16px; padding:14px 0 0; }
+.ryker-app .finding-cause { color:var(--ryker-text-secondary); }
 .ryker-app .json-disclosure { border:1px solid var(--ryker-stroke); border-radius:6px; background:var(--ryker-surface); }
 .ryker-app .json-disclosure > summary { border-radius:6px; }
 .ryker-app .json-disclosure[open] > summary { border-radius:6px 6px 0 0; }
 .ryker-app .request-selection > .ui-disclosure-body > .ui-facts { margin:4px 0 12px; }
+@media (max-width:760px) { .ryker-app .run-groups { grid-template-columns:minmax(0,1fr); gap:16px; } .ryker-app .run-group + .run-group { padding:16px 0 0; border-left:0; border-top:1px solid var(--ryker-stroke); } .ryker-app .finding-header, .ryker-app .finding-body { padding-left:16px; padding-right:16px; } .ryker-app .finding > .finding-run { margin:0 16px 16px; } .ryker-app .finding-footer { padding:12px 16px; } .ryker-app .finding-review > .finding-footer { padding:12px 0 0; } .ryker-app .finding-actions { margin-left:0; } }

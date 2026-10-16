@@ -12,16 +12,21 @@ defmodule Ryker.ControlPlane.ImprovementPage do
   changed later from the Accepted and Dismissed views. Accepted cases
   download as world scenarios from the button opposite the title.
 
-  Everything here is a Kit part: the counts, the view switch, day-headed rows
-  with their state beside the name, the expectation as a fact under each row,
-  and empty states. The page redraws as candidates are found, analyzed or
-  decided (`subscriptions/0`).
+  Each request is one finding card (`Ryker.ControlPlane.FindingCard`, the
+  design Andrew approved 2026-10-15): the request and what went wrong at the
+  full width, what Ryker should have done, the suspected cause and how sure
+  the analysis was in the line under the title, how the analysis ran behind
+  Model run, and the decision in the card's footer. The three decisions are
+  tabs with their counts, said once. The page redraws as candidates are
+  found, analyzed or decided (`subscriptions/0`).
   """
   use Phoenix.Component
   import Ryker.ControlPlane.Components, only: [action_button: 1, pager: 1]
   alias Phoenix.HTML.Safe
+  alias Ryker.ControlPlane.FindingCard
   alias Ryker.ControlPlane.Kit
   alias Ryker.ControlPlane.Paths
+  alias Ryker.ControlPlane.ShortTime
   alias Ryker.Improvement
 
   @path "/feedback/fix"
@@ -51,11 +56,10 @@ defmodule Ryker.ControlPlane.ImprovementPage do
   def heading(view) do
     %{
       title: "What to fix",
-      description:
-        "Requests people were unhappy with, each with Ryker's own diagnosis. Accept one to keep it as an eval case, or dismiss it.",
+      description: "Review what went wrong. Keep useful findings as eval cases, or dismiss them.",
       back: {"All feedback", "/feedback"},
       action:
-        if(view.exportable > 0) do
+        if view.exportable > 0 do
           ~s(<a class="ui-button secondary" href="#{@download}" download>Download eval cases</a>)
         end
     }
@@ -66,25 +70,16 @@ defmodule Ryker.ControlPlane.ImprovementPage do
   def html(view), do: %{__changed__: nil, view: view} |> render() |> Safe.to_iodata()
 
   defp render(assigns) do
-    assigns =
-      assign(assigns, :groups, Kit.day_groups(assigns.view.items, & &1.at, DateTime.utc_now()))
-
     ~H"""
     <div class="memory-view memory-improvement">
-      <Kit.counts label="What to fix" items={counts(@view)} />
-      <Kit.facts id="improvement-week" facts={[{"Last 7 days", Improvement.week_words(@view.week)}]} />
-      <Kit.toolbar>
-        <Kit.segmented label="Decision" options={views(@view)} />
-      </Kit.toolbar>
-      <Kit.counts
-        :if={@view.categories != %{}}
-        label="What went wrong"
-        secondary
-        items={category_counts(@view)}
-      />
-      <Kit.entity_list :if={@view.items != []} label="Requests to improve">
-        <.row :for={{item, group} <- Enum.zip(@view.items, @groups)} item={item} group={group} />
-      </Kit.entity_list>
+      <Kit.tabs label="Decision" options={tabs(@view)} />
+      <p :if={@view.category} class="finding-filter">
+        {@view.listed} {String.downcase(Improvement.category_plural(@view.category, @view.listed))} ·
+        <a href={view_path(@view.status)}>Show all</a>
+      </p>
+      <section :if={@view.items != []} class="findings" aria-label="Requests to improve">
+        <.finding :for={item <- @view.items} item={item} now={DateTime.utc_now()} />
+      </section>
       <Kit.empty
         :if={@view.items == [] and is_nil(@view.category)}
         icon={:check}
@@ -108,50 +103,71 @@ defmodule Ryker.ControlPlane.ImprovementPage do
   end
 
   attr(:item, :map, required: true)
-  attr(:group, :string, default: nil)
+  attr(:now, :any, required: true)
 
-  defp row(assigns) do
+  defp finding(assigns) do
     item = assigns.item
 
     assigns =
       assign(assigns,
         accept: item.status in [:open, :dismissed] and acceptable?(item),
-        dismiss: item.status in [:open, :accepted]
+        dismiss: item.status in [:open, :accepted],
+        state: state(item),
+        feedback: reasons(item.reasons)
       )
 
     ~H"""
-    <Kit.entity_row
+    <article
+      class="finding"
       id={"improvement-" <> @item.id}
-      icon={icon(@item)}
-      icon_tone={tone(@item)}
-      name={@item.request.title}
-      href={@item.request.href}
-      state={state(@item)}
-      text={text(@item)}
-      meta={meta(@item)}
-      at={Kit.clock(@item.at)}
-      at_time={@item.at}
-      group={@group}
+      aria-labelledby={"improvement-#{@item.id}-title"}
     >
-      <:details :if={@item.expected || not Improvement.replayable?(@item)}>
-        <Kit.facts facts={[
-          {"Ryker should have", @item.expected},
-          {"Eval case", unless(Improvement.replayable?(@item), do: unsupported(@item))}
-        ]} />
-      </:details>
-      <:actions :if={@accept or @dismiss}>
-        <.action_button
-          :if={@accept}
-          path={Paths.action("improvement", @item.id, "accept")}
-          label="Accept as eval case"
+      <header class="finding-header">
+        <h3 id={"improvement-#{@item.id}-title"}>{@item.request.title}</h3>
+        <p class="finding-meta">
+          <time datetime={ShortTime.iso(@item.at)}>{ShortTime.stamp(@item.at, @now)}</time>
+          <span :if={@feedback}>Feedback: {@feedback}</span>
+          <span :if={@item.request[:where]}>{@item.request.where}</span>
+          <span class="finding-cause" title={@state.hint}>{@state.cause}</span>
+        </p>
+      </header>
+      <FindingCard.body
+        what_went_wrong={@state.text}
+        expected={@item.expected}
+        note={@state.note}
+      />
+      <FindingCard.model_run
+        :if={@item.analysis_run}
+        id={"improvement-#{@item.id}-run"}
+        run={@item.analysis_run.run}
+        attempts={@item.analysis_run.attempts}
+        response={@item.analysis_run.response}
+        response_note={@item.analysis_run.response_note}
+      />
+      <footer class="finding-footer">
+        <FindingCard.arrow_link
+          :if={@item.request[:href]}
+          href={@item.request.href}
+          label="Open request timeline"
         />
-        <.action_button
-          :if={@dismiss}
-          path={Paths.action("improvement", @item.id, "dismiss")}
-          label="Dismiss"
-        />
-      </:actions>
-    </Kit.entity_row>
+        <div class="finding-actions">
+          <p :if={not Improvement.replayable?(@item)} class="finding-unsupported">
+            {unsupported(@item)}
+          </p>
+          <.action_button
+            :if={@dismiss}
+            path={Paths.action("improvement", @item.id, "dismiss")}
+            label="Dismiss"
+          />
+          <.action_button
+            :if={@accept}
+            path={Paths.action("improvement", @item.id, "accept")}
+            label="Accept as eval case"
+            tone={:primary}
+          />
+        </div>
+      </footer>
+    </article>
     """
   end
 
@@ -171,48 +187,33 @@ defmodule Ryker.ControlPlane.ImprovementPage do
 
   # -- Words -----------------------------------------------------------------------
 
-  @doc "What a category means, in one sentence."
-  @spec category_hint(atom()) :: String.t()
-  def category_hint(:host_bug) do
-    "Ryker's own code let the model down: a tool was missing or failed, the context was wrong, or a good answer was mishandled."
-  end
-
-  def category_hint(:prompt_bug),
-    do: "The model did what its instructions said, and they led it wrong or left something out."
-
-  def category_hint(:model_mistake),
-    do: "The instructions and context were enough; the model still got it wrong."
-
-  def category_hint(:not_a_problem),
-    do: "The answer was reasonable; the feedback was about something else."
-
-  def category_hint(:unclear), do: "The evidence does not show what went wrong."
-
-  # A candidate's state: its diagnosis, or where its analysis stands.
-  defp state(%{analysis: :done, category: category}) do
-    tone =
-      case category do
-        :host_bug -> :bad
-        category when category in [:prompt_bug, :model_mistake] -> :warn
-        _other -> :off
-      end
-
-    {tone, Improvement.category_label(category), category_hint(category)}
-  end
+  # Where a candidate's analysis stands: the cause it found and how sure it
+  # was, with what went wrong in its words; or why there is none yet.
+  defp state(%{analysis: :done, category: category, confidence: confidence} = item),
+    do: %{
+      cause: FindingCard.cause(category, confidence),
+      hint: FindingCard.hint(category),
+      text: item.what_went_wrong,
+      note: nil
+    }
 
   defp state(%{analysis: :running}),
-    do: {:busy, "Analyzing", "Ryker is asking the learning models what went wrong."}
+    do: unanalyzed("Analyzing", "Ryker is asking the learning models what went wrong.")
 
   defp state(%{analysis: :failed, error_code: code}),
-    do: {:warn, "Not analyzed", failure(code)}
+    do: unanalyzed("Not analyzed", failure(code))
 
   defp state(%{status: :dismissed}),
-    do: {:off, "Not analyzed", "It was dismissed before Ryker analyzed it."}
+    do: unanalyzed("Not analyzed", "It was dismissed before Ryker analyzed it.")
 
   defp state(%{analysis: :pending}) do
-    {:off, "Waiting",
-     "Ryker analyzes it once the request is done and a few minutes pass without new feedback, while learning is on."}
+    unanalyzed(
+      "Waiting to be analyzed",
+      "Ryker analyzes it once the request is done and a few minutes pass without new feedback, while learning is on."
+    )
   end
+
+  defp unanalyzed(cause, note), do: %{cause: cause, hint: nil, text: nil, note: note}
 
   defp failure("improvement_evidence_unavailable"),
     do: "The person's messages were deleted or have expired, so there was nothing to analyze."
@@ -230,50 +231,13 @@ defmodule Ryker.ControlPlane.ImprovementPage do
 
   defp failure(_code), do: "The analysis did not finish."
 
-  defp text(%{analysis: :done, what_went_wrong: text}) when is_binary(text), do: text
-  defp text(_item), do: nil
-
-  defp icon(%{analysis: :done, category: :host_bug}), do: :code
-  defp icon(%{analysis: :done, category: :prompt_bug}), do: :pen
-  defp icon(%{analysis: :done, category: :model_mistake}), do: :bolt
-  defp icon(%{analysis: :done, category: :not_a_problem}), do: :check
-  defp icon(%{analysis: :done}), do: :help
-  defp icon(%{analysis: :failed}), do: :incident
-  defp icon(_item), do: :clock
-
-  defp tone(%{analysis: :done, category: :host_bug}), do: :bad
-
-  defp tone(%{analysis: :done, category: category})
-       when category in [:prompt_bug, :model_mistake],
-       do: :warn
-
-  defp tone(%{analysis: :failed}), do: :warn
-  defp tone(%{analysis: :running}), do: :info
-  defp tone(_item), do: :off
-
-  # Where it went wrong, how sure Ryker is, what people did, and where.
-  defp meta(item) do
-    [
-      step(item.step),
-      item.confidence && "#{String.capitalize(Atom.to_string(item.confidence))} confidence",
-      reasons(item.reasons),
-      item.request.where
-    ]
-  end
-
-  defp step(:routing), do: "At routing"
-  defp step(:work), do: "In Work"
-  defp step(:delivery), do: "At delivery"
-  defp step(nil), do: nil
-
-  # What people did, in words: Frustrated, asked again, …
+  # What people did, in words: frustrated, asked again, …
   defp reasons([]), do: nil
 
   defp reasons(reasons) do
     reasons
     |> Enum.sort_by(&Enum.find_index(Ryker.Improvement.reasons(), fn reason -> reason == &1 end))
     |> Enum.map_join(", ", &reason/1)
-    |> String.capitalize()
   end
 
   defp reason("frustrated"), do: "frustrated"
@@ -283,58 +247,17 @@ defmodule Ryker.ControlPlane.ImprovementPage do
   defp reason("rated"), do: "a person rated it as needing work"
   defp reason(other), do: other
 
-  # -- Counts, views and paths --------------------------------------------------------
+  # -- Views and paths -------------------------------------------------------------
 
-  # How many of each decision, the one shown first: to decide, accepted,
-  # dismissed, each opening its own view.
-  defp counts(view) do
-    total =
-      Kit.list_total(
-        if(view.category, do: view.listed, else: Map.fetch!(view.counts, view.status)),
-        count_nouns(view.status),
-        not is_nil(view.category)
-      )
-
-    others =
-      for status <- [:open, :accepted, :dismissed],
-          status != view.status,
-          count = Map.fetch!(view.counts, status),
-          count > 0 do
-        %{
-          value: count,
-          label: status_word(status),
-          tone: if(status == :open, do: :warn),
-          href: view_path(status)
-        }
-      end
-
-    [total | others]
-  end
-
-  defp count_nouns(:open), do: {"to decide", "to decide"}
-  defp count_nouns(:accepted), do: {"accepted eval case", "accepted eval cases"}
-  defp count_nouns(:dismissed), do: {"dismissed", "dismissed"}
-
-  defp status_word(:open), do: "to decide"
-  defp status_word(:accepted), do: "accepted"
-  defp status_word(:dismissed), do: "dismissed"
-
-  defp views(view) do
+  # The three decisions, each with how many it holds; the counts are said
+  # here and nowhere else on the page.
+  defp tabs(view) do
     for {status, label} <- [open: "To decide", accepted: "Accepted", dismissed: "Dismissed"] do
-      {label, view_path(status), view.status == status and is_nil(view.category)}
-    end
-  end
-
-  # How what the view shows splits by what went wrong, each narrowing to it.
-  defp category_counts(view) do
-    for category <- Improvement.candidate_categories(),
-        count = Map.get(view.categories, category, 0),
-        count > 0 do
       %{
-        value: count,
-        label: String.downcase(Improvement.category_plural(category, count)),
-        tone: if(category == :host_bug, do: :bad),
-        href: view_path(view.status, category)
+        label: label,
+        count: Map.fetch!(view.counts, status),
+        href: view_path(status),
+        current: view.status == status
       }
     end
   end
