@@ -40,8 +40,6 @@ record() {
   printf '%s %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$1" | tee -a "$upgrade_state/upgrades.log"
 }
 
-coop_pin() { sed -n 's/^ARG COOP_REVISION=//p' deploy/compose/coop/Dockerfile 2>/dev/null; }
-
 if ! git fetch --quiet origin "$ref"; then
   record "could not fetch origin's $ref"
   exit 1
@@ -70,7 +68,6 @@ if [[ -n $(git status --porcelain) ]]; then
 fi
 
 record "upgrading ${current:0:12} -> ${target:0:12}"
-pin_before=$(coop_pin)
 previous_version=$(compose_env_value RYKER_VERSION "$env_file")
 previous_image=$(compose_env_value RYKER_IMAGE "$env_file")
 # The backup prints the archive it wrote as its last line.
@@ -105,8 +102,12 @@ if ! scripts/compose.sh upgrade </dev/null; then
   exit 1
 fi
 
-# Ryker runs the new release; a worker that did not move keeps the one it ran.
-if [[ $(coop_pin) != "$pin_before" ]] && ! scripts/compose.sh worker-upgrade </dev/null; then
+# Ryker runs the new release; the worker moves to the Coop it pins, and does
+# nothing when it runs that one already. One that did not move keeps the Coop
+# it ran and is moved by the next upgrade: asked only when the pin changed, a
+# worker busy at that moment stayed behind until the pin changed again
+# (2026-10-16).
+if ! scripts/compose.sh worker-upgrade </dev/null; then
   record "upgraded ${current:0:12} -> ${target:0:12}, but the worker upgrade failed; the worker runs the Coop it ran"
   exit 1
 fi

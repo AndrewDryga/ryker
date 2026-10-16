@@ -147,9 +147,14 @@ require_published_head() {
 
 # Work the bundled worker is carrying out. A swap restarts it, so it waits
 # for none to be left.
+# A command counts while its placement is still the session's: one of a placement
+# replaced or retired can never finish. Two create_session commands of
+# placements replaced on 2026-10-13 stayed acknowledged on the tenant install,
+# and every worker upgrade there waited ten minutes for them and gave up
+# (2026-10-16). Ryker.ComposeWorkerUpgradeTest runs this query.
 worker_commands_in_flight() {
   compose exec -T database psql -X -U ryker -d ryker -Atc \
-    "SELECT count(*) FROM coop_worker_commands WHERE worker_id = 'ryker-compose' AND status IN ('delivered', 'acknowledged')" \
+    "SELECT count(*) FROM coop_worker_commands AS command WHERE command.worker_id = 'ryker-compose' AND command.status IN ('delivered', 'acknowledged') AND EXISTS (SELECT 1 FROM coop_session_placements AS placement WHERE placement.session_id = command.session_id AND placement.generation = command.placement_generation AND placement.state NOT IN ('replaced', 'retired'))" \
     2>/dev/null | tr -d '[:space:]'
 }
 

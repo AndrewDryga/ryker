@@ -1,6 +1,6 @@
 #!/bin/bash
 # Proves scripts/auto-upgrade.sh upgrades an install when the branch it follows moves, and only
-# then: forward only, after a backup, moving the worker when the commit pins another Coop. A
+# then: forward only, after a backup, then moving the worker to the Coop the commit pins. A
 # failed upgrade puts the checkout and the pin back, restores the backup only when the release
 # before no longer serves, and that commit is not tried again.
 #
@@ -128,7 +128,7 @@ second=$(s rev-parse HEAD)
 upgrade
 check "a moved branch is upgraded to" "$second" "$(head_of)"
 check "after a backup" "compose.sh backup"$'\n'"compose.sh upgrade" "$(cat "$work/calls")"
-refute "the worker stays while its pin does" "worker-upgrade" "$(cat "$work/calls")"
+check "and the worker is asked to run the Coop it pins" "compose.sh upgrade"$'\n'"compose.sh worker-upgrade" "$(cat "$work/calls")"
 check "and the upgrade is recorded" "-> ${second:0:12}" "$(grep ' upgraded ' "$work/upgrades/upgrades.log")"
 
 printf 'ARG COOP_REVISION=%s\n' bbbb >"$source/deploy/compose/coop/Dockerfile"
@@ -175,6 +175,9 @@ check "a worker upgrade that fails is said" "the worker upgrade failed" "$(cat "
 check "and Ryker stays on the new release" "$coop" "$(head_of)"
 refute "and nothing is restored" "compose.sh restore" "$(cat "$work/calls")"
 rm "$work/worker-upgrade.fail"
+push "same Coop"
+upgrade
+check "a worker that did not move is moved by the next upgrade" "compose.sh worker-upgrade" "$(cat "$work/calls")"
 
 # The daily backup holds the lifecycle lock: this round waits for the next.
 sleep 30 &
