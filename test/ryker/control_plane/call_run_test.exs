@@ -235,6 +235,18 @@ defmodule Ryker.ControlPlane.CallRunTest do
            ]
   end
 
+  # The first deploy of the groups drew each value list in two columns: the
+  # page gives every list inside it a label column and a value column
+  # (`.page-surface dl`), so Total and Model sat side by side and their
+  # figures overlapped (2026-10-16). A group's list is one column of rows.
+  test "a group's values stay one row each inside a page whose lists have two columns" do
+    css = File.read!("priv/static/workspace.css")
+
+    assert css =~ ~r/\.page-surface dl \{[^}]*grid-template-columns:minmax\(160px,1fr\)/
+    assert css =~ ~r/\.ryker-app \.run-values \{[^}]*grid-template-columns:minmax\(0,1fr\)/
+    assert css =~ ~r/\.ryker-app \.run-values dt \{[^}]*border:0/
+  end
+
   test "durations read in the unit a person would use" do
     assert Units.duration(850) == "850 ms"
     assert Units.duration(16_491) == "16.5 s"

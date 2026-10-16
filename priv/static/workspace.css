@@ -2849,10 +2849,10 @@ html[data-page-help=open] .ryker-app main > .page-help { display:block; }
 .ryker-app .run-model { color:var(--ryker-text); font-size:14px; overflow-wrap:anywhere; }
 .ryker-app .run-note { font-size:12px; }
 .ryker-app .run-group .run-attempts { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 10px; margin-top:10px; color:var(--ryker-text); }
-.ryker-app .run-values { display:grid; gap:6px; margin:0; }
+.ryker-app .run-values { display:grid; grid-template-columns:minmax(0,1fr); gap:6px; margin:0; font-size:13px; }
 .ryker-app .run-values > div { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:baseline; gap:12px; }
-.ryker-app .run-values dt { margin:0; font-size:12px; }
-.ryker-app .run-values dd { margin:0; color:var(--ryker-text); text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.ryker-app .run-values dt { margin:0; padding:0; border:0; font-size:12px; }
+.ryker-app .run-values dd { margin:0; padding:0; border:0; color:var(--ryker-text); text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
 .ryker-app .run-values .run-total dt, .ryker-app .run-values .run-total dd { color:var(--ryker-text); font-weight:600; }
 .ryker-app a.inline-link { color:var(--ryker-accent); }
 .ryker-app a.inline-link > span { text-decoration:underline; text-underline-offset:3px; }
