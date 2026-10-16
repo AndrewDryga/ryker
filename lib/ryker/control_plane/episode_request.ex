@@ -21,13 +21,15 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
   def render(assigns) do
     request = assigns.request
     archived = latest_archived_response(request.sections)
+    {unused_history, decision} = Enum.split_with(decision_facts(request), & &1[:unused])
 
     assigns =
       assigns
       |> assign(:headline, headline(request))
       |> assign(:attempt, attempt_label(request))
       |> assign(:explanation, explanation(request))
-      |> assign(:decision, decision_facts(request))
+      |> assign(:decision, decision)
+      |> assign(:unused_history, unused_history)
       |> assign(:result?, request.phase == :result)
       |> assign(:run, if(request.phase == :result, do: request[:run]))
       |> assign(:retried_after, if(request.phase == :result, do: request[:retried_after]))
@@ -95,25 +97,7 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
           <a href={group.href}>Manage {group.manage} →</a>
         </div>
       </section>
-      <dl :if={@decision != []} class="request-decision">
-        <div :for={fact <- @decision}>
-          <dt>{fact.label}</dt>
-          <dd>
-            <a :if={fact[:href]} href={fact.href}>{fact.value}</a>
-            <Components.identifier :if={fact[:identifier]} value={fact.value} label={fact.label} />
-            <span :if={fact[:value] && !fact[:href] && !fact[:identifier]}>{fact.value}</span>
-            <span :if={fact[:note]} class="request-decision-note"> · {fact.note}</span>
-            <ul :if={fact[:outcomes] not in [nil, []]} class="routing-candidate-outcomes">
-              <li :for={outcome <- fact.outcomes} data-selected={to_string(outcome.selected)}>
-                <span class="considered-verdict">{outcome.status}</span>
-                <a href={outcome.href} title="Where the briefing offered it">
-                  {outcome.title} <span aria-hidden="true">↑</span>
-                </a>
-              </li>
-            </ul>
-          </dd>
-        </div>
-      </dl>
+      <.decision_list :if={@decision != []} facts={@decision} />
       <CallRun.table :if={@run} run={@run} />
       <p :for={wait <- @request[:waits] || []} class="request-wait">{wait_text(wait)}</p>
       <div
@@ -165,6 +149,14 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
           </ul>
         </div>
       </section>
+      <Components.disclosure
+        :if={@unused_history != []}
+        id={"#{@request.id}-unused-history"}
+        label="Details"
+        class="request-unused-history"
+      >
+        <.decision_list facts={@unused_history} />
+      </Components.disclosure>
       <div
         :if={@result? && !@archived_response && @result_evidence != []}
         class="routing-evidence"
@@ -199,6 +191,30 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
         </Components.disclosure>
       </Components.disclosure>
     </div>
+    """
+  end
+
+  defp decision_list(assigns) do
+    ~H"""
+    <dl class="request-decision">
+      <div :for={fact <- @facts}>
+        <dt>{fact.label}</dt>
+        <dd>
+          <a :if={fact[:href]} href={fact.href}>{fact.value}</a>
+          <Components.identifier :if={fact[:identifier]} value={fact.value} label={fact.label} />
+          <span :if={fact[:value] && !fact[:href] && !fact[:identifier]}>{fact.value}</span>
+          <span :if={fact[:note]} class="request-decision-note"> · {fact.note}</span>
+          <ul :if={fact[:outcomes] not in [nil, []]} class="routing-candidate-outcomes">
+            <li :for={outcome <- fact.outcomes} data-selected={to_string(outcome.selected)}>
+              <span class="considered-verdict">{outcome.status}</span>
+              <a href={outcome.href} title="Where the briefing offered it">
+                {outcome.title} <span aria-hidden="true">↑</span>
+              </a>
+            </li>
+          </ul>
+        </dd>
+      </div>
+    </dl>
     """
   end
 
@@ -667,17 +683,25 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
     end
   end
 
+  # A stand-alone answer that joined nothing left every request it was offered
+  # unused, and that list crowded out the answer; it is `unused` and goes under
+  # Details as it was. Starting new work keeps it: which work was not continued
+  # is part of that decision.
   defp offered_work_fact(candidate, outcomes) do
+    selected? = Enum.any?(outcomes, & &1.selected)
+
     %{
       label: "Earlier work",
-      value:
-        if(Enum.any?(outcomes, & &1.selected),
-          do: nil,
-          else: relation_label(candidate["relation"] || "unrelated")
-        ),
-      outcomes: outcomes
+      value: if(not selected?, do: relation_label(candidate["relation"] || "unrelated")),
+      outcomes: outcomes,
+      unused: not selected? and stand_alone?(candidate)
     }
   end
+
+  defp stand_alone?(%{"action" => action, "relation" => "unrelated"}),
+    do: action in ~w(quick_reply react ignore reply)
+
+  defp stand_alone?(_candidate), do: false
 
   defp work_meaning("conversational"), do: "an answer that can use tools"
   defp work_meaning("standard"), do: "an investigation with tools"

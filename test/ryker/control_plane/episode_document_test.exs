@@ -8,6 +8,29 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
   alias Ryker.InspectionRedactor
   alias Ryker.Operator.EpisodeReviews
 
+  # A routing briefing's earlier requests: one it could continue, two it could
+  # only read as background.
+  @offered [
+    %{
+      "episode_ref" => "candidate:workers",
+      "state" => "complete",
+      "allowed_relations" => ["same_work", "history_only"],
+      "title" => "Restart the workers"
+    },
+    %{
+      "episode_ref" => "candidate:notes",
+      "state" => "complete",
+      "allowed_relations" => ["history_only"],
+      "title" => "Earlier notes"
+    },
+    %{
+      "episode_ref" => "candidate:disk",
+      "state" => "complete",
+      "allowed_relations" => ["history_only"],
+      "title" => "Disk alert"
+    }
+  ]
+
   test "opaque routing candidate references never become nonexistent timeline links" do
     # The live follow-up routed correctly but its 'Joins' link opened a 404:
     # candidate references belong to one prompt, not the timeline route namespace.
@@ -94,6 +117,114 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
            |> LazyHTML.query("a")
            |> LazyHTML.attribute("href")
            |> Enum.all?(&String.starts_with?(&1, "#"))
+
+    assert document |> LazyHTML.query(".request-unused-history") |> Enum.empty?()
+  end
+
+  # A greeting answered with "Hi!" showed one Not continued and two
+  # Background only rows under a Separate request heading: earlier requests
+  # routing was offered and used none of, crowding out the answer. Andrew
+  # approved keeping that list under Details for a simple greeting
+  # (2026-10-16).
+  test "a stand-alone answer that joined nothing keeps the earlier work it was offered under Details" do
+    document =
+      routing_card(@offered, %{
+        "action" => "quick_reply",
+        "relation" => "unrelated",
+        "messages" => ["Hi!"],
+        "reason" => "The person said hello."
+      })
+
+    decision = LazyHTML.query(document, ".episode-request > .request-decision")
+    assert words(LazyHTML.text(decision)) =~ "Answer right away, no work"
+    assert words(LazyHTML.text(decision)) =~ "Hi!"
+    refute LazyHTML.text(decision) =~ "Earlier work"
+    refute LazyHTML.text(decision) =~ "Separate request"
+    assert outcome_rows(decision) == []
+
+    details = LazyHTML.query(document, "details.request-unused-history")
+    assert Enum.count(details) == 1
+    assert LazyHTML.attribute(details, "open") == []
+    assert details |> LazyHTML.query("summary") |> LazyHTML.text() |> words() == "Details"
+    assert words(LazyHTML.text(details)) =~ "Earlier work Separate request"
+
+    # Every row as the decision card listed it: verdict, title and order.
+    assert outcome_rows(details) == [
+             {"Not continued", "Restart the workers ↑"},
+             {"Background only", "Disk alert ↑"},
+             {"Background only", "Earlier notes ↑"}
+           ]
+
+    # Each still links up to the briefing that offered it.
+    for "#" <> id <- details |> LazyHTML.query("a") |> LazyHTML.attribute("href") do
+      assert document |> LazyHTML.query(".context-candidate[id='#{id}']") |> Enum.count() == 1
+    end
+  end
+
+  # A quick reply, a reaction, a plain reply and silence join nothing when
+  # routed as unrelated. New work is the exception: which earlier work it did
+  # not continue is part of the decision to start it.
+  test "only an answer that starts no work moves the unused earlier work under Details" do
+    for action <- ~w(quick_reply react ignore reply) do
+      document = routing_card(@offered, %{"action" => action, "relation" => "unrelated"})
+
+      assert document
+             |> LazyHTML.query(".episode-request > .request-decision")
+             |> outcome_rows() == [],
+             action
+
+      assert document |> LazyHTML.query(".request-unused-history") |> outcome_rows() |> length() ==
+               3,
+             action
+    end
+
+    document = routing_card(@offered, %{"action" => "start_episode", "relation" => "unrelated"})
+
+    assert document
+           |> LazyHTML.query(".episode-request > .request-decision")
+           |> outcome_rows()
+           |> length() == 3
+
+    assert document |> LazyHTML.query(".request-unused-history") |> Enum.empty?()
+  end
+
+  test "a request routing selected as background stays in the decision" do
+    document =
+      routing_card(@offered, %{
+        "action" => "reply",
+        "relation" => "history_only",
+        "episode_ref" => "candidate:notes"
+      })
+
+    assert document
+           |> LazyHTML.query(".episode-request > .request-decision")
+           |> outcome_rows() == [
+             {"Used as background", "Earlier notes ↑"},
+             {"Not continued", "Restart the workers ↑"},
+             {"Background only", "Disk alert ↑"}
+           ]
+
+    assert document |> LazyHTML.query(".request-unused-history") |> Enum.empty?()
+  end
+
+  test "with no earlier work offered, a stand-alone answer has no empty list or Details" do
+    for candidates <- [[], nil] do
+      document =
+        routing_card(candidates, %{
+          "action" => "quick_reply",
+          "relation" => "unrelated",
+          "messages" => ["Hi!"]
+        })
+
+      assert document |> LazyHTML.query(".request-unused-history") |> Enum.empty?()
+      assert document |> LazyHTML.query(".routing-candidate-outcomes") |> Enum.empty?()
+
+      decision =
+        document |> LazyHTML.query(".episode-request > .request-decision") |> LazyHTML.text()
+
+      assert words(decision) =~ "Earlier work Separate request · no earlier work matched"
+      assert length(String.split(decision, "Separate request")) == 2
+    end
   end
 
   test "missing full prompts explain availability instead of opening a blank panel" do
@@ -1832,6 +1963,46 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
 
   defp compact(value), do: String.replace(value, ~r/\s+/, "")
   defp words(value), do: value |> String.split() |> Enum.join(" ")
+
+  # A routing briefing offering `candidates` and the decision it led to, on a
+  # request's page.
+  defp routing_card(candidates, decision) do
+    {:ok, %{episode: episode}} = Episodes.apply(EpisodeFixtures.admit_input())
+    {:ok, snapshot} = EpisodeProjection.fetch(episode.key)
+
+    briefing = %{
+      id: "routing",
+      at: snapshot.trace.received_at,
+      kind: :request,
+      source_kind: :admission,
+      phase: :submission,
+      band: :ready,
+      target: nil,
+      title: "Routing",
+      status: :settled,
+      timing: [],
+      href: "#routing",
+      sections: [section("context", "Context", %{"candidates" => candidates})]
+    }
+
+    result = %{
+      briefing
+      | id: "routing-result",
+        phase: :result,
+        sections: [section("candidate", "Decision", decision)]
+    }
+
+    snapshot |> render_episode([briefing, result]) |> LazyHTML.from_fragment()
+  end
+
+  defp outcome_rows(node) do
+    node
+    |> LazyHTML.query(".routing-candidate-outcomes li")
+    |> Enum.map(fn row ->
+      {row |> LazyHTML.query(".considered-verdict") |> LazyHTML.text(),
+       row |> LazyHTML.query("a") |> LazyHTML.text() |> String.trim()}
+    end)
+  end
 
   defp render_episode(snapshot, items) do
     render_component(&EpisodePage.render/1,
