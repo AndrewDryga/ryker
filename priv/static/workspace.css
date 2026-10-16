@@ -2820,3 +2820,7 @@ html[data-page-help=open] .ryker-app main > .page-help { display:block; }
 .ryker-app .kit-saved-noted .ui-icon { margin-right:4px; vertical-align:-2px; }
 .ryker-app .kit-saved-note { color:var(--ryker-warning); }
 @media (prefers-reduced-motion:no-preference) { .ryker-app .kit-saved-mark { animation:kit-saved-fade 2.6s ease-in forwards; } .ryker-app .kit-saved-noted { animation:none; } @keyframes kit-saved-fade { 0%, 65% { opacity:1; } 100% { opacity:0; visibility:hidden; } } }
+.ryker-app .json-disclosure { border:1px solid var(--ryker-stroke); border-radius:6px; background:var(--ryker-surface); }
+.ryker-app .json-disclosure > summary { border-radius:6px; }
+.ryker-app .json-disclosure[open] > summary { border-radius:6px 6px 0 0; }
+.ryker-app .request-selection > .ui-disclosure-body > .ui-facts { margin:4px 0 12px; }

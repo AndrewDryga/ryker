@@ -1,136 +1,61 @@
 defmodule Ryker.ControlPlane.ContextSelection do
   @moduledoc """
-  What Ryker chose to send one Work turn, and what it left out, in plain words.
+  What a Work turn's selection ledger adds to its briefing.
 
-  The selection ledger is Ryker's own record of preparing the turn, not part
-  of the prompt, so it is a card of its own before the Work briefing. The
-  briefing shows exactly what was sent; this card says in a sentence which of
-  the request's messages the model was given and why, then names the limits
-  only when they cut something. A count with nothing left out ("1 of 1
-  message sent") said nothing, so the card carries no counter.
+  The ledger is Ryker's own record of choosing what one turn sends, written
+  beside the frozen submission and never inside it. Its facts sit beside the
+  briefing rows they qualify: how many of the request's earlier messages a new
+  session was not sent, and which limit left them out, and how many of each
+  kind of saved context there were when some of it was not sent. The record
+  itself stays under the briefing's Details. A card of its own before the
+  briefing said the same in a sentence, apart from the messages it was about,
+  and was dropped (Andrew, 2026-10-16).
   """
   alias Ryker.ControlPlane.Units
-  alias Ryker.Wording
 
-  @listed [
-    {"observations", "Source notes"},
-    {"knowledge", "Saved topics"},
-    {"records", "Records"},
-    {"related_outcomes", "Related outcomes"},
-    {"guidance", "Guidance"},
-    {"memory", "Memory"},
-    {"standing_assignments", "Rules"}
-  ]
+  @listed ~w(observations knowledge records related_outcomes guidance memory standing_assignments)
 
-  @doc "The card's content for a turn's selection ledger, or nil when none was recorded."
-  @spec present(map() | nil, map() | nil) :: map() | nil
-  def present(%{"inputs" => %{} = inputs} = ledger, context) do
-    listed = listed(ledger)
-    cut? = left_out(ledger["mode"], inputs) > 0 or listed != []
-
+  @doc """
+  The ledger's facts for the briefing, or nil when the turn recorded none:
+  `left_out`, the earlier messages a new session was not sent; `listed`, each
+  kind of saved context some of which was not sent, as `{included, eligible}`;
+  `limits` in words; and the whole `record`.
+  """
+  @spec present(map() | nil) :: map() | nil
+  def present(%{"inputs" => %{} = inputs} = ledger) do
     %{
-      summary: nil,
-      text: sentence(ledger["mode"], inputs, context, ledger["limits"]),
-      facts:
-        Enum.reject(
-          listed ++ [{"Limits", if(cut?, do: limits(ledger["limits"]))}],
-          &is_nil(elem(&1, 1))
-        ),
-      record: Jason.encode!(ledger, pretty: true),
-      record_label: "Selection record"
+      left_out: left_out(ledger["mode"], inputs, ledger["limits"]),
+      listed: listed(ledger),
+      limits: limits(ledger["limits"]),
+      record: Jason.encode!(ledger, pretty: true)
     }
   end
 
-  def present(_ledger, _context), do: nil
+  def present(_ledger), do: nil
 
-  # A continuation sends only what is new: the session already holds the rest.
-  defp sentence("continuation", inputs, _context, _limits) do
-    new = integer(inputs["current"])
+  # Only a new session leaves earlier messages out. A continued session
+  # already holds them, so they are never counted as missing.
+  defp left_out("full", inputs, limits) do
+    window = integer(inputs["omitted_window"])
+    fit = integer(inputs["omitted_fit"])
 
-    case integer(inputs["earlier_not_resent"]) do
-      0 ->
-        "The model was given only #{new_messages(new)}. This run continues the same session."
-
-      earlier ->
-        "The model was given only #{new_messages(new)}. This run continues the session, " <>
-          "which already has the #{Wording.count(earlier, "earlier message")} of this request."
-    end
+    if window + fit > 0,
+      do: %{window: window, fit: fit, max_inputs: max_inputs(limits)}
   end
 
-  # A new session starts with nothing, so the request's earlier messages go
-  # with the new ones, the most recent first to stay when something must go.
-  defp sentence(_full, inputs, context, limits) do
-    new = integer(inputs["current"])
-    earlier = earlier_sent(inputs, context)
-    left_out = left_out("full", inputs)
+  defp left_out(_mode, _inputs, _limits), do: nil
 
-    given =
-      cond do
-        earlier > 0 and left_out > 0 ->
-          "The model was given #{new_messages(new)} and the " <>
-            Wording.count(earlier, "most recent earlier message") <>
-            " of this request, " <> new_session()
+  defp max_inputs(%{"max_inputs" => max}) when is_integer(max), do: max
+  defp max_inputs(_limits), do: nil
 
-        earlier > 0 ->
-          "The model was given #{new_messages(new)} and the " <>
-            "#{Wording.count(earlier, "earlier message")} of this request, " <> new_session()
-
-        left_out > 0 ->
-          "The model was given #{new_messages(new)} only."
-
-        true ->
-          "The model was given #{new_messages(new)} only. " <> first(new)
-      end
-
-    [given, left_out_sentence(inputs, left_out, limits)]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join(" ")
-  end
-
-  defp new_session, do: "because this run started a new session, which had not seen them."
-
-  defp first(1), do: "It is the first message of this request."
-  defp first(_new), do: "They are the first messages of this request."
-
-  defp new_messages(1), do: "this message"
-  defp new_messages(count), do: "the #{count} new messages"
-
-  defp left_out_sentence(_inputs, 0, _limits), do: nil
-
-  defp left_out_sentence(inputs, left_out, limits) do
-    reasons =
-      [
-        positive(inputs["omitted_window"], &"#{&1} #{window(limits)}"),
-        positive(inputs["omitted_fit"], &"#{&1} to fit the size limit")
-      ]
-      |> Enum.reject(&is_nil/1)
-
-    "#{Wording.count(left_out, "earlier message")} #{Wording.word(left_out, "was", "were")} left out: " <>
-      Enum.join(reasons, " and ") <> "."
-  end
-
-  defp window(%{"max_inputs" => max}) when is_integer(max), do: "beyond the #{max} most recent"
-  defp window(_limits), do: "outside the history window"
-
-  defp left_out("full", inputs),
-    do: integer(inputs["omitted_window"]) + integer(inputs["omitted_fit"])
-
-  defp left_out(_mode, _inputs), do: 0
-
-  # What was sent is counted from the frozen request, which is the exact set
-  # that reached the model; the ledger's own figure is only a fallback.
-  defp earlier_sent(_inputs, %{"inputs" => %{"items" => items}}) when is_list(items),
-    do: Enum.count(items, &(not (is_map(&1) and &1["current"] == true)))
-
-  defp earlier_sent(inputs, _context), do: integer(inputs["earlier_included"])
-
-  # Only kinds where something existed but was not sent; the briefing already
-  # counts what was sent.
+  # Only kinds where something existed but was not sent; a count with nothing
+  # left out said nothing ("1 of 1 message sent", Andrew, 2026-09-26).
   defp listed(ledger) do
-    for {key, label} <- @listed,
+    for key <- @listed,
         %{"included" => included, "eligible" => eligible} <- [ledger[key]],
         is_integer(included) and is_integer(eligible) and eligible > included,
-        do: {label, "#{included} of #{eligible} sent"}
+        into: %{},
+        do: {key, {included, eligible}}
   end
 
   defp limits(%{"max_inputs" => inputs, "context_bytes" => bytes})
@@ -138,9 +63,6 @@ defmodule Ryker.ControlPlane.ContextSelection do
        do: "Up to #{inputs} messages · #{Units.bytes(bytes)} of context"
 
   defp limits(_limits), do: nil
-
-  defp positive(value, format) when is_integer(value) and value > 0, do: format.(value)
-  defp positive(_value, _format), do: nil
 
   defp integer(value) when is_integer(value), do: value
   defp integer(_value), do: 0

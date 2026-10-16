@@ -15,6 +15,9 @@ defmodule Ryker.Work.Turn.Query do
   def by_session_id(queryable \\ all(), session_id),
     do: where(queryable, [episode_work_turns: t], t.session_id == ^session_id)
 
+  def by_session_ids(queryable \\ all(), session_ids),
+    do: where(queryable, [episode_work_turns: t], t.session_id in ^session_ids)
+
   @doc "Turns that reached Coop or produced anything: a candidate or a result."
   def begun(queryable) do
     where(

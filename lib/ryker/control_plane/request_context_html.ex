@@ -25,9 +25,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
        "Ryker's last answer here before this message. Routing reads how the sender took it and keeps that as feedback on the request that answered."},
     "slack_addressing" => {"How the message reached Ryker", "conversation", nil, nil},
     "inputs" => {"Conversation messages", "conversation", nil, nil},
-    "current_inputs" =>
-      {"New messages in this run", "conversation", nil,
-       "Messages from earlier runs are already in the session, so they aren't sent again."},
+    "current_inputs" => {"New messages", "conversation", nil, nil},
     "continuity" =>
       {"Conversation continuity", "memory", "Earlier accepted work",
        "The first message, Ryker's last answer and what it asked to continue, as saved then."},
@@ -218,8 +216,9 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     "Channel instructions",
     "Custom instructions",
     "Current message",
+    "New messages",
+    "Earlier in this request",
     "Conversation messages",
-    "New messages in this run",
     "Source messages",
     "How the message reached Ryker",
     "Earlier messages",
@@ -260,6 +259,8 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     "Continuation candidates",
     "Background matches",
     "Current message",
+    "New messages",
+    "Earlier in this request",
     "Earlier messages",
     "Channel summary",
     "Thread summary",
@@ -810,7 +811,29 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     end)
   end
 
+  # A Work run's messages belong to the row that shows each: the new ones, or
+  # the request's earlier ones a new session is sent again, with the count of
+  # those the limits left out.
+  defp member_parts(key, %{"items" => items} = value, "$.work" = parent)
+       when key in ~w(inputs current_inputs) and is_list(items) do
+    path = field_path(parent, key)
+    earlier = if resent?(key, value), do: "Earlier in this request", else: "New messages"
+
+    Enum.flat_map(value, fn
+      {"items", items} ->
+        items |> Enum.with_index() |> Enum.map(&work_message_part(&1, path))
+
+      {other, nested} ->
+        [prompt_part(field_path(path, other), {earlier, "conversation", "conversation"}, nested)]
+    end)
+  end
+
   defp member_parts(key, value, parent), do: [member_part(key, value, parent)]
+
+  defp work_message_part({item, index}, path) do
+    title = if new_message?(item), do: "New messages", else: "Earlier in this request"
+    prompt_part("#{path}.items[#{index}]", {title, "conversation", "conversation"}, item)
+  end
 
   defp member_part(key, value, parent),
     do: prompt_part(field_path(parent, key), part_section(key, parent), value)
@@ -854,7 +877,12 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   # The bundle's copy of the current message belongs with the message itself.
   defp conversation_parts(bundle, path, parent) do
-    current = if parent == "$.context", do: "Current message", else: "Conversation messages"
+    current =
+      case parent do
+        "$.context" -> "Current message"
+        "$.work" -> "New messages"
+        _other -> "Conversation messages"
+      end
 
     Enum.map(bundle, fn {key, value} ->
       case key do
@@ -957,6 +985,9 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     cond do
       key == "candidates" and is_list(value) ->
         candidate_sources(value, path, prefix, counts)
+
+      key in ~w(inputs current_inputs) and parent == "$.work" ->
+        work_message_sources(key, value, path, prefix, Map.get(counts, "work_messages", %{}))
 
       instruction_parent?(parent) and options[:state] in @unapplied_instructions ->
         absent_source(
@@ -1169,6 +1200,168 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     do: "Up to #{requested} earlier messages could be sent; this conversation had none before it."
 
   defp earlier_messages_hint(_manifest), do: "No earlier messages were sent."
+
+  # Work's messages read as routing's do (Andrew, 2026-10-16): what this run
+  # brought, then what came before it in the request. A new session is sent
+  # the request's earlier messages again, and that row says how many the
+  # limits left out; a continued session already holds them, so they are
+  # listed from its earlier runs and never counted as sent or as missing.
+  defp work_message_sources(key, value, path, prefix, facts) do
+    {new, earlier} = value |> work_items() |> Enum.split_with(&new_message?/1)
+
+    [
+      source(
+        "new_messages",
+        path <> ".new",
+        new,
+        {"New messages", "conversation", nil, nil},
+        messages(%{"inputs" => new}, :new),
+        prefix,
+        count: if(length(new) > 1, do: %{label: count(length(new), "message"), known?: true})
+      ),
+      if(key == "inputs",
+        do: resent_messages_source(earlier, value, path, prefix, facts[:left_out]),
+        else: saved_messages_source(path, prefix, facts[:saved], length(new))
+      )
+    ]
+  end
+
+  # A new session has seen nothing, so the request's earlier messages go again
+  # with the new ones, and the limits can leave the oldest out. A request's
+  # first message has none, and no row.
+  defp resent_messages_source(earlier, value, path, prefix, left_out) do
+    if resent?("inputs", value) do
+      missing = omitted(value)
+
+      source(
+        "earlier_in_request",
+        path <> ".earlier",
+        earlier,
+        {"Earlier in this request", "conversation", nil, nil},
+        [
+          resent_note(earlier),
+          left_out_note(missing, left_out),
+          messages(%{"inputs" => earlier}, :history)
+        ],
+        prefix,
+        count: %{
+          label:
+            [
+              earlier != [] && count(length(earlier), "message"),
+              missing > 0 && "#{missing} left out"
+            ]
+            |> Enum.filter(&is_binary/1)
+            |> Enum.join(" · "),
+          known?: true
+        },
+        state: if(earlier == [], do: "None sent")
+      )
+    else
+      []
+    end
+  end
+
+  defp resent_note([]), do: []
+
+  defp resent_note(_earlier) do
+    "<p class=\"context-note\">Sent again because this run started a new session, which had not seen them.</p>"
+  end
+
+  defp left_out_note(0, _left_out), do: []
+
+  defp left_out_note(missing, left_out) do
+    reasons =
+      case left_out do
+        %{window: window, fit: fit, max_inputs: max} ->
+          [
+            window > 0 &&
+              "#{window} #{if max, do: "beyond the #{max} most recent", else: "outside the history window"}",
+            fit > 0 && "#{fit} to fit the size limit"
+          ]
+          |> Enum.filter(&is_binary/1)
+
+        nil ->
+          []
+      end
+
+    [
+      "<p class=\"context-omission\">",
+      escape(Wording.count(missing, "earlier message")),
+      " ",
+      Wording.word(missing, "was", "were"),
+      " left out",
+      if(reasons == [],
+        do: " by the limits on what one run is sent.",
+        else: [": ", escape(Enum.join(reasons, " and ")), "."]
+      ),
+      "</p>"
+    ]
+  end
+
+  # A continued session already holds what its earlier runs sent, so this run
+  # sends only what is new. The earlier messages are read from those runs' own
+  # frozen records; they are not sent again and never counted as missing.
+  defp saved_messages_source(_path, _prefix, nil, _new), do: []
+
+  defp saved_messages_source(path, prefix, %{messages: [], complete?: complete?}, _new) do
+    absent_source(
+      "earlier_in_request",
+      path <> ".earlier",
+      {"Earlier in this request", "conversation"},
+      if(complete?, do: "None", else: "No longer kept"),
+      if(complete?,
+        do: "The session's earlier runs sent no messages.",
+        else:
+          "Retention removed the earlier runs of this session, so their messages cannot be shown."
+      ),
+      prefix
+    )
+  end
+
+  defp saved_messages_source(path, prefix, %{messages: messages, complete?: complete?}, new) do
+    source(
+      "earlier_in_request",
+      path <> ".earlier",
+      messages,
+      {"Earlier in this request", "conversation", nil, nil},
+      [
+        "<p class=\"context-note\">Earlier messages remain available; this call adds ",
+        Wording.word(new, "the new message", "the new messages"),
+        ".</p>",
+        if(complete?,
+          do: [],
+          else:
+            "<p class=\"context-note\">Retention removed some earlier runs of this session, so not every earlier message shows here.</p>"
+        ),
+        messages(%{"inputs" => messages}, :history)
+      ],
+      prefix,
+      count: %{
+        label:
+          if(complete?,
+            do: count(length(messages), "message"),
+            else: count(length(messages), "message") <> " still kept"
+          ),
+        known?: true
+      },
+      doc: "already in saved conversation context",
+      estimate: nil
+    )
+  end
+
+  defp work_items(%{"items" => items}) when is_list(items), do: Enum.filter(items, &is_map/1)
+  defp work_items(items) when is_list(items), do: Enum.filter(items, &is_map/1)
+  defp work_items(_value), do: []
+
+  defp new_message?(item), do: item["current"] != false
+
+  defp resent?("inputs", value),
+    do: Enum.any?(work_items(value), &(not new_message?(&1))) or omitted(value) > 0
+
+  defp resent?(_key, _value), do: false
+
+  defp omitted(%{"omitted_count" => count}) when is_integer(count) and count > 0, do: count
+  defp omitted(_value), do: 0
 
   defp run_details_source(context, root, prefix) do
     present = Enum.filter(@run_details, fn {key, _label} -> Map.has_key?(context, key) end)
@@ -2546,7 +2739,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
     body = message_text(input["content"] || input)
     context = message_context(input, kind)
     raw = Jason.encode!(input, pretty: true)
-    title = if(total > 1 and kind not in [:history, :learning], do: context)
+    title = if(total > 1 and kind not in [:history, :learning, :new], do: context)
 
     Components.message_block_html(
       actor,
@@ -2601,6 +2794,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   # document with its provenance. Both render as the same message.
   defp message_at(input), do: input["occurred_at"] || input["at"]
 
+  defp message_context(_input, :new), do: "Current message"
   defp message_context(_input, :history), do: "Earlier context"
   defp message_context(_input, :learning), do: "Source message"
   defp message_context(%{"current" => false}, _kind), do: "Earlier context"

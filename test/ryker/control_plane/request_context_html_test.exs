@@ -1301,13 +1301,23 @@ defmodule Ryker.ControlPlane.RequestContextHTMLTest do
     text = LazyHTML.text(document)
     assert text =~ "Messages"
 
-    # The count is on the row it counts, not totalled again in the heading.
+    # Each count is on the row it counts, not totalled again in the heading: a
+    # new message alone needs none, and the earlier one is the request's.
     assert document
-           |> LazyHTML.query("[data-source=inputs] .prompt-source-count")
-           |> LazyHTML.text() == "2 messages"
+           |> LazyHTML.query("[data-source=new_messages] .prompt-source-count")
+           |> Enum.empty?()
 
-    assert text =~ "Earlier context"
-    assert text =~ "Current message"
+    assert document
+           |> LazyHTML.query("[data-source=earlier_in_request] .prompt-source-count")
+           |> LazyHTML.text() == "1 message"
+
+    # Each message is in the row that names it, so it needs no label of its own.
+    assert document |> LazyHTML.query("[data-source=new_messages]") |> LazyHTML.text() =~
+             "Current question"
+
+    assert document |> LazyHTML.query("[data-source=earlier_in_request]") |> LazyHTML.text() =~
+             "Earlier question"
+
     assert text =~ "You"
     assert text =~ "21 Sep, 05:48:52 UTC"
 

@@ -152,21 +152,25 @@ messages, the header links to all of them ("All messages in this thread →",
 Activity narrowed to the thread), as a request's header does. A Slack message's
 page and a Chat message's page differ only in the facts of where it was sent.
 
-Each Work run's **Context selection** card, before its briefing, says in a
-sentence which of the request's messages the model was given and why: a new
-session starts with nothing, so the request's earlier messages go with the new
-ones; a run that continues the same session sends only what is new, because
-the session already has the rest. Only when something was left out does the
-card say how many and which limit cut them (beyond the most recent messages the
-history window keeps, or to fit the size limit), list the other kinds it cut
-("Source notes: 2 of 5 sent") and name the limits; it carries no counter. Sent
-is counted from the frozen context, which is the exact set that reached the
-model, so a stale or wrong ledger can never inflate it. Eligible and the two
-kinds of omission come from `episode_work_turns.selection_ledger`, written
-beside the frozen submission while the selection was being made, and kept
-under the card's Selection record. A run frozen before that column has no
-Context selection card, and a same-session update never counts earlier
-messages as omitted. Routing rows read the frozen admission snapshot:
+A Work briefing shows its messages as routing's does. **New messages** are the
+ones the run was started for. **Earlier in this request** holds the request's
+earlier messages: a run that starts a new session is sent them again, and the
+row says how many the limits left out and which limit cut them (beyond the most
+recent messages the history window keeps, or to fit the size limit). A run that
+continues the same session sends only what is new, so the row lists what its
+earlier runs sent as already in saved conversation context. Those messages are
+read from the earlier runs' own frozen submissions, following each run's
+`parent_submission_ref` through runs of the same session and request, and are
+never counted as sent or as missing; where retention removed an earlier run,
+the row says only some are still kept. A kind of saved context the selection
+cut says beside its row how many of how many were sent ("1 of 3 source notes").
+Sent is counted from the frozen context, which is the exact set that reached
+the model, so a stale or wrong ledger can never inflate it. How many there
+were, and the two kinds of omission, come from
+`episode_work_turns.selection_ledger`, written beside the frozen submission
+while the selection was being made and kept, with its limits, as the Selection
+record under the briefing's Details. A run frozen before that column has no
+Details. Routing rows read the frozen admission snapshot:
 "N checked · M offered" from its conversation episode count and candidate list,
 with recorded knowledge omissions; without a retained snapshot the row says the
 search scope was not recorded. Offered is not chosen — the model's choice is a

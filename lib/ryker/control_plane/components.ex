@@ -7,6 +7,7 @@ defmodule Ryker.ControlPlane.Components do
   alias Ryker.ControlPlane.Kit
   alias Ryker.ControlPlane.Paths
   alias Ryker.ControlPlane.ShortTime
+  alias Ryker.ControlPlane.Units
   alias Ryker.Episodes
   alias Ryker.Work
 
@@ -187,6 +188,29 @@ defmodule Ryker.ControlPlane.Components do
       </button>
       {render_slot(@inner_block)}
     </div>
+    """
+  end
+
+  attr(:id, :string, required: true)
+  attr(:label, :string, required: true)
+  attr(:text, :string, required: true, doc: "The JSON exactly as the block shows it")
+  attr(:note, :string, default: nil, doc: "What the block leaves out, such as Partial display")
+  attr(:class, :any, default: nil)
+
+  @doc """
+  A JSON record Ryker kept, behind the source disclosure every raw record
+  uses: the dark code surface, its format and size opposite the title, and a
+  copy button. The size is the UTF-8 bytes of the text shown, never its
+  characters or a figure from elsewhere.
+  """
+  def json_disclosure(assigns) do
+    ~H"""
+    <.disclosure id={@id} label={@label} kind={:source} class={["json-disclosure", @class]}>
+      <:meta>JSON · {Units.bytes(byte_size(@text))}{if @note, do: " · " <> @note}</:meta>
+      <.copy_block label="Copy JSON">
+        <pre class="model-document-text" tabindex="0">{@text}</pre>
+      </.copy_block>
+    </.disclosure>
     """
   end
 

@@ -40,6 +40,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
                   previous_failures: %{},
                   title_updates: %{},
                   candidate_episodes: nil,
+                  saved_messages: %{},
                   response_windows: %{},
                   responses: %{},
                   responses_limited: false,
@@ -146,7 +147,8 @@ defmodule Ryker.ControlPlane.ModelRequests do
         admission_failures: admission_failures,
         previous_failures: previous_failures,
         opened: disclosed,
-        title_updates: title_updates
+        title_updates: title_updates,
+        saved_messages: saved_messages(episode.id, turns)
       }
       |> with_responses(turns, params)
 
@@ -154,18 +156,16 @@ defmodule Ryker.ControlPlane.ModelRequests do
       turns
       |> Enum.filter(&briefed?/1)
       |> Enum.flat_map(fn turn ->
-        request = inspect_turn(turn, reading)
-
-        selection_event(turn, request) ++
-          request_events(
-            request,
-            {:turn, turn.id},
-            "request-#{turn.id}",
-            turn.remote_finished_at,
-            turn.candidate != nil or turn.validation_history != [] or turn.accepted_at != nil,
-            Paths.request(episode.id) <> "#request-#{turn.id}",
-            %{kind: :work, run: CallRun.from_turn(turn), title_update: title_updates[turn.id]}
-          )
+        turn
+        |> inspect_turn(reading)
+        |> request_events(
+          {:turn, turn.id},
+          "request-#{turn.id}",
+          turn.remote_finished_at,
+          turn.candidate != nil or turn.validation_history != [] or turn.accepted_at != nil,
+          Paths.request(episode.id) <> "#request-#{turn.id}",
+          %{kind: :work, run: CallRun.from_turn(turn), title_update: title_updates[turn.id]}
+        )
       end)
 
     by_input = Enum.group_by(attempts, & &1.input_id)
@@ -390,48 +390,111 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
   defp briefed?(%Work.Turn{}), do: true
 
-  defp selection_event(%Work.Turn{} = turn, request) do
-    context = request.sections |> Enum.find(&(&1.id == "context")) |> section_document()
+  # The messages each continued turn's session already held, by turn: every
+  # message the earlier runs of its chain sent, the first run's whole set and
+  # each later run's new ones. The chain is followed from the turn's own
+  # parent_submission_ref through runs of the same session and request, so
+  # another session's or request's messages are never read; a run retention
+  # removed ends it, and the turn says some are no longer kept.
+  defp saved_messages(episode_id, turns) do
+    continued =
+      for %Work.Turn{operational_pruned_at: nil} = turn <- turns,
+          %{"mode" => "continuation", "parent_submission_ref" => ref} <- [work_context(turn)],
+          is_binary(ref),
+          do: {turn, ref}
 
-    case ContextSelection.present(turn.selection_ledger, context) do
-      nil ->
-        []
+    if continued == [] do
+      %{}
+    else
+      contexts = session_contexts(episode_id, turns, continued)
 
-      selection ->
-        id = "selection-#{turn.id}"
-
-        [
-          %{
-            id: "event-" <> id,
-            owner: {:turn, turn.id},
-            at: request.at,
-            sort_at: request.at,
-            kind: :event,
-            band: :work,
-            step:
-              Step.step(id, :work, request.at, %{
-                actor: "Ryker",
-                owner: {:turn, turn.id},
-                search: selection,
-                details: [],
-                stage: "Selection",
-                summary: nil,
-                title: "Context selection"
-              })
-          }
-        ]
+      Map.new(continued, fn {turn, ref} ->
+        {turn.id, saved_chain(contexts, turn.session_id, ref, [], MapSet.new())}
+      end)
     end
   end
 
-  defp section_document(%{artifact: %{state: :retained, truncated: false, text: text}})
-       when is_binary(text) do
-    case Jason.decode(text) do
-      {:ok, %{} = document} -> document
-      _other -> nil
+  # The frozen context of every run in the continued turns' sessions, by
+  # session and fingerprint, read once however many turns walk through it.
+  defp session_contexts(episode_id, turns, continued) do
+    sessions = continued |> Enum.map(fn {turn, _ref} -> turn.session_id end) |> Enum.uniq()
+
+    older =
+      episode_id
+      |> Work.Turn.Query.by_episode_id()
+      |> Work.Turn.Query.by_session_ids(sessions)
+      |> Work.Turn.Query.excluding_ids(Enum.map(turns, & &1.id))
+      |> Repo.all()
+
+    for %Work.Turn{submission_fingerprint: fingerprint} = turn <- turns ++ older,
+        turn.session_id in sessions and is_binary(fingerprint),
+        into: %{},
+        do: {{turn.session_id, fingerprint}, chain_link(turn)}
+  end
+
+  defp chain_link(%Work.Turn{operational_pruned_at: nil} = turn),
+    do: work_context(turn) || :unreadable
+
+  defp chain_link(%Work.Turn{}), do: :pruned
+
+  defp saved_chain(contexts, session_id, ref, later, seen) do
+    link = if MapSet.member?(seen, ref), do: :unreadable, else: contexts[{session_id, ref}]
+
+    case link do
+      %{"mode" => "full", "inputs" => inputs} ->
+        %{messages: unique_messages(message_items(inputs) ++ later), complete?: true}
+
+      %{"mode" => "continuation", "current_inputs" => inputs, "parent_submission_ref" => parent} ->
+        saved_chain(
+          contexts,
+          session_id,
+          parent,
+          message_items(inputs) ++ later,
+          MapSet.put(seen, ref)
+        )
+
+      # No run of this session and request has this fingerprint, so nothing
+      # shows the session held anything before this turn.
+      nil when later == [] ->
+        nil
+
+      # Retention removed this run's submission, or it cannot be read: the
+      # chain ends, with what the later runs sent.
+      _ended ->
+        %{messages: unique_messages(later), complete?: false}
     end
   end
 
-  defp section_document(_section), do: nil
+  defp work_context(%Work.Turn{submission: %{"prompt" => prompt}}) do
+    case BackgroundCards.decode(prompt) do
+      %{"work" => %{} = context} -> context
+      _unreadable -> nil
+    end
+  end
+
+  defp work_context(_turn), do: nil
+
+  defp message_items(%{"items" => items}) when is_list(items), do: Enum.filter(items, &is_map/1)
+  defp message_items(_inputs), do: []
+
+  # A message a later run sent again is still one message: the first copy
+  # stays, keyed by its source and revision, so an edit stays its own message.
+  defp unique_messages(messages) do
+    messages
+    |> Enum.reduce({[], MapSet.new()}, &keep_first/2)
+    |> elem(0)
+    |> Enum.reverse()
+  end
+
+  defp keep_first(%{"source_ref" => ref} = message, {kept, seen}) when is_binary(ref) do
+    key = {ref, message["revision"]}
+
+    if MapSet.member?(seen, key),
+      do: {kept, seen},
+      else: {[message | kept], MapSet.put(seen, key)}
+  end
+
+  defp keep_first(message, {kept, seen}), do: {[message | kept], seen}
 
   defp admission_failures([], _attempts), do: %{}
 
@@ -542,6 +605,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
       at: request.at,
       sort_at: request.at,
       counts: Map.get(request, :counts, %{}),
+      selection: Map.get(request, :selection),
       title: request.title,
       target: request.target,
       status: request.status,
@@ -828,6 +892,12 @@ defmodule Ryker.ControlPlane.ModelRequests do
     tools =
       Map.take(work, ~w(controller_tools source_and_action_tools workspace))
 
+    selection = ContextSelection.present(turn.selection_ledger)
+
+    saved =
+      with %{messages: messages} = found <- reading.saved_messages[turn.id],
+           do: %{found | messages: Redactor.redact(messages, reading.secrets)}
+
     sections = [
       section("instructions", "Ryker instructions", prompt["instructions"], reading),
       section("context", "Messages and selected context", context, reading),
@@ -856,7 +926,8 @@ defmodule Ryker.ControlPlane.ModelRequests do
 
     %{
       id: turn.id,
-      counts: work_counts(context),
+      counts: work_counts(context, selection, saved),
+      selection: selection && Map.take(selection, [:limits, :record]),
       title: "Work request",
       at: turn.inserted_at,
       status: turn.status,
@@ -907,28 +978,32 @@ defmodule Ryker.ControlPlane.ModelRequests do
     }
   end
 
-  # Every counted partial row says what it counted over. Included comes from the
-  # frozen context, which is the exact set that reached the model. Eligible and
-  # omitted come from the ledger recorded while the selection was made; without
-  # it the row says the selection was not recorded rather than implying zero.
-  # The briefing counts what was sent. What the selection ledger says existed
-  # but was not sent is the Context selection card's, before the briefing.
-  defp work_counts(context) when is_map(context) do
+  # Every counted row says what it counted over. Sent is counted from the
+  # frozen context, which is the exact set that reached the model, so a stale
+  # or wrong ledger can never inflate it. How many there were comes from the
+  # selection ledger recorded while the selection was made, and a row names it
+  # only when some were not sent ("12 of 16 source notes"). The message rows
+  # get the earlier messages a new session left out and the ones a continued
+  # session already held.
+  defp work_counts(context, selection, saved) when is_map(context) do
+    listed = if selection, do: selection.listed, else: %{}
+
     %{}
-    |> put_continuity_counts(context)
-    |> put_listed_counts(context)
+    |> put_continuity_counts(context, listed)
+    |> put_listed_counts(context, listed)
+    |> Map.put("work_messages", %{left_out: selection && selection.left_out, saved: saved})
   end
 
-  defp work_counts(_context), do: %{}
+  defp work_counts(_context, _selection, _saved), do: %{}
 
   # Source notes and maintained topics are two different kinds of record, so
   # the continuity row names each count rather than summing them.
-  defp put_continuity_counts(counts, context) do
+  defp put_continuity_counts(counts, context, listed) do
     parts =
       for {key, label} <- [{"observations", "source note"}, {"knowledge", "saved topic"}],
           included = get_in(context, ["operator_context", "continuity", key]),
           is_list(included),
-          do: Wording.count(length(included), label)
+          do: sent_of(length(included), listed[key], &Wording.count(&1, label))
 
     case parts do
       [] -> counts
@@ -936,7 +1011,7 @@ defmodule Ryker.ControlPlane.ModelRequests do
     end
   end
 
-  defp put_listed_counts(counts, context) do
+  defp put_listed_counts(counts, context, listed) do
     Enum.reduce(
       [
         {"records", ["records"]},
@@ -949,7 +1024,8 @@ defmodule Ryker.ControlPlane.ModelRequests do
       fn {key, path}, counts ->
         case get_in(context, path) do
           included when is_list(included) ->
-            Map.put(counts, key, count("#{length(included)} included", true))
+            label = sent_of(length(included), listed[key], &to_string/1) <> " included"
+            Map.put(counts, key, count(label, true))
 
           _absent ->
             counts
@@ -957,6 +1033,9 @@ defmodule Ryker.ControlPlane.ModelRequests do
       end
     )
   end
+
+  defp sent_of(sent, {_included, eligible}, words), do: "#{sent} of #{words.(eligible)}"
+  defp sent_of(sent, nil, words), do: words.(sent)
 
   # The briefing shows what the model was sent and counts only that; what the
   # search found and left out is the search card's, before it. Candidate refs

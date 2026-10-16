@@ -19,7 +19,7 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Slack.Input
-  alias Ryker.Work.{Custody, Submission}
+  alias Ryker.Work.{Custody, Session, Submission, Turn}
 
   @now ~U[2026-09-04 22:51:44.000000Z]
 
@@ -36,67 +36,54 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
     "limits" => %{"max_inputs" => 40, "context_bytes" => 163_840}
   }
 
-  test "what a Work turn left out is its own card, and the briefing counts only what was sent" do
-    # The briefing is the record of what the model was sent. Eligible, outside
-    # the window and cut to fit are Ryker's selection, made before the briefing,
-    # so they are a card of their own rather than a count inside it.
+  # Andrew, 2026-10-16: a Work run read as two cards, a Context selection card
+  # saying in a sentence which messages the model was given, then the Work
+  # briefing with only the new ones. The briefing now shows its messages as
+  # routing's does, and what the selection left out sits beside the row it
+  # cut; the ledger itself is under the briefing's Details.
+  test "what a new session left out sits beside its earlier messages, with no card of its own" do
     work = frozen!("ledger", @ledger)
     {:ok, timeline} = ModelRequests.timeline(work.episode.key, %{})
-    ids = Enum.map(timeline.items, & &1.id)
-    selection = Enum.find(timeline.items, &String.starts_with?(&1.id, "event-selection-"))
+    refute Enum.any?(timeline.items, &String.starts_with?(&1.id, "event-selection-"))
+
     briefing = Enum.find(timeline.items, &(&1[:source_kind] == :work and &1.phase == :submission))
+    document = work.episode |> rendered() |> LazyHTML.from_document()
+    card = LazyHTML.query(document, "##{briefing.id}")
 
-    assert Enum.find_index(ids, &(&1 == selection.id)) <
-             Enum.find_index(ids, &(&1 == briefing.id))
+    assert rows(card) == [
+             "New messages · 2 messages",
+             "Earlier in this request · 1 message · 16 left out"
+           ]
 
-    card = selection.step.search
-
-    # Andrew, 2026-09-26: "1 of 1 message sent" said nothing. The card says in
-    # a sentence which messages the model was given and why, then the limits,
-    # because here they cut something.
-    assert card.summary == nil
-
-    assert card.text ==
-             "The model was given the 2 new messages and the 1 most recent earlier message " <>
-               "of this request, because this run started a new session, which had not seen " <>
-               "them. 16 earlier messages were left out: 8 beyond the 40 most recent and 8 " <>
-               "to fit the size limit."
-
-    assert {"Limits", "Up to 40 messages · 160 KiB of context"} in card.facts
-    refute Enum.any?(card.facts, fn {label, _value} -> label == "Messages" end)
+    assert words(text(card, ".prompt-source[data-source=earlier_in_request]")) =~
+             "16 earlier messages were left out: 8 beyond the 40 most recent and 8 to fit " <>
+               "the size limit."
 
     # Sent is counted from the frozen request, the exact set that reached the
-    # model; this ledger claims thirty earlier messages and the request has one.
-    refute card.text =~ "30"
+    # model; this ledger claims thirty earlier messages and the request has one,
+    # and the 48 it says existed is no count of what was sent.
+    refute text(card, ".prompt-assembly") =~ "30"
+    refute text(card, ".prompt-assembly") =~ ~r/\b48 (earlier )?(messages|inputs)\b|\bof 48\b/
 
-    html = rendered(work.episode)
+    details = LazyHTML.query(card, "details.request-selection")
+    assert LazyHTML.attribute(details, "open") == []
+    assert words(text(details, ".ui-facts")) == "Limits Up to 40 messages · 160 KiB of context"
 
-    selection_card =
-      html
-      |> LazyHTML.from_document()
-      |> LazyHTML.query("##{selection.id}")
-
-    assert selection_card |> LazyHTML.query(".case-event-summary") |> LazyHTML.text() =~
-             "The model was given the 2 new messages"
-
-    assert Enum.empty?(LazyHTML.query(selection_card, ".case-card-heading-meta"))
-    assert LazyHTML.text(selection_card) =~ "Selection record"
-
-    # Match the count, not the digits: the card shows its time, and any run at
-    # a minute or second of 48 failed here.
-    briefing_text =
-      html
-      |> LazyHTML.from_document()
-      |> LazyHTML.query("##{briefing.id}")
-      |> LazyHTML.text()
-
-    refute briefing_text =~ ~r/\b48 (earlier )?(messages|inputs)\b|\bof 48\b/
+    record = Jason.encode!(@ledger, pretty: true)
+    selection = LazyHTML.query(details, "details.json-disclosure")
+    assert text(selection, ".ui-disclosure-label") == "Selection record"
+    assert text(selection, ".ui-disclosure-meta") == "JSON · #{byte_size(record)} bytes"
+    assert text(selection, "pre") == record
   end
 
-  test "a turn without a selection ledger has no selection card" do
+  test "a turn without a selection ledger has no Details and no selection card" do
     work = frozen!("no-ledger", nil)
     {:ok, timeline} = ModelRequests.timeline(work.episode.key, %{})
     refute Enum.any?(timeline.items, &String.starts_with?(&1.id, "event-selection-"))
+    refute Enum.any?(timeline.items, &(&1[:selection] != nil))
+
+    document = work.episode |> rendered() |> LazyHTML.from_document()
+    assert Enum.empty?(LazyHTML.query(document, ".request-selection"))
   end
 
   test "the briefing counts come from the frozen context" do
@@ -104,32 +91,120 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
     assert counts(work.episode)["records"] == %{label: "0 included", known?: true}
   end
 
-  test "a continuation counts new messages and never calls earlier ones omitted" do
+  test "a kind of saved context the ledger cut says how many of how many were sent" do
+    ledger =
+      Map.merge(@ledger, %{
+        "observations" => %{"included" => 1, "eligible" => 3},
+        "records" => %{"included" => 0, "eligible" => 2},
+        "memory" => %{"included" => 0, "eligible" => 0}
+      })
+
     work =
-      frozen!(
-        "continuation",
-        %{
-          "version" => 1,
-          "mode" => "continuation",
-          "inputs" => %{"current" => 1, "earlier_not_resent" => 4}
-        },
-        continuation: true
+      frozen!("listed", ledger,
+        operator_context: %{"continuity" => %{"observations" => [%{"text" => "A note"}]}}
       )
 
-    {:ok, timeline} = ModelRequests.timeline(work.episode.key, %{})
-    card = Enum.find(timeline.items, &String.starts_with?(&1.id, "event-selection-")).step.search
-    assert card.summary == nil
-
-    assert card.text ==
-             "The model was given only this message. This run continues the session, which " <>
-               "already has the 4 earlier messages of this request."
-
-    # Nothing was cut, so no limits are named.
-    assert card.facts == []
-    refute card.text =~ "left out"
+    counts = counts(work.episode)
+    assert counts["continuity"].label == "1 of 3 source notes"
+    assert counts["records"].label == "0 of 2 included"
+    refute Map.has_key?(counts, "memory")
   end
 
-  test "a request's first message says it was sent alone, with no counter and no limits" do
+  # The continuation's Work briefing showed only its new message; the Context
+  # selection card before it said the session "already has the 5 earlier
+  # messages", which nobody could open. Those messages are read from the
+  # frozen records of the session's earlier runs.
+  test "a continued session lists the earlier messages it already holds, never as left out" do
+    first = frozen!("chain", nil, items: [message("A", false), message("B", true)])
+    second = continued!(first, [message("C", true)], first.turn.submission_fingerprint)
+    third = continued!(first, [message("D", true)], second.submission_fingerprint)
+
+    document = first.episode |> rendered() |> LazyHTML.from_document()
+
+    assert rows(LazyHTML.query(document, "#request-#{third.id}")) == [
+             "New messages",
+             "Earlier in this request · 3 messages · already in saved conversation context"
+           ]
+
+    assert message_texts(document, third) == ["A", "B", "C"]
+    assert message_texts(document, second) == ["A", "B"]
+
+    earlier =
+      text(document, "#request-#{third.id} .prompt-source[data-source=earlier_in_request]")
+
+    assert words(earlier) =~ "Earlier messages remain available; this call adds the new message."
+    refute earlier =~ "left out"
+
+    # Earlier messages are held, not sent: the row has no token estimate.
+    assert document
+           |> LazyHTML.query(
+             "#request-#{third.id} .prompt-source[data-source=earlier_in_request] .prompt-source-estimate"
+           )
+           |> Enum.empty?()
+  end
+
+  test "a run retention removed ends the chain, and the row says only some are still kept" do
+    first = frozen!("pruned", nil, items: [message("A", true)])
+    second = continued!(first, [message("B", true)], first.turn.submission_fingerprint)
+    third = continued!(first, [message("C", true)], second.submission_fingerprint)
+
+    Repo.update_all(from(turn in Turn, where: turn.id == ^first.turn.id),
+      set: [submission: %{"retention" => "pruned"}, operational_pruned_at: DateTime.utc_now()]
+    )
+
+    document = first.episode |> rendered() |> LazyHTML.from_document()
+
+    assert rows(LazyHTML.query(document, "#request-#{third.id}")) == [
+             "New messages",
+             "Earlier in this request · 1 message still kept · already in saved conversation context"
+           ]
+
+    assert message_texts(document, third) == ["B"]
+
+    gone =
+      LazyHTML.query(
+        document,
+        "#request-#{second.id} .prompt-source[data-source=earlier_in_request]"
+      )
+
+    assert text(gone, ".prompt-source-title") == "Earlier in this request"
+    assert text(gone, ".prompt-source-status") == "No longer kept"
+  end
+
+  # A turn's parent is named by fingerprint. One that matches a run of
+  # another session, or of another request, is never read as this one's.
+  test "a parent from another session or request is never read as saved context" do
+    other = frozen!("elsewhere", nil, items: [message("Other request", true)])
+    first = frozen!("own", nil, items: [message("A", true)])
+
+    other_session =
+      Repo.insert!(%Session{
+        id: Ecto.UUID.generate(),
+        episode_id: first.episode.id,
+        generation: 2,
+        policy: "counts",
+        policy_digest: String.duplicate("a", 64),
+        external_ref: "replacement:#{first.turn.session_id}"
+      })
+
+    stray =
+      continued!(first, [message("B", true)], other.turn.submission_fingerprint)
+
+    elsewhere =
+      continued!(first, [message("C", true)], first.turn.submission_fingerprint,
+        session_id: other_session.id
+      )
+
+    document = first.episode |> rendered() |> LazyHTML.from_document()
+
+    for turn <- [stray, elsewhere] do
+      assert rows(LazyHTML.query(document, "#request-#{turn.id}")) == ["New messages"]
+    end
+
+    refute LazyHTML.text(document) =~ "Other request"
+  end
+
+  test "a request's first message has its new message alone, with no counter and no limits" do
     # Andrew, 2026-09-26: the card's header said "1 of 1 message sent" and
     # listed limits that cut nothing.
     work =
@@ -147,28 +222,19 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
           },
           "limits" => %{"max_inputs" => 40, "context_bytes" => 163_840}
         },
-        items: [%{"current" => true}]
+        items: [%{"current" => true}],
+        omitted: 0
       )
 
-    {:ok, timeline} = ModelRequests.timeline(work.episode.key, %{})
-    selection = Enum.find(timeline.items, &String.starts_with?(&1.id, "event-selection-"))
-    card = selection.step.search
-
-    assert card.text ==
-             "The model was given this message only. It is the first message of this request."
-
-    assert card.facts == []
-
-    text =
+    card =
       work.episode
       |> rendered()
       |> LazyHTML.from_document()
-      |> LazyHTML.query("##{selection.id}")
-      |> LazyHTML.text()
+      |> LazyHTML.query(".episode-request:has(.request-selection)")
 
-    refute text =~ "1 of 1"
-    refute text =~ "Limits"
-    assert text =~ "Selection record"
+    assert rows(card) == ["New messages"]
+    refute LazyHTML.text(card) =~ "1 of 1"
+    refute text(card, ".prompt-assembly") =~ "left out"
   end
 
   test "the search for earlier work is its own card, before the briefing it fed" do
@@ -454,7 +520,8 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
 
         %{
           "mode" => "full",
-          "inputs" => %{"items" => items, "omitted_count" => 16},
+          "inputs" => %{"items" => items, "omitted_count" => Keyword.get(options, :omitted, 16)},
+          "operator_context" => Keyword.get(options, :operator_context, %{}),
           "records" => []
         }
       end
@@ -478,6 +545,71 @@ defmodule Ryker.ControlPlane.BriefingCountsTest do
   # The timeline reads the context out of the retained prompt document, so the
   # fixture writes exactly the document the builder writes.
   defp prompt(context), do: Jason.encode!(%{"instructions" => "Investigate", "work" => context})
+
+  # A later run of `first`'s request that continues a session: its new
+  # messages and its parent's fingerprint, as the builder writes them.
+  defp continued!(first, items, parent, options \\ []) do
+    context = %{
+      "mode" => "continuation",
+      "parent_submission_ref" => parent,
+      "current_inputs" => %{"items" => items, "omitted_count" => 0}
+    }
+
+    {:ok, submission} =
+      Submission.new(
+        %{"work" => context},
+        prompt(context),
+        %{"type" => "object"},
+        "work-final-live-v3"
+      )
+
+    Repo.insert!(%Turn{
+      id: Ecto.UUID.generate(),
+      episode_id: first.episode.id,
+      session_id: Keyword.get(options, :session_id, first.turn.session_id),
+      turn_ref: "continued:#{Ecto.UUID.generate()}",
+      status: :pending,
+      submission: submission,
+      submission_fingerprint: Submission.fingerprint(submission),
+      inserted_at:
+        DateTime.add(DateTime.utc_now(), System.unique_integer([:positive]), :millisecond)
+    })
+  end
+
+  defp message(text, current) do
+    %{
+      "actor_ref" => "U123",
+      "content" => %{"text" => text},
+      "current" => current,
+      "occurred_at" => "2026-10-16T09:00:00Z",
+      "revision" => 1,
+      "source_ref" => "slack-message:#{text}"
+    }
+  end
+
+  # Each Work message row of a briefing card as it reads closed: its title,
+  # count and note, which the page separates with a dot.
+  defp rows(card) do
+    card
+    |> LazyHTML.query(~s(.prompt-group[data-group="conversation"] .prompt-source-main))
+    |> Enum.map(fn row ->
+      row
+      |> LazyHTML.query(".prompt-source-title, .prompt-source-count, .prompt-source-doc")
+      |> Enum.map_join(" · ", &words(LazyHTML.text(&1)))
+    end)
+    |> Enum.filter(&String.starts_with?(&1, ["New messages", "Earlier in this request"]))
+  end
+
+  defp message_texts(document, turn) do
+    document
+    |> LazyHTML.query(
+      "#request-#{turn.id} .prompt-source[data-source=earlier_in_request] .context-message .ui-message-body"
+    )
+    |> Enum.map(&String.trim(LazyHTML.text(&1)))
+  end
+
+  defp text(node, selector), do: node |> LazyHTML.query(selector) |> LazyHTML.text()
+  defp words(text), do: text |> String.split() |> Enum.join(" ")
 
   defp admitted!(snapshot, candidates \\ [%{"state" => "active"}, %{"state" => "complete"}]) do
     {:ok, input} =

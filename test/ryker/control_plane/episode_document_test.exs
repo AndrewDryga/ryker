@@ -752,7 +752,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
 
     assert summaries =~ "System prompt"
     assert summaries =~ "Guidance"
-    assert summaries =~ "Conversation messages"
+    assert summaries =~ "New messages"
 
     assert Enum.count(
              LazyHTML.query(
@@ -1254,7 +1254,7 @@ defmodule Ryker.ControlPlane.EpisodeDocumentTest do
     assert LazyHTML.text(document) =~ "Briefing sources"
     assert html =~ "System prompt"
     refute html =~ "Host-authored instructions"
-    assert html =~ "Conversation messages"
+    assert html =~ "New messages"
     assert html =~ "Retained instructions &lt;not HTML&gt;"
     refute html =~ "<not HTML>"
     visible = LazyHTML.from_fragment(html) |> LazyHTML.text()

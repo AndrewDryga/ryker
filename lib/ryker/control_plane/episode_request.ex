@@ -132,6 +132,22 @@ defmodule Ryker.ControlPlane.EpisodeRequest do
         </header>
         {Phoenix.HTML.raw(submitted(@request, @prompt_section))}
       </section>
+      <Components.disclosure
+        :if={!@result? && @request[:selection]}
+        id={"#{@request.id}-details"}
+        label="Details"
+        class="request-selection"
+      >
+        <Components.fact_list
+          :if={@request.selection.limits}
+          facts={[%{label: "Limits", value: @request.selection.limits}]}
+        />
+        <Components.json_disclosure
+          id={"#{@request.id}-selection-record"}
+          label="Selection record"
+          text={@request.selection.record}
+        />
+      </Components.disclosure>
       <section :if={is_map(@response)} class="response-review">
         <Components.message_block :if={is_binary(@response["message"])} sender="Ryker">
           {Ryker.ControlPlane.SlackMarkdown.html(@response["message"])}

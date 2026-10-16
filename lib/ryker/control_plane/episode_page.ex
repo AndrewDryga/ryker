@@ -1156,7 +1156,7 @@ defmodule Ryker.ControlPlane.EpisodePage do
           step={@entry.step}
         />
         <.search_card
-          :if={@entry.kind == :event && @entry.step.stage in ["Search", "Selection"]}
+          :if={@entry.kind == :event && @entry.step.stage == "Search"}
           step={@entry.step}
         />
         <.work_setup
@@ -1250,7 +1250,6 @@ defmodule Ryker.ControlPlane.EpisodePage do
       "Participation",
       "Queue",
       "Search",
-      "Selection",
       "Work setup",
       "Work plan",
       "Observations"
@@ -1552,11 +1551,12 @@ defmodule Ryker.ControlPlane.EpisodePage do
           <dd>{value}</dd>
         </div>
       </dl>
-      <.disclosure id={@step.id <> "-record"} label={@step.search.record_label} class="search-record">
-        <.copy_block label="Copy JSON">
-          <pre class="model-document-text" tabindex="0">{@step.search.record}</pre>
-        </.copy_block>
-      </.disclosure>
+      <.json_disclosure
+        id={@step.id <> "-record"}
+        label={@step.search.record_label}
+        text={@step.search.record}
+        class="search-record"
+      />
     </div>
     """
   end

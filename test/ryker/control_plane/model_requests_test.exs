@@ -314,7 +314,7 @@ defmodule Ryker.ControlPlane.ModelRequestsTest do
     refute visible =~ "$.instructions"
     refute visible =~ "$.work.inputs"
     refute visible =~ "$.work.controller_tools"
-    assert html =~ "data-source=\"inputs\""
+    assert html =~ "data-source=\"new_messages\""
     assert html =~ "source message &lt;script&gt;"
     refute html =~ "aria-label=\"Request contents\""
     refute html =~ "xoxb-recorded-credential"
