@@ -83,6 +83,14 @@ defmodule Ryker.ControlPlane.ImprovementRequestsTest do
     refute text =~ "$.context"
     assert text =~ "Changed by the person; the words it had first are not kept."
     assert text =~ "Not sent: it quoted words that were later changed, deleted or forgotten"
+
+    # Each Work turn's calls, with the error a refused one got, its
+    # corrections, and the exact instructions it ran with.
+    assert text =~ "controller-tools.get_work_state"
+    assert text =~ "/limit (required): is required."
+    assert text =~ "1 answer sent back"
+    assert text =~ "Work instructions"
+    assert text =~ "Finish the exact request."
     refute text =~ "Prompt forgotten"
     refute text =~ "Custom instructions"
     refute text =~ "Continuation candidates"
@@ -240,7 +248,28 @@ defmodule Ryker.ControlPlane.ImprovementRequestsTest do
             "kept" => "forgotten"
           }
         ],
-        work: [],
+        work: [
+          %{
+            "started_at" => "2026-09-27T12:00:00Z",
+            "status" => "settled",
+            "error" => nil,
+            "model" => "codex:gpt-5.6-sol/medium@personal",
+            "instructions" => "instructions-1",
+            "calls" => [
+              %{
+                "tool" => "controller-tools.get_work_state",
+                "status" => "completed",
+                "arguments" => "{}",
+                "result" => nil,
+                "error" => "invalid_arguments: 1 issue. /limit (required): is required."
+              }
+            ],
+            "corrections" => [%{"attempt" => 1, "violations" => "[]"}],
+            "outcome" => "complete",
+            "answer" => "The production database is healthy."
+          }
+        ],
+        instructions: [%{"id" => "instructions-1", "text" => "Finish the exact request."}],
         feedback: [%{"kind" => "reaction_added", "value" => "-1"}],
         omitted: []
       }

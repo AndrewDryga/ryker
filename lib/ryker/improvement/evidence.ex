@@ -3,8 +3,9 @@ defmodule Ryker.Improvement.Evidence do
   The exact evidence about a candidate's request, as Ryker kept it: the
   person's messages and Ryker's answers in order, each routing decision with
   the exact prompt routing sent and the answer it gave, each Work turn with
-  the tools it called and the answer it delivered, and every piece of
-  feedback on the request, positive or not.
+  the instructions it ran with, each call it made with its arguments and
+  what came back, each correction the host sent back and the answer it
+  delivered, and every piece of feedback on the request, positive or not.
 
   Everything is read, never paraphrased, and every stored credential is
   redacted from it (`Ryker.InspectionRedactor`). What a person took back is
@@ -26,6 +27,7 @@ defmodule Ryker.Improvement.Evidence do
   alias Ryker.Improvement.Candidate
   alias Ryker.Ingress
   alias Ryker.InspectionRedactor
+  alias Ryker.PromptDocument
   alias Ryker.Publication
   alias Ryker.Records
   alias Ryker.Reference
@@ -34,8 +36,12 @@ defmodule Ryker.Improvement.Evidence do
   alias Ryker.Work
 
   @message_limit 60
-  @tool_limit 40
+  @call_limit 40
   @routing_limit 8
+  # A call's arguments and what came back, as the analysis reads them: enough
+  # to see what was asked and how it ended, never a whole tool output.
+  @call_bytes 600
+  @correction_bytes 1_000
 
   @type missing ::
           :improvement_evidence_unavailable
@@ -49,6 +55,7 @@ defmodule Ryker.Improvement.Evidence do
           conversation: [map()],
           routing: [map()],
           work: [map()],
+          instructions: [map()],
           publication: map() | nil,
           feedback: [map()],
           omitted: [String.t()],
@@ -129,7 +136,8 @@ defmodule Ryker.Improvement.Evidence do
     messages = Enum.map(entries, &message(&1, deleted, edited, secrets))
     answers = answers(request, entries, secrets)
     {routing, routing_keys} = routing(entries, deleted, edited, secrets)
-    work = work(episode, secrets)
+    quoting? = MapSet.size(deleted) > 0 or MapSet.size(edited) > 0
+    %{turns: work, instructions: instructions} = work(episode, secrets, quoting?)
     feedback = feedback(request, entries, deleted, edited, secrets)
     missing = missing(messages)
 
@@ -152,10 +160,12 @@ defmodule Ryker.Improvement.Evidence do
         conversation: conversation(messages, answers),
         routing: routing,
         work: work,
+        instructions: instructions,
         publication: if(is_nil(missing), do: publication(episode, secrets)),
         feedback: Enum.map(feedback, &Map.delete(&1, :key)),
         omitted:
-          omitted(messages, routing, entries) ++ expired_answers(request, entries, answers),
+          omitted(messages, routing, entries) ++
+            expired_answers(request, entries, answers) ++ withheld_calls(quoting?, work),
         message_keys: keys,
         conversation_refs: conversations
       },
@@ -523,60 +533,164 @@ defmodule Ryker.Improvement.Evidence do
     end
   end
 
-  defp work(nil, _secrets), do: []
+  # Each Work turn as it ran: how it ended and its model, the instructions it
+  # was given, each call it made with its arguments and what came back, each
+  # correction the host sent back about its answer, and the answer it
+  # delivered. The instructions are the turn's own frozen ones, never today's,
+  # and identical ones are written once, in `instructions`, for each turn to
+  # name. A call's arguments and result can quote what a person said, so once
+  # a person deleted or changed one of the request's messages they are left
+  # out, as routing's prompts are, and only each call's tool and ending stay.
+  defp work(nil, _secrets, _quoting?), do: %{turns: [], instructions: []}
 
-  defp work(%Episodes.Episode{id: id}, secrets) do
+  defp work(%Episodes.Episode{id: id}, secrets, quoting?) do
     turns =
       id |> Work.Turn.Query.by_episode_id() |> Work.Turn.Query.ordered_by_oldest() |> Repo.all()
 
-    tools = tools(id)
+    calls = calls(id, secrets, quoting?)
+    {instructions, refs} = turn_instructions(turns, secrets)
 
-    Enum.map(turns, fn turn ->
-      document = if is_map(turn.delivery_document), do: turn.delivery_document, else: %{}
+    %{
+      instructions: instructions,
+      turns:
+        Enum.map(turns, fn turn ->
+          document = if is_map(turn.delivery_document), do: turn.delivery_document, else: %{}
 
-      %{
-        "started_at" => iso(turn.inserted_at),
-        "status" => Atom.to_string(turn.status),
-        "error" => turn.last_error_code,
-        "model" => turn.execution_target,
-        "outcome" => get_in(document, ["outcome", "state"]),
-        "answer" => redact(document["message"], secrets),
-        "tools" => Map.get(tools, turn.coop_turn_id, [])
-      }
-    end)
+          %{
+            "started_at" => iso(turn.inserted_at),
+            "status" => Atom.to_string(turn.status),
+            "error" => turn.last_error_code,
+            "model" => turn.execution_target,
+            "instructions" => Map.get(refs, turn.id),
+            "calls" => Map.get(calls, turn.coop_turn_id, []),
+            "corrections" => corrections(turn.validation_history, secrets),
+            "outcome" => get_in(document, ["outcome", "state"]),
+            "answer" => redact(document["message"], secrets)
+          }
+        end)
+    }
   end
 
-  # The tools each turn called, in order, with how each call ended: a
-  # server's tool by name, or what the worker was doing (such as starting a
-  # tool server) when it names no tool.
-  defp tools(episode_id) do
+  # The instructions each turn's frozen submission carried, once per text: a
+  # turn past retention has none, and names none.
+  defp turn_instructions(turns, secrets) do
+    texts =
+      for %Work.Turn{operational_pruned_at: nil, submission: %{"prompt" => prompt}} = turn <-
+            turns,
+          %{"instructions" => text} when is_binary(text) <- [decode(prompt)],
+          do: {turn.id, text}
+
+    unique = texts |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
+
+    ids =
+      unique
+      |> Enum.with_index(1)
+      |> Map.new(fn {text, index} -> {text, "instructions-#{index}"} end)
+
+    {Enum.map(unique, &%{"id" => ids[&1], "text" => redact(&1, secrets)}),
+     Map.new(texts, fn {turn, text} -> {turn, ids[text]} end)}
+  end
+
+  defp decode(prompt) when is_binary(prompt) do
+    case Jason.decode(prompt) do
+      {:ok, %{} = document} -> document
+      _unreadable -> %{}
+    end
+  end
+
+  defp decode(_prompt), do: %{}
+
+  # The calls each turn made, in order: the tool, how the call ended, its
+  # arguments and what came back or the error, each bounded. Only what the
+  # worker reported is read: a call it reported no result for has none.
+  defp calls(episode_id, secrets, quoting?) do
     rows = Repo.all(Work.ActivityEvent.Query.tool_events(episode_id))
 
     endings =
       for {_turn, "tool.completed", %{"tool_call_id" => call} = payload} <- rows,
           into: %{},
-          do: {call, payload["status"]}
+          do: {call, payload}
 
     rows
     |> Enum.flat_map(fn
       {turn, "tool.started", %{"tool_call_id" => call} = payload} ->
-        [
-          {turn,
-           %{"tool" => tool_name(payload), "status" => Map.get(endings, call, "unfinished")}}
-        ]
+        [{turn, call(payload, Map.get(endings, call), secrets, quoting?)}]
 
       _completed ->
         []
     end)
     |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
-    |> Map.new(fn {turn, calls} -> {turn, Enum.take(calls, -@tool_limit)} end)
+    |> Map.new(fn {turn, calls} -> {turn, Enum.take(calls, -@call_limit)} end)
   end
+
+  defp call(started, ended, secrets, quoting?) do
+    error = ended && get_in(ended, ["output", "error"])
+
+    %{
+      "tool" => tool_name(started),
+      "status" => if(ended, do: ended["status"] || "completed", else: "unfinished"),
+      "arguments" =>
+        unless(quoting?, do: bounded(get_in(started, ["input", "arguments"]), secrets)),
+      "result" => unless(quoting? or error, do: bounded(result(ended), secrets)),
+      "error" => bounded(error, secrets)
+    }
+  end
+
+  defp result(%{"output" => %{"result" => %{"content" => content}}}) when is_list(content) do
+    content
+    |> Enum.flat_map(fn
+      %{"text" => text} when is_binary(text) -> [text]
+      _other -> []
+    end)
+    |> case do
+      [] -> nil
+      texts -> Enum.join(texts, "\n")
+    end
+  end
+
+  defp result(_ended), do: nil
+
+  defp bounded(nil, _secrets), do: nil
+
+  defp bounded(value, secrets) when is_binary(value),
+    do: bounded_text(value, secrets, @call_bytes)
+
+  defp bounded(value, secrets), do: bounded_text(Jason.encode!(value), secrets, @call_bytes)
+
+  defp bounded_text(text, secrets, bytes) do
+    redacted = redact(text, secrets)
+    if byte_size(redacted) > bytes, do: PromptDocument.cut(redacted, bytes), else: redacted
+  end
+
+  # What the host sent back about each answer it refused, in order: the
+  # attempt and what it said to change.
+  defp corrections(history, secrets) when is_list(history) do
+    for %{"verdict" => "reject"} = entry <- history do
+      %{
+        "attempt" => entry["candidate_attempt"],
+        "violations" =>
+          bounded_text(Jason.encode!(entry["violations"] || []), secrets, @correction_bytes)
+      }
+    end
+  end
+
+  defp corrections(_history, _secrets), do: []
 
   defp tool_name(%{"input" => %{"server" => server, "tool" => tool}})
        when is_binary(server) and is_binary(tool),
        do: "#{server}.#{tool}"
 
   defp tool_name(%{"tool_call_id" => call}), do: call
+
+  defp withheld_calls(true, work) do
+    if Enum.any?(work, &(&1["calls"] != [])),
+      do: [
+        "Work calls' arguments and results, which can quote a message a person deleted or changed."
+      ],
+      else: []
+  end
+
+  defp withheld_calls(false, _work), do: []
 
   # -- Feedback ---------------------------------------------------------------------
 

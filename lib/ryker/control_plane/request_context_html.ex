@@ -115,7 +115,10 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
        "What routing decided about each message. Each routing prompt is in the submitted prompt below."},
     "work" =>
       {"Work turns", "memory",
-       "Each Work turn: how it ended, the tools it called and its answer."},
+       "Each Work turn: how it ended, each call it made and what came back, each correction it was sent, and its answer."},
+    "work_instructions" =>
+      {"Work instructions", "policy",
+       "The exact instructions each Work turn was given, as the turn kept them."},
     "feedback" => {"Feedback", "conversation", "Everything people said or did about the answer."},
     "omitted" => {"Left out", "runtime", "Evidence the analysis did not get, and why."}
   }
@@ -548,7 +551,7 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   # parts routing and Work are briefed with, so its briefing has one group,
   # its parts in reading order. Routing's rows for parts it sends only when
   # full ("Not configured", "None") read here as missing (2026-09-28).
-  @analysis_order ~w(request conversation routing work feedback omitted)
+  @analysis_order ~w(request conversation routing work work_instructions feedback omitted)
 
   defp analysis_assembly(%{state: :retained, truncated: false, text: text}, prefix, counts) do
     case Jason.decode(text) do
@@ -2021,6 +2024,19 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   defp body("omitted", items, "$.context.omitted", _prefix) when is_list(items),
     do: analysis_omitted(Enum.filter(items, &is_binary/1))
 
+  defp body("work_instructions", items, "$.context.work_instructions", _prefix)
+       when is_list(items) do
+    for %{"id" => id, "text" => text} <- items, is_binary(text) do
+      [
+        "<section class=\"analysis-instructions\"><h5>",
+        escape(id),
+        "</h5><pre class=\"model-document-text\">",
+        escape(text),
+        "</pre></section>"
+      ]
+    end
+  end
+
   defp body("inputs", value, "$.inputs", _prefix) when is_list(value),
     do: messages(%{"inputs" => value}, :learning)
 
@@ -2295,10 +2311,8 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
   end
 
   defp analysis_item("work", item, workspace) do
-    tools =
-      for %{"tool" => tool} = call <- List.wrap(item["tools"]), is_binary(tool) do
-        tool <> if(is_binary(call["status"]), do: " · " <> call["status"], else: "")
-      end
+    calls = for %{"tool" => tool} = call <- List.wrap(item["calls"]), is_binary(tool), do: call
+    corrections = List.wrap(item["corrections"])
 
     analysis_card(
       "Work: " <> ((present(item["outcome"]) || present(item["status"]) || "unknown") |> human()),
@@ -2307,8 +2321,13 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
         "<dl class=\"context-rows\">",
         context_row("Model", present(item["model"])),
         context_row("Error", item["error"] |> present() |> human_or_nil()),
-        context_row("Tools", if(tools != [], do: Enum.join(tools, ", "))),
+        context_row("Instructions", present(item["instructions"])),
+        context_row(
+          "Corrections",
+          if(corrections != [], do: count(length(corrections), "answer") <> " sent back")
+        ),
         "</dl>",
+        analysis_calls(calls),
         analysis_answer("Answer", item["answer"], workspace)
       ]
     )
@@ -2335,6 +2354,28 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
 
   # Why a message's words or a routing prompt were not in the evidence, in
   # words; the values are the ones `Ryker.Improvement.Evidence` records.
+  defp analysis_calls([]), do: []
+
+  defp analysis_calls(calls) do
+    [
+      "<ol class=\"analysis-calls\">",
+      Enum.map(calls, fn call ->
+        [
+          "<li><code>",
+          escape(call["tool"]),
+          "</code> ",
+          escape(present(call["status"]) || ""),
+          if(is_binary(call["error"]),
+            do: ["<pre class=\"model-document-text\">", escape(call["error"]), "</pre>"],
+            else: []
+          ),
+          "</li>"
+        ]
+      end),
+      "</ol>"
+    ]
+  end
+
   defp analysis_note("deleted by the person"),
     do: "Deleted by the person; its words are not kept."
 

@@ -416,6 +416,148 @@ defmodule Ryker.Improvement.EvidenceTest do
     assert "Opened the pull request." in said
   end
 
+  # The reviewer was asked to tell an instruction defect from a model that
+  # ignored adequate instructions without seeing either: its evidence held
+  # each Work turn's tool names and statuses, never the instructions, the
+  # arguments, what came back or the corrections. Two saved diagnoses said so
+  # (2026-10-16).
+  test "a Work turn's evidence holds the instructions it ran with, each call and each correction" do
+    question = message!("1790501000.000100", "Which revision is deployed?")
+    reply = Answers.work_reply!(question, "I can't tell.", "1790501000.000200", @now)
+    unhappy!({:episode, reply.episode.id}, "work-calls")
+    secret = "sk-evidence-#{String.duplicate("z", 24)}"
+
+    frozen!(reply.turn, "Frozen instructions of that release: close every gap you can.")
+
+    Repo.update_all(from(t in Turn, where: t.id == ^reply.turn.id),
+      set: [
+        coop_turn_id: "coop-turn-evidence",
+        validation_history: [
+          %{
+            "candidate_attempt" => 1,
+            "verdict" => "reject",
+            "violations" => [%{"message" => "Cite the run."}]
+          },
+          %{"candidate_attempt" => 2, "verdict" => "accept", "violations" => []}
+        ]
+      ]
+    )
+
+    call!(reply, 1, "run_action", %{"action_id" => "tfc.list_runs", "token" => secret},
+      result: String.duplicate("run ", 400)
+    )
+
+    call!(reply, 3, "record_finding", %{"cause_evidence" => []},
+      error: "invalid_arguments: 1 issue. /cause_evidence (max_items): takes at most 10 items."
+    )
+
+    # A key that names a credential keeps only the redaction marker.
+    evidence = Evidence.gather(Inspectors.improvement_candidate({:episode, reply.episode.id}))
+
+    # The turn's own frozen instructions, once, never today's.
+    assert [
+             %{
+               "id" => "instructions-1",
+               "text" => "Frozen instructions of that release: close every gap you can."
+             }
+           ] =
+             evidence.instructions
+
+    assert [turn] = evidence.work
+    assert turn["instructions"] == "instructions-1"
+
+    assert [run, finding] = turn["calls"]
+    assert run["tool"] == "controller-tools.run_action"
+    refute run["arguments"] =~ secret
+    assert run["arguments"] =~ "tfc.list_runs"
+    assert byte_size(run["result"]) <= 700
+    assert finding["error"] =~ "/cause_evidence (max_items)"
+    assert finding["result"] == nil
+
+    assert [%{"attempt" => 1, "violations" => violations}] = turn["corrections"]
+    assert violations =~ "Cite the run."
+  end
+
+  test "a call's arguments and result stay out once a person deleted a message of the request" do
+    question = message!("1790501100.000100", "Check the payroll export host.")
+
+    reply =
+      Answers.work_reply!(question, "It runs on the billing box.", "1790501100.000200", @now)
+
+    unhappy!({:episode, reply.episode.id}, "work-calls-deleted")
+
+    Repo.update_all(from(t in Turn, where: t.id == ^reply.turn.id),
+      set: [coop_turn_id: "coop-turn-deleted"]
+    )
+
+    call!(reply, 1, "run_action", %{"query" => "payroll export host"}, result: "billing-box-1")
+
+    Answers.slack_message!(
+      workspace: @workspace,
+      channel: @channel,
+      actor: "UALICE",
+      text: "",
+      ts: "1790501100.000100",
+      kind: :delete,
+      revision: 2,
+      at: DateTime.add(@now, 180, :second)
+    )
+
+    evidence = Evidence.gather(Inspectors.improvement_candidate({:episode, reply.episode.id}))
+    assert [%{"calls" => [call]}] = evidence.work
+    assert call["tool"] == "controller-tools.run_action"
+    assert {call["arguments"], call["result"]} == {nil, nil}
+
+    assert "Work calls' arguments and results, which can quote a message a person deleted or changed." in evidence.omitted
+
+    refute CanonicalJSON.encode!(Prompt.build(evidence)) =~ "payroll"
+  end
+
+  defp frozen!(turn, instructions) do
+    prompt = Jason.encode!(%{"instructions" => instructions, "work" => %{"mode" => "full"}})
+
+    Repo.update_all(from(t in Turn, where: t.id == ^turn.id),
+      set: [submission: %{"prompt" => prompt, "output_schema" => %{"type" => "object"}}]
+    )
+  end
+
+  # One call the worker reported for `reply`'s turn: started, then how it ended.
+  defp call!(reply, sequence, tool, arguments, ending) do
+    input = %{"arguments" => arguments, "server" => "controller-tools", "tool" => tool}
+    call = "call-#{reply.turn.id}-#{sequence}"
+
+    output =
+      case Keyword.fetch(ending, :error) do
+        {:ok, error} -> %{"error" => error, "result" => nil}
+        :error -> %{"error" => nil, "result" => %{"content" => [%{"text" => ending[:result]}]}}
+      end
+
+    for {kind, offset, payload} <- [
+          {"tool.started", 0, %{"input" => input, "tool_call_id" => call}},
+          {"tool.completed", 1,
+           %{
+             "input" => input,
+             "output" => output,
+             "status" => "completed",
+             "tool_call_id" => call
+           }}
+        ] do
+      Repo.insert!(%Ryker.Work.ActivityEvent{
+        coop_turn_id: Repo.get!(Turn, reply.turn.id).coop_turn_id,
+        episode_id: reply.episode.id,
+        kind: kind,
+        occurred_at: DateTime.add(@now, sequence * 2 + offset, :second),
+        payload: payload,
+        payload_fingerprint: CanonicalJSON.digest(payload),
+        remote_event_id: "#{call}:#{kind}",
+        remote_session_id: "remote-session:#{reply.turn.session_id}",
+        sequence: sequence * 2 + offset,
+        session_id: reply.turn.session_id,
+        version: 1
+      })
+    end
+  end
+
   defp message!(ts, text) do
     Answers.slack_message!(
       workspace: @workspace,
