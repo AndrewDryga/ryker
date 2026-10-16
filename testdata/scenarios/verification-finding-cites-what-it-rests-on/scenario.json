@@ -688,20 +688,24 @@
           {
             "kind": "result",
             "value": {
-              "observed_at": "2026-10-13T21:24:00Z",
+              "observed_at": "2026-10-13T21:23:00Z",
               "check": "logs",
               "replicas": [
                 {
                   "replica": "arena-a",
-                  "source_ref": "source:va1:arena-a:logs:20261013T2124Z",
+                  "source_ref": "source:va1:arena-a:logs:20261013T2123Z",
                   "window": "2m",
-                  "error_lines": 0
+                  "error_lines": 0,
+                  "from": "2026-10-13T21:21:00Z",
+                  "to": "2026-10-13T21:23:00Z"
                 },
                 {
                   "replica": "arena-b",
-                  "source_ref": "source:va1:arena-b:logs:20261013T2124Z",
+                  "source_ref": "source:va1:arena-b:logs:20261013T2123Z",
                   "window": "2m",
-                  "error_lines": 0
+                  "error_lines": 0,
+                  "from": "2026-10-13T21:21:00Z",
+                  "to": "2026-10-13T21:23:00Z"
                 }
               ]
             }
@@ -709,20 +713,24 @@
           {
             "kind": "result",
             "value": {
-              "observed_at": "2026-10-13T21:24:00Z",
+              "observed_at": "2026-10-13T21:23:00Z",
               "check": "logs",
               "replicas": [
                 {
                   "replica": "arena-a",
-                  "source_ref": "source:va1:arena-a:logs:20261013T2124Z",
+                  "source_ref": "source:va1:arena-a:logs:20261013T2123Z",
                   "window": "2m",
-                  "error_lines": 0
+                  "error_lines": 0,
+                  "from": "2026-10-13T21:21:00Z",
+                  "to": "2026-10-13T21:23:00Z"
                 },
                 {
                   "replica": "arena-b",
-                  "source_ref": "source:va1:arena-b:logs:20261013T2124Z",
+                  "source_ref": "source:va1:arena-b:logs:20261013T2123Z",
                   "window": "2m",
-                  "error_lines": 0
+                  "error_lines": 0,
+                  "from": "2026-10-13T21:21:00Z",
+                  "to": "2026-10-13T21:23:00Z"
                 }
               ]
             }
@@ -730,20 +738,24 @@
           {
             "kind": "result",
             "value": {
-              "observed_at": "2026-10-13T21:24:00Z",
+              "observed_at": "2026-10-13T21:23:00Z",
               "check": "logs",
               "replicas": [
                 {
                   "replica": "arena-a",
-                  "source_ref": "source:va1:arena-a:logs:20261013T2124Z",
+                  "source_ref": "source:va1:arena-a:logs:20261013T2123Z",
                   "window": "2m",
-                  "error_lines": 0
+                  "error_lines": 0,
+                  "from": "2026-10-13T21:21:00Z",
+                  "to": "2026-10-13T21:23:00Z"
                 },
                 {
                   "replica": "arena-b",
-                  "source_ref": "source:va1:arena-b:logs:20261013T2124Z",
+                  "source_ref": "source:va1:arena-b:logs:20261013T2123Z",
                   "window": "2m",
-                  "error_lines": 0
+                  "error_lines": 0,
+                  "from": "2026-10-13T21:21:00Z",
+                  "to": "2026-10-13T21:23:00Z"
                 }
               ]
             }
@@ -751,20 +763,24 @@
           {
             "kind": "result",
             "value": {
-              "observed_at": "2026-10-13T21:24:00Z",
+              "observed_at": "2026-10-13T21:23:00Z",
               "check": "logs",
               "replicas": [
                 {
                   "replica": "arena-a",
-                  "source_ref": "source:va1:arena-a:logs:20261013T2124Z",
+                  "source_ref": "source:va1:arena-a:logs:20261013T2123Z",
                   "window": "2m",
-                  "error_lines": 0
+                  "error_lines": 0,
+                  "from": "2026-10-13T21:21:00Z",
+                  "to": "2026-10-13T21:23:00Z"
                 },
                 {
                   "replica": "arena-b",
-                  "source_ref": "source:va1:arena-b:logs:20261013T2124Z",
+                  "source_ref": "source:va1:arena-b:logs:20261013T2123Z",
                   "window": "2m",
-                  "error_lines": 0
+                  "error_lines": 0,
+                  "from": "2026-10-13T21:21:00Z",
+                  "to": "2026-10-13T21:23:00Z"
                 }
               ]
             }
@@ -772,20 +788,24 @@
           {
             "kind": "result",
             "value": {
-              "observed_at": "2026-10-13T21:24:00Z",
+              "observed_at": "2026-10-13T21:23:00Z",
               "check": "logs",
               "replicas": [
                 {
                   "replica": "arena-a",
-                  "source_ref": "source:va1:arena-a:logs:20261013T2124Z",
+                  "source_ref": "source:va1:arena-a:logs:20261013T2123Z",
                   "window": "2m",
-                  "error_lines": 0
+                  "error_lines": 0,
+                  "from": "2026-10-13T21:21:00Z",
+                  "to": "2026-10-13T21:23:00Z"
                 },
                 {
                   "replica": "arena-b",
-                  "source_ref": "source:va1:arena-b:logs:20261013T2124Z",
+                  "source_ref": "source:va1:arena-b:logs:20261013T2123Z",
                   "window": "2m",
-                  "error_lines": 0
+                  "error_lines": 0,
+                  "from": "2026-10-13T21:21:00Z",
+                  "to": "2026-10-13T21:23:00Z"
                 }
               ]
             }
@@ -793,20 +813,24 @@
           {
             "kind": "result",
             "value": {
-              "observed_at": "2026-10-13T21:24:00Z",
+              "observed_at": "2026-10-13T21:23:00Z",
               "check": "logs",
               "replicas": [
                 {
                   "replica": "arena-a",
-                  "source_ref": "source:va1:arena-a:logs:20261013T2124Z",
+                  "source_ref": "source:va1:arena-a:logs:20261013T2123Z",
                   "window": "2m",
-                  "error_lines": 0
+                  "error_lines": 0,
+                  "from": "2026-10-13T21:21:00Z",
+                  "to": "2026-10-13T21:23:00Z"
                 },
                 {
                   "replica": "arena-b",
-                  "source_ref": "source:va1:arena-b:logs:20261013T2124Z",
+                  "source_ref": "source:va1:arena-b:logs:20261013T2123Z",
                   "window": "2m",
-                  "error_lines": 0
+                  "error_lines": 0,
+                  "from": "2026-10-13T21:21:00Z",
+                  "to": "2026-10-13T21:23:00Z"
                 }
               ]
             }
