@@ -5,7 +5,8 @@
     ],
     "denied_authority": [
       "github-pr-review-remains-in-thread",
-      "missing-project-denied-access-asks-about-access"
+      "missing-project-denied-access-asks-about-access",
+      "unmeasured-failure-claims-no-cause"
     ],
     "missing_stale_contradictory_evidence": [
       "deep-check-closes-its-gaps-before-reporting",
@@ -16,6 +17,7 @@
       "va1-health-review-repairs-and-finishes"
     ],
     "mistaken_correlation": [
+      "confirmed-failure-with-unknown-cause-stays-unexplained",
       "similar-alert-different-environment-stays-separate"
     ],
     "noisy_context": [
@@ -44,7 +46,11 @@
   },
   "jobs": {
     "application_errors": [
-      "application-errors-follow-the-current-signal"
+      "application-errors-follow-the-current-signal",
+      "confirmed-failure-with-unknown-cause-stays-unexplained",
+      "established-cause-makes-a-finding-explained",
+      "maintenance-window-errors-are-expected",
+      "unmeasured-failure-claims-no-cause"
     ],
     "artifacts": [
       "artifact-delivery-survives-work-handoff"

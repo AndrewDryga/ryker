@@ -1,0 +1,1338 @@
+{
+  "version": 1,
+  "id": "confirmed-failure-with-unknown-cause-stays-unexplained",
+  "provenance": {
+    "kind": "production",
+    "episode_refs": [
+      "episode_run_4c1e0d7a2b9f8e6d5c3a1b0f9e8d7c6b"
+    ],
+    "captured_at": "2026-10-15T20:21:01Z"
+  },
+  "clock": {
+    "start": "2026-10-15T20:13:00Z"
+  },
+  "actors": [
+    {
+      "actor_ref": "slack:user:U-operator",
+      "authority": "read_only",
+      "input_profile": {
+        "actor": {
+          "kind": "user",
+          "ref": "U-operator"
+        },
+        "event_kind": "message",
+        "occurred_at_source": "source",
+        "source": {
+          "kind": "slack",
+          "ref": "TEVAL"
+        },
+        "source_capabilities": {
+          "react": {
+            "emoji_names": null
+          }
+        }
+      },
+      "kind": "human"
+    }
+  ],
+  "events": [
+    {
+      "actor_ref": "slack:user:U-operator",
+      "destination": {
+        "conversation_ref": "slack:TEVAL:CEVAL",
+        "thread_ref": "1792095139.322819",
+        "transport": "slack"
+      },
+      "kind": "input",
+      "occurred_at": "2026-10-15T20:13:00Z",
+      "payload": {
+        "text": "How is health of our infra in VA1?"
+      }
+    }
+  ],
+  "world": {
+    "repositories": [],
+    "scheduled_events": [],
+    "tool_rules": [
+      {
+        "id": "alerts-firing",
+        "tool": "monitoring.query",
+        "match": {
+          "environment": {
+            "$one_of": [
+              "VA1",
+              "va1",
+              "VA1 production",
+              "prod",
+              "production",
+              "va1-prod"
+            ]
+          },
+          "query": {
+            "$one_of": [
+              {
+                "$contains_all": [
+                  "alert"
+                ]
+              }
+            ]
+          }
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:alerts:20261015T2020Z",
+              "alerts": [
+                {
+                  "name": "ArenaIngress5xxHigh",
+                  "state": "firing",
+                  "since": "2026-10-03T11:04:00Z"
+                },
+                {
+                  "name": "DuelDeadLetterRate",
+                  "state": "firing",
+                  "since": "2026-10-15T06:42:00Z",
+                  "detail": "78 dead-letter arrivals over the last hour"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:alerts:20261015T2020Z",
+              "alerts": [
+                {
+                  "name": "ArenaIngress5xxHigh",
+                  "state": "firing",
+                  "since": "2026-10-03T11:04:00Z"
+                },
+                {
+                  "name": "DuelDeadLetterRate",
+                  "state": "firing",
+                  "since": "2026-10-15T06:42:00Z",
+                  "detail": "78 dead-letter arrivals over the last hour"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:alerts:20261015T2020Z",
+              "alerts": [
+                {
+                  "name": "ArenaIngress5xxHigh",
+                  "state": "firing",
+                  "since": "2026-10-03T11:04:00Z"
+                },
+                {
+                  "name": "DuelDeadLetterRate",
+                  "state": "firing",
+                  "since": "2026-10-15T06:42:00Z",
+                  "detail": "78 dead-letter arrivals over the last hour"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:alerts:20261015T2020Z",
+              "alerts": [
+                {
+                  "name": "ArenaIngress5xxHigh",
+                  "state": "firing",
+                  "since": "2026-10-03T11:04:00Z"
+                },
+                {
+                  "name": "DuelDeadLetterRate",
+                  "state": "firing",
+                  "since": "2026-10-15T06:42:00Z",
+                  "detail": "78 dead-letter arrivals over the last hour"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:alerts:20261015T2020Z",
+              "alerts": [
+                {
+                  "name": "ArenaIngress5xxHigh",
+                  "state": "firing",
+                  "since": "2026-10-03T11:04:00Z"
+                },
+                {
+                  "name": "DuelDeadLetterRate",
+                  "state": "firing",
+                  "since": "2026-10-15T06:42:00Z",
+                  "detail": "78 dead-letter arrivals over the last hour"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:alerts:20261015T2020Z",
+              "alerts": [
+                {
+                  "name": "ArenaIngress5xxHigh",
+                  "state": "firing",
+                  "since": "2026-10-03T11:04:00Z"
+                },
+                {
+                  "name": "DuelDeadLetterRate",
+                  "state": "firing",
+                  "since": "2026-10-15T06:42:00Z",
+                  "detail": "78 dead-letter arrivals over the last hour"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "ingress-5xx-by-service",
+        "tool": "monitoring.query",
+        "match": {
+          "environment": {
+            "$one_of": [
+              "VA1",
+              "va1",
+              "VA1 production",
+              "prod",
+              "production",
+              "va1-prod"
+            ]
+          },
+          "query": {
+            "$one_of": [
+              {
+                "$contains_all": [
+                  "5xx"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "error"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "ingress"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "traffic"
+                ]
+              }
+            ]
+          }
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:ingress-5xx:20261015T2020Z",
+              "window": "10m",
+              "measures": "HTTP responses at the ingress, not every application function",
+              "services": [
+                {
+                  "service": "arena",
+                  "requests": 41200,
+                  "5xx_ratio": 0.942
+                },
+                {
+                  "service": "ladder",
+                  "requests": 88310,
+                  "5xx_ratio": 0.00375
+                },
+                {
+                  "service": "tenantapp",
+                  "requests": 120400,
+                  "5xx_ratio": 0.0
+                },
+                {
+                  "service": "website",
+                  "requests": 30120,
+                  "5xx_ratio": 0.0
+                },
+                {
+                  "service": "auth",
+                  "requests": 51800,
+                  "5xx_ratio": 0.0
+                },
+                {
+                  "service": "payments",
+                  "requests": 9020,
+                  "5xx_ratio": 0.0
+                },
+                {
+                  "service": "data-api",
+                  "requests": 64500,
+                  "5xx_ratio": 0.0
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:ingress-5xx:20261015T2020Z",
+              "window": "10m",
+              "measures": "HTTP responses at the ingress, not every application function",
+              "services": [
+                {
+                  "service": "arena",
+                  "requests": 41200,
+                  "5xx_ratio": 0.942
+                },
+                {
+                  "service": "ladder",
+                  "requests": 88310,
+                  "5xx_ratio": 0.00375
+                },
+                {
+                  "service": "tenantapp",
+                  "requests": 120400,
+                  "5xx_ratio": 0.0
+                },
+                {
+                  "service": "website",
+                  "requests": 30120,
+                  "5xx_ratio": 0.0
+                },
+                {
+                  "service": "auth",
+                  "requests": 51800,
+                  "5xx_ratio": 0.0
+                },
+                {
+                  "service": "payments",
+                  "requests": 9020,
+                  "5xx_ratio": 0.0
+                },
+                {
+                  "service": "data-api",
+                  "requests": 64500,
+                  "5xx_ratio": 0.0
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:ingress-5xx:20261015T2020Z",
+              "window": "10m",
+              "measures": "HTTP responses at the ingress, not every application function",
+              "services": [
+                {
+                  "service": "arena",
+                  "requests": 41200,
+                  "5xx_ratio": 0.942
+                },
+                {
+                  "service": "ladder",
+                  "requests": 88310,
+                  "5xx_ratio": 0.00375
+                },
+                {
+                  "service": "tenantapp",
+                  "requests": 120400,
+                  "5xx_ratio": 0.0
+                },
+                {
+                  "service": "website",
+                  "requests": 30120,
+                  "5xx_ratio": 0.0
+                },
+                {
+                  "service": "auth",
+                  "requests": 51800,
+                  "5xx_ratio": 0.0
+                },
+                {
+                  "service": "payments",
+                  "requests": 9020,
+                  "5xx_ratio": 0.0
+                },
+                {
+                  "service": "data-api",
+                  "requests": 64500,
+                  "5xx_ratio": 0.0
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:ingress-5xx:20261015T2020Z",
+              "window": "10m",
+              "measures": "HTTP responses at the ingress, not every application function",
+              "services": [
+                {
+                  "service": "arena",
+                  "requests": 41200,
+                  "5xx_ratio": 0.942
+                },
+                {
+                  "service": "ladder",
+                  "requests": 88310,
+                  "5xx_ratio": 0.00375
+                },
+                {
+                  "service": "tenantapp",
+                  "requests": 120400,
+                  "5xx_ratio": 0.0
+                },
+                {
+                  "service": "website",
+                  "requests": 30120,
+                  "5xx_ratio": 0.0
+                },
+                {
+                  "service": "auth",
+                  "requests": 51800,
+                  "5xx_ratio": 0.0
+                },
+                {
+                  "service": "payments",
+                  "requests": 9020,
+                  "5xx_ratio": 0.0
+                },
+                {
+                  "service": "data-api",
+                  "requests": 64500,
+                  "5xx_ratio": 0.0
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:ingress-5xx:20261015T2020Z",
+              "window": "10m",
+              "measures": "HTTP responses at the ingress, not every application function",
+              "services": [
+                {
+                  "service": "arena",
+                  "requests": 41200,
+                  "5xx_ratio": 0.942
+                },
+                {
+                  "service": "ladder",
+                  "requests": 88310,
+                  "5xx_ratio": 0.00375
+                },
+                {
+                  "service": "tenantapp",
+                  "requests": 120400,
+                  "5xx_ratio": 0.0
+                },
+                {
+                  "service": "website",
+                  "requests": 30120,
+                  "5xx_ratio": 0.0
+                },
+                {
+                  "service": "auth",
+                  "requests": 51800,
+                  "5xx_ratio": 0.0
+                },
+                {
+                  "service": "payments",
+                  "requests": 9020,
+                  "5xx_ratio": 0.0
+                },
+                {
+                  "service": "data-api",
+                  "requests": 64500,
+                  "5xx_ratio": 0.0
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:ingress-5xx:20261015T2020Z",
+              "window": "10m",
+              "measures": "HTTP responses at the ingress, not every application function",
+              "services": [
+                {
+                  "service": "arena",
+                  "requests": 41200,
+                  "5xx_ratio": 0.942
+                },
+                {
+                  "service": "ladder",
+                  "requests": 88310,
+                  "5xx_ratio": 0.00375
+                },
+                {
+                  "service": "tenantapp",
+                  "requests": 120400,
+                  "5xx_ratio": 0.0
+                },
+                {
+                  "service": "website",
+                  "requests": 30120,
+                  "5xx_ratio": 0.0
+                },
+                {
+                  "service": "auth",
+                  "requests": 51800,
+                  "5xx_ratio": 0.0
+                },
+                {
+                  "service": "payments",
+                  "requests": 9020,
+                  "5xx_ratio": 0.0
+                },
+                {
+                  "service": "data-api",
+                  "requests": 64500,
+                  "5xx_ratio": 0.0
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "arena-allocation",
+        "tool": "nomad.service_health",
+        "match": {
+          "environment": {
+            "$one_of": [
+              "VA1",
+              "va1",
+              "VA1 production",
+              "prod",
+              "production",
+              "va1-prod"
+            ]
+          },
+          "service": {
+            "$one_of": [
+              {
+                "$contains_all": [
+                  "arena"
+                ]
+              }
+            ]
+          }
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:nomad-arena:20261015T2020Z",
+              "service": "arena",
+              "desired_allocations": 1,
+              "running_allocations": 1,
+              "task_restarts_last_hour": 0,
+              "failed_tasks_last_hour": 0
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:nomad-arena:20261015T2020Z",
+              "service": "arena",
+              "desired_allocations": 1,
+              "running_allocations": 1,
+              "task_restarts_last_hour": 0,
+              "failed_tasks_last_hour": 0
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:nomad-arena:20261015T2020Z",
+              "service": "arena",
+              "desired_allocations": 1,
+              "running_allocations": 1,
+              "task_restarts_last_hour": 0,
+              "failed_tasks_last_hour": 0
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:nomad-arena:20261015T2020Z",
+              "service": "arena",
+              "desired_allocations": 1,
+              "running_allocations": 1,
+              "task_restarts_last_hour": 0,
+              "failed_tasks_last_hour": 0
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:nomad-arena:20261015T2020Z",
+              "service": "arena",
+              "desired_allocations": 1,
+              "running_allocations": 1,
+              "task_restarts_last_hour": 0,
+              "failed_tasks_last_hour": 0
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:nomad-arena:20261015T2020Z",
+              "service": "arena",
+              "desired_allocations": 1,
+              "running_allocations": 1,
+              "task_restarts_last_hour": 0,
+              "failed_tasks_last_hour": 0
+            }
+          }
+        ]
+      },
+      {
+        "id": "deployments",
+        "tool": "nomad.deployments",
+        "match": {
+          "environment": {
+            "$one_of": [
+              "VA1",
+              "va1",
+              "VA1 production",
+              "prod",
+              "production",
+              "va1-prod"
+            ]
+          }
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:nomad-deployments:20261015T2020Z",
+              "deployments": [
+                {
+                  "job": "arena",
+                  "status": "successful",
+                  "finished_at": "2026-10-01T09:12:00Z"
+                },
+                {
+                  "job": "tenantapp",
+                  "status": "successful",
+                  "finished_at": "2026-10-14T16:40:00Z"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:nomad-deployments:20261015T2020Z",
+              "deployments": [
+                {
+                  "job": "arena",
+                  "status": "successful",
+                  "finished_at": "2026-10-01T09:12:00Z"
+                },
+                {
+                  "job": "tenantapp",
+                  "status": "successful",
+                  "finished_at": "2026-10-14T16:40:00Z"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:nomad-deployments:20261015T2020Z",
+              "deployments": [
+                {
+                  "job": "arena",
+                  "status": "successful",
+                  "finished_at": "2026-10-01T09:12:00Z"
+                },
+                {
+                  "job": "tenantapp",
+                  "status": "successful",
+                  "finished_at": "2026-10-14T16:40:00Z"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:nomad-deployments:20261015T2020Z",
+              "deployments": [
+                {
+                  "job": "arena",
+                  "status": "successful",
+                  "finished_at": "2026-10-01T09:12:00Z"
+                },
+                {
+                  "job": "tenantapp",
+                  "status": "successful",
+                  "finished_at": "2026-10-14T16:40:00Z"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:nomad-deployments:20261015T2020Z",
+              "deployments": [
+                {
+                  "job": "arena",
+                  "status": "successful",
+                  "finished_at": "2026-10-01T09:12:00Z"
+                },
+                {
+                  "job": "tenantapp",
+                  "status": "successful",
+                  "finished_at": "2026-10-14T16:40:00Z"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:nomad-deployments:20261015T2020Z",
+              "deployments": [
+                {
+                  "job": "arena",
+                  "status": "successful",
+                  "finished_at": "2026-10-01T09:12:00Z"
+                },
+                {
+                  "job": "tenantapp",
+                  "status": "successful",
+                  "finished_at": "2026-10-14T16:40:00Z"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "nomad-nodes",
+        "tool": "monitoring.query",
+        "match": {
+          "environment": {
+            "$one_of": [
+              "VA1",
+              "va1",
+              "VA1 production",
+              "prod",
+              "production",
+              "va1-prod"
+            ]
+          },
+          "query": {
+            "$one_of": [
+              {
+                "$contains_all": [
+                  "node"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "nomad"
+                ]
+              }
+            ]
+          }
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:nomad-nodes:20261015T2020Z",
+              "nomad_clients": {
+                "total": 5,
+                "ready": 5,
+                "eligible": 5,
+                "draining": 0
+              },
+              "cassandra_nodes": {
+                "total": 3,
+                "up_normal": 3
+              }
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:nomad-nodes:20261015T2020Z",
+              "nomad_clients": {
+                "total": 5,
+                "ready": 5,
+                "eligible": 5,
+                "draining": 0
+              },
+              "cassandra_nodes": {
+                "total": 3,
+                "up_normal": 3
+              }
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:nomad-nodes:20261015T2020Z",
+              "nomad_clients": {
+                "total": 5,
+                "ready": 5,
+                "eligible": 5,
+                "draining": 0
+              },
+              "cassandra_nodes": {
+                "total": 3,
+                "up_normal": 3
+              }
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:nomad-nodes:20261015T2020Z",
+              "nomad_clients": {
+                "total": 5,
+                "ready": 5,
+                "eligible": 5,
+                "draining": 0
+              },
+              "cassandra_nodes": {
+                "total": 3,
+                "up_normal": 3
+              }
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:nomad-nodes:20261015T2020Z",
+              "nomad_clients": {
+                "total": 5,
+                "ready": 5,
+                "eligible": 5,
+                "draining": 0
+              },
+              "cassandra_nodes": {
+                "total": 3,
+                "up_normal": 3
+              }
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:nomad-nodes:20261015T2020Z",
+              "nomad_clients": {
+                "total": 5,
+                "ready": 5,
+                "eligible": 5,
+                "draining": 0
+              },
+              "cassandra_nodes": {
+                "total": 3,
+                "up_normal": 3
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "databases",
+        "tool": "monitoring.query",
+        "match": {
+          "environment": {
+            "$one_of": [
+              "VA1",
+              "va1",
+              "VA1 production",
+              "prod",
+              "production",
+              "va1-prod"
+            ]
+          },
+          "query": {
+            "$one_of": [
+              {
+                "$contains_all": [
+                  "postgres"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "database"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "cassandra"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "backup"
+                ]
+              }
+            ]
+          }
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:databases:20261015T2020Z",
+              "postgres_targets": {
+                "monitored": 9,
+                "pg_up": 9
+              },
+              "cassandra_nodes": {
+                "total": 3,
+                "up_normal": 3
+              },
+              "postgres_backups": {
+                "differential_success_age_hours": [
+                  9.2,
+                  18.2
+                ],
+                "full_success_age_days": [
+                  4.4,
+                  4.8
+                ],
+                "note": "monitoring reports, not restore verification"
+              }
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:databases:20261015T2020Z",
+              "postgres_targets": {
+                "monitored": 9,
+                "pg_up": 9
+              },
+              "cassandra_nodes": {
+                "total": 3,
+                "up_normal": 3
+              },
+              "postgres_backups": {
+                "differential_success_age_hours": [
+                  9.2,
+                  18.2
+                ],
+                "full_success_age_days": [
+                  4.4,
+                  4.8
+                ],
+                "note": "monitoring reports, not restore verification"
+              }
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:databases:20261015T2020Z",
+              "postgres_targets": {
+                "monitored": 9,
+                "pg_up": 9
+              },
+              "cassandra_nodes": {
+                "total": 3,
+                "up_normal": 3
+              },
+              "postgres_backups": {
+                "differential_success_age_hours": [
+                  9.2,
+                  18.2
+                ],
+                "full_success_age_days": [
+                  4.4,
+                  4.8
+                ],
+                "note": "monitoring reports, not restore verification"
+              }
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:databases:20261015T2020Z",
+              "postgres_targets": {
+                "monitored": 9,
+                "pg_up": 9
+              },
+              "cassandra_nodes": {
+                "total": 3,
+                "up_normal": 3
+              },
+              "postgres_backups": {
+                "differential_success_age_hours": [
+                  9.2,
+                  18.2
+                ],
+                "full_success_age_days": [
+                  4.4,
+                  4.8
+                ],
+                "note": "monitoring reports, not restore verification"
+              }
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:databases:20261015T2020Z",
+              "postgres_targets": {
+                "monitored": 9,
+                "pg_up": 9
+              },
+              "cassandra_nodes": {
+                "total": 3,
+                "up_normal": 3
+              },
+              "postgres_backups": {
+                "differential_success_age_hours": [
+                  9.2,
+                  18.2
+                ],
+                "full_success_age_days": [
+                  4.4,
+                  4.8
+                ],
+                "note": "monitoring reports, not restore verification"
+              }
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:databases:20261015T2020Z",
+              "postgres_targets": {
+                "monitored": 9,
+                "pg_up": 9
+              },
+              "cassandra_nodes": {
+                "total": 3,
+                "up_normal": 3
+              },
+              "postgres_backups": {
+                "differential_success_age_hours": [
+                  9.2,
+                  18.2
+                ],
+                "full_success_age_days": [
+                  4.4,
+                  4.8
+                ],
+                "note": "monitoring reports, not restore verification"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "storage",
+        "tool": "monitoring.query",
+        "match": {
+          "environment": {
+            "$one_of": [
+              "VA1",
+              "va1",
+              "VA1 production",
+              "prod",
+              "production",
+              "va1-prod"
+            ]
+          },
+          "query": {
+            "$one_of": [
+              {
+                "$contains_all": [
+                  "storage"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "capacity"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "disk"
+                ]
+              }
+            ]
+          }
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:storage:20261015T2020Z",
+              "array": "primary flash array",
+              "physical_used_tb": 21.57,
+              "capacity_tb": 85.22,
+              "note": "capacity read; does not establish every hardware component's health"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:storage:20261015T2020Z",
+              "array": "primary flash array",
+              "physical_used_tb": 21.57,
+              "capacity_tb": 85.22,
+              "note": "capacity read; does not establish every hardware component's health"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:storage:20261015T2020Z",
+              "array": "primary flash array",
+              "physical_used_tb": 21.57,
+              "capacity_tb": 85.22,
+              "note": "capacity read; does not establish every hardware component's health"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:storage:20261015T2020Z",
+              "array": "primary flash array",
+              "physical_used_tb": 21.57,
+              "capacity_tb": 85.22,
+              "note": "capacity read; does not establish every hardware component's health"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:storage:20261015T2020Z",
+              "array": "primary flash array",
+              "physical_used_tb": 21.57,
+              "capacity_tb": 85.22,
+              "note": "capacity read; does not establish every hardware component's health"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-15T20:20:00Z",
+              "source_ref": "source:va1:storage:20261015T2020Z",
+              "array": "primary flash array",
+              "physical_used_tb": 21.57,
+              "capacity_tb": 85.22,
+              "note": "capacity read; does not establish every hardware component's health"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "host_replay": {
+    "model_events": [
+      {
+        "calls": [
+          {
+            "arguments": {
+              "environment": "va1",
+              "query": "ingress 5xx ratio by service, last 10 minutes"
+            },
+            "kind": "fabricated",
+            "tool": "monitoring.query"
+          },
+          {
+            "arguments": {
+              "observation": "Arena returned 94.2% HTTP 5xx at the ingress over 10 minutes; its one desired allocation is running with no restarts.",
+              "relation": "supports",
+              "source_ref": "source:va1:ingress-5xx:20261015T2020Z",
+              "subject": "arena.errors",
+              "supersedes": []
+            },
+            "kind": "state",
+            "tool": "cite_source"
+          },
+          {
+            "arguments": {
+              "what": "Arena is failing about 94% of requests at the ingress while its allocation runs; the cause is not established.",
+              "status": "unexplained",
+              "cause_evidence": [
+                "$call:1:record_ref"
+              ],
+              "reason": null,
+              "scope": "VA1 health snapshot, 20:20 UTC"
+            },
+            "kind": "state",
+            "tool": "record_finding"
+          }
+        ],
+        "candidates": [
+          {
+            "document": {
+              "decision_reason": null,
+              "delivery": "reply",
+              "message": "Arena is failing about 94% of requests in VA1, and I haven't found why yet: its allocation is running with no restarts. The rest of VA1 looks stable in this snapshot.",
+              "outcome": {
+                "artifact_refs": [],
+                "record_refs": [
+                  "$call:1:record_ref",
+                  "$call:2:record_ref"
+                ],
+                "state": "complete"
+              }
+            },
+            "kind": "final"
+          }
+        ],
+        "input_index": 1,
+        "preflight_candidate_index": 1
+      }
+    ]
+  },
+  "expect": {
+    "hard": [
+      {
+        "kind": "state_tool_recorded",
+        "tool": "cite_source"
+      },
+      {
+        "kind": "state_tool_recorded",
+        "tool": "record_finding",
+        "payload": {
+          "status": "unexplained"
+        }
+      },
+      {
+        "kind": "state_tool_not_recorded",
+        "tool": "record_finding",
+        "payload": {
+          "status": "explained"
+        }
+      }
+    ],
+    "trajectory": [
+      {
+        "kind": "required_tool_call",
+        "tool": "monitoring.query",
+        "arguments": {
+          "environment": {
+            "$one_of": [
+              "VA1",
+              "va1",
+              "VA1 production",
+              "prod",
+              "production",
+              "va1-prod"
+            ]
+          },
+          "query": {
+            "$one_of": [
+              {
+                "$contains_all": [
+                  "5xx"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "error"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "ingress"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "traffic"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "quality_rubric": [
+      {
+        "criterion": "Leads with the arena request failures the evidence confirms.",
+        "weight": 2
+      },
+      {
+        "criterion": "Says the cause of the arena failures is not established, without presenting the running allocation, the error ratio or the alert as the explanation.",
+        "weight": 3
+      },
+      {
+        "criterion": "Keeps healthy claims to what the observations measured.",
+        "weight": 1
+      },
+      {
+        "criterion": "The reply is short: the answer first and a few lines, not an essay.",
+        "weight": 1
+      }
+    ]
+  },
+  "tags": [
+    "model-world",
+    "health-review",
+    "finding-status",
+    "host-replay"
+  ]
+}

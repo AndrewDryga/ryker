@@ -75,7 +75,7 @@
           "name": "cite_source"
         },
         {
-          "description": "Save a useful investigation conclusion, not one record per alert. This does not send a message, change infrastructure or open an incident. Use cause_evidence refs returned by cite_source in this episode. Explained requires evidence; expected and out_of_scope require a reason. Distinguish checked-out intent from verified deployed state.",
+          "description": "Save a useful investigation conclusion, not one record per alert. This does not send a message, change infrastructure or open an incident. cause_evidence takes at most ten refs returned by cite_source in this episode: the ones the conclusion rests on. status says what that evidence establishes. explained: it shows why this happened. unexplained: the problem is confirmed but its cause is not established; evidence of the problem itself, such as an alert, an error rate or a running allocation, does not explain it. expected: it shows the behavior is intended or normal; say how in reason. out_of_scope: it lies outside this request; say why in reason. Distinguish checked-out intent from verified deployed state.",
           "inputSchema": {
             "additionalProperties": false,
             "properties": {

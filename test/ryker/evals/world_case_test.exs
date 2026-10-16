@@ -71,7 +71,7 @@ defmodule Ryker.Evals.WorldCaseTest do
 
   test "compiles the versioned model-world scenario matrix" do
     assert {:ok, scenarios} = WorldCase.all(@scenario_root)
-    assert length(scenarios) == 33
+    assert length(scenarios) == 37
     assert {:ok, scenario} = WorldCase.fetch(@health_scenario, @scenario_root)
 
     assert scenario.id == "va1-health-review-repairs-and-finishes"
@@ -213,6 +213,7 @@ defmodule Ryker.Evals.WorldCaseTest do
              MapSet.new([
                "airflow-verification-arms-wait",
                "application-errors-follow-the-current-signal",
+               "confirmed-failure-with-unknown-cause-stays-unexplained",
                "artifact-delivery-survives-work-handoff",
                "creative-request-needs-no-fake-evidence",
                "concurrent-human-feedback-serializes",

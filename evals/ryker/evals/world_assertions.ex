@@ -50,9 +50,16 @@ defmodule Ryker.Evals.WorldAssertions do
     Enum.flat_map(checks, &hard_failure(&1, records, executions, deliveries))
   end
 
+  # A record of the tool's kind, and with `payload` one whose payload holds
+  # it: a finding saved as unexplained, not merely any finding.
   defp hard_failure(%{"kind" => "state_tool_recorded", "tool" => tool} = check, records, _, _) do
-    kinds = tool_record_kinds(tool)
-    if kinds != [] and Enum.any?(records, &(&1["kind"] in kinds)), do: [], else: [check]
+    if Enum.any?(records, &recorded?(&1, tool, check)), do: [], else: [check]
+  end
+
+  defp hard_failure(%{"kind" => "state_tool_not_recorded", "tool" => tool} = check, records, _, _) do
+    if tool_record_kinds(tool) != [] and not Enum.any?(records, &recorded?(&1, tool, check)),
+      do: [],
+      else: [check]
   end
 
   defp hard_failure(%{"kind" => "same_turn_semantic_repair"} = check, _, executions, _) do
@@ -305,6 +312,11 @@ defmodule Ryker.Evals.WorldAssertions do
       "record_kind" => record.kind,
       "record_ref" => record.ref
     }
+  end
+
+  defp recorded?(record, tool, check) do
+    record["kind"] in tool_record_kinds(tool) and
+      WorldMatch.matches?(Map.get(check, "payload", %{}), record["payload"])
   end
 
   defp record_identity(%Record{kind: "goal", episode_id: episode_id, payload: %{"id" => id}}),
