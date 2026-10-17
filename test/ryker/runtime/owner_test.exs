@@ -240,6 +240,10 @@ defmodule Ryker.Runtime.OwnerTest do
     kill_runtime_between_messages(crashed)
     assert eventually(fn -> retention_pid(supervisor) not in [nil, crashed] end)
     restarted = retention_pid(supervisor)
+    # The runtime that came back starts with a poll. CI replaced it during that poll on
+    # 2026-10-17, twice (a8fcf58d0, e0a342210): its worker took the shared connection with it and
+    # the owner's next write found none. Suspended, it holds nothing when it is replaced.
+    suspend_runtime_between_messages(restarted)
 
     # A longer audit horizon is a new retention configuration.
     {:ok, lengthened} =
@@ -440,13 +444,19 @@ defmodule Ryker.Runtime.OwnerTest do
   # may be mid-query: under gate load on 2026-10-14 that killed the shared connection and the
   # next reconcile failed as unowned. Its workers are suspended first.
   defp kill_runtime_between_messages(runtime) do
-    for {_id, worker, :worker, _modules} <- Supervisor.which_children(runtime),
-        is_pid(worker),
-        do: :sys.suspend(worker)
-
+    suspend_runtime_between_messages(runtime)
     Process.exit(runtime, :kill)
   catch
     :exit, _gone -> :ok
+  end
+
+  # The owner replaces a runtime with a shutdown, which ends a worker that does not trap exits
+  # even mid-query, as a kill does. A suspend waits out the poll under way, however long gate or
+  # CI load makes it; the default five seconds would let the caller go on while it runs.
+  defp suspend_runtime_between_messages(runtime) do
+    for {_id, worker, :worker, _modules} <- Supervisor.which_children(runtime),
+        is_pid(worker),
+        do: :sys.suspend(worker, 30_000)
   end
 
   defp event_waits_pid(supervisor) do
