@@ -15,7 +15,8 @@
 # keeps the worker), and moves the worker when the commit pins another Coop.
 # A failed upgrade puts the checkout back and the release before back in its
 # pin; when that release no longer serves, it restores the backup it took. That
-# commit is not tried again; the next move of the branch is. Each attempt is a
+# commit is not tried again; the next move of the branch is. A worker that did
+# not move is asked again every half hour until it has. Each attempt is a
 # line in ~/.local/state/ryker-upgrade/upgrades.log.
 set -uo pipefail
 
@@ -27,6 +28,11 @@ upgrade_state=${RYKER_UPGRADE_STATE:-$HOME/.local/state/ryker-upgrade}
 # Each upgrade takes a backup, and an install that follows main upgrades many
 # times a day: only the newest of these stay. Backups taken otherwise are kept.
 keep_backups=${RYKER_KEEP_UPGRADE_BACKUPS:-5}
+# A worker that did not move to the Coop its commit pins is asked again this
+# long after it last was, between pushes: the tenant install's download of Coop
+# broke off after 397 s on 2026-10-17, and the worker would otherwise have kept
+# the Coop it ran until the next push.
+worker_retry_seconds=${RYKER_WORKER_RETRY_SECONDS:-1800}
 # shellcheck source=scripts/compose-lifecycle.sh
 . "$repository/scripts/compose-lifecycle.sh"
 # launchd starts it with a bare PATH; the tenant host's Docker is Homebrew's.
@@ -40,6 +46,31 @@ record() {
   printf '%s %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$1" | tee -a "$upgrade_state/upgrades.log"
 }
 
+# The daily backup or a person's restore holds the lifecycle lock; the next
+# round, five minutes on, tries again rather than calling the commit failed.
+busy() {
+  local holder
+  holder=$(cat "$state_dir/lifecycle.lock/owner" 2>/dev/null)
+  [[ -n $holder ]] && kill -0 "${holder%% *}" 2>/dev/null
+}
+
+# worker-behind holds when a worker last failed to move; it goes once one has.
+worker_behind=$upgrade_state/worker-behind
+retry_worker_upgrade() {
+  local last
+  last=$(cat "$worker_behind" 2>/dev/null) || return 0
+  (($(date +%s) - ${last:-0} >= worker_retry_seconds)) || return 0
+  busy && return 0
+  if scripts/compose.sh worker-upgrade </dev/null; then
+    rm -f "$worker_behind"
+    record "the worker moved to the Coop ${current:0:12} pins"
+  else
+    date +%s >"$worker_behind"
+    record "the worker upgrade failed again; the worker runs the Coop it ran"
+    return 1
+  fi
+}
+
 if ! git fetch --quiet origin "$ref"; then
   record "could not fetch origin's $ref"
   exit 1
@@ -47,16 +78,14 @@ fi
 target=$(git rev-parse FETCH_HEAD)
 current=$(git rev-parse HEAD)
 
-[[ $target != "$current" ]] || exit 0
+if [[ $target == "$current" ]]; then
+  retry_worker_upgrade
+  exit
+fi
 if [[ $(cat "$upgrade_state/failed" 2>/dev/null) == "$target" ]]; then
   exit 0
 fi
-# The daily backup or a person's restore holds the lifecycle lock; the next
-# round, five minutes on, tries again rather than calling the commit failed.
-holder=$(cat "$state_dir/lifecycle.lock/owner" 2>/dev/null)
-if [[ -n $holder ]] && kill -0 "${holder%% *}" 2>/dev/null; then
-  exit 0
-fi
+busy && exit 0
 if ! git merge-base --is-ancestor "$current" "$target"; then
   record "refused ${target:0:12}: origin's $ref does not build on ${current:0:12}, which runs"
   echo "$target" >"$upgrade_state/failed"
@@ -108,8 +137,9 @@ fi
 # worker busy at that moment stayed behind until the pin changed again
 # (2026-10-16).
 if ! scripts/compose.sh worker-upgrade </dev/null; then
+  date +%s >"$worker_behind"
   record "upgraded ${current:0:12} -> ${target:0:12}, but the worker upgrade failed; the worker runs the Coop it ran"
   exit 1
 fi
-rm -f "$upgrade_state/failed"
+rm -f "$upgrade_state/failed" "$worker_behind"
 record "upgraded ${current:0:12} -> ${target:0:12}"

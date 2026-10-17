@@ -2,7 +2,8 @@
 # Proves scripts/auto-upgrade.sh upgrades an install when the branch it follows moves, and only
 # then: forward only, after a backup, then moving the worker to the Coop the commit pins. A
 # failed upgrade puts the checkout and the pin back, restores the backup only when the release
-# before no longer serves, and that commit is not tried again.
+# before no longer serves, and that commit is not tried again. A worker that did not move is
+# asked again every half hour until it has.
 #
 # On 2026-10-14 each upgrade of the tenant install needed a Tailscale profile switch, an approval
 # only Andrew could give, and step scripts whose SSH exit status was 0 even when they failed.
@@ -110,7 +111,8 @@ pin_old
 upgrade() {
   : >"$work/calls"
   (cd "$install" && UPGRADE_TEST_STATE="$work" RYKER_INSTALL_STATE="$work/state" \
-    RYKER_UPGRADE_STATE="$work/upgrades" scripts/auto-upgrade.sh >"$work/out" 2>&1)
+    RYKER_UPGRADE_STATE="$work/upgrades" RYKER_WORKER_RETRY_SECONDS="${retry_seconds:-1800}" \
+    scripts/auto-upgrade.sh >"$work/out" 2>&1)
   echo "exit=$?" >>"$work/out"
 }
 head_of() { git -C "$install" rev-parse HEAD; }
@@ -175,9 +177,24 @@ check "a worker upgrade that fails is said" "the worker upgrade failed" "$(cat "
 check "and Ryker stays on the new release" "$coop" "$(head_of)"
 refute "and nothing is restored" "compose.sh restore" "$(cat "$work/calls")"
 rm "$work/worker-upgrade.fail"
+upgrade
+check "a worker that did not move is left alone for half an hour" "" "$(cat "$work/calls")"
+# The tenant install's download of Coop broke off after 397 s on 2026-10-17; without a retry
+# its worker kept the Coop it ran until somebody pushed again.
+retry_seconds=0 upgrade
+check "and asked again after it, with nothing new to upgrade" "compose.sh worker-upgrade" "$(cat "$work/calls")"
+check "and its move is recorded" "the worker moved to the Coop ${coop:0:12} pins" "$(cat "$work/out")"
+retry_seconds=0 upgrade
+check "a worker that moved is not asked again" "" "$(cat "$work/calls")"
+touch "$work/worker-upgrade.fail"
 push "same Coop"
 upgrade
 check "a worker that did not move is moved by the next upgrade" "compose.sh worker-upgrade" "$(cat "$work/calls")"
+retry_seconds=0 upgrade
+check "and asked again while it fails" "the worker upgrade failed again" "$(cat "$work/out")"
+rm "$work/worker-upgrade.fail"
+retry_seconds=0 upgrade
+check "until it moves" "the worker moved to the Coop" "$(cat "$work/out")"
 
 # The daily backup holds the lifecycle lock: this round waits for the next.
 sleep 30 &
