@@ -12,21 +12,31 @@ COPY ryker-ca.pem /usr/local/share/ca-certificates/ryker-ca.crt
 RUN chmod 0644 /usr/local/share/ca-certificates/ryker-ca.crt \
  && update-ca-certificates
 
+# Each package download is tried again, and what a build fetched stays in BuildKit's cache for the
+# next build: neither cache is part of the image. On 2026-10-17 a tenant host on weak Wi-Fi fetched
+# at a few KB/s, and every rebuild of this box started its packages over and gave up, so its worker
+# could not move to a new Coop.
+RUN rm -f /etc/apt/apt.conf.d/docker-clean \
+ && printf '%s\n' 'Acquire::Retries "10";' 'Binary::apt::APT::Keep-Downloaded-Packages "true";' \
+      >/etc/apt/apt.conf.d/90ryker-box-downloads
+
 # Jobs and Coop's trusted review gate run in this box, not in a repository's
 # own image, so it carries what repositories' gates commonly need. On
 # 2026-09-28 emisar's review gate failed eight browser tests with "no
 # Chrome/Chromium found".
-RUN apt-get update \
- && apt-get install -y --no-install-recommends chromium-headless-shell imagemagick \
- && apt-get clean \
- && rm -rf /var/lib/apt/lists/*
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    apt-get update \
+ && apt-get install -y --no-install-recommends chromium-headless-shell imagemagick
 
 # The PostgreSQL server compose.test.yml pins. A job or review gets neither
 # Docker nor sidecar services, so Ryker's scripts/elixir-test.sh starts a private
 # server from these binaries; without one every review of Ryker failed its gate.
 # The signing key is checked against its digest (key B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8).
-RUN install -d /usr/share/postgresql-common/pgdg \
- && curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    install -d /usr/share/postgresql-common/pgdg \
+ && curl -fsSL --retry 5 -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
       https://www.postgresql.org/media/keys/ACCC4CF8.asc \
  && echo "0144068502a1eddd2a0280ede10ef607d1ec592ce819940991203941564e8e76  /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc" \
       | sha256sum -c - \
@@ -36,9 +46,7 @@ RUN install -d /usr/share/postgresql-common/pgdg \
  && apt-get install -y --no-install-recommends postgresql-common \
  && sed -ri 's/^#?(create_main_cluster) .*$/\1 = false/' /etc/postgresql-common/createcluster.conf \
  && apt-get install -y --no-install-recommends postgresql-18 \
- && ln -s /usr/lib/postgresql/18/bin/initdb /usr/lib/postgresql/18/bin/pg_ctl /usr/local/bin/ \
- && apt-get clean \
- && rm -rf /var/lib/apt/lists/*
+ && ln -s /usr/lib/postgresql/18/bin/initdb /usr/lib/postgresql/18/bin/pg_ctl /usr/local/bin/
 
 COPY --from=elixir /usr/local/lib/erlang /usr/local/lib/erlang
 COPY --from=elixir /usr/local/lib/elixir /usr/local/lib/elixir
