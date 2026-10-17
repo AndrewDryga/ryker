@@ -512,6 +512,36 @@ defmodule Ryker.Improvement.EvidenceTest do
     assert make["result"] == "line of build output"
   end
 
+  # A turn past retention keeps neither its frozen instructions nor its calls,
+  # and nothing stands in for them: today's instructions are not what that turn
+  # ran with, and missing instructions cannot show that they led it wrong.
+  test "a turn past retention gives no instructions and no calls, never today's" do
+    question = message!("1790501300.000100", "Is the export finished?")
+    reply = Answers.work_reply!(question, "It is.", "1790501300.000200", @now)
+    unhappy!({:episode, reply.episode.id}, "work-expired")
+
+    frozen!(reply.turn, "Instructions of a release long gone.")
+
+    Repo.update_all(from(t in Turn, where: t.id == ^reply.turn.id),
+      set: [coop_turn_id: "coop-turn-expired"]
+    )
+
+    call!(reply, 1, "run_action", %{"action_id" => "export.status"}, result: "finished")
+
+    Repo.update_all(from(t in Turn, where: t.id == ^reply.turn.id),
+      set: [operational_pruned_at: @now, submission: %{"retention" => "pruned"}]
+    )
+
+    Repo.update_all(
+      from(a in Ryker.Work.ActivityEvent, where: a.episode_id == ^reply.episode.id),
+      set: [operational_pruned_at: @now, payload: %{"retention" => "pruned"}]
+    )
+
+    evidence = Evidence.gather(Inspectors.improvement_candidate({:episode, reply.episode.id}))
+    assert evidence.instructions == []
+    assert [%{"instructions" => nil, "calls" => []}] = evidence.work
+  end
+
   test "a call's arguments and result stay out once a person deleted a message of the request" do
     question = message!("1790501100.000100", "Check the payroll export host.")
 
