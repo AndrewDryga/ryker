@@ -117,8 +117,10 @@ defmodule Ryker.Work.PromptTest do
 
   # The 2026-10-17 world matrix and its A/B, "How is health of our infra in VA1?": the replies
   # that said Arena's error rate could not be read without viewer access and stopped there
-  # failed, and every reply that asked for that access with request_input passed.
-  test "a gap the person who asked can close is asked for, not only named" do
+  # failed, and every reply that asked for that access with request_input passed. Asking for any
+  # gap a person could close then put a question beside an established cause, asking for
+  # dead-letter details the answer did not need (two runs in the next two matrices).
+  test "access that blocks the measurement the question needs is asked for, not only named" do
     instructions =
       Prompt.build(%{})
       |> Jason.decode!()
@@ -126,8 +128,10 @@ defmodule Ryker.Work.PromptTest do
       |> String.replace(~r/\s+/, " ")
 
     assert instructions =~
-             "When the person who asked can close a gap themselves, by granting the access or " <>
-               "sharing the reading, ask them for it with request_input in this turn"
+             "When access you lack keeps you from the measurement the question needs, ask the " <>
+               "person who asked to grant it, with request_input in this turn"
+
+    assert instructions =~ "A detail beside an answer you could settle needs no question."
   end
 
   test "a missing operational fact leads to discovery and one useful remembered question" do
