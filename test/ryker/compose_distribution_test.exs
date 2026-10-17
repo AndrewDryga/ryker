@@ -476,6 +476,40 @@ defmodule Ryker.ComposeDistributionTest do
     assert Enum.uniq(debian) == [["bookworm-#{snapshot}-slim"]]
   end
 
+  # An upgrade fetches only the images an install lacks and builds on the base images it has:
+  # the tenant install's upgrade stopped on 2026-10-17 when Docker Hub's TLS handshake timed out
+  # while it checked a database image the install already had. That holds only while each image
+  # names its digest, so the one an install has is the one it would fetch.
+  test "every image an install pulls or builds on names its digest" do
+    for path <- ["Dockerfile", "deploy/compose/coop/Dockerfile"] do
+      dockerfile = read(path)
+
+      args =
+        Map.new(
+          Regex.scan(~r/^ARG (\w+)=(\S+)$/m, dockerfile, capture: :all_but_first),
+          &List.to_tuple/1
+        )
+
+      stages =
+        List.flatten(Regex.scan(~r/^FROM \S+ AS (\S+)$/m, dockerfile, capture: :all_but_first))
+
+      for [from] <- Regex.scan(~r/^FROM (\S+)/m, dockerfile, capture: :all_but_first) do
+        image =
+          case Regex.run(~r/^\$\{(\w+)\}$/, from, capture: :all_but_first) do
+            [arg] -> Map.fetch!(args, arg)
+            nil -> from
+          end
+
+        assert image in stages or image =~ ~r/@sha256:[0-9a-f]{64}$/, "#{path}: FROM #{from}"
+      end
+    end
+
+    for {name, service} <- YamlElixir.read_from_string!(read("compose.yml"))["services"],
+        is_binary(service["image"]) and not Map.has_key?(service, "build") do
+      assert service["image"] =~ ~r/@sha256:[0-9a-f]{64}$/, "#{name}: #{service["image"]}"
+    end
+  end
+
   # Ryker's draft-PR reviews of its own repository run `make dev-check` in the
   # trusted box, which gets no Docker and no sidecar. On 2026-10-02 that box had
   # neither Elixir nor a PostgreSQL server, so every such review failed its gate.

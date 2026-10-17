@@ -800,13 +800,18 @@ seed
 printf 'RYKER_COOP_IMAGE=ryker-coop:supplied\n' >>"$state/compose.env"
 out=$(cd "$repo" && sh scripts/compose.sh upgrade 2>&1; echo "exit=$?")
 check "upgrade with a supplied worker image succeeds" "exit=0" "$out"
-check "upgrade still builds Ryker" "build --pull ryker" "$(cat "$fake/calls")"
+check "upgrade still builds Ryker" "build ryker" "$(cat "$fake/calls")"
 refute "upgrade leaves a supplied worker image alone" "ryker-coop" "$(grep ' build ' "$fake/calls")"
 
 seed
 out=$(cd "$repo" && sh scripts/compose.sh upgrade 2>&1; echo "exit=$?")
 check "upgrade without a supplied worker image succeeds" "exit=0" "$out"
-check "upgrade builds the worker from the pin" "build --pull ryker ryker-coop" "$(cat "$fake/calls")"
+check "upgrade builds the worker from the pin" "build ryker ryker-coop" "$(cat "$fake/calls")"
+# The tenant install's upgrade broke off on 2026-10-17 when Docker Hub's TLS handshake timed out
+# while it checked a database image the install already had. Each image names its digest
+# (compose_distribution_test.exs), so one the install has is the one it would fetch.
+check "an upgrade fetches only the images the install lacks" "pull --ignore-buildable --policy missing" "$(cat "$fake/calls")"
+refute "and builds on the base images it has" "build --pull" "$(cat "$fake/calls")"
 calls=$(cat "$fake/calls")
 migrate_line=$(grep -n 'eval Ryker.Release.migrate()' <<<"$calls" | head -n 1 | cut -d: -f1)
 up_line=$(grep -n 'up --detach --wait' <<<"$calls" | head -n 1 | cut -d: -f1)

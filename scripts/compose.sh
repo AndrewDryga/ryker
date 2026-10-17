@@ -523,11 +523,15 @@ case "$command" in
       pin_value RYKER_COOP_IMAGE "$worker"
       echo "Kept the running worker image $worker."
     fi
-    compose pull --ignore-buildable
+    # Each image names its digest, so one the install has is the one it would fetch: the
+    # registry is asked only for those it lacks. The tenant install's upgrade stopped on
+    # 2026-10-17 when Docker Hub's TLS handshake timed out while it checked a database image the
+    # install already had.
+    compose pull --ignore-buildable --policy missing
     if supplied_worker_image; then
-      compose build --pull ryker
+      compose build ryker
     else
-      compose build --pull ryker ryker-coop
+      compose build ryker ryker-coop
     fi
     # As a deploy does: migrations run on their own, with the new image and the
     # running release stopped, not inside the container's healthcheck budget.

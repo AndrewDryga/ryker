@@ -146,8 +146,8 @@ Upgrade, like install, builds the checkout as it is, so it refuses a checkout wi
 changes, and when the checkout has an `origin` it refuses a HEAD that origin's `main` does not hold.
 `start`, `restart` and `restore` never build: they run the pinned image, and fail if it is missing.
 
-Upgrade pulls the pinned third-party images (such as PostgreSQL and the worker's Docker daemon), rebuilds
-the Ryker image from the checkout, stops Ryker and runs the migrations with the new image as a step of
+Upgrade pulls the pinned third-party images (such as PostgreSQL and the worker's Docker daemon) that
+the install lacks, rebuilds the Ryker image from the checkout on the base images it has, stops Ryker and runs the migrations with the new image as a step of
 their own, as a deploy does, then starts the replacements and verifies health, readiness and the exact
 version header. A migration that fails leaves Ryker stopped; restore the backup taken before. It keeps
 the bundled worker that runs, and pins its image in `RYKER_COOP_IMAGE`; only a first upgrade with no
@@ -179,8 +179,9 @@ each upgrade a choice.
 It moves only forward: a branch that does not build on the commit that runs is refused. It takes a
 backup, runs `upgrade`, and runs `worker-upgrade` when the commit pins another Coop. A failed upgrade
 puts the checkout and the pin back, and restores the backup it took only when the release before no
-longer serves, so an image that did not build loses nothing written since. That commit is not tried
-again; the next push of the branch is. A worker that did not move leaves Ryker on the new release. Its backups are
+longer serves, so an image that did not build loses nothing written since. A commit whose upgrade
+failed before anything changed is tried again half an hour later (`RYKER_UPGRADE_RETRY_SECONDS`); one
+that stopped the release is not, and the next push of the branch is. A worker that did not move leaves Ryker on the new release. Its backups are
 named `pre-upgrade-*` and the newest five stay (`RYKER_KEEP_UPGRADE_BACKUPS`); while another lifecycle
 command, such as the daily backup, holds the lock, it waits for the next round. Each attempt is a line in `~/.local/state/ryker-upgrade/upgrades.log` on the
 host, and the watchdog here sees the new version through the install's readiness.

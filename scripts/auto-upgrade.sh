@@ -14,10 +14,11 @@
 # It backs up, upgrades with scripts/compose.sh (which pins the release and
 # keeps the worker), and moves the worker when the commit pins another Coop.
 # A failed upgrade puts the checkout back and the release before back in its
-# pin; when that release no longer serves, it restores the backup it took. That
-# commit is not tried again; the next move of the branch is. A worker that did
-# not move is asked again every half hour until it has. Each attempt is a
-# line in ~/.local/state/ryker-upgrade/upgrades.log.
+# pin; when that release no longer serves, it restores the backup it took. A
+# commit whose upgrade failed before anything changed is tried again half an
+# hour later; one that stopped the release is not, and the next move of the
+# branch is. A worker that did not move is asked again every half hour until it
+# has. Each attempt is a line in ~/.local/state/ryker-upgrade/upgrades.log.
 set -uo pipefail
 
 repository=$(cd "$(dirname "$0")/.." && pwd)
@@ -28,11 +29,12 @@ upgrade_state=${RYKER_UPGRADE_STATE:-$HOME/.local/state/ryker-upgrade}
 # Each upgrade takes a backup, and an install that follows main upgrades many
 # times a day: only the newest of these stay. Backups taken otherwise are kept.
 keep_backups=${RYKER_KEEP_UPGRADE_BACKUPS:-5}
-# A worker that did not move to the Coop its commit pins is asked again this
-# long after it last was, between pushes: the tenant install's download of Coop
-# broke off after 397 s on 2026-10-17, and the worker would otherwise have kept
-# the Coop it ran until the next push.
-worker_retry_seconds=${RYKER_WORKER_RETRY_SECONDS:-1800}
+# A worker that did not move to the Coop its commit pins, and a commit whose
+# upgrade failed before anything changed, are tried again this long after they
+# last were, between pushes. The tenant install's download of Coop broke off
+# after 397 s on 2026-10-17, and later that day its upgrade stopped when Docker
+# Hub's TLS handshake timed out; each kept what it ran until the next push.
+retry_seconds=${RYKER_UPGRADE_RETRY_SECONDS:-1800}
 # shellcheck source=scripts/compose-lifecycle.sh
 . "$repository/scripts/compose-lifecycle.sh"
 # launchd starts it with a bare PATH; the tenant host's Docker is Homebrew's.
@@ -59,7 +61,7 @@ worker_behind=$upgrade_state/worker-behind
 retry_worker_upgrade() {
   local last
   last=$(cat "$worker_behind" 2>/dev/null) || return 0
-  (($(date +%s) - ${last:-0} >= worker_retry_seconds)) || return 0
+  (($(date +%s) - ${last:-0} >= retry_seconds)) || return 0
   busy && return 0
   if scripts/compose.sh worker-upgrade </dev/null; then
     rm -f "$worker_behind"
@@ -82,8 +84,11 @@ if [[ $target == "$current" ]]; then
   retry_worker_upgrade
   exit
 fi
-if [[ $(cat "$upgrade_state/failed" 2>/dev/null) == "$target" ]]; then
-  exit 0
+# The failed marker names a commit, and when its upgrade failed with nothing
+# changed, the time it did: that one is tried again once retry_seconds have
+# passed since.
+if read -r failed failed_at <"$upgrade_state/failed" 2>/dev/null && [[ $failed == "$target" ]]; then
+  [[ -n $failed_at ]] && (($(date +%s) - failed_at >= retry_seconds)) || exit 0
 fi
 busy && exit 0
 if ! git merge-base --is-ancestor "$current" "$target"; then
@@ -103,7 +108,7 @@ previous_image=$(compose_env_value RYKER_IMAGE "$env_file")
 taken=$(scripts/compose.sh backup </dev/null | tail -n 1)
 if [[ ! -f $taken ]]; then
   record "FAILED ${target:0:12}: the backup before it did not complete; nothing changed"
-  echo "$target" >"$upgrade_state/failed"
+  echo "$target $(date +%s)" >"$upgrade_state/failed"
   exit 1
 fi
 backup="$(dirname "$taken")/pre-upgrade-$(basename "$taken" | sed 's/^ryker-//')"
@@ -122,6 +127,7 @@ if ! scripts/compose.sh upgrade </dev/null; then
   probe_console "$(control_origin "$(compose_env_value RYKER_CONTROL_BIND "$env_file")" "${control_port:-4321}")"
   if [[ $readyz_code == 200 && $running_version == "$previous_version" ]]; then
     pin_release "$previous_version" "$previous_image"
+    echo "$target $(date +%s)" >"$upgrade_state/failed"
     record "FAILED ${target:0:12}: the upgrade failed before it replaced $previous_version, which still runs"
   elif scripts/compose.sh restore "$backup" </dev/null; then
     record "FAILED ${target:0:12}: the upgrade failed; restored ${current:0:12} from $(basename "$backup")"

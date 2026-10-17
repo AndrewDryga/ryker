@@ -1,9 +1,10 @@
 #!/bin/bash
 # Proves scripts/auto-upgrade.sh upgrades an install when the branch it follows moves, and only
 # then: forward only, after a backup, then moving the worker to the Coop the commit pins. A
-# failed upgrade puts the checkout and the pin back, restores the backup only when the release
-# before no longer serves, and that commit is not tried again. A worker that did not move is
-# asked again every half hour until it has.
+# failed upgrade puts the checkout and the pin back, and restores the backup only when the release
+# before no longer serves. A commit whose upgrade failed before anything changed is tried again
+# half an hour later; one that stopped the release is not. A worker that did not move is asked
+# again every half hour until it has.
 #
 # On 2026-10-14 each upgrade of the tenant install needed a Tailscale profile switch, an approval
 # only Andrew could give, and step scripts whose SSH exit status was 0 even when they failed.
@@ -111,7 +112,7 @@ pin_old
 upgrade() {
   : >"$work/calls"
   (cd "$install" && UPGRADE_TEST_STATE="$work" RYKER_INSTALL_STATE="$work/state" \
-    RYKER_UPGRADE_STATE="$work/upgrades" RYKER_WORKER_RETRY_SECONDS="${retry_seconds:-1800}" \
+    RYKER_UPGRADE_STATE="$work/upgrades" RYKER_UPGRADE_RETRY_SECONDS="${retry_seconds:-1800}" \
     scripts/auto-upgrade.sh >"$work/out" 2>&1)
   echo "exit=$?" >>"$work/out"
 }
@@ -153,10 +154,18 @@ refute "and restores nothing while the release before serves" "compose.sh restor
 check "and says so" "FAILED ${unbuilt:0:12}: the upgrade failed before it replaced old, which still runs" "$(cat "$work/out")"
 rm "$work/upgrade.fail"
 upgrade
-check "the commit that failed is not tried again" "" "$(cat "$work/calls")"
+check "the commit that failed is not tried again within the half hour" "" "$(cat "$work/calls")"
+# The tenant install's upgrade broke off on 2026-10-17 when Docker Hub's TLS handshake timed out,
+# with nothing changed, and the install kept the release before until somebody pushed again.
+retry_seconds=0 upgrade
+check "but after it, since nothing had changed" "$unbuilt" "$(head_of)"
+check "and its upgrade is recorded" "upgraded ${before:0:12} -> ${unbuilt:0:12}" "$(cat "$work/out")"
+before=$(head_of)
 
 # A migration that failed: the release before no longer serves, so the backup comes back.
+pin_old
 push "does not migrate"
+unmigrated=$(s rev-parse HEAD)
 touch "$work/upgrade.fail"
 printf '503' >"$work/console/code"
 upgrade
@@ -164,6 +173,10 @@ check "a failed upgrade that stopped the release restores the backup it took" \
   "compose.sh restore $work/state/backups/pre-upgrade-" "$(cat "$work/calls")"
 check "and puts the checkout back too" "$before" "$(head_of)"
 rm "$work/upgrade.fail" "$work/console/code"
+retry_seconds=0 upgrade
+check "a commit whose upgrade stopped the release is not tried again, even after the half hour" "" "$(cat "$work/calls")"
+check "and the checkout stays where it was" "$before" "$(head_of)"
+refute "nor is it ever recorded as upgraded" "${unmigrated:0:12}" "$(grep ' upgraded ' "$work/upgrades/upgrades.log")"
 
 # A worker that does not move leaves Ryker on the new release.
 pin_old
