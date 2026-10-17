@@ -210,10 +210,11 @@ defmodule Ryker.Work.Executor.Turns do
   defp continue_await_turn(_claim, _turn, _settings, _left),
     do: {:error, {:coop_protocol_error, :turn_state}}
 
-  # A provider that couldn't serve the model passes, so the dispatcher runs the task again once
-  # its wait from the failure is over (`Ryker.Work.Dispatcher`).
+  # A provider that couldn't serve the model passes, as does the model's software failing on
+  # something it did not expect, so the dispatcher runs the task again once its wait from the
+  # failure is over (`Ryker.Work.Dispatcher`).
   defp terminal("failed", %{"error_code" => code, "error_detail" => detail} = turn) do
-    if FailureCause.provider_outage?(detail),
+    if FailureCause.transient?(detail),
       do: {:work_provider_unavailable, finished_at(turn), code, detail},
       else: {:work_turn_terminal, "failed", code, detail}
   end

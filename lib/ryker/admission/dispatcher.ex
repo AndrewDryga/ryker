@@ -125,10 +125,11 @@ defmodule Ryker.Admission.Dispatcher do
     end
   end
 
-  # A run the provider couldn't serve, or that ran out of time without a word from the model,
-  # waits by the number of runs the message has had.
+  # A run that failed on something that passes (the provider couldn't serve it, or the model's
+  # software failed on something it did not expect), or that ran out of time without a word from
+  # the model, waits by the number of runs the message has had.
   defp provider_wait(entry, code, detail) do
-    if code == "acp_timeout" or Work.FailureCause.provider_outage?(detail),
+    if code == "acp_timeout" or Work.FailureCause.transient?(detail),
       do: Enum.at(@provider_waits_ms, entry.execution_generation - 1)
   end
 

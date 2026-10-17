@@ -348,6 +348,25 @@ defmodule Ryker.Admission.DispatcherTest do
     end
   end
 
+  # The tenant worker's adapter answered ten turns with a bare "Internal error" in 40 minutes on
+  # 2026-10-17 while the host's network was failing. A console question stopped at once, its one
+  # re-read ten seconds later failed the same way, and it waited for a person until someone
+  # pressed "Read the message again" nine minutes on, when it was answered.
+  test "a message the model's software failed on is read again on its own after a wait" do
+    input_ref = Inbox.ref(record_input!("Ev-adapter-internal", channel_ref: "CADAPTER"))
+
+    reason =
+      {:coop_turn_failed, "failed", "acp_protocol_error",
+       "ACP request was rejected: Internal error"}
+
+    {:ok, stub} = ExecutorStub.start_link({:fail, {:admission_generation_spent, reason}})
+
+    assert {:ok, {:deferred, ^input_ref, ^reason}} = Dispatcher.run_once(options(stub))
+    assert {:ok, waiting} = Inbox.fetch(input_ref)
+    assert waiting.status == :pending
+    assert DateTime.diff(waiting.next_attempt_at, @now) == 60
+  end
+
   # After about an hour of runs the provider refused, the message waits for the worker to prove
   # it works, as any worker failure does.
   test "a message the provider keeps refusing waits for a reading that works" do

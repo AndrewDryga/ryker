@@ -38,9 +38,25 @@ defmodule Ryker.Work.FailureCauseTest do
         ~s(different model."})
 
     assert FailureCause.cause(detail) =~ "couldn't serve the model"
-    assert FailureCause.provider_outage?(detail)
+    assert FailureCause.transient?(detail)
     refute FailureCause.account_problem?(detail)
-    refute FailureCause.provider_outage?("ACP child closed before its response")
+    refute FailureCause.transient?("ACP child closed before its response")
+  end
+
+  # The tenant worker's Codex adapter answered ten turns with a bare "Internal error" in 40
+  # minutes on 2026-10-17 while the host's network was failing, and every message read again
+  # later was answered. Ryker stopped each one for a person and named no cause.
+  test "a turn the model's software failed on passes and says so" do
+    for detail <- [
+          ~s({:coop_turn_failed, "failed", "acp_protocol_error", "ACP request was rejected: Internal error"}),
+          ~s({:coop_turn_failed, "failed", "acp_protocol_error", ) <>
+            ~s("ACP request was rejected: Internal error: fetch failed"})
+        ] do
+      assert FailureCause.transient?(detail)
+      assert FailureCause.cause(detail) =~ "failed on something it did not expect"
+    end
+
+    refute FailureCause.transient?("ACP request was rejected: Authentication required")
   end
 
   # The task 82633a80 would now run again read "stopped before Ryker could

@@ -29,6 +29,12 @@ defmodule Ryker.Work.FailureCause do
   # model.", 2026-10-13), or the worker could not reach it.
   @provider_outage ["provider service unavailable", "provider connection failed"]
 
+  # An agent's adapter answers an exception it did not expect with a bare "Internal error", and
+  # Coop names what the exception said after it. The tenant worker's Codex adapter failed ten
+  # turns that way in 40 minutes on 2026-10-17 while the host's network was failing, and every
+  # message read again later was answered.
+  @unexpected_failure "ACP request was rejected: Internal error"
+
   # A repository whose submodule comes from a repository Ryker was never given,
   # as the saved term names both: the task's own or a read-only one from its
   # environment (tenantcorp/tenant-core and skypjack/entt, 2026-10-03).
@@ -87,6 +93,16 @@ defmodule Ryker.Work.FailureCause do
          "Ryker already ran it again over about an hour. Run it again once the worker can " <>
            "reach the provider.",
        depends: "It works once the worker can reach the provider again."
+     }},
+    {@unexpected_failure,
+     %{
+       cause:
+         "The software that runs the model on the worker failed on something it did not " <>
+           "expect, so the task got no answer.",
+       next_step:
+         "Ryker already ran it again over about an hour. Run it again. If it stops the same " <>
+           "way, the saved error has what the worker reported.",
+       depends: "It works once whatever stopped the model's software passes."
      }},
     {"coop_worker_capacity_unavailable",
      %{
@@ -217,14 +233,16 @@ defmodule Ryker.Work.FailureCause do
   def account_problem?(_detail), do: false
 
   @doc """
-  Whether the saved error says the model provider couldn't serve the model for
-  a while, which passes: it was at capacity, or the worker couldn't reach it.
+  Whether the saved error says the turn failed on something that passes: the
+  model provider couldn't serve the model for a while (it was at capacity, or
+  the worker couldn't reach it), or the software that runs the model failed on
+  something it did not expect.
   """
-  @spec provider_outage?(String.t() | nil) :: boolean()
-  def provider_outage?(detail) when is_binary(detail),
-    do: String.contains?(detail, @provider_outage)
+  @spec transient?(String.t() | nil) :: boolean()
+  def transient?(detail) when is_binary(detail),
+    do: String.contains?(detail, [@unexpected_failure | @provider_outage])
 
-  def provider_outage?(_detail), do: false
+  def transient?(_detail), do: false
 
   # The checkpoint guard's refusal, as the dispatcher records it: a blocked turn
   # carries the code before the term, a deferred one the term alone.
