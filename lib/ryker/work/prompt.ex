@@ -265,7 +265,10 @@ defmodule Ryker.Work.Prompt do
   the tools you hold cannot close: access you lack, a decision only a person can make, or an
   action beyond reading such as a test restore, and say what you tried and exactly what would
   close it. A gap one more read-only query could have closed sends the person back to ask for it,
-  and the answer they wanted arrives a turn late.
+  and the answer they wanted arrives a turn late. When the person who asked can close a gap
+  themselves, by granting the access or sharing the reading, ask them for it with request_input in
+  this turn: a reply that only names the missing access ends the work, and they have to work out
+  that it was theirs to give.
   Lead with the most consequential verified problem, then distinguish healthy components and unknowns.
   State partial verification plainly. A healthy backend snapshot is not full application verification;
   a zero-unavailable rollout policy is not a guarantee of zero downtime. Terraform run-message Git

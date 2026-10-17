@@ -115,6 +115,21 @@ defmodule Ryker.Work.PromptTest do
     assert instructions =~ "A broad check is no reason for a long reply"
   end
 
+  # The 2026-10-17 world matrix and its A/B, "How is health of our infra in VA1?": the replies
+  # that said Arena's error rate could not be read without viewer access and stopped there
+  # failed, and every reply that asked for that access with request_input passed.
+  test "a gap the person who asked can close is asked for, not only named" do
+    instructions =
+      Prompt.build(%{})
+      |> Jason.decode!()
+      |> Map.fetch!("instructions")
+      |> String.replace(~r/\s+/, " ")
+
+    assert instructions =~
+             "When the person who asked can close a gap themselves, by granting the access or " <>
+               "sharing the reading, ask them for it with request_input in this turn"
+  end
+
   test "a missing operational fact leads to discovery and one useful remembered question" do
     # The retained Terraform response stopped at an unknown project ID instead
     # of asking for the fact that would unlock its health and backup checks.
