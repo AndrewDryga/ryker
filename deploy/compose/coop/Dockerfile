@@ -4,9 +4,21 @@ FROM golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba6579
 ARG COOP_VERSION=v11.3.0-80-g3c9871c0
 ARG COOP_REVISION=3c9871c022b6a28bd634eb16b046fd713f81661a
 
-RUN git clone https://github.com/AndrewDryga/coop.git /build/coop \
+# Only the pinned commit, and each download tried again: on 2026-10-17 the tenant host's network
+# broke off a clone of Coop's whole history twice, after 397 s and 36 s, and its worker stayed on
+# the Coop it ran.
+RUN git init --quiet /build/coop \
  && cd /build/coop \
- && git checkout --detach "$COOP_REVISION" \
+ && for attempt in 1 2 3 4 5; do \
+      git fetch --quiet --depth 1 https://github.com/AndrewDryga/coop.git "$COOP_REVISION" && break; \
+      [ "$attempt" -lt 5 ] || exit 1; sleep $((attempt * 10)); \
+    done \
+ && git checkout --quiet --detach FETCH_HEAD \
+ && test "$(git rev-parse HEAD)" = "$COOP_REVISION" \
+ && for attempt in 1 2 3 4 5; do \
+      go mod download && break; \
+      [ "$attempt" -lt 5 ] || exit 1; sleep $((attempt * 10)); \
+    done \
  && CGO_ENABLED=0 go build -trimpath \
       -ldflags "-s -w -X github.com/AndrewDryga/coop/internal/cli.Version=$COOP_VERSION" \
       -o /out/coop .
