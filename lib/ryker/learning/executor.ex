@@ -353,13 +353,21 @@ defmodule Ryker.Learning.Executor do
     }
 
     with {:ok, _} <- Learning.fail(run.id, reason, receipt, claim),
-         do: {:error, reason}
+         do: {:error, transient(reason, turn)}
   end
 
   defp process_turn(_claim, _run, _session, %{"state" => state}, _settings)
        when state in @turn_waiting, do: {:ok, :waiting}
 
   defp process_turn(_, _, _, _, _), do: {:error, :learning_remote_protocol_error}
+
+  # A failure that passes says so, so the dispatcher waits before the batch's next start
+  # instead of spending it seconds later on the same fault.
+  defp transient(:learning_provider_failed = reason, turn) do
+    if Work.FailureCause.transient?(turn["error_detail"]), do: {:transient, reason}, else: reason
+  end
+
+  defp transient(reason, _turn), do: reason
 
   defp complete(claim, run, turn) do
     result =

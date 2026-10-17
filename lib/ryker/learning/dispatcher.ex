@@ -7,6 +7,7 @@ defmodule Ryker.Learning.Dispatcher do
   @maximum_reconciliations 12
   @refused_policy_hold_seconds 300
   @worker_hold_seconds 60
+  @transient_waits [60, 120]
   # Coop's MaxTurnTimeout: a session policy cannot allow a longer turn.
   @longest_turn_seconds 24 * 3_600
 
@@ -159,11 +160,21 @@ defmodule Ryker.Learning.Dispatcher do
 
   defp stop_reason(run), do: error_reason(run.error_code)
 
+  # A turn that failed on something that passes waits before the batch's next start, a minute
+  # and then two, so its three starts can outlast the fault: the tenant install's batches spent
+  # all three within a minute of one network fault on 2026-10-17, then waited for a person to
+  # press retry. The claim counts the starts spent before this one.
+  defp failed(claim, {:error, :not_found}, {:transient, reason}, _settings),
+    do: Batches.release(claim, reason, transient_wait(claim))
+
   defp failed(claim, {:error, :not_found}, reason, settings),
     do: Batches.release(claim, error_reason(code(reason)), settings.step_delay_seconds)
 
   defp failed(claim, {:ok, outstanding}, reason, settings),
     do: unresolved(claim, outstanding, settings, reason)
+
+  defp transient_wait(claim),
+    do: Enum.at(@transient_waits, claim.batch.start_count, List.last(@transient_waits))
 
   defp unresolved(claim, run, settings, reason \\ nil) do
     with {:ok, run} <- Batches.reconciliation_failed(claim, run.id) do

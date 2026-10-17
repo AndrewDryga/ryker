@@ -59,6 +59,51 @@ defmodule Ryker.Learning.ProviderFailureTest do
     api: API
   }
 
+  # The tenant install's learning batches spent all three starts within a minute on 2026-10-17:
+  # each turn failed about twenty seconds in with the adapter's bare "Internal error" while the
+  # host's network was failing, the batch started again two seconds later, and two batches then
+  # waited for a person to press retry. The turn below is that failure as the worker recorded it.
+  test "a batch whose turn failed on something that passes waits longer before each next start" do
+    _entries = Fixtures.inputs!() |> Fixtures.normalize_queue_timestamps!()
+
+    terminal = %{
+      "id" => "turn_recorded",
+      "session_id" => "remote_recorded",
+      "state" => "failed",
+      "stop_reason" => "error",
+      "error_code" => "acp_protocol_error",
+      "error_detail" => "ACP request was rejected: Internal error",
+      "queued_at" => "2026-10-17T16:22:21.000000Z",
+      "started_at" => "2026-10-17T16:22:21.000000Z",
+      "finished_at" => "2026-10-17T16:22:43.683306Z"
+    }
+
+    {:ok, fake} = FakeCoopAPI.start_link([], fail_first_turn: true)
+
+    Agent.update(fake, fn state ->
+      state
+      |> Map.put(:terminal_fixture, terminal)
+      |> put_in([:session, "target"], "host-contract-test-provider")
+    end)
+
+    settings = Map.put(@settings, :client, fake)
+
+    assert {:ok, %{status: :queued, start_count: 1} = waiting} = Dispatcher.run_once(settings)
+    assert DateTime.diff(waiting.next_attempt_at, Repo.now!()) in 50..60
+    assert Dispatcher.run_once(settings) == {:ok, :idle}
+
+    Repo.update_all(Batch, set: [next_attempt_at: DateTime.add(Repo.now!(), -1, :second)])
+    assert {:ok, %{status: :queued, start_count: 2} = waiting} = Dispatcher.run_once(settings)
+    assert DateTime.diff(waiting.next_attempt_at, Repo.now!()) in 110..120
+
+    Repo.update_all(Batch, set: [next_attempt_at: DateTime.add(Repo.now!(), -1, :second)])
+
+    assert {:ok, %{status: :deferred, start_count: 3, start_limit: 3}} =
+             Dispatcher.run_once(settings)
+
+    assert FakeCoopAPI.state(fake).submit_count == 3
+  end
+
   test "real dispatcher contract exhaustion corrects the next prompt without renewing its budget" do
     # Retained replay batch 371 exhausted three provider contract attempts. A
     # test-only failure recorder hid the live executor's generic error mapping,
