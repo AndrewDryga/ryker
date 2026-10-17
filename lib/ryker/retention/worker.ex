@@ -47,6 +47,7 @@ defmodule Ryker.Retention.Worker do
     _ = Observability.Progress.beat(:retention)
     _maintenance = maintain_once(state.maintenance, state.maintenance_options, state.body_root)
     _placements = retire_abandoned_placements(state.up_since)
+    _commands = settle_orphaned_commands()
     state.poll_interval_ms
   end
 
@@ -103,6 +104,16 @@ defmodule Ryker.Retention.Worker do
     end
   rescue
     error -> Logger.error("placement sweep crashed: #{Exception.message(error)}")
+  end
+
+  defp settle_orphaned_commands do
+    case CoopFleet.ControlPlane.settle_orphaned_commands(Repo.now!()) do
+      {:ok, 0} -> :ok
+      {:ok, settled} -> Logger.info("settled #{settled} commands no worker will report")
+      {:error, reason} -> Logger.error("command sweep failed: #{inspect(reason)}")
+    end
+  rescue
+    error -> Logger.error("command sweep crashed: #{Exception.message(error)}")
   end
 
   defp process_once(dispatcher, options) do

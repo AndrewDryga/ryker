@@ -118,6 +118,25 @@ defmodule Ryker.CoopFleet.Command.Query do
     )
   end
 
+  @doc """
+  Commands still delivered or acknowledged whose placement was replaced or
+  retired before `cutoff`. A worker sends a command's result again until Ryker
+  takes it, so a result that has not come since will not come.
+  """
+  def orphaned(cutoff) do
+    from(c in all(),
+      join: p in Placement,
+      as: :coop_session_placements,
+      on: p.id == c.placement_id,
+      where:
+        c.status in [:delivered, :acknowledged] and p.state in [:replaced, :retired] and
+          p.updated_at < ^cutoff
+    )
+  end
+
+  def select_worker_ids(queryable),
+    do: queryable |> select([coop_worker_commands: c], c.worker_id) |> distinct(true)
+
   @doc "Session `session_id`'s workspace setups that restored a checkpoint."
   def checkpoint_restores(session_id) do
     session_id

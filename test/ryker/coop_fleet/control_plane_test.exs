@@ -1487,6 +1487,30 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
     assert Repo.get!(Placement, held.id).state == :active
   end
 
+  # Two create_session commands of placements replaced on 2026-10-13 stayed
+  # acknowledged on the tenant install for thirteen days, and every worker
+  # upgrade there waited for them and gave up (2026-10-16). A worker sends a
+  # result until Ryker takes it, so one that has not come in a day is not coming.
+  test "a command still open a day after its placement ended is settled as uncertain" do
+    authorize_and_poll!("worker-a")
+    authorize_and_poll!("worker-b")
+    now = Repo.now!()
+    lost = acknowledged!(place!("orphan-lost"))
+    late = acknowledged!(place!("orphan-late"))
+    live = acknowledged!(place!("orphan-live"))
+    end_placement!(lost, :replaced, DateTime.add(now, -2 * 86_400, :second))
+    end_placement!(late, :retired, DateTime.add(now, -3_600, :second))
+
+    assert ControlPlane.settle_orphaned_commands(now) == {:ok, 1}
+
+    settled = Repo.get!(Command, lost.id)
+    assert {settled.status, settled.error["code"]} == {:uncertain, "worker_never_reported"}
+    assert settled.operation_key == lost.idempotency_key
+    assert Repo.get!(Command, late.id).status == :acknowledged
+    assert Repo.get!(Command, live.id).status == :acknowledged
+    assert ControlPlane.settle_orphaned_commands(now) == {:ok, 0}
+  end
+
   # The poll was one transaction, so one result Ryker refused refused the
   # whole poll: the worker sent it again and again, nothing else it reported
   # counted, and its leases ran out (2026-10-04 review).
@@ -2424,6 +2448,30 @@ defmodule Ryker.CoopFleet.ControlPlaneTest do
              )
 
     Enum.map(commands, & &1["command_id"])
+  end
+
+  defp acknowledged!(placement) do
+    assert {:ok, command} =
+             ControlPlane.enqueue_command(
+               placement.id,
+               "get_session",
+               %{"coop_session_id" => "remote:#{placement.id}"},
+               "orphan:#{placement.id}"
+             )
+
+    now = Repo.now!()
+
+    Repo.update_all(from(c in Command, where: c.id == ^command.id),
+      set: [status: :acknowledged, delivered_at: now, acknowledged_at: now]
+    )
+
+    Repo.get!(Command, command.id)
+  end
+
+  defp end_placement!(command, state, at) do
+    Repo.update_all(from(p in Placement, where: p.id == ^command.placement_id),
+      set: [state: state, updated_at: at]
+    )
   end
 
   defp place!(suffix) do

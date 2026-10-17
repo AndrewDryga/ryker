@@ -364,6 +364,54 @@ defmodule Ryker.CoopFleet.ControlPlane.Commands do
     :ok
   end
 
+  @orphaned_seconds 24 * 60 * 60
+
+  @doc """
+  Settles as uncertain each command still delivered or acknowledged a day
+  after its placement was replaced or retired: the worker lost it, or its
+  result would have come. Two create_session commands of placements replaced
+  on 2026-10-13 stayed acknowledged on the tenant install, and every worker
+  upgrade there waited for them and gave up (2026-10-16). Whether the work
+  happened is unknown, and the session's next placement finds out.
+  """
+  @spec settle_orphaned_commands(DateTime.t()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def settle_orphaned_commands(now) do
+    query = Command.Query.orphaned(DateTime.add(now, -@orphaned_seconds, :second))
+    workers = query |> Command.Query.select_worker_ids() |> Repo.all()
+
+    Repo.transaction(fn ->
+      Enum.each(Enum.sort(workers), &Shared.fetch_and_lock_worker/1)
+
+      query
+      |> Command.Query.lock_for_update()
+      |> Repo.all()
+      |> Enum.map(&settle_orphaned(&1, now))
+      |> length()
+    end)
+  end
+
+  defp settle_orphaned(command, now) do
+    error = %{
+      "code" => "worker_never_reported",
+      "detail" => "the worker never reported a result after its placement ended",
+      "status" => 409
+    }
+
+    fingerprint =
+      CanonicalJSON.digest(%{
+        "command_id" => command.id,
+        "error" => error,
+        "operation_key" => command.idempotency_key,
+        "resource" => nil,
+        "state" => "uncertain"
+      })
+
+    command
+    |> Command.Changeset.uncertain(now, command.idempotency_key, fingerprint, error)
+    |> Repo.update!()
+    |> broadcast_command_settled()
+  end
+
   defp reject_command(command, error, now) do
     fingerprint =
       CanonicalJSON.digest(%{
