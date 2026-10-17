@@ -539,7 +539,14 @@ defmodule Ryker.Evals.CoopRunner do
     end
   end
 
-  defp discard_clean_session(namespace, run_ref, session, settings) do
+  # A workspace that changed after its discard plan is refused with 409 discard_plan_stale, or
+  # revision_conflict when the session moved: the plan is made again from the session as it is
+  # now, under keys of its own, as retention does. A judge's cleanup failed a right answer on
+  # the first in the 2026-10-17 world matrix.
+  @replanned_discards ["discard_plan_stale", "revision_conflict"]
+  @discard_attempts 3
+
+  defp discard_clean_session(namespace, run_ref, session, settings, attempt \\ 1) do
     with {:ok, current} <- settings.api.get_session(settings.client, session["id"]),
          {:ok, current} <-
            validate_session(
@@ -550,15 +557,34 @@ defmodule Ryker.Evals.CoopRunner do
              settings
            ) do
       case current["state"] do
-        "discarded" -> :ok
-        "closed" -> plan_and_discard(namespace, run_ref, session, current, settings)
+        "discarded" ->
+          :ok
+
+        "closed" ->
+          namespace
+          |> plan_and_discard(run_ref, session, current, settings, attempt)
+          |> replan_stale(namespace, run_ref, session, settings, attempt)
       end
     end
   end
 
-  defp plan_and_discard(namespace, run_ref, session, current, settings) do
-    plan_key = "ryker:eval:#{namespace}:#{run_ref}:discard-plan"
-    discard_key = "ryker:eval:#{namespace}:#{run_ref}:discard"
+  defp replan_stale(
+         {:error, {:coop_error, 409, code, _detail}},
+         namespace,
+         run_ref,
+         session,
+         settings,
+         attempt
+       )
+       when code in @replanned_discards and attempt < @discard_attempts,
+       do: discard_clean_session(namespace, run_ref, session, settings, attempt + 1)
+
+  defp replan_stale(result, _namespace, _run_ref, _session, _settings, _attempt), do: result
+
+  defp plan_and_discard(namespace, run_ref, session, current, settings, attempt) do
+    suffix = if attempt == 1, do: "", else: ":#{attempt}"
+    plan_key = "ryker:eval:#{namespace}:#{run_ref}:discard-plan#{suffix}"
+    discard_key = "ryker:eval:#{namespace}:#{run_ref}:discard#{suffix}"
 
     with {:ok, revision} <- revision(current),
          {:ok, plan_response} <-

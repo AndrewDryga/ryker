@@ -327,6 +327,23 @@ defmodule Ryker.Evals.CoopRunnerTest do
     assert FakeCoopAPI.state(already_closed).close_keys == []
   end
 
+  # The 2026-10-17 world matrix failed a baseline observation whose answer was right: the
+  # judge's workspace changed between its discard plan and the discard, Coop answered 409
+  # discard_plan_stale, and the runner reported its cleanup as the observation's failure.
+  # Retention already plans again on that answer (2026-10-11).
+  test "a discard plan the workspace outgrew is planned again rather than failing the judgment" do
+    eval = eval_case()
+    {:ok, fake} = FakeCoopAPI.start_link([judgment(eval, true)], stale_first_discard: true)
+
+    assert %{status: :passed, cleanup_error: nil} = CoopRunner.run_case(eval, options(fake))
+
+    state = FakeCoopAPI.state(fake)
+    assert state.discarded
+    assert length(state.discard_plan_keys) == 2
+    assert Enum.uniq(state.discard_plan_keys) == state.discard_plan_keys
+    assert Enum.uniq(state.discard_keys) == state.discard_keys
+  end
+
   test "runner identities and keyword options are exact rather than best effort" do
     eval = eval_case()
     {:ok, fake} = FakeCoopAPI.start_link([judgment(eval, true)])

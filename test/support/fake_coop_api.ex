@@ -36,6 +36,8 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
         fail_create: Keyword.get(options, :fail_create, false),
         first_create_error: Keyword.get(options, :first_create_error),
         fail_first_close: Keyword.get(options, :fail_first_close, false),
+        stale_first_discard: Keyword.get(options, :stale_first_discard, false),
+        stale_discard_key: nil,
         failed_close_key: nil,
         fail_first_operation: Keyword.get(options, :fail_first_operation, false),
         failed_operation_key: nil,
@@ -524,32 +526,51 @@ defmodule Ryker.TestSupport.FakeCoopAPI do
   end
 
   @impl true
-  def discard_session(agent, session_id, key, _plan_operation_id) do
+  def discard_session(agent, session_id, key, plan_operation_id) do
     Agent.get_and_update(agent, fn state ->
-      discarded =
-        state.session
-        |> Map.put("state", "discarded")
-        |> Map.update!("revision", &(&1 + 1))
-
-      response = %{
-        "operation" => %{
-          "id" => "op_discard_#{key}",
-          "method" => "Discard",
-          "resource_id" => session_id,
-          "resource_type" => "session",
-          "state" => "succeeded"
-        },
-        "session" => discarded
-      }
-
-      {{:ok, response},
-       %{
-         state
-         | discard_keys: state.discard_keys ++ [key],
-           discarded: true,
-           session: discarded
-       }}
+      if state.stale_first_discard and is_nil(state.stale_discard_key),
+        do: stale_discard(state, key),
+        else: discard(state, session_id, key, plan_operation_id)
     end)
+  end
+
+  # The workspace changed after its plan, as a judge's did in the 2026-10-17 world matrix: Coop
+  # refuses the discard with the words it answered then and keeps the session, a revision on.
+  defp stale_discard(state, key) do
+    {{:error,
+      {:coop_error, 409, "discard_plan_stale", "discard plan no longer matches workspace state"}},
+     %{
+       state
+       | discard_keys: state.discard_keys ++ [key],
+         stale_discard_key: key,
+         session: Map.update!(state.session, "revision", &(&1 + 1))
+     }}
+  end
+
+  defp discard(state, session_id, key, _plan_operation_id) do
+    discarded =
+      state.session
+      |> Map.put("state", "discarded")
+      |> Map.update!("revision", &(&1 + 1))
+
+    response = %{
+      "operation" => %{
+        "id" => "op_discard_#{key}",
+        "method" => "Discard",
+        "resource_id" => session_id,
+        "resource_type" => "session",
+        "state" => "succeeded"
+      },
+      "session" => discarded
+    }
+
+    {{:ok, response},
+     %{
+       state
+       | discard_keys: state.discard_keys ++ [key],
+         discarded: true,
+         session: discarded
+     }}
   end
 
   defp close_state(state, session_id) do
