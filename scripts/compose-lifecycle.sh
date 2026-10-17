@@ -13,6 +13,27 @@
 # owner file names the process and the command; a lock whose process is gone
 # is taken over.
 
+# The bundled worker's image is named for the Coop its Dockerfile pins and for what else is built
+# into it: that Dockerfile, the worker's entrypoint and the box Dockerfile. Named for the Coop
+# alone, a change to one of the others reached no install that had built that Coop's image
+# already: worker-upgrade found the name and built nothing (2026-10-17). Callers take it from a
+# command substitution, so its variables stay its own.
+worker_image() {
+  worker_recipe="$1/deploy/compose/coop"
+  worker_revision=$(sed -n 's/^ARG COOP_REVISION=//p' "$worker_recipe/Dockerfile" 2>/dev/null)
+  case $worker_revision in
+    *[!0-9a-f]* | "") return 1 ;;
+  esac
+  worker_inputs=$(cat "$worker_recipe/Dockerfile" "$worker_recipe/entrypoint.sh" \
+    "$worker_recipe/Box.Dockerfile" 2>/dev/null | sha256_hex)
+  printf 'ryker-coop:%s-%s\n' "$(printf '%s' "$worker_revision" | cut -c1-8)" \
+    "$(printf '%s' "$worker_inputs" | cut -c1-8)"
+}
+
+sha256_hex() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi | cut -d' ' -f1
+}
+
 take_lifecycle_lock() {
   lifecycle_lock=$state_dir/lifecycle.lock
   mkdir -p "$state_dir"

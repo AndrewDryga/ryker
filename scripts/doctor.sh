@@ -18,6 +18,8 @@ env_file=$state_dir/compose.env
 docker_command=${DOCTOR_DOCKER:-docker}
 gate_lock=${RYKER_GATE_LOCK:-/tmp/ryker-gate.lock}
 export PATH="$PATH:/usr/local/bin:/opt/homebrew/bin"
+# shellcheck source=scripts/compose-lifecycle.sh
+. "$repository/scripts/compose-lifecycle.sh"
 
 fix=0
 case ${1:-} in
@@ -160,14 +162,14 @@ if [[ -f $env_file ]]; then
     ok "the watchdog is installed"
   fi
 
-  # The worker moves to the Dockerfile's Coop pin only when someone runs worker-upgrade.
-  pin=$(sed -n 's/^ARG COOP_REVISION=//p' deploy/compose/coop/Dockerfile | cut -c1-8)
+  # The worker moves to the image its recipe names only when someone runs worker-upgrade.
+  pinned=$(worker_image "$repository")
   worker=$(within 10 "$docker_command" compose --env-file "$env_file" ps --all \
     --format '{{.Service}} {{.Image}}' 2>/dev/null | awk '$1 == "ryker-coop" { print $2 }')
-  if [[ -z $worker || $worker == "ryker-coop:$pin" ]]; then
-    ok "the worker runs the Coop the Dockerfile pins${worker:+ ($worker)}"
+  if [[ -z $worker || $worker == "$pinned" ]]; then
+    ok "the worker runs the image its recipe names${worker:+ ($worker)}"
   else
-    problem "the worker runs $worker, the Dockerfile pins ryker-coop:$pin (scripts/compose.sh worker-upgrade)"
+    problem "the worker runs $worker, its recipe names $pinned (scripts/compose.sh worker-upgrade)"
   fi
 fi
 

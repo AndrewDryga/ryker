@@ -159,7 +159,9 @@ scripts/compose.sh worker-upgrade
 ```
 
 moves the bundled worker to the Coop `deploy/compose/coop/Dockerfile` pins, the one place that pin
-lives: it builds `ryker-coop:` and the revision's first eight digits, copies the model sign-in aside
+lives: it builds `ryker-coop:`, the revision's first eight digits and eight of a digest of what the
+image is built from (that Dockerfile, the worker's entrypoint and `Box.Dockerfile`, so a change to
+any of them reaches every install even with the same Coop), copies the model sign-in aside
 in the worker's volume (`agents.pre-*`, the newest two kept), prepares the new worker's box on the
 live worker's volumes and Docker daemon while that worker keeps working
 (`deploy/compose/coop/prewarm.sh`), waits up to ten minutes for the commands the worker is carrying

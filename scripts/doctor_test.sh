@@ -24,7 +24,7 @@ check() {
 
 repo=$work/repo
 mkdir -p "$repo/scripts" "$repo/deploy/compose/coop" "$repo/.ryker" "$repo/deps" "$work/bin"
-cp "$root/scripts/doctor.sh" "$repo/scripts/doctor.sh"
+cp "$root/scripts/doctor.sh" "$root/scripts/compose-lifecycle.sh" "$repo/scripts/"
 printf 'ARG COOP_REVISION=1234abcd%s\n' "$(printf '0%.0s' $(seq 1 32))" >"$repo/deploy/compose/coop/Dockerfile"
 printf 'RYKER_VERSION=1\n' >"$repo/.ryker/compose.env"
 git -C "$repo" init -q
@@ -65,7 +65,7 @@ out=$(doctor)
 check "databases a stopped run left are found" "2 test databases were left by runs that are gone" "$out"
 check "a lock a dead gate left is found" "a gate that is gone left its lock" "$out"
 check "a dependencies link is found" "deps is a link, not a directory" "$out"
-check "a worker behind the pin is named" "the worker runs ryker-coop:old, the Dockerfile pins ryker-coop:1234abcd" "$out"
+check "a worker behind its recipe is named" "the worker runs ryker-coop:old, its recipe names ryker-coop:1234abcd-" "$out"
 check "and the doctor fails" "exit=1" "$out"
 
 : >"$work/calls"

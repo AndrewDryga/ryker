@@ -896,6 +896,7 @@ mkdir -p "$repo/deploy/compose/coop"
 printf 'ARG COOP_REVISION=1234abcd%s\n' "$(printf '0%.0s' $(seq 1 32))" >"$repo/deploy/compose/coop/Dockerfile"
 cp "$root/deploy/compose/coop/prewarm.sh" "$repo/deploy/compose/coop/prewarm.sh"
 git -C "$repo" add -A && git -C "$repo" commit -q -m "worker recipe"
+worker_pinned=$(. "$root/scripts/compose-lifecycle.sh" && worker_image "$repo")
 worker_upgrade() {
   out=$(cd "$repo" && RYKER_WORKER_IDLE_TIMEOUT=0 sh scripts/compose.sh worker-upgrade 2>&1; echo "exit=$?")
   calls=$(cat "$fake/calls")
@@ -906,10 +907,11 @@ printf 'ryker-coop:%s\n' 1234abcd old older >"$fake/images"
 touch "$fake/image.missing"
 worker_upgrade
 check "a worker upgrade succeeds" "exit=0" "$out"
-check "it builds the pinned Coop's worker" "deploy/compose/coop/Dockerfile --tag ryker-coop:1234abcd" "$calls"
+check "it builds the pinned Coop's worker" "deploy/compose/coop/Dockerfile --tag $worker_pinned" "$calls"
+check "named for the Coop it pins" "ryker-coop:1234abcd-" "$worker_pinned"
 check "it keeps the model sign-in aside" "cp -a agents agents.pre-1234abcd-" "$calls"
-check "it prepares the new worker's box with the new image" "RYKER_COOP_IMAGE=ryker-coop:1234abcd" "$(cat "$fake/prewarm.env")"
-check "it pins the new worker" "RYKER_COOP_IMAGE=ryker-coop:1234abcd" "$(cat "$state/compose.env")"
+check "it prepares the new worker's box with the new image" "RYKER_COOP_IMAGE=$worker_pinned" "$(cat "$fake/prewarm.env")"
+check "it pins the new worker" "RYKER_COOP_IMAGE=$worker_pinned" "$(cat "$state/compose.env")"
 check "it restarts only the worker" "up --detach --no-build --wait --no-deps ryker-coop" "$calls"
 check "it removes a worker image older than the one it replaced" "image rm ryker-coop:older" "$calls"
 refute "it keeps the worker it replaced" "image rm ryker-coop:old"$'\n' "$calls"$'\n'
@@ -928,13 +930,29 @@ printf '2\n' >"$fake/inflight"
 worker_upgrade
 check "a worker carrying out commands is not swapped" "still carrying out 2 commands" "$out"
 check "and the upgrade fails" "exit=1" "$out"
-refute "and keeps the worker's pin" "RYKER_COOP_IMAGE=ryker-coop:1234abcd" "$(cat "$state/compose.env")"
+refute "and keeps the worker's pin" "RYKER_COOP_IMAGE=$worker_pinned" "$(cat "$state/compose.env")"
 refute "and restarts nothing" "up --detach" "$(cat "$fake/calls")"
 seed
-printf 'ryker-coop:1234abcd\n' >"$fake/worker.image"
+printf '%s\n' "$worker_pinned" >"$fake/worker.image"
 worker_upgrade
-check "a worker on the pin already is left alone" "The worker already runs ryker-coop:1234abcd" "$out"
+check "a worker on the pin already is left alone" "The worker already runs $worker_pinned" "$out"
 refute "and nothing is built or restarted" "up --detach" "$calls"
+
+# The worker image is named for everything built into it, not only the Coop it pins. On 2026-10-17
+# a change to the box Dockerfile with the same Coop reached no install that had built that Coop's
+# image already: worker-upgrade found the name and built nothing.
+printf '# a change to the box\n' >>"$repo/deploy/compose/coop/Box.Dockerfile"
+git -C "$repo" add -A && git -C "$repo" commit -q -m "box recipe"
+rebuilt=$(. "$root/scripts/compose-lifecycle.sh" && worker_image "$repo")
+seed
+printf '%s\n' "$worker_pinned" >"$fake/worker.image"
+touch "$fake/image.missing"
+worker_upgrade
+check "a box recipe change with the same Coop builds a new worker" "--tag $rebuilt" "$calls"
+check "and pins it" "RYKER_COOP_IMAGE=$rebuilt" "$(cat "$state/compose.env")"
+check "named for the same Coop" "ryker-coop:1234abcd-" "$rebuilt"
+refute "under another name than the worker it replaces" "$worker_pinned" "$rebuilt"
+rm -f "$fake/image.missing"
 
 # A ready release is not proof that a message goes through it. Where compose.env names the
 # Slack test channel, the deploy runs the live lane there and fails when it does; elsewhere it

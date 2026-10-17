@@ -551,11 +551,10 @@ case "$command" in
     require_install
     require_clean_checkout worker-upgrade
     lock_lifecycle worker-upgrade
-    revision=$(sed -n 's/^ARG COOP_REVISION=//p' "$repository/deploy/compose/coop/Dockerfile")
-    case $revision in
-      *[!0-9a-f]* | "") echo "deploy/compose/coop/Dockerfile names no COOP_REVISION." >&2; exit 1 ;;
-    esac
-    image=ryker-coop:$(printf '%s' "$revision" | cut -c1-8)
+    if ! image=$(worker_image "$repository"); then
+      echo "deploy/compose/coop/Dockerfile names no COOP_REVISION." >&2
+      exit 1
+    fi
     replaced=$(running_worker_image)
     if [ "$replaced" = "$image" ]; then
       pin_value RYKER_COOP_IMAGE "$image"
