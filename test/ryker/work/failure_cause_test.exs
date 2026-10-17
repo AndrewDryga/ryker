@@ -59,6 +59,20 @@ defmodule Ryker.Work.FailureCauseTest do
     refute FailureCause.transient?("ACP request was rejected: Authentication required")
   end
 
+  # Coop words a sign-in the provider refused as a service outage ("provider service unavailable:
+  # Failed to refresh token", 2026-09-27), and an adapter's internal error can carry the same
+  # words. No wait cures either; since 2026-10-13 such a message waited about an hour on the
+  # provider ladder before anyone was told the account needs a person.
+  test "a sign-in the provider refused is not a failure that passes" do
+    for detail <- [
+          "provider service unavailable: Failed to refresh token: 400 Bad Request",
+          "ACP request was rejected: Internal error: Failed to refresh token: 401 Unauthorized"
+        ] do
+      assert FailureCause.account_problem?(detail)
+      refute FailureCause.transient?(detail)
+    end
+  end
+
   # The task 82633a80 would now run again read "stopped before Ryker could
   # confirm why" on the Failures page, though the saved error says why.
   test "a task stopped by a stale briefing says the briefing changed" do

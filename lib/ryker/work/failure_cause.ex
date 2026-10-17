@@ -236,11 +236,14 @@ defmodule Ryker.Work.FailureCause do
   Whether the saved error says the turn failed on something that passes: the
   model provider couldn't serve the model for a while (it was at capacity, or
   the worker couldn't reach it), or the software that runs the model failed on
-  something it did not expect.
+  something it did not expect. An account problem never passes, whichever of
+  those words Coop put before it.
   """
   @spec transient?(String.t() | nil) :: boolean()
-  def transient?(detail) when is_binary(detail),
-    do: String.contains?(detail, [@unexpected_failure | @provider_outage])
+  def transient?(detail) when is_binary(detail) do
+    String.contains?(detail, [@unexpected_failure | @provider_outage]) and
+      not account_problem?(detail)
+  end
 
   def transient?(_detail), do: false
 

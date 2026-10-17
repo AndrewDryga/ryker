@@ -367,6 +367,20 @@ defmodule Ryker.Admission.DispatcherTest do
     assert DateTime.diff(waiting.next_attempt_at, @now) == 60
   end
 
+  # The worker's sign-in failed on 2026-09-27 and Coop worded it as a service outage. Waiting on
+  # the provider ladder cures no sign-in, and the person who asked heard nothing for an hour.
+  test "a message whose worker sign-in failed stops for a person at once" do
+    input_ref = Inbox.ref(record_input!("Ev-sign-in-refused", channel_ref: "CSIGNIN"))
+
+    reason =
+      {:coop_turn_failed, "failed", "acp_protocol_error",
+       "provider service unavailable: Failed to refresh token: 400 Bad Request"}
+
+    {:ok, stub} = ExecutorStub.start_link({:fail, {:admission_generation_spent, reason}})
+
+    assert {:ok, {:blocked, ^input_ref, ^reason}} = Dispatcher.run_once(options(stub))
+  end
+
   # After about an hour of runs the provider refused, the message waits for the worker to prove
   # it works, as any worker failure does.
   test "a message the provider keeps refusing waits for a reading that works" do
