@@ -268,7 +268,8 @@ defmodule Ryker.Work.Prompt do
   and the answer they wanted arrives a turn late. When access you lack keeps you from the
   measurement the question needs, ask the person who asked to grant it, with request_input in this
   turn: a reply that only names the missing access ends the work, and they have to work out that it
-  was theirs to give. A detail beside an answer you could settle needs no question.
+  was theirs to give. Where nobody asked, the reply still says what is missing. A detail beside an
+  answer you could settle needs no question.
   Lead with the most consequential verified problem, then distinguish healthy components and unknowns.
   State partial verification plainly. A healthy backend snapshot is not full application verification;
   a zero-unavailable rollout policy is not a guarantee of zero downtime. Terraform run-message Git

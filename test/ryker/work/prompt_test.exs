@@ -119,7 +119,9 @@ defmodule Ryker.Work.PromptTest do
   # that said Arena's error rate could not be read without viewer access and stopped there
   # failed, and every reply that asked for that access with request_input passed. Asking for any
   # gap a person could close then put a question beside an established cause, asking for
-  # dead-letter details the answer did not need (two runs in the next two matrices).
+  # dead-letter details the answer did not need (two runs in the next two matrices). In alert
+  # threads where nobody asked, request_input is refused, and three runs then waited without any
+  # reply at all.
   test "access that blocks the measurement the question needs is asked for, not only named" do
     instructions =
       Prompt.build(%{})
@@ -131,6 +133,7 @@ defmodule Ryker.Work.PromptTest do
              "When access you lack keeps you from the measurement the question needs, ask the " <>
                "person who asked to grant it, with request_input in this turn"
 
+    assert instructions =~ "Where nobody asked, the reply still says what is missing."
     assert instructions =~ "A detail beside an answer you could settle needs no question."
   end
 
