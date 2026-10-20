@@ -875,6 +875,8 @@ defmodule Ryker.Retention.Data do
 
   # Written out because it chooses whole episodes, not rows: every NOT EXISTS
   # names something that still pins an episode's history.
+  # A discarded change is no longer followed on GitHub, so its last observed
+  # open PR cannot hold history forever; a recent observation still keeps it.
   @history_candidates """
   SELECT episode.id::text
   FROM episode_kernel_episodes AS episode
@@ -926,9 +928,12 @@ defmodule Ryker.Retention.Data do
     )
     AND NOT EXISTS (
       SELECT 1 FROM episode_publication_followups followup
+      JOIN episode_publications publication
+        ON publication.id = followup.publication_id
+          AND publication.episode_id = followup.episode_id
       WHERE followup.episode_id = episode.id
         AND (
-          followup.pr_state = 'open'
+          (followup.pr_state = 'open' AND publication.status <> 'discarded')
           OR followup.updated_at >= clock_timestamp() - ($2 * interval '1 second')
         )
     )

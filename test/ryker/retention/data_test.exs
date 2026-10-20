@@ -14,6 +14,7 @@ defmodule Ryker.Retention.DataTest do
   alias Ryker.Episodes
   alias Ryker.Fixtures.Episodes, as: EpisodeFixtures
   alias Ryker.Fixtures.Learning, as: LearningFixtures
+  alias Ryker.Fixtures.Publication, as: PublicationFixtures
   alias Ryker.Fixtures.WorkSessions
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Inspectors
@@ -28,6 +29,7 @@ defmodule Ryker.Retention.DataTest do
   alias Ryker.Operator.Actions
   alias Ryker.Operator.Retention, as: RetentionOperator
   alias Ryker.Operator.RetentionAction
+  alias Ryker.Publication.{Followup, Publication}
   alias Ryker.Records.Record
   alias Ryker.Repo
   alias Ryker.Retention.Custody, as: RetentionCustody
@@ -1180,6 +1182,66 @@ defmodule Ryker.Retention.DataTest do
     assert Repo.get!(Ryker.Episodes.Episode, reviewing.episode.id).history_pruned_at == nil
   end
 
+  # Two discarded changes kept their requests forever: their follow-ups still
+  # said open, but discarded publications are neither polled nor nudged by
+  # GitHub. Discarding ends that retention hold without claiming the PR closed.
+  test "a discarded change's old open PR releases its history, a published change's pins it" do
+    discarded = published_history!("discarded-open-pr", :discarded)
+    published = published_history!("published-open-pr", :published)
+    discarded_followup = Repo.get_by!(Followup, episode_id: discarded.episode.id)
+    published_followup = Repo.get_by!(Followup, episode_id: published.episode.id)
+
+    assert discarded_followup.pr_state == :open
+    assert published_followup.pr_state == :open
+
+    assert {:ok, result} =
+             Data.prune(settings(episode_history_seconds: 60, audit_data_seconds: 600))
+
+    assert result.episode_histories == 1
+    assert %DateTime{} = Repo.get!(Ryker.Episodes.Episode, discarded.episode.id).history_pruned_at
+    assert Repo.get!(Ryker.Episodes.Episode, published.episode.id).history_pruned_at == nil
+    assert Repo.get(Followup, discarded_followup.id) == nil
+    assert Repo.get!(Followup, published_followup.id).pr_state == :open
+
+    Repo.update_all(from(followup in Followup, where: followup.id == ^published_followup.id),
+      set: [pr_state: :closed]
+    )
+
+    assert {:ok, released} =
+             Data.prune(settings(episode_history_seconds: 60, audit_data_seconds: 600))
+
+    assert released.episode_histories == 1
+    assert %DateTime{} = Repo.get!(Ryker.Episodes.Episode, published.episode.id).history_pruned_at
+  end
+
+  test "a discarded change's recent publication or PR observation still protects its history" do
+    recent_publication = settled_work!("recent-discarded-change") |> discard_session!()
+    recent_followup = settled_work!("recent-discarded-pr") |> discard_session!()
+    insert_publication!(recent_publication, "discarded")
+    insert_publication!(recent_followup, "discarded")
+    insert_open_followup!(recent_publication)
+    insert_open_followup!(recent_followup, Repo.now!())
+    backdate_history!(recent_publication, 120)
+    backdate_history!(recent_followup, 120)
+
+    Repo.update_all(
+      from(publication in Publication,
+        where: publication.episode_id == ^recent_publication.episode.id
+      ),
+      set: [updated_at: Repo.now!()]
+    )
+
+    assert {:ok, result} =
+             Data.prune(settings(episode_history_seconds: 60, audit_data_seconds: 600))
+
+    assert result.episode_histories == 0
+
+    assert Repo.get!(Ryker.Episodes.Episode, recent_publication.episode.id).history_pruned_at ==
+             nil
+
+    assert Repo.get!(Ryker.Episodes.Episode, recent_followup.episode.id).history_pruned_at == nil
+  end
+
   test "routine cleanup reclaims the transcript and leaves the retained case standing" do
     # A matching incident a year later has to start from what was learned, but
     # the raw transcript, the Coop workspace and the episode rows it came from
@@ -2119,6 +2181,42 @@ defmodule Ryker.Retention.DataTest do
     )
 
     work
+  end
+
+  defp published_history!(suffix, status) do
+    %{episode: episode, publication: publication} = PublicationFixtures.published!(suffix)
+    session = Repo.get!(Session, publication.session_id)
+    turn = Repo.get_by!(Turn, session_id: session.id)
+
+    Repo.update_all(from(saved in Publication, where: saved.id == ^publication.id),
+      set: [status: status, updated_at: @old]
+    )
+
+    Repo.update_all(from(followup in Followup, where: followup.publication_id == ^publication.id),
+      set: [updated_at: @old]
+    )
+
+    Repo.update_all(from(record in Record, where: record.episode_id == ^episode.id),
+      set: [status: :dismissed, updated_at: @old]
+    )
+
+    %{episode: episode, session: session, turn: turn}
+    |> discard_session!()
+    |> backdate_history!(120)
+  end
+
+  defp insert_open_followup!(work, updated_at \\ @old) do
+    publication = Repo.get_by!(Publication, session_id: work.session.id)
+
+    Repo.insert!(%Followup{
+      publication_id: publication.id,
+      episode_id: work.episode.id,
+      pr_state: :open,
+      next_poll_at: @old,
+      deadline_at: DateTime.add(@old, 86_400, :second),
+      inserted_at: @old,
+      updated_at: updated_at
+    })
   end
 
   defp backdate_history!(work, seconds) do
