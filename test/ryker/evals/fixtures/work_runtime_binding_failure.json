@@ -1,0 +1,5 @@
+{
+  "state": "failed",
+  "error_code": "session_cleanup_error",
+  "error_detail": "record turn runtime authority: bind turn runtime: context deadline exceeded"
+}

@@ -341,6 +341,11 @@ defmodule Ryker.Evals.WorldRunnerTest do
   defmodule TerminalWorkAPI do
     @moduledoc false
 
+    @failure __DIR__
+             |> Path.join("fixtures/work_runtime_binding_failure.json")
+             |> File.read!()
+             |> Jason.decode!()
+
     defdelegate capabilities(client), to: FakeWorkCoopAPI
     defdelegate operation_by_key(client, key), to: FakeWorkCoopAPI
     defdelegate create_session(client, key, policy, task, source), to: FakeWorkCoopAPI
@@ -363,19 +368,20 @@ defmodule Ryker.Evals.WorldRunnerTest do
 
       turn =
         response["turn"]
-        |> Map.put("state", "failed")
+        |> Map.merge(@failure)
         |> Map.put("candidate", nil)
-        |> Map.put("error_code", "provider_unavailable")
-        |> Map.put("error_detail", "Provider stopped this turn.")
 
       FakeWorkCoopAPI.update(client, &%{&1 | turn: turn})
       {:ok, %{response | "turn" => turn}}
     end
   end
 
-  test "a blocked model world's error exports metadata without its saved submission" do
+  test "a blocked model world preserves its failure cause without exporting its submission" do
     # Preserving failed runs exposed the full Turn through an inspected error,
     # bypassing the normal candidate sanitizer and copying prompts into reports.
+    # The uptime smoke case on 2026-10-20 then hid its recorded startup failure
+    # behind "blocked"; cleanup replaced the saved detail before inspection.
+    # Keep the captured worker cause in the report, without copying the Turn.
     {:ok, scenario} = WorldCase.fetch("ordinary-thread-question-gets-natural-answer")
     {:ok, fake} = FakeWorkCoopAPI.start_link([])
     {:ok, before_execute} = WorldHostReplay.before_execute(scenario, fake)
@@ -400,9 +406,18 @@ defmodule Ryker.Evals.WorldRunnerTest do
     assert FakeWorkCoopAPI.state(fake).submit_count == 1
     assert FakeWorkCoopAPI.state(fake).session["state"] == "closed"
 
-    assert report.execution_error ==
-             {:world_eval_failed,
-              {:work_not_accepted, %{status: :blocked, turn_id: turn_id, turn_status: :blocked}}}
+    assert {:world_eval_failed,
+            {:work_not_accepted,
+             %{
+               status: :blocked,
+               turn_id: ^turn_id,
+               turn_status: :blocked,
+               last_error_code: "work_execution_blocked",
+               last_error_detail: detail
+             }}} = report.execution_error
+
+    assert detail =~ "session_cleanup_error"
+    assert detail =~ "record turn runtime authority: bind turn runtime: context deadline exceeded"
 
     assert {:ok, result} =
              WorldReport.result(Map.merge(report, %{lane: :candidate, repeat_index: 1}))

@@ -354,6 +354,8 @@ defmodule Ryker.Evals.WorldDriver do
 
   defp accepted(execution) do
     metadata = %{
+      last_error_code: execution.turn.last_error_code,
+      last_error_detail: execution.turn.last_error_detail,
       status: execution.status,
       turn_id: execution.turn.id,
       turn_status: execution.turn.status
