@@ -253,8 +253,10 @@ week's work cost" when calls ran but none could be priced. It names no Slack req
 answered and gives no completion rate ("worked on 45 requests and finished 35" read as ten failures
 when six were closed by a person as no longer needed and four were waiting; Andrew: "it should not
 fail at all"). A part with nothing to say is left out; a report that could not check what is stuck
-says so. Only requests and PRs from public channels are named. Settings can send the same words to
-the channel at once, as a preview; a preview is never the week's report.
+says so. Questions and topics are named only from public channels; every PR is named by its title
+and link, wherever it was asked for (Andrew, 2026-10-19: "I want PR links and what they are
+doing"), and one whose change was discarded no longer counts as waiting. Settings can send the same
+words to the channel at once, as a preview; a preview is never the week's report.
 
 ## Preview and proof
 

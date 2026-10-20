@@ -18,8 +18,12 @@ defmodule Ryker.WeeklyReport.Facts do
 
   The report is posted into one channel, so it names only what everyone in
   the workspace could read anyway: a request or a topic from a public Slack
-  channel Ryker is in (`public?/1`). Anything from a direct message, a
-  private channel, a shared channel, Chat or GitHub is counted, never named.
+  channel Ryker is in (`public?/1`). One from a direct message, a private
+  channel, a shared channel, Chat or GitHub is counted, never named. A pull
+  request is named wherever it was asked for: it is on GitHub for everyone
+  who can read its repository (Andrew, 2026-10-19, of a report that counted
+  two and named neither: "why not listed? I want PR links and what they are
+  doing").
   """
   alias Ryker.Accounting
   alias Ryker.ControlPlane
@@ -214,7 +218,9 @@ defmodule Ryker.WeeklyReport.Facts do
   # newest first: the ones waiting for someone to review them, whenever they
   # were opened. A pull request is opened when its publication first goes
   # out, which is when its follow-up starts; a follow-up rearmed later keeps
-  # that time.
+  # that time. One whose change was discarded waits for nothing: Ryker checks
+  # it no more, so its follow-up still said open weeks after GitHub closed
+  # it.
   defp pull_requests(from, to) do
     rows = from |> Publication.Followup.Query.pull_requests(to) |> Repo.all()
 
@@ -225,14 +231,14 @@ defmodule Ryker.WeeklyReport.Facts do
       |> Enum.filter(&(&1.state == :merged))
       |> Enum.sort_by(&(&1.merged_at || &1.opened_at), {:desc, DateTime})
 
-    waiting = Enum.filter(rows, &(&1.state in [:open, :stale]))
-    public = rows |> Enum.map(& &1.conversation) |> Enum.uniq() |> Enum.filter(&public?/1)
+    waiting =
+      Enum.filter(rows, &(&1.state in [:open, :stale] and &1.publication_status != :discarded))
 
     %{
       opened: length(this_week),
-      merged: %{named: pull_request_names(merged, public), total: length(merged)},
+      merged: %{named: pull_request_names(merged), total: length(merged)},
       waiting: %{
-        named: pull_request_names(waiting, public),
+        named: pull_request_names(waiting),
         total: length(waiting),
         this_week: Enum.count(waiting, &within?(&1.opened_at, from, to))
       }
@@ -242,14 +248,12 @@ defmodule Ryker.WeeklyReport.Facts do
   defp within?(at, from, to),
     do: DateTime.compare(at, from) != :lt and DateTime.compare(at, to) == :lt
 
-  # The pull requests the report may name: from a public channel, with a
-  # title and a link, and the repository by its own name.
-  defp pull_request_names(rows, public) do
+  # The pull requests the report may name: with a title and a link, and the
+  # repository by its own name. A merged one whose task went on to a new
+  # draft has lost its link.
+  defp pull_request_names(rows) do
     rows
-    |> Enum.filter(
-      &(&1.conversation in public and is_binary(&1.title) and is_binary(&1.url) and
-          is_integer(&1.number))
-    )
+    |> Enum.filter(&(is_binary(&1.title) and is_binary(&1.url) and is_integer(&1.number)))
     |> Enum.take(@named_pull_requests)
     |> Enum.map(fn row ->
       %{

@@ -19,7 +19,7 @@ defmodule Ryker.WeeklyReportTest do
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Knowledge.ConversationKnowledge
   alias Ryker.Memories.MemoryEntry
-  alias Ryker.Publication.Followup
+  alias Ryker.Publication.{Followup, Publication}
   alias Ryker.Settings
   alias Ryker.Slack.{ChannelMembership, Names}
   alias Ryker.WeeklyReport
@@ -315,14 +315,12 @@ defmodule Ryker.WeeklyReportTest do
   test "the report names the week's merged PRs and every PR still waiting for review, with how long it has waited",
        %{now: now, workspace: workspace} do
     public = public_channel!(workspace, "CPULLS")
-    private = private_channel!(workspace, "CPULLSPRIVATE")
 
     merged = pull_request!(workspace, "merged", public, 11)
     set_pull_request!(merged, pr_state: :merged, merged_at: now)
     closed = pull_request!(workspace, "closed", public, 12)
     set_pull_request!(closed, pr_state: :closed)
     fresh = pull_request!(workspace, "fresh", public, 13)
-    _secret = pull_request!(workspace, "secret", private, 14)
     # Opened two weeks ago and still open: not this week's, still owed a review.
     stale = pull_request!(workspace, "stale", public, 15)
     set_pull_request!(stale, inserted_at: DateTime.add(now, -14, :day))
@@ -330,53 +328,98 @@ defmodule Ryker.WeeklyReportTest do
     report = compose(now)
 
     assert part(report, :pull_requests) == [
-             "I opened 4 PRs this week, and 1 is already merged:",
+             "I opened 3 PRs this week, and 1 is already merged:",
              "- [Implement weekly-#{workspace}-merged](#{pr_url(merged)}) · merged#11",
              "",
              "Still waiting for review:",
              "- [Implement weekly-#{workspace}-fresh](#{pr_url(fresh)}) · fresh#13, " <>
                "open for less than a day",
              "- [Implement weekly-#{workspace}-stale](#{pr_url(stale)}) · stale#15, " <>
-               "open for 14 days",
-             "- and 1 more"
+               "open for 14 days"
            ]
 
-    refute report.text =~ "weekly-#{workspace}-secret"
     refute report.text =~ "weekly-#{workspace}-closed"
   end
 
-  # The live weekly preview on 2026-10-11 showed only "and 2 more": every
-  # PR's details were withheld, so there was no visible list to be "more" of.
-  # Count the work without disclosing identities or inventing a privacy reason.
-  test "a report with no nameable PRs gives a complete count without exposing their details",
+  # Andrew, 2026-10-19, of the live report's "These PRs are still waiting for
+  # review: - 2 PRs (details aren't listed here)": "why not listed? I want PR
+  # links and what they are doing". Both had been asked for in Chat, and the
+  # report named a PR only when a public channel had asked for it. A PR is on
+  # GitHub for everyone who can read its repository, whoever asked for it.
+  test "every PR is named by its title and link, wherever it was asked for",
        %{now: now, workspace: workspace} do
-    private = private_channel!(workspace, "CPRCOUNTONLY")
-    first = pull_request!(workspace, "hidden-first", private, 21)
-    second = pull_request!(workspace, "hidden-second", private, 22)
+    private = private_channel!(workspace, "CPRPRIVATE")
+    chat = pull_request!(workspace, "chat", "slack:#{workspace}:DPRCHAT", 21)
 
-    waiting = compose(now)
+    Repo.update_all(from(e in Episode, where: e.id == ^chat.episode.id),
+      set: [destination_conversation_ref: "control-plane:lab:#{Ecto.UUID.generate()}"]
+    )
 
-    assert part(waiting, :pull_requests) == [
-             "I opened 2 PRs this week, and they're waiting for review:",
-             "- 2 PRs (details aren't listed here)"
+    direct = pull_request!(workspace, "direct", "slack:#{workspace}:DPRDIRECT", 22)
+    hidden = pull_request!(workspace, "private", private, 23)
+    set_pull_request!(hidden, pr_state: :merged, merged_at: now)
+
+    assert part(compose(now), :pull_requests) == [
+             "I opened 3 PRs this week, and 1 is already merged:",
+             "- [Implement weekly-#{workspace}-private](#{pr_url(hidden)}) · private#23",
+             "",
+             "Still waiting for review:",
+             "- [Implement weekly-#{workspace}-direct](#{pr_url(direct)}) · direct#22, " <>
+               "open for less than a day",
+             "- [Implement weekly-#{workspace}-chat](#{pr_url(chat)}) · chat#21, " <>
+               "open for less than a day"
+           ]
+  end
+
+  # The live report of 2026-10-19 said two PRs were still waiting for review.
+  # GitHub had closed both on 30 Sep and 1 Oct, the same hour their changes
+  # were discarded in the console. Ryker checks a PR only while its change
+  # stands, so both stayed open in its records, and every weekly report since
+  # counted them.
+  test "a PR whose change was discarded is no longer waiting for review",
+       %{now: now, workspace: workspace} do
+    public = public_channel!(workspace, "CPRDISCARDED")
+    kept = pull_request!(workspace, "kept", public, 31)
+    dropped = pull_request!(workspace, "dropped", public, 32)
+    set_pull_request!(dropped, inserted_at: DateTime.add(now, -19, :day))
+    discard!(dropped)
+
+    report = compose(now)
+
+    assert part(report, :pull_requests) == [
+             "I opened 1 PR this week, and it's waiting for review:",
+             "- [Implement weekly-#{workspace}-kept](#{pr_url(kept)}) · kept#31, " <>
+               "open for less than a day"
            ]
 
-    for pull_request <- [first, second] do
-      refute waiting.text =~ pr_url(pull_request)
+    refute report.text =~ pr_url(dropped)
+  end
+
+  # The live weekly preview on 2026-10-11 showed only "and 2 more" with no list
+  # before it. A merged PR whose task went on to a new draft has no link left
+  # to name, so the count stands alone.
+  test "a report with no PR it can link gives a complete count",
+       %{now: now, workspace: workspace} do
+    public = public_channel!(workspace, "CPRCOUNTONLY")
+
+    merged = [
+      pull_request!(workspace, "first", public, 41),
+      pull_request!(workspace, "second", public, 42)
+    ]
+
+    for pull_request <- merged do
       set_pull_request!(pull_request, pr_state: :merged, merged_at: now)
+      new_draft!(pull_request)
     end
 
-    merged = compose(now)
+    report = compose(now)
 
-    assert part(merged, :pull_requests) == [
+    assert part(report, :pull_requests) == [
              "I opened 2 PRs this week, and both are already merged:",
              "- 2 PRs (details aren't listed here)"
            ]
 
-    for report <- [waiting, merged], name <- ["hidden-first", "hidden-second"] do
-      refute report.text =~ name
-      refute report.text =~ "- and 2 more"
-    end
+    refute report.text =~ "- and 2 more"
   end
 
   test "a week whose every question is private says how many, and names none",
@@ -611,6 +654,45 @@ defmodule Ryker.WeeklyReportTest do
     {1, _} =
       Repo.update_all(from(f in Followup, where: f.publication_id == ^publication.id),
         set: changes
+      )
+  end
+
+  # As a person's Discard leaves it: the change is gone and its PR's follow-up
+  # is never checked again.
+  defp discard!(%{publication: publication}) do
+    {1, _} =
+      Repo.update_all(from(p in Publication, where: p.id == ^publication.id),
+        set: [status: :discarded]
+      )
+  end
+
+  # As a corrected candidate after a merge leaves it: in review for a new draft,
+  # with the merged PR's number and link gone (`Ryker.Publication.Custody`).
+  defp new_draft!(%{publication: publication}) do
+    {1, _} =
+      Repo.update_all(from(p in Publication, where: p.id == ^publication.id),
+        set: [
+          status: :review_pending,
+          approval_ref: nil,
+          approved_at: nil,
+          approved_by_actor_ref: nil,
+          branch_ref: nil,
+          commit_sha: nil,
+          github_repository: nil,
+          publication_receipt: nil,
+          publication_receipt_fingerprint: nil,
+          published_at: nil,
+          published_delivery_receipt: nil,
+          published_delivery_receipt_fingerprint: nil,
+          pull_request_number: nil,
+          pull_request_url: nil,
+          review_delivery_receipt: nil,
+          review_delivery_receipt_fingerprint: nil,
+          review_document: nil,
+          review_fingerprint: nil,
+          review_patch: nil,
+          reviewed_at: nil
+        ]
       )
   end
 
