@@ -130,6 +130,12 @@ defmodule Ryker.Admission.Prompt do
   A mention does not grant mutation authority or require replying to somebody else's question.
   Preserve explicit requests to Ryker, trusted assignments, active-work continuations, and
   useful independent investigation of concrete operational work.
+
+  Judge who a brief check addresses from the exchange, not only its wording. When a person
+  returns to a thread where they addressed Ryker and Ryker answered, a greeting or liveness check
+  (for example, "test" or "ping") is directed to Ryker unless the conversation shows another
+  recipient. This remains true after idle time or completed work. When offered, use quick_reply
+  for a brief acknowledgement; do not reopen older work or repeat its system-health claims.
   """
 
   @memory """
