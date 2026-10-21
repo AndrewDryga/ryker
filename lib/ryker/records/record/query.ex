@@ -292,6 +292,10 @@ defmodule Ryker.Records.Record.Query do
     )
   end
 
+  @doc "Candidate answer provenance only; callers must recheck the locked question before saving."
+  def answered_question_source(ref, episode_id),
+    do: ref |> answered_question(episode_id) |> exclude(:lock)
+
   @doc """
   The open readiness offer of `episode_id`'s turn `turn_id` that confirmed
   task `task_ref` asked for, with the task and the settled turn that offered

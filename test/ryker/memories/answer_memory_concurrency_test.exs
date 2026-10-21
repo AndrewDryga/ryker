@@ -17,6 +17,56 @@ defmodule Ryker.Memories.AnswerMemoryConcurrencyTest do
   alias Ryker.Slack.{ChannelMembership, Input}
   alias Ryker.Work.{Session, Turn}
 
+  test "remembering an answer does not hold its session while waiting for memory review" do
+    # Correction saves, offer confirmation and retention serialize on review
+    # maintenance before Work rows. A resumed answer must use that order too.
+    Sandbox.unboxed_run(Repo, fn ->
+      answer = AnswerMemory.answered!("portal-old", DateTime.utc_now())
+      parent = self()
+
+      review =
+        unboxed_task(fn ->
+          database_result(fn ->
+            Repo.transaction(fn ->
+              Repo.query!("SET LOCAL deadlock_timeout = '50ms'")
+              Memories.lock_reviews_in_transaction()
+              send(parent, {:review_held, backend_pid()})
+
+              receive do
+                :lock_session ->
+                  answer.claim.session.id
+                  |> Session.Query.by_id()
+                  |> Session.Query.lock_for_update()
+                  |> Repo.exists?()
+              end
+            end)
+          end)
+        end)
+
+      assert_receive {:review_held, review_backend}, 5_000
+
+      writer =
+        unboxed_task(fn ->
+          Repo.query!("SET deadlock_timeout = '50ms'")
+          send(parent, {:writer_started, backend_pid()})
+          database_result(fn -> perform(:save, answer) end)
+        end)
+
+      try do
+        assert_receive {:writer_started, writer_backend}, 5_000
+        await_blocked_by(writer_backend, review_backend)
+        send(review.pid, :lock_session)
+
+        assert Task.await(review, 5_000) == {:ok, true}
+        assert {:ok, _} = Task.await(writer, 5_000)
+      after
+        send(review.pid, :lock_session)
+        stop_tasks([review, writer])
+        cleanup!(answer)
+      end
+    end)
+  end
+
   for {first, second} <- [{:save, :revision}, {:revision, :save}] do
     @first first
     @second second

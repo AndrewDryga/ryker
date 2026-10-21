@@ -12,6 +12,8 @@ defmodule Ryker.Ingress.Inbox.Entry do
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
 
+  @source_identity_fields ~w(id destination_transport destination_conversation_ref source_item_ref native_input_id revision)a
+
   schema "ingress_inbox_entries" do
     field(:dedupe_key, :string)
     field(:event_fingerprint, :string)
@@ -73,4 +75,9 @@ defmodule Ryker.Ingress.Inbox.Entry do
   end
 
   @type t :: %__MODULE__{}
+
+  @doc "Whether a source reloaded under locks is the exact input used to acquire them."
+  def same_source?(%__MODULE__{} = entry, %__MODULE__{} = other) do
+    Map.take(entry, @source_identity_fields) == Map.take(other, @source_identity_fields)
+  end
 end

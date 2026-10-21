@@ -16,16 +16,20 @@ defmodule Ryker.Behaviors.Corrections do
   @doc "Save the exact correction of a current authorized human, with host-owned source and scope."
   def remember(binding, arguments, authorize) when is_function(authorize, 1) do
     Repo.transaction(fn ->
-      with {:ok, current} <- StateTools.Binding.fetch_and_lock_current(binding),
+      Repo.lock_timeout!(1_000)
+
+      # This first lookup only chooses source locks. The binding and exact
+      # source are reloaded and authorized after review, Episode and Session.
+      with {:ok, candidate} <- fetch_source(binding, arguments["source_event_ref"]),
+           :ok <- lock_source(candidate),
+           :ok <- Memories.Reviews.lock_review_maintenance!(),
+           {:ok, current} <- StateTools.Binding.fetch_and_lock_current_with_episode(binding),
            :ok <- live(current.episode),
-           {:ok, event} <- current_source(current, arguments["source_event_ref"]),
-           {:ok, entry} <- source_entry(current, event),
-           :ok <- source_scope(current.episode, entry),
-           :ok <- lock_source(entry),
+           {:ok, entry} <- fetch_source(current, arguments["source_event_ref"]),
+           true <- Ingress.Inbox.Entry.same_source?(candidate, entry),
            :ok <- authorize_source(entry, authorize),
            :ok <- current_words(entry),
            :ok <- quoted(entry, arguments["instruction"]),
-           :ok <- Memories.Reviews.lock_review_maintenance!(),
            :ok <-
              Slack.ChannelFence.authorize_in_transaction(
                entry.destination_transport,
@@ -37,12 +41,20 @@ defmodule Ryker.Behaviors.Corrections do
            {:ok, result} <- persist(current, entry, subject, assignment, arguments) do
         result
       else
+        false -> Repo.rollback(:correction_source_stale)
         {:error, reason} -> Repo.rollback(reason)
       end
     end)
   end
 
   def remember(_binding, _arguments, _authorize), do: {:error, :correction_unauthorized}
+
+  defp fetch_source(binding, event_ref) do
+    with {:ok, event} <- current_source(binding, event_ref),
+         {:ok, entry} <- source_entry(binding, event),
+         :ok <- source_scope(binding.episode, entry),
+         do: {:ok, entry}
+  end
 
   defp live(%Episodes.Episode{execution_mode: :live}), do: :ok
   defp live(_episode), do: {:error, :correction_unauthorized}

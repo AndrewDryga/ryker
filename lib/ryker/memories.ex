@@ -78,11 +78,18 @@ defmodule Ryker.Memories do
   # so the model could not tell a question it named wrongly from an answer it
   # may not save (2026-10-04 review).
   defp confirm_answer_locked(binding, record_ref, value, authorize) do
-    with {:ok, current} <- StateTools.Binding.fetch_and_lock_current(binding),
+    Repo.lock_timeout!(1_000)
+
+    with {:ok, {_record, _response, candidate}} <-
+           Repo.fetch(
+             Records.Record.Query.answered_question_source(record_ref, binding.episode.id)
+           ),
+         :ok <- lock_answer_source_in_transaction(candidate),
+         :ok <- Reviews.lock_review_maintenance!(),
+         {:ok, current} <- StateTools.Binding.fetch_and_lock_current_with_episode(binding),
          :ok <- live(current.episode),
          {:ok, record, response, entry} <- answer_confirmation(current, record_ref),
-         :ok <- lock_answer_source_in_transaction(entry),
-         :ok <- Reviews.lock_review_maintenance!(),
+         true <- Ingress.Inbox.Entry.same_source?(candidate, entry),
          :ok <- answerer(authorize, entry),
          :ok <- public_source(entry),
          {:ok, intent} <- remember_intent(record),
@@ -90,6 +97,8 @@ defmodule Ryker.Memories do
          :ok <- said(value, answer_text(response, entry)) do
       save_answer(record, response, entry, intent, value)
     else
+      false -> Repo.rollback(:answer_memory_revised)
+      {:error, :not_found} -> Repo.rollback(:answer_memory_question_not_found)
       {:error, reason} -> Repo.rollback(reason)
     end
   end

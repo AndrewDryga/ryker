@@ -3557,7 +3557,7 @@
         "weight": 3
       },
       {
-        "criterion": "Says what the baseline rests on, the last successful apply and the image the instances pulled at startup, without presenting it as a direct reading of the running image.",
+        "criterion": "Identifies the authorized evidence supporting the baseline revision and accurately states its limits. A baseline derived from the latest successful apply or a properly linked startup/image record is acceptable. Historical deployment evidence or cached-image metadata must not be presented as a direct observation of the currently running image. Discloses any material uncertainty or conflict in the evidence obtained.",
         "weight": 2
       },
       {

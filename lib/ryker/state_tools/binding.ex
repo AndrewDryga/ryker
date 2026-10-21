@@ -38,6 +38,23 @@ defmodule Ryker.StateTools.Binding do
 
   def resolve(_token), do: {:error, :state_tools_binding_not_authorized}
 
+  @doc "Lock Episode before Session for writes that also need the owning episode."
+  def fetch_and_lock_current_with_episode(binding) do
+    # Source/review maintenance, when needed, must already be held. Records
+    # and Work activity take Episode before Session; reversing those rows
+    # cancelled a valid correction when activity polling deadlocked with it.
+    Repo.lock_timeout!(1_000)
+
+    query =
+      binding.episode.id
+      |> Episodes.Episode.Query.by_id()
+      |> Episodes.Episode.Query.lock_for_update()
+
+    if Repo.exists?(query),
+      do: fetch_and_lock_current(binding),
+      else: {:error, :state_tools_binding_not_authorized}
+  end
+
   @doc "Recheck an already resolved caller under the session lock before local disclosure."
   def fetch_and_lock_current(binding) do
     # Routine Work bookkeeping briefly owns this row while the model is using

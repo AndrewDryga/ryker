@@ -50,6 +50,26 @@ defmodule Ryker.Behaviors.CorrectionsTest do
            ) == {:error, "correction_unauthorized"}
   end
 
+  test "finding an old correction source never authorizes a released Work turn" do
+    correction = Corrections.correction!()
+    claim = correction.claim
+
+    assert {:ok, _} =
+             Ryker.Work.Custody.defer(
+               claim.episode.id,
+               claim.turn.turn_ref,
+               claim.lease_ref,
+               1,
+               "retry",
+               "The old model no longer owns this input."
+             )
+
+    assert call(correction, correction.arguments) ==
+             {:error, "unauthorized"}
+
+    refute Repo.exists?(Ryker.Behaviors.Behavior.Query.by_kind(:guidance))
+  end
+
   test "a changed source cannot be remembered from an older frozen input" do
     correction = Corrections.correction!()
     revise!(correction, "Do not keep the earlier instruction.")
