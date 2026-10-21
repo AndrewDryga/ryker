@@ -1,8 +1,11 @@
 defmodule Ryker.Memories.AnswerMemoryConcurrencyTest do
   use Ryker.ConcurrencyCase, async: false
   alias Ecto.Adapters.SQL.Sandbox
+  alias Ryker.Behaviors.Behavior
+  alias Ryker.CanonicalJSON
   alias Ryker.Episodes.{Episode, Event}
   alias Ryker.Fixtures.AnswerMemory
+  alias Ryker.Fixtures.SavedEntities
   alias Ryker.Ingress.Inbox
   alias Ryker.Ingress.Inbox.Entry
   alias Ryker.Learning.ConversationObservation
@@ -117,6 +120,109 @@ defmodule Ryker.Memories.AnswerMemoryConcurrencyTest do
     end)
   end
 
+  test "a source supporting guidance and an answer is revoked without reversing its locks" do
+    # A source edit formerly took review maintenance before answer-source,
+    # while the answer writer held answer-source and needed review maintenance.
+    Sandbox.unboxed_run(Repo, fn ->
+      answer = AnswerMemory.answered!("portal-old", DateTime.utc_now())
+
+      source = %{
+        conversation_ref: answer.entry.destination_conversation_ref,
+        episode: answer.claim.episode,
+        turn: answer.claim.turn
+      }
+
+      behavior =
+        SavedEntities.behavior!(
+          source,
+          :guidance,
+          %{
+            "expires_in" => "30d",
+            "repository" => nil,
+            "scope" => "conversation",
+            "subject" => "Source-backed correction",
+            "summary" => "Keep the corrected mapping.",
+            "text" => "portal-old",
+            "visibility" => "conversation"
+          },
+          scope_ref: source.conversation_ref
+        )
+
+      metadata = %{
+        "native_input_id" => answer.entry.native_input_id,
+        "revision" => 1,
+        "episode_id" => answer.claim.episode.id
+      }
+
+      Repo.update!(
+        Behavior.Changeset.update(behavior, %{
+          payload: Map.put(behavior.payload, "correction_source", metadata)
+        })
+      )
+
+      parent = self()
+
+      writer =
+        unboxed_task(fn ->
+          database_result(fn ->
+            Repo.transaction(fn ->
+              Ryker.AdvisoryLock.hold!(
+                "memory-answer-source:" <>
+                  CanonicalJSON.digest([
+                    answer.entry.destination_transport,
+                    answer.entry.destination_conversation_ref,
+                    answer.entry.source_item_ref
+                  ])
+              )
+
+              send(parent, {:answer_source_held, backend_pid()})
+
+              receive do
+                :save -> perform(:save, answer)
+              end
+            end)
+          end)
+        end)
+
+      assert_receive {:answer_source_held, writer_backend}, 5_000
+
+      edit =
+        unboxed_task(fn ->
+          send(parent, {:correction_edit_started, backend_pid()})
+          database_result(fn -> perform(:revision, answer) end)
+        end)
+
+      try do
+        assert_receive {:correction_edit_started, edit_backend}, 5_000
+        await_blocked_by(edit_backend, writer_backend)
+        send(writer.pid, :save)
+        assert {:ok, {:ok, _}} = Task.await(writer, 10_000)
+        assert {:ok, %{status: :recorded}} = Task.await(edit, 10_000)
+
+        refute Repo.exists?(
+                 from(m in MemoryEntry,
+                   where:
+                     m.source_conversation_ref == ^source.conversation_ref and m.status == :active
+                 )
+               )
+
+        refute Repo.exists?(
+                 from(b in Behavior, where: b.id == ^behavior.id and b.status == :active)
+               )
+      after
+        send(writer.pid, :save)
+        stop_tasks([writer, edit])
+        cleanup!(answer)
+      end
+    end)
+  end
+
+  defp database_result(fun) do
+    fun.()
+  rescue
+    error in Postgrex.Error -> {:database_error, error.postgres.code}
+  end
+
   defp assert_contender(:save, result),
     do: assert(result == {:error, :answer_memory_revised})
 
@@ -143,6 +249,7 @@ defmodule Ryker.Memories.AnswerMemoryConcurrencyTest do
     episode_id = answer.claim.episode.id
     workspace = answer.entry.source_ref
     conversation = answer.entry.destination_conversation_ref
+    Repo.delete_all(from(b in Behavior, where: b.source_conversation_ref == ^conversation))
     Repo.delete_all(from(m in MemoryEntry, where: m.source_conversation_ref == ^conversation))
     Repo.delete_all(from(r in Response, where: r.record_id == ^answer.record.id))
     Repo.delete_all(from(r in Record, where: r.episode_id == ^episode_id))

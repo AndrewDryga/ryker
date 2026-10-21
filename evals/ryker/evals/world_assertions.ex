@@ -12,15 +12,16 @@ defmodule Ryker.Evals.WorldAssertions do
 
   @authority_record_kinds %{
     "operator" => ~w(
-      evidence coverage finding progress alert_assessment input_request event_wait memory_offer preference_offer
+      evidence guidance_result coverage finding progress alert_assessment input_request event_wait memory_offer preference_offer
       guidance_offer
     ),
-    "read_only" => ~w(evidence coverage finding progress alert_assessment),
+    "read_only" => ~w(evidence guidance_result coverage finding progress alert_assessment),
     "repository_feedback" =>
-      ~w(evidence coverage finding progress alert_assessment input_request),
+      ~w(evidence guidance_result coverage finding progress alert_assessment input_request),
     "repository_write_offer" => ~w(evidence task_offer input_request),
     "schedule_offer" => ~w(schedule_offer standing_assignment_offer automation_change_offer),
-    "source_event" => ~w(evidence coverage finding progress alert_assessment event_wait)
+    "source_event" =>
+      ~w(evidence guidance_result coverage finding progress alert_assessment event_wait)
   }
 
   @wait_wakeup_kinds %{
@@ -423,6 +424,8 @@ defmodule Ryker.Evals.WorldAssertions do
 
   # Only the fixed state tools (`Ryker.StateTools.FixedTools.names/0`) are
   # named here; a retired tool name fails its check like any unknown tool.
+  defp tool_record_kinds("remember_correction"), do: ["guidance_offer"]
+  defp tool_record_kinds("record_guidance_result"), do: ["guidance_result"]
   defp tool_record_kinds("cite_source"), do: ["evidence"]
   defp tool_record_kinds("record_finding"), do: ["finding"]
   defp tool_record_kinds("plan_goal"), do: ["goal"]

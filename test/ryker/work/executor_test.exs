@@ -4535,6 +4535,7 @@ defmodule Ryker.Work.ExecutorTest do
 
     context = %{
       "artifact_refs" => [],
+      "guidance_requirements" => [],
       "records" => %{},
       "visible_reply_required" => true
     }

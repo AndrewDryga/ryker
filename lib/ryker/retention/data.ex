@@ -896,7 +896,7 @@ defmodule Ryker.Retention.Data do
       WHERE record.episode_id = episode.id
         AND (
           (record.status = 'open' AND record.kind NOT IN
-            ('evidence', 'coverage', 'finding', 'progress', 'goal_state', 'alert_assessment'))
+            ('evidence', 'coverage', 'finding', 'progress', 'goal_state', 'alert_assessment', 'guidance_result'))
           OR record.updated_at >= clock_timestamp() - ($2 * interval '1 second')
         )
     )
@@ -1005,7 +1005,7 @@ defmodule Ryker.Retention.Data do
     {"episode_work_activity", "episode_id IN #{@episode_ids}"},
     {"coop_session_evidence", "episode_id IN #{@episode_ids}"},
     {"episode_state_records",
-     "episode_id IN #{@episode_ids} AND (status <> 'open' OR kind IN ('evidence', 'coverage', 'finding', 'progress', 'goal_state', 'alert_assessment'))"},
+     "episode_id IN #{@episode_ids} AND (status <> 'open' OR kind IN ('evidence', 'coverage', 'finding', 'progress', 'goal_state', 'alert_assessment', 'guidance_result'))"},
     {"episode_routing_digests", "episode_id IN #{@episode_ids}"},
     {"episode_input_origins", "episode_id IN #{@episode_ids}"},
     {"episode_kernel_events", "episode_id IN #{@episode_ids}"}

@@ -98,6 +98,26 @@ defmodule Ryker.StateTools.ErrorCode do
   def code(:memory_search_budget_exceeded), do: "memory_search_budget_exceeded"
   def code(:memory_search_result_too_large), do: "memory_search_result_too_large"
   def code(:answer_memory_unauthorized), do: "answer_memory_unauthorized"
+  def code(:correction_unauthorized), do: "correction_unauthorized"
+  def code(:correction_source_stale), do: "correction_source_stale"
+
+  def code(:correction_not_quoted) do
+    "correction_not_quoted: instruction must quote the current person's exact reusable correction. Nothing was remembered."
+  end
+
+  def code(:correction_guidance_stale) do
+    "correction_guidance_stale: reread the current guidance reference and revision before replacing it. Nothing was remembered."
+  end
+
+  def code(:guidance_requirement_stale) do
+    "guidance_requirement_stale: use a current requirement from this turn briefing. Nothing was recorded."
+  end
+
+  def code(:correction_capacity_reached) do
+    "correction_capacity_reached: consolidate existing conversation guidance before adding more. Nothing was remembered."
+  end
+
+  def code(:correction_assignment_mismatch), do: "correction_assignment_mismatch"
 
   def code(:answer_memory_question_not_found) do
     "invalid_arguments: question_ref must name a question this conversation asked and a person answered. Nothing was remembered."

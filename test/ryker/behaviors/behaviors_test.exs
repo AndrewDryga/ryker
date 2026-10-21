@@ -371,7 +371,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
              }
            }
 
-    assert [recalled] = Recall.guidance(context)
+    assert [recalled] = recalled_guidance(context)
     assert recalled["behavior_ref"] == guidance.behavior.ref
     assert recalled["subject"] == "terraform_review_style"
     assert recalled["text"] =~ "availability risk"
@@ -383,7 +383,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     assert MemoryPages.guidance(context, "availability risk", "invalid") == []
 
     other_conversation = %{context | conversation_ref: "slack:T123:C999"}
-    assert Recall.guidance(other_conversation) == []
+    assert recalled_guidance(other_conversation) == []
 
     assert {:ok, duplicate} =
              Behaviors.confirm(confirmation(fixture, fixture.guidance, "guidance-retry"))
@@ -565,7 +565,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
       workspace_ref: "slack:T123"
     }
 
-    assert [guidance] = Recall.guidance(context)
+    assert [guidance] = recalled_guidance(context)
     assert guidance["behavior_ref"] == relevant.behavior.ref
   end
 
@@ -590,7 +590,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
       workspace_ref: "slack:T123"
     }
 
-    assert [_, _, _] = Recall.guidance(context)
+    assert [_, _, _] = recalled_guidance(context)
     assert_received {:behavior_updated, _id}
     refute_received {:behavior_updated, _id}
   end
@@ -627,7 +627,7 @@ defmodule Ryker.Behaviors.BehaviorsTest do
       workspace_ref: "slack:T123"
     }
 
-    assert [first | _rest] = Recall.guidance(context)
+    assert [first | _rest] = recalled_guidance(context)
     assert first["behavior_ref"] == relevant.behavior.ref
   end
 
@@ -660,14 +660,14 @@ defmodule Ryker.Behaviors.BehaviorsTest do
       workspace_ref: "slack:T123"
     }
 
-    assert [guidance] = Recall.guidance(source_context)
+    assert [guidance] = recalled_guidance(source_context)
     assert guidance["behavior_ref"] == confirmed.behavior.ref
 
     assert [searched] =
              MemoryPages.guidance(source_context, "availability", "repository")
 
     assert searched["behavior_ref"] == confirmed.behavior.ref
-    assert Recall.guidance(%{source_context | conversation_ref: "slack:T123:C999"}) == []
+    assert recalled_guidance(%{source_context | conversation_ref: "slack:T123:C999"}) == []
   end
 
   test "a confirmed standing rule admits only its exact source, channel and filter" do
@@ -1209,8 +1209,8 @@ defmodule Ryker.Behaviors.BehaviorsTest do
              Behaviors.manage_assignment("ref", :unknown, "workspace", "channel")
 
     assert Behaviors.assignments_for_channel("", "") == []
-    assert Recall.guidance(:invalid, 20) == []
-    assert Recall.guidance(%{}, 0) == []
+    assert Recall.model_context(:invalid, nil, nil)["guidance"] == []
+    assert Recall.model_context(%{}, nil, 0)["guidance"] == []
     refute Behaviors.standing_match?(%{})
 
     assert Behaviors.model_context(%{}, "operator", nil) == %{
@@ -1336,8 +1336,8 @@ defmodule Ryker.Behaviors.BehaviorsTest do
              "standing_assignments" => []
            }
 
-    assert Recall.guidance(%{}, 20) == []
-    assert Recall.guidance(%{}, 0) == []
+    assert Recall.model_context(%{}, nil, nil)["guidance"] == []
+    assert Recall.model_context(%{}, nil, 0)["guidance"] == []
     assert MemoryPages.guidance(%{}, "query", "workspace") == []
     refute Behaviors.standing_match?(:invalid)
 
@@ -1838,5 +1838,17 @@ defmodule Ryker.Behaviors.BehaviorsTest do
     after
       0 -> count
     end
+  end
+
+  defp recalled_guidance(context) do
+    episode = %Ryker.Episodes.Episode{
+      id: Ecto.UUID.generate(),
+      destination_transport: "slack",
+      destination_conversation_ref: context.conversation_ref,
+      destination_thread_ref: nil,
+      execution_mode: Map.get(context, :execution_mode, :live)
+    }
+
+    Recall.model_context(episode, context.operator_ref, context.repository)["guidance"]
   end
 end

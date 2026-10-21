@@ -2,9 +2,11 @@ defmodule Ryker.Behaviors do
   @moduledoc """
   Operator-confirmed durable behavior and guidance.
 
-  Model tools may create inert offers only. This module rechecks the delivered
-  control, derives scope from host-owned identity and destination, and
-  supersedes one exact logical entry. None of these records can widen Work,
+  Inferred behavior needs a confirmed offer. An explicit correction from the
+  current authorized human can be remembered directly, within its source
+  conversation. This module rechecks source or delivered-control custody,
+  derives scope from host-owned identity and destination, and supersedes one
+  exact logical entry. None of these records can widen Work,
   publication, or delivery authority. Reading behavior for a model lives in
   `Ryker.Behaviors.Recall`, and standing rules meeting the messages Ryker
   receives in `Ryker.Behaviors.StandingRules`.
@@ -13,6 +15,7 @@ defmodule Ryker.Behaviors do
   its commit (`subscribe_behaviors/0`).
   """
   alias Ryker.Behaviors.Behavior
+  alias Ryker.Behaviors.Corrections
   alias Ryker.Behaviors.Recall
   alias Ryker.Behaviors.StandingRules
   alias Ryker.CanonicalJSON
@@ -313,6 +316,31 @@ defmodule Ryker.Behaviors do
   @doc "The bounded confirmed behavior context for one exact episode turn."
   defdelegate model_context(episode, operator_ref, repository), to: Recall
 
+  @doc "Keep an explicit correction from the current authenticated human input."
+  defdelegate remember_correction(binding, arguments, authorize), to: Corrections, as: :remember
+
+  @doc "Withdraw correction guidance when its author takes the source words back."
+  defdelegate revoke_correction_source_in_transaction(entry), to: Corrections, as: :revoke_source
+
+  @doc """
+  Internal — Corrections calls this only after locking the current source,
+  checking its actor and conversation, and taking review maintenance.
+  Keeps that source-backed guidance in the caller's transaction; returns
+  %{behavior: behavior, status: :confirmed}, or rolls back on a write refusal.
+  """
+  def keep_correction_in_transaction(record, episode, attributes, metadata) do
+    if Repo.in_transaction?() and record.kind == "guidance_offer",
+      do: create_behavior(record, episode, attributes, metadata),
+      else: {:error, :correction_unauthorized}
+  end
+
+  @doc "The stable identity of one required output in an exact guidance revision."
+  def required_output_ref(%Behavior{} = behavior, description),
+    do: "requirement:" <> CanonicalJSON.digest([behavior.ref, behavior.revision, description])
+
+  @doc "Current required outputs from the exact guidance a turn was briefed with."
+  defdelegate required_outputs(turn), to: Recall
+
   @doc "Whether an active channel rule matches this input's trusted source and event."
   defdelegate standing_match?(input), to: StandingRules
 
@@ -403,8 +431,9 @@ defmodule Ryker.Behaviors do
     |> Enum.uniq()
   end
 
-  defp create_behavior(record, episode, attributes) do
+  defp create_behavior(record, episode, attributes, correction \\ %{}) do
     with {:ok, prepared} <- prepare_behavior(record, episode, attributes),
+         prepared = correction_payload(prepared, correction),
          :ok <- capacity(prepared),
          :ok <- supersede_existing(prepared),
          {:ok, behavior} <- insert_behavior(record, episode, attributes, prepared),
@@ -415,6 +444,11 @@ defmodule Ryker.Behaviors do
       {:error, reason} -> Repo.rollback(reason)
     end
   end
+
+  defp correction_payload(prepared, correction) when map_size(correction) == 0, do: prepared
+
+  defp correction_payload(prepared, correction),
+    do: %{prepared | expires_at: nil, payload: Map.merge(prepared.payload, correction)}
 
   defp prepare_behavior(
          %Records.Record{kind: "preference_offer", payload: payload},

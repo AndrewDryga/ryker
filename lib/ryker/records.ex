@@ -713,7 +713,8 @@ defmodule Ryker.Records do
          fingerprint,
          parallel_goal_limit
        ) do
-    with :ok <- validate_temporal(kind, prepared.continuation),
+    with :ok <- guidance_result_authorized(turn, kind, prepared.payload),
+         :ok <- validate_temporal(kind, prepared.continuation),
          :ok <- validate_relationships(episode.id, kind, prepared.payload, parallel_goal_limit),
          :ok <- record_capacity(turn.id, operation_id),
          :ok <- supersede_prior_record(episode.id, kind, prepared.payload) do
@@ -734,6 +735,24 @@ defmodule Ryker.Records do
       |> Repo.insert()
       |> persistence_result()
     end
+  end
+
+  defp guidance_result_authorized(turn, "guidance_result", payload),
+    do: Work.GuidanceRequirements.authorize(turn, payload)
+
+  defp guidance_result_authorized(_turn, _kind, _payload), do: :ok
+
+  @doc "The newest result for each requirement, omitted if its evidence is no longer current."
+  def guidance_results(episode_id, turn_id) do
+    Record.Query.by_episode_id(episode_id)
+    |> Record.Query.by_turn_id(turn_id)
+    |> Record.Query.by_kind("guidance_result")
+    |> Record.Query.in_use()
+    |> Record.Query.ordered_by_sequence()
+    |> Repo.all()
+    |> Enum.reverse()
+    |> Enum.uniq_by(& &1.payload["requirement_ref"])
+    |> Enum.filter(&(validate_relationships(episode_id, "guidance_result", &1.payload, 3) == :ok))
   end
 
   defp fetch_reusable_open_source_wait(
@@ -916,6 +935,18 @@ defmodule Ryker.Records do
     with {:ok, evidence} <- evidence_records(episode_id, refs, :evidence_refs),
          :ok <- cause_claims(cause_refs, payload, evidence) do
       checked_targets(scope, evidence)
+    end
+  end
+
+  defp validate_relationships(episode_id, "guidance_result", payload, _parallel_goal_limit) do
+    with {:ok, evidence} <- evidence_records(episode_id, payload["evidence_refs"], :evidence_refs),
+         true <- Enum.all?(evidence, &(&1.payload["relation"] != "contradicts")),
+         false <-
+           Repo.exists?(Record.Query.superseding_evidence(episode_id, payload["evidence_refs"])) do
+      :ok
+    else
+      invalid when is_boolean(invalid) -> {:error, {:invalid_state_record, :evidence_refs}}
+      {:error, reason} -> {:error, reason}
     end
   end
 

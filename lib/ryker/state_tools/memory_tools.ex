@@ -1,11 +1,17 @@
 defmodule Ryker.StateTools.MemoryTools do
   @moduledoc false
+  alias Ryker.Behaviors
   alias Ryker.Continuity
   alias Ryker.ConversationRef
   alias Ryker.Memories
   alias Ryker.Repo
   alias Ryker.Slack
   alias Ryker.StateTools.RecordWriter
+
+  @spec remember_correction(map(), map()) :: {:ok, map()} | {:error, term()}
+  def remember_correction(arguments, binding) do
+    Behaviors.remember_correction(binding, arguments, binding.answer_authorizer)
+  end
 
   @spec search_memory(map(), map()) :: {:ok, map()} | {:error, term()}
   def search_memory(arguments, binding) do

@@ -1400,6 +1400,150 @@
           "name": "remember_answer"
         },
         {
+          "description": "Remember an explicit authenticated human correction for future work in this conversation, without another confirmation. source_event_ref is the source_event_id of a current human input; instruction is an exact quote of that person's requested reusable rule, never a suggestion inferred from unhappiness or a bot's text. subject names the rule. requirements lists only the concrete outputs the correction requires (empty for purely stylistic guidance). For a correction to this automation, use its standing_assignments assignment_ref so it applies to later runs of that automation. guidance_ref and expected_revision name the exact current guidance being replaced, or both null for a new rule. Include the returned record_ref in your final outcome to show the saved guidance and its management controls. This saves guidance only and grants no action authority; an inferred rule still uses propose_memory.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "assignment_ref": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.:-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "expected_revision": {
+                "anyOf": [
+                  {
+                    "maximum": 9223372036854775807,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "guidance_ref": {
+                "anyOf": [
+                  {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "pattern": "^[A-Za-z0-9_.:-]+$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "instruction": {
+                "maxLength": 4000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "requirements": {
+                "items": {
+                  "maxLength": 1000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 8,
+                "minItems": 0,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "source_event_ref": {
+                "maxLength": 256,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_.:-]+$",
+                "type": "string"
+              },
+              "subject": {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "assignment_ref",
+              "expected_revision",
+              "guidance_ref",
+              "instruction",
+              "requirements",
+              "source_event_ref",
+              "subject"
+            ],
+            "type": "object"
+          },
+          "name": "remember_correction"
+        },
+        {
+          "description": "Record one required output of the exact guidance in work.operator_context.guidance. Copy its behavior_ref as guidance_ref, revision, and requirement_ref. satisfied reports what the evidence establishes; blocked explains missing evidence and the alternative sources tried; not_applicable cites the current task and explains why the instruction condition does not apply. Never use non-applicability to excuse a missing requested output. evidence_refs must be current cite_source records from this episode. Include this result and those evidence refs in the final outcome. This records coverage, never proof that prose is correct or permission to act.",
+          "inputSchema": {
+            "additionalProperties": false,
+            "properties": {
+              "detail": {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              "evidence_refs": {
+                "items": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_.:-]+$",
+                  "type": "string"
+                },
+                "maxItems": 12,
+                "minItems": 1,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "guidance_ref": {
+                "maxLength": 256,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_.:-]+$",
+                "type": "string"
+              },
+              "requirement_ref": {
+                "maxLength": 256,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9_.:-]+$",
+                "type": "string"
+              },
+              "revision": {
+                "maximum": 9223372036854775807,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "status": {
+                "enum": [
+                  "satisfied",
+                  "blocked",
+                  "not_applicable"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "detail",
+              "evidence_refs",
+              "guidance_ref",
+              "requirement_ref",
+              "revision",
+              "status"
+            ],
+            "type": "object"
+          },
+          "name": "record_guidance_result"
+        },
+        {
           "description": "Stage a bounded derived situation summary. It becomes durable only if this turn's exact final candidate is accepted.",
           "inputSchema": {
             "additionalProperties": false,

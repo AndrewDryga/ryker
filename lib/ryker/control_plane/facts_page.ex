@@ -141,6 +141,7 @@ defmodule Ryker.ControlPlane.FactsPage do
       __changed__: nil,
       action: action,
       error: Map.get(draft, :error),
+      edit_notice: Ryker.Memories.review_edit_notice(entry),
       subject: Map.get(draft, :subject, entry["subject"]),
       token: token,
       value: Map.get(draft, :value, entry["value"])
@@ -170,6 +171,7 @@ defmodule Ryker.ControlPlane.FactsPage do
         <label for="memory-edit-value">What to remember</label>
         <p id="memory-edit-value-help">
           Ryker uses this as context in later work. It doesn't give Ryker permission to act.
+          <span :if={@edit_notice}>{@edit_notice}</span>
         </p>
         <textarea
           id="memory-edit-value"

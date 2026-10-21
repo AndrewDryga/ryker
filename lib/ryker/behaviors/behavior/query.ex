@@ -19,6 +19,9 @@ defmodule Ryker.Behaviors.Behavior.Query do
   def by_refs(queryable \\ all(), refs),
     do: where(queryable, [operator_behaviors: b], b.ref in ^refs)
 
+  def by_identity_key(queryable, key),
+    do: where(queryable, [operator_behaviors: b], b.identity_key == ^key)
+
   def by_offer_record_id(queryable \\ all(), record_id),
     do: where(queryable, [operator_behaviors: b], b.offer_record_id == ^record_id)
 
@@ -27,6 +30,33 @@ defmodule Ryker.Behaviors.Behavior.Query do
 
   def by_kind(queryable \\ all(), kind),
     do: where(queryable, [operator_behaviors: b], b.kind == ^kind)
+
+  @doc "Active corrections whose authenticated source belongs to one of these episodes."
+  def corrections_from_episodes(episode_ids) do
+    all()
+    |> by_kind(:guidance)
+    |> by_status(:active)
+    |> where(
+      [operator_behaviors: b],
+      fragment("?::jsonb #>> '{correction_source,episode_id}'", b.payload) in ^episode_ids
+    )
+  end
+
+  @doc "Correction guidance supported by an older revision of this exact source message."
+  def corrections_before_revision(entry) do
+    all()
+    |> by_kind(:guidance)
+    |> by_status([:active, :disabled])
+    |> where(
+      [operator_behaviors: b],
+      b.source_transport == ^entry.destination_transport and
+        b.source_conversation_ref == ^entry.destination_conversation_ref and
+        fragment("?::jsonb #>> '{correction_source,native_input_id}'", b.payload) ==
+          ^entry.native_input_id and
+        fragment("(?::jsonb #>> '{correction_source,revision}')::bigint", b.payload) <
+          ^entry.revision
+    )
+  end
 
   def by_kinds(queryable \\ all(), kinds),
     do: where(queryable, [operator_behaviors: b], b.kind in ^kinds)

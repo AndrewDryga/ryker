@@ -43,7 +43,7 @@ defmodule Ryker.Evals.WorldCase do
   @raw_candidate_fields ~w(bytes kind)
   @final_candidate_fields ~w(document kind)
   @input_event_fields ~w(actor_ref destination kind occurred_at payload)
-  @input_event_optional_fields ~w(source_item_ref)
+  @input_event_optional_fields ~w(new_episode source_item_ref)
   @destination_fields ~w(conversation_ref thread_ref transport)
   @wait_wakeup_fields ~w(kind occurred_at)
   @actor_fields ~w(actor_ref authority input_profile kind)
@@ -403,6 +403,7 @@ defmodule Ryker.Evals.WorldCase do
            Enum.find(actors, &(&1["actor_ref"] == value["actor_ref"])),
          :ok <- destination(value["destination"]),
          :ok <- optional_reference(value["source_item_ref"], :events),
+         true <- is_boolean(Map.get(value, "new_episode", false)),
          :ok <- source_item_authority(profile, value["source_item_ref"]),
          {:ok, _occurred_at, 0} <- DateTime.from_iso8601(value["occurred_at"]),
          true <- is_map(value["payload"]) and map_size(value["payload"]) > 0 do

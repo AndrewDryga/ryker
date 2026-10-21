@@ -44,7 +44,10 @@ defmodule Ryker.ControlPlane.ImprovementPage do
   def subscriptions,
     do: [
       {Ryker.Improvement, :subscribe_improvement, []},
-      {Ryker.Feedback, :subscribe_feedback, []}
+      {Ryker.Feedback, :subscribe_feedback, []},
+      {Ryker.Behaviors, :subscribe_behaviors, []},
+      {Ryker.Records, :subscribe_records, []},
+      {Ryker.Episodes, :subscribe_episodes, []}
     ]
 
   @doc """
@@ -136,6 +139,9 @@ defmodule Ryker.ControlPlane.ImprovementPage do
         expected={@item.expected}
         note={@state.note}
       />
+      <p :if={@item.correction_followthrough.state != :diagnosed} class="finding-meta">
+        {@item.correction_followthrough.label}
+      </p>
       <FindingCard.model_run
         :if={@item.analysis_run}
         id={"improvement-#{@item.id}-run"}

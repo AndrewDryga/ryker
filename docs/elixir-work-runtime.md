@@ -207,6 +207,37 @@ The memory pipeline has separate read, learn, and act decisions:
    existing owners. Learned prose cannot confirm a preference, start an incident, or grant a tool
    permission. Shadow learning never authorizes live delivery or crosses into live memory scope.
 
+### Explicit corrections and required outputs
+
+`remember_correction` saves an exact reusable instruction quoted from a current authenticated
+operator input. The host rechecks the live turn, selected input, latest source revision, operator
+identity and conversation visibility. It saves ordinary conversation guidance without another
+confirmation click. Inferred guidance still needs a confirmed offer. An optional assignment
+reference must belong to the current episode; it restricts future applicability to that automation.
+Replacement requires the exact active guidance reference and revision. Source withdrawal redacts
+the rule; transcript retention alone does not revoke it.
+
+Frozen briefings carry current guidance references, revisions, required-output identities and a
+selection manifest, including on automated inputs. Required corrections are not silently dropped
+to the optional-advice limit. Saving is bounded to sixteen rules, sixteen required outputs and
+32 KiB of correction text per conversation, including disabled entries, so a later turn can include
+evidence within its final-reference budget. Consolidate or forget existing rules before exceeding
+that bound.
+
+`record_guidance_result` records `satisfied`, `blocked` or `not_applicable` for one exact offered requirement with
+current same-episode evidence. Both preflight and terminal validation require every applicable
+output's result and evidence in the reply. Conditional guidance can record evidence of why its
+condition does not apply to the current task; this never counts as successful follow-through. Superseded evidence and withdrawn or replaced rules
+change that check. A blocked result communicates partial findings and missing proof; episode
+completion alone does not turn it into success. Feedback shows saved, partial, blocked, accepted
+and delivered evidence separately from self-analysis. Model evaluation still judges whether the
+requested output and its explanation are useful and correct.
+
+Editing stored correction words clears their required outputs; changing only the subject retains them.
+Shadow work can observe the guidance without acquiring live output obligations. When every live
+requirement is evidenced as inapplicable, the final result may remain silent. Feedback labels all
+active corrections as proved only after every correction has a later delivered observation.
+
 ### Explicit reusable answers
 
 Work checks applicable memory and authorized discovery before asking for a missing operational

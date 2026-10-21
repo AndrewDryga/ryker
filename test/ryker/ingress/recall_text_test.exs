@@ -2,6 +2,24 @@ defmodule Ryker.Ingress.RecallTextTest do
   use ExUnit.Case, async: true
   alias Ryker.Ingress.RecallText
 
+  test "a source envelope preserves the message's attachment heading footer and links" do
+    # The later rollout review missed an already learned correction because
+    # searching its envelope omitted HCP Terraform and the workspace heading.
+    fixture =
+      "testdata/learning/retained-rollout-correction.json"
+      |> File.read!()
+      |> Jason.decode!()
+
+    envelope = fixture["notification"]
+    content = envelope["content"]
+    assert RecallText.from(envelope) == RecallText.from(content)
+    assert RecallText.from(envelope) =~ "HCP Terraform"
+    assert RecallText.from(envelope) =~ "Tenant/portal"
+    assert RecallText.prose(envelope) == RecallText.prose(content)
+    assert RecallText.references(envelope) == RecallText.references(content)
+    assert [_ | _] = RecallText.references(envelope).links
+  end
+
   test "attachment and block text participate even when a top-level message is empty" do
     [source | _] =
       File.read!("testdata/learning/retained-haproxy-lifecycle.json")

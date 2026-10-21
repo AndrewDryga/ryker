@@ -12,9 +12,10 @@ defmodule Ryker.Work.Validator do
   alias Ryker.Reference
   alias Ryker.Slack
   alias Ryker.UTCDateTime
+  alias Ryker.Work
   alias Ryker.Work.{Final, Result}
 
-  @context_fields ~w(artifact_delivery_supported artifact_metadata artifact_refs execution_mode open_required_goals records slack_mentions visible_reply_required workspace)
+  @context_fields ~w(artifact_delivery_supported artifact_metadata artifact_refs execution_mode guidance_requirements open_required_goals records slack_mentions visible_reply_required workspace)
   @shadow_record_kinds ~w(evidence coverage finding progress alert_assessment)
   @artifact_filename ~r/\b[\p{L}\p{N}][\p{L}\p{N}_.() -]*\.(?:png|jpe?g|gif|webp|svg|pdf|csv|xlsx?|docx?|pptx?|zip)\b/iu
   @artifact_action ~r/(?:\A|[.!?]\s+)(?:I(?:'ve| have)?|we(?:'ve| have)?|Ryker has)?\s*(?:attached|created|exported|generated|made|produced|rendered|saved)\b/iu
@@ -98,6 +99,7 @@ defmodule Ryker.Work.Validator do
     |> continuation_violations(final, context, now)
     |> workspace_violations(final, context)
     |> open_goal_violations(final, context)
+    |> guidance_violations(final, context)
     |> Enum.reverse()
   end
 
@@ -155,6 +157,11 @@ defmodule Ryker.Work.Validator do
   end
 
   defp open_goal_violations(violations, _final, _context), do: violations
+
+  defp guidance_violations(violations, _final, %{execution_mode: :shadow}), do: violations
+
+  defp guidance_violations(violations, final, context),
+    do: Work.GuidanceRequirements.violations(context.guidance_requirements, final) ++ violations
 
   defp workspace_violations(violations, %{state: :complete}, %{workspace: workspace})
        when is_map(workspace) do
@@ -230,7 +237,8 @@ defmodule Ryker.Work.Validator do
          %{delivery: :reply} = final,
          context
        ) do
-    if referenced_timer_wait?(final, context) and context[:visible_reply_required] != true do
+    if referenced_timer_wait?(final, context) and context[:visible_reply_required] != true and
+         not Work.GuidanceRequirements.reply_required?(context.guidance_requirements) do
       [
         "A timer wait must not acknowledge completion before it fires. Set delivery to none and keep the timer record in outcome.record_refs; the resumed turn can reply after the wait finishes."
         | violations
@@ -647,6 +655,7 @@ defmodule Ryker.Work.Validator do
          {:ok, artifacts} <- prepare_artifacts(context["artifact_refs"]),
          {:ok, artifact_metadata} <-
            prepare_artifact_metadata(context["artifact_metadata"], artifacts),
+         true <- Work.GuidanceRequirements.valid_context?(context["guidance_requirements"]),
          {:ok, goals} <- prepare_open_goals(context["open_required_goals"]),
          {:ok, records} <- prepare_records(context["records"]),
          {:ok, _mentions} <- Slack.Mentions.prepare_authority(context["slack_mentions"]),
@@ -657,6 +666,7 @@ defmodule Ryker.Work.Validator do
          artifact_metadata: artifact_metadata,
          artifact_refs: artifacts,
          execution_mode: execution_mode,
+         guidance_requirements: context["guidance_requirements"],
          open_required_goals: goals,
          records: records,
          slack_mentions: context["slack_mentions"],

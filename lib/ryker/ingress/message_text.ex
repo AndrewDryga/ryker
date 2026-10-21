@@ -16,8 +16,36 @@ defmodule Ryker.Ingress.MessageText do
 
   @maximum_lines 200
 
+  @doc "The message inside a source envelope, or the content already supplied."
+  @spec content(term()) :: term()
+  def content(%{
+        "actor" => %{},
+        "content" => %{} = content,
+        "destination" => %{},
+        "event_kind" => kind
+      })
+      when kind in ~w(message edit delete event),
+      do: content
+
+  def content(content), do: content
+
+  @doc "Authored message words and voice transcripts, excluding previews and file metadata."
+  @spec authored(term()) :: String.t()
+  def authored(%{} = supplied) do
+    content = content(supplied)
+
+    transcripts =
+      for %{"transcript" => text} <- list(content["files"]), Reference.text?(text), do: text
+
+    Enum.join(words(content) ++ transcripts, "\n")
+  end
+
+  def authored(_content), do: ""
+
   @spec from(term()) :: String.t()
   def from(%{} = content) do
+    content = content(content)
+
     case parts(content) do
       nil -> content |> flatten("") |> Enum.take(@maximum_lines) |> Enum.join("\n")
       parts -> Enum.join(parts, "\n")
@@ -33,6 +61,8 @@ defmodule Ryker.Ingress.MessageText do
   """
   @spec parts(term()) :: [String.t()] | nil
   def parts(%{} = content) do
+    content = content(content)
+
     parts =
       (words(content) ++
          Enum.flat_map(list(content["attachments"]), &attachment/1) ++

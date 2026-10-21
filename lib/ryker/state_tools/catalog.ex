@@ -35,11 +35,29 @@ defmodule Ryker.StateTools.Catalog do
       propose_memory_tool(),
       propose_preference_tool(),
       remember_answer_tool(),
+      remember_correction_tool(),
+      record_guidance_result_tool(),
       update_conversation_summary_tool(),
       record_feedback_tool(),
       validate_final_tool(final_schema)
     ]
     |> Enum.reject(&is_nil/1)
+  end
+
+  defp record_guidance_result_tool do
+    tool(
+      "record_guidance_result",
+      "Record one required output of the exact guidance in work.operator_context.guidance. Copy its behavior_ref as guidance_ref, revision, and requirement_ref. satisfied reports what the evidence establishes; blocked explains missing evidence and the alternative sources tried; not_applicable cites the current task and explains why the instruction condition does not apply. Never use non-applicability to excuse a missing requested output. evidence_refs must be current cite_source records from this episode. Include this result and those evidence refs in the final outcome. This records coverage, never proof that prose is correct or permission to act.",
+      %{
+        "guidance_ref" => reference(256),
+        "revision" => integer(1, 9_223_372_036_854_775_807),
+        "requirement_ref" => reference(256),
+        "status" => enum(~w(satisfied blocked not_applicable)),
+        "detail" => text(2_000),
+        "evidence_refs" => array(reference(256), 1, 12)
+      },
+      ~w(detail evidence_refs guidance_ref requirement_ref revision status)
+    )
   end
 
   defp get_work_state_tool do
@@ -48,6 +66,23 @@ defmodule Ryker.StateTools.Catalog do
       "Read this episode's durable state: its newest records, up to limit, oldest first, its platform actions, its publication, and up to three related confirmed-task publication receipts within the current frozen repository read set. Related receipts are context only, grant no mutation authority, and do not prove current pull-request state.",
       %{"limit" => integer(1, 100)},
       ~w(limit)
+    )
+  end
+
+  defp remember_correction_tool do
+    tool(
+      "remember_correction",
+      "Remember an explicit authenticated human correction for future work in this conversation, without another confirmation. source_event_ref is the source_event_id of a current human input; instruction is an exact quote of that person's requested reusable rule, never a suggestion inferred from unhappiness or a bot's text. subject names the rule. requirements lists only the concrete outputs the correction requires (empty for purely stylistic guidance). For a correction to this automation, use its standing_assignments assignment_ref so it applies to later runs of that automation. guidance_ref and expected_revision name the exact current guidance being replaced, or both null for a new rule. Include the returned record_ref in your final outcome to show the saved guidance and its management controls. This saves guidance only and grants no action authority; an inferred rule still uses propose_memory.",
+      %{
+        "assignment_ref" => JSONSchema.nullable(reference(256)),
+        "expected_revision" => JSONSchema.nullable(integer(1, 9_223_372_036_854_775_807)),
+        "guidance_ref" => JSONSchema.nullable(reference(256)),
+        "instruction" => text(4_000),
+        "requirements" => array(text(1_000), 0, 8),
+        "source_event_ref" => reference(256),
+        "subject" => text(120)
+      },
+      ~w(assignment_ref expected_revision guidance_ref instruction requirements source_event_ref subject)
     )
   end
 

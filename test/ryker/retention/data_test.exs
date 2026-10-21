@@ -1265,6 +1265,31 @@ defmodule Ryker.Retention.DataTest do
     assert Repo.get_by!(CaseRecord, case_ref: "case:#{work.episode.id}").status == :active
   end
 
+  test "correction coverage expires with settled history rather than pinning it forever" do
+    # This is a host row-shape fixture, not a provider answer. Adding a passive
+    # record kind must not turn its audit into an unresolved custody owner.
+    work = settled_work!("guidance-result-expiry") |> discard_session!()
+    insert_open_record!(work)
+
+    Repo.query!(
+      "UPDATE episode_state_records SET sequence = 2, kind = 'guidance_result' WHERE episode_id = $1",
+      [uuid!(work.episode.id)]
+    )
+
+    backdate_history!(work, 120)
+
+    assert {:ok, result} =
+             Data.prune(settings(episode_history_seconds: 60, audit_data_seconds: 600))
+
+    assert result.episode_histories == 1
+    assert %DateTime{} = Repo.get!(Ryker.Episodes.Episode, work.episode.id).history_pruned_at
+
+    assert Repo.aggregate(
+             from(record in Record, where: record.episode_id == ^work.episode.id),
+             :count
+           ) == 0
+  end
+
   test "an inert finding follows history expiry while an unanswered question still pins custody" do
     # Findings are facts, not unresolved offers: the new tool must not turn one
     # conclusion into permanent retention of the entire settled investigation.

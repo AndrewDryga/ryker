@@ -428,7 +428,7 @@ defmodule Ryker.ControlPlane.PageHelp do
        ]},
       {"Saved from conversations",
        [
-         "Preferences and guidance are things people asked Ryker to keep in mind, such as \"Remember to keep incident updates short.\" Ryker shows what it will save, then keeps it for the time chosen once you confirm."
+         "Preferences and guidance are things people asked Ryker to keep in mind, such as \"Remember to keep incident updates short.\" Ryker shows proposed guidance for you to confirm. An explicit reusable correction from you is saved immediately for that conversation; Ryker shows the saved instruction so you can manage it. Required outputs must be evidenced in later matching work, or reported as blocked or inapplicable. Saving guidance never gives permission to act."
        ]}
     ])
   end

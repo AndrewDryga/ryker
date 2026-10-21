@@ -289,6 +289,7 @@ defmodule Ryker.Records.RecordsTest do
                  "artifact_metadata" => [],
                  "artifact_refs" => [],
                  "execution_mode" => "live",
+                 "guidance_requirements" => [],
                  "open_required_goals" => [],
                  "records" => records,
                  "slack_mentions" => nil,
@@ -618,6 +619,7 @@ defmodule Ryker.Records.RecordsTest do
       "artifact_metadata" => [],
       "artifact_refs" => [],
       "execution_mode" => "live",
+      "guidance_requirements" => [],
       "open_required_goals" => Records.open_required_goals(claim.episode.id),
       "records" => Records.validation_records(claim.episode.id),
       "slack_mentions" => nil,
@@ -641,7 +643,7 @@ defmodule Ryker.Records.RecordsTest do
     assert {:accept, _accepted} =
              Validator.validate(
                complete,
-               %{validation_context | "open_required_goals" => []},
+               %{validation_context | "guidance_requirements" => [], "open_required_goals" => []},
                @now
              )
   end

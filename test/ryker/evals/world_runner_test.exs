@@ -90,6 +90,69 @@ defmodule Ryker.Evals.WorldRunnerTest do
     assert FakeWorkCoopAPI.state(fake).submit_count == 2
   end
 
+  test "a later correction evaluation starts a distinct Work episode and session" do
+    {:ok, scenario} = WorldCase.fetch("explicit-correction-constrains-a-later-automated-review")
+    # This test proves host routing only; the recorded world judges correction
+    # saving and the later reply with a real model, not this answer double.
+    scenario = %{scenario | expect: %{"hard" => [], "trajectory" => [], "quality_rubric" => []}}
+    {:ok, fake} = FakeWorkCoopAPI.start_link([])
+
+    answer = captured_answer(fake)
+
+    before_execute = fn claim, scenario ->
+      unless Repo.exists?(Record.Query.by_kind(Record.Query.all(), "guidance_offer")) do
+        assert {:ok, offer} =
+                 Records.create(
+                   Records.token(claim.turn),
+                   "saved-correction",
+                   "guidance_offer",
+                   %{
+                     "expires_in" => "30d",
+                     "repository" => nil,
+                     "scope" => "conversation",
+                     "subject" => "Deployment review",
+                     "summary" => "Show both versions.",
+                     "text" => "Show before/after versions and what will be deployed.",
+                     "visibility" => "conversation"
+                   }
+                 )
+
+        assert {:ok, _} =
+                 Repo.transaction(fn ->
+                   Records.confirm_offer(offer, %{
+                     actor_ref: "slack:user:U-operator",
+                     confirmation_ref: "correction:#{claim.episode.id}",
+                     occurred_at: Repo.now!()
+                   })
+                 end)
+      end
+
+      answer.(claim, scenario)
+    end
+
+    result =
+      WorldRunner.run(
+        scenario,
+        routing_options(fake) ++ [before_execute: before_execute]
+      )
+
+    report =
+      case result do
+        {:ok, report} ->
+          report
+
+        {:error, {:world_eval_assertions, report}} ->
+          flunk(inspect(Map.take(report, [:execution_error, :failures])))
+
+        error ->
+          flunk(inspect(error))
+      end
+
+    assert Repo.aggregate(Ryker.Episodes.Episode, :count) == 2
+    assert length(Enum.uniq(Enum.map(report.runtime.turns, & &1.session_id))) == 2
+    assert Enum.all?(report.runtime.turns, &(&1.routing.action == "start_episode"))
+  end
+
   test "unoffered model routing is refused before creating or submitting work" do
     {:ok, scenario} = WorldCase.fetch("similar-alert-different-environment-stays-separate")
     {:ok, fake} = FakeWorkCoopAPI.start_link([])

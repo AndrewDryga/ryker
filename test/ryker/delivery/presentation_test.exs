@@ -26,6 +26,58 @@ defmodule Ryker.Delivery.PresentationTest do
              {:error, {:invalid_delivery_presentation, {:unsupported_transport, "webhook"}}}
   end
 
+  test "required correction audits are presentable without extra cards on Slack and GitHub" do
+    # These are actual saved/frozen correction results. The origin transport is
+    # a host adapter to run the same retained document through both renderers.
+    correction = Ryker.Fixtures.Corrections.correction!()
+
+    assert {:ok, saved} =
+             Ryker.StateTools.FixedTools.call("remember_correction", correction.arguments,
+               binding: correction.binding,
+               answer_authorizer: fn _ -> true end
+             )
+
+    later = Ryker.Fixtures.Corrections.later!(correction)
+    [guidance] = later.turn.submission["context"]["operator_context"]["guidance"]
+    [requirement] = guidance["requirements"]
+
+    assert {:ok, evidence} =
+             Records.create(later.state_token, "baseline", "evidence", %{
+               "claim_id" => "baseline",
+               "source_name" => "deployment history",
+               "source_type" => "emisar",
+               "observation" => "Retained history identifies the baseline.",
+               "relation" => "supports"
+             })
+
+    assert {:ok, result} =
+             Ryker.StateTools.FixedTools.call(
+               "record_guidance_result",
+               %{
+                 "guidance_ref" => saved["behavior_ref"],
+                 "revision" => 1,
+                 "requirement_ref" => requirement["requirement_ref"],
+                 "status" => "blocked",
+                 "detail" => "The proposed revision is unavailable.",
+                 "evidence_refs" => [evidence.ref]
+               },
+               binding: later
+             )
+
+    for transport <- ["slack", "github"] do
+      Repo.update_all(
+        from(origin in Episodes.Origin, where: origin.episode_id == ^later.episode.id),
+        set: [transport: transport]
+      )
+
+      assert Presentation.validate(
+               later.episode,
+               later.turn,
+               final!(:reply, [result["record_ref"], evidence.ref])
+             ) == :ok
+    end
+  end
+
   test "a silent result has no platform presentation to validate" do
     assert Presentation.validate(episode("webhook"), turn(), final!(:none)) == :ok
   end

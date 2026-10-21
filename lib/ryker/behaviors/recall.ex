@@ -15,11 +15,13 @@ defmodule Ryker.Behaviors.Recall do
   alias Ryker.Memories
   alias Ryker.Reference
   alias Ryker.Repo
+  alias Ryker.Work
 
   @doc "Returns the bounded confirmed behavior context for one exact episode turn."
-  @spec model_context(Episodes.Episode.t(), String.t(), String.t() | nil) :: map()
+  @spec model_context(Episodes.Episode.t(), String.t() | nil, String.t() | nil) :: map()
   def model_context(%Episodes.Episode{} = episode, operator_ref, repository)
-      when is_binary(operator_ref) and (is_binary(repository) or is_nil(repository)) do
+      when (is_binary(operator_ref) or is_nil(operator_ref)) and
+             (is_binary(repository) or is_nil(repository)) do
     context = %{
       conversation_ref: episode.destination_conversation_ref,
       execution_mode: episode.execution_mode,
@@ -28,27 +30,42 @@ defmodule Ryker.Behaviors.Recall do
       workspace_ref: Episodes.Scope.workspace_ref(episode)
     }
 
+    assignments = assignment_context(episode.id)
+    {guidance, selection} = selected_guidance(context, assignments)
+
     %{
-      "guidance" => guidance(context),
+      "guidance" => guidance,
+      "guidance_selection" => selection,
       "preferences" => effective_preferences(context),
-      "standing_assignments" => assignment_context(episode.id)
+      "standing_assignments" => assignments
     }
   end
 
   def model_context(_episode, _operator_ref, _repository),
     do: %{"guidance" => [], "preferences" => %{}, "standing_assignments" => []}
 
-  @spec guidance(map(), pos_integer()) :: [map()]
-  def guidance(context, limit \\ 20)
+  @doc "Only still-current guidance contributes obligations; a withdrawn source cannot block work."
+  def required_outputs(%Work.Turn{submission: %{"context" => context}}) do
+    documents = get_in(context, ["operator_context", "guidance"]) || []
+    references = Enum.map(documents, & &1["behavior_ref"])
 
-  def guidance(context, limit) when is_map(context) and is_integer(limit) and limit in 1..50 do
-    case retrieval_context(context) do
-      {:ok, context} -> guidance_context(context, limit)
-      {:error, _reason} -> []
+    current =
+      Behavior.Query.by_refs(references)
+      |> Behavior.Query.by_kind(:guidance)
+      |> Behavior.Query.by_status(:active)
+      |> Behavior.Query.unexpired()
+      |> Repo.all()
+      |> Map.new(&{&1.ref, &1})
+
+    for document <- documents,
+        %Behavior{} = behavior <- [current[document["behavior_ref"]]],
+        behavior.revision == document["revision"],
+        requirement <- document["requirements"] || [] do
+      Map.merge(requirement, %{"guidance_ref" => behavior.ref, "revision" => behavior.revision})
     end
   end
 
-  def guidance(_context, _limit), do: []
+  def required_outputs(_turn), do: []
 
   @doc false
   def search_page(context, page) do
@@ -77,11 +94,44 @@ defmodule Ryker.Behaviors.Recall do
     end)
   end
 
-  defp guidance_context(context, limit) do
-    active_for_context(:guidance, context)
-    |> Enum.sort_by(&{preference_rank(&1), DateTime.to_unix(&1.updated_at, :microsecond) * -1})
-    |> Enum.take(limit)
-    |> account_guidance(context)
+  # A required correction belongs to its assignment, not to whatever words
+  # this run's notification happens to contain. Keep it ahead of optional
+  # advice, without silently dropping requirements to the advisory limit.
+  defp selected_guidance(context, assignments) do
+    identities = Enum.map(assignments, & &1["assignment_identity"])
+    references = Enum.map(assignments, & &1["assignment_ref"])
+
+    candidates =
+      active_for_context(:guidance, context)
+      |> Enum.filter(fn behavior ->
+        is_nil(behavior.payload["assignment_ref"]) or
+          behavior.payload["assignment_ref"] in references or
+          behavior.payload["assignment_identity"] in identities
+      end)
+      |> Enum.sort_by(&{preference_rank(&1), DateTime.to_unix(&1.updated_at, :microsecond) * -1})
+
+    {required, optional} =
+      Enum.split_with(candidates, &(List.wrap(&1.payload["requirements"]) != []))
+
+    selected = required ++ Enum.take(optional, 20)
+    documents = account_guidance(selected, context)
+    included = MapSet.new(documents, & &1["behavior_ref"])
+
+    {documents,
+     %{
+       "eligible" => length(candidates),
+       "included" => length(documents),
+       "omitted" =>
+         for(
+           behavior <- candidates,
+           not MapSet.member?(included, behavior.ref),
+           do: %{
+             "behavior_ref" => behavior.ref,
+             "revision" => behavior.revision,
+             "subject" => behavior.identity_key
+           }
+         )
+     }}
   end
 
   defp account_guidance([], _context), do: []
@@ -114,6 +164,7 @@ defmodule Ryker.Behaviors.Recall do
   defp guidance_document(behavior) do
     %{
       "behavior_ref" => behavior.ref,
+      "revision" => behavior.revision,
       "confirmed_at" => DateTime.to_iso8601(behavior.confirmed_at),
       "expires_at" => if(behavior.expires_at, do: DateTime.to_iso8601(behavior.expires_at)),
       "source_read" =>
@@ -130,7 +181,19 @@ defmodule Ryker.Behaviors.Recall do
       "text" => behavior.payload["text"],
       "visibility" => behavior.payload["visibility"]
     }
+    |> Map.put("requirements", requirements(behavior))
+    |> Map.put("correction_source", behavior.payload["correction_source"])
+    |> Map.put("assignment_ref", behavior.payload["assignment_ref"])
     |> put_edit_provenance(behavior)
+  end
+
+  defp requirements(behavior) do
+    for description <- behavior.payload["requirements"] || [] do
+      %{
+        "requirement_ref" => Behaviors.required_output_ref(behavior, description),
+        "description" => description
+      }
+    end
   end
 
   defp put_edit_provenance(document, %Behavior{edited_at: %DateTime{} = edited_at} = behavior) do
@@ -181,9 +244,15 @@ defmodule Ryker.Behaviors.Recall do
     |> Behavior.Query.by_any_scope(context_clauses(context))
     |> Behavior.Query.visible_to(kind, context)
     |> Behavior.Query.ordered_by_scope_precedence()
-    |> Behavior.Query.limit_to(100)
+    |> limit_optional(kind)
     |> Repo.all()
   end
+
+  # A workspace holds at most 500 active behaviors. Read all applicable
+  # guidance before prioritizing requirements: 100 private operator notes
+  # must not hide a conversation correction or its omission descriptor.
+  defp limit_optional(query, :guidance), do: query
+  defp limit_optional(query, _kind), do: Behavior.Query.limit_to(query, 100)
 
   defp assignment_context(episode_id) do
     episode_id
@@ -195,6 +264,7 @@ defmodule Ryker.Behaviors.Recall do
         "action" => "run_source_event_automation",
         "allowed_outputs" => ["ignore", "react", "reply"],
         "assignment_ref" => behavior.ref,
+        "assignment_identity" => behavior.identity_key,
         "authority_ceiling" => "read_only",
         "repository" => behavior.payload["repository"],
         "task" => behavior.payload["task"],

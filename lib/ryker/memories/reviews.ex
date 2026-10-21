@@ -22,6 +22,7 @@ defmodule Ryker.Memories.Reviews do
   alias Ryker.ConversationRef
   alias Ryker.Memories
   alias Ryker.Memories.Forgetting
+  alias Ryker.Memories.GuidanceEdit
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Memories.MemoryReviewItem
   alias Ryker.Reference
@@ -516,11 +517,15 @@ defmodule Ryker.Memories.Reviews do
          nil,
          _actor_ref
        ) do
-    [keep | duplicates] = Enum.sort_by(entries, &review_survivor_rank/1)
-    now = Repo.now!()
-    review_source!(keep, now)
-    Enum.each(duplicates, &redact_review_source!(&1, :superseded, "merged_payload_sha256"))
-    :ok
+    if Enum.uniq_by(entries, &duplicate_identity/1) |> length() == 1 do
+      [keep | duplicates] = Enum.sort_by(entries, &review_survivor_rank/1)
+      now = Repo.now!()
+      review_source!(keep, now)
+      Enum.each(duplicates, &redact_review_source!(&1, :superseded, "merged_payload_sha256"))
+      :ok
+    else
+      {:error, :memory_review_cannot_merge}
+    end
   end
 
   defp apply_review_action(_review, _entries, :merge, _replacement, _actor_ref),
@@ -763,7 +768,9 @@ defmodule Ryker.Memories.Reviews do
 
   defp duplicate_identity(%{type: :guidance, record: behavior}) do
     {behavior.scope_kind, behavior.scope_ref, behavior.payload["visibility"],
-     behavior.payload["text"]}
+     behavior.payload["text"],
+     behavior.payload["assignment_identity"] || behavior.payload["assignment_ref"],
+     Enum.sort(Enum.uniq(behavior.payload["requirements"] || []))}
   end
 
   defp review_source!(%{type: :memory, record: entry}, now) do
@@ -824,6 +831,7 @@ defmodule Ryker.Memories.Reviews do
       |> Map.put("subject", replacement["subject"])
       |> Map.put("summary", String.slice(replacement["value"], 0, 500))
       |> Map.put("text", replacement["value"])
+      |> GuidanceEdit.clear_changed_requirements(behavior.payload["text"], replacement["value"])
 
     behavior
     |> Behaviors.Behavior.Changeset.update(%{
@@ -867,6 +875,7 @@ defmodule Ryker.Memories.Reviews do
     %{
       "confirmed_at" => DateTime.to_iso8601(behavior.confirmed_at),
       "kind" => "guidance",
+      "requirements" => behavior.payload["requirements"] || [],
       "last_recalled_at" => UTCDateTime.iso8601(behavior.last_used_at),
       "memory_ref" => behavior.ref,
       "recall_count" => behavior.use_count,

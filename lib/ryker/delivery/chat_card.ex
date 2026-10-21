@@ -423,6 +423,10 @@ defmodule Ryker.Delivery.ChatCard do
     )
   end
 
+  # Required-output coverage is audit state. The reply carries its findings
+  # and limitations; adding another card would expose the accounting as chat.
+  defp card(%Records.Record{kind: "guidance_result"}, _payload), do: :none
+
   defp card(%Records.Record{kind: "evidence"} = record, payload) do
     common(
       record,
@@ -770,7 +774,15 @@ defmodule Ryker.Delivery.ChatCard do
   defp memory_outcome(%Memories.MemoryEntry{status: :expired}),
     do: outcome_line(:off, "Memory expired", nil, nil)
 
-  defp behavior_outcome(%Behaviors.Behavior{kind: kind, status: status, ref: ref}) do
+  defp behavior_outcome(%Behaviors.Behavior{kind: :guidance, expires_at: expiry} = behavior) do
+    behavior
+    |> saved_behavior_outcome()
+    |> Map.put(:details, [{"Expires", OfferWords.stamp(expiry) || "No automatic expiry"}])
+  end
+
+  defp behavior_outcome(%Behaviors.Behavior{} = behavior), do: saved_behavior_outcome(behavior)
+
+  defp saved_behavior_outcome(%Behaviors.Behavior{kind: kind, status: status, ref: ref}) do
     name = behavior_name(kind)
     {link, href} = behavior_link(kind, ref)
 

@@ -12,7 +12,7 @@ defmodule Ryker.GitHub.Renderer do
   alias Ryker.Schedules
 
   @maximum_records 64
-  @investigation_kinds ~w(evidence coverage finding progress goal goal_state alert_assessment)
+  @investigation_kinds ~w(evidence coverage finding progress goal goal_state alert_assessment guidance_result)
   @offer_kinds ~w(task_offer publication_offer schedule_offer automation_change_offer memory_offer preference_offer guidance_offer standing_assignment_offer)
   @confirmable_offer_kinds ~w(automation_change_offer memory_offer preference_offer guidance_offer standing_assignment_offer)
 

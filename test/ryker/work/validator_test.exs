@@ -477,6 +477,60 @@ defmodule Ryker.Work.ValidatorTest do
     assert accepted.final.record_refs == ["record:emisar:approval:1"]
   end
 
+  test "an autonomous correction report can retain its timer without an impossible final" do
+    # Corrected rollout reviews still need their timer for a later recheck; the
+    # timer's quiet policy must not forbid the required substantive report.
+    continuation = %{
+      "deadline_at" => "2099-08-29T12:00:00.000000Z",
+      "kind" => "wait",
+      "wait_kind" => "event",
+      "wait_ref" => "record:wait:timer"
+    }
+
+    requirement = %{
+      "description" => "Report both revisions and changes.",
+      "guidance_ref" => "behavior:guidance",
+      "requirement_ref" => "requirement:output",
+      "revision" => 1,
+      "result" => %{
+        "guidance_ref" => "behavior:guidance",
+        "requirement_ref" => "requirement:output",
+        "revision" => 1,
+        "record_ref" => "record:result",
+        "status" => "blocked",
+        "detail" => "The proposed revision is unavailable.",
+        "evidence_refs" => ["record:evidence"]
+      }
+    }
+
+    records = %{
+      "record:wait:timer" => record("event_wait", continuation) |> Map.put("wait_mode", "timer"),
+      "record:result" => record("guidance_result"),
+      "record:evidence" => record("evidence")
+    }
+
+    result =
+      candidate(
+        %{
+          "artifact_refs" => [],
+          "record_refs" => Map.keys(records),
+          "state" => "waiting_for_event"
+        },
+        "The baseline is established, but the proposed revision is unavailable; I will check again after the wait."
+      )
+
+    assert {:accept, _} =
+             Validator.validate(
+               result,
+               context(
+                 records: records,
+                 guidance_requirements: [requirement],
+                 visible_reply_required: false
+               ),
+               @now
+             )
+  end
+
   test "a timer Ryker arms on its own stays silent, and one a person asked for is confirmed" do
     continuation = %{
       "deadline_at" => "2099-08-29T12:00:00.000000Z",
@@ -1134,6 +1188,7 @@ defmodule Ryker.Work.ValidatorTest do
         Map.get(overrides, :artifact_metadata, Enum.map(artifacts, &%{"id" => &1, "name" => &1})),
       "artifact_refs" => artifacts,
       "execution_mode" => Map.get(overrides, :execution_mode, "live"),
+      "guidance_requirements" => Map.get(overrides, :guidance_requirements, []),
       "open_required_goals" => Map.get(overrides, :open_required_goals, []),
       "records" => Map.get(overrides, :records, %{}),
       "slack_mentions" => Map.get(overrides, :slack_mentions),

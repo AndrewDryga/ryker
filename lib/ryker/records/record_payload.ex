@@ -17,7 +17,7 @@ defmodule Ryker.Records.RecordPayload do
   @kinds ~w(
     task_offer publication_offer schedule_offer automation_change_offer memory_offer
     preference_offer guidance_offer standing_assignment_offer slack_post_offer input_request
-    event_wait emisar_approval evidence coverage finding progress goal goal_state alert_assessment
+    event_wait emisar_approval evidence coverage finding progress goal goal_state alert_assessment guidance_result
   )
 
   @doc false
@@ -40,7 +40,7 @@ defmodule Ryker.Records.RecordPayload do
   def prepare("emisar_approval", payload, ref), do: Emisar.ApprovalContract.prepare(payload, ref)
 
   def prepare(kind, payload, _ref)
-      when kind in ~w(evidence coverage finding progress goal goal_state alert_assessment) do
+      when kind in ~w(evidence coverage finding progress goal goal_state alert_assessment guidance_result) do
     with {:ok, payload} <- InvestigationPayload.prepare(kind, payload) do
       {:ok, %{continuation: nil, payload: payload, subject_ref: subject_ref(kind, payload)}}
     end

@@ -146,6 +146,10 @@ defmodule Ryker.ControlPlane.RequestContextHTML do
       "Suggests a fact or piece of guidance to remember, for a person to confirm.",
     "propose_preference" => "Suggests a setting for how Ryker works, for a person to confirm.",
     "remember_answer" => "Saves a person's answer to a question so Ryker does not ask it again.",
+    "remember_correction" =>
+      "Remembers an explicit operator correction for later work in this conversation.",
+    "record_guidance_result" =>
+      "Records the evidence for a required correction output, or why it remains blocked or does not apply.",
     "update_conversation_summary" =>
       "Updates the saved summary of this conversation once the answer is accepted.",
     "record_feedback" =>

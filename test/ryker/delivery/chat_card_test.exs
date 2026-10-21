@@ -638,7 +638,20 @@ defmodule Ryker.Delivery.ChatCardTest do
     assert ChatCard.project_publication(%Publication{}, publication.ref) == :ignore
   end
 
-  test "every source-neutral Slack-equivalent record has a typed Lab card" do
+  test "required-output accounting stays in the work record and adds no chat card" do
+    payload = %{
+      "guidance_ref" => "behavior:guidance",
+      "revision" => 1,
+      "requirement_ref" => "requirement:versions",
+      "status" => "blocked",
+      "detail" => "The baseline remains unverified after checking apply history.",
+      "evidence_refs" => ["record:apply-history"]
+    }
+
+    assert ChatCard.project(record("guidance_result", payload)) == :none
+  end
+
+  test "every visible source-neutral Slack-equivalent record has a typed Lab card" do
     cases = [
       {"task_offer",
        TaskOffer.payload(%{
@@ -800,7 +813,7 @@ defmodule Ryker.Delivery.ChatCardTest do
     end)
 
     assert cases |> Enum.map(&elem(&1, 0)) |> MapSet.new() ==
-             RecordPayload.kinds() |> MapSet.new()
+             (RecordPayload.kinds() -- ["guidance_result"]) |> MapSet.new()
 
     assert {:ok, closed} =
              ChatCard.project(

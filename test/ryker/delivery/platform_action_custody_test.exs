@@ -600,6 +600,7 @@ defmodule Ryker.Delivery.PlatformActionCustodyTest do
       "artifact_metadata" => [],
       "artifact_refs" => [],
       "execution_mode" => "live",
+      "guidance_requirements" => [],
       "open_required_goals" => [],
       "records" => records,
       "slack_mentions" => nil,

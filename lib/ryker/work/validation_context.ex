@@ -14,6 +14,7 @@ defmodule Ryker.Work.ValidationContext do
   alias Ryker.Delivery
   alias Ryker.Episodes
   alias Ryker.Records
+  alias Ryker.Work
   alias Ryker.Work.{Custody, Turn}
 
   @doc "The context for `turn` of `episode`, before any artifact or workspace is known."
@@ -24,6 +25,7 @@ defmodule Ryker.Work.ValidationContext do
       "artifact_metadata" => [],
       "artifact_refs" => [],
       "execution_mode" => Atom.to_string(episode.execution_mode),
+      "guidance_requirements" => Work.GuidanceRequirements.context(turn),
       "open_required_goals" => Records.open_required_goals(episode.id),
       "records" =>
         Map.merge(

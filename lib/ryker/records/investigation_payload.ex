@@ -26,6 +26,7 @@ defmodule Ryker.Records.InvestigationPayload do
   def prepare("progress", payload), do: progress(payload)
   def prepare("goal", payload), do: goal(payload)
   def prepare("goal_state", payload), do: goal_state(payload)
+  def prepare("guidance_result", payload), do: guidance_result(payload)
   def prepare("alert_assessment", payload), do: alert_assessment(payload)
   def prepare(_kind, _payload), do: {:error, {:invalid_state_record, :kind}}
 
@@ -170,6 +171,29 @@ defmodule Ryker.Records.InvestigationPayload do
   end
 
   defp goal_state(_payload), do: invalid(:payload)
+
+  defp guidance_result(%{} = payload) do
+    with :ok <-
+           fields(
+             payload,
+             ~w(detail evidence_refs guidance_ref requirement_ref revision status),
+             []
+           ),
+         :ok <- reference(payload["guidance_ref"], 256, :guidance_ref),
+         :ok <- reference(payload["requirement_ref"], 256, :requirement_ref),
+         true <- is_integer(payload["revision"]) and payload["revision"] > 0,
+         :ok <- enum(payload["status"], ~w(satisfied blocked not_applicable), :status),
+         :ok <- text(payload["detail"], 2_000, :detail),
+         :ok <- references(payload["evidence_refs"], 1, 12, 256, :evidence_refs),
+         :ok <- canonical(payload) do
+      {:ok, payload}
+    else
+      false -> invalid(:revision)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp guidance_result(_payload), do: invalid(:payload)
 
   defp alert_assessment(%{} = payload) do
     required = ~w(impact verdict)

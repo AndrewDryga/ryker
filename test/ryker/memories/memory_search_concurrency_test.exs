@@ -429,7 +429,7 @@ defmodule Ryker.Memories.MemorySearchConcurrencyTest do
   defp read(:fact, :search, context),
     do: MemoryPages.facts(context, "draft-ai-suggestions", "workspace", 10)
 
-  defp read(:guidance, :recall, context), do: BehaviorRecall.guidance(context)
+  defp read(:guidance, :recall, context), do: recalled_guidance(context)
 
   defp read(:guidance, :search, context),
     do: MemoryPages.guidance(context, "draft-ai-suggestions", "workspace", 10)
@@ -607,5 +607,17 @@ defmodule Ryker.Memories.MemorySearchConcurrencyTest do
     Repo.delete_all(from(s in Session, where: s.id == ^fixture.session_id))
     Repo.delete_all(from(e in Event, where: e.episode_id == ^fixture.episode_id))
     Repo.delete_all(from(e in Episode, where: e.id == ^fixture.episode_id))
+  end
+
+  defp recalled_guidance(context) do
+    episode = %Ryker.Episodes.Episode{
+      id: Ecto.UUID.generate(),
+      destination_transport: "slack",
+      destination_conversation_ref: context.conversation_ref,
+      destination_thread_ref: nil,
+      execution_mode: Map.get(context, :execution_mode, :live)
+    }
+
+    BehaviorRecall.model_context(episode, context.operator_ref, context.repository)["guidance"]
   end
 end

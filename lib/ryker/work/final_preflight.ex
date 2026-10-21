@@ -3,6 +3,8 @@ defmodule Ryker.Work.FinalPreflight do
   alias Ryker.CanonicalJSON
   alias Ryker.Delivery
   alias Ryker.Records
+  alias Ryker.Repo
+  alias Ryker.Work
 
   # A missing title and a null one both keep the episode's name, so they are
   # the same candidate: a model that preflights without the key and returns the
@@ -22,6 +24,7 @@ defmodule Ryker.Work.FinalPreflight do
              is_list(artifact_refs) do
     CanonicalJSON.digest(%{
       "episode_semantic_version" => semantic_version,
+      "guidance_requirements" => guidance_requirements(turn_id),
       "output_artifacts" => "validated_from_coop_terminal_manifest",
       "records" =>
         Map.merge(
@@ -29,6 +32,15 @@ defmodule Ryker.Work.FinalPreflight do
           Delivery.PlatformActionCustody.validation_records(episode_id, turn_id)
         )
     })
+  end
+
+  defp guidance_requirements(nil), do: []
+
+  defp guidance_requirements(turn_id) do
+    case Repo.fetch(Work.Turn.Query.by_id(turn_id)) do
+      {:ok, turn} -> Work.GuidanceRequirements.context(turn)
+      {:error, :not_found} -> []
+    end
   end
 
   # The provider knows only the saved filename while it is still inside the

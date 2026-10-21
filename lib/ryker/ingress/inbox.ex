@@ -17,6 +17,7 @@ defmodule Ryker.Ingress.Inbox do
   `subscribe_input/1`).
   """
   alias Ryker.Artifacts
+  alias Ryker.Behaviors
   alias Ryker.CanonicalJSON
   alias Ryker.Episodes
   alias Ryker.Feedback
@@ -746,9 +747,12 @@ defmodule Ryker.Ingress.Inbox do
   # Only an edit that took the words back revokes an answer saved from them: a
   # link preview arriving as an edit forgot the answer (2026-10-04 review).
   defp revoke_answer_memory(%{status: :recorded, entry: entry}) do
-    if RoutingExamples.takes_back_words?(entry),
-      do: Memories.revoke_answer_source_in_transaction(entry),
-      else: :ok
+    if RoutingExamples.takes_back_words?(entry) do
+      :ok = Behaviors.revoke_correction_source_in_transaction(entry)
+      Memories.revoke_answer_source_in_transaction(entry)
+    else
+      :ok
+    end
   end
 
   defp revoke_answer_memory(_receipt), do: :ok

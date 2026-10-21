@@ -11,6 +11,7 @@ defmodule Ryker.Evals.WorldDriver do
   alias Ryker.Episodes.Episode
   alias Ryker.Evals.{WorldCase, WorldInputs}
   alias Ryker.Ingress.{Inbox, Input}
+  alias Ryker.Learning
   alias Ryker.Records
   alias Ryker.Records.Record
   alias Ryker.Repo
@@ -30,6 +31,8 @@ defmodule Ryker.Evals.WorldDriver do
     |> Enum.with_index(1)
     |> Enum.reduce_while({:ok, [], nil, []}, fn {input, index},
                                                 {:ok, executions, episode_id, skipped} ->
+      episode_id = if input["new_episode"] == true, do: nil, else: episode_id
+
       result =
         if completed_wait_checkpoint?(input, executions) do
           {:skip,
@@ -177,7 +180,7 @@ defmodule Ryker.Evals.WorldDriver do
     with {:ok, %{entry: entry}} <- Inbox.record(input),
          now <- Repo.now!(),
          {:ok, %{entry: claimed, lease_ref: lease_ref}} <-
-           Inbox.claim_next("#{settings.worker_ref}:admission:#{index}", now, 300),
+           claim_world_input(entry.id, index, settings, 32),
          true <- claimed.id == entry.id or {:error, :crossed_world_input_claim},
          {:ok, context} <-
            Admission.context(Inbox.ref(claimed),
@@ -210,6 +213,54 @@ defmodule Ryker.Evals.WorldDriver do
     end
   end
 
+  # Saving an explicit correction also records its confirmed decision for
+  # background learning. Production admission settles that receipt without a
+  # model. Exercise the same boundary before claiming the next scenario input.
+  defp claim_world_input(_entry_id, _index, _settings, 0),
+    do: {:error, :world_decision_receipt_limit}
+
+  defp claim_world_input(entry_id, index, settings, remaining) do
+    with {:ok, claim} <-
+           Inbox.claim_next("#{settings.worker_ref}:admission:#{index}", Repo.now!(), 300),
+         do: accept_world_claim(claim, entry_id, index, settings, remaining)
+  end
+
+  defp accept_world_claim(%{entry: %{id: id}} = claim, id, _index, _settings, _remaining),
+    do: {:ok, claim}
+
+  defp accept_world_claim(
+         %{entry: entry, lease_ref: lease_ref},
+         entry_id,
+         index,
+         settings,
+         remaining
+       ) do
+    with {:ok, context} <-
+           Admission.context(Inbox.ref(entry),
+             candidate_limit: 20,
+             continuation_window: 30 * 24 * 60 * 60,
+             history_window: 30 * 24 * 60 * 60,
+             lease_ref: lease_ref,
+             now: Repo.now!()
+           ),
+         true <-
+           Learning.Decisions.receipt?(context.input) or {:error, :crossed_world_input_claim},
+         {:ok, _} <-
+           Admission.Executor.run(Inbox.ref(entry),
+             api: settings.api,
+             client: settings.client,
+             lease_ref: lease_ref,
+             policy: settings.policy,
+             policy_digest: settings.policy_digest,
+             renew_lease: fn -> :ok end
+           ) do
+      claim_world_input(entry_id, index, settings, remaining - 1)
+    end
+  end
+
+  defp accept_world_claim(_claim, _entry_id, _index, _settings, _remaining),
+    do: {:error, :world_input_not_claimable}
+
   defp work_admission(%Episode{}, _decision, _routing_mode), do: :ok
 
   defp work_admission(nil, decision, routing_mode) do
@@ -241,13 +292,13 @@ defmodule Ryker.Evals.WorldDriver do
     end
   end
 
-  defp world_decision(%Context{candidates: candidates}, nil, _input) when candidates == [] do
+  defp world_decision(%Context{}, nil, _input) do
     {:ok,
      %Decision{
        action: :start_episode,
        episode_ref: nil,
        relation: :unrelated,
-       reason: "Start the scenario's first work episode.",
+       reason: "Start the scenario's explicitly separate work episode.",
        repository_source: nil,
        work_class: :standard
      }, nil}

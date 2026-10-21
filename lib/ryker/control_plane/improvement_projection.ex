@@ -137,6 +137,7 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
   defp present(candidates) do
     requests = FeedbackProjection.requests(candidates)
     runs = analysis_runs(candidates)
+    followthrough = Improvement.correction_followthrough(candidates)
 
     Enum.map(candidates, fn %Improvement.Candidate{} = candidate ->
       request = FeedbackProjection.request(requests, candidate)
@@ -151,6 +152,7 @@ defmodule Ryker.ControlPlane.ImprovementProjection do
         analysis_run: analysis_run(Map.get(runs.by_candidate, candidate.id, []), runs, request),
         transport: candidate.transport,
         analysis: candidate.analysis,
+        correction_followthrough: Map.fetch!(followthrough, candidate.id),
         error_code: candidate.error_code,
         category: candidate.category,
         step: candidate.step,

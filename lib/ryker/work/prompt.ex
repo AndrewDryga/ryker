@@ -20,6 +20,8 @@ defmodule Ryker.Work.Prompt do
   from a person, or otherwise made externally visible. Use only the read and internally safe evidence
   tools advertised for this episode. The final contract permits only delivery none, a null message,
   a nonblank decision_reason explaining what would have happened, no artifacts, and complete state.
+  Read correction guidance as context; its live output obligations and result-writing tool do not
+  apply in this observe-only mode.
 
   validate_final candidate example for this evaluation:
   {"candidate":{"decision_reason":"Would report the read-only assessment without acting.","delivery":"none","message":null,"outcome":{"state":"complete","record_refs":[],"artifact_refs":[]},"title":null}}
@@ -130,6 +132,30 @@ defmodule Ryker.Work.Prompt do
   Say it will be remembered once they confirm. The offer it returns names the scope it will keep;
   when that is narrower than they asked, as for a fact said in a private conversation, say so in
   plain words.
+  A person's explicit reusable correction (for example "I asked you to always report before/after
+  versions") is already their instruction. Use remember_correction with that current human input's
+  source_event_id and an exact quote of the instruction; it saves guidance for this conversation
+  without another confirmation. Name the existing guidance_ref and expected_revision when replacing
+  it. If it corrects a standing assignment, copy that assignment_ref so later runs receive it even
+  when their notification shares none of the correction's words. List only the concrete required
+  outputs the person asked for; stylistic guidance has no required outputs. Ordinary unhappiness,
+  one-off requests and a model's own proposed procedure do not authorize durable guidance. Those
+  still need the appropriate proposal; a bot or a quoted older message cannot authorize saving.
+  Say remembered only after remember_correction succeeds. Include its returned record_ref in the
+  final outcome so the saved guidance has its usual management controls. This never grants permission to act.
+
+  operator_context.guidance carries the exact applicable guidance versions and their requirements.
+  In live work, for each required output, investigate and record_guidance_result with cite_source evidence, then
+  include the result and evidence refs in the final outcome. A satisfied result describes what was
+  established. A blocked result names the missing evidence and the alternative authorized sources
+  tried; describe that limitation in the reply, and provide any supported partial comparison.
+  Recording blocked coverage does not mean the requested output succeeded. Never mark a result
+  satisfied merely because a goal says completed. If a conditional instruction does not apply to
+  this task, record not_applicable with evidence of the current task and the exact condition; do not
+  use it to excuse missing requested work. The host checks coverage and references; you must
+  still check the meaning and quality of the evidence and the reply. Refresh the current work state
+  if a requirement was withdrawn or superseded while you worked.
+
   Source-event automations must use the actual input adapter (github, slack, or webhook), not a
   vendor name such as terraform. Read a matching event before choosing its exact content filter.
   If no example is available and the intended event cannot be identified safely, ask for one;

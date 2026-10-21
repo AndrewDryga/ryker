@@ -15,6 +15,8 @@ defmodule Ryker.Ingress.RecallText do
   @part_characters 512
 
   def from(content) do
+    content = MessageText.content(content)
+
     case MessageText.parts(content) do
       nil -> fields(content)
       parts -> bounded(parts)
@@ -27,6 +29,8 @@ defmodule Ryker.Ingress.RecallText do
   """
   @spec prose(term()) :: String.t()
   def prose(content) do
+    content = MessageText.content(content)
+
     case MessageText.parts(content) do
       nil -> fields(content)
       parts -> Enum.join(parts, "\n")
@@ -47,7 +51,9 @@ defmodule Ryker.Ingress.RecallText do
   (ID9).
   """
   @spec references(term()) :: %{links: [String.t()], labels: [String.t()]}
-  def references(%{"alerts" => alerts} = payload) when is_list(alerts) do
+  def references(content), do: content |> MessageText.content() |> content_references()
+
+  defp content_references(%{"alerts" => alerts} = payload) when is_list(alerts) do
     alerts = Enum.filter(alerts, &is_map/1)
 
     %{
@@ -62,9 +68,10 @@ defmodule Ryker.Ingress.RecallText do
   end
 
   # A webhook's body is its payload (`Ryker.Webhooks.Input`).
-  def references(%{"event_type" => _type, "payload" => %{} = payload}), do: references(payload)
+  defp content_references(%{"event_type" => _type, "payload" => %{} = payload}),
+    do: content_references(payload)
 
-  def references(content) do
+  defp content_references(content) do
     if MessageText.parts(content),
       do: %{links: content |> links(0) |> bounded_list(), labels: []},
       else: %{links: [], labels: []}

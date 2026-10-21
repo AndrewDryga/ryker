@@ -59,6 +59,8 @@ defmodule Ryker.StateTools.RouterTest do
              "propose_memory",
              "propose_preference",
              "remember_answer",
+             "remember_correction",
+             "record_guidance_result",
              "update_conversation_summary",
              "record_feedback",
              "validate_final"
@@ -2343,7 +2345,7 @@ defmodule Ryker.StateTools.RouterTest do
     assert "wait_for" in names
     refute "offer_publication" in names
     refute "offer_schedule" in names
-    assert length(names) == 18
+    assert length(names) == 20
 
     automation =
       list.resp_body

@@ -7,6 +7,17 @@ defmodule Ryker.Ingress.Inbox.Entry.Query do
 
   def by_id(queryable \\ all(), id), do: where(queryable, [ingress_inbox_entries: e], e.id == ^id)
 
+  @doc "The inbox source an admitted kernel event names, with its exact revision."
+  def by_work_source(queryable, source) do
+    where(
+      queryable,
+      [ingress_inbox_entries: e],
+      e.source_kind == ^source["source"]["kind"] and
+        e.source_ref == ^source["source"]["ref"] and e.event_ref == ^source["event_ref"] and
+        e.native_input_id == ^source["native_input_id"] and e.revision == ^source["revision"]
+    )
+  end
+
   def by_ids(queryable \\ all(), ids),
     do: where(queryable, [ingress_inbox_entries: e], e.id in ^ids)
 

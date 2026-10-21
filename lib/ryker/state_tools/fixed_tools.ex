@@ -24,6 +24,8 @@ defmodule Ryker.StateTools.FixedTools do
     propose_memory
     propose_preference
     remember_answer
+    remember_correction
+    record_guidance_result
     update_conversation_summary
     record_feedback
     validate_final
@@ -133,6 +135,19 @@ defmodule Ryker.StateTools.FixedTools do
 
   defp dispatch("remember_answer", arguments, binding),
     do: MemoryTools.remember_answer(arguments, binding)
+
+  defp dispatch("record_guidance_result", arguments, binding) do
+    RecordWriter.create_record(
+      binding,
+      "record_guidance_result",
+      arguments,
+      "guidance_result",
+      arguments
+    )
+  end
+
+  defp dispatch("remember_correction", arguments, binding),
+    do: MemoryTools.remember_correction(arguments, binding)
 
   defp dispatch("update_conversation_summary", arguments, binding),
     do: MemoryTools.update_conversation_summary(arguments, binding)

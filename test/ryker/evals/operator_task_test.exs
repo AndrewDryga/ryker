@@ -40,6 +40,7 @@ defmodule Ryker.Evals.OperatorTaskTest do
                "deployment-review-names-a-disputed-baseline",
                "deployment-review-says-plainly-when-no-baseline-is-readable",
                "established-cause-makes-a-finding-explained",
+               "explicit-correction-constrains-a-later-automated-review",
                "explicit-operator-incident-offer",
                "explicit-response-preference-needs-confirmation",
                "github-pr-review-remains-in-thread",

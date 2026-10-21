@@ -27,7 +27,7 @@ defmodule Ryker.Slack.Renderer.Records do
   @maximum_context_characters 3_000
   @maximum_source_link_characters 2_980
   @reference ~r/\A(?:record|publication):[A-Za-z0-9_.:-]{1,240}\z/
-  @investigation_kinds ~w(evidence coverage finding progress goal goal_state alert_assessment)
+  @investigation_kinds ~w(evidence coverage finding progress goal goal_state alert_assessment guidance_result)
   @confirmation_kinds ~w(automation_change_offer guidance_offer memory_offer preference_offer schedule_offer standing_assignment_offer)
   # Every open offer renders from its prepared payload alone; the Slack post
   # offer is the exception because the host adds the landed message's URL.

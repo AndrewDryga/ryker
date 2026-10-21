@@ -299,8 +299,13 @@ collaboration guidance. A natural
 request such as `remember that when you explain fixes to me, start with a plain-language summary`
 produces a confirmation card with the exact guidance, scope, and expiry. Personal guidance follows
 that operator across channels; an explicit channel or team convention uses channel or workspace
-visibility. Until the button is confirmed, nothing is stored. A later request with the same topic
-replaces the logical entry. Guidance is advisory: it cannot trigger work, count as evidence, authorize an
+visibility. An inferred instruction is stored only after confirmation. An authenticated human's explicit reusable
+correction is saved directly for that conversation, with its exact source and optional automation
+identity. Ryker includes the saved guidance and its management controls in the reply. Later matching
+live work must record evidence for each required output, or explain a blocked or inapplicable result.
+These observations are not proof that the prose is correct. Taking back or editing the source withdraws
+the correction. Editing its stored words clears its old output checks; editing only its title keeps them.
+A replacement names the exact current guidance reference and revision. Guidance cannot trigger work, count as evidence, authorize an
 incident or change, approve an action, or override the current request or host safety policy.
 Operational mappings are likewise never presented as live health or authority; future
 investigations verify them against repositories and live tools. Same-channel evidence can be

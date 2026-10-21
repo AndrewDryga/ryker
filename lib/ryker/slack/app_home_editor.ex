@@ -46,7 +46,7 @@ defmodule Ryker.Slack.AppHomeEditor do
   defp editable_entry(%{"kind" => "stale", "entries" => [entry]}) when is_map(entry) do
     case {entry["subject"], entry["value"]} do
       {subject, value} when is_binary(subject) and is_binary(value) ->
-        if bounded_input?(subject, 120) and bounded_input?(value, 4_000),
+        if bounded_input?(subject, 120) and bounded_input?(value, 3_000),
           do: {:ok, entry},
           else: {:error, :memory_review_cannot_edit}
 
@@ -66,7 +66,9 @@ defmodule Ryker.Slack.AppHomeEditor do
     %{
       "blocks" => [
         input("memory_subject", "subject", "Subject", entry["subject"], 120),
-        input("memory_value", "value", "Stored guidance", entry["value"], 4_000)
+        input("memory_value", "value", "Stored guidance", entry["value"], 3_000)
+        |> put_in(["element", "multiline"], true)
+        |> edit_hint(Memories.review_edit_notice(entry))
       ],
       "callback_id" => @callback_id,
       "close" => Blocks.plain_text("Cancel"),
@@ -76,6 +78,9 @@ defmodule Ryker.Slack.AppHomeEditor do
       "type" => "modal"
     }
   end
+
+  defp edit_hint(input, nil), do: input
+  defp edit_hint(input, notice), do: Map.put(input, "hint", Blocks.plain_text(notice))
 
   defp input(block_id, action_id, label, initial_value, maximum) do
     %{

@@ -65,6 +65,50 @@ defmodule Ryker.Records.Record.Query do
   def by_payload(queryable, payload),
     do: where(queryable, [episode_state_records: r], r.payload == ^payload)
 
+  @doc "Accepted, referenced correction results with bounded turn receipts, newest first."
+  def accepted_guidance_results(references) do
+    all()
+    |> by_kind("guidance_result")
+    |> in_use()
+    |> join(:inner, [episode_state_records: r], t in Work.Turn,
+      on: t.id == r.turn_id,
+      as: :episode_work_turns
+    )
+    |> where(
+      [episode_state_records: r, episode_work_turns: t],
+      fragment("?::jsonb ->> 'guidance_ref'", r.payload) in ^references and
+        not is_nil(t.accepted_at) and t.status in [:delivery_pending, :settled] and
+        fragment(
+          "jsonb_exists(?::jsonb #> '{outcome,record_refs}', ?)",
+          t.delivery_document,
+          r.ref
+        )
+    )
+    |> order_by([episode_state_records: r, episode_work_turns: t],
+      desc: t.accepted_at,
+      desc: r.sequence
+    )
+    |> select([episode_state_records: r, episode_work_turns: t], %{
+      "accepted_at" => t.accepted_at,
+      "delivered_at" => t.delivered_at,
+      "episode_id" => r.episode_id,
+      "payload" => r.payload,
+      "record_ref" => r.ref
+    })
+  end
+
+  @doc "Current evidence taking the place of any of these exact references."
+  def superseding_evidence(episode_id, references) do
+    episode_id
+    |> by_episode_id()
+    |> by_kind("evidence")
+    |> in_use()
+    |> where(
+      [episode_state_records: r],
+      fragment("jsonb_exists_any(?::jsonb -> 'supersedes', ?)", r.payload, ^references)
+    )
+  end
+
   @doc "Still in use: open or confirmed."
   def in_use(queryable),
     do: where(queryable, [episode_state_records: r], r.status in [:open, :confirmed])

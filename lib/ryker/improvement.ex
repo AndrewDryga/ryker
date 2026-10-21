@@ -62,6 +62,9 @@ defmodule Ryker.Improvement do
     facepalm face_palm man-facepalming woman-facepalming person_facepalming
   )
 
+  @doc "Whether saved corrections have been followed in later accepted and delivered work."
+  defdelegate correction_followthrough(candidates), to: Ryker.Improvement.Followthrough
+
   @doc "The kinds of negative feedback a candidate records, in the order the page names them."
   @spec reasons() :: [String.t()]
   def reasons, do: @reasons

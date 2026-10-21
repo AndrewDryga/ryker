@@ -292,19 +292,26 @@ The exact matching, retry, and recall boundaries are in
 [the memory runtime contract](docs/elixir-work-runtime.md#memory-and-background-learning) and the
 [implementation specification](docs/memory-implementation-spec.md).
 
-An operator can ask
-Ryker to remember a fact (what a service is called, which repository holds it) or open-ended
-guidance such as `when explaining a fix to me, start with a simple
-summary`. Ryker shows the normalized value, scope, and expiry in a confirmation card; nothing
-is saved until an operator confirms it. Personal guidance can follow that operator across channels,
-while channel and workspace guidance can encode explicit team conventions. Saved entries are
-bounded, deduplicated by logical key, expire automatically, can be forgotten from App Home, and are
-supplied to future model turns only as advisory context. Guidance cannot start work, authorize an
-incident or change, approve an action, or count as operational evidence. The current request, host
-safety policy, fresh live evidence, current repository content, and Ryker configuration always
-take precedence. Recent structured evidence remains
-source-attributed; compact related summaries carry continuity across channels without becoming
-current-health proof.
+An operator can ask Ryker to remember a fact (what a service is called, which repository holds it)
+or guidance such as `when explaining a fix to me, start with a simple summary`. Proposed memory
+shows its value, scope, and expiry in a confirmation card before it is saved.
+
+An explicit correction from the current authenticated operator, such as “always show before/after
+versions and what will change,” can be remembered directly for that conversation. Ryker keeps the
+exact source revision and quoted instruction; an inferred preference still needs confirmation.
+A correction to a standing automation follows that automation's identity into later runs. Current
+applicable corrections are supplied even when the next input is automated. Concrete required
+outputs need an evidenced result before the reply can finish. When a source is unavailable, the
+result records what was tried and what remains blocked. That is coverage, not an automatic judgment
+that the answer is correct. Feedback distinguishes a saved correction from evidenced later delivery.
+
+Guidance is bounded, can be replaced or forgotten from the memory controls, and grants no action
+authority. Explicit corrections have no automatic expiry; editing or deleting their source words
+withdraws them. Ordinary transcript retention does not withdraw an explicitly saved rule.
+Other proposed memory retains its stated expiry. Personal guidance can follow its operator across
+channels; conversation corrections stay in their conversation. The current request, host safety
+policy, fresh evidence, current repository content, and Ryker configuration take precedence.
+Historical memory never proves current health, deployment, or approval.
 
 Ryker records when confirmed memory and continuity rollups are recalled. A scheduled review
 flags confirmed entries that have not been used or reviewed recently and identifies exact duplicate

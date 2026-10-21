@@ -102,6 +102,13 @@ The learning fixtures in `testdata/learning/` contain retained Tenant material:
 - `worker-session-never-confirmed.json`: the run, batch, session and worker-command rows of two
   learning runs that retried every hour because the worker made their sessions with project access.
 
+- `retained-rollout-correction.json`: the original correction words, learned topic, full automated
+  notification and failed Work reply that exposed the gap between storing a lesson and following it.
+  Host regressions exercise separate episodes, exact replacement, assignment scope, source
+  withdrawal, required-output coverage and delivery receipts. The synthetic composed world
+  `explicit-correction-constrains-a-later-automated-review` preserves source observations and
+  documents its identity and clock adapters beside the case; it makes no claim of live delivery.
+
 The current `action`/`anchors` learning protocol differs from older captured results. Deterministic
 host tests may explicitly project an old recorded subject into the new contract, but must label
 that transformation as a host-contract adapter. Never overwrite the captured body or present an

@@ -1,0 +1,3579 @@
+{
+  "version": 1,
+  "id": "explicit-correction-constrains-a-later-automated-review",
+  "provenance": {
+    "kind": "synthetic",
+    "episode_refs": [
+      "episode_run_9d2f4b6a8c0e1a3c5e7b9d1f3a5c7e9b"
+    ],
+    "captured_at": "2026-10-13T21:20:38Z"
+  },
+  "clock": {
+    "start": "2026-10-13T21:15:13Z"
+  },
+  "actors": [
+    {
+      "actor_ref": "slack:user:U-operator",
+      "authority": "operator",
+      "input_profile": {
+        "actor": {
+          "kind": "user",
+          "ref": "U-operator"
+        },
+        "event_kind": "message",
+        "occurred_at_source": "source",
+        "source": {
+          "kind": "slack",
+          "ref": "TEVAL"
+        },
+        "source_capabilities": {
+          "react": {
+            "emoji_names": null
+          }
+        }
+      },
+      "kind": "human"
+    },
+    {
+      "actor_ref": "slack:bot:B-TERRAFORM",
+      "authority": "source_event",
+      "input_profile": {
+        "actor": {
+          "kind": "bot",
+          "ref": "B-TERRAFORM"
+        },
+        "event_kind": "message",
+        "occurred_at_source": "source",
+        "source": {
+          "kind": "slack",
+          "ref": "TEVAL"
+        },
+        "source_capabilities": {
+          "react": {
+            "emoji_names": null
+          }
+        }
+      },
+      "kind": "automation"
+    }
+  ],
+  "events": [
+    {
+      "actor_ref": "slack:user:U-operator",
+      "destination": {
+        "conversation_ref": "slack:TEVAL:CEVAL",
+        "thread_ref": "1791925599.563809",
+        "transport": "slack"
+      },
+      "kind": "input",
+      "occurred_at": "2026-10-13T21:15:13.866679Z",
+      "payload": {
+        "text": "Why you did not list me changes here? I asked you to always see before/after versions and tell whats changed and will be deployed"
+      }
+    },
+    {
+      "actor_ref": "slack:bot:B-TERRAFORM",
+      "destination": {
+        "conversation_ref": "slack:TEVAL:CEVAL",
+        "thread_ref": "1791926400.000001",
+        "transport": "slack"
+      },
+      "kind": "input",
+      "occurred_at": "2026-10-13T21:20:00Z",
+      "payload": {
+        "text": "",
+        "files": [],
+        "blocks": [],
+        "bot_id": "B-TERRAFORM",
+        "subtype": "bot_message",
+        "attachments": [
+          {
+            "id": 1,
+            "ts": 1792535718,
+            "text": "main c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa (@TenantOperator, gh run 90000000001)",
+            "color": "5c4ee5",
+            "title": "Run run-Q7wT2nYb8cKd3mPx",
+            "footer": "HCP Terraform",
+            "pretext": "Run notification for <https://app.terraform.io/app/acme/portal|acme/portal>",
+            "fallback": "Run run-Q7wT2nYb8cKd3mPx",
+            "title_link": "https://app.terraform.io/app/acme/portal/runs/run-Q7wT2nYb8cKd3mPx",
+            "author_icon": "https://www.gravatar.com/avatar/00000000000000000000000000000000?s=100&d=mm",
+            "author_name": "api-team_pseudonym",
+            "footer_icon": "https://app.terraform.io/favicon.ico"
+          },
+          {
+            "id": 2,
+            "ts": 1792535721,
+            "color": "1563ff",
+            "title": "Run Planning",
+            "fallback": "Run run-Q7wT2nYb8cKd3mPx - Run Planning"
+          }
+        ],
+        "slack_event_kind": "message"
+      },
+      "new_episode": true
+    }
+  ],
+  "world": {
+    "repositories": [],
+    "scheduled_events": [],
+    "tool_rules": [
+      {
+        "id": "a-find-history",
+        "tool": "find_actions",
+        "match": {
+          "query": {
+            "$one_of": [
+              {
+                "$contains_all": [
+                  "apply"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "history"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "runs"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "previous"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "last successful"
+                ]
+              }
+            ]
+          }
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "tfc.list_runs",
+                  "summary": "Recent runs of a workspace with status, commit and apply time",
+                  "args": {
+                    "workspace": "name",
+                    "limit": "count"
+                  }
+                },
+                {
+                  "action_id": "tfc.run_details",
+                  "summary": "One Terraform run: status, workspace and the commit it was queued from",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_summary",
+                  "summary": "Resource changes in a run's saved plan",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_log",
+                  "summary": "The plan output of a run",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "tfc.list_runs",
+                  "summary": "Recent runs of a workspace with status, commit and apply time",
+                  "args": {
+                    "workspace": "name",
+                    "limit": "count"
+                  }
+                },
+                {
+                  "action_id": "tfc.run_details",
+                  "summary": "One Terraform run: status, workspace and the commit it was queued from",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_summary",
+                  "summary": "Resource changes in a run's saved plan",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_log",
+                  "summary": "The plan output of a run",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "tfc.list_runs",
+                  "summary": "Recent runs of a workspace with status, commit and apply time",
+                  "args": {
+                    "workspace": "name",
+                    "limit": "count"
+                  }
+                },
+                {
+                  "action_id": "tfc.run_details",
+                  "summary": "One Terraform run: status, workspace and the commit it was queued from",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_summary",
+                  "summary": "Resource changes in a run's saved plan",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_log",
+                  "summary": "The plan output of a run",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "tfc.list_runs",
+                  "summary": "Recent runs of a workspace with status, commit and apply time",
+                  "args": {
+                    "workspace": "name",
+                    "limit": "count"
+                  }
+                },
+                {
+                  "action_id": "tfc.run_details",
+                  "summary": "One Terraform run: status, workspace and the commit it was queued from",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_summary",
+                  "summary": "Resource changes in a run's saved plan",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_log",
+                  "summary": "The plan output of a run",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "tfc.list_runs",
+                  "summary": "Recent runs of a workspace with status, commit and apply time",
+                  "args": {
+                    "workspace": "name",
+                    "limit": "count"
+                  }
+                },
+                {
+                  "action_id": "tfc.run_details",
+                  "summary": "One Terraform run: status, workspace and the commit it was queued from",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_summary",
+                  "summary": "Resource changes in a run's saved plan",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_log",
+                  "summary": "The plan output of a run",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "tfc.list_runs",
+                  "summary": "Recent runs of a workspace with status, commit and apply time",
+                  "args": {
+                    "workspace": "name",
+                    "limit": "count"
+                  }
+                },
+                {
+                  "action_id": "tfc.run_details",
+                  "summary": "One Terraform run: status, workspace and the commit it was queued from",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_summary",
+                  "summary": "Resource changes in a run's saved plan",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_log",
+                  "summary": "The plan output of a run",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "tfc.list_runs",
+                  "summary": "Recent runs of a workspace with status, commit and apply time",
+                  "args": {
+                    "workspace": "name",
+                    "limit": "count"
+                  }
+                },
+                {
+                  "action_id": "tfc.run_details",
+                  "summary": "One Terraform run: status, workspace and the commit it was queued from",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_summary",
+                  "summary": "Resource changes in a run's saved plan",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_log",
+                  "summary": "The plan output of a run",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "tfc.list_runs",
+                  "summary": "Recent runs of a workspace with status, commit and apply time",
+                  "args": {
+                    "workspace": "name",
+                    "limit": "count"
+                  }
+                },
+                {
+                  "action_id": "tfc.run_details",
+                  "summary": "One Terraform run: status, workspace and the commit it was queued from",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_summary",
+                  "summary": "Resource changes in a run's saved plan",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_log",
+                  "summary": "The plan output of a run",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "b-find-boot",
+        "tool": "find_actions",
+        "match": {
+          "query": {
+            "$one_of": [
+              {
+                "$contains_all": [
+                  "boot"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "journal"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "startup"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "pull"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "digest"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "log"
+                ]
+              }
+            ]
+          }
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "linux.journalctl_grep",
+                  "summary": "Search the instances' system journal since boot",
+                  "args": {
+                    "pattern": "regex",
+                    "since": "time"
+                  }
+                },
+                {
+                  "action_id": "docker.ps",
+                  "summary": "Containers running on the application instances",
+                  "args": {}
+                },
+                {
+                  "action_id": "docker.image_inspect",
+                  "summary": "Labels and digest of a locally cached image",
+                  "args": {
+                    "image": "reference"
+                  }
+                },
+                {
+                  "action_id": "beam.release_applications",
+                  "summary": "Application versions a running release reports",
+                  "args": {
+                    "container": "name"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "linux.journalctl_grep",
+                  "summary": "Search the instances' system journal since boot",
+                  "args": {
+                    "pattern": "regex",
+                    "since": "time"
+                  }
+                },
+                {
+                  "action_id": "docker.ps",
+                  "summary": "Containers running on the application instances",
+                  "args": {}
+                },
+                {
+                  "action_id": "docker.image_inspect",
+                  "summary": "Labels and digest of a locally cached image",
+                  "args": {
+                    "image": "reference"
+                  }
+                },
+                {
+                  "action_id": "beam.release_applications",
+                  "summary": "Application versions a running release reports",
+                  "args": {
+                    "container": "name"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "linux.journalctl_grep",
+                  "summary": "Search the instances' system journal since boot",
+                  "args": {
+                    "pattern": "regex",
+                    "since": "time"
+                  }
+                },
+                {
+                  "action_id": "docker.ps",
+                  "summary": "Containers running on the application instances",
+                  "args": {}
+                },
+                {
+                  "action_id": "docker.image_inspect",
+                  "summary": "Labels and digest of a locally cached image",
+                  "args": {
+                    "image": "reference"
+                  }
+                },
+                {
+                  "action_id": "beam.release_applications",
+                  "summary": "Application versions a running release reports",
+                  "args": {
+                    "container": "name"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "linux.journalctl_grep",
+                  "summary": "Search the instances' system journal since boot",
+                  "args": {
+                    "pattern": "regex",
+                    "since": "time"
+                  }
+                },
+                {
+                  "action_id": "docker.ps",
+                  "summary": "Containers running on the application instances",
+                  "args": {}
+                },
+                {
+                  "action_id": "docker.image_inspect",
+                  "summary": "Labels and digest of a locally cached image",
+                  "args": {
+                    "image": "reference"
+                  }
+                },
+                {
+                  "action_id": "beam.release_applications",
+                  "summary": "Application versions a running release reports",
+                  "args": {
+                    "container": "name"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "linux.journalctl_grep",
+                  "summary": "Search the instances' system journal since boot",
+                  "args": {
+                    "pattern": "regex",
+                    "since": "time"
+                  }
+                },
+                {
+                  "action_id": "docker.ps",
+                  "summary": "Containers running on the application instances",
+                  "args": {}
+                },
+                {
+                  "action_id": "docker.image_inspect",
+                  "summary": "Labels and digest of a locally cached image",
+                  "args": {
+                    "image": "reference"
+                  }
+                },
+                {
+                  "action_id": "beam.release_applications",
+                  "summary": "Application versions a running release reports",
+                  "args": {
+                    "container": "name"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "linux.journalctl_grep",
+                  "summary": "Search the instances' system journal since boot",
+                  "args": {
+                    "pattern": "regex",
+                    "since": "time"
+                  }
+                },
+                {
+                  "action_id": "docker.ps",
+                  "summary": "Containers running on the application instances",
+                  "args": {}
+                },
+                {
+                  "action_id": "docker.image_inspect",
+                  "summary": "Labels and digest of a locally cached image",
+                  "args": {
+                    "image": "reference"
+                  }
+                },
+                {
+                  "action_id": "beam.release_applications",
+                  "summary": "Application versions a running release reports",
+                  "args": {
+                    "container": "name"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "linux.journalctl_grep",
+                  "summary": "Search the instances' system journal since boot",
+                  "args": {
+                    "pattern": "regex",
+                    "since": "time"
+                  }
+                },
+                {
+                  "action_id": "docker.ps",
+                  "summary": "Containers running on the application instances",
+                  "args": {}
+                },
+                {
+                  "action_id": "docker.image_inspect",
+                  "summary": "Labels and digest of a locally cached image",
+                  "args": {
+                    "image": "reference"
+                  }
+                },
+                {
+                  "action_id": "beam.release_applications",
+                  "summary": "Application versions a running release reports",
+                  "args": {
+                    "container": "name"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "linux.journalctl_grep",
+                  "summary": "Search the instances' system journal since boot",
+                  "args": {
+                    "pattern": "regex",
+                    "since": "time"
+                  }
+                },
+                {
+                  "action_id": "docker.ps",
+                  "summary": "Containers running on the application instances",
+                  "args": {}
+                },
+                {
+                  "action_id": "docker.image_inspect",
+                  "summary": "Labels and digest of a locally cached image",
+                  "args": {
+                    "image": "reference"
+                  }
+                },
+                {
+                  "action_id": "beam.release_applications",
+                  "summary": "Application versions a running release reports",
+                  "args": {
+                    "container": "name"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "c-find-github",
+        "tool": "find_actions",
+        "match": {
+          "query": {
+            "$one_of": [
+              {
+                "$contains_all": [
+                  "github"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "compare"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "diff"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "commit"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "changes"
+                ]
+              }
+            ]
+          }
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "github.compare",
+                  "summary": "Compare two commits of a repository: commits and changed files",
+                  "args": {
+                    "repository": "owner/name",
+                    "base": "commit",
+                    "head": "commit"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "github.compare",
+                  "summary": "Compare two commits of a repository: commits and changed files",
+                  "args": {
+                    "repository": "owner/name",
+                    "base": "commit",
+                    "head": "commit"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "github.compare",
+                  "summary": "Compare two commits of a repository: commits and changed files",
+                  "args": {
+                    "repository": "owner/name",
+                    "base": "commit",
+                    "head": "commit"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "github.compare",
+                  "summary": "Compare two commits of a repository: commits and changed files",
+                  "args": {
+                    "repository": "owner/name",
+                    "base": "commit",
+                    "head": "commit"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "github.compare",
+                  "summary": "Compare two commits of a repository: commits and changed files",
+                  "args": {
+                    "repository": "owner/name",
+                    "base": "commit",
+                    "head": "commit"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "github.compare",
+                  "summary": "Compare two commits of a repository: commits and changed files",
+                  "args": {
+                    "repository": "owner/name",
+                    "base": "commit",
+                    "head": "commit"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "github.compare",
+                  "summary": "Compare two commits of a repository: commits and changed files",
+                  "args": {
+                    "repository": "owner/name",
+                    "base": "commit",
+                    "head": "commit"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "github.compare",
+                  "summary": "Compare two commits of a repository: commits and changed files",
+                  "args": {
+                    "repository": "owner/name",
+                    "base": "commit",
+                    "head": "commit"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "d-find-runtime",
+        "tool": "find_actions",
+        "match": {
+          "query": {
+            "$one_of": [
+              {
+                "$contains_all": [
+                  "image"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "container"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "docker"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "revision"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "version"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "running"
+                ]
+              }
+            ]
+          }
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "docker.ps",
+                  "summary": "Containers running on the application instances",
+                  "args": {}
+                },
+                {
+                  "action_id": "docker.image_inspect",
+                  "summary": "Labels and digest of a locally cached image",
+                  "args": {
+                    "image": "reference"
+                  }
+                },
+                {
+                  "action_id": "beam.release_applications",
+                  "summary": "Application versions a running release reports",
+                  "args": {
+                    "container": "name"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "docker.ps",
+                  "summary": "Containers running on the application instances",
+                  "args": {}
+                },
+                {
+                  "action_id": "docker.image_inspect",
+                  "summary": "Labels and digest of a locally cached image",
+                  "args": {
+                    "image": "reference"
+                  }
+                },
+                {
+                  "action_id": "beam.release_applications",
+                  "summary": "Application versions a running release reports",
+                  "args": {
+                    "container": "name"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "docker.ps",
+                  "summary": "Containers running on the application instances",
+                  "args": {}
+                },
+                {
+                  "action_id": "docker.image_inspect",
+                  "summary": "Labels and digest of a locally cached image",
+                  "args": {
+                    "image": "reference"
+                  }
+                },
+                {
+                  "action_id": "beam.release_applications",
+                  "summary": "Application versions a running release reports",
+                  "args": {
+                    "container": "name"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "docker.ps",
+                  "summary": "Containers running on the application instances",
+                  "args": {}
+                },
+                {
+                  "action_id": "docker.image_inspect",
+                  "summary": "Labels and digest of a locally cached image",
+                  "args": {
+                    "image": "reference"
+                  }
+                },
+                {
+                  "action_id": "beam.release_applications",
+                  "summary": "Application versions a running release reports",
+                  "args": {
+                    "container": "name"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "docker.ps",
+                  "summary": "Containers running on the application instances",
+                  "args": {}
+                },
+                {
+                  "action_id": "docker.image_inspect",
+                  "summary": "Labels and digest of a locally cached image",
+                  "args": {
+                    "image": "reference"
+                  }
+                },
+                {
+                  "action_id": "beam.release_applications",
+                  "summary": "Application versions a running release reports",
+                  "args": {
+                    "container": "name"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "docker.ps",
+                  "summary": "Containers running on the application instances",
+                  "args": {}
+                },
+                {
+                  "action_id": "docker.image_inspect",
+                  "summary": "Labels and digest of a locally cached image",
+                  "args": {
+                    "image": "reference"
+                  }
+                },
+                {
+                  "action_id": "beam.release_applications",
+                  "summary": "Application versions a running release reports",
+                  "args": {
+                    "container": "name"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "docker.ps",
+                  "summary": "Containers running on the application instances",
+                  "args": {}
+                },
+                {
+                  "action_id": "docker.image_inspect",
+                  "summary": "Labels and digest of a locally cached image",
+                  "args": {
+                    "image": "reference"
+                  }
+                },
+                {
+                  "action_id": "beam.release_applications",
+                  "summary": "Application versions a running release reports",
+                  "args": {
+                    "container": "name"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "docker.ps",
+                  "summary": "Containers running on the application instances",
+                  "args": {}
+                },
+                {
+                  "action_id": "docker.image_inspect",
+                  "summary": "Labels and digest of a locally cached image",
+                  "args": {
+                    "image": "reference"
+                  }
+                },
+                {
+                  "action_id": "beam.release_applications",
+                  "summary": "Application versions a running release reports",
+                  "args": {
+                    "container": "name"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "e-find-terraform",
+        "tool": "find_actions",
+        "match": {
+          "query": {
+            "$one_of": [
+              {
+                "$contains_all": [
+                  "terraform"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "plan"
+                ]
+              },
+              {
+                "$contains_all": [
+                  "run"
+                ]
+              }
+            ]
+          }
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "tfc.run_details",
+                  "summary": "One Terraform run: status, workspace and the commit it was queued from",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_summary",
+                  "summary": "Resource changes in a run's saved plan",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_log",
+                  "summary": "The plan output of a run",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "tfc.run_details",
+                  "summary": "One Terraform run: status, workspace and the commit it was queued from",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_summary",
+                  "summary": "Resource changes in a run's saved plan",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_log",
+                  "summary": "The plan output of a run",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "tfc.run_details",
+                  "summary": "One Terraform run: status, workspace and the commit it was queued from",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_summary",
+                  "summary": "Resource changes in a run's saved plan",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_log",
+                  "summary": "The plan output of a run",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "tfc.run_details",
+                  "summary": "One Terraform run: status, workspace and the commit it was queued from",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_summary",
+                  "summary": "Resource changes in a run's saved plan",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_log",
+                  "summary": "The plan output of a run",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "tfc.run_details",
+                  "summary": "One Terraform run: status, workspace and the commit it was queued from",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_summary",
+                  "summary": "Resource changes in a run's saved plan",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_log",
+                  "summary": "The plan output of a run",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "tfc.run_details",
+                  "summary": "One Terraform run: status, workspace and the commit it was queued from",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_summary",
+                  "summary": "Resource changes in a run's saved plan",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_log",
+                  "summary": "The plan output of a run",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "tfc.run_details",
+                  "summary": "One Terraform run: status, workspace and the commit it was queued from",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_summary",
+                  "summary": "Resource changes in a run's saved plan",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_log",
+                  "summary": "The plan output of a run",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "tfc.run_details",
+                  "summary": "One Terraform run: status, workspace and the commit it was queued from",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_summary",
+                  "summary": "Resource changes in a run's saved plan",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_log",
+                  "summary": "The plan output of a run",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "z-find-default",
+        "tool": "find_actions",
+        "match": {},
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "tfc.list_runs",
+                  "summary": "Recent runs of a workspace with status, commit and apply time",
+                  "args": {
+                    "workspace": "name",
+                    "limit": "count"
+                  }
+                },
+                {
+                  "action_id": "tfc.run_details",
+                  "summary": "One Terraform run: status, workspace and the commit it was queued from",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_summary",
+                  "summary": "Resource changes in a run's saved plan",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_log",
+                  "summary": "The plan output of a run",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "linux.journalctl_grep",
+                  "summary": "Search the instances' system journal since boot",
+                  "args": {
+                    "pattern": "regex",
+                    "since": "time"
+                  }
+                },
+                {
+                  "action_id": "docker.ps",
+                  "summary": "Containers running on the application instances",
+                  "args": {}
+                },
+                {
+                  "action_id": "docker.image_inspect",
+                  "summary": "Labels and digest of a locally cached image",
+                  "args": {
+                    "image": "reference"
+                  }
+                },
+                {
+                  "action_id": "beam.release_applications",
+                  "summary": "Application versions a running release reports",
+                  "args": {
+                    "container": "name"
+                  }
+                },
+                {
+                  "action_id": "github.compare",
+                  "summary": "Compare two commits of a repository: commits and changed files",
+                  "args": {
+                    "repository": "owner/name",
+                    "base": "commit",
+                    "head": "commit"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "tfc.list_runs",
+                  "summary": "Recent runs of a workspace with status, commit and apply time",
+                  "args": {
+                    "workspace": "name",
+                    "limit": "count"
+                  }
+                },
+                {
+                  "action_id": "tfc.run_details",
+                  "summary": "One Terraform run: status, workspace and the commit it was queued from",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_summary",
+                  "summary": "Resource changes in a run's saved plan",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_log",
+                  "summary": "The plan output of a run",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "linux.journalctl_grep",
+                  "summary": "Search the instances' system journal since boot",
+                  "args": {
+                    "pattern": "regex",
+                    "since": "time"
+                  }
+                },
+                {
+                  "action_id": "docker.ps",
+                  "summary": "Containers running on the application instances",
+                  "args": {}
+                },
+                {
+                  "action_id": "docker.image_inspect",
+                  "summary": "Labels and digest of a locally cached image",
+                  "args": {
+                    "image": "reference"
+                  }
+                },
+                {
+                  "action_id": "beam.release_applications",
+                  "summary": "Application versions a running release reports",
+                  "args": {
+                    "container": "name"
+                  }
+                },
+                {
+                  "action_id": "github.compare",
+                  "summary": "Compare two commits of a repository: commits and changed files",
+                  "args": {
+                    "repository": "owner/name",
+                    "base": "commit",
+                    "head": "commit"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "tfc.list_runs",
+                  "summary": "Recent runs of a workspace with status, commit and apply time",
+                  "args": {
+                    "workspace": "name",
+                    "limit": "count"
+                  }
+                },
+                {
+                  "action_id": "tfc.run_details",
+                  "summary": "One Terraform run: status, workspace and the commit it was queued from",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_summary",
+                  "summary": "Resource changes in a run's saved plan",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_log",
+                  "summary": "The plan output of a run",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "linux.journalctl_grep",
+                  "summary": "Search the instances' system journal since boot",
+                  "args": {
+                    "pattern": "regex",
+                    "since": "time"
+                  }
+                },
+                {
+                  "action_id": "docker.ps",
+                  "summary": "Containers running on the application instances",
+                  "args": {}
+                },
+                {
+                  "action_id": "docker.image_inspect",
+                  "summary": "Labels and digest of a locally cached image",
+                  "args": {
+                    "image": "reference"
+                  }
+                },
+                {
+                  "action_id": "beam.release_applications",
+                  "summary": "Application versions a running release reports",
+                  "args": {
+                    "container": "name"
+                  }
+                },
+                {
+                  "action_id": "github.compare",
+                  "summary": "Compare two commits of a repository: commits and changed files",
+                  "args": {
+                    "repository": "owner/name",
+                    "base": "commit",
+                    "head": "commit"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "tfc.list_runs",
+                  "summary": "Recent runs of a workspace with status, commit and apply time",
+                  "args": {
+                    "workspace": "name",
+                    "limit": "count"
+                  }
+                },
+                {
+                  "action_id": "tfc.run_details",
+                  "summary": "One Terraform run: status, workspace and the commit it was queued from",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_summary",
+                  "summary": "Resource changes in a run's saved plan",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_log",
+                  "summary": "The plan output of a run",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "linux.journalctl_grep",
+                  "summary": "Search the instances' system journal since boot",
+                  "args": {
+                    "pattern": "regex",
+                    "since": "time"
+                  }
+                },
+                {
+                  "action_id": "docker.ps",
+                  "summary": "Containers running on the application instances",
+                  "args": {}
+                },
+                {
+                  "action_id": "docker.image_inspect",
+                  "summary": "Labels and digest of a locally cached image",
+                  "args": {
+                    "image": "reference"
+                  }
+                },
+                {
+                  "action_id": "beam.release_applications",
+                  "summary": "Application versions a running release reports",
+                  "args": {
+                    "container": "name"
+                  }
+                },
+                {
+                  "action_id": "github.compare",
+                  "summary": "Compare two commits of a repository: commits and changed files",
+                  "args": {
+                    "repository": "owner/name",
+                    "base": "commit",
+                    "head": "commit"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "tfc.list_runs",
+                  "summary": "Recent runs of a workspace with status, commit and apply time",
+                  "args": {
+                    "workspace": "name",
+                    "limit": "count"
+                  }
+                },
+                {
+                  "action_id": "tfc.run_details",
+                  "summary": "One Terraform run: status, workspace and the commit it was queued from",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_summary",
+                  "summary": "Resource changes in a run's saved plan",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_log",
+                  "summary": "The plan output of a run",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "linux.journalctl_grep",
+                  "summary": "Search the instances' system journal since boot",
+                  "args": {
+                    "pattern": "regex",
+                    "since": "time"
+                  }
+                },
+                {
+                  "action_id": "docker.ps",
+                  "summary": "Containers running on the application instances",
+                  "args": {}
+                },
+                {
+                  "action_id": "docker.image_inspect",
+                  "summary": "Labels and digest of a locally cached image",
+                  "args": {
+                    "image": "reference"
+                  }
+                },
+                {
+                  "action_id": "beam.release_applications",
+                  "summary": "Application versions a running release reports",
+                  "args": {
+                    "container": "name"
+                  }
+                },
+                {
+                  "action_id": "github.compare",
+                  "summary": "Compare two commits of a repository: commits and changed files",
+                  "args": {
+                    "repository": "owner/name",
+                    "base": "commit",
+                    "head": "commit"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "tfc.list_runs",
+                  "summary": "Recent runs of a workspace with status, commit and apply time",
+                  "args": {
+                    "workspace": "name",
+                    "limit": "count"
+                  }
+                },
+                {
+                  "action_id": "tfc.run_details",
+                  "summary": "One Terraform run: status, workspace and the commit it was queued from",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_summary",
+                  "summary": "Resource changes in a run's saved plan",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_log",
+                  "summary": "The plan output of a run",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "linux.journalctl_grep",
+                  "summary": "Search the instances' system journal since boot",
+                  "args": {
+                    "pattern": "regex",
+                    "since": "time"
+                  }
+                },
+                {
+                  "action_id": "docker.ps",
+                  "summary": "Containers running on the application instances",
+                  "args": {}
+                },
+                {
+                  "action_id": "docker.image_inspect",
+                  "summary": "Labels and digest of a locally cached image",
+                  "args": {
+                    "image": "reference"
+                  }
+                },
+                {
+                  "action_id": "beam.release_applications",
+                  "summary": "Application versions a running release reports",
+                  "args": {
+                    "container": "name"
+                  }
+                },
+                {
+                  "action_id": "github.compare",
+                  "summary": "Compare two commits of a repository: commits and changed files",
+                  "args": {
+                    "repository": "owner/name",
+                    "base": "commit",
+                    "head": "commit"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "tfc.list_runs",
+                  "summary": "Recent runs of a workspace with status, commit and apply time",
+                  "args": {
+                    "workspace": "name",
+                    "limit": "count"
+                  }
+                },
+                {
+                  "action_id": "tfc.run_details",
+                  "summary": "One Terraform run: status, workspace and the commit it was queued from",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_summary",
+                  "summary": "Resource changes in a run's saved plan",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_log",
+                  "summary": "The plan output of a run",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "linux.journalctl_grep",
+                  "summary": "Search the instances' system journal since boot",
+                  "args": {
+                    "pattern": "regex",
+                    "since": "time"
+                  }
+                },
+                {
+                  "action_id": "docker.ps",
+                  "summary": "Containers running on the application instances",
+                  "args": {}
+                },
+                {
+                  "action_id": "docker.image_inspect",
+                  "summary": "Labels and digest of a locally cached image",
+                  "args": {
+                    "image": "reference"
+                  }
+                },
+                {
+                  "action_id": "beam.release_applications",
+                  "summary": "Application versions a running release reports",
+                  "args": {
+                    "container": "name"
+                  }
+                },
+                {
+                  "action_id": "github.compare",
+                  "summary": "Compare two commits of a repository: commits and changed files",
+                  "args": {
+                    "repository": "owner/name",
+                    "base": "commit",
+                    "head": "commit"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "actions": [
+                {
+                  "action_id": "tfc.list_runs",
+                  "summary": "Recent runs of a workspace with status, commit and apply time",
+                  "args": {
+                    "workspace": "name",
+                    "limit": "count"
+                  }
+                },
+                {
+                  "action_id": "tfc.run_details",
+                  "summary": "One Terraform run: status, workspace and the commit it was queued from",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_summary",
+                  "summary": "Resource changes in a run's saved plan",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "tfc.plan_log",
+                  "summary": "The plan output of a run",
+                  "args": {
+                    "run_id": "run id"
+                  }
+                },
+                {
+                  "action_id": "linux.journalctl_grep",
+                  "summary": "Search the instances' system journal since boot",
+                  "args": {
+                    "pattern": "regex",
+                    "since": "time"
+                  }
+                },
+                {
+                  "action_id": "docker.ps",
+                  "summary": "Containers running on the application instances",
+                  "args": {}
+                },
+                {
+                  "action_id": "docker.image_inspect",
+                  "summary": "Labels and digest of a locally cached image",
+                  "args": {
+                    "image": "reference"
+                  }
+                },
+                {
+                  "action_id": "beam.release_applications",
+                  "summary": "Application versions a running release reports",
+                  "args": {
+                    "container": "name"
+                  }
+                },
+                {
+                  "action_id": "github.compare",
+                  "summary": "Compare two commits of a repository: commits and changed files",
+                  "args": {
+                    "repository": "owner/name",
+                    "base": "commit",
+                    "head": "commit"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "r-run-details",
+        "tool": "run_action",
+        "match": {
+          "action_id": "tfc.run_details"
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "run_id": "run-Q7wT2nYb8cKd3mPx",
+              "workspace": "acme/portal",
+              "status": "planned_and_saved",
+              "confirmable": true,
+              "source": {
+                "branch": "main",
+                "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+                "deploys": "This workspace deploys the application image built from the commit a run is queued from."
+              },
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:run-details:Q7wT2nYb8cKd3mPx"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "run_id": "run-Q7wT2nYb8cKd3mPx",
+              "workspace": "acme/portal",
+              "status": "planned_and_saved",
+              "confirmable": true,
+              "source": {
+                "branch": "main",
+                "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+                "deploys": "This workspace deploys the application image built from the commit a run is queued from."
+              },
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:run-details:Q7wT2nYb8cKd3mPx"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "run_id": "run-Q7wT2nYb8cKd3mPx",
+              "workspace": "acme/portal",
+              "status": "planned_and_saved",
+              "confirmable": true,
+              "source": {
+                "branch": "main",
+                "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+                "deploys": "This workspace deploys the application image built from the commit a run is queued from."
+              },
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:run-details:Q7wT2nYb8cKd3mPx"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "run_id": "run-Q7wT2nYb8cKd3mPx",
+              "workspace": "acme/portal",
+              "status": "planned_and_saved",
+              "confirmable": true,
+              "source": {
+                "branch": "main",
+                "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+                "deploys": "This workspace deploys the application image built from the commit a run is queued from."
+              },
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:run-details:Q7wT2nYb8cKd3mPx"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "run_id": "run-Q7wT2nYb8cKd3mPx",
+              "workspace": "acme/portal",
+              "status": "planned_and_saved",
+              "confirmable": true,
+              "source": {
+                "branch": "main",
+                "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+                "deploys": "This workspace deploys the application image built from the commit a run is queued from."
+              },
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:run-details:Q7wT2nYb8cKd3mPx"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "run_id": "run-Q7wT2nYb8cKd3mPx",
+              "workspace": "acme/portal",
+              "status": "planned_and_saved",
+              "confirmable": true,
+              "source": {
+                "branch": "main",
+                "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+                "deploys": "This workspace deploys the application image built from the commit a run is queued from."
+              },
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:run-details:Q7wT2nYb8cKd3mPx"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "run_id": "run-Q7wT2nYb8cKd3mPx",
+              "workspace": "acme/portal",
+              "status": "planned_and_saved",
+              "confirmable": true,
+              "source": {
+                "branch": "main",
+                "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+                "deploys": "This workspace deploys the application image built from the commit a run is queued from."
+              },
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:run-details:Q7wT2nYb8cKd3mPx"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "run_id": "run-Q7wT2nYb8cKd3mPx",
+              "workspace": "acme/portal",
+              "status": "planned_and_saved",
+              "confirmable": true,
+              "source": {
+                "branch": "main",
+                "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+                "deploys": "This workspace deploys the application image built from the commit a run is queued from."
+              },
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:run-details:Q7wT2nYb8cKd3mPx"
+            }
+          }
+        ]
+      },
+      {
+        "id": "r-plan-summary",
+        "tool": "run_action",
+        "match": {
+          "action_id": "tfc.plan_summary"
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "run_id": "run-Q7wT2nYb8cKd3mPx",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:plan-summary:Q7wT2nYb8cKd3mPx",
+              "changes": [
+                {
+                  "resource": "google_compute_instance_template.portal",
+                  "action": "replace",
+                  "image": "(known after apply)"
+                },
+                {
+                  "resource": "google_compute_region_instance_group_manager.portal",
+                  "action": "update"
+                },
+                {
+                  "resource": "google_monitoring_alert_policy.portal_errors",
+                  "action": "update"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "run_id": "run-Q7wT2nYb8cKd3mPx",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:plan-summary:Q7wT2nYb8cKd3mPx",
+              "changes": [
+                {
+                  "resource": "google_compute_instance_template.portal",
+                  "action": "replace",
+                  "image": "(known after apply)"
+                },
+                {
+                  "resource": "google_compute_region_instance_group_manager.portal",
+                  "action": "update"
+                },
+                {
+                  "resource": "google_monitoring_alert_policy.portal_errors",
+                  "action": "update"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "run_id": "run-Q7wT2nYb8cKd3mPx",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:plan-summary:Q7wT2nYb8cKd3mPx",
+              "changes": [
+                {
+                  "resource": "google_compute_instance_template.portal",
+                  "action": "replace",
+                  "image": "(known after apply)"
+                },
+                {
+                  "resource": "google_compute_region_instance_group_manager.portal",
+                  "action": "update"
+                },
+                {
+                  "resource": "google_monitoring_alert_policy.portal_errors",
+                  "action": "update"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "run_id": "run-Q7wT2nYb8cKd3mPx",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:plan-summary:Q7wT2nYb8cKd3mPx",
+              "changes": [
+                {
+                  "resource": "google_compute_instance_template.portal",
+                  "action": "replace",
+                  "image": "(known after apply)"
+                },
+                {
+                  "resource": "google_compute_region_instance_group_manager.portal",
+                  "action": "update"
+                },
+                {
+                  "resource": "google_monitoring_alert_policy.portal_errors",
+                  "action": "update"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "run_id": "run-Q7wT2nYb8cKd3mPx",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:plan-summary:Q7wT2nYb8cKd3mPx",
+              "changes": [
+                {
+                  "resource": "google_compute_instance_template.portal",
+                  "action": "replace",
+                  "image": "(known after apply)"
+                },
+                {
+                  "resource": "google_compute_region_instance_group_manager.portal",
+                  "action": "update"
+                },
+                {
+                  "resource": "google_monitoring_alert_policy.portal_errors",
+                  "action": "update"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "run_id": "run-Q7wT2nYb8cKd3mPx",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:plan-summary:Q7wT2nYb8cKd3mPx",
+              "changes": [
+                {
+                  "resource": "google_compute_instance_template.portal",
+                  "action": "replace",
+                  "image": "(known after apply)"
+                },
+                {
+                  "resource": "google_compute_region_instance_group_manager.portal",
+                  "action": "update"
+                },
+                {
+                  "resource": "google_monitoring_alert_policy.portal_errors",
+                  "action": "update"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "run_id": "run-Q7wT2nYb8cKd3mPx",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:plan-summary:Q7wT2nYb8cKd3mPx",
+              "changes": [
+                {
+                  "resource": "google_compute_instance_template.portal",
+                  "action": "replace",
+                  "image": "(known after apply)"
+                },
+                {
+                  "resource": "google_compute_region_instance_group_manager.portal",
+                  "action": "update"
+                },
+                {
+                  "resource": "google_monitoring_alert_policy.portal_errors",
+                  "action": "update"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "run_id": "run-Q7wT2nYb8cKd3mPx",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:plan-summary:Q7wT2nYb8cKd3mPx",
+              "changes": [
+                {
+                  "resource": "google_compute_instance_template.portal",
+                  "action": "replace",
+                  "image": "(known after apply)"
+                },
+                {
+                  "resource": "google_compute_region_instance_group_manager.portal",
+                  "action": "update"
+                },
+                {
+                  "resource": "google_monitoring_alert_policy.portal_errors",
+                  "action": "update"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "r-plan-log",
+        "tool": "run_action",
+        "match": {
+          "action_id": "tfc.plan_log"
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "run_id": "run-Q7wT2nYb8cKd3mPx",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:plan-log:Q7wT2nYb8cKd3mPx",
+              "lines": [
+                "~ metadata = { ~ \"gce-container-declaration\" = (sensitive value) }",
+                "Plan: 1 to add, 2 to change, 1 to destroy."
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "run_id": "run-Q7wT2nYb8cKd3mPx",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:plan-log:Q7wT2nYb8cKd3mPx",
+              "lines": [
+                "~ metadata = { ~ \"gce-container-declaration\" = (sensitive value) }",
+                "Plan: 1 to add, 2 to change, 1 to destroy."
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "run_id": "run-Q7wT2nYb8cKd3mPx",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:plan-log:Q7wT2nYb8cKd3mPx",
+              "lines": [
+                "~ metadata = { ~ \"gce-container-declaration\" = (sensitive value) }",
+                "Plan: 1 to add, 2 to change, 1 to destroy."
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "run_id": "run-Q7wT2nYb8cKd3mPx",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:plan-log:Q7wT2nYb8cKd3mPx",
+              "lines": [
+                "~ metadata = { ~ \"gce-container-declaration\" = (sensitive value) }",
+                "Plan: 1 to add, 2 to change, 1 to destroy."
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "run_id": "run-Q7wT2nYb8cKd3mPx",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:plan-log:Q7wT2nYb8cKd3mPx",
+              "lines": [
+                "~ metadata = { ~ \"gce-container-declaration\" = (sensitive value) }",
+                "Plan: 1 to add, 2 to change, 1 to destroy."
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "run_id": "run-Q7wT2nYb8cKd3mPx",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:plan-log:Q7wT2nYb8cKd3mPx",
+              "lines": [
+                "~ metadata = { ~ \"gce-container-declaration\" = (sensitive value) }",
+                "Plan: 1 to add, 2 to change, 1 to destroy."
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "run_id": "run-Q7wT2nYb8cKd3mPx",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:plan-log:Q7wT2nYb8cKd3mPx",
+              "lines": [
+                "~ metadata = { ~ \"gce-container-declaration\" = (sensitive value) }",
+                "Plan: 1 to add, 2 to change, 1 to destroy."
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "run_id": "run-Q7wT2nYb8cKd3mPx",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:plan-log:Q7wT2nYb8cKd3mPx",
+              "lines": [
+                "~ metadata = { ~ \"gce-container-declaration\" = (sensitive value) }",
+                "Plan: 1 to add, 2 to change, 1 to destroy."
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "r-docker-ps",
+        "tool": "run_action",
+        "match": {
+          "action_id": "docker.ps"
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:docker-ps:20261013T2107Z",
+              "containers": [
+                {
+                  "instance": "portal-a",
+                  "name": "portal",
+                  "image": "ghcr.io/acme/portal",
+                  "status": "Up 3 days"
+                },
+                {
+                  "instance": "portal-b",
+                  "name": "portal",
+                  "image": "ghcr.io/acme/portal",
+                  "status": "Up 3 days"
+                }
+              ],
+              "note": "the container lists its image by name only, with no image ID or digest"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:docker-ps:20261013T2107Z",
+              "containers": [
+                {
+                  "instance": "portal-a",
+                  "name": "portal",
+                  "image": "ghcr.io/acme/portal",
+                  "status": "Up 3 days"
+                },
+                {
+                  "instance": "portal-b",
+                  "name": "portal",
+                  "image": "ghcr.io/acme/portal",
+                  "status": "Up 3 days"
+                }
+              ],
+              "note": "the container lists its image by name only, with no image ID or digest"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:docker-ps:20261013T2107Z",
+              "containers": [
+                {
+                  "instance": "portal-a",
+                  "name": "portal",
+                  "image": "ghcr.io/acme/portal",
+                  "status": "Up 3 days"
+                },
+                {
+                  "instance": "portal-b",
+                  "name": "portal",
+                  "image": "ghcr.io/acme/portal",
+                  "status": "Up 3 days"
+                }
+              ],
+              "note": "the container lists its image by name only, with no image ID or digest"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:docker-ps:20261013T2107Z",
+              "containers": [
+                {
+                  "instance": "portal-a",
+                  "name": "portal",
+                  "image": "ghcr.io/acme/portal",
+                  "status": "Up 3 days"
+                },
+                {
+                  "instance": "portal-b",
+                  "name": "portal",
+                  "image": "ghcr.io/acme/portal",
+                  "status": "Up 3 days"
+                }
+              ],
+              "note": "the container lists its image by name only, with no image ID or digest"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:docker-ps:20261013T2107Z",
+              "containers": [
+                {
+                  "instance": "portal-a",
+                  "name": "portal",
+                  "image": "ghcr.io/acme/portal",
+                  "status": "Up 3 days"
+                },
+                {
+                  "instance": "portal-b",
+                  "name": "portal",
+                  "image": "ghcr.io/acme/portal",
+                  "status": "Up 3 days"
+                }
+              ],
+              "note": "the container lists its image by name only, with no image ID or digest"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:docker-ps:20261013T2107Z",
+              "containers": [
+                {
+                  "instance": "portal-a",
+                  "name": "portal",
+                  "image": "ghcr.io/acme/portal",
+                  "status": "Up 3 days"
+                },
+                {
+                  "instance": "portal-b",
+                  "name": "portal",
+                  "image": "ghcr.io/acme/portal",
+                  "status": "Up 3 days"
+                }
+              ],
+              "note": "the container lists its image by name only, with no image ID or digest"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:docker-ps:20261013T2107Z",
+              "containers": [
+                {
+                  "instance": "portal-a",
+                  "name": "portal",
+                  "image": "ghcr.io/acme/portal",
+                  "status": "Up 3 days"
+                },
+                {
+                  "instance": "portal-b",
+                  "name": "portal",
+                  "image": "ghcr.io/acme/portal",
+                  "status": "Up 3 days"
+                }
+              ],
+              "note": "the container lists its image by name only, with no image ID or digest"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:docker-ps:20261013T2107Z",
+              "containers": [
+                {
+                  "instance": "portal-a",
+                  "name": "portal",
+                  "image": "ghcr.io/acme/portal",
+                  "status": "Up 3 days"
+                },
+                {
+                  "instance": "portal-b",
+                  "name": "portal",
+                  "image": "ghcr.io/acme/portal",
+                  "status": "Up 3 days"
+                }
+              ],
+              "note": "the container lists its image by name only, with no image ID or digest"
+            }
+          }
+        ]
+      },
+      {
+        "id": "r-release",
+        "tool": "run_action",
+        "match": {
+          "action_id": "beam.release_applications"
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:release:20261013T2107Z",
+              "applications": [
+                {
+                  "name": "portal",
+                  "version": "2.14.0"
+                },
+                {
+                  "name": "portal_web",
+                  "version": "2.14.0"
+                }
+              ],
+              "note": "the product version does not name a Git revision"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:release:20261013T2107Z",
+              "applications": [
+                {
+                  "name": "portal",
+                  "version": "2.14.0"
+                },
+                {
+                  "name": "portal_web",
+                  "version": "2.14.0"
+                }
+              ],
+              "note": "the product version does not name a Git revision"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:release:20261013T2107Z",
+              "applications": [
+                {
+                  "name": "portal",
+                  "version": "2.14.0"
+                },
+                {
+                  "name": "portal_web",
+                  "version": "2.14.0"
+                }
+              ],
+              "note": "the product version does not name a Git revision"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:release:20261013T2107Z",
+              "applications": [
+                {
+                  "name": "portal",
+                  "version": "2.14.0"
+                },
+                {
+                  "name": "portal_web",
+                  "version": "2.14.0"
+                }
+              ],
+              "note": "the product version does not name a Git revision"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:release:20261013T2107Z",
+              "applications": [
+                {
+                  "name": "portal",
+                  "version": "2.14.0"
+                },
+                {
+                  "name": "portal_web",
+                  "version": "2.14.0"
+                }
+              ],
+              "note": "the product version does not name a Git revision"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:release:20261013T2107Z",
+              "applications": [
+                {
+                  "name": "portal",
+                  "version": "2.14.0"
+                },
+                {
+                  "name": "portal_web",
+                  "version": "2.14.0"
+                }
+              ],
+              "note": "the product version does not name a Git revision"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:release:20261013T2107Z",
+              "applications": [
+                {
+                  "name": "portal",
+                  "version": "2.14.0"
+                },
+                {
+                  "name": "portal_web",
+                  "version": "2.14.0"
+                }
+              ],
+              "note": "the product version does not name a Git revision"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:release:20261013T2107Z",
+              "applications": [
+                {
+                  "name": "portal",
+                  "version": "2.14.0"
+                },
+                {
+                  "name": "portal_web",
+                  "version": "2.14.0"
+                }
+              ],
+              "note": "the product version does not name a Git revision"
+            }
+          }
+        ]
+      },
+      {
+        "id": "r-image-inspect",
+        "tool": "run_action",
+        "match": {
+          "action_id": "docker.image_inspect"
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:image-inspect:20261013T2107Z",
+              "image": "ghcr.io/acme/portal:latest",
+              "digest": "sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5",
+              "labels": {
+                "org.opencontainers.image.revision": "8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4"
+              },
+              "note": "a cached image; this does not say which image the running containers started from"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:image-inspect:20261013T2107Z",
+              "image": "ghcr.io/acme/portal:latest",
+              "digest": "sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5",
+              "labels": {
+                "org.opencontainers.image.revision": "8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4"
+              },
+              "note": "a cached image; this does not say which image the running containers started from"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:image-inspect:20261013T2107Z",
+              "image": "ghcr.io/acme/portal:latest",
+              "digest": "sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5",
+              "labels": {
+                "org.opencontainers.image.revision": "8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4"
+              },
+              "note": "a cached image; this does not say which image the running containers started from"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:image-inspect:20261013T2107Z",
+              "image": "ghcr.io/acme/portal:latest",
+              "digest": "sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5",
+              "labels": {
+                "org.opencontainers.image.revision": "8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4"
+              },
+              "note": "a cached image; this does not say which image the running containers started from"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:image-inspect:20261013T2107Z",
+              "image": "ghcr.io/acme/portal:latest",
+              "digest": "sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5",
+              "labels": {
+                "org.opencontainers.image.revision": "8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4"
+              },
+              "note": "a cached image; this does not say which image the running containers started from"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:image-inspect:20261013T2107Z",
+              "image": "ghcr.io/acme/portal:latest",
+              "digest": "sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5",
+              "labels": {
+                "org.opencontainers.image.revision": "8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4"
+              },
+              "note": "a cached image; this does not say which image the running containers started from"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:image-inspect:20261013T2107Z",
+              "image": "ghcr.io/acme/portal:latest",
+              "digest": "sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5",
+              "labels": {
+                "org.opencontainers.image.revision": "8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4"
+              },
+              "note": "a cached image; this does not say which image the running containers started from"
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:image-inspect:20261013T2107Z",
+              "image": "ghcr.io/acme/portal:latest",
+              "digest": "sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5",
+              "labels": {
+                "org.opencontainers.image.revision": "8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4"
+              },
+              "note": "a cached image; this does not say which image the running containers started from"
+            }
+          }
+        ]
+      },
+      {
+        "id": "r-list-runs",
+        "tool": "run_action",
+        "match": {
+          "action_id": "tfc.list_runs"
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "workspace": "acme/portal",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:runs:portal:20261013T2107Z",
+              "runs": [
+                {
+                  "run_id": "run-Q7wT2nYb8cKd3mPx",
+                  "status": "planned_and_saved",
+                  "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+                  "created_at": "2026-10-13T21:05:40Z"
+                },
+                {
+                  "run_id": "run-H4sV9kLm2Pq7Rt1z",
+                  "status": "applied",
+                  "commit": "8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4",
+                  "applied_at": "2026-10-10T14:02:11Z"
+                },
+                {
+                  "run_id": "run-Xc3vB8nM1qW5eR7t",
+                  "status": "applied",
+                  "commit": "e7d1c9a3b5f2084c6e1a9d7b3f5c0e2a8d4b6f19",
+                  "applied_at": "2026-10-06T09:44:02Z"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "workspace": "acme/portal",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:runs:portal:20261013T2107Z",
+              "runs": [
+                {
+                  "run_id": "run-Q7wT2nYb8cKd3mPx",
+                  "status": "planned_and_saved",
+                  "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+                  "created_at": "2026-10-13T21:05:40Z"
+                },
+                {
+                  "run_id": "run-H4sV9kLm2Pq7Rt1z",
+                  "status": "applied",
+                  "commit": "8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4",
+                  "applied_at": "2026-10-10T14:02:11Z"
+                },
+                {
+                  "run_id": "run-Xc3vB8nM1qW5eR7t",
+                  "status": "applied",
+                  "commit": "e7d1c9a3b5f2084c6e1a9d7b3f5c0e2a8d4b6f19",
+                  "applied_at": "2026-10-06T09:44:02Z"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "workspace": "acme/portal",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:runs:portal:20261013T2107Z",
+              "runs": [
+                {
+                  "run_id": "run-Q7wT2nYb8cKd3mPx",
+                  "status": "planned_and_saved",
+                  "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+                  "created_at": "2026-10-13T21:05:40Z"
+                },
+                {
+                  "run_id": "run-H4sV9kLm2Pq7Rt1z",
+                  "status": "applied",
+                  "commit": "8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4",
+                  "applied_at": "2026-10-10T14:02:11Z"
+                },
+                {
+                  "run_id": "run-Xc3vB8nM1qW5eR7t",
+                  "status": "applied",
+                  "commit": "e7d1c9a3b5f2084c6e1a9d7b3f5c0e2a8d4b6f19",
+                  "applied_at": "2026-10-06T09:44:02Z"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "workspace": "acme/portal",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:runs:portal:20261013T2107Z",
+              "runs": [
+                {
+                  "run_id": "run-Q7wT2nYb8cKd3mPx",
+                  "status": "planned_and_saved",
+                  "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+                  "created_at": "2026-10-13T21:05:40Z"
+                },
+                {
+                  "run_id": "run-H4sV9kLm2Pq7Rt1z",
+                  "status": "applied",
+                  "commit": "8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4",
+                  "applied_at": "2026-10-10T14:02:11Z"
+                },
+                {
+                  "run_id": "run-Xc3vB8nM1qW5eR7t",
+                  "status": "applied",
+                  "commit": "e7d1c9a3b5f2084c6e1a9d7b3f5c0e2a8d4b6f19",
+                  "applied_at": "2026-10-06T09:44:02Z"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "workspace": "acme/portal",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:runs:portal:20261013T2107Z",
+              "runs": [
+                {
+                  "run_id": "run-Q7wT2nYb8cKd3mPx",
+                  "status": "planned_and_saved",
+                  "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+                  "created_at": "2026-10-13T21:05:40Z"
+                },
+                {
+                  "run_id": "run-H4sV9kLm2Pq7Rt1z",
+                  "status": "applied",
+                  "commit": "8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4",
+                  "applied_at": "2026-10-10T14:02:11Z"
+                },
+                {
+                  "run_id": "run-Xc3vB8nM1qW5eR7t",
+                  "status": "applied",
+                  "commit": "e7d1c9a3b5f2084c6e1a9d7b3f5c0e2a8d4b6f19",
+                  "applied_at": "2026-10-06T09:44:02Z"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "workspace": "acme/portal",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:runs:portal:20261013T2107Z",
+              "runs": [
+                {
+                  "run_id": "run-Q7wT2nYb8cKd3mPx",
+                  "status": "planned_and_saved",
+                  "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+                  "created_at": "2026-10-13T21:05:40Z"
+                },
+                {
+                  "run_id": "run-H4sV9kLm2Pq7Rt1z",
+                  "status": "applied",
+                  "commit": "8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4",
+                  "applied_at": "2026-10-10T14:02:11Z"
+                },
+                {
+                  "run_id": "run-Xc3vB8nM1qW5eR7t",
+                  "status": "applied",
+                  "commit": "e7d1c9a3b5f2084c6e1a9d7b3f5c0e2a8d4b6f19",
+                  "applied_at": "2026-10-06T09:44:02Z"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "workspace": "acme/portal",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:runs:portal:20261013T2107Z",
+              "runs": [
+                {
+                  "run_id": "run-Q7wT2nYb8cKd3mPx",
+                  "status": "planned_and_saved",
+                  "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+                  "created_at": "2026-10-13T21:05:40Z"
+                },
+                {
+                  "run_id": "run-H4sV9kLm2Pq7Rt1z",
+                  "status": "applied",
+                  "commit": "8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4",
+                  "applied_at": "2026-10-10T14:02:11Z"
+                },
+                {
+                  "run_id": "run-Xc3vB8nM1qW5eR7t",
+                  "status": "applied",
+                  "commit": "e7d1c9a3b5f2084c6e1a9d7b3f5c0e2a8d4b6f19",
+                  "applied_at": "2026-10-06T09:44:02Z"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "workspace": "acme/portal",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:tfc:runs:portal:20261013T2107Z",
+              "runs": [
+                {
+                  "run_id": "run-Q7wT2nYb8cKd3mPx",
+                  "status": "planned_and_saved",
+                  "commit": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+                  "created_at": "2026-10-13T21:05:40Z"
+                },
+                {
+                  "run_id": "run-H4sV9kLm2Pq7Rt1z",
+                  "status": "applied",
+                  "commit": "8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4",
+                  "applied_at": "2026-10-10T14:02:11Z"
+                },
+                {
+                  "run_id": "run-Xc3vB8nM1qW5eR7t",
+                  "status": "applied",
+                  "commit": "e7d1c9a3b5f2084c6e1a9d7b3f5c0e2a8d4b6f19",
+                  "applied_at": "2026-10-06T09:44:02Z"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "r-journal",
+        "tool": "run_action",
+        "match": {
+          "action_id": "linux.journalctl_grep"
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:journal:20261013T2107Z",
+              "matches": [
+                {
+                  "instance": "portal-a",
+                  "at": "2026-10-10T14:03:12Z",
+                  "line": "konlet: Pulled ghcr.io/acme/portal@sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5"
+                },
+                {
+                  "instance": "portal-b",
+                  "at": "2026-10-10T14:03:19Z",
+                  "line": "konlet: Pulled ghcr.io/acme/portal@sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:journal:20261013T2107Z",
+              "matches": [
+                {
+                  "instance": "portal-a",
+                  "at": "2026-10-10T14:03:12Z",
+                  "line": "konlet: Pulled ghcr.io/acme/portal@sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5"
+                },
+                {
+                  "instance": "portal-b",
+                  "at": "2026-10-10T14:03:19Z",
+                  "line": "konlet: Pulled ghcr.io/acme/portal@sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:journal:20261013T2107Z",
+              "matches": [
+                {
+                  "instance": "portal-a",
+                  "at": "2026-10-10T14:03:12Z",
+                  "line": "konlet: Pulled ghcr.io/acme/portal@sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5"
+                },
+                {
+                  "instance": "portal-b",
+                  "at": "2026-10-10T14:03:19Z",
+                  "line": "konlet: Pulled ghcr.io/acme/portal@sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:journal:20261013T2107Z",
+              "matches": [
+                {
+                  "instance": "portal-a",
+                  "at": "2026-10-10T14:03:12Z",
+                  "line": "konlet: Pulled ghcr.io/acme/portal@sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5"
+                },
+                {
+                  "instance": "portal-b",
+                  "at": "2026-10-10T14:03:19Z",
+                  "line": "konlet: Pulled ghcr.io/acme/portal@sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:journal:20261013T2107Z",
+              "matches": [
+                {
+                  "instance": "portal-a",
+                  "at": "2026-10-10T14:03:12Z",
+                  "line": "konlet: Pulled ghcr.io/acme/portal@sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5"
+                },
+                {
+                  "instance": "portal-b",
+                  "at": "2026-10-10T14:03:19Z",
+                  "line": "konlet: Pulled ghcr.io/acme/portal@sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:journal:20261013T2107Z",
+              "matches": [
+                {
+                  "instance": "portal-a",
+                  "at": "2026-10-10T14:03:12Z",
+                  "line": "konlet: Pulled ghcr.io/acme/portal@sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5"
+                },
+                {
+                  "instance": "portal-b",
+                  "at": "2026-10-10T14:03:19Z",
+                  "line": "konlet: Pulled ghcr.io/acme/portal@sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:journal:20261013T2107Z",
+              "matches": [
+                {
+                  "instance": "portal-a",
+                  "at": "2026-10-10T14:03:12Z",
+                  "line": "konlet: Pulled ghcr.io/acme/portal@sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5"
+                },
+                {
+                  "instance": "portal-b",
+                  "at": "2026-10-10T14:03:19Z",
+                  "line": "konlet: Pulled ghcr.io/acme/portal@sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5"
+                }
+              ]
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "source:portal:journal:20261013T2107Z",
+              "matches": [
+                {
+                  "instance": "portal-a",
+                  "at": "2026-10-10T14:03:12Z",
+                  "line": "konlet: Pulled ghcr.io/acme/portal@sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5"
+                },
+                {
+                  "instance": "portal-b",
+                  "at": "2026-10-10T14:03:19Z",
+                  "line": "konlet: Pulled ghcr.io/acme/portal@sha256:3f6c9e1a8b2d4f70c5e9a3b1d7f2e8c4a0b6d9e3f1c7a5b8d2e4f6a0c9b1d3e5"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "r-compare",
+        "tool": "run_action",
+        "match": {
+          "action_id": "github.compare"
+        },
+        "responses": [
+          {
+            "kind": "result",
+            "value": {
+              "repository": "acme/portal",
+              "base": "8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4",
+              "head": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "https://github.com/acme/portal/compare/8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4...c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+              "commits": 6,
+              "changes": [
+                "edge rules pack 0.1.10 to 0.1.11: redacts secrets in edge-rule headers and cookie and query matches, removes credentials from origin URLs",
+                "HTTP client dependencies: Finch 0.23.0 to 0.24.0, Mint 1.10.2 to 1.11.0"
+              ],
+              "files_changed": [
+                "priv/packs/edge-rules/manifest.json",
+                "mix.exs",
+                "mix.lock"
+              ],
+              "migrations": [],
+              "product_version": {
+                "base": "2.14.0",
+                "head": "2.14.0"
+              }
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "repository": "acme/portal",
+              "base": "8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4",
+              "head": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "https://github.com/acme/portal/compare/8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4...c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+              "commits": 6,
+              "changes": [
+                "edge rules pack 0.1.10 to 0.1.11: redacts secrets in edge-rule headers and cookie and query matches, removes credentials from origin URLs",
+                "HTTP client dependencies: Finch 0.23.0 to 0.24.0, Mint 1.10.2 to 1.11.0"
+              ],
+              "files_changed": [
+                "priv/packs/edge-rules/manifest.json",
+                "mix.exs",
+                "mix.lock"
+              ],
+              "migrations": [],
+              "product_version": {
+                "base": "2.14.0",
+                "head": "2.14.0"
+              }
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "repository": "acme/portal",
+              "base": "8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4",
+              "head": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "https://github.com/acme/portal/compare/8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4...c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+              "commits": 6,
+              "changes": [
+                "edge rules pack 0.1.10 to 0.1.11: redacts secrets in edge-rule headers and cookie and query matches, removes credentials from origin URLs",
+                "HTTP client dependencies: Finch 0.23.0 to 0.24.0, Mint 1.10.2 to 1.11.0"
+              ],
+              "files_changed": [
+                "priv/packs/edge-rules/manifest.json",
+                "mix.exs",
+                "mix.lock"
+              ],
+              "migrations": [],
+              "product_version": {
+                "base": "2.14.0",
+                "head": "2.14.0"
+              }
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "repository": "acme/portal",
+              "base": "8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4",
+              "head": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "https://github.com/acme/portal/compare/8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4...c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+              "commits": 6,
+              "changes": [
+                "edge rules pack 0.1.10 to 0.1.11: redacts secrets in edge-rule headers and cookie and query matches, removes credentials from origin URLs",
+                "HTTP client dependencies: Finch 0.23.0 to 0.24.0, Mint 1.10.2 to 1.11.0"
+              ],
+              "files_changed": [
+                "priv/packs/edge-rules/manifest.json",
+                "mix.exs",
+                "mix.lock"
+              ],
+              "migrations": [],
+              "product_version": {
+                "base": "2.14.0",
+                "head": "2.14.0"
+              }
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "repository": "acme/portal",
+              "base": "8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4",
+              "head": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "https://github.com/acme/portal/compare/8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4...c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+              "commits": 6,
+              "changes": [
+                "edge rules pack 0.1.10 to 0.1.11: redacts secrets in edge-rule headers and cookie and query matches, removes credentials from origin URLs",
+                "HTTP client dependencies: Finch 0.23.0 to 0.24.0, Mint 1.10.2 to 1.11.0"
+              ],
+              "files_changed": [
+                "priv/packs/edge-rules/manifest.json",
+                "mix.exs",
+                "mix.lock"
+              ],
+              "migrations": [],
+              "product_version": {
+                "base": "2.14.0",
+                "head": "2.14.0"
+              }
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "repository": "acme/portal",
+              "base": "8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4",
+              "head": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "https://github.com/acme/portal/compare/8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4...c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+              "commits": 6,
+              "changes": [
+                "edge rules pack 0.1.10 to 0.1.11: redacts secrets in edge-rule headers and cookie and query matches, removes credentials from origin URLs",
+                "HTTP client dependencies: Finch 0.23.0 to 0.24.0, Mint 1.10.2 to 1.11.0"
+              ],
+              "files_changed": [
+                "priv/packs/edge-rules/manifest.json",
+                "mix.exs",
+                "mix.lock"
+              ],
+              "migrations": [],
+              "product_version": {
+                "base": "2.14.0",
+                "head": "2.14.0"
+              }
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "repository": "acme/portal",
+              "base": "8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4",
+              "head": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "https://github.com/acme/portal/compare/8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4...c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+              "commits": 6,
+              "changes": [
+                "edge rules pack 0.1.10 to 0.1.11: redacts secrets in edge-rule headers and cookie and query matches, removes credentials from origin URLs",
+                "HTTP client dependencies: Finch 0.23.0 to 0.24.0, Mint 1.10.2 to 1.11.0"
+              ],
+              "files_changed": [
+                "priv/packs/edge-rules/manifest.json",
+                "mix.exs",
+                "mix.lock"
+              ],
+              "migrations": [],
+              "product_version": {
+                "base": "2.14.0",
+                "head": "2.14.0"
+              }
+            }
+          },
+          {
+            "kind": "result",
+            "value": {
+              "repository": "acme/portal",
+              "base": "8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4",
+              "head": "c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+              "observed_at": "2026-10-13T21:07:30Z",
+              "source_ref": "https://github.com/acme/portal/compare/8b2d6e1f0a9c3b57d4e8f21a6c0b9d3e7f15a2c4...c41f0e9a7d2b4c88e1f03a6d95b7e2c4180fd3aa",
+              "commits": 6,
+              "changes": [
+                "edge rules pack 0.1.10 to 0.1.11: redacts secrets in edge-rule headers and cookie and query matches, removes credentials from origin URLs",
+                "HTTP client dependencies: Finch 0.23.0 to 0.24.0, Mint 1.10.2 to 1.11.0"
+              ],
+              "files_changed": [
+                "priv/packs/edge-rules/manifest.json",
+                "mix.exs",
+                "mix.lock"
+              ],
+              "migrations": [],
+              "product_version": {
+                "base": "2.14.0",
+                "head": "2.14.0"
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "host_replay": {
+    "model_events": []
+  },
+  "expect": {
+    "hard": [
+      {
+        "kind": "state_tool_recorded",
+        "tool": "cite_source"
+      },
+      {
+        "kind": "state_tool_recorded",
+        "tool": "remember_correction"
+      },
+      {
+        "kind": "state_tool_recorded",
+        "tool": "record_guidance_result",
+        "payload": {
+          "status": "satisfied"
+        }
+      }
+    ],
+    "trajectory": [
+      {
+        "kind": "required_any_tool_call",
+        "calls": [
+          {
+            "tool": "run_action",
+            "arguments": {
+              "action_id": "tfc.list_runs"
+            }
+          },
+          {
+            "tool": "run_action",
+            "arguments": {
+              "action_id": "linux.journalctl_grep"
+            }
+          }
+        ]
+      },
+      {
+        "kind": "required_tool_call",
+        "tool": "run_action",
+        "arguments": {
+          "action_id": "github.compare",
+          "args": {
+            "base": {
+              "$contains_all": [
+                "8b2d6e1"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "quality_rubric": [
+      {
+        "criterion": "The later automated review gives the deployed baseline revision, the saved-plan revision, and a short source comparison without another human reminder; the first response remembers the explicit correction without asking for confirmation.",
+        "weight": 3
+      },
+      {
+        "criterion": "Says what the baseline rests on, the last successful apply and the image the instances pulled at startup, without presenting it as a direct reading of the running image.",
+        "weight": 2
+      },
+      {
+        "criterion": "Does not stop at the hidden plan image or the product version and call the comparison unavailable.",
+        "weight": 2
+      },
+      {
+        "criterion": "The reply is short: the answer first and a few lines, not an essay.",
+        "weight": 1
+      }
+    ]
+  },
+  "tags": [
+    "model-world",
+    "deployment-review",
+    "gap-closing",
+    "correction-followthrough"
+  ]
+}

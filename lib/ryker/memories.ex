@@ -25,6 +25,7 @@ defmodule Ryker.Memories do
   alias Ryker.Episodes
   alias Ryker.Ingress
   alias Ryker.Memories.Forgetting
+  alias Ryker.Memories.GuidanceEdit
   alias Ryker.Memories.MemoryEntry
   alias Ryker.Memories.Recall
   alias Ryker.Memories.Reviews
@@ -34,6 +35,9 @@ defmodule Ryker.Memories do
   alias Ryker.RoutingExamples
   alias Ryker.Slack
   alias Ryker.StateTools
+
+  @doc "Explain how editing a correction affects its required outputs before saving. Added only for corrections with checks."
+  defdelegate review_edit_notice(entry), to: GuidanceEdit, as: :notice
 
   @maximum_total 1_000
   @maximum_per_scope 100
@@ -77,7 +81,7 @@ defmodule Ryker.Memories do
     with {:ok, current} <- StateTools.Binding.fetch_and_lock_current(binding),
          :ok <- live(current.episode),
          {:ok, record, response, entry} <- answer_confirmation(current, record_ref),
-         :ok <- lock_answer_source!(entry),
+         :ok <- lock_answer_source_in_transaction(entry),
          :ok <- Reviews.lock_review_maintenance!(),
          :ok <- answerer(authorize, entry),
          :ok <- public_source(entry),
@@ -168,7 +172,7 @@ defmodule Ryker.Memories do
   Only a message a fact was saved from takes the review lock. Every edit and
   deletion took it, and so waited behind every memory write and, while
   retention refreshed reviews, behind its whole pruning phase (2026-10-04
-  review). The message's own lock (`lock_answer_source!/1`), which saving an
+  review). The message's own lock (`lock_answer_source_in_transaction/1`), which saving an
   answer takes too, keeps the check from missing a save still in flight.
   """
   def revoke_answer_source_in_transaction(
@@ -176,7 +180,7 @@ defmodule Ryker.Memories do
       )
       when kind in [:edit, :delete] and is_binary(source_ref) do
     if Repo.in_transaction?() do
-      lock_answer_source!(entry)
+      lock_answer_source_in_transaction(entry)
 
       answered =
         MemoryEntry.Query.answered_before_revision(
@@ -210,7 +214,19 @@ defmodule Ryker.Memories do
   # each take this before the review lock, so a save waits for a revision
   # still in flight and sees it, and a revision waits for a save and revokes
   # it.
-  defp lock_answer_source!(%Ingress.Inbox.Entry{} = entry) do
+  @doc """
+  Internal — answer confirmation and correction custody take this source lock
+  before review maintenance. Ingress withdrawal uses the same order, so a
+  source shared by a fact and correction cannot reverse the two locks.
+  Returns :ok inside a transaction, or refuses an unowned lock.
+  """
+  def lock_answer_source_in_transaction(%Ingress.Inbox.Entry{} = entry) do
+    if Repo.in_transaction?(),
+      do: lock_answer_source(entry),
+      else: {:error, :memory_review_transaction_required}
+  end
+
+  defp lock_answer_source(entry) do
     AdvisoryLock.hold!(
       "memory-answer-source:" <>
         CanonicalJSON.digest([

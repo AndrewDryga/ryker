@@ -36,6 +36,46 @@ defmodule Ryker.Work.SubmissionBuilderTest do
        |> DateTime.truncate(:second)
        |> Map.put(:microsecond, {0, 6})
 
+  test "a later rollout notification recalls the correction from an earlier review" do
+    # A correction learned on 13 October was absent from the next review on
+    # 20 October: searching the event wrapper dropped the notification's
+    # Terraform footer and workspace heading. The second reply repeated the
+    # same missing comparison. Source wording is harvested and pseudonymized.
+    fixture =
+      "testdata/learning/retained-rollout-correction.json"
+      |> File.read!()
+      |> Jason.decode!()
+
+    claim = claim_episode_payload!("rollout-correction", fixture["notification"])
+
+    source =
+      LearningFixtures.noted_message!(
+        claim.episode,
+        List.last(fixture["corrections"])["text"],
+        DateTime.add(@now, -3_600, :second),
+        claim.session.repository_ref
+      )
+
+    # Host-contract adapter: retain the learned words, assign a fresh topic
+    # identity and bind only this test's source custody.
+    proposal =
+      Map.merge(fixture["learned_correction"], %{
+        "topic_key" => "rollout-verification-expectations",
+        "target_ref" => nil,
+        "expected_version" => 0
+      })
+
+    assert Repo.transaction(fn -> KnowledgeFixtures.record_topic(source, proposal, []) end) ==
+             {:ok, :ok}
+
+    assert {:ok, submission} = Inspectors.submission(claim)
+
+    assert Enum.any?(
+             get_in(submission, ["context", "operator_context", "continuity", "knowledge"]) || [],
+             &(&1["topic_key"] == "rollout-verification-expectations")
+           )
+  end
+
   for {text, offered?} <- [
         {"Why did the quasar billing subscription renew?", false},
         {"What did we decide about draft-ai-suggestions?", true}
@@ -490,7 +530,7 @@ defmodule Ryker.Work.SubmissionBuilderTest do
     assert {:ok, submission} = Inspectors.submission(claim)
 
     assert submission["context"]["controller_tools"] ==
-             ~w(get_work_state cite_source record_finding request_input wait_for list_automations get_automation propose_automation plan_goal update_goal request_task search_memory propose_memory propose_preference remember_answer update_conversation_summary record_feedback validate_final)
+             ~w(get_work_state cite_source record_finding request_input wait_for list_automations get_automation propose_automation plan_goal update_goal request_task search_memory propose_memory propose_preference remember_answer remember_correction record_guidance_result update_conversation_summary record_feedback validate_final)
 
     refute Map.has_key?(submission["context"], "state_tools")
     refute submission["prompt"] =~ Records.token(claim.turn)
