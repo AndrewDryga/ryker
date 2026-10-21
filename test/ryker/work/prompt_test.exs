@@ -598,7 +598,13 @@ defmodule Ryker.Work.PromptTest do
     instructions = normalized_instructions()
 
     assert instructions =~ "Answer what the person asked, about the thing they asked about"
-    assert instructions =~ "leave out what the question did not ask"
+    assert instructions =~ "Keep it focused on the requested work and short"
+
+    # Two of three world replies dropped the known application findings when
+    # asked to finish the health checks. Brevity must preserve the same review's
+    # material findings while keeping their historical attribution.
+    assert instructions =~ "Carry forward each material part of that review"
+    assert instructions =~ "Attribute retained findings to the earlier review"
     assert instructions =~ "When they ask to see something, such as a diff"
     assert instructions =~ "On a pull request, reply the way a reviewer answers in that thread"
     refute instructions =~ ~r/\b\d+\s*(words?|sentences?|characters?)\b/i
