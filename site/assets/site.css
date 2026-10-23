@@ -1,5 +1,5 @@
 /* Ryker — product site.
-   One hand-written stylesheet. No framework, no CDN, no runtime request: the
+   Shared typography, navigation and docs. No framework, CDN or runtime request: the
    site must render with the network off, from file:// or any static host.
 
    The identity is Ryker's own (brand/ryker/README.md, .agent/kb/rules/ryker-brand.md):
@@ -216,8 +216,7 @@ code, kbd, samp, pre { font-family: var(--mono); font-weight: 400; font-variant-
 /* One inline code treatment everywhere prose names a path, flag or command:
    mono on the raised surface, with padding tight enough that a following
    comma or period does not float away from it. */
-:not(pre) > code,
-.slack-code {
+:not(pre) > code {
   padding: 1px 4px;
   border: 1px solid var(--line);
   border-radius: 4px;
@@ -227,7 +226,7 @@ code, kbd, samp, pre { font-family: var(--mono); font-weight: 400; font-variant-
   font-size: .875em;
 }
 /* In 13px rows the chip keeps a readable size. */
-:is(.doc dt, .doc dd, .data-where, .install-note, .index-list) code { font-size: .9375em; }
+:is(.doc dt, .doc dd, .install-note) code { font-size: .9375em; }
 
 /* Anything numeric or clock-shaped lines up. */
 time, .tag { font-variant-numeric: tabular-nums; }
@@ -412,6 +411,8 @@ time, .tag { font-variant-numeric: tabular-nums; }
 .nav-drawer a:active { color: var(--accent-text); transform: translateY(1px); }
 
 @media (max-width: 780px) {
+  .nav-in { gap: 8px; height: auto; min-height: var(--nav-h); flex-wrap: wrap; }
+  .nav-menu > summary { padding-inline: 8px; }
   .nav-links { display: none; }
   .nav-menu { display: block; }
 }
@@ -479,597 +480,6 @@ time, .tag { font-variant-numeric: tabular-nums; }
 .arr { opacity: .7; }
 
 .btn-row { display: flex; flex-wrap: wrap; gap: var(--s-2); }
-
-/* Hero -------------------------------------------------------------------- */
-
-.hero { padding-block: calc(var(--u) * 7) var(--s-4); }
-
-/* The eyebrow wraps at a narrow width. Each separator is glued to the word
-   after it by a no-break space, so a line can only ever begin with a "·",
-   never end with one. */
-.hero-eyebrow {
-  margin-bottom: var(--s-3);
-  color: var(--dim);
-  font-family: var(--mono);
-  font-size: var(--t-micro);
-  line-height: var(--lh-tight);
-  letter-spacing: .06em;
-  text-transform: uppercase;
-  text-wrap: pretty;
-}
-.hero-eyebrow span { white-space: nowrap; }
-.hero-eyebrow i { font-style: normal; }
-
-h1.display {
-  max-width: 19ch;
-  font-size: var(--t-display);
-  line-height: 1.08;
-  letter-spacing: -.03em;
-  text-wrap: balance;
-}
-
-.hero-frame {
-  margin-top: var(--s-6);
-  display: grid;
-  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-  gap: var(--s-7);
-  align-items: start;
-}
-.hero-frame.solo { grid-template-columns: minmax(0, 1fr); }
-.hero-aside .btn-row { margin-top: var(--s-4); }
-
-.hero-sub {
-  max-width: 46ch;
-  font-size: var(--t-lead);
-  line-height: 1.6;
-}
-
-@media (max-width: 1000px) {
-  .hero-frame { grid-template-columns: minmax(0, 1fr); margin-top: var(--s-4); gap: var(--s-5); }
-  h1.display { max-width: 14ch; }
-}
-@media (max-width: 520px) {
-  .hero-eyebrow { display: flex; flex-wrap: wrap; gap: 6px 10px; }
-  .hero-eyebrow span:last-child i { display: none; }
-  .hero-eyebrow span:last-child { flex-basis: 100%; }
-}
-
-/* The incident, beat by beat ---------------------------------------------- */
-
-/* Seven steps of one real thread. Each step hangs its own time on a rail in
-   the left margin; the rail's x-position is shared by every marker, so they
-   can never drift apart. When the margin is too narrow for the time, the
-   step's own label carries it in-column instead. */
-.record { --spinex: max(20px, calc((100vw - var(--wrap)) / 2 - 44px)); }
-.beat { position: relative; }
-.step.beatline { position: static; }
-
-.beat-sub {
-  position: absolute;
-  left: var(--spinex);
-  transform: translateX(-3.5px);
-  display: flex;
-  flex-direction: row-reverse;
-  align-items: center;
-  gap: 10px;
-  white-space: nowrap;
-}
-.beat-sub .tick { display: none; }
-.beat-sub time {
-  color: var(--dim);
-  font-family: var(--mono);
-  font-size: var(--t-micro);
-  line-height: 1;
-  letter-spacing: .04em;
-}
-@media (min-width: 1280px) {
-  .beat-sub { transform: translateX(calc(-100% + 3.5px)); }
-}
-@media (max-width: 1279px) {
-  .beat-sub time { display: none; }
-}
-@media (max-width: 719px) {
-  .beat-sub { display: none; }
-}
-
-.steps { display: grid; gap: clamp(4rem, 3rem + 3vw, 6rem); }
-
-/* Centred, not top-aligned: the text column is three or four lines and the
-   window beside it is often ten, so `start` left an L-shaped hole under every
-   short column. */
-.step {
-  display: grid;
-  gap: var(--s-5) var(--s-7);
-  grid-template-columns: minmax(0, 1fr);
-  align-items: center;
-}
-
-/* The text column is the narrow one on both sides, and the template mirrors
-   with the content. */
-@media (min-width: 900px) {
-  .step { grid-template-columns: minmax(0, 27rem) minmax(0, 1fr); }
-  .step.flip { grid-template-columns: minmax(0, 1fr) minmax(0, 27rem); }
-  .step.flip > .step-text { order: 2; }
-  .step.flip > .mock-slack { order: 1; }
-}
-
-.step-num {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: var(--s-2);
-  color: var(--accent-text);
-  font-family: var(--mono);
-  font-size: var(--t-micro);
-  letter-spacing: .06em;
-  text-transform: uppercase;
-}
-.step-num::after { content: ""; width: var(--s-3); height: 1px; background: var(--line); }
-.step-num .tmin { color: var(--dim); letter-spacing: .04em; }
-@media (min-width: 720px) { .step-num .tmin { display: none; } }
-
-.step-text h3 {
-  font-size: clamp(1.5rem, 1.35rem + 0.6vw, 1.875rem);
-  line-height: 1.15;
-  letter-spacing: -.02em;
-}
-/* The rule for the body copy must not be able to reach the label above it. */
-.step-text > p:not(.step-num) {
-  margin-top: var(--s-3);
-  max-width: 46ch;
-  font-size: var(--t-body-lg);
-  line-height: var(--lh-loose);
-}
-
-/* Every window is a <figure>, and a figure carries 40px of UA margin on each
-   side: left alone it pushes the window past its grid column and widens the
-   document. */
-.mock-slack { margin: 0; }
-
-.mock-note {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px var(--s-2);
-  margin-top: var(--s-3);
-  padding: 10px 0 0;
-  border-top: 1px solid var(--line);
-  color: var(--dim);
-  font-size: var(--t-meta);
-  line-height: var(--lh-tight);
-}
-/* The mono label and the sentence beside it are close in size, so the 16px
-   gap is what reads them as a label and its note. */
-.mock-note .tag { flex: none; color: var(--accent-text); }
-/* On a phone the note takes its own line whole rather than wrapping inside
-   a row it shares with a label that will not shrink. */
-@media (max-width: 480px) {
-  .mock-note .note { flex: 1 0 100%; }
-}
-
-/* Slack, as Slack --------------------------------------------------------- */
-
-/* The windows are Slack's layout, drawn in Ryker's palette: Slack's dark
-   theme is a near neighbour of graphite, so the raised surface stands in for
-   it, and the recognition comes from the parts — channel header, 36px
-   avatars, APP badge, attachment bars, message density. Density is Slack's
-   too: a message is 15px on 1.46, not the site's 28px reading line. */
-.slack-frame {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-  color: var(--ink);
-  overflow: hidden;
-}
-
-/* Channel name and topic, the way the real header reads them; the topic is
-   the first thing to lose at a narrow width. */
-.slack-head {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 14px 24px;
-  border-bottom: 1px solid var(--line);
-}
-.slack-head b {
-  flex: none;
-  color: var(--ink);
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 20px;
-}
-
-/* The avatar column never collapses. At 390 the text wraps underneath the
-   name, still in the second column, which is what Slack does on a phone. */
-.slack-msg {
-  display: grid;
-  grid-template-columns: 36px minmax(0, 1fr);
-  gap: 8px;
-  padding: 12px 24px;
-}
-.slack-msg:first-of-type { padding-top: 20px; }
-.slack-msg:last-of-type { padding-bottom: 22px; }
-.slack-av { width: 36px; height: 36px; border-radius: 4px; }
-/* Ryker's own avatar is the supplied composition (brand/ryker/avatar.svg),
-   whole, as Slack shows the app icon. The people and the Terraform app get
-   initials on categorical colours from the product's source palette, each
-   carrying graphite initials at 6.5:1 or better. */
-img.slack-av { display: block; }
-span.slack-av {
-  display: grid;
-  place-items: center;
-  background: var(--av);
-  color: var(--graphite);
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1;
-}
-.av-gr { --av: #aa8bd7; }
-.av-tm { --av: #8da9e8; }
-.av-at { --av: #d4a765; }
-
-.slack-said { min-width: 0; }
-.slack-meta {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 0 6px;
-  margin: 0;
-}
-.slack-who { color: var(--ink); font-size: 15px; font-weight: 600; line-height: 22px; }
-.slack-ts { color: var(--dim); font-size: 12px; line-height: 22px; }
-/* Slack's badge: a filled chip at the smallest size it ships. 5.5:1 against
-   its own fill. */
-.slack-app {
-  align-self: center;
-  padding: 1px 3px;
-  border-radius: 2px;
-  background: var(--line);
-  color: var(--dim);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: .02em;
-  line-height: 12px;
-  text-transform: uppercase;
-}
-.slack-text { margin: 0; font-size: 15px; line-height: 1.46; }
-/* Bold in Slack is weight alone: Slack has no coloured message text. */
-.slack-text strong { font-weight: 600; }
-.slack-dim { margin-top: 6px; color: var(--dim); }
-.slack-sub { margin: 2px 0 0; color: var(--dim); font-size: 13px; line-height: 1.5; }
-
-/* App messages carry an attachment bar. A plain notification ("Run Applied")
-   keeps Slack's neutral bar; only the finished draft PR takes the success
-   colour, beside the word that says so. */
-.slack-attach {
-  margin-top: 2px;
-  padding: 2px 0 2px 12px;
-  border-left: 4px solid var(--line-strong);
-  border-radius: 2px;
-}
-.slack-attach.ok { border-left-color: var(--good); }
-.slack-btnrow { margin: 8px 0 2px; }
-.slack-btn {
-  display: inline-block;
-  padding: 7px 12px;
-  border: 1px solid var(--line-strong);
-  border-radius: 4px;
-  background: var(--panel);
-  color: var(--ink);
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1;
-}
-.slack-code { font-size: 12.5px; }
-
-/* Slack's date divider: a hairline with the day riding it in a pill. */
-.slack-day {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 24px 4px;
-}
-.slack-day::before, .slack-day::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: var(--line);
-}
-.slack-day span {
-  padding: 5px 10px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--ink);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1;
-}
-
-/* How it does that, and how it listens ------------------------------------ */
-
-.pillars {
-  display: grid;
-  gap: var(--s-6) var(--s-7);
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-.pillar h3,
-.und-text h3 {
-  font-size: var(--t-h3);
-  line-height: 1.25;
-  letter-spacing: -.01em;
-}
-.pillar p,
-.und-text p {
-  margin-top: var(--s-2);
-  max-width: 44ch;
-  font-size: var(--t-body);
-  line-height: var(--lh-body);
-}
-
-.und-grid {
-  display: grid;
-  gap: var(--s-6) var(--s-7);
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-@media (max-width: 900px) {
-  .pillars, .und-grid { grid-template-columns: minmax(0, 1fr); }
-}
-
-/* Capability index -------------------------------------------------------- */
-
-/* The groups an on-call engineer touches stay open; the rest fold behind a
-   header that says how many are inside. A fold is a promise about length,
-   not about content, and print opens every one of them again. The groups
-   stack as rows of one ruled list, not as separate widgets with empty bands
-   between them. */
-.index-groups { display: grid; border-bottom: 1px solid var(--line); }
-.index-group { display: block; border-top: 1px solid var(--line); }
-
-/* One header row per group, open or folded, 56px tall because a fold you
-   cannot hit with a thumb is not a fold. */
-.index-head {
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
-  min-height: 56px;
-  padding: var(--s-1) 0;
-  list-style: none;
-}
-.index-head::-webkit-details-marker { display: none; }
-.index-head h3 {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: var(--t-h3);
-  line-height: 1.25;
-  letter-spacing: -.01em;
-  text-wrap: pretty;
-}
-.index-head h3::before {
-  content: "";
-  flex: none;
-  align-self: center;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent);
-}
-/* The count is a machine fact, so it is set in mono, one step down. */
-.index-head h3 .n {
-  color: var(--dim);
-  font-family: var(--mono);
-  font-size: var(--t-meta);
-  font-weight: 400;
-  letter-spacing: 0;
-  white-space: nowrap;
-}
-
-/* The chevron is the whole affordance: a rotating corner drawn from two
-   borders, so it needs no glyph and no icon font. */
-summary.index-head { cursor: pointer; }
-summary.index-head::after {
-  content: "";
-  flex: none;
-  width: 8px;
-  height: 8px;
-  margin-left: var(--s-1);
-  border-right: 1.5px solid var(--dim);
-  border-bottom: 1.5px solid var(--dim);
-  transform: translateY(-2px) rotate(45deg);
-  transition: transform .16s ease, border-color .12s ease;
-}
-details[open] > summary.index-head::after { transform: translateY(2px) rotate(-135deg); }
-summary.index-head:hover { background: var(--panel); }
-summary.index-head:hover::after { border-color: var(--ink); }
-summary.index-head:active { transform: translateY(1px); }
-summary.index-head:focus-visible { outline-offset: -2px; }
-
-.index-in {
-  display: grid;
-  gap: var(--s-3) var(--s-5);
-  grid-template-columns: minmax(0, 1fr);
-  padding-block: var(--s-1) var(--s-5);
-}
-@media (min-width: 900px) {
-  .index-in { grid-template-columns: 12rem minmax(0, 1fr); }
-  .index-note { position: sticky; top: calc(var(--nav-h) + var(--s-3)); align-self: start; }
-}
-.index-note {
-  color: var(--dim);
-  font-size: var(--t-meta);
-  line-height: var(--lh-tight);
-}
-
-/* Two quiet columns of one-line facts, hairline rules, a quiet mark each. */
-.index-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  columns: 1;
-}
-@media (min-width: 640px) { .index-list { columns: 2; column-gap: var(--s-5); } }
-
-.index-list li {
-  break-inside: avoid;
-  display: grid;
-  grid-template-columns: 6px minmax(0, 1fr);
-  gap: 10px;
-  padding: 9px 0;
-  border-bottom: 1px solid var(--line);
-  font-size: var(--t-meta);
-  line-height: var(--lh-tight);
-}
-.index-list li::before {
-  content: "";
-  width: 5px;
-  height: 5px;
-  margin-top: 10px;
-  border-radius: 50%;
-  background: var(--line-strong);
-}
-.index-list li span { display: block; }
-
-/* Trust ------------------------------------------------------------------- */
-
-.trust-grid {
-  display: grid;
-  gap: var(--s-6) var(--s-7);
-  grid-template-columns: minmax(0, 1fr);
-}
-@media (min-width: 880px) { .trust-grid { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); } }
-
-.checks { margin: 0; padding: 0; list-style: none; display: grid; }
-.checks li {
-  display: grid;
-  grid-template-columns: 7px minmax(0, 1fr);
-  gap: 14px;
-  align-items: baseline;
-  padding: var(--s-2) 0;
-  border-bottom: 1px solid var(--line);
-  font-size: var(--t-body);
-  line-height: var(--lh-body);
-}
-.checks li::before {
-  content: "";
-  width: 7px; height: 7px;
-  margin-top: 10px;
-  border-radius: 50%;
-  background: var(--accent);
-}
-
-/* "Self-hosted" is a word on a page until somebody writes down where the
-   bytes go. Four sentences and a link, at the density of the panel beside
-   them, and no rule of its own: the list above already ends on one. */
-.data-where { margin-top: var(--s-6); }
-.data-where h3 { font-size: var(--t-h4); line-height: var(--lh-tight); letter-spacing: -.01em; }
-.data-where > p {
-  margin-top: var(--s-2);
-  max-width: var(--measure-narrow);
-  font-size: var(--t-small);
-  line-height: var(--lh-tight);
-}
-.data-more, .install-more { font-size: var(--t-meta); line-height: var(--lh-tight); }
-/* Each is the only thing on its line, so it takes a full 44px target. */
-.data-more a, .install-more a {
-  display: inline-flex;
-  align-items: center;
-  min-height: 44px;
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
-  text-underline-offset: 3px;
-}
-.data-more a:hover, .install-more a:hover { text-decoration-color: currentColor; }
-.data-more a:active, .install-more a:active { opacity: .7; }
-
-.cannot {
-  align-self: start;
-  padding: var(--s-4) var(--s-3);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-}
-.cannot h3 { font-size: var(--t-h4); line-height: var(--lh-tight); letter-spacing: -.01em; }
-.cannot ul { margin: var(--s-3) 0 0; padding: 0; list-style: none; display: grid; }
-.cannot li {
-  display: grid;
-  grid-template-columns: 12px minmax(0, 1fr);
-  gap: 12px;
-  align-items: baseline;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--line);
-  font-size: var(--t-meta);
-  line-height: var(--lh-tight);
-}
-.cannot li::before {
-  content: "\2715";
-  color: var(--bad);
-  font-family: var(--mono);
-  font-size: 10px;
-  line-height: var(--lh-tight);
-}
-.cannot > p {
-  margin-top: var(--s-3);
-  color: var(--dim);
-  font-size: var(--t-meta);
-  line-height: var(--lh-tight);
-}
-.cannot > p strong { color: var(--ink); }
-
-/* Final CTA --------------------------------------------------------------- */
-
-.cta h2 {
-  max-width: 20ch;
-  font-size: clamp(1.75rem, 1.4rem + 1.6vw, 2.5rem);
-  line-height: 1.1;
-  letter-spacing: -.025em;
-}
-.cta h2 span { display: block; color: var(--dim); }
-.cta .btn-row { margin-top: var(--s-5); }
-
-/* The page ends with the actual first two commands rather than a link to
-   them. */
-.cta-in {
-  display: grid;
-  gap: var(--s-6);
-  grid-template-columns: minmax(0, 1fr);
-  align-items: center;
-}
-@media (min-width: 1200px) {
-  .cta-in { grid-template-columns: minmax(0, 1fr) minmax(0, 31rem); }
-}
-
-.install {
-  min-width: 0;
-  padding: var(--s-3);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-}
-.install > .code-label { margin-bottom: var(--s-2); }
-/* The clone URL never wraps: a URL broken across lines is the one thing a
-   copy-paste block cannot show. It scrolls instead. */
-.install pre {
-  margin: 0;
-  padding: var(--s-2);
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--sunken);
-  color: var(--ink);
-  font-size: .8125rem;
-  line-height: 1.7;
-  white-space: pre;
-  overflow-x: auto;
-}
-.install-note {
-  margin-top: var(--s-2);
-  color: var(--dim);
-  font-size: var(--t-meta);
-  line-height: var(--lh-tight);
-}
-.install-more { margin-top: var(--s-2); }
 
 /* Copy buttons ------------------------------------------------------------ */
 
@@ -1187,7 +597,7 @@ summary.index-head:focus-visible { outline-offset: -2px; }
 }
 
 .docs-nav {
-  padding-block: var(--s-6) var(--s-4);
+  padding-block: var(--s-3) 0;
   align-self: start;
 }
 /* Full viewport height, not content height: a border on a box that ends
@@ -1200,6 +610,7 @@ summary.index-head:focus-visible { outline-offset: -2px; }
     overflow-y: auto;
     border-right: 1px solid var(--line);
     padding-right: var(--s-3);
+    padding-block: var(--s-6) var(--s-4);
   }
 }
 
@@ -1281,9 +692,9 @@ summary.index-head:focus-visible { outline-offset: -2px; }
 /* One flow rule, not a margin per element. A heading takes twice the space
    above it that it gives below, so the section owns its title. */
 .doc > * + * { margin-top: var(--s-3); }
-.doc > * + h2 { margin-top: var(--s-8); }   /* 80 above … */
-.doc > h2 + * { margin-top: var(--s-5); }   /* … 40 below */
-.doc > * + h3 { margin-top: var(--s-6); }   /* 48 above … */
+.doc > * + h2 { margin-top: var(--s-6); }
+.doc > h2 + * { margin-top: var(--s-3); }
+.doc > * + h3 { margin-top: var(--s-4); }
 .doc > h3 + * { margin-top: var(--s-3); }   /* … 24 below */
 .doc > * + h4 { margin-top: var(--s-4); }   /* 32 above … */
 .doc > h4 + * { margin-top: var(--s-2); }   /* … 16 below */
@@ -1341,6 +752,7 @@ summary.index-head:focus-visible { outline-offset: -2px; }
 
 .crumb {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: var(--s-1);
   margin-bottom: var(--s-3);
@@ -1765,20 +1177,4 @@ summary.index-head:focus-visible { outline-offset: -2px; }
      button prints as the outline one rather than as graphite on nothing. */
   .btn.go { border-color: var(--line-strong); background: transparent; color: var(--ink); }
 
-  /* Paper has no disclosure triangle. A folded capability group must print
-     all of its rows, or the printed page quietly claims the product does
-     less than the screen says. */
-  details.index-group > .index-in { display: grid; }
-  details.index-group::details-content { content-visibility: visible; block-size: auto; }
-  summary.index-head { cursor: auto; }
-  summary.index-head::after { display: none; }
-
-  /* In normal flow, one column, and each group's list whole on one page with
-     its header: both grids fragment badly across a page boundary, and Chrome
-     drops the row that meets one rather than moving it. */
-  .index-in { display: block; }
-  .index-note { position: static; margin-bottom: var(--s-2); }
-  .index-list { columns: 1; break-inside: avoid; }
-  .index-list li { break-inside: auto; }
-  .index-head { break-after: avoid; }
 }

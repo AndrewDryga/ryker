@@ -3,21 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Operating it — Ryker docs</title>
-<meta name="description" content="Running Ryker with Docker Compose: the lifecycle helper, upgrades, deploys, backups, exposure, health, retention, webhooks, workers and releases.">
-<!-- Unfurl metadata. og:image is relative; most unfurlers need absolute
-     URLs, so point og:image (and add og:url + rel=canonical) at the real domain
-     when the site gets one — a one-line substitution at publish time. -->
+<title>Running Ryker — Ryker docs</title>
+<meta name="description" content="Operate a self-hosted Ryker installation: upgrades, worker updates, backups, remote access, health checks, retention and recovery.">
+<!-- The static build supplies absolute canonical and social URLs. -->
 <meta property="og:type" content="website">
-<meta property="og:title" content="Operating it — Ryker docs">
-<meta property="og:description" content="Running Ryker with Docker Compose: the lifecycle helper, upgrades, deploys, backups, exposure, health, retention, webhooks, workers and releases.">
+<meta property="og:title" content="Running Ryker — Ryker docs">
+<meta property="og:description" content="Operate a self-hosted Ryker installation: upgrades, worker updates, backups, remote access, health checks, retention and recovery.">
 <meta property="og:image" content="../assets/og.png">
 <meta property="og:image:width" content="1600">
 <meta property="og:image:height" content="840">
 <meta property="og:image:alt" content="Ryker">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Operating it — Ryker docs">
-<meta name="twitter:description" content="Running Ryker with Docker Compose: the lifecycle helper, upgrades, deploys, backups, exposure, health, retention, webhooks, workers and releases.">
+<meta name="twitter:title" content="Running Ryker — Ryker docs">
+<meta name="twitter:description" content="Operate a self-hosted Ryker installation: upgrades, worker updates, backups, remote access, health checks, retention and recovery.">
 
 <meta name="color-scheme" content="dark">
 <link rel="icon" href="../assets/brand/avatar.svg" type="image/svg+xml">
@@ -34,7 +32,7 @@
     <a class="wordmark" href="../index.html"><img src="../assets/brand/lockup-color.svg" alt="Ryker" width="176" height="61"></a>
     <nav class="nav-links" aria-label="Main">
       <a href="../index.html#how">How it works</a>
-      <a href="../index.html#trust">Trust</a>
+      <a href="../index.html#trust">Your controls</a>
       <a href="index.html" class="on">Docs</a>
       <a href="https://github.com/AndrewDryga/ryker">GitHub</a>
     </nav>
@@ -42,7 +40,7 @@
       <summary aria-label="Menu">Menu</summary>
       <div class="nav-drawer">
         <a href="../index.html#how">How it works</a>
-        <a href="../index.html#trust">Trust</a>
+        <a href="../index.html#trust">Your controls</a>
         <a href="index.html">Docs</a>
         <a href="https://github.com/AndrewDryga/ryker">GitHub</a>
       </div>
@@ -61,18 +59,18 @@
           <p class="grp">Start</p>
           <ul>
             <li><a href="index.html">What Ryker is</a></li>
-            <li><a href="getting-started.html">Run it</a></li>
+            <li><a href="getting-started.html">Install Ryker</a></li>
           </ul>
           <p class="grp">Using it</p>
           <ul>
             <li><a href="slack.html">Working in Slack</a></li>
-            <li><a href="actions.html">Governed action</a></li>
+            <li><a href="actions.html">Approvals and automation</a></li>
             <li><a href="memory.html">Memory and recall</a></li>
           </ul>
-          <p class="grp">Operating it</p>
+          <p class="grp">Managing it</p>
           <ul>
-            <li><a href="control-plane.html">The control plane</a></li>
-            <li><a href="operations.html" class="on" aria-current="page">Operating it</a></li>
+            <li><a href="control-plane.html">The console</a></li>
+            <li><a href="operations.html" class="on" aria-current="page">Running Ryker</a></li>
           </ul>
         </nav>
       </div>
@@ -80,21 +78,26 @@
   </aside>
 
   <main class="doc" id="main">
-    <p class="crumb"><a href="../index.html">Ryker</a> <span>/</span> <a href="index.html">Docs</a> <span>/</span> <span>Operating it</span></p>
+    <p class="crumb"><a href="../index.html">Ryker</a> <span>/</span> <a href="index.html">Docs</a> <span>/</span> <span>Running Ryker</span></p>
+
+    <h1>Running Ryker</h1>
+
+    <p class="lede">Use the Compose helper to check Ryker, upgrade it, and protect its data. The sections below cover routine operations, remote access and recovery.</p>
 
     <details class="doc-toc">
       <summary>On this page</summary>
       <ul>
-        <li><a href="#project">The project</a></li>
+        <li><a href="#project">What runs on your host</a></li>
         <li><a href="#lifecycle">Day to day</a></li>
         <li><a href="#upgrade">Upgrade</a></li>
         <li><a href="#deploy">Deploy a commit</a></li>
         <li><a href="#backup">Backup and restore</a></li>
         <li><a href="#destroy">Destroy</a></li>
-        <li><a href="#exposure">Exposure</a></li>
+        <li><a href="#exposure">Network access and sign-in</a></li>
         <li><a href="#health">Health and recovery</a></li>
         <li><a href="#state">What survives a restart</a></li>
         <li><a href="#retention">Retention</a></li>
+        <li><a href="#weekly-report">Weekly update</a></li>
         <li><a href="#webhooks">Webhooks</a></li>
         <li><a href="#workers">Workers</a></li>
         <li><a href="#releases">Releases</a></li>
@@ -102,37 +105,48 @@
       </ul>
     </details>
 
-    <h1>Operating it</h1>
+    <h2 id="project">What runs on your host</h2>
 
-    <p class="lede">Ryker is meant to be boring to operate: one Compose project, one helper script, one database. This page covers the parts you will actually touch.</p>
+    <p>The Compose project <code>ryker</code> includes PostgreSQL (<code>database</code>), Ryker (<code>ryker</code>), the bundled co:op worker (<code>ryker-coop</code>), and the worker’s private Docker daemon (<code>ryker-coop-docker</code>). Data lives in named volumes. The owner-only <code>.ryker/compose.env</code> holds image pins, listening addresses and the keys generated at install.</p>
 
-    <h2 id="project">The project</h2>
+    <p>Voice transcription and search by meaning run in separate CPU model services beside Ryker. Together their images take about 4 GB and they use about 3.5 GB of memory; the first build downloads about 2.8 GB. If a model cannot start, Ryker reports it and continues with reduced functionality. The <a href="https://github.com/AndrewDryga/ryker/blob/main/docs/operations.md#voice-messages">model operations reference</a> covers their settings and alternatives.</p>
 
-    <p>The Compose project <code>ryker</code> runs four services: PostgreSQL (<code>database</code>), the Ryker service (<code>ryker</code>), the bundled Coop worker (<code>ryker-coop</code>), and that worker’s private Docker daemon (<code>ryker-coop-docker</code>). Their data lives in named volumes. <code>.ryker/compose.env</code>, readable only by you, holds the pinned version and image and the keys generated at install.</p>
-
-    <p>PostgreSQL is the durable record of everything in flight: requests, work, replies waiting to be delivered, follow-ups, schedules, approvals, pull requests being published, worker placement and retention. Restarting containers resumes that work. There is no second copy of deployment state to keep in step.</p>
+    <p>PostgreSQL keeps requests, work, pending replies, schedules, approvals and memory. Restarting the service resumes pending work. Back up both the database and the keys that decrypt its stored credentials.</p>
 
     <h2 id="lifecycle">Day to day</h2>
 
-    <p class="code-label">shell</p>
-    <pre><code><span class="tok-x">scripts/compose.sh</span> <span class="tok-v">status</span>
-<span class="tok-x">scripts/compose.sh</span> <span class="tok-v">logs</span>
-<span class="tok-x">scripts/compose.sh</span> <span class="tok-v">stop</span>
-<span class="tok-x">scripts/compose.sh</span> <span class="tok-v">start</span>
-<span class="tok-x">scripts/compose.sh</span> <span class="tok-v">restart</span>
-<span class="tok-x">scripts/compose.sh</span> <span class="tok-v">model-login</span></code></pre>
+    <p>Choose the command for the action you need. Each uses the same Compose project and environment file.</p>
 
-    <p>Every command uses the same project and the same environment file. <code>stop</code> keeps everything. <code>uninstall</code> removes the containers and network and keeps the volumes, the data and the keys. <code>model-login</code> signs the worker in to its model account again, Codex by default, and restarts only the worker.</p>
+    <table>
+      <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td><code>scripts/compose.sh status</code></td><td>Show the project’s containers and their state.</td></tr>
+        <tr><td><code>scripts/compose.sh logs</code></td><td>Read the service logs.</td></tr>
+        <tr><td><code>scripts/compose.sh stop</code></td><td>Stop the services and keep their data.</td></tr>
+        <tr><td><code>scripts/compose.sh start</code></td><td>Start the services using the pinned images.</td></tr>
+        <tr><td><code>scripts/compose.sh restart</code></td><td>Restart the project’s services.</td></tr>
+        <tr><td><code>scripts/compose.sh model-login</code></td><td>Sign the worker in to its model account, Codex by default, and restart only the worker.</td></tr>
+        <tr><td><code>scripts/compose.sh sign-in</code></td><td>Print a single-use console sign-in link.</td></tr>
+        <tr><td><code>scripts/compose.sh uninstall</code></td><td>Remove containers and the network while keeping volumes, data and keys.</td></tr>
+      </tbody>
+    </table>
 
     <h2 id="upgrade">Upgrade</h2>
 
-    <p>Upgrades build from your checkout; no Ryker container image is published. Move the checkout to the release you intend to run (for example <code>git checkout vX.Y.Z</code>), set <code>RYKER_VERSION</code> in <code>.ryker/compose.env</code> to that version and <code>RYKER_IMAGE</code> to the local tag to build (for example <code>ryker:X.Y.Z</code>), then:</p>
+    <p>Upgrades build from your checkout. Move it to the published commit or release you intend to run, then make a backup and upgrade:</p>
 
-    <p class="code-label">shell</p>
-    <pre><code><span class="tok-x">scripts/compose.sh</span> <span class="tok-v">backup</span>
+    <pre><code><span class="tok-x">git</span> <span class="tok-v">pull --ff-only</span>
+<span class="tok-x">scripts/compose.sh</span> <span class="tok-v">backup</span>
 <span class="tok-x">scripts/compose.sh</span> <span class="tok-v">upgrade</span></code></pre>
 
-    <p>Upgrade pulls the pinned third-party images, rebuilds the Ryker and bundled-worker images from the checkout, starts the replacements, runs database migrations as the container starts, and checks health, readiness and the exact running version. Workers enrolled on other machines are not restarted or changed.</p>
+    <p>The checkout must be clean. When it has an <code>origin</code>, the commit must be present on that remote’s <code>main</code>. The helper derives the version and image tag from the commit or annotated release tag and updates <code>.ryker/compose.env</code>; you do not need to edit those pins.</p>
+
+    <p>Upgrade builds Ryker, stops the running service, runs migrations with the new image, and starts the replacement. It checks health, readiness and the exact running version. If migration fails, Ryker stays stopped: restore the backup you took before the upgrade.</p>
+
+    <p>The running bundled worker and remote workers keep their current versions. To move the bundled worker to the co:op revision this checkout specifies, run:</p>
+    <pre><code><span class="tok-x">scripts/compose.sh</span> <span class="tok-v">worker-upgrade</span></code></pre>
+
+    <p>This prepares the new worker before replacing it, keeps its model sign-in, and waits for active commands. <code>start</code>, <code>restart</code> and <code>restore</code> use already-built images. The <a href="https://github.com/AndrewDryga/ryker/blob/main/docs/operations.md#upgrade">upgrade reference</a> covers remote installs and automatic upgrades.</p>
 
     <h2 id="deploy">Deploy a commit</h2>
 
@@ -144,10 +158,12 @@
     <ul>
       <li>It refuses a dirty tree, and a commit that is not <code>main</code>’s unless you pass <code>--allow-not-main</code> on purpose.</li>
       <li>It builds the image from a clean copy of the commit, so nothing git does not know about reaches it.</li>
-      <li>After the build succeeds, it backs the database up into <code>.ryker/backups/</code> before replacing the container.</li>
+      <li>After the build succeeds, it pauses Ryker and backs up the database and encrypted state into <code>.ryker/backups/</code>. It runs migrations with the new image before replacing the container.</li>
       <li>It replaces only the <code>ryker</code> container. PostgreSQL, the bundled worker and its Docker daemon keep running.</li>
       <li>Only once health, readiness and the exact version check out does it pin the new version in <code>.ryker/compose.env</code>.</li>
     </ul>
+
+    <p>After Ryker is ready, the script builds and starts the voice and search models, replacing only those whose image or settings changed. A model that fails to start is reported without taking Ryker down.</p>
 
     <p>If the new version fails, the script prints the container’s last log lines, stops the unverified replacement and leaves the previous version pinned. Check whether the failed release migrated the database before starting the previous image; restore the pre-deploy backup first if it did.</p>
 
@@ -157,9 +173,9 @@
     <pre><code><span class="tok-x">scripts/compose.sh</span> <span class="tok-v">backup</span>
 <span class="tok-x">scripts/compose.sh</span> <span class="tok-v">restore</span> <span class="tok-y">.ryker/backups/ryker-YYYYMMDDTHHMMSSZ.tar.gz</span></code></pre>
 
-    <p>A backup is one archive under <code>.ryker/backups/</code>, readable only by you: a PostgreSQL dump, the worker’s state, and the generated environment needed to decrypt the stored credentials. It is as sensitive as the database it restores.</p>
+    <p>A backup is an owner-only archive under <code>.ryker/backups/</code>: the PostgreSQL dump, Ryker’s private state, the worker’s sign-in and identity, and the generated environment needed to decrypt stored credentials. Keep a protected copy away from the host.</p>
 
-    <p>Restore refuses an archive whose keys differ from an existing installation. With no installation present, it restores the archived keys first, then the database, then starts Ryker and checks the exact version. A missing, wrong or damaged key must fail: never generate a new key for an existing database.</p>
+    <p>Restore checks that the archive’s keys match an existing installation. On a new installation it restores the archived keys, then the database. It pins and starts the version the backup was taken on, whose image must already be available, and checks that exact version. Keep the original keys: generating new ones cannot recover an encrypted database.</p>
 
     <h2 id="destroy">Destroy</h2>
 
@@ -170,20 +186,29 @@
 
     <p>This removes the Compose volumes and the generated environment. Without a backup, the stored credentials and history cannot be recovered.</p>
 
-    <h2 id="exposure">Exposure</h2>
+    <h2 id="exposure">Network access and sign-in</h2>
 
-    <p>Every port Ryker publishes binds to <code>127.0.0.1</code> by default, and Slack needs no inbound connection at all:</p>
+    <p>Published listeners bind to <code>127.0.0.1</code>. Keep those bindings local and use a tunnel or HTTPS reverse proxy when another machine needs access.</p>
 
     <table>
-      <thead><tr><th>Port</th><th>What</th><th>Publish it?</th></tr></thead>
+      <thead><tr><th>Port</th><th>Purpose</th><th>Remote access</th></tr></thead>
       <tbody>
-        <tr><td><code>4321</code></td><td>Control plane, <code>/healthz</code>, <code>/readyz</code>, <code>/metrics</code></td><td>Never</td></tr>
-        <tr><td><code>4319</code></td><td>GitHub App webhooks, <code>/v1/github</code></td><td>Only that path, through HTTPS</td></tr>
-        <tr><td><code>4320</code></td><td>Signed webhooks, <code>/v1/hooks/&lt;source&gt;</code></td><td>Only that path, through HTTPS</td></tr>
+        <tr><td><code>4321</code></td><td>Console, health and readiness</td><td>An SSH tunnel, Cloudflare Tunnel or Tailscale Serve. The console requires sign-in.</td></tr>
+        <tr><td><code>4319</code></td><td>GitHub App events</td><td>Optionally expose <code>/v1/github</code> through HTTPS. Ryker also retrieves App deliveries every 30 seconds.</td></tr>
+        <tr><td><code>4320</code></td><td>Signed webhooks</td><td>Expose only <code>/v1/hooks/&lt;source&gt;</code> through HTTPS when an external sender needs it.</td></tr>
       </tbody>
     </table>
 
-    <p>When GitHub or another sender has to reach Ryker, put a maintained HTTPS reverse proxy in front of those two paths and nothing else; <code>deploy/nginx/ryker.conf</code> is an example that does exactly that and answers everything else with 404. PostgreSQL and the worker’s connection are not published at all; keep it that way.</p>
+    <p>Slack uses an outbound Socket Mode connection and needs no public listener. PostgreSQL and the bundled worker’s connection stay private. <code>/metrics</code> can be read without signing in at a loopback address; at a published address, it requires a signed-in user. Health and readiness are readable by anyone who can reach their listener.</p>
+
+    <p>To access the console on a remote host through SSH, replace the host name and run this on your own computer, then open <code>http://127.0.0.1:4321</code>:</p>
+    <pre><code><span class="tok-x">ssh</span> <span class="tok-v">-N -L 4321:127.0.0.1:4321 user@your-ryker-host</span></code></pre>
+
+    <p>For a shared HTTPS address, point a tunnel at <code>http://localhost:4321</code>. Set <code>RYKER_CONTROL_PUBLIC_URL</code> in <code>.ryker/compose.env</code> to that address, then run <code>scripts/compose.sh start</code>. Ryker’s links will use it. The <a href="https://github.com/AndrewDryga/ryker/blob/main/docs/operations.md#the-console-through-cloudflare">Cloudflare setup guide</a> includes optional Access integration.</p>
+
+    <p>People sign in using <code>/ryker sign-in</code> in Slack, <strong>Open the console</strong> in App Home, an invitation from <strong>Settings › Access</strong>, or a link from <code>scripts/compose.sh sign-in</code> on the host. Everyone signed in has full access to the installation. <a href="control-plane.html#what">Sign-in methods and expiry</a>.</p>
+
+    <p>For direct webhook delivery, <a href="https://github.com/AndrewDryga/ryker/blob/main/deploy/nginx/ryker.conf">the supplied Nginx configuration</a> exposes the signed ingress paths and returns 404 elsewhere. Configure their external addresses with <code>RYKER_GITHUB_PUBLIC_URL</code> and <code>RYKER_WEBHOOK_PUBLIC_URL</code>, then run <code>scripts/compose.sh start</code>. The <a href="https://github.com/AndrewDryga/ryker/blob/main/docs/operations.md#install">network reference</a> also covers the trusted container peer if your Docker runtime reports a different forwarding address.</p>
 
     <h2 id="health">Health and recovery</h2>
 
@@ -196,7 +221,7 @@
       </tbody>
     </table>
 
-    <p>When readiness fails, check <code>scripts/compose.sh status</code>, then <code>scripts/compose.sh logs</code>. In the control plane, open the stopped request and the Failures page: they say what stopped and whether a retry should work. Do not edit database rows by hand; the retry controls keep the checks that make a retry safe.</p>
+    <p>When readiness fails, check <code>scripts/compose.sh status</code>, then <code>scripts/compose.sh logs</code>. In the console, open the stopped request and the Failures page: they say what stopped and whether a retry should work. Do not edit database rows by hand; the retry controls keep the checks that make a retry safe.</p>
 
     <h2 id="state">What survives a restart</h2>
 
@@ -223,6 +248,14 @@
 
     <p>Nothing still in use is cleaned up underneath you. Open follow-ups, blocked work, pending approvals, live schedules, unpublished changes and active incident rooms keep their history whatever its age. Working copies have <a href="actions.html#cleanup">their own cleanup rules</a>.</p>
 
+    <h2 id="weekly-report">Weekly update</h2>
+
+    <p>Turn on <strong>Settings › Weekly report</strong> to get one update a week in a Slack channel. Choose the channel and weekly send time, and invite Ryker there first. <strong>Preview this week’s report</strong> shows what it would say before you turn it on.</p>
+
+    <p>The update leads with the pull requests Ryker opened and the ones already merged, then names those still waiting for review. It includes questions waiting on people, stuck work, feedback, what it learned, and model cost. When the provider reports no price, cost is labelled as an estimate at API prices; when it cannot be calculated, the report says so.</p>
+
+    <p>The report is built from the recorded work without another model call. Turning it on starts at the next send time. <strong>Send to the channel</strong> sends a clearly labelled preview immediately, even while the weekly report is off.</p>
+
     <h2 id="webhooks">Webhooks</h2>
 
     <p>Webhook sources are set up under <strong>Integrations › Webhooks</strong>; there is no configuration file. Each source has its own address, <code>/v1/hooks/&lt;name&gt;</code>, a signing credential, and the conversation and environment its work goes to. The payload can never choose any of those.</p>
@@ -238,38 +271,30 @@
 
     <h2 id="workers">Workers</h2>
 
-    <p>Ryker runs its work on a Coop worker: a machine with your code checked out that runs the model and its tools. The bundled worker is set up for you, so most installations never change anything here.</p>
+    <p>Ryker runs its work on a co:op worker, which fetches the permitted repositories and runs the model and its tools in separate working copies. The bundled worker is set up for you, so most installations never change anything here.</p>
 
-    <p>It is a separate container. It reaches Ryker only through an outbound connection over mutual TLS, and the boxes it runs work in live in its private Docker daemon, never on the host’s Docker socket. Coop never receives Ryker’s Slack, webhook or Emisar credentials, or the GitHub App’s private key; a worker gets short-lived tokens for one repository, read-only to fetch its code and, for a publication someone approved, able to push the branch and open the pull request. A deploy never rebuilds or restarts the worker or its daemon.</p>
+    <p>It is a separate container. It reaches Ryker only through an outbound connection over mutual TLS, and the boxes it runs work in live in its private Docker daemon, never on the host’s Docker socket. co:op never receives Ryker’s Slack, webhook or Emisar credentials, or the GitHub App’s private key; a worker gets short-lived tokens for one repository, read-only to fetch its code and, for a publication someone approved, able to push the branch and open the pull request. A deploy never rebuilds or restarts the worker or its daemon.</p>
 
     <p>When requests wait because no worker can take them, start at <strong>Settings › Advanced</strong>, then check <strong>Work › Working copies</strong>, where a full worker stops taking new work.</p>
 
     <h2 id="releases">Releases</h2>
 
-    <p>Releases are tag-driven GitHub Releases: the Linux amd64 release archive, <code>checksums.txt</code>, and the signature bundle for that checksum file. GitHub records build provenance separately. There is no automatic production deployment; a published release waits for an operator to install it. No release of the current code has been published yet, so install from a checkout of <code>main</code>; the one tag, <code>v0.1.0</code>, is the earlier Go release.</p>
+    <p>Install and upgrade from the repository’s <code>main</code> branch. A tagged release, when available for the current code, includes a Linux amd64 archive, <code>checksums.txt</code> and <code>checksums.txt.bundle</code>. Check the release notes before choosing a version.</p>
 
-    <p>Verify before you use one. Put the three files in one directory and run <code>scripts/check-release.sh DIRECTORY vX.Y.Z</code>: it checks the checksum file’s signature with cosign before it trusts any checksum, then the archive. <code>gh attestation verify --repo AndrewDryga/ryker</code> checks the build provenance.</p>
+    <p>To verify a release, place its three files in one directory. Replace the directory, version and archive name below with the files you downloaded. The first command requires <code>cosign</code>; the second uses the GitHub CLI.</p>
+    <pre><code><span class="tok-x">scripts/check-release.sh</span> <span class="tok-v">DIRECTORY vX.Y.Z</span>
+<span class="tok-x">gh</span> <span class="tok-v">attestation verify DIRECTORY/ryker_X.Y.Z_elixir_linux_amd64.tar.gz --repo AndrewDryga/ryker</span></code></pre>
+
+    <p>The release check authenticates the checksum file’s signature before checking the archive. <a href="https://cli.github.com/manual/gh_attestation_verify">Attestation verification</a> checks the archive’s recorded build provenance. A published release is installed by an operator; publishing it alone does not change a running installation.</p>
 
     <h2 id="testing">How Ryker is tested</h2>
 
-    <p>There are four kinds of evidence, and no single command proves all of them:</p>
+    <p>Repository checks cover formatting, compilation, lint, database behavior and deterministic tests without calling a model. Model evaluations separately exercise recorded scenarios with real model sessions. Live acceptance checks the configured integrations, while manual journeys verify the visible result against the request’s timeline.</p>
 
-    <dl>
-      <div><dt>Deterministic gates</dt><dd><code>make dev-check</code> runs formatting, compiler warnings, lint, migrations, the test suite except its slow capacity tests in fresh databases, the control plane’s JavaScript tests and a shell-script linter. Nothing in it calls a model, and it gates every commit and every deploy. <code>make check</code> adds replays in an isolated database, the scripts’ self-tests and a simulated thirty days of retention; CI runs it on pull requests and every push to <code>main</code>.</dd></div>
-      <div><dt>Model evaluation</dt><dd><code>make eval-world</code> runs real model sessions against checked-in scenarios, the candidate against a baseline, three times each, on a dedicated evaluation worker and controller, each observation in an empty database of its own, inheriting no production settings.</dd></div>
-      <div><dt>Live acceptance</dt><dd>Runs inside the deployed <code>ryker</code> container, against the installation’s own settings, and posts only to a joined channel named <code>#test</code> or ending in <code>-test</code>.</dd></div>
-      <div><dt>Manual qualification</dt><dd>User-facing journeys through Chat, Slack, GitHub, webhooks, follow-ups and recovery. Each is complete only when the visible effect and the request’s timeline agree.</dd></div>
-    </dl>
-
-    <div class="callout good">
-      <p class="lbl">Fixtures are harvested, never invented</p>
-      <p>Almost every defect in a system like this is the program mishandling a well-formed model answer, and the exact answer that broke production is already on disk. So a fix comes with a deterministic test that replays that recorded answer, with no model and no credentials. A model giving an unusable answer is a prompt problem, and only model evaluation catches it.</p>
-    </div>
-
-    <p>A green gate is not a deploy, and a deploy is not proof that a live integration works. Keep those claims apart.</p>
+    <p>After an upgrade, check the running version and send a real request through the integration your team uses. The <a href="https://github.com/AndrewDryga/ryker/blob/main/docs/testing.md">testing guide</a> documents <code>make dev-check</code>, <code>make check</code>, model evaluation and live acceptance.</p>
 
     <nav class="doc-next" aria-label="Page navigation">
-      <a href="control-plane.html"><span class="k">Previous</span><span class="t">&larr; The control plane</span></a>
+      <a href="control-plane.html"><span class="k">Previous</span><span class="t">&larr; The console</span></a>
       <a class="next" href="index.html"><span class="k">Back to</span><span class="t">Docs home &rarr;</span></a>
     </nav>
   </main>
@@ -277,17 +302,18 @@
   <nav class="toc" aria-label="On this page">
     <p class="lbl">On this page</p>
     <ul>
-      <li><a href="#project">The project</a></li>
+      <li><a href="#project">What runs on your host</a></li>
       <li><a href="#lifecycle">Day to day</a></li>
       <li><a href="#upgrade">Upgrade</a></li>
       <li><a href="#deploy">Deploy a commit</a></li>
       <li><a href="#backup">Backup and restore</a></li>
       <li><a href="#destroy">Destroy</a></li>
-      <li><a href="#exposure">Exposure</a></li>
+      <li><a href="#exposure">Network access and sign-in</a></li>
       <li><a href="#health">Health and recovery</a></li>
       <li><a href="#state">What survives a restart</a></li>
       <li><a href="#retention">Retention</a></li>
-      <li><a href="#webhooks">Webhooks</a></li>
+      <li><a href="#weekly-report">Weekly update</a></li>
+        <li><a href="#webhooks">Webhooks</a></li>
       <li><a href="#workers">Workers</a></li>
       <li><a href="#releases">Releases</a></li>
       <li><a href="#testing">How Ryker is tested</a></li>
@@ -300,7 +326,6 @@
 <footer class="foot">
   <div class="wrap foot-in">
     <img class="foot-lockup" src="../assets/brand/lockup-color.svg" alt="Ryker" width="176" height="61">
-    <span>design-partner preview</span>
     <nav aria-label="Footer">
       <a href="index.html">Docs</a>
       <a href="https://github.com/AndrewDryga/ryker">GitHub</a>

@@ -15,6 +15,7 @@ defmodule Ryker.PublicSiteBrandTest do
   @repo_root Path.expand("../..", __DIR__)
   @site Path.join(@repo_root, "site")
   @manifest "brand/source-manifest.sha256"
+  @platform_stylesheet "site/assets/platform-ui.css"
 
   # The Ryker palette is the product's token set: the three supplied identity
   # colours and the surface, text, accent and status roles derived from them.
@@ -36,7 +37,7 @@ defmodule Ryker.PublicSiteBrandTest do
   # units, so the complete lockup reaches its 160px minimum at a 173.2px canvas.
   @lockup_min_canvas 174
 
-  test "every colour in the site's stylesheets is a Ryker palette colour" do
+  test "every colour in the site stylesheets is a Ryker palette colour" do
     palette = palette()
     for {_role, hex} <- @identity, do: assert(hex in palette)
 
@@ -64,10 +65,10 @@ defmodule Ryker.PublicSiteBrandTest do
     end
   end
 
-  test "the site sets type only in the packaged IBM Plex faces" do
+  test "the Ryker page sets type only in the packaged IBM Plex faces" do
     manifest = manifest()
 
-    for {path, css} <- stylesheets() do
+    for {path, css} <- brand_stylesheets() do
       for face <- blocks(css, "@font-face") do
         [_, url] = Regex.run(~r/url\("([^"]+)"\)/, face)
         assert Map.has_key?(@plex, url), "#{path} packages #{url}, not a supplied Plex face"
@@ -121,6 +122,33 @@ defmodule Ryker.PublicSiteBrandTest do
         href <- document |> LazyHTML.query(~s(link[as="font"])) |> LazyHTML.attribute("href") do
       assert Map.has_key?(@plex, String.replace(href, ~r{^(\.\./)?assets/}, "")),
              "#{page} preloads #{href}"
+    end
+  end
+
+  test "Slack and GitHub styling stays inside their application examples" do
+    # Andrew requested the platforms' own UI on 2026-10-23. Let those examples
+    # retain native system type while sharing the surrounding Ryker palette.
+    [{_, css}] = Enum.filter(stylesheets(), fn {path, _} -> path == @platform_stylesheet end)
+
+    for surface <- ["slack", "github"] do
+      assert [_] = blocks(css, "@scope (.#{surface}-surface)")
+    end
+
+    unscoped =
+      Regex.replace(
+        ~r/@scope\s+\(\.(?:slack|github)-surface\)\s*(\{(?:[^{}]++|(?1))*\})/,
+        css,
+        ""
+      )
+
+    assert String.trim(unscoped) == "", "platform styles can escape their application scope"
+    refute css =~ ~r/@(?:import|font-face)/
+    refute css =~ ~r/url\(\s*["']?(https?:)?\/\//
+
+    for {page, document} <- pages(), surface <- ["slack", "github"] do
+      all = LazyHTML.query(document, ".#{surface}-surface") |> Enum.count()
+      examples = LazyHTML.query(document, ".demo-viewport .#{surface}-surface") |> Enum.count()
+      assert all == examples, "#{page} applies #{surface} styling outside a product example"
     end
   end
 
@@ -194,6 +222,10 @@ defmodule Ryker.PublicSiteBrandTest do
     |> Enum.map(fn path ->
       {Path.relative_to(path, @repo_root), Regex.replace(~r{/\*.*?\*/}s, File.read!(path), "")}
     end)
+  end
+
+  defp brand_stylesheets do
+    Enum.reject(stylesheets(), fn {path, _} -> path == @platform_stylesheet end)
   end
 
   defp pages do

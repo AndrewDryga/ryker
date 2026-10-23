@@ -1,0 +1,163 @@
+/* Familiar Slack and GitHub details, reduced to the work being shown.
+   Both surfaces inherit the site's graphite, ivory and mint palette. */
+@scope (.slack-surface) {
+  :scope.slack-window {
+    color-scheme: dark; color: var(--ink); background: var(--panel);
+    font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5;
+    display: grid; grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    border: 1px solid var(--line-strong); border-radius: 9px;
+  }
+  .ui-icon { display: inline-block; width: 16px; height: 16px; flex: none; vertical-align: middle; }
+  .slack-channel { grid-row: 1; min-height: 56px; padding: 12px 18px; gap: 8px; flex-wrap: nowrap; font-size: 15px; border-bottom: 1px solid var(--line); }
+  .slack-mark { width: 24px; height: 24px; flex: none; margin-right: 8px; }
+  .slack-channel strong { font-weight: 700; line-height: 20px; }
+  .channel-hash { color: var(--dim); font-size: 21px; font-weight: 400; }
+  .slack-thread-heading { grid-row: 2; padding: 10px 18px; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .slack-thread-heading > strong { font-weight: 700; }
+  .slack-scroll { grid-row: 3; min-width: 0; min-height: 0; outline-offset: -3px; }
+  .slack-messages { padding: 0 18px 20px; }
+  .slack-working { display: none; align-items: center; gap: 12px; margin: 18px 0 0 42px; min-height: 24px; color: var(--dim); font-size: 14px; line-height: 22px; }
+  .slack-working img { display: block; width: 24px; height: 24px; flex: none; border-radius: 5px; }
+  @media (prefers-reduced-motion: no-preference) and (forced-colors: none) {
+    .slack-working > span {
+      background: linear-gradient(100deg, var(--dim) 38%, var(--ink) 50%, var(--dim) 62%) 100% 50% / 250% 100%;
+      background-clip: text;
+      -webkit-background-clip: text;
+      color: transparent;
+      animation: slack-working-shimmer 2.2s ease-in-out infinite;
+    }
+  }
+  @keyframes slack-working-shimmer {
+    from { background-position: 100% 50%; }
+    to { background-position: 0% 50%; }
+  }
+  .day-divider { gap: 0; padding: 16px 0; font-size: 12px; font-weight: 400; color: var(--dim); }
+  .day-divider > span { border: 1px solid var(--line); border-radius: 20px; padding: 3px 12px; background: var(--panel); }
+  .chat-message { grid-template-columns: 32px minmax(0, 1fr); gap: 10px; margin-top: 18px; font-size: 14px; line-height: 22px; }
+  .chat-message p + p { margin-top: 6px; }
+  .chat-message .chat-byline { font-size: 14px; line-height: 20px; font-weight: 700; margin-bottom: 3px; }
+  .chat-byline > span { font-size: 12px; font-weight: 400; margin-left: 5px; color: var(--dim); }
+  .chat-byline > .app-label { background: var(--panel-2); color: var(--dim); border: 0; border-radius: 3px; padding: 1px 3px; font-size: 10px; }
+  .product-avatar, .person-avatar { width: 32px; height: 32px; border-radius: 4px; }
+  .person-avatar { background: var(--panel-2); color: var(--ink); border: 1px solid var(--line); font-weight: 700; }
+  .message-continuation { margin-top: 4px; }
+  .message-time { font-size: 12px; color: var(--dim); }
+  .mention { color: var(--accent-text); background: var(--accent-soft); border-radius: 3px; padding: 1px 2px; }
+  code { font-family: Menlo, Consolas, monospace; background: var(--sunken); color: var(--ink); border-color: var(--line); }
+  .slack-code { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 4px; background: var(--sunken); color: var(--ink); font: 12px/20px Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .slack-context { color: var(--dim); font-size: 12px; line-height: 18px; margin-top: 10px; }
+  .message-link { color: var(--info); }
+  .slack-card { margin-top: 14px; }
+  .slack-card > p + p { margin-top: 12px; }
+  .slack-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; margin-top: 12px; }
+  .slack-fields p { margin: 0; overflow-wrap: anywhere; }
+  .slack-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .slack-action { display: inline-flex; align-items: center; min-height: 28px; padding: 3px 10px; border: 1px solid var(--line-strong); border-radius: 4px; font-size: 12px; line-height: 18px; font-weight: 700; color: var(--ink); }
+  .slack-action.primary { color: var(--accent-text); border-color: var(--accent); background: var(--accent-soft); }
+  .slack-action.danger { color: var(--bad); border-color: var(--bad); }
+  .task-stages { line-height: 23px; }
+  .task-card { margin-top: 0; }
+  .task-card > div > p + p { margin-top: 12px; }
+  .task-subtask { padding-left: 18px; }
+  .task-stages + .slack-fields { margin-top: 14px; }
+  .slack-bottom { grid-row: 4; padding: 0 16px 16px; background: var(--panel); }
+  .message-composer { border: 1px solid var(--line-strong); border-radius: 7px; padding: 0; overflow: hidden; min-height: 76px; background: var(--panel); font-size: 12px; color: var(--dim); }
+  .composer-input { padding: 10px 12px; min-height: 42px; color: inherit; }
+  .composer-tools { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 2px 10px 8px; margin: 0; color: var(--dim); }
+  .composer-tools-left { display: flex; align-items: center; gap: 12px; }
+  .composer-tools-left .ui-icon { width: 16px; height: 16px; }
+  .composer-format { font-size: 13px; text-decoration: underline; margin: 0; }
+  .composer-plus { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--panel-2); font-size: 20px; }
+  .send-arrow { display: flex; align-items: center; gap: 7px; width: auto; height: 24px; padding: 0 6px; color: var(--dim); background: var(--panel-2); border-radius: 4px; }
+  .send-arrow > span { padding-left: 5px; border-left: 1px solid var(--line-strong); font-size: 12px; }
+  @container (max-width: 380px) {
+    .slack-channel { font-size: 14px; padding-inline: 12px; gap: 6px; }
+    .slack-mark { margin-right: 4px; }
+    .slack-thread-heading, .slack-messages { padding-inline: 12px; }
+    .slack-fields { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  }
+}
+
+@scope (.github-surface) {
+  :scope.github-window {
+    --diff-green: #183326; --diff-red: #402321; --status-blue: #172b38;
+    color-scheme: dark; color: var(--ink); background: var(--panel);
+    border: 1px solid var(--line-strong); border-radius: 8px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 14px; line-height: 1.5;
+    overflow-y: auto;
+  }
+  .github-repo, .pr-heading, .example-pr-heading, .pr-tabs { flex-shrink: 0; }
+  :scope .pr-scroll, :scope .slack-scroll { min-height: 140px; }
+  .ui-icon { display: inline-block; width: 14px; height: 14px; flex: none; vertical-align: middle; }
+  .github-repo { display: flex; flex-wrap: nowrap; gap: 12px; padding: 12px 18px; min-height: 56px; border-bottom: 1px solid var(--line); background: var(--panel); font-size: 12px; }
+  .github-repo > span { min-width: 0; flex: 1; }
+  .github-repo strong { font-weight: 600; }
+  .github-repo .github-mark { width: 26px; height: 26px; flex: none; filter: invert(1); opacity: .93; }
+  .repo-slash { margin-inline: 5px; color: var(--dim); }
+  .pr-heading, .example-pr-heading { padding: 18px 18px 12px; border: 0; }
+  .pr-heading h3, .example-pr-heading h4 { margin: 0; color: var(--ink); font-family: inherit; font-size: 22px; line-height: 28px; font-weight: 400; letter-spacing: -.025em; text-wrap: initial; }
+  .pr-number { color: var(--dim); white-space: nowrap; }
+  .pr-branch { gap: 7px; flex-wrap: wrap; color: var(--dim); font-size: 12px; margin-top: 9px; line-height: 20px; }
+  .pr-branch code { color: var(--info); background: var(--status-blue); border: 0; font: 12px Menlo, Consolas, monospace; padding: 2px 4px; }
+  .pr-state, .example-open { display: inline-flex; gap: 5px; align-items: center; padding: 3px 9px; background: var(--panel-2); color: var(--dim); border: 1px solid var(--line-strong); border-radius: 20px; font-size: 12px; line-height: 18px; }
+  .pr-state.is-open, .example-open { background: var(--diff-green); color: var(--good); border-color: var(--good); }
+  .pr-state.is-merged { background: var(--status-blue); color: var(--info); border-color: var(--info); }
+  .example-open { margin: 0; }
+  .pr-tabs { display: flex; flex-wrap: wrap; gap: 0 12px; padding-inline: 18px; font-size: 12px; border-bottom: 1px solid var(--line); }
+  .pr-tabs > span:not(.diff-totals) { display: inline-flex; align-items: center; gap: 4px; padding: 8px 0; }
+  .pr-tabs > span.is-selected { border-bottom-color: var(--accent); font-weight: 600; }
+  .pr-tabs i { font-style: normal; background: var(--panel-2); color: var(--dim); border-radius: 20px; padding: 0 5px; font-size: 12px; margin: 0; }
+  .pr-tabs .diff-totals { display: none; }
+  .pr-body { padding: 14px; }
+  .pr-description { font-size: 12px; color: var(--dim); }
+  .pr-description img { border-radius: 50%; }
+  code { font-family: Menlo, Consolas, monospace; }
+  .diff-file { border: 1px solid var(--line); border-radius: 6px; margin-bottom: 14px; }
+  .diff-filename { padding: 8px 10px; background: var(--panel-2); border-bottom: 1px solid var(--line); font-size: 12px; }
+  .diff-filename code { padding: 0; background: transparent; color: var(--ink); border: 0; font-size: 12px; }
+  .diff-code { display: grid; grid-template-columns: minmax(100%, max-content); background: var(--sunken); padding-block: 4px; overflow-x: auto; overscroll-behavior-x: contain; }
+  .diff-code > div { display: grid; grid-template-columns: 4ch 4ch 2ch minmax(0, 1fr); padding: 0 8px 0 0; font: 12px/22px Menlo, Consolas, monospace; color: var(--ink); }
+  .diff-code > div > span { color: var(--dim); text-align: right; padding-right: 5px; font-size: 12px; white-space: nowrap; user-select: none; }
+  .diff-code > div > .diff-sign { text-align: center; padding-right: 0; }
+  .diff-code code { font: inherit; white-space: pre; overflow-wrap: normal; }
+  .diff-code .diff-added { background: var(--diff-green); color: var(--ink); }
+  .diff-code .diff-removed { background: var(--diff-red); color: var(--ink); }
+  .diff-code .diff-added > span { color: var(--good); }
+  .diff-code .diff-removed > span { color: var(--bad); }
+  .syntax-string { color: var(--info); }
+  .pr-checks { border-color: var(--line); border-radius: 6px; }
+  .checks-heading { background: var(--panel-2); padding: 10px 12px; font-size: 12px; }
+  .check-row { padding-block: 9px; font-size: 12px; }
+  .check-result { font-size: 12px; }
+  .review-comment, .chat-message { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 9px; padding: 0; margin-top: 16px; border: 0; font-size: 14px; line-height: 22px; }
+  .review-comment > div, .chat-message > div { border: 1px solid var(--line); border-radius: 6px; min-width: 0; overflow: hidden; }
+  .review-comment .chat-byline, .chat-message .chat-byline { margin: 0; padding: 8px 10px; background: var(--panel-2); border-bottom: 1px solid var(--line); font-size: 12px; line-height: 17px; font-weight: 600; }
+  .chat-byline > span { color: var(--dim); font-size: 12px; font-weight: 400; }
+  .chat-byline > .app-label { background: transparent; border: 1px solid var(--line-strong); border-radius: 20px; padding: 0 5px; font-size: 11px; text-transform: lowercase; }
+  .review-comment > div > p:not(.chat-byline), .chat-message > div > p:not(.chat-byline) { margin: 0; padding: 10px; }
+  .review-comment > div > p + p:not(.chat-byline), .chat-message > div > p + p:not(.chat-byline) { padding-top: 8px; }
+  .product-avatar, .person-avatar { width: 28px; height: 28px; border-radius: 50%; }
+  .person-avatar { background: var(--panel-2); color: var(--ink); border: 1px solid var(--line); font-weight: 600; }
+  .mention { color: var(--accent-text); }
+  .review-location { background: var(--panel-2); color: var(--dim); font: 12px/20px Menlo, Consolas, monospace; }
+  .review-verdict { margin-left: 37px; font-size: 12px; color: var(--ink); }
+  .review-verdict > span { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--diff-red); color: var(--bad); font-weight: 600; }
+  .merge-event { margin-left: 37px; padding-top: 18px; border-top: 1px solid var(--line); margin-top: 18px; }
+  .merge-event > span { display: grid; place-items: center; flex: none; width: 28px; height: 28px; border-radius: 50%; background: var(--status-blue); color: var(--info); font-size: 17px; }
+  .slack-messages { padding: 0 14px 18px; }
+  @container (max-width: 440px) {
+    .github-repo { padding: 12px; gap: 8px; }
+    .pr-heading, .example-pr-heading { padding: 14px 12px 10px; }
+    .pr-heading h3, .example-pr-heading h4 { font-size: 18px; line-height: 23px; }
+    .pr-tabs { gap: 0 10px; padding-inline: 12px; font-size: 12px; }
+    .pr-tabs .ui-icon { display: none; }
+    .pr-tabs > span.checks-tab, .pr-tabs > span.commits-tab { display: none; }
+    .pr-body { padding: 12px; }
+    .diff-code > div { grid-template-columns: 4ch 4ch 2ch minmax(0, 1fr); font-size: 12px; line-height: 22px; padding-right: 6px; }
+    .diff-filename code { font-size: 12px; }
+    .review-comment, .chat-message { grid-template-columns: 24px minmax(0, 1fr); gap: 7px; }
+    .product-avatar, .person-avatar { width: 24px; height: 24px; }
+  }
+}

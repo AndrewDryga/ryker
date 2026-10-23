@@ -4,21 +4,20 @@ This directory is the public marketing site and its seven documentation pages.
 It is separate from Ryker's authenticated control plane and webhook service.
 Never expose the application or upload the repository root to host these pages.
 
-The launch hostname and hosting ownership have not been established in this
-checkout. Do not infer them from an application endpoint or a repository name.
-The source HTML deliberately has no guessed canonical origin.
+The public origin is **https://ryker.emisar.dev**. GitHub Pages hosts the site
+from `AndrewDryga/ryker`; Google Cloud DNS serves the `emisar.dev` zone, managed
+by Emisar's `infra/dns.tf`. GitHub provisions the HTTPS certificate.
 
 ## Build and verify
 
-After verifying the intended hostname and its hosting account, build with that
-exact HTTPS origin:
+Build the production artifact:
 
 ```sh
-node --test test/js/marketing_site_test.mjs
-node scripts/build-site.mjs --origin "$RYKER_PUBLIC_ORIGIN" --out dist/site
+node --test test/js/marketing_site_test.mjs test/js/marketing_interactions_test.mjs
+node scripts/build-site.mjs --origin https://ryker.emisar.dev --out dist/site
 ```
 
-`RYKER_PUBLIC_ORIGIN` has no default. It must be a root HTTPS origin. Hosting
+The `--origin` argument has no default. It must be a root HTTPS origin. Hosting
 under a path prefix is not supported by this build. The builder copies only the
 eight listed HTML pages and `site/assets/`, writes absolute canonical and social
 URLs, and emits a sitemap, robots.txt, `.nojekyll`, and a CNAME for a custom host.
@@ -28,18 +27,33 @@ them. `dist/` is ignored. Upload only `dist/site/` after reviewing it.
 The Node test uses `site-build.invalid` in a disposable directory; that is test
 data, never a production domain. The existing JavaScript CI gate runs this test.
 
-## Release evidence
+## Deployment
 
-Before publication, verify DNS ownership, the HTTPS host, the hosting project,
-and the responsible owner. Choose a static host; no application credentials,
-database, private conversations or customer evidence belong in this artifact.
-No new automatic deployment workflow is enabled by this change.
+`.github/workflows/pages.yml` tests, builds and deploys site changes pushed to
+`main`. It can also be dispatched manually from `main`. The `github-pages`
+environment accepts only that branch. Only the deploy job receives Pages and
+OIDC write permissions; no cloud credentials are needed by this workflow.
+
+Repository Settings → Pages uses **GitHub Actions**, with custom domain
+`ryker.emisar.dev` and **Enforce HTTPS** enabled once the certificate is ready.
+The custom domain must be configured in Pages before pointing DNS at GitHub;
+the generated CNAME file alone does not configure an Actions deployment.
+The DNS record is `ryker.emisar.dev. CNAME andrewdryga.github.io.` with a
+300-second TTL. Manage changes through Emisar's Terraform deployment process.
+
+To republish, rerun the `pages` workflow on the desired current `main` commit.
+To roll back content, revert the site change on `main` and let Pages deploy it.
+This workflow does not deploy or restart the Ryker application.
+
+## Publication checks
 
 After publication, check the home page and all seven docs, canonical URLs,
 social images, sitemap and robots response on the actual host. Confirm that
 unknown paths return 404. Add the verified property to Search Console and Bing
 Webmaster Tools, submit the sitemap, and record indexing separately from delivery.
 
-The current CTA is a design-partner email. A click expresses interest; only an
-actual qualified conversation is a conversion. Do not report zero conversions
-when the inbox or attribution data is unavailable.
+The primary CTA leads to the installation guide; the secondary contact link opens
+an email to the builder. Track setup starts, completed setup and qualified
+conversations separately when measurement is available. A click alone does not
+prove that someone installed Ryker. Do not report zero conversions when inbox
+or attribution data is unavailable.

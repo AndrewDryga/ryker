@@ -71,22 +71,43 @@
         btn.setAttribute("aria-label", "Copy this code");
         wrap.appendChild(btn);
 
+        var status = document.createElement("span");
+        status.className = "copy-status vh";
+        status.setAttribute("role", "status");
+        wrap.appendChild(status);
+
         var reset;
         btn.addEventListener("click", function () {
+          status.textContent = "";
           navigator.clipboard.writeText(pre.textContent.replace(/\s+$/, "")).then(
-            function () { say("Copied", true); },
-            function () { say("Press ⌘C", false); }
+            function () { say("Copied", "Code copied.", true); },
+            function () {
+              var selection = window.getSelection();
+              if (selection) {
+                var range = document.createRange();
+                range.selectNodeContents(pre);
+                selection.removeAllRanges();
+                selection.addRange(range);
+              }
+              say(selection ? "Code selected" : "Select and copy",
+                selection ? "Code selected. Use your browser’s Copy command." : "Select the code and use your browser’s Copy command.", false);
+            }
           );
         });
 
-        function say(text, ok) {
+        function say(text, message, ok) {
           btn.textContent = text;
+          btn.setAttribute("aria-label", message);
+          btn.title = message;
+          status.textContent = message;
           btn.classList.toggle("done", ok);
           window.clearTimeout(reset);
           reset = window.setTimeout(function () {
             btn.textContent = "Copy";
+            btn.setAttribute("aria-label", "Copy this code");
+            btn.title = "";
             btn.classList.remove("done");
-          }, 1600);
+          }, ok ? 1600 : 4000);
         }
       }
     );
