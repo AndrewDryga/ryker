@@ -335,6 +335,7 @@
   .work-overview { max-width: 600px; margin-inline: auto; padding-top: 48px; }
   .example-panel { min-height: 0; }
   .example-tabs { max-width: 600px; margin-inline: auto; }
+  .everyday-section .example-tabs a { padding-inline: 12px; }
   :is(.examples-section, .everyday-section) .home-section-heading { max-width: 600px; margin-inline: auto; }
   .feature-notes { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 40px; }
 }
@@ -343,6 +344,8 @@
   .home-page .nav-menu { margin-left: auto; }
   .example-tabs { margin-top: 24px; gap: 0; }
   .example-tabs a { flex: 1 1 50%; padding: 10px 8px; justify-content: center; font-size: 12px; gap: 6px; }
+  .everyday-section .example-tabs a { flex-basis: 33.333%; padding-inline: 8px; }
+  .everyday-section .example-tabs a:nth-child(n + 4) { flex-basis: 50%; }
   .example-tabs a > span { font-size: 17px; }
   .review-verdict { margin-left: 38px; }
   .example-pr-heading { padding-inline: 12px; }
