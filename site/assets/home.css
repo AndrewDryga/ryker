@@ -297,10 +297,10 @@
 .home-page .nav-links { gap: 22px; }
 .example-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 36px; border-bottom: 1px solid var(--line-strong); }
 .example-tabs a { display: inline-flex; align-items: center; gap: 10px; min-height: 56px; padding: 12px 24px; color: var(--dim); font-size: 15px; border-bottom: 2px solid transparent; margin-bottom: -1px; text-decoration: none; }
-.example-tabs a > span { color: var(--dim); font-size: 21px; }
+.example-tabs a > span { color: inherit; font-size: 21px; }
 .example-tabs a[aria-selected="true"] { color: var(--ink); border-color: var(--accent); }
 .example-tabs a[aria-selected="true"] > span { color: var(--accent-text); }
-.example-tabs a:hover { color: var(--ink); background: var(--panel); }
+.example-tabs a:hover { color: var(--ink); }
 .example-panel { min-height: 652px; }
 .example-panel + .example-panel { border-top: 0; }
 .example-panel[role="tabpanel"] { padding-bottom: 0; }
