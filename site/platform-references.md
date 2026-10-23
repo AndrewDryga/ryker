@@ -168,3 +168,21 @@ The screenshots explain inspecting the saved briefing and configuring the model;
 surrounding copy also points to actual Instructions, Memory, Channels and Environments
 pages. The repeated standalone approval demo was removed. Approval remains part of the
 Emisar explanation and the alert example. Native Slack payloads are unchanged.
+
+
+## Everyday feature illustrations — 23 October 2026
+
+“Fits the way you work” now pairs its six features with lightweight HTML/SVG
+illustrations: a voice clip and reply, a chart attachment, a weekly update,
+browser chat, channel participation, and incoming events. These are public
+example compositions, not production screenshots or native delivery proof.
+The only image assets are the existing supplied Ryker avatar. The illustrations
+have image descriptions and contain no focusable or operational controls.
+
+The weekly update follows `Ryker.WeeklyReport.Digest`: plain prose, merged PRs
+first, then the PR awaiting review. Its crop uses example titles and counts.
+Browser chat follows `ControlPlane.LabPage`’s message, composer, file attachment
+and environment arrangement. Channel participation wording comes from
+`ControlPlane.ChannelsPage`; the event diagram illustrates configured sources.
+The chart is example tool-produced output, not a built-in charting screen.
+No native Slack payload, card design, runtime component or integration changed.
