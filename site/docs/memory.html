@@ -55,24 +55,26 @@
     <details>
       <summary>Documentation</summary>
       <div>
-        <nav aria-label="Documentation">
-          <p class="grp">Start</p>
-          <ul>
-            <li><a href="index.html">What Ryker is</a></li>
-            <li><a href="getting-started.html">Install Ryker</a></li>
-          </ul>
-          <p class="grp">Using it</p>
-          <ul>
-            <li><a href="slack.html">Working in Slack</a></li>
-            <li><a href="actions.html">Approvals and automation</a></li>
-            <li><a href="memory.html" class="on" aria-current="page">Memory and recall</a></li>
-          </ul>
-          <p class="grp">Managing it</p>
-          <ul>
-            <li><a href="control-plane.html">The console</a></li>
-            <li><a href="operations.html">Running Ryker</a></li>
-          </ul>
-        </nav>
+        <nav aria-label="Documentation"><p class="grp">Start</p><ul>
+<li><a href="../docs/index.html">What Ryker is</a></li>
+<li><a href="../docs/getting-started.html">Install Ryker</a></li>
+</ul>
+<p class="grp">Walkthroughs</p><ul>
+<li><a href="../guides/first-code-change.html">Your first code change</a></li>
+<li><a href="../guides/investigate-an-alert.html">Investigate an alert</a></li>
+</ul>
+<p class="grp">Using it</p><ul>
+<li><a href="../docs/slack.html">Working in Slack</a></li>
+<li><a href="../docs/github.html">Working with GitHub</a></li>
+<li><a href="../docs/actions.html">Approvals and automation</a></li>
+<li><a href="../docs/memory.html" class="on" aria-current="page">Memory and recall</a></li>
+</ul>
+<p class="grp">Managing it</p><ul>
+<li><a href="../docs/control-plane.html">The console</a></li>
+<li><a href="../docs/operations.html">Running Ryker</a></li>
+<li><a href="../docs/security.html">Access and data</a></li>
+</ul>
+</nav>
       </div>
     </details>
   </aside>
@@ -164,7 +166,7 @@
 
     <h2 id="instructions">Instructions</h2>
 
-    <p>Instructions tell Ryker how to work, in your own words, and they are written directly in the console rather than confirmed in conversation. One field applies to every conversation; each channel can add its own on its page, and where the two disagree, the channel wins. Each holds up to 2,000 characters.</p>
+    <p>Write instructions directly in the console to tell Ryker how to work. The installation-wide field applies to every conversation. A channel can add its own instructions, which take priority where the two disagree. Each field holds up to 2,000 characters.</p>
 
     <p>Every new request carries a snapshot of the instructions that applied when it started; work already running keeps what it started with. Instructions never give Ryker permission to do more, and the model cannot edit them.</p>
 
@@ -183,7 +185,7 @@
 
     <h2 id="retention">How long it lasts</h2>
 
-    <p>Conversation memory is kept for 90 days by default, set under <strong>Settings › Data retention</strong>. Editing or deleting the original message, or losing access to it, can make what was derived from it unavailable sooner, and reading a memory does not renew it. The memory pages show where each item came from, when it changed and when it expires, separately.</p>
+    <p>Conversation memory lasts 90 days by default. Change this under <strong>Settings › Data retention</strong>. Reading a memory does not extend its life. If the original message changes, is deleted or becomes inaccessible, the memory may become unavailable sooner. Each memory’s page shows its source, updates and expiry.</p>
 
     <p>Facts that apply everywhere do not expire on their own; other facts end at their own expiry, or once they go unused for as long as conversation memory is kept. Past cases have no routine expiry, but deleting the original message erases the text of every case built from it.</p>
 
@@ -218,7 +220,7 @@
     <nav aria-label="Footer">
       <a href="index.html">Docs</a>
       <a href="https://github.com/AndrewDryga/ryker">GitHub</a>
-      <a href="https://github.com/AndrewDryga/ryker/blob/main/SECURITY.md">Security</a>
+      <a href="../docs/security.html">Access and data</a>
     </nav>
   </div>
   <div class="wrap foot-sub">

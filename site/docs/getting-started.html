@@ -55,24 +55,26 @@
     <details>
       <summary>Documentation</summary>
       <div>
-        <nav aria-label="Documentation">
-          <p class="grp">Start</p>
-          <ul>
-            <li><a href="index.html">What Ryker is</a></li>
-            <li><a href="getting-started.html" class="on" aria-current="page">Install Ryker</a></li>
-          </ul>
-          <p class="grp">Using it</p>
-          <ul>
-            <li><a href="slack.html">Working in Slack</a></li>
-            <li><a href="actions.html">Approvals and automation</a></li>
-            <li><a href="memory.html">Memory and recall</a></li>
-          </ul>
-          <p class="grp">Managing it</p>
-          <ul>
-            <li><a href="control-plane.html">The console</a></li>
-            <li><a href="operations.html">Running Ryker</a></li>
-          </ul>
-        </nav>
+        <nav aria-label="Documentation"><p class="grp">Start</p><ul>
+<li><a href="../docs/index.html">What Ryker is</a></li>
+<li><a href="../docs/getting-started.html" class="on" aria-current="page">Install Ryker</a></li>
+</ul>
+<p class="grp">Walkthroughs</p><ul>
+<li><a href="../guides/first-code-change.html">Your first code change</a></li>
+<li><a href="../guides/investigate-an-alert.html">Investigate an alert</a></li>
+</ul>
+<p class="grp">Using it</p><ul>
+<li><a href="../docs/slack.html">Working in Slack</a></li>
+<li><a href="../docs/github.html">Working with GitHub</a></li>
+<li><a href="../docs/actions.html">Approvals and automation</a></li>
+<li><a href="../docs/memory.html">Memory and recall</a></li>
+</ul>
+<p class="grp">Managing it</p><ul>
+<li><a href="../docs/control-plane.html">The console</a></li>
+<li><a href="../docs/operations.html">Running Ryker</a></li>
+<li><a href="../docs/security.html">Access and data</a></li>
+</ul>
+</nav>
       </div>
     </details>
   </aside>
@@ -95,6 +97,8 @@
         <li><a href="#defaults">Choose what happens next</a></li>
       </ul>
     </details>
+
+    <p>Evaluating Ryker? The source is available under <a href="security.html#license">Business Source License 1.1</a>; production use requires a commercial license.</p>
 
     <h2 id="requirements">What you need</h2>
 
@@ -129,7 +133,7 @@
 
     <ol>
       <li><strong>Connect Slack.</strong> Create an app from <a href="https://github.com/AndrewDryga/ryker/blob/main/deploy/slack-app-manifest.yaml">Ryker’s Slack manifest</a>. Generate an app-level token with <code>connections:write</code>, install the app, and paste its app token and bot token into Ryker. Choose who can manage it.</li>
-      <li><strong>Connect GitHub.</strong> Create and install a GitHub App using the checklist below. Enter its App ID and private key in Ryker, then copy the webhook settings Ryker supplies into the App’s settings.</li>
+      <li><strong>Connect GitHub.</strong> Create and install a GitHub App using <a href="github.html">the GitHub setup guide</a>. Enter its App ID and private key in Ryker, then copy the webhook settings Ryker supplies into the App’s settings.</li>
       <li><strong>Add repositories.</strong> Choose the repositories Ryker may use. It reads each one and keeps its reference notes under <strong>Work › Repositories</strong>, without opening a pull request or changing your files. Under <strong>Work › Environments</strong>, create an environment and choose its repositories and their read-only or read/write access.</li>
       <li><strong>Invite Ryker.</strong> In your Slack channel, send <code>/invite @Ryker</code>. It posts a welcome message.</li>
       <li><strong>Choose the channel’s environment.</strong> Select it under <strong>Work › Channels</strong> or press <strong>Customize</strong> on the welcome message. A channel uses the default environment if one was already chosen when it joined.</li>
@@ -137,19 +141,6 @@
     </ol>
 
     <p>Connect Emisar under <strong>Integrations › Emisar</strong> when you want Ryker to investigate or act on running systems. It is optional. The first connected account is assigned to environments that have none; later accounts are assigned on the Environments page.</p>
-
-    <h3 id="github-app">Create the GitHub App</h3>
-
-    <p>In your GitHub account or organization settings, open <strong>Developer settings › GitHub Apps › New GitHub App</strong>. GitHub’s <a href="https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app">registration guide</a> covers the form.</p>
-
-    <ul>
-      <li><strong>Repository permissions:</strong> Contents, Issues and Pull requests need read/write access for code changes and replies. Checks and Commit statuses need read access. Actions needs read access to inspect CI, or read/write if Ryker should rerun or cancel workflows. Metadata is read-only.</li>
-      <li><strong>Events:</strong> subscribe to Issue comment, Issues, Pull request, Pull request review and Pull request review comment. Add Check run, Check suite, Status, Workflow run and Workflow job for CI follow-ups, plus Repository for repository changes. The <a href="https://github.com/AndrewDryga/ryker/blob/main/docs/elixir-ingress-admission.md">GitHub adapter reference</a> lists the full supported event set.</li>
-      <li><strong>Install the App</strong> on the repositories Ryker should access. Generate a private key and keep the App ID for Ryker’s connection form.</li>
-      <li><strong>Keep webhooks active.</strong> Use the Webhook URL and secret Ryker supplies. Ryker also retrieves the App’s deliveries every 30 seconds, so GitHub does not need a direct route to your host. To receive events directly, expose only <code>/v1/github</code> through HTTPS; <a href="operations.html#exposure">see network access</a>.</li>
-    </ul>
-
-    <p>The App grants access to repositories; your environment then chooses which ones each conversation can use. Opening draft pull requests is a separate Ryker setting, off until you enable it.</p>
 
     <h2 id="verify">Get your first answer</h2>
 
@@ -178,7 +169,7 @@
 
     <p>New channels start with mentions only unless you changed the installation default. Background learning is on by default. Proactive participation, draft pull requests and weekly reports are separate choices you can enable when you are ready.</p>
 
-    <p>Try <a href="slack.html#setup">Be proactive</a> in one channel, ask for a <a href="actions.html#schedules">scheduled check</a>, or <a href="memory.html#confirmed">save a team decision</a>. Changes to running systems follow the policy and approvals of the Emisar account you connected.</p>
+    <p>Follow <a href="../guides/first-code-change.html">your first code change</a> or <a href="../guides/investigate-an-alert.html">investigate an alert</a>. You can also try <a href="slack.html#setup">Be proactive</a> in one channel, ask for a <a href="actions.html#schedules">scheduled check</a>, or <a href="memory.html#confirmed">save a team decision</a>. Changes to running systems follow the policy and approvals of the Emisar account you connected.</p>
 
     <nav class="doc-next" aria-label="Page navigation">
       <a href="index.html"><span class="k">Previous</span><span class="t">&larr; What Ryker is</span></a>
@@ -207,7 +198,7 @@
     <nav aria-label="Footer">
       <a href="index.html">Docs</a>
       <a href="https://github.com/AndrewDryga/ryker">GitHub</a>
-      <a href="https://github.com/AndrewDryga/ryker/blob/main/SECURITY.md">Security</a>
+      <a href="../docs/security.html">Access and data</a>
     </nav>
   </div>
   <div class="wrap foot-sub">

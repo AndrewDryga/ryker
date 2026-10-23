@@ -1,6 +1,6 @@
 # Public Ryker website
 
-This directory is the public marketing site and its seven documentation pages.
+This directory holds the public marketing site, documentation and walkthroughs.
 It is separate from Ryker's authenticated control plane and webhook service.
 Never expose the application or upload the repository root to host these pages.
 
@@ -19,10 +19,21 @@ node scripts/build-site.mjs --origin https://ryker.emisar.dev --out dist/site
 
 The `--origin` argument has no default. It must be a root HTTPS origin. Hosting
 under a path prefix is not supported by this build. The builder copies only the
-eight listed HTML pages and `site/assets/`, writes absolute canonical and social
-URLs, and emits a sitemap, robots.txt, `.nojekyll`, and a CNAME for a custom host.
+twelve listed HTML pages and `site/assets/`, writes absolute canonical and social
+URLs and structured product/breadcrumb data, and emits a sitemap, robots.txt,
+llms.txt, `.nojekyll`, and a CNAME for a custom host.
 It refuses unexpected output files rather than silently publishing or deleting
 them. `dist/` is ignored. Upload only `dist/site/` after reviewing it.
+
+The build rejects broken local links and fragments, duplicate titles/descriptions and
+duplicate anchor IDs before writing output. Social titles and descriptions come
+from each page’s metadata. New pages belong in `pages` in `scripts/build-site.mjs`,
+the documentation navigation and the docs overview.
+
+`llms.txt` is a generated documentation index for readers and agents. It makes no
+claim about rankings or AI citations. Ordinary crawlable HTML remains the source.
+The existing allow-all crawler policy is unchanged; training preferences are a
+separate owner decision.
 
 The Node test uses `site-build.invalid` in a disposable directory; that is test
 data, never a production domain. The existing JavaScript CI gate runs this test.
@@ -47,7 +58,7 @@ This workflow does not deploy or restart the Ryker application.
 
 ## Publication checks
 
-After publication, check the home page and all seven docs, canonical URLs,
+After publication, check all twelve pages, canonical URLs,
 social images, sitemap and robots response on the actual host. Confirm that
 unknown paths return 404. Add the verified property to Search Console and Bing
 Webmaster Tools, submit the sitemap, and record indexing separately from delivery.

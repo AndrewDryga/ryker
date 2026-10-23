@@ -55,24 +55,26 @@
     <details>
       <summary>Documentation</summary>
       <div>
-        <nav aria-label="Documentation">
-          <p class="grp">Start</p>
-          <ul>
-            <li><a href="index.html">What Ryker is</a></li>
-            <li><a href="getting-started.html">Install Ryker</a></li>
-          </ul>
-          <p class="grp">Using it</p>
-          <ul>
-            <li><a href="slack.html" class="on" aria-current="page">Working in Slack</a></li>
-            <li><a href="actions.html">Approvals and automation</a></li>
-            <li><a href="memory.html">Memory and recall</a></li>
-          </ul>
-          <p class="grp">Managing it</p>
-          <ul>
-            <li><a href="control-plane.html">The console</a></li>
-            <li><a href="operations.html">Running Ryker</a></li>
-          </ul>
-        </nav>
+        <nav aria-label="Documentation"><p class="grp">Start</p><ul>
+<li><a href="../docs/index.html">What Ryker is</a></li>
+<li><a href="../docs/getting-started.html">Install Ryker</a></li>
+</ul>
+<p class="grp">Walkthroughs</p><ul>
+<li><a href="../guides/first-code-change.html">Your first code change</a></li>
+<li><a href="../guides/investigate-an-alert.html">Investigate an alert</a></li>
+</ul>
+<p class="grp">Using it</p><ul>
+<li><a href="../docs/slack.html" class="on" aria-current="page">Working in Slack</a></li>
+<li><a href="../docs/github.html">Working with GitHub</a></li>
+<li><a href="../docs/actions.html">Approvals and automation</a></li>
+<li><a href="../docs/memory.html">Memory and recall</a></li>
+</ul>
+<p class="grp">Managing it</p><ul>
+<li><a href="../docs/control-plane.html">The console</a></li>
+<li><a href="../docs/operations.html">Running Ryker</a></li>
+<li><a href="../docs/security.html">Access and data</a></li>
+</ul>
+</nav>
       </div>
     </details>
   </aside>
@@ -159,11 +161,13 @@
 
     <h2 id="alerts">Alert answers</h2>
 
+    <p><a href="../guides/investigate-an-alert.html">Investigate an alert step by step</a>, from connecting Emisar to checking the result.</p>
+
     <p>When a monitoring app posts, Ryker does not repeat the alert back to you. It checks what your repositories say should be running against fresh live evidence, through Emisar or your monitoring tools, and answers with a verdict: <strong>confirmed</strong>, <strong>likely</strong>, <strong>disproved</strong> or <strong>still unverified</strong>, with the impact. For a confirmed or likely issue, the answer includes a suggested immediate mitigation and a proposed lasting fix.</p>
 
     <p>An answer that only restates the symptoms is sent back to the same run for more investigation before anyone sees it. A Terraform review needs the exact plan, from the message or a read-only tool; Ryker does not guess it from the repository.</p>
 
-    <p>A <strong>Sources</strong> footer lists only links that a tool actually returned during the same investigation. A link the model wrote itself is left out.</p>
+    <p>Replies can cite evidence directly in the text. When Ryker adds a <strong>Sources</strong> footer, it includes only links resolved from evidence collected during that investigation.</p>
 
     <h2 id="incidents">Incident rooms</h2>
 
@@ -176,6 +180,8 @@
     <p>Archiving the channel pauses the investigation until someone unarchives it. Deleting it closes the room, and Ryker says so in the alert’s thread; a reply it still owed the room goes there instead. By default a workspace can have 25 rooms open at once.</p>
 
     <h2 id="tasks">Engineering tasks</h2>
+
+    <p>For a complete example, follow <a href="../guides/first-code-change.html">your first code change</a>.</p>
 
     <p>When someone explicitly asks for a change to code, the reply can carry a <strong>Start task</strong> button. Any active full member of the workspace can press it. Nothing writable exists until then.</p>
 
@@ -246,7 +252,7 @@
         <tr><td>Save a fact, preference, rule or schedule</td><td>Configured operator</td></tr>
         <tr><td>Publish a draft PR, stop, close, or discard work</td><td>Configured operator</td></tr>
         <tr><td>Use <code>/ryker</code></td><td>Configured operator</td></tr>
-        <tr><td>Anything at all</td><td>Not guests, bots, deactivated accounts, or Slack Connect users</td></tr>
+        <tr><td>Authorize work</td><td>Guests, bots, deactivated accounts and Slack Connect users cannot authorize work</td></tr>
       </tbody>
     </table>
 
@@ -285,7 +291,7 @@
     <nav aria-label="Footer">
       <a href="index.html">Docs</a>
       <a href="https://github.com/AndrewDryga/ryker">GitHub</a>
-      <a href="https://github.com/AndrewDryga/ryker/blob/main/SECURITY.md">Security</a>
+      <a href="../docs/security.html">Access and data</a>
     </nav>
   </div>
   <div class="wrap foot-sub">

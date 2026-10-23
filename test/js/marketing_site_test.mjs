@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { build, pages, publicOrigin, render } from "../../scripts/build-site.mjs";
+import { build, pages, publicOrigin, render, root } from "../../scripts/build-site.mjs";
 
 test("public site build emits one consistent origin and only the public inventory", async () => {
   const out = await mkdtemp(path.join(os.tmpdir(), "ryker-site-"));
@@ -17,11 +17,20 @@ test("public site build emits one consistent origin and only the public inventor
       assert.ok(html.includes('content="https://site-build.invalid/assets/og.png"'));
       assert.equal((html.match(/rel="canonical"/g) || []).length, 1);
       assert.equal((html.match(/property="og:image"/g) || []).length, 1);
+      const schema = JSON.parse(html.match(/<script type="application\/ld\+json">(.*?)<\/script>/s)[1]);
+      const page = schema["@graph"].find(item => item["@type"] === "WebPage");
+      assert.equal(page.url, canonical);
+      if (name !== "index.html") {
+        const crumbs = schema["@graph"].find(item => item["@type"] === "BreadcrumbList");
+        assert.equal(crumbs.itemListElement.at(-1).item, canonical);
+      }
     }
-    assert.equal((await readFile(path.join(out, "sitemap.xml"), "utf8")).match(/<loc>/g).length, 8);
+    assert.equal((await readFile(path.join(out, "sitemap.xml"), "utf8")).match(/<loc>/g).length, pages.length);
+    const index = await readFile(path.join(out, "llms.txt"), "utf8");
+    for (const name of pages) assert.ok(index.includes(`https://site-build.invalid/${name.replace(/index\.html$/, "")}`));
     assert.match(await readFile(path.join(out, "robots.txt"), "utf8"), /Sitemap: https:\/\/site-build.invalid\/sitemap.xml/);
     assert.equal(await readFile(path.join(out, "CNAME"), "utf8"), "site-build.invalid\n");
-    assert.deepEqual((await readdir(out)).sort(), [".nojekyll", "CNAME", "assets", "docs", "index.html", "robots.txt", "sitemap.xml"]);
+    assert.deepEqual((await readdir(out)).sort(), [".nojekyll", "CNAME", "assets", "docs", "guides", "index.html", "llms.txt", "robots.txt", "sitemap.xml"]);
     await writeFile(path.join(out, "private.txt"), "must not be deleted or published");
     await assert.rejects(build({ origin: "https://site-build.invalid", out }), /unexpected files/);
     assert.equal(await readFile(path.join(out, "private.txt"), "utf8"), "must not be deleted or published");
@@ -39,4 +48,41 @@ test("a launch requires an explicit clean HTTPS origin", () => {
 
 test("metadata generation rejects a page without its visible main heading", () => {
   assert.throws(() => render("<title>Ryker</title>", "index.html", "https://site-build.invalid"), /one h1/);
+});
+
+test("broken navigation and duplicate metadata fail before writing public output", async () => {
+  const temporary = await mkdtemp(path.join(os.tmpdir(), "ryker-site-validation-"));
+  const source = path.join(temporary, "source");
+  const out = path.join(temporary, "out");
+  try {
+    await cp(path.join(root, "site"), source, { recursive: true });
+    const target = path.join(source, "docs/getting-started.html");
+    const original = await readFile(target, "utf8");
+    for (const [addition, expected] of [
+      ['<a href="missing.html">Missing</a>', /missing local target/],
+      ['<script src="missing.js"></script>', /missing local target/],
+      ['<a href="slack.html#missing-fragment">Missing section</a>', /missing fragment/],
+      ['<div id="main"></div>', /duplicate anchor id/],
+    ]) {
+      await writeFile(target, original.replace("</main>", `${addition}</main>`));
+      await assert.rejects(build({ origin: "https://site-build.invalid", out, source }), expected);
+      await assert.rejects(readdir(out), { code: "ENOENT" });
+    }
+    const home = await readFile(path.join(source, "index.html"), "utf8");
+    await writeFile(target, original.replace(/<title>[^<]+<\/title>/, home.match(/<title>[^<]+<\/title>/)[0]));
+    await assert.rejects(build({ origin: "https://site-build.invalid", out, source }), /duplicate title or description/);
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
+
+test("social metadata follows page metadata and JSON-LD escapes script delimiters", () => {
+  const source = '<html><head><title>Ryker &amp; tools</title><meta name="description" content="A &quot;quoted&quot; &lt;/script> description"><meta property="og:title" content="Stale"></head><body><h1>Ryker</h1></body></html>';
+  const html = render(source, "index.html", "https://site-build.invalid");
+  assert.ok(!html.includes('content="Stale"'));
+  assert.equal((html.match(/property="og:title"/g) || []).length, 1);
+  assert.match(html, /property="og:title" content="Ryker &amp; tools"/);
+  assert.equal((html.match(/<\/script>/g) || []).length, 1);
+  assert.doesNotThrow(() => JSON.parse(html.match(/<script type="application\/ld\+json">(.*?)<\/script>/s)[1]));
+  assert.equal(render(html, "index.html", "https://site-build.invalid"), html);
 });

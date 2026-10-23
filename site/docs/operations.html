@@ -55,24 +55,26 @@
     <details>
       <summary>Documentation</summary>
       <div>
-        <nav aria-label="Documentation">
-          <p class="grp">Start</p>
-          <ul>
-            <li><a href="index.html">What Ryker is</a></li>
-            <li><a href="getting-started.html">Install Ryker</a></li>
-          </ul>
-          <p class="grp">Using it</p>
-          <ul>
-            <li><a href="slack.html">Working in Slack</a></li>
-            <li><a href="actions.html">Approvals and automation</a></li>
-            <li><a href="memory.html">Memory and recall</a></li>
-          </ul>
-          <p class="grp">Managing it</p>
-          <ul>
-            <li><a href="control-plane.html">The console</a></li>
-            <li><a href="operations.html" class="on" aria-current="page">Running Ryker</a></li>
-          </ul>
-        </nav>
+        <nav aria-label="Documentation"><p class="grp">Start</p><ul>
+<li><a href="../docs/index.html">What Ryker is</a></li>
+<li><a href="../docs/getting-started.html">Install Ryker</a></li>
+</ul>
+<p class="grp">Walkthroughs</p><ul>
+<li><a href="../guides/first-code-change.html">Your first code change</a></li>
+<li><a href="../guides/investigate-an-alert.html">Investigate an alert</a></li>
+</ul>
+<p class="grp">Using it</p><ul>
+<li><a href="../docs/slack.html">Working in Slack</a></li>
+<li><a href="../docs/github.html">Working with GitHub</a></li>
+<li><a href="../docs/actions.html">Approvals and automation</a></li>
+<li><a href="../docs/memory.html">Memory and recall</a></li>
+</ul>
+<p class="grp">Managing it</p><ul>
+<li><a href="../docs/control-plane.html">The console</a></li>
+<li><a href="../docs/operations.html" class="on" aria-current="page">Running Ryker</a></li>
+<li><a href="../docs/security.html">Access and data</a></li>
+</ul>
+</nav>
       </div>
     </details>
   </aside>
@@ -244,7 +246,7 @@
       </tbody>
     </table>
 
-    <p>The order is enforced: prompts, replies and tool activity cannot be kept longer than finished work, finished work not longer than request history, and that not longer than the audit trail. Shortening a limit deletes older data, so the page asks first.</p>
+    <p>Keep the audit trail at least as long as request history, request history at least as long as finished work, and finished work at least as long as its prompts, replies and tool activity. Ryker enforces that order. Shortening a limit deletes older data, so the page asks for confirmation.</p>
 
     <p>Nothing still in use is cleaned up underneath you. Open follow-ups, blocked work, pending approvals, live schedules, unpublished changes and active incident rooms keep their history whatever its age. Working copies have <a href="actions.html#cleanup">their own cleanup rules</a>.</p>
 
@@ -329,7 +331,7 @@
     <nav aria-label="Footer">
       <a href="index.html">Docs</a>
       <a href="https://github.com/AndrewDryga/ryker">GitHub</a>
-      <a href="https://github.com/AndrewDryga/ryker/blob/main/SECURITY.md">Security</a>
+      <a href="../docs/security.html">Access and data</a>
     </nav>
   </div>
   <div class="wrap foot-sub">

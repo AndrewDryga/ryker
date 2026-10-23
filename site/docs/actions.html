@@ -55,24 +55,26 @@
     <details>
       <summary>Documentation</summary>
       <div>
-        <nav aria-label="Documentation">
-          <p class="grp">Start</p>
-          <ul>
-            <li><a href="index.html">What Ryker is</a></li>
-            <li><a href="getting-started.html">Install Ryker</a></li>
-          </ul>
-          <p class="grp">Using it</p>
-          <ul>
-            <li><a href="slack.html">Working in Slack</a></li>
-            <li><a href="actions.html" class="on" aria-current="page">Approvals and automation</a></li>
-            <li><a href="memory.html">Memory and recall</a></li>
-          </ul>
-          <p class="grp">Managing it</p>
-          <ul>
-            <li><a href="control-plane.html">The console</a></li>
-            <li><a href="operations.html">Running Ryker</a></li>
-          </ul>
-        </nav>
+        <nav aria-label="Documentation"><p class="grp">Start</p><ul>
+<li><a href="../docs/index.html">What Ryker is</a></li>
+<li><a href="../docs/getting-started.html">Install Ryker</a></li>
+</ul>
+<p class="grp">Walkthroughs</p><ul>
+<li><a href="../guides/first-code-change.html">Your first code change</a></li>
+<li><a href="../guides/investigate-an-alert.html">Investigate an alert</a></li>
+</ul>
+<p class="grp">Using it</p><ul>
+<li><a href="../docs/slack.html">Working in Slack</a></li>
+<li><a href="../docs/github.html">Working with GitHub</a></li>
+<li><a href="../docs/actions.html" class="on" aria-current="page">Approvals and automation</a></li>
+<li><a href="../docs/memory.html">Memory and recall</a></li>
+</ul>
+<p class="grp">Managing it</p><ul>
+<li><a href="../docs/control-plane.html">The console</a></li>
+<li><a href="../docs/operations.html">Running Ryker</a></li>
+<li><a href="../docs/security.html">Access and data</a></li>
+</ul>
+</nav>
       </div>
     </details>
   </aside>
@@ -103,15 +105,15 @@
 
     <p>Connect an Emisar account to an <a href="index.html#environments">environment</a> to let Ryker access running systems. Emisar exposes defined actions and decides which may run, which need approval and which are denied. It also executes and records them. Ryker can request an action but cannot approve it. Without an account, Ryker can explain an infrastructure change for you to carry out.</p>
 
-    <p>For investigation only, use an observe-only Emisar credential. To allow fixes, choose a credential limited to the systems and actions Ryker should use. Instructions in a conversation cannot expand that access.</p>
+    <p>The API key acts as a person or service account whose runner access determines which systems Ryker can reach. For enforced read-only investigations, allowlist the required read actions and restrict the runner’s host permissions. For fixes, enable the needed actions with an appropriate approval policy. The key has no separate read-only setting. <a href="https://emisar.dev/docs/security-model">How Emisar limits access</a>.</p>
 
     <h2 id="approvals">Approvals</h2>
 
-    <p>When an action needs approval, Ryker posts an <strong>Emisar review</strong> card in the same conversation, naming the exact action and where it would run, with a <strong>Review in Emisar</strong> button. Open it to review the request in Emisar, where an authorized person makes the decision. The action waits for that decision.</p>
+    <p>When an action needs approval, Ryker posts an <strong>Emisar review</strong> card in the same conversation, naming the exact action and where it would run, with a <strong>Open approval</strong> button. Open it to review the request in Emisar, where an authorized person makes the decision. The action waits for that decision.</p>
 
-    <p>Ryker checks the approval link before it shows it: it must be HTTPS, on your configured Emisar address, and point at that exact approval request with nothing added. Anything else is dropped rather than rendered.</p>
+    <p>The approval link opens the exact request on your configured Emisar address. Ryker checks the link before showing it.</p>
 
-    <p>Then Ryker watches that exact run in the background and updates the card as it moves. Waiting uses no model time and survives a restart. When the run finishes, the same conversation continues.</p>
+    <p>Ryker updates the card as the run progresses. The wait survives a restart and uses no model time. When the run finishes, Ryker continues the conversation.</p>
 
     <h3 id="verification">Check the result</h3>
 
@@ -148,13 +150,13 @@
 
     <p>A review is tied to the exact commit it examined. Approving a pull request is a separate repository setting, off until you enable it. Your team decides what to merge; Ryker has no merge operation.</p>
 
-    <p>When someone comments on a pull request Ryker opened, the feedback returns to the task that made it. Failed checks on the published commit also return to that task so it can correct the change within its scope and update the same draft.</p>
+    <p>For feedback and failed checks on Ryker’s own pull requests, see <a href="#follow-through">how it follows through after publication</a>.</p>
 
     <h2 id="follow-ups">Follow-ups</h2>
 
     <p>A follow-up continues an existing request after a wait: “check again in two minutes,” “come back when this merges,” or “ask me after the rollout.”</p>
 
-    <p>A follow-up waits for a set time, for something to happen (a pull request merged, a deployment finished), or for a person’s answer, and then picks the same request back up. One that waits for an event can have no timer at all; one with a deadline can also check back earlier. While it waits it holds no model and no worker, it survives restarts, and only the exact event it waits for wakes it.</p>
+    <p>Ryker can continue the request at a set time, after an event, or when someone answers. An event wait can stay open without a deadline. If you set a deadline, Ryker can also check back sooner. The wait survives restarts and uses no model or worker. An unrelated event cannot wake it.</p>
 
     <p>Ryker can add a follow-up while working, or you can request one. Find these under <strong>Automations › Follow-ups</strong>; close the original request to stop its follow-up. For a new check at a set time or a recurring routine, use a confirmed schedule below.</p>
 
@@ -170,7 +172,7 @@
 
     <p>A standing request is saved under <strong>Automations › Rules</strong>. It tells Ryker to act when something happens: a Terraform plan posted in a channel, a deployment, an alert, or a GitHub, Slack or webhook event that matches an exact filter. Say it in words, “when someone posts a Terraform plan here, review it for risky changes”, and Ryker shows the rule it would save: what it listens for, where it reads and replies, what it does, and when it ends. Nothing is saved until an operator confirms.</p>
 
-    <p>Matching is exact and done by Ryker, not by the model, and prose never becomes a trigger. A match asks Ryker to look at the event, not to speak: it may ignore a duplicate or an in-between update, react, reply, or start work. Rules are paused, resumed or deleted under <strong>Automations › Rules</strong>, in App Home, or with <code>/ryker assignments</code>.</p>
+    <p>Each rule has a structured event filter. Ryker matches events against that saved filter in code. A matching event starts an assessment. Ryker may ignore a duplicate or interim update, react, reply, or start work. Manage rules under <strong>Automations › Rules</strong>, in App Home, or with <code>/ryker assignments</code>.</p>
 
     <h2 id="cleanup">Cleanup</h2>
 
@@ -226,7 +228,7 @@
     <nav aria-label="Footer">
       <a href="index.html">Docs</a>
       <a href="https://github.com/AndrewDryga/ryker">GitHub</a>
-      <a href="https://github.com/AndrewDryga/ryker/blob/main/SECURITY.md">Security</a>
+      <a href="../docs/security.html">Access and data</a>
     </nav>
   </div>
   <div class="wrap foot-sub">

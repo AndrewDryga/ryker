@@ -390,8 +390,11 @@ time, .tag { font-variant-numeric: tabular-nums; }
 
 .nav-drawer {
   position: absolute;
+  top: 100%;
   left: 0;
   right: 0;
+  max-height: calc(100dvh - var(--nav-h) - 1px);
+  overflow-y: auto;
   padding: var(--s-2) var(--s-3) var(--s-3);
   border-block: 1px solid var(--line);
   background: var(--bg);
@@ -1148,7 +1151,11 @@ time, .tag { font-variant-numeric: tabular-nums; }
 }
 
 @media print {
-  .nav, .toc, .docs-nav, .doc-next, .foot-lockup { display: none; }
+  .nav, .toc, .docs-nav, .doc-toc, .doc-next, .copy, .anchor, .foot { display: none; }
+  .docs { display: block; }
+  .doc { max-width: none; padding-block: 0; }
+  .doc h1, .doc h2, .doc h3 { break-after: avoid; }
+  .doc tr { break-inside: avoid; }
 
   /* Paper is a light surface: graphite type, ivory ground, and no mint at all,
      since mint belongs on graphite. Every rule reads its colour through these

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connect Ryker to GitHub — Ryker docs</title>
+<meta name="description" content="Set up Ryker’s GitHub App, choose repository permissions, receive events, and control draft pull requests and code reviews.">
+<!-- The static build supplies absolute canonical and social URLs. -->
+<meta property="og:type" content="website">
+<meta property="og:title" content="Connect Ryker to GitHub — Ryker docs">
+<meta property="og:description" content="Set up Ryker’s GitHub App, choose repository permissions, receive events, and control draft pull requests and code reviews.">
+<meta property="og:image" content="../assets/og.png">
+<meta property="og:image:width" content="1600">
+<meta property="og:image:height" content="840">
+<meta property="og:image:alt" content="Ryker">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Connect Ryker to GitHub — Ryker docs">
+<meta name="twitter:description" content="Set up Ryker’s GitHub App, choose repository permissions, receive events, and control draft pull requests and code reviews.">
+
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="../assets/brand/avatar.svg" type="image/svg+xml">
+<link rel="preload" href="../assets/fonts/IBMPlexSans-Regular.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../assets/fonts/IBMPlexSans-SemiBold.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../assets/site.css">
+</head>
+<body class="doc-page">
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="wordmark" href="../index.html"><img src="../assets/brand/lockup-color.svg" alt="Ryker" width="176" height="61"></a>
+    <nav class="nav-links" aria-label="Main">
+      <a href="../index.html#how">How it works</a>
+      <a href="../index.html#console">The app</a>
+      <a href="../docs/index.html" class="on">Docs</a>
+      <a href="https://github.com/AndrewDryga/ryker">GitHub</a>
+    </nav>
+    <details class="nav-menu">
+      <summary aria-label="Menu">Menu</summary>
+      <div class="nav-drawer">
+        <a href="../index.html#how">How it works</a>
+        <a href="../index.html#console">The app</a>
+        <a href="../docs/index.html">Docs</a>
+        <a href="https://github.com/AndrewDryga/ryker">GitHub</a>
+      </div>
+    </details>
+  </div>
+</header>
+
+<div class="wrap">
+<div class="docs">
+
+  <aside class="docs-nav">
+    <details>
+      <summary>Documentation</summary>
+      <div>
+        <nav aria-label="Documentation"><p class="grp">Start</p><ul>
+<li><a href="../docs/index.html">What Ryker is</a></li>
+<li><a href="../docs/getting-started.html">Install Ryker</a></li>
+</ul>
+<p class="grp">Walkthroughs</p><ul>
+<li><a href="../guides/first-code-change.html">Your first code change</a></li>
+<li><a href="../guides/investigate-an-alert.html">Investigate an alert</a></li>
+</ul>
+<p class="grp">Using it</p><ul>
+<li><a href="../docs/slack.html">Working in Slack</a></li>
+<li><a href="../docs/github.html" class="on" aria-current="page">Working with GitHub</a></li>
+<li><a href="../docs/actions.html">Approvals and automation</a></li>
+<li><a href="../docs/memory.html">Memory and recall</a></li>
+</ul>
+<p class="grp">Managing it</p><ul>
+<li><a href="../docs/control-plane.html">The console</a></li>
+<li><a href="../docs/operations.html">Running Ryker</a></li>
+<li><a href="../docs/security.html">Access and data</a></li>
+</ul>
+</nav>
+      </div>
+    </details>
+  </aside>
+
+  <main class="doc" id="main"><p class="crumb"><a href="../index.html">Ryker</a> <span>/</span> <a href="../docs/index.html">Docs</a> <span>/</span> <span>Connect Ryker to GitHub</span></p>
+    <h1>Connect Ryker to GitHub</h1><p class="lede">Connect your repositories so Ryker can explain code, prepare changes, and follow a pull request through review.</p>
+    <details class="doc-toc"><summary>On this page</summary><ul><li><a href="#app">Create and install the App</a></li>
+<li><a href="#permissions">Choose the permissions</a></li>
+<li><a href="#events">Subscribe to events</a></li>
+<li><a href="#drafts">Control draft pull requests</a></li>
+<li><a href="#reviews">Ask for a review</a></li>
+<li><a href="#check">Check the connection</a></li></ul></details>
+
+<h2 id="app">Create and install the App</h2>
+<p>In GitHub’s account or organization settings, open <strong>Developer settings › GitHub Apps › New GitHub App</strong>. Follow <a href="https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app">GitHub’s registration guide</a> for the form. Choose the permissions below, then install the App on the repositories you want Ryker to use.</p>
+<p>Generate a private key. In Ryker, open <strong>Integrations › GitHub</strong> and enter the App ID and key. Copy the webhook URL and secret Ryker supplies into your App’s webhook settings, and keep webhooks active.</p>
+<h2 id="permissions">Choose the permissions</h2>
+<table><thead><tr><th>Repository permission</th><th>Access</th><th>Used for</th></tr></thead><tbody>
+<tr><td>Contents</td><td>Read/write</td><td>Read code and publish task branches</td></tr>
+<tr><td>Issues</td><td>Read/write</td><td>Read and reply to issues</td></tr>
+<tr><td>Pull requests</td><td>Read/write</td><td>Drafts, comments and reviews</td></tr>
+<tr><td>Checks</td><td>Read</td><td>Read check results</td></tr>
+<tr><td>Commit statuses</td><td>Read</td><td>Read commit status</td></tr>
+<tr><td>Actions</td><td>Read; write for rerun/cancel</td><td>Inspect and manage workflow runs</td></tr>
+<tr><td>Metadata</td><td>Read</td><td>Repository details</td></tr>
+</tbody></table>
+<p>The App’s installation sets the outer limit of repository access. In Ryker, import the repositories under <strong>Work › Repositories</strong>, then choose which ones each environment can read or change under <strong>Work › Environments</strong>. Importing a repository alone does not give every conversation access to it.</p>
+<h2 id="events">Subscribe to events</h2>
+<p>Enable these event groups in the App’s settings:</p>
+<ul><li><strong>Conversations:</strong> Issue comment, Issues, Pull request, Pull request review, and Pull request review comment.</li><li><strong>CI:</strong> Check run, Check suite, Status, Workflow run, and Workflow job.</li><li><strong>Repository changes:</strong> Repository.</li></ul>
+<p>Ryker retrieves App deliveries every 30 seconds, so GitHub does not need a direct connection to your host. For direct delivery, expose only <code>/v1/github</code> through HTTPS. See <a href="operations.html#exposure">network access</a> and the <a href="https://github.com/AndrewDryga/ryker/blob/main/docs/elixir-ingress-admission.md">GitHub event reference</a>.</p>
+<h2 id="drafts">Control draft pull requests</h2>
+<p>Opening pull requests is off until you enable it in the GitHub integration. After that, a confirmed task can open its draft when the person confirming it named the repository and the review is clean. Otherwise, a configured operator presses <strong>Create draft PR</strong>.</p>
+<p>Ryker publishes the reviewed change on its own branch. If someone changes that branch outside Ryker, it will not overwrite their work. Your team reviews, marks ready and merges the pull request.</p>
+<p><a href="../guides/first-code-change.html">Follow a code change from Slack to GitHub</a> for the complete walkthrough, or read <a href="actions.html#publication">the publication rules</a>.</p>
+<h2 id="reviews">Ask for a review</h2>
+<p>Ask Ryker to review a connected pull request in Slack, GitHub or the console’s Chat. Include its URL and what you want examined. On GitHub, the person requesting work needs write or admin access to the repository.</p>
+<p>Ryker can read the diff and discussion, leave inline comments, and request changes. Its review records the commit it examined. Approving pull requests is a separate repository setting, off by default. Ryker has no merge operation.</p>
+<p>Comments on a pull request Ryker created return to the original task. If CI fails on its published commit, the task can resume, fix the issue within its scope, and update the same draft.</p>
+<h2 id="check">Check the connection</h2>
+<p>Ask a question about an imported repository from a conversation using its environment. Check that the reply cites actual files. Then use the code-change walkthrough to test draft publication if you have enabled it.</p>
+<p>If a repository is missing, check the App’s installation, Ryker’s repository list, and the conversation’s environment. If follow-ups are missing, check the subscribed events, webhook secret, and App deliveries, then inspect the request in <strong>Activity</strong> and <strong>Failures</strong>.</p>
+
+    <nav class="doc-next" aria-label="Page navigation"><a href="../docs/index.html"><span class="k">Documentation</span><span class="t">All guides &rarr;</span></a><a class="next" href="../guides/first-code-change.html"><span class="k">Try it</span><span class="t">Your first code change &rarr;</span></a></nav></main>
+
+  <nav class="toc" aria-label="On this page"><p class="lbl">On this page</p><ul><li><a href="#app">Create and install the App</a></li>
+<li><a href="#permissions">Choose the permissions</a></li>
+<li><a href="#events">Subscribe to events</a></li>
+<li><a href="#drafts">Control draft pull requests</a></li>
+<li><a href="#reviews">Ask for a review</a></li>
+<li><a href="#check">Check the connection</a></li></ul></nav>
+
+</div>
+</div>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <img class="foot-lockup" src="../assets/brand/lockup-color.svg" alt="Ryker" width="176" height="61">
+    <nav aria-label="Footer">
+      <a href="../docs/index.html">Docs</a>
+      <a href="https://github.com/AndrewDryga/ryker">GitHub</a>
+      <a href="../docs/security.html">Access and data</a>
+    </nav>
+  </div>
+  <div class="wrap foot-sub">
+    <a href="https://github.com/AndrewDryga/ryker/blob/main/LICENSE">Business Source License 1.1</a>
+    <span class="sep">·</span>
+    <a href="https://github.com/AndrewDryga/ryker/releases">Releases</a>
+  </div>
+</footer>
+
+<script src="../assets/site.js" defer></script>
+</body>
+</html>
