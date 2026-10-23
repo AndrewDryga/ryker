@@ -146,3 +146,25 @@ The follow-up sweep confirmed the removed disclaimer/eyebrow copy, old self-host
 ## Automatic CI correction — 2026-10-23
 
 Removed the human request between failed CI and Ryker's correction. `Publication.Followups.Polls.correction_wakeup?/2` resumes the task when checks fail on its published head, and the focused `followups_test.exs:153` regression passes. The demo now shows the failed check, Ryker's diagnosis and correction, an updated commit, passing checks, then human approval and merge. The 9 site tests pass and Chrome shows Ryker's response directly after the failure. No runtime behavior or native Slack payload changed.
+## Browser console captures — 23 October 2026
+
+`assets/console/` contains desktop (1280 × 920 viewport) and phone (320 × 800 viewport) screenshots
+of the current console components, rendered from `cee60494f` with public example data.
+The request view shows `EpisodePage` and its `Work briefing`; the settings view shows
+`SettingsPage` at `/settings/models`. Both use the application's own navigation,
+stylesheets, fonts, and artwork. The browser capture produces JPEG assets at
+1265 × 909 and 305 × 763 pixels; the HTML declares their actual image dimensions.
+
+The capture used an isolated SQL-sandbox session with the existing `Answers` fixture
+helpers. No production conversations, identities, access tokens, or configuration were
+used. The checkout-timeout conversation, saved guidance, model configuration and work
+records are example content, not a performance benchmark. An HTML snapshot retained
+the rendered components and expanded disclosures; its incomplete-installation shortcut
+was omitted from the desktop sidebar. No application styles or control labels were
+changed. Phone captures frame the briefing and model controls at their native responsive
+size. The homepage serves the appropriate capture and links each to the desktop image.
+
+The screenshots explain inspecting the saved briefing and configuring the model; the
+surrounding copy also points to actual Instructions, Memory, Channels and Environments
+pages. The repeated standalone approval demo was removed. Approval remains part of the
+Emisar explanation and the alert example. Native Slack payloads are unchanged.

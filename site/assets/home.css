@@ -318,10 +318,14 @@
 .review-location { color: var(--dim); font: 10px/18px var(--mono); overflow-wrap: anywhere; }
 .review-verdict { display: flex; gap: 8px; margin: 14px 0 0 42px; font-size: 11px; color: var(--ink); }
 .review-verdict > span { color: var(--bad); }
-.approval-story { padding-top: 0; padding-bottom: 64px; }
-.approval-story .everyday-copy { max-width: 460px; }
-.work-overview { display: block; border-top: 1px solid var(--line); padding-top: 72px; }
-.work-overview .everyday-copy { max-width: 760px; }
+.console-intro { display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: start; }
+.console-intro .text-link { margin-top: 24px; }
+.console-copy > p { margin: 0; color: var(--dim); font-size: 17px; line-height: 29px; }
+.console-copy > p + p { margin-top: 20px; }
+.console-panel { margin: 32px 0 0; }
+.console-capture { display: block; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 12px; cursor: zoom-in; }
+.console-capture picture, .console-capture img { display: block; width: 100%; height: auto; }
+.console-section .example-tabs { max-width: none; }
 .feature-notes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 48px; margin-top: 32px; }
 .feature-note { min-width: 0; padding-block: 32px 24px; border-bottom: 1px solid var(--line); }
 .feature-note h3 { font-size: 20px; line-height: 27px; letter-spacing: -.02em; margin-top: 0; }
@@ -332,7 +336,7 @@
   .feature-notes { gap: 0 28px; }
 }
 @media (max-width: 959px) {
-  .work-overview { max-width: 600px; margin-inline: auto; padding-top: 48px; }
+  .console-intro { grid-template-columns: 1fr; gap: 24px; max-width: 600px; }
   .example-panel { min-height: 0; }
   .example-tabs { max-width: 600px; margin-inline: auto; }
   .everyday-section .example-tabs a { padding-inline: 12px; }
@@ -347,6 +351,7 @@
   .everyday-section .example-tabs a { flex-basis: 33.333%; padding-inline: 8px; }
   .everyday-section .example-tabs a:nth-child(n + 4) { flex-basis: 50%; }
   .example-tabs a > span { font-size: 17px; }
+  .console-copy > p { font-size: 16px; line-height: 27px; }
   .review-verdict { margin-left: 38px; }
   .example-pr-heading { padding-inline: 12px; }
   .example-pr-heading h4 { font-size: 16px; }
@@ -361,7 +366,8 @@
 @media print {
   .home-page .example-tabs { display: none; }
   .home-page .example-panel[hidden] { display: block !important; }
-  .home-page .work-overview, .home-page .feature-notes { display: block; }
+  .home-page .console-panel[hidden] { display: block !important; }
+  .home-page .feature-notes { display: block; }
 }
 
 .product-demo, .everyday-demo { container-type: inline-size; }
