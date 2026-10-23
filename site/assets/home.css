@@ -14,15 +14,13 @@
 .story-chapter { grid-column: 1; display: flex; align-items: center; min-height: 54svh; padding-block: 64px; }
 .chapter-copy { min-width: 0; }
 .chapter-hero { min-height: min(840px, calc(100svh - 80px)); padding-top: 64px; padding-bottom: 80px; }
-.chapter-hero h1 { margin-top: 0; font-size: clamp(42px, 4.1vw, 64px); line-height: 1.04; letter-spacing: -.045em; font-weight: 600; }
-.chapter-hero h1 > span { color: var(--dim); }
+.chapter-hero h1 { margin-top: 0; font-size: clamp(42px, 4.1vw, 54px); line-height: 1.04; letter-spacing: -.045em; font-weight: 600; }
+.chapter-hero h1 > span { display: block; color: var(--dim); }
 .chapter-lead { max-width: 36ch; margin-top: 28px; color: var(--dim); font-size: 19px; line-height: 30px; }
 .chapter-copy h2 { font-size: clamp(30px, 3vw, 42px); line-height: 1.12; letter-spacing: -.035em; }
 .chapter-copy > p:not([class]) { margin-top: 24px; max-width: 37ch; color: var(--dim); font-size: 18px; line-height: 30px; }
-.text-link { position: relative; display: inline-flex; align-items: center; gap: 12px; width: fit-content; max-width: 100%; min-height: 44px; padding-block: 8px; color: var(--ink); font-size: 14px; text-decoration: none; }
-.text-link::after { content: ""; position: absolute; inset-inline: 0; bottom: 6px; height: 1px; background: var(--line-strong); }
-.text-link:hover { color: var(--accent-text); text-decoration: none; }
-.text-link:hover::after { background: currentColor; }
+.text-link { display: inline-block; width: fit-content; max-width: 100%; min-height: 44px; padding-block: 12px; color: var(--ink); font-size: 14px; line-height: 20px; text-decoration: underline; text-decoration-color: var(--line-strong); text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-skip-ink: none; }
+.text-link:hover { color: var(--accent-text); text-decoration-color: currentColor; }
 .chapter-copy > .text-link { margin-top: 22px; }
 .product-demo { grid-column: 2; grid-row: 1 / span 3; align-self: start; min-width: 0; margin: 48px 0 56px; font-size: 13px; line-height: 21px; }
 .is-pinned .product-demo { position: sticky; top: max(100px, calc(50svh - var(--demo-height) / 2)); }
@@ -180,7 +178,7 @@
 @media (max-width: 1100px) {
   .home-page .nav-links { gap: 18px; }
   .work-story { column-gap: 32px; }
-  .chapter-hero h1 { font-size: 48px; }
+  .chapter-hero h1 { font-size: clamp(38px, 4vw, 44px); }
   .slack-channel, .github-repo, .slack-thread-heading { padding-inline: 16px; }
   .slack-messages { padding-inline: 16px; }
   .pr-heading { padding-inline: 16px; }
@@ -196,9 +194,7 @@
   .work-story { grid-template-columns: minmax(0, 1fr); max-width: 600px; margin-inline: auto; }
   .story-chapter { min-height: auto; padding-block: 56px; }
   .chapter-hero { padding-top: 64px; padding-bottom: 32px; }
-  .chapter-hero h1 { font-size: clamp(44px, 7vw, 64px); }
-  .chapter-hero h1 > br:nth-of-type(2) { display: none; }
-  .chapter-hero h1 > span { display: block; }
+  .chapter-hero h1 { font-size: clamp(44px, 7vw, 60px); }
   .chapter-copy > p:not([class]), .chapter-lead { max-width: 44ch; }
   .chapter-copy h2 { font-size: 36px; }
   .product-demo { grid-column: 1; grid-row: auto; margin: 0 0 40px; }

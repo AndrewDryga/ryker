@@ -135,6 +135,14 @@ The product explanation now combines co:op's sandbox, Emisar's remote access and
 
 All example reply citations are embedded in the relevant sentences. `Ryker.Slack.Renderer` passes ordinary prose through Slack Markdown blocks, including inline links; `Records.source_blocks/1` can separately append a Sources context row when linked evidence records are attached. The website now illustrates the inline form. This does not remove the Sources feature from the runtime or change any native card payload, and no new native card design is introduced.
 
+## Underline spacing and missed edits — 2026-10-23
+
+The previous continuous underline was positioned against the link's padded hit area, leaving a measured six-pixel gap below the text bounds. Links now use native text underlining at a three-pixel offset. Their text and arrow share one inline formatting context, so the underline continues through the arrow and follows wrapped lines; the 44-pixel hit area remains. Browser checks covered 320, 768, 1024 and 1440 pixels with no page-wide overflow.
+
+The hero no longer forces a break inside “An extra pair of hands.” The phrase occupies one line at the tested tablet and desktop widths and wraps naturally at 320 pixels. The remaining standing-request wording now says Ryker starts the work when a matching event arrives.
+
+The follow-up sweep confirmed the removed disclaimer/eyebrow copy, old self-hosting slogan, repeated tools paragraph, Sources rows, passive alert and multi-repo headings, and human-requested CI repair remain absent. The nine build/interaction tests still cover task updates staying in place, and the working-text animation still respects reduced motion. This pass changes website typography and copy only.
+
 ## Automatic CI correction — 2026-10-23
 
 Removed the human request between failed CI and Ryker's correction. `Publication.Followups.Polls.correction_wakeup?/2` resumes the task when checks fail on its published head, and the focused `followups_test.exs:153` regression passes. The demo now shows the failed check, Ryker's diagnosis and correction, an updated commit, passing checks, then human approval and merge. The 9 site tests pass and Chrome shows Ryker's response directly after the failure. No runtime behavior or native Slack payload changed.
