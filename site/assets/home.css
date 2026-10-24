@@ -1,11 +1,7 @@
 /* A conversation that becomes work. The shared stylesheet owns the identity,
    navigation and docs; this file owns only the public product walkthrough. */
-.home-page { --wrap: 1240px; }
 .home-page h1, .home-page h2, .home-page h3 { text-wrap: balance; }
 .home-page [id] { scroll-margin-top: 112px; }
-.home-page .nav-links { gap: 28px; }
-.home-page .nav-start { padding: 0 16px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--ink); gap: 16px; }
-.home-page .nav-start:hover { background: var(--panel); border-color: var(--dim); }
 .home-page .btn { min-height: 48px; border-radius: 6px; gap: 16px; white-space: normal; text-align: center; }
 .home-page .btn-row { gap: 12px; margin-top: 32px; }
 
@@ -132,7 +128,12 @@
 .demo-chapters button:hover { color: var(--accent-text); }
 .playback-toggle { display: grid; place-items: center; flex: none; width: 44px; height: 44px; padding: 0; border: 1px solid var(--line-strong); border-radius: 50%; color: var(--dim); background: transparent; font: 18px/1 var(--sans); cursor: pointer; transition: color .2s, border-color .2s, background .2s; }
 .playback-toggle:hover { color: var(--ink); border-color: var(--line-strong); background: var(--panel); }
-.playback-icon { display: block; }
+.playback-icon { display: block; width: 20px; height: 20px; }
+.playback-icon path { display: none; }
+.playback-toggle:not([data-playback-state]) .playback-pause,
+.playback-toggle[data-playback-state="pause"] .playback-pause,
+.playback-toggle[data-playback-state="play"] .playback-play,
+.playback-toggle[data-playback-state="replay"] .playback-replay { display: block; }
 .is-paused *, .is-paused *::after { animation-play-state: paused !important; }
 .is-seeking .slack-window, .is-seeking .github-window { transition: none !important; }
 @keyframes message-arrive { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
@@ -170,13 +171,11 @@
 .start-section .btn-row { display: flex; flex-wrap: wrap; align-items: center; gap: 24px; }
 .install { min-width: 0; padding: 24px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
 .install-heading { display: flex; justify-content: space-between; margin-bottom: 22px; color: var(--dim); }
-.install pre { margin: 0; padding-block: 8px 16px; max-width: 100%; overflow-x: auto; font-size: 11px; line-height: 24px; }
+.install pre { margin: 0; padding: 16px; max-width: 100%; overflow-x: auto; font-size: 12px; line-height: 24px; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 480px) { .install .copy-label { display: none; } .install .copy { margin-left: auto; } }
 .install-note { color: var(--dim); font-size: 12px; line-height: 20px; margin-top: 12px; }
-.home-page .copy { top: -12px; }
-.home-page .foot-sub { justify-content: space-between; margin-top: 24px; }
 
 @media (max-width: 1100px) {
-  .home-page .nav-links { gap: 18px; }
   .work-story { column-gap: 32px; }
   .chapter-hero h1 { font-size: clamp(38px, 4vw, 44px); }
   .slack-channel, .github-repo, .slack-thread-heading { padding-inline: 16px; }
@@ -189,8 +188,6 @@
   .start-layout { gap: 48px; }
 }
 @media (max-width: 959px) {
-  .home-page .nav-links { gap: 16px; }
-  .home-page .nav-links a { font-size: 12px; }
   .work-story { grid-template-columns: minmax(0, 1fr); max-width: 600px; margin-inline: auto; }
   .story-chapter { min-height: auto; padding-block: 56px; }
   .chapter-hero { padding-top: 64px; padding-bottom: 32px; }
@@ -204,7 +201,6 @@
   .home-section { padding-block: 72px; }
 }
 @media (max-width: 640px) {
-  .home-page .nav-in { height: 76px; }
   .chapter-hero { padding-top: 40px; }
   .chapter-hero h1 { font-size: clamp(38px, 8.6vw, 54px); }
   .chapter-lead { font-size: 18px; line-height: 29px; }
@@ -294,7 +290,6 @@
 /* Work examples share one place on the page. Their conversations remain
    complete HTML when scripting, motion or printing is unavailable. */
 .home-page [hidden] { display: none !important; }
-.home-page .nav-links { gap: 22px; }
 .example-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 36px; border-bottom: 1px solid var(--line-strong); }
 .example-tabs a { display: inline-flex; align-items: center; gap: 10px; min-height: 56px; padding: 12px 24px; color: var(--dim); font-size: 15px; border-bottom: 2px solid transparent; margin-bottom: -1px; text-decoration: none; }
 .example-tabs a > span { color: inherit; font-size: 21px; }
@@ -322,12 +317,18 @@
 .console-intro .text-link { margin-top: 24px; }
 .console-copy > p { margin: 0; color: var(--dim); font-size: 17px; line-height: 29px; }
 .console-copy > p + p { margin-top: 20px; }
-.console-panel { margin: 32px 0 0; }
-.console-capture { display: block; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 12px; cursor: zoom-in; }
+.console-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 720px); align-items: start; gap: 64px; min-height: 520px; margin: 32px 0 0; }
+.console-panel[hidden] { display: none; }
+.console-caption { padding-top: 20px; max-width: 32ch; }
+.console-caption h3 { margin: 0; font-size: 26px; line-height: 34px; letter-spacing: -.025em; }
+.console-caption p { margin-top: 20px; color: var(--dim); font-size: 16px; line-height: 27px; }
+.console-caption .text-link { margin-top: 16px; }
+.console-capture { display: block; min-width: 0; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 8px; cursor: zoom-in; }
 .console-capture picture, .console-capture img { display: block; width: 100%; height: auto; }
 .console-section .example-tabs { max-width: none; }
 .feature-notes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px 32px; margin-top: 32px; }
-.feature-note { min-width: 0; padding-block: 32px 24px; border-bottom: 1px solid var(--line); }
+.feature-note { min-width: 0; padding-block: 32px 24px; }
+.feature-note:nth-child(n + 4) { border-top: 1px solid var(--line); }
 .feature-note h3 { font-size: 20px; line-height: 27px; letter-spacing: -.02em; margin-top: 0; }
 .feature-note > p { color: var(--dim); font-size: 16px; line-height: 26px; margin-top: 14px; }
 .feature-note .text-link { margin-top: 12px; font-size: 14px; }
@@ -389,34 +390,42 @@
 .event-recipient img { display: block; }
 .event-recipient > span { display: block; margin-top: 6px; color: var(--dim); font-size: 12px; }
 @media (max-width: 1100px) {
-  .home-page .nav-links { gap: 16px; }
   .feature-notes { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 32px; }
+  .feature-note:nth-child(n + 3) { border-top: 1px solid var(--line); }
 }
 @media (max-width: 959px) {
   .console-intro { grid-template-columns: 1fr; gap: 24px; max-width: 600px; }
+  .console-panel { grid-template-columns: minmax(0, 1fr); gap: 24px; min-height: 0; max-width: 720px; margin-inline: auto; }
+  .console-caption { padding-top: 0; max-width: 56ch; }
+  .console-caption p { margin-top: 12px; }
+  .console-caption .text-link { margin-top: 8px; }
   .example-panel { min-height: 0; }
   .example-tabs { max-width: 600px; margin-inline: auto; }
   .everyday-section .example-tabs a { padding-inline: 12px; }
   :is(.examples-section, .everyday-section) .home-section-heading { max-width: 600px; margin-inline: auto; }
 }
 @media (max-width: 640px) {
-  .home-page .nav-in { height: auto; min-height: 76px; flex-wrap: wrap; gap: 0 8px; }
-  .home-page .nav-menu { margin-left: auto; }
   .example-tabs { margin-top: 24px; gap: 0; }
   .example-tabs a { flex: 1 1 50%; padding: 10px 8px; justify-content: center; font-size: 12px; gap: 6px; }
   .everyday-section .example-tabs a { flex-basis: 33.333%; padding-inline: 8px; }
   .everyday-section .example-tabs a:nth-child(n + 4) { flex-basis: 50%; }
   .example-tabs a > span { font-size: 17px; }
   .console-copy > p { font-size: 16px; line-height: 27px; }
+  .console-caption h3 { font-size: 23px; line-height: 30px; }
   .review-verdict { margin-left: 38px; }
   .example-pr-heading { padding-inline: 12px; }
   .example-pr-heading h4 { font-size: 16px; }
   .feature-notes { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .feature-note { padding-block: 24px; }
+  .feature-note + .feature-note { border-top: 1px solid var(--line); }
   .feature-note h3 { margin-top: 0; }
   .feature-note > p { max-width: 42ch; }
   .feature-visual { padding-inline: 16px; }
   .event-sources > div { font-size: 11px; gap: 6px; padding-inline: 6px; }
+}
+@media (max-width: 600px) {
+  .console-capture { width: min(100%, 320px); margin-inline: auto; }
+  .console-capture img { height: 400px; object-fit: cover; object-position: top; }
 }
 @media (prefers-reduced-motion: reduce) {
   .example-panel:not([hidden]) .everyday-copy { animation: none; }

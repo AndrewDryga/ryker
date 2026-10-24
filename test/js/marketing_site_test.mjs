@@ -5,6 +5,27 @@ import os from "node:os";
 import path from "node:path";
 import { build, pages, publicOrigin, render, root } from "../../scripts/build-site.mjs";
 
+// Landing and docs had different menus and footers. Check destinations as
+// well as labels so a nested page cannot silently point at a different place.
+test("every public page shares the same navigation and footer", async () => {
+  function chrome(html, name, relative) {
+    return html.match(new RegExp(`<${name}\\b[^>]*>[\\s\\S]*?<\\/${name}>`))[0]
+      .replace(/ aria-current="[^"]*"/g, "")
+      .replace(/\b(href|src)="([^"]+)"/g, (_, attr, value) => {
+        const url = new URL(value, `https://site-build.invalid/${relative}`);
+        url.pathname = url.pathname.replace(/index\.html$/, "");
+        return `${attr}="${url.href}"`;
+      }).replace(/\s+/g, " ").replace(/> </g, "><");
+  }
+  const home = await readFile(path.join(root, "site/index.html"), "utf8");
+  for (const relative of pages) {
+    const html = await readFile(path.join(root, "site", relative), "utf8");
+    for (const region of ["header", "footer"]) {
+      assert.equal(chrome(html, region, relative), chrome(home, region, "index.html"), `${relative} ${region}`);
+    }
+  }
+});
+
 test("public site build emits one consistent origin and only the public inventory", async () => {
   const out = await mkdtemp(path.join(os.tmpdir(), "ryker-site-"));
   try {

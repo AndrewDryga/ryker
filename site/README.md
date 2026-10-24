@@ -38,6 +38,12 @@ separate owner decision.
 The Node test uses `site-build.invalid` in a disposable directory; that is test
 data, never a production domain. The existing JavaScript CI gate runs this test.
 
+The header and footer have the same markup and destinations on every page;
+only relative paths and the Docs current-location attribute differ. The
+marketing site test compares both regions across all twelve pages, so update
+them together. Their layout belongs in `assets/site.css`, without homepage
+overrides. Copy controls live inside each code block and name what they copy.
+
 ## Deployment
 
 `.github/workflows/pages.yml` tests, builds and deploys site changes pushed to

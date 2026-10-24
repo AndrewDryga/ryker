@@ -39,10 +39,10 @@ function node(properties = {}) {
   };
 }
 
-function copyPage(writeText) {
+function copyPage(writeText, attributes = {}, code = "node scripts/build-site.mjs\n") {
   const created = [];
   const timers = [];
-  const pre = node({ textContent: "node scripts/build-site.mjs\n" });
+  const pre = node({ textContent: code, attributes });
   node().appendChild(pre);
   const selection = { ranges: [], removeAllRanges() { this.ranges = []; }, addRange(range) { this.ranges.push(range); } };
   const document = {
@@ -59,6 +59,23 @@ function copyPage(writeText) {
   vm.runInNewContext(commonSource, { document, window, navigator: { clipboard: { writeText } } });
   return { pre, selection, timers, button: created.find(item => item.tag === "button"), created };
 }
+
+test("the install action names and copies both commands as one block", async () => {
+  const commands = "git clone https://github.com/AndrewDryga/ryker ryker\ncd ryker && ./install.sh";
+  const writes = [];
+  const page = copyPage(async value => writes.push(value), {
+    "data-copy-label": "Terminal",
+    "data-copy-button": "Copy both commands"
+  }, commands);
+  assert.equal(page.button.textContent, "Copy both commands");
+  assert.equal(page.button.attributes["aria-label"], "Copy both commands");
+  assert.equal(page.button.parentNode.parentNode, page.pre.parentNode);
+  page.button.dispatch("click");
+  await new Promise(setImmediate);
+  assert.deepEqual(writes, [commands]);
+  page.timers.at(-1)();
+  assert.equal(page.button.textContent, "Copy both commands");
+});
 
 // Clipboard permission can fail even on a secure page. The old fallback said
 // to press a Mac shortcut while leaving nothing selected, so it copied nothing.

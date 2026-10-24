@@ -135,17 +135,11 @@
      third column instead of a wider second one. */
   --measure: 68ch;
   --measure-narrow: 60ch;
-  --wrap: 1120px;
+  --wrap: 1240px;
   /* The lockup needs 176px of canvas to show its 160px minimum, and 8px of
      clear space around it; the bar is sized for that. */
   --nav-h: 80px;
 }
-
-/* The docs shell is wider than the landing page: three columns at 1120 left
-   the middle one too narrow for a line of example code. Widening the whole
-   page — nav, content and footer together, so the lockup still sits over the
-   sidebar — gives the content column the room. */
-body.doc-page { --wrap: 1240px; }
 
 /* Base -------------------------------------------------------------------- */
 
@@ -341,7 +335,7 @@ time, .tag { font-variant-numeric: tabular-nums; }
 .nav-links {
   display: flex;
   align-items: center;
-  gap: var(--s-4);
+  gap: 28px;
   margin-left: auto;
 }
 .nav-links a {
@@ -358,13 +352,18 @@ time, .tag { font-variant-numeric: tabular-nums; }
 .nav-links a:active { color: var(--accent-text); }
 /* Where you are is carried by the mint rule under the word, not by colour
    alone. */
-.nav-links a.on {
+.nav-links a[aria-current] {
   color: var(--ink);
   text-decoration: underline;
   text-decoration-color: var(--accent);
   text-decoration-thickness: 2px;
-  text-underline-offset: 8px;
+  text-underline-offset: 4px;
 }
+
+.nav-links .nav-start { padding: 0 16px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--ink); gap: 16px; }
+.nav-links .nav-start:hover { background: var(--panel); border-color: var(--dim); }
+.nav-drawer a[aria-current] { color: var(--ink); text-decoration: underline; text-underline-offset: 4px; }
+@media (max-width: 1100px) { .nav-links { gap: 16px; } }
 
 .nav-menu { margin-left: auto; display: none; }
 .nav-menu > summary {
@@ -486,100 +485,47 @@ time, .tag { font-variant-numeric: tabular-nums; }
 
 /* Copy buttons ------------------------------------------------------------ */
 
-/* Built by script, so a page with no script never shows a button that does
-   nothing. The chip is small; its hit area is 44px tall. */
-.copy-wrap { position: relative; }
-.copy {
-  position: absolute;
-  top: var(--s-1);
-  right: var(--s-1);
-  display: inline-flex;
-  align-items: center;
-  min-height: 28px;
-  padding: 0 10px;
-  border: 1px solid var(--line-strong);
-  border-radius: 4px;
-  background: var(--panel);
-  color: var(--dim);
-  font-family: var(--mono);
-  font-size: var(--t-micro);
-  line-height: 16px;
-  letter-spacing: .04em;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity .12s ease, color .12s ease, border-color .12s ease;
-}
-.copy::after { content: ""; position: absolute; inset: -8px -4px; }
-.copy-wrap:hover .copy,
-.copy:focus-visible { opacity: 1; }
-.copy:hover { color: var(--ink); border-color: var(--ink); }
+/* Each action belongs to the code block it copies. Without JavaScript the
+   original pre remains readable and selectable, with no inactive controls. */
+.copy-wrap { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: var(--sunken); }
+.copy-toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 12px; padding: 6px 12px; border-bottom: 1px solid var(--line); }
+.copy-label { color: var(--dim); font: 12px/20px var(--mono); }
+.copy { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 4px; background: transparent; color: var(--ink); font: 13px/20px var(--sans); cursor: pointer; transition: color .12s ease, border-color .12s ease; }
+.copy:hover { color: var(--accent-text); border-color: var(--accent-text); }
 .copy:active { transform: translateY(1px); }
-/* "Copied" says it; the success colour only agrees. */
-.copy.done { color: var(--good); border-color: var(--good); opacity: 1; }
-/* Touch has no hover, so there the button is simply always there. */
-@media (hover: none) {
-  .copy { opacity: 1; }
-}
+.copy.done { color: var(--good); border-color: var(--good); }
+.doc .copy-wrap pre { max-width: none; border: 0; border-radius: 0; background: transparent; }
 
 /* Footer ------------------------------------------------------------------ */
 
-/* The site signs with the supplied lockup at its minimum size, as the header
-   does, never with the name typed beside a dot. */
-.foot {
-  border-top: 1px solid var(--line);
-  padding-block: var(--s-6);
-  color: var(--dim);
-  font-size: var(--t-meta);
-  line-height: var(--lh-tight);
-}
+.foot { border-top: 1px solid var(--line); padding-block: 64px 24px; color: var(--dim); font-size: 14px; line-height: 24px; }
+.foot-main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: 64px; }
+.foot-brand { max-width: 28ch; }
 .foot-lockup { display: block; width: 176px; height: auto; }
-.foot-in { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); }
-.foot .sep { color: var(--dim); }
-.foot a {
-  color: var(--dim);
-  text-decoration: underline;
-  text-decoration-color: var(--line-strong);
-  text-underline-offset: 3px;
-}
-.foot a:hover { color: var(--ink); text-decoration-color: currentColor; }
+.foot-brand p { margin-top: 16px; font-size: 16px; line-height: 26px; }
+.foot-contact { display: inline-block; min-height: 44px; margin-top: 16px; padding-block: 10px; }
+.foot a { color: var(--dim); }
+.foot a:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
 .foot a:active { color: var(--accent-text); }
-/* A 13px link on a 24px line is a 34px target; the height is bought with
-   padding inside a row that centres its items, so nothing beside it moves. */
-.foot nav a,
-.foot-sub a,
-.colophon a {
-  display: inline-flex;
-  align-items: center;
-  min-height: 44px;
+.foot .wordmark:hover { text-decoration: none; }
+.foot-contact, .foot-bottom a { text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+.foot-links { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 32px; padding-top: 16px; }
+.foot-group h2 { font-size: 14px; line-height: 24px; font-weight: 600; }
+.foot-group ul { list-style: none; padding: 0; margin: 16px 0 0; }
+.foot-group a { display: flex; align-items: center; min-height: 44px; width: fit-content; max-width: 100%; }
+.foot-bottom { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 24px; margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 12px; line-height: 24px; }
+.foot-bottom a { display: inline-flex; align-items: center; min-height: 44px; }
+@media (max-width: 959px) {
+  .foot-main { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+  .foot-brand { max-width: 38ch; }
+  .foot-links { padding-top: 0; }
 }
-.foot nav { margin-left: auto; display: flex; flex-wrap: wrap; gap: var(--s-3); }
-/* One quiet row under the rest: the licence and the releases are facts a
-   self-hosted tool owes the reader, and neither is a navigation choice. */
-.foot-sub {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--s-1);
-  margin-top: var(--s-2);
+@media (max-width: 600px) {
+  .foot { padding-top: 40px; }
+  .foot-links { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+  .foot-bottom { display: block; margin-top: 32px; }
+  .foot-bottom > span { display: block; }
 }
-/* Rows anchor left on narrow screens; alternating alignment read as an
-   accident. */
-@media (max-width: 640px) {
-  .foot-in { justify-content: flex-start; }
-  .foot-in > *, .foot nav { margin-inline-start: 0; }
-}
-
-/* The landing page's colophon: the lockup, then the links, centred. */
-.colophon {
-  display: grid;
-  justify-items: center;
-  gap: var(--s-2);
-  font-family: var(--mono);
-  font-size: var(--t-micro);
-  letter-spacing: .04em;
-  text-align: center;
-}
-.colophon .sep { margin-inline: 10px; }
 
 /* Docs shell -------------------------------------------------------------- */
 

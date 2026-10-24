@@ -62,14 +62,24 @@
         var wrap = document.createElement("div");
         wrap.className = "copy-wrap";
         pre.parentNode.insertBefore(wrap, pre);
-        wrap.appendChild(pre);
+
+        var toolbar = document.createElement("div");
+        toolbar.className = "copy-toolbar";
+        var label = document.createElement("span");
+        label.className = "copy-label";
+        label.textContent = pre.getAttribute("data-copy-label") || "Code";
+        toolbar.appendChild(label);
+        wrap.appendChild(toolbar);
 
         var btn = document.createElement("button");
         btn.type = "button";
         btn.className = "copy";
-        btn.textContent = "Copy";
-        btn.setAttribute("aria-label", "Copy this code");
-        wrap.appendChild(btn);
+        var buttonLabel = pre.getAttribute("data-copy-button") || "Copy code";
+        var buttonDescription = pre.getAttribute("data-copy-button") || "Copy this code";
+        btn.textContent = buttonLabel;
+        btn.setAttribute("aria-label", buttonDescription);
+        toolbar.appendChild(btn);
+        wrap.appendChild(pre);
 
         var status = document.createElement("span");
         status.className = "copy-status vh";
@@ -103,8 +113,8 @@
           btn.classList.toggle("done", ok);
           window.clearTimeout(reset);
           reset = window.setTimeout(function () {
-            btn.textContent = "Copy";
-            btn.setAttribute("aria-label", "Copy this code");
+            btn.textContent = buttonLabel;
+            btn.setAttribute("aria-label", buttonDescription);
             btn.title = "";
             btn.classList.remove("done");
           }, ok ? 1600 : 4000);

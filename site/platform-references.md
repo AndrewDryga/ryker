@@ -169,6 +169,24 @@ surrounding copy also points to actual Instructions, Memory, Channels and Enviro
 pages. The repeated standalone approval demo was removed. Approval remains part of the
 Emisar explanation and the alert example. Native Slack payloads are unchanged.
 
+### Expanded console gallery
+
+The gallery adds the actual Instructions editor and a Learned topic's detail page,
+rendered from `5c108f0b1`. Both use an isolated SQL sandbox: `Instructions.save/4`
+stores public example guidance, and the existing `Answers` and `Knowledge` fixtures
+record a payment-retry topic with its source and update history. No model is called.
+The capture retains the application's HTML, styles, labels and controls, with only
+the incomplete-installation sidebar shortcut omitted as in the earlier captures.
+
+Desktop images are browser crops of the relevant controls: 1280 × 580 for
+Instructions and 1280 × 705 for Memory. Phone images are 375 × 625 captures of
+the native responsive pages, positioned at the main-content anchor. The gallery
+caps desktop screenshots at 720 CSS pixels wide and phone previews at 320 × 400,
+with each image linking to its desktop capture at full resolution. Request and
+model screenshots retain their original files. Every panel has a short explanation
+and a link to the relevant documentation; keyboard navigation and direct links
+use the existing example picker.
+
 
 ## Everyday feature illustrations — 23 October 2026
 

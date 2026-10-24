@@ -137,7 +137,7 @@
       else button.removeAttribute("aria-current");
     });
     var stopped = paused || time >= duration;
-    setText(play.querySelector(".playback-icon"), time >= duration ? "↺" : stopped ? "▷" : "Ⅱ");
+    play.setAttribute("data-playback-state", time >= duration ? "replay" : stopped ? "play" : "pause");
     play.setAttribute("aria-label", time >= duration ? "Play animation again" : stopped ? "Play animation" : "Pause animation");
     play.title = play.getAttribute("aria-label");
     if (animated && (slackArrived || prArrived || instant)) scrollToLatest(instant, slackArrived || instant, prArrived || instant);

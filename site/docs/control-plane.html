@@ -21,7 +21,7 @@
 <link rel="icon" href="../assets/brand/avatar.svg" type="image/svg+xml">
 <link rel="preload" href="../assets/fonts/IBMPlexSans-Regular.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../assets/fonts/IBMPlexSans-SemiBold.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="../assets/site.css">
+<link rel="stylesheet" href="../assets/site.css?v=shared-shell">
 </head>
 <body class="doc-page">
 
@@ -29,22 +29,9 @@
 
 <header class="nav">
   <div class="wrap nav-in">
-    <a class="wordmark" href="../index.html"><img src="../assets/brand/lockup-color.svg" alt="Ryker" width="176" height="61"></a>
-    <nav class="nav-links" aria-label="Main">
-      <a href="../index.html#how">How it works</a>
-      <a href="../index.html#console">The app</a>
-      <a href="index.html" class="on">Docs</a>
-      <a href="https://github.com/AndrewDryga/ryker">GitHub</a>
-    </nav>
-    <details class="nav-menu">
-      <summary aria-label="Menu">Menu</summary>
-      <div class="nav-drawer">
-        <a href="../index.html#how">How it works</a>
-        <a href="../index.html#console">The app</a>
-        <a href="index.html">Docs</a>
-        <a href="https://github.com/AndrewDryga/ryker">GitHub</a>
-      </div>
-    </details>
+    <a class="wordmark" href="../index.html" aria-label="Home"><img src="../assets/brand/lockup-color.svg" alt="Ryker" width="176" height="61"></a>
+    <nav class="nav-links" aria-label="Main"><a href="../index.html#examples">Examples</a><a href="../index.html#team-tools">The tools</a><a href="../index.html#console">The app</a><a href="index.html" aria-current="location">Docs</a><a class="nav-start" href="../index.html#start">Run it yourself <span aria-hidden="true">↗</span></a></nav>
+    <details class="nav-menu"><summary aria-label="Menu">Menu</summary><div class="nav-drawer"><a href="../index.html#examples">Examples</a><a href="../index.html#team-tools">The tools</a><a href="../index.html#console">The app</a><a href="index.html" aria-current="location">Docs</a><a href="../index.html#start">Run it yourself</a></div></details>
   </div>
 </header>
 
@@ -241,21 +228,23 @@
 </div>
 
 <footer class="foot">
-  <div class="wrap foot-in">
-    <img class="foot-lockup" src="../assets/brand/lockup-color.svg" alt="Ryker" width="176" height="61">
-    <nav aria-label="Footer">
-      <a href="index.html">Docs</a>
-      <a href="https://github.com/AndrewDryga/ryker">GitHub</a>
-      <a href="../docs/security.html">Access and data</a>
-    </nav>
-  </div>
-  <div class="wrap foot-sub">
-    <a href="https://github.com/AndrewDryga/ryker/blob/main/LICENSE">Business Source License 1.1</a>
-    <span class="sep">·</span>
-    <a href="https://github.com/AndrewDryga/ryker/releases">Releases</a>
+  <div class="wrap">
+    <div class="foot-main">
+      <div class="foot-brand">
+        <a class="wordmark" href="../index.html" aria-label="Home"><img class="foot-lockup" src="../assets/brand/lockup-color.svg" alt="Ryker" width="176" height="61"></a>
+        <p>An AI teammate for Slack and GitHub.</p>
+        <a class="foot-contact" href="mailto:andrew@dryga.com?subject=Ryker%20design%20partner">Talk to the builder <span aria-hidden="true">↗</span></a>
+      </div>
+      <nav class="foot-links" aria-label="Footer">
+        <div class="foot-group"><h2>Product</h2><ul><li><a href="../index.html#examples">Examples</a></li><li><a href="../index.html#team-tools">The tools</a></li><li><a href="../index.html#console">The app</a></li></ul></div>
+        <div class="foot-group"><h2>Guides</h2><ul><li><a href="getting-started.html">Installation</a></li><li><a href="slack.html">Slack</a></li><li><a href="github.html">GitHub</a></li><li><a href="security.html">Access and data</a></li></ul></div>
+        <div class="foot-group"><h2>Project</h2><ul><li><a href="index.html">Documentation</a></li><li><a href="https://github.com/AndrewDryga/ryker">Source code</a></li><li><a href="https://github.com/AndrewDryga/ryker/releases">Releases</a></li></ul></div>
+      </nav>
+    </div>
+    <div class="foot-bottom"><span>A <a href="https://github.com/ProtectorateHQ">Protectorate</a> product.</span><span>Works with <a href="https://coop.dryga.com/">co:op</a> and <a href="https://emisar.dev/">Emisar</a>.</span><a href="https://github.com/AndrewDryga/ryker/blob/main/LICENSE">Business Source License 1.1</a></div>
   </div>
 </footer>
 
-<script src="../assets/site.js" defer></script>
+<script src="../assets/site.js?v=copy-scope" defer></script>
 </body>
 </html>

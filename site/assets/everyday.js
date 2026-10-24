@@ -78,8 +78,6 @@
     var visible = !window.IntersectionObserver;
 
     function animated() { return !reduced.matches && !printing; }
-    function text(node, value) { if (node.textContent !== value) node.textContent = value; }
-
     function render(instant) {
       var enabled = animated();
       var t = enabled ? time : duration;
@@ -105,7 +103,7 @@
         else button.removeAttribute("aria-current");
       });
       var done = time >= duration;
-      text(play.querySelector(".playback-icon"), done ? "↺" : paused ? "▷" : "Ⅱ");
+      play.setAttribute("data-playback-state", done ? "replay" : paused ? "play" : "pause");
       play.setAttribute("aria-label", (done ? "Replay " : paused ? "Play " : "Pause ") + name + " animation");
       play.title = play.getAttribute("aria-label");
       if (enabled && (arrived || instant)) {
