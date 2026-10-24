@@ -301,6 +301,18 @@ evidence anywhere outside the incoming source's scope is not offered at all — 
 existence would leak that scope. Reading across conversations never confers posting permission,
 repository access or action authority.
 
+An episode is offered only within its Work session's pinned environment and Emisar connection.
+The incoming message's frozen Work profile supplies those identities, and acceptance checks the
+latest session again. Identical wording, a shared repository, the same sender, and ownership of an
+older revision do not join work across that boundary. Within one scope, a channel's default
+repository may differ from the repository the existing task selected.
+Resuming a frozen briefing rechecks every candidate, including evidence an answer does not select;
+an out-of-scope briefing spends its execution generation and is rebuilt before another model turn.
+Acceptance holds the conversations and candidate episodes in order through its final scope check
+and commit, so a concurrent account refresh cannot change the checked authority. An edit whose
+original owner now belongs to another scope stops for operator recovery before calling a model;
+it neither moves historical ownership nor repeatedly retries an impossible continuation.
+
 ### Bounded retrieval and the best twenty
 
 Five indexed lanes fill a pool of at most 200 eligible episodes, each returning its own best 50:

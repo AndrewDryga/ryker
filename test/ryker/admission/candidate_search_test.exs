@@ -495,6 +495,7 @@ defmodule Ryker.Admission.CandidateSearchTest do
       native_input_id: Keyword.get(options, :native_input_id, "slack-message:absent"),
       execution_mode: :live,
       repository_ref: Keyword.get(options, :repository_ref),
+      work_scope: %{environment_ref: nil, emisar_connection_ref: nil},
       occurrences: Keyword.get(options, :occurrences, []),
       candidate_limit: 20,
       history_cutoff: DateTime.add(@now, -30 * 24 * 60 * 60, :second),

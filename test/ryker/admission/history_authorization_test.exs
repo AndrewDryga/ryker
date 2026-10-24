@@ -1,20 +1,28 @@
 defmodule Ryker.Admission.HistoryAuthorizationTest do
   use Ryker.DataCase, async: true
   alias Ryker.Admission
-  alias Ryker.Admission.{Context, Decision, Prompt}
+  alias Ryker.Admission.{Context, Decision, Executor, Prompt}
   alias Ryker.Episodes
   alias Ryker.Episodes.Command
+  alias Ryker.Fixtures.LocalRouting
   alias Ryker.Ingress.{Inbox, Input}
   alias Ryker.Learning.ConversationObservation
   alias Ryker.Repo
   alias Ryker.Slack.ChannelMembership
   alias Ryker.Slack.Input, as: SlackInput
+  alias Ryker.TestSupport.FakeCoopAPI, as: FakeAPI
+  alias Ryker.Work.Session
 
   @moduletag isolation: "REPEATABLE READ"
   @fixture Path.expand("fixtures/history_authorization/cross_channel_health_check.json", __DIR__)
+  @scope_fixture Path.expand(
+                   "fixtures/history_authorization/cross_environment_health_check.json",
+                   __DIR__
+                 )
 
   setup do
     fixture = @fixture |> File.read!() |> Jason.decode!()
+    scopes = @scope_fixture |> File.read!() |> Jason.decode!()
     workspace = "THISTORY#{System.unique_integer([:positive])}"
     now = datetime!(fixture["incoming"]["occurred_at"])
 
@@ -32,7 +40,248 @@ defmodule Ryker.Admission.HistoryAuthorizationTest do
 
     history = seed!(fixture["history"]["input"], workspace)
     active = seed!(fixture["active"], workspace)
-    {:ok, fixture: fixture, workspace: workspace, now: now, history: history, active: active}
+
+    {:ok,
+     fixture: fixture,
+     scopes: scopes,
+     workspace: workspace,
+     now: now,
+     history: history,
+     active: active}
+  end
+
+  for mismatch <- [:environment, :connection, :both] do
+    @mismatch mismatch
+    test "an identical health request cannot inherit another #{@mismatch} scope", %{
+      fixture: fixture,
+      scopes: scopes,
+      workspace: workspace,
+      now: now,
+      active: active
+    } do
+      # The recovered message joined a different environment's session and
+      # received its database/backup findings. A successful commit was the
+      # wrong proof: both environment and Emisar connection must stay local.
+      scope = scopes["active"]
+      incoming = scopes["incoming"]
+
+      scope =
+        case @mismatch do
+          :environment ->
+            Map.put(scope, "emisar_connection_ref", incoming["emisar_connection_ref"])
+
+          :connection ->
+            Map.put(scope, "environment_ref", incoming["environment_ref"])
+
+          :both ->
+            scope
+        end
+
+      pin!(active, scope)
+      entry = scoped_record!(fixture["incoming"], workspace, incoming)
+      context = context!(entry, now)
+      refute Enum.any?(context.candidates, &(&1.episode.id == active.id))
+    end
+  end
+
+  test "an exact source owner cannot bypass the incoming environment boundary", %{
+    fixture: fixture,
+    scopes: scopes,
+    workspace: workspace,
+    now: now,
+    active: active
+  } do
+    pin!(active, scopes["active"])
+
+    revised =
+      fixture["active"]
+      |> Map.put("event_ref", "EvTenantScopeRevision")
+      |> Map.put("revision", fixture["active"]["revision"] + 1)
+      |> Map.put("occurred_at", fixture["incoming"]["occurred_at"])
+
+    entry = scoped_record!(revised, workspace, scopes["incoming"])
+
+    options = [
+      now: now,
+      continuation_window: 1_800,
+      history_window: 2_592_000,
+      candidate_limit: 8
+    ]
+
+    assert Admission.context(Inbox.ref(entry), options) ==
+             {:error, {:admission_execution_blocked, :source_owner_scope_changed}}
+
+    {:ok, fake} = FakeAPI.start_link([])
+
+    claimed = claim!(entry, now)
+
+    assert Executor.run(Inbox.ref(entry), executor_options(fake, claimed.lease_ref, now)) ==
+             {:error, {:admission_execution_blocked, :source_owner_scope_changed}}
+
+    assert FakeAPI.state(fake).submit_count == 0
+    assert Repo.get!(Inbox.Entry, entry.id).status == :pending
+  end
+
+  test "same-environment cross-channel work retains its selected repository and session", %{
+    fixture: fixture,
+    scopes: scopes,
+    workspace: workspace,
+    now: now,
+    active: active
+  } do
+    scope = scopes["incoming"]
+    session_scope = Map.put(scope, "repository_ref", scopes["active"]["repository_ref"])
+    session = pin!(active, session_scope)
+    entry = scoped_record!(fixture["incoming"], workspace, scope)
+    context = context!(entry, now)
+    assert candidate = Enum.find(context.candidates, &(&1.episode.id == active.id))
+
+    assert {:ok, decision} =
+             scopes["decision"] |> Map.put("episode_ref", candidate.ref) |> Decision.parse()
+
+    assert {:ok, result} = Admission.commit(context, decision, "same-environment-continuation")
+    assert result.episode.id == active.id
+    assert Repo.get_by!(Session, episode_id: active.id).id == session.id
+    assert Repo.get!(Session, session.id).repository_ref == scopes["active"]["repository_ref"]
+  end
+
+  test "foreign evidence invalidates a frozen briefing even when the answer selects no episode",
+       %{
+         fixture: fixture,
+         scopes: scopes,
+         workspace: workspace,
+         now: now,
+         active: active
+       } do
+    # A pre-deploy briefing can contain the same foreign findings as the
+    # misrouted health check. Reject its whole answer, including a quick
+    # reply with no selection, and rebuild before sending another prompt.
+    session = pin!(active, scopes["incoming"])
+    entry = scoped_record!(fixture["incoming"], workspace, scopes["incoming"])
+    context = context!(entry, now)
+    assert Enum.any?(context.candidates, &(&1.episode.id == active.id))
+    snapshot = Context.snapshot(context)
+    claimed = claim!(entry, now)
+    assert {:ok, frozen} = Inbox.bind_context(Inbox.ref(entry), claimed.lease_ref, snapshot)
+
+    session
+    |> Ecto.Changeset.change(emisar_connection_ref: scopes["active"]["emisar_connection_ref"])
+    |> Repo.update!()
+
+    quick_reply_document = LocalRouting.hi_quick_reply() |> Jason.decode!()
+    assert {:ok, quick_reply} = Decision.parse(quick_reply_document)
+    assert quick_reply.episode_ref == nil
+
+    assert Admission.validate(context, quick_reply) ==
+             {:error, {:admission_rejected, :work_scope_not_allowed}}
+
+    assert Admission.commit(context, quick_reply, "foreign-unselected-evidence",
+             lease_ref: claimed.lease_ref
+           ) ==
+             {:error, {:admission_rejected, :work_scope_not_allowed}}
+
+    assert Admission.restore_context(frozen, claimed.lease_ref) ==
+             {:error, {:admission_rejected, :work_scope_not_allowed}}
+
+    {:ok, fake} = FakeAPI.start_link([LocalRouting.hi_quick_reply()])
+
+    assert Executor.run(Inbox.ref(entry), executor_options(fake, claimed.lease_ref, now)) ==
+             {:error,
+              {:admission_generation_spent, {:admission_rejected, :work_scope_not_allowed}}}
+
+    assert FakeAPI.state(fake).submit_count == 0
+    assert Repo.get!(Inbox.Entry, entry.id).status == :pending
+  end
+
+  defp executor_options(fake, lease_ref, now) do
+    [
+      api: FakeAPI,
+      client: fake,
+      lease_ref: lease_ref,
+      max_polls: 10,
+      now: fn -> now end,
+      policy: "admission-read-only",
+      policy_digest: String.duplicate("a", 64),
+      poll_interval_ms: 0,
+      renew_lease: fn -> :ok end,
+      sleep: fn _milliseconds -> :ok end
+    ]
+  end
+
+  defp claim!(entry, now) do
+    entry
+    |> Inbox.Entry.Changeset.claim(%{
+      attempt_count: 1,
+      lease_ref: "scope-lease:#{entry.id}",
+      lease_owner: "scope-test",
+      lease_expires_at: DateTime.add(now, 300)
+    })
+    |> Repo.update!()
+  end
+
+  test "a frozen valid choice cannot cross an environment pin established before commit", %{
+    fixture: fixture,
+    scopes: scopes,
+    workspace: workspace,
+    now: now,
+    active: active
+  } do
+    session = pin!(active, scopes["incoming"])
+    entry = scoped_record!(fixture["incoming"], workspace, scopes["incoming"])
+    context = context!(entry, now)
+    assert candidate = Enum.find(context.candidates, &(&1.episode.id == active.id))
+
+    assert {:ok, decision} =
+             scopes["decision"] |> Map.put("episode_ref", candidate.ref) |> Decision.parse()
+
+    session
+    |> Ecto.Changeset.change(environment_ref: scopes["active"]["environment_ref"])
+    |> Repo.update!()
+
+    assert Admission.commit(context, decision, "changed-environment-pin") ==
+             {:error, {:admission_rejected, :work_scope_not_allowed}}
+
+    assert Repo.get!(Inbox.Entry, entry.id).status == :pending
+  end
+
+  defp pin!(entry, scope) do
+    Repo.insert!(%Session{
+      episode_id: entry.id,
+      external_ref: "scoped-history:#{entry.id}",
+      policy: "recorded-scope",
+      policy_digest: String.duplicate("a", 64),
+      environment_ref: scope["environment_ref"],
+      emisar_connection_ref: scope["emisar_connection_ref"],
+      repository_ref: scope["repository_ref"]
+    })
+  end
+
+  defp scoped_record!(document, workspace, scope) do
+    repositories = Enum.uniq([scope["repository_ref"], "tenant-shared-infra"])
+
+    profile = %{
+      environment_ref: scope["environment_ref"],
+      emisar_connection_ref: scope["emisar_connection_ref"],
+      parallel_goal_limit: 2,
+      repositories: repositories,
+      policies:
+        Map.new(repositories, fn repository ->
+          {repository,
+           Map.new([:conversational, :standard, :deep], fn work_class ->
+             {work_class,
+              %{
+                authority_digest: String.duplicate("e", 64),
+                policy: "#{repository}-#{work_class}",
+                policy_digest: String.duplicate("b", 64)
+              }}
+           end)}
+        end)
+    }
+
+    assert {:ok, %{entry: entry}} =
+             Inbox.record(input!(document, workspace), work_profile: profile)
+
+    entry
   end
 
   test "inaccessible unselected history cannot spend a valid continuation's routing attempts",

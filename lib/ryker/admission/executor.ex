@@ -303,6 +303,12 @@ defmodule Ryker.Admission.Executor do
       {:error, {:admission_rejected, :context_stale} = reason} ->
         close_then(session, entry, settings, generation_spent(reason))
 
+      {:error, {:admission_rejected, :work_scope_not_allowed} = reason} ->
+        close_then(session, entry, settings, generation_spent(reason))
+
+      {:error, {:admission_execution_blocked, reason}} ->
+        block_after_close(session, entry, settings, reason)
+
       {:error, :episode_cancelled = reason} ->
         close_then(session, entry, settings, generation_spent(reason))
 
@@ -318,7 +324,8 @@ defmodule Ryker.Admission.Executor do
   end
 
   defp reauthorize_context(entry, context) do
-    with :ok <-
+    with :ok <- Admission.reauthorize_work_scope(context),
+         :ok <-
            Learning.Observations.reauthorize(entry, entry.repository_ref, context.observations),
          do: Knowledge.still_current(entry, entry.repository_ref, context.knowledge)
   end
@@ -379,8 +386,15 @@ defmodule Ryker.Admission.Executor do
   end
 
   defp execution_context(_input_ref, entry, settings) do
-    with {:ok, context} <- Admission.restore_context(entry, settings.lease_ref) do
-      {:ok, entry, context}
+    case Admission.restore_context(entry, settings.lease_ref) do
+      {:ok, context} ->
+        {:ok, entry, context}
+
+      {:error, {:admission_rejected, :work_scope_not_allowed} = reason} ->
+        generation_spent(reason)
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -746,6 +760,9 @@ defmodule Ryker.Admission.Executor do
             settings,
             left
           )
+
+        {:error, {:admission_rejected, :work_scope_not_allowed} = reason} ->
+          generation_spent(reason)
 
         {:error, reason} ->
           refuse_candidate(turn, candidate, message, reason, context, entry, settings, left)

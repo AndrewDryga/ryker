@@ -123,14 +123,25 @@ defmodule Ryker.Admission.CandidateSearch do
     }
   end
 
-  defp source_owner(%{
-         native_input_id: native_input_id,
-         transport: transport,
-         execution_mode: mode
-       }) do
+  defp source_owner(
+         %{
+           native_input_id: native_input_id,
+           transport: transport,
+           execution_mode: mode
+         } = request
+       ) do
     case Episodes.Origins.fetch_current_owner(native_input_id, transport, mode) do
-      {:ok, {%Episodes.Episode{} = episode, _revision}} -> episode
-      {:error, :not_found} -> nil
+      {:ok, {%Episodes.Episode{} = episode, _revision}} ->
+        eligible =
+          episode.id
+          |> Episodes.Episode.Query.by_id()
+          |> CandidateSearch.Query.in_work_scope(request.work_scope)
+          |> Repo.exists?()
+
+        if eligible, do: episode
+
+      {:error, :not_found} ->
+        nil
     end
   end
 

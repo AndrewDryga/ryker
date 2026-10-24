@@ -338,6 +338,7 @@ defmodule Ryker.Admission.SearchBenchmarkTest do
       native_input_id: "slack-message:benchmark:#{System.unique_integer([:positive])}",
       execution_mode: :live,
       repository_ref: nil,
+      work_scope: %{environment_ref: nil, emisar_connection_ref: nil},
       occurrences: [],
       meaning: vectors && %{vector: Map.fetch!(vectors, key(text)), model: vectors.model},
       candidate_limit: @offered,

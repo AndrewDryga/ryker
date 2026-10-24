@@ -61,8 +61,10 @@ defmodule Ryker.Admission do
           {:ok, Context.t()} | {:error, term()}
   def restore_context(%Ingress.Inbox.Entry{} = entry, lease_ref) do
     with :ok <- pending(entry),
-         :ok <- lease_owned(entry, lease_ref) do
-      restored_context(entry)
+         :ok <- lease_owned(entry, lease_ref),
+         {:ok, context} <- restored_context(entry),
+         :ok <- reauthorize_work_scope(context) do
+      {:ok, context}
     end
   end
 
@@ -144,6 +146,7 @@ defmodule Ryker.Admission do
 
   defp build_context_locked(input, entry, settings, captured) do
     with :ok <- lock_conversation(input),
+         :ok <- source_owner_work_scope(input, entry),
          {:ok, candidates, routing_receipt} <- candidates(input, entry, settings) do
       %Context{
         active_episode_fingerprint:
@@ -259,7 +262,8 @@ defmodule Ryker.Admission do
            }}
           | {:error, term()}
   def validate(%Context{} = context, %Decision{} = decision) do
-    with {:ok, decision} <- Decision.prepare(decision),
+    with :ok <- reauthorize_work_scope(context),
+         {:ok, decision} <- Decision.prepare(decision),
          :ok <- allowed_action(context.input, decision.action),
          :ok <- allowed_reactions(context.input, decision),
          {:ok, candidate} <- selected_candidate(context, decision.episode_ref),
@@ -277,6 +281,57 @@ defmodule Ryker.Admission do
   end
 
   def validate(_context, _decision), do: {:error, {:admission_rejected, :context}}
+
+  @doc """
+  Internal — `Ryker.Admission.Executor` rechecks every episode whose evidence
+  entered a frozen briefing. Returns `:ok`, or
+  `{:error, {:admission_rejected, :work_scope_not_allowed}}` when any candidate
+  no longer belongs to the incoming environment and Emisar connection.
+  A value other than a context returns `{:error, {:admission_rejected, :context}}`.
+  """
+  @spec reauthorize_work_scope(Context.t()) :: :ok | {:error, term()}
+  def reauthorize_work_scope(%Context{candidates: []}), do: :ok
+
+  def reauthorize_work_scope(%Context{} = context) do
+    ids = context.candidates |> Enum.map(& &1.episode.id) |> Enum.uniq()
+
+    eligible_count =
+      ids
+      |> Episodes.Episode.Query.by_ids()
+      |> CandidateSearch.Query.in_work_scope(work_scope(context.input_entry))
+      |> Repo.aggregate(:count)
+
+    if eligible_count == length(ids),
+      do: :ok,
+      else: {:error, {:admission_rejected, :work_scope_not_allowed}}
+  end
+
+  def reauthorize_work_scope(_context), do: {:error, {:admission_rejected, :context}}
+
+  # An edit still belongs to its original episode. A route changed to another
+  # environment cannot move that source or offer its old findings, and a model
+  # cannot satisfy both rules. Block once before spending a routing turn.
+  defp source_owner_work_scope(input, entry) do
+    case Episodes.Origins.fetch_current_owner(
+           input.native_input_id,
+           input.destination.transport,
+           entry.execution_mode
+         ) do
+      {:ok, {episode, _revision}} ->
+        allowed =
+          episode.id
+          |> Episodes.Episode.Query.by_id()
+          |> CandidateSearch.Query.in_work_scope(work_scope(entry))
+          |> Repo.exists?()
+
+        if allowed,
+          do: :ok,
+          else: {:error, {:admission_execution_blocked, :source_owner_scope_changed}}
+
+      {:error, :not_found} ->
+        :ok
+    end
+  end
 
   @doc """
   A short code for why routing's checks refused an answer, kept with each
@@ -878,8 +933,11 @@ defmodule Ryker.Admission do
   end
 
   defp current_routing_scope(%Context{} = context, selection) do
-    with :ok <- lock_conversation(context.input),
-         :ok <- compare_routing_generation(context, selection) do
+    with :ok <- lock_routing_conversations(context),
+         :ok <- compare_routing_generation(context, selection),
+         :ok <- lock_candidate_episodes(context),
+         :ok <- reauthorize_work_scope(context),
+         :ok <- source_owner_work_scope(context.input, context.input_entry) do
       source_owner =
         if context.input_entry.execution_mode == :shadow,
           do: {:error, :not_found},
@@ -887,6 +945,28 @@ defmodule Ryker.Admission do
 
       {:ok, refresh_selection(selection), source_owner}
     end
+  end
+
+  defp lock_routing_conversations(context) do
+    destinations = Enum.map(context.candidates, &target_destination(context.input, &1.episode))
+
+    Episodes.ConversationLock.lock_many([context.input.destination | destinations])
+  end
+
+  # Custody refreshes authority under the episode lock. Hold the same locks
+  # through the final check and commit, after the conversation lock, so a
+  # concurrent retry cannot switch an account between validation and admission.
+  defp lock_candidate_episodes(context) do
+    context.candidates
+    |> Enum.map(& &1.episode.key)
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.reduce_while(:ok, fn key, :ok ->
+      case Episodes.fetch_and_lock_current_in_transaction(key) do
+        {:ok, _episode} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
   defp compare_routing_generation(context, selection) do
@@ -1251,6 +1331,7 @@ defmodule Ryker.Admission do
         native_input_id: input.native_input_id,
         execution_mode: entry.execution_mode,
         repository_ref: entry.repository_ref,
+        work_scope: work_scope(entry),
         occurrences: Occurrences.for_input(input),
         meaning: settings[:meaning],
         candidate_limit: settings.candidate_limit,
@@ -1295,6 +1376,16 @@ defmodule Ryker.Admission do
 
   defp candidate_input_repository(%Ingress.Inbox.Entry{repository_ref: repository_ref}),
     do: repository_ref
+
+  # Slack's default repository may differ from the one selected by an existing
+  # task in this environment. Its environment and account connection may not:
+  # identical health questions in two channels inherited the other tenant's work.
+  defp work_scope(%Ingress.Inbox.Entry{work_profile: profile}) do
+    %{
+      environment_ref: profile && profile["environment_ref"],
+      emisar_connection_ref: profile && profile["emisar_connection_ref"]
+    }
+  end
 
   # What each candidate last said or decided: routing chose between earlier
   # work it knew only by its opening message and the state "complete".

@@ -7,6 +7,7 @@ defmodule Ryker.Admission.CandidateSearch.Query do
   use Ryker, :query
   alias Ryker.Episodes
   alias Ryker.Ingress
+  alias Ryker.Work
 
   @active_states [:working, :waiting_for_input, :waiting_for_event]
 
@@ -26,6 +27,28 @@ defmodule Ryker.Admission.CandidateSearch.Query do
       where: episode.state in ^@active_states or episode.updated_at >= ^request.history_cutoff,
       where: not exists(origins()) or exists(kept_origins())
     )
+    |> in_work_scope(request.work_scope)
+  end
+
+  @doc "Episodes whose latest Work session belongs to the incoming environment and Emisar connection."
+  def in_work_scope(queryable, work_scope) do
+    latest =
+      from(session in Work.Session.Query.for_work(),
+        where: session.episode_id == parent_as(:episode_kernel_episodes).id,
+        order_by: [desc: session.generation],
+        limit: 1
+      )
+
+    matching =
+      from(session in subquery(latest), as: :episode_work_sessions)
+      |> Work.Session.Query.with_pin(work_scope)
+      |> select([episode_work_sessions: s], 1)
+
+    if Enum.all?(work_scope, fn {_field, value} -> is_nil(value) end) do
+      where(queryable, not exists(latest) or exists(matching))
+    else
+      where(queryable, exists(matching))
+    end
   end
 
   defp origins do

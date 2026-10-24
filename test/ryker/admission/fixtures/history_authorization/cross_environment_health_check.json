@@ -1,0 +1,28 @@
+{
+  "active": {
+    "environment_ref": "tenant-a",
+    "emisar_connection_ref": "tenant-a-account",
+    "repository_ref": "tenant-shared-infra"
+  },
+  "incoming": {
+    "environment_ref": "tenant-b",
+    "emisar_connection_ref": "tenant-b-account",
+    "repository_ref": "tenant-b-core"
+  },
+  "decision": {
+    "action": "continue_episode",
+    "reason": "This request belongs to the same ongoing infrastructure health check for this person, with no indication of a separate environment or new problem.",
+    "messages": null,
+    "relation": "same_work",
+    "reactions": null,
+    "repository": null,
+    "work_class": "standard",
+    "episode_ref": "candidate:0cfef5ce61e4",
+    "repository_source": null
+  },
+  "source": {
+    "harvested_at": "2026-10-24",
+    "incident": "Identical health requests 3.7 seconds apart in channels assigned different environments were merged. The continuation inherited the first environment, Emisar account and infrastructure findings.",
+    "identity": "Only environment, connection and repository names are pseudonyms. The routing decision is the recorded generation-9 answer. Input payloads and source times are in cross_channel_health_check.json."
+  }
+}
