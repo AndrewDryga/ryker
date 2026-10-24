@@ -494,14 +494,15 @@ time, .tag { font-variant-numeric: tabular-nums; }
 
 /* Each action belongs to the code block it copies. Without JavaScript the
    original pre remains readable and selectable, with no inactive controls. */
-.copy-wrap { min-width: 0; padding: 8px 20px 20px; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: var(--sunken); }
-.copy-toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 12px; margin-bottom: 8px; }
-.copy-label { color: var(--dim); font: 12px/20px var(--mono); }
-.copy { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding: 0 8px; border: 0; border-radius: 4px; background: transparent; color: var(--dim); font: 13px/20px var(--sans); cursor: pointer; transition: color .12s ease, background-color .12s ease; }
-.copy:hover { color: var(--ink); background: var(--panel-2); }
-.copy:active { transform: translateY(1px); }
+.copy-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 44px; align-items: start; gap: 0 12px; min-width: 0; padding: 12px 16px; border-radius: 4px; background: var(--sunken); }
+.copy { display: grid; place-items: center; width: 44px; height: 44px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--dim); cursor: pointer; transition: color .12s ease; }
+.copy:hover { color: var(--ink); }
 .copy.done { color: var(--good); }
-.doc .copy-wrap pre, .install .copy-wrap pre { width: 100%; max-width: none; margin: 0; padding: 0; text-indent: 0; border: 0; border-radius: 0; background: transparent; }
+.copy svg { display: block; }
+.copy-check, .copy.done .copy-symbol { display: none; }
+.copy.done .copy-check { display: block; }
+.copy-status:not(.vh) { grid-column: 1 / -1; padding-bottom: 8px; color: var(--dim); font: 12px/20px var(--sans); }
+.doc .copy-wrap pre, .install .copy-wrap pre { width: 100%; max-width: none; margin: 0; padding: 10px 0; text-indent: 0; border: 0; border-radius: 0; background: transparent; }
 
 /* Footer ------------------------------------------------------------------ */
 
@@ -821,8 +822,8 @@ time, .tag { font-variant-numeric: tabular-nums; }
   max-width: 78ch;
   margin: 0;
   padding: var(--s-3);
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  border: 0;
+  border-radius: 4px;
   background: var(--sunken);
   color: var(--ink);
   font-size: .8125rem;
@@ -1107,6 +1108,7 @@ time, .tag { font-variant-numeric: tabular-nums; }
 
 @media print {
   .nav, .toc, .docs-nav, .doc-toc, .doc-next, .copy, .anchor, .foot { display: none; }
+  .copy-wrap { display: block; padding: 0; }
   .docs { display: block; }
   .doc { max-width: none; padding-block: 0; }
   .doc h1, .doc h2, .doc h3 { break-after: avoid; }

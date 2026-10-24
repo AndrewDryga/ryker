@@ -64,17 +64,16 @@ test("the install action names and copies both commands as one block", async () 
   const commands = "git clone https://github.com/AndrewDryga/ryker ryker\ncd ryker && ./install.sh";
   const writes = [];
   const page = copyPage(async value => writes.push(value), {
-    "data-copy-label": "Terminal",
     "data-copy-button": "Copy both commands"
   }, commands);
-  assert.equal(page.button.textContent, "Copy both commands");
+  assert.equal(page.button.title, "Copy both commands");
   assert.equal(page.button.attributes["aria-label"], "Copy both commands");
-  assert.equal(page.button.parentNode.parentNode, page.pre.parentNode);
+  assert.ok(page.pre.parentNode.contains(page.button));
   page.button.dispatch("click");
   await new Promise(setImmediate);
   assert.deepEqual(writes, [commands]);
   page.timers.at(-1)();
-  assert.equal(page.button.textContent, "Copy both commands");
+  assert.equal(page.button.title, "Copy both commands");
 });
 
 // Clipboard permission can fail even on a secure page. The old fallback said
@@ -87,6 +86,7 @@ test("a denied clipboard selects the actual command and explains manual copying"
   assert.equal(page.selection.ranges[0].target, page.pre);
   const status = page.created.find(item => item.attributes.role === "status");
   assert.match(status.textContent, /Code selected/);
+  assert.equal(status.classList.contains("vh"), false, "manual-copy instructions stay visible");
   assert.match(status.textContent, /Copy command/);
   assert.doesNotMatch(status.textContent, /⌘|Ctrl|Command/);
   assert.match(page.button.attributes["aria-label"], /Code selected/);
@@ -211,11 +211,13 @@ test("successful copying announces the result and restores the action label", as
   await new Promise(setImmediate);
   assert.deepEqual(writes, ["node scripts/build-site.mjs"]);
   assert.equal(page.selection.ranges.length, 0);
-  assert.equal(page.button.textContent, "Copied");
+  assert.equal(page.button.classList.contains("done"), true);
   const status = page.created.find(item => item.attributes.role === "status");
   assert.equal(status.textContent, "Code copied.");
+  assert.equal(status.classList.contains("vh"), true, "the checkmark confirms copying without adding a row");
   page.timers.at(-1)();
   assert.equal(page.button.attributes["aria-label"], "Copy this code");
+  assert.equal(page.button.classList.contains("done"), false);
 });
 
 function examplePage(hash = "") {

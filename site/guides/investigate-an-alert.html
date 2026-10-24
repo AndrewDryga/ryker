@@ -21,7 +21,7 @@
 <link rel="icon" href="../assets/brand/avatar.svg" type="image/svg+xml">
 <link rel="preload" href="../assets/fonts/IBMPlexSans-Regular.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../assets/fonts/IBMPlexSans-SemiBold.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="../assets/site.css?v=mobile-nav">
+<link rel="stylesheet" href="../assets/site.css?v=code-blocks">
 </head>
 <body class="doc-page">
 
@@ -84,7 +84,7 @@
 <h2 id="alert">Start with an alert</h2>
 <p>An alert should identify the service, environment, time, and symptom, with a link to the logs or metrics. For example, a checkout error-rate alert gives Ryker a starting point for checking recent deployments, reading application logs, and tracing failing requests in the code.</p>
 <p>To ask directly, reply in the alert’s thread:</p>
-<pre data-copy-kind="message" data-copy-label="Slack" data-copy-button="Copy example"><code>@Ryker investigate these checkout errors in staging. Find the cause, prepare a fix, and check recovery afterward. Bring any required approval back to us here.</code></pre>
+<pre data-copy-kind="message" data-copy-button="Copy example"><code>@Ryker investigate these checkout errors in staging. Find the cause, prepare a fix, and check recovery afterward. Bring any required approval back to us here.</code></pre>
 <p>Ryker compares the code and intended configuration with current evidence. It reports whether the alert is confirmed, likely, disproved, or still unverified, and explains the impact. A confirmed or likely problem includes a proposed immediate mitigation and lasting fix.</p>
 <p>Add missing context in the thread while it works. Ryker asks if it needs a decision or access it does not have. A Terraform review needs the actual plan, supplied in the conversation or retrieved through a read-only tool.</p>
 <h2 id="approvals">Approve a change through Emisar</h2>
@@ -135,6 +135,6 @@
   </div>
 </footer>
 
-<script src="../assets/site.js?v=mobile-nav" defer></script>
+<script src="../assets/site.js?v=code-blocks" defer></script>
 </body>
 </html>

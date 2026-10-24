@@ -71,23 +71,15 @@
         wrap.className = "copy-wrap";
         pre.parentNode.insertBefore(wrap, pre);
 
-        var toolbar = document.createElement("div");
-        toolbar.className = "copy-toolbar";
-        var label = document.createElement("span");
-        label.className = "copy-label";
-        label.textContent = pre.getAttribute("data-copy-label") || "Code";
-        toolbar.appendChild(label);
-        wrap.appendChild(toolbar);
-
+        wrap.appendChild(pre);
         var btn = document.createElement("button");
         btn.type = "button";
         btn.className = "copy";
-        var buttonLabel = pre.getAttribute("data-copy-button") || "Copy code";
         var buttonDescription = pre.getAttribute("data-copy-button") || "Copy this code";
-        btn.textContent = buttonLabel;
         btn.setAttribute("aria-label", buttonDescription);
-        toolbar.appendChild(btn);
-        wrap.appendChild(pre);
+        btn.title = buttonDescription;
+        btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><g class="copy-symbol"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></g><path class="copy-check" d="m5 12 4 4L19 6"/></svg>';
+        wrap.appendChild(btn);
 
         var status = document.createElement("span");
         status.className = "copy-status vh";
@@ -98,7 +90,7 @@
         btn.addEventListener("click", function () {
           status.textContent = "";
           navigator.clipboard.writeText(pre.textContent.replace(/\s+$/, "")).then(
-            function () { say("Copied", "Code copied.", true); },
+            function () { say("Code copied.", true); },
             function () {
               var selection = window.getSelection();
               if (selection) {
@@ -107,23 +99,23 @@
                 selection.removeAllRanges();
                 selection.addRange(range);
               }
-              say(selection ? "Code selected" : "Select and copy",
-                selection ? "Code selected. Use your browser’s Copy command." : "Select the code and use your browser’s Copy command.", false);
+              say(selection ? "Code selected. Use your browser’s Copy command." : "Select the code and use your browser’s Copy command.", false);
             }
           );
         });
 
-        function say(text, message, ok) {
-          btn.textContent = text;
+        function say(message, ok) {
           btn.setAttribute("aria-label", message);
           btn.title = message;
           status.textContent = message;
+          status.classList.toggle("vh", ok);
           btn.classList.toggle("done", ok);
           window.clearTimeout(reset);
           reset = window.setTimeout(function () {
-            btn.textContent = buttonLabel;
             btn.setAttribute("aria-label", buttonDescription);
-            btn.title = "";
+            btn.title = buttonDescription;
+            status.textContent = "";
+            status.classList.add("vh");
             btn.classList.remove("done");
           }, ok ? 1600 : 4000);
         }

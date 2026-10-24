@@ -21,7 +21,7 @@
 <link rel="icon" href="../assets/brand/avatar.svg" type="image/svg+xml">
 <link rel="preload" href="../assets/fonts/IBMPlexSans-Regular.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../assets/fonts/IBMPlexSans-SemiBold.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="../assets/site.css?v=mobile-nav">
+<link rel="stylesheet" href="../assets/site.css?v=code-blocks">
 </head>
 <body class="doc-page">
 
@@ -101,7 +101,7 @@
 <tr><td><code>scripts/compose.sh uninstall</code></td><td>Remove containers and the network, keeping volumes, data, and keys.</td></tr>
 </tbody></table>
 <h2 id="health">Check health and recover stopped work</h2>
-<pre data-copy-label="Terminal" data-copy-button="Copy health checks"><code>scripts/compose.sh status
+<pre data-copy-button="Copy health checks"><code>scripts/compose.sh status
 curl --fail http://127.0.0.1:4321/healthz
 curl --fail --include http://127.0.0.1:4321/readyz</code></pre>
 <p><code>/healthz</code> checks the PostgreSQL connection. <code>/readyz</code> checks that runtimes are alive and due work is progressing; its <code>x-ryker-version</code> header identifies the running code. <code>/metrics</code> exposes queue, delivery, worker, and retention measurements.</p>
@@ -116,29 +116,29 @@ curl --fail --include http://127.0.0.1:4321/readyz</code></pre>
 </tbody></table>
 <p>Slack uses outbound Socket Mode, so it needs no public port. PostgreSQL and the worker connection stay private. Anyone who can reach the listener can read health and readiness. Metrics allow anonymous access on loopback; a published address requires a signed-in user.</p>
 <p>For an SSH tunnel, run this on your computer with your host name, then open <code>http://127.0.0.1:4321</code>:</p>
-<pre data-copy-label="Your computer"><code>ssh -N -L 4321:127.0.0.1:4321 user@your-ryker-host</code></pre>
+<pre><code>ssh -N -L 4321:127.0.0.1:4321 user@your-ryker-host</code></pre>
 <p>For shared HTTPS access, point a tunnel at <code>http://localhost:4321</code>, set <code>RYKER_CONTROL_PUBLIC_URL</code> in <code>.ryker/compose.env</code> to the external address, and run <code>scripts/compose.sh start</code>. Follow the <a href="https://github.com/AndrewDryga/ryker/blob/main/docs/operations.md#the-console-through-cloudflare">Cloudflare setup guide</a> for optional Access integration. See <a href="control-plane.html#what">console sign-in</a> for links and invitations.</p>
 <p>For direct webhook delivery, use the <a href="https://github.com/AndrewDryga/ryker/blob/main/deploy/nginx/ryker.conf">supplied Nginx configuration</a>, which exposes signed ingress paths and returns 404 elsewhere. Set <code>RYKER_GITHUB_PUBLIC_URL</code> and <code>RYKER_WEBHOOK_PUBLIC_URL</code>, then run <code>scripts/compose.sh start</code>. The <a href="https://github.com/AndrewDryga/ryker/blob/main/docs/operations.md#install">network reference</a> covers Docker forwarding addresses.</p>
 <h2 id="backup">Back up and restore</h2>
 <p>Create a backup before upgrading:</p>
-<pre data-copy-label="Terminal"><code>scripts/compose.sh backup</code></pre>
+<pre><code>scripts/compose.sh backup</code></pre>
 <p>The owner-only archive in <code>.ryker/backups/</code> includes the database, private state, worker sign-in and identity, and generated environment with the decryption keys. Keep a protected copy off the host.</p>
 <p>To restore, name the backup you want:</p>
-<pre data-copy-label="Terminal"><code>scripts/compose.sh restore .ryker/backups/ryker-YYYYMMDDTHHMMSSZ.tar.gz</code></pre>
+<pre><code>scripts/compose.sh restore .ryker/backups/ryker-YYYYMMDDTHHMMSSZ.tar.gz</code></pre>
 <p>Restore checks the archive’s keys against an existing installation. On a new installation it restores the archived keys before the database. It starts and checks the version recorded in the backup; that image must already be available. Newly generated keys cannot decrypt the old database.</p>
 <h2 id="upgrade">Upgrade the application</h2>
 <p>Move your clean checkout to the published commit you intend to run, back up, then upgrade:</p>
-<pre data-copy-label="Terminal" data-copy-button="Copy upgrade commands"><code>git pull --ff-only
+<pre data-copy-button="Copy upgrade commands"><code>git pull --ff-only
 scripts/compose.sh backup
 scripts/compose.sh upgrade</code></pre>
 <p>When an origin is configured, the commit must be on its <code>main</code> branch. The helper derives the image version from the commit or annotated release tag and updates the saved pins.</p>
 <p>Upgrade builds the application, stops the old service, runs migrations, and starts the replacement. It checks health, readiness, and the exact version. If migration fails, Ryker stays stopped; restore the pre-upgrade backup.</p>
 <p>Bundled and remote workers keep their current versions. To upgrade the bundled worker to the co:op revision specified by your checkout, run:</p>
-<pre data-copy-label="Terminal"><code>scripts/compose.sh worker-upgrade</code></pre>
+<pre><code>scripts/compose.sh worker-upgrade</code></pre>
 <p>This prepares the new worker before replacement, preserves model sign-in, and waits for active commands. See the <a href="https://github.com/AndrewDryga/ryker/blob/main/docs/operations.md#upgrade">upgrade reference</a> for remote installs and automatic upgrades.</p>
 <h2 id="deploy">Deploy a local commit</h2>
 <p>For development on the installation host, use:</p>
-<pre data-copy-label="Terminal"><code>scripts/deploy.sh</code></pre>
+<pre><code>scripts/deploy.sh</code></pre>
 <p>The script requires a clean checkout at <code>main</code>’s commit, unless you deliberately pass <code>--allow-not-main</code>. It builds from the committed tree, pauses Ryker, creates a pre-deploy backup, runs migrations, and replaces only the application container. PostgreSQL and the worker keep running.</p>
 <p>It pins the new version only after health, readiness, and version checks pass. It then updates voice and search model services whose image or settings changed. A model failure is reported without taking down Ryker.</p>
 <p>If the application fails verification, the script prints logs, stops the replacement, and leaves the old version pinned. Check whether migrations ran before restarting the old image. If they did, restore the pre-deploy backup first.</p>
@@ -159,12 +159,12 @@ scripts/compose.sh upgrade</code></pre>
 <h2 id="releases">Verify release downloads</h2>
 <p>Install and upgrade from <code>main</code>. A tagged release, when available for the code you need, includes a Linux amd64 archive, <code>checksums.txt</code>, and <code>checksums.txt.bundle</code>. Read its release notes before choosing it.</p>
 <p>Place all three files in one directory. Replace the placeholders below with the downloaded version and filenames. The commands require Cosign and the GitHub CLI:</p>
-<pre data-copy-label="Terminal" data-copy-button="Copy verification commands"><code>scripts/check-release.sh DIRECTORY vX.Y.Z
+<pre data-copy-button="Copy verification commands"><code>scripts/check-release.sh DIRECTORY vX.Y.Z
 gh attestation verify DIRECTORY/ryker_X.Y.Z_elixir_linux_amd64.tar.gz --repo AndrewDryga/ryker</code></pre>
 <p>The first command authenticates the checksum signature before checking the archive. The second <a href="https://cli.github.com/manual/gh_attestation_verify">verifies its build provenance</a>. Publishing a release does not upgrade an installation. For repository checks, model evaluations, and live acceptance, see the <a href="https://github.com/AndrewDryga/ryker/blob/main/docs/testing.md">testing reference</a>.</p>
 <h2 id="destroy">Remove the data</h2>
 <p><code>stop</code> and <code>uninstall</code> keep your data. To delete the Compose volumes and generated environment, run the explicit destruction command:</p>
-<pre data-copy-label="Terminal · deletes installation data" data-copy-button="Copy destroy command"><code>RYKER_DESTROY_CONFIRM=delete-ryker-data scripts/compose.sh destroy</code></pre>
+<pre data-copy-button="Copy destroy command"><code>RYKER_DESTROY_CONFIRM=delete-ryker-data scripts/compose.sh destroy</code></pre>
 <p>Without a backup, the credentials and history cannot be recovered.</p>
 <nav class="doc-next" aria-label="Page navigation"><a href="../docs/security.html" rel="prev"><span class="k">Previous</span><span class="t">Access and data</span></a></nav>
 </main>
@@ -204,6 +204,6 @@ gh attestation verify DIRECTORY/ryker_X.Y.Z_elixir_linux_amd64.tar.gz --repo And
   </div>
 </footer>
 
-<script src="../assets/site.js?v=mobile-nav" defer></script>
+<script src="../assets/site.js?v=code-blocks" defer></script>
 </body>
 </html>

@@ -21,7 +21,7 @@
 <link rel="icon" href="../assets/brand/avatar.svg" type="image/svg+xml">
 <link rel="preload" href="../assets/fonts/IBMPlexSans-Regular.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../assets/fonts/IBMPlexSans-SemiBold.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="../assets/site.css?v=mobile-nav">
+<link rel="stylesheet" href="../assets/site.css?v=code-blocks">
 </head>
 <body class="doc-page">
 
@@ -87,12 +87,12 @@
 <p>The first installation builds its images locally. The included voice and search models add about 4 GB of images and use about 3.5 GB of memory, on top of Ryker and its worker. Their first build downloads about 2.8 GB. See <a href="operations.html#project">the services on your host</a>.</p>
 <p>Ryker’s source is available under Business Source License 1.1. Non-production use is allowed; production use requires a <a href="security.html#license">commercial license</a>.</p>
 <h2 id="install">Start the services</h2>
-<pre data-copy-label="Terminal" data-copy-button="Copy install commands"><code>git clone https://github.com/AndrewDryga/ryker ryker
+<pre data-copy-button="Copy install commands"><code>git clone https://github.com/AndrewDryga/ryker ryker
 cd ryker
 ./install.sh</code></pre>
 <p>The installer creates <code>.ryker/</code>, generates database credentials and encryption keys, builds the images, and starts the services. It asks you to sign in to the model account when needed. Running it again keeps your existing keys and data.</p>
 <p>When the services are ready, it prints a sign-in link that opens setup. The link works once and expires after an hour. For a new link, run:</p>
-<pre data-copy-label="Terminal"><code>scripts/compose.sh sign-in</code></pre>
+<pre><code>scripts/compose.sh sign-in</code></pre>
 <p>On a remote host, open the console through an <a href="operations.html#exposure">SSH tunnel or HTTPS address</a>. Its default address is <code>http://127.0.0.1:4321</code>.</p>
 <h2 id="setup">Connect your tools</h2>
 <ol>
@@ -105,7 +105,7 @@ cd ryker
 <p>You can add Emisar later for <a href="environments.html#emisar">access to running systems</a>.</p>
 <h2 id="first-answer">Ask about your code</h2>
 <p>In the channel you configured, replace the repository name and send:</p>
-<pre data-copy-kind="message" data-copy-label="Slack" data-copy-button="Copy example"><code>@Ryker what does your-team/your-repository do, and how do its tests run?</code></pre>
+<pre data-copy-kind="message" data-copy-button="Copy example"><code>@Ryker what does your-team/your-repository do, and how do its tests run?</code></pre>
 <p>Ryker should answer using the repository’s files. Open the reply’s request in <strong>Activity</strong> to see what it read and did. Setup marks this step complete after the Slack reply arrives.</p>
 <p>You can also ask in the console’s <a href="control-plane.html#chat">Chat</a>. That checks repository and model access; the Slack reply checks delivery to your workspace too.</p>
 <h2 id="troubleshooting">If something does not work</h2>
@@ -149,6 +149,6 @@ cd ryker
   </div>
 </footer>
 
-<script src="../assets/site.js?v=mobile-nav" defer></script>
+<script src="../assets/site.js?v=code-blocks" defer></script>
 </body>
 </html>

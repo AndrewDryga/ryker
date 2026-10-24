@@ -42,7 +42,7 @@ The header and footer have the same markup and destinations on every page;
 only relative paths and the Docs current-location attribute differ. The
 marketing site test compares both regions across all thirteen pages, so update
 them together. Their layout belongs in `assets/site.css`, without homepage
-overrides. Copy controls live inside each code block and name what they copy.
+overrides. Copy icons sit beside their code and have an accessible name describing what they copy.
 
 ## Deployment
 
@@ -113,16 +113,17 @@ static HTML so they work without JavaScript and can be read by crawlers.
 
 ### Copy block layout checks
 
-`test/browser/marketing-copy-layout.js` checks the rendered copy cards: content
-stays inside the frame, text aligns with its label and has a readable inset,
-controls are at least 44px, and text wraps without horizontal overflow. Run
+`test/browser/marketing-copy-layout.js` checks the rendered code blocks: text
+has a readable inset, starts without a separate header row, and stays clear of
+the copy icon. Controls are at least 44px; text wraps without horizontal overflow. Run
 `checkCopyBlockLayout()` in the browser on the built pages at 320, 768, and
 1440px. Cover the landing-page installer, every docs page with an example,
 and both guides. Run it on the rendered page after the fonts load.
 
 Message examples use `data-copy-kind="message"` for normal reading type.
-Terminal commands keep monospace. Keep the copy label and action together with
-the content they describe; the clipboard payload is only the original text.
+Terminal commands keep monospace. The copy icon has a tooltip and accessible
+name; a checkmark confirms success. The clipboard payload is only the original
+text. If clipboard access fails, select the code and show the manual-copy hint.
 
 ### Mobile examples
 

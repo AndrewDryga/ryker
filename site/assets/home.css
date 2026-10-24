@@ -169,10 +169,9 @@
 .start-layout > * { min-width: 0; }
 .start-section h2 > span { color: var(--dim); }
 .start-section .btn-row { display: flex; flex-wrap: wrap; align-items: center; gap: 24px; }
-.install { min-width: 0; padding: 24px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
-.install-heading { display: flex; justify-content: space-between; margin-bottom: 22px; color: var(--dim); }
+.install { min-width: 0; }
+.install-heading { display: flex; justify-content: space-between; margin-bottom: 12px; color: var(--dim); }
 .install pre { margin: 0; padding: 16px; max-width: 100%; overflow-x: auto; font-size: 12px; line-height: 24px; white-space: pre-wrap; overflow-wrap: anywhere; }
-@media (max-width: 480px) { .install .copy-label { display: none; } .install .copy { margin-left: auto; } }
 .install-note { color: var(--dim); font-size: 12px; line-height: 20px; margin-top: 12px; }
 
 @media (max-width: 1100px) {
@@ -228,7 +227,6 @@
   .home-section { padding-block: 56px; }
   .home-section-heading h2 { font-size: 34px; }
   .home-section-heading > p:not(.eyebrow) { font-size: 17px; line-height: 28px; }
-  .install { padding: 20px; }
   .install pre { font-size: 11px; }
   .home-page .foot { padding-block: 32px; }
   .home-page .foot nav { gap: 12px 24px; }

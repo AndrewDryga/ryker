@@ -21,7 +21,7 @@
 <link rel="icon" href="../assets/brand/avatar.svg" type="image/svg+xml">
 <link rel="preload" href="../assets/fonts/IBMPlexSans-Regular.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="../assets/fonts/IBMPlexSans-SemiBold.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="../assets/site.css?v=mobile-nav">
+<link rel="stylesheet" href="../assets/site.css?v=code-blocks">
 </head>
 <body class="doc-page">
 
@@ -82,7 +82,7 @@
 <p>An active full Slack member can start the task. An operator will need to enable draft pull requests under <strong>Integrations › GitHub</strong> if they have not already done so.</p>
 <h2 id="ask">Ask for a specific change</h2>
 <p>Replace the repository and behavior with a bug in your project:</p>
-<pre data-copy-kind="message" data-copy-label="Slack" data-copy-button="Copy example"><code>@Ryker in your-team/your-repository, reject an empty email address when creating a user. Return the same validation error as other invalid inputs. Add a regression test and run the relevant tests.</code></pre>
+<pre data-copy-kind="message" data-copy-button="Copy example"><code>@Ryker in your-team/your-repository, reject an empty email address when creating a user. Return the same validation error as other invalid inputs. Add a regression test and run the relevant tests.</code></pre>
 <p>Read the proposed task, then press <strong>Start task</strong>. Ryker creates a separate working copy and begins. If it only explains the change, ask it to prepare the edit as a task.</p>
 <h2 id="work">Follow the work in the thread</h2>
 <p>The task card updates as Ryker plans the change, edits the code, and runs checks. Answer any questions in that thread. Further replies there continue the task without another mention.</p>
@@ -93,7 +93,7 @@
 <p>The draft contains the reviewed change on a <a href="../docs/github.html#publication">Ryker-owned branch</a>. Missing or unavailable checks can produce a draft marked unverified. Read the diff and the actual test results in GitHub. For the example above, check that empty input produces the expected error and valid input still works.</p>
 <h2 id="review">Ask for changes and finish the review</h2>
 <p>Leave feedback on the pull request or in the original Slack thread. For example:</p>
-<pre data-copy-kind="message" data-copy-label="Review comment" data-copy-button="Copy example"><code>Also handle an email address containing only spaces. Add a test for that case and keep the error response consistent.</code></pre>
+<pre data-copy-kind="message" data-copy-button="Copy example"><code>Also handle an email address containing only spaces. Add a test for that case and keep the error response consistent.</code></pre>
 <p>Review comments return to the same task. Failed CI on Ryker’s published commit can also resume the task so it fixes the failure within its scope and updates the same pull request. You do not need to ask it to repair each failed check.</p>
 <p>When you are satisfied with the change and checks, your team marks the draft ready, merges it, and releases it. Ryker reports the pull request’s outcome in the original thread.</p>
 <nav class="doc-next" aria-label="Page navigation"><a href="../docs/slack.html" rel="prev"><span class="k">Previous</span><span class="t">Working in Slack</span></a><a class="next" href="../docs/github.html" rel="next"><span class="k">Next</span><span class="t">GitHub and pull requests</span></a></nav>
@@ -126,6 +126,6 @@
   </div>
 </footer>
 
-<script src="../assets/site.js?v=mobile-nav" defer></script>
+<script src="../assets/site.js?v=code-blocks" defer></script>
 </body>
 </html>
