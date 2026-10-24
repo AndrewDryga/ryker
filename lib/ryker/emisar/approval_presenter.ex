@@ -1,13 +1,10 @@
 defmodule Ryker.Emisar.ApprovalPresenter do
   @moduledoc """
-  Idempotently refreshes the original platform message for one governed run.
-
-  The durable Work receipt fixes the transport, conversation, thread, message,
-  and delivery identity. Neither the Emisar response nor model content can
-  redirect the update.
+  Schedules independent Slack review-message custody without blocking run observation.
+  Other platform replies retain their native receipt-based refresh path.
   """
   alias Ryker.Delivery
-  alias Ryker.Emisar.{Approval, ApprovalStatus, Review, RunState}
+  alias Ryker.Emisar.{Approval, ApprovalMessages, ApprovalStatus, Review, RunState}
   alias Ryker.Episodes
   alias Ryker.Records
   alias Ryker.Repo
@@ -15,6 +12,17 @@ defmodule Ryker.Emisar.ApprovalPresenter do
 
   @spec publish(Approval.t(), RunState.t(), map()) :: :ok | {:error, term()}
   def publish(%Approval{} = approval, %RunState{} = state, adapters) when is_map(adapters) do
+    case ApprovalMessages.schedule(approval) do
+      {:ok, true} -> :ok
+      {:ok, false} -> publish_original(approval, state, adapters)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def publish(_approval, _state, _adapters),
+    do: {:error, {:invalid_emisar_approval_presentation, :arguments}}
+
+  defp publish_original(approval, state, adapters) do
     if changed?(approval, state) do
       case source(approval) do
         {:ok, record, turn, episode} -> repaint(approval, state, adapters, record, turn, episode)
@@ -25,9 +33,6 @@ defmodule Ryker.Emisar.ApprovalPresenter do
       :ok
     end
   end
-
-  def publish(_approval, _state, _adapters),
-    do: {:error, {:invalid_emisar_approval_presentation, :arguments}}
 
   # Whatever delivery retries, the card retries: a network blip, missing
   # credentials or Slack's own rate limit while repainting were permanent here,

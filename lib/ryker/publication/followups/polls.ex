@@ -5,9 +5,9 @@ defmodule Ryker.Publication.Followups.Polls do
 
   A merge, a close, checks turning red or green, a head that moved outside
   this publication, and the hard deadline each become one event, and a
-  person's check request is answered with the current state. Only failing
-  checks on the reviewed head wake the source task, because only they are its
-  own work to finish.
+  person's check request is answered with the current state. Failing checks
+  wake correction on the reviewed head; a merge wakes the source task's
+  remaining verification without treating the merge as deployment evidence.
 
   An open pull request is checked again every ten minutes until it merges,
   closes, goes stale or reaches its deadline, so Ryker keeps tracking it when
@@ -23,6 +23,7 @@ defmodule Ryker.Publication.Followups.Polls do
   alias Ryker.Episodes
   alias Ryker.ErrorDetail
   alias Ryker.Publication.Custody
+  alias Ryker.Publication.Followup
   alias Ryker.Publication.Followups.{Leases, Store}
   alias Ryker.Publication.LifecycleStatus
   alias Ryker.Publication.Publication
@@ -221,7 +222,7 @@ defmodule Ryker.Publication.Followups.Polls do
 
   defp transition(followup, publication, _status, :merged) when followup.pr_state != :merged do
     {:merged, :succeeded,
-     "Draft PR ##{publication.pull_request_number} was merged. I'll keep this task linked only to deployment or Terraform signals that name its PR, branch, head SHA or merge SHA."}
+     "Draft PR ##{publication.pull_request_number} was merged. I'll continue the task's remaining verification and wait for deployment or access if it is not ready yet."}
   end
 
   defp transition(followup, publication, _status, :closed) when followup.pr_state != :closed do
@@ -243,14 +244,12 @@ defmodule Ryker.Publication.Followups.Polls do
 
   defp transition(_followup, _publication, _status, _pr_state), do: nil
 
-  # Failing checks on the exact reviewed head are the agent's own work to finish
-  # inside the scope the task already granted, so they resume the episode. The
-  # hard deadline, a head that moved outside this publication, a close and a
-  # merge are not fixable there: they are facts a person owns, and they stay
-  # history. The lifecycle key carries the head SHA, so one red run wakes the
-  # task once however often it is polled.
-  defp correction_wakeup?(:checks, :failed), do: true
-  defp correction_wakeup?(_kind, _state), do: false
+  # A merge can unblock the task's original verification, such as checking
+  # diagnostic access after its IAM change. It grants no deploy or mutation
+  # authority. The lifecycle key makes each transition one wakeup.
+  defp lifecycle_wakeup?(:checks, :failed), do: true
+  defp lifecycle_wakeup?(:merged, :succeeded), do: true
+  defp lifecycle_wakeup?(_kind, _state), do: false
 
   defp transition_poll(followup, publication, status, attributes, transition, next_poll_at, now) do
     attributes =
@@ -284,7 +283,7 @@ defmodule Ryker.Publication.Followups.Polls do
               source: nil,
               state: state,
               summary: summary,
-              wakeup?: correction_wakeup?(kind, state)
+              wakeup?: lifecycle_wakeup?(kind, state)
             })
 
           {Map.put(attributes, :last_event_key, key), event}
@@ -335,20 +334,39 @@ defmodule Ryker.Publication.Followups.Polls do
     cond do
       verification_recorded?(followup) -> :finished
       still_working?(followup, now) -> :working
+      verification_recorded?(followup) -> :finished
       true -> :ended
     end
   end
 
   defp still_working?(followup, now) do
     case Repo.fetch(Episodes.Episode.Query.by_id(followup.episode_id)) do
-      {:ok, %Episodes.Episode{state: :working, owner_kind: :turn, owner_ref: owner}} ->
-        owner == followup.verification_turn_ref and within_wait?(followup, now) and
-          Work.Custody.turn_in_progress?(followup.episode_id, owner)
+      {:ok, %Episodes.Episode{state: :working} = episode} ->
+        within_wait?(followup, now) and
+          (verification_queued?(episode, followup) or
+             (episode.owner_kind == :turn and
+                episode.owner_ref == followup.verification_turn_ref and
+                Work.Custody.turn_in_progress?(followup.episode_id, episode.owner_ref)))
 
       _other ->
         false
     end
   end
+
+  defp verification_queued?(episode, %Followup{pr_state: :merged} = followup) do
+    event =
+      followup.episode_id
+      |> Episodes.Event.Query.by_episode_id()
+      |> Episodes.Event.Query.at_sequence(followup.verification_sequence)
+      |> Repo.peek()
+
+    not is_nil(event) and
+      (event.dedupe_key in episode.queued_input_refs or
+         (event.dedupe_key in episode.active_input_refs and episode.owner_kind == :turn and
+            Work.Custody.turn_in_progress?(episode.id, episode.owner_ref)))
+  end
+
+  defp verification_queued?(_episode, _followup), do: false
 
   # Counted from when the wakeup was admitted into the task.
   defp within_wait?(followup, now) do
@@ -363,12 +381,39 @@ defmodule Ryker.Publication.Followups.Polls do
   end
 
   defp verification_recorded?(followup) do
-    followup.episode_id
-    |> Episodes.Event.Query.by_episode_id()
-    |> Episodes.Event.Query.after_sequence(followup.verification_sequence)
-    |> Episodes.Event.Query.accepted_for_turn(followup.verification_turn_ref)
-    |> Repo.exists?()
+    refs = verification_consumers(followup)
+
+    Enum.any?(refs, fn turn_ref ->
+      followup.episode_id
+      |> Episodes.Event.Query.by_episode_id()
+      |> Episodes.Event.Query.after_sequence(followup.verification_sequence)
+      |> Episodes.Event.Query.accepted_for_turn(turn_ref)
+      |> Repo.exists?()
+    end)
   end
+
+  defp verification_consumers(%Followup{pr_state: :merged} = followup) do
+    event =
+      followup.episode_id
+      |> Episodes.Event.Query.by_episode_id()
+      |> Episodes.Event.Query.at_sequence(followup.verification_sequence)
+      |> Repo.peek()
+
+    selected =
+      if event do
+        followup.episode_id
+        |> Work.Turn.Query.by_episode_id()
+        |> Work.Turn.Query.selected_input(event.dedupe_key)
+        |> Repo.all()
+        |> Enum.map(& &1.turn_ref)
+      else
+        []
+      end
+
+    Enum.uniq([followup.verification_turn_ref | selected])
+  end
+
+  defp verification_consumers(followup), do: [followup.verification_turn_ref]
 
   defp wait_attributes(_followup, :working, now, interval_seconds),
     do: released(%{next_poll_at: DateTime.add(now, interval_seconds, :second)})

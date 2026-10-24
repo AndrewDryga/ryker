@@ -134,8 +134,9 @@ defmodule Ryker.Work.Prompt do
   plain words.
   A person's explicit reusable correction (for example "I asked you to always report before/after
   versions") is already their instruction. Use remember_correction with that current human input's
-  source_event_id and an exact quote of the instruction; it saves guidance for this conversation
-  without another confirmation. Name the existing guidance_ref and expected_revision when replacing
+  source_event_id and an exact quote of the instruction. Choose workspace scope for general reusable
+  corrections, and conversation only for explicitly local instructions or private/shared source
+  conversations. It saves the rule without another confirmation. Name the existing guidance_ref and expected_revision when replacing
   it. If it corrects a standing assignment, copy that assignment_ref so later runs receive it even
   when their notification shares none of the correction's words. List only the concrete required
   outputs the person asked for; stylistic guidance has no required outputs. Ordinary unhappiness,

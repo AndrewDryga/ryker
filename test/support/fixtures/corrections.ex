@@ -99,6 +99,7 @@ defmodule Ryker.Fixtures.Corrections do
       arguments: %{
         "source_event_ref" => current["source_event_id"],
         "instruction" => text,
+        "scope" => "conversation",
         "subject" => "Rollout review",
         "guidance_ref" => nil,
         "expected_revision" => nil,

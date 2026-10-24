@@ -98,6 +98,7 @@ defmodule Ryker.StateTools.ErrorCode do
   def code(:memory_search_budget_exceeded), do: "memory_search_budget_exceeded"
   def code(:memory_search_result_too_large), do: "memory_search_result_too_large"
   def code(:answer_memory_unauthorized), do: "answer_memory_unauthorized"
+  def code(:slack_channel_not_public), do: "slack_channel_not_public"
   def code(:correction_unauthorized), do: "correction_unauthorized"
   def code(:correction_source_stale), do: "correction_source_stale"
 

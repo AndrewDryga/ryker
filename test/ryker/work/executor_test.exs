@@ -971,8 +971,25 @@ defmodule Ryker.Work.ExecutorTest do
     # The generic stop path closed the completed runner session and stranded its
     # patch. Finalization recovery must retain the exact turn, answer and worker.
     # Its attempts spent, a passing failure stops for a person like any other.
+    # 2026-10-24: a terminal native checkpoint failure is replayed forever under
+    # its key. An explicit recovery needs a fresh snapshot identity, not a model replay.
     {claim, fake} = completed_runner_wait!("checkpoint-recovery")
-    FakeAPI.update(fake, &Map.put(&1, :checkpoint_error, {:coop_unavailable, :checkpoint_store}))
+
+    fixture =
+      "test/ryker/emisar/fixtures/approval_finished_before_result.json"
+      |> File.read!()
+      |> Jason.decode!()
+
+    assert fixture["worker_error"]["code"] == "coop_error"
+
+    FakeAPI.update(
+      fake,
+      &Map.put(
+        &1,
+        :checkpoint_error,
+        {:coop_error, 500, "internal_error", "internal server error"}
+      )
+    )
 
     assert {:ok, {:blocked, _reason}} =
              Dispatcher.run_claim(claim,
@@ -991,6 +1008,13 @@ defmodule Ryker.Work.ExecutorTest do
 
     assert {:ok, episode} = retry_inspected_work(claim)
     assert episode.owner_ref == claim.turn.turn_ref
+    retried = Repo.get!(Ryker.Work.Turn, claim.turn.id)
+
+    assert Ryker.Work.OperationKeys.checkpoint(retried) !=
+             Ryker.Work.OperationKeys.checkpoint(blocked)
+
+    assert retried.candidate == blocked.candidate
+    assert retried.completion_receipt == blocked.completion_receipt
     assert {:ok, resumed} = Custody.claim_next("completion-resume", 60, :work)
     assert resumed.turn.id == claim.turn.id
     assert resumed.session.id == claim.session.id

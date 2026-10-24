@@ -35,6 +35,7 @@ defmodule Ryker.Behaviors.Corrections do
                entry.destination_transport,
                entry.destination_conversation_ref
              ),
+           :ok <- authorize_scope(current.episode, arguments),
            {:ok, assignment} <- assignment(current.episode.id, arguments["assignment_ref"]),
            {:ok, subject} <- replacement(current, entry, arguments),
            :ok <- capacity(current.episode, subject, arguments),
@@ -190,15 +191,18 @@ defmodule Ryker.Behaviors.Corrections do
     end
   end
 
-  defp replacement_target(binding, %{
-         "guidance_ref" => nil,
-         "expected_revision" => nil,
-         "subject" => subject
-       }) do
+  defp replacement_target(
+         binding,
+         %{
+           "guidance_ref" => nil,
+           "expected_revision" => nil,
+           "subject" => subject
+         } = arguments
+       ) do
     existing =
       Behavior.Query.by_kind(:guidance)
       |> Behavior.Query.by_workspace(Episodes.Scope.workspace_ref(binding.episode))
-      |> Behavior.Query.scoped_to(:conversation, binding.episode.destination_conversation_ref)
+      |> Behavior.Query.scoped_to(scope_kind(arguments), scope_ref(binding.episode, arguments))
       |> Behavior.Query.by_identity_key(subject)
       |> Behavior.Query.by_status(:active)
 
@@ -214,8 +218,8 @@ defmodule Ryker.Behaviors.Corrections do
       |> Behavior.Query.lock_for_update()
 
     case Repo.fetch(query) do
-      {:ok, %Behavior{status: :active, scope_kind: :conversation, revision: ^revision} = behavior} ->
-        if behavior.scope_ref == binding.episode.destination_conversation_ref and
+      {:ok, %Behavior{status: :active, revision: ^revision} = behavior} ->
+        if replacement_scope?(behavior, binding.episode) and
              behavior.workspace_ref == Episodes.Scope.workspace_ref(binding.episode),
            do: {:ok, behavior.identity_key},
            else: {:error, :correction_unauthorized}
@@ -236,16 +240,34 @@ defmodule Ryker.Behaviors.Corrections do
     existing =
       Behavior.Query.by_kind(:guidance)
       |> Behavior.Query.by_workspace(Episodes.Scope.workspace_ref(episode))
-      |> Behavior.Query.scoped_to(:conversation, episode.destination_conversation_ref)
+      |> Behavior.Query.for_correction_capacity(episode, scope_kind(arguments))
       |> Behavior.Query.by_status([:active, :disabled])
       |> Behavior.Query.unexpired()
       |> Repo.all()
-      |> Enum.reject(&(&1.identity_key == subject))
+      |> Enum.reject(fn behavior ->
+        behavior.ref == arguments["guidance_ref"] or
+          (behavior.identity_key == subject and behavior.scope_kind == scope_kind(arguments) and
+             behavior.scope_ref == scope_ref(episode, arguments))
+      end)
       |> Enum.filter(
         &(is_map(&1.payload["correction_source"]) or
             List.wrap(&1.payload["requirements"]) != [])
       )
 
+    groups =
+      if scope_kind(arguments) == :workspace, do: capacity_groups(existing), else: [existing]
+
+    if Enum.all?(groups, &within_capacity?(&1, arguments)),
+      do: :ok,
+      else: {:error, :correction_capacity_reached}
+  end
+
+  defp capacity_groups(existing) do
+    {wide, local} = Enum.split_with(existing, &(&1.scope_kind == :workspace))
+    [wide | local |> Enum.group_by(& &1.scope_ref) |> Map.values() |> Enum.map(&(wide ++ &1))]
+  end
+
+  defp within_capacity?(existing, arguments) do
     documents = [
       %{"text" => arguments["instruction"], "requirements" => arguments["requirements"]}
       | Enum.map(existing, &Map.take(&1.payload, ~w(text requirements)))
@@ -254,9 +276,7 @@ defmodule Ryker.Behaviors.Corrections do
     outputs = Enum.sum(Enum.map(documents, &length(&1["requirements"] || [])))
     bytes = documents |> CanonicalJSON.encode!() |> byte_size()
 
-    if length(documents) <= 16 and outputs <= 16 and bytes <= 32_768,
-      do: :ok,
-      else: {:error, :correction_capacity_reached}
+    length(documents) <= 16 and outputs <= 16 and bytes <= 32_768
   end
 
   defp persist(_binding, _entry, {:duplicate, behavior}, _assignment, _arguments),
@@ -268,11 +288,11 @@ defmodule Ryker.Behaviors.Corrections do
     payload = %{
       "expires_in" => "365d",
       "repository" => nil,
-      "scope" => "conversation",
+      "scope" => Atom.to_string(scope_kind(arguments)),
       "subject" => subject,
       "summary" => String.slice(arguments["instruction"], 0, 500),
       "text" => arguments["instruction"],
-      "visibility" => "conversation"
+      "visibility" => Atom.to_string(scope_kind(arguments))
     }
 
     with {:ok, record} <-
@@ -315,10 +335,59 @@ defmodule Ryker.Behaviors.Corrections do
     }
 
     case Behaviors.keep_correction_in_transaction(record, binding.episode, attributes, metadata) do
-      %{behavior: behavior} -> {:ok, result(behavior, "remembered")}
-      {:error, reason} -> {:error, reason}
+      %{behavior: behavior} ->
+        supersede_replaced(arguments, behavior)
+        {:ok, result(behavior, "remembered")}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
+
+  defp scope_kind(%{"scope" => "conversation"}), do: :conversation
+  defp scope_kind(_arguments), do: :workspace
+
+  defp scope_ref(episode, arguments) do
+    if scope_kind(arguments) == :workspace,
+      do: Episodes.Scope.workspace_ref(episode),
+      else: episode.destination_conversation_ref
+  end
+
+  defp authorize_scope(episode, arguments) do
+    if scope_kind(arguments) == :workspace do
+      Slack.ChannelFence.authorize_public_in_transaction(
+        episode.destination_transport,
+        episode.destination_conversation_ref
+      )
+    else
+      :ok
+    end
+  end
+
+  defp replacement_scope?(%Behavior{scope_kind: :workspace} = behavior, episode),
+    do: behavior.scope_ref == Episodes.Scope.workspace_ref(episode)
+
+  defp replacement_scope?(%Behavior{scope_kind: :conversation} = behavior, episode),
+    do: behavior.scope_ref == episode.destination_conversation_ref
+
+  defp replacement_scope?(_behavior, _episode), do: false
+
+  defp supersede_replaced(%{"guidance_ref" => ref}, behavior) when is_binary(ref) do
+    case Repo.fetch(Behavior.Query.by_ref(ref)) do
+      {:ok, %Behavior{status: :active, id: id} = old} when id != behavior.id ->
+        Behaviors.redact!(old, :superseded, "replaced_payload_sha256")
+
+        Memories.Reviews.dismiss_orphan_reviews(
+          "system:correction-replacement",
+          old.workspace_ref
+        )
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp supersede_replaced(_arguments, _behavior), do: :ok
 
   defp operation(entry, arguments),
     do: "correction:" <> CanonicalJSON.digest([entry.id, arguments["guidance_ref"]])
@@ -331,7 +400,7 @@ defmodule Ryker.Behaviors.Corrections do
       "behavior_ref" => behavior.ref,
       "revision" => behavior.revision,
       "status" => status,
-      "scope" => "conversation",
+      "scope" => Atom.to_string(behavior.scope_kind),
       "instruction" => behavior.payload["text"],
       "requirements" => behavior.payload["requirements"],
       "assignment_ref" => behavior.payload["assignment_ref"]

@@ -12,6 +12,7 @@ defmodule Ryker.Slack.ReplyRecords do
   """
   alias Ryker.Behaviors
   alias Ryker.Delivery
+  alias Ryker.Emisar
   alias Ryker.GitHub
   alias Ryker.Memories
   alias Ryker.Publication
@@ -46,9 +47,9 @@ defmodule Ryker.Slack.ReplyRecords do
   def fetch(episode_id, refs), do: Records.fetch_for_episode(episode_id, refs)
 
   @doc """
-  The records `fetch/2` returns for the reply of turn `turn_id`. An approval is drawn only on the
-  reply of the turn that asked for it, the one message repainted when it settles: copies a later
-  reply cited stayed "Waiting" for good (overnight QA, 2026-10-09).
+  The records `fetch/2` returns for the reply of turn `turn_id`. Separately owned Emisar
+  reviews stay on their independent message; later replies never duplicate them. Copies
+  formerly stayed "Waiting" after the authoritative card changed (overnight QA, 2026-10-09).
   """
   @spec fetch(String.t(), [String.t()], String.t()) ::
           {:ok, [Records.Record.t()]} | {:error, term()}
@@ -64,7 +65,8 @@ defmodule Ryker.Slack.ReplyRecords do
 
       {:ok,
        Enum.reject(records, fn record ->
-         (record.kind == "emisar_approval" and record.turn_id != turn_id) or
+         (record.kind == "emisar_approval" and
+            (record.turn_id != turn_id or Emisar.ApprovalMessages.owns_turn?(record.turn_id))) or
            (record.kind == "publication_offer" and MapSet.member?(consumed, record.id))
        end)}
     end

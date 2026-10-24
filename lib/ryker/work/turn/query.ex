@@ -156,6 +156,10 @@ defmodule Ryker.Work.Turn.Query do
 
   def select_ids(queryable), do: select(queryable, [episode_work_turns: t], t.id)
 
+  @doc "Turns that froze this exact admitted input as work they selected."
+  def selected_input(queryable, input_ref),
+    do: where(queryable, [episode_work_turns: t], ^input_ref in t.selected_input_refs)
+
   def having_selected_inputs(queryable),
     do: where(queryable, [episode_work_turns: t], not is_nil(t.selected_input_refs))
 

@@ -22,6 +22,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
   @policy_digest String.duplicate("a", 64)
   @connection_ref "production"
   @environment_ref "production"
+  @completion_fixture Path.expand("fixtures/approval_finished_before_result.json", __DIR__)
 
   setup do
     configure_emisar!()
@@ -90,6 +91,110 @@ defmodule Ryker.Emisar.ApprovalsTest do
              )
 
     assert_receive {:emisar_approval_updated, ^approval_id}
+  end
+
+  defmodule ReviewPublisher do
+    @behaviour Ryker.Delivery.MessagePublisher
+
+    def transport, do: "slack"
+    def publish_reaction(_request, _test_pid), do: {:error, :not_expected}
+
+    @impl true
+    def publish_message(request, test_pid) do
+      {:ok, rendered} = Ryker.Slack.Renderer.render(request.document)
+      send(test_pid, {:approval_message, request, rendered})
+
+      Ryker.Work.DeliveryReceipt.new(
+        request.ref,
+        request.transport,
+        request.conversation_ref,
+        request.thread_ref,
+        "1787832000.000102"
+      )
+    end
+
+    @impl true
+    def update_message(request, message_ref, document, test_pid) do
+      send(test_pid, {:approval_update, request.ref, message_ref, document})
+      :ok
+    end
+  end
+
+  for turn_status <- [:pending, :blocked, :delivery_pending] do
+    @turn_status turn_status
+    test "a separate review message appears while the asking turn is #{@turn_status}" do
+      # A completed production worker could not save its result, so the three
+      # approvals it registered never appeared in Slack. Delivery of a review
+      # must have its own custody and must never take the task's current owner.
+      suffix = "standalone-#{@turn_status}"
+      fixture = @completion_fixture |> File.read!() |> Jason.decode!()
+      identity = Map.take(fixture["run"], ~w(action_id pack_ref runner_ref))
+      %{claim: claim, record: record} = registered!(suffix, identity)
+      assert Ryker.Knowledge.KnowledgeSnapshot.expose(claim, []) == :ok
+      if @turn_status != :pending, do: turn_status!(claim.turn, @turn_status)
+      episode = Inspectors.episode(claim.episode.key)
+      before_owner = {episode.owner_kind, episode.owner_ref}
+
+      assert {:ok, adapters} =
+               Ryker.Delivery.Adapters.new(%{
+                 "slack" => %{
+                   message_publisher: ReviewPublisher,
+                   reaction_publisher: ReviewPublisher,
+                   binding: self()
+                 }
+               })
+
+      state = %{
+        run_state(suffix, "pending_approval")
+        | action_id: record.payload["action_id"],
+          pack_ref: record.payload["pack_ref"],
+          runner_ref: record.payload["runner_ref"]
+      }
+
+      start_supervised!(
+        {Ryker.Emisar.ApprovalRuntime,
+         api: ObservedAPI,
+         client: {self(), state},
+         connection_ref: @connection_ref,
+         concurrency: 1,
+         lease_seconds: 60,
+         poll_interval_ms: 10,
+         poll_seconds: 3,
+         wait_seconds: 0,
+         presentation: adapters,
+         presentation_timeout_ms: 0,
+         worker_ref: "review-runtime-#{suffix}"}
+      )
+
+      assert_receive {:approval_message, request, rendered}, 2_000
+      assert request.thread_ref == claim.episode.destination_thread_ref
+      assert request.conversation_ref == claim.episode.destination_conversation_ref
+      assert Jason.encode!(rendered["blocks"]) =~ record.payload["approval_url"]
+      assert rendered["text"] =~ "Emisar review"
+      current = Inspectors.episode(claim.episode.key)
+      assert {current.owner_kind, current.owner_ref} == before_owner
+      refute_receive {:approval_message, _request, _rendered}, 100
+    end
+  end
+
+  for turn_status <- [:pending, :blocked, :delivery_pending] do
+    @turn_status turn_status
+    test "an exact terminal run queues once without replacing a #{@turn_status} owner" do
+      # The three production approvals finished while their completed answer
+      # was held. They must be observed without taking that finished turn over.
+      suffix = "early-terminal-#{@turn_status}"
+      %{claim: claim, record: record} = registered!(suffix)
+      if @turn_status != :pending, do: turn_status!(claim.turn, @turn_status)
+      before = Inspectors.episode(claim.episode.key)
+      resumed = settle!(suffix, record)
+      assert {resumed.owner_kind, resumed.owner_ref} == {before.owner_kind, before.owner_ref}
+      assert length(resumed.queued_input_refs) == 1
+
+      assert Inspectors.emisar_approval(@connection_ref, record.payload["request_id"]).status ==
+               :resumed
+
+      assert Approvals.claim_next(@connection_ref, "already-observed", 60) == {:ok, nil}
+    end
   end
 
   test "registers the immutable approval atomically and claims it only after delivery starts the wait" do
@@ -173,13 +278,10 @@ defmodule Ryker.Emisar.ApprovalsTest do
   # waits on, so their review cards were drawn again on it. Only the asking turn's own message is
   # repainted when an approval settles, so those copies said "Waiting" for good, still waiting
   # after the approvals were cancelled. An approval is drawn on its asking turn's reply alone.
-  test "an approval card is drawn only on the reply of the turn that asked for it" do
+  test "separately owned review cards are absent from every Work reply" do
     %{claim: claim, record: record} = registered!("reply-card")
 
-    assert {:ok, [%Record{ref: ref}]} =
-             Slack.ReplyRecords.fetch(claim.episode.id, [record.ref], claim.turn.id)
-
-    assert ref == record.ref
+    assert Slack.ReplyRecords.fetch(claim.episode.id, [record.ref], claim.turn.id) == {:ok, []}
 
     assert Slack.ReplyRecords.fetch(claim.episode.id, [record.ref], Ecto.UUID.generate()) ==
              {:ok, []}
@@ -425,9 +527,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
     assert {:ok, _waiting} = wait_on!(claim, approval)
 
     assert ApprovalDispatcher.run_once(observer("card-pending", "running")) ==
-             {:ok,
-              {:deferred, "apr-card-pending",
-               {:emisar_approval_presentation_unavailable, :emisar_approval_delivery_pending}}}
+             {:ok, {:monitoring, "apr-card-pending", "running"}}
   end
 
   # Episode 8e0de29c, 2026-10-08: a timer can own a task's wait beside its
@@ -641,7 +741,10 @@ defmodule Ryker.Emisar.ApprovalsTest do
     # starts the wait; only a closed task or an answered wait ends it.
     unstarted = registered_approval!("unstarted")
 
-    assert ApprovalDispatcher.run_once(dispatcher("closer-unstarted")) == {:ok, :idle}
+    assert ApprovalDispatcher.run_once(observer("unstarted", "running")) ==
+             {:ok, {:monitoring, "apr-unstarted", "running"}}
+
+    assert_received {:wait_for_run, "run-unstarted"}
     assert Inspectors.emisar_approval(@connection_ref, unstarted).status == :monitoring
   end
 
@@ -901,7 +1004,7 @@ defmodule Ryker.Emisar.ApprovalsTest do
     "apr-#{suffix}"
   end
 
-  defp registered!(suffix) do
+  defp registered!(suffix, identity \\ %{}) do
     now = ~U[2026-08-29 12:00:00.000000Z]
 
     command =
@@ -939,12 +1042,15 @@ defmodule Ryker.Emisar.ApprovalsTest do
              emisar_rpc_url: "https://emisar.example/mcp"
            }
 
+    assert Ryker.Knowledge.KnowledgeSnapshot.expose(claim, []) == :ok
+    payload = Map.merge(approval_payload(suffix), identity)
+
     assert {:ok, record} =
              Records.create(
                Records.token(claim.turn),
                "op-#{suffix}",
                "emisar_approval",
-               approval_payload(suffix)
+               payload
              )
 
     %{claim: claim, record: record}
@@ -980,13 +1086,18 @@ defmodule Ryker.Emisar.ApprovalsTest do
 
   # The dispatcher with the real presenter, reading the run of `apr-<suffix>`
   # in `status`.
-  defp observer(suffix, status) do
+  defp observer(suffix, %RunState{} = state) do
     Keyword.merge(dispatcher("approval-observer-#{suffix}"),
       api: ObservedAPI,
-      client: {self(), run_state(suffix, status)},
+      client: {self(), state},
       presentation: %{},
       presenter: Ryker.Emisar.ApprovalPresenter
     )
+  end
+
+  defp observer(suffix, status) do
+    state = run_state(suffix, status)
+    observer(suffix, state)
   end
 
   # The asking turn as it ended, with the fields custody keeps for that end:

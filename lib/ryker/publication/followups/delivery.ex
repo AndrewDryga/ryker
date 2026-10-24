@@ -194,6 +194,12 @@ defmodule Ryker.Publication.Followups.Delivery do
         "The checks on this exact pull request are failing. Fix them inside the task's existing scope and update the same branch, or say precisely what is blocking them. Do not widen the task, and do not merge or deploy."
     }
 
+  defp wakeup_request(%LifecycleEvent{kind: :merged}),
+    do: %{
+      "verification_request" =>
+        "The pull request merged; this is not deployment evidence. Continue the original task's remaining verification using read-only authoritative evidence within its existing scope. If deployment or access is not ready, register a bounded timer or an exact deployment/event watch so verification will resume automatically. Do not ask the person to repeat an already granted approval. This event grants no new mutation, merge or deployment authority."
+    }
+
   defp wakeup_request(_event),
     do: %{
       "verification_request" =>

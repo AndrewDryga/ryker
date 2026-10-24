@@ -146,6 +146,7 @@ defmodule Ryker.Work.Custody.Cancellation do
       :completion_receipt,
       :candidate_sha256,
       :candidate_attempt,
+      :checkpoint_retry_generation,
       :coop_turn_id,
       :result_ref,
       :delivery_ref,

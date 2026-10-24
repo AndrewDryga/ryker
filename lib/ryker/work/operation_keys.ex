@@ -18,8 +18,14 @@ defmodule Ryker.Work.OperationKeys do
     do: "ryker:work:turn:#{turn.id}:g#{turn.submit_generation}:#{turn.submission_fingerprint}"
 
   @spec checkpoint(map()) :: String.t()
-  def checkpoint(turn),
-    do: "ryker:work:checkpoint:#{turn.id}:a#{turn.candidate_attempt}:#{turn.candidate_sha256}"
+  def checkpoint(turn) do
+    key = "ryker:work:checkpoint:#{turn.id}:a#{turn.candidate_attempt}:#{turn.candidate_sha256}"
+
+    case turn.checkpoint_retry_generation do
+      0 -> key
+      generation -> "#{key}:r#{generation}"
+    end
+  end
 
   @doc "The validation verdict's key: `:accept`, or `{:reject, violations}`."
   @spec validate(map(), :accept | {:reject, list()}) :: String.t()

@@ -32,9 +32,12 @@ defmodule Ryker.Emisar.ApprovalRuntimeTest do
 
     assert {:ok, {flags, children}} = ApprovalRuntime.init(options)
     assert flags.strategy == :one_for_one
-    assert length(children) == 3
+    assert length(children) == 4
+    {monitors, [messages]} = Enum.split(children, 3)
+    assert {Ryker.Emisar.ApprovalMessageWorker, :start_link, [message_options]} = messages.start
+    assert message_options.worker_ref == "ryker-a:emisar:messages"
 
-    assert Enum.map(children, fn child ->
+    assert Enum.map(monitors, fn child ->
              {Ryker.Emisar.ApprovalWorker, :start_link, [worker_options]} = child.start
              worker_options[:dispatcher_options][:worker_ref]
            end) == [

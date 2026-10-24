@@ -23,6 +23,7 @@ defmodule Ryker.Delivery.Request do
   alias Ryker.Artifacts
   alias Ryker.CanonicalJSON
   alias Ryker.Crypto
+  alias Ryker.Emisar
   alias Ryker.Reference
 
   @enforce_keys [
@@ -103,6 +104,18 @@ defmodule Ryker.Delivery.Request do
       {:error, {:invalid_delivery_request, field}} -> {:error, {:invalid_delivery_request, field}}
       {:error, _reason} -> {:error, {:invalid_delivery_request, :document}}
     end
+  end
+
+  defp validate_kind(%__MODULE__{
+         kind: :message,
+         transport: "slack",
+         source_item_ref: nil,
+         document: %{"emisar_approval_statuses" => statuses} = document
+       })
+       when map_size(document) == 1 and is_list(statuses) and length(statuses) in 1..64 do
+    if Enum.all?(statuses, &match?({:ok, _}, Emisar.ApprovalStatus.prepare(&1))),
+      do: :ok,
+      else: {:error, {:invalid_delivery_request, :emisar_approval_statuses}}
   end
 
   defp validate_kind(%__MODULE__{

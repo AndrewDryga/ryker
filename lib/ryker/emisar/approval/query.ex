@@ -103,15 +103,14 @@ defmodule Ryker.Emisar.Approval.Query do
     )
   end
 
-  @doc "An account's watches a task is waiting for right now."
+  @doc "An account's open watches on tasks that are still active."
   def waited_for(connection_ref), do: connection_ref |> watches() |> awaited()
 
   @doc """
-  Of watches `with_joined_origin/1`, the ones a task is waiting for right now:
-  an open approval of a waiting task, whether the task's wait is this
-  approval, another approval or watch beside it, or a question beside it
-  (`Ryker.Work.Validator`). A task at work is not waiting for it until its
-  turn ends.
+  Of watches `with_joined_origin/1`, open approvals of active tasks. A run
+  exists as soon as its record is registered: its review must be watched even
+  while the asking turn works, delivers, or is blocked saving its result.
+  Outcomes received before that turn yields wait in the task's input queue.
   """
   def awaited(queryable) do
     queryable
@@ -121,7 +120,8 @@ defmodule Ryker.Emisar.Approval.Query do
     )
     |> where(
       [episode_kernel_episodes: e],
-      (e.state == :waiting_for_event and e.owner_kind == :event) or
+      e.state == :working or
+        (e.state == :waiting_for_event and e.owner_kind == :event) or
         (e.state == :waiting_for_input and e.owner_kind == :input)
     )
   end

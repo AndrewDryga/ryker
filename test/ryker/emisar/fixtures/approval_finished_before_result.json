@@ -1,0 +1,54 @@
+{
+  "source": {
+    "harvested_at": "2026-10-24",
+    "incident": "A completed task could not checkpoint its workspace. Three registered approval runs finished, but their watches stayed unpolled because the task had not entered its wait.",
+    "identity": "Tenant names, runner identities, record refs and native turn identities are pseudonyms. The recorded result, error and approval decision retain the observed behavior."
+  },
+  "recorded_result": "{\"decision_reason\":null,\"delivery\":\"reply\",\"message\":\"The [October 20 backup is still stuck on data-node-1](https://emisar.example/app/tenant/runs/00000000-0000-4000-8000-000000000001). Retention is still deleting older backups on the other two nodes.\\n\\nPlease approve the retention pauses for [data-node-1](https://emisar.example/app/tenant/approvals/00000000-0000-4000-8000-000000000002), [data-node-2](https://emisar.example/app/tenant/approvals/00000000-0000-4000-8000-000000000003), and [data-node-3](https://emisar.example/app/tenant/approvals/00000000-0000-4000-8000-000000000004). Once approved, I\u2019ll verify those pauses before proceeding with recovery.\\n\\nNo live changes have executed. Fresh-backup creation and verification are unavailable through the connected recovery controls. The safeguards also remain unimplemented: AGENTS.md requires claiming the repository task before editing, and that capability is unavailable.\",\"outcome\":{\"artifact_refs\":[],\"record_refs\":[\"record:evidence:7a14a10d90f9d69179e6bd08939e6b2b\",\"record:evidence:cb14ee71d9e12bd3c07d16822996773d\",\"record:evidence:92dd00aa255afbb98ed41947538e03b0\",\"record:evidence:fa3c1fdb760e35af6157430b6279e194\",\"record:evidence:079aa442a00df9ed3e5eac523c3a1e46\",\"record:finding:23dd3275faff8d637690ca2a1e30e028\",\"record:emisar_approval:e23a522b801b9376b8cd5fa08558bdd3\",\"record:emisar_approval:5659f8052cafaa342c8678c8564fa49e\",\"record:emisar_approval:1c1deb893236d2d6988b8df555d026e1\"],\"state\":\"waiting_for_event\"},\"title\":\"Recover Cassandra backups and prevent silent stalls\"}",
+  "completion_receipt": {
+    "candidate_attempt": 1,
+    "candidate_sha256": "cdb8747f84b2ef753a9418116016b6890a5693d40047504b3377109b479bd6d7",
+    "remote_turn_id": "turn_recorded_completion",
+    "validation_receipt": "validation_recorded_completion"
+  },
+  "worker_error": {
+    "code": "coop_error",
+    "detail": "{:coop_error, 500, \"internal_error\", \"internal server error\"}",
+    "cause": "workspace checkpoint contains a credential"
+  },
+  "run": {
+    "status": "success",
+    "duration_ms": 7,
+    "exit_code": 0,
+    "finished_at": "2026-10-24T16:23:00.197090Z",
+    "operation_id": "op_recorded_completion",
+    "created_at": "2026-10-24T16:08:55.752976Z",
+    "pack_ref": "linux-core@0.5.3/sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "action_id": "linux.systemctl_stop",
+    "run_id": "run-recorded-completion",
+    "runner_ref": "data-node-1~bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "run_url": "https://emisar.example/app/tenant/runs/run-recorded-completion",
+    "review": {
+      "command": {
+        "text": "systemctl stop medusa-purge.timer",
+        "truncated": false,
+        "kind": "executed"
+      },
+      "reason": "Pause scheduled Cassandra backup retention on all three nodes to protect existing complete backups during recovery. This does not stop a currently running purge and must be followed by checking the purge service.",
+      "status": "approved",
+      "expected": "The three retention timers are stopped, while Cassandra and existing backup objects remain untouched.",
+      "request_id": "apr-recorded-completion",
+      "evidence": "data-node-1 backup remains active since October20; the prior catalog showed the last complete cluster backup on October19.",
+      "approved_count": 1,
+      "decisions": [
+        {
+          "actor": "Tenant Operator",
+          "decision": "approve",
+          "decided_at": "2026-10-24T16:22:59.976714Z"
+        }
+      ],
+      "required_approvals": 1,
+      "argument_count": 1
+    }
+  }
+}

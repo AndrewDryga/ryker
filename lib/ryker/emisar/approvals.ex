@@ -13,7 +13,7 @@ defmodule Ryker.Emisar.Approvals do
   topics too.
   """
   alias Ryker.Crypto
-  alias Ryker.Emisar.{Approval, Review, RunState}
+  alias Ryker.Emisar.{Approval, ApprovalMessages, Review, RunState}
   alias Ryker.Episodes
   alias Ryker.ErrorDetail
   alias Ryker.Ingress
@@ -345,11 +345,15 @@ defmodule Ryker.Emisar.Approvals do
   end
 
   defp ensure_registered(%Records.Record{kind: "emisar_approval"} = record) do
-    with :ok <- exact_session_authority(record) do
-      case Repo.fetch(Approval.Query.by_record_id(record.id)) do
-        {:error, :not_found} -> insert_approval(record)
-        {:ok, %Approval{} = approval} -> exact_registration(approval, record)
-      end
+    with :ok <- exact_session_authority(record),
+         :ok <- ensure_watch(record),
+         do: ApprovalMessages.ensure_in_transaction(record)
+  end
+
+  defp ensure_watch(record) do
+    case Repo.fetch(Approval.Query.by_record_id(record.id)) do
+      {:error, :not_found} -> insert_approval(record)
+      {:ok, %Approval{} = approval} -> exact_registration(approval, record)
     end
   end
 
@@ -698,6 +702,18 @@ defmodule Ryker.Emisar.Approvals do
     }
   end
 
+  # The current turn or delivery keeps its owner when an approval finishes
+  # before the result starts its wait. Queue that exact outcome; accepting
+  # the current result drains the queue before entering a now-answered wait.
+  defp outcome_commands(
+         %Episodes.Episode{state: :working} = episode,
+         input,
+         _record,
+         approval,
+         _now
+       ),
+       do: [admit_command(episode, input, approval)]
+
   # A question owns its task's wait while approvals ride beside it
   # (`Ryker.Work.Validator`), and only its answer resumes the task: the
   # outcome waits in the task's queue and reaches it with the answer.
@@ -822,7 +838,8 @@ defmodule Ryker.Emisar.Approvals do
   too.
   """
   @spec broadcast_approval_updated(Approval.t()) :: :ok
-  def broadcast_approval_updated(%Approval{id: id, episode_id: episode_id}) do
+  def broadcast_approval_updated(%Approval{id: id, episode_id: episode_id, record_id: record_id}) do
+    ApprovalMessages.check_soon(record_id)
     Episodes.broadcast_episode_updated(episode_id)
 
     Repo.after_commit(fn ->

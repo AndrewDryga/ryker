@@ -151,27 +151,34 @@ defmodule Ryker.Emisar.EndToEndTest do
            ) == {:ok, {:resumed, "apr-e2e", "success"}}
 
     assert_receive {:wait_for_run, "run-e2e"}
+    refresh!(adapters)
+    assert_receive {:slack_posted, "C456", _, _, review_ref, message_ref}
+    refute message_ref == "1788019200.000100"
 
     assert_receive {
       :slack_updated,
       "C456",
-      "1788019200.000100",
+      ^message_ref,
       %{"emisar_approval_statuses" => [%{"status" => "success"} = status]},
       delivery_ref
     }
 
     assert status["run_id"] == "run-e2e"
     assert status["approval_url"] =~ "/approvals/apr-e2e"
-    assert delivery_ref == first.turn.delivery_ref
+    assert delivery_ref == review_ref
+    assert review_ref == "emisar-review:#{first.turn.id}"
 
     approval = Inspectors.emisar_approval(@connection_ref, "apr-e2e")
     assert ApprovalPresenter.publish(approval, terminal_run_state(), adapters) == :ok
+    refresh!(adapters)
     refute_receive {:slack_updated, _, _, _, _}
 
     changed = %{terminal_run_state() | error_message: "governed action failed", status: "failure"}
 
-    assert ApprovalPresenter.publish(approval, changed, adapters) ==
-             {:error, :emisar_approval_record_stale}
+    # Presenter schedules only; unauthenticated supplied state never paints a card.
+    assert ApprovalPresenter.publish(approval, changed, adapters) == :ok
+    refresh!(adapters)
+    refute_receive {:slack_updated, _, _, _, _}
 
     assert ApprovalPresenter.publish(:invalid, changed, adapters) ==
              {:error, {:invalid_emisar_approval_presentation, :arguments}}
@@ -183,7 +190,7 @@ defmodule Ryker.Emisar.EndToEndTest do
     }
 
     assert ApprovalPresenter.publish(orphan, terminal_run_state(), adapters) ==
-             {:error, :emisar_approval_source_missing}
+             {:error, :not_found}
 
     # A network blip, missing credentials or Slack's own rate limit while repainting the card were
     # permanent: the watch blocked, and the task never resumed after the review until a person
@@ -304,49 +311,47 @@ defmodule Ryker.Emisar.EndToEndTest do
                }
              })
 
-    approval = Inspectors.emisar_approval(@connection_ref, "apr-e2e")
     held = held_run_state(review(1, "pending"))
-
-    # The first receipt is a change: the card gains the tally and the rationale.
-    assert ApprovalPresenter.publish(approval, held, adapters) == :ok
-    assert_receive {:slack_updated, _, _, %{"emisar_approval_statuses" => [shown]}, _}
-    assert shown["review"]["approved_count"] == 1
-
-    approval = Inspectors.emisar_approval(@connection_ref, "apr-e2e")
-    held = held_run_state(review(1, "pending"))
-
-    # The first receipt is a change: the card gains the tally and the rationale.
-    assert ApprovalPresenter.publish(approval, held, adapters) == :ok
-    assert_receive {:slack_updated, _, _, %{"emisar_approval_statuses" => [shown]}, _}
-    assert shown["review"]["approved_count"] == 1
 
     assert {:ok, %{approval: observed}} =
              Approvals.observe(@connection_ref, "apr-e2e", lease!(), held, 5)
 
+    refresh!(adapters)
+    assert_receive {:slack_posted, _, _, _, _, review_message}
+
+    assert_receive {:slack_updated, _, ^review_message, %{"emisar_approval_statuses" => [shown]},
+                    _}
+
+    assert shown["review"]["approved_count"] == 1
     assert observed.review_digest == Review.digest(held.review)
 
-    # Emisar re-reporting the same review is not news, however often the monitor
-    # polls it.
     assert ApprovalPresenter.publish(observed, held, adapters) == :ok
+    refresh!(adapters)
     refute_receive {:slack_updated, _, _, _, _}
 
-    # A decision is.
     released = %{held | status: "sent", review: review(2, "approved")}
-    assert ApprovalPresenter.publish(observed, released, adapters) == :ok
-    assert_receive {:slack_updated, _, _, %{"emisar_approval_statuses" => [decided]}, _}
+    Repo.update_all(Approval.Query.by_id(observed.id), set: [next_attempt_at: Repo.now!()])
+    assert {:ok, _} = Approvals.observe(@connection_ref, "apr-e2e", lease!(), released, 5)
+    refresh!(adapters)
+
+    assert_receive {:slack_updated, _, ^review_message,
+                    %{"emisar_approval_statuses" => [decided]}, _}
+
     assert decided["review"]["status"] == "approved"
 
-    # Once that decision is on the card, the released run's own march through
-    # execution changes nothing on it: execution belongs to the episode, not to
-    # a stream of repaints of a settled review. (The monitor's next observation
-    # is parked behind its poll interval, so the presented row is spelled out
-    # rather than claimed a second time.)
-    presented = %{observed | remote_status: "sent", review_digest: Review.digest(released.review)}
+    Repo.update_all(Approval.Query.by_id(observed.id), set: [next_attempt_at: Repo.now!()])
 
-    for status <- ~w(running success) do
-      assert ApprovalPresenter.publish(presented, %{released | status: status}, adapters) == :ok
-      refute_receive {:slack_updated, _, _, _, _}
-    end
+    assert {:ok, _} =
+             Approvals.observe(
+               @connection_ref,
+               "apr-e2e",
+               lease!(),
+               %{released | status: "running"},
+               5
+             )
+
+    refresh!(adapters)
+    refute_receive {:slack_updated, _, _, _, _}
   end
 
   # Production asked for the same inspection on two instances in one reply
@@ -373,32 +378,182 @@ defmodule Ryker.Emisar.EndToEndTest do
     deliver!(first, "1788019200.000300")
     adapters = slack_adapters!()
 
-    web_1 = Inspectors.emisar_approval(@connection_ref, "apr-web-1")
     web_1_seen = held_state("web-1", review(1, "pending", "apr-web-1"))
-    assert ApprovalPresenter.publish(web_1, web_1_seen, adapters) == :ok
-
-    assert_receive {:slack_updated, _, "1788019200.000300", update, _}
-    assert %{"emisar_approval_statuses" => [one, two]} = update
-    assert {one["request_id"], one["review"]["approved_count"]} == {"apr-web-1", 1}
-
-    assert {two["request_id"], two["status"], two["review"]} ==
-             {"apr-web-2", "pending_approval", nil}
 
     assert {:ok, %{approval: %{request_id: "apr-web-1"}, lease_ref: lease}} =
              Approvals.claim_next(@connection_ref, "two-approvals-monitor", 60)
 
-    assert {:ok, _observed} =
-             Approvals.observe(@connection_ref, "apr-web-1", lease, web_1_seen, 5)
-
-    # The other approval's update draws the first one as it was last seen.
-    web_2 = Inspectors.emisar_approval(@connection_ref, "apr-web-2")
+    assert {:ok, _} = Approvals.observe(@connection_ref, "apr-web-1", lease, web_1_seen, 5)
+    refresh!(adapters)
+    assert_receive {:slack_posted, _, _, _, _, review_message}
+    refute review_message == "1788019200.000300"
+    assert_receive {:slack_updated, _, ^review_message, update, _}
+    assert %{"emisar_approval_statuses" => [one, two]} = update
+    assert {one["request_id"], one["review"]["approved_count"]} == {"apr-web-1", 1}
+    assert {two["request_id"], two["review"]} == {"apr-web-2", nil}
     web_2_seen = held_state("web-2", review(0, "pending", "apr-web-2"))
-    assert ApprovalPresenter.publish(web_2, web_2_seen, adapters) == :ok
 
-    assert_receive {:slack_updated, _, "1788019200.000300", update, _}
+    assert {:ok, %{approval: %{request_id: "apr-web-2"}, lease_ref: lease}} =
+             Approvals.claim_next(@connection_ref, "two-approvals-monitor", 60)
+
+    assert {:ok, _} = Approvals.observe(@connection_ref, "apr-web-2", lease, web_2_seen, 5)
+    refresh!(adapters)
+    assert_receive {:slack_updated, _, ^review_message, update, _}
     assert %{"emisar_approval_statuses" => [one, two]} = update
     assert {one["request_id"], one["review"]["approved_count"]} == {"apr-web-1", 1}
     assert {two["request_id"], two["review"]["approved_count"]} == {"apr-web-2", 0}
+  end
+
+  test "a lost post response is reconciled and repainted with the latest review" do
+    # Slack can accept a post and lose its answer. A changed decision before
+    # retry must repaint that same message before acknowledging its fingerprint.
+    claim = claim_episode!("review-response-loss")
+    assert KnowledgeSnapshot.expose(claim, []) == :ok
+
+    assert {:ok, _} =
+             Tools.call("record_emisar_approval", approval_arguments(),
+               binding: %{state_token: Records.token(claim.turn), session: claim.session}
+             )
+
+    {:ok, slack} = FakeSlackAPI.start_link(observer: self(), lose: [:post_message])
+    adapters = adapters_for!(slack)
+
+    assert Ryker.Emisar.ApprovalMessageWorker.run_once(message_options(adapters)) ==
+             {:ok, :deferred}
+
+    assert_receive {:slack_posted, _, _, _, _, original_message}
+    held = held_run_state(review(1, "pending"))
+    assert {:ok, _} = Approvals.observe(@connection_ref, "apr-e2e", lease!(), held, 5)
+
+    Repo.update_all(Ryker.Emisar.ApprovalMessage.Query.by_turn_id(claim.turn.id),
+      set: [next_attempt_at: Repo.now!()]
+    )
+
+    refresh!(adapters)
+
+    assert_receive {:slack_updated, _, ^original_message,
+                    %{"emisar_approval_statuses" => [shown]}, _}
+
+    assert shown["review"]["approved_count"] == 1
+    refute_receive {:slack_posted, _, _, _, _, _}
+    assert length(FakeSlackAPI.state(slack).posts) == 1
+  end
+
+  test "a deleted claimed message loses its lease without crashing completion" do
+    claim = claim_episode!("review-lease-lost")
+    assert KnowledgeSnapshot.expose(claim, []) == :ok
+
+    assert {:ok, _} =
+             Tools.call("record_emisar_approval", approval_arguments(),
+               binding: %{state_token: Records.token(claim.turn), session: claim.session}
+             )
+
+    assert {:ok, message} =
+             Ryker.Emisar.ApprovalMessages.claim_next(@connection_ref, "review-deleted", 60)
+
+    assert {:ok, request} = Ryker.Emisar.ApprovalMessages.request(message)
+
+    assert {:ok, receipt} =
+             DeliveryReceipt.new(
+               request.ref,
+               request.transport,
+               request.conversation_ref,
+               request.thread_ref,
+               "1788019200.000900"
+             )
+
+    Repo.delete!(message)
+
+    assert Ryker.Emisar.ApprovalMessages.mark(message, request, receipt) ==
+             {:error, :emisar_approval_message_lease_lost}
+  end
+
+  test "a review message honors Slack's retry-after without blocking run observation" do
+    claim = claim_episode!("review-rate-limit")
+    assert KnowledgeSnapshot.expose(claim, []) == :ok
+
+    assert {:ok, _} =
+             Tools.call("record_emisar_approval", approval_arguments(),
+               binding: %{state_token: Records.token(claim.turn), session: claim.session}
+             )
+
+    ref = "emisar-review:#{claim.turn.id}"
+
+    {:ok, slack} =
+      FakeSlackAPI.start_link(
+        observer: self(),
+        refuse: %{ref => {:delivery_rate_limited, 90, :provider_backoff}}
+      )
+
+    adapters = adapters_for!(slack)
+    before = Repo.now!()
+
+    assert Ryker.Emisar.ApprovalMessageWorker.run_once(message_options(adapters)) ==
+             {:ok, :deferred}
+
+    message = Repo.fetch!(Ryker.Emisar.ApprovalMessage.Query.by_turn_id(claim.turn.id))
+    assert DateTime.diff(message.next_attempt_at, before) >= 90
+
+    assert {:ok, %{status: :resumed}} =
+             Approvals.observe(@connection_ref, "apr-e2e", lease!(), terminal_run_state(), 5)
+
+    assert Ryker.Emisar.ApprovalMessageWorker.run_once(message_options(adapters)) == {:ok, :idle}
+  end
+
+  test "withdrawn producer custody neutralizes even an answered review" do
+    claim = claim_episode!("review-source-withdrawal")
+    assert KnowledgeSnapshot.expose(claim, []) == :ok
+
+    assert {:ok, _} =
+             Tools.call("record_emisar_approval", approval_arguments(),
+               binding: %{state_token: Records.token(claim.turn), session: claim.session}
+             )
+
+    {:ok, slack} = FakeSlackAPI.start_link(observer: self())
+    adapters = adapters_for!(slack)
+    refresh!(adapters)
+    assert_receive {:slack_posted, _, _, _, _, original_message}
+    assert_receive {:slack_updated, _, ^original_message, _, _}
+
+    assert {:ok, _} =
+             Approvals.observe(@connection_ref, "apr-e2e", lease!(), terminal_run_state(), 5)
+
+    Repo.update_all(Ryker.Work.Session.Query.by_id(claim.session.id),
+      set: [source_exposure_count: 1]
+    )
+
+    refresh!(adapters)
+    assert_receive {:slack_updated, _, ^original_message, %{"message" => neutral}, _}
+    assert neutral =~ "unavailable"
+    refute neutral =~ "emisar.example"
+  end
+
+  defp adapters_for!(slack) do
+    assert {:ok, adapters} =
+             Adapters.new(%{
+               "slack" => %{
+                 binding: %{workspaces: %{"TEC879C5EE335" => %{api: FakeSlackAPI, client: slack}}},
+                 message_publisher: Publisher,
+                 reaction_publisher: Publisher
+               }
+             })
+
+    adapters
+  end
+
+  defp message_options(adapters),
+    do: %{
+      connection_ref: @connection_ref,
+      worker_ref: "review-message-test",
+      lease_seconds: 60,
+      presentation: adapters,
+      retry_base_seconds: 1,
+      retry_max_seconds: 60
+    }
+
+  defp refresh!(adapters) do
+    assert Ryker.Emisar.ApprovalMessageWorker.run_once(message_options(adapters)) ==
+             {:ok, :updated}
   end
 
   defp deliver!(result, message_ref) do

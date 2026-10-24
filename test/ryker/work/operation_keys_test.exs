@@ -11,10 +11,18 @@ defmodule Ryker.Work.OperationKeysTest do
     submit_generation: 3,
     submission_fingerprint: "submission",
     candidate_attempt: 4,
+    checkpoint_retry_generation: 0,
     candidate_sha256: "candidate",
     validation_generation: 5,
     cancel_generation: 6
   }
+
+  test "explicit snapshot recovery advances only its checkpoint key" do
+    retry = %{@turn | checkpoint_retry_generation: 1}
+    assert OperationKeys.checkpoint(retry) == "ryker:work:checkpoint:turn-1:a4:candidate:r1"
+    assert OperationKeys.turn(retry) == OperationKeys.turn(@turn)
+    assert OperationKeys.validate(retry, :accept) == OperationKeys.validate(@turn, :accept)
+  end
 
   test "every key keeps the format Coop already holds operations under" do
     assert OperationKeys.create(@session) == "ryker:work:create:session-1:g2"

@@ -401,6 +401,7 @@ defmodule Ryker.Work.Turn.Changeset do
     |> cast(
       %{
         status: :pending,
+        checkpoint_retry_generation: turn.checkpoint_retry_generation + 1,
         last_error_code: nil,
         last_error_detail: nil,
         lease_ref: nil,
@@ -410,6 +411,7 @@ defmodule Ryker.Work.Turn.Changeset do
       },
       [
         :status,
+        :checkpoint_retry_generation,
         :last_error_code,
         :last_error_detail,
         :lease_ref,
@@ -417,6 +419,9 @@ defmodule Ryker.Work.Turn.Changeset do
         :lease_expires_at,
         :next_attempt_at
       ]
+    )
+    |> check_constraint(:checkpoint_retry_generation,
+      name: :episode_work_turn_checkpoint_retry_generation_valid
     )
     |> work_constraints()
   end

@@ -42,6 +42,12 @@ defmodule Ryker.Slack.Publisher do
     do: {:error, {:invalid_slack_delivery, :message}}
 
   defp materialize_mentions(
+         %Delivery.Request{document: %{"emisar_approval_statuses" => _}} = request,
+         _binding
+       ),
+       do: {:ok, request}
+
+  defp materialize_mentions(
          %Delivery.Request{document: %{"message" => message}} = request,
          binding
        ) do

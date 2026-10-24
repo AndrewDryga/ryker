@@ -33,6 +33,118 @@ defmodule Ryker.Publication.FollowupsTest do
   # The next check of a follow-up that is never checked again.
   @never ~U[9999-01-01 00:00:00.000000Z]
 
+  test "merging a task's pull request resumes its remaining verification exactly once" do
+    # Access was granted by a merged change, but the task never checked it:
+    # the merge was retained only as history, and polling stopped forever.
+    %{publication: publication} = PublicationFixture.published!("merge-continuation")
+    assert {:ok, claim} = Followups.claim_poll("merge-continuation", 60)
+    status = lifecycle_status(publication, "pending", true, String.duplicate("b", 40))
+    assert {:ok, _followup} = Followups.store_poll(publication.ref, claim.lease_ref, status)
+    event = Repo.get_by!(LifecycleEvent, publication_id: publication.id, kind: :merged)
+    assert event.wakeup_state == :pending
+    deliver_pending!()
+
+    assert [wake] =
+             publication.episode_id
+             |> Event.Query.by_episode_id()
+             |> Repo.all()
+             |> Enum.filter(
+               &(&1.kind == :input_admitted and
+                   get_in(&1.payload, ["payload", "content", "kind"]) == "publication_lifecycle")
+             )
+
+    content = wake.payload["payload"]["content"]
+    assert content["publication"]["merge_sha"] == status["merge_sha"]
+    assert content["verification_request"] =~ "not deployment"
+    assert content["verification_request"] =~ "read-only"
+    assert content["verification_request"] =~ "resume automatically"
+    assert Followups.claim_delivery("duplicate-merge", 60) == {:ok, nil}
+  end
+
+  test "merge verification follows the exact queued input into its eventual consumer" do
+    # A merge arrived while another input owned production work. Its eventual
+    # consumer is turn:after:<prior>, not the merge event's requested turn.
+    %{episode: episode, publication: publication} =
+      PublicationFixture.published!("queued-merge-consumer")
+
+    assert {:ok, _} =
+             Episodes.apply(
+               EpisodeFixtures.admit_input(%{
+                 episode_id: episode.id,
+                 episode_key: episode.key,
+                 native_input_id: "busy:#{episode.id}",
+                 turn_ref: "turn:busy:#{episode.id}",
+                 occurred_at: Repo.now!(),
+                 payload: %{"text" => "Check the same change."},
+                 destination: %{
+                   transport: episode.destination_transport,
+                   conversation_ref: episode.destination_conversation_ref,
+                   thread_ref: episode.destination_thread_ref
+                 }
+               })
+             )
+
+    woken = wake_on_deployment!(publication)
+    a_minute_later!(publication)
+    assert next_check!(publication) == :checked_task
+    assert Repo.get_by!(Followup, publication_id: publication.id).verification_event_ref
+    busy = Inspectors.episode(episode.key)
+    consumer_ref = "turn:after:#{busy.owner_ref}"
+
+    assert {:ok, _} =
+             Episodes.apply(
+               EpisodeFixtures.accept_result(%{
+                 episode_key: episode.key,
+                 expected_turn_ref: busy.owner_ref,
+                 result_ref: "result:busy:#{episode.id}",
+                 decision_reason: "Earlier input finished.",
+                 delivery: :none,
+                 delivery_ref: nil,
+                 next_turn_ref: consumer_ref,
+                 occurred_at: Repo.now!()
+               })
+             )
+
+    a_minute_later!(publication)
+    assert next_check!(publication) == :checked_task
+    assert Repo.get_by!(Followup, publication_id: publication.id).verification_event_ref
+    assert {:ok, consumer} = WorkCustody.claim_next("queued-merge-consumer", 60, :work)
+    assert consumer.turn.turn_ref == consumer_ref
+    assert {:ok, submission} = Inspectors.submission(consumer)
+
+    assert {:ok, _} =
+             WorkCustody.freeze_submission(
+               episode.id,
+               consumer_ref,
+               consumer.lease_ref,
+               submission,
+               selected_input_refs: consumer.episode.active_input_refs
+             )
+
+    a_minute_later!(publication)
+    assert next_check!(publication) == :checked_task
+    followup = Repo.get_by!(Followup, publication_id: publication.id)
+    assert followup.verification_event_ref == woken.verification_event_ref
+    refute followup.verified_at
+
+    assert {:ok, _} =
+             Episodes.apply(
+               EpisodeFixtures.accept_result(%{
+                 episode_key: episode.key,
+                 expected_turn_ref: consumer_ref,
+                 result_ref: "result:consumer:#{episode.id}",
+                 decision_reason: "Verified the merged change.",
+                 delivery: :none,
+                 delivery_ref: nil,
+                 occurred_at: Repo.now!()
+               })
+             )
+
+    a_minute_later!(publication)
+    assert next_check!(publication) == :checked_task
+    assert %DateTime{} = Repo.get_by!(Followup, publication_id: publication.id).verified_at
+  end
+
   test "a follow-up waiting on its pull request's newer change is not a stalled queue" do
     # On 2026-09-28 PR #2's continuation committed a change that self-review
     # blocked. Its publication left :published, so the poller rightly stopped
@@ -136,11 +248,16 @@ defmodule Ryker.Publication.FollowupsTest do
 
     assert resumed = Ryker.Inspectors.episode(episode.key)
     assert resumed.state == :working
-    assert resumed.owner_ref == "turn:publication-verification:#{deployment.id}"
+    merge_event = Repo.get_by!(LifecycleEvent, publication_id: publication.id, kind: :merged)
+    assert resumed.owner_ref == "turn:publication-verification:#{merge_event.id}"
+    assert length(resumed.queued_input_refs) == 1
 
     stored_followup = Repo.get!(Followup, followup.id)
     assert stored_followup.verification_event_ref == deployment.ref
-    assert stored_followup.verification_turn_ref == resumed.owner_ref
+
+    assert stored_followup.verification_turn_ref ==
+             "turn:publication-verification:#{deployment.id}"
+
     assert stored_followup.verification_sequence > 0
   end
 

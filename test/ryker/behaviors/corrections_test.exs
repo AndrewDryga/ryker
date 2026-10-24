@@ -25,6 +25,54 @@ defmodule Ryker.Behaviors.CorrectionsTest do
     assert {"Expires", "No automatic expiry"} in card.details
   end
 
+  test "general corrections apply across workspace conversations without a human asker" do
+    # Production saved a general infrastructure rule only in its thread, so
+    # later health checks could repeat the same unwanted restore-drill work.
+    correction = Corrections.correction!()
+    arguments = Map.put(correction.arguments, "scope", "workspace")
+    assert {:ok, saved} = call(correction, arguments)
+    assert saved["scope"] == "workspace"
+
+    other = %{
+      correction.claim.episode
+      | destination_conversation_ref: "slack:#{correction.attributes.workspace_ref}:C2"
+    }
+
+    assert [%{"behavior_ref" => reference}] =
+             Ryker.Behaviors.model_context(other, nil, nil)["guidance"]
+
+    assert reference == saved["behavior_ref"]
+    outside = %{other | destination_conversation_ref: "slack:TOTHER:C2"}
+    assert Ryker.Behaviors.model_context(outside, nil, nil)["guidance"] == []
+  end
+
+  test "widening a named conversation correction supersedes exactly its current revision" do
+    correction = Corrections.correction!()
+    assert {:ok, local} = call(correction, correction.arguments)
+
+    arguments =
+      Map.merge(correction.arguments, %{
+        "scope" => "workspace",
+        "guidance_ref" => local["behavior_ref"],
+        "expected_revision" => local["revision"]
+      })
+
+    assert {:ok, broad} = call(correction, arguments)
+    assert broad["scope"] == "workspace"
+    old = Repo.one!(Ryker.Behaviors.Behavior.Query.by_ref(local["behavior_ref"]))
+    assert old.status == :superseded
+    assert call(correction, arguments) == {:ok, %{broad | "status" => "duplicate"}}
+  end
+
+  test "private source words cannot become workspace guidance" do
+    correction = Corrections.correction!(private: true)
+
+    assert call(correction, Map.put(correction.arguments, "scope", "workspace")) ==
+             {:error, "slack_channel_not_public"}
+
+    refute Repo.exists?(Ryker.Behaviors.Behavior.Query.by_kind(:guidance))
+  end
+
   test "an inferred instruction cannot be added to a person's exact correction" do
     correction = Corrections.correction!()
     arguments = %{correction.arguments | "instruction" => "Always deploy automatically."}
@@ -345,6 +393,50 @@ defmodule Ryker.Behaviors.CorrectionsTest do
     end
 
     assert {:error, error} = call(correction, correction.arguments)
+    assert error =~ "correction_capacity_reached"
+  end
+
+  test "workspace capacity retains a same-subject local rule that will remain active" do
+    correction = Corrections.correction!()
+
+    source = %{
+      conversation_ref: correction.claim.episode.destination_conversation_ref,
+      episode: correction.claim.episode,
+      turn: correction.claim.turn
+    }
+
+    for {subject, scope} <- [
+          {correction.arguments["subject"], "conversation"},
+          {"Other outputs", "workspace"}
+        ] do
+      behavior =
+        Ryker.Fixtures.SavedEntities.behavior!(
+          source,
+          :guidance,
+          %{
+            "expires_in" => "30d",
+            "repository" => nil,
+            "scope" => scope,
+            "subject" => subject,
+            "text" => "Check the required outputs.",
+            "summary" => "Check the required outputs.",
+            "visibility" => scope
+          },
+          scope_ref:
+            if(scope == "workspace",
+              do: correction.attributes.workspace_ref,
+              else: source.conversation_ref
+            ),
+          scope_kind: String.to_existing_atom(scope)
+        )
+
+      payload =
+        Map.put(behavior.payload, "requirements", Enum.map(1..8, &"#{subject} output #{&1}"))
+
+      Repo.update!(Ryker.Behaviors.Behavior.Changeset.update(behavior, %{payload: payload}))
+    end
+
+    assert {:error, error} = call(correction, Map.put(correction.arguments, "scope", "workspace"))
     assert error =~ "correction_capacity_reached"
   end
 

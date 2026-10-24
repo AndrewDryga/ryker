@@ -4,7 +4,7 @@ defmodule Ryker.Emisar.ApprovalRuntime do
   """
   use Supervisor
   alias Ryker.Adapter
-  alias Ryker.Emisar.ApprovalWorker
+  alias Ryker.Emisar.{ApprovalMessageWorker, ApprovalWorker}
   alias Ryker.Options
 
   @fields [
@@ -66,7 +66,14 @@ defmodule Ryker.Emisar.ApprovalRuntime do
         )
       end
 
-    Supervisor.init(children, strategy: :one_for_one)
+    message_options =
+      options
+      |> Map.put(:interval_ms, options.poll_interval_ms)
+      |> Map.put(:worker_ref, "#{options.worker_ref}:messages")
+
+    Supervisor.init(children ++ [{ApprovalMessageWorker, message_options}],
+      strategy: :one_for_one
+    )
   end
 
   @doc false

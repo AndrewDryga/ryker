@@ -111,6 +111,25 @@ an integration can be connected, and a real request can be live-tested. One does
 next. Learning is on by default. Proactive participation, publication, scheduled reports and
 destructive authority remain off until explicitly enabled.
 
+An Emisar approval is watched as soon as the task registers its exact run, including while its
+worker is running or saving a completed result. Slack reviews have their own durable message,
+separate from the task card and final reply. All approvals from the asking turn share that message;
+observations refresh it, and Slack delivery retries independently of run observation. A terminal
+run queues one exact input while Work owns the task, then resumes verification when that work
+safely finishes. It never repeats the governed action. A merged task pull request similarly
+resumes the source task's remaining read-only verification; a merge alone is not deployment
+proof, and queued wakeups remain tracked through the turn that actually consumes them.
+
+General authenticated corrections are workspace guidance across conversations. Explicitly local
+instructions and private or shared source conversations stay conversation-scoped. The returned
+scope is the saved scope; widening a named rule supersedes its exact prior revision while
+preserving its source audit. Guidance never grants action authority.
+
+If saving a completed result is blocked, retain its workspace and retry completion after repairing
+the cause. An explicit completion retry captures a fresh snapshot under a new operation key;
+automatic transport retries retain their existing key. The saved answer and completed model turn
+are preserved, so recovery never repeats the worker's infrastructure actions.
+
 ## Routine lifecycle
 
 Use the shipped helper so every operation uses the same project and owner-only environment:

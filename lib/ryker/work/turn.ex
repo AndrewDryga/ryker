@@ -13,6 +13,7 @@ defmodule Ryker.Work.Turn do
 
     field(:submit_generation, :integer, default: 1)
     field(:validation_generation, :integer, default: 1)
+    field(:checkpoint_retry_generation, :integer, default: 0)
     field(:cancel_generation, :integer, default: 1)
     field(:cancel_expected_revision, :integer)
     field(:close_expected_revision, :integer)
@@ -101,6 +102,7 @@ defmodule Ryker.Work.Turn do
             | nil,
           submit_generation: pos_integer(),
           validation_generation: pos_integer(),
+          checkpoint_retry_generation: non_neg_integer(),
           cancel_generation: pos_integer(),
           cancel_expected_revision: pos_integer() | nil,
           close_expected_revision: pos_integer() | nil,

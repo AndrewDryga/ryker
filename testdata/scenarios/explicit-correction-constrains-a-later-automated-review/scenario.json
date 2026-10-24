@@ -74,7 +74,7 @@
     {
       "actor_ref": "slack:bot:B-TERRAFORM",
       "destination": {
-        "conversation_ref": "slack:TEVAL:CEVAL",
+        "conversation_ref": "slack:TEVAL:CANOTHER",
         "thread_ref": "1791926400.000001",
         "transport": "slack"
       },
@@ -3553,7 +3553,7 @@
     ],
     "quality_rubric": [
       {
-        "criterion": "The later automated review gives the deployed baseline revision, the saved-plan revision, and a short source comparison without another human reminder; the first response remembers the explicit correction without asking for confirmation.",
+        "criterion": "The later automated review in another workspace channel gives the deployed baseline revision, the saved-plan revision, and a short source comparison without another human reminder; the first response remembers the explicit workspace correction without asking for confirmation.",
         "weight": 3
       },
       {

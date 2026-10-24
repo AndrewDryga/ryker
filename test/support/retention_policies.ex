@@ -343,6 +343,12 @@ defmodule Ryker.RetentionPolicies do
       why: "one reaction or quick reply routing sent without Work, and its transport receipt"
     },
     %{
+      table: "emisar_approval_messages",
+      class: :cascade,
+      why:
+        "Independent review-message receipt and frozen route leave with the asking Work turn at the audit horizon; approval execution remains owned by its watch."
+    },
+    %{
       table: "episode_emisar_approvals",
       class: :episode_history,
       why: "governed action state retained with the episode that requested it"

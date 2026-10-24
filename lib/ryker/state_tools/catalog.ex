@@ -72,17 +72,18 @@ defmodule Ryker.StateTools.Catalog do
   defp remember_correction_tool do
     tool(
       "remember_correction",
-      "Remember an explicit authenticated human correction for future work in this conversation, without another confirmation. source_event_ref is the source_event_id of a current human input; instruction is an exact quote of that person's requested reusable rule, never a suggestion inferred from unhappiness or a bot's text. subject names the rule. requirements lists only the concrete outputs the correction requires (empty for purely stylistic guidance). For a correction to this automation, use its standing_assignments assignment_ref so it applies to later runs of that automation. guidance_ref and expected_revision name the exact current guidance being replaced, or both null for a new rule. Include the returned record_ref in your final outcome to show the saved guidance and its management controls. This saves guidance only and grants no action authority; an inferred rule still uses propose_memory.",
+      "Remember an explicit authenticated human correction for future work, without another confirmation. source_event_ref is the source_event_id of a current human input; instruction is an exact quote of that person's requested reusable rule, never a suggestion inferred from unhappiness or a bot's text. subject names the rule. scope is workspace for general reusable corrections, conversation only when the person explicitly limits the rule to this conversation; private or shared source conversations must stay conversation-scoped. requirements lists only the concrete outputs the correction requires (empty for purely stylistic guidance). For a correction to this automation, use its standing_assignments assignment_ref so it applies to later runs of that automation. guidance_ref and expected_revision name the exact current guidance being replaced, or both null for a new rule. Include the returned record_ref in your final outcome to show the saved guidance and its management controls. This saves guidance only and grants no action authority; an inferred rule still uses propose_memory.",
       %{
         "assignment_ref" => JSONSchema.nullable(reference(256)),
         "expected_revision" => JSONSchema.nullable(integer(1, 9_223_372_036_854_775_807)),
         "guidance_ref" => JSONSchema.nullable(reference(256)),
         "instruction" => text(4_000),
         "requirements" => array(text(1_000), 0, 8),
+        "scope" => enum(~w(workspace conversation)),
         "source_event_ref" => reference(256),
         "subject" => text(120)
       },
-      ~w(assignment_ref expected_revision guidance_ref instruction requirements source_event_ref subject)
+      ~w(assignment_ref expected_revision guidance_ref instruction requirements scope source_event_ref subject)
     )
   end
 
