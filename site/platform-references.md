@@ -188,6 +188,25 @@ and a link to the relevant documentation; keyboard navigation and direct links
 use the existing example picker.
 
 
+### Cost, feedback, and schedules
+
+The gallery now includes the real Usage & cost, Feedback, and Schedules pages,
+rendered from `6d65b2f3f`. Usage and feedback come from public example records in
+an isolated SQL sandbox, using the existing `Answers` fixtures and production
+projections. The schedule list uses public example projection data in the shape
+covered by `SchedulesPageTest`: two active jobs and one paused job. No model,
+Slack API, or production database was used. The amounts and feedback counts are
+example data, not a cost or quality benchmark.
+
+As with the earlier captures, the HTML snapshot preserves the app's components,
+labels, styles, fonts, and artwork, with the incomplete-installation sidebar
+shortcut omitted. Desktop images are 1265 × 909 (cost), 1280 × 895 (feedback),
+and 1280 × 650 (schedules). Phone images are 360 × 600, showing the native
+responsive content. The existing 720px desktop width and 400px phone preview
+height remain. The seven gallery tabs fit in two rows at phone widths, with
+arrow-key selection, direct links, and links to full-size desktop images.
+
+
 ## Everyday feature illustrations — 23 October 2026
 
 “Fits the way you work” now pairs its six features with lightweight HTML/SVG

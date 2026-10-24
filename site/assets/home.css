@@ -410,6 +410,8 @@
   .everyday-section .example-tabs a { flex-basis: 33.333%; padding-inline: 8px; }
   .everyday-section .example-tabs a:nth-child(n + 4) { flex-basis: 50%; }
   .example-tabs a > span { font-size: 17px; }
+  .console-tabs a { flex-basis: 25%; padding-inline: 4px; text-align: center; }
+  .console-tabs a:nth-child(n + 5) { flex-basis: 33.333%; }
   .console-copy > p { font-size: 16px; line-height: 27px; }
   .console-caption h3 { font-size: 23px; line-height: 30px; }
   .review-verdict { margin-left: 38px; }
