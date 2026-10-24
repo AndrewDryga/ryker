@@ -487,14 +487,14 @@ time, .tag { font-variant-numeric: tabular-nums; }
 
 /* Each action belongs to the code block it copies. Without JavaScript the
    original pre remains readable and selectable, with no inactive controls. */
-.copy-wrap { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: var(--sunken); }
-.copy-toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 12px; padding: 6px 12px; border-bottom: 1px solid var(--line); }
+.copy-wrap { min-width: 0; padding: 8px 20px 20px; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: var(--sunken); }
+.copy-toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 12px; margin-bottom: 8px; }
 .copy-label { color: var(--dim); font: 12px/20px var(--mono); }
-.copy { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 4px; background: transparent; color: var(--ink); font: 13px/20px var(--sans); cursor: pointer; transition: color .12s ease, border-color .12s ease; }
-.copy:hover { color: var(--accent-text); border-color: var(--accent-text); }
+.copy { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding: 0 8px; border: 0; border-radius: 4px; background: transparent; color: var(--dim); font: 13px/20px var(--sans); cursor: pointer; transition: color .12s ease, background-color .12s ease; }
+.copy:hover { color: var(--ink); background: var(--panel-2); }
 .copy:active { transform: translateY(1px); }
-.copy.done { color: var(--good); border-color: var(--good); }
-.doc .copy-wrap pre { max-width: none; border: 0; border-radius: 0; background: transparent; }
+.copy.done { color: var(--good); }
+.doc .copy-wrap pre, .install .copy-wrap pre { width: 100%; max-width: none; margin: 0; padding: 0; text-indent: 0; border: 0; border-radius: 0; background: transparent; }
 
 /* Footer ------------------------------------------------------------------ */
 
@@ -828,10 +828,14 @@ time, .tag { font-variant-numeric: tabular-nums; }
   overflow-wrap: break-word;
 }
 
+/* Messages read as conversation; terminal commands retain Plex Mono. */
+.doc pre[data-copy-kind="message"] { font-family: var(--sans); font-size: 15px; line-height: 1.6; text-indent: 0; }
+.doc pre[data-copy-kind="message"] code { font: inherit; }
+
 /* And when it does wrap, it says so: the continuation is indented under its
    own line instead of impersonating the next one. */
 @supports (text-indent: -16px each-line) {
-  .doc pre {
+  .doc > pre:not([data-copy-kind="message"]) {
     padding-left: calc(var(--s-3) + var(--s-2));
     text-indent: -16px each-line;
   }
@@ -913,11 +917,9 @@ time, .tag { font-variant-numeric: tabular-nums; }
 }
 .doc tr:last-child td { border-bottom: 0; }
 
-/* Code and tables are laid out, not read left to right, and they cannot be
-   re-wrapped to fit a narrower column. So they break the measure by the
-   column's own padding on each side and take the gutters back. */
+/* Tables can use the reading column’s gutters. Copy cards keep their content
+   inside the frame; a nested pre must never inherit a negative margin. */
 @media (min-width: 720px) {
-  .doc pre,
   .doc table {
     max-width: none;
     width: calc(100% + var(--s-3) * 2);

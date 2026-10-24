@@ -79,7 +79,7 @@
 <li><a href="#access">Access and approvals still apply</a></li></ul></details>
 <h2 id="schedules">Schedule a check</h2>
 <p>Ask in the conversation where you want the results. Include the job, time, and timezone:</p>
-<pre data-copy-label="Slack" data-copy-button="Copy example"><code>@Ryker every weekday at 09:00 America/New_York, check production health and post the findings here.</code></pre>
+<pre data-copy-kind="message" data-copy-label="Slack" data-copy-button="Copy example"><code>@Ryker every weekday at 09:00 America/New_York, check production health and post the findings here.</code></pre>
 <p>Ryker shows the proposed schedule on a card. Check its timing and work before confirming. In Slack, a configured operator confirms; on GitHub, the confirmer needs write access to the repository. Nothing runs until confirmation.</p>
 <p>A schedule can run once, on an interval from five minutes to a year, or daily, weekly, or monthly. It can have an end date. Ask in the original conversation to change what it does.</p>
 <h2 id="runs">What happens at the scheduled time</h2>
@@ -88,7 +88,7 @@
 <p>Under <strong>Automations › Schedules</strong>, or in Slack App Home, use <strong>Run now</strong>, <strong>Pause</strong>, <strong>Resume</strong>, or <strong>Delete</strong>. Open a run to inspect what it did and where it reported.</p>
 <h2 id="rules">Respond to an event</h2>
 <p>A rule is a standing request for a specific kind of event. For example:</p>
-<pre data-copy-label="Slack" data-copy-button="Copy example"><code>@Ryker when someone posts a Terraform plan here, review it for risky changes.</code></pre>
+<pre data-copy-kind="message" data-copy-label="Slack" data-copy-button="Copy example"><code>@Ryker when someone posts a Terraform plan here, review it for risky changes.</code></pre>
 <p>Ryker proposes the event filter, where it will read and reply, what it will do, and when the rule ends. An operator confirms before it is saved under <strong>Automations › Rules</strong>.</p>
 <p>Rules can match Slack, GitHub, and webhook events. Ryker matches the saved filter in code, then assesses the event. It may ignore a duplicate or interim update, react, reply, or start work. A match does not force an unnecessary response.</p>
 <p>Manage rules in the console, Slack App Home, or <code>/ryker assignments</code>. Use <a href="slack.html#speaking">proactive channel participation</a> for general conversation; use a rule when you want an explicit, repeatable response to a particular event.</p>

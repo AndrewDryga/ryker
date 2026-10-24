@@ -110,3 +110,16 @@ full explanation. Do not copy entire reference sections into it. Keep useful
 technical detail in its owning page or link to the repository reference. Give
 each page a distinct title and description; all explanations must be present in
 static HTML so they work without JavaScript and can be read by crawlers.
+
+### Copy block layout checks
+
+`test/browser/marketing-copy-layout.js` checks the rendered copy cards: content
+stays inside the frame, text aligns with its label and has a readable inset,
+controls are at least 44px, and text wraps without horizontal overflow. Run
+`checkCopyBlockLayout()` in the browser on the built pages at 320, 768, and
+1440px. Cover the landing-page installer, every docs page with an example,
+and both guides. Run it on the rendered page after the fonts load.
+
+Message examples use `data-copy-kind="message"` for normal reading type.
+Terminal commands keep monospace. Keep the copy label and action together with
+the content they describe; the clipboard payload is only the original text.
