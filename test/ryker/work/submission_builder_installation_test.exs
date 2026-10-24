@@ -109,6 +109,7 @@ defmodule Ryker.Work.SubmissionBuilderInstallationTest do
                %{
                  ref: "qa-environment",
                  display_name: "Practice",
+                 description: "Practice workloads in a shared cluster",
                  repositories: ["qa-primary", "qa-docs", "qa-other"]
                },
                :current,
@@ -133,8 +134,17 @@ defmodule Ryker.Work.SubmissionBuilderInstallationTest do
                connected: %{github: true, slack: true}
              )
 
+    assert Settings.model_environment(nil) == nil
+    assert Settings.model_environment("absent-environment") == nil
+
     connected = submission["context"]["connected"]
-    assert connected["environment"] == %{"ref" => "qa-environment", "name" => "Practice"}
+
+    assert connected["environment"] == %{
+             "ref" => "qa-environment",
+             "name" => "Practice",
+             "description" => "Practice workloads in a shared cluster"
+           }
+
     assert connected["repositories"] == ["qa-primary", "qa-docs"]
 
     assert connected["repository_names"] == %{

@@ -144,6 +144,16 @@ defmodule Ryker.Admission.Prompt do
   current operational health.
   """
 
+  @environment """
+  environment is the configured environment this conversation runs in. Its name and description
+  identify the intended product for an unspecified request such as "our infrastructure". A shared
+  infrastructure repository may contain several products; choosing that repository does not change
+  the target environment. The origin repository or conversation of reusable knowledge is provenance,
+  not the target of the current request. Apply a reusable rule only where its meaning applies;
+  never inherit its originating product's resources or findings. Names and descriptions do not
+  grant credentials, write authority or access to other environments.
+  """
+
   @repository_source """
   repository_source is null unless repository_source_kinds is present, and then only on
   start_episode: it selects which source inside the already authorized repository the new work
@@ -291,6 +301,7 @@ defmodule Ryker.Admission.Prompt do
       {Map.has_key?(document, "slack_addressing"), @addressing},
       {Map.has_key?(document, "conversation_observations") or
          Map.has_key?(document, "conversation_knowledge"), @memory},
+      {Map.has_key?(document, "environment"), @environment},
       {Map.has_key?(document, "repository_choices"), @repository_choices},
       {Map.has_key?(document, "repository_source_kinds"), @repository_source},
       {"quick_reply" in actions, @quick_reply},
@@ -305,7 +316,7 @@ defmodule Ryker.Admission.Prompt do
   # itself, the conversation around it, what Ryker remembers, the time, and the
   # earlier work it may belong to. Canonical key order put the instructions
   # last, where they could never be a cached prefix.
-  @context_order ~w(custom_instructions input slack_addressing conversation_context context_manifest previous_answer conversation_observations conversation_knowledge candidates allowed_actions repository_choices repository_source_kinds)
+  @context_order ~w(custom_instructions environment input slack_addressing conversation_context context_manifest previous_answer conversation_observations conversation_knowledge candidates allowed_actions repository_choices repository_source_kinds)
 
   @doc "The prompt text: instructions first, then the context in reading order."
   @spec render(map()) :: String.t()

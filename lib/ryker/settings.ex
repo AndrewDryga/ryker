@@ -222,6 +222,25 @@ defmodule Ryker.Settings do
   def environment(snapshot, ref), do: find_item(snapshot, Environment, ref)
 
   @doc """
+  The configured name and description of the pinned environment, for model
+  context. Labels do not add repositories, credentials or mutation authority.
+  An absent environment stays absent; this never substitutes the default.
+  """
+  @spec model_environment(String.t() | nil) :: map() | nil
+  def model_environment(nil), do: nil
+
+  def model_environment(ref) when is_binary(ref) do
+    case Repo.peek(Environment.Query.by_ref(ref)) do
+      %Environment{ref: ref, display_name: name, description: description} ->
+        %{"ref" => ref, "name" => name, "description" => description}
+        |> Map.reject(fn {_key, value} -> is_nil(value) end)
+
+      nil ->
+        nil
+    end
+  end
+
+  @doc """
   The repositories work pinned to `repository_ref` in the environment `ref`
   may change: its own, and any other its environment lets it write.
   """

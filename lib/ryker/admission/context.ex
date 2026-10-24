@@ -16,6 +16,7 @@ defmodule Ryker.Admission.Context do
   alias Ryker.Maps
   alias Ryker.People
   alias Ryker.Slack
+  alias Ryker.Text
   alias Ryker.UTCDateTime
 
   @enforce_keys [
@@ -39,6 +40,7 @@ defmodule Ryker.Admission.Context do
                 context_manifest: nil,
                 routing_receipt: nil,
                 continuation_window: nil,
+                environment: nil,
                 repository_choices: [],
                 candidate_messages: [],
                 previous_answer: nil,
@@ -72,6 +74,7 @@ defmodule Ryker.Admission.Context do
     |> put_slack_addressing(context.slack_addressing)
     |> put_model_custom_instructions(context.custom_instructions)
     |> put_model_person_asking(context.person_asking)
+    |> put_environment(context.environment)
     |> put_repository_choices(context.repository_choices)
     |> put_repository_source_kinds(context.input_entry.repository_ref)
     |> put_model_previous_answer(context.previous_answer)
@@ -207,6 +210,7 @@ defmodule Ryker.Admission.Context do
     |> put_slack_addressing(context.slack_addressing)
     |> put_custom_instructions(context.custom_instructions)
     |> put_person_asking(context.person_asking)
+    |> put_environment(context.environment)
     |> put_repository_choices(context.repository_choices)
     |> put_candidate_messages(context.candidate_messages)
     |> put_previous_answer(context.previous_answer)
@@ -238,7 +242,7 @@ defmodule Ryker.Admission.Context do
     optional = ~w(
       conversation_observations conversation_knowledge conversation_context context_manifest
       routing_receipt source_dependencies knowledge_omissions slack_addressing
-      custom_instructions person_asking repository_choices candidate_messages previous_answer
+      custom_instructions person_asking environment repository_choices candidate_messages previous_answer
     )
 
     Maps.exact_keys?(snapshot, required, optional)
@@ -255,6 +259,7 @@ defmodule Ryker.Admission.Context do
          {:ok, slack_addressing} <- restore_slack_addressing(snapshot, input),
          {:ok, custom_instructions} <- restore_custom_instructions(snapshot, input),
          {:ok, person_asking} <- restore_person_asking(snapshot),
+         {:ok, environment} <- restore_environment(snapshot, entry),
          {:ok, repository_choices} <- restore_repository_choices(snapshot),
          {:ok, candidate_messages} <- restore_candidate_messages(snapshot),
          {:ok, previous_answer} <- restore_previous_answer(snapshot),
@@ -292,6 +297,7 @@ defmodule Ryker.Admission.Context do
          observations: observations,
          knowledge: knowledge,
          knowledge_omissions: omissions,
+         environment: environment,
          repository_choices: repository_choices,
          candidate_messages: candidate_messages,
          previous_answer: previous_answer,
@@ -305,6 +311,38 @@ defmodule Ryker.Admission.Context do
 
   def restore(_snapshot, _input, _entry, _episodes),
     do: {:error, {:invalid_admission_context_snapshot, :document}}
+
+  defp put_environment(document, nil), do: document
+  defp put_environment(document, environment), do: Map.put(document, "environment", environment)
+
+  # Frozen labels stay beside the adapter's exact environment pin, even after
+  # settings change. Older retained snapshots genuinely did not carry labels.
+  defp restore_environment(snapshot, entry) do
+    case Map.fetch(snapshot, "environment") do
+      :error ->
+        {:ok, nil}
+
+      {:ok, %{"ref" => ref, "name" => name} = environment} when is_binary(name) ->
+        with true <- Maps.exact_keys?(environment, ~w(ref name), ~w(description)),
+             true <- Text.char_length(name) in 1..80,
+             true <- environment_description?(environment),
+             {:ok, profile} <- Ingress.WorkProfile.restore(entry.work_profile),
+             true <- is_binary(ref) and ref == profile.environment_ref do
+          {:ok, environment}
+        else
+          _invalid -> {:error, {:invalid_admission_context_snapshot, :environment}}
+        end
+
+      {:ok, _invalid} ->
+        {:error, {:invalid_admission_context_snapshot, :environment}}
+    end
+  end
+
+  defp environment_description?(%{"description" => description}) when is_binary(description),
+    do: Text.char_length(description) in 1..500
+
+  defp environment_description?(%{"description" => _invalid}), do: false
+  defp environment_description?(_absent), do: true
 
   # The repositories a new episode chooses among, each by ref with what the
   # operator wrote about it, frozen so the receipt shows the exact choices

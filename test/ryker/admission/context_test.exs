@@ -855,6 +855,94 @@ defmodule Ryker.Admission.ContextTest do
     refute Prompt.build(context)["instructions"] =~ "repository_choices"
   end
 
+  # A fresh health request reached the right diagnostic account but inspected
+  # another product twice: routing saw the shared infrastructure repository and
+  # a reusable note's origin, but never the conversation's configured environment.
+  test "routing keeps the configured environment beside shared repositories and cross-product knowledge" do
+    fixture =
+      Path.expand("fixtures/environment_scope/shared_infrastructure_health.json", __DIR__)
+      |> File.read!()
+      |> Jason.decode!()
+
+    refs = Enum.map(fixture["repository_choices"], & &1["ref"])
+    assert {:ok, _} = Settings.initialize("control-plane:local")
+
+    for ref <- refs do
+      assert {:ok, _} = Settings.put_repository(%{ref: ref}, :current, "control-plane:local")
+    end
+
+    assert {:ok, _} =
+             Settings.put_environment(
+               %{
+                 ref: "platform",
+                 display_name: "Product AI",
+                 description: "Product workloads on shared VA1 infrastructure",
+                 repositories: refs
+               },
+               :current,
+               "control-plane:local"
+             )
+
+    assert {:ok, %{entry: entry}} =
+             Inbox.record(input!(content: %{"text" => fixture["input_text"]}),
+               work_profile: shared_environment_profile(refs)
+             )
+
+    assert {:ok, context} = build_context(entry)
+
+    expected = %{
+      "ref" => "platform",
+      "name" => "Product AI",
+      "description" => "Product workloads on shared VA1 infrastructure"
+    }
+
+    assert Context.for_model(context)["environment"] == expected
+    context = %{context | knowledge: fixture["knowledge"]}
+    snapshot = Context.snapshot(context)
+    assert snapshot["environment"] == expected
+
+    assert {:ok, _} =
+             Settings.put_environment(
+               %{ref: "platform", display_name: "Renamed product", repositories: refs},
+               :current,
+               "control-plane:local"
+             )
+
+    assert {:ok, restored} = Context.restore(snapshot, context.input, entry, %{})
+    assert Context.for_model(restored)["environment"] == expected
+    assert Prompt.build(restored)["context"]["environment"] == expected
+    assert Context.for_model(restored)["conversation_knowledge"] == fixture["knowledge"]
+
+    for invalid <- [
+          nil,
+          %{},
+          Map.put(expected, "ref", "another-product"),
+          Map.put(expected, "name", ""),
+          Map.put(expected, "name", 42),
+          Map.put(expected, "name", String.duplicate("e\u0301", 41)),
+          Map.put(expected, "description", String.duplicate("e\u0301", 251)),
+          Map.put(expected, "description", String.duplicate("x", 501)),
+          Map.put(expected, "extra", true)
+        ] do
+      invalid_snapshot = Map.put(snapshot, "environment", invalid)
+
+      assert Context.restore(invalid_snapshot, context.input, entry, %{}) ==
+               {:error, {:invalid_admission_context_snapshot, :environment}}
+    end
+
+    historical_snapshot = Map.delete(snapshot, "environment")
+    assert {:ok, historical} = Context.restore(historical_snapshot, context.input, entry, %{})
+
+    refute Map.has_key?(Context.for_model(historical), "environment")
+
+    assert {:ok, bare} =
+             build_context(
+               record_input!(event_ref: "Ev-bare-env", message_ref: "1787832000.000300")
+             )
+
+    refute Map.has_key?(Context.for_model(bare), "environment")
+  end
+
   # Each repository's three class policies share one execution authority, as
   # the Coop worker advertises them.
   defp shared_environment_profile(repositories) do

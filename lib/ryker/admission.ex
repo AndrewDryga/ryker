@@ -167,6 +167,7 @@ defmodule Ryker.Admission do
         custom_instructions: Ryker.Instructions.snapshot(input.destination),
         person_asking: person_asking(input, entry),
         previous_answer: previous_answer(input, captured),
+        environment: model_environment(entry),
         repository_choices: repository_choices(entry),
         routing_receipt: routing_receipt,
         slack_addressing: slack_addressing(entry),
@@ -185,6 +186,17 @@ defmodule Ryker.Admission do
       {:error, reason} -> Repo.rollback(reason)
     end
   end
+
+  # The adapter selected this environment before routing. Repository choice
+  # and the origin of reusable knowledge must not redefine the request's target.
+  defp model_environment(%Ingress.Inbox.Entry{work_profile: %{} = document}) do
+    case Ingress.WorkProfile.restore(document) do
+      {:ok, profile} -> Settings.model_environment(profile.environment_ref)
+      {:error, _invalid} -> nil
+    end
+  end
+
+  defp model_environment(_entry), do: nil
 
   # The repositories a new episode chooses among: those of the frozen
   # profile's environment when it has more than one, each with what the

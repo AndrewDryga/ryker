@@ -213,13 +213,9 @@ defmodule Ryker.Work.SubmissionBuilder do
       if names == %{}, do: connected, else: Map.put(connected, "repository_names", names)
 
     connected =
-      case session.environment_ref &&
-             Repo.peek(Settings.Environment.Query.by_ref(session.environment_ref)) do
-        %Settings.Environment{ref: ref, display_name: name} ->
-          Map.put(connected, "environment", %{"ref" => ref, "name" => name})
-
-        _absent ->
-          connected
+      case Settings.model_environment(session.environment_ref) do
+        %{} = environment -> Map.put(connected, "environment", environment)
+        nil -> connected
       end
 
     Map.put(context, "connected", connected)

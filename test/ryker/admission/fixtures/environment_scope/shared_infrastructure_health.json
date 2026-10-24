@@ -1,0 +1,60 @@
+{
+  "decision": {
+    "action": "start_episode",
+    "reason": "The user directly requests a current infrastructure health check, which requires investigation. The surrounding conversation identifies shared-infra as the relevant repository; drills remain outside the check's scope.",
+    "messages": null,
+    "relation": "unrelated",
+    "reactions": null,
+    "repository": "tenant-shared-infra",
+    "work_class": "standard",
+    "episode_ref": null,
+    "repository_source": null
+  },
+  "knowledge": [
+    {
+      "kind": "conversation_knowledge",
+      "title": "Drills are outside infrastructure health checks",
+      "summary": "Drills are out of scope for infrastructure health checks, and restoring them is not required as part of those checks. This guidance was confirmed on October 24, 2026.",
+      "repository_ref": "tenant-shared-infra"
+    }
+  ],
+  "input_text": "Check health of our infra <@U0123456789>",
+  "repository_choices": [
+    {
+      "ref": "tenant-product-core",
+      "description": "Tenant/product-core"
+    },
+    {
+      "ref": "tenant-product-admin",
+      "description": "Tenant/product-admin"
+    },
+    {
+      "ref": "tenant-product-analytics",
+      "description": "Tenant/product-analytics"
+    },
+    {
+      "ref": "tenant-product-core_main",
+      "description": "Tenant/product-core_main"
+    },
+    {
+      "ref": "tenant-product-foundry",
+      "description": "Tenant/product-foundry"
+    },
+    {
+      "ref": "tenant-product-proto-app",
+      "description": "Tenant/product-proto-app"
+    },
+    {
+      "ref": "tenant-product-server",
+      "description": "Tenant/product-server"
+    },
+    {
+      "ref": "tenant-product-web",
+      "description": "Tenant/product-web"
+    },
+    {
+      "ref": "tenant-shared-infra",
+      "description": "Tenant/shared-infra"
+    }
+  ]
+}
