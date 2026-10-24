@@ -11,6 +11,15 @@ defmodule Ryker.Learning.Batch.Query do
   def by_scope_key(queryable \\ all(), scope_key),
     do: where(queryable, [conversation_learning_batches: b], b.scope_key == ^scope_key)
 
+  @doc "Batches belonging to exactly the retained environment."
+  def by_environment(queryable, environment_ref) do
+    where(
+      queryable,
+      [conversation_learning_batches: b],
+      fragment("? IS NOT DISTINCT FROM ?", b.environment_ref, ^environment_ref)
+    )
+  end
+
   def by_statuses(queryable \\ all(), statuses),
     do: where(queryable, [conversation_learning_batches: b], b.status in ^statuses)
 
@@ -108,7 +117,12 @@ defmodule Ryker.Learning.Batch.Query do
             b.repository_ref,
             parent_as(:learning_scope).repository_ref
           ) and
-          b.execution_mode == parent_as(:learning_scope).execution_mode,
+          b.execution_mode == parent_as(:learning_scope).execution_mode and
+          fragment(
+            "? IS NOT DISTINCT FROM ?",
+            b.environment_ref,
+            parent_as(:learning_scope).environment_ref
+          ),
       where:
         b.status in [:queued, :running] or
           (b.status == :deferred and b.next_attempt_at > ^now) or

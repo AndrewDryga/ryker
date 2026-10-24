@@ -18,11 +18,13 @@ defmodule Ryker.Learning.Batches do
   alias Ryker.Lease
   alias Ryker.Repo
   alias Ryker.UTCDateTime
+  alias Ryker.Work
 
   @doc "The one key a conversation scope owns a queued or running batch under."
   @spec scope_key(map()) :: String.t()
   def scope_key(scope) do
     scope
+    |> Map.put_new(:environment_ref, nil)
     |> Map.update!(:execution_mode, &Atom.to_string/1)
     |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
     |> CanonicalJSON.digest()
@@ -451,7 +453,8 @@ defmodule Ryker.Learning.Batches do
     entry.destination_transport == batch.transport and
       entry.destination_conversation_ref == batch.conversation_ref and
       entry.repository_ref == batch.repository_ref and
-      entry.execution_mode == batch.execution_mode
+      entry.execution_mode == batch.execution_mode and
+      Work.EnvironmentContext.ref(entry) == batch.environment_ref
   end
 
   defp retry_document(batch),

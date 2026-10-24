@@ -373,6 +373,14 @@ defmodule Ryker.Work.Session.Query do
   def latest_of_episode(episode_id),
     do: episode_id |> by_episode_id() |> ordered_by_generation_desc() |> limit_to(1)
 
+  @doc "The environment of the latest Work session, retained independently of channel settings."
+  def select_latest_environment_ref(episode_id) do
+    episode_id
+    |> latest_of_episode()
+    |> for_work()
+    |> select([episode_work_sessions: s], s.environment_ref)
+  end
+
   def limit_to(queryable, count), do: limit(queryable, ^count)
 
   def by_episode_id(queryable \\ all(), episode_id),

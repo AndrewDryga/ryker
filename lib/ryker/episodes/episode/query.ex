@@ -27,8 +27,20 @@ defmodule Ryker.Episodes.Episode.Query do
   The latest `limit` other requests of `episode`'s conversation that finished
   or are working, as outcomes recall them.
   """
-  def recent_neighbors(episode, limit) do
+  def recent_neighbors(episode, environment_ref, limit) do
+    source_session =
+      from(s in Work.Session,
+        where:
+          s.episode_id == parent_as(:episode_kernel_episodes).id and s.execution_kind == :work,
+        order_by: [desc: s.generation],
+        limit: 1,
+        select: %{environment_ref: s.environment_ref}
+      )
+
     from(e in all(),
+      left_lateral_join: s in subquery(source_session),
+      on: true,
+      where: fragment("? IS NOT DISTINCT FROM ?", s.environment_ref, ^environment_ref),
       where:
         e.id != ^episode.id and e.destination_transport == ^episode.destination_transport and
           e.destination_conversation_ref == ^episode.destination_conversation_ref and

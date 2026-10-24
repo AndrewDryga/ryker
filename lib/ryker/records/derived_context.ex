@@ -130,7 +130,14 @@ defmodule Ryker.Records.DerivedContext do
           })
 
         turn_ids = for {id, sid} <- owners, sid == session.id, do: id
-        {session.id, %{id: session.id, turn_ids: turn_ids, sources: sources}}
+
+        {session.id,
+         %{
+           id: session.id,
+           turn_ids: turn_ids,
+           sources: sources,
+           environment_ref: session.environment_ref
+         }}
       end)
 
     {proofs, contexts}
@@ -139,10 +146,12 @@ defmodule Ryker.Records.DerivedContext do
   defp eligible?(nil, _sessions, _destination, _repository), do: false
 
   defp eligible?(proof, sessions, destination, repository) do
+    environment_ref = Work.EnvironmentContext.ref(destination)
+
     available =
       sessions
       |> Map.values()
-      |> Enum.filter(&is_list(&1.sources))
+      |> Enum.filter(&(is_list(&1.sources) and &1.environment_ref == environment_ref))
       |> Enum.flat_map(& &1.turn_ids)
       |> MapSet.new()
 

@@ -96,6 +96,7 @@ defmodule Ryker.Memories.Cases do
          {:ok, scope} <- Continuity.Scope.destination_context(episode, nil) do
       scope
       |> CaseRecord.Query.recallable(episode.execution_mode)
+      |> CaseRecord.Query.by_environment(scope.environment_ref)
       |> CaseRecord.Query.excluding_episode(episode.id)
       |> CaseRecord.Query.matching_terms(terms)
       |> CaseRecord.Query.limit_to(limit)
@@ -284,13 +285,12 @@ defmodule Ryker.Memories.Cases do
         {:ok, %CaseRecord{status: :deleted} = record} ->
           record
 
-        {:ok, %CaseRecord{} = record} ->
-          attributes = Map.put(attributes, :updated_at, now)
+        # Recapture cannot turn a missing producer into proof of a bare scope.
+        {:ok, %CaseRecord{environment_known: false} = record} ->
+          refresh_unknown_case(record, attributes, episode, now)
 
-          record
-          |> Ecto.Changeset.change(attributes)
-          |> Repo.update!()
-          |> tap(&announce_case/1)
+        {:ok, %CaseRecord{} = record} ->
+          update_case!(record, attributes, now)
 
         {:error, :not_found} ->
           attributes = Map.merge(attributes, %{inserted_at: now, updated_at: now})
@@ -302,6 +302,32 @@ defmodule Ryker.Memories.Cases do
       end
     end)
   end
+
+  defp refresh_unknown_case(
+         %CaseRecord{} = record,
+         attributes,
+         %Episodes.Episode{} = episode,
+         now
+       ) do
+    source = episode.id |> Work.Session.Query.by_episode_id() |> Work.Session.Query.for_work()
+
+    if Repo.exists?(source), do: update_case!(record, attributes, now), else: record
+  end
+
+  defp refresh_unknown_case(_record, _attributes, _episode, _now),
+    do: raise(ArgumentError, "expected a retained case and its episode")
+
+  defp update_case!(%CaseRecord{} = record, attributes, now) do
+    attributes = Map.put(attributes, :updated_at, now)
+
+    record
+    |> Ecto.Changeset.change(attributes)
+    |> Repo.update!()
+    |> tap(&announce_case/1)
+  end
+
+  defp update_case!(_record, _attributes, _now),
+    do: raise(ArgumentError, "expected a retained case")
 
   # A remembered case shows on the memory pages and on the request it was
   # captured from.
@@ -318,6 +344,8 @@ defmodule Ryker.Memories.Cases do
     checked = Enum.flat_map(records(episode.id, "evidence"), &checked/1)
 
     content = %{
+      environment_ref: Work.EnvironmentContext.ref(episode),
+      environment_known: true,
       attempted_actions: attempted_actions(checked),
       cause: bounded(cause(records(episode.id, "finding")), @cause_bytes),
       occurrence_refs: occurrence_refs(episode.id),
@@ -477,6 +505,8 @@ defmodule Ryker.Memories.Cases do
       "cause" => record.cause,
       "closed_at" => DateTime.to_iso8601(record.closed_at),
       "conversation_ref" => record.conversation_ref,
+      "environment_ref" => record.environment_ref,
+      "environment_known" => record.environment_known,
       "kind" => "case",
       "links" => record.links,
       "occurrence_refs" => record.occurrence_refs,

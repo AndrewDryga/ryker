@@ -467,6 +467,8 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
           "topic_key" => head.topic_key,
           "conversation_ref" => head.conversation_ref,
           "repository_ref" => head.repository_ref,
+          "environment_ref" => head.environment_ref,
+          "environment_known" => head.environment_known,
           "source_count" => count
         })
 
@@ -568,6 +570,8 @@ defmodule Ryker.Knowledge.KnowledgeSnapshot do
     document["topic_key"] == head.topic_key and
       document["conversation_ref"] == head.conversation_ref and
       document["repository_ref"] == head.repository_ref and
+      document["environment_ref"] == head.environment_ref and
+      document["environment_known"] == head.environment_known and
       document["source_count"] == length(sources) and
       Enum.all?(sources, &source_valid?(&1, observations[&1.observation_id], head, cutoff))
   end

@@ -220,9 +220,21 @@ defmodule Ryker.Schedules.SchedulesTest do
         "control-plane:local"
       )
 
+    {:ok, settings} =
+      Ryker.Settings.put_repository(
+        %{ref: "shared-infra"},
+        settings.installation.revision,
+        "control-plane:local"
+      )
+
     {:ok, _settings} =
       Ryker.Settings.put_environment(
-        %{ref: "production", display_name: "Production", emisar_connection_ref: "production"},
+        %{
+          ref: "production",
+          display_name: "Production",
+          emisar_connection_ref: "production",
+          repositories: ["shared-infra"]
+        },
         settings.installation.revision,
         "control-plane:local"
       )
@@ -238,6 +250,69 @@ defmodule Ryker.Schedules.SchedulesTest do
              Schedules.dispatch(claim.schedule.ref, claim.lease_ref, &policy/1, 900)
 
     assert %Session{environment_ref: "production", emisar_connection_ref: "production"} =
+             Repo.get_by!(Session, episode_id: dispatched.episode.id)
+
+    session = Repo.get_by!(Session, episode_id: dispatched.episode.id)
+    assert {:ok, claimed_work} = Custody.claim_next("audit-scheduled-context", 60)
+    assert claimed_work.session.id == session.id
+
+    assert {:ok, briefing} =
+             Inspectors.submission(claimed_work, connected: %{github: true, slack: true})
+
+    assert briefing["context"]["connected"]["repositories"] == ["shared-infra"]
+  end
+
+  test "a scheduled check never substitutes a default environment after its own is removed" do
+    {:ok, _} = Ryker.Settings.initialize("control-plane:local")
+
+    {:ok, _} =
+      Ryker.Settings.put_environment(
+        %{ref: "removed", display_name: "Removed"},
+        :current,
+        "control-plane:local"
+      )
+
+    {:ok, _} =
+      Ryker.Settings.put_environment(
+        %{ref: "other", display_name: "Other", is_default: true},
+        :current,
+        "control-plane:local"
+      )
+
+    fixture = delivered_offer!("removed-environment", environment_ref: "removed")
+    assert {:ok, confirmed} = Schedules.confirm(confirmation(fixture, "removed-environment"))
+
+    assert {:ok, _} =
+             Ryker.Settings.delete_environment("removed", :current, "control-plane:local")
+
+    make_due!(confirmed.schedule, DateTime.add(Repo.now!(), -60, :second))
+    assert {:ok, claim} = Schedules.claim_due("removed-environment", 60)
+
+    assert Schedules.dispatch(claim.schedule.ref, claim.lease_ref, &policy/1, 900) ==
+             {:error, :schedule_environment_unavailable}
+
+    assert Repo.all(ScheduleOccurrence.Query.recent_runs(confirmed.schedule.id, 10)) == []
+  end
+
+  test "a scheduled check in an environment without repositories retains its bare placement" do
+    {:ok, _} = Ryker.Settings.initialize("control-plane:local")
+
+    {:ok, _} =
+      Ryker.Settings.put_environment(
+        %{ref: "bare", display_name: "Bare"},
+        :current,
+        "control-plane:local"
+      )
+
+    fixture = delivered_offer!("bare-environment", environment_ref: "bare")
+    assert {:ok, confirmed} = Schedules.confirm(confirmation(fixture, "bare-environment"))
+    make_due!(confirmed.schedule, DateTime.add(Repo.now!(), -60, :second))
+    assert {:ok, claim} = Schedules.claim_due("bare-environment", 60)
+
+    assert {:ok, dispatched} =
+             Schedules.dispatch(claim.schedule.ref, claim.lease_ref, &policy/1, 900)
+
+    assert %Session{environment_ref: "bare", repository_ref: nil, repository_context: nil} =
              Repo.get_by!(Session, episode_id: dispatched.episode.id)
   end
 

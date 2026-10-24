@@ -19,6 +19,8 @@ defmodule Ryker.Memories.CaseRecord do
     field(:conversation_ref, :string)
     field(:workspace_ref, :string)
     field(:repository_ref, :string)
+    field(:environment_ref, :string)
+    field(:environment_known, :boolean, default: true)
     field(:problem, :string)
     field(:occurrence_refs, {:array, :string}, default: [])
     field(:cause, :string)

@@ -16,6 +16,7 @@ defmodule Ryker.Knowledge do
   alias Ryker.Knowledge.KnowledgeUpdate
   alias Ryker.Learning
   alias Ryker.Memories
+  alias Ryker.Work
 
   @stale {:error, {:admission_rejected, :context_stale}}
 
@@ -240,7 +241,9 @@ defmodule Ryker.Knowledge do
     with {:ok, ^id} <- Ecto.UUID.cast(id),
          {:ok, %ConversationKnowledge{} = head_topic} <- fetch_and_lock_topic(id),
          true <-
-           is_nil(head_topic.forgotten_at) and head_topic.scope_key == key and
+           is_nil(head_topic.forgotten_at) and head_topic.environment_known and
+             head_topic.scope_key == key and
+             head_topic.environment_ref == scope.environment_ref and
              head_topic.version == version and
              head_topic.source_generation == generation,
          false <- Repo.exists?(availability_query(scope, [head_topic.id])),
@@ -340,6 +343,7 @@ defmodule Ryker.Knowledge do
       scope
       |> scope_key()
       |> ConversationKnowledge.Query.matching_topics_or_anchors(topic_keys, anchors)
+      |> ConversationKnowledge.Query.by_environment(scope.environment_ref)
       |> ConversationKnowledge.Query.kept()
       |> ConversationKnowledge.Query.ordered_by_id()
       |> ConversationKnowledge.Query.limit_to(9)
@@ -420,7 +424,8 @@ defmodule Ryker.Knowledge do
          %Ingress.Inbox.Entry{} = entry
        ) do
     source_entry.destination_transport == entry.destination_transport and
-      source_entry.destination_conversation_ref == entry.destination_conversation_ref
+      source_entry.destination_conversation_ref == entry.destination_conversation_ref and
+      Work.EnvironmentContext.ref(source_entry) == Work.EnvironmentContext.ref(entry)
   end
 
   defp same_source_scope?(_, _), do: false
@@ -510,6 +515,7 @@ defmodule Ryker.Knowledge do
 
     query
     |> ConversationKnowledge.Query.by_scope_key(scope_key(scope))
+    |> ConversationKnowledge.Query.by_environment(scope.environment_ref)
     |> ConversationKnowledge.Query.by_anchor_keys(keys)
     |> ConversationKnowledge.Query.ordered_by_latest_source_at_desc()
     |> ConversationKnowledge.Query.limit_to(limit)
@@ -525,6 +531,7 @@ defmodule Ryker.Knowledge do
     query
     |> ConversationKnowledge.Query.by_topic_keys(keys)
     |> ConversationKnowledge.Query.by_scope_key(scope_key(scope))
+    |> ConversationKnowledge.Query.by_environment(scope.environment_ref)
     |> ConversationKnowledge.Query.ordered_by_id()
     |> ConversationKnowledge.Query.limit_to(limit)
     |> ConversationKnowledge.Query.lock_for_share()
@@ -554,6 +561,7 @@ defmodule Ryker.Knowledge do
     query
     |> ConversationKnowledge.Query.by_ids(ids)
     |> ConversationKnowledge.Query.by_scope_key(scope_key(scope))
+    |> ConversationKnowledge.Query.by_environment(scope.environment_ref)
     |> ConversationKnowledge.Query.ordered_by_id()
     |> ConversationKnowledge.Query.limit_to(limit)
     |> ConversationKnowledge.Query.lock_for_share()
@@ -580,6 +588,7 @@ defmodule Ryker.Knowledge do
       scope.conversation_ref,
       reference
     )
+    |> ConversationKnowledge.Query.by_environment(scope.environment_ref)
     |> ConversationKnowledge.Query.ordered_by_latest_source_at_desc()
     |> ConversationKnowledge.Query.limit_to(limit)
     |> ConversationKnowledge.Query.lock_for_share()
@@ -654,6 +663,7 @@ defmodule Ryker.Knowledge do
       scope_key
       |> ConversationKnowledge.Query.by_scope_key()
       |> ConversationKnowledge.Query.by_topic_key(proposal["topic_key"])
+      |> ConversationKnowledge.Query.by_environment(scope.environment_ref)
       |> ConversationKnowledge.Query.lock_for_update()
       |> Repo.peek()
       |> release_if_gone(proposal)
@@ -784,6 +794,7 @@ defmodule Ryker.Knowledge do
           :workspace_ref,
           :conversation_ref,
           :repository_ref,
+          :environment_ref,
           :visibility
         ]),
         %{
@@ -963,7 +974,11 @@ defmodule Ryker.Knowledge do
         "source_ref" => "knowledge:#{item.id}",
         "topic_key" => item.topic_key,
         "version" => item.version,
-        "can_update" => item.scope_key == scope_key(scope),
+        "can_update" =>
+          item.environment_known and item.scope_key == scope_key(scope) and
+            item.environment_ref == scope.environment_ref,
+        "environment_ref" => item.environment_ref,
+        "environment_known" => item.environment_known,
         "conversation_ref" => item.conversation_ref,
         "repository_ref" => item.repository_ref,
         "source_count" => length(dates),

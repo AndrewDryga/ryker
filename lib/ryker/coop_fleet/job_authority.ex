@@ -423,39 +423,40 @@ defmodule Ryker.CoopFleet.JobAuthority do
 
   defp binding_scope_matches?(binding, session, repositories, snapshot) do
     (scope_matches?(binding, session) and binding.repositories == repositories) or
-      incident_repository_scope?(binding, session, repositories, snapshot)
+      environment_repository_scope?(binding, session, repositories, snapshot)
   end
 
-  # Incident policy selects a model ladder, not a repository grant. A room or
-  # in-place investigation inherits its source session's repository context;
-  # verify that context against current settings before resolving any source.
-  defp incident_repository_scope?(
-         %{purpose: :incident, scope_kind: :installation},
+  # Installation policies for incidents and schedules select execution rules.
+  # Their repository context must match the pinned environment before any
+  # source is resolved; mounting it never widens the policy's write authority.
+  defp environment_repository_scope?(
+         %{purpose: purpose, scope_kind: :installation},
          %{repository_context: context, environment_ref: environment_ref} = session,
          repositories,
          snapshot
-       ) do
+       )
+       when purpose in [:incident, :schedule_read_only, :schedule_governed] do
     case {Work.RepositoryContext.working_copy(session), context, environment_ref} do
       {nil, _context, _environment_ref} ->
         false
 
       {ref, nil, nil} ->
-        repositories == [ref]
+        purpose == :incident and repositories == [ref]
 
       {ref, nil, environment_ref} ->
-        incident_environment_scope?(snapshot, environment_ref, ref, repositories, false)
+        environment_source_scope?(snapshot, environment_ref, ref, repositories, false)
 
       {ref, %{"context_ref" => ^environment_ref}, environment_ref} ->
-        incident_environment_scope?(snapshot, environment_ref, ref, repositories, true)
+        environment_source_scope?(snapshot, environment_ref, ref, repositories, true)
 
       _other ->
         false
     end
   end
 
-  defp incident_repository_scope?(_binding, _session, _repositories, _snapshot), do: false
+  defp environment_repository_scope?(_binding, _session, _repositories, _snapshot), do: false
 
-  defp incident_environment_scope?(snapshot, environment_ref, primary, repositories, context?) do
+  defp environment_source_scope?(snapshot, environment_ref, primary, repositories, context?) do
     case Settings.environment(snapshot, environment_ref) do
       %Settings.Environment{} = environment ->
         refs = Settings.Environment.repository_refs(environment)

@@ -27,6 +27,7 @@ defmodule Ryker.Learning.RebuildSource.Query do
 
   defp scoped_originals(topic) do
     from(o in ConversationObservation.Query.all(),
+      where: ^topic.environment_known,
       join: e in Ingress.Inbox.Entry,
       as: :ingress_inbox_entries,
       on: e.id == o.source_input_id,
@@ -35,6 +36,12 @@ defmodule Ryker.Learning.RebuildSource.Query do
       where:
         o.transport == ^topic.transport and o.workspace_ref == ^topic.workspace_ref and
           o.conversation_ref == ^topic.conversation_ref,
+      where:
+        fragment(
+          "?::jsonb ->> 'environment_ref' IS NOT DISTINCT FROM ?",
+          e.work_profile,
+          ^topic.environment_ref
+        ),
       where:
         e.destination_transport == o.transport and
           e.destination_conversation_ref == o.conversation_ref and

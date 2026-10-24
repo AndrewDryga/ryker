@@ -70,12 +70,19 @@ defmodule Ryker.Learning.LearningInput.Query do
 
   @doc "`pending`'s messages of conversation `scope`."
   def by_scope(pending, scope) do
+    environment_ref = Map.get(scope, :environment_ref)
+
     from(e in pending,
       where:
         e.destination_transport == ^scope.transport and
           e.destination_conversation_ref == ^scope.conversation_ref and
           fragment("? IS NOT DISTINCT FROM ?", e.repository_ref, ^scope.repository_ref) and
-          e.execution_mode == ^scope.execution_mode
+          e.execution_mode == ^scope.execution_mode and
+          fragment(
+            "?::jsonb ->> 'environment_ref' IS NOT DISTINCT FROM ?",
+            e.work_profile,
+            ^environment_ref
+          )
     )
   end
 
@@ -111,6 +118,7 @@ defmodule Ryker.Learning.LearningInput.Query do
         input.transport,
         input.conversation_ref,
         input.repository_ref,
+        input.environment_ref,
         input.execution_mode
       ],
       having:
@@ -122,6 +130,7 @@ defmodule Ryker.Learning.LearningInput.Query do
         transport: input.transport,
         conversation_ref: input.conversation_ref,
         repository_ref: input.repository_ref,
+        environment_ref: input.environment_ref,
         execution_mode: input.execution_mode
       }
     )
@@ -150,6 +159,7 @@ defmodule Ryker.Learning.LearningInput.Query do
         input.transport,
         input.conversation_ref,
         input.repository_ref,
+        input.environment_ref,
         input.execution_mode
       ],
       select: %{
@@ -176,6 +186,7 @@ defmodule Ryker.Learning.LearningInput.Query do
         transport: e.destination_transport,
         conversation_ref: e.destination_conversation_ref,
         repository_ref: e.repository_ref,
+        environment_ref: fragment("?::jsonb ->> 'environment_ref'", e.work_profile),
         execution_mode: e.execution_mode,
         inserted_at: e.inserted_at,
         ready_at: fragment("GREATEST(?, ?)", e.updated_at, work.rested_at)

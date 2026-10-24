@@ -171,6 +171,16 @@ defmodule Ryker.Knowledge.ConversationKnowledge.Query do
   def by_scope_key(queryable \\ all(), scope_key),
     do: where(queryable, [conversation_knowledge: k], k.scope_key == ^scope_key)
 
+  @doc "Topics produced in the exact environment, including work with no environment."
+  def by_environment(queryable, environment_ref) do
+    where(
+      queryable,
+      [conversation_knowledge: k],
+      k.environment_known and
+        fragment("? IS NOT DISTINCT FROM ?", k.environment_ref, ^environment_ref)
+    )
+  end
+
   def by_topic_key(queryable, topic_key),
     do: where(queryable, [conversation_knowledge: k], k.topic_key == ^topic_key)
 
@@ -201,8 +211,8 @@ defmodule Ryker.Knowledge.ConversationKnowledge.Query do
   """
   def within_scope(queryable, _scope_key, _scope, "workspace"), do: queryable
 
-  def within_scope(queryable, scope_key, _scope, "writable"),
-    do: by_scope_key(queryable, scope_key)
+  def within_scope(queryable, scope_key, scope, "writable"),
+    do: queryable |> by_scope_key(scope_key) |> by_environment(scope.environment_ref)
 
   def within_scope(queryable, _scope_key, scope, "current_channel") do
     where(queryable, [conversation_knowledge: k], k.conversation_ref == ^scope.conversation_ref)

@@ -38,7 +38,11 @@ defmodule Ryker.Records.Outcomes do
   def recall(_episode, _repository), do: []
 
   defp candidate_episodes(current) do
-    current |> Episodes.Episode.Query.recent_neighbors(@maximum_candidates) |> Repo.all()
+    environment_ref = Work.EnvironmentContext.ref(current)
+
+    current
+    |> Episodes.Episode.Query.recent_neighbors(environment_ref, @maximum_candidates)
+    |> Repo.all()
   end
 
   defp build_outcome(%Episodes.Episode{state: :complete} = episode) do
@@ -75,6 +79,7 @@ defmodule Ryker.Records.Outcomes do
       "blocker" =>
         if(state == "blocked", do: get_in(turn.cancellation_intent || %{}, ["reason"])),
       "episode_ref" => turn.episode_id,
+      "environment_ref" => producer_environment(turn),
       "finished_at" => finished_at(turn),
       "records" => records,
       "result" => CanonicalJSON.bounded(turn.delivery_document, @result_bytes),
@@ -84,6 +89,13 @@ defmodule Ryker.Records.Outcomes do
       "trigger" => if(event, do: CanonicalJSON.bounded(event.payload["payload"], @trigger_bytes)),
       "verified" => state == "complete" and explicitly_verified?(records)
     }
+  end
+
+  defp producer_environment(turn) do
+    turn.session_id
+    |> Work.Session.Query.by_id()
+    |> Repo.peek()
+    |> Work.EnvironmentContext.ref()
   end
 
   defp outcome_records(episode_id) do

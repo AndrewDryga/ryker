@@ -97,6 +97,18 @@ step 5 chooses one on the channel's page (or from Ryker's welcome message in Sla
 conversation starts in the default environment and can switch to another, or to none, while it is
 open. Environments are managed under **Work › Environments**.
 
+Learning batches keep the environment selected for each source message. Sharing a repository
+or conversation does not combine different environments into one batch or writable learned
+topic. Automatic outcome and case recall stays within the current environment; explicit memory
+search can return other visible history and identifies its source environment. Retained cases keep
+that identity after raw history expires. Missing historical evidence stays unknown rather than
+being assigned to the conversation's current environment. Unknown history remains read-only and
+stays out of automatic case recall; it is distinct from work explicitly run without an environment.
+
+Read-only and governed scheduled checks retain their chosen environment's repository set as
+read-only context, alongside its Emisar account. Removing that environment blocks dispatch; the
+schedule never switches to the default environment.
+
 Ryker notices steps 4 and 6 itself, and step 5 as soon as a joined channel has an environment.
 Connecting Emisar is the one recommended extra: it is optional and never blocks setup, but without
 it Ryker cannot act on anything that is running. A connected account is watched for approval

@@ -14,6 +14,98 @@ defmodule Ryker.Records.OutcomesTest do
 
   @now ~U[2026-08-28 12:00:00.000000Z]
 
+  # Shared-infrastructure health findings were twice treated as another product's.
+  # Routing fences cannot protect a separate history lane that drops its producer's environment.
+  test "automatic outcomes stay in the receiver's environment and retain their producer identity" do
+    producer =
+      claim_episode!(
+        "scope-producer",
+        "Inspect service health",
+        "slack:TOUTCOME:CSCOPE",
+        :fixture,
+        "product-a"
+      )
+
+    complete!(producer, "Checkout recovered after the pool ceiling changed.")
+
+    foreign =
+      claim_episode!(
+        "scope-foreign",
+        "Inspect service health",
+        "slack:TOUTCOME:CSCOPE",
+        :fixture,
+        "product-b"
+      )
+
+    assert Outcomes.recall(foreign.episode, "shared-infra") == []
+
+    same =
+      claim_episode!(
+        "scope-same",
+        "Inspect service health",
+        "slack:TOUTCOME:CSCOPE",
+        :fixture,
+        "product-a"
+      )
+
+    [outcome] = Outcomes.recall(same.episode, "shared-infra")
+    assert outcome["episode_ref"] == producer.episode.id
+    assert outcome["environment_ref"] == "product-a"
+    wrapped = Records.DerivedContext.outcome(outcome)
+
+    assert {:ok, {:ok, _}} =
+             Repo.transaction(fn ->
+               Records.DerivedContext.resolve([wrapped], same.episode, "shared-infra")
+             end)
+
+    assert Repo.transaction(fn ->
+             Records.DerivedContext.resolve([wrapped], foreign.episode, "shared-infra")
+           end) ==
+             {:ok, {:error, :work_knowledge_context_stale}}
+  end
+
+  test "foreign history cannot crowd an older local outcome out of the candidate limit" do
+    producer =
+      claim_episode!(
+        "crowded-producer",
+        "Inspect service health",
+        "slack:TOUTCOME:CCROWDED",
+        :fixture,
+        "product-a"
+      )
+
+    complete!(producer, "Checkout recovered after the pool ceiling changed.")
+
+    producer.episode
+    |> Ecto.Changeset.change(updated_at: ~U[2026-01-01 00:00:00.000000Z])
+    |> Repo.update!()
+
+    for index <- 1..24 do
+      foreign =
+        claim_episode!(
+          "crowded-#{index}",
+          "Inspect service health",
+          "slack:TOUTCOME:CCROWDED",
+          :fixture,
+          "product-b"
+        )
+
+      complete!(foreign, "The original retained result.")
+    end
+
+    current =
+      claim_episode!(
+        "crowded-reader",
+        "Inspect service health",
+        "slack:TOUTCOME:CCROWDED",
+        :fixture,
+        "product-a"
+      )
+
+    assert [outcome] = Outcomes.recall(current.episode, "shared-infra")
+    assert outcome["episode_ref"] == producer.episode.id
+  end
+
   test "completed and blocked episodes are recalled only inside their conversation" do
     completed =
       claim_episode!("completed", "private checkout latency incident", "slack:TOUTCOME:CA")
@@ -149,7 +241,7 @@ defmodule Ryker.Records.OutcomesTest do
     assert %{episode: %{state: :complete}} = complete!(probe, "Historical context remains valid.")
   end
 
-  defp claim_episode!(suffix, text, conversation_ref, context \\ :fixture) do
+  defp claim_episode!(suffix, text, conversation_ref, context \\ :fixture, environment_ref \\ nil) do
     id = Ecto.UUID.generate()
 
     command =
@@ -173,7 +265,9 @@ defmodule Ryker.Records.OutcomesTest do
              WorkSessions.pin_episode(
                command.episode_id,
                "work-read-only",
-               String.duplicate("a", 64)
+               String.duplicate("a", 64),
+               environment_ref: environment_ref,
+               repository_ref: if(environment_ref, do: "shared-infra")
              )
 
     assert {:ok, claim} = Custody.claim_next("worker:#{suffix}", 60)

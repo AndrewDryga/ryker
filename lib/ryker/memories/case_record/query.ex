@@ -9,6 +9,16 @@ defmodule Ryker.Memories.CaseRecord.Query do
   def by_case_ref(queryable \\ all(), case_ref),
     do: where(queryable, [episode_case_records: r], r.case_ref == ^case_ref)
 
+  @doc "Cases produced in the exact environment, including work with no environment."
+  def by_environment(queryable, environment_ref) do
+    where(
+      queryable,
+      [episode_case_records: r],
+      r.environment_known and
+        fragment("? IS NOT DISTINCT FROM ?", r.environment_ref, ^environment_ref)
+    )
+  end
+
   def active(queryable \\ all()),
     do: where(queryable, [episode_case_records: r], r.status == :active)
 

@@ -14,10 +14,11 @@ defmodule Ryker.Continuity.Scope do
   alias Ryker.Episodes
   alias Ryker.Repo
   alias Ryker.Slack
+  alias Ryker.Work
 
   @doc """
   The continuity scope of an episode's destination: its transport, conversation,
-  thread, workspace, visibility, identity key and repository.
+  thread, workspace, visibility, identity key, repository and source environment.
   """
   @spec destination_context(map(), String.t() | nil) :: {:ok, map()} | {:error, term()}
   def destination_context(episode, repository_ref) do
@@ -33,6 +34,7 @@ defmodule Ryker.Continuity.Scope do
       {:ok,
        %{
          conversation_ref: episode.destination_conversation_ref,
+         environment_ref: Work.EnvironmentContext.ref(episode),
          identity_key: identity_key,
          repository_ref: repository_ref,
          thread_ref: episode.destination_thread_ref,

@@ -512,7 +512,8 @@ defmodule Ryker.Schedules do
     event_ref = "schedule-occurrence:#{occurrence_id}"
     turn_ref = "turn:schedule:#{occurrence_id}"
 
-    with {:ok, input} <- schedule_input(schedule, scheduled_for, event_ref),
+    with {:ok, placement} <- occurrence_placement(schedule),
+         {:ok, input} <- schedule_input(schedule, scheduled_for, event_ref),
          command <- schedule_command(schedule, episode_id, turn_ref, input),
          {:ok, [transition]} <- Episodes.apply_batch_in_transaction([command]),
          {:ok, _session} <-
@@ -520,8 +521,7 @@ defmodule Ryker.Schedules do
              transition.episode.id,
              policy.name,
              policy.digest,
-             environment_ref: schedule.environment_ref,
-             repository_ref: schedule.repository
+             placement
            ),
          {:ok, occurrence} <-
            insert_occurrence(%{
@@ -537,6 +537,35 @@ defmodule Ryker.Schedules do
       {:ok, %{episode: transition.episode, occurrence: occurrence}}
     end
   end
+
+  # Reading on a schedule still needs the environment's inventory. Repository
+  # placement supplies context; the schedule policy keeps every source read-only.
+  defp occurrence_placement(%{authority: authority, environment_ref: ref})
+       when authority in [:read_only, :governed_operation] and is_binary(ref) do
+    with {:ok, snapshot} <- Settings.fetch(),
+         %Settings.Environment{} = environment <- Settings.environment(snapshot, ref) do
+      case Settings.Environment.repository_refs(environment) do
+        [] ->
+          {:ok, [environment_ref: ref]}
+
+        [primary | companions] ->
+          context =
+            Work.RepositoryContext.document(%{
+              context_ref: ref,
+              parallel_goal_limit: environment.parallel_goal_limit,
+              primary_repository: primary,
+              read_only_repositories: companions
+            })
+
+          {:ok, [environment_ref: ref, repository_ref: primary, repository_context: context]}
+      end
+    else
+      _unavailable -> {:error, :schedule_environment_unavailable}
+    end
+  end
+
+  defp occurrence_placement(schedule),
+    do: {:ok, [environment_ref: schedule.environment_ref, repository_ref: schedule.repository]}
 
   defp schedule_input(schedule, scheduled_for, event_ref) do
     Ingress.Input.new(%{

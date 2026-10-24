@@ -7,6 +7,7 @@ defmodule Ryker.Learning.Batch do
     field(:transport, :string)
     field(:conversation_ref, :string)
     field(:repository_ref, :string)
+    field(:environment_ref, :string)
     field(:execution_mode, Ecto.Enum, values: [:live, :shadow])
     field(:policy, :string)
     field(:policy_digest, :string)

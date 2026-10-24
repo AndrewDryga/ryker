@@ -70,6 +70,12 @@ defmodule Ryker.Learning do
   A service topic may track several occurrences: preserve their distinct dates and identities,
   never use an earlier resolution as proof that a later occurrence recovered.
   An occurrence-specific topic must not absorb a different occurrence.
+  Each input's environment is the target configured before it arrived, not an instruction or
+  additional access. Keep product-specific resources and findings in that environment. A shared
+  repository or a prior topic's source environment does not make its resources local. Prior
+  knowledge names its environment_ref; environment_known=false means unknown provenance, not a
+  global scope. Only can_update=true topics may be revised. A reusable
+  workspace rule can apply elsewhere when its meaning does, without importing its source product.
   Keep different services and initiatives separate. Do not turn a later recurrence into the same
   execution lifecycle. This pass maintains knowledge only; it does not create or reopen incidents.
 
@@ -1029,6 +1035,7 @@ defmodule Ryker.Learning do
 
     %{
       "source_input_id" => entry.id,
+      "environment" => Work.EnvironmentContext.model_context(entry),
       "actor" => %{"kind" => Atom.to_string(entry.actor_kind), "ref" => entry.actor_ref},
       "event_kind" => Atom.to_string(entry.event_kind),
       "occurred_at" => DateTime.to_iso8601(entry.occurred_at),
@@ -1082,6 +1089,7 @@ defmodule Ryker.Learning do
         entry.destination_transport == first.destination_transport and
         entry.destination_conversation_ref == first.destination_conversation_ref and
         entry.repository_ref == first.repository_ref and
+        Work.EnvironmentContext.ref(entry) == Work.EnvironmentContext.ref(first) and
         entry.execution_mode == first.execution_mode
     end)
   end
@@ -1091,6 +1099,7 @@ defmodule Ryker.Learning do
   defp manifest(entry) do
     %{
       "source_input_id" => entry.id,
+      "environment_ref" => Work.EnvironmentContext.ref(entry),
       "revision" => entry.revision,
       "fingerprint" => entry.event_fingerprint,
       "content_sha256" => CanonicalJSON.digest(entry.content),
@@ -1116,6 +1125,7 @@ defmodule Ryker.Learning do
   defp input_document(entry) do
     %{
       "source_input_id" => entry.id,
+      "environment" => Work.EnvironmentContext.model_context(entry),
       "native_input_id" => entry.native_input_id,
       "source_item_ref" => entry.source_item_ref,
       "destination" => %{

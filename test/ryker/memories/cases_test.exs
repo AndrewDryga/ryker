@@ -18,6 +18,57 @@ defmodule Ryker.Memories.CasesTest do
   @now ~U[2026-09-11 12:00:00.000000Z]
   @outage "Postgres primary pgsql-prod-01 is unreachable and replication is stalled"
 
+  # A retained case survives the raw work that could explain whose resources
+  # it described. Losing that environment made a shared repository look product-wide.
+  test "automatic cases stay local while explicit search identifies foreign history" do
+    {producer, _turn} = finished_with_turn!("case:environment-producer", @outage, "product-a")
+    assert {:ok, record} = Cases.capture(producer.id)
+    {foreign, _turn} = finished_with_turn!("case:environment-foreign", @outage, "product-b")
+    assert Cases.recall(foreign) == []
+
+    assert {:ok, {:ok, searched, _}} =
+             Repo.transaction(fn ->
+               Cases.search_page(foreign, nil, MemorySearchPage.first("pgsql-prod-01", "global"))
+             end)
+
+    assert searched["case_ref"] == record.case_ref
+    assert searched["environment_ref"] == "product-a"
+    {same, _turn} = finished_with_turn!("case:environment-same", @outage, "product-a")
+    [recalled] = Cases.recall(same)
+    assert recalled["environment_ref"] == "product-a"
+  end
+
+  test "recapturing unknown history without a retained producer never turns it into bare local history" do
+    old = finished!("case:unknown-source", @outage)
+    assert {:ok, record} = Cases.capture(old.id)
+
+    old_content =
+      record
+      |> Map.take([:attempted_actions, :cause, :occurrence_refs, :outcome, :problem])
+      |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
+
+    record
+    |> Ecto.Changeset.change(
+      environment_known: false,
+      content_fingerprint: Ryker.CanonicalJSON.digest(old_content)
+    )
+    |> Repo.update!()
+
+    assert {:ok, kept} = Cases.capture(old.id)
+    refute kept.environment_known
+    current = finished!("case:unknown-reader", @outage)
+    assert Cases.recall(current) == []
+
+    assert {:ok, _} =
+             WorkSessions.pin_episode(old.id, "source-now-retained", String.duplicate("a", 64),
+               environment_ref: "product-a"
+             )
+
+    assert {:ok, refreshed} = Cases.capture(old.id)
+    assert refreshed.environment_known
+    assert refreshed.environment_ref == "product-a"
+  end
+
   test "a matching outage a year later recalls the old case" do
     # Everything learned from an incident used to expire with the transcript
     # that produced it, so the same outage twelve months later started from
@@ -346,7 +397,7 @@ defmodule Ryker.Memories.CasesTest do
   end
 
   # A finished episode whose work turn exists, for records written during it.
-  defp finished_with_turn!(key, text) do
+  defp finished_with_turn!(key, text, environment_ref \\ nil) do
     input = slack_input!(text)
     id = Ecto.UUID.generate()
 
@@ -365,7 +416,12 @@ defmodule Ryker.Memories.CasesTest do
       })
 
     episode = transition.episode
-    {:ok, _session} = WorkSessions.pin_episode(id, "cases", String.duplicate("a", 64))
+
+    {:ok, _session} =
+      WorkSessions.pin_episode(id, "cases", String.duplicate("a", 64),
+        environment_ref: environment_ref
+      )
+
     {:ok, claim} = Custody.claim_next("cases:#{id}", 60, :work)
 
     {:ok, settled} =

@@ -384,6 +384,7 @@ defmodule Ryker.Learning.Rebuilds do
 
   defp matching_batches(topic, mode) do
     query = Batch.Query.by_conversation(topic.transport, topic.conversation_ref)
+    query = Batch.Query.by_environment(query, topic.environment_ref)
     if mode, do: Batch.Query.by_execution_mode(query, mode), else: query
   end
 
@@ -404,7 +405,8 @@ defmodule Ryker.Learning.Rebuilds do
     do: %{
       destination_transport: topic.transport,
       destination_conversation_ref: topic.conversation_ref,
-      destination_thread_ref: nil
+      destination_thread_ref: nil,
+      environment_ref: topic.environment_ref
     }
 
   defp scope(topic), do: Continuity.destination_context(destination(topic), topic.repository_ref)
@@ -414,6 +416,7 @@ defmodule Ryker.Learning.Rebuilds do
       transport: topic.transport,
       conversation_ref: topic.conversation_ref,
       repository_ref: topic.repository_ref,
+      environment_ref: topic.environment_ref,
       execution_mode: mode
     }
 

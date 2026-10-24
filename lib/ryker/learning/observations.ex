@@ -109,10 +109,12 @@ defmodule Ryker.Learning.Observations do
       now = Keyword.get_lazy(options, :received_at, &Repo.now!/0)
       scope = Map.put(scope, :visibility, Keyword.get(options, :visibility, scope.visibility))
 
+      observation_scope = Map.drop(scope, [:environment_ref])
+
       # Keep a revision tombstone even when an edit has nothing to remember. A
       # slower classifier for the previous revision must never resurrect it.
       attributes =
-        Map.merge(scope, %{
+        Map.merge(observation_scope, %{
           id: entry.id,
           identity_key: source_identity(entry),
           source_input_id: entry.id,
