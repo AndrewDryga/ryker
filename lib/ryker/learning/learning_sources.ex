@@ -1,5 +1,6 @@
 defmodule Ryker.Learning.LearningSources do
   @moduledoc "Bounded, host-owned source receipts carried across derived conversation memory."
+  alias Ryker.Admission
   alias Ryker.{CanonicalJSON, Crypto, Maps, Repo, UTCDateTime}
   alias Ryker.Config
   alias Ryker.Continuity
@@ -258,10 +259,47 @@ defmodule Ryker.Learning.LearningSources do
   end
 
   def freeze(context) do
+    context = omit_ineligible_candidates(context)
+
     base =
       merge([for_entry(context.input_entry) | Enum.map(context.candidates, &candidate_sources/1)])
 
     fit(context, base)
+  end
+
+  # Correlation can find an episode in a now-public channel whose original
+  # source was conversation-only. Offering it poisoned every valid decision's
+  # final custody check, even when the model selected different work.
+  defp omit_ineligible_candidates(context) do
+    case Observations.fetch_and_lock_scope(
+           context.input_entry,
+           context.input_entry.repository_ref
+         ) do
+      {:ok, scope} ->
+        candidates =
+          Enum.reject(context.candidates, fn candidate ->
+            sources = candidate_sources(candidate)
+            is_list(sources) and not valid?(sources, scope)
+          end)
+
+        omitted = length(context.candidates) - length(candidates)
+
+        %{
+          context
+          | candidates: candidates,
+            candidate_messages:
+              candidates
+              |> Enum.flat_map(&Admission.Candidate.previewed_messages/1)
+              |> Enum.uniq(),
+            routing_receipt:
+              context.routing_receipt
+              |> Map.put("offered", length(candidates))
+              |> Map.update!("omitted", &(&1 + omitted))
+        }
+
+      {:error, _reason} ->
+        Repo.rollback({:admission_rejected, :context_stale})
+    end
   end
 
   defp fit(context, nil), do: %{context | source_dependencies: nil}

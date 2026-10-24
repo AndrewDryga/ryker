@@ -1,0 +1,147 @@
+{
+  "source": {
+    "harvested_at": "2026-10-24",
+    "incident": "A valid cross-channel health-check continuation spent all eight routing attempts because an unrelated historical source was visible only in its original conversation.",
+    "identity": "Tenant identities substituted; source times, content structure, visibility, ordering and the accepted model decision are retained. SlackInput recomputes native IDs and fingerprints. The opaque selected reference is rebound to the seeded active episode."
+  },
+  "history": {
+    "input": {
+      "actor": {
+        "ref": "U0TENANTUS1",
+        "kind": "user"
+      },
+      "channel_ref": "C0TENANTOPS",
+      "content": {
+        "text": "<@B0TENANTBT1> run a deep check for health of our infrastructure",
+        "files": [],
+        "blocks": [
+          {
+            "type": "rich_text",
+            "block_id": "GMxLa",
+            "elements": [
+              {
+                "type": "rich_text_section",
+                "elements": [
+                  {
+                    "type": "user",
+                    "user_id": "B0TENANTBT1"
+                  },
+                  {
+                    "text": " run a deep check for health of our infrastructure",
+                    "type": "text"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "subtype": null,
+        "attachments": [],
+        "slack_event_kind": "message"
+      },
+      "event_kind": "message",
+      "event_ref": "EvTenantHistoryAuthorization1",
+      "message_ref": "1791029840.480119",
+      "occurred_at": "2026-10-03T12:17:20.480119Z",
+      "revision": 7164119361920476,
+      "thread_ref": "1791029840.480119",
+      "workspace_ref": "T0TENANT001"
+    },
+    "visibility": "conversation"
+  },
+  "active": {
+    "actor": {
+      "ref": "U0TENANTUS1",
+      "kind": "user"
+    },
+    "channel_ref": "C0TENANTOPS",
+    "content": {
+      "text": "Check health of our infra <@B0TENANTBT1>",
+      "files": [],
+      "blocks": [
+        {
+          "type": "rich_text",
+          "block_id": "SvOO9",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "text": "Check health of our infra ",
+                  "type": "text"
+                },
+                {
+                  "type": "user",
+                  "user_id": "B0TENANTBT1"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "subtype": null,
+      "attachments": [],
+      "slack_event_kind": "message"
+    },
+    "event_kind": "message",
+    "event_ref": "EvTenantHistoryAuthorization2",
+    "message_ref": "1792855678.292349",
+    "occurred_at": "2026-10-24T15:27:58.292349Z",
+    "revision": 7171422713169396,
+    "thread_ref": "1792855678.292349",
+    "workspace_ref": "T0TENANT001"
+  },
+  "incoming": {
+    "actor": {
+      "kind": "user",
+      "ref": "U0TENANTUS1"
+    },
+    "channel_ref": "C0TENANTENG",
+    "content": {
+      "text": "Check health of our infra <@B0TENANTBT1>",
+      "files": [],
+      "blocks": [
+        {
+          "type": "rich_text",
+          "block_id": "SvOO9",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "text": "Check health of our infra ",
+                  "type": "text"
+                },
+                {
+                  "type": "user",
+                  "user_id": "B0TENANTBT1"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "subtype": null,
+      "attachments": [],
+      "slack_event_kind": "message"
+    },
+    "event_kind": "message",
+    "event_ref": "EvTenantHistoryAuthorization3",
+    "message_ref": "1792855681.990789",
+    "occurred_at": "2026-10-24T15:28:01.990789Z",
+    "revision": 7171422727963156,
+    "thread_ref": "1792855681.990789",
+    "workspace_ref": "T0TENANT001"
+  },
+  "decision": {
+    "action": "continue_episode",
+    "reason": "This repeats the same person's infrastructure health check requested three seconds earlier, which is already active and needs current operational checks.",
+    "messages": null,
+    "relation": "same_work",
+    "reactions": null,
+    "repository": null,
+    "work_class": "standard",
+    "episode_ref": "candidate:0cfef5ce61e4",
+    "repository_source": null
+  }
+}
