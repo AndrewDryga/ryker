@@ -3,19 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>What Ryker is — Ryker docs</title>
-<meta name="description" content="Meet Ryker, an AI teammate for engineering and operations. Learn how it works with co:op and Emisar, follows tasks, and keeps your team in control.">
+<title>What is Ryker? — Ryker docs</title>
+<meta name="description" content="Ryker is a self-hosted AI agent for engineering and operations. Learn how it works in Slack and GitHub, changes code in co:op, and uses Emisar to reach running systems.">
 <!-- The static build supplies absolute canonical and social URLs. -->
 <meta property="og:type" content="website">
-<meta property="og:title" content="What Ryker is — Ryker docs">
-<meta property="og:description" content="Meet Ryker, an AI teammate for engineering and operations. Learn how it works with co:op and Emisar, follows tasks, and keeps your team in control.">
+<meta property="og:title" content="What is Ryker? — Ryker docs">
+<meta property="og:description" content="Ryker is a self-hosted AI agent for engineering and operations. Learn how it works in Slack and GitHub, changes code in co:op, and uses Emisar to reach running systems.">
 <meta property="og:image" content="../assets/og.png">
 <meta property="og:image:width" content="1600">
 <meta property="og:image:height" content="840">
 <meta property="og:image:alt" content="Ryker">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="What Ryker is — Ryker docs">
-<meta name="twitter:description" content="Meet Ryker, an AI teammate for engineering and operations. Learn how it works with co:op and Emisar, follows tasks, and keeps your team in control.">
+<meta name="twitter:title" content="What is Ryker? — Ryker docs">
+<meta name="twitter:description" content="Ryker is a self-hosted AI agent for engineering and operations. Learn how it works in Slack and GitHub, changes code in co:op, and uses Emisar to reach running systems.">
 
 <meta name="color-scheme" content="dark">
 <link rel="icon" href="../assets/brand/avatar.svg" type="image/svg+xml">
@@ -42,24 +42,26 @@
     <details>
       <summary>Documentation</summary>
       <div>
-        <nav aria-label="Documentation"><p class="grp">Start</p><ul>
-<li><a href="../docs/index.html" class="on" aria-current="page">What Ryker is</a></li>
+        <nav aria-label="Documentation">
+<p class="grp">Start here</p><ul>
+<li><a href="../docs/index.html" class="on" aria-current="page">What is Ryker?</a></li>
 <li><a href="../docs/getting-started.html">Install Ryker</a></li>
+<li><a href="../docs/environments.html">Repositories and tools</a></li>
 </ul>
-<p class="grp">Walkthroughs</p><ul>
-<li><a href="../guides/first-code-change.html">Your first code change</a></li>
-<li><a href="../guides/investigate-an-alert.html">Investigate an alert</a></li>
-</ul>
-<p class="grp">Using it</p><ul>
+<p class="grp">Work together</p><ul>
 <li><a href="../docs/slack.html">Working in Slack</a></li>
-<li><a href="../docs/github.html">Working with GitHub</a></li>
-<li><a href="../docs/actions.html">Approvals and automation</a></li>
-<li><a href="../docs/memory.html">Memory and recall</a></li>
+<li><a href="../guides/first-code-change.html">Your first code change</a></li>
+<li><a href="../docs/github.html">GitHub and pull requests</a></li>
+<li><a href="../guides/investigate-an-alert.html">Alerts and incidents</a></li>
 </ul>
-<p class="grp">Managing it</p><ul>
+<p class="grp">Build on it</p><ul>
+<li><a href="../docs/actions.html">Schedules and follow-ups</a></li>
+<li><a href="../docs/memory.html">Memory and learning</a></li>
 <li><a href="../docs/control-plane.html">The console</a></li>
-<li><a href="../docs/operations.html">Running Ryker</a></li>
+</ul>
+<p class="grp">Run your installation</p><ul>
 <li><a href="../docs/security.html">Access and data</a></li>
+<li><a href="../docs/operations.html">Running Ryker</a></li>
 </ul>
 </nav>
       </div>
@@ -67,138 +69,46 @@
   </aside>
 
   <main class="doc" id="main">
-    <p class="crumb"><a href="../index.html">Ryker</a> <span>/</span> <span>Docs</span></p>
+<p class="crumb"><a href="../index.html">Ryker</a> <span>/</span> <span>Docs</span></p>
+<h1>What is Ryker?</h1>
+<p class="lede">Ryker is an AI agent that does engineering and operations work for your team. You run it on your own server and talk to it in Slack, GitHub, or its browser chat.</p>
+<p>Give it a job, such as fixing a bug or finding out why a deployment failed. Ryker reads your repositories, runs commands in a sandbox, writes and tests code, and opens a draft pull request. It can fix failed CI and respond to review comments in the same task. For problems in running systems, it uses Emisar to inspect them and carry out the actions you allow.</p>
+<p>You can ask directly, let it respond to alerts already arriving in Slack, or give it work to do on a schedule. Ryker works through the job and asks when it needs a decision, access, or approval.</p>
+<details class="doc-toc"><summary>On this page</summary><ul><li><a href="#work">From a request to a result</a></li>
+<li><a href="#shape">Ryker, co:op, and Emisar</a></li>
+<li><a href="#context">Code and team knowledge</a></li>
+<li><a href="#participation">Proactive and scheduled work</a></li>
+<li><a href="#control">Running it for your team</a></li></ul></details>
+<h2 id="work">From a request to a result</h2>
+<p>Suppose a deployment starts failing after a registry password changes. You ask Ryker to find the cause and fix it. With access to the relevant repositories and systems, it can read the deployment logs, trace how the code loads credentials, and identify the stale password.</p>
+<p>If the fix needs a code change, Ryker proposes a task. You press <strong>Start task</strong>, and it creates a separate working copy. It updates the code to reload changed credentials, adds a regression test, and runs the checks. A task card in the Slack thread updates as the work progresses.</p>
+<p>When the change is ready, Ryker can open a draft pull request. If CI fails on its commit, it picks up the task again and fixes the failure. You review the diff, ask for changes, and merge it through your usual process. Ryker keeps the original thread up to date.</p>
+<p>A fix to a running system goes through Emisar instead. Its policy determines which actions can run and which wait for a person to approve them. Ryker then checks the result against fresh evidence where the available tools support it.</p>
+<h2 id="shape">Ryker, co:op, and Emisar</h2>
+<p>Ryker connects the conversation to the work. It gathers context, sends work to a model, follows progress, and returns the result. Two other tools provide the places where that work happens:</p>
+<ul>
+<li><a href="https://coop.dryga.com/">co:op</a> runs the model and its commands in a sandbox. It gives a code task its own working copy and limits the files and network destinations the model can reach.</li>
+<li><a href="https://emisar.dev/">Emisar</a> gives Ryker access to running systems through defined tools. It checks permissions, handles approvals, executes actions, and records their results.</li>
+</ul>
+<p>The installer includes a co:op worker. You connect your own model account, Slack workspace, and GitHub repositories. Emisar is optional; add it when Ryker needs access to your infrastructure.</p>
+<h2 id="context">Code and team knowledge</h2>
+<p>Ryker can read several repositories together. For example, a task can change an API while reading the client that calls it. An <a href="environments.html">environment</a> groups the repositories and optional Emisar account available to a conversation.</p>
+<p>It also learns from conversations and your feedback. It can recall a past investigation, a team decision, or a correction you gave it. You can inspect and remove what it remembers. For current service health, it checks current evidence instead of treating an old answer as proof.</p>
+<h2 id="participation">Proactive and scheduled work</h2>
+<p>In a proactive Slack channel, Ryker can join a useful conversation or investigate an alert without waiting for a mention. It can also stay silent or acknowledge a message with a reaction. An observe-only channel lets it build knowledge without posting.</p>
+<p>For repeat work, ask for a schedule such as a weekday health check, or a rule such as reviewing new Terraform plans. You confirm what it should do and where it should report. These requests use the same access settings as other work.</p>
+<h2 id="control">Running it for your team</h2>
+<p>Ryker stores its work history, settings, and memory in PostgreSQL on your host. Its console shows the context sent to the model, tool calls, results, checks, and cost for each request. You can change models, write team instructions, and investigate an answer that went wrong.</p>
+<p>A hosted model still receives the context needed for its work. Your team chooses repository access, controls code merges and releases, and sets infrastructure permissions in Emisar. The <a href="security.html">access and data guide</a> explains these boundaries.</p>
+<p>To try it, <a href="getting-started.html">install Ryker and ask a question about your code</a>. If your team already runs it, start with <a href="slack.html">a Slack conversation</a> or follow <a href="../guides/first-code-change.html">a complete code change</a>.</p>
+<nav class="doc-next" aria-label="Page navigation"><a class="next" href="../docs/getting-started.html" rel="next"><span class="k">Next</span><span class="t">Install Ryker</span></a></nav>
+</main>
 
-    <h1>What Ryker is</h1>
-
-    <p class="lede">Ryker is an AI teammate for engineering and operations. Ask it to investigate a problem, review a pull request, or prepare a fix in Slack, GitHub or its browser chat. It keeps the conversation and the work together.</p>
-
-    <details class="doc-toc">
-      <summary>On this page</summary>
-      <ul>
-        <li><a href="#shape">How the three tools work together</a></li>
-        <li><a href="#environments">Choose its repositories and tools</a></li>
-        <li><a href="#requests">Follow a request from start to finish</a></li>
-        <li><a href="#evidence">Check the evidence behind an answer</a></li>
-        <li><a href="#checks">See how an answer was checked</a></li>
-        <li><a href="#speaking">Choose when it joins in</a></li>
-        <li><a href="#cannot">What stays in your hands</a></li>
-        <li><a href="#next">Where to go next</a></li>
-      </ul>
-    </details>
-
-    <p>Start with a question about a repository. Add alerts, scheduled checks and saved team guidance as you need them. You choose where Ryker participates, what it can access, and which changes need your approval.</p>
-
-    <p><a href="getting-started.html">Install Ryker</a> if you are setting it up. If your team already runs it, follow <a href="../guides/first-code-change.html">a code change from Slack to GitHub</a> or <a href="../guides/investigate-an-alert.html">investigate an alert</a>.</p>
-
-    <h2 id="shape">How the three tools work together</h2>
-
-    <p>Ryker runs on a host you control with Docker Compose. It connects to Slack over Socket Mode, so Slack needs no inbound port. You bring the model account and connect the repositories and tools it should use.</p>
-
-    <table>
-      <thead><tr><th>Tool</th><th>Its part in the work</th></tr></thead>
-      <tbody>
-        <tr><td>Ryker</td><td>Reads the conversation, manages the task, and brings the findings and progress back to your team. Sets which repositories and tools each task may use.</td></tr>
-        <tr><td><a href="https://coop.dryga.com/">co:op</a></td><td>Runs the model in a container and gives it a separate working copy of the code. Enforces the task’s access and execution limits.</td></tr>
-        <tr><td><a href="https://emisar.dev/">Emisar</a></td><td>Connects the work to running systems. Controls access, approvals and execution, and keeps a record of actions.</td></tr>
-      </tbody>
-    </table>
-
-    <p>For example, Ryker can investigate a failed deployment through Emisar, prepare and test a fix in co:op, and open a draft pull request. Your team reviews and merges the change, then deploys it through your usual process.</p>
-
-    <p>The installation includes PostgreSQL and a co:op worker with its own private Docker daemon. The model runs inside co:op; Ryker coordinates its work. <a href="operations.html#project">What runs on your host</a>.</p>
-
-    <h2 id="environments">Choose its repositories and tools</h2>
-
-    <p>An <strong>environment</strong> groups the repositories and optional Emisar account a conversation can use. Give an engineering channel access to the code it needs, and an on-call channel access to the systems it supports. Slack channels, webhook sources and Chat conversations each use one environment.</p>
-
-    <p>A task that changes code picks a repository marked read/write in its environment; read-only repositories are available as context beside it. The first repository is the default choice. After adding a repository, choose it under <strong>Work › Environments</strong> to make it available to work. A channel can also choose <strong>No environment</strong>: Ryker then answers there without any repositories or Emisar.</p>
-
-    <p>The environment’s Emisar account gives Ryker access to running systems under that account’s policy. Actions that need approval wait for a person in Emisar. Without an account, Ryker can explain a proposed infrastructure change but cannot carry it out.</p>
-
-    <h2 id="requests">Follow a request from start to finish</h2>
-
-    <p>Open <strong>Activity</strong> in the console to see what people asked and where each request stands. Questions, alerts, GitHub comments and scheduled checks all have a recorded timeline.</p>
-
-    <p>The timeline follows four stages: intake, routing, work and answer. A request survives a restart. When it waits for an approval, a merge or a set time, it releases its model and worker, then continues when the wait is over.</p>
-
-    <p>Open a request to see the message that started it, why Ryker responded, what it sent to the model, the checks and reply, and the measured or estimated cost. <a href="control-plane.html#timeline">Read a request’s timeline</a>.</p>
-
-    <h2 id="evidence">Check the evidence behind an answer</h2>
-
-    <p>Ryker records what it observes while investigating. Its answers link back to those records, so you can inspect the source, ask a follow-up, or challenge a conclusion.</p>
-
-    <p>Each piece of evidence names its <strong>source</strong> (a repository, Emisar, monitoring, Slack or another tool) and what was observed, and can carry when it was observed, how fresh it is, and a confidence of high, medium or low. Evidence can <em>support</em> a claim or <em>contradict</em> it, and newer evidence can replace an older record instead of quietly overwriting it.</p>
-
-    <p>Conclusions are saved as <strong>findings</strong>, each with the evidence behind it and a state in plain words: explained, expected, out of scope, or not explained yet. A question that is still open says so. It is not rounded up to an answer.</p>
-
-    <h2 id="checks">See how an answer was checked</h2>
-
-    <p>Before posting, Ryker checks the model’s answer against the requirements for that kind of work. If a check fails, it sends a correction to the same run.</p>
-
-    <p>An alert answer that only restates the symptoms is sent back for more investigation. A source link that no tool actually returned is dropped. Buttons, mentions and approval links are always Ryker’s own, never text the model wrote.</p>
-
-    <p>Every check is a step on the request’s timeline, including the ones that failed. You can inspect the original answer and the correction.</p>
-
-    <h2 id="speaking">Choose when it joins in</h2>
-
-    <p>Keep a channel on <strong>Mentions only</strong>, let Ryker <strong>Be proactive</strong>, or choose <strong>Observe only</strong> to see what it would do without letting it post. When proactive, it can:</p>
-
-    <dl>
-      <div><dt>Stay silent</dt><dd>Routine noise, success notices, duplicates, people talking to each other. The kind of message a teammate would read and say nothing about. The decision is still recorded.</dd></div>
-      <div><dt>React</dt><dd>One emoji to acknowledge a message without interrupting.</dd></div>
-      <div><dt>Reply</dt><dd>An evidence-backed answer, where the person was speaking.</dd></div>
-      <div><dt>Offer an incident room</dt><dd>A button, for a problem that may need coordinated work. Only a configured operator can press it.</dd></div>
-    </dl>
-
-    <p>A person’s message never becomes an incident on its own. A room opens only when a configured operator presses <strong>Create incident room</strong> on Ryker’s offer, or when the channel is set to open one for a credible, unresolved alert. When you address Ryker directly, it replies. <a href="slack.html#speaking">More on this</a>.</p>
-
-    <h2 id="cannot">What stays in your hands</h2>
-
-    <p>Your team controls access, publication and changes to running systems:</p>
-
-    <ul>
-      <li><strong>Merge and release:</strong> Ryker prepares draft pull requests. Your team merges, signs and deploys the code.</li>
-      <li><strong>Infrastructure access:</strong> actions go through Emisar’s policy. A person approves requests that need approval; Ryker has no direct infrastructure shell.</li>
-      <li><strong>Repository access:</strong> you choose which repositories a task may read or change. Publication uses a Ryker-owned branch.</li>
-      <li><strong>Saved behavior:</strong> facts, preferences, rules and schedules need a person’s instruction or confirmation. An operator’s explicit correction can become <a href="memory.html#feedback">guidance without a second click</a>.</li>
-      <li><strong>Retained work:</strong> uncommitted changes are kept through task closure and cleanup. Discarding unpublished commits requires an operator’s decision.</li>
-      <li><strong>Task boundaries:</strong> Ryker fixes the permitted repositories, tools and execution limits before work starts; co:op enforces them. Messages and model answers cannot expand that access.</li>
-    </ul>
-
-    <h2 id="next">Where to go next</h2>
-
-    <div class="next-grid">
-      <a href="../guides/first-code-change.html"><span class="t">Your first code change</span><p>Ask in Slack, inspect the work, and review the draft in GitHub.</p></a>
-      <a href="../guides/investigate-an-alert.html"><span class="t">Investigate an alert</span><p>Check the evidence, decide what to change, and verify the result.</p></a>
-      <a href="github.html"><span class="t">Working with GitHub</span><p>App setup, repository access, draft pull requests and reviews.</p></a>
-      <a href="security.html"><span class="t">Access and data</span><p>Who can act, what reaches the model provider, and what Ryker remembers.</p></a>
-      <a href="getting-started.html"><span class="t">Install Ryker</span><p>Install with Docker Compose, connect your tools, and get a first answer in Slack.</p></a>
-      <a href="slack.html"><span class="t">Working in Slack</span><p>Mentions, channel setup, alert answers, incident rooms, tasks, and every control.</p></a>
-      <a href="actions.html"><span class="t">Approvals and automation</span><p>Emisar approvals, draft pull requests, follow-ups, schedules, and cleanup.</p></a>
-      <a href="memory.html"><span class="t">Memory and recall</span><p>Save a decision, give feedback, and manage what Ryker remembers.</p></a>
-      <a href="control-plane.html"><span class="t">The console</span><p>Every request’s timeline, failures, working copies, usage and settings.</p></a>
-      <a href="operations.html"><span class="t">Running Ryker</span><p>The Compose helper, upgrades, backups, exposure, health, and retention.</p></a>
-    </div>
-
-    <nav class="doc-next" aria-label="Page navigation">
-      <a class="next" href="getting-started.html"><span class="k">Next</span><span class="t">Install Ryker &rarr;</span></a>
-    </nav>
-  </main>
-
-  <nav class="toc" aria-label="On this page">
-    <p class="lbl">On this page</p>
-    <ul>
-      <li><a href="#shape">How the three tools work together</a></li>
-      <li><a href="#environments">Choose its repositories and tools</a></li>
-      <li><a href="#requests">Follow a request from start to finish</a></li>
-      <li><a href="#evidence">Check the evidence behind an answer</a></li>
-      <li><a href="#checks">See how an answer was checked</a></li>
-      <li><a href="#speaking">Choose when it joins in</a></li>
-      <li><a href="#cannot">What stays in your hands</a></li>
-      <li><a href="#next">Where to go next</a></li>
-    </ul>
-  </nav>
+  <nav class="toc" aria-label="On this page"><p class="lbl">On this page</p><ul><li><a href="#work">From a request to a result</a></li>
+<li><a href="#shape">Ryker, co:op, and Emisar</a></li>
+<li><a href="#context">Code and team knowledge</a></li>
+<li><a href="#participation">Proactive and scheduled work</a></li>
+<li><a href="#control">Running it for your team</a></li></ul></nav>
 
 </div>
 </div>

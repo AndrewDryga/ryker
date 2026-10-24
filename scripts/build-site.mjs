@@ -6,11 +6,19 @@ import { fileURLToPath } from "node:url";
 
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const pages = [
-  "index.html", "docs/index.html", "docs/getting-started.html",
-  "docs/slack.html", "docs/actions.html", "docs/memory.html",
-  "docs/control-plane.html", "docs/operations.html",
-  "docs/github.html", "docs/security.html",
-  "guides/first-code-change.html", "guides/investigate-an-alert.html",
+  "index.html",
+  "docs/index.html",
+  "docs/getting-started.html",
+  "docs/environments.html",
+  "docs/slack.html",
+  "guides/first-code-change.html",
+  "docs/github.html",
+  "guides/investigate-an-alert.html",
+  "docs/actions.html",
+  "docs/memory.html",
+  "docs/control-plane.html",
+  "docs/security.html",
+  "docs/operations.html",
 ];
 
 const entities = { amp: "&", quot: '"', apos: "'", lt: "<", gt: ">", nbsp: " " };
@@ -147,7 +155,7 @@ export async function build({ origin, out, source = path.join(root, "site") }) {
     const description = plain(html.match(/<meta name="description" content="([^"]+)">/)[1]);
     return `- [${title}](${pageURL(relative, origin)}): ${description}`;
   }).join("\n");
-  outputs.set("llms.txt", `# Ryker\n\n> A self-hosted AI teammate for Slack and GitHub.\n\nRyker coordinates the work, co:op runs model sessions in containers, and Emisar governs access to running systems. The linked pages explain the available controls and setup.\n\n## Documentation\n\n${index}\n`);
+  outputs.set("llms.txt", `# Ryker\n\n> A self-hosted AI agent for engineering and operations in Slack and GitHub.\n\nRyker investigates problems, writes and tests code, opens draft pull requests, and follows CI and review feedback. co:op runs model sessions in containers. Emisar provides tools and approvals for work on running systems.\n\n## Documentation\n\n${index}\n`);
   outputs.set("sitemap.xml", `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map(url => `  <url><loc>${url}</loc></url>`).join("\n")}\n</urlset>\n`);
   outputs.set("robots.txt", `User-agent: *\nAllow: /\nSitemap: ${origin}/sitemap.xml\n`);
   outputs.set(".nojekyll", "");

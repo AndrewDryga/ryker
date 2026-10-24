@@ -26,6 +26,28 @@ test("every public page shares the same navigation and footer", async () => {
   }
 });
 
+// Readers used to skip pages by following Next even though those pages were in
+// the sidebar. Keep both routes through the docs in the same complete order.
+test("documentation navigation follows one complete reading order", async () => {
+  const docs = pages.filter(page => page !== "index.html");
+  for (const [index, relative] of docs.entries()) {
+    const html = await readFile(path.join(root, "site", relative), "utf8");
+    const sidebar = html.match(/<nav aria-label="Documentation">([\s\S]*?)<\/nav>/)[1];
+    const links = [...sidebar.matchAll(/<a href="([^"]+)"([^>]*)>/g)];
+    const destination = href => new URL(href, `https://site-build.invalid/${relative}`).pathname.slice(1);
+    assert.deepEqual(links.map(link => destination(link[1])), docs, `${relative}: sidebar order`);
+    assert.deepEqual(links.filter(link => link[2].includes('aria-current="page"')).map(link => destination(link[1])), [relative]);
+
+    const navigation = html.match(/<nav class="doc-next"[^>]*>([\s\S]*?)<\/nav>/)[1];
+    const neighbors = [...navigation.matchAll(/<a\b[^>]*href="([^"]+)"[^>]*rel="(prev|next)"/g)]
+      .map(link => [link[2], destination(link[1])]);
+    const expected = [];
+    if (index > 0) expected.push(["prev", docs[index - 1]]);
+    if (index + 1 < docs.length) expected.push(["next", docs[index + 1]]);
+    assert.deepEqual(neighbors, expected, `${relative}: previous and next pages`);
+  }
+});
+
 test("public site build emits one consistent origin and only the public inventory", async () => {
   const out = await mkdtemp(path.join(os.tmpdir(), "ryker-site-"));
   try {

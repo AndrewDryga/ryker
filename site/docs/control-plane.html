@@ -4,18 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>The console — Ryker docs</title>
-<meta name="description" content="Sign in to Ryker’s console to follow requests, inspect evidence, resolve failures, manage access and settings, and see model usage and cost.">
+<meta name="description" content="Inspect Ryker’s model prompts, tool calls, evidence, checks, and costs. Use the console to chat, investigate failures, and change models and team settings.">
 <!-- The static build supplies absolute canonical and social URLs. -->
 <meta property="og:type" content="website">
 <meta property="og:title" content="The console — Ryker docs">
-<meta property="og:description" content="Sign in to Ryker’s console to follow requests, inspect evidence, resolve failures, manage access and settings, and see model usage and cost.">
+<meta property="og:description" content="Inspect Ryker’s model prompts, tool calls, evidence, checks, and costs. Use the console to chat, investigate failures, and change models and team settings.">
 <meta property="og:image" content="../assets/og.png">
 <meta property="og:image:width" content="1600">
 <meta property="og:image:height" content="840">
 <meta property="og:image:alt" content="Ryker">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="The console — Ryker docs">
-<meta name="twitter:description" content="Sign in to Ryker’s console to follow requests, inspect evidence, resolve failures, manage access and settings, and see model usage and cost.">
+<meta name="twitter:description" content="Inspect Ryker’s model prompts, tool calls, evidence, checks, and costs. Use the console to chat, investigate failures, and change models and team settings.">
 
 <meta name="color-scheme" content="dark">
 <link rel="icon" href="../assets/brand/avatar.svg" type="image/svg+xml">
@@ -42,24 +42,26 @@
     <details>
       <summary>Documentation</summary>
       <div>
-        <nav aria-label="Documentation"><p class="grp">Start</p><ul>
-<li><a href="../docs/index.html">What Ryker is</a></li>
+        <nav aria-label="Documentation">
+<p class="grp">Start here</p><ul>
+<li><a href="../docs/index.html">What is Ryker?</a></li>
 <li><a href="../docs/getting-started.html">Install Ryker</a></li>
+<li><a href="../docs/environments.html">Repositories and tools</a></li>
 </ul>
-<p class="grp">Walkthroughs</p><ul>
-<li><a href="../guides/first-code-change.html">Your first code change</a></li>
-<li><a href="../guides/investigate-an-alert.html">Investigate an alert</a></li>
-</ul>
-<p class="grp">Using it</p><ul>
+<p class="grp">Work together</p><ul>
 <li><a href="../docs/slack.html">Working in Slack</a></li>
-<li><a href="../docs/github.html">Working with GitHub</a></li>
-<li><a href="../docs/actions.html">Approvals and automation</a></li>
-<li><a href="../docs/memory.html">Memory and recall</a></li>
+<li><a href="../guides/first-code-change.html">Your first code change</a></li>
+<li><a href="../docs/github.html">GitHub and pull requests</a></li>
+<li><a href="../guides/investigate-an-alert.html">Alerts and incidents</a></li>
 </ul>
-<p class="grp">Managing it</p><ul>
+<p class="grp">Build on it</p><ul>
+<li><a href="../docs/actions.html">Schedules and follow-ups</a></li>
+<li><a href="../docs/memory.html">Memory and learning</a></li>
 <li><a href="../docs/control-plane.html" class="on" aria-current="page">The console</a></li>
-<li><a href="../docs/operations.html">Running Ryker</a></li>
+</ul>
+<p class="grp">Run your installation</p><ul>
 <li><a href="../docs/security.html">Access and data</a></li>
+<li><a href="../docs/operations.html">Running Ryker</a></li>
 </ul>
 </nav>
       </div>
@@ -67,162 +69,86 @@
   </aside>
 
   <main class="doc" id="main">
-    <p class="crumb"><a href="../index.html">Ryker</a> <span>/</span> <a href="index.html">Docs</a> <span>/</span> <span>The console</span></p>
+<p class="crumb"><a href="../index.html">Ryker</a> <span>/</span> <a href="../docs/index.html">Docs</a> <span>/</span> <span>The console</span></p>
+<h1>The console</h1>
+<p class="lede">The console shows the work behind an answer. Open a request to inspect its model setup, instructions, retrieved context, tool calls, and results, then adjust the settings that affected it.</p>
+<details class="doc-toc"><summary>On this page</summary><ul><li><a href="#what">Sign in</a></li>
+<li><a href="#timeline">Read a request’s timeline</a></li>
+<li><a href="#evidence">Read the evidence and checks</a></li>
+<li><a href="#chat">Talk to Ryker in the browser</a></li>
+<li><a href="#settings">Choose models and change settings</a></li>
+<li><a href="#failures">Resolve stopped work</a></li>
+<li><a href="#working-copies">Manage working copies</a></li>
+<li><a href="#usage">Understand usage and cost</a></li>
+<li><a href="#navigation">Find the other records</a></li></ul></details>
+<h2 id="what">Sign in</h2>
+<p>Open <code>http://127.0.0.1:4321</code> on the Ryker host, or your installation’s published address. Everyone signs in, including people using the host itself.</p>
+<ul>
+<li>In Slack, operators can use <code>/ryker sign-in</code> or <strong>Open the console</strong> in App Home. The link works once within 15 minutes.</li>
+<li>On the host, run <code>scripts/compose.sh sign-in</code>. That link works once within an hour.</li>
+<li>A signed-in user can invite someone under <strong>Settings › Access</strong>. An invitation works once within seven days.</li>
+</ul>
+<p>Everyone signed in has full access to the installation. A browser stays signed in until 30 days after its last use. <strong>Settings › Access</strong> lists sessions and lets you sign them out.</p>
+<p>For a remote host, use an <a href="operations.html#exposure">SSH tunnel or HTTPS address</a>. Ryker can also recognize configured Cloudflare Access or Tailscale Serve identities.</p>
+<h2 id="timeline">Read a request’s timeline</h2>
+<p>Open <strong>Activity</strong> and choose a request. Its summary shows the current state, duration, cost, and anything it is waiting for. The timeline follows the request through four stages:</p>
+<ol>
+<li><strong>Intake:</strong> the original message, input as received, and information extracted from it.</li>
+<li><strong>Routing:</strong> the settings and rules that applied, what Ryker decided to do, and why.</li>
+<li><strong>Work:</strong> the worker and working copy, exact briefing sent to the model, omitted context, tool calls, model answer, and checks on that answer.</li>
+<li><strong>Answer:</strong> what Ryker delivered and where.</li>
+</ol>
+<p>The timeline retains the settings used at the time. Missing records say <strong>Not recorded</strong>; a check that did not run says <strong>Not checked</strong>. Learning and cleanup appear at their own times after the answer. Each step has a direct link, and filters stay in the page address.</p>
+<p>If an answer missed something, start with the Work briefing. Check whether the relevant instructions, memories, repositories, and tools were available. Change the guidance under <strong>Instructions</strong>, correct knowledge under <strong>Memory</strong>, or adjust <strong>Settings › Models</strong>. The next request’s timeline lets you check the effect.</p>
+<h2 id="evidence">Read the evidence and checks</h2>
+<p>Evidence records say what Ryker observed and where it came from: code, Slack, monitoring, Emisar, or another tool. They can include observation time, freshness, and confidence. Evidence may support or contradict a finding, and a newer record can replace an older one while preserving the history.</p>
+<p>Findings describe what the investigation established: explained, expected, out of scope, or still unexplained. An open question remains open until there is evidence for an answer.</p>
+<p>Before posting, Ryker checks the model’s answer against the requirements for that work. It can send an inadequate answer back to the same run with a correction. For example, an alert response that only restates symptoms needs more investigation. A source link no tool returned is dropped. The timeline includes failed checks and corrections as well as the final reply.</p>
+<h2 id="chat">Talk to Ryker in the browser</h2>
+<p><strong>Chat</strong> supports investigations, code tasks, memory, schedules, and follow-ups. Choose the conversation’s environment, starting with the default, and ask as you would in Slack.</p>
+<p>You can attach up to two files totaling 8 MiB, edit or delete your messages, and react to replies. Each message links to its request timeline. An incident started in Chat is an investigation without a Slack room.</p>
+<h2 id="settings">Choose models and change settings</h2>
+<p><strong>Settings › Models</strong> lets you choose models for routing, conversation, standard and deep work, code changes, scheduled runs, incident rooms, and learning. You can tune the model and reasoning effort for the kind of work.</p>
+<p>Other settings cover retention, model prices, the weekly report, sign-in access, and advanced worker configuration. <strong>Integrations</strong> has separate pages for connecting, repairing, or disconnecting Slack, GitHub, Emisar, and webhooks. Stored credentials show their state, not their secret values.</p>
+<p>Each settings section saves separately, and an unsaved draft survives a refresh. If someone else saves first, the page shows their current values before you overwrite them. It also distinguishes a saved value from the value the running service is using.</p>
+<h2 id="failures">Resolve stopped work</h2>
+<p><strong>Failures</strong> lists work Ryker could not finish on its own. Requests with someone waiting appear ahead of housekeeping. Each row explains what stopped, who it affects, what Ryker already tried, and whether retrying can help.</p>
+<p>Open a failure for the available actions and what happens if nobody acts. A missing token or channel membership links to the place to fix it. Retry controls appear when they can help; completed work leaves the list.</p>
+<h2 id="working-copies">Manage working copies</h2>
+<p><strong>Work › Working copies</strong> shows each worker’s available space, the copies it holds, and why cleanup is keeping them. A full worker stops accepting new copies until space is available.</p>
+<p>After a task finishes, Ryker closes its recorded worker session, waits 15 minutes, and checks an exact cleanup plan. Clean copies can be removed. Committed work can be removed once safely published in a draft PR or after an operator chooses <strong>Discard unmerged</strong>. Automatic cleanup keeps uncommitted changes, including when a task or Slack room closes.</p>
+<p>These controls ask for confirmation before acting:</p>
+<ul>
+<li><strong>Resume cleanup</strong> retries the step that stopped.</li>
+<li><strong>Discard unmerged</strong> deletes the working copy and its unmerged commits. The worker checks it again and keeps it if it has uncommitted changes.</li>
+<li><strong>Discard changes</strong> deletes a retained working copy, including its uncommitted changes and any unmerged commits. This cannot be undone.</li>
+</ul>
+<p>Ryker leaves working copies it does not own alone.</p>
+<h2 id="usage">Understand usage and cost</h2>
+<p><strong>Usage &amp; cost</strong> includes routing, conversations, investigations, tasks, and learning. Filter by day, week, month, or all time, then compare models, channels, repositories, work types, and people. Each row opens the requests behind it.</p>
+<p>Ryker uses provider-reported cost when available. If only token counts are reported, it estimates cost from your model prices and records the rates. A timeline cost marked <strong>≈</strong> includes an estimate. When no measurement exists, it says <strong>Not measured</strong>.</p>
+<h2 id="navigation">Find the other records</h2>
+<table><thead><tr><th>Page</th><th>What to use it for</th></tr></thead><tbody>
+<tr><td>Incident rooms</td><td>Find Slack incident rooms and their current investigations.</td></tr>
+<tr><td>Feedback</td><td>Review the team’s reactions and corrections.</td></tr>
+<tr><td>Work</td><td>Manage environments, channels, repositories, and working copies.</td></tr>
+<tr><td>Automations</td><td>Manage rules, schedules, and pending follow-ups.</td></tr>
+<tr><td>Instructions</td><td>Edit team guidance and preferences.</td></tr>
+<tr><td>Memory</td><td>Inspect facts, learned topics, findings, past cases, and learning activity.</td></tr>
+</tbody></table>
+<p>Each page has <strong>How this page works</strong> help. Actions that retry, discard, pause, or delete work ask for confirmation and record the change. For who can use these controls and where data goes, read <a href="security.html">access and data</a>.</p>
+<nav class="doc-next" aria-label="Page navigation"><a href="../docs/memory.html" rel="prev"><span class="k">Previous</span><span class="t">Memory and learning</span></a><a class="next" href="../docs/security.html" rel="next"><span class="k">Next</span><span class="t">Access and data</span></a></nav>
+</main>
 
-    <h1>The console</h1>
-
-    <p class="lede">Open Ryker’s console to see how each answer came together and change how it works for your team. Inspect the recorded model setup, instructions, context and tool calls, then tune models, instructions, memory and access in one place.</p>
-
-    <details class="doc-toc">
-      <summary>On this page</summary>
-      <ul>
-        <li><a href="#what">Open the console</a></li>
-        <li><a href="#pages">Find what you need</a></li>
-        <li><a href="#timeline">A request’s timeline</a></li>
-        <li><a href="#failures">Failures</a></li>
-        <li><a href="#working-copies">Working copies</a></li>
-        <li><a href="#usage">Usage and cost</a></li>
-        <li><a href="#chat">Chat</a></li>
-        <li><a href="#settings">Integrations and settings</a></li>
-        <li><a href="#non-goals">Where changes are controlled</a></li>
-      </ul>
-    </details>
-
-    <h2 id="what">Open the console</h2>
-
-    <p>For an overview of permissions and data handling, read <a href="security.html">access and data</a>.</p>
-
-    <p>Open <code>http://127.0.0.1:4321</code> on the host running Ryker, or use your installation’s published address. Everyone signs in, including people on the host itself.</p>
-
-    <ul>
-      <li><strong>From Slack:</strong> operators send <code>/ryker sign-in</code> or press <strong>Open the console</strong> in Ryker’s App Home. The link works once, within 15 minutes.</li>
-      <li><strong>From the host:</strong> run <code>scripts/compose.sh sign-in</code> for a link that works once, within an hour. The installer prints one that opens setup.</li>
-      <li><strong>Invite someone:</strong> anyone signed in can create an invitation under <strong>Settings › Access</strong>. It works once, within seven days.</li>
-    </ul>
-
-    <p>A browser stays signed in until 30 days after it was last used. <strong>Settings › Access</strong> lists signed-in browsers and lets you sign them out. Everyone signed in can see and change the whole installation; there are no separate roles.</p>
-
-    <p>For remote access, use an SSH tunnel, Cloudflare Tunnel or Tailscale Serve. Ryker handles sign-in itself; it can also recognize configured Cloudflare Access or Tailscale Serve identities. <a href="operations.html#exposure">Set up network access</a>.</p>
-
-    <p>The console serves its own fonts and scripts, without third-party analytics. Your requests use the model account, workers and integrations you connect. Stored integration credentials appear as configured, missing or unusable; their values are not rendered.</p>
-
-    <p>Pages include <strong>How this page works</strong> help. Filters stay in the address, so you can share a filtered list or link to an exact request. Actions that retry, discard, pause or delete work ask for confirmation and record the change.</p>
-
-    <h2 id="pages">Find what you need</h2>
-
-    <p>Each page answers one question.</p>
-
-    <h3 id="everyday">Every day</h3>
-
-    <dl>
-      <div><dt>Chat</dt><dd>Can I ask Ryker something without Slack?</dd></div>
-      <div><dt>Activity</dt><dd>What did people ask of Ryker, and what did it do about it?</dd></div>
-      <div><dt>Incident rooms</dt><dd>Which incidents have a Slack room, and where does each stand?</dd></div>
-      <div><dt>Failures</dt><dd>What stopped, and will a retry help?</dd></div>
-      <div><dt>Feedback</dt><dd>What did the team find useful, and which answers need work?</dd></div>
-      <div><dt>Usage &amp; cost</dt><dd>What did Ryker run, and what did it cost?</dd></div>
-    </dl>
-
-    <h3 id="manage">Managing Ryker</h3>
-
-    <dl>
-      <div><dt>Work › Environments</dt><dd>Which repositories and Emisar account can each place of work use?</dd></div>
-      <div><dt>Work › Channels</dt><dd>Where is Ryker, how does it take part, and which environment does each channel use?</dd></div>
-      <div><dt>Work › Repositories</dt><dd>What code can Ryker read and change, and is each repository ready?</dd></div>
-      <div><dt>Work › Working copies</dt><dd>Which checkouts are still held, and why?</dd></div>
-      <div><dt>Automations › Rules</dt><dd>What does Ryker do when something happens, and what did each rule set off?</dd></div>
-      <div><dt>Automations › Schedules</dt><dd>What runs on its own, and did it?</dd></div>
-      <div><dt>Automations › Follow-ups</dt><dd>What work is paused on purpose, and what is it waiting for?</dd></div>
-      <div><dt>Instructions</dt><dd>How should Ryker work, in your own words, everywhere and per channel?</dd></div>
-      <div><dt>Memory › Facts, Learned, Findings, Cases, People, Learning</dt><dd>What does Ryker remember about work and people, where did it come from, and is background learning running?</dd></div>
-    </dl>
-
-    <h3 id="system">Integrations and settings</h3>
-
-    <dl>
-      <div><dt>Integrations</dt><dd>Are Slack, GitHub, Emisar and webhooks connected, and does any need repair?</dd></div>
-      <div><dt>Settings</dt><dd>Which model does each kind of work use, how long is data kept, what do models cost, and where does work run?</dd></div>
-    </dl>
-
-    <p>Open a row for its details and available actions. <strong>Setup</strong> stays in the sidebar until the required connection steps are complete.</p>
-
-    <h2 id="timeline">A request’s timeline</h2>
-
-    <p>Open a request from <strong>Activity</strong> to follow its four stages: <strong>Intake</strong>, <strong>Routing</strong>, <strong>Work</strong> and <strong>Answer</strong>. The top says where the request stands, how long it took, what it cost, and what it is waiting for, if anything.</p>
-
-    <dl>
-      <div><dt>Intake</dt><dd>The message that started it: what Ryker extracted, the input as received, and the original message.</dd></div>
-      <div><dt>Routing</dt><dd>The channel settings and rules that applied, and the decision Ryker made, with its reason. A check that never ran says “Not checked”, never “No”.</dd></div>
-      <div><dt>Work</dt><dd>The worker and working copy it ran on, the exact briefing sent to the model, including what was left out to fit, the answer that came back, each check on that answer, and every tool the model used.</dd></div>
-      <div><dt>Answer</dt><dd>What was delivered, and where.</dd></div>
-    </dl>
-
-    <p>Background learning and cleanup that followed come after the answer, at their own recorded times. Every card has a link to itself, so you can share the exact step. Earlier activity loads a page at a time, within your retention settings.</p>
-
-    <p>Missing records are labelled <strong>Not recorded</strong>. The timeline keeps the settings and evidence used at the time, rather than reconstructing them from today’s configuration.</p>
-
-    <p>If an answer misses something, start with its <strong>Work briefing</strong>. Check which instructions and memories were included, what repositories it could read, and which tools it used. Edit <strong>Instructions</strong> to change your team’s guidance, correct saved knowledge under <strong>Memory</strong>, or adjust the model and reasoning effort under <strong>Settings › Models</strong>. Return to the next request’s timeline to see what changed.</p>
-
-    <h2 id="failures">Failures</h2>
-
-    <p>The Failures page lists work Ryker could not finish on its own, newest first. <strong>Affects people</strong> comes first: someone is still waiting for a reply, an update or a result. <strong>Housekeeping</strong> is cleanup nobody waits on.</p>
-
-    <p>Each row says what stopped, who it affects, why Ryker stopped trying, and whether a retry should work: <em>Retry should work</em>, <em>Needs you</em>, <em>Fix needed first</em>, <em>Retry won’t help</em>, or <em>Retrying on its own</em>. A row has a button only when pressing it can help, and says what the button does before you press it. When something else has to change first, such as a token or Ryker’s place in a Slack channel, the row links to where to change it.</p>
-
-    <p>A failure’s own page tells the whole story: what happened, what it affects, what Ryker already tried, and each thing you can do, recommended first, including what happens if nobody acts. Ryker retries most things several times before it lists them, and an item leaves the list once its work finishes.</p>
-
-    <h2 id="working-copies">Working copies</h2>
-
-    <p>A working copy is a separate checkout in co:op where a task changes code. The page shows each worker’s available space, what cleanup will do next, and why a copy is kept. Uncommitted changes are retained. Committed work can be cleaned up once it is safely published in a draft pull request, or after an operator chooses to discard it.</p>
-
-    <p>When cleanup stops, the row says why. <strong>Resume cleanup</strong> tries the same step again. <strong>Discard unmerged</strong> throws away commits that were never merged and keeps uncommitted changes. Both ask first. A worker that is full stops taking new copies until space frees up.</p>
-
-    <h2 id="usage">Usage and cost</h2>
-
-    <p>Usage covers every model call, including routing messages, replies, investigations, tasks and background learning, over the last day, week, month or all time. Tables break it down by model, channel, repository, kind of work and person, and each row opens the requests behind it.</p>
-
-    <p>Cost uses the amount the model provider reported. When a provider reports tokens but no cost, Ryker estimates it from your model prices and lists the rates it used; on a timeline, a cost marked ≈ includes an estimate. When nothing was reported, the row says “Not measured”, never $0.</p>
-
-    <h2 id="chat">Chat</h2>
-
-    <p>Use <strong>Chat</strong> at <code>/conversations</code> to talk to Ryker in your browser. It supports the same investigations, tasks, memory, schedules and follow-ups as Slack. Each conversation works in one environment, starting with the default. You can attach up to two files, 8 MiB in all, edit or delete your own messages, and react to replies.</p>
-
-    <p>Every message links to its timeline. An incident opened from Chat is a real investigation without a Slack room. The browser never talks to a model provider or to co:op directly.</p>
-
-    <h2 id="settings">Integrations and settings</h2>
-
-    <p>Each integration has its own page to connect, repair or disconnect it, and each checks what you paste before saving it. The Slack page also chooses who can manage Ryker, how it behaves in channels that have not chosen, and how incident rooms are named. The GitHub page decides whether Ryker may open pull requests.</p>
-
-    <p>Settings hold the <strong>Models</strong> for each kind of work (routing, conversation, standard and deep work, code changes, scheduled runs, incident rooms and learning), <strong>Data retention</strong>, <strong>Model prices</strong>, <strong>Weekly report</strong>, <strong>Access</strong>, and <strong>Advanced</strong>: where work runs, what each kind of work may do, and whether tasks that change code can run right now.</p>
-
-    <p>Each section saves on its own, and a draft survives a refresh. If someone else saved first, the page shows what is saved now before you save over it. A saved setting and the setting the running service uses are shown as two separate facts.</p>
-
-    <h2 id="non-goals">Where changes are controlled</h2>
-
-    <p>Use the console for Ryker’s work and settings. Infrastructure changes still go through <a href="actions.html#approvals">Emisar’s policy and approvals</a>, and your team reviews and merges code changes. Worker policies and product prompts are maintained in code and configuration, reviewed in git.</p>
-
-    <p>For a quick check from Slack, App Home shows open work and anything waiting for you. The console gives you the full records and installation settings.</p>
-
-    <nav class="doc-next" aria-label="Page navigation">
-      <a href="memory.html"><span class="k">Previous</span><span class="t">&larr; Memory and recall</span></a>
-      <a class="next" href="operations.html"><span class="k">Next</span><span class="t">Running Ryker &rarr;</span></a>
-    </nav>
-  </main>
-
-  <nav class="toc" aria-label="On this page">
-    <p class="lbl">On this page</p>
-    <ul>
-      <li><a href="#what">Open the console</a></li>
-      <li><a href="#pages">Find what you need</a></li>
-      <li><a href="#timeline">A request’s timeline</a></li>
-      <li><a href="#failures">Failures</a></li>
-      <li><a href="#working-copies">Working copies</a></li>
-      <li><a href="#usage">Usage and cost</a></li>
-      <li><a href="#chat">Chat</a></li>
-      <li><a href="#settings">Integrations and settings</a></li>
-      <li><a href="#non-goals">Where changes are controlled</a></li>
-    </ul>
-  </nav>
+  <nav class="toc" aria-label="On this page"><p class="lbl">On this page</p><ul><li><a href="#what">Sign in</a></li>
+<li><a href="#timeline">Read a request’s timeline</a></li>
+<li><a href="#evidence">Read the evidence and checks</a></li>
+<li><a href="#chat">Talk to Ryker in the browser</a></li>
+<li><a href="#settings">Choose models and change settings</a></li>
+<li><a href="#failures">Resolve stopped work</a></li>
+<li><a href="#working-copies">Manage working copies</a></li>
+<li><a href="#usage">Understand usage and cost</a></li>
+<li><a href="#navigation">Find the other records</a></li></ul></nav>
 
 </div>
 </div>

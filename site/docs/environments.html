@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Repositories and tools — Ryker docs</title>
+<meta name="description" content="Give Ryker access to several repositories and running systems. Set up environments, choose read or write access, and connect Emisar for infrastructure work.">
+<!-- The static build supplies absolute canonical and social URLs. -->
+<meta property="og:type" content="website">
+<meta property="og:title" content="Repositories and tools — Ryker docs">
+<meta property="og:description" content="Give Ryker access to several repositories and running systems. Set up environments, choose read or write access, and connect Emisar for infrastructure work.">
+<meta property="og:image" content="../assets/og.png">
+<meta property="og:image:width" content="1600">
+<meta property="og:image:height" content="840">
+<meta property="og:image:alt" content="Ryker">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Repositories and tools — Ryker docs">
+<meta name="twitter:description" content="Give Ryker access to several repositories and running systems. Set up environments, choose read or write access, and connect Emisar for infrastructure work.">
+
+<meta name="color-scheme" content="dark">
+<link rel="icon" href="../assets/brand/avatar.svg" type="image/svg+xml">
+<link rel="preload" href="../assets/fonts/IBMPlexSans-Regular.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../assets/fonts/IBMPlexSans-SemiBold.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../assets/site.css?v=shared-shell">
+</head>
+<body class="doc-page">
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="wordmark" href="../index.html" aria-label="Home"><img src="../assets/brand/lockup-color.svg" alt="Ryker" width="176" height="61"></a>
+    <nav class="nav-links" aria-label="Main"><a href="../index.html#examples">Examples</a><a href="../index.html#team-tools">The tools</a><a href="../index.html#console">The app</a><a href="index.html" aria-current="location">Docs</a><a class="nav-start" href="../index.html#start">Run it yourself <span aria-hidden="true">↗</span></a></nav>
+    <details class="nav-menu"><summary aria-label="Menu">Menu</summary><div class="nav-drawer"><a href="../index.html#examples">Examples</a><a href="../index.html#team-tools">The tools</a><a href="../index.html#console">The app</a><a href="index.html" aria-current="location">Docs</a><a href="../index.html#start">Run it yourself</a></div></details>
+  </div>
+</header>
+
+<div class="wrap">
+<div class="docs">
+
+  <aside class="docs-nav">
+    <details>
+      <summary>Documentation</summary>
+      <div>
+        <nav aria-label="Documentation">
+<p class="grp">Start here</p><ul>
+<li><a href="../docs/index.html">What is Ryker?</a></li>
+<li><a href="../docs/getting-started.html">Install Ryker</a></li>
+<li><a href="../docs/environments.html" class="on" aria-current="page">Repositories and tools</a></li>
+</ul>
+<p class="grp">Work together</p><ul>
+<li><a href="../docs/slack.html">Working in Slack</a></li>
+<li><a href="../guides/first-code-change.html">Your first code change</a></li>
+<li><a href="../docs/github.html">GitHub and pull requests</a></li>
+<li><a href="../guides/investigate-an-alert.html">Alerts and incidents</a></li>
+</ul>
+<p class="grp">Build on it</p><ul>
+<li><a href="../docs/actions.html">Schedules and follow-ups</a></li>
+<li><a href="../docs/memory.html">Memory and learning</a></li>
+<li><a href="../docs/control-plane.html">The console</a></li>
+</ul>
+<p class="grp">Run your installation</p><ul>
+<li><a href="../docs/security.html">Access and data</a></li>
+<li><a href="../docs/operations.html">Running Ryker</a></li>
+</ul>
+</nav>
+      </div>
+    </details>
+  </aside>
+
+  <main class="doc" id="main">
+<p class="crumb"><a href="../index.html">Ryker</a> <span>/</span> <a href="../docs/index.html">Docs</a> <span>/</span> <span>Repositories and tools</span></p>
+<h1>Repositories and tools</h1>
+<p class="lede">An environment is the set of repositories and tools Ryker can use in a conversation. Give it enough context to understand the system, then choose where it may make changes.</p>
+<details class="doc-toc"><summary>On this page</summary><ul><li><a href="#environments">Group related repositories</a></li>
+<li><a href="#repositories">Add a repository</a></li>
+<li><a href="#assignment">Choose an environment for a conversation</a></li>
+<li><a href="#emisar">Add access to running systems</a></li>
+<li><a href="#boundaries">What a conversation can change</a></li></ul></details>
+<h2 id="environments">Group related repositories</h2>
+<p>A service rarely lives in one repository. Its API, web client, deployment configuration, and shared libraries may all be separate. Ryker can read them together to understand how a change in one affects the others.</p>
+<p>Under <strong>Work › Environments</strong>, create an environment and add the repositories it needs. Choose a default repository, which must have read/write access. Other repositories can be read-only or read/write. A code task changes the default unless it selects another writable repository, and reads the others as context. Name the target in your request when there is more than one.</p>
+<p>For example, an environment for a checkout service could give Ryker read/write access to the API and read-only access to the storefront and deployment configuration. It can check the callers and deployment settings while preparing an API fix.</p>
+<h2 id="repositories">Add a repository</h2>
+<ol>
+<li><a href="github.html#app">Install the GitHub App</a> on the repository.</li>
+<li>Import it under <strong>Work › Repositories</strong>. Ryker reads the code and keeps reference notes there. Importing does not change files or open a pull request.</li>
+<li>Add it to an environment and choose its access level.</li>
+</ol>
+<p>The App installation limits which repositories Ryker can access at all. The environment narrows that list for each conversation. Importing a repository alone does not make it available everywhere.</p>
+<h2 id="assignment">Choose an environment for a conversation</h2>
+<p>Slack channels, webhook sources, and browser Chat conversations each use one environment. For Slack, choose it under <strong>Work › Channels</strong> or through the channel’s <strong>Customize</strong> flow. A newly joined channel uses the default environment if you already chose one.</p>
+<p>Choose <strong>No environment</strong> for a Slack channel where Ryker should talk without repository or Emisar access. In Chat, choose the environment for that conversation. A task or incident keeps the environment of the conversation that started it.</p>
+<h2 id="emisar">Add access to running systems</h2>
+<p>Code explains what a service should do. Logs, metrics, and deployment status show what it is doing now. Connect Emisar when Ryker needs both views.</p>
+<p>In Emisar, create an MCP key for a person or service account with access to the required runners. Add the key under <strong>Integrations › Emisar</strong> in Ryker, then choose that account in the environment. The first connected account is assigned to environments that have none; assign later accounts on the Environments page.</p>
+<p>The account’s runner access, Emisar’s action policy, and the runner’s host permissions determine what Ryker can do. For read-only investigations, allow the required read actions and restrict host permissions. For fixes, allow the needed actions and choose which require approval. An MCP key has no separate read-only switch. See <a href="https://emisar.dev/docs/security-model">Emisar’s security model</a> for how these limits work together.</p>
+<p>Without Emisar, Ryker can still read code and prepare changes. It can explain an infrastructure change, but cannot carry it out on your systems. Once connected, follow <a href="../guides/investigate-an-alert.html">an alert through investigation, approval, and recovery</a>.</p>
+<h2 id="boundaries">What a conversation can change</h2>
+<p>Ryker sets the repositories, tools, and execution limits before work starts; co:op enforces the sandbox limits. A message or remembered instruction cannot give the task more access.</p>
+<p>Read/write repository access lets a confirmed task edit its working copy. Opening a draft pull request is a <a href="github.html#publication">separate setting</a>. Infrastructure actions follow <a href="../guides/investigate-an-alert.html#approvals">Emisar’s approval policy</a>.</p>
+<nav class="doc-next" aria-label="Page navigation"><a href="../docs/getting-started.html" rel="prev"><span class="k">Previous</span><span class="t">Install Ryker</span></a><a class="next" href="../docs/slack.html" rel="next"><span class="k">Next</span><span class="t">Working in Slack</span></a></nav>
+</main>
+
+  <nav class="toc" aria-label="On this page"><p class="lbl">On this page</p><ul><li><a href="#environments">Group related repositories</a></li>
+<li><a href="#repositories">Add a repository</a></li>
+<li><a href="#assignment">Choose an environment for a conversation</a></li>
+<li><a href="#emisar">Add access to running systems</a></li>
+<li><a href="#boundaries">What a conversation can change</a></li></ul></nav>
+
+</div>
+</div>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot-main">
+      <div class="foot-brand">
+        <a class="wordmark" href="../index.html" aria-label="Home"><img class="foot-lockup" src="../assets/brand/lockup-color.svg" alt="Ryker" width="176" height="61"></a>
+        <p>An AI teammate for Slack and GitHub.</p>
+        <a class="foot-contact" href="mailto:andrew@dryga.com?subject=Ryker%20design%20partner">Talk to the builder <span aria-hidden="true">↗</span></a>
+      </div>
+      <nav class="foot-links" aria-label="Footer">
+        <div class="foot-group"><h2>Product</h2><ul><li><a href="../index.html#examples">Examples</a></li><li><a href="../index.html#team-tools">The tools</a></li><li><a href="../index.html#console">The app</a></li></ul></div>
+        <div class="foot-group"><h2>Guides</h2><ul><li><a href="getting-started.html">Installation</a></li><li><a href="slack.html">Slack</a></li><li><a href="github.html">GitHub</a></li><li><a href="security.html">Access and data</a></li></ul></div>
+        <div class="foot-group"><h2>Project</h2><ul><li><a href="index.html">Documentation</a></li><li><a href="https://github.com/AndrewDryga/ryker">Source code</a></li><li><a href="https://github.com/AndrewDryga/ryker/releases">Releases</a></li></ul></div>
+      </nav>
+    </div>
+    <div class="foot-bottom"><span>A <a href="https://github.com/ProtectorateHQ">Protectorate</a> product.</span><span>Works with <a href="https://coop.dryga.com/">co:op</a> and <a href="https://emisar.dev/">Emisar</a>.</span><a href="https://github.com/AndrewDryga/ryker/blob/main/LICENSE">Business Source License 1.1</a></div>
+  </div>
+</footer>
+
+<script src="../assets/site.js?v=copy-scope" defer></script>
+</body>
+</html>

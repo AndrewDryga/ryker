@@ -3,19 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Investigate a Slack alert with Ryker — Ryker docs</title>
-<meta name="description" content="Let Ryker pick up alerts in Slack, investigate through Emisar, prepare a fix, and check recovery after approval.">
+<title>Alerts and incidents — Ryker docs</title>
+<meta name="description" content="Let Ryker investigate alerts in Slack, use Emisar to carry out approved fixes, prepare code changes, and check recovery. Set up incident rooms when needed.">
 <!-- The static build supplies absolute canonical and social URLs. -->
 <meta property="og:type" content="website">
-<meta property="og:title" content="Investigate a Slack alert with Ryker — Ryker docs">
-<meta property="og:description" content="Let Ryker pick up alerts in Slack, investigate through Emisar, prepare a fix, and check recovery after approval.">
+<meta property="og:title" content="Alerts and incidents — Ryker docs">
+<meta property="og:description" content="Let Ryker investigate alerts in Slack, use Emisar to carry out approved fixes, prepare code changes, and check recovery. Set up incident rooms when needed.">
 <meta property="og:image" content="../assets/og.png">
 <meta property="og:image:width" content="1600">
 <meta property="og:image:height" content="840">
 <meta property="og:image:alt" content="Ryker">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Investigate a Slack alert with Ryker — Ryker docs">
-<meta name="twitter:description" content="Let Ryker pick up alerts in Slack, investigate through Emisar, prepare a fix, and check recovery after approval.">
+<meta name="twitter:title" content="Alerts and incidents — Ryker docs">
+<meta name="twitter:description" content="Let Ryker investigate alerts in Slack, use Emisar to carry out approved fixes, prepare code changes, and check recovery. Set up incident rooms when needed.">
 
 <meta name="color-scheme" content="dark">
 <link rel="icon" href="../assets/brand/avatar.svg" type="image/svg+xml">
@@ -42,72 +42,77 @@
     <details>
       <summary>Documentation</summary>
       <div>
-        <nav aria-label="Documentation"><p class="grp">Start</p><ul>
-<li><a href="../docs/index.html">What Ryker is</a></li>
+        <nav aria-label="Documentation">
+<p class="grp">Start here</p><ul>
+<li><a href="../docs/index.html">What is Ryker?</a></li>
 <li><a href="../docs/getting-started.html">Install Ryker</a></li>
+<li><a href="../docs/environments.html">Repositories and tools</a></li>
 </ul>
-<p class="grp">Walkthroughs</p><ul>
-<li><a href="../guides/first-code-change.html">Your first code change</a></li>
-<li><a href="../guides/investigate-an-alert.html" class="on" aria-current="page">Investigate an alert</a></li>
-</ul>
-<p class="grp">Using it</p><ul>
+<p class="grp">Work together</p><ul>
 <li><a href="../docs/slack.html">Working in Slack</a></li>
-<li><a href="../docs/github.html">Working with GitHub</a></li>
-<li><a href="../docs/actions.html">Approvals and automation</a></li>
-<li><a href="../docs/memory.html">Memory and recall</a></li>
+<li><a href="../guides/first-code-change.html">Your first code change</a></li>
+<li><a href="../docs/github.html">GitHub and pull requests</a></li>
+<li><a href="../guides/investigate-an-alert.html" class="on" aria-current="page">Alerts and incidents</a></li>
 </ul>
-<p class="grp">Managing it</p><ul>
+<p class="grp">Build on it</p><ul>
+<li><a href="../docs/actions.html">Schedules and follow-ups</a></li>
+<li><a href="../docs/memory.html">Memory and learning</a></li>
 <li><a href="../docs/control-plane.html">The console</a></li>
-<li><a href="../docs/operations.html">Running Ryker</a></li>
+</ul>
+<p class="grp">Run your installation</p><ul>
 <li><a href="../docs/security.html">Access and data</a></li>
+<li><a href="../docs/operations.html">Running Ryker</a></li>
 </ul>
 </nav>
       </div>
     </details>
   </aside>
 
-  <main class="doc" id="main"><p class="crumb"><a href="../index.html">Ryker</a> <span>/</span> <a href="../docs/index.html">Docs</a> <span>/</span> <span>Walkthrough</span></p>
-    <h1>Investigate a Slack alert with Ryker</h1><p class="lede">Your monitoring tools already send alerts to Slack. Ryker can pick them up, trace the cause, prepare a fix, and check whether it worked. You step in when it needs a decision or approval.</p>
-    <details class="doc-toc"><summary>On this page</summary><ul><li><a href="#prepare">1. Connect the system</a></li>
-<li><a href="#ask">2. Let Ryker pick up the alert</a></li>
-<li><a href="#evidence">3. Follow the investigation</a></li>
-<li><a href="#act">4. Review the proposed change</a></li>
-<li><a href="#verify">5. Let Ryker check recovery</a></li>
-<li><a href="#next">Make the next alert easier</a></li></ul></details>
+  <main class="doc" id="main">
+<p class="crumb"><a href="../index.html">Ryker</a> <span>/</span> <a href="../docs/index.html">Docs</a> <span>/</span> <span>Alerts and incidents</span></p>
+<h1>Alerts and incidents</h1>
+<p class="lede">Ryker can pick up alerts from the tools already posting to Slack. It checks the cause, works on a fix, and reports whether the system recovered. Your team steps in for decisions and actions that require approval.</p>
+<details class="doc-toc"><summary>On this page</summary><ul><li><a href="#connect">Connect the systems it needs</a></li>
+<li><a href="#alert">Start with an alert</a></li>
+<li><a href="#approvals">Approve a change through Emisar</a></li>
+<li><a href="#recovery">Check that the fix worked</a></li>
+<li><a href="#incidents">Move coordinated work into an incident room</a></li>
+<li><a href="#evidence">Review the investigation</a></li></ul></details>
+<h2 id="connect">Connect the systems it needs</h2>
+<p>Give the alert channel an <a href="../docs/environments.html">environment</a> containing the relevant repositories and an Emisar account. In Emisar, allow the read actions needed for investigation and set an approval policy for changes.</p>
+<p>In the Slack channel’s <strong>Customize</strong> flow, choose <strong>Be proactive</strong> and investigate app alerts in their thread. This lets an actionable app alert start work without a mention. For manual investigations, mentions-only mode is enough.</p>
+<h2 id="alert">Start with an alert</h2>
+<p>An alert should identify the service, environment, time, and symptom, with a link to the logs or metrics. For example, a checkout error-rate alert gives Ryker a starting point for checking recent deployments, reading application logs, and tracing failing requests in the code.</p>
+<p>To ask directly, reply in the alert’s thread:</p>
+<pre data-copy-label="Slack" data-copy-button="Copy example"><code>@Ryker investigate these checkout errors in staging. Find the cause, prepare a fix, and check recovery afterward. Bring any required approval back to us here.</code></pre>
+<p>Ryker compares the code and intended configuration with current evidence. It reports whether the alert is confirmed, likely, disproved, or still unverified, and explains the impact. A confirmed or likely problem includes a proposed immediate mitigation and lasting fix.</p>
+<p>Add missing context in the thread while it works. Ryker asks if it needs a decision or access it does not have. A Terraform review needs the actual plan, supplied in the conversation or retrieved through a read-only tool.</p>
+<h2 id="approvals">Approve a change through Emisar</h2>
+<p>When a fix needs an infrastructure action, Ryker requests it through Emisar. Actions allowed by policy can run immediately. Actions needing approval produce an <strong>Emisar review</strong> card with the action, target, and an <strong>Open approval</strong> link.</p>
+<p>Open the request in Emisar and review the exact action. An authorized person approves or denies it there. Ryker cannot approve its own request, and a Slack reply does not count as Emisar approval.</p>
+<p>The card updates as the action progresses. The wait survives a restart and holds no model or worker. Ryker continues in the same conversation when the result arrives.</p>
+<p>If the lasting fix belongs in code, Ryker can offer a task. Confirm <strong>Start task</strong> so it can prepare and test the change in co:op, then open a draft pull request. Your team merges and releases it through its usual process.</p>
+<h2 id="recovery">Check that the fix worked</h2>
+<p>After an infrastructure action, Ryker checks its intended effect against fresh read-only evidence where the tools support it. For the checkout example, that could mean comparing the new error rate with the original alert. The command’s result and the service’s recovery are recorded separately.</p>
+<p>If recovery takes time, Ryker can <a href="../docs/actions.html#followups">wait and check again</a>. For a code fix, verification follows your deployment; a matching deployment event can continue the request. If recovery is still unverified, Ryker says what evidence is missing.</p>
+<h2 id="incidents">Move coordinated work into an incident room</h2>
+<p>An incident room is a dedicated Slack channel for an investigation. A configured operator can press <strong>Create incident room</strong> on Ryker’s offer. The offer also has <strong>Investigate</strong> for keeping the same work in the original thread.</p>
+<p>Channel settings can create a room automatically for a credible, unresolved app alert. A person’s message always needs the operator’s confirmation. Rooms use the source conversation’s environment and invite the configured operators plus any additional people selected for that channel.</p>
+<p>Rooms are private by default and named <code>&lt;prefix&gt;-MMDD-&lt;title&gt;-&lt;id&gt;</code>, with <code>inc</code> as the default prefix. The default limit is 25 open rooms per workspace.</p>
+<p>The pinned card updates in place with findings, questions, and available controls. Its menu opens the timeline, evidence, handoff summary, and a postmortem draft built from recorded work. You can generate the draft before or after the incident closes.</p>
+<p>Archiving a room pauses its investigation until it is unarchived. Deleting it closes the room; Ryker reports this in the alert thread and sends any reply it still owed there. Deleting a room does not discard its code changes.</p>
+<h2 id="evidence">Review the investigation</h2>
+<p>Open <strong>Activity</strong> in the console for the original message, context sent to the model, tool results, and checks on its answer. The <a href="../docs/control-plane.html#evidence">evidence records</a> show what supports or contradicts each finding.</p>
+<p>To handle the next event in a specific way, save a <a href="../docs/actions.html#rules">rule</a>. For regular checks even when no alert arrives, create a <a href="../docs/actions.html#schedules">schedule</a>.</p>
+<nav class="doc-next" aria-label="Page navigation"><a href="../docs/github.html" rel="prev"><span class="k">Previous</span><span class="t">GitHub and pull requests</span></a><a class="next" href="../docs/actions.html" rel="next"><span class="k">Next</span><span class="t">Schedules and follow-ups</span></a></nav>
+</main>
 
-<h2 id="prepare">1. Connect the system</h2>
-<p>Start with <a href="../docs/getting-started.html">Ryker installed</a> and invited to the channel where your monitoring tools post alerts. In <a href="https://emisar.dev/">Emisar</a>, connect the hosts and tools Ryker needs to investigate and fix problems.</p>
-<p>Create an Emisar MCP key for a person or service account with access to those runners. Add it under <strong>Integrations › Emisar</strong> in Ryker, then select that account under <strong>Work › Environments</strong>. Add the relevant repositories so Ryker can compare the code and configuration with the running system.</p>
-<p>Choose that environment under <strong>Work › Channels</strong>. In <a href="../docs/slack.html#setup">the channel settings</a>, choose <strong>Be proactive</strong> and set app alerts to be investigated in their thread.</p>
-<p>In Emisar, set which actions Ryker can run and which need approval. Runner access, action policy and the host’s permissions determine what it can change; the MCP key itself has no read-only switch. See <a href="../docs/security.html#scope">access to repositories and infrastructure</a>.</p>
-<h2 id="ask">2. Let Ryker pick up the alert</h2>
-<p>When your monitoring app posts an actionable alert, Ryker can start investigating in its thread without a mention. Include the service, environment, time and symptom in the alert, along with a link to its logs or metrics.</p>
-<p>For example, a checkout error-rate alert gives Ryker a reason to check recent deployments, compare failing requests with application logs, and read the code that handles them. Routine success notices and duplicate alerts can stay quiet.</p>
-<p>You can also start the same work yourself. Mention Ryker in an existing alert’s thread and describe the whole outcome you need:</p>
-<pre><code>@Ryker investigate these checkout errors in staging. Find the cause, prepare a fix, and check recovery afterward. Bring any required approval back to us here.</code></pre>
-<h2 id="evidence">3. Follow the investigation</h2>
-<p>Ryker gathers evidence through Emisar and the connected repositories, tests its explanation, and reports what it found. Its reply links to supporting evidence and separates what it confirmed from what it could not verify.</p>
-<p>Open the request in <strong>Activity</strong> to inspect the context it used, tool calls, results and checks. You can add missing context in the thread while it works. Ryker continues the investigation and asks when it needs a real decision or access it does not have.</p>
-<p>For a problem that needs a shared workspace, a configured Slack operator can <a href="../docs/slack.html#incidents">open an incident room</a>. The channel’s alert settings can also create one automatically.</p>
-<h2 id="act">4. Review the proposed change</h2>
-<p>When the fix needs an infrastructure action, Ryker can carry it out through Emisar. If policy requires approval, it posts an <strong>Emisar review</strong> card. Open the link to review the exact command, target and expected effect. An authorized person approves or denies it in Emisar; Ryker then continues in the same conversation.</p>
-<p>Actions already allowed by policy can run without another approval. A reply in Slack does not change that policy or approve an Emisar request.</p>
-<p>If the lasting fix belongs in code, Ryker can propose a <a href="first-code-change.html">code task</a>. Confirm it with <strong>Start task</strong>, then Ryker prepares and tests the change in co:op and brings back a draft pull request. Your team reviews and merges the draft through its usual release process.</p>
-<h2 id="verify">5. Let Ryker check recovery</h2>
-<p>After an infrastructure action, Ryker checks its intended effect against fresh evidence where the tools support it. It can compare the new error rate or health check with the original alert and report whether the service recovered. A successful command and a recovered service are separate results.</p>
-<p>If recovery takes time, Ryker can wait and check again in the same request. That wait survives a restart and uses no model or worker while idle. For a code fix, verification follows your deployment; when a matching deployment event is available, Ryker can pick up from there.</p>
-<p>The thread keeps the findings, approvals, changes and observed result together. If recovery is still unverified, Ryker says what is missing so your team knows what remains.</p>
-<h2 id="next">Make the next alert easier</h2>
-<p><a href="../docs/memory.html#confirmed">Save a confirmed team decision</a> that will help the next investigation. For a specific response to an event, add <a href="../docs/actions.html#rules">a standing request</a>; for a regular check, set up <a href="../docs/actions.html#schedules">a schedule</a>. Each run follows its environment and Emisar policy.</p>
-
-    <nav class="doc-next" aria-label="Page navigation"><a href="../docs/index.html"><span class="k">Documentation</span><span class="t">All guides &rarr;</span></a><a class="next" href="../docs/actions.html"><span class="k">Go further</span><span class="t">Approvals and automation &rarr;</span></a></nav></main>
-
-  <nav class="toc" aria-label="On this page"><p class="lbl">On this page</p><ul><li><a href="#prepare">1. Connect the system</a></li>
-<li><a href="#ask">2. Let Ryker pick up the alert</a></li>
-<li><a href="#evidence">3. Follow the investigation</a></li>
-<li><a href="#act">4. Review the proposed change</a></li>
-<li><a href="#verify">5. Let Ryker check recovery</a></li>
-<li><a href="#next">Make the next alert easier</a></li></ul></nav>
+  <nav class="toc" aria-label="On this page"><p class="lbl">On this page</p><ul><li><a href="#connect">Connect the systems it needs</a></li>
+<li><a href="#alert">Start with an alert</a></li>
+<li><a href="#approvals">Approve a change through Emisar</a></li>
+<li><a href="#recovery">Check that the fix worked</a></li>
+<li><a href="#incidents">Move coordinated work into an incident room</a></li>
+<li><a href="#evidence">Review the investigation</a></li></ul></nav>
 
 </div>
 </div>

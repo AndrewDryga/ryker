@@ -4,18 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Install Ryker — Ryker docs</title>
-<meta name="description" content="Install Ryker with Docker Compose, connect Slack and GitHub, choose your repositories, and get your first answer. Includes sign-in and troubleshooting.">
+<meta name="description" content="Install Ryker with Docker Compose, connect Slack and GitHub, choose repository access, and verify your setup with a real question about your code.">
 <!-- The static build supplies absolute canonical and social URLs. -->
 <meta property="og:type" content="website">
 <meta property="og:title" content="Install Ryker — Ryker docs">
-<meta property="og:description" content="Install Ryker with Docker Compose, connect Slack and GitHub, choose your repositories, and get your first answer. Includes sign-in and troubleshooting.">
+<meta property="og:description" content="Install Ryker with Docker Compose, connect Slack and GitHub, choose repository access, and verify your setup with a real question about your code.">
 <meta property="og:image" content="../assets/og.png">
 <meta property="og:image:width" content="1600">
 <meta property="og:image:height" content="840">
 <meta property="og:image:alt" content="Ryker">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Install Ryker — Ryker docs">
-<meta name="twitter:description" content="Install Ryker with Docker Compose, connect Slack and GitHub, choose your repositories, and get your first answer. Includes sign-in and troubleshooting.">
+<meta name="twitter:description" content="Install Ryker with Docker Compose, connect Slack and GitHub, choose repository access, and verify your setup with a real question about your code.">
 
 <meta name="color-scheme" content="dark">
 <link rel="icon" href="../assets/brand/avatar.svg" type="image/svg+xml">
@@ -42,24 +42,26 @@
     <details>
       <summary>Documentation</summary>
       <div>
-        <nav aria-label="Documentation"><p class="grp">Start</p><ul>
-<li><a href="../docs/index.html">What Ryker is</a></li>
+        <nav aria-label="Documentation">
+<p class="grp">Start here</p><ul>
+<li><a href="../docs/index.html">What is Ryker?</a></li>
 <li><a href="../docs/getting-started.html" class="on" aria-current="page">Install Ryker</a></li>
+<li><a href="../docs/environments.html">Repositories and tools</a></li>
 </ul>
-<p class="grp">Walkthroughs</p><ul>
-<li><a href="../guides/first-code-change.html">Your first code change</a></li>
-<li><a href="../guides/investigate-an-alert.html">Investigate an alert</a></li>
-</ul>
-<p class="grp">Using it</p><ul>
+<p class="grp">Work together</p><ul>
 <li><a href="../docs/slack.html">Working in Slack</a></li>
-<li><a href="../docs/github.html">Working with GitHub</a></li>
-<li><a href="../docs/actions.html">Approvals and automation</a></li>
-<li><a href="../docs/memory.html">Memory and recall</a></li>
+<li><a href="../guides/first-code-change.html">Your first code change</a></li>
+<li><a href="../docs/github.html">GitHub and pull requests</a></li>
+<li><a href="../guides/investigate-an-alert.html">Alerts and incidents</a></li>
 </ul>
-<p class="grp">Managing it</p><ul>
+<p class="grp">Build on it</p><ul>
+<li><a href="../docs/actions.html">Schedules and follow-ups</a></li>
+<li><a href="../docs/memory.html">Memory and learning</a></li>
 <li><a href="../docs/control-plane.html">The console</a></li>
-<li><a href="../docs/operations.html">Running Ryker</a></li>
+</ul>
+<p class="grp">Run your installation</p><ul>
 <li><a href="../docs/security.html">Access and data</a></li>
+<li><a href="../docs/operations.html">Running Ryker</a></li>
 </ul>
 </nav>
       </div>
@@ -67,114 +69,64 @@
   </aside>
 
   <main class="doc" id="main">
-    <p class="crumb"><a href="../index.html">Ryker</a> <span>/</span> <a href="index.html">Docs</a> <span>/</span> <span>Install Ryker</span></p>
+<p class="crumb"><a href="../index.html">Ryker</a> <span>/</span> <a href="../docs/index.html">Docs</a> <span>/</span> <span>Install Ryker</span></p>
+<h1>Install Ryker</h1>
+<p class="lede">The installer starts Ryker and its worker on your host. You then connect Slack and GitHub in the browser and ask a question about one of your repositories.</p>
+<details class="doc-toc"><summary>On this page</summary><ul><li><a href="#requirements">What you need</a></li>
+<li><a href="#install">Start the services</a></li>
+<li><a href="#setup">Connect your tools</a></li>
+<li><a href="#first-answer">Ask about your code</a></li>
+<li><a href="#troubleshooting">If something does not work</a></li>
+<li><a href="#next">After the first answer</a></li></ul></details>
+<h2 id="requirements">What you need</h2>
+<ul>
+<li>A trusted host with Git, Docker, Docker Compose v2, OpenSSL, curl, and tar.</li>
+<li>A model account. The installer signs in to Codex inside the private co:op worker, separately from any account on your host.</li>
+<li>Permission to create and install apps in your Slack workspace and GitHub account or organization.</li>
+</ul>
+<p>The first installation builds its images locally. The included voice and search models add about 4 GB of images and use about 3.5 GB of memory, on top of Ryker and its worker. Their first build downloads about 2.8 GB. See <a href="operations.html#project">the services on your host</a>.</p>
+<p>Ryker’s source is available under Business Source License 1.1. Non-production use is allowed; production use requires a <a href="security.html#license">commercial license</a>.</p>
+<h2 id="install">Start the services</h2>
+<pre data-copy-label="Terminal" data-copy-button="Copy install commands"><code>git clone https://github.com/AndrewDryga/ryker ryker
+cd ryker
+./install.sh</code></pre>
+<p>The installer creates <code>.ryker/</code>, generates database credentials and encryption keys, builds the images, and starts the services. It asks you to sign in to the model account when needed. Running it again keeps your existing keys and data.</p>
+<p>When the services are ready, it prints a sign-in link that opens setup. The link works once and expires after an hour. For a new link, run:</p>
+<pre data-copy-label="Terminal"><code>scripts/compose.sh sign-in</code></pre>
+<p>On a remote host, open the console through an <a href="operations.html#exposure">SSH tunnel or HTTPS address</a>. Its default address is <code>http://127.0.0.1:4321</code>.</p>
+<h2 id="setup">Connect your tools</h2>
+<ol>
+<li><strong>Connect Slack.</strong> Create an app from <a href="https://github.com/AndrewDryga/ryker/blob/main/deploy/slack-app-manifest.yaml">Ryker’s Slack manifest</a>. Generate an app-level token with <code>connections:write</code>, install the app, and paste its app and bot tokens into setup. Choose the people who can manage Ryker.</li>
+<li><strong>Connect GitHub.</strong> Create and install a GitHub App with the <a href="github.html#permissions">required permissions and events</a>. Enter its App ID and private key in Ryker, then copy the webhook settings Ryker supplies into GitHub.</li>
+<li><strong>Add code.</strong> Import a repository under <strong>Work › Repositories</strong>. Create an <a href="environments.html">environment</a> under <strong>Work › Environments</strong> and add it there. Choose it as the default repository. The default requires read/write access; asking the question below does not start a code task.</li>
+<li><strong>Choose a Slack channel.</strong> Send <code>/invite @Ryker</code>, then choose its environment under <strong>Work › Channels</strong> or press <strong>Customize</strong> on the welcome message.</li>
+</ol>
+<p>Integration credentials are encrypted in PostgreSQL. The generated encryption keys live in the owner-only <code>.ryker/compose.env</code>; keep that file with your backups.</p>
+<p>You can add Emisar later for <a href="environments.html#emisar">access to running systems</a>.</p>
+<h2 id="first-answer">Ask about your code</h2>
+<p>In the channel you configured, replace the repository name and send:</p>
+<pre data-copy-label="Slack" data-copy-button="Copy example"><code>@Ryker what does your-team/your-repository do, and how do its tests run?</code></pre>
+<p>Ryker should answer using the repository’s files. Open the reply’s request in <strong>Activity</strong> to see what it read and did. Setup marks this step complete after the Slack reply arrives.</p>
+<p>You can also ask in the console’s <a href="control-plane.html#chat">Chat</a>. That checks repository and model access; the Slack reply checks delivery to your workspace too.</p>
+<h2 id="troubleshooting">If something does not work</h2>
+<dl>
+<div><dt>The console asks for a sign-in link</dt><dd>Run <code>scripts/compose.sh sign-in</code> on the host. Slack operators can also use <code>/ryker sign-in</code>.</dd></div>
+<div><dt>Ryker cannot see the repository</dt><dd>Check the GitHub App installation, the imported repository, and the channel’s environment. All three must include it.</dd></div>
+<div><dt>No Slack reply arrives</dt><dd>Check <strong>Integrations › Slack</strong>, confirm Ryker joined the channel, and mention it directly. Find the request in <strong>Activity</strong>; its timeline and the <strong>Failures</strong> page show where it stopped.</dd></div>
+<div><dt>Work waits for a worker or model</dt><dd>Check <strong>Settings › Advanced</strong> and <strong>Work › Working copies</strong>. If the model needs a new sign-in, run <code>scripts/compose.sh model-login</code>. See <a href="operations.html#health">health and recovery</a> for service checks.</dd></div>
+</dl>
+<h2 id="next">After the first answer</h2>
+<p>New channels reply only to mentions unless you changed the default. Background learning is on. Proactive participation, draft pull requests, and weekly reports are separate settings.</p>
+<p>Next, choose the <a href="environments.html">repositories and tools</a> Ryker should use together. Then try <a href="../guides/first-code-change.html">a code change</a> with a repository marked read/write.</p>
+<nav class="doc-next" aria-label="Page navigation"><a href="../docs/index.html" rel="prev"><span class="k">Previous</span><span class="t">What is Ryker?</span></a><a class="next" href="../docs/environments.html" rel="next"><span class="k">Next</span><span class="t">Repositories and tools</span></a></nav>
+</main>
 
-    <h1>Install Ryker</h1>
-
-    <p class="lede">Run Ryker on your own host, connect your tools, and ask it a first question in Slack. The installer starts the services; the setup page walks you through the connections.</p>
-
-    <details class="doc-toc">
-      <summary>On this page</summary>
-      <ul>
-        <li><a href="#requirements">What you need</a></li>
-        <li><a href="#install">Install</a></li>
-        <li><a href="#setup">Set it up</a></li>
-        <li><a href="#verify">Get your first answer</a></li>
-        <li><a href="#troubleshooting">If you get stuck</a></li>
-        <li><a href="#defaults">Choose what happens next</a></li>
-      </ul>
-    </details>
-
-    <p>Evaluating Ryker? The source is available under <a href="security.html#license">Business Source License 1.1</a>; production use requires a commercial license.</p>
-
-    <h2 id="requirements">What you need</h2>
-
-    <ul>
-      <li>A trusted host with Git, Docker, Docker Compose v2, OpenSSL, curl and tar.</li>
-      <li>A model account. The installer signs in to Codex inside co:op’s private worker; it keeps that sign-in separate from any model account session on your host.</li>
-      <li>A Slack workspace where you can create and install an app.</li>
-      <li>A GitHub account that can create an App and install it on the repositories you choose.</li>
-      <li>Optionally, an <a href="https://emisar.dev/">Emisar</a> account for access to running systems.</li>
-    </ul>
-
-    <p>The first install builds its images locally. The included voice and search models add about 4 GB of images and use about 3.5 GB of memory, in addition to Ryker and its worker. Their first build downloads about 2.8 GB. <a href="operations.html#project">See what runs on the host</a>.</p>
-
-    <h2 id="install">Install</h2>
-
-    <pre><code><span class="tok-x">git</span> <span class="tok-v">clone https://github.com/AndrewDryga/ryker ryker</span>
-<span class="tok-x">cd</span> <span class="tok-v">ryker</span>
-<span class="tok-x">./install.sh</span></code></pre>
-
-    <p>The installer creates <code>.ryker/</code>, generates the database password and encryption keys, builds the images, and starts PostgreSQL, Ryker and the bundled worker. It asks you to sign in to the model account when the worker needs one.</p>
-
-    <p>When health, readiness and the running version check out, it prints a link that signs you in and opens setup. The link works once, within an hour. Running the installer again keeps your existing keys and data.</p>
-
-    <p>Open the printed link. If it expires, run this on the host for another:</p>
-    <pre><code><span class="tok-x">scripts/compose.sh</span> <span class="tok-v">sign-in</span></code></pre>
-
-    <p>Enter Slack, GitHub, Emisar and webhook credentials in Ryker’s setup pages. Ryker encrypts them in PostgreSQL. The owner-only <code>.ryker/compose.env</code> holds installation settings and generated encryption keys; keep it with your backups.</p>
-
-    <h2 id="setup">Set it up</h2>
-
-    <p>Setup at <code>http://127.0.0.1:4321/setup</code> opens after you sign in. Follow these six steps:</p>
-
-    <ol>
-      <li><strong>Connect Slack.</strong> Create an app from <a href="https://github.com/AndrewDryga/ryker/blob/main/deploy/slack-app-manifest.yaml">Ryker’s Slack manifest</a>. Generate an app-level token with <code>connections:write</code>, install the app, and paste its app token and bot token into Ryker. Choose who can manage it.</li>
-      <li><strong>Connect GitHub.</strong> Create and install a GitHub App using <a href="github.html">the GitHub setup guide</a>. Enter its App ID and private key in Ryker, then copy the webhook settings Ryker supplies into the App’s settings.</li>
-      <li><strong>Add repositories.</strong> Choose the repositories Ryker may use. It reads each one and keeps its reference notes under <strong>Work › Repositories</strong>, without opening a pull request or changing your files. Under <strong>Work › Environments</strong>, create an environment and choose its repositories and their read-only or read/write access.</li>
-      <li><strong>Invite Ryker.</strong> In your Slack channel, send <code>/invite @Ryker</code>. It posts a welcome message.</li>
-      <li><strong>Choose the channel’s environment.</strong> Select it under <strong>Work › Channels</strong> or press <strong>Customize</strong> on the welcome message. A channel uses the default environment if one was already chosen when it joined.</li>
-      <li><strong>Ask a real question.</strong> Use the example below with one of the repositories you added. Setup notices Ryker’s delivered reply and marks this step complete.</li>
-    </ol>
-
-    <p>Connect Emisar under <strong>Integrations › Emisar</strong> when you want Ryker to investigate or act on running systems. It is optional. The first connected account is assigned to environments that have none; later accounts are assigned on the Environments page.</p>
-
-    <h2 id="verify">Get your first answer</h2>
-
-    <p>In the channel you configured, replace the repository name and send:</p>
-    <pre><code>@Ryker what does your-team/your-repository do, and how do its tests run?</code></pre>
-
-    <p>Ryker should answer in Slack using the repository’s actual files. Open <strong>Activity</strong> in the console to inspect that request’s timeline, the work it did, and its cost. You can also ask in <a href="control-plane.html#chat">Chat</a> to test the same path without Slack.</p>
-
-    <p>For a service check on the host:</p>
-    <pre><code><span class="tok-x">scripts/compose.sh</span> <span class="tok-v">status</span>
-<span class="tok-x">curl</span> <span class="tok-v">--fail http://127.0.0.1:4321/healthz</span>
-<span class="tok-x">curl</span> <span class="tok-v">--fail --include http://127.0.0.1:4321/readyz</span></code></pre>
-
-    <p><code>/healthz</code> checks the database connection. <code>/readyz</code> checks the runtimes and progress of due work; its <code>x-ryker-version</code> header identifies the running version. The Slack reply checks the full path from your question to a delivered answer.</p>
-
-    <h2 id="troubleshooting">If you get stuck</h2>
-
-    <dl>
-      <div><dt>The console asks you to sign in</dt><dd>Use the installer’s link or run <code>scripts/compose.sh sign-in</code>. Slack operators can use <code>/ryker sign-in</code>. For a remote host, use an SSH tunnel or <a href="operations.html#exposure">configure HTTPS access</a>.</dd></div>
-      <div><dt>Ryker cannot see a repository</dt><dd>Check the App’s installation and <strong>Work › Repositories</strong>, then add that repository to the channel’s environment. Importing alone does not make it available to conversations.</dd></div>
-      <div><dt>No reply arrives in Slack</dt><dd>Check <strong>Integrations › Slack</strong>, confirm Ryker joined the channel, and mention it directly. In <strong>Activity</strong>, look for the request. If it is there, its timeline and the <strong>Failures</strong> page show where it stopped.</dd></div>
-      <div><dt>Work waits for a worker or model</dt><dd>Check <strong>Settings › Advanced</strong> and <strong>Work › Working copies</strong>. If the model account needs a new sign-in, run <code>scripts/compose.sh model-login</code>. <a href="operations.html#health">Health and recovery</a> covers service failures.</dd></div>
-    </dl>
-
-    <h2 id="defaults">Choose what happens next</h2>
-
-    <p>New channels start with mentions only unless you changed the installation default. Background learning is on by default. Proactive participation, draft pull requests and weekly reports are separate choices you can enable when you are ready.</p>
-
-    <p>Follow <a href="../guides/first-code-change.html">your first code change</a> or <a href="../guides/investigate-an-alert.html">investigate an alert</a>. You can also try <a href="slack.html#setup">Be proactive</a> in one channel, ask for a <a href="actions.html#schedules">scheduled check</a>, or <a href="memory.html#confirmed">save a team decision</a>. Changes to running systems follow the policy and approvals of the Emisar account you connected.</p>
-
-    <nav class="doc-next" aria-label="Page navigation">
-      <a href="index.html"><span class="k">Previous</span><span class="t">&larr; What Ryker is</span></a>
-      <a class="next" href="slack.html"><span class="k">Next</span><span class="t">Working in Slack &rarr;</span></a>
-    </nav>
-  </main>
-
-  <nav class="toc" aria-label="On this page">
-    <p class="lbl">On this page</p>
-    <ul>
-      <li><a href="#requirements">What you need</a></li>
-      <li><a href="#install">Install</a></li>
-      <li><a href="#setup">Set it up</a></li>
-      <li><a href="#verify">Get your first answer</a></li>
-        <li><a href="#troubleshooting">If you get stuck</a></li>
-      <li><a href="#defaults">Choose what happens next</a></li>
-    </ul>
-  </nav>
+  <nav class="toc" aria-label="On this page"><p class="lbl">On this page</p><ul><li><a href="#requirements">What you need</a></li>
+<li><a href="#install">Start the services</a></li>
+<li><a href="#setup">Connect your tools</a></li>
+<li><a href="#first-answer">Ask about your code</a></li>
+<li><a href="#troubleshooting">If something does not work</a></li>
+<li><a href="#next">After the first answer</a></li></ul></nav>
 
 </div>
 </div>

@@ -3,19 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Memory and recall — Ryker docs</title>
-<meta name="description" content="Save team decisions, give feedback and manage what Ryker remembers. Learn how context is recalled, scoped, reviewed and removed.">
+<title>Memory and learning — Ryker docs</title>
+<meta name="description" content="Learn how Ryker remembers team decisions, learns from feedback and conversations, and recalls past work. Review, correct, or remove its saved knowledge.">
 <!-- The static build supplies absolute canonical and social URLs. -->
 <meta property="og:type" content="website">
-<meta property="og:title" content="Memory and recall — Ryker docs">
-<meta property="og:description" content="Save team decisions, give feedback and manage what Ryker remembers. Learn how context is recalled, scoped, reviewed and removed.">
+<meta property="og:title" content="Memory and learning — Ryker docs">
+<meta property="og:description" content="Learn how Ryker remembers team decisions, learns from feedback and conversations, and recalls past work. Review, correct, or remove its saved knowledge.">
 <meta property="og:image" content="../assets/og.png">
 <meta property="og:image:width" content="1600">
 <meta property="og:image:height" content="840">
 <meta property="og:image:alt" content="Ryker">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Memory and recall — Ryker docs">
-<meta name="twitter:description" content="Save team decisions, give feedback and manage what Ryker remembers. Learn how context is recalled, scoped, reviewed and removed.">
+<meta name="twitter:title" content="Memory and learning — Ryker docs">
+<meta name="twitter:description" content="Learn how Ryker remembers team decisions, learns from feedback and conversations, and recalls past work. Review, correct, or remove its saved knowledge.">
 
 <meta name="color-scheme" content="dark">
 <link rel="icon" href="../assets/brand/avatar.svg" type="image/svg+xml">
@@ -42,24 +42,26 @@
     <details>
       <summary>Documentation</summary>
       <div>
-        <nav aria-label="Documentation"><p class="grp">Start</p><ul>
-<li><a href="../docs/index.html">What Ryker is</a></li>
+        <nav aria-label="Documentation">
+<p class="grp">Start here</p><ul>
+<li><a href="../docs/index.html">What is Ryker?</a></li>
 <li><a href="../docs/getting-started.html">Install Ryker</a></li>
+<li><a href="../docs/environments.html">Repositories and tools</a></li>
 </ul>
-<p class="grp">Walkthroughs</p><ul>
-<li><a href="../guides/first-code-change.html">Your first code change</a></li>
-<li><a href="../guides/investigate-an-alert.html">Investigate an alert</a></li>
-</ul>
-<p class="grp">Using it</p><ul>
+<p class="grp">Work together</p><ul>
 <li><a href="../docs/slack.html">Working in Slack</a></li>
-<li><a href="../docs/github.html">Working with GitHub</a></li>
-<li><a href="../docs/actions.html">Approvals and automation</a></li>
-<li><a href="../docs/memory.html" class="on" aria-current="page">Memory and recall</a></li>
+<li><a href="../guides/first-code-change.html">Your first code change</a></li>
+<li><a href="../docs/github.html">GitHub and pull requests</a></li>
+<li><a href="../guides/investigate-an-alert.html">Alerts and incidents</a></li>
 </ul>
-<p class="grp">Managing it</p><ul>
+<p class="grp">Build on it</p><ul>
+<li><a href="../docs/actions.html">Schedules and follow-ups</a></li>
+<li><a href="../docs/memory.html" class="on" aria-current="page">Memory and learning</a></li>
 <li><a href="../docs/control-plane.html">The console</a></li>
-<li><a href="../docs/operations.html">Running Ryker</a></li>
+</ul>
+<p class="grp">Run your installation</p><ul>
 <li><a href="../docs/security.html">Access and data</a></li>
+<li><a href="../docs/operations.html">Running Ryker</a></li>
 </ul>
 </nav>
       </div>
@@ -67,136 +69,70 @@
   </aside>
 
   <main class="doc" id="main">
-    <p class="crumb"><a href="../index.html">Ryker</a> <span>/</span> <a href="index.html">Docs</a> <span>/</span> <span>Memory and recall</span></p>
+<p class="crumb"><a href="../index.html">Ryker</a> <span>/</span> <a href="../docs/index.html">Docs</a> <span>/</span> <span>Memory and learning</span></p>
+<h1>Memory and learning</h1>
+<p class="lede">Ryker can carry useful context from one conversation to the next: a team decision, a past investigation, or a correction you gave it. You can see what it kept, where it came from, and whether it should still be used.</p>
+<details class="doc-toc"><summary>On this page</summary><ul><li><a href="#confirmed">Ask it to remember something</a></li>
+<li><a href="#feedback">Teach it through feedback</a></li>
+<li><a href="#learning">Learn from conversations</a></li>
+<li><a href="#recall">Use memory in a new request</a></li>
+<li><a href="#records">What the memory pages contain</a></li>
+<li><a href="#instructions">Write team instructions</a></li>
+<li><a href="#preferences">Set preferences and guidance</a></li>
+<li><a href="#review">Correct or remove stale knowledge</a></li>
+<li><a href="#retention">How long memory lasts</a></li></ul></details>
+<h2 id="confirmed">Ask it to remember something</h2>
+<pre data-copy-label="Slack" data-copy-button="Copy example"><code>@Ryker remember for the team: keep the old billing API until the mobile rollout finishes. Keep this for 30 days.</code></pre>
+<p>Ryker shows the proposed fact, where it applies, and when it expires. A configured operator confirms the card to save it. Facts can apply everywhere or be limited to a workspace, repository, or conversation. The card shows which. Ask “what do you remember here?” to see the facts available in that conversation.</p>
+<p>If Ryker asks an operator a question and says it will remember the answer, that answer saves the fact without a second click.</p>
+<h2 id="feedback">Teach it through feedback</h2>
+<p>Tell Ryker what to do differently: “Always show the before-and-after replica counts in these reviews.” An operator’s explicit correction can be saved as guidance for later work in that conversation. The correction is already an instruction, so it needs no second confirmation.</p>
+<p>Ryker shows what it saved and where it applies. Remove the guidance from that card, or manage it under <strong>Instructions</strong>. A reaction on a message alone does not save guidance.</p>
+<h2 id="learning">Learn from conversations</h2>
+<p>Background learning reads retained messages in small batches and updates useful topics: a rollout decision, an intended configuration, or an unresolved problem. Each topic links to its source messages and keeps its earlier versions. A batch of ordinary chatter may produce no update.</p>
+<p>Learning is on by default. It runs independently of replies, so Ryker can build knowledge while staying silent, including in an observe-only channel. Learning itself never posts a message.</p>
+<p>Turn it off under <strong>Memory › Learning</strong> to pause processing. Messages wait, and existing knowledge stays. Under <strong>Memory › Learned</strong>, open a topic to inspect its sources, update history, and the request and answer behind each update.</p>
+<h2 id="recall">Use memory in a new request</h2>
+<p>Ryker begins with a small selection of relevant facts, guidance, recent excerpts, and conversation summaries. It can search further by text, kind, source, or date, and follow an excerpt back to the original conversation.</p>
+<p>The current request, safety rules, fresh evidence, current repository content, and configuration take priority over remembered context. A previous incident can suggest where to look, but Ryker needs new evidence to establish the cause or current health.</p>
+<p>Recall respects access. Private-channel context stays within its permitted scope, and material from another channel requires current membership. Memory cannot grant permission to act.</p>
+<h2 id="records">What the memory pages contain</h2>
+<table><thead><tr><th>Record</th><th>What it keeps</th></tr></thead><tbody>
+<tr><td>Source excerpts</td><td>The original words, source, and time of a message. These are available before background learning catches up.</td></tr>
+<tr><td>Learned topics</td><td>The current understanding of a subject, its sources, corrections, open questions, and previous versions.</td></tr>
+<tr><td>Conversation summaries</td><td>Where a conversation stands when work is accepted. Older summaries fold into weekly rollups without another model call.</td></tr>
+<tr><td>Cases</td><td>Completed work: the problem, established cause, attempts, outcome, and sources. Related incidents remain separate cases.</td></tr>
+<tr><td>Facts</td><td>Information people explicitly confirmed. Background learning cannot change it.</td></tr>
+<tr><td>Findings</td><td>Investigation conclusions and the evidence behind them.</td></tr>
+<tr><td>People</td><td>Context about teammates.</td></tr>
+</tbody></table>
+<h2 id="instructions">Write team instructions</h2>
+<p>Use <strong>Instructions</strong> in the console for directions you want Ryker to follow. The installation-wide field applies everywhere. A channel can add instructions that take priority where the two disagree. Each field accepts up to 2,000 characters.</p>
+<p>Ryker records the instructions sent with each model call. Saved changes apply when it prepares the next call; a call already prepared keeps its original instructions. The model cannot edit these instructions, and they cannot expand its permissions.</p>
+<h2 id="preferences">Set preferences and guidance</h2>
+<p>Preferences cover check depth (<strong>quick</strong>, <strong>standard</strong>, or <strong>deep</strong>), reply detail (<strong>concise</strong>, <strong>standard</strong>, or <strong>detailed</strong>), and where to reply: follow the conversation, prefer a thread, or prefer the channel.</p>
+<p>Person settings take priority over channel settings, then repository settings, then workspace settings. Reply location supports person, channel, and workspace scope.</p>
+<p>Guidance is advice in your own words. Personal guidance follows the person across channels; channel and workspace guidance hold team conventions. Manage both preferences and guidance under <strong>Instructions</strong>, where they can be paused, resumed, or deleted.</p>
+<h2 id="review">Correct or remove stale knowledge</h2>
+<p><strong>Memory › Facts</strong> flags duplicate facts and facts that nobody updated, recalled, or reviewed in 30 days. Keep, edit, merge, or forget them there or in Slack App Home. The review never changes a confirmed fact on its own.</p>
+<p>Forgetting erases the value; replaced and removed values are not copied into the audit record. If a learned topic loses one of its source messages, Ryker stops using it until you rebuild it from messages you choose.</p>
+<h2 id="retention">How long memory lasts</h2>
+<p>Conversation memory lasts 90 days by default, set under <strong>Settings › Data retention</strong>. Reading a memory does not extend its life. Changes to the source message, deletion, or loss of access can make it unavailable sooner.</p>
+<p>Confirmed facts follow the expiry date shown on their card, even when they apply everywhere. An answer Ryker explicitly remembers for the installation can have no expiry. Facts scoped to a workspace, repository, or conversation can also be removed after the conversation-memory retention period since their last change or review. Recalling a fact does not reset that period.</p>
+<p>Cases have no routine expiry, but deleting their source message erases the text of every case built from it.</p>
+<p>When a reply seems to ignore or misuse memory, inspect the request’s <a href="control-plane.html#timeline">recorded context in the console</a> to see what was actually included.</p>
+<nav class="doc-next" aria-label="Page navigation"><a href="../docs/actions.html" rel="prev"><span class="k">Previous</span><span class="t">Schedules and follow-ups</span></a><a class="next" href="../docs/control-plane.html" rel="next"><span class="k">Next</span><span class="t">The console</span></a></nav>
+</main>
 
-    <h1>Memory and recall</h1>
-
-    <p class="lede">Ryker carries useful context between conversations: decisions, past investigations and the way your team likes to work. You can ask it what it remembers, save a decision, correct its guidance or remove something it no longer needs.</p>
-
-    <details class="doc-toc">
-      <summary>On this page</summary>
-      <ul>
-        <li><a href="#confirmed">Save a decision or fact</a></li>
-        <li><a href="#feedback">Learning from feedback</a></li>
-        <li><a href="#precedence">How memory informs an answer</a></li>
-        <li><a href="#learning">Learning from conversations</a></li>
-        <li><a href="#kinds">What it keeps</a></li>
-        <li><a href="#recall">How it recalls</a></li>
-        <li><a href="#preferences">Preferences and guidance</a></li>
-        <li><a href="#instructions">Instructions</a></li>
-        <li><a href="#review">Keeping memory honest</a></li>
-        <li><a href="#retention">How long it lasts</a></li>
-      </ul>
-    </details>
-
-    <h2 id="confirmed">Save a decision or fact</h2>
-
-    <p>You can ask Ryker to remember a fact, such as what a service is called or which repository holds it, or open-ended guidance such as “when explaining a fix to me, start with a simple summary.”</p>
-
-    <p>For these requests, Ryker shows the exact value, where it applies and when it expires on a card. A configured operator confirms the card to save it. When Ryker asks an operator a question and says the answer will be remembered, that answer is saved as a fact without a second click.</p>
-
-    <p>A fact applies everywhere, to one repository, or in one channel, and the row says which. In a channel, ask Ryker “what do you remember here?” to see what it would use.</p>
-
-    <pre><code>@Ryker remember for the team: keep the old billing API until the mobile rollout finishes. Keep this for 30 days.</code></pre>
-
-    <h2 id="feedback">Learning from feedback</h2>
-
-    <p>Tell Ryker what to do differently next time. A configured operator’s explicit correction, such as “always show the before-and-after replica counts in these reviews,” can be saved as guidance for later work in that conversation. The correction itself is your instruction, so there is no second confirmation.</p>
-
-    <p>Ryker shows the saved guidance and where it applies. You can remove it from that card or manage it under <strong>Instructions</strong>.</p>
-
-    <h2 id="precedence">How memory informs an answer</h2>
-
-    <p>When sources disagree, the order is fixed. The current request, Ryker’s safety rules, fresh live evidence, the current repository content and Ryker’s configuration all come before anything remembered.</p>
-
-    <p>Remembered context helps Ryker decide where to look. To establish current health, deployment state or an approval, it checks fresh evidence. Memory holds no credentials and grants no permission to act.</p>
-
-    <h2 id="learning">Learning from conversations</h2>
-
-    <p>Deciding whether to reply and deciding what to remember are two different jobs. Ryker keeps what a message actually said even when it chooses to stay silent, or when a channel is set to observe only.</p>
-
-    <p>Background learning, which is on by default, then reads those messages in small batches and keeps useful subjects up to date: a rollout decision, an intended configuration, an unresolved problem. Ordinary chatter can produce no memory at all, and “nothing to change” is a normal outcome. Learning never sends a reply, and it can be switched off at once under <strong>Memory › Learning</strong>; messages then wait, and nothing already learned is lost.</p>
-
-    <p>Each subject keeps its update history and source messages. Related incidents remain separate records, so a shared service name does not turn one incident’s conclusion into another’s.</p>
-
-    <h2 id="kinds">What it keeps</h2>
-
-    <dl>
-      <div><dt>Source excerpts</dt><dd>What a message actually said, with where it came from and when. Available before background learning catches up, and not another model summary.</dd></div>
-      <div><dt>Topics</dt><dd>The current understanding of a useful subject, linked to the messages it came from, including corrections and open questions. Every earlier version stays in the topic’s history.</dd></div>
-      <div><dt>Conversation summaries</dt><dd>Where each conversation stands, written when work is accepted, so a later session can pick it up. Older summaries fold into weekly rollups without another model call.</dd></div>
-      <div><dt>Past cases</dt><dd>When work finishes, a compact record of it: the problem, the cause when one was actually established, what was tried, how it ended, and links to the sources. A case has no routine expiry, so a similar problem a year later can start with last year’s record, as history to check.</dd></div>
-      <div><dt>Confirmed facts, preferences and guidance</dt><dd>What people explicitly asked Ryker to keep. Background learning cannot change them or turn them into permission.</dd></div>
-    </dl>
-
-    <p>Topics and conversation summaries are under <strong>Memory › Learned</strong>, confirmed facts under <strong>Memory › Facts</strong>, and the conclusions of investigations, each with its evidence, under <strong>Memory › Findings</strong>. Open <strong>Memory › Cases</strong> for completed investigations and <strong>Memory › People</strong> for context about teammates.</p>
-
-    <h2 id="recall">How it recalls</h2>
-
-    <p>Each new request gets a small selection of what it is allowed to see: relevant facts and guidance, recent excerpts, and summaries of related conversations. When that is not enough, the model can search memory further, by text, kind, source and date, page through the results, and follow an excerpt back into its original conversation.</p>
-
-    <p>Results are historical context. Private-channel context stays in its own scope, and anything from another channel requires current membership. A past case is advice about what worked once, never proof that this incident has the same cause, and never permission to repeat the fix.</p>
-
-    <h2 id="preferences">Preferences and guidance</h2>
-
-    <p>You can save three kinds of preference:</p>
-
-    <dl>
-      <div><dt>Check depth</dt><dd>quick, standard or deep, for example “when I ask about infrastructure health, always do a deep check.”</dd></div>
-      <div><dt>Reply detail</dt><dd>concise, standard or detailed.</dd></div>
-      <div><dt>Where to reply</dt><dd>follow the conversation, prefer a thread, or prefer the channel.</dd></div>
-    </dl>
-
-    <p>Each is set for one person, a channel, a repository or the workspace, and the closest one wins in that order. Where to reply supports person, channel and workspace settings.</p>
-
-    <p>Guidance is advice in your own words. Personal guidance follows the person who gave it across channels; channel and workspace guidance records a team convention. Either way it is advice: it cannot start work, open an incident, approve an action, or count as evidence. Preferences and guidance are listed under <strong>Instructions</strong>, where each can be paused, resumed or deleted.</p>
-
-    <h2 id="instructions">Instructions</h2>
-
-    <p>Write instructions directly in the console to tell Ryker how to work. The installation-wide field applies to every conversation. A channel can add its own instructions, which take priority where the two disagree. Each field holds up to 2,000 characters.</p>
-
-    <p>Every new request carries a snapshot of the instructions that applied when it started; work already running keeps what it started with. Instructions never give Ryker permission to do more, and the model cannot edit them.</p>
-
-    <h2 id="review">Keeping memory honest</h2>
-
-    <p>Open <strong>Memory › Facts</strong> to review saved facts. Ryker’s scheduled review flags:</p>
-
-    <dl>
-      <div><dt>Unused</dt><dd>A fact nobody updated, recalled or reviewed in the last 30 days.</dd></div>
-      <div><dt>Repeated</dt><dd>The same fact or guidance saved more than once in the same place.</dd></div>
-    </dl>
-
-    <p>Flagged facts appear in App Home and under <strong>Memory › Facts</strong>, where you keep, edit, merge or forget each one. Forgetting erases the value. The review <strong>never silently edits what people confirmed</strong>, and a removed or replaced value is not copied into the audit record.</p>
-
-    <p>A topic that lost a message it was learned from is marked as not used, and Ryker stops relying on it until you rebuild it from messages you choose. The Learned page shows the exact request and answer behind every update.</p>
-
-    <h2 id="retention">How long it lasts</h2>
-
-    <p>Conversation memory lasts 90 days by default. Change this under <strong>Settings › Data retention</strong>. Reading a memory does not extend its life. If the original message changes, is deleted or becomes inaccessible, the memory may become unavailable sooner. Each memory’s page shows its source, updates and expiry.</p>
-
-    <p>Facts that apply everywhere do not expire on their own; other facts end at their own expiry, or once they go unused for as long as conversation memory is kept. Past cases have no routine expiry, but deleting the original message erases the text of every case built from it.</p>
-
-    <nav class="doc-next" aria-label="Page navigation">
-      <a href="actions.html"><span class="k">Previous</span><span class="t">&larr; Approvals and automation</span></a>
-      <a class="next" href="control-plane.html"><span class="k">Next</span><span class="t">The console &rarr;</span></a>
-    </nav>
-  </main>
-
-  <nav class="toc" aria-label="On this page">
-    <p class="lbl">On this page</p>
-    <ul>
-      <li><a href="#confirmed">Save a decision or fact</a></li>
-      <li><a href="#feedback">Learning from feedback</a></li>
-      <li><a href="#precedence">How memory informs an answer</a></li>
-      <li><a href="#learning">Learning from conversations</a></li>
-      <li><a href="#kinds">What it keeps</a></li>
-      <li><a href="#recall">How it recalls</a></li>
-      <li><a href="#preferences">Preferences and guidance</a></li>
-      <li><a href="#instructions">Instructions</a></li>
-      <li><a href="#review">Keeping memory honest</a></li>
-      <li><a href="#retention">How long it lasts</a></li>
-    </ul>
-  </nav>
+  <nav class="toc" aria-label="On this page"><p class="lbl">On this page</p><ul><li><a href="#confirmed">Ask it to remember something</a></li>
+<li><a href="#feedback">Teach it through feedback</a></li>
+<li><a href="#learning">Learn from conversations</a></li>
+<li><a href="#recall">Use memory in a new request</a></li>
+<li><a href="#records">What the memory pages contain</a></li>
+<li><a href="#instructions">Write team instructions</a></li>
+<li><a href="#preferences">Set preferences and guidance</a></li>
+<li><a href="#review">Correct or remove stale knowledge</a></li>
+<li><a href="#retention">How long memory lasts</a></li></ul></nav>
 
 </div>
 </div>
