@@ -46,6 +46,14 @@
   /* Close the top menu when the layout stops needing it, so a rotation never
      leaves an open drawer over desktop content. */
   var topMenu = document.querySelector("details.nav-menu");
+  if (topMenu) {
+    document.addEventListener("pointerdown", function (event) {
+      if (topMenu.open && !topMenu.contains(event.target)) topMenu.open = false;
+    });
+    topMenu.addEventListener("focusout", function (event) {
+      if (event.relatedTarget && !topMenu.contains(event.relatedTarget)) topMenu.open = false;
+    });
+  }
   if (topMenu && window.matchMedia) {
     var wide = window.matchMedia("(min-width: 781px)");
     var onWide = function (event) { if (event.matches) topMenu.open = false; };

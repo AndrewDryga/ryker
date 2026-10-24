@@ -395,3 +395,45 @@ for (const [name, source] of [["hero", heroSource], ["examples", examplesSource]
     assert.equal(page.checks.hidden, true);
   });
 }
+
+function navigationPage() {
+  const summary = node();
+  const link = node();
+  const menu = node({ open: true, querySelector: () => summary });
+  menu.appendChild(summary);
+  menu.appendChild(link);
+  const document = node({
+    querySelector: selector => selector === "details.nav-menu" ? menu : null,
+    querySelectorAll: selector => selector === "details.nav-menu, .docs-nav > details" ? [menu] : []
+  });
+  const media = node({ matches: false });
+  const window = node({ matchMedia: () => media });
+  vm.runInNewContext(commonSource, { document, window, navigator: {} });
+  return { menu, summary, link, document, media };
+}
+
+// The mobile drawer used to stay over the page after tapping outside or
+// tabbing into the content, leaving navigation detached from its trigger.
+test("mobile navigation closes when interaction leaves it without taking focus back", () => {
+  const page = navigationPage();
+  page.document.dispatch("pointerdown", { target: page.link });
+  assert.equal(page.menu.open, true, "interaction inside must keep the drawer available");
+  page.document.dispatch("pointerdown", { target: node() });
+  assert.equal(page.menu.open, false, "tapping outside dismisses the drawer");
+  assert.notEqual(page.summary.focused, true, "outside taps keep the user's chosen focus");
+  page.menu.open = true;
+  page.menu.dispatch("focusout", { relatedTarget: page.link });
+  assert.equal(page.menu.open, true);
+  page.menu.dispatch("focusout", { relatedTarget: node() });
+  assert.equal(page.menu.open, false, "tabbing into the page closes the drawer");
+});
+
+test("Escape returns focus to the menu control and desktop restores unobstructed navigation", () => {
+  const page = navigationPage();
+  page.menu.dispatch("keydown", { key: "Escape" });
+  assert.equal(page.menu.open, false);
+  assert.equal(page.summary.focused, true);
+  page.menu.open = true;
+  page.media.dispatch("change", { matches: true });
+  assert.equal(page.menu.open, false);
+});
