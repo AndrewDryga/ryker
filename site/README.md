@@ -123,3 +123,16 @@ and both guides. Run it on the rendered page after the fonts load.
 Message examples use `data-copy-kind="message"` for normal reading type.
 Terminal commands keep monospace. Keep the copy label and action together with
 the content they describe; the clipboard payload is only the original text.
+
+### Mobile examples
+
+Below 960px, each conversation becomes a compact preview. Opening it moves the
+same demo into a native dialog, sized to the visible viewport. The page keeps its
+scroll position; closing or returning to desktop restores the original nodes.
+Only open players can advance on mobile. Reduced motion offers manual chapters;
+without JavaScript, the conversations remain readable in the page.
+
+`test/browser/marketing-mobile-layout.js` checks preview height, page overflow,
+player bounds, room for messages and touch targets. Run it with each example
+open at 320×568, 375×812, 430×932 and 768×1024, seek the Slack and GitHub chapters,
+and verify Escape and the close button return to the opener without a gap.

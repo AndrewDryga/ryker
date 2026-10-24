@@ -38,7 +38,7 @@
   var previous = 0;
   var paused = false;
   var printing = false;
-  var visible = true;
+  var visible = !window.IntersectionObserver;
   var seekTimer = 0;
   var lastPaint = -1;
 
@@ -46,7 +46,7 @@
     if (node.textContent !== value) node.textContent = value;
   }
 
-  function isAnimated() { return !reduced.matches && !printing; }
+  function isAnimated() { return !printing && (!reduced.matches || Boolean(demo.dataset.mobileState)); }
 
   function fit() {
     var height = demo.offsetHeight;
@@ -99,7 +99,7 @@
     slack.setAttribute("aria-hidden", prOpen ? "true" : "false");
     demo.classList.toggle("checks-done", t >= 65);
     demo.classList.toggle("checks-failed", t >= 51 && t < 60);
-    demo.classList.toggle("is-paused", paused || !visible || document.hidden);
+    demo.classList.toggle("is-paused", paused || !visible || document.hidden || reduced.matches || demo.dataset.mobileState === "preview");
 
     var completed = 0;
     checks.forEach(function (check) {
@@ -151,7 +151,7 @@
 
   function tick(now) {
     frame = 0;
-    if (!isAnimated() || paused || !visible || document.hidden || time >= duration) { previous = 0; return; }
+    if (!canPlay()) { previous = 0; return; }
     if (previous) time = Math.min(duration, time + Math.min((now - previous) / 1000, .1));
     previous = now;
     // Thirty paints per second is enough for the progress bars and composing
@@ -160,8 +160,10 @@
     if (time < duration) frame = window.requestAnimationFrame(tick);
   }
 
+  function canPlay() { return isAnimated() && !reduced.matches && demo.dataset.mobileState !== "preview" && !paused && visible && !document.hidden && time < duration; }
+
   function run() {
-    if (!frame && isAnimated() && !paused && visible && !document.hidden && time < duration) frame = window.requestAnimationFrame(tick);
+    if (!frame && canPlay()) frame = window.requestAnimationFrame(tick);
   }
 
   function seek(value) {
@@ -179,12 +181,17 @@
     demo.classList.add("is-seeking");
     window.clearTimeout(seekTimer);
     demo.classList.toggle("is-animated", isAnimated());
-    controls.hidden = reduced.matches || printing;
+    controls.hidden = printing || (reduced.matches && !demo.dataset.mobileState);
     render(true);
     fit();
     seekTimer = window.setTimeout(function () { demo.classList.remove("is-seeking"); }, 80);
     run();
   }
+
+  demo.addEventListener("demomodechange", function (event) {
+    if (event.detail && event.detail.reset) { time = 0; paused = false; }
+    configure();
+  });
 
   play.addEventListener("click", function () {
     if (time >= duration) { paused = false; seek(0); }
@@ -214,11 +221,11 @@
   if (window.ResizeObserver) new ResizeObserver(fit).observe(demo);
   if (window.IntersectionObserver) {
     new IntersectionObserver(function (entries) {
-      visible = entries[0].isIntersecting;
+      visible = entries[0].isIntersecting && entries[0].intersectionRatio >= .6;
       stopFrame();
       render(false);
       run();
-    }, { threshold: 0 }).observe(demo.querySelector(".demo-viewport"));
+    }, { threshold: [0, .6] }).observe(demo.querySelector(".demo-viewport"));
   }
   configure();
 })();

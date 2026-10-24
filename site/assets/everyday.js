@@ -77,7 +77,7 @@
     var printing = false;
     var visible = !window.IntersectionObserver;
 
-    function animated() { return !reduced.matches && !printing; }
+    function animated() { return !printing && (!reduced.matches || Boolean(demo.dataset.mobileState)); }
     function render(instant) {
       var enabled = animated();
       var t = enabled ? time : duration;
@@ -91,7 +91,7 @@
           arrived = arrived || (!event.update && !hidden && !event.node.closest("[hidden]"));
         }
       });
-      demo.classList.toggle("is-paused", paused || !visible || document.hidden);
+      demo.classList.toggle("is-paused", paused || !visible || document.hidden || reduced.matches || demo.dataset.mobileState === "preview");
       var working = enabled && workingRanges.some(function (range) { return t >= range[0] && t < range[1]; });
       arrived = arrived || (working && !demo.classList.contains("is-working"));
       demo.classList.toggle("is-working", working);
@@ -124,7 +124,7 @@
       frame = 0;
       previous = 0;
     }
-    function canPlay() { return animated() && !paused && visible && !document.hidden && !demo.closest("[hidden]") && time < duration; }
+    function canPlay() { return animated() && !reduced.matches && demo.dataset.mobileState !== "preview" && !paused && visible && !document.hidden && !demo.closest("[hidden]") && time < duration; }
     function tick(now) {
       frame = 0;
       if (!canPlay()) { previous = 0; return; }
@@ -138,11 +138,16 @@
     function configure() {
       stop();
       demo.classList.toggle("is-animated", animated());
-      controls.hidden = reduced.matches || printing;
+      controls.hidden = printing || (reduced.matches && !demo.dataset.mobileState);
       render(true);
       run();
     }
     function pauseForReading() { paused = true; stop(); render(false); }
+
+    demo.addEventListener("demomodechange", function (event) {
+      if (event.detail && event.detail.reset) { time = 0; paused = false; }
+      configure();
+    });
 
     play.addEventListener("click", function () {
       if (time >= duration) { paused = false; seek(0); }

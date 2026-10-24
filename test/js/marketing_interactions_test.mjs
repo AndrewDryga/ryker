@@ -92,7 +92,7 @@ test("a denied clipboard selects the actual command and explains manual copying"
   assert.match(page.button.attributes["aria-label"], /Code selected/);
 });
 
-function taskTimeline(source) {
+function taskTimeline(source, mobile = false, reduced = false) {
   const frames = new Map();
   let frameId = 0;
   let now = 100;
@@ -145,7 +145,7 @@ function taskTimeline(source) {
   const github = element();
   const controls = element();
   const demo = element({
-    dataset: { duration: "40", demoName: "task" },
+    dataset: { duration: "40", demoName: "task", ...(mobile ? { mobileState: "preview" } : {}) },
     querySelectorAll: selector => selector === "[data-seek]" ? [seek] : selector === "[data-at]" || selector === "[data-moment]" ? [message, planning, implementation, checks, reply] : []
   });
   const defaultQuery = demo.querySelector;
@@ -158,7 +158,7 @@ function taskTimeline(source) {
     querySelectorAll: selector => selector === ".everyday-demo" ? [demo] : []
   });
   const window = element({
-    matchMedia: () => media,
+    matchMedia: query => query.includes("prefers-reduced-motion") ? { ...media, matches: reduced } : media,
     requestAnimationFrame(callback) { frames.set(++frameId, callback); return frameId; },
     cancelAnimationFrame(id) { frames.delete(id); },
     setTimeout() {}, clearTimeout() {}
@@ -174,7 +174,7 @@ function taskTimeline(source) {
   }
   seek.dispatch("click");
   scrolls.length = 0;
-  return { card, planning, implementation, checks, reply, pane, scrolls, advance };
+  return { card, planning, implementation, checks, reply, pane, scrolls, advance, demo, seek, controls };
 }
 
 // Every progress change used to slide in and scroll the thread again, making
@@ -276,3 +276,122 @@ test("initial fragments and print restore the selected example without rewriting
   assert.equal(modifiedClick.prevented, false);
   assert.equal(page.replacements.length, 0);
 });
+
+// A phone showed only the top of an already-playing thread. Readers reached
+// the controls after the story had moved on, then scrolled past a tall empty pane.
+for (const [name, source] of [["hero", heroSource], ["examples", examplesSource]]) {
+  test(`${name}: compact previews do not spend the viewer's playback time`, () => {
+    const page = taskTimeline(source, true);
+    page.advance(10);
+    assert.equal(page.planning.hidden, false, "a closed preview must not advance");
+    assert.equal(page.implementation.hidden, true);
+    page.demo.dataset.mobileState = "playing";
+    page.demo.dispatch("demomodechange");
+    page.advance(3.3);
+    assert.equal(page.implementation.hidden, false, "opening the player starts playback");
+    page.demo.dataset.mobileState = "preview";
+    page.demo.dispatch("demomodechange");
+    page.advance(15);
+    assert.equal(page.checks.hidden, true, "closing must stop playback");
+  });
+}
+
+function mobilePlayerPage() {
+  function element(properties = {}) {
+    return node({
+      style: {}, dataset: {},
+      appendChild(child) {
+        if (child.parentNode) child.parentNode.children = child.parentNode.children.filter(item => item !== child);
+        this.children.push(child);
+        child.parentNode = this;
+      },
+      insertBefore(child, sibling) {
+        this.children.splice(this.children.indexOf(sibling), 0, child);
+        child.parentNode = this;
+      },
+      replaceWith(child) {
+        if (child.parentNode) child.parentNode.children = child.parentNode.children.filter(item => item !== child);
+        const parent = this.parentNode;
+        parent.children.splice(parent.children.indexOf(this), 1, child);
+        child.parentNode = parent;
+        this.parentNode = null;
+      },
+      dispatchEvent(event) { this.dispatch(event.type, event); },
+      ...properties
+    });
+  }
+  const pane = element();
+  const demo = element({ dataset: { demoTitle: "Writing a fix", duration: "37" }, offsetHeight: 292, querySelector: () => pane });
+  const home = element();
+  home.appendChild(demo);
+  const title = element();
+  const close = element();
+  const dialog = element({
+    open: false,
+    querySelector: selector => selector === "h2" ? title : close,
+    showModal() { this.open = true; },
+    close() { this.open = false; this.dispatch("close"); }
+  });
+  const document = {
+    body: element(), documentElement: element(), querySelectorAll: () => [demo],
+    createElement: name => name === "dialog" ? dialog : element()
+  };
+  const media = element({ matches: true });
+  const window = element({ HTMLDialogElement: { prototype: { showModal() {} } }, matchMedia: () => media, requestAnimationFrame() {} });
+  return { demo, pane, home, dialog, close, document, window, media, title };
+}
+
+// Moving the existing conversation must leave neither a second timeline nor
+// a permanent gap behind, and Escape/rotation/printing must release the page.
+test("the mobile player restores the original conversation and releases page scrolling", async () => {
+  const source = await readFile(new URL("../../site/assets/mobile-demo.js", import.meta.url), "utf8");
+  const page = mobilePlayerPage();
+  vm.runInNewContext(source, { ...page, CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail; } } });
+  const watch = page.demo.children[0];
+  assert.equal(page.pane.inert, true);
+  assert.equal(page.demo.dataset.mobileState, "preview");
+  watch.dispatch("click");
+  assert.equal(page.dialog.open, true);
+  assert.equal(page.demo.parentNode, page.dialog);
+  assert.equal(page.home.children[0].style.height, "292px");
+  assert.equal(page.pane.inert, false);
+  assert.equal(page.close.focused, true);
+  assert.equal(page.title.textContent, "Writing a fix");
+  assert.ok(page.document.body.classList.contains("demo-player-open"));
+  page.dialog.close(); // Native Escape also dispatches close.
+  assert.deepEqual(page.home.children, [page.demo]);
+  assert.equal(page.pane.inert, true);
+  assert.ok(watch.focused);
+  assert.equal(page.document.body.classList.contains("demo-player-open"), false);
+  watch.dispatch("click");
+  page.media.matches = false;
+  page.media.dispatch("change");
+  assert.equal(page.dialog.open, false);
+  assert.equal(page.demo.parentNode, page.home);
+  assert.equal(page.demo.dataset.mobileState, "");
+  assert.equal(page.pane.inert, false);
+  page.media.matches = true;
+  page.media.dispatch("change");
+  watch.dispatch("click");
+  page.window.dispatch("beforeprint");
+  assert.equal(page.dialog.open, false);
+  assert.equal(page.demo.parentNode, page.home);
+  assert.equal(page.document.documentElement.classList.contains("demo-player-open"), false);
+});
+
+for (const [name, source] of [["hero", heroSource], ["examples", examplesSource]]) {
+  test(`${name}: reduced motion allows manual chapters without autoplay on mobile`, () => {
+    const page = taskTimeline(source, true, true);
+    page.demo.dataset.mobileState = "playing";
+    page.demo.dispatch("demomodechange");
+    assert.equal(page.controls.hidden, false);
+    page.advance(20);
+    assert.equal(page.planning.hidden, false);
+    assert.equal(page.implementation.hidden, true);
+    page.seek.dataset.seek = "26";
+    page.seek.dispatch("click");
+    assert.equal(page.implementation.hidden, false);
+    page.advance(20);
+    assert.equal(page.checks.hidden, true);
+  });
+}

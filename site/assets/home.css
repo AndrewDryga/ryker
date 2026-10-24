@@ -441,3 +441,65 @@
 
 .product-demo, .everyday-demo { container-type: inline-size; }
 .github-example.is-animated .github-window { position: absolute; inset: 0; display: flex; flex-direction: column; margin: 0; }
+
+/* On phones, a glimpse of the real thread opens into a focused player. The
+   dialogue is the same DOM as desktop, with no second animation or tall gap. */
+.demo-watch { display: none; }
+.demo-player-open { overflow: hidden; }
+.demo-player { position: fixed; inset: 0; width: 100%; max-width: none; height: 100dvh; max-height: none; margin: 0; padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px); border: 0; background: var(--bg); color: var(--ink); overscroll-behavior: contain; }
+.demo-player::backdrop { background: var(--bg); }
+.demo-player[open] { display: flex; flex-direction: column; }
+.demo-player-heading { display: flex; align-items: center; justify-content: space-between; flex: none; gap: 16px; min-height: 72px; padding: 10px 16px 10px 20px; }
+.demo-player-heading h2 { margin: 0; font-size: 18px; line-height: 24px; font-weight: 400; letter-spacing: -.02em; text-wrap: initial; }
+.demo-player-close { display: grid; place-items: center; flex: none; width: 44px; height: 44px; padding: 0; border: 1px solid var(--line-strong); border-radius: 50%; color: var(--ink); background: transparent; cursor: pointer; }
+.demo-player > :is(.product-demo, .everyday-demo) { display: flex; flex-direction: column; flex: 1; min-height: 0; width: 100%; margin: 0; padding: 0 12px; }
+.demo-player .is-animated .demo-viewport { flex: 1; min-height: 0; height: auto; overflow: hidden; border-radius: 8px; }
+.demo-player .product-demo.is-animated .github-window { inset: 0; transform: translateY(24px); }
+.demo-player .product-demo.is-animated.is-pr-open .github-window { transform: none; }
+.demo-player .demo-controls { flex: none; padding: 16px 4px 20px; }
+.demo-player .demo-chapters { gap: 8px 12px; }
+.demo-player .demo-chapters button { flex-basis: 27%; }
+.demo-player .demo-watch { display: none; }
+@media (max-width: 959px) {
+  [data-mobile-state="preview"] { position: relative; }
+  [data-mobile-state="preview"] .demo-viewport { height: 228px !important; overflow: hidden !important; overflow-clip-margin: 0 !important; border: 1px solid var(--line-strong); border-bottom: 0; border-radius: 10px 10px 0 0; }
+  [data-mobile-state="preview"] .demo-viewport::after { content: ""; position: absolute; z-index: 2; inset: auto 0 0; height: 32px; background: linear-gradient(transparent, var(--panel)); pointer-events: none; }
+  [data-mobile-state="preview"] :is(.slack-window, .github-window) { border: 0; box-shadow: none; border-radius: 0; }
+  [data-mobile-state="preview"] :is(.demo-controls, .slack-bottom, .day-divider, .slack-thread-heading) { display: none; }
+  [data-mobile-state="preview"] .slack-scroll { overflow: hidden; }
+  [data-mobile-state="preview"] .demo-watch { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 64px; padding: 10px 16px; border: 1px solid var(--line-strong); border-top-color: var(--line); border-radius: 0 0 10px 10px; color: var(--ink); background: var(--panel); font: 14px/20px var(--sans); text-align: left; cursor: pointer; }
+  .demo-watch-icon { display: grid; place-items: center; flex: none; width: 36px; height: 36px; border-radius: 50%; background: var(--accent); color: var(--bg); }
+  .demo-watch-length { margin-left: auto; color: var(--dim); font: 12px/20px var(--mono); }
+  .demo-watch:hover { border-color: var(--accent); }
+  .demo-watch:focus-visible { outline-offset: 4px; }
+}
+@media (max-width: 640px) {
+  .chapter-hero { padding-top: 28px; padding-bottom: 24px; }
+  .chapter-hero h1 { font-size: clamp(34px, 8.6vw, 48px); }
+  .chapter-hero .chapter-lead { margin-top: 20px; font-size: 17px; line-height: 27px; }
+  .chapter-hero .btn-row { flex-direction: row; margin-top: 24px; gap: 8px; }
+  .chapter-hero .btn { flex: 1; width: auto; padding-inline: 10px; font-size: 13px; gap: 8px; }
+  .demo-player .chat-message { font-size: 14px; line-height: 22px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .demo-player .playback-toggle { display: none; }
+}
+@media print {
+  .home-page .demo-watch, .home-page .demo-player { display: none; }
+  .home-page [data-mobile-state] .demo-viewport { height: auto !important; overflow: visible !important; border: 0; }
+  .home-page [data-mobile-state] .demo-viewport::after { display: none; }
+  .home-page [data-mobile-state] :is(.slack-thread-heading, .day-divider, .slack-bottom) { display: revert; }
+}
+/* Phone-sized Slack chrome leaves the room for the conversation itself. */
+.demo-player .slack-thread-heading, .demo-player .day-divider:not(.story-time-jump), .demo-player .composer-tools { display: none; }
+.demo-player .message-composer { min-height: 42px; }
+.demo-player .slack-bottom { padding: 0 12px 12px; }
+@media (max-width: 959px) {
+  .demo-watch::before { content: ""; position: absolute; inset: 0; border-radius: 10px; }
+}
+@media (max-height: 500px) {
+  .demo-player-heading { min-height: 56px; padding-block: 6px; }
+  .demo-player .demo-controls { padding-block: 10px; }
+  .demo-player .demo-chapters { flex-wrap: nowrap; overflow-x: auto; }
+  .demo-player .demo-chapters button { flex: 1 0 88px; }
+}
