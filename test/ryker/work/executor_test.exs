@@ -1006,6 +1006,9 @@ defmodule Ryker.Work.ExecutorTest do
     assert FakeAPI.state(fake).session["state"] == "open"
     assert FakeAPI.state(fake).cancel_keys == []
 
+    # The live turn had spent eight claims. Lowering the configured cap must
+    # still leave an explicitly authorized finalization attempt, not reset history.
+    blocked = blocked |> Ecto.Changeset.change(work_attempt_count: 8) |> Repo.update!()
     assert {:ok, episode} = retry_inspected_work(claim)
     assert episode.owner_ref == claim.turn.turn_ref
     retried = Repo.get!(Ryker.Work.Turn, claim.turn.id)
@@ -1020,10 +1023,66 @@ defmodule Ryker.Work.ExecutorTest do
     assert resumed.session.id == claim.session.id
     FakeAPI.update(fake, &Map.put(&1, :checkpoint_error, nil))
 
-    assert {:ok, %{status: :accepted}} = Executor.run(resumed, options(fake))
+    assert resumed.turn.work_attempt_count == 9
+
+    assert {:ok, {:executed, %{status: :accepted}}} =
+             Dispatcher.run_claim(resumed,
+               worker_ref: "completion-resume",
+               executor_options: options(fake),
+               max_attempts: 1
+             )
+
     assert FakeAPI.state(fake).submit_count == 0
     assert FakeAPI.state(fake).create_count == 0
     assert FakeAPI.state(fake).validations == []
+  end
+
+  test "expired completion claims exhaust only their authorized budget and preserve the result" do
+    # October 24: the generic lifetime cap cancelled a retained completed
+    # workspace. Repeated process death must remain bounded without cancellation.
+    {claim, fake} = completed_runner_wait!("completion-budget-crash")
+    FakeAPI.update(fake, &Map.put(&1, :checkpoint_error, {:coop_unavailable, :checkpoint_store}))
+
+    assert {:ok, {:blocked, _}} =
+             Dispatcher.run_claim(claim,
+               worker_ref: "completion-budget",
+               executor_options: options(fake),
+               max_attempts: 1
+             )
+
+    blocked = Repo.get!(Ryker.Work.Turn, claim.turn.id)
+    blocked |> Ecto.Changeset.change(work_attempt_count: 8) |> Repo.update!()
+    assert {:ok, _episode} = retry_inspected_work(claim)
+    assert {:ok, first} = Custody.claim_next("completion-budget-crash", 60, :work)
+    assert first.turn.work_attempt_count == 9
+    assert first.turn.completion_retry_base_count == 8
+
+    first.turn
+    |> Ecto.Changeset.change(lease_expires_at: DateTime.add(DateTime.utc_now(), -60, :second))
+    |> Repo.update!()
+
+    assert {:ok, second} = Custody.claim_next("completion-budget-reclaimed", 60, :work)
+    assert second.turn.work_attempt_count == 10
+    assert second.turn.completion_retry_base_count == 8
+
+    assert Dispatcher.run_claim(second,
+             worker_ref: "completion-budget-reclaimed",
+             executor_options:
+               protocol_options(fake, %{get_turn: fn _ -> flunk("executor ran") end}),
+             max_attempts: 1
+           ) == {:ok, {:blocked, {:work_retry_exhausted, :attempts}}}
+
+    stopped = Repo.get!(Ryker.Work.Turn, claim.turn.id)
+    assert stopped.status == :blocked
+    assert stopped.work_attempt_count == 10
+    assert stopped.completion_retry_base_count == 8
+    assert stopped.cancellation_intent == nil
+    assert stopped.completion_receipt == blocked.completion_receipt
+    assert stopped.candidate == blocked.candidate
+    assert FakeAPI.state(fake).session["state"] == "open"
+    assert FakeAPI.state(fake).cancel_keys == []
+    assert FakeAPI.state(fake).submit_count == 0
+    assert FakeAPI.state(fake).create_count == 0
   end
 
   # 2026-10-12 live: a Chat watch's deadline turn was bound to its session's placement, its
@@ -1195,8 +1254,27 @@ defmodule Ryker.Work.ExecutorTest do
     assert {:ok, _} = Custody.retry_blocked(claim.episode.key, fingerprint)
     assert {:ok, next} = Custody.claim_next("changed-completion", 60, :work)
 
+    # An explicit retry now owns a fresh bounded finalization budget. Its
+    # transient failure may retry once, without resetting that budget again.
+    assert Dispatcher.run_claim(next,
+             worker_ref: "stale-confirmation",
+             executor_options: options(fake),
+             max_attempts: 2
+           ) == {:ok, {:deferred, {:coop_unavailable, :checkpoint_store}}}
+
+    deferred = Repo.get!(Ryker.Work.Turn, claim.turn.id)
+    assert deferred.completion_retry_base_count == 1
+
+    deferred
+    |> Ecto.Changeset.change(next_attempt_at: DateTime.add(DateTime.utc_now(), -60, :second))
+    |> Repo.update!()
+
+    assert {:ok, final} = Custody.claim_next("completion-budget-last", 60, :work)
+    assert final.turn.completion_retry_base_count == 1
+    assert final.turn.work_attempt_count == 3
+
     assert {:ok, {:blocked, _}} =
-             Dispatcher.run_claim(next,
+             Dispatcher.run_claim(final,
                worker_ref: "stale-confirmation",
                executor_options: options(fake),
                max_attempts: 2

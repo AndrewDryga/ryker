@@ -14,6 +14,7 @@ defmodule Ryker.Work.Dispatcher do
   alias Ryker.ErrorDetail
   alias Ryker.Reference
   alias Ryker.Work.{Custody, Executor}
+  alias Ryker.Work.Custody.Turns
   require Logger
 
   @worker_away_retry_seconds 15
@@ -50,14 +51,13 @@ defmodule Ryker.Work.Dispatcher do
 
   # A claim spends an attempt before anything runs, so an executor that keeps
   # killing its worker would otherwise be claimed every lease period forever.
-  defp execute_claim(
-         %{turn: %{status: :pending, work_attempt_count: attempts}} = claim,
-         %{max_attempts: maximum}
-       )
-       when attempts > maximum,
-       do: stop_and_block(claim, {:work_retry_exhausted, :attempts})
-
   defp execute_claim(claim, settings) do
+    if claim.turn.status == :pending and attempt_count(claim.turn) > settings.max_attempts,
+      do: exhausted(claim, :attempts),
+      else: execute(claim, settings)
+  end
+
+  defp execute(claim, settings) do
     executor_options =
       settings.executor_options
       |> Keyword.put(:lease_seconds, settings.lease_seconds)
@@ -202,7 +202,7 @@ defmodule Ryker.Work.Dispatcher do
   end
 
   defp retry_completion(claim, receipt, reason, settings) do
-    if retry_class(reason) == :transient and claim.turn.work_attempt_count < settings.max_attempts,
+    if retry_class(reason) == :transient and attempt_count(claim.turn) < settings.max_attempts,
       do: defer(claim, reported_reason(reason), settings),
       else: block_completion(claim, receipt, reason)
   end
@@ -240,8 +240,8 @@ defmodule Ryker.Work.Dispatcher do
       claim.turn.status == :cancel_pending ->
         defer(claim, reason, settings)
 
-      claim.turn.work_attempt_count >= settings.max_attempts ->
-        stop_and_block(claim, {:work_retry_exhausted, reason})
+      attempt_count(claim.turn) >= settings.max_attempts ->
+        exhausted(claim, reason)
 
       true ->
         defer(claim, reason, settings)
@@ -291,6 +291,14 @@ defmodule Ryker.Work.Dispatcher do
 
   defp stop_or_defer(claim, reason, _settings), do: stop_and_block(claim, reason)
 
+  defp exhausted(claim, reason) do
+    reason = {:work_retry_exhausted, reason}
+
+    if Turns.completion_matches?(claim.turn, claim.turn.completion_receipt),
+      do: block_completion(claim, claim.turn.completion_receipt, reason),
+      else: stop_and_block(claim, reason)
+  end
+
   defp stop_and_block(claim, reason) do
     {error_code, error_detail} = describe_error(reason)
     detail = ErrorDetail.bound("#{error_code}: #{error_detail}")
@@ -331,7 +339,15 @@ defmodule Ryker.Work.Dispatcher do
     do: {:error, {:work_dispatch_failed, reason, custody_reason}}
 
   defp attempt_count(%{status: :cancel_pending, cancel_attempt_count: count}), do: count
-  defp attempt_count(turn), do: turn.work_attempt_count
+  # The October 24 recovery spent all eight claims before a person retried its
+  # completed result. Lifetime attempts must survive, but cannot consume the new
+  # bounded finalization budget. Only the exact completed proof may use it.
+  defp attempt_count(turn) do
+    if turn.checkpoint_retry_generation > 0 and
+         Turns.completion_matches?(turn, turn.completion_receipt),
+       do: turn.work_attempt_count - turn.completion_retry_base_count,
+       else: turn.work_attempt_count
+  end
 
   defp retry_class({:work_generation_spent, _phase, _reason}), do: :transient
   defp retry_class({:work_cancellation_unresolved, _reason}), do: :transient

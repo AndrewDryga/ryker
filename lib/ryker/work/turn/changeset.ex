@@ -402,6 +402,7 @@ defmodule Ryker.Work.Turn.Changeset do
       %{
         status: :pending,
         checkpoint_retry_generation: turn.checkpoint_retry_generation + 1,
+        completion_retry_base_count: turn.work_attempt_count,
         last_error_code: nil,
         last_error_detail: nil,
         lease_ref: nil,
@@ -412,6 +413,7 @@ defmodule Ryker.Work.Turn.Changeset do
       [
         :status,
         :checkpoint_retry_generation,
+        :completion_retry_base_count,
         :last_error_code,
         :last_error_detail,
         :lease_ref,
@@ -422,6 +424,9 @@ defmodule Ryker.Work.Turn.Changeset do
     )
     |> check_constraint(:checkpoint_retry_generation,
       name: :episode_work_turn_checkpoint_retry_generation_valid
+    )
+    |> check_constraint(:completion_retry_base_count,
+      name: :episode_work_turn_completion_retry_base_count_valid
     )
     |> work_constraints()
   end
